@@ -202,6 +202,7 @@ pub fn install(
         );
     }
     let white = images.add(rendering::image(1, 1, vec![255; 4], false));
+    let black_cube = images.add(rendering::black_cube());
     let mut grenade_meshes = Vec::new();
     let mut bases = BTreeMap::new();
     for surface in &loaded.effects.grenade {
@@ -221,7 +222,7 @@ pub fn install(
             base,
             white.clone(),
             None,
-            &white,
+            (&white, &black_cube),
         ));
         grenade_meshes.push((
             meshes.add(rendering::mesh_from_surface(surface, definition)),

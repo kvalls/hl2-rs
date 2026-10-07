@@ -23,7 +23,8 @@ struct ModelLighting {
 @group(#{MATERIAL_BIND_GROUP}) @binding(10) var envmap_texture: texture_cube<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(11) var envmap_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(12) var<uniform> envmap_tint: vec4<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(13) var<uniform> envmap_parameters: vec4<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(13) var<uniform> envmap_contrast: vec4<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(14) var<uniform> envmap_saturation: vec4<f32>;
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
@@ -32,12 +33,12 @@ fn envmap_specular(mesh: VertexOutput, base_alpha: f32) -> vec3<f32> {
     let to_eye = view.world_position - mesh.world_position.xyz;
     let r = 2.0 * dot(n, to_eye) * n - to_eye;
     var spec = min(textureSample(envmap_texture, envmap_sampler, vec3(r.x, -r.z, r.y)).rgb, vec3(16.0));
-    spec *= select(1.0, 1.0 - base_alpha, envmap_parameters.w > 0.5);
+    spec *= select(1.0, 1.0 - base_alpha, envmap_saturation.w > 0.5);
     spec *= envmap_tint.xyz;
-    spec = mix(spec, spec * spec, envmap_parameters.x);
-    spec = mix(vec3(dot(spec, vec3(0.299, 0.587, 0.114))), spec, envmap_parameters.y);
+    spec = mix(spec, spec * spec, envmap_contrast.xyz);
+    spec = mix(vec3(dot(spec, vec3(0.299, 0.587, 0.114))), spec, envmap_saturation.xyz);
     let fresnel = pow(1.0 - dot(n, normalize(to_eye)), 5.0);
-    return spec * (fresnel * (1.0 - envmap_parameters.z) + envmap_parameters.z);
+    return spec * (fresnel * (1.0 - envmap_contrast.w) + envmap_contrast.w);
 }
 fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     return select(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, color <= vec3(0.04045));

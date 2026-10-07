@@ -397,8 +397,8 @@ mod tests {
         let max = hdr
             .faces
             .iter()
-            .flat_map(|f| f.chunks_exact(8))
-            .flat_map(|t| t[..6].chunks_exact(2))
+            .flat_map(|f| f.as_chunks::<8>().0)
+            .flat_map(|t| t[..6].as_chunks::<2>().0)
             .map(|h| half(u16::from_le_bytes([h[0], h[1]])))
             .fold(0f32, f32::max);
         assert!(max.is_finite() && max > 0.05 && max < 64., "{max}");

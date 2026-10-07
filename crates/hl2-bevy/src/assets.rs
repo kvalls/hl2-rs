@@ -85,8 +85,8 @@ pub struct MaterialData {
     pub envmap: Option<Arc<source_assets::vtf::Cube>>,
     pub envmap_path: Option<String>,
     pub envmap_tint: [f32; 3],
-    pub envmap_contrast: f32,
-    pub envmap_saturation: f32,
+    pub envmap_contrast: [f32; 3],
+    pub envmap_saturation: [f32; 3],
     pub fresnel_reflection: f32,
     /// $basealphaenvmapmask: the envmap is masked by 1 - base alpha.
     pub base_alpha_envmap_mask: bool,
@@ -118,8 +118,8 @@ impl Default for MaterialData {
             envmap: None,
             envmap_path: None,
             envmap_tint: [1.; 3],
-            envmap_contrast: 0.,
-            envmap_saturation: 1.,
+            envmap_contrast: [0.; 3],
+            envmap_saturation: [1.; 3],
             fresnel_reflection: 1.,
             base_alpha_envmap_mask: false,
         }
@@ -550,16 +550,25 @@ fn metadata(definition: &Definition) -> Result<MaterialData> {
     if let Some(transform) = p.get("$basetexturetransform") {
         material.uv_transform = UvTransform::parse(transform)?.rows();
     }
-    // SDK lightmappedgeneric_dx9_helper.cpp defaults; the tint is used as authored (not
-    // gamma-converted).
-    if let Some(tint) = p.get("$envmaptint") {
-        material.envmap_tint = vector3(tint).context("invalid VMT $envmaptint")?;
-    }
-    material.envmap_contrast = scalar(p, "$envmapcontrast", 0.)?;
-    material.envmap_saturation = scalar(p, "$envmapsaturation", 1.)?;
+    Ok(material)
+}
+
+/// Envmap parameters with SDK lightmappedgeneric_dx9_helper.cpp defaults. Contrast and
+/// saturation are float3 in the shader (one value fills all channels); the tint is used as
+/// authored (not gamma-converted).
+fn envmap_parameters(definition: &Definition, material: &mut MaterialData) -> Result<()> {
+    let p = &definition.properties;
+    let vector = |key: &str, default: f32| -> Result<[f32; 3]> {
+        p.get(key).map_or(Ok([default; 3]), |v| {
+            vector3(v).with_context(|| format!("invalid VMT {key}"))
+        })
+    };
+    material.envmap_tint = vector("$envmaptint", 1.)?;
+    material.envmap_contrast = vector("$envmapcontrast", 0.)?;
+    material.envmap_saturation = vector("$envmapsaturation", 1.)?;
     material.fresnel_reflection = scalar(p, "$fresnelreflection", 1.)?;
     material.base_alpha_envmap_mask = scalar(p, "$basealphaenvmapmask", 0.)?.trunc() != 0.;
-    Ok(material)
+    Ok(())
 }
 
 /// A VMT vector: `[r g b]` floats, `{r g b}` bytes, or one scalar for all channels.
@@ -710,7 +719,9 @@ fn load_material(
         }
         Err(error) => errors.push(format!("{name}: {error:#}")),
     }
-    match load_envmap(vfs, &definition, decoded_bytes) {
+    let envmap = envmap_parameters(&definition, &mut material)
+        .and_then(|()| load_envmap(vfs, &definition, decoded_bytes));
+    match envmap {
         Ok(Some((path, cube))) => {
             material.envmap_path = Some(path);
             material.envmap = Some(Arc::new(cube));

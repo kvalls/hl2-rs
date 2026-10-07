@@ -347,7 +347,6 @@ fn main() -> Result<()> {
                 }),
         )
         .add_plugins(MaterialPlugin::<rendering::SourceMaterial>::default())
-        .add_systems(Startup, rendering::insert_black_cube)
         .add_plugins(MaterialPlugin::<effects::EffectMaterial>::default())
         .add_plugins(bloom::SourceBloomPlugin)
         .add_plugins(bevy::sprite_render::Material2dPlugin::<hud::HudMaterial>::default())
@@ -425,7 +424,7 @@ fn main() -> Result<()> {
         "render": &*status, "models": model_report, "textures": texture_summary, "texture_errors": texture_errors, "asset_warnings": warnings,
         "capture_file_exists": capture_exists, "capture_write_error": capture_write_error,
         "monitor_capture_file_exists":monitor_capture_exists,"monitor_capture_write_error":monitor_capture_write_error, "spawn_sky_visibility": spawn_sky_visibility,
-        "limitations": ["Pause/console and landmark/inventory map transitions migrated; complete command coverage, save/global state and native effects remain incomplete", "Audio uses shared script selection/decoding and Bevy sinks; mixing is 2D without Source DSP, spatialization or soundscapes", "Retained incomplete scene/AI/weapon behavior; missing animation clips remain bind poses", "Sky uses owned faces (RGBS HDR faces when present)/leaf visibility; sky polygon masks, area portals/occluders, material proxies and dynamic lighting remain unfinished", "Source HDR path (mat_hdr_level 2): HDR lightmaps capped at the integer range, auto exposure from a pre-bloom histogram and Source 8-bit bloom; envmaps/cubemaps and an LDR mode are not implemented"]
+        "limitations": ["Pause/console and landmark/inventory map transitions migrated; complete command coverage, save/global state and native effects remain incomplete", "Audio uses shared script selection/decoding and Bevy sinks; mixing is 2D without Source DSP, spatialization or soundscapes", "Retained incomplete scene/AI/weapon behavior; missing animation clips remain bind poses", "Sky uses owned faces (RGBS HDR faces when present)/leaf visibility; sky polygon masks, area portals/occluders, material proxies and dynamic lighting remain unfinished", "Source HDR path (mat_hdr_level 2): HDR lightmaps capped at the integer range, auto exposure from a pre-bloom histogram and Source 8-bit bloom; LightmappedGeneric $envmap cubemaps from map patch materials (env_cubemap on entities, $envmapmask, bumped and model envmaps, $selfillum and an LDR mode are not implemented)"]
     });
     for key in [
         "map",

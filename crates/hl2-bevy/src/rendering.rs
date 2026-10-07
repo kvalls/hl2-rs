@@ -43,24 +43,27 @@ pub struct SourceMaterial {
     pub(crate) secondary_uv: Mat3,
     #[uniform(9)]
     pub(crate) lighting: ModelLighting,
-    /// LightmappedGeneric $envmap; BLACK_CUBE when absent.
+    /// LightmappedGeneric $envmap; a black fallback cube when absent.
     #[texture(10, dimension = "cube")]
     #[sampler(11)]
     pub(crate) envmap: Handle<Image>,
     /// xyz = $envmaptint, w = 1 when an envmap is bound.
     #[uniform(12)]
     pub(crate) envmap_tint: Vec4,
-    /// x = $envmapcontrast, y = $envmapsaturation, z = $fresnelreflection,
-    /// w = $basealphaenvmapmask.
+    /// xyz = $envmapcontrast, w = $fresnelreflection.
     #[uniform(13)]
-    pub(crate) envmap_parameters: Vec4,
+    pub(crate) envmap_contrast: Vec4,
+    /// xyz = $envmapsaturation, w = $basealphaenvmapmask.
+    #[uniform(14)]
+    pub(crate) envmap_saturation: Vec4,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
 }
-/// Fallback for materials without an envmap (never sampled; envmap_tint.w is 0).
-pub const BLACK_CUBE: Handle<Image> = bevy::asset::uuid_handle!("5c1b0a7e-3f0e-4c55-9a51-d2d0f6b1e6c3");
-pub(crate) fn insert_black_cube(mut images: ResMut<Assets<Image>>) {
-    let _ = images.insert(&BLACK_CUBE, cube_image(1, false, vec![0; 6 * 4]));
+/// Fallback for materials without an envmap (never sampled; envmap_tint.w is 0). Held by a
+/// strong handle like the white fallback: a UUID handle does not keep the image alive, and
+/// materials re-prepared later (per-frame model lighting) would then fail to bind.
+pub(crate) fn black_cube() -> Image {
+    cube_image(1, false, vec![0; 6 * 4])
 }
 /// A six-layer cube texture: RGBA16F linear halves (HDR) or sRGB-encoded RGBA8 (LDR).
 pub(crate) fn cube_image(size: u16, hdr: bool, data: Vec<u8>) -> Image {
@@ -761,6 +764,7 @@ pub fn spawn_map(
 ) {
     let world = &loaded.world;
     let white = images.add(image(1, 1, vec![255; 4], false));
+    let black_cube = images.add(black_cube());
     let missing = images.add(image(
         2,
         2,
@@ -843,9 +847,7 @@ pub fn spawn_map(
             let (cube, path) = m.envmap.as_ref().zip(m.envmap_path.as_ref())?;
             let handle = texture_handles
                 .entry(format!("{path}#cube"))
-                .or_insert_with(|| {
-                    images.add(cube_image(cube.size, cube.hdr, cube.faces.concat()))
-                })
+                .or_insert_with(|| images.add(cube_image(cube.size, cube.hdr, cube.faces.concat())))
                 .clone();
             Some((name.clone(), handle))
         })
@@ -985,7 +987,7 @@ pub fn spawn_map(
                         .unwrap_or(&white)
                         .clone(),
                     irises.get(&name).or_else(|| overlays.get(&name)).cloned(),
-                    &white,
+                    (&white, &black_cube),
                 );
                 material.tint *= modulation;
                 // World and brush surfaces only: model envmaps are not loaded yet.
@@ -1221,7 +1223,7 @@ pub(crate) fn make_material(
     base: Handle<Image>,
     lightmap: Handle<Image>,
     iris: Option<Handle<Image>>,
-    white: &Handle<Image>,
+    (white, black_cube): (&Handle<Image>, &Handle<Image>),
 ) -> SourceMaterial {
     let alpha = alpha_mode(definition);
     SourceMaterial {
@@ -1254,14 +1256,12 @@ pub(crate) fn make_material(
         iris: iris.unwrap_or_else(|| white.clone()),
         secondary_uv: Mat3::IDENTITY,
         lighting: ModelLighting::default(),
-        envmap: BLACK_CUBE,
+        envmap: black_cube.clone(),
         envmap_tint: Vec3::from_array(definition.envmap_tint).extend(0.),
-        envmap_parameters: Vec4::new(
-            definition.envmap_contrast,
-            definition.envmap_saturation,
-            definition.fresnel_reflection,
-            f32::from(definition.base_alpha_envmap_mask),
-        ),
+        envmap_contrast: Vec3::from_array(definition.envmap_contrast)
+            .extend(definition.fresnel_reflection),
+        envmap_saturation: Vec3::from_array(definition.envmap_saturation)
+            .extend(f32::from(definition.base_alpha_envmap_mask)),
         base,
         lightmap: if definition.unlit {
             white.clone()
