@@ -204,6 +204,9 @@ impl Bsp {
             .map(|v| i32le(v, 0))
             .collect::<Result<Vec<_>>>()?;
         let texinfo = records(self.lump(6), 72)?.collect::<Vec<_>>();
+        let plane_normals = records(self.lump(1), 20)?
+            .map(|p| vec3(p, 0))
+            .collect::<Result<Vec<_>>>()?;
         let texdata = records(self.lump(2), 32)?.collect::<Vec<_>>();
         let strings = self.lump(43);
         let table = self.lump(44);
@@ -298,6 +301,24 @@ impl Bsp {
             let normal = (polygon[1] - polygon[0])
                 .cross(polygon[2] - polygon[0])
                 .normalize_or_zero();
+            // Shading normal (envmap reflections): the face plane, oriented toward the side the
+            // clockwise Source winding faces. In owned maps that is the stored plane for both
+            // `side` values (d1_trainstation_02: 6597 of 6601 brush faces), so the winding decides
+            // and `side` only breaks ties for degenerate windings. Displacements reuse their
+            // base face's normal (an approximation).
+            let plane = *plane_normals
+                .get(usize::from(u16le(f, 0)?))
+                .context("face plane outside planes")?;
+            // Summed fan area: robust where the first three vertices are nearly collinear.
+            let area = (1..polygon.len() - 1).fold(Vec3::ZERO, |sum, i| {
+                sum + (polygon[i] - polygon[0]).cross(polygon[i + 1] - polygon[0])
+            });
+            let winding = plane.dot(area);
+            let face_normal = if winding > 0. || (winding == 0. && bytes(f, 2, 1)?[0] != 0) {
+                -plane
+            } else {
+                plane
+            };
             let color = |p: Vec3| -> Result<[u8; 4]> {
                 let lightofs = i32le(f, 20)?;
                 if lightofs < 0 || lighting.is_empty() {
@@ -383,7 +404,7 @@ impl Bsp {
                             dispverts[index(dvstart + (y * side + x) as i32, dispverts.len())?];
                         let pos = p + vec3(dv, 0)? * f32le(dv, 12)?;
                         batch.vertices.push(Vertex {
-                            normal: Default::default(),
+                            normal: face_normal,
                             position: pos,
                             uv: uv(p),
                             color: if face_light.is_some() {
@@ -422,7 +443,7 @@ impl Bsp {
                 let base = batch.vertices.len() as u32;
                 for p in polygon.iter().copied() {
                     batch.vertices.push(Vertex {
-                        normal: Default::default(),
+                        normal: face_normal,
                         position: p,
                         uv: uv(p),
                         color: if face_light.is_some() {
@@ -619,5 +640,35 @@ mod tests {
         bsp.lumps[5][4..8].copy_from_slice(&(-1i32).to_le_bytes());
         bsp.lumps[10].clear();
         assert!(bsp.sky_3d_visible(Vec3::X).is_err());
+    }
+    #[test]
+    #[ignore = "requires owned HL2 installation"]
+    fn owned_trainstation_brush_normals_face_the_rendered_side() {
+        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
+            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
+        ))
+        .unwrap();
+        let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();
+        let world = Bsp::parse(&bytes)
+            .unwrap()
+            .world("d1_trainstation_02")
+            .unwrap();
+        let (mut front, mut total) = (0, 0);
+        for s in &world.surfaces {
+            for t in s.indices.as_chunks::<3>().0 {
+                let [a, b, c] = t.map(|i| s.vertices[i as usize].position);
+                let n = s.vertices[t[0] as usize].normal;
+                assert!((n.length() - 1.).abs() < 1e-3);
+                let cross = (b - a).cross(c - a);
+                // Brush triangles lie in their plane (displacement cells do not).
+                let d = cross.normalize_or_zero().dot(n);
+                if cross.length() > 1e-2 && d.abs() > 0.99 {
+                    total += 1;
+                    // Clockwise Source windings: the cross product points behind the face.
+                    front += usize::from(d < 0.);
+                }
+            }
+        }
+        assert!(front * 100 > total * 99, "{front}/{total}");
     }
 }

@@ -1,4 +1,5 @@
-//! VTF 7.0-7.5 texture reader; RGBA/BGRA/RGB/BGR/BGRX and DXT1/3/5.
+//! VTF 7.0-7.5 texture reader; RGBA/BGRA/RGB/BGR/BGRX and DXT1/3/5, plus cubemap faces
+//! (including RGBA16161616F HDR cubemaps).
 use crate::{bytes, u16le, u32le};
 use anyhow::{bail, Context, Result};
 #[derive(Debug)]
@@ -15,6 +16,7 @@ fn size(format: u32, w: usize, h: usize) -> Result<usize> {
         4 => w * h * 2,
         13 | 20 => w.div_ceil(4) * h.div_ceil(4) * 8,
         14 | 15 => w.div_ceil(4) * h.div_ceil(4) * 16,
+        24 | 25 => w * h * 8,
         _ => bail!("unsupported VTF image format {format}"),
     })
 }
@@ -55,7 +57,15 @@ fn color_block(block: &[u8], force_four: bool) -> Result<[[u8; 4]; 16]> {
     }
     Ok(pixels)
 }
-pub fn decode(data: &[u8], max_dimension: usize) -> Result<Image> {
+struct Layout {
+    format: u32,
+    width: usize,
+    height: usize,
+    /// Start of the chosen mip (frame 0, face 0).
+    offset: usize,
+    faces: usize,
+}
+fn layout(data: &[u8], max_dimension: usize) -> Result<Layout> {
     if bytes(data, 0, 4)? != b"VTF\0" {
         bail!("not a VTF texture");
     }
@@ -143,8 +153,54 @@ pub fn decode(data: &[u8], max_dimension: usize) -> Result<Image> {
             )
             .context("VTF offset overflow")?;
     }
-    let w = (full_w >> mip).max(1);
-    let h = (full_h >> mip).max(1);
+    Ok(Layout {
+        format,
+        width: (full_w >> mip).max(1),
+        height: (full_h >> mip).max(1),
+        offset,
+        faces,
+    })
+}
+pub fn decode(data: &[u8], max_dimension: usize) -> Result<Image> {
+    let l = layout(data, max_dimension)?;
+    decode_face(data, &l, 0)
+}
+/// Image data of a cubemap: six faces in Source order +X, -X, +Y, -Y, +Z, -Z (the same
+/// layer order and orientation as a D3D/wgpu cube texture). The 7.0-7.4 spheremap face is
+/// skipped.
+#[derive(Debug)]
+pub struct Cube {
+    pub size: u16,
+    /// RGBA16161616F: each face holds little-endian half floats (8 bytes per texel), linear.
+    /// Otherwise RGBA8 texels as stored (sRGB-encoded for LDR envmaps).
+    pub hdr: bool,
+    pub faces: [Vec<u8>; 6],
+}
+pub fn decode_cube(data: &[u8], max_dimension: usize) -> Result<Cube> {
+    let l = layout(data, max_dimension)?;
+    if l.faces < 6 || l.width != l.height {
+        bail!("VTF is not a square cubemap");
+    }
+    let hdr = l.format == 24;
+    let faces = (0..6)
+        .map(|face| {
+            if hdr {
+                let n = size(24, l.width, l.height)?;
+                Ok(bytes(data, l.offset + face * n, n)?.to_vec())
+            } else {
+                Ok(decode_face(data, &l, face)?.rgba)
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Cube {
+        size: u16::try_from(l.width)?,
+        hdr,
+        faces: faces.try_into().expect("six faces"),
+    })
+}
+fn decode_face(data: &[u8], l: &Layout, face: usize) -> Result<Image> {
+    let (format, w, h) = (l.format, l.width, l.height);
+    let offset = l.offset + face * size(format, w, h)?;
     let image = bytes(data, offset, size(format, w, h)?)?;
     let mut rgba = vec![0; w * h * 4];
     match format {
@@ -260,5 +316,102 @@ mod tests {
         d[56] = 1;
         d[64..68].copy_from_slice(&[11, 22, 33, 255]);
         assert_eq!(decode(&d, 512).unwrap().rgba, vec![11, 22, 33, 255]);
+    }
+    fn cube_fixture(format: u32, texel: &[u8], faces: usize) -> Vec<u8> {
+        let mut d = vec![0; 80];
+        d[..4].copy_from_slice(b"VTF\0");
+        d[4..8].copy_from_slice(&7u32.to_le_bytes());
+        d[8..12].copy_from_slice(&4u32.to_le_bytes());
+        d[12..16].copy_from_slice(&80u32.to_le_bytes());
+        d[16..18].copy_from_slice(&1u16.to_le_bytes());
+        d[18..20].copy_from_slice(&1u16.to_le_bytes());
+        d[20..24].copy_from_slice(&0x4000u32.to_le_bytes());
+        d[24..26].copy_from_slice(&1u16.to_le_bytes());
+        // First frame 0 (not 0xffff): 7.4 cubemaps carry a seventh spheremap face.
+        d[52..56].copy_from_slice(&format.to_le_bytes());
+        d[56] = 1;
+        d[63..65].copy_from_slice(&1u16.to_le_bytes());
+        for face in 0..faces {
+            d.extend(texel.iter().map(|b| b.wrapping_add(face as u8)));
+        }
+        d
+    }
+    #[test]
+    fn cube_faces_follow_source_order_and_skip_spheremap() {
+        let d = cube_fixture(0, &[10, 20, 30, 255], 7);
+        let cube = decode_cube(&d, 512).unwrap();
+        assert!(!cube.hdr);
+        assert_eq!(cube.size, 1);
+        for (face, rgba) in cube.faces.iter().enumerate() {
+            assert_eq!(
+                rgba,
+                &[
+                    10 + face as u8,
+                    20 + face as u8,
+                    30 + face as u8,
+                    255u8.wrapping_add(face as u8)
+                ]
+            );
+        }
+        assert!(decode_cube(&d[..d.len() - 4], 512).is_ok());
+        assert!(decode_cube(&d[..80 + 5 * 4 + 2], 512).is_err());
+    }
+    #[test]
+    fn hdr_cube_keeps_half_floats() {
+        // 1.0, 2.0, 0.5, 1.0 as IEEE half floats.
+        let texel = [0x00, 0x3c, 0x00, 0x40, 0x00, 0x38, 0x00, 0x3c];
+        let cube = decode_cube(&cube_fixture(24, &texel, 7), 512).unwrap();
+        assert!(cube.hdr);
+        assert_eq!(cube.faces[0], texel);
+        assert_eq!(cube.faces[5][0], 5);
+        assert!(decode(&cube_fixture(24, &texel, 7), 512).is_err());
+        assert!(decode_cube(&rgba_only(), 512).is_err());
+    }
+    fn rgba_only() -> Vec<u8> {
+        let mut d = cube_fixture(0, &[1, 2, 3, 4], 1);
+        d[20..24].copy_from_slice(&0u32.to_le_bytes());
+        d
+    }
+    #[test]
+    #[ignore = "requires owned HL2 installation"]
+    fn owned_trainstation_window_cubemaps_decode() {
+        let mut vfs = crate::vpk::Vfs::mount(std::path::Path::new(
+            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
+        ))
+        .unwrap();
+        let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();
+        let bsp = crate::bsp::Bsp::parse(&bytes).unwrap();
+        vfs.mount_pak(bsp.lump(40)).unwrap();
+        let name = "materials/maps/d1_trainstation_02/c-3104_-2048_532";
+        let ldr = decode_cube(&vfs.read(&format!("{name}.vtf")).unwrap().unwrap(), 512).unwrap();
+        let hdr =
+            decode_cube(&vfs.read(&format!("{name}.hdr.vtf")).unwrap().unwrap(), 512).unwrap();
+        assert!(!ldr.hdr && hdr.hdr);
+        assert_eq!((ldr.size, hdr.size), (32, 32));
+        for face in 0..6 {
+            assert_eq!(ldr.faces[face].len(), 32 * 32 * 4);
+            assert_eq!(hdr.faces[face].len(), 32 * 32 * 8);
+        }
+        // Linear HDR texels are finite and within the integer-HDR range.
+        // Alpha is unused (it holds arbitrary halves, including NaN, in owned files).
+        let max = hdr
+            .faces
+            .iter()
+            .flat_map(|f| f.chunks_exact(8))
+            .flat_map(|t| t[..6].chunks_exact(2))
+            .map(|h| half(u16::from_le_bytes([h[0], h[1]])))
+            .fold(0f32, f32::max);
+        assert!(max.is_finite() && max > 0.05 && max < 64., "{max}");
+        eprintln!("hdr max {max}");
+    }
+    fn half(bits: u16) -> f32 {
+        let sign = if bits & 0x8000 != 0 { -1. } else { 1. };
+        let exponent = i32::from((bits >> 10) & 31);
+        let mantissa = f32::from(bits & 1023);
+        sign * if exponent == 0 {
+            mantissa * 2f32.powi(-24)
+        } else {
+            (1. + mantissa / 1024.) * 2f32.powi(exponent - 15)
+        }
     }
 }

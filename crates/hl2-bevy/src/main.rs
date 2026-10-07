@@ -347,6 +347,7 @@ fn main() -> Result<()> {
                 }),
         )
         .add_plugins(MaterialPlugin::<rendering::SourceMaterial>::default())
+        .add_systems(Startup, rendering::insert_black_cube)
         .add_plugins(MaterialPlugin::<effects::EffectMaterial>::default())
         .add_plugins(bloom::SourceBloomPlugin)
         .add_plugins(bevy::sprite_render::Material2dPlugin::<hud::HudMaterial>::default())

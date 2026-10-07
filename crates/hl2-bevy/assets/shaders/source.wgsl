@@ -20,6 +20,25 @@ struct ModelLighting {
     spot: array<vec4<f32>, 4>,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(9) var<uniform> lighting: ModelLighting;
+@group(#{MATERIAL_BIND_GROUP}) @binding(10) var envmap_texture: texture_cube<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(11) var envmap_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(12) var<uniform> envmap_tint: vec4<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(13) var<uniform> envmap_parameters: vec4<f32>;
+// SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
+// normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
+// multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
+fn envmap_specular(mesh: VertexOutput, base_alpha: f32) -> vec3<f32> {
+    let n = normalize(mesh.world_normal);
+    let to_eye = view.world_position - mesh.world_position.xyz;
+    let r = 2.0 * dot(n, to_eye) * n - to_eye;
+    var spec = min(textureSample(envmap_texture, envmap_sampler, vec3(r.x, -r.z, r.y)).rgb, vec3(16.0));
+    spec *= select(1.0, 1.0 - base_alpha, envmap_parameters.w > 0.5);
+    spec *= envmap_tint.xyz;
+    spec = mix(spec, spec * spec, envmap_parameters.x);
+    spec = mix(vec3(dot(spec, vec3(0.299, 0.587, 0.114))), spec, envmap_parameters.y);
+    let fresnel = pow(1.0 - dot(n, normalize(to_eye)), 5.0);
+    return spec * (fresnel * (1.0 - envmap_parameters.z) + envmap_parameters.z);
+}
 fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     return select(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, color <= vec3(0.04045));
 }
@@ -69,6 +88,7 @@ fn model_light(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var base = textureSample(base_texture, base_sampler, mesh.uv);
+    let base_alpha = base.a;
     if parameters.w > 0.5 {
         let iris = textureSample(iris_texture, iris_sampler, mesh.uv_b);
         base = vec4(mix(base.rgb, iris.rgb, iris.a), base.a);
@@ -88,6 +108,9 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
     // Procedural camera images are sampled through an sRGB view and are already linear.
     var rgb = select(srgb_to_linear(base.rgb) * baked, base.rgb, parameters.w < -0.5);
+    if envmap_tint.w > 0.5 {
+        rgb += envmap_specular(mesh, base_alpha);
+    }
     if lit {
         let p = (lighting.basis * vec4(mesh.world_position.xyz, 1.0)).xyz;
         let n = normalize((lighting.basis * vec4(mesh.world_normal, 0.0)).xyz);

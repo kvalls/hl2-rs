@@ -81,6 +81,15 @@ pub struct MaterialData {
     pub half_lambert: bool,
     /// Affine rows applied to the BSP/model base UVs before repeat sampling.
     pub uv_transform: [[f32; 3]; 2],
+    /// LightmappedGeneric $envmap cubemap (HDR mode prefers the .hdr.vtf variant).
+    pub envmap: Option<Arc<source_assets::vtf::Cube>>,
+    pub envmap_path: Option<String>,
+    pub envmap_tint: [f32; 3],
+    pub envmap_contrast: f32,
+    pub envmap_saturation: f32,
+    pub fresnel_reflection: f32,
+    /// $basealphaenvmapmask: the envmap is masked by 1 - base alpha.
+    pub base_alpha_envmap_mask: bool,
 }
 
 impl Default for MaterialData {
@@ -106,6 +115,13 @@ impl Default for MaterialData {
             camera_color2: [1.; 3],
             half_lambert: false,
             uv_transform: UvTransform::default().rows(),
+            envmap: None,
+            envmap_path: None,
+            envmap_tint: [1.; 3],
+            envmap_contrast: 0.,
+            envmap_saturation: 1.,
+            fresnel_reflection: 1.,
+            base_alpha_envmap_mask: false,
         }
     }
 }
@@ -534,7 +550,79 @@ fn metadata(definition: &Definition) -> Result<MaterialData> {
     if let Some(transform) = p.get("$basetexturetransform") {
         material.uv_transform = UvTransform::parse(transform)?.rows();
     }
+    // SDK lightmappedgeneric_dx9_helper.cpp defaults; the tint is used as authored (not
+    // gamma-converted).
+    if let Some(tint) = p.get("$envmaptint") {
+        material.envmap_tint = vector3(tint).context("invalid VMT $envmaptint")?;
+    }
+    material.envmap_contrast = scalar(p, "$envmapcontrast", 0.)?;
+    material.envmap_saturation = scalar(p, "$envmapsaturation", 1.)?;
+    material.fresnel_reflection = scalar(p, "$fresnelreflection", 1.)?;
+    material.base_alpha_envmap_mask = scalar(p, "$basealphaenvmapmask", 0.)?.trunc() != 0.;
     Ok(material)
+}
+
+/// A VMT vector: `[r g b]` floats, `{r g b}` bytes, or one scalar for all channels.
+fn vector3(value: &str) -> Result<[f32; 3]> {
+    let value = value.trim();
+    let bytes = value.starts_with('{');
+    let values = value
+        .trim_matches(['[', ']', '{', '}'])
+        .split_whitespace()
+        .map(str::parse::<f32>)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let values = match values[..] {
+        [v] => [v; 3],
+        [r, g, b] => [r, g, b],
+        _ => bail!("expected one or three channels"),
+    };
+    if values.iter().any(|v| !v.is_finite()) {
+        bail!("nonfinite channel");
+    }
+    Ok(values.map(|v| v / if bytes { 255. } else { 1. }))
+}
+
+/// The $envmap cubemap of a LightmappedGeneric material. `env_cubemap` (resolved by the
+/// engine at runtime for entities) is not supported yet; map compiles bake world faces into
+/// patch VMTs naming a sample. HDR mode loads the .hdr.vtf variant when present.
+fn load_envmap(
+    vfs: &Vfs,
+    definition: &Definition,
+    decoded_bytes: &mut usize,
+) -> Result<Option<(String, source_assets::vtf::Cube)>> {
+    if !definition.shader.eq_ignore_ascii_case("lightmappedgeneric") {
+        return Ok(None);
+    }
+    let Some(name) = definition.properties.get("$envmap") else {
+        return Ok(None);
+    };
+    if name.eq_ignore_ascii_case("env_cubemap") {
+        return Ok(None);
+    }
+    let path = asset_path(name, ".vtf")?;
+    let hdr = format!("{}.hdr.vtf", path.trim_end_matches(".vtf"));
+    let (path, data) = match vfs.read(&hdr)? {
+        Some(data) => (hdr, data),
+        None => {
+            let data = vfs
+                .read(&path)?
+                .with_context(|| format!("envmap absent: {path}"))?;
+            (path, data)
+        }
+    };
+    if data.len() > MAX_TEXTURE_BYTES {
+        bail!("encoded envmap exceeds 64 MiB limit: {path}");
+    }
+    let cube = source_assets::vtf::decode_cube(&data, MAX_TEXTURE_DIMENSION)
+        .with_context(|| format!("decode {path}"))?;
+    let total = decoded_bytes
+        .checked_add(cube.faces.iter().map(Vec::len).sum())
+        .context("decoded VTF byte count overflow")?;
+    if total > MAX_DECODED_BYTES {
+        bail!("map decoded texture budget exceeds 512 MiB");
+    }
+    *decoded_bytes = total;
+    Ok(Some((path, cube)))
 }
 
 fn load_material(
@@ -621,6 +709,14 @@ fn load_material(
             material.base = Some(image);
         }
         Err(error) => errors.push(format!("{name}: {error:#}")),
+    }
+    match load_envmap(vfs, &definition, decoded_bytes) {
+        Ok(Some((path, cube))) => {
+            material.envmap_path = Some(path);
+            material.envmap = Some(Arc::new(cube));
+        }
+        Ok(None) => {}
+        Err(error) => errors.push(format!("{name}: envmap: {error:#}")),
     }
     if definition.shader.eq_ignore_ascii_case("eyes") || material.eye_fallback {
         let iris = (|| -> Result<(String, Arc<Image>)> {
