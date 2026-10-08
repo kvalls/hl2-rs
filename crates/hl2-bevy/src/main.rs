@@ -4,6 +4,7 @@ mod audio;
 mod bloom;
 mod campaign;
 mod console;
+mod details;
 mod effects;
 mod eyes;
 mod gameplay;
@@ -365,6 +366,8 @@ fn main() -> Result<()> {
         )
         .add_plugins(MaterialPlugin::<rendering::SourceMaterial>::default())
         .add_plugins(MaterialPlugin::<effects::EffectMaterial>::default())
+        .add_plugins(MaterialPlugin::<details::DetailMaterial>::default())
+        .add_systems(Update, details::spawn_pending)
         .add_plugins(bloom::SourceBloomPlugin)
         .add_plugins(bevy::sprite_render::Material2dPlugin::<hud::HudMaterial>::default())
         .add_plugins(movement::MovementPlugin)
@@ -636,6 +639,7 @@ pub(crate) fn install_map(
         loaded.world.background_camera.clone(),
         loaded.sky.as_ref(),
     ));
+    commands.insert_resource(details::PendingDetails(loaded.details));
     effects::adopt(loaded.effects.sprites, commands);
     commands.insert_resource(loaded.gameplay);
     commands.insert_resource(hud::Hud::new(loaded.hud));
@@ -697,10 +701,11 @@ fn monitor(
     status: Res<Status>,
     (adapter, pvs, tonemap, source_materials): RenderResources,
     (cameras, draws, map_entities, all_cameras, meshes, images, geometry, two_textures): DiagnosticQueries,
-    (mut exit, performance, render_diagnostics): (
+    (mut exit, performance, render_diagnostics, detail_report): (
         MessageWriter<AppExit>,
         Option<Res<performance::Performance>>,
         Option<Res<bevy::diagnostic::DiagnosticsStore>>,
+        Option<Res<details::DetailReport>>,
     ),
 ) {
     let _timing = performance::scope(performance.as_deref(), "diagnostics");
@@ -741,7 +746,7 @@ fn monitor(
                 "bevy_rotation":transform.rotation.to_array(),"hidden":hidden}));
             }
         }
-        report.presentation = serde_json::json!({"source_visibility":pvs.report(),"owned_meshes":owned_meshes,"pose_or_visibility_mismatches":mismatches,"station_entrance_draws":doors,"hud":hud.report(),"audio":audio.report(),"sky":sky.report(),"monitors":monitors.report(&game),"eyes":eyes.report(),"effects":effects.report(),"console":console.report(),"campaign":campaign.report(),"tonemap":tonemap.report(),
+        report.presentation = serde_json::json!({"source_visibility":pvs.report(),"owned_meshes":owned_meshes,"pose_or_visibility_mismatches":mismatches,"station_entrance_draws":doors,"hud":hud.report(),"audio":audio.report(),"sky":sky.report(),"monitors":monitors.report(&game),"eyes":eyes.report(),"effects":effects.report(),"details":detail_report.as_deref().cloned(),"console":console.report(),"campaign":campaign.report(),"tonemap":tonemap.report(),
         "lifecycle":{"map_entities":map_entities.iter().count(),"cameras":all_cameras.iter().count(),"live_mesh_assets":meshes.len(),"live_image_assets":images.len()}});
         report.presentation["two_texture_materials"] = serde_json::json!(
             two_textures

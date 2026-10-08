@@ -210,7 +210,7 @@ impl Material for SourceMaterial {
 }
 /// A repeating sRGB texture with its authored VTF mip chain (largest first), sampled
 /// trilinearly like Source's default texture filtering.
-fn mip_image(chain: &[source_assets::vtf::Image]) -> Image {
+pub(crate) fn mip_image(chain: &[source_assets::vtf::Image]) -> Image {
     let top = &chain[0];
     let mut result = image(top.width, top.height, top.rgba.clone(), true);
     // Image::new checks one level; the remaining mips follow it in the same buffer.

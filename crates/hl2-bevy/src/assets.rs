@@ -39,6 +39,7 @@ pub struct LoadedMap {
     pub audio: crate::audio::PreparedAudio,
     pub sky: Option<source_assets::sky::Skybox>,
     pub effects: crate::effects::PreparedEffects,
+    pub details: crate::details::PreparedDetails,
     pub gaze: BTreeMap<String, source_assets::eyes::Gaze>,
     /// Facial flex data per NPC model asset key, read at setup.
     pub flexes: BTreeMap<String, Arc<source_assets::flexes::FaceModel>>,
@@ -191,6 +192,7 @@ pub fn load_with_canvas(
         crate::gameplay::Gameplay::load_with_campaign(world, &vfs, bsp.revision, new_game)?;
     let world = gameplay.world.clone();
     let effects = crate::effects::PreparedEffects::load(&vfs);
+    let details = crate::details::PreparedDetails::load(&vfs, &world);
     let mut names = rendered_material_names(&world);
     names.extend(effects.grenade.iter().map(|s| s.material.clone()));
     for weapon in gameplay.weapons.values() {
@@ -290,6 +292,7 @@ pub fn load_with_canvas(
     Ok(LoadedMap {
         console,
         effects,
+        details,
         eyes,
         gaze,
         flexes,
