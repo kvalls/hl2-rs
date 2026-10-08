@@ -53,9 +53,16 @@ pub struct SourceMaterial {
     /// xyz = $envmapcontrast, w = $fresnelreflection.
     #[uniform(13)]
     pub(crate) envmap_contrast: Vec4,
-    /// xyz = $envmapsaturation, w = $basealphaenvmapmask.
+    /// xyz = $envmapsaturation, w = mask flags: 1 = 1 - base alpha
+    /// ($basealphaenvmapmask), 2 = mask RGB ($envmapmask), 4 = mask alpha
+    /// ($normalmapalphaenvmapmask on the $bumpmap), 8 = the mask texture is the $bumpmap
+    /// and its normals perturb the reflection.
     #[uniform(14)]
     pub(crate) envmap_saturation: Vec4,
+    /// The envmap mask texture; white when absent.
+    #[texture(15)]
+    #[sampler(16)]
+    pub(crate) envmap_mask: Handle<Image>,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
 }
@@ -852,6 +859,21 @@ pub fn spawn_map(
             Some((name.clone(), handle))
         })
         .collect();
+    // Masks are linear data, sampled with the base UVs (repeat), like base textures.
+    let envmap_masks: BTreeMap<_, _> = loaded
+        .materials
+        .iter()
+        .filter_map(|(name, m)| {
+            let (mask, path) = m.envmap_mask.as_ref().zip(m.envmap_mask_path.as_ref())?;
+            let handle = texture_handles
+                .entry(path.clone())
+                .or_insert_with(|| {
+                    images.add(image(mask.width, mask.height, mask.rgba.clone(), true))
+                })
+                .clone();
+            Some((name.clone(), handle))
+        })
+        .collect();
     let lightmaps: Vec<_> = world
         .lightmaps
         .iter()
@@ -994,6 +1016,9 @@ pub fn spawn_map(
                 if let Some(envmap) = envmaps.get(&name).filter(|_| !batch.model) {
                     material.envmap = envmap.clone();
                     material.envmap_tint.w = 1.;
+                    if let Some(mask) = envmap_masks.get(&name) {
+                        material.envmap_mask = mask.clone();
+                    }
                 }
                 if lit {
                     material.lighting = ModelLighting::fallback(definition.half_lambert);
@@ -1260,8 +1285,20 @@ pub(crate) fn make_material(
         envmap_tint: Vec3::from_array(definition.envmap_tint).extend(0.),
         envmap_contrast: Vec3::from_array(definition.envmap_contrast)
             .extend(definition.fresnel_reflection),
-        envmap_saturation: Vec3::from_array(definition.envmap_saturation)
-            .extend(f32::from(definition.base_alpha_envmap_mask)),
+        envmap_saturation: Vec3::from_array(definition.envmap_saturation).extend(
+            f32::from(u8::from(definition.base_alpha_envmap_mask))
+                + if definition.envmap_mask.is_none() {
+                    0.
+                } else {
+                    match (definition.envmap_mask_alpha, definition.envmap_bump) {
+                        (true, true) => 12.,
+                        (true, false) => 4.,
+                        (false, true) => 8.,
+                        (false, false) => 2.,
+                    }
+                },
+        ),
+        envmap_mask: white.clone(),
         base,
         lightmap: if definition.unlit {
             white.clone()

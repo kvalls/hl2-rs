@@ -338,6 +338,7 @@ mod tests {
             height: 16,
             rgba: vec![128; 16 * 16 * 4],
             format: 0,
+            translucent: false,
         });
         for i in 1..=5 {
             impacts.textures.insert(

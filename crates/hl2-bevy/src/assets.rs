@@ -90,6 +90,13 @@ pub struct MaterialData {
     pub fresnel_reflection: f32,
     /// $basealphaenvmapmask: the envmap is masked by 1 - base alpha.
     pub base_alpha_envmap_mask: bool,
+    /// $envmapmask texture (RGB mask), or the $bumpmap: its normals perturb the reflection
+    /// (`envmap_bump`) and, with $normalmapalphaenvmapmask, its alpha masks it
+    /// (`envmap_mask_alpha`).
+    pub envmap_mask: Option<Arc<Image>>,
+    pub envmap_mask_path: Option<String>,
+    pub envmap_mask_alpha: bool,
+    pub envmap_bump: bool,
 }
 
 impl Default for MaterialData {
@@ -122,6 +129,10 @@ impl Default for MaterialData {
             envmap_saturation: [1.; 3],
             fresnel_reflection: 1.,
             base_alpha_envmap_mask: false,
+            envmap_mask: None,
+            envmap_mask_path: None,
+            envmap_mask_alpha: false,
+            envmap_bump: false,
         }
     }
 }
@@ -591,6 +602,40 @@ fn vector3(value: &str) -> Result<[f32; 3]> {
     Ok(values.map(|v| v / if bytes { 255. } else { 1. }))
 }
 
+/// How a texture shapes a LightmappedGeneric envmap (SDK lightmappedgeneric_dx9_helper.cpp).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct EnvmapMask {
+    /// The texture's alpha masks the envmap ($normalmapalphaenvmapmask).
+    alpha: bool,
+    /// The texture is the $bumpmap; its normals perturb the reflection.
+    bump: bool,
+}
+
+/// A $bumpmap undefines $envmapmask; its normals then shape the reflection (except $ssbump,
+/// whose encoding is not decoded yet) and only $normalmapalphaenvmapmask masks by its alpha.
+fn envmap_mask(definition: &Definition) -> Option<(&str, EnvmapMask)> {
+    let p = &definition.properties;
+    let flag = |key: &str| scalar(p, key, 0.).is_ok_and(|v| v.trunc() != 0.);
+    match p.get("$bumpmap") {
+        Some(bump) => {
+            let mask = EnvmapMask {
+                alpha: flag("$normalmapalphaenvmapmask"),
+                bump: !flag("$ssbump"),
+            };
+            (mask.alpha || mask.bump).then_some((bump.as_str(), mask))
+        }
+        None => p.get("$envmapmask").map(|mask| {
+            (
+                mask.as_str(),
+                EnvmapMask {
+                    alpha: false,
+                    bump: false,
+                },
+            )
+        }),
+    }
+}
+
 /// The $envmap cubemap of a LightmappedGeneric material. `env_cubemap` (resolved by the
 /// engine at runtime for entities) is not supported yet; map compiles bake world faces into
 /// patch VMTs naming a sample. HDR mode loads the .hdr.vtf variant when present.
@@ -721,12 +766,39 @@ fn load_material(
     }
     let envmap = envmap_parameters(&definition, &mut material)
         .and_then(|()| load_envmap(vfs, &definition, decoded_bytes));
+    let envmap = envmap.and_then(|cube| {
+        let Some(cube) = cube else {
+            return Ok(None);
+        };
+        let mask = envmap_mask(&definition)
+            .map(|(texture, kind)| -> Result<_> {
+                let path = asset_path(texture, ".vtf")?;
+                let image = cached_texture(cache, decoded_bytes, &path, || {
+                    vfs.read(&path)?
+                        .with_context(|| format!("envmap mask absent: {path}"))
+                })?;
+                Ok((path, image, kind))
+            })
+            .transpose()?;
+        Ok(Some((cube, mask)))
+    });
     match envmap {
-        Ok(Some((path, cube))) => {
+        Ok(Some(((path, cube), mask))) => {
             material.envmap_path = Some(path);
             material.envmap = Some(Arc::new(cube));
+            if let Some((path, image, kind)) = mask {
+                material.envmap_mask_path = Some(path);
+                material.envmap_mask = Some(image);
+                material.envmap_mask_alpha = kind.alpha;
+                material.envmap_bump = kind.bump;
+            }
+            // SDK ShaderInit: an opaque base texture clears BASEALPHAENVMAPMASK.
+            if !material.base.as_ref().is_some_and(|base| base.translucent) {
+                material.base_alpha_envmap_mask = false;
+            }
         }
         Ok(None) => {}
+        // Without its mask an envmap would be far too strong, so it is dropped entirely.
         Err(error) => errors.push(format!("{name}: envmap: {error:#}")),
     }
     if definition.shader.eq_ignore_ascii_case("eyes") || material.eye_fallback {
@@ -803,6 +875,37 @@ fn cached_texture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn envmap_mask_follows_sdk_bump_rules() {
+        let definition = |pairs: &[(&str, &str)]| Definition {
+            shader: "LightmappedGeneric".into(),
+            properties: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            proxies: Vec::new(),
+        };
+        // $bumpmap undefines $envmapmask; only $normalmapalphaenvmapmask masks then.
+        let kind = |alpha, bump| EnvmapMask { alpha, bump };
+        let d = definition(&[("$bumpmap", "b"), ("$envmapmask", "m")]);
+        assert_eq!(envmap_mask(&d), Some(("b", kind(false, true))));
+        let d = definition(&[("$bumpmap", "b"), ("$ssbump", "1")]);
+        assert_eq!(envmap_mask(&d), None);
+        let d = definition(&[("$bumpmap", "b"), ("$normalmapalphaenvmapmask", "1")]);
+        assert_eq!(envmap_mask(&d), Some(("b", kind(true, true))));
+        let d = definition(&[("$envmapmask", "m")]);
+        assert_eq!(envmap_mask(&d), Some(("m", kind(false, false))));
+        assert_eq!(envmap_mask(&definition(&[])), None);
+        let mut m = MaterialData::default();
+        let d = definition(&[("$envmapsaturation", "[1 1 1]"), ("$envmapcontrast", ".5")]);
+        envmap_parameters(&d, &mut m).unwrap();
+        assert_eq!(
+            (m.envmap_saturation, m.envmap_contrast),
+            ([1.; 3], [0.5; 3])
+        );
+        assert!(envmap_parameters(&definition(&[("$envmaptint", "[1 2]")]), &mut m).is_err());
+    }
 
     #[test]
     fn conditional_material_vars_follow_retail_tests() {

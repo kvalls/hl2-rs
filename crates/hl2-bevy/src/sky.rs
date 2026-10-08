@@ -124,6 +124,7 @@ pub fn install(
                     envmap_tint: Vec4::ZERO,
                     envmap_contrast: Vec4::ZERO,
                     envmap_saturation: Vec4::ZERO,
+                    envmap_mask: white.clone(),
                     alpha: AlphaMode::Opaque,
                     two_sided: true,
                 })),

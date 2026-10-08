@@ -8,6 +8,9 @@ pub struct Image {
     pub height: u16,
     pub rgba: Vec<u8>,
     pub format: u32,
+    /// TEXTUREFLAGS_ONEBITALPHA | EIGHTBITALPHA: the material system's IsTranslucent(), which
+    /// LightmappedGeneric uses to keep $selfillum and $basealphaenvmapmask.
+    pub translucent: bool,
 }
 fn size(format: u32, w: usize, h: usize) -> Result<usize> {
     Ok(match format {
@@ -59,6 +62,7 @@ fn color_block(block: &[u8], force_four: bool) -> Result<[[u8; 4]; 16]> {
 }
 struct Layout {
     format: u32,
+    flags: u32,
     width: usize,
     height: usize,
     /// Start of the chosen mip (frame 0, face 0).
@@ -155,6 +159,7 @@ fn layout(data: &[u8], max_dimension: usize) -> Result<Layout> {
     }
     Ok(Layout {
         format,
+        flags,
         width: (full_w >> mip).max(1),
         height: (full_h >> mip).max(1),
         offset,
@@ -282,6 +287,7 @@ fn decode_face(data: &[u8], l: &Layout, face: usize) -> Result<Image> {
         height: h as u16,
         rgba,
         format,
+        translucent: l.flags & (0x1000 | 0x2000) != 0,
     })
 }
 #[cfg(test)]

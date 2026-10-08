@@ -2,19 +2,36 @@
 
 Newest entries first. Historical entries retain their original wording/test scope; current state is in STATUS.md. This is a Rust rewrite. New entries follow the [requested MODLOG template](https://github.com/trevaintdead/ai-game-modding-guides/blob/main/templates/MODLOG-template.md).
 
-## 2026-10-08 LightmappedGeneric $envmap cubemap reflections
+## 2026-10-08 LightmappedGeneric $envmap cubemap reflections with masks and bump normals
 
-**Changed:** source-assets::vtf decodes cubemap faces (`decode_cube`: six faces of frame 0, the 7.0-7.4 spheremap skipped; RGBA16161616F HDR cubemaps kept as half floats). BSP world vertices carry the face plane normal, oriented to the side the winding faces. hl2-bevy loads `$envmap` for LightmappedGeneric (HDR mode prefers the map's .hdr.vtf), plus `$envmaptint`, `$envmapcontrast`/`$envmapsaturation` (float3), `$fresnelreflection` and `$basealphaenvmapmask`. SourceMaterial binds a cube texture, and the shader adds the SDK specular term: cube(reflect) capped at 16, then mask, tint, contrast, saturation and Fresnel.
+**Changed:**
+- source-assets::vtf decodes cubemap faces (`decode_cube`: the six faces of frame 0; the 7.0-7.4 spheremap is skipped; RGBA16161616F HDR cubemaps are kept as half floats) and reports translucency (one/eight-bit alpha flags).
+- BSP world vertices carry the face plane normal, oriented to the side the winding faces.
+- hl2-bevy loads `$envmap` for LightmappedGeneric (HDR mode prefers the map's .hdr.vtf), `$envmaptint`, float3 `$envmapcontrast`/`$envmapsaturation` and `$fresnelreflection`.
+- Masks follow SDK lightmappedgeneric_dx9_helper.cpp: a `$bumpmap` undefines `$envmapmask`, `$normalmapalphaenvmapmask` masks by the bump map's alpha, `$envmapmask` by its RGB, and `$basealphaenvmapmask` by 1 - base alpha (cleared when the base texture is opaque).
+- Bump-mapped materials (except `$ssbump`) reflect off the normal map: rgb * 2 - 1 in a tangent frame along the texture's s/t axes, as in SDK GetBumpNormals and `mul(vNormal, tangentSpaceTranspose)`. The frame is built from screen-space derivatives.
+- The shader adds the SDK specular term: cube(reflect) capped at 16, then mask, tint, contrast, saturation and Fresnel.
+- Envmap parameter or mask errors drop only the envmap, never the material.
 
-**Why:** DESIGN 11a. Owner comparison of trainstation_02 windows. The retail envmap scale is 16 under integer HDR (shaderapidx9 1004b7b0, private material-20261007 notes), so HDR cube texels are capped at 16.
+**Why:** DESIGN 11a. The owner compared the trainstation_02 windows and floors with native. Retail ENV_MAP_SCALE is 16 under integer HDR (shaderapidx9 1004b7b0; private material-20261007 notes), so HDR cube texels are capped at 16. The first unmasked build gave the main hall floor a mirror glare; the owner noted that native's sheen looks like real tile, which comes from the bump normals.
 
-**Tested how:** 333 normal tests and 29 owned tests (new: cube decode synthetic/HDR tests, owned window cubemaps, owned brush-normal orientation), strict Clippy and fmt. Packaged captures against native HDR session view-d1_trainstation_02-20261007T231545Z (outside view of the window002c wall): bright panes (116,106,76) vs native (121,110,79), right panes (121,114,84) vs (126,118,87); with the envmap disabled (84,73,43)/(82,72,40); roof unchanged (exposure equal). Regression batch: BATCH_RESULT.
+**Tested how:** 334 normal tests and 29 owned tests, strict Clippy and fmt. New tests cover cube decoding (synthetic and HDR), owned window cubemaps, owned brush-normal orientation, and mask selection/vector parameters. Packaged captures were compared against native HDR:
+- Outside the window002c wall (view-d1_trainstation_02-20261007T231545Z): bright panes (116,106,76) vs native (121,110,79), right panes (121,114,84) vs (126,118,87); with the envmap off (84,73,43)/(82,72,40).
+- Main hall tile floor pitched down (T002014Z halltiles): left/mid/right (54,43,29)/(50,35,17)/(54,39,24) vs native (53,42,29)/(50,36,17)/(53,39,23). The bumped sheen breaks up along the tiles as native's does; flat normals gave a mirror streak.
+- Regression batch artifacts/envmap-regression: all cases exit 0, no pose/visibility mismatches, only campaign's 25 known station03 texture errors. Differences against artifacts/bloomfix-regression are confined to envmapped surfaces (plaza windows, a metal piece under Breen's screen, a metal surface in the attention room). Verifiers: movement 26/26, weapons 17/17, attention 26/26. Viewmodel burst: 0 of 121 frames lost.
 
-**Result:** Window reflections now appear and match native's layout (sky/cloud pattern and dark patches). The first build of this branch dropped the viewmodel (fallback cube held by a UUID handle; fixed with strong per-map handles) and rejected vector `$envmapsaturation` values in four model materials (fixed). Both were caught before merging.
+**Result:** Window and floor reflections appear where native has them and at similar brightness.
 
-**Still broken or not tested:** env_cubemap on brush entities/models (runtime nearest-cubemap lookup), `$envmapmask` textures, bumped and VertexLitGeneric envmaps, displacement normals (base-face approximation), and LDR-mode envmaps (sRGB path coded but **not tested**). The hall's left "windows" are the trainstation_arch001 prop texture (static-prop lighting), and the upper hall windows need `$selfillum`. Both remain different from native.
+**Still broken or not tested:**
+- env_cubemap on brush entities and models (runtime nearest-cubemap lookup); VertexLitGeneric envmaps; `$ssbump`.
+- Bumped diffuse lighting: the three directional bump lightmaps are not used.
+- Mask and bump UVs reuse the base texture transform. Displacement normals use the base face.
+- Textures have no mip chain, so distant normal-mapped sheen can alias.
+- LDR-mode envmaps (an sRGB path is coded) are **not tested**.
+- The hall's left "windows" are the trainstation_arch001 prop texture (static-prop lighting), and the upper hall windows need `$selfillum`.
 
 **Next:** `$selfillum`, then info_overlay projection (DESIGN 11b).
+
 ## 2026-10-08 Fix the blinking weapon viewmodel (bloom pass ordering)
 
 **Changed:** The Source bloom pass (hl2-bevy bloom.rs) now runs in Bevy's `Core3dSystems::PostProcess` set, after the camera's main pass, instead of being ordered only `.before(tonemapping)`. New test option `--capture-burst N` saves the N frames after `--capture` as `<capture>-1.png` ... `<capture>-N.png`, so flicker can be measured. Private helpers: work/publishing/flicker_check.py (counts frames without viewmodel pixels) and flicker_bisect_step.sh.
