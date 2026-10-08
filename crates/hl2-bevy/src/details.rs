@@ -142,6 +142,9 @@ pub fn sprite_corners(sprite: &DetailSprite, scale: f32, mirrored: bool) -> [(Ve
     ]
 }
 
+/// Positions (sprite origins), UVs, corner offsets and colors of one leaf mesh.
+type LeafBuffers = (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 2]>, Vec<[f32; 4]>);
+
 pub fn spawn_pending(
     mut commands: Commands,
     pending: Option<ResMut<PendingDetails>>,
@@ -180,8 +183,7 @@ pub fn spawn_pending(
         ),
     });
     // One mesh per authored leaf: Bevy sorts these translucent meshes per view.
-    let mut leaves: BTreeMap<u16, (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 2]>, Vec<[f32; 4]>)> =
-        BTreeMap::new();
+    let mut leaves: BTreeMap<u16, LeafBuffers> = BTreeMap::new();
     let mut extent: BTreeMap<u16, (Vec3, Vec3)> = BTreeMap::new();
     for (record, instance) in prepared.instances.iter().enumerate() {
         // Only the fast path: vertical screen-aligned sprites without supplemental styles.

@@ -694,6 +694,12 @@ type RenderResources<'w> = (
     Res<'w, tonemap::Tonemap>,
     Res<'w, Assets<rendering::SourceMaterial>>,
 );
+type ExitResources<'w> = (
+    MessageWriter<'w, AppExit>,
+    Option<Res<'w, performance::Performance>>,
+    Option<Res<'w, bevy::diagnostic::DiagnosticsStore>>,
+    Option<Res<'w, details::DetailReport>>,
+);
 fn monitor(
     mut commands: Commands,
     (options, simulation, game, hud, audio, sky, monitors, eyes, effects, console, campaign): HostResources,
@@ -701,12 +707,7 @@ fn monitor(
     status: Res<Status>,
     (adapter, pvs, tonemap, source_materials): RenderResources,
     (cameras, draws, map_entities, all_cameras, meshes, images, geometry, two_textures): DiagnosticQueries,
-    (mut exit, performance, render_diagnostics, detail_report): (
-        MessageWriter<AppExit>,
-        Option<Res<performance::Performance>>,
-        Option<Res<bevy::diagnostic::DiagnosticsStore>>,
-        Option<Res<details::DetailReport>>,
-    ),
+    (mut exit, performance, render_diagnostics, detail_report): ExitResources,
 ) {
     let _timing = performance::scope(performance.as_deref(), "diagnostics");
     control.frames += 1;
