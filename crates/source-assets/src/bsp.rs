@@ -14,6 +14,9 @@ pub struct Bsp {
     lumps: Vec<Vec<u8>>,
     pub lump_versions: Vec<u32>,
     pub static_props: Vec<modkit_core::ModelInstance>,
+    /// Detail props; a malformed detail lump leaves this empty with `detail_error`.
+    pub details: modkit_core::DetailProps,
+    pub detail_error: Option<String>,
     lightmaps: Vec<modkit_core::Lightmap>,
     face_lighting: Vec<Option<crate::lighting::FaceLight>>,
 }
@@ -77,9 +80,15 @@ impl Bsp {
             lumps.push(decoded);
         }
         let (lightmaps, face_lighting) = crate::lighting::build(&lumps)?;
+        let (details, detail_error) = match crate::details::read(data, &lumps[35]) {
+            Ok(details) => (details, None),
+            Err(error) => (Default::default(), Some(format!("{error:#}"))),
+        };
         Ok(Self {
             lightmaps,
             face_lighting,
+            details,
+            detail_error,
             static_props: crate::models::static_props(data, &lumps[35])?,
             version,
             revision: u32le(data, 1032)?,
@@ -192,8 +201,26 @@ impl Bsp {
             } else {
                 Vec::new()
             },
+            details: if model_index == 0 {
+                self.details.clone()
+            } else {
+                Default::default()
+            },
             ..Default::default()
         };
+        if model_index == 0 {
+            // SDK CDetailObjectSystem: worldspawn detailmaterial, default detail/detailsprites.
+            world.details.material = world
+                .entities
+                .first()
+                .and_then(|e| e.get("detailmaterial"))
+                .filter(|m| !m.is_empty())
+                .unwrap_or("detail/detailsprites")
+                .to_owned();
+            if let Some(error) = &self.detail_error {
+                world.warnings.push(format!("detail props: {error}"));
+            }
+        }
         let positions = records(self.lump(3), 12)?
             .map(|v| vec3(v, 0))
             .collect::<Result<Vec<_>>>()?;
@@ -723,6 +750,8 @@ mod tests {
             lumps,
             lump_versions,
             static_props: Vec::new(),
+            details: Default::default(),
+            detail_error: None,
             lightmaps: Vec::new(),
             face_lighting: Vec::new(),
         }

@@ -98,6 +98,8 @@ pub struct World {
     #[serde(default)]
     pub overlays: Vec<Surface>,
     #[serde(default)]
+    pub details: DetailProps,
+    #[serde(default)]
     pub model_assets: std::collections::BTreeMap<String, Vec<Surface>>,
     /// Collision convexes are separate from visible model triangles.
     #[serde(default)]
@@ -112,6 +114,51 @@ pub struct World {
     /// Studio illumination origin and flags per model asset key.
     #[serde(default)]
     pub illumination: std::collections::BTreeMap<String, lighting::ModelIllumination>,
+}
+/// Authored detail props (BSP 'dprp' v4) with supplemental lightstyle tables.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DetailProps {
+    /// Worldspawn `detailmaterial` (the sprite atlas material).
+    pub material: String,
+    pub models: Vec<String>,
+    pub sprites: Vec<DetailSprite>,
+    pub instances: Vec<DetailInstance>,
+    pub styles_ldr: Vec<DetailStyle>,
+    pub styles_hdr: Vec<DetailStyle>,
+}
+/// A sprite dictionary entry: corner offsets in world units and atlas UVs.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DetailSprite {
+    pub ul: glam::Vec2,
+    pub lr: glam::Vec2,
+    pub tex_ul: glam::Vec2,
+    pub tex_lr: glam::Vec2,
+}
+/// One authored detail record, in authored order.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DetailInstance {
+    pub origin: Vec3,
+    pub angles: Vec3,
+    /// Model or sprite dictionary index, by `kind`.
+    pub index: u16,
+    pub leaf: u16,
+    /// Baked RGBExp32 lighting.
+    pub lighting: [u8; 4],
+    pub style_first: u32,
+    pub style_count: u8,
+    pub sway: u8,
+    pub shape_angle: u8,
+    pub shape_size: u8,
+    /// 0 fixed, 1 screen aligned, 2 screen aligned vertical.
+    pub orientation: u8,
+    /// 0 model, 1 sprite, 2 shape cross, 3 shape tri.
+    pub kind: u8,
+    pub scale: f32,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DetailStyle {
+    pub lighting: [u8; 4],
+    pub style: u8,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConvexPiece {

@@ -1,5 +1,6 @@
 pub mod animation;
 pub mod bsp;
+pub mod details;
 pub mod install;
 pub mod keyvalues;
 pub mod lighting;
