@@ -458,9 +458,10 @@ impl Gameplay {
             && !self.secondary_consumed
             && matches!(
                 self.inventory.active.as_str(),
-                "weapon_shotgun" | "weapon_smg1" | "weapon_ar2"
+                "weapon_shotgun" | "weapon_smg1" | "weapon_ar2" | "weapon_frag"
             );
         self.inventory.set_attack_input(primary, secondary);
+        self.inventory.ducking = player.crouched;
         let attacking = primary
             || secondary
             || allowed
@@ -500,6 +501,22 @@ impl Gameplay {
         self.queued_secondary = false;
         for (id, state) in self.scene.states.iter().enumerate() {
             physics.set_entity(id, state.origin, state.rotation, state.collides());
+        }
+        // weapon_frag throws from this tick's animation events.
+        if !self.inventory.frag.pending.is_empty() {
+            let ground = physics
+                .impact_ray(player.feet + glam::Vec3::Z * 4., -glam::Vec3::Z, 16.)
+                .map(|hit| hit.normal);
+            self.inventory.launch_frags(
+                &self.weapons,
+                physics,
+                eye,
+                direction,
+                player.velocity,
+                player.feet,
+                ground,
+                self.scene.time,
+            );
         }
         for launch in self.inventory.projectile_spawns.drain(..) {
             self.projectiles.spawn(launch, &mut self.scene);
@@ -580,7 +597,7 @@ impl Gameplay {
                     .then(|| (id, errors.iter().map(|e| format!("{e:?}")).collect()))
             })
             .collect();
-        serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"player_damage":self.player_damage,"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
+        serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"gesture_layers":self.scene.gestures.report(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),
             "projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,

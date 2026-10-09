@@ -240,6 +240,12 @@ pub fn prepare_weapons(
         "swing",
         "misscenter1",
         "hitcenter1",
+        // weapon_frag (v_grenade.mdl)
+        "drawbackhigh",
+        "drawbacklow",
+        "throw",
+        "roll",
+        "lob",
     ]
     .into_iter()
     .map(String::from)

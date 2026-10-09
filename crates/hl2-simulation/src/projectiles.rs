@@ -10,11 +10,29 @@ use serde::Serialize;
 
 pub const GRENADE_MODEL: &str = "models/weapons/ar2_grenade.mdl";
 pub const BALL_MODEL: &str = "models/effects/combineball.mdl";
+pub const FRAG_MODEL: &str = "models/weapons/w_grenade.mdl";
+/// grenade_frag.cpp: blips every 1 s, every 0.3 s once the AI warning (1.5 s before
+/// detonation) has gone out; VPhysicsUpdate keeps 0.2 of the reflected velocity.
+const FRAG_BLIP: f64 = 1.;
+const FRAG_BLIP_FAST: f64 = 0.3;
+const FRAG_WARN: f64 = 1.5;
+const FRAG_RESTITUTION: f32 = 0.2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ProjectileKind {
     SmgGrenade,
     CombineBall,
+    FragGrenade,
+}
+/// npc_grenade_frag timer state (CGrenadeFrag::SetTimer / DelayThink).
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct Fuse {
+    pub detonate: f64,
+    pub warn: f64,
+    pub next_blip: f64,
+    pub warned: bool,
+    /// DelayThink runs every 0.1 s from SetTimer.
+    pub next_think: f64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -50,18 +68,22 @@ pub struct Projectile {
     struck_entity: bool,
     next_whiz: f64,
     hit_entities: Vec<usize>,
+    pub fuse: Option<Fuse>,
 }
 impl Projectile {
     pub fn model(&self) -> &'static str {
         match self.kind {
             ProjectileKind::SmgGrenade => GRENADE_MODEL,
             ProjectileKind::CombineBall => BALL_MODEL,
+            ProjectileKind::FragGrenade => FRAG_MODEL,
         }
     }
     pub fn physical_radius(&self) -> f32 {
         match self.kind {
             ProjectileKind::SmgGrenade => 3.,
             ProjectileKind::CombineBall => self.radius,
+            // CGrenadeFrag::Spawn SetSize(-4, 4).
+            ProjectileKind::FragGrenade => 4.,
         }
     }
 }
@@ -159,6 +181,14 @@ impl Projectiles {
         } else {
             self.diagnostics.grenades_spawned += 1;
         }
+        let frag = launch.kind == ProjectileKind::FragGrenade;
+        if frag {
+            // Spawn blips once; the timer (lifetime) starts with the throw.
+            scene.sounds.push(crate::sounds::SoundRequest {
+                origin: Some(launch.position),
+                .."Grenade.Blip".into()
+            });
+        }
         let direction = launch.velocity.normalize_or_zero();
         self.active.push(Projectile {
             id: self.next_id,
@@ -187,6 +217,16 @@ impl Projectiles {
             struck_entity: false,
             next_whiz: launch.at + 0.03,
             hit_entities: Vec::new(),
+            fuse: frag.then(|| {
+                let detonate = launch.at + f64::from(launch.lifetime.max(0.));
+                Fuse {
+                    detonate,
+                    warn: detonate - FRAG_WARN,
+                    next_blip: launch.at + FRAG_BLIP,
+                    warned: false,
+                    next_think: launch.at,
+                }
+            }),
         });
     }
     /// Advance only on simulation ticks. Returns damage to be applied through
@@ -246,6 +286,43 @@ impl Projectiles {
                         projectile.position = end;
                         projectile.velocity.z -= 200. * dt;
                         projectile.angles += projectile.angular_velocity * dt;
+                    }
+                }
+                ProjectileKind::FragGrenade => {
+                    let mut fuse = projectile.fuse.expect("frag fuse");
+                    // Think times are whole ticks (TIME_TO_TICKS); compare without float drift.
+                    let think = scene.time + 1e-6 >= fuse.next_think;
+                    if think {
+                        fuse.next_think = scene.time + 0.1;
+                    }
+                    if think && scene.time > fuse.detonate {
+                        self.grenade_explosion(
+                            &projectile,
+                            Vec3::Z,
+                            world,
+                            scene,
+                            physics,
+                            player_feet,
+                            player_ducked,
+                            &mut damage,
+                        );
+                        alive = false;
+                    } else {
+                        fuse.warned |= think && scene.time >= fuse.warn;
+                        if think && scene.time > fuse.next_blip {
+                            scene.sounds.push(crate::sounds::SoundRequest {
+                                origin: Some(projectile.position),
+                                .."Grenade.Blip".into()
+                            });
+                            fuse.next_blip = scene.time
+                                + if fuse.warned {
+                                    FRAG_BLIP_FAST
+                                } else {
+                                    FRAG_BLIP
+                                };
+                        }
+                        projectile.fuse = Some(fuse);
+                        frag_motion(&mut projectile, physics, dt);
                     }
                 }
                 ProjectileKind::CombineBall => {
@@ -467,6 +544,42 @@ impl Projectiles {
         }
     }
 }
+/// Frag grenade motion. Native uses a VPhysics object (w_grenade collision, surface
+/// friction) whose VPhysicsUpdate reflects the velocity with 0.2 restitution and
+/// reverses half the spin on every hit; here the body is a swept 4-unit box under
+/// sv_gravity 600 with that reflection, and resting/sliding on floors is an
+/// approximation (normal speed below 60 stops, tangential speed decays at 1.5/s).
+fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) {
+    projectile.velocity.z -= 600. * dt;
+    let mut remaining = dt;
+    for _ in 0..4 {
+        let end = projectile.position + projectile.velocity * remaining;
+        let Some(hit) = physics.projectile_sweep(
+            projectile.position,
+            end,
+            ProjectileHull::Box(Vec3::splat(4.)),
+            &[],
+        ) else {
+            projectile.position = end;
+            break;
+        };
+        let normal = hit.normal.normalize_or_zero();
+        projectile.position = hit.position + normal * 0.03125;
+        let into = projectile.velocity.dot(normal);
+        if normal.z > 0.7 && into.abs() < 60. {
+            let tangent = projectile.velocity - into * normal;
+            projectile.velocity = tangent * (1. - 1.5 * remaining).max(0.);
+        } else {
+            projectile.velocity = (projectile.velocity - 2. * into * normal) * FRAG_RESTITUTION;
+            projectile.angular_velocity *= -0.5;
+        }
+        remaining *= 1. - hit.fraction.clamp(0., 1.);
+        if remaining <= 1e-6 {
+            break;
+        }
+    }
+    projectile.angles += projectile.angular_velocity * dt;
+}
 fn friendly_or_vital(class: &str) -> bool {
     // Native class relationships/EFL_NO_DISSOLVE are not reconstructed yet.
     // These known HL2 allies/vital actors must not silently be treated as enemies.
@@ -550,6 +663,57 @@ fn guide_ball(projectile: &mut Projectile, world: &World, scene: &Scene, physics
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn frag_fuse_blips_then_detonates_after_three_seconds() {
+        let world = World::default();
+        let mut scene = Scene::new(&world);
+        let mut physics = Physics::new(&world);
+        let mut projectiles = Projectiles::default();
+        projectiles.spawn(
+            ProjectileSpawn {
+                kind: ProjectileKind::FragGrenade,
+                position: Vec3::Z * 1000.,
+                velocity: Vec3::ZERO,
+                angular_velocity: Vec3::ZERO,
+                at: 0.,
+                damage: 125.,
+                radius: 250.,
+                mass: 0.,
+                lifetime: 3.,
+            },
+            &mut scene,
+        );
+        let mut blips = vec![];
+        let mut detonated = None;
+        for tick in 0..240 {
+            scene.time = f64::from(tick) * 0.015;
+            projectiles.tick(
+                &world,
+                &mut scene,
+                &mut physics,
+                Vec3::splat(9999.),
+                false,
+                0.015,
+            );
+            for s in scene.sounds.drain(..) {
+                if s.name == "Grenade.Blip" {
+                    blips.push(scene.time);
+                }
+            }
+            if detonated.is_none() && projectiles.diagnostics.grenade_detonations == 1 {
+                detonated = Some(scene.time);
+            }
+        }
+        // DelayThink every 0.1 s rounds to 7 ticks (0.105 s): spawn blip, 1 s spacing,
+        // 0.3 s after the 1.5 s warning, detonation on the first think after 3 s.
+        let expected = [0., 1.05, 2.1, 2.415, 2.73];
+        assert_eq!(blips.len(), expected.len(), "{blips:?}");
+        for (blip, at) in blips.iter().zip(expected) {
+            assert!((blip - at).abs() < 0.005, "{blips:?}");
+        }
+        let at = detonated.unwrap();
+        assert!((at - 3.045).abs() < 0.005, "{at}");
+    }
     use super::*;
     use rapier3d::prelude::*;
 

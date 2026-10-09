@@ -19,22 +19,28 @@ use std::collections::BTreeMap;
 
 pub struct PreparedEffects {
     pub sprites: ProjectileVisuals,
-    pub grenade: Vec<Surface>,
+    /// Rendered projectile models (SMG grenade, frag grenade) by model path.
+    pub models: BTreeMap<&'static str, Vec<Surface>>,
     model_errors: Vec<String>,
 }
 impl PreparedEffects {
     pub fn load(vfs: &Vfs) -> Self {
         let mut model_errors = Vec::new();
-        let grenade = match models::read_model(vfs, hl2_simulation::projectiles::GRENADE_MODEL, 0) {
-            Ok(surfaces) => surfaces,
-            Err(e) => {
-                model_errors.push(format!("grenade model: {e:#}"));
-                Vec::new()
+        let mut loaded = BTreeMap::new();
+        for path in [
+            hl2_simulation::projectiles::GRENADE_MODEL,
+            hl2_simulation::projectiles::FRAG_MODEL,
+        ] {
+            match models::read_model(vfs, path, 0) {
+                Ok(surfaces) => {
+                    loaded.insert(path, surfaces);
+                }
+                Err(e) => model_errors.push(format!("{path}: {e:#}")),
             }
-        };
+        }
         Self {
             sprites: ProjectileVisuals::new(vfs),
-            grenade,
+            models: loaded,
             model_errors,
         }
     }
@@ -129,13 +135,15 @@ struct QuadDraw {
     mesh: Handle<Mesh>,
     previous: Option<hl2_simulation::projectile_visuals::Quad>,
 }
+/// One projectile model surface: mesh and material.
+type ModelPart = (Handle<Mesh>, Handle<rendering::SourceMaterial>);
 #[derive(Resource)]
 pub struct Effects {
     source: ProjectileVisuals,
     materials: BTreeMap<String, Handle<EffectMaterial>>,
     quads: Vec<QuadDraw>,
     marks: BTreeMap<usize, (Entity, Handle<Mesh>)>,
-    grenade_meshes: Vec<(Handle<Mesh>, Handle<rendering::SourceMaterial>)>,
+    grenade_meshes: BTreeMap<&'static str, Vec<ModelPart>>,
     grenades: BTreeMap<u64, Vec<Entity>>,
     model_errors: Vec<String>,
     draws: usize,
@@ -203,9 +211,14 @@ pub fn install(
     }
     let white = images.add(rendering::image(1, 1, vec![255; 4], false));
     let black_cube = images.add(rendering::black_cube());
-    let mut grenade_meshes = Vec::new();
+    let mut grenade_meshes = BTreeMap::new();
     let mut bases = BTreeMap::new();
-    for surface in &loaded.effects.grenade {
+    for (model, surface) in loaded
+        .effects
+        .models
+        .iter()
+        .flat_map(|(model, surfaces)| surfaces.iter().map(move |s| (*model, s)))
+    {
         let fallback = crate::assets::MaterialData::default();
         let definition = loaded.materials.get(&surface.material).unwrap_or(&fallback);
         let base = bases
@@ -224,7 +237,7 @@ pub fn install(
             None,
             (&white, &black_cube),
         ));
-        grenade_meshes.push((
+        grenade_meshes.entry(model).or_insert_with(Vec::new).push((
             meshes.add(rendering::mesh_from_surface(surface, definition)),
             material,
         ));
@@ -415,7 +428,7 @@ pub fn present(
                 .projectiles
                 .active
                 .iter()
-                .any(|p| p.id == *id && p.kind == ProjectileKind::SmgGrenade)
+                .any(|p| p.id == *id && p.kind != ProjectileKind::CombineBall)
         })
         .collect();
     for id in dead {
@@ -430,7 +443,7 @@ pub fn present(
         .projectiles
         .active
         .iter()
-        .filter(|p| p.kind == ProjectileKind::SmgGrenade)
+        .filter(|p| p.kind != ProjectileKind::CombineBall)
     {
         let transform = rendering::entity_transform(
             grenade.position,
@@ -439,7 +452,9 @@ pub fn present(
         if !effects.grenades.contains_key(&grenade.id) {
             let entities = effects
                 .grenade_meshes
-                .iter()
+                .get(grenade.model())
+                .into_iter()
+                .flatten()
                 .map(|(mesh, material)| {
                     commands
                         .spawn((

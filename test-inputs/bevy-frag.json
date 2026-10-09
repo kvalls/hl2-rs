@@ -1,0 +1,8 @@
+[
+  {"tick":1,"label":"outside","eye":[-3104,-2018,128],"yaw":20,"pitch":0,"actions":[{"action":"loadout"},{"action":"slot","slot":4}]},
+  {"tick":2,"actions":[{"action":"confirm"}]},
+  {"tick":3},
+  {"tick":200,"label":"pullback","primary":true},
+  {"tick":240,"label":"release"},
+  {"tick":250,"label":"flight"}
+]

@@ -29,14 +29,33 @@ pub struct Weapon {
     pub damage: f32,
     pub sounds: BTreeMap<String, String>,
 }
-const IMPLEMENTED: [&str; 6] = [
+const IMPLEMENTED: [&str; 7] = [
     "weapon_crowbar",
     "weapon_pistol",
     "weapon_357",
     "weapon_smg1",
     "weapon_ar2",
     "weapon_shotgun",
+    "weapon_frag",
 ];
+/// Thrown frag kinds by viewmodel event (npcevent.h EVENT_WEAPON_THROW/2/3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum FragThrow {
+    Throw,
+    Roll,
+    Lob,
+}
+/// CWeaponFrag state: m_AttackPaused, m_fDrawbackFinished, m_bRedraw.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct FragState {
+    paused: u8,
+    drawback_finished: bool,
+    redraw: bool,
+    /// Viewmodel event cursor (animation, start, elapsed).
+    cursor: Option<(String, f64, f32)>,
+    /// Throws whose animation event fired this tick; the host launches them.
+    pub pending: Vec<FragThrow>,
+}
 
 pub fn definitions(vfs: &Vfs) -> Result<BTreeMap<String, Weapon>> {
     let skill = vfs.read("cfg/skill.cfg")?.context("skill.cfg missing")?;
@@ -118,6 +137,8 @@ pub fn definitions(vfs: &Vfs) -> Result<BTreeMap<String, Weapon>> {
                     .max(0.),
                 secondary_radius: if class == "weapon_smg1" {
                     number("sk_smg1_grenade_radius").unwrap_or(0.).max(0.)
+                } else if class == "weapon_frag" {
+                    number("sk_fraggrenade_radius").unwrap_or(0.).max(0.)
                 } else if class == "weapon_ar2" {
                     number("sk_weapon_ar2_alt_fire_radius")
                         .unwrap_or(10.)
@@ -139,7 +160,12 @@ pub fn definitions(vfs: &Vfs) -> Result<BTreeMap<String, Weapon>> {
                 } else {
                     1
                 },
-                damage: number(&format!("sk_plr_dmg_{skill_name}")).unwrap_or(0.),
+                // CGrenadeFrag::Spawn: a player's grenade uses sk_plr_dmg_fraggrenade.
+                damage: if class == "weapon_frag" {
+                    number("sk_plr_dmg_fraggrenade").unwrap_or(0.)
+                } else {
+                    number(&format!("sk_plr_dmg_{skill_name}")).unwrap_or(0.)
+                },
                 sounds,
             },
         );
@@ -231,6 +257,12 @@ pub struct Inventory {
     shotgun_need_pump: bool,
     #[serde(skip)]
     holding_attack: bool,
+    /// weapon_frag throw state.
+    #[serde(skip)]
+    pub frag: FragState,
+    /// IN_DUCK for the frag roll, set by the host before tick.
+    #[serde(skip)]
+    pub ducking: bool,
     burst: usize,
     last_shot: f64,
     penalty: f32,
@@ -267,6 +299,8 @@ impl Default for Inventory {
             empty_fire: BTreeMap::new(),
             shotgun_need_pump: false,
             holding_attack: false,
+            frag: FragState::default(),
+            ducking: false,
             burst: 0,
             last_shot: -1e30,
             penalty: 0.,
@@ -389,6 +423,13 @@ impl Inventory {
     }
     pub fn give(&mut self, class: &str, weapons: &BTreeMap<String, Weapon>, time: f64) {
         if let Some(w) = weapons.get(class) {
+            if w.magazine < 0 && !self.owned.contains_key(class) && w.ammo_max > 0 {
+                // CBaseCombatWeapon::GiveDefaultAmmo: a clipless weapon's default clip
+                // is reserve ammunition.
+                self.owned.insert(class.into(), -1);
+                let ammo = w.ammo_type.clone();
+                self.give_ammo(&ammo, w.default_clip.max(0), weapons);
+            }
             self.owned.entry(class.into()).or_insert(w.default_clip);
             if self.active == class {
                 return;
@@ -407,6 +448,8 @@ impl Inventory {
             self.burst = 0;
             self.penalty = 0.;
             self.holding_attack = false;
+            // CWeaponFrag::Deploy/Holster clear the throw state.
+            self.frag = FragState::default();
             let animation = if class == "weapon_ar2" {
                 "ir_draw"
             } else if class == "weapon_pistol" && self.owned[class] == 0 {
@@ -453,6 +496,9 @@ impl Inventory {
         self.holding_attack = attack;
         let (primary, secondary) = self.attack_input.take().unwrap_or((attack, false));
         self.advance_reload(world, scene, weapons, primary, secondary);
+        if self.active == "weapon_frag" && self.health > 0. {
+            self.frag_tick(world, scene, weapons, primary, secondary);
+        }
 
         for (id, e) in world.entities.iter().enumerate() {
             if scene.states[id].killed
@@ -692,6 +738,7 @@ impl Inventory {
             || self.ar2_charge_until.is_some()
             || scene.time < self.next_attack
             || scene.time < self.owner_attack_until
+            || self.active == "weapon_frag"
         {
             return;
         }
@@ -812,6 +859,9 @@ impl Inventory {
         eye: Vec3,
         direction: Vec3,
     ) {
+        if self.active == "weapon_frag" {
+            return;
+        }
         if matches!(self.active.as_str(), "weapon_smg1" | "weapon_ar2") {
             self.projectile_secondary(weapons, world, scene, eye, direction);
             return;
@@ -1097,6 +1147,149 @@ impl Inventory {
             }
         }
     }
+    /// CWeaponFrag::ItemPostFrame with the base attack dispatch: animation events
+    /// (SEQUENCE_FINISHED, THROW/2/3), release after the drawback, pullback on
+    /// attack2 then attack, 0.5 s rethrow and the redraw once the throw has finished.
+    fn frag_tick(
+        &mut self,
+        world: &World,
+        scene: &mut Scene,
+        weapons: &BTreeMap<String, Weapon>,
+        primary: bool,
+        secondary: bool,
+    ) {
+        let Some(weapon) = weapons.get("weapon_frag").cloned() else {
+            return;
+        };
+        let time = scene.time;
+        let elapsed = (time - self.animation_at).max(0.) as f32;
+        let previous = self
+            .frag
+            .cursor
+            .as_ref()
+            .filter(|(animation, started, _)| {
+                *animation == self.animation && *started == self.animation_at
+            })
+            .map_or(-f32::EPSILON, |(_, _, elapsed)| *elapsed);
+        let events: Vec<i32> = world
+            .rigs
+            .get(&format!("{}#0", weapon.viewmodel.to_lowercase()))
+            .and_then(|rig| rig.clips.get(&self.animation))
+            .map(|clip| {
+                clip.events_between(previous, elapsed)
+                    .into_iter()
+                    .map(|e| e.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.frag.cursor = Some((self.animation.clone(), self.animation_at, elapsed));
+        for id in events {
+            let kind = match id {
+                3900 => {
+                    self.frag.drawback_finished = true;
+                    continue;
+                }
+                3005 => FragThrow::Throw,
+                3013 => FragThrow::Roll,
+                3016 => FragThrow::Lob,
+                _ => continue,
+            };
+            // ThrowGrenade/RollGrenade/LobGrenade, DecrementAmmo, RETHROW_DELAY 0.5.
+            self.frag.pending.push(kind);
+            let ammo = self.ammo(&weapon.ammo_type);
+            self.set_ammo(&weapon.ammo_type, (ammo - 1).max(0));
+            self.frag.redraw = true;
+            self.next_attack = time + 0.5;
+            self.next_secondary.insert("weapon_frag".into(), time + 0.5);
+            let key = match kind {
+                FragThrow::Throw => "single_shot",
+                FragThrow::Lob => "double_shot",
+                FragThrow::Roll => "special1",
+            };
+            play_sound(scene, &weapon, key, world, &self.animation);
+        }
+        if self.frag.drawback_finished {
+            let release = match self.frag.paused {
+                1 if !primary => Some("throw"),
+                2 if !secondary => Some(if self.ducking { "roll" } else { "lob" }),
+                _ => None,
+            };
+            if let Some(animation) = release {
+                self.animate(animation, time);
+                self.frag.drawback_finished = false;
+            }
+        }
+        let ammo = self.ammo(&weapon.ammo_type);
+        let next_secondary = self
+            .next_secondary
+            .get("weapon_frag")
+            .copied()
+            .unwrap_or(0.);
+        // Base ItemPostFrame: attack2 before attack; no ammo is HandleFireOnEmpty.
+        if secondary && next_secondary <= time && ammo > 0 && !self.frag.redraw {
+            self.frag.paused = 2;
+            self.animate("drawbacklow", time);
+            self.next_secondary
+                .insert("weapon_frag".into(), f64::INFINITY);
+        } else if primary && self.next_attack <= time && ammo > 0 && !self.frag.redraw {
+            self.frag.paused = 1;
+            self.animate("drawbackhigh", time);
+            self.next_attack = f64::INFINITY;
+        }
+        // m_bRedraw: once the throw sequence has finished, Reload draws a new grenade.
+        if self.frag.redraw && f64::from(elapsed) >= duration(world, &weapon, &self.animation) {
+            let next_secondary = self
+                .next_secondary
+                .get("weapon_frag")
+                .copied()
+                .unwrap_or(0.);
+            if ammo > 0 && self.next_attack <= time && next_secondary <= time {
+                self.animate("draw", time);
+                let draw = duration(world, &weapon, "draw");
+                self.next_attack = time + draw;
+                self.next_secondary
+                    .insert("weapon_frag".into(), time + draw);
+                self.frag.redraw = false;
+            }
+        }
+    }
+    /// Launch this tick's thrown grenades (ThrowGrenade, LobGrenade, RollGrenade).
+    /// `forward` is the eye direction and `velocity` the player's; `ground` is the
+    /// floor normal under the roll start when one is within 16 units.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_frags(
+        &mut self,
+        weapons: &BTreeMap<String, Weapon>,
+        physics: &Physics,
+        eye: Vec3,
+        forward: Vec3,
+        velocity: Vec3,
+        feet: Vec3,
+        ground: Option<Vec3>,
+        time: f64,
+    ) {
+        let Some(weapon) = weapons.get("weapon_frag") else {
+            self.frag.pending.clear();
+            return;
+        };
+        for kind in std::mem::take(&mut self.frag.pending) {
+            let random = self.random() * 2. - 1.;
+            let (position, throw, angular) =
+                frag_launch(physics, kind, eye, forward, velocity, feet, ground, random);
+            self.projectile_spawns.push(ProjectileSpawn {
+                kind: crate::projectiles::ProjectileKind::FragGrenade,
+                position,
+                velocity: throw,
+                angular_velocity: angular,
+                at: time,
+                damage: weapon.damage,
+                radius: weapon.secondary_radius,
+                mass: 0.,
+                // GRENADE_TIMER
+                lifetime: 3.,
+            });
+        }
+    }
     fn animate(&mut self, name: &str, time: f64) {
         self.animation = name.into();
         self.animation_at = time;
@@ -1190,6 +1383,63 @@ fn play_sound(scene: &mut Scene, weapon: &Weapon, key: &str, world: &World, anim
         });
     if !event_sounds {
         scene.sounds.push(sound.clone().into());
+    }
+}
+/// Launch position, velocity and spin for a frag throw kind (weapon_frag.cpp).
+/// CheckThrowPosition pulls the start back along a 6-unit hull trace from the eye
+/// (the body center for rolls). `random` in [-1, 1] picks the authored spin range.
+#[allow(clippy::too_many_arguments)]
+pub fn frag_launch(
+    physics: &Physics,
+    kind: FragThrow,
+    eye: Vec3,
+    forward: Vec3,
+    velocity: Vec3,
+    feet: Vec3,
+    ground: Option<Vec3>,
+    random: f32,
+) -> (Vec3, Vec3, Vec3) {
+    let right = forward.cross(Vec3::Z).normalize_or_zero();
+    let check = |from: Vec3, to: Vec3| {
+        physics
+            .projectile_sweep(
+                from,
+                to,
+                crate::physics::ProjectileHull::Box(Vec3::splat(6.)),
+                &[],
+            )
+            .map_or(to, |hit| hit.position)
+    };
+    match kind {
+        FragThrow::Throw => {
+            let source = check(eye, eye + forward * 18. + right * 8.);
+            let mut aim = forward;
+            aim.z += 0.1;
+            (
+                source,
+                velocity + aim * 1200.,
+                Vec3::new(600., (random * 1200.).round(), 0.),
+            )
+        }
+        FragThrow::Lob => {
+            let source = check(eye, eye + forward * 18. + right * 8. - Vec3::Z * 8.);
+            (
+                source,
+                velocity + forward * 350. + Vec3::Z * 50.,
+                Vec3::new(200., (random * 600.).round(), 0.),
+            )
+        }
+        FragThrow::Roll => {
+            // Bottom center of the player box plus GRENADE_RADIUS, along the floor.
+            let mut facing = Vec3::new(forward.x, forward.y, 0.).normalize_or_zero();
+            if let Some(normal) = ground {
+                let tangent = facing.cross(normal);
+                facing = normal.cross(tangent);
+            }
+            let start = feet + Vec3::Z * 4.;
+            let source = check(feet + Vec3::Z * 36., start + facing * 18.);
+            (source, velocity + facing * 700., Vec3::new(0., 0., 720.))
+        }
     }
 }
 fn is_automatic(class: &str) -> bool {
@@ -1292,6 +1542,52 @@ fn ammo_pickup(class: &str) -> Option<(&'static str, i32)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn frag_launches_follow_weapon_frag_math() {
+        use super::*;
+        let world = World::default();
+        let physics = Physics::new(&world);
+        let eye = Vec3::new(0., 0., 64.);
+        let (source, velocity, spin) = frag_launch(
+            &physics,
+            FragThrow::Throw,
+            eye,
+            Vec3::X,
+            Vec3::Y * 10.,
+            Vec3::ZERO,
+            None,
+            0.5,
+        );
+        // eye + 18 forward + 8 right (right of +X is -Y); forward.z + 0.1 at 1200 u/s.
+        assert_eq!(source, Vec3::new(18., -8., 64.));
+        assert_eq!(velocity, Vec3::new(1200., 10., 120.));
+        assert_eq!(spin, Vec3::new(600., 600., 0.));
+        let (source, velocity, _) = frag_launch(
+            &physics,
+            FragThrow::Lob,
+            eye,
+            Vec3::X,
+            Vec3::ZERO,
+            Vec3::ZERO,
+            None,
+            0.,
+        );
+        assert_eq!(source, Vec3::new(18., -8., 56.));
+        assert_eq!(velocity, Vec3::new(350., 0., 50.));
+        let (source, velocity, spin) = frag_launch(
+            &physics,
+            FragThrow::Roll,
+            eye,
+            Vec3::new(0.6, 0., -0.8),
+            Vec3::ZERO,
+            Vec3::ZERO,
+            Some(Vec3::Z),
+            0.,
+        );
+        assert!((source - Vec3::new(18., 0., 4.)).length() < 1e-4);
+        assert!((velocity - Vec3::new(700., 0., 0.)).length() < 1e-3);
+        assert_eq!(spin, Vec3::new(0., 0., 720.));
+    }
     #[test]
     fn fall_damage_and_armor_exceptions_follow_sdk() {
         use super::*;

@@ -192,7 +192,13 @@ pub fn load_with_canvas(
     let world = gameplay.world.clone();
     let effects = crate::effects::PreparedEffects::load(&vfs);
     let mut names = rendered_material_names(&world);
-    names.extend(effects.grenade.iter().map(|s| s.material.clone()));
+    names.extend(
+        effects
+            .models
+            .values()
+            .flatten()
+            .map(|s| s.material.clone()),
+    );
     for weapon in gameplay.weapons.values() {
         if let Some(surfaces) = world
             .model_assets

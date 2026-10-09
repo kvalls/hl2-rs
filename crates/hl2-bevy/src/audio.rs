@@ -345,6 +345,11 @@ impl PreparedAudio {
                 "Player.FallDamage",
                 "Player.FallGib",
                 "Player.Death",
+                "Grenade.Blip",
+                "HL2Player.BurnPain",
+                "Player.PlasmaDamage",
+                "Player.SonicDamage",
+                "Flesh.BulletImpact",
             ]
             .into_iter()
             .map(str::to_owned),
