@@ -549,8 +549,10 @@ impl Inventory {
                 scene.states[id].killed = true;
                 scene.states[id].visible = false;
                 // CHealthKit/CHealthVial::MyTouch and CHL2_Player::ApplyBattery
-                // each emit their own installed sound. Suit logon uses HEV sentences,
-                // whose scheduler is not implemented; it must not emit an ammo pickup.
+                // each emit their own installed sound. CItemSuit::MyTouch plays the
+                // suit logon sentence (UTIL_EmitSoundSuit, suitvolume 0.25):
+                // !HEV_A0 with SF_SUIT_SHORTLOGON (1), else !HEV_AAx (owned sentences.txt
+                // comments HEV_A0 out, so the short logon is silent).
                 let sound = match e.class() {
                     "item_healthkit" => Some("HealthKit.Touch"),
                     "item_healthvial" => Some("HealthVial.Touch"),
@@ -560,6 +562,21 @@ impl Inventory {
                 };
                 if let Some(sound) = sound {
                     scene.sounds.push(sound.into());
+                }
+                if e.class() == "item_suit" {
+                    let flags = e
+                        .get("spawnflags")
+                        .and_then(|v| v.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    scene.sounds.push(crate::sounds::SoundRequest {
+                        volume: Some(0.25),
+                        ..if flags & 0x10000 != 0 {
+                            "!HEV_A0"
+                        } else {
+                            "!HEV_AAx"
+                        }
+                        .into()
+                    });
                 }
             }
         }
