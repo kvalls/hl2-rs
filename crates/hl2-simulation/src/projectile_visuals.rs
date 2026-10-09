@@ -17,6 +17,8 @@ pub const SPRITES: &[&str] = &[
     "effects/combinemuzzle2_nocull",
     "effects/fire_cloud1",
     "effects/fire_cloud2",
+    "sprites/redglow1",
+    "sprites/bluelaser1",
 ];
 pub struct Sprite {
     pub image: std::sync::Arc<vtf::Image>,
@@ -39,6 +41,10 @@ pub struct ProjectileVisuals {
     pub effect_frames: u64,
     pub particles: Particles,
     pub missing_particle_draws: u64,
+    /// w_grenade.mdl "fuse" attachment offset (bone 0 treated as the model origin).
+    fuse_offset: Vec3,
+    /// Frag trail points (time, position) per grenade, 0.5 s long.
+    trails: HashMap<u64, std::collections::VecDeque<(f64, Vec3)>>,
 }
 pub fn load_sprite(vfs: &Vfs, material: &str) -> Result<Sprite> {
     let base = vfs
@@ -50,7 +56,12 @@ pub fn load_sprite(vfs: &Vfs, material: &str) -> Result<Sprite> {
     let image = vtf::decode(&data, 512)?;
     Ok(Sprite {
         image: std::sync::Arc::new(image),
-        kind: if material == "sprites/lgtning" {
+        // Entity render modes, not the VMTs, make these additive: the frag's
+        // redglow1 is kRenderGlow and its bluelaser1 trail kRenderTransAdd.
+        kind: if matches!(
+            material,
+            "sprites/lgtning" | "sprites/redglow1" | "sprites/bluelaser1"
+        ) {
             3
         } else {
             material_kind(vfs, material)
@@ -115,6 +126,8 @@ impl ProjectileVisuals {
             effect_frames: 0,
             particles: Particles::default(),
             missing_particle_draws: 0,
+            fuse_offset: Vec3::ZERO,
+            trails: HashMap::new(),
         }
     }
     pub fn new(vfs: &Vfs) -> Self {
@@ -131,6 +144,27 @@ impl ProjectileVisuals {
                 Err(error) => {
                     result.errors.insert((*name).into(), format!("{error:#}"));
                 }
+            }
+        }
+        match vfs
+            .read(crate::projectiles::FRAG_MODEL)
+            .ok()
+            .flatten()
+            .map(|data| source_assets::eyes::read_attachments(&data))
+        {
+            Some(Ok(attachments)) => {
+                if let Some((_, fuse)) = attachments
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("fuse"))
+                {
+                    result.fuse_offset = fuse.local.w_axis.truncate();
+                }
+            }
+            other => {
+                result.errors.insert(
+                    crate::projectiles::FRAG_MODEL.into(),
+                    format!("fuse attachment: {:?}", other.map(|r| r.err())),
+                );
             }
         }
         result
@@ -236,6 +270,47 @@ impl ProjectileVisuals {
                 1.,
             );
             self.ball_frames += 1;
+        }
+        // CGrenadeFrag::CreateEffects: redglow1 (kRenderGlow, alpha 200, scale 0.2) and a
+        // bluelaser1 trail (additive red, width 8 to 1, 0.5 s) at the fuse attachment.
+        self.trails
+            .retain(|id, _| projectiles.active.iter().any(|p| p.id == *id));
+        for frag in projectiles
+            .active
+            .iter()
+            .filter(|p| p.kind == ProjectileKind::FragGrenade)
+        {
+            let fuse = frag.position + crate::physics::angles(frag.angles) * self.fuse_offset;
+            let glow = self
+                .sprites
+                .get("sprites/redglow1")
+                .map_or(0., |s| s.image.width as f32 * 0.5 * 0.2);
+            self.quad("sprites/redglow1", fuse, axes, glow, 0., 200. / 255.);
+            let trail = self.trails.entry(frag.id).or_default();
+            if !paused && trail.back().is_none_or(|(at, _)| *at < time) {
+                trail.push_back((time, fuse));
+            }
+            while trail.front().is_some_and(|(at, _)| time - at > 0.5) {
+                trail.pop_front();
+            }
+            let points: Vec<(f64, Vec3)> = trail.iter().copied().collect();
+            for pair in points.windows(2) {
+                let ((t0, a), (t1, b)) = (pair[0], pair[1]);
+                let width = |t: f64| 1. + 7. * (1. - ((time - t) / 0.5).clamp(0., 1.) as f32);
+                let along = (b - a).normalize_or_zero();
+                let side = along.cross(direction).normalize_or_zero();
+                if side == Vec3::ZERO || !self.sprites.contains_key("sprites/bluelaser1") {
+                    continue;
+                }
+                let (w0, w1) = (width(t0) * 0.5, width(t1) * 0.5);
+                self.quads.push(Quad {
+                    material: "sprites/bluelaser1".into(),
+                    // Beam textures run along v; u spans the width.
+                    positions: [a - side * w0, b - side * w1, b + side * w1, a + side * w0],
+                    color: [255, 0, 0, 255],
+                    uv: crate::explosion_particles::UV,
+                });
+            }
         }
         for effect in &projectiles.effects {
             let age = (time - effect.at).max(0.) as f32;
