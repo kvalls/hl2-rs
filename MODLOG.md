@@ -1,5 +1,31 @@
 # MODLOG
 
+## 2026-10-09 session 10: player damage path, gordon_invulnerable, fades, damage indicator, HEV voice
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
+
+**Changed:**
+- One SDK-ordered player damage intake, `hl2_simulation::player_damage` (CHL2_Player::OnTakeDamage skill scale with the DROWN/CRUSH/FALL/POISON/SNIPER exemption, CBasePlayer::OnTakeDamage armor with integer m_ArmorValue, the fractional damage accumulator, DamageEffect, suit diagnosis, CHL2_Player::UpdateClientData "Damage" message). trigger_hurt, the player's grenade blasts and falls all use it; `Inventory::damage_player` is removed.
+- env_global and the global table (`hl2_simulation::globals`; SF_GLOBAL_SET only when absent, TurnOn/Off/Remove/Toggle/counters), carried on changelevel. While `gordon_invulnerable` is on (owned d1_trainstation_01-03 and the 04 knockout) the player takes no damage, as the owner reported for native.
+- trigger_hurt hurts every toucher that passes its filters (spawnflags), fires OnHurt for NPCs and OnHurtPlayer for the player, counts both for doubling/forgiveness; NPC damage goes through the shared entity damage path; dead players are not hurt.
+- Screen fades (`hl2_ui::fades`, CViewEffects): DamageEffect fades, env_fade inputs and the fatal-landing black fade (PlayerFallingDamage), drawn under the HUD on the game clock.
+- HUD damage indicator: the HudDamageIndicator panel with the owned HudTakeDamage*/HudPlayerDeath sequences, SDK MsgFunc_Damage selection (angle bins, DAMAGE_HIGH, damage bits), white_additive trapezoids and fullscreen flash. HudPlayerDeath now comes from the Damage message (CHudHealth never started it).
+- HEV suit voice: `hl2_simulation::suit` (SetSuitUpdate/CheckSuitUpdate), `source_assets::vox` (sentences.txt and retail engine.dll VOX word rules, 100bb370/100bc9d0/100bb4b0), sentence synthesis from preloaded words in audio.rs; suitvolume 0.25; HEV_DEAD at death; the queue clears at death (Event_Killed). Nothing without the suit; DeathSound picks FallGib from the accumulated DMG_FALL bit.
+- Fixtures: `test-inputs/bevy-player-death.json` now drops on d1_trainstation_04 (run with `--map d1_trainstation_04`; trainstation_02 no longer allows damage); new `test-inputs/bevy-player-hurt.json` (suit, trigger_hurt *32).
+- DESIGN: 13a-2 plan, owner corrections, 13b as one feature, step 14 NPC AI with an F4 developer NPC spawn overlay (native F5/F6/F9 binds avoided).
+
+**Why:** DESIGN 13a remainder (owner priority: player features first), and owner corrections: no damage in d1_trainstation_01-03 (gordon_invulnerable), HEV sounds only with the suit.
+
+**Tested how:**
+- Unit tests: damage order/armor/accumulator/skill exemptions, Damage message, DamageEffect and diagnosis, globals (trainstation sequence, carry, counters), trigger_hurt NPC touchers and filters, fade math (CViewEffects), indicator angle bins and sequences, suit queue spacing/no-repeat/no-suit, VOX tokenizer and parameter scope. Owned: 60+ HEV sentences render within 5 ms of their authored {Len} (HEV_MED0's Len is stale). 380 workspace tests, strict Clippy, fmt.
+- Packaged: trainstation_02 drops leave health 100 (globals on); d1_trainstation_04 trigger_hurt *32 kills at four street spots; suit run plays !HEV_DMG5 at 0.15 s, Player.FallGib and HEV_DEAD1 at death (audio trace); no-suit fatal fall plays Player.FallDamage + FallGib only and respawns with 100 health.
+- Native HDR comparison (oracle, `ORACLE_SETUP="noclip;cl_drawhud 1"`): trigger_hurt death at (-5608,-4783) after 6 s: native mean (255,64,50) / ours (255,60,47), red saturated on 100% of pixels in both; fatal landing at (-4584,-4163): native uniform (253,0,0) / ours (255,0,0); both engines land on the same player clip at z 640 at (-5608,-4783).
+- Batch artifacts/damage-regression: 26/17/26; Breen feeds pixel-identical; the weapons view's HEALTH now reads 100 (trainstation_02 refuses the own-grenade damage that used to leave 16.4); attention book-edge differences match a rerun's physics noise.
+
+**Still broken or not tested:** drowning (needs water level/swimming), knockback/punch angles, time-based damage, explosion ear ringing, NPC health from sk_*_health, parented triggers (canals_01 trains), modulate fade blend (inferred), VOX word pitch vs channel pitch and time compression (retail mixer unread), the friendlies-talking suit volume cut; timing of the indicator/death ramps vs native; native HEV audio levels; the 2-level (253 vs 255) death red.
+
+**Next:** merge, then DESIGN 13b (the rest of the arsenal in one feature).
+
 ## 2026-10-08 session 9 (end): player fall damage, death and respawn; detail sprite WIP
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.

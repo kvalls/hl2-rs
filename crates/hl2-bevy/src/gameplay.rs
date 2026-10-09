@@ -141,6 +141,22 @@ impl Gameplay {
                 self.scene.sounds.push("Player.FallDamage".into());
             }
         }
+        // PlayerFallingDamage: a landing that leaves the player dead cuts to black
+        // (FlPlayerFallDeathDoesScreenFade, duration 0, hold 9999, OUT | STAYOUT).
+        if player
+            .landed
+            .is_some_and(|speed| hl2_simulation::gameplay::fall_damage(speed) > 0.)
+            && self.inventory.health <= 0.
+            && !player.dead
+        {
+            use hl2_simulation::player_damage::{FFADE_OUT, FFADE_STAYOUT, ScreenFade};
+            self.player_damage.fades.push(ScreenFade::new(
+                [0, 0, 0, 255],
+                0.,
+                9999.,
+                FFADE_OUT | FFADE_STAYOUT,
+            ));
+        }
         let suit = self.inventory.suit;
         for sound in self.player_damage.sounds.drain(..) {
             self.scene.sounds.push(sound.into());
@@ -164,13 +180,29 @@ impl Gameplay {
                 }
                 .into(),
             );
-            // UTIL_EmitGroupnameSuit(HEV_DEAD): played at once, not queued.
+            // DeathSound: UTIL_EmitGroupnameSuit(HEV_DEAD) at once; Event_Killed then
+            // clears the queued suit sentences.
             self.suit.emit(suit, "#HEV_DEAD");
+            self.suit.clear();
             // Event_Killed holsters the active weapon.
             self.inventory.previous = std::mem::take(&mut self.inventory.active);
         }
         // CheckSuitUpdate (PostThink), then UpdateClientData after the damage.
         self.suit.think(suit && !player.dead, now);
+        // UTIL_EmitSoundSuit: suitvolume 0.25 (SDK default, the owner's config.cfg).
+        for sentence in std::mem::take(&mut self.suit.play) {
+            let name = if let Some(group) = sentence.strip_prefix('#') {
+                format!("#{group}")
+            } else {
+                format!("!{sentence}")
+            };
+            self.scene
+                .sounds
+                .push(hl2_simulation::sounds::SoundRequest {
+                    volume: Some(0.25),
+                    ..name.into()
+                });
+        }
         if let Some(message) = self.player_damage.client_message() {
             self.damage_messages.push(message);
         }
@@ -548,7 +580,7 @@ impl Gameplay {
                     .then(|| (id, errors.iter().map(|e| format!("{e:?}")).collect()))
             })
             .collect();
-        serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
+        serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"player_damage":self.player_damage,"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"gesture_layers":self.scene.gestures.report(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),
             "projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,

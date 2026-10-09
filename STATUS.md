@@ -1,6 +1,18 @@
 # STATUS
 
-Checkpoint: 2026-10-08 session 9 handoff (Claude Code desktop, claude-opus-5-5) on main. Merged: player fall damage/death/respawn, crowbar surface sounds, footsteps, script cue levels, barrier close-hum loop (ambient_generic PlaySound/StopSound per SDK m_fActive; packaged walk-in/out recording loops and stops twice) and env_soundscape backgrounds (SDK selection + client playback; native per-process recordings compared). PR #2 merged by the owner. 360 normal tests + owned, strict Clippy/fmt; batch verifiers 26/17/26.
+Checkpoint: 2026-10-09 session 10 (Claude Code desktop, claude-opus-5-5) on main. Merged: SDK player damage path, env_global/gordon_invulnerable, trigger_hurt for all touchers, screen fades, HUD damage indicator and HEV suit voice (DESIGN 13a-2). 380 normal tests + owned, strict Clippy/fmt; batch verifiers 26/17/26 (artifacts/damage-regression).
+
+## Current session 10 (2026-10-09)
+
+Supersedes session 9's open items where they conflict. Claude Code desktop, model `claude-opus-5-5`. No subagents.
+
+- **Player damage (DESIGN 13a-2): merged.** One SDK-ordered intake for trigger_hurt, blasts and falls (skill 2 scale 1.0 from the owned skill.cfg, integer armor/health with the fractional accumulator, DamageEffect, suit diagnosis, the client Damage message). trigger_hurt hurts NPC touchers too (OnHurt), through the shared entity damage path.
+- **Owner correction: no damage in d1_trainstation_01-03.** Native refuses player damage while the global `gordon_invulnerable` is on (CHL2_Player::OnTakeDamage). env_global and the cross-level global table are implemented; trainstation_04's knockout toggles it. The old trainstation_02 death fixture now (correctly) survives; the fixture moved to d1_trainstation_04. The two rejected native `hurtme` attempts were most likely refused by this global.
+- **Owner correction: HEV voice only with the suit.** Damage diagnosis sentences and HEV_DEAD (beeps, flatline) are scheduled/played only with the suit (SetSuitUpdate/DeathSound); without it only Player.Death / Player.FallGib. Sentences are synthesized from VOX words (retail engine.dll parser rules); 60+ owned HEV sentences match their authored lengths within 5 ms.
+- **Fades and indicator:** CViewEffects fades (DamageEffect, env_fade, the fatal-landing black cut), HudDamageIndicator from the owned HudAnimations sequences. Native steady-state death frames match (trigger_hurt red; fatal landing black + red, 253 vs our 255).
+- **Owner direction (2026-10-09):** after player damage, the rest of the arsenal as one feature (13b), then NPC behavior/AI from SDK + private retail evidence (step 14), with a developer NPC spawn overlay on F4 (class + weapon, spawned armed; native F5 jpeg, F6 save quick, F9 load quick, owner config F3 askconnect_accept avoided). Trainstation metrocops must follow native behavior (posts, warnings, shove, stunstick escalation).
+
+Remaining work, in the owner's order: (0) DESIGN 13b, the rest of the arsenal in one feature (frag, crossbow, RPG, gravity gun, bug bait); (1) step 14 NPC AI + F4 spawn overlay; then the previous list: detail sprites (DESIGN 11c, `wip/detail-sprites-20261008`), audio follow-ups (outside soundscape +6.6 dB, NPC speech positioning, own-sound spatialization, DSP), displacement overlays/fades, npc_metropolice movement/idle and the security chain, renderer items (LDR, env_cubemap on brush entities/models, bumped lightmaps, ropes, env_sprite, screen glow, monitor brightness). Player leftovers: drowning (needs water movement), knockback/punch, time-based damage, NPC sk_*_health, parented triggers, VOX mixer details.
 
 ## Current session 9 (2026-10-08)
 

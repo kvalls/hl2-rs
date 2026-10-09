@@ -78,6 +78,10 @@ impl Suit {
                 };
         }
     }
+    /// SetSuitUpdate(NULL): Event_Killed empties the play list.
+    pub fn clear(&mut self) {
+        self.play_list = Default::default();
+    }
     /// CheckSuitUpdate, every player think: play the next queued sentence when due.
     pub fn think(&mut self, suit: bool, now: f64) {
         if !suit || self.update_at <= 0. || now < self.update_at {
