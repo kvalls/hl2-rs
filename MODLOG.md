@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-10-09 session 10 (later): arsenal WIP (frag grenade), suit logon
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
+
+**Changed (branch `wip/arsenal-20261009`, not merged):** DESIGN 13b plan (all five weapons, one merge). weapon_frag per SDK CWeaponFrag with the owned v_grenade.mdl events (owned test asserts the sequences/events); npc_grenade_frag fuse/blips/explosion on Source think ticks; projectile models render per model (SMG grenade, w_grenade); frag glow + trail at the fuse attachment (additive by entity render mode); clipless weapons give default ammo as reserve (GiveDefaultAmmo); item_suit plays !HEV_AAx (CItemSuit::MyTouch).
+
+**Why:** owner priority: the rest of the arsenal as one feature after player damage.
+
+**Tested how:** unit tests (launch math, fuse schedule), owned test (v_grenade events), workspace tests, strict Clippy/fmt; packaged trainstation_02 throw (pullback, release, throw at the event, AMMO 5 -> 4, blips, explosion at +3.045 s, redraw) and trainstation_06 suit pickup (!HEV_AAx). No native comparison yet.
+
+**Still broken or not tested:** native frag comparison; lob/roll packaged runs; the frag as a real physics body (friction/rolling approximated); grenade punt/pickup (gravity gun); crossbow, RPG, bug bait, gravity gun.
+
+**Next:** finish 13b on the same branch (native frag check, then crossbow, RPG, bug bait, gravity gun), regression batch, single merge.
+
 ## 2026-10-09 session 10: player damage path, gordon_invulnerable, fades, damage indicator, HEV voice
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
