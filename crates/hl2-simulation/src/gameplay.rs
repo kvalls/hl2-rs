@@ -974,28 +974,6 @@ impl Inventory {
             lifetime: weapon.secondary_lifetime,
         });
     }
-    /// CBasePlayer::OnTakeDamage_Alive health/armor accounting. Armor absorbs 80% at one
-    /// armor point per two damage points, except for DMG_FALL/DROWN/POISON/RADIATION
-    /// (`armor` false). Returns the health removed; the dead take no damage.
-    pub fn damage_player(&mut self, amount: f32, armor: bool) -> f32 {
-        if self.health <= 0. || !amount.is_finite() || amount <= 0. {
-            return 0.;
-        }
-        let mut health_damage = amount;
-        if armor && self.armor > 0. {
-            health_damage = amount * 0.2;
-            let armor_cost = (amount - health_damage).max(1.);
-            if armor_cost > self.armor {
-                health_damage = amount - self.armor;
-                self.armor = 0.;
-            } else {
-                self.armor -= armor_cost;
-            }
-        }
-        let before = self.health;
-        self.health = (self.health - health_damage).max(0.);
-        before - self.health
-    }
     pub fn apply_projectile_damage(
         &mut self,
         events: Vec<crate::projectiles::Damage>,
@@ -1010,9 +988,13 @@ impl Inventory {
             }
             match damage.target {
                 DamageTarget::Player => {
-                    // Difficulty scaling, damage HUD, pain sounds and knockback
-                    // still need their separate native player implementation.
-                    self.damage_player(damage.amount, true);
+                    // Blasts reach the player through the SDK player damage path
+                    // (skill, armor, HUD message); knockback is not modeled.
+                    scene.player_damage.push(crate::player_damage::DamageInfo {
+                        amount: damage.amount,
+                        kind: crate::player_damage::DMG_BLAST,
+                        inflictor: damage.origin,
+                    });
                 }
                 DamageTarget::Entity(id) => {
                     let Some(entity) = world.entities.get(id) else {
@@ -1321,13 +1303,25 @@ mod tests {
             armor: 50.,
             ..Default::default()
         };
-        // Falls ignore armor; other damage spends one armor point per two absorbed.
-        assert_eq!(inv.damage_player(30., false), 30.);
+        // Falls ignore armor; other damage spends one armor point per point absorbed.
+        use crate::player_damage::{DamageInfo, PlayerDamage, DMG_BULLET, DMG_FALL};
+        let mut damage = PlayerDamage::default();
+        let mut hit = |inv: &mut Inventory, amount, kind| {
+            damage.take(
+                inv,
+                DamageInfo {
+                    amount,
+                    kind,
+                    inflictor: glam::Vec3::ZERO,
+                },
+            )
+        };
+        assert_eq!(hit(&mut inv, 30., DMG_FALL), 30.);
         assert_eq!(inv.armor, 50.);
-        assert_eq!(inv.damage_player(30., true), 6.);
+        assert_eq!(hit(&mut inv, 30., DMG_BULLET), 6.);
         assert_eq!(inv.armor, 26.);
-        assert_eq!(inv.damage_player(500., false), 64.);
-        assert_eq!(inv.damage_player(10., true), 0.);
+        assert_eq!(hit(&mut inv, 500., DMG_FALL), 64.);
+        assert_eq!(hit(&mut inv, 10., DMG_BULLET), 0.);
     }
     #[test]
     fn map_clock_transfer_preserves_remaining_cooldown_reload_and_charge() {
@@ -2087,11 +2081,18 @@ mod tests {
                 amount: 100.,
                 dissolve: false,
                 direction: Vec3::X,
+                origin: Vec3::X,
             }],
             &world,
             &mut scene,
             &mut physics,
         );
+        let blast = scene.player_damage.pop().unwrap();
+        assert_eq!(
+            (blast.amount, blast.kind),
+            (100., crate::player_damage::DMG_BLAST)
+        );
+        crate::player_damage::PlayerDamage::default().take(&mut inv, blast);
         assert_eq!(inv.armor, 0.);
         assert_eq!(inv.health, 50.);
         let dissolve = Damage {
@@ -2099,6 +2100,7 @@ mod tests {
             amount: 0.,
             dissolve: true,
             direction: Vec3::X,
+            origin: Vec3::ZERO,
         };
         inv.apply_projectile_damage(vec![dissolve, dissolve], &world, &mut scene, &mut physics);
         assert!(scene.states[0].killed);

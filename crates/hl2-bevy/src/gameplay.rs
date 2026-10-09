@@ -100,46 +100,81 @@ pub struct Gameplay {
     pub sound_requests: Vec<hl2_simulation::sounds::SoundRequest>,
     weapon_sounds: hl2_simulation::sounds::WeaponAnimationSounds,
     pub footsteps: hl2_simulation::footsteps::Footsteps,
+    /// Local player damage intake (skill 2, the owner's native setting).
+    pub player_damage: hl2_simulation::player_damage::PlayerDamage,
+    /// Client "Damage" messages not yet shown by the HUD.
+    pub damage_messages: Vec<hl2_simulation::player_damage::DamageMessage>,
+    /// HEV suit voice queue.
+    pub suit: hl2_simulation::suit::Suit,
 }
 impl Gameplay {
-    /// After the player move: HL2 fall damage on landing, then death (Event_Killed/DeathSound).
-    /// Returns true when the player died this tick.
+    /// After the player move: this tick's damage (trigger_hurt, blasts, then the
+    /// landing's fall damage) through the SDK player path, then death
+    /// (Event_Killed/DeathSound). Returns true when the player died this tick.
     pub fn player_outcome(&mut self, player: &mut modkit_core::movement::Player) -> bool {
-        // DMG_FALL, DMG_DROWN, DMG_POISON and DMG_RADIATION bypass armor (OnTakeDamage_Alive).
-        const NO_ARMOR: u32 = 32 | 16384 | 131072 | 262144;
-        for (amount, kind) in std::mem::take(&mut self.scene.player_damage) {
-            if amount < 0. {
-                if self.inventory.health > 0. {
-                    self.inventory.health = (self.inventory.health - amount).min(100.);
-                }
-            } else {
-                self.inventory.damage_player(amount, kind & NO_ARMOR == 0);
-            }
-        }
-        let mut fell = false;
+        use hl2_simulation::player_damage::{DMG_FALL, DamageInfo};
+        // CHL2_Player::OnTakeDamage refuses everything while gordon_invulnerable is on
+        // (d1_trainstation_01-03 and parts of 04); TakeHealth is separate.
+        let invulnerable = self.scene.globals.is_on("gordon_invulnerable");
+        let mut infos = std::mem::take(&mut self.scene.player_damage);
         if let Some(speed) = player.landed {
             let damage = hl2_simulation::gameplay::fall_damage(speed);
-            if damage > 0. && self.inventory.damage_player(damage, false) > 0. {
+            if damage > 0. {
+                // CMoveHelperServer::PlayerFallingDamage: the world inflicts DMG_FALL.
+                infos.push(DamageInfo {
+                    amount: damage,
+                    kind: DMG_FALL,
+                    inflictor: Vec3::ZERO,
+                });
+            }
+        }
+        for info in infos {
+            if info.amount < 0. {
+                if self.inventory.health > 0. {
+                    self.inventory.health = (self.inventory.health - info.amount).min(100.);
+                }
+            } else if !invulnerable
+                && self.player_damage.take(&mut self.inventory, info) > 0.
+                && info.kind & DMG_FALL != 0
+                && player.landed.is_some()
+            {
                 self.scene.sounds.push("Player.FallDamage".into());
-                fell = true;
             }
         }
-        if player.dead || self.inventory.health > 0. {
-            return false;
+        let suit = self.inventory.suit;
+        for sound in self.player_damage.sounds.drain(..) {
+            self.scene.sounds.push(sound.into());
         }
-        player.dead = true;
-        player.crouched = false;
-        self.scene.sounds.push(
-            if fell {
-                "Player.FallGib"
-            } else {
-                "Player.Death"
-            }
-            .into(),
-        );
-        // Event_Killed holsters the active weapon; HEV_DEAD suit sentences are not scheduled yet.
-        self.inventory.previous = std::mem::take(&mut self.inventory.active);
-        true
+        let now = self.scene.time;
+        for update in std::mem::take(&mut self.player_damage.suit) {
+            self.suit
+                .update(suit, update.sentence, update.no_repeat, now);
+        }
+        let died = !player.dead && self.inventory.health <= 0.;
+        if died {
+            player.dead = true;
+            player.crouched = false;
+            self.scene.player_dead = true;
+            // DeathSound: the accumulated damage bits decide the fall splat.
+            self.scene.sounds.push(
+                if self.player_damage.bits() & DMG_FALL != 0 {
+                    "Player.FallGib"
+                } else {
+                    "Player.Death"
+                }
+                .into(),
+            );
+            // UTIL_EmitGroupnameSuit(HEV_DEAD): played at once, not queued.
+            self.suit.emit(suit, "#HEV_DEAD");
+            // Event_Killed holsters the active weapon.
+            self.inventory.previous = std::mem::take(&mut self.inventory.active);
+        }
+        // CheckSuitUpdate (PostThink), then UpdateClientData after the damage.
+        self.suit.think(suit && !player.dead, now);
+        if let Some(message) = self.player_damage.client_message() {
+            self.damage_messages.push(message);
+        }
+        died
     }
     /// SDK step sounds for one movement tick: UpdateStepSound with the state before the move,
     /// then the jump or landing step the move produced.
@@ -198,6 +233,9 @@ impl Gameplay {
             sound_requests: vec![],
             weapon_sounds: Default::default(),
             footsteps: Default::default(),
+            player_damage: Default::default(),
+            damage_messages: Vec::new(),
+            suit: Default::default(),
         }
     }
     pub fn load_with_campaign(
@@ -214,7 +252,15 @@ impl Gameplay {
         let weapons = hl2_simulation::gameplay::definitions(vfs)?;
         actors::prepare_weapons(&mut world, vfs, &weapons)?;
         let impacts = hl2_simulation::impacts::Impacts::new(vfs, &world);
+        let skill = vfs
+            .read("cfg/skill.cfg")?
+            .map(|b| String::from_utf8_lossy(&b).into_owned());
+        let player_damage =
+            hl2_simulation::player_damage::PlayerDamage::with_skill(2, skill.as_deref());
         Ok(Self {
+            player_damage,
+            damage_messages: Vec::new(),
+            suit: Default::default(),
             impacts,
             world: Arc::new(world),
             scene,
@@ -435,7 +481,7 @@ impl Gameplay {
             player,
             fly,
         );
-        let damage = self.projectiles.tick(
+        let mut damage = self.projectiles.tick(
             &self.world,
             &mut self.scene,
             physics,
@@ -443,6 +489,8 @@ impl Gameplay {
             player.crouched,
             TICK,
         );
+        // trigger_hurt touchers from this tick's scene logic share the entity path.
+        damage.append(&mut self.scene.entity_damage);
         self.inventory
             .apply_projectile_damage(damage, &self.world, &mut self.scene, physics);
         physics.tick(TICK);
