@@ -115,6 +115,11 @@ pub struct Quad {
     pub destination: Rect,
     pub color: Color,
     pub additive: bool,
+    /// Multiplies the frame by the color (a modulate ScreenFade).
+    pub modulate: bool,
+    /// Per-vertex destination corners and colors, in the order top-left, bottom-left,
+    /// bottom-right, top-right of `destination` (the damage indicator's trapezoids).
+    pub vertices: Option<[(Vec2, Color); 4]>,
 }
 struct State {
     viewport: Vec2,
@@ -160,6 +165,41 @@ impl Canvas {
             destination,
             color,
             additive,
+            modulate: false,
+            vertices: None,
+        });
+    }
+    /// An untextured quad with per-vertex positions and colors (blend as set).
+    pub fn polygon(&self, vertices: [(Vec2, Color); 4]) {
+        if vertices.iter().all(|(_, c)| c.a <= 0.) {
+            return;
+        }
+        let min = vertices.iter().fold(Vec2::MAX, |m, (p, _)| m.min(*p));
+        let max = vertices.iter().fold(Vec2::MIN, |m, (p, _)| m.max(*p));
+        let mut state = self.0.lock().expect("HUD canvas");
+        let additive = state.additive;
+        state.commands.push(Quad {
+            texture: None,
+            source: Rect::new(0., 0., 1., 1.),
+            destination: Rect::new(min.x, min.y, max.x - min.x, max.y - min.y),
+            color: Color::new(1., 1., 1., 1.),
+            additive,
+            modulate: false,
+            vertices: Some(vertices),
+        });
+    }
+    /// A full-viewport quad that multiplies the frame by `color` (alpha ignored).
+    pub fn modulate(&self, color: Color) {
+        let mut state = self.0.lock().expect("HUD canvas");
+        let viewport = state.viewport;
+        state.commands.push(Quad {
+            texture: None,
+            source: Rect::new(0., 0., 1., 1.),
+            destination: Rect::new(0., 0., viewport.x, viewport.y),
+            color,
+            additive: false,
+            modulate: true,
+            vertices: None,
         });
     }
     pub fn rectangle(&self, x: f32, y: f32, w: f32, h: f32, color: Color) {

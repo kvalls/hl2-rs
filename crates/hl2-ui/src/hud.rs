@@ -504,6 +504,17 @@ fn animation_lines(source: &str) -> Result<Vec<(String, Vec<String>)>> {
     }
     Ok(lines)
 }
+/// CHudDamageIndicator::GetDamagePosition: the yaw (degrees, 0..360) of a damage
+/// direction around the flattened view; 90 is left, 180 behind, 270 right.
+fn damage_angle(delta: glam::Vec3, view_yaw: f32) -> f32 {
+    let yaw = view_yaw.to_radians();
+    let forward = glam::Vec3::new(yaw.cos(), yaw.sin(), 0.);
+    let right = glam::Vec3::Z.cross(forward);
+    let front = delta.dot(forward);
+    let side = delta.dot(right);
+    let (x, y) = (360. * -side, 360. * -front);
+    (x.atan2(y) + std::f32::consts::PI).to_degrees()
+}
 fn animations(source: &str) -> Result<Vec<Animate>> {
     let mut result = Vec::new();
     for (event, tokens) in animation_lines(source)? {
@@ -580,6 +591,7 @@ enum NumericPanel {
     Suit,
     Ammo,
     AmmoSecondary,
+    DamageIndicator,
 }
 impl NumericPanel {
     fn read(name: &str) -> Option<Self> {
@@ -588,6 +600,7 @@ impl NumericPanel {
             "hudsuit" => Some(Self::Suit),
             "hudammo" => Some(Self::Ammo),
             "hudammosecondary" => Some(Self::AmmoSecondary),
+            "huddamageindicator" => Some(Self::DamageIndicator),
             _ => None,
         }
     }
@@ -602,6 +615,11 @@ enum NumericProperty {
     Ammo2Color,
     Position,
     Size,
+    DmgColorLeft,
+    DmgColorRight,
+    DmgHighColorLeft,
+    DmgHighColorRight,
+    DmgFullscreenColor,
 }
 impl NumericProperty {
     fn read(name: &str) -> Option<Self> {
@@ -614,13 +632,26 @@ impl NumericProperty {
             "ammo2color" => Some(Self::Ammo2Color),
             "position" => Some(Self::Position),
             "size" => Some(Self::Size),
+            "dmgcolorleft" => Some(Self::DmgColorLeft),
+            "dmgcolorright" => Some(Self::DmgColorRight),
+            "dmghighcolorleft" => Some(Self::DmgHighColorLeft),
+            "dmghighcolorright" => Some(Self::DmgHighColorRight),
+            "dmgfullscreencolor" => Some(Self::DmgFullscreenColor),
             _ => None,
         }
     }
     fn is_color(self) -> bool {
         matches!(
             self,
-            Self::Background | Self::Foreground | Self::TextColor | Self::Ammo2Color
+            Self::Background
+                | Self::Foreground
+                | Self::TextColor
+                | Self::Ammo2Color
+                | Self::DmgColorLeft
+                | Self::DmgColorRight
+                | Self::DmgHighColorLeft
+                | Self::DmgHighColorRight
+                | Self::DmgFullscreenColor
         )
     }
     fn geometry(self) -> bool {
@@ -661,7 +692,7 @@ impl NumericProperty {
 }
 #[derive(Clone, Copy)]
 struct PanelEffects {
-    values: [[f32; 4]; 8],
+    values: [[f32; 4]; 13],
 }
 impl PanelEffects {
     fn new(settings: &Entry) -> Self {
@@ -678,6 +709,12 @@ impl PanelEffects {
                 [0.; 4],
                 [0.; 4],
                 components(foreground),
+                // CHudDamageIndicator's CPanelAnimationVar defaults ("255 0 0 0").
+                [255., 0., 0., 0.],
+                [255., 0., 0., 0.],
+                [255., 0., 0., 0.],
+                [255., 0., 0., 0.],
+                [255., 0., 0., 0.],
             ],
         }
     }
@@ -733,7 +770,7 @@ struct PostedEvent {
     property: Option<String>,
 }
 struct NumericHudEffects {
-    panels: [PanelEffects; 4],
+    panels: [PanelEffects; 5],
     animations: Vec<PropertyAnimation>,
     posted: Vec<PostedEvent>,
     health: i32,
@@ -749,7 +786,7 @@ struct NumericHudEffects {
 }
 impl NumericHudEffects {
     fn new(settings: &Entry) -> Self {
-        let mut panels = [PanelEffects::new(settings); 4];
+        let mut panels = [PanelEffects::new(settings); 5];
         // CHudSecondaryAmmo::Reset starts hidden until a secondary-ammo weapon is observed.
         panels[NumericPanel::AmmoSecondary as usize].values[NumericProperty::Alpha as usize][0] =
             0.;
@@ -946,9 +983,9 @@ impl NumericHudEffects {
             } else if health > 0 {
                 self.start("HealthIncreasedBelow20", time, rules, events, settings);
                 self.start("HealthLow", time, rules, events, settings);
-            } else if self.health > 0 {
-                self.start("HudPlayerDeath", time, rules, events, settings);
             }
+            // CHudHealth starts nothing at zero; HudPlayerDeath comes from the
+            // damage indicator's message handler.
             self.health = health;
         }
         let armor = inv.armor as i32;
@@ -1391,6 +1428,11 @@ pub struct WeaponHud {
     ammo_panel: PanelLayout,
     secondary_ammo_panel: PanelLayout,
     quick_info: QuickInfoHud,
+    /// HudDamageIndicator dmg_xpos, dmg_ypos, dmg_wide, dmg_tall1, dmg_tall2
+    /// (proportional, 480-line units).
+    damage_layout: [f32; 5],
+    /// Client screen fades (CViewEffects).
+    fades: MutexCell<crate::fades::ScreenFades>,
 }
 
 impl WeaponHud {
@@ -1581,7 +1623,175 @@ impl WeaponHud {
             default_crosshair_additive,
             crosshair_color,
             quick_info,
+            damage_layout: {
+                let entry = layout.get("HudDamageIndicator");
+                // CPanelAnimationVarAliasType defaults when the layout omits a value.
+                let value = |key, fallback| entry.map_or(fallback, |e| number(e, key, fallback));
+                [
+                    value("dmg_xpos", 10.),
+                    value("dmg_ypos", 80.),
+                    value("dmg_wide", 30.),
+                    value("dmg_tall1", 300.),
+                    value("dmg_tall2", 240.),
+                ]
+            },
+            fades: MutexCell::new(Default::default()),
         })
+    }
+
+    /// A ScreenFade message (DamageEffect or env_fade) on the game clock.
+    pub fn screen_fade(&self, fade: hl2_simulation::player_damage::ScreenFade, time: f64) {
+        self.fades.borrow_mut().add(fade, time);
+    }
+    pub fn clear_fades(&self) {
+        self.fades.borrow_mut().clear();
+    }
+    /// ViewDrawFade over the 3D view, before the HUD. The modulate material's exact
+    /// use of the fade alpha is engine code; here the frame is multiplied by the color
+    /// blended toward white by (1 - alpha), which is inferred, not verified.
+    pub fn draw_fade(&self, time: f64) {
+        let Some(([r, g, b, a], modulate)) = self.fades.borrow_mut().params(time) else {
+            return;
+        };
+        if a == 0 {
+            return;
+        }
+        if modulate {
+            let t = f32::from(a) / 255.;
+            let mix = |c: u8| 1. - t + t * f32::from(c) / 255.;
+            self.canvas.modulate(Color::new(mix(r), mix(g), mix(b), 1.));
+        } else {
+            self.canvas.additive(false);
+            self.canvas.rectangle(
+                0.,
+                0.,
+                self.canvas.width(),
+                self.canvas.height(),
+                Color::from_rgba(r, g, b, a),
+            );
+        }
+    }
+    /// CHudDamageIndicator::MsgFunc_Damage. `view_yaw` is the Source view yaw in degrees.
+    #[allow(clippy::too_many_arguments)]
+    pub fn damage_message(
+        &self,
+        message: hl2_simulation::player_damage::DamageMessage,
+        view_origin: glam::Vec3,
+        view_yaw: f32,
+        suit: bool,
+        health: f32,
+        time: f64,
+    ) {
+        use hl2_simulation::player_damage::{
+            DMG_ACID, DMG_BURN, DMG_DROWN, DMG_POISON, DMG_RADIATION,
+        };
+        let start = |event: &str| {
+            self.numeric_effects.borrow_mut().start(
+                event,
+                time,
+                &self.animation_rules,
+                &self.animation_events,
+                &self.settings,
+            )
+        };
+        if health <= 0. {
+            start("HudPlayerDeath");
+            return;
+        }
+        if message.from == glam::Vec3::ZERO && message.bits & DMG_DROWN == 0 {
+            return;
+        }
+        if message.taken == 0 && message.armor == 0 {
+            return;
+        }
+        let high = message.taken > 25 || !suit;
+        let angle = damage_angle((message.from - view_origin).normalize_or_zero(), view_yaw);
+        // g_DamageAnimations, first match: (event, bits, min angle, max angle, high only).
+        const TABLE: [(&str, u32, f32, f32, bool); 12] = [
+            ("HudTakeDamageDrown", DMG_DROWN, 0., 0., false),
+            ("HudTakeDamagePoison", DMG_POISON, 0., 0., false),
+            ("HudTakeDamageBurn", DMG_BURN, 0., 0., false),
+            ("HudTakeDamageRadiation", DMG_RADIATION, 0., 0., false),
+            ("HudTakeDamageRadiation", DMG_ACID, 0., 0., false),
+            ("HudTakeDamageHighLeft", 0, 45., 135., true),
+            ("HudTakeDamageHighRight", 0, 225., 315., true),
+            ("HudTakeDamageHigh", 0, 0., 0., true),
+            ("HudTakeDamageLeft", 0, 45., 135., false),
+            ("HudTakeDamageRight", 0, 225., 315., false),
+            ("HudTakeDamageBehind", 0, 135., 225., false),
+            ("HudTakeDamageFront", 0, 0., 0., false),
+        ];
+        let chosen = TABLE.iter().find(|(_, bits, min, max, high_only)| {
+            !(*bits != 0 && message.bits & bits == 0
+                || *min != 0. && angle < *min
+                || *max != 0. && angle > *max
+                || *high_only && !high)
+        });
+        if let Some((event, ..)) = chosen {
+            start(event);
+        }
+    }
+    /// CHudDamageIndicator::Paint: the fullscreen flash, then both sides, additive
+    /// (vgui/white_additive) with per-vertex alpha. Drawn while any color has alpha.
+    fn draw_damage_indicator(&self, panel: PanelEffects) {
+        use NumericProperty::*;
+        let color = |p: NumericProperty| panel.values[p as usize].map(|v| v.clamp(0., 255.));
+        let [left, right, high_left, high_right, full] = [
+            DmgColorLeft,
+            DmgColorRight,
+            DmgHighColorLeft,
+            DmgHighColorRight,
+            DmgFullscreenColor,
+        ]
+        .map(color);
+        let (width, height) = (self.canvas.width(), self.canvas.height());
+        self.canvas.additive(true);
+        let rgba = |c: [f32; 4], alpha: f32| {
+            Color::from_rgba(c[0] as u8, c[1] as u8, c[2] as u8, (c[3] * alpha) as u8)
+        };
+        if full[3] > 0. {
+            self.canvas.rectangle(0., 0., width, height, rgba(full, 1.));
+        }
+        // Proportional values are truncated to VGUI integers.
+        let scale = height / 480.;
+        let [xpos, ypos, wide, tall1, tall2] = self.damage_layout.map(|v| (v * scale).trunc());
+        let high = high_right[3] > right[3] || high_left[3] > left[3];
+        let inset = ((tall1 - tall2) / 2.).trunc();
+        let (x1, x2, y, alpha) = if high {
+            (
+                0.,
+                (width * 0.5).trunc(),
+                [0., 0., height, height],
+                [1., 0., 0., 1.],
+            )
+        } else {
+            (
+                xpos,
+                xpos + wide,
+                [ypos, ypos + inset, ypos + tall1 - inset, ypos + tall1],
+                [0., 1., 1., 0.],
+            )
+        };
+        for side in [0, 1] {
+            let c = match (side, high) {
+                (0, true) => high_left,
+                (0, false) => left,
+                (_, true) => high_right,
+                _ => right,
+            };
+            if c[3] <= 0. {
+                continue;
+            }
+            let v = |x: f32, i: usize| (vec2(x, y[i]), rgba(c, alpha[i]));
+            // Left-top, left-bottom, right-bottom, right-top.
+            self.canvas.polygon(if side == 0 {
+                [v(x1, 0), v(x1, 3), v(x2, 2), v(x2, 1)]
+            } else {
+                let (outer, inner) = (width - x1, width - x2);
+                [v(inner, 1), v(inner, 2), v(outer, 3), v(outer, 0)]
+            });
+        }
+        self.canvas.additive(false);
     }
 
     fn rounded_box(&self, rect: Rect, color: Color) {
@@ -1864,7 +2074,6 @@ impl WeaponHud {
         _selection: &Selection,
         time: f64,
     ) {
-        self.quick_info.draw(inv, weapons, time);
         let mut effects = self.numeric_effects.borrow_mut();
         effects.configure_layouts(
             [
@@ -1883,6 +2092,8 @@ impl WeaponHud {
             &self.animation_events,
             &self.settings,
         );
+        self.draw_damage_indicator(effects.panels[NumericPanel::DamageIndicator as usize]);
+        self.quick_info.draw(inv, weapons, time);
         if !inv.suit || inv.health <= 0. {
             return;
         }
@@ -2499,6 +2710,36 @@ mod tests {
     }
 
     #[test]
+    fn damage_indicator_angles_and_owned_style_sequences() {
+        // Facing +X (yaw 0): +Y is left, -X behind, -Y right; front wraps to 360.
+        let angle = |d: [f32; 3], yaw| damage_angle(glam::Vec3::from_array(d), yaw);
+        // Straight ahead is -0 sideways: atan2(-0, -360) + pi = 0, matching no bin.
+        assert!(angle([1., 0., 0.], 0.).abs() < 0.01);
+        assert!((angle([0., 1., 0.], 0.) - 90.).abs() < 0.01);
+        assert!((angle([-1., 0., 0.], 0.) - 180.).abs() < 0.01);
+        assert!((angle([0., -1., 0.], 0.) - 270.).abs() < 0.01);
+        // The view yaw rotates the bins: facing +Y, damage from +X is on the right.
+        assert!((angle([1., 0., 0.], 90.) - 270.).abs() < 0.01);
+        // HudTakeDamageLeft drives DmgColorLeft through the indicator panel.
+        let source = "event HudTakeDamageLeft\n{\nAnimate HudDamageIndicator DmgColorLeft \"255 88 0 200\" Linear 0.0 0.0\nAnimate HudDamageIndicator DmgColorLeft \"255 0 0 0\" Deaccel 0.3 0.5\n}\n";
+        let rules = animations(source).unwrap();
+        let events = event_rules(source).unwrap();
+        let settings = settings();
+        let mut effects = NumericHudEffects::new(&settings);
+        effects.start("HudTakeDamageLeft", 1., &rules, &events, &settings);
+        effects.advance(1.);
+        let panel = effects.panels[NumericPanel::DamageIndicator as usize];
+        assert_eq!(
+            panel.values[NumericProperty::DmgColorLeft as usize],
+            [255., 88., 0., 200.]
+        );
+        effects.advance(1.8);
+        let panel = effects.panels[NumericPanel::DamageIndicator as usize];
+        assert_eq!(panel.values[NumericProperty::DmgColorLeft as usize][3], 0.);
+        assert_eq!(panel.values[NumericProperty::DmgColorRight as usize][3], 0.);
+    }
+
+    #[test]
     fn animation_subset_rejects_nonfinite_timings_and_extra_parameter_interpolators() {
         let rules = animations("event Invalid\nAnimate HudSuit Alpha 0 Linear NaN .4\nAnimate HudSuit Alpha 0 Linear 0 inf\nAnimate HudSuit Alpha 0 Pulse 3 0 .4\nAnimate HudSuit Alpha 0 Linear 0 .4").unwrap();
         assert_eq!(rules.len(), 1);
@@ -2605,7 +2846,11 @@ mod tests {
         effects.observe(&inv, &BTreeMap::new(), 0., &rules, &events, &settings);
         effects.observe(&inv, &BTreeMap::new(), 1., &rules, &events, &settings);
         assert_eq!(effects.posted[0].target, "HealthLoop");
+        // CHudDamageIndicator::MsgFunc_Damage starts HudPlayerDeath for a dead player.
         inv.health = 0.;
+        effects.observe(&inv, &BTreeMap::new(), 1.2, &rules, &events, &settings);
+        assert!(!effects.posted.is_empty());
+        effects.start("HudPlayerDeath", 1.2, &rules, &events, &settings);
         effects.observe(&inv, &BTreeMap::new(), 1.2, &rules, &events, &settings);
         assert!(effects.posted.is_empty());
     }

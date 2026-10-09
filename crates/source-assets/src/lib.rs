@@ -14,6 +14,7 @@ pub mod scenes;
 pub mod sky;
 pub mod sounds;
 pub mod visibility;
+pub mod vox;
 pub mod vpk;
 pub mod vtf;
 

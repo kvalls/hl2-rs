@@ -28,15 +28,18 @@ pub struct HudMaterial {
     #[sampler(1)]
     texture: Handle<Image>,
     additive: bool,
+    modulate: bool,
 }
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct HudMaterialKey {
     additive: bool,
+    modulate: bool,
 }
 impl From<&HudMaterial> for HudMaterialKey {
     fn from(material: &HudMaterial) -> Self {
         Self {
             additive: material.additive,
+            modulate: material.modulate,
         }
     }
 }
@@ -52,7 +55,23 @@ impl Material2d for HudMaterial {
         _: &MeshVertexBufferLayoutRef,
         key: Material2dKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        if key.bind_group_data.additive {
+        let color = if key.bind_group_data.modulate {
+            // Frame x color.
+            Some(BlendComponent {
+                src_factor: BlendFactor::Zero,
+                dst_factor: BlendFactor::Src,
+                operation: BlendOperation::Add,
+            })
+        } else if key.bind_group_data.additive {
+            Some(BlendComponent {
+                src_factor: BlendFactor::SrcAlpha,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            })
+        } else {
+            None
+        };
+        if let Some(color) = color {
             for target in descriptor
                 .fragment
                 .as_mut()
@@ -61,11 +80,7 @@ impl Material2d for HudMaterial {
                 .flatten()
             {
                 target.blend = Some(BlendState {
-                    color: BlendComponent {
-                        src_factor: BlendFactor::SrcAlpha,
-                        dst_factor: BlendFactor::One,
-                        operation: BlendOperation::Add,
-                    },
+                    color,
                     alpha: BlendComponent::OVER,
                 });
             }
@@ -126,6 +141,7 @@ pub struct Hud {
     pub source: hl2_ui::hud::WeaponHud,
     textures: HashMap<usize, GpuTexture>,
     white: Option<(Handle<HudMaterial>, Handle<HudMaterial>)>,
+    modulate: Option<Handle<HudMaterial>>,
     pool: Vec<(Entity, Handle<Mesh>)>,
     pub quads: usize,
     timing: FrameTiming,
@@ -140,6 +156,7 @@ impl Hud {
             source,
             textures: HashMap::new(),
             white: None,
+            modulate: None,
             pool: vec![],
             quads: 0,
             timing: FrameTiming::default(),
@@ -177,12 +194,39 @@ impl Hud {
                 materials.add(HudMaterial {
                     texture: handle.clone(),
                     additive: false,
+                    modulate: false,
                 }),
                 materials.add(HudMaterial {
                     texture: handle,
                     additive: true,
+                    modulate: false,
                 }),
             )
+        }
+        if quad.modulate {
+            return self
+                .modulate
+                .get_or_insert_with(|| {
+                    let white = Texture2D::from_rgba8(1, 1, &[255; 4]);
+                    let mut image = Image::new(
+                        Extent3d {
+                            width: 1,
+                            height: 1,
+                            depth_or_array_layers: 1,
+                        },
+                        TextureDimension::D2,
+                        white.0.rgba.clone(),
+                        TextureFormat::Rgba8Unorm,
+                        RenderAssetUsages::RENDER_WORLD,
+                    );
+                    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::nearest());
+                    materials.add(HudMaterial {
+                        texture: images.add(image),
+                        additive: false,
+                        modulate: true,
+                    })
+                })
+                .clone();
         }
         let handles = if let Some(cpu) = &quad.texture {
             let texture = self.textures.entry(cpu.id()).or_insert_with(|| {
@@ -248,6 +292,26 @@ pub fn present(
     let width = window.width();
     let height = window.height();
     hud.source.canvas.resize(width, height);
+    // Client order: queued ScreenFade/Damage messages, the fade over the 3D view, HUD.
+    let time = game.scene.time;
+    for fade in std::mem::take(&mut game.player_damage.fades)
+        .into_iter()
+        .chain(std::mem::take(&mut game.scene.screen_fades))
+    {
+        hud.source.screen_fade(fade, time);
+    }
+    let eye = glam::Vec3::from_array(sim.eye().to_array());
+    for message in std::mem::take(&mut game.damage_messages) {
+        hud.source.damage_message(
+            message,
+            eye,
+            sim.yaw.to_degrees(),
+            game.inventory.suit,
+            game.inventory.health,
+            time,
+        );
+    }
+    hud.source.draw_fade(time);
     hud.source.draw_status(
         &game.inventory,
         &game.weapons,
@@ -328,13 +392,19 @@ pub fn present(
 }
 fn quad_mesh(quad: &Quad, viewport: Vec2) -> Mesh {
     let r = quad.destination;
-    let positions = [
-        (r.x, r.y),
-        (r.x, r.y + r.h),
-        (r.x + r.w, r.y + r.h),
-        (r.x + r.w, r.y),
-    ]
-    .map(|(x, y)| [x - viewport.x * 0.5, viewport.y * 0.5 - y, 0.]);
+    let corners = quad.vertices.map_or(
+        [
+            (r.x, r.y),
+            (r.x, r.y + r.h),
+            (r.x + r.w, r.y + r.h),
+            (r.x + r.w, r.y),
+        ],
+        |v| v.map(|(p, _)| (p.x, p.y)),
+    );
+    let positions = corners.map(|(x, y)| [x - viewport.x * 0.5, viewport.y * 0.5 - y, 0.]);
+    let colors = quad
+        .vertices
+        .map_or([quad.color.to_array(); 4], |v| v.map(|(_, c)| c.to_array()));
     let (tw, th) = quad
         .texture
         .as_ref()
@@ -354,7 +424,7 @@ fn quad_mesh(quad: &Quad, viewport: Vec2) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions.to_vec());
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; 4]);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs.to_vec());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![quad.color.to_array(); 4]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors.to_vec());
     mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
     mesh
 }
@@ -371,6 +441,8 @@ mod tests {
             destination: Rect::new(948., 528., 24., 24.),
             color: Color::from_rgba(255, 255, 255, 255),
             additive: true,
+            modulate: false,
+            vertices: None,
         };
         let mesh = quad_mesh(&quad, Vec2::new(1920., 1080.));
         let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =

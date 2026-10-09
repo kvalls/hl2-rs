@@ -190,17 +190,20 @@ fn self_positioned(class: &str) -> bool {
         .iter()
         .any(|p| class.starts_with(p))
 }
-#[derive(Clone, Copy, Debug)]
+/// The local player in trigger_hurt toucher lists.
+const PLAYER: usize = usize::MAX;
+#[derive(Clone, Debug)]
 struct HurtState {
     /// m_flDamage (grows under damagemodel 1).
     damage: f32,
     /// Next HurtThink; None when the think is cleared.
     next: Option<f64>,
     reset_at: f64,
-    /// The player was hurt by the last HurtAllTouchers.
-    hurt_player: bool,
+    /// m_hurtEntities: hurt by the last HurtAllTouchers (PLAYER is the player).
+    hurt: Vec<usize>,
+    /// Touchers seen in the previous tick, for EndTouch.
+    touching: Vec<usize>,
 }
-
 #[derive(Default, Serialize)]
 pub struct Diagnostics {
     pub inputs_delivered: u64,
@@ -250,8 +253,16 @@ pub struct Scene {
     ambient_active: BTreeMap<usize, bool>,
     /// env_soundscape selection for the local player (SDK server soundscape system).
     pub soundscape: crate::soundscapes::Selector,
-    /// Damage dealt to the player this tick (amount, Source damage-type bits); negative heals.
-    pub player_damage: Vec<(f32, u32)>,
+    /// Damage dealt to the player this tick; negative amounts heal.
+    pub player_damage: Vec<crate::player_damage::DamageInfo>,
+    /// Global entity states (env_global); carried across level changes by the host.
+    pub globals: crate::globals::Globals,
+    /// Damage dealt to entities by scene logic (trigger_hurt) this tick.
+    pub entity_damage: Vec<crate::projectiles::Damage>,
+    /// Set by the host: a dead player no longer takes damage (m_takedamage).
+    pub player_dead: bool,
+    /// ScreenFade messages for the local player (env_fade).
+    pub screen_fades: Vec<crate::player_damage::ScreenFade>,
     hurt: BTreeMap<usize, HurtState>,
     unsupported: BTreeSet<String>,
     choreography: BTreeMap<usize, Choreography>,
@@ -293,6 +304,10 @@ impl Scene {
             ambient_active: BTreeMap::new(),
             soundscape: crate::soundscapes::Selector::new(world),
             player_damage: Vec::new(),
+            globals: crate::globals::Globals::spawn(world),
+            entity_damage: Vec::new(),
+            player_dead: false,
+            screen_fades: Vec::new(),
             hurt: BTreeMap::new(),
             unsupported: BTreeSet::new(),
             choreography: BTreeMap::new(),
@@ -1801,52 +1816,93 @@ impl Scene {
             self.fire(id, "OnPlay", id);
         }
     }
-    /// SDK CTriggerHurt for the player: Touch schedules HurtThink at once, which deals
-    /// damage x 0.5 every 0.5 s while touched (damagemodel 1 doubles up to damagecap and
-    /// forgives after 3 s without a hit); leaving without a hit in the last think deals
-    /// damage x 0.5. NPC touchers are not hurt here yet.
-    fn trigger_hurt(&mut self, e: &Entity, id: usize, inside: bool, was_inside: bool) {
+    /// SDK CTriggerHurt: Touch schedules HurtThink at once; HurtAllTouchers deals
+    /// damage x 0.5 to every toucher that passes the filters every 0.5 s while it hurts
+    /// anyone (damagemodel 1 doubles up to damagecap and forgives after 3 s without a
+    /// hit); EndTouch deals damage x 0.5 to a toucher the last think did not hurt.
+    fn trigger_hurt(&mut self, world: &World, id: usize, touching: Vec<usize>) {
+        let e = &world.entities[id];
         let base = number(e, "damage", 0.);
         let cap = number(e, "damagecap", 20.);
         let doubling = number(e, "damagemodel", 0.) as u32 == 1;
-        let kind = number(e, "damagetype", 0.) as u32;
         let time = self.time;
-        let hurt = self.hurt.entry(id).or_insert(HurtState {
+        let mut hurt = self.hurt.remove(&id).unwrap_or(HurtState {
             damage: base,
             next: None,
             reset_at: 0.,
-            hurt_player: false,
+            hurt: Vec::new(),
+            touching: Vec::new(),
         });
-        let mut hurt_now = false;
-        if inside && hurt.next.is_none() {
+        if !touching.is_empty() && hurt.next.is_none() {
             hurt.next = Some(time);
         }
         if hurt.next.is_some_and(|next| time >= next) {
-            hurt.hurt_player = inside;
-            if inside {
-                self.player_damage.push((hurt.damage * 0.5, kind));
-                hurt_now = true;
-            }
-            if doubling {
-                if hurt_now {
-                    hurt.damage = (hurt.damage * 2.).min(cap);
-                    hurt.reset_at = time + 3.;
-                } else if time > hurt.reset_at {
-                    hurt.damage = base;
+            hurt.hurt.clear();
+            let amount = hurt.damage * 0.5;
+            let mut count = 0;
+            for &target in &touching {
+                if self.hurt_entity(world, id, target, amount) {
+                    hurt.hurt.push(target);
+                    count += 1;
                 }
             }
-            hurt.next = hurt_now.then_some(time + 0.5);
-        }
-        if was_inside && !inside {
-            if !hurt.hurt_player {
-                self.player_damage.push((hurt.damage * 0.5, kind));
-                hurt_now = true;
+            if doubling {
+                if count == 0 {
+                    if time > hurt.reset_at {
+                        hurt.damage = base;
+                    }
+                } else {
+                    hurt.damage = (hurt.damage * 2.).min(cap);
+                    hurt.reset_at = time + 3.;
+                }
             }
-            hurt.hurt_player = false;
+            hurt.next = (count > 0).then_some(time + 0.5);
         }
-        if hurt_now && base != 0. {
+        for target in std::mem::take(&mut hurt.touching) {
+            if !touching.contains(&target)
+                && !hurt.hurt.contains(&target)
+                && self.hurt_entity(world, id, target, hurt.damage * 0.5)
+            {
+                hurt.hurt.push(target);
+            }
+        }
+        hurt.touching = touching;
+        self.hurt.insert(id, hurt);
+    }
+    /// CTriggerHurt::HurtEntity: filters and m_takedamage, then TakeDamage (negative
+    /// damage heals); the damage comes from the trigger's origin. OnHurtPlayer/OnHurt.
+    fn hurt_entity(&mut self, world: &World, id: usize, target: usize, amount: f32) -> bool {
+        let e = &world.entities[id];
+        let flags = number(e, "spawnflags", 0.) as u32;
+        let kind = number(e, "damagetype", 0.) as u32;
+        let player = target == PLAYER;
+        let passes = flags & 0x40 != 0 || flags & if player { 1 } else { 2 } != 0;
+        let alive = if player {
+            !self.player_dead
+        } else {
+            self.states.get(target).is_some_and(|s| !s.killed)
+        };
+        if !passes || !alive {
+            return false;
+        }
+        if player {
+            self.player_damage.push(crate::player_damage::DamageInfo {
+                amount,
+                kind,
+                inflictor: self.states[id].origin,
+            });
             self.fire(id, "OnHurtPlayer", usize::MAX);
+        } else {
+            self.entity_damage.push(crate::projectiles::Damage {
+                target: crate::projectiles::DamageTarget::Entity(target),
+                amount,
+                dissolve: false,
+                direction: Vec3::ZERO,
+                origin: self.states[id].origin,
+            });
+            self.fire(id, "OnHurt", target);
         }
+        true
     }
     pub fn fire(&mut self, id: usize, name: &str, activator: usize) {
         let Some(state) = self.states.get_mut(id) else {
@@ -2010,6 +2066,9 @@ impl Scene {
         {
             return;
         }
+        if class == "env_global" && self.globals.input(e, &input, &p.parameter).0 {
+            return;
+        }
         match input.as_str() {
             // CEnvTonemapController: custom auto-exposure limits and the manual tonemap rate.
             "setautoexposuremin" if class == "env_tonemap_controller" => self.tonemap.min = value,
@@ -2061,6 +2120,35 @@ impl Scene {
                 } else {
                     self.unsupported_input("point_template", "ForceSpawn:repeat");
                 }
+            }
+            "fade" if class == "env_fade" => {
+                // CEnvFade::InputFade: SF_FADE_IN 1, MODULATE 2, ONLYONE 4 (the activating
+                // player only), STAYOUT 8; everyone else gets FFADE_PURGE.
+                use crate::player_damage::*;
+                let flags = number(e, "spawnflags", 0.) as u32;
+                let mut fade = if flags & 1 != 0 { FFADE_IN } else { FFADE_OUT };
+                if flags & 2 != 0 {
+                    fade |= FFADE_MODULATE;
+                }
+                if flags & 8 != 0 {
+                    fade |= FFADE_STAYOUT;
+                }
+                if flags & 4 == 0 {
+                    fade |= FFADE_PURGE;
+                }
+                if flags & 4 == 0 || p.activator == usize::MAX {
+                    let rgb = parse_vec3(e.get("rendercolor").unwrap_or("255 255 255"))
+                        .unwrap_or(Vec3::splat(255.));
+                    let alpha = number(e, "renderamt", 255.);
+                    let byte = |v: f32| v.clamp(0., 255.) as u8;
+                    self.screen_fades.push(ScreenFade::new(
+                        [byte(rgb.x), byte(rgb.y), byte(rgb.z), byte(alpha)],
+                        number(e, "duration", 0.),
+                        number(e, "holdtime", 0.),
+                        fade,
+                    ));
+                }
+                self.fire(id, "OnBeginFade", p.activator);
             }
             "kill" => {
                 self.states[id].killed = true;
@@ -2700,7 +2788,18 @@ impl Scene {
                     }
                 }
                 if e.class() == "trigger_hurt" {
-                    self.trigger_hurt(e, id, player, self.states[id].touching && npc.is_none());
+                    // Every touching player/NPC, before the trigger filters (Touch).
+                    let mut touching: Vec<usize> = (0..self.states.len())
+                        .filter(|&n| {
+                            world.entities[n].class().starts_with("npc_")
+                                && !self.states[n].killed
+                                && self.player_inside(world, id, self.states[n].origin)
+                        })
+                        .collect();
+                    if self.player_inside(world, id, player_feet) {
+                        touching.insert(0, PLAYER);
+                    }
+                    self.trigger_hurt(world, id, touching);
                 }
                 // SF_CHANGELEVEL_NOTOUCH (0x2) leaves the ChangeLevel input available,
                 // but must not change maps when the player overlaps the brush.
@@ -3824,6 +3923,7 @@ mod tests {
                 "pain",
                 &[
                     ("model", "*1"),
+                    ("spawnflags", "1"),
                     ("damage", "10"),
                     ("damagecap", "30"),
                     ("damagemodel", model),
@@ -3844,7 +3944,7 @@ mod tests {
                 Vec3::X * 100.
             };
             scene.tick(&world, at, 0.015);
-            for (amount, _) in scene.player_damage.drain(..) {
+            for amount in scene.player_damage.drain(..).map(|d| d.amount) {
                 dealt.push((tick, amount));
             }
         }
@@ -3859,9 +3959,64 @@ mod tests {
         let mut amounts = Vec::new();
         for _ in 0..110 {
             scene.tick(&world, Vec3::ZERO, 0.015);
-            amounts.extend(scene.player_damage.drain(..).map(|(a, _)| a));
+            amounts.extend(scene.player_damage.drain(..).map(|d| d.amount));
         }
         assert_eq!(amounts, [5., 10., 15., 15.]);
+    }
+    #[test]
+    fn trigger_hurt_hurts_npc_touchers_and_respects_filters() {
+        let cube = modkit_core::BrushModel {
+            id: 1,
+            brushes: vec![modkit_core::Brush {
+                planes: [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y, Vec3::Z, -Vec3::Z]
+                    .into_iter()
+                    .map(|normal| modkit_core::Plane {
+                        normal,
+                        distance: 8.,
+                    })
+                    .collect(),
+                contents: 1,
+            }],
+            mins: Vec3::splat(-8.),
+            maxs: Vec3::splat(8.),
+            ..Default::default()
+        };
+        // NPCs only (spawnflags 2), fixed damage 20 from a trigger at (5 0 0).
+        let world = World {
+            entities: vec![
+                entity(
+                    "trigger_hurt",
+                    "pain",
+                    &[
+                        ("model", "*1"),
+                        ("spawnflags", "2"),
+                        ("origin", "5 0 0"),
+                        ("damage", "20"),
+                        ("OnHurt", "relay,Trigger,,0,-1"),
+                    ],
+                ),
+                entity("npc_metropolice", "cop", &[("origin", "0 0 0")]),
+            ],
+            brush_models: vec![cube],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        let fired = scene.diagnostics.outputs_fired;
+        scene.tick(&world, Vec3::ZERO, 0.015);
+        assert!(scene.player_damage.is_empty());
+        let hit = scene.entity_damage.pop().expect("NPC hurt");
+        assert!(matches!(
+            hit.target,
+            crate::projectiles::DamageTarget::Entity(1)
+        ));
+        assert_eq!((hit.amount, hit.origin), (10., Vec3::new(5., 0., 0.)));
+        assert!(scene.diagnostics.outputs_fired > fired);
+        // A killed NPC stops the think: no hurt, no further damage.
+        scene.states[1].killed = true;
+        for _ in 0..40 {
+            scene.tick(&world, Vec3::ZERO, 0.015);
+        }
+        assert!(scene.entity_damage.is_empty());
     }
     #[test]
     fn no_touch_changelevel_still_accepts_explicit_input() {

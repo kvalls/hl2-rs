@@ -36,7 +36,7 @@ impl Campaign {
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"loading":self.job.as_ref().map(|j|&j.request.map),"loading_frames":self.loading_frames,
             "active_map":self.metadata["map"],"history":self.history,"failures":self.failures,
-            "limitations":"landmark eye and inventory transfer; saved entity/AI/global state, full player transfer and complete campaign remain unfinished"})
+            "limitations":"landmark eye, inventory and global-state transfer; saved entity/AI state, full player transfer and complete campaign remain unfinished"})
     }
 }
 type Host<'w> = (
@@ -129,6 +129,15 @@ pub fn poll(
         )
     };
     if !job.request.direct {
+        // changelevel keeps the global table and the player's damage state.
+        let previous = game.scene.globals.clone();
+        loaded.gameplay.scene.globals.carry(&previous);
+        loaded.gameplay.player_damage = std::mem::take(&mut game.player_damage);
+        loaded.gameplay.suit = std::mem::take(&mut game.suit);
+        loaded
+            .gameplay
+            .suit
+            .rebase_clock(game.scene.time, loaded.gameplay.scene.time);
         loaded.gameplay.inventory = std::mem::take(&mut game.inventory);
         loaded
             .gameplay
