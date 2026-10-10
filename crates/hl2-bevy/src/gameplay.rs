@@ -113,6 +113,12 @@ pub struct Gameplay {
     /// Velocity impulses on the player from NPC hits (ApplyAbsVelocityImpulse), applied
     /// before the next player move.
     pub player_impulse: glam::Vec3,
+    /// F4 developer NPC spawn overlay and the npc_create* console state.
+    pub spawn_overlay: hl2_simulation::ai::spawn::Overlay,
+    pub spawn_console: hl2_simulation::ai::spawn::Console,
+    /// Spawn requests and their CC_NPC_Create placement; runtime entity creation is not
+    /// implemented (DESIGN step 14 note), so nothing is created yet.
+    pub spawn_log: Vec<serde_json::Value>,
 }
 impl Gameplay {
     /// After the player move: this tick's damage (trigger_hurt, blasts, then the
@@ -277,6 +283,9 @@ impl Gameplay {
             suit: Default::default(),
             ai: hl2_simulation::ai::runtime::AiRuntime::new(&World::default(), None),
             player_impulse: glam::Vec3::ZERO,
+            spawn_overlay: Default::default(),
+            spawn_console: Default::default(),
+            spawn_log: Vec::new(),
         }
     }
     pub fn load_with_campaign(
@@ -303,6 +312,9 @@ impl Gameplay {
         Ok(Self {
             ai,
             player_impulse: glam::Vec3::ZERO,
+            spawn_overlay: Default::default(),
+            spawn_console: Default::default(),
+            spawn_log: Vec::new(),
             player_damage,
             damage_messages: Vec::new(),
             suit: Default::default(),
@@ -327,6 +339,42 @@ impl Gameplay {
             weapon_sounds: Default::default(),
             footsteps: Default::default(),
         })
+    }
+    /// An npc_create request (F4 Enter or the console): CC_NPC_Create placement from
+    /// the eye along the aim. Logged only: runtime NPC creation is not implemented.
+    pub fn request_spawn(
+        &mut self,
+        request: hl2_simulation::ai::spawn::SpawnRequest,
+        physics: &Physics,
+        eye: Vec3,
+        forward: Vec3,
+    ) -> String {
+        let placement = hl2_simulation::ai::spawn::place(
+            &request,
+            eye,
+            forward,
+            &hl2_simulation::ai::host::PhysicsPlacement { physics },
+        );
+        let message = match &placement {
+            Ok(p) => format!(
+                "{} ({}) at {:.0} {:.0} {:.0} yaw {:.0}: placement only, runtime NPC creation is not implemented",
+                request.classname,
+                if request.equipment.is_empty() {
+                    "no weapon"
+                } else {
+                    &request.equipment
+                },
+                p.origin.x,
+                p.origin.y,
+                p.origin.z,
+                p.yaw
+            ),
+            Err(e) => e.clone(),
+        };
+        self.spawn_log.push(
+            serde_json::json!({"request":request,"placement":placement.ok(),"message":message}),
+        );
+        message
     }
     pub fn consume_attacks(&mut self) {
         self.primary_consumed = true;
@@ -629,7 +677,7 @@ impl Gameplay {
         serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"player_damage":self.player_damage,"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"gesture_layers":self.scene.gestures.report(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),
-            "ai":serde_json::to_value(&self.ai).unwrap_or_default(),"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
+            "ai":serde_json::to_value(&self.ai).unwrap_or_default(),"npc_spawns":self.spawn_log,"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
             "unplayed_sounds":self.unplayed_sounds,"queued_sounds":self.sound_requests.len(),"recent_sound_cues":self.sound_cues})
     }
 }

@@ -339,9 +339,14 @@ pub fn present(
             format!("HL2-RS  /  Rust runtime  /  {}", game.world.name),
             format!("{} triangles  |  {} textures  |  {} entities  |  {}  |  {:.0} fps", stats.triangles, textures, game.world.entities.len(), if sim.flying() { "FLY" } else { "WALK" }, hud.timing.fps()),
             "WASD / click: mouse / Esc pause / tilde console / F2 fly / Space,Ctrl vertical in fly / G prop impulse".into(),
-            "E use / Ctrl crouch / Space jump / R reload / 1-6 / wheel: weapon menu / Q last / F3 dev loadout / F1 overlay".into(),
+            "E use / Ctrl crouch / Space jump / R reload / 1-6 / wheel: weapon menu / Q last / F3 dev loadout / F1 overlay / F4 NPC spawn".into(),
             format!("Map reconstruction preview  |  position {:.1}, {:.1}, {:.1}  |  Bevy/wgpu  |  {:.2} ms  |  {} materials / {} colliders / {} bodies", eye.x, eye.y, eye.z, hud.timing.frame_ms, stats.materials, sim.physics.colliders.len(), sim.physics.bodies.len()),
         ];
+    }
+    if game.spawn_overlay.open {
+        hud.debug_lines.extend(game.spawn_overlay.lines());
+    }
+    if !hud.debug_lines.is_empty() {
         ui.source.draw_debug(&hud.debug_lines);
     }
     ui.source.draw(clock.elapsed_secs_f64());

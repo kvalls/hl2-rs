@@ -158,6 +158,37 @@ impl SightWorld for PhysicsSight<'_> {
     }
 }
 
+/// CC_NPC_Create placement over the physics world (HULL_HUMAN for every class: the
+/// per-class hulls are not modeled; UTIL_DropToFloor traces 256 units down).
+pub struct PhysicsPlacement<'a> {
+    pub physics: &'a Physics,
+}
+const HUMAN_MINS: Vec3 = Vec3::new(-13., -13., 0.);
+const HUMAN_MAXS: Vec3 = Vec3::new(13., 13., 72.);
+impl super::spawn::PlacementWorld for PhysicsPlacement<'_> {
+    fn trace_line(&self, start: Vec3, end: Vec3) -> Option<Vec3> {
+        let delta = end - start;
+        self.physics
+            .impact_ray(start, delta.normalize_or_zero(), delta.length())
+            .map(|hit| hit.position)
+    }
+    fn drop_to_floor(&self, _class: &str, origin: Vec3) -> Option<Vec3> {
+        use modkit_core::movement::CollisionWorld;
+        let trace =
+            self.physics
+                .trace_hull(origin, origin - Vec3::Z * 256., HUMAN_MINS, HUMAN_MAXS);
+        (!trace.start_solid && trace.fraction < 1.)
+            .then(|| origin - Vec3::Z * 256. * trace.fraction)
+    }
+    fn hull_fits(&self, _class: &str, origin: Vec3) -> bool {
+        use modkit_core::movement::CollisionWorld;
+        !self
+            .physics
+            .trace_hull(origin, origin + Vec3::Z, HUMAN_MINS, HUMAN_MAXS)
+            .start_solid
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +238,35 @@ mod tests {
             !sight.visible(Vec3::ZERO, Vec3::X * 200., &[]),
             "wall blocks"
         );
+    }
+    #[test]
+    fn placement_drops_to_the_floor_and_rejects_a_wall() {
+        use crate::ai::spawn::{place, SpawnRequest};
+        // Synthetic: a floor (top z 0) and a wall at x 200..220.
+        let world = World {
+            brushes: vec![
+                wall(Vec3::new(-500., -500., -16.), Vec3::new(500., 500., 0.)),
+                wall(Vec3::new(200., -500., 0.), Vec3::new(220., 500., 200.)),
+            ],
+            ..Default::default()
+        };
+        let physics = Physics::new(&world);
+        let request = SpawnRequest {
+            classname: "npc_metropolice".into(),
+            name: None,
+            equipment: String::new(),
+            aimed: true,
+        };
+        let placement = PhysicsPlacement { physics: &physics };
+        let eye = Vec3::new(0., 0., 64.);
+        let floor = place(&request, eye, Vec3::new(1., 0., -1.), &placement).unwrap();
+        assert!(
+            (floor.origin - Vec3::new(64., 0., 0.)).length() < 1.,
+            "{floor:?}"
+        );
+        assert!(floor.yaw.abs() < 1e-3);
+        // Aiming straight at the wall: the hull overlaps it ("Bad Position").
+        assert!(place(&request, eye, Vec3::X, &placement).is_err());
     }
     #[test]
     fn yaw_clamps_at_the_motor_rate_and_wraps() {

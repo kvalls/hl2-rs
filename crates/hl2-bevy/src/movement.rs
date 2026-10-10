@@ -267,9 +267,33 @@ impl Simulation {
                             .log(format!("Queued {target}.{input} after {delay} seconds."));
                     }
                 }
+                Effect::NpcCommand(line) => match game.spawn_console.parse(&line) {
+                    Ok(Some(hl2_simulation::ai::spawn::Command::Spawn(request))) => {
+                        let message = self.spawn_npc(game, request);
+                        ui.source.log(message);
+                    }
+                    Ok(Some(hl2_simulation::ai::spawn::Command::SetEquipment(value))) => {
+                        ui.source.log(format!("npc_create_equipment {value}"));
+                    }
+                    Ok(None) => {}
+                    Err(e) => ui.source.log(e),
+                },
                 Effect::Quit => ui.quit_requested = true,
             }
         }
+    }
+    /// npc_create placement from the player's eye along the aim (logged only).
+    pub fn spawn_npc(
+        &self,
+        game: &mut crate::gameplay::Gameplay,
+        request: hl2_simulation::ai::spawn::SpawnRequest,
+    ) -> String {
+        let forward = glam::Vec3::new(
+            self.pitch.cos() * self.yaw.cos(),
+            self.pitch.cos() * self.yaw.sin(),
+            self.pitch.sin(),
+        );
+        game.request_spawn(request, &self.physics, self.eye, forward)
     }
     fn step(
         &mut self,
@@ -609,6 +633,33 @@ fn controls(
         {
             if keys.just_pressed(key) {
                 game.actions.push(Action::Slot { slot });
+            }
+        }
+        // F4 NPC spawn overlay (ours; not a native binding): arrows select, Enter places.
+        if keys.just_pressed(KeyCode::F4) {
+            game.spawn_overlay.toggle();
+        }
+        if game.spawn_overlay.open {
+            for (key, class, equipment) in [
+                (KeyCode::ArrowLeft, -1, 0),
+                (KeyCode::ArrowRight, 1, 0),
+                (KeyCode::ArrowUp, 0, -1),
+                (KeyCode::ArrowDown, 0, 1),
+            ] {
+                if keys.just_pressed(key) {
+                    if class != 0 {
+                        game.spawn_overlay.next_class(class);
+                    } else {
+                        game.spawn_overlay.next_equipment(equipment);
+                    }
+                }
+            }
+            if keys.just_pressed(KeyCode::Enter) {
+                let request = game.spawn_overlay.request();
+                let message = sim.spawn_npc(game, request);
+                if let Some(ui) = ui.as_deref_mut() {
+                    ui.source.log(message);
+                }
             }
         }
         if let Some(scroll) = scroll.as_deref().filter(|s| s.delta.y != 0.) {
