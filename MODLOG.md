@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 cloud session: crossbow and RPG (13b b/c, `wip/cloud-arsenal-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** weapon_crossbow + crossbow_bolt (`hl2-simulation/src/weapon_crossbow.rs`) and weapon_rpg + rpg_missile + env_laserdot (`weapon_rpg.rs`) from SDK 2013 weapon_crossbow.cpp / weapon_rpg.cpp; player FOV ramp (SetFOV/GetFOV); thin hooks in gameplay.rs/projectiles.rs; host wiring in hl2-bevy (models, cue preloads, FOV, impacts, suit updates, laser dot, missile events); fixtures test-inputs/bevy-crossbow.json, bevy-rpg.json. Details and SDK-vs-prompt differences in STATUS "Cloud session handoff".
+
+**Why:** owner priority 0, DESIGN 13b (b) and (c), prepared in the cloud for local validation.
+
+**Tested how:** unit tests only (state machines in 15 ms ticks, FOV spline, bolt flight/stick/reflect/NPC hit, missile ignition/homing/grace/blast, laser-dot line following); hl2-bevy compiled and its tests run on Linux; strict Clippy/fmt. Owned tests written but ignored (no game files).
+
+**Result:** builds and unit tests pass on Linux.
+
+**Still broken or not tested:** everything visual/audio/timing vs native; owned scripts/viewmodels; Windows build; stuck bolts/sparks/charger/beam not drawn; see STATUS.
+
+**Next:** bug bait, gravity gun, then local validation per the checklist.
+
 ## 2026-10-10 session 11 (late): frag impact sounds, native fuse check
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
