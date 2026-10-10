@@ -6,9 +6,10 @@
 use crate::{
     entities::Scene,
     gameplay::{activity_sequence, duration, play_sound, Inventory, Weapon},
+    grab::{body_mass, center, GrabController, HOLD_MAX_ERROR, SCALE},
     physics::Physics,
 };
-use glam::{Quat, Vec3};
+use glam::Vec3;
 use modkit_core::World;
 use rapier3d::prelude::*;
 use serde::Serialize;
@@ -21,16 +22,6 @@ pub const MAX_MASS: f32 = 250.;
 pub const TRACE_LENGTH: f32 = 250.;
 pub const PULL_FORCE: f32 = 4000.;
 pub const CONE: f32 = 0.97;
-/// hl2_normspeed: the drop clamps linear speed to 1.5x this.
-const NORM_SPEED: f32 = 190.;
-/// CGrabController: maxSpeed 1000, DEFAULT_MAX_ANGULAR 360 x 10 deg/s, detach error 12.
-const HOLD_MAX_SPEED: f32 = 1000.;
-const HOLD_MAX_ANGULAR: f32 = 3600.;
-const HOLD_MAX_ERROR: f32 = 12.;
-/// Player hull radius in 2D (OBBMaxs 16,16 -> Length2D).
-const PLAYER_RADIUS: f32 = 22.627417;
-/// Inches to Rapier metres (physics.rs SCALE).
-const SCALE: f32 = 1. / 39.37;
 
 /// What the viewmodel/elements are doing (EFFECT_* and OpenElements/CloseElements).
 #[derive(Clone, Debug, Default, Serialize)]
@@ -53,7 +44,7 @@ pub struct PhyscannonState {
     secondary_held: bool,
     /// The tick's buttons from Inventory::tick.
     buttons: (bool, bool),
-    grab: Option<Grab>,
+    grab: Option<GrabController>,
     /// Launch/punt effect positions this frame (EFFECT_LAUNCH), host-drawn.
     pub launches: Vec<Vec3>,
 }
@@ -64,19 +55,6 @@ enum ElementChange {
     Open,
     Closed,
 }
-/// CGrabController fields.
-#[derive(Clone, Debug, Serialize)]
-struct Grab {
-    /// Object rotation in eye space (m_attachedAnglesPlayerSpace).
-    relative: Quat,
-    saved_mass: f32,
-    saved_gravity: f32,
-    error: f32,
-    error_time: f32,
-    target: Vec3,
-    target_rotation: Quat,
-}
-
 /// Pickup_DefaultPhysGunLaunchVelocity: max force up to 100 kg, then a spline down to
 /// the min force at 600 kg (masses capped at 1000).
 pub fn launch_speed(mass: f32) -> f32 {
@@ -101,46 +79,6 @@ pub fn punt_impulse(forward: Vec3, mass: f32) -> (Vec3, Vec3) {
     )
 }
 
-fn body_mass(physics: &Physics, id: usize) -> Option<f32> {
-    let handle = physics.dynamic.get(&id)?;
-    Some(physics.bodies.get(*handle)?.mass())
-}
-fn center(physics: &Physics, id: usize) -> Option<Vec3> {
-    let body = physics.bodies.get(*physics.dynamic.get(&id)?)?;
-    let c = body.center_of_mass();
-    Some(Vec3::new(c.x, c.y, c.z) / SCALE)
-}
-fn rotation(physics: &Physics, id: usize) -> Option<Quat> {
-    let body = physics.bodies.get(*physics.dynamic.get(&id)?)?;
-    let q = body.rotation();
-    Some(Quat::from_xyzw(q.i, q.j, q.k, q.w))
-}
-/// Half extents of the body's colliders (world AABB), in inches.
-fn half_extents(physics: &Physics, id: usize) -> Vec3 {
-    let Some(body) = physics
-        .dynamic
-        .get(&id)
-        .and_then(|h| physics.bodies.get(*h))
-    else {
-        return Vec3::ZERO;
-    };
-    let mut aabb: Option<Aabb> = None;
-    for handle in body.colliders() {
-        if let Some(collider) = physics.colliders.get(*handle) {
-            let next = collider.compute_aabb();
-            aabb = Some(aabb.map_or(next, |a| a.merged(&next)));
-        }
-    }
-    aabb.map_or(Vec3::ZERO, |a| {
-        let h = a.half_extents();
-        Vec3::new(h.x, h.y, h.z) / SCALE
-    })
-}
-fn eye_rotation(forward: Vec3) -> Quat {
-    let yaw = forward.y.atan2(forward.x);
-    let pitch = (-forward.z).atan2(forward.truncate().length());
-    Quat::from_rotation_z(yaw) * Quat::from_rotation_y(pitch)
-}
 /// CBasePlayer::CanPickupObject with physcannon_maxmass for our Rapier props: a dynamic
 /// body (VPhysics object) of at most 250 kg. Hinges, NO_PLAYER_PICKUP and the
 /// prop spawnflag overrides are not modeled.
@@ -371,7 +309,7 @@ impl Inventory {
             return;
         };
         if attach {
-            self.attach(physics, scene, &weapon, world, id, eye, forward);
+            self.attach(physics, scene, &weapon, world, id, forward);
             play_sound(scene, &weapon, "special1", world, "");
             self.cannon_send(world, &weapon, "ACT_VM_PRIMARYATTACK", time);
             self.physcannon.next_secondary = time + 0.5;
@@ -403,30 +341,12 @@ impl Inventory {
         weapon: &Weapon,
         world: &World,
         id: usize,
-        eye: Vec3,
         forward: Vec3,
     ) {
         let time = scene.time;
-        let Some(handle) = physics.dynamic.get(&id).copied() else {
+        let Some(grab) = GrabController::attach(physics, id, forward, false, None) else {
             return;
         };
-        let rotation = rotation(physics, id).unwrap_or_default();
-        let target = center(physics, id).unwrap_or(eye);
-        let Some(body) = physics.bodies.get_mut(handle) else {
-            return;
-        };
-        let grab = Grab {
-            relative: eye_rotation(forward).inverse() * rotation,
-            saved_mass: body.mass(),
-            saved_gravity: body.gravity_scale(),
-            error: 0.,
-            // m_errorTime = -1: one second before error accumulates.
-            error_time: -1.,
-            target,
-            target_rotation: rotation,
-        };
-        body.set_gravity_scale(0., true);
-        body.wake_up(true);
         self.physcannon.held = Some(id);
         self.physcannon.grab = Some(grab);
         self.physcannon.next_secondary = time + 0.4;
@@ -443,33 +363,11 @@ impl Inventory {
         sound: bool,
         launched: bool,
     ) {
-        let Some(id) = self.physcannon.held.take() else {
+        if self.physcannon.held.take().is_none() {
             return;
-        };
-        let grab = self.physcannon.grab.take();
-        if let Some(body) = physics
-            .dynamic
-            .get(&id)
-            .and_then(|h| physics.bodies.get_mut(*h))
-        {
-            body.set_gravity_scale(grab.as_ref().map_or(1., |g| g.saved_gravity), true);
-            if launched {
-                body.set_linvel(vector![0., 0., 0.], true);
-                body.set_angvel(vector![0., 0., 0.], true);
-            } else {
-                // ClampPhysicsVelocity(hl2_normspeed x 1.5, 720 deg/s).
-                let v = *body.linvel() / SCALE;
-                let limit = NORM_SPEED * 1.5;
-                if v.norm() > limit {
-                    let v = v.normalize() * limit * SCALE;
-                    body.set_linvel(v, true);
-                }
-                let w = *body.angvel();
-                let limit = 720f32.to_radians();
-                if w.norm() > limit {
-                    body.set_angvel(w.normalize() * limit, true);
-                }
-            }
+        }
+        if let Some(grab) = self.physcannon.grab.take() {
+            grab.detach(physics, launched);
         }
         if sound {
             play_sound(scene, weapon, "melee_miss", world, "");
@@ -487,80 +385,10 @@ impl Inventory {
         feet: Vec3,
         crouched: bool,
     ) -> bool {
-        let Some(id) = self.physcannon.held else {
+        let Some(grab) = self.physcannon.grab.as_mut() else {
             return false;
         };
-        let Some(mut grab) = self.physcannon.grab.clone() else {
-            return false;
-        };
-        let (Some(position), Some(current)) = (center(physics, id), rotation(physics, id)) else {
-            return false;
-        };
-        // ComputeError on the previous target.
-        if grab.error_time > 0. {
-            grab.error_time = grab.error_time.min(1.);
-            let mut error = (grab.target - position).length();
-            if error / grab.error_time > HOLD_MAX_SPEED {
-                error *= 0.5;
-            }
-            grab.error = (1. - grab.error_time) * grab.error + error * grab.error_time;
-            grab.error_time = 0.;
-        }
-        if grab.error > HOLD_MAX_ERROR {
-            return false;
-        }
-        let yaw = forward.y.atan2(forward.x);
-        let pitch = (-forward.z)
-            .atan2(forward.truncate().length())
-            .clamp(-75f32.to_radians(), 75f32.to_radians());
-        let aim = Vec3::new(
-            pitch.cos() * yaw.cos(),
-            pitch.cos() * yaw.sin(),
-            -pitch.sin(),
-        );
-        let extents = half_extents(physics, id);
-        let radial =
-            (aim.x.abs() * extents.x + aim.y.abs() * extents.y + aim.z.abs() * extents.z).abs();
-        let radius = PLAYER_RADIUS + radial;
-        let distance = 24. + radius * 2.;
-        // MASK_SOLID_BRUSHONLY approximated by a ray against world geometry.
-        let fraction = physics
-            .projectile_ray(eye, eye + aim * distance, &[id])
-            .filter(|hit| hit.entity == usize::MAX)
-            .map_or(1., |hit| eye.distance(hit.position) / distance);
-        let mut end = if fraction < 0.5 {
-            eye + aim * radius * 0.5
-        } else {
-            eye + aim * (distance - radius)
-        };
-        // Keep the object's radius off the player's vertical axis.
-        let height = if crouched { 36. } else { 72. };
-        let nearest = Vec3::new(feet.x, feet.y, end.z.clamp(feet.z, feet.z + height));
-        let delta = end - nearest;
-        if delta.length() < radius {
-            end = nearest + delta.normalize_or(aim) * radius;
-        }
-        grab.target = end;
-        grab.target_rotation = eye_rotation(forward) * grab.relative;
-        // Simulate: shadow control toward the target within one frame.
-        let dt = 0.015;
-        let mut v = (grab.target - position) / dt;
-        if v.length() > HOLD_MAX_SPEED {
-            v = v.normalize() * HOLD_MAX_SPEED;
-        }
-        let (axis, mut angle) = (grab.target_rotation * current.inverse()).to_axis_angle();
-        if angle > std::f32::consts::PI {
-            angle -= std::f32::consts::TAU;
-        }
-        let w = (axis * angle / dt).clamp_length_max(HOLD_MAX_ANGULAR.to_radians());
-        if let Some(body) = physics.bodies.get_mut(physics.dynamic[&id]) {
-            let v = v * SCALE;
-            body.set_linvel(vector![v.x, v.y, v.z], true);
-            body.set_angvel(vector![w.x, w.y, w.z], true);
-        }
-        grab.error_time += dt;
-        self.physcannon.grab = Some(grab);
-        true
+        grab.update(physics, eye, forward, feet, crouched, HOLD_MAX_ERROR)
     }
     /// PrimaryAttack: launch a held object (within 250 units of the player center) at
     /// Pickup_DefaultPhysGunLaunchVelocity, or punt what the 8-unit hull/line trace hits.
@@ -826,7 +654,7 @@ mod tests {
         run(&mut inv, &mut scene, &mut physics, 60, false, false);
         let c = center(&physics, 0).unwrap();
         // Held at 24 + 2r - r from the eye, r = player radius + 8 (cube half extent).
-        let expected = 24. + PLAYER_RADIUS + 8.;
+        let expected = 24. + crate::grab::PLAYER_RADIUS + 8.;
         assert!((c - Vec3::new(expected, 0., 64.)).length() < 2., "{c}");
         run(&mut inv, &mut scene, &mut physics, 1, true, false);
         assert_eq!(inv.physcannon.held, None);

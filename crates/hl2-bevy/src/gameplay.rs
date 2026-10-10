@@ -392,6 +392,20 @@ impl Gameplay {
                     continue;
                 }
                 Action::Use => {
+                    // CPlayerPickupController first (drop while carrying, pick up a
+                    // small prop), then the existing door/button use.
+                    if self.inventory.player_use(
+                        &self.weapons,
+                        &self.world,
+                        &mut self.scene,
+                        physics,
+                        eye,
+                        direction,
+                        player.feet,
+                        player.crouched,
+                    ) {
+                        continue;
+                    }
                     if let Some((id, _)) = physics.ray(eye, direction, 96.) {
                         self.scene.use_entity_at(&self.world, id, player.feet);
                     }
@@ -455,7 +469,25 @@ impl Gameplay {
             eye,
             direction,
         );
-        let allowed = self.selection.pending.is_none();
+        // CBasePlayer::PostThink -> CPlayerPickupController::Use(USE_SET): held attack
+        // throws, held attack2 drops; the holstered weapon does not fire meanwhile.
+        let carrying = self.inventory.carrying();
+        if carrying {
+            self.inventory.carry_tick(
+                &self.weapons,
+                &mut self.scene,
+                physics,
+                eye,
+                direction,
+                player.feet,
+                player.crouched,
+                self.primary,
+                self.secondary,
+            );
+            self.primary_consumed |= self.primary;
+            self.secondary_consumed |= self.secondary;
+        }
+        let allowed = self.selection.pending.is_none() && !carrying;
         let primary = allowed && (self.primary || self.queued_primary) && !self.primary_consumed;
         let secondary = allowed
             && (self.secondary || self.queued_secondary)

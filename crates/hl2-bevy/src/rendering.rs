@@ -752,7 +752,8 @@ pub fn present_weapons(
     mut draws: Query<(&WeaponMesh, &mut Visibility)>,
 ) {
     for (weapon, mut visibility) in &mut draws {
-        *visibility = if weapon.0 == game.inventory.active {
+        // The +USE carry holsters the weapon (CPlayerPickupController::Init).
+        *visibility = if weapon.0 == game.inventory.active && !game.inventory.carrying() {
             Visibility::Inherited
         } else {
             Visibility::Hidden

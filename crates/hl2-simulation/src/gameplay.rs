@@ -285,6 +285,9 @@ pub struct Inventory {
     /// weapon_physcannon held object and element state.
     #[serde(skip)]
     pub physcannon: crate::weapon_physcannon::PhyscannonState,
+    /// The +USE carry (CPlayerPickupController); the active weapon is holstered.
+    #[serde(skip)]
+    pub carry: Option<crate::grab::GrabController>,
     /// Squeezes this tick (thrown splats are in Projectiles); step 14 consumes them.
     #[serde(skip)]
     pub bugbait_events: Vec<crate::weapon_bugbait::BugBaitEvent>,
@@ -346,6 +349,7 @@ impl Default for Inventory {
             rpg: Default::default(),
             bugbait: Default::default(),
             physcannon: Default::default(),
+            carry: None,
             bugbait_events: Vec::new(),
             squeeze_origin: Vec3::ZERO,
             deferred_sounds: Vec::new(),
@@ -493,25 +497,7 @@ impl Inventory {
             if !self.can_holster() {
                 return;
             }
-            // CWeaponCrossbow::Holster -> StopEffects (unzoom over 0.2 s, charger off).
-            if self.active == "weapon_crossbow" {
-                self.crossbow_holster(time);
-            }
-            if self.active == "weapon_physcannon" {
-                self.physcannon_holster();
-            }
-            // CWeaponRPG::Holster -> StopGuiding (SPECIAL2 while guiding).
-            if self.active == "weapon_rpg" {
-                if self.rpg.guiding {
-                    if let Some(sound) = weapons
-                        .get("weapon_rpg")
-                        .and_then(|w| w.sounds.get("special2"))
-                    {
-                        self.deferred_sounds.push(sound.clone());
-                    }
-                }
-                self.rpg_holster(None);
-            }
+            self.holster_hooks(weapons, time);
             self.previous = self.active.clone();
             self.reload = None;
             self.idle_override = None;
@@ -552,6 +538,39 @@ impl Inventory {
             // Releasing the trigger may shorten pistol firing recovery, never draw recovery.
             self.soonest_attack = self.next_attack;
         }
+    }
+    /// Weapon-specific Holster side effects of the active weapon.
+    pub(crate) fn holster_hooks(&mut self, weapons: &BTreeMap<String, Weapon>, time: f64) {
+        // CWeaponCrossbow::Holster -> StopEffects (unzoom over 0.2 s, charger off).
+        if self.active == "weapon_crossbow" {
+            self.crossbow_holster(time);
+        }
+        if self.active == "weapon_physcannon" {
+            self.physcannon_holster();
+        }
+        // CWeaponRPG::Holster -> StopGuiding (SPECIAL2 while guiding).
+        if self.active == "weapon_rpg" {
+            if self.rpg.guiding {
+                if let Some(sound) = weapons
+                    .get("weapon_rpg")
+                    .and_then(|w| w.sounds.get("special2"))
+                {
+                    self.deferred_sounds.push(sound.clone());
+                }
+            }
+            self.rpg_holster(None);
+        }
+    }
+    /// Deploy the active weapon again (CPlayerPickupController::Shutdown), keeping the
+    /// last-weapon slot.
+    pub(crate) fn redeploy(&mut self, weapons: &BTreeMap<String, Weapon>, time: f64) {
+        let class = std::mem::take(&mut self.active);
+        if class.is_empty() {
+            return;
+        }
+        let previous = self.previous.clone();
+        self.give(&class, weapons, time);
+        self.previous = previous;
     }
     pub fn tick(
         &mut self,

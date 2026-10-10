@@ -787,6 +787,17 @@ impl Physics {
         }
         body
     }
+    /// IPhysicsObject::GetContactPoint != 0: the entity's body touches something.
+    pub fn entity_in_contact(&self, id: usize) -> bool {
+        let Some(body) = self.dynamic.get(&id).and_then(|h| self.bodies.get(*h)) else {
+            return false;
+        };
+        body.colliders().iter().any(|c| {
+            self.narrow
+                .contact_pairs_with(*c)
+                .any(|pair| pair.has_any_active_contact)
+        })
+    }
     pub fn remove_body(&mut self, handle: RigidBodyHandle) {
         if let Some(body) = self.bodies.get(handle) {
             for collider in body.colliders() {
