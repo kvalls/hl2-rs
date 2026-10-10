@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 cloud session: step 14 AI core start (`wip/cloud-npc-ai-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** DESIGN step 14 plan; `hl2-simulation/src/ai/` conditions, NPC state selection, enemy memory, relationship table (SDK 2013).
+
+**Why:** owner priority 1 (step 14), prepared in the cloud.
+
+**Tested how:** unit tests; strict Clippy/fmt on Linux.
+
+**Result:** builds and passes on Linux; not wired into the game.
+
+**Still broken or not tested:** everything behavioral; see STATUS handoff.
+
+**Next:** schedules/tasks, senses, squads, F4/npc_create data model, metropolice.
+
 ## 2026-10-09 session 10 (later): arsenal WIP (frag grenade), suit logon
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.

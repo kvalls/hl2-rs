@@ -2,6 +2,21 @@
 
 Checkpoint: 2026-10-09 session 10 (Claude Code desktop, claude-opus-5-5) on main. Merged: SDK player damage path, env_global/gordon_invulnerable, trigger_hurt for all touchers, screen fades, HUD damage indicator and HEV suit voice (DESIGN 13a-2). 380 normal tests + owned, strict Clippy/fmt; batch verifiers 26/17/26 (artifacts/damage-regression).
 
+## Cloud session handoff (2026-10-10, `wip/cloud-npc-ai-20261010`)
+
+Claude Code cloud session (Linux sandbox, no game files, no native HL2), model `claude-opus-5-5` per the session environment. No subagents. Branch from `origin/main` (31e9134), independent of the arsenal branch (see `wip/cloud-arsenal-20261010` for 13b). **SDK 2013 (b8cfb12) behavior, unit-tested only; retail not compared, nothing packaged was run.**
+
+Implemented in `hl2-simulation/src/ai/` (plan: DESIGN step 14 "14 plan"):
+- `conditions`: COND_* bitset with the SDK names/order (ai_condition.h), class-specific bits after LAST_SHARED_CONDITION.
+- `state`: NPC_STATE and SelectIdealState (idle/alert/combat/script selectors, TIME_CARE_ABOUT_DAMAGE 3 s, the yaw target for damage/sounds).
+- `memory`: CAI_Enemies (UpdateMemory reacquire rules, free knowledge 1.75 s, discard 60 s, danger memories).
+- `relationships`: Class_T and the InitDefaultAIRelationships table (676 rows generated from the SDK source with comments removed); Classify for the main HL2 classes (citizens passive while gordon_precriminal/citizens_passive).
+- Not wired into the host yet: nothing in the running game changes on this branch so far.
+
+Tests: `cargo test -p hl2-simulation -p source-assets -p modkit-core -p hl2-ui --locked` (hl2-simulation gains the ai:: tests); `cargo clippy -p hl2-simulation --all-targets --locked -- -D warnings` (run with CARGO_TERM_COLOR=never when filtering output), `cargo fmt --all --check`.
+
+LOCAL VALIDATION CHECKLIST: (filled in as modules land) unit tests above; owned checks are not needed for these data modules; behavior validation starts once the metrocop class and host wiring exist.
+
 ## Current session 10 (2026-10-09)
 
 Supersedes session 9's open items where they conflict. Claude Code desktop, model `claude-opus-5-5`. No subagents.
