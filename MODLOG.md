@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 cloud session: bug bait and gravity gun (13b d/e, `wip/cloud-arsenal-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** weapon_bugbait / npc_grenade_bugbait / point_bugbait (`weapon_bugbait.rs`, BugBaitEvent hook for step 14) and weapon_physcannon (`weapon_physcannon.rs`: punt, pull, pickup, hold controller, drop, launch, deny) on the Rapier props; host hooks; fixtures test-inputs/bevy-bugbait.json, bevy-physcannon.json. Clippy fixes for the RPG commit.
+
+**Why:** owner priority 0, DESIGN 13b (d) and (e).
+
+**Tested how:** unit tests (bug bait haul/throw/squeeze and splat + sensors; launch spline, punt impulse, pickup/hold/launch, deny, pull on synthetic Rapier bodies); hl2-bevy compiled/tested on Linux; strict Clippy/fmt (verified with color off).
+
+**Result:** builds; 190 hl2-simulation tests and 37 hl2-bevy tests pass on Linux.
+
+**Still broken or not tested:** prop masses are not the authored ones; hold controller approximates VPhysics; everything vs native; Windows build. An earlier claim in this session that Clippy was clean (crossbow/RPG commit) was wrong; fixed in ded5dcc.
+
+**Next:** local validation per the STATUS checklist; then step 14 (separate branch).
+
 ## 2026-10-10 cloud session: crossbow and RPG (13b b/c, `wip/cloud-arsenal-20261010`)
 
 **Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
