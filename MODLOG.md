@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 cloud session: AI host wiring, npc_metropolice, F4 overlay (`wip/cloud-npc-ai-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** `ai::host` (SceneMotor, PhysicsSight, PhysicsPlacement), `ai::runtime` (NPCThink loop, off by default, yields to scripts/scenes), `ai::metropolice` (npc_metropolice.cpp precriminal behavior: shove, warnings, baton, stunstick, AdministerJustice, PrecriminalUse, police goal via SetPoliceGoal), scene AI hooks (activity, yaw, anim events, inputs), npc_metropolice as AI-only ground actor; hl2-bevy AI tick in the NPC stage, player hits (damage/impulse/fade), `--ai` / console `ai_enable`, metrocop sentences, +USE on cops, F4 spawn overlay and `npc_create*` routing (placement logged only).
+
+**Why:** owner step 14: trainstation metrocops through their real AI logic; F4 developer spawns.
+
+**Tested how:** unit tests with synthetic worlds (motor yaw, sight, placement, think loop off/on, scripted yield, SetPoliceGoal warnings and outputs, +USE warnings, console routing); workspace `cargo test --locked`; strict Clippy (exit 0); fmt.
+
+**Result:** passes on Linux. Not run in the game: no owned files or native HL2 in the cloud.
+
+**Still broken or not tested:** everything visual/audio/timing (not tested (cloud: no owned files/native)); runtime NPC creation (plan in DESIGN 14); citizens/Combine; view punch on this branch; thrown-object hook; gameplay sound insertion into CSoundEnt; think throttling.
+
+**Next:** STATUS AI LOCAL VALIDATION CHECKLIST (plaza comparison with AI on, regression batch with AI off).
+
 ## 2026-10-10 cloud session: policing behavior (`wip/cloud-npc-ai-20261010`)
 
 **Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
