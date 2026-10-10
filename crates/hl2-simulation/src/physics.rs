@@ -31,9 +31,19 @@ const SCALE: f32 = 1. / 39.37;
 // Retail CGameMovement::PlayerSolidMask(true): NPC-only clip volumes do not
 // block players. Keep their colliders available for other query categories.
 const PLAYER_BRUSH_MASK: u32 = 0x1400b;
+/// VPhysics projectiles (thrown frags): COLLISION_GROUP_WEAPON-like bodies that touch
+/// the world and props but not characters, and that traces/player movement ignore.
+const PROJECTILE_GROUP: Group = Group::GROUP_2;
+/// Colliders of npc_* model instances.
+const NPC_GROUP: Group = Group::GROUP_3;
+const QUERY_GROUPS: InteractionGroups =
+    InteractionGroups::new(Group::ALL, Group::ALL.difference(PROJECTILE_GROUP));
 fn enabled_filter() -> QueryFilter<'static> {
     static ENABLED: fn(ColliderHandle, &Collider) -> bool = |_, c| c.is_enabled();
-    QueryFilter::default().exclude_sensors().predicate(&ENABLED)
+    QueryFilter::default()
+        .groups(QUERY_GROUPS)
+        .exclude_sensors()
+        .predicate(&ENABLED)
 }
 fn vector(p: Vec3) -> Vector<Real> {
     vector![p.x * SCALE, p.y * SCALE, p.z * SCALE]
@@ -178,6 +188,35 @@ struct PropShapes {
     native: bool,
     native_failed: bool,
 }
+/// One VPhysics-style collision event (gamevcollisionevent_t subset).
+#[derive(Clone, Debug)]
+pub struct PhysicsCollision {
+    pub colliders: [ColliderHandle; 2],
+    /// Entity ids; None for world geometry and free bodies (thrown frags).
+    pub entities: [Option<usize>; 2],
+    /// Surfaceprop of authored bodies; None when the collider carries none (world).
+    pub surfaceprops: [Option<String>; 2],
+    pub position: Vec3,
+    /// Each side's object origin (pObject->GetPosition), the contact for fixed geometry.
+    pub origins: [Vec3; 2],
+    /// Contact normal (from the first collider toward the second).
+    pub normal: Vec3,
+    /// collisionSpeed: relative normal speed before the impact, units/s.
+    pub speed: f32,
+    /// deltaCollisionTime: seconds since this pair last started touching.
+    pub delta_time: f32,
+}
+#[derive(Clone, Copy, Debug)]
+pub struct BodyState {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub velocity: Vec3,
+    pub local_angular_degrees: Vec3,
+}
+/// Linear velocity, angular velocity and center of mass before a step.
+type PreStep = (Vector<Real>, Vector<Real>, Point<Real>);
+/// Frag fit of the VPhysics air drag (projectiles.rs FRAG_AIR_DRAG), per unit.
+pub const AIR_DRAG: f32 = 6.4e-4;
 #[derive(Default)]
 pub struct Physics {
     pub bodies: RigidBodySet,
@@ -199,6 +238,16 @@ pub struct Physics {
     pub dynamic: BTreeMap<usize, RigidBodyHandle>,
     /// Surfaceprop of each authored VPhysics prop (entity id -> lowercase name).
     pub prop_materials: BTreeMap<usize, String>,
+    /// Surfaceprop per collider of authored bodies (props and free bodies).
+    collider_materials: HashMap<ColliderHandle, String>,
+    /// This step's new contacts (see collect_collisions).
+    pub collisions: Vec<PhysicsCollision>,
+    touching: std::collections::HashSet<(ColliderHandle, ColliderHandle)>,
+    pair_times: HashMap<(ColliderHandle, ColliderHandle), f64>,
+    /// Simulated seconds (sum of tick dt).
+    pub time: f64,
+    /// dv/dt = -air_drag |v| v for awake dynamic bodies (0 disables).
+    pub air_drag: f32,
     pub native_shape_count: usize,
     pub native_shape_fallbacks: usize,
     pub skipped: usize,
@@ -207,6 +256,7 @@ impl Physics {
     pub fn new(world: &World) -> Self {
         let mut p = Self {
             player_world_brushes: world.brushes.clone(),
+            air_drag: AIR_DRAG,
             ..Self::default()
         };
         // World brushes carry no per-side material here, so they use the
@@ -415,6 +465,7 @@ impl Physics {
             if let (Some(id), Some(s)) = (entity, &solid) {
                 p.prop_materials.insert(id, s.surfaceprop.clone());
             }
+            let surfaceprop = solid.as_ref().map(|s| s.surfaceprop.clone());
             for shape in &cached.shapes {
                 let collider = match material {
                     // VPhysics multiplies both surfaces' friction and elasticity
@@ -444,6 +495,13 @@ impl Physics {
                 };
                 if let Some(id) = entity {
                     p.entity_colliders.entry(id).or_default().push(c);
+                }
+                if let Some(name) = &surfaceprop {
+                    p.collider_materials.insert(c, name.clone());
+                }
+                if instance.kind.starts_with("npc_") {
+                    p.colliders[c]
+                        .set_collision_groups(InteractionGroups::new(NPC_GROUP, Group::ALL));
                 }
                 p.npc_collider_contents.insert(
                     c,
@@ -521,6 +579,24 @@ impl Physics {
             .get_mut()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .retain(&self.colliders);
+        // VPhysics air drag on moving objects, dv/dt = -c |v| v (units). The drag
+        // model is in vphysics.dll; c is the frag fit and applies to every body until
+        // per-object fits exist ("native fit needed").
+        let mut before = HashMap::new();
+        for (handle, body) in self.bodies.iter_mut() {
+            if !body.is_dynamic() || body.is_sleeping() || !body.is_enabled() {
+                continue;
+            }
+            let v = *body.linvel();
+            let speed = v.norm() / SCALE;
+            if self.air_drag > 0. && speed > 0. {
+                body.set_linvel(v * (1. - self.air_drag * speed * dt).max(0.), false);
+            }
+            before.insert(
+                handle,
+                (*body.linvel(), *body.angvel(), *body.center_of_mass()),
+            );
+        }
         self.pipeline.step(
             &vector![0., 0., -600. * SCALE],
             &IntegrationParameters {
@@ -539,7 +615,223 @@ impl Physics {
             &(),
             &(),
         );
+        self.time += f64::from(dt);
+        self.collect_collisions(&before);
         self.changed_entity_colliders.clear();
+    }
+    /// New contacts of this step as VPhysics collision events: the pre-step relative
+    /// speed along the contact normal (collisionSpeed) and the time since the pair last
+    /// touched (deltaCollisionTime). Resting contacts that persist raise no event.
+    fn collect_collisions(&mut self, before: &HashMap<RigidBodyHandle, PreStep>) {
+        self.collisions.clear();
+        let mut touching = std::collections::HashSet::new();
+        for pair in self.narrow.contact_pairs() {
+            if !pair.has_any_active_contact {
+                continue;
+            }
+            let key = (pair.collider1, pair.collider2);
+            touching.insert(key);
+            if self.touching.contains(&key) {
+                continue;
+            }
+            let (Some(c1), Some(c2)) = (
+                self.colliders.get(pair.collider1),
+                self.colliders.get(pair.collider2),
+            ) else {
+                continue;
+            };
+            let Some((manifold, point)) = pair.manifolds.iter().find_map(|m| {
+                m.points
+                    .iter()
+                    .find(|p| p.dist <= 0.01)
+                    .or(m.points.first())
+                    .map(|p| (m, p))
+            }) else {
+                continue;
+            };
+            let normal = manifold.data.normal;
+            let contact = c1.position() * point.local_p1;
+            let velocity = |c: &Collider| {
+                c.parent()
+                    .and_then(|b| before.get(&b))
+                    .map_or(Vector::zeros(), |(v, w, com)| v + w.cross(&(contact - com)))
+            };
+            let relative = velocity(c1) - velocity(c2);
+            let speed = relative.dot(&normal).abs() / SCALE;
+            if before
+                .get(&c1.parent().unwrap_or(RigidBodyHandle::invalid()))
+                .is_none()
+                && before
+                    .get(&c2.parent().unwrap_or(RigidBodyHandle::invalid()))
+                    .is_none()
+            {
+                continue;
+            }
+            let last = self.pair_times.insert(key, self.time);
+            let entity = |c: &Collider| (c.user_data as usize).checked_sub(1);
+            let contact_units = Vec3::new(contact.x, contact.y, contact.z) / SCALE;
+            let origin = |c: &Collider| {
+                c.parent()
+                    .and_then(|b| self.bodies.get(b))
+                    .map_or(contact_units, |b| {
+                        let t = b.position().translation;
+                        Vec3::new(t.x, t.y, t.z) / SCALE
+                    })
+            };
+            self.collisions.push(PhysicsCollision {
+                colliders: [pair.collider1, pair.collider2],
+                entities: [entity(c1), entity(c2)],
+                surfaceprops: [
+                    self.collider_materials.get(&pair.collider1).cloned(),
+                    self.collider_materials.get(&pair.collider2).cloned(),
+                ],
+                position: contact_units,
+                origins: [origin(c1), origin(c2)],
+                normal: Vec3::new(normal.x, normal.y, normal.z),
+                speed,
+                delta_time: last.map_or(f32::MAX, |t| (self.time - t) as f32),
+            });
+        }
+        // Forget pair times of colliders that no longer exist.
+        if self.pair_times.len() > 4096 {
+            let colliders = &self.colliders;
+            self.pair_times
+                .retain(|(a, b), _| colliders.contains(*a) && colliders.contains(*b));
+        }
+        self.touching = touching;
+    }
+    /// A free VPhysics body (thrown frag) from an authored solid: the .phy pieces in
+    /// model space (a box of `half_extents` without them), the solid's mass, inertia
+    /// multiplier, damping and surfaceprop. Velocity is world units/s; the angular
+    /// velocity is degrees/s about the body's local axes (IPhysicsObject::SetVelocity).
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_projectile_body(
+        &mut self,
+        world: &World,
+        model_key: &str,
+        half_extents: Vec3,
+        position: Vec3,
+        rotation: Quat,
+        velocity: Vec3,
+        local_angular_degrees: Vec3,
+    ) -> RigidBodyHandle {
+        let solid = world
+            .model_physics
+            .get(model_key)
+            .cloned()
+            .unwrap_or_default();
+        let shapes: Vec<SharedShape> = world
+            .model_collision
+            .get(model_key)
+            .and_then(|pieces| {
+                pieces
+                    .iter()
+                    .map(|piece| {
+                        SharedShape::convex_hull(
+                            &piece
+                                .vertices
+                                .iter()
+                                .map(|point| Point::from(vector(*point)))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>()
+            })
+            .filter(|shapes| !shapes.is_empty())
+            .unwrap_or_else(|| {
+                vec![SharedShape::cuboid(
+                    half_extents.x * SCALE,
+                    half_extents.y * SCALE,
+                    half_extents.z * SCALE,
+                )]
+            });
+        let masses = authored_mass_properties(&shapes, solid.mass.max(0.001), solid.inertia);
+        let angular = rotation * (local_angular_degrees * std::f32::consts::PI / 180.);
+        let body = self.bodies.insert(
+            RigidBodyBuilder::dynamic()
+                .additional_mass_properties(masses)
+                .position(pose(position, rotation))
+                .linvel(vector(velocity))
+                .angvel(vector![angular.x, angular.y, angular.z])
+                .ccd_enabled(true)
+                .linear_damping(solid.damping)
+                .angular_damping(solid.rotdamping),
+        );
+        let material = surface_material(world, &solid.surfaceprop);
+        for shape in shapes {
+            let builder =
+                ColliderBuilder::new(shape)
+                    .density(0.)
+                    .collision_groups(InteractionGroups::new(
+                        PROJECTILE_GROUP,
+                        Group::ALL
+                            .difference(NPC_GROUP)
+                            .difference(PROJECTILE_GROUP),
+                    ));
+            let builder = match material {
+                Some(m) => builder
+                    .friction(m.friction)
+                    .restitution(m.elasticity)
+                    .friction_combine_rule(CoefficientCombineRule::Multiply)
+                    .restitution_combine_rule(CoefficientCombineRule::Multiply),
+                None => builder,
+            };
+            let collider = self
+                .colliders
+                .insert_with_parent(builder, body, &mut self.bodies);
+            self.collider_materials
+                .insert(collider, solid.surfaceprop.clone());
+        }
+        if let Some(b) = self.bodies.get_mut(body) {
+            b.recompute_mass_properties_from_colliders(&self.colliders);
+        }
+        body
+    }
+    pub fn remove_body(&mut self, handle: RigidBodyHandle) {
+        if let Some(body) = self.bodies.get(handle) {
+            for collider in body.colliders() {
+                self.collider_materials.remove(collider);
+            }
+        }
+        self.bodies.remove(
+            handle,
+            &mut self.islands,
+            &mut self.colliders,
+            &mut self.impulses,
+            &mut self.multibody,
+            true,
+        );
+    }
+    /// Position, rotation, velocity (units/s) and local angular velocity (deg/s).
+    pub fn body_state(&self, handle: RigidBodyHandle) -> Option<BodyState> {
+        let b = self.bodies.get(handle)?;
+        let p = b.position();
+        let q = p.rotation.quaternion();
+        let rotation = Quat::from_xyzw(q.i, q.j, q.k, q.w);
+        let w = b.angvel();
+        let local = rotation.inverse() * Vec3::new(w.x, w.y, w.z);
+        let v = b.linvel();
+        Some(BodyState {
+            position: Vec3::new(p.translation.x, p.translation.y, p.translation.z) / SCALE,
+            rotation,
+            velocity: Vec3::new(v.x, v.y, v.z) / SCALE,
+            local_angular_degrees: local * 180. / std::f32::consts::PI,
+        })
+    }
+    /// IPhysicsObject::SetVelocity with world velocity and local angular deg/s.
+    pub fn set_body_velocity(
+        &mut self,
+        handle: RigidBodyHandle,
+        velocity: Vec3,
+        local_angular_degrees: Vec3,
+    ) {
+        if let Some(b) = self.bodies.get_mut(handle) {
+            let q = b.position().rotation.quaternion();
+            let rotation = Quat::from_xyzw(q.i, q.j, q.k, q.w);
+            let w = rotation * (local_angular_degrees * std::f32::consts::PI / 180.);
+            b.set_linvel(vector(velocity), true);
+            b.set_angvel(vector![w.x, w.y, w.z], true);
+        }
     }
     pub fn entity_pose(&self, id: usize) -> Option<(Vec3, Quat)> {
         let b = self.bodies.get(*self.dynamic.get(&id)?)?;
@@ -631,6 +923,7 @@ impl Physics {
                 compute_impact_geometry_on_penetration: true,
             },
             QueryFilter::default()
+                .groups(QUERY_GROUPS)
                 .exclude_sensors()
                 .predicate(&predicate),
         )?;
@@ -669,6 +962,7 @@ impl Physics {
             length * SCALE,
             true,
             QueryFilter::default()
+                .groups(QUERY_GROUPS)
                 .exclude_sensors()
                 .predicate(&predicate),
         )?;
@@ -757,6 +1051,7 @@ impl NpcCollisionWorld for Physics {
             let entity = entity_of(collider);
             collider.is_enabled()
                 && !collider.is_sensor()
+                && collider.collision_groups().memberships != PROJECTILE_GROUP
                 && entity.is_none_or(|id| !query.excluded_entities.contains(&id))
                 // Explicit actor bounds supersede an NPC's render-mesh collider.
                 && !entity.is_some_and(|id| {
@@ -777,6 +1072,7 @@ impl NpcCollisionWorld for Physics {
                 && !player_convex::supported(collider)
         };
         let filter = QueryFilter::default()
+            .groups(QUERY_GROUPS)
             .exclude_sensors()
             .predicate(&fallback);
         let mut result = HullTrace {
@@ -959,6 +1255,7 @@ impl CollisionWorld for Physics {
                 && !player_convex::supported(collider)
         };
         let filter = QueryFilter::default()
+            .groups(QUERY_GROUPS)
             .exclude_sensors()
             .predicate(&player_contents_filter);
         // A standing hull merely touching the floor must not prevent uncrouching.
@@ -997,6 +1294,7 @@ impl CollisionWorld for Physics {
                 let collider = &self.colliders[*handle];
                 if collider.is_enabled()
                     && !collider.is_sensor()
+                    && collider.collision_groups().memberships != PROJECTILE_GROUP
                     && !self.world_brush_contents.contains_key(handle)
                 {
                     if let Some(brush) = cache.brush(*handle, collider) {
@@ -1450,6 +1748,69 @@ mod tests {
         let scaled_inertia = body.mass_properties().local_mprops.principal_inertia();
         // 2x mass and a 0.5 / 2 inertia multiplier: half the tensor.
         assert!((scaled_inertia - inertia * 0.5).norm() < inertia.norm() * 1e-3);
+    }
+    #[test]
+    fn free_bodies_report_new_contacts_once_and_feel_air_drag() {
+        // Synthetic floor and solid (not game data).
+        let mut world = World {
+            brushes: vec![bounds_brush(
+                Vec3::new(-2000., -2000., -16.),
+                Vec3::new(2000., 2000., 0.),
+            )],
+            ..Default::default()
+        };
+        world.model_physics.insert(
+            "synthetic#0".into(),
+            modkit_core::PhysicsSolid {
+                mass: 5.,
+                damping: 0.,
+                rotdamping: 0.,
+                surfaceprop: "synthetic_metal".into(),
+                ..Default::default()
+            },
+        );
+        let mut physics = Physics::new(&world);
+        assert_eq!(physics.air_drag, AIR_DRAG);
+        let body = physics.add_projectile_body(
+            &world,
+            "synthetic#0",
+            Vec3::splat(4.),
+            Vec3::new(0., 0., 1000.),
+            Quat::IDENTITY,
+            Vec3::new(1000., 0., 0.),
+            Vec3::ZERO,
+        );
+        physics.tick(0.015);
+        let v = physics.body_state(body).unwrap().velocity;
+        // dv/dt = -c |v| v over one tick (gravity is vertical; |v| ~ 1000).
+        let expected = 1000. * (1. - AIR_DRAG * 1000. * 0.015);
+        assert!((v.x - expected).abs() < 0.5, "{v} vs {expected}");
+        // Drop onto the floor: one event at the fall speed, then resting is silent.
+        physics.air_drag = 0.;
+        physics.set_body_velocity(body, Vec3::ZERO, Vec3::ZERO);
+        if let Some(b) = physics.bodies.get_mut(body) {
+            b.set_translation(vector(Vec3::new(0., 0., 40.)), true);
+        }
+        let mut events = vec![];
+        for _ in 0..120 {
+            physics.tick(0.015);
+            events.extend(physics.collisions.iter().cloned());
+        }
+        assert!(!events.is_empty());
+        let first = &events[0];
+        let fall = (2. * 600. * 36f32).sqrt();
+        assert!(
+            (first.speed - fall).abs() < 25.,
+            "{} vs {fall}",
+            first.speed
+        );
+        assert_eq!(first.delta_time, f32::MAX);
+        assert!(first.surfaceprops.contains(&Some("synthetic_metal".into())));
+        assert!(first.entities.iter().all(Option::is_none));
+        // Any later contact events are small settling contacts, not new impacts.
+        assert!(events[1..].iter().all(|e| e.speed < 70.), "{events:?}");
+        let rest = physics.body_state(body).unwrap().position;
+        assert!((rest.z - 4.).abs() < 1., "{rest}");
     }
     #[test]
     fn static_prop_bbox_and_unknown_modes_do_not_reuse_native_hulls() {

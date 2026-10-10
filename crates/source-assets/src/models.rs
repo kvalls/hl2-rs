@@ -825,6 +825,15 @@ pub fn read_illumination(
         flags: u32le(&mdl, 152)?,
     })
 }
+/// Adds a non-map model's .phy solid (and supported pieces) to the world under its
+/// skin-0 asset key, e.g. a thrown frag's w_grenade.phy. Returns the reason on failure.
+pub fn append_model_physics(world: &mut World, vfs: &Vfs, model: &str) -> Result<()> {
+    let key = format!("{}#0", model.to_lowercase());
+    let (solid, pieces) = read_physics(vfs, model)?.context("model has no .phy")?;
+    world.model_physics.insert(key.clone(), solid);
+    world.model_collision.insert(key, pieces?);
+    Ok(())
+}
 /// The first .phy solid's parameters, plus its convex pieces when the single-solid
 /// identity-root reader supports the file (the error otherwise).
 #[allow(clippy::type_complexity)]

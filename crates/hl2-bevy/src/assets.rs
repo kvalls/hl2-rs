@@ -187,6 +187,16 @@ pub fn load_with_canvas(
     let mut decal_errors = Vec::new();
     add_static_decals(&mut world, &vfs, &mut decal_errors);
     let model_report = models::append_models(&mut world, &vfs);
+    // The thrown frag is a VPhysics object built from its .phy (CGrenadeFrag::
+    // CreateVPhysics); without it the frag keeps the fitted swept-box motion.
+    if let Err(error) =
+        models::append_model_physics(&mut world, &vfs, hl2_simulation::projectiles::FRAG_MODEL)
+    {
+        world.warnings.push(format!(
+            "{}: {error:#}",
+            hl2_simulation::projectiles::FRAG_MODEL
+        ));
+    }
     let mut gameplay =
         crate::gameplay::Gameplay::load_with_campaign(world, &vfs, bsp.revision, new_game)?;
     let world = gameplay.world.clone();

@@ -586,6 +586,9 @@ impl Gameplay {
         self.inventory
             .apply_projectile_damage(damage, &self.world, &mut self.scene, physics);
         physics.tick(TICK);
+        // VPhysics impact sounds of props and thrown frags (PhysCollisionSound).
+        self.impacts
+            .physics_collision_sounds(physics, &self.world, &mut self.scene);
         for event in
             self.weapon_sounds
                 .events(&self.world, &self.inventory, &self.weapons, self.scene.time)

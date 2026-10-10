@@ -97,6 +97,9 @@ pub struct Projectile {
     pub ignited: bool,
     /// FSOLID_NOT_SOLID until this time (missile grace period).
     pub(crate) solid_at: f64,
+    /// The thrown frag's VPhysics body (w_grenade.phy) once the solid is loaded.
+    #[serde(skip)]
+    pub body: Option<rapier3d::prelude::RigidBodyHandle>,
 }
 impl Projectile {
     pub fn model(&self) -> &'static str {
@@ -316,6 +319,7 @@ impl Projectiles {
             } else {
                 launch.at
             },
+            body: None,
         });
     }
     /// Advance only on simulation ticks. Returns damage to be applied through
@@ -336,6 +340,7 @@ impl Projectiles {
             .retain(|effect| scene.time - effect.at <= effect.duration());
         let mut damage = Vec::new();
         let mut survivors = Vec::with_capacity(self.active.len());
+        let bodies: Vec<_> = self.active.iter().filter_map(|p| p.body).collect();
         for mut projectile in std::mem::take(&mut self.active) {
             projectile.previous_position = projectile.position;
             if projectile.position.abs().max_element() > 16384. {
@@ -421,6 +426,27 @@ impl Projectiles {
                                 .get(id)
                                 .is_some_and(|e| e.class().starts_with("npc_"))
                         };
+                        if world.model_physics.contains_key(&frag_key()) {
+                            // VPhysics body: contacts, sounds (physics collision events)
+                            // and rotation come from the rigid-body step.
+                            let body = *projectile.body.get_or_insert_with(|| {
+                                physics.add_projectile_body(
+                                    world,
+                                    &frag_key(),
+                                    Vec3::splat(4.),
+                                    projectile.position,
+                                    crate::physics::angles(projectile.angles),
+                                    projectile.velocity,
+                                    projectile.angular_velocity,
+                                )
+                            });
+                            frag_vphysics_update(&mut projectile, body, physics, dt, &npc);
+                            projectile.fuse = Some(fuse);
+                            if alive {
+                                survivors.push(projectile);
+                            }
+                            continue;
+                        }
                         let impact = frag_motion(&mut projectile, physics, dt, &npc);
                         // PhysCollisionSound: >= 70 u/s and 0.05 s since the last collision,
                         // volume (speed / 320)^2; the grenade surfaceprop always picks its
@@ -627,6 +653,12 @@ impl Projectiles {
                 survivors.push(projectile);
             }
         }
+        // Removed projectiles (detonated, out of the world) release their bodies.
+        for body in bodies {
+            if !survivors.iter().any(|p| p.body == Some(body)) {
+                physics.remove_body(body);
+            }
+        }
         self.active = survivors;
         self.diagnostics.damage_events += damage.len() as u64;
         damage
@@ -813,6 +845,45 @@ fn frag_motion(
     projectile.angles += projectile.angular_velocity * dt;
     impact
 }
+/// World::model_physics key of the frag model (skin 0).
+pub fn frag_key() -> String {
+    format!("{FRAG_MODEL}#0")
+}
+/// Source angles (pitch, yaw, roll) of a rotation built by physics::angles.
+pub fn quat_angles(rotation: glam::Quat) -> Vec3 {
+    let (yaw, pitch, roll) = rotation.to_euler(glam::EulerRot::ZYX);
+    Vec3::new(pitch, yaw, roll) * (180. / std::f32::consts::PI)
+}
+/// CGrenadeFrag::VPhysicsUpdate on the rigid body: read back the body's motion, then
+/// ray-cast this tick's travel against characters (the entities COLLISION_GROUP_WEAPON
+/// skips) and reflect at GRENADE_COEFFICIENT_OF_RESTITUTION with -0.5 spin. Not done:
+/// the startsolid "bounce backwards" case and the 0.1 DMG_CRUSH bonk (step 14).
+fn frag_vphysics_update(
+    projectile: &mut Projectile,
+    body: rapier3d::prelude::RigidBodyHandle,
+    physics: &mut Physics,
+    dt: f32,
+    npc: &dyn Fn(usize) -> bool,
+) {
+    let Some(state) = physics.body_state(body) else {
+        return;
+    };
+    projectile.position = state.position;
+    projectile.velocity = state.velocity;
+    projectile.angles = quat_angles(state.rotation);
+    projectile.angular_velocity = state.local_angular_degrees;
+    let end = state.position + state.velocity * dt;
+    if let Some(hit) = physics.projectile_ray(state.position, end, &[]) {
+        if npc(hit.entity) {
+            let v = state.velocity;
+            let reflected = (v - 2. * hit.normal * v.dot(hit.normal)) * GRENADE_RESTITUTION;
+            let spin = state.local_angular_degrees * -0.5;
+            physics.set_body_velocity(body, reflected, spin);
+            projectile.velocity = reflected;
+            projectile.angular_velocity = spin;
+        }
+    }
+}
 fn friendly_or_vital(class: &str) -> bool {
     // Native class relationships/EFL_NO_DISSOLVE are not reconstructed yet.
     // These known HL2 allies/vital actors must not silently be treated as enemies.
@@ -989,6 +1060,7 @@ mod tests {
             next_think: 0.,
             ignited: false,
             solid_at: 0.,
+            body: None,
         };
         let physics = Physics::new(&World::default());
         let mut t = 0.045;
@@ -1162,6 +1234,102 @@ mod tests {
             "{before} -> {after}"
         );
         assert!(after.z.abs() < 5., "{after}");
+    }
+    #[test]
+    fn frag_with_a_loaded_solid_is_a_rigid_body_that_lands_rolls_sounds_and_is_released() {
+        // Synthetic solid/surface values written for this test (not game data).
+        let mut world = World::default();
+        world.model_physics.insert(
+            frag_key(),
+            modkit_core::PhysicsSolid {
+                mass: 1.,
+                damping: 0.,
+                rotdamping: 0.,
+                surfaceprop: "synthetic_grenade".into(),
+                ..Default::default()
+            },
+        );
+        world.surface_materials.insert(
+            "synthetic_grenade".into(),
+            modkit_core::SurfaceMaterial {
+                friction: 0.9,
+                elasticity: 0.01,
+                hardness_factor: 1.,
+                impact_hard: Some("Synthetic.GrenadeHard".into()),
+                ..Default::default()
+            },
+        );
+        let mut scene = Scene::new(&world);
+        let mut physics = Physics::new(&world);
+        physics.colliders.insert(
+            ColliderBuilder::cuboid(2000. / 39.37, 2000. / 39.37, 8. / 39.37)
+                .translation(vector![0., 0., -8. / 39.37])
+                .friction(0.8)
+                .restitution(0.2)
+                .friction_combine_rule(CoefficientCombineRule::Multiply)
+                .restitution_combine_rule(CoefficientCombineRule::Multiply),
+        );
+        physics.tick(0.015);
+        let impacts = crate::impacts::Impacts::default();
+        let mut projectiles = Projectiles::default();
+        projectiles.spawn(
+            ProjectileSpawn {
+                kind: ProjectileKind::FragGrenade,
+                position: Vec3::new(0., 0., 60.),
+                velocity: Vec3::new(350., 0., 0.),
+                angular_velocity: Vec3::new(600., 0., 0.),
+                at: 0.,
+                damage: 125.,
+                radius: 250.,
+                mass: 0.,
+                lifetime: 3.,
+            },
+            &mut scene,
+        );
+        let bodies = physics.bodies.len();
+        let mut sounds = vec![];
+        let mut rest = None;
+        for tick in 0..230 {
+            scene.time = f64::from(tick) * 0.015;
+            projectiles.tick(
+                &world,
+                &mut scene,
+                &mut physics,
+                Vec3::splat(9999.),
+                false,
+                0.015,
+            );
+            physics.tick(0.015);
+            impacts.physics_collision_sounds(&physics, &world, &mut scene);
+            for sound in scene.sounds.drain(..) {
+                if sound.name == "Synthetic.GrenadeHard" {
+                    sounds.push((scene.time, sound.volume.unwrap()));
+                }
+            }
+            if tick == 150 {
+                let frag = &projectiles.active[0];
+                assert!(frag.body.is_some());
+                rest = Some(frag.position);
+                // On the floor (box half-height 4), moved forward, slowed by contact.
+                assert!((frag.position.z - 4.).abs() < 1.5, "{}", frag.position);
+                assert!(frag.position.x > 100., "{}", frag.position);
+                assert!(frag.velocity.length() < 350., "{}", frag.velocity);
+            }
+        }
+        // The landing sounds at (speed / 320)^2 of the contact point's normal speed:
+        // the ~252 u/s fall minus the 600 deg/s spin of the touching corner.
+        assert!(!sounds.is_empty());
+        let (at, volume) = sounds[0];
+        assert!((0.3..0.45).contains(&at), "{sounds:?}");
+        assert!((0.3..0.7).contains(&volume), "{sounds:?}");
+        assert!(
+            sounds.iter().all(|(t, _)| *t < 1.),
+            "resting contact is silent: {sounds:?}"
+        );
+        assert!(rest.is_some());
+        // Detonation (3.045 s) removes the projectile and its body.
+        assert!(projectiles.active.is_empty());
+        assert_eq!(physics.bodies.len(), bodies);
     }
     #[test]
     fn grenade_follows_ballistic_motion_without_an_arbitrary_fuse() {

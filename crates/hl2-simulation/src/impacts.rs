@@ -76,6 +76,8 @@ pub struct Impacts {
     pub textures: HashMap<String, Texture>,
     properties: BTreeMap<String, keyvalues::Entry>,
     surfaceprops: BTreeMap<String, String>,
+    /// Surfaceprops of authored VPhysics bodies (their impact sounds are preloaded).
+    vphysics_props: std::collections::BTreeSet<String>,
     pub errors: BTreeMap<String, String>,
     pub created: usize,
     pub unclippable: usize,
@@ -104,6 +106,11 @@ impl Impacts {
         }
         let mut result = Self {
             properties,
+            vphysics_props: world
+                .model_physics
+                .values()
+                .map(|s| s.surfaceprop.clone())
+                .collect(),
             ..Default::default()
         };
         for surface in world
@@ -157,6 +164,11 @@ impl Impacts {
             .flat_map(|p| {
                 ["bulletimpact", "stepleft", "stepright"].map(|key| self.property(p, key))
             })
+            .chain(
+                self.vphysics_props
+                    .iter()
+                    .flat_map(|p| ["impacthard", "impactsoft"].map(|key| self.property(p, key))),
+            )
             .flatten()
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
@@ -301,6 +313,129 @@ impl Impacts {
                 .property(prop, "gamematerial")
                 .and_then(|m| m.chars().next())
                 .unwrap_or('C'),
+        }
+    }
+    /// The surfaceprop of one side of a collision: the authored body's own, else the
+    /// face under the contact (world, brush entities, unauthored props, NPC flesh).
+    fn collision_surface(
+        &self,
+        collision: &crate::physics::PhysicsCollision,
+        side: usize,
+        world: &World,
+        physics: &Physics,
+        scene: &Scene,
+    ) -> String {
+        if let Some(prop) = &collision.surfaceprops[side] {
+            return prop.clone();
+        }
+        let entity = collision.entities[side];
+        if entity
+            .and_then(|id| world.entities.get(id))
+            .is_some_and(|e| e.class().starts_with("npc_"))
+        {
+            return FLESH.into();
+        }
+        // The normal points from side 0 into side 1; step back out of this side.
+        let outward = if side == 0 {
+            collision.normal
+        } else {
+            -collision.normal
+        };
+        let hit = RayHit {
+            entity: entity.unwrap_or(usize::MAX),
+            position: collision.position,
+            normal: outward,
+        };
+        self.locate(&hit, world, physics, scene)
+            .map(|l| l.prop)
+            .unwrap_or_else(|_| "default".into())
+    }
+    /// CBaseEntity::VPhysicsCollision -> PhysCollisionSound -> AddImpactSound ->
+    /// PlayImpactSounds for this step's collision events. CWorld's VPhysicsCollision is
+    /// empty, so only non-world sides sound; 'X' (nodraw/sky) materials are silent;
+    /// at least 70 u/s and 0.05 s since the pair last touched; volume (speed/320)^2;
+    /// one list slot per surfaceprop (all merged past four), loudest origin kept.
+    pub fn physics_collision_sounds(&self, physics: &Physics, world: &World, scene: &mut Scene) {
+        struct Slot {
+            prop: String,
+            hit: String,
+            volume: f32,
+            speed: f32,
+            origin: GVec3,
+        }
+        let mut list: Vec<Slot> = Vec::new();
+        for collision in &physics.collisions {
+            if collision.delta_time < 0.05 || collision.speed < 70. {
+                continue;
+            }
+            let sides = [0, 1].map(|side| {
+                (collision.entities[side].is_some() || collision.surfaceprops[side].is_some())
+                    .then(|| self.collision_surface(collision, side, world, physics, scene))
+            });
+            let surface = |side: usize| {
+                sides[side].clone().unwrap_or_else(|| {
+                    self.collision_surface(collision, side, world, physics, scene)
+                })
+            };
+            for (side, prop) in sides.iter().enumerate() {
+                let Some(prop) = prop else {
+                    continue;
+                };
+                let hit = surface(1 - side);
+                let silent = |name: &str| {
+                    world
+                        .surface_materials
+                        .get(name)
+                        .is_some_and(|m| m.game_material == Some('X'))
+                };
+                if silent(prop) || silent(&hit) {
+                    continue;
+                }
+                let volume = (collision.speed / 320.).powi(2).min(1.);
+                let speed = collision.speed + 1e-4;
+                let origin = collision.origins[side];
+                if let Some(slot) = list.iter_mut().rev().find(|s| s.prop == *prop) {
+                    if volume > slot.volume {
+                        slot.origin = origin;
+                        slot.hit = hit;
+                    }
+                    slot.volume += volume;
+                    slot.speed = slot.speed.max(speed);
+                } else if list.len() > 4 {
+                    let slot = list.last_mut().expect("non-empty");
+                    if volume > slot.volume {
+                        slot.origin = origin;
+                        slot.hit = hit;
+                    }
+                    slot.volume += volume;
+                    slot.speed = slot.speed.max(speed);
+                } else {
+                    list.push(Slot {
+                        prop: prop.clone(),
+                        hit,
+                        volume,
+                        speed,
+                        origin,
+                    });
+                }
+            }
+        }
+        for slot in list.into_iter().rev() {
+            let Some(surface) = world.surface_materials.get(&slot.prop) else {
+                continue;
+            };
+            let Some(name) = source_assets::surfaceprops::impact_sound(
+                surface,
+                world.surface_materials.get(&slot.hit),
+                slot.speed,
+            ) else {
+                continue;
+            };
+            scene.sounds.push(crate::sounds::SoundRequest {
+                origin: Some(slot.origin),
+                volume: Some(slot.volume.min(1.)),
+                ..name.into()
+            });
         }
     }
     pub fn add(&mut self, hit: RayHit, world: &World, physics: &Physics, scene: &mut Scene) {
