@@ -5,6 +5,7 @@
 pub mod conditions;
 pub mod default_schedules;
 pub mod memory;
+pub mod police;
 pub mod relationships;
 pub mod schedule;
 pub mod senses;

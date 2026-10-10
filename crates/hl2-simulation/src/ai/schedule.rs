@@ -141,11 +141,15 @@ pub struct Context {
     pub enemy: Option<(usize, Vec3)>,
     pub target: Option<Vec3>,
     pub best_sound: Option<Vec3>,
+    /// The NPC's yaw in degrees.
+    pub yaw: f32,
+    /// A uniform [0, 1) draw for this think (random waits, sentence choice).
+    pub random: f32,
 }
 
 /// A class's schedule hooks (SelectSchedule, TranslateSchedule, StartTask/RunTask).
 pub trait Behavior {
-    fn select_schedule(&mut self, npc: &AiNpc, ctx: &Context) -> String {
+    fn select_schedule(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
         default_select_schedule(npc, ctx)
     }
     fn translate_schedule(&mut self, name: &str) -> String {
@@ -281,6 +285,14 @@ impl AiNpc {
             ..Default::default()
         }
     }
+    /// The enemy's current position, else its last known position from memory.
+    fn enemy_position(&self, ctx: &Context) -> Option<Vec3> {
+        ctx.enemy.map(|e| e.1).or_else(|| {
+            self.enemy
+                .and_then(|e| self.enemies.find(Some(e)))
+                .map(|m| m.last_known)
+        })
+    }
     fn set_schedule(&mut self, name: String) {
         self.schedule = Some(name);
         self.task = 0;
@@ -386,6 +398,11 @@ impl AiNpc {
                 self.wait_until = ctx.now + f64::from(arg.number());
                 self.run_task(behavior, task, arg, ctx, motor)
             }
+            "TASK_WAIT_RANDOM" => {
+                // RandomFloat(0, flTaskData).
+                self.wait_until = ctx.now + f64::from(ctx.random * arg.number());
+                self.run_task(behavior, task, arg, ctx, motor)
+            }
             "TASK_WAIT_INDEFINITE" => Running,
             "TASK_WAIT_PVS"
             | "TASK_SOUND_WAKE"
@@ -438,11 +455,11 @@ impl AiNpc {
                 }
                 Complete
             }
-            "TASK_FACE_ENEMY" => face(motor, ctx.enemy.map(|e| e.1)),
+            "TASK_FACE_ENEMY" => face(motor, self.enemy_position(ctx)),
             "TASK_FACE_TARGET" => face(motor, ctx.target),
             "TASK_FACE_SAVEPOSITION" => face(motor, self.save_position),
             "TASK_FACE_IDEAL" | "TASK_FACE_REASONABLE" => {
-                face(motor, ctx.enemy.map(|e| e.1).or(ctx.best_sound)).max_complete()
+                face(motor, self.enemy_position(ctx).or(ctx.best_sound)).max_complete()
             }
             "TASK_TURN_LEFT" | "TASK_TURN_RIGHT" => {
                 let sign = if task == "TASK_TURN_LEFT" { 1. } else { -1. };
@@ -461,7 +478,7 @@ impl AiNpc {
                 Complete
             }
             "TASK_STORE_ENEMY_POSITION_IN_SAVEPOSITION" => {
-                self.save_position = ctx.enemy.map(|e| e.1);
+                self.save_position = self.enemy_position(ctx);
                 Complete
             }
             "TASK_STORE_BESTSOUND_REACTORIGIN_IN_SAVEPOSITION" => {
@@ -551,7 +568,7 @@ impl AiNpc {
         }
         use TaskStatus::*;
         match task {
-            "TASK_WAIT" => {
+            "TASK_WAIT" | "TASK_WAIT_RANDOM" => {
                 if ctx.now >= self.wait_until {
                     Complete
                 } else {
@@ -584,7 +601,7 @@ impl AiNpc {
                 let goal = match task {
                     "TASK_FACE_TARGET" => ctx.target,
                     "TASK_FACE_SAVEPOSITION" => self.save_position,
-                    _ => ctx.enemy.map(|e| e.1).or(ctx.best_sound),
+                    _ => self.enemy_position(ctx).or(ctx.best_sound),
                 };
                 match goal {
                     Some(p) if motor.face(Goal::Position(p)) => Complete,
@@ -724,7 +741,7 @@ pub(crate) mod tests {
         );
         struct Chase;
         impl Behavior for Chase {
-            fn select_schedule(&mut self, _: &AiNpc, _: &Context) -> String {
+            fn select_schedule(&mut self, _: &mut AiNpc, _: &Context) -> String {
                 "SCHED_TEST_CHASE".into()
             }
         }
