@@ -346,6 +346,7 @@ impl PreparedAudio {
                 "Player.FallGib",
                 "Player.Death",
                 "Grenade.Blip",
+                "Grenade.ImpactHard",
                 "HL2Player.BurnPain",
                 "Player.PlasmaDamage",
                 "Player.SonicDamage",

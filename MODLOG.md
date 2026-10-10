@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-10-10 session 11 (late): frag impact sounds, native fuse check
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
+
+**Changed (branch `wip/arsenal-20261009`, not merged):** frag impacts play the grenade surfaceprop's impact sound per SDK PhysCollisionSound/PlayImpactSounds: normal speed >= 70 u/s, >= 0.05 s since the previous collision, volume min(1, (speed/320)^2), `Grenade.ImpactHard` (installed surfaceproperties.txt: grenade impacthard/impactsoft, hardness 1.0 and no hard thresholds, so hard is always chosen), positioned at the grenade; the cue is preloaded.
+
+**Why:** native physics objects sound on impact; ours were silent.
+
+**Tested how:** unit test (floor drop: one sound, SDK volume, friction impulse, no bounce); 385 workspace tests, strict Clippy/fmt; packaged lob `--audio-trace`: request 0.24 s after spawn at the sidewalk landing, started physics/metal/metal_grenade_impact_hard2.wav. Native fuse (timescale 0.1, T043539Z): detonation 2.94-3.15 s after spawn vs ours 3.045 s. Rejected: oracle timescale 0.05 (user command buffer overflow drops +attack, two runs).
+
+**Still broken or not tested:** impact sound level/timing not compared with a native per-process recording; entity hits (the SDK's 0.2 reflection off NPCs) not separated from world contacts; rotational dynamics.
+
+**Next:** see the 13b list (crossbow, RPG, bug bait, gravity gun; optional frag rigid body; DESIGN 11f).
+
 ## 2026-10-10 session 11 (later): frag world contact, lob and roll vs native
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.

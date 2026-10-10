@@ -334,7 +334,18 @@ impl Projectiles {
                                 };
                         }
                         projectile.fuse = Some(fuse);
-                        frag_motion(&mut projectile, physics, dt);
+                        let impact = frag_motion(&mut projectile, physics, dt);
+                        // PhysCollisionSound: >= 70 u/s and 0.05 s since the last collision,
+                        // volume (speed / 320)^2; the grenade surfaceprop always picks its
+                        // ImpactHard sound (hardness 1.0, no hard thresholds).
+                        if impact >= 70. && scene.time - projectile.last_bounce >= 0.05 {
+                            projectile.last_bounce = scene.time;
+                            scene.sounds.push(crate::sounds::SoundRequest {
+                                origin: Some(projectile.position),
+                                volume: Some((impact / 320.).powi(2).min(1.)),
+                                .."Grenade.ImpactHard".into()
+                            });
+                        }
                     }
                 }
                 ProjectileKind::CombineBall => {
@@ -565,12 +576,14 @@ impl Projectiles {
 /// drag. The impact and rolling values match native ent_text samples (2026-10-10:
 /// lob landing 350 -> ~170 u/s, roll curb drop ~530 -> 335 u/s, street roll decay).
 /// The body is a swept 4-unit box under sv_gravity 600.
-fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) {
+/// Returns the strongest impact (normal) speed of this tick, 0 without an impact.
+fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) -> f32 {
     let speed = projectile.velocity.length();
     projectile.velocity *= (1. - FRAG_AIR_DRAG * speed * dt).max(0.);
     projectile.velocity.z -= 600. * dt;
     let mut remaining = dt;
     let mut rolling = false;
+    let mut impact = 0f32;
     for _ in 0..4 {
         let end = projectile.position + projectile.velocity * remaining;
         let Some(hit) = physics.projectile_sweep(
@@ -594,6 +607,7 @@ fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) {
                 rolling |= normal.z > 0.7;
                 projectile.velocity = tangent;
             } else {
+                impact = impact.max(-into);
                 let friction = (FRAG_FRICTION * -into).min(tangent_speed);
                 projectile.velocity = tangent * (1. - friction / tangent_speed.max(1e-6))
                     - into * normal * FRAG_ELASTICITY;
@@ -609,6 +623,7 @@ fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) {
         projectile.velocity *= (1. - FRAG_ROLL_DECELERATION * dt / speed.max(1e-6)).max(0.);
     }
     projectile.angles += projectile.angular_velocity * dt;
+    impact
 }
 fn friendly_or_vital(class: &str) -> bool {
     // Native class relationships/EFL_NO_DISSOLVE are not reconstructed yet.
@@ -840,6 +855,69 @@ mod tests {
                 ("health".into(), "100".into()),
             ],
         }
+    }
+    #[test]
+    fn frag_floor_impact_plays_one_sound_and_applies_the_friction_impulse() {
+        let world = World::default();
+        let mut scene = Scene::new(&world);
+        let mut physics = Physics::new(&world);
+        cube(
+            &mut physics,
+            Vec3::new(0., 0., -8.),
+            Vec3::new(2000., 2000., 8.),
+            None,
+        );
+        let mut projectiles = Projectiles::default();
+        projectiles.spawn(
+            ProjectileSpawn {
+                kind: ProjectileKind::FragGrenade,
+                position: Vec3::new(0., 0., 60.),
+                velocity: Vec3::new(350., 0., 0.),
+                angular_velocity: Vec3::ZERO,
+                at: 0.,
+                damage: 125.,
+                radius: 250.,
+                mass: 0.,
+                lifetime: 3.,
+            },
+            &mut scene,
+        );
+        let mut impacts = vec![];
+        let mut before = Vec3::ZERO;
+        let mut after = None;
+        for tick in 0..120 {
+            scene.time = f64::from(tick) * 0.015;
+            let previous = projectiles.active[0].velocity;
+            projectiles.tick(
+                &world,
+                &mut scene,
+                &mut physics,
+                Vec3::splat(9999.),
+                false,
+                0.015,
+            );
+            for sound in scene.sounds.drain(..) {
+                if sound.name == "Grenade.ImpactHard" {
+                    impacts.push(sound.volume.unwrap());
+                    before = previous;
+                    after.get_or_insert(projectiles.active[0].velocity);
+                }
+            }
+        }
+        // One landing (rolling contact afterwards is silent), volume (speed / 320)^2.
+        assert_eq!(impacts.len(), 1, "{impacts:?}");
+        let fall = -before.z + 9.;
+        assert!(
+            (impacts[0] - (fall / 320.).powi(2).min(1.)).abs() < 0.08,
+            "{impacts:?} {fall}"
+        );
+        // Tangential speed loses friction 0.72 x the normal speed; practically no bounce.
+        let after = after.unwrap();
+        assert!(
+            (after.x - (before.x - 0.72 * fall)).abs() < 12.,
+            "{before} -> {after}"
+        );
+        assert!(after.z.abs() < 5., "{after}");
     }
     #[test]
     fn grenade_follows_ballistic_motion_without_an_arbitrary_fuse() {
