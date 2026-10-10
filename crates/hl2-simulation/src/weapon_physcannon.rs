@@ -181,8 +181,8 @@ impl Inventory {
         };
     }
     /// CWeaponPhysCannon::AttachObject's SetMaxSpeed while holding: hl2_walkspeed (150)
-    /// + (hl2_normspeed (190) - 150) x (1 - clamp(load / physcannon_maxmass)); sprint is
-    /// disabled. DetachObject restores hl2_normspeed. None when nothing is held.
+    /// plus (hl2_normspeed (190) - 150) x (1 - clamp(load / physcannon_maxmass)); sprint
+    /// is disabled. DetachObject restores hl2_normspeed. None when nothing is held.
     pub fn player_max_speed(&self) -> Option<f32> {
         let grab = self.physcannon.grab.as_ref()?;
         let load = (grab.saved_mass / MAX_MASS).clamp(0., 1.);
