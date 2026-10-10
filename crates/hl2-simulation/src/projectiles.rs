@@ -102,6 +102,8 @@ pub struct Damage {
     pub amount: f32,
     pub dissolve: bool,
     pub direction: Vec3,
+    /// The inflictor's origin (the projectile or the trigger).
+    pub origin: Vec3,
 }
 #[derive(Default, Serialize)]
 pub struct Diagnostics {
@@ -285,6 +287,7 @@ impl Projectiles {
                                     amount: 0.,
                                     dissolve: true,
                                     direction: projectile.velocity.normalize_or_zero(),
+                                    origin: projectile.position,
                                 });
                                 projectile.struck_entity = true;
                                 scene.sounds.push("NPC_CombineBall.KillImpact".into());
@@ -444,6 +447,7 @@ impl Projectiles {
                         amount,
                         dissolve: false,
                         direction: delta.normalize_or_zero(),
+                        origin,
                     });
                 }
             }
@@ -458,6 +462,7 @@ impl Projectiles {
                 amount,
                 dissolve: false,
                 direction: (target - origin).normalize_or_zero(),
+                origin,
             });
         }
     }

@@ -4,7 +4,7 @@ use bevy::{audio::AudioSinkPlayback, prelude::*};
 use hl2_simulation::sounds::{AmbientControl, Library, SoundRequest};
 use hl2_simulation::soundscapes::{Command as SoundscapeCommand, Definitions, Playback};
 use source_assets::vpk::Vfs;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const MAX_PRELOADED_BYTES: usize = 512 * 1024 * 1024;
 const MAX_PLAYERS: usize = 256;
@@ -56,6 +56,10 @@ fn backend_wav(data: Vec<u8>, looped: bool) -> Result<Vec<u8>> {
     if channels != 1 && !looped {
         pcm.splice(0..0, std::iter::repeat_n(0., BACKEND_FILLER_SAMPLES));
     }
+    wav_bytes(&pcm, channels)
+}
+/// 16-bit PCM WAV bytes at the backend rate.
+fn wav_bytes(pcm: &[f32], channels: u16) -> Result<Vec<u8>> {
     let bytes = u32::try_from(pcm.len() * 2).context("converted audio exceeds WAV size")?;
     let mut wav = Vec::with_capacity(44 + pcm.len() * 2);
     wav.extend_from_slice(b"RIFF");
@@ -74,6 +78,126 @@ fn backend_wav(data: Vec<u8>, looped: bool) -> Result<Vec<u8>> {
         wav.extend_from_slice(&((sample.clamp(-1., 1.) * 32767.).round() as i16).to_le_bytes());
     }
     Ok(wav)
+}
+/// VOX sentences the game can request (the HEV suit's), with their words' samples
+/// preloaded as mono backend-rate PCM. Playback concatenates the words.
+#[derive(Default)]
+struct Vox {
+    sentences: BTreeMap<String, Vec<source_assets::vox::Word>>,
+    groups: BTreeMap<String, Vec<String>>,
+    words: HashMap<String, std::sync::Arc<[f32]>>,
+    errors: BTreeMap<String, String>,
+    played: Vec<String>,
+    rng: u64,
+}
+impl Vox {
+    fn load(vfs: &Vfs) -> Self {
+        let mut vox = Self {
+            rng: 0x6a09_e667_f3bc_c909,
+            ..Self::default()
+        };
+        let text = match vfs.read("scripts/sentences.txt") {
+            Ok(Some(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+            other => {
+                vox.errors
+                    .insert("scripts/sentences.txt".into(), format!("{:?}", other.err()));
+                return vox;
+            }
+        };
+        for (name, line) in source_assets::vox::sentences(&text) {
+            // Only the suit's sentences are requested by the game so far.
+            if !name.starts_with("HEV_") {
+                continue;
+            }
+            let words = source_assets::vox::words(&line);
+            for word in &words {
+                if vox.words.contains_key(&word.wave) || vox.errors.contains_key(&word.wave) {
+                    continue;
+                }
+                let decoded = (|| -> Result<std::sync::Arc<[f32]>> {
+                    let encoded = vfs
+                        .read(&format!("sound/{}", word.wave))?
+                        .context("owned sentence word absent")?;
+                    let (data, _) = hl2_simulation::sounds::decode(&word.wave, encoded)?;
+                    let (channels, rate, samples) = hl2_simulation::sounds::wav_samples(&data)?;
+                    let channels = usize::from(channels.max(1));
+                    let mono: Vec<f32> = samples
+                        .chunks(channels)
+                        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+                        .collect();
+                    Ok(resample(&mono, 1, rate, BACKEND_RATE).into())
+                })();
+                match decoded {
+                    Ok(samples) => {
+                        vox.words.insert(word.wave.clone(), samples);
+                    }
+                    Err(error) => {
+                        vox.errors.insert(word.wave.clone(), format!("{error:#}"));
+                    }
+                }
+            }
+            vox.groups
+                .entry(source_assets::vox::group(&name).to_owned())
+                .or_default()
+                .push(name.clone());
+            vox.sentences.insert(name, words);
+        }
+        vox
+    }
+    fn random(&mut self) -> u64 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        self.rng
+    }
+    /// `!NAME` (a sentence) or `#GROUP` (a random member) to mono PCM. The channel
+    /// pitch follows UTIL_EmitSoundSuit (100, or 98-104 half of the time); a word's own
+    /// pitch replaces it (inferred: the retail mixer's use of word pitch is unread).
+    fn render(&mut self, request: &str) -> Option<(String, Vec<f32>)> {
+        let mut name = request.get(1..)?.to_ascii_uppercase();
+        if request.starts_with('#') {
+            let members = self.groups.get(&name)?.clone();
+            let pick = (self.random() % members.len().max(1) as u64) as usize;
+            name = members.get(pick)?.clone();
+        }
+        let channel_pitch = if self.random() % 2 == 1 {
+            98 + (self.random() % 7) as i32
+        } else {
+            100
+        };
+        let pcm = self.render_at(&name, channel_pitch)?;
+        self.played.push(name.clone());
+        Some((format!("!{name}"), pcm))
+    }
+    fn render_at(&mut self, name: &str, channel_pitch: i32) -> Option<Vec<f32>> {
+        let words = self.sentences.get(name)?.clone();
+        let mut pcm = Vec::new();
+        for word in words {
+            let Some(samples) = self.words.get(&word.wave) else {
+                continue;
+            };
+            let length = samples.len();
+            let percent = |p: i32| (length as i64 * i64::from(p.clamp(0, 100)) / 100) as usize;
+            let (start, end) = (percent(word.params.start), percent(word.params.end));
+            if start >= end {
+                continue;
+            }
+            if word.params.time != 0 {
+                self.errors
+                    .entry(format!("{name}: time compression"))
+                    .or_insert_with(|| "not implemented; played uncompressed".into());
+            }
+            let pitch = word.params.pitch.unwrap_or(channel_pitch).clamp(1, 255) as u32;
+            let gain = word.params.volume.clamp(0, 255) as f32 / 100.;
+            let rate = BACKEND_RATE * pitch / 100;
+            pcm.extend(
+                resample(&samples[start..end], 1, rate, BACKEND_RATE)
+                    .into_iter()
+                    .map(|v| v * gain),
+            );
+        }
+        Some(pcm)
+    }
 }
 /// `--mute-ambient`: skip map-start ambient_generic loops so test recordings isolate cues.
 pub static MUTE_AMBIENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -100,6 +224,7 @@ pub struct PreparedAudio {
     cues: usize,
     /// Speech phoneme data (wave path, sentence, seconds) for lip sync.
     pub sentences: Vec<(String, source_assets::sentence::Sentence, f32)>,
+    vox: Vox,
 }
 impl PreparedAudio {
     pub fn load(vfs: &Vfs, game: &crate::gameplay::Gameplay) -> Self {
@@ -217,6 +342,9 @@ impl PreparedAudio {
                 "HealthVial.Touch",
                 "ItemBattery.Touch",
                 "BaseCombatCharacter.AmmoPickup",
+                "Player.FallDamage",
+                "Player.FallGib",
+                "Player.Death",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -295,6 +423,7 @@ impl PreparedAudio {
             bytes,
             cues: cues.len(),
             sentences,
+            vox: Vox::load(vfs),
         }
     }
 }
@@ -325,6 +454,7 @@ pub struct Audio {
     soundscape_volumes: HashMap<u64, f32>,
     soundscape_time: Option<f64>,
     soundscape_plays: u64,
+    vox: Vox,
 }
 /// `--audio-trace PATH`: one JSON line per sound request, sink start and sink removal,
 /// with the sink's last observed playback position, for diagnosing cut-off sounds.
@@ -422,6 +552,51 @@ impl Audio {
         self.requested += 1;
         Some(path)
     }
+    /// A VOX sentence request ("!NAME" or "#GROUP"), rendered from preloaded words.
+    fn emit_sentence(
+        &mut self,
+        commands: &mut Commands,
+        sources: &mut Assets<AudioSource>,
+        request: &SoundRequest,
+        paused: bool,
+    ) -> Option<String> {
+        let Some((path, pcm)) = self.vox.render(&request.name) else {
+            self.library
+                .errors
+                .insert(request.name.clone(), "unknown VOX sentence".into());
+            self.failed += 1;
+            return None;
+        };
+        let wav = match wav_bytes(&pcm, 1) {
+            Ok(wav) => wav,
+            Err(error) => {
+                self.library.errors.insert(path, format!("{error:#}"));
+                self.failed += 1;
+                return None;
+            }
+        };
+        let volume = request.volume.unwrap_or(1.);
+        commands.spawn((
+            crate::campaign::MapOwned,
+            SoundPlayer {
+                path: path.clone(),
+                queued_frame: self.frame,
+                observed: false,
+                volume,
+                spatial: None,
+                ambient: None,
+                soundscape: None,
+            },
+            AudioPlayer::new(sources.add(AudioSource { bytes: wav.into() })),
+            PlaybackSettings {
+                volume: bevy::audio::Volume::Linear(volume.clamp(0., 1.)),
+                paused,
+                ..PlaybackSettings::DESPAWN
+            },
+        ));
+        self.requested += 1;
+        Some(path)
+    }
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"preloaded_waves":self.handles.len(),"preloaded_bytes":self.bytes,"referenced_cues":self.cues,
             "requested":self.requested,"started_sinks":self.started,"failed_requests":self.failed,"capacity_rejections":self.capacity_rejections,
@@ -430,6 +605,7 @@ impl Audio {
             "variants":self.library.variants_played,"decoded":self.library.decoded,"errors":self.library.errors,
             "soundscape":{"definitions":self.soundscapes.len(),"active":self.soundscape.active(),"started":self.soundscape.started,
                 "loops":self.soundscape.loops(),"random_plays":self.soundscape_plays,"unknown":self.soundscape.unknown},
+            "vox":{"sentences":self.vox.sentences.len(),"words":self.vox.words.len(),"played":self.vox.played,"errors":self.vox.errors},
             "mixing":"ambient_generic loops and positional soundscape sounds use Source distance gain; stereo panning and DSP are not implemented"})
     }
 }
@@ -473,6 +649,7 @@ pub fn install(
         soundscape_volumes: HashMap::new(),
         soundscape_time: None,
         soundscape_plays: 0,
+        vox: prepared.vox,
     };
     let mute = MUTE_AMBIENT.load(std::sync::atomic::Ordering::Relaxed);
     let mut spawn: Vec<(usize, Ambient)> = audio
@@ -509,6 +686,7 @@ pub fn queue(
         Option<&mut AudioSink>,
     )>,
     global: Res<GlobalVolume>,
+    mut sources: ResMut<Assets<AudioSource>>,
 ) {
     let listener = glam::Vec3::from_array(simulation.eye().to_array());
     let paused = simulation.paused();
@@ -584,6 +762,17 @@ pub fn queue(
                     (ambient.volume, ambient.pitch, Some(ambient.spatial)),
                     (paused, Some(id), None),
                 );
+            }
+            continue;
+        }
+        if count < MAX_PLAYERS && (request.name.starts_with('!') || request.name.starts_with('#')) {
+            if audio
+                .emit_sentence(&mut commands, &mut sources, &request, paused)
+                .is_some()
+            {
+                count += 1;
+            } else {
+                game.unplayed_sounds += 1;
             }
             continue;
         }
@@ -836,6 +1025,42 @@ mod tests {
             offset += 8 + size + (size & 1);
         }
         None
+    }
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn installed_hev_sentences_match_their_authored_lengths() {
+        let root = source_assets::install::discover().unwrap();
+        let vfs = Vfs::mount(&root).unwrap();
+        let mut vox = Vox::load(&vfs);
+        let text = String::from_utf8(vfs.read("scripts/sentences.txt").unwrap().unwrap()).unwrap();
+        let mut checked = 0;
+        for (name, line) in source_assets::vox::sentences(&text) {
+            let Some(length) = line
+                .split("Len ")
+                .nth(1)
+                .and_then(|v| v.split_whitespace().next())
+                .and_then(|v| v.trim_end_matches('}').parse::<f32>().ok())
+            else {
+                continue;
+            };
+            let Some(words) = vox.sentences.get(&name) else {
+                continue;
+            };
+            if words.iter().any(|w| !vox.words.contains_key(&w.wave)) {
+                continue;
+            }
+            let seconds = vox.render_at(&name, 100).unwrap().len() as f32 / BACKEND_RATE as f32;
+            // HEV_MED0's authored Len (1.41, the same as HEV_MED2) is stale; its words
+            // render 5.93 s. Every other rendered length is within rounding.
+            if name != "HEV_MED0" {
+                assert!(
+                    (seconds - length).abs() < 0.006,
+                    "{name}: {seconds} vs Len {length}"
+                );
+            }
+            checked += 1;
+        }
+        assert!(checked >= 40, "{checked}");
     }
     #[test]
     #[ignore = "requires an owned installed Half-Life 2 copy"]

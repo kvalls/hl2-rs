@@ -182,6 +182,14 @@ struct EmptyFire {
     next_sound: f64,
 }
 
+/// CSingleplayRules::FlPlayerFallDamage with the HL2_DLL constants: damage grows linearly
+/// from the maximum safe fall speed (526.5) to 100 at the fatal speed (922.5).
+pub fn fall_damage(fall_speed: f32) -> f32 {
+    const MAX_SAFE: f32 = 526.5;
+    const FATAL: f32 = 922.5;
+    ((fall_speed - MAX_SAFE) * (100. / (FATAL - MAX_SAFE))).max(0.)
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Inventory {
@@ -980,24 +988,13 @@ impl Inventory {
             }
             match damage.target {
                 DamageTarget::Player => {
-                    if self.health <= 0. {
-                        continue;
-                    }
-                    // Default singleplayer armor accounting from CBasePlayer.
-                    // Difficulty scaling, damage HUD, pain/death and knockback
-                    // still need their separate native player implementation.
-                    let mut health_damage = damage.amount;
-                    if self.armor > 0. {
-                        health_damage = damage.amount * 0.2;
-                        let armor_cost = (damage.amount - health_damage).max(1.);
-                        if armor_cost > self.armor {
-                            health_damage = damage.amount - self.armor;
-                            self.armor = 0.;
-                        } else {
-                            self.armor -= armor_cost;
-                        }
-                    }
-                    self.health = (self.health - health_damage).max(0.);
+                    // Blasts reach the player through the SDK player damage path
+                    // (skill, armor, HUD message); knockback is not modeled.
+                    scene.player_damage.push(crate::player_damage::DamageInfo {
+                        amount: damage.amount,
+                        kind: crate::player_damage::DMG_BLAST,
+                        inflictor: damage.origin,
+                    });
                 }
                 DamageTarget::Entity(id) => {
                     let Some(entity) = world.entities.get(id) else {
@@ -1295,6 +1292,37 @@ fn ammo_pickup(class: &str) -> Option<(&'static str, i32)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fall_damage_and_armor_exceptions_follow_sdk() {
+        use super::*;
+        assert_eq!(fall_damage(500.), 0.);
+        assert!((fall_damage(922.5) - 100.).abs() < 1e-3);
+        assert!((fall_damage(693.) - 42.05).abs() < 0.05);
+        let mut inv = Inventory {
+            health: 100.,
+            armor: 50.,
+            ..Default::default()
+        };
+        // Falls ignore armor; other damage spends one armor point per point absorbed.
+        use crate::player_damage::{DamageInfo, PlayerDamage, DMG_BULLET, DMG_FALL};
+        let mut damage = PlayerDamage::default();
+        let mut hit = |inv: &mut Inventory, amount, kind| {
+            damage.take(
+                inv,
+                DamageInfo {
+                    amount,
+                    kind,
+                    inflictor: glam::Vec3::ZERO,
+                },
+            )
+        };
+        assert_eq!(hit(&mut inv, 30., DMG_FALL), 30.);
+        assert_eq!(inv.armor, 50.);
+        assert_eq!(hit(&mut inv, 30., DMG_BULLET), 6.);
+        assert_eq!(inv.armor, 26.);
+        assert_eq!(hit(&mut inv, 500., DMG_FALL), 64.);
+        assert_eq!(hit(&mut inv, 10., DMG_BULLET), 0.);
+    }
     #[test]
     fn map_clock_transfer_preserves_remaining_cooldown_reload_and_charge() {
         use super::*;
@@ -2053,11 +2081,18 @@ mod tests {
                 amount: 100.,
                 dissolve: false,
                 direction: Vec3::X,
+                origin: Vec3::X,
             }],
             &world,
             &mut scene,
             &mut physics,
         );
+        let blast = scene.player_damage.pop().unwrap();
+        assert_eq!(
+            (blast.amount, blast.kind),
+            (100., crate::player_damage::DMG_BLAST)
+        );
+        crate::player_damage::PlayerDamage::default().take(&mut inv, blast);
         assert_eq!(inv.armor, 0.);
         assert_eq!(inv.health, 50.);
         let dissolve = Damage {
@@ -2065,6 +2100,7 @@ mod tests {
             amount: 0.,
             dissolve: true,
             direction: Vec3::X,
+            origin: Vec3::ZERO,
         };
         inv.apply_projectile_damage(vec![dissolve, dissolve], &world, &mut scene, &mut physics);
         assert!(scene.states[0].killed);

@@ -1,0 +1,8 @@
+[
+  {"tick":1,"label":"drop-fatal","eye":[-4584,-4163,1400],"yaw":0,"pitch":0},
+  {"tick":200,"label":"dead"},
+  {"tick":220,"label":"still-dead"},
+  {"tick":400,"label":"press","forward":1},
+  {"tick":402},
+  {"tick":700,"label":"respawned"}
+]

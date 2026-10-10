@@ -35,6 +35,8 @@ pub struct Player {
     pub jumped: bool,
     /// This step landed; the fall speed carried from the last airborne tick.
     pub landed: Option<f32>,
+    /// Dead players take no input and view from VEC_DEAD_VIEWHEIGHT (14 units).
+    pub dead: bool,
 }
 impl Player {
     pub fn new(eye: Vec3) -> Self {
@@ -49,13 +51,20 @@ impl Player {
             surface_friction: 1.,
             jumped: false,
             landed: None,
+            dead: false,
         }
     }
     pub fn eye(&self) -> Vec3 {
         self.feet + Vec3::Z * self.eye_height
     }
-    pub fn step(&mut self, input: Input, world: &impl CollisionWorld, dt: f32) {
+    pub fn step(&mut self, mut input: Input, world: &impl CollisionWorld, dt: f32) {
         self.ticks += 1;
+        if self.dead {
+            input = Input {
+                yaw: input.yaw,
+                ..Input::default()
+            };
+        }
         // PlayerMove stores the fall velocity while airborne; CheckFalling uses it on landing.
         let fall_speed = if self.grounded { 0. } else { -self.velocity.z };
         self.jumped = false;
@@ -93,8 +102,17 @@ impl Player {
             }
         }
         let maxs = if self.crouched { ducked } else { standing };
-        let target_eye = if self.crouched { 28. } else { 64. };
-        if was_grounded {
+        let target_eye = if self.dead {
+            14.
+        } else if self.crouched {
+            28.
+        } else {
+            64.
+        };
+        if self.dead {
+            // Event_Killed sets the dead view offset at once.
+            self.eye_height = target_eye;
+        } else if was_grounded {
             // Ground transition timers and the special duck-jump eye state
             // remain separate work; retain the existing ground interpolation.
             self.eye_height += (target_eye - self.eye_height).clamp(-dt * 180., dt * 180.);
@@ -347,6 +365,33 @@ fn clip_velocity(incoming: Vec3, normal: Vec3) -> Vec3 {
 mod tests {
     use super::*;
     use crate::{Brush, Plane};
+    #[test]
+    fn landing_reports_fall_speed_and_dead_players_take_no_input() {
+        let world = floor();
+        let mut p = Player::new(Vec3::new(0., 0., 400. + 64.));
+        let mut landed = None;
+        for _ in 0..200 {
+            p.step(Input::default(), &world, 0.015);
+            landed = landed.or(p.landed);
+        }
+        // Free fall from 400 units at 600 u/s^2 lands near sqrt(2 * 600 * 400) = 693 u/s.
+        let speed = landed.expect("landed");
+        assert!((speed - 693.).abs() < 15., "{speed}");
+        p.dead = true;
+        let start = p.feet;
+        let push = Input {
+            forward: 1.,
+            jump: true,
+            crouch: true,
+            ..Input::default()
+        };
+        for _ in 0..30 {
+            p.step(push, &world, 0.015);
+        }
+        assert!((p.feet - start).length() < 0.1);
+        assert_eq!(p.eye_height, 14.);
+        assert!(!p.crouched);
+    }
     fn floor() -> World {
         World {
             brushes: vec![Brush {

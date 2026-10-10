@@ -1,0 +1,4 @@
+[
+  {"tick":1,"label":"suit-into-trigger","eye":[-5608,-4783,94],"yaw":0,"pitch":0,"actions":[{"action":"loadout"}]},
+  {"tick":20,"label":"first-hit"}
+]
