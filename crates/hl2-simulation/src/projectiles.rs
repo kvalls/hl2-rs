@@ -12,11 +12,18 @@ pub const GRENADE_MODEL: &str = "models/weapons/ar2_grenade.mdl";
 pub const BALL_MODEL: &str = "models/effects/combineball.mdl";
 pub const FRAG_MODEL: &str = "models/weapons/w_grenade.mdl";
 /// grenade_frag.cpp: blips every 1 s, every 0.3 s once the AI warning (1.5 s before
-/// detonation) has gone out; VPhysicsUpdate keeps 0.2 of the reflected velocity.
+/// detonation) has gone out.
 const FRAG_BLIP: f64 = 1.;
 const FRAG_BLIP_FAST: f64 = 0.3;
 const FRAG_WARN: f64 = 1.5;
-const FRAG_RESTITUTION: f32 = 0.2;
+/// VPhysics contact with the world (surfaceprops grenade x default/concrete/tile).
+const FRAG_FRICTION: f32 = 0.9 * 0.8;
+const FRAG_ELASTICITY: f32 = 0.01 * 0.2;
+/// Normal speeds below this are resting/rolling contact rather than impacts
+/// (gravity adds 9 u/s per tick); fitted with the native samples.
+const FRAG_RESTING_SPEED: f32 = 60.;
+/// Constant rolling/sliding deceleration on the ground, fitted to native (u/s^2).
+const FRAG_ROLL_DECELERATION: f32 = 190.;
 /// Effective VPhysics air drag of the thrown frag: dv/dt = -c |v| v (per unit).
 /// The drag code is in vphysics.dll (not the SDK) and w_grenade.phy sets damping 0;
 /// c is fitted to native HDR captures (2026-10-10: 8 ent_text samples of one throw,
@@ -549,16 +556,21 @@ impl Projectiles {
         }
     }
 }
-/// Frag grenade motion. Native uses a VPhysics object (w_grenade collision, surface
-/// friction) whose VPhysicsUpdate reflects the velocity with 0.2 restitution and
-/// reverses half the spin on every hit; here the body is a swept 4-unit box under
-/// sv_gravity 600 and fitted air drag with that reflection, and resting/sliding on floors is an
-/// approximation (normal speed below 60 stops, tangential speed decays at 1.5/s).
+/// Frag grenade motion. Native uses a VPhysics object (w_grenade.phy, surfaceprop
+/// "grenade": friction 0.9, elasticity 0.01). CGrenadeFrag::VPhysicsUpdate's 0.2
+/// restitution reflection only applies to entities its collision group skips; world
+/// contacts are VPhysics: practically no bounce, and an impact removes tangential speed
+/// by the Coulomb impulse friction x |normal speed| (0.9 x the 0.8 of default, concrete,
+/// tile and metal). Resting/rolling contact slows by a constant deceleration and air
+/// drag. The impact and rolling values match native ent_text samples (2026-10-10:
+/// lob landing 350 -> ~170 u/s, roll curb drop ~530 -> 335 u/s, street roll decay).
+/// The body is a swept 4-unit box under sv_gravity 600.
 fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) {
     let speed = projectile.velocity.length();
     projectile.velocity *= (1. - FRAG_AIR_DRAG * speed * dt).max(0.);
     projectile.velocity.z -= 600. * dt;
     let mut remaining = dt;
+    let mut rolling = false;
     for _ in 0..4 {
         let end = projectile.position + projectile.velocity * remaining;
         let Some(hit) = physics.projectile_sweep(
@@ -573,17 +585,28 @@ fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) {
         let normal = hit.normal.normalize_or_zero();
         projectile.position = hit.position + normal * 0.03125;
         let into = projectile.velocity.dot(normal);
-        if normal.z > 0.7 && into.abs() < 60. {
+        if into < 0. {
             let tangent = projectile.velocity - into * normal;
-            projectile.velocity = tangent * (1. - 1.5 * remaining).max(0.);
-        } else {
-            projectile.velocity = (projectile.velocity - 2. * into * normal) * FRAG_RESTITUTION;
-            projectile.angular_velocity *= -0.5;
+            let tangent_speed = tangent.length();
+            if -into < FRAG_RESTING_SPEED {
+                // Resting contact: keep the tangential motion so gravity can carry the
+                // body off edges and slopes; floors add the rolling resistance.
+                rolling |= normal.z > 0.7;
+                projectile.velocity = tangent;
+            } else {
+                let friction = (FRAG_FRICTION * -into).min(tangent_speed);
+                projectile.velocity = tangent * (1. - friction / tangent_speed.max(1e-6))
+                    - into * normal * FRAG_ELASTICITY;
+            }
         }
         remaining *= 1. - hit.fraction.clamp(0., 1.);
         if remaining <= 1e-6 {
             break;
         }
+    }
+    if rolling {
+        let speed = projectile.velocity.length();
+        projectile.velocity *= (1. - FRAG_ROLL_DECELERATION * dt / speed.max(1e-6)).max(0.);
     }
     projectile.angles += projectile.angular_velocity * dt;
 }

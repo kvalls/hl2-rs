@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-10-10 session 11 (later): frag world contact, lob and roll vs native
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
+
+**Changed (branch `wip/arsenal-20261009`, not merged):** frag world contacts follow VPhysics instead of the entity-only 0.2 reflection (SDK CGrenadeFrag::VPhysicsUpdate reflects only off entities its collision group skips): surfaceprops grenade (friction 0.9, elasticity 0.01) x default/concrete/tile (0.8, 0.2) give practically no bounce and a Coulomb friction impulse 0.72 x |normal speed| on impact; resting contacts keep their tangential motion (gravity carries the body off edges instead of snagging), floors add a constant 190 u/s^2 rolling resistance fitted to native. Fixtures `test-inputs/bevy-frag-lob.json` (secondary, standing) and `bevy-frag-roll.json` (secondary while crouched); both look 25 degrees down at release like the native captures.
+
+**Why:** owner priority 13b (lob/roll comparison; owner reminder: secondary fire standing and crouched).
+
+**Tested how:** native HDR lob and roll (oracle '!attack2'/'!release2', roll with '!duck'; sessions view-d1_trainstation_02-20261010T040222Z lob, T040313Z roll; 14 ent_text samples each at timescale 0.1). Native spawn ~0.09 s after the release command (fit from the first sample; ours spawns at the owned event, 0.105 s). Packaged comparison by time since spawn: roll RMS 22.4 units over 2.2 s (end 21.2; curb drop impulse ~530 -> 335 u/s as native); lob flight/landing 4.7 and 0.5 units; overhand monument throw in flight 10.9 and 8.3 units. 384 workspace tests, strict Clippy/fmt.
+
+**Still broken or not tested:** no rotational dynamics: native turns spin into rolling on contact and rolls along the grenade's own axis, so after landing the lob (ends 151 units off, native rolls straight to the curb at ~155 u/s) and the overhand throw (ends 70 units off; native rolls ~45 u/s off the monument ledge) differ. Swept 4-unit box instead of the w_grenade convex hull. Sprite gamma blending (DESIGN 11f). Regression batch not run.
+
+**Next:** rigid-body frag (Rapier body from w_grenade.phy with the fitted drag and surface friction) if the owner wants post-landing fidelity; otherwise crossbow, RPG, bug bait, gravity gun.
+
 ## 2026-10-10 session 11: frag flight drag, spin range, sprite-trail strip (arsenal WIP)
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
