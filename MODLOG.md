@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-10-10 session 11: detail sprites vs native (park grass)
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
+
+**Changed (branch `wip/detail-sprites-20261008`, not merged):** merged main; fixtures `test-inputs/bevy-detail-park.json`, `bevy-detail-parkfar.json`, `bevy-detail-turn.json` (the turn fixture did not move the burst frames; see below).
+
+**Tested how:** native HDR captures at the densest owned grass cells vs packaged runs: region means within 1 level, equal contrast, same clumps; static capture burst stable; strict Clippy.
+
+**Still broken or not tested:** valid motion/flicker check (turning burst frames identical), regression batch, trainstation_04 street grass, plaza leaf infodecals.
+
+**Next:** motion check with --capture-live, regression batch, then merge.
+
 ## 2026-10-09 session 10 (later): arsenal WIP (frag grenade), suit logon
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
