@@ -289,6 +289,9 @@ mod tests {
             false
         ));
         assert!(inv.carrying());
+        // EnableSprint(false): hl2_normspeed while carrying.
+        assert_eq!(inv.player_max_speed(), Some(190.));
+        assert!(inv.viewmodel_effects(0.).sprites.is_empty());
         // Held: carried toward 24 + 2r in front of the eye, gravity off.
         for t in 0..60 {
             scene.time = f64::from(t) * 0.015;

@@ -22,8 +22,18 @@ pub const SPRITES: &[&str] = &[
     // weapon_crossbow (bolt glow, charger, load blast).
     "sprites/light_glow02_noz",
     "sprites/blueflare1",
-    // weapon_rpg (RocketTrail puffs; the dot uses redglow1).
+    // weapon_rpg (RocketTrail puffs; the dot uses redglow1; RPG_BEAM_SPRITE).
     "particle/particle_smokegrenade",
+    "effects/laser1_noz",
+    // FX_ElectricSpark (crossbow bolt sparks).
+    "effects/spark",
+    "effects/yellowflare_noz",
+    // weapon_physcannon PHYSCANNON_* sprites and beam.
+    "sprites/orangelight1",
+    "sprites/glow04_noz",
+    "sprites/orangeflare1",
+    "sprites/orangecore1",
+    "sprites/orangecore2",
 ];
 pub struct Sprite {
     pub image: std::sync::Arc<vtf::Image>,
@@ -54,6 +64,25 @@ pub struct ProjectileVisuals {
     rocket_emitters: HashMap<u64, Vec3>,
     puffs: Vec<Puff>,
     last_frame: f64,
+    /// FX_ElectricSpark trail particles and glows, and the Sparks effects already spawned.
+    sparks: Vec<Spark>,
+    spark_glows: Vec<(f64, Vec3, f32, f32)>,
+    sparks_seen: std::collections::HashSet<u64>,
+    spark_frame: f64,
+    /// Viewmodel-space sprite/beam quads for the viewmodel camera (viewmodel_effects.rs).
+    pub viewmodel_quads: Vec<Quad>,
+}
+/// One CTrailParticles TrailParticle of FX_ElectricSpark.
+#[derive(Clone, Debug)]
+struct Spark {
+    position: Vec3,
+    velocity: Vec3,
+    life: f32,
+    die: f32,
+    width: f32,
+    length: f32,
+    gravity: f32,
+    dampen: f32,
 }
 /// One C_RocketTrail SimpleParticle (size/alpha lerp over its life, drifting).
 #[derive(Clone, Debug)]
@@ -88,6 +117,13 @@ pub fn load_sprite(vfs: &Vfs, material: &str) -> Result<Sprite> {
                 | "sprites/bluelaser1"
                 | "sprites/light_glow02_noz"
                 | "sprites/blueflare1"
+                // CBeam/CSprite kRenderTransAdd on the RPG and gravity gun.
+                | "effects/laser1_noz"
+                | "sprites/orangelight1"
+                | "sprites/glow04_noz"
+                | "sprites/orangeflare1"
+                | "sprites/orangecore1"
+                | "sprites/orangecore2"
         ) {
             3
         } else {
@@ -158,6 +194,110 @@ impl ProjectileVisuals {
             rocket_emitters: HashMap::new(),
             puffs: Vec::new(),
             last_frame: 0.,
+            sparks: Vec::new(),
+            spark_glows: Vec::new(),
+            sparks_seen: std::collections::HashSet::new(),
+            spark_frame: 0.,
+            viewmodel_quads: Vec::new(),
+        }
+    }
+    fn range(&mut self, low: f32, high: f32) -> f32 {
+        low + (high - low) * self.random()
+    }
+    /// FX_ElectricSpark(pos, 1, 1, NULL) (client fx_sparks.cpp): RandomFloat(2, 4) big
+    /// sparks (1-2 s, 64-300 u/s up-biased, gravity 800, dampen 0.3, width 2-5, length
+    /// 0.02-0.05), RandomInt(16, 32) little ones (0.1-0.2 s, 128-256 u/s, gravity 400,
+    /// width 2-4, length 0.02-0.03) and two 0.2 s yellowflare_noz caps.
+    fn spawn_sparks(&mut self, position: Vec3, time: f64) {
+        let big = self.range(2., 4.) as usize;
+        for _ in 0..big {
+            let direction = Vec3::new(
+                self.range(-1., 1.),
+                self.range(-1., 1.),
+                self.range(0.5, 1.),
+            );
+            let speed = self.range(64., 300.);
+            let spark = Spark {
+                position,
+                velocity: direction * speed,
+                life: 0.,
+                die: self.range(1., 2.),
+                width: self.range(2., 5.),
+                length: self.range(0.02, 0.05),
+                gravity: 800.,
+                dampen: 0.3,
+            };
+            self.sparks.push(spark);
+        }
+        let little = 16 + (self.random() * 17.) as usize;
+        for _ in 0..little.min(32) {
+            let direction = Vec3::new(
+                self.range(-1., 1.),
+                self.range(-1., 1.),
+                self.range(-1., 1.),
+            );
+            let speed = self.range(128., 256.);
+            let spark = Spark {
+                position,
+                velocity: direction * speed,
+                life: 0.,
+                die: self.range(0.1, 0.2),
+                width: self.range(2., 4.),
+                length: self.range(0.02, 0.03),
+                gravity: 400.,
+                // The second emitter's m_flVelocityDampen is never Setup (0).
+                dampen: 0.,
+            };
+            self.sparks.push(spark);
+        }
+        let inner = (4 + (self.random() * 5.) as u32).min(8) as f32;
+        let outer = (32 + (self.random() * 33.) as u32).min(64) as f32;
+        let shade = (32 + (self.random() * 33.) as u32).min(64) as f32 / 255.;
+        self.spark_glows.push((time, position, inner, 1.));
+        self.spark_glows.push((time, position, outer, shade));
+    }
+    /// Simulate (when not paused) and draw sparks as camera-facing tracers.
+    fn draw_sparks(&mut self, eye: Vec3, axes: (Vec3, Vec3), time: f64, dt: f32) {
+        for spark in &mut self.sparks {
+            spark.velocity.z -= spark.gravity * dt;
+            spark.position += spark.velocity * dt;
+            spark.velocity *= (1. - dt * spark.dampen).max(0.);
+            spark.life += dt;
+        }
+        self.sparks.retain(|s| s.life < s.die);
+        let sparks = std::mem::take(&mut self.sparks);
+        // The host's material table only holds loaded sprites.
+        let drawable = self.sprites.contains_key("effects/spark");
+        for spark in sparks.iter().filter(|_| drawable) {
+            let life = 1. - spark.life / spark.die;
+            let scale = (spark.length * life).max(0.01);
+            let delta = spark.velocity * scale;
+            let length = delta.length();
+            let width = length.min(spark.width);
+            let side = delta.cross(spark.position - eye).normalize_or_zero() * width * 0.5;
+            if side == Vec3::ZERO {
+                continue;
+            }
+            let (a, b) = (spark.position, spark.position + delta);
+            self.quads.push(Quad {
+                material: "effects/spark".into(),
+                positions: [a - side, b - side, b + side, a + side],
+                color: [255; 4],
+                uv: [[0., 0.], [0., 1.], [1., 1.], [1., 0.]],
+            });
+        }
+        self.sparks = sparks;
+        self.spark_glows.retain(|(at, ..)| time - at < 0.2);
+        for (at, position, size, shade) in self.spark_glows.clone() {
+            let t = ((time - at) / 0.2) as f32;
+            self.quad(
+                "effects/yellowflare_noz",
+                position,
+                axes,
+                size * (1. - t),
+                0.,
+                shade * if shade < 1. { 1. - t } else { 1. },
+            );
         }
     }
     pub fn new(vfs: &Vfs) -> Self {
@@ -517,10 +657,24 @@ impl ProjectileVisuals {
                         128. / 255. * fade,
                     );
                 }
-                EffectKind::GrenadeExplosion | EffectKind::BallExplosion | EffectKind::Sparks => (),
+                EffectKind::Sparks => {
+                    if self.sparks_seen.insert(effect.id) {
+                        self.spawn_sparks(position, time);
+                    }
+                }
+                EffectKind::GrenadeExplosion | EffectKind::BallExplosion => (),
             }
             self.effect_frames += 1;
         }
+        self.sparks_seen
+            .retain(|id| projectiles.effects.iter().any(|e| e.id == *id));
+        let dt = if paused {
+            0.
+        } else {
+            ((time - self.spark_frame).clamp(0., 0.1)) as f32
+        };
+        self.spark_frame = time;
+        self.draw_sparks(eye, axes, time, dt);
         self.particles.sync(&projectiles.effects, time, physics);
         for quad in self.particles.draw(eye, direction, time, physics) {
             if self.sprites.contains_key(&quad.material) {
@@ -535,6 +689,25 @@ impl ProjectileVisuals {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn electric_sparks_spawn_sdk_counts_fall_and_expire() {
+        let mut visuals = ProjectileVisuals::empty();
+        visuals.spawn_sparks(Vec3::ZERO, 0.);
+        let count = visuals.sparks.len();
+        assert!((18..=36).contains(&count), "{count}");
+        assert_eq!(visuals.spark_glows.len(), 2);
+        let before: Vec<f32> = visuals.sparks.iter().map(|s| s.velocity.z).collect();
+        visuals.draw_sparks(Vec3::X * -100., basis(Vec3::X), 0.015, 0.015);
+        // No spark material loaded: nothing is drawn, but the sparks still simulate.
+        assert!(visuals.quads.is_empty());
+        for (spark, z) in visuals.sparks.iter().zip(before) {
+            assert!(spark.velocity.z < z);
+        }
+        for i in 2..200 {
+            visuals.draw_sparks(Vec3::X * -100., basis(Vec3::X), i as f64 * 0.015, 0.015);
+        }
+        assert!(visuals.sparks.is_empty() && visuals.spark_glows.is_empty());
+    }
     #[test]
     fn blur_uses_rendered_frame_displacement_and_retains_eight_samples() {
         assert_eq!(blur(0., 0), (0., 0.));

@@ -288,6 +288,9 @@ pub struct Inventory {
     /// The +USE carry (CPlayerPickupController); the active weapon is holstered.
     #[serde(skip)]
     pub carry: Option<crate::grab::GrabController>,
+    /// The player's punch angle (weapon recoil); decays every tick.
+    #[serde(skip)]
+    pub punch: crate::view_punch::ViewPunch,
     /// Squeezes this tick (thrown splats are in Projectiles); step 14 consumes them.
     #[serde(skip)]
     pub bugbait_events: Vec<crate::weapon_bugbait::BugBaitEvent>,
@@ -296,7 +299,7 @@ pub struct Inventory {
     pub(crate) squeeze_origin: Vec3,
     /// Sounds requested where no scene is at hand (holster); emitted on the next tick.
     #[serde(skip)]
-    deferred_sounds: Vec<String>,
+    pub(crate) deferred_sounds: Vec<crate::sounds::SoundRequest>,
     /// Idle sequence resolved from ACT_VM_IDLE/ACT_VM_FIDGET for script-only viewmodels.
     #[serde(skip)]
     pub idle_override: Option<String>,
@@ -350,6 +353,7 @@ impl Default for Inventory {
             bugbait: Default::default(),
             physcannon: Default::default(),
             carry: None,
+            punch: Default::default(),
             bugbait_events: Vec::new(),
             squeeze_origin: Vec3::ZERO,
             deferred_sounds: Vec::new(),
@@ -555,7 +559,7 @@ impl Inventory {
                     .get("weapon_rpg")
                     .and_then(|w| w.sounds.get("special2"))
                 {
-                    self.deferred_sounds.push(sound.clone());
+                    self.deferred_sounds.push(sound.as_str().into());
                 }
             }
             self.rpg_holster(None);
@@ -601,9 +605,9 @@ impl Inventory {
         }
         self.holding_attack = attack;
         let (primary, secondary) = self.attack_input.take().unwrap_or((attack, false));
-        for sound in std::mem::take(&mut self.deferred_sounds) {
-            scene.sounds.push(sound.into());
-        }
+        scene.sounds.append(&mut self.deferred_sounds);
+        // CGameMovement::DecayPunchAngle (player movement, every tick).
+        self.punch.decay(dt);
         self.resolve_activity(world, weapons);
         self.advance_reload(world, scene, weapons, primary, secondary);
         if self.active == "weapon_crossbow" && self.health > 0. {

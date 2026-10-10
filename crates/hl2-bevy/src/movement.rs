@@ -314,6 +314,7 @@ impl Simulation {
                 crouch: c.crouch,
                 sprint: c.sprint,
                 slow: c.slow,
+                max_speed: None,
             };
             if let Some(game) = game.as_deref_mut() {
                 game.buttons(c.primary, c.secondary);
@@ -375,6 +376,10 @@ impl Simulation {
                     noclip: false,
                 };
                 let feet = self.player.feet;
+                // SetMaxSpeed from the weapons stage (gravity gun load) for this step.
+                self.input.max_speed = game
+                    .as_deref()
+                    .and_then(|game| game.inventory.player_max_speed());
                 self.player.step(self.input, &self.physics, TICK);
                 self.eye = self.player.eye();
                 if let Some(game) = game.as_deref_mut() {
@@ -623,6 +628,7 @@ fn controls(
         crouch: keys.pressed(KeyCode::ControlLeft),
         sprint: keys.pressed(KeyCode::ShiftLeft),
         slow: keys.pressed(KeyCode::AltLeft),
+        max_speed: None,
     };
 }
 fn fixed_step(
@@ -648,8 +654,16 @@ pub(crate) fn present(
     mut cameras: Query<(&mut Transform, &mut Projection), With<FlyCamera>>,
 ) {
     if let Ok((mut camera, mut projection)) = cameras.single_mut() {
+        // CBasePlayer::CalcView adds the punch angle (Source pitch is down-positive,
+        // ours up-positive). Aim and the viewmodel do not include it yet.
+        let punch = game
+            .as_deref()
+            .map_or(glam::Vec3::ZERO, |game| game.inventory.punch.angle);
         *camera = Transform::from_translation(source_to_bevy(sim.eye())).looking_to(
-            source_to_bevy(source_direction(sim.yaw, sim.pitch)),
+            source_to_bevy(source_direction(
+                sim.yaw + punch.y.to_radians(),
+                sim.pitch - punch.x.to_radians(),
+            )),
             Vec3::Y,
         );
         // SetFOV (crossbow zoom) ramps from the player's default FOV.

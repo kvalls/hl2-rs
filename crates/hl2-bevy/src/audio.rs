@@ -356,6 +356,8 @@ impl PreparedAudio {
                 "Weapon_Crossbow.BoltHitBody",
                 // weapon_rpg.cpp CMissile::IgniteThink.
                 "Missile.Ignite",
+                // weapon_physcannon.cpp GetMotorSound (a looping CSoundPatch).
+                hl2_simulation::weapon_physcannon::MOTOR_SOUND,
                 // weapon_bugbait.cpp squeeze, grenade_bugbait.cpp splat.
                 "Weapon_Bugbait.Splat",
                 "GrenadeBugBait.Splat",
@@ -469,6 +471,8 @@ pub struct Audio {
     soundscape_time: Option<f64>,
     soundscape_plays: u64,
     vox: Vox,
+    /// CSoundPatch envelopes by (emitter, cue).
+    patches: HashMap<(u64, String), hl2_simulation::sounds::PatchEnvelope>,
 }
 /// `--audio-trace PATH`: one JSON line per sound request, sink start and sink removal,
 /// with the sink's last observed playback position, for diagnosing cut-off sounds.
@@ -506,6 +510,8 @@ pub struct SoundPlayer {
     ambient: Option<usize>,
     /// The soundscape loop handle this sound belongs to.
     soundscape: Option<u64>,
+    /// The emitting entity/handle and cue, for StopSound and sound patches.
+    emitter: Option<(u64, String)>,
 }
 impl Audio {
     fn emit(
@@ -549,6 +555,7 @@ impl Audio {
                 spatial,
                 ambient,
                 soundscape,
+                emitter: request.emitter.map(|e| (e, request.name.clone())),
             },
             AudioPlayer::new(handle.clone()),
             PlaybackSettings {
@@ -600,6 +607,7 @@ impl Audio {
                 spatial: None,
                 ambient: None,
                 soundscape: None,
+                emitter: None,
             },
             AudioPlayer::new(sources.add(AudioSource { bytes: wav.into() })),
             PlaybackSettings {
@@ -664,6 +672,7 @@ pub fn install(
         soundscape_time: None,
         soundscape_plays: 0,
         vox: prepared.vox,
+        patches: HashMap::new(),
     };
     let mute = MUTE_AMBIENT.load(std::sync::atomic::Ordering::Relaxed);
     let mut spawn: Vec<(usize, Ambient)> = audio
@@ -715,11 +724,39 @@ pub fn queue(
     let mut count = 0;
     audio.spatial.clear();
     let mut owned = Vec::new();
+    let mut emitted: Vec<(Entity, (u64, String))> = Vec::new();
     for (entity, player, mut settings, sink) in &mut players {
         owned.push((entity, player.ambient, player.soundscape));
+        if let Some(key) = &player.emitter {
+            emitted.push((entity, key.clone()));
+        }
         count += 1;
         settings.paused = paused;
         let mut sink = sink;
+        // CSoundPatch: the envelope drives volume and pitch (scene time, so pause holds).
+        if let Some(envelope) = player
+            .emitter
+            .as_ref()
+            .and_then(|key| audio.patches.get_mut(key))
+        {
+            let (volume, pitch) = envelope.sample(game.scene.time);
+            if envelope.stopped {
+                if let Some(key) = &player.emitter {
+                    audio.patches.remove(key);
+                }
+                commands.entity(entity).despawn();
+                continue;
+            }
+            if let Some(sink) = sink.as_deref_mut() {
+                let gain = player.spatial.map_or(1., |(origin, soundlevel)| {
+                    hl2_simulation::sounds::dist_gain(soundlevel, listener.distance(origin))
+                });
+                sink.set_volume(bevy::audio::Volume::Linear(
+                    (volume * gain).clamp(0., 1.) * global.volume.to_linear(),
+                ));
+                sink.set_speed(pitch.max(1.) / 100.);
+            }
+        }
         // Soundscape loops fade; their current volume replaces the spawn volume.
         let base = player
             .soundscape
@@ -756,6 +793,61 @@ pub fn queue(
         }
     }
     for request in std::mem::take(&mut game.sound_requests) {
+        // CBaseEntity::StopSound(name) on the emitter, and CSoundEnvelopeController ops.
+        if let Some(emitter) = request.emitter {
+            let key = (emitter, request.name.clone());
+            let despawn = |commands: &mut Commands| {
+                for (entity, owner) in &emitted {
+                    if owner == &key {
+                        commands.entity(*entity).despawn();
+                    }
+                }
+            };
+            if request.stop {
+                despawn(&mut commands);
+                audio.patches.remove(&key);
+                continue;
+            }
+            if let Some(op) = request.patch {
+                let time = game.scene.time;
+                match op {
+                    hl2_simulation::sounds::PatchOp::Play { volume, pitch } => {
+                        despawn(&mut commands);
+                        audio.patches.insert(
+                            key,
+                            hl2_simulation::sounds::PatchEnvelope::new(volume, pitch, time),
+                        );
+                        let soundlevel = audio.library.draw_params(&request.name).2;
+                        let spatial = request.origin.map(|o| (o, soundlevel));
+                        // The patch loops (SoundCreate on a looping wave; cue points
+                        // are not read, so the wave is assumed to loop).
+                        if count < MAX_PLAYERS
+                            && audio
+                                .emit(
+                                    &mut commands,
+                                    &request,
+                                    true,
+                                    (volume, pitch.max(1.), spatial),
+                                    (paused, None, None),
+                                )
+                                .is_some()
+                        {
+                            count += 1;
+                        }
+                    }
+                    hl2_simulation::sounds::PatchOp::Destroy => {
+                        despawn(&mut commands);
+                        audio.patches.remove(&key);
+                    }
+                    op => {
+                        if let Some(envelope) = audio.patches.get_mut(&key) {
+                            envelope.apply(op, time);
+                        }
+                    }
+                }
+                continue;
+            }
+        }
         // ambient_generic inputs replace or stop that entity's own sound (SDK SendSound).
         if let Some(control) = request.ambient {
             let (AmbientControl::Play(id) | AmbientControl::Stop(id)) = control;

@@ -750,6 +750,9 @@ impl Scene {
             ambient: None,
             volume: None,
             origin: None,
+            emitter: None,
+            stop: false,
+            patch: None,
             name: cue.into(),
             actor: Some(crate::sounds::SoundActor {
                 name: world.entities[actor].get("targetname").unwrap_or("").into(),
@@ -2356,20 +2359,14 @@ impl Scene {
                     if play {
                         self.ambient_active.insert(id, looping);
                         self.sounds.push(crate::sounds::SoundRequest {
-                            name: sound.into(),
-                            actor: None,
                             ambient: Some(crate::sounds::AmbientControl::Play(id)),
-                            volume: None,
-                            origin: None,
+                            ..sound.into()
                         });
                     } else if active && input != "playsound" {
                         self.ambient_active.insert(id, false);
                         self.sounds.push(crate::sounds::SoundRequest {
-                            name: sound.into(),
-                            actor: None,
                             ambient: Some(crate::sounds::AmbientControl::Stop(id)),
-                            volume: None,
-                            origin: None,
+                            ..sound.into()
                         });
                     }
                 }

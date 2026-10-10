@@ -313,6 +313,8 @@ impl Inventory {
             lifetime: 0.,
         });
         play_sound(scene, weapon, "single_shot", world, "");
+        // FireBolt: ViewPunch(-2, 0, 0).
+        self.punch.punch(Vec3::new(-2., 0., 0.));
         play_sound(scene, weapon, "special2", world, "");
         let animation = activity_sequence(world, weapon, "ACT_VM_PRIMARYATTACK");
         self.animate(&animation, time);
@@ -473,14 +475,18 @@ pub(crate) fn velocity_angles(v: Vec3) -> Vec3 {
 /// A stuck bolt temp model: origin - direction x 8 along the bolt (CreateCrossbowBolt).
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct StuckBolt {
+    /// Stable per stuck bolt (the host keys its model instance by it).
+    pub id: u64,
     pub position: Vec3,
     pub angles: Vec3,
 }
 pub(crate) fn stick(stuck: &mut Vec<StuckBolt>, origin: Vec3, direction: Vec3) {
+    let id = stuck.last().map_or(1, |b| b.id + 1);
     if stuck.len() >= MAX_STUCK_BOLTS {
         stuck.remove(0);
     }
     stuck.push(StuckBolt {
+        id,
         position: origin - direction.normalize_or_zero() * 8.,
         angles: velocity_angles(direction),
     });

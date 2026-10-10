@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 second cloud session: 13b items 3-5 (`wip/cloud-arsenal-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** sound stop path and CSoundEnvelopeController patches for game cues (Missile.Ignite stop, gravity gun HoldSound); RPG lowered idle without rockets; gravity gun launch spin and carry max speed (new modkit-core `Input::max_speed`); ViewPunch/DecayPunchAngle for crossbow and gravity gun with the host camera; host drawing for stuck bolts, FX_ElectricSpark sparks and the SDK viewmodel sprites/beams (crossbow, RPG, gravity gun) on the viewmodel layer; viewmodel pose parameters ("active").
+
+**Why:** owner priority 0, DESIGN 13b items (3)-(5) of the cloud prompt.
+
+**Tested how:** unit tests (patch envelopes, missile stop request, motor patch sequence, lowered RPG, launch spin, carry speed, max-speed override, punch spring, sparks counts/expiry, viewmodel effect states and quads); hl2-bevy compiled and tested on Linux; strict Clippy (exit code, color off) and fmt.
+
+**Result:** hl2-simulation 196 passed / 18 ignored, hl2-bevy 37/2, modkit-core 53, source-assets 90/18, hl2-ui 32/1. Commit cc82bb8 alone failed strict Clippy (doc lint), fixed in 615d630.
+
+**Still broken or not tested:** nothing was run or compared with native (visual, audio, timing); viewmodel skin swap, CrossbowLoad effect and the launch beam are not done; punch does not affect aim/viewmodel; Windows build.
+
+**Next:** local validation per the STATUS checklist items 7-12; merge order with `wip/cloud-physics-20261010` (stacked on this branch).
+
 ## 2026-10-10 cloud session: bug bait and gravity gun (13b d/e, `wip/cloud-arsenal-20261010`)
 
 **Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.

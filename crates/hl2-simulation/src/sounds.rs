@@ -337,6 +337,135 @@ pub struct SoundRequest {
     pub volume: Option<f32>,
     /// World position for distance gain with the script soundlevel; None is unspatialized.
     pub origin: Option<glam::Vec3>,
+    /// The emitting entity/handle, for StopSound and sound patches (see emitters below).
+    pub emitter: Option<u64>,
+    /// CBaseEntity::StopSound(name) on `emitter`: stop that emitter's playing sounds of
+    /// this name instead of starting one.
+    pub stop: bool,
+    /// CSoundEnvelopeController operation on the (emitter, name) patch.
+    pub patch: Option<PatchOp>,
+}
+
+/// CSoundEnvelopeController (SDK soundenvelope.cpp) operations on one looping patch.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PatchOp {
+    /// Play(patch, volume, pitch): start (or restart) looping at this volume/pitch.
+    Play { volume: f32, pitch: f32 },
+    /// SoundChangeVolume(patch, volume, seconds): linear ramp from the current value.
+    Volume { volume: f32, seconds: f32 },
+    /// SoundChangePitch(patch, pitch, seconds).
+    Pitch { pitch: f32, seconds: f32 },
+    /// SoundFadeOut(patch, seconds): ramp to silence, then stop.
+    FadeOut { seconds: f32 },
+    /// SoundDestroy: stop immediately.
+    Destroy,
+}
+
+/// One CSoundPatch's volume/pitch envelope (linear ramps from the value at the time
+/// of the change, as CSoundEnvelopeController's SoundChangeVolume/Pitch).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PatchEnvelope {
+    volume: Ramp,
+    pitch: Ramp,
+    /// SoundFadeOut: stop once the volume ramp reaches silence.
+    fading: bool,
+    pub stopped: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Ramp {
+    from: f32,
+    to: f32,
+    start: f64,
+    seconds: f32,
+}
+impl Ramp {
+    fn at(&self, time: f64) -> f32 {
+        if self.seconds <= 0. {
+            return self.to;
+        }
+        let t = ((time - self.start) as f32 / self.seconds).clamp(0., 1.);
+        self.from + (self.to - self.from) * t
+    }
+    fn set(value: f32, time: f64) -> Self {
+        Self {
+            from: value,
+            to: value,
+            start: time,
+            seconds: 0.,
+        }
+    }
+    fn change(&mut self, to: f32, seconds: f32, time: f64) {
+        *self = Self {
+            from: self.at(time),
+            to,
+            start: time,
+            seconds: seconds.max(0.),
+        };
+    }
+}
+impl PatchEnvelope {
+    pub fn new(volume: f32, pitch: f32, time: f64) -> Self {
+        Self {
+            volume: Ramp::set(volume, time),
+            pitch: Ramp::set(pitch, time),
+            fading: false,
+            stopped: false,
+        }
+    }
+    pub fn apply(&mut self, op: PatchOp, time: f64) {
+        match op {
+            PatchOp::Play { volume, pitch } => *self = Self::new(volume, pitch, time),
+            PatchOp::Volume { volume, seconds } => self.volume.change(volume, seconds, time),
+            PatchOp::Pitch { pitch, seconds } => self.pitch.change(pitch, seconds, time),
+            PatchOp::FadeOut { seconds } => {
+                self.volume.change(0., seconds, time);
+                self.fading = true;
+            }
+            PatchOp::Destroy => self.stopped = true,
+        }
+    }
+    /// (volume, pitch percent) at `time`; marks a finished fade-out as stopped.
+    pub fn sample(&mut self, time: f64) -> (f32, f32) {
+        let volume = self.volume.at(time);
+        if self.fading && volume <= 0. {
+            self.stopped = true;
+        }
+        (volume, self.pitch.at(time))
+    }
+}
+
+/// Emitter id spaces (entities, projectiles and the player's weapons never collide).
+pub fn entity_emitter(id: usize) -> u64 {
+    id as u64
+}
+pub fn projectile_emitter(id: u64) -> u64 {
+    (1 << 40) | id
+}
+/// The player's active weapon (one id per weapon class is enough for patches).
+pub fn weapon_emitter(class: &str) -> u64 {
+    let hash = class.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+    });
+    (2 << 40) | (hash & 0xff_ffff_ffff)
+}
+
+impl SoundRequest {
+    /// StopSound(name) on an emitter.
+    pub fn stop(name: &str, emitter: u64) -> Self {
+        Self {
+            emitter: Some(emitter),
+            stop: true,
+            ..name.into()
+        }
+    }
+    /// A CSoundEnvelopeController operation on the (emitter, name) patch.
+    pub fn patch(name: &str, emitter: u64, op: PatchOp) -> Self {
+        Self {
+            emitter: Some(emitter),
+            patch: Some(op),
+            ..name.into()
+        }
+    }
 }
 
 impl From<String> for SoundRequest {
@@ -347,6 +476,9 @@ impl From<String> for SoundRequest {
             ambient: None,
             volume: None,
             origin: None,
+            emitter: None,
+            stop: false,
+            patch: None,
         }
     }
 }
@@ -867,17 +999,58 @@ mod tests {
         }
     }
 
+    #[test]
+    fn patch_envelopes_ramp_linearly_from_the_current_value_and_fade_out_stops() {
+        let mut env = PatchEnvelope::new(0., 50., 0.);
+        env.apply(
+            PatchOp::Pitch {
+                pitch: 100.,
+                seconds: 0.5,
+            },
+            0.,
+        );
+        env.apply(
+            PatchOp::Volume {
+                volume: 0.8,
+                seconds: 0.5,
+            },
+            0.,
+        );
+        assert_eq!(env.sample(0.25), (0.4, 75.));
+        assert_eq!(env.sample(1.), (0.8, 100.));
+        // A wind-down at 0.25 s starts from the ramp's value then.
+        let mut env2 = PatchEnvelope::new(0., 50., 0.);
+        env2.apply(
+            PatchOp::Volume {
+                volume: 0.8,
+                seconds: 0.5,
+            },
+            0.,
+        );
+        env2.apply(
+            PatchOp::Volume {
+                volume: 0.,
+                seconds: 1.,
+            },
+            0.25,
+        );
+        assert!((env2.sample(0.75).0 - 0.2).abs() < 1e-6);
+        env.apply(PatchOp::FadeOut { seconds: 0.1 }, 2.);
+        assert!(!env.stopped);
+        env.sample(2.05);
+        assert!(!env.stopped);
+        env.sample(2.1);
+        assert!(env.stopped);
+    }
+
     fn speech_request(cue: &str, model: &str) -> SoundRequest {
         SoundRequest {
-            ambient: None,
-            volume: None,
-            origin: None,
-            name: cue.into(),
             actor: Some(SoundActor {
                 name: "actor diagnostic name".into(),
                 model: model.into(),
                 entity: None,
             }),
+            ..cue.into()
         }
     }
 
