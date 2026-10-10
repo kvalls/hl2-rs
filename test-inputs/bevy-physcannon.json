@@ -1,0 +1,13 @@
+[
+  {"tick":1,"label":"aim","eye":[-3104,-2018,128],"yaw":12,"pitch":10,"actions":[{"action":"loadout"},{"action":"slot","slot":0}]},
+  {"tick":2,"actions":[{"action":"slot","slot":0}]},
+  {"tick":3,"actions":[{"action":"confirm"}]},
+  {"tick":4},
+  {"tick":100,"label":"dryfire","primary":true},
+  {"tick":102},
+  {"tick":140,"label":"pull-or-pick","secondary":true},
+  {"tick":200,"label":"holding"},
+  {"tick":260,"label":"launch","primary":true},
+  {"tick":262,"label":"l030"},
+  {"tick":300,"label":"end"}
+]

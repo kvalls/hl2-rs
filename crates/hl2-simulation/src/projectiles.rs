@@ -469,7 +469,7 @@ impl Projectiles {
                     }
                 }
                 ProjectileKind::RpgMissile => {
-                    if let crate::weapon_rpg::MissileOutcome::Explode(_) =
+                    if let crate::weapon_rpg::MissileOutcome::Explode =
                         crate::weapon_rpg::missile_tick(
                             &mut projectile,
                             self.laser_dot.as_ref(),

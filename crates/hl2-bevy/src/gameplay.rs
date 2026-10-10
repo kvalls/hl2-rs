@@ -468,6 +468,7 @@ impl Gameplay {
                     | "weapon_frag"
                     | "weapon_crossbow"
                     | "weapon_bugbait"
+                    | "weapon_physcannon"
             );
         self.inventory.set_attack_input(primary, secondary);
         self.inventory.ducking = player.crouched;
@@ -506,6 +507,17 @@ impl Gameplay {
                 direction,
             );
         }
+        // weapon_physcannon: ItemPreFrame/ItemPostFrame on the Rapier props (weapons stage).
+        self.inventory.physcannon_frame(
+            &self.weapons,
+            &self.world,
+            &mut self.scene,
+            physics,
+            eye,
+            direction,
+            player.feet,
+            player.crouched,
+        );
         self.queued_primary = false;
         self.queued_secondary = false;
         for (id, state) in self.scene.states.iter().enumerate() {

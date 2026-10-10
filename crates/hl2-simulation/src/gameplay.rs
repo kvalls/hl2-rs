@@ -31,7 +31,7 @@ pub struct Weapon {
     pub damage: f32,
     pub sounds: BTreeMap<String, String>,
 }
-const IMPLEMENTED: [&str; 10] = [
+const IMPLEMENTED: [&str; 11] = [
     "weapon_crowbar",
     "weapon_pistol",
     "weapon_357",
@@ -42,6 +42,7 @@ const IMPLEMENTED: [&str; 10] = [
     "weapon_crossbow",
     "weapon_rpg",
     "weapon_bugbait",
+    "weapon_physcannon",
 ];
 /// Thrown frag kinds by viewmodel event (npcevent.h EVENT_WEAPON_THROW/2/3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -281,6 +282,9 @@ pub struct Inventory {
     /// weapon_bugbait throw state.
     #[serde(skip)]
     pub bugbait: crate::weapon_bugbait::BugBaitState,
+    /// weapon_physcannon held object and element state.
+    #[serde(skip)]
+    pub physcannon: crate::weapon_physcannon::PhyscannonState,
     /// Squeezes this tick (thrown splats are in Projectiles); step 14 consumes them.
     #[serde(skip)]
     pub bugbait_events: Vec<crate::weapon_bugbait::BugBaitEvent>,
@@ -341,6 +345,7 @@ impl Default for Inventory {
             fov: Default::default(),
             rpg: Default::default(),
             bugbait: Default::default(),
+            physcannon: Default::default(),
             bugbait_events: Vec::new(),
             squeeze_origin: Vec3::ZERO,
             deferred_sounds: Vec::new(),
@@ -450,7 +455,7 @@ impl Inventory {
         self.reload.is_some()
     }
     pub fn can_holster(&self) -> bool {
-        self.ar2_charge_until.is_none() && self.rpg_can_holster()
+        self.ar2_charge_until.is_none() && self.rpg_can_holster() && self.physcannon_can_holster()
     }
     pub fn charge_until(&self) -> Option<f64> {
         self.ar2_charge_until
@@ -492,6 +497,9 @@ impl Inventory {
             if self.active == "weapon_crossbow" {
                 self.crossbow_holster(time);
             }
+            if self.active == "weapon_physcannon" {
+                self.physcannon_holster();
+            }
             // CWeaponRPG::Holster -> StopGuiding (SPECIAL2 while guiding).
             if self.active == "weapon_rpg" {
                 if self.rpg.guiding {
@@ -520,6 +528,9 @@ impl Inventory {
                 "ir_draw"
             } else if class == "weapon_pistol" && self.owned[class] == 0 {
                 "drawempty"
+            } else if class == "weapon_physcannon" {
+                self.physcannon_deploy();
+                "ACT_VM_DRAW"
             } else if class == "weapon_bugbait" {
                 self.bugbait_deploy();
                 "ACT_VM_DRAW"
@@ -581,6 +592,10 @@ impl Inventory {
         }
         if self.active == "weapon_rpg" && self.health > 0. {
             self.rpg_tick(world, scene, weapons, primary, secondary);
+        }
+        if self.active == "weapon_physcannon" {
+            // The host runs physcannon_frame with physics after the weapon tick.
+            self.physcannon_buttons(primary, secondary);
         }
         if self.active == "weapon_bugbait" && self.health > 0. {
             self.squeeze_origin = feet;
@@ -849,7 +864,10 @@ impl Inventory {
             || self.ar2_charge_until.is_some()
             || scene.time < self.next_attack
             || scene.time < self.owner_attack_until
-            || matches!(self.active.as_str(), "weapon_frag" | "weapon_bugbait")
+            || matches!(
+                self.active.as_str(),
+                "weapon_frag" | "weapon_bugbait" | "weapon_physcannon"
+            )
         {
             return;
         }
@@ -985,7 +1003,10 @@ impl Inventory {
         eye: Vec3,
         direction: Vec3,
     ) {
-        if matches!(self.active.as_str(), "weapon_frag" | "weapon_bugbait") {
+        if matches!(
+            self.active.as_str(),
+            "weapon_frag" | "weapon_bugbait" | "weapon_physcannon"
+        ) {
             return;
         }
         if matches!(self.active.as_str(), "weapon_smg1" | "weapon_ar2") {

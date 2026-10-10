@@ -30,8 +30,6 @@ pub const DOT_SPRITE: &str = "sprites/redglow1";
 pub const BEAM_SPRITE: &str = "effects/laser1_noz";
 /// RPG_LASER_SPRITE at the viewmodel "laser" attachment.
 pub const MUZZLE_SPRITE: &str = "sprites/redglow1";
-/// CMissile::Spawn: IgniteThink 0.3 s after launch.
-const IGNITE_DELAY: f64 = 0.3;
 /// CWeaponRPG::PrimaryAttack grace period when the first 128 units are clear.
 const GRACE_PERIOD: f32 = 0.3;
 /// MAX_TRACE_LENGTH (1.732050807569 * 2 * 16384).
@@ -217,6 +215,7 @@ impl Inventory {
     /// UpdateLaserPosition: the dot follows the eye trace (MASK_SHOT without windows),
     /// targets damageable non-world entities, and LaserThink rescales it every 0.05 s.
     /// Call after the weapon tick with the current eye, aim and player center/feet.
+    #[allow(clippy::too_many_arguments)]
     pub fn rpg_aim(
         &mut self,
         physics: &Physics,
@@ -348,7 +347,7 @@ impl Inventory {
 pub(crate) enum MissileOutcome {
     Flying,
     /// MissileTouch -> Explode at the projectile position.
-    Explode(Vec3),
+    Explode,
 }
 
 /// rpg_missile think and movement for one tick: IgniteThink 0.3 s after launch
@@ -406,7 +405,7 @@ pub(crate) fn missile_tick(
             new *= speed;
             missile.velocity = new;
             if missile.velocity == Vec3::ZERO {
-                return MissileOutcome::Explode(missile.position);
+                return MissileOutcome::Explode;
             }
         }
     }
@@ -431,7 +430,7 @@ pub(crate) fn missile_tick(
             &[],
         ) {
             missile.position = hit.position;
-            return MissileOutcome::Explode(hit.position);
+            return MissileOutcome::Explode;
         }
     }
     missile.position = end;
@@ -681,7 +680,7 @@ mod tests {
 
     #[test]
     fn missile_ignores_walls_during_the_grace_period_then_explodes_with_200_damage() {
-        let (mut projectiles, mut scene, _) = missile(Vec3::ZERO, Vec3::new(300., 0., 128.), 0.3);
+        let (mut projectiles, _, _) = missile(Vec3::ZERO, Vec3::new(300., 0., 128.), 0.3);
         let world = World {
             entities: vec![modkit_core::Entity {
                 properties: vec![
@@ -692,7 +691,7 @@ mod tests {
             }],
             ..World::default()
         };
-        scene = Scene::new(&world);
+        let mut scene = Scene::new(&world);
         let mut physics = Physics::new(&world);
         for (x, user) in [(20., 0u128), (400., 0)] {
             physics.colliders.insert(

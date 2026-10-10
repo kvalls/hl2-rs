@@ -20,6 +20,7 @@ pub mod soundscapes;
 pub mod suit;
 pub mod weapon_bugbait;
 pub mod weapon_crossbow;
+pub mod weapon_physcannon;
 pub mod weapon_rpg;
 
 pub mod campaign;
