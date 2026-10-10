@@ -1,6 +1,14 @@
 # STATUS
 
-Checkpoint: 2026-10-09 session 10 (Claude Code desktop, claude-opus-5-5) on main. Merged: SDK player damage path, env_global/gordon_invulnerable, trigger_hurt for all touchers, screen fades, HUD damage indicator and HEV suit voice (DESIGN 13a-2). 380 normal tests + owned, strict Clippy/fmt; batch verifiers 26/17/26 (artifacts/damage-regression).
+Checkpoint: 2026-10-10 session 11 (arsenal WIP, see below); 2026-10-09 session 10 (Claude Code desktop, claude-opus-5-5) on main. Merged: SDK player damage path, env_global/gordon_invulnerable, trigger_hurt for all touchers, screen fades, HUD damage indicator and HEV suit voice (DESIGN 13a-2). 380 normal tests + owned, strict Clippy/fmt; batch verifiers 26/17/26 (artifacts/damage-regression).
+
+## Current session 11 (2026-10-10)
+
+Supersedes session 10's arsenal notes where they conflict. Claude Code desktop, model `claude-opus-5-5`. No subagents. Weekly usage was 92-94% (resets 2026-10-12 16:00 UTC), so the session was short.
+
+- **Frag vs native (13b, `wip/arsenal-20261009`):** quadratic air drag fitted to native ent_text positions (c = 6.4e-4/unit; packaged run within 7-20 units of native over 1.3 s; rest position within 4 units), SDK spin range fixed, trail drawn as one C_SpriteTrail strip with life-based alpha/width. Native oracle supports per-view `!attack`/`!release`/`!attack2`/`!release2`/`!duck`/`!unduck`/`!text` suffixes (private).
+- **Found, not fixed:** native Sprite materials blend in gamma space (`$nosrgb` default 1, TONEMAP_SCALE_GAMMA) into the integer-HDR framebuffer; ours blend in linear space, so additive sprites (trail, glows, muzzle flashes, combine ball) are dimmer than native. Needs a renderer design (DESIGN 11f).
+- **Cloud session prepared (owner, 2026-10-10):** a cloud prompt (private work/publishing/cloud-session-prompt-20261010.txt) assigns SDK-only, unit-tested work on `wip/cloud-arsenal-20261010` (crossbow, RPG, bug bait, gravity gun, from this branch) and `wip/cloud-npc-ai-20261010` (step 14 AI core, F4 spawn data model, from main). The next local session validates those branches against the owned game and native HL2 before anything merges.
 
 ## Current session 10 (2026-10-09)
 

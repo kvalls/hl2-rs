@@ -1,0 +1,174 @@
+[
+{
+"tick": 1,
+"label": "aim",
+"eye": [
+-3104,
+-2018,
+128
+],
+"yaw": -20,
+"pitch": 30,
+"actions": [
+{
+"action": "loadout"
+},
+{
+"action": "slot",
+"slot": 4
+}
+]
+},
+{
+"tick": 2,
+"actions": [
+{
+"action": "confirm"
+}
+]
+},
+{
+"tick": 3
+},
+{
+"tick": 100,
+"label": "pull",
+"primary": true
+},
+{
+"tick": 160,
+"label": "release"
+},
+{
+"tick": 163,
+"label": "f163"
+},
+{
+"tick": 166,
+"label": "f166"
+},
+{
+"tick": 169,
+"label": "f169"
+},
+{
+"tick": 172,
+"label": "f172"
+},
+{
+"tick": 175,
+"label": "f175"
+},
+{
+"tick": 178,
+"label": "f178"
+},
+{
+"tick": 181,
+"label": "f181"
+},
+{
+"tick": 184,
+"label": "f184"
+},
+{
+"tick": 187,
+"label": "f187"
+},
+{
+"tick": 190,
+"label": "f190"
+},
+{
+"tick": 193,
+"label": "f193"
+},
+{
+"tick": 196,
+"label": "f196"
+},
+{
+"tick": 199,
+"label": "f199"
+},
+{
+"tick": 202,
+"label": "f202"
+},
+{
+"tick": 205,
+"label": "f205"
+},
+{
+"tick": 208,
+"label": "f208"
+},
+{
+"tick": 211,
+"label": "f211"
+},
+{
+"tick": 214,
+"label": "f214"
+},
+{
+"tick": 217,
+"label": "f217"
+},
+{
+"tick": 220,
+"label": "f220"
+},
+{
+"tick": 223,
+"label": "f223"
+},
+{
+"tick": 226,
+"label": "f226"
+},
+{
+"tick": 229,
+"label": "f229"
+},
+{
+"tick": 232,
+"label": "f232"
+},
+{
+"tick": 235,
+"label": "f235"
+},
+{
+"tick": 238,
+"label": "f238"
+},
+{
+"tick": 241,
+"label": "f241"
+},
+{
+"tick": 244,
+"label": "f244"
+},
+{
+"tick": 247,
+"label": "f247"
+},
+{
+"tick": 250,
+"label": "f250"
+},
+{
+"tick": 253,
+"label": "f253"
+},
+{
+"tick": 256,
+"label": "f256"
+},
+{
+"tick": 259,
+"label": "f259"
+}
+]

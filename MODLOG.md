@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 session 11: frag flight drag, spin range, sprite-trail strip (arsenal WIP)
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.
+
+**Changed (branch `wip/arsenal-20261009`, not merged):** npc_grenade_frag flight gets quadratic air drag dv/dt = -c|v|v, c = 6.4e-4 per unit, fitted to native (VPhysics drag lives in vphysics.dll, not the SDK; w_grenade.phy sets damping 0). The frag spin used a [-3, 1] random range (random() is already [-1, 1] and was remapped again); now RandomInt(-1200, 1200) as the SDK. The frag trail is one C_SpriteTrail/CBeamSegDraw strip (shared edge vertices, normal from neighbouring points, alpha and width 8->1 by each point's remaining life, u across the width, v = 0 because grenade_frag never sets a texture resolution) instead of separate per-segment quads with full alpha and a full texture per segment (owner report: wonky, less smooth than native). Fixtures `test-inputs/bevy-frag-native.json` (plaza, yaw 12, Bevy pitch 10) and `bevy-frag-high.json` (yaw -20, Bevy pitch 30). The private oracle gained per-view weapon input suffixes (`!attack`, `!release`, `!attack2`, `!release2`, `!duck`, `!unduck`, `!text` = ent_text on ORACLE_TEXT; positions need `developer 1`).
+
+**Why:** owner priority 13b (native frag comparison) and owner report on the trail.
+
+**Tested how:** native HDR captures (oracle sessions view-d1_trainstation_02-20261010T013831Z, T014922Z, T015224Z; ent_text positions at host_timescale 0.25/0.1). Drag fit: 8 in-flight samples, RMS 3.7 units (linear drag 10.3, none 195.6); the independent pitch -10/yaw 12 throw is predicted within 3 units. Packaged run after the change: 7-20 units from native over 1.3 s (before: up to ~370). Rest position after the monument bounce: ours (-2102.6,-1747.6,20.0) vs native (-2098.9,-1747.5,18.1). New unit tests (native drag samples, trail strip); 384 workspace tests, strict Clippy/fmt.
+
+**Result:** frag flight matches native closely; the trail is smooth and fades like native.
+
+**Still broken or not tested:** native draws Sprite-shader materials with `$nosrgb` 1 (SDK sprite_dx9.cpp default: no sRGB read/write, TONEMAP_SCALE_GAMMA), i.e. additive in gamma space into the integer-HDR framebuffer; ours adds in linear space, so the trail core is about half as bright (red excess ~50 vs ~100) and looks thinner. CBeamSegDraw geometry was checked against the SDK's compiled tier2.lib (half width per side, vertex colour = rgb + alpha). Gamma-space sprite blending is a renderer item for all sprites (planned, not started). Explosion timing vs native not measured (not in view); lob/roll not compared; regression batch not run; the remaining four weapons.
+
+**Next:** lob/roll native comparison, then crossbow, RPG, bug bait, gravity gun; gamma-space sprite blending as a separate renderer step (DESIGN 11f).
+
 ## 2026-10-09 session 10 (later): arsenal WIP (frag grenade), suit logon
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5` (session system context). No subagents.

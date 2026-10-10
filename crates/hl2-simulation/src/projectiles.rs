@@ -17,6 +17,11 @@ const FRAG_BLIP: f64 = 1.;
 const FRAG_BLIP_FAST: f64 = 0.3;
 const FRAG_WARN: f64 = 1.5;
 const FRAG_RESTITUTION: f32 = 0.2;
+/// Effective VPhysics air drag of the thrown frag: dv/dt = -c |v| v (per unit).
+/// The drag code is in vphysics.dll (not the SDK) and w_grenade.phy sets damping 0;
+/// c is fitted to native HDR captures (2026-10-10: 8 ent_text samples of one throw,
+/// RMS 3.7 units; an independent throw at another pitch/yaw predicted within 3 units).
+const FRAG_AIR_DRAG: f32 = 6.4e-4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ProjectileKind {
@@ -547,9 +552,11 @@ impl Projectiles {
 /// Frag grenade motion. Native uses a VPhysics object (w_grenade collision, surface
 /// friction) whose VPhysicsUpdate reflects the velocity with 0.2 restitution and
 /// reverses half the spin on every hit; here the body is a swept 4-unit box under
-/// sv_gravity 600 with that reflection, and resting/sliding on floors is an
+/// sv_gravity 600 and fitted air drag with that reflection, and resting/sliding on floors is an
 /// approximation (normal speed below 60 stops, tangential speed decays at 1.5/s).
 fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) {
+    let speed = projectile.velocity.length();
+    projectile.velocity *= (1. - FRAG_AIR_DRAG * speed * dt).max(0.);
     projectile.velocity.z -= 600. * dt;
     let mut remaining = dt;
     for _ in 0..4 {
@@ -713,6 +720,59 @@ mod tests {
         }
         let at = detonated.unwrap();
         assert!((at - 3.045).abs() < 0.005, "{at}");
+    }
+    #[test]
+    fn frag_flight_follows_native_vphysics_drag_samples() {
+        // Native d1_trainstation_02 throw (eye -3104,-2018,128; setang -30 -20), positions
+        // read from ent_text at host_timescale 0.1; spawn ~0.045 s after the release.
+        let samples = [
+            (0.199, Vec3::new(-2954.4, -2080.9, 231.4)),
+            (0.524, Vec3::new(-2695.9, -2175.1, 365.2)),
+            (0.847, Vec3::new(-2489.1, -2250.2, 416.1)),
+            (1.166, Vec3::new(-2298.1, -2319.8, 402.9)),
+            (1.335, Vec3::new(-2210.7, -2351.5, 373.4)),
+        ];
+        let (pitch, yaw) = (30f32.to_radians(), (-20f32).to_radians());
+        let forward = Vec3::new(
+            pitch.cos() * yaw.cos(),
+            pitch.cos() * yaw.sin(),
+            pitch.sin(),
+        );
+        let right = Vec3::new(yaw.sin(), -yaw.cos(), 0.);
+        let eye = Vec3::new(-3104., -2018., 128.);
+        let position = eye + forward * 18. + right * 8.;
+        let mut projectile = Projectile {
+            id: 1,
+            kind: ProjectileKind::FragGrenade,
+            position,
+            previous_position: position,
+            velocity: (forward + Vec3::Z * 0.1) * 1200.,
+            angles: Vec3::ZERO,
+            angular_velocity: Vec3::ZERO,
+            spawned_at: 0.,
+            radius: 250.,
+            mass: 0.,
+            expires_at: None,
+            damage: 125.,
+            last_bounce: -1.,
+            struck_entity: false,
+            next_whiz: 0.,
+            hit_entities: vec![],
+            fuse: None,
+        };
+        let physics = Physics::new(&World::default());
+        let mut t = 0.045;
+        for (at, expected) in samples {
+            while t + 0.015 <= at {
+                frag_motion(&mut projectile, &physics, 0.015);
+                t += 0.015;
+            }
+            let position = projectile.position + projectile.velocity * (at - t) as f32;
+            assert!(
+                position.distance(expected) < 8.,
+                "{at}: {position} vs {expected}"
+            );
+        }
     }
     use super::*;
     use rapier3d::prelude::*;

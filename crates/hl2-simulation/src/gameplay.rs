@@ -1290,7 +1290,8 @@ impl Inventory {
             return;
         };
         for kind in std::mem::take(&mut self.frag.pending) {
-            let random = self.random() * 2. - 1.;
+            // random() is already uniform in [-1, 1] (RandomInt(-1200, 1200) spin).
+            let random = self.random();
             let (position, throw, angular) =
                 frag_launch(physics, kind, eye, forward, velocity, feet, ground, random);
             self.projectile_spawns.push(ProjectileSpawn {

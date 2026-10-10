@@ -1,0 +1,13 @@
+[
+  {"tick":1,"label":"aim","eye":[-3104,-2018,128],"yaw":12,"pitch":10,"actions":[{"action":"loadout"},{"action":"slot","slot":4}]},
+  {"tick":2,"actions":[{"action":"confirm"}]},
+  {"tick":3},
+  {"tick":100,"label":"pull","primary":true},
+  {"tick":160,"label":"release"},
+  {"tick":174,"label":"t021"},
+  {"tick":207,"label":"t070"},
+  {"tick":240,"label":"t120"},
+  {"tick":274,"label":"t170"},
+  {"tick":340,"label":"t270"},
+  {"tick":380,"label":"t330"}
+]

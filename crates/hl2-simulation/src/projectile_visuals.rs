@@ -209,6 +209,49 @@ impl ProjectileVisuals {
         });
     }
 
+    /// C_SpriteTrail::DrawModel through CBeamSegDraw: one camera-facing strip whose
+    /// points share their edge vertices (normal from the neighbouring points), alpha
+    /// and width follow each point's remaining life (width end..start), u spans the
+    /// width and v is the point's texture coordinate. grenade_frag never sets a
+    /// texture resolution (zeroed entity field), so v stays 0 along the whole trail.
+    fn sprite_trail(
+        &mut self,
+        material: &str,
+        color: [u8; 3],
+        points: &[(f64, Vec3)],
+        eye: Vec3,
+        time: f64,
+        (life, start_width, end_width): (f64, f32, f32),
+    ) {
+        let n = points.len();
+        if n < 2 {
+            return;
+        }
+        let edge: Vec<(Vec3, f32)> = (0..n)
+            .map(|i| {
+                let (at, position) = points[i];
+                let along = points[(i + 1).min(n - 1)].1 - points[i.saturating_sub(1)].1;
+                let side = along.cross(position - eye).normalize_or_zero();
+                let perc = (1. - (time - at) / life).clamp(0., 1.) as f32;
+                let width = end_width + (start_width - end_width) * perc;
+                (side * width * 0.5, perc)
+            })
+            .collect();
+        for i in 0..n - 1 {
+            let ((a, ea), (b, eb)) = ((points[i].1, edge[i]), (points[i + 1].1, edge[i + 1]));
+            if ea.0 == Vec3::ZERO && eb.0 == Vec3::ZERO {
+                continue;
+            }
+            let alpha = ((ea.1 + eb.1) * 0.5 * 255.).round() as u8;
+            self.quads.push(Quad {
+                material: material.into(),
+                positions: [a - ea.0, b - eb.0, b + eb.0, a + ea.0],
+                color: [color[0], color[1], color[2], alpha],
+                uv: [[0., 0.], [0., 0.], [1., 0.], [1., 0.]],
+            });
+        }
+    }
+
     pub fn frame(
         &mut self,
         projectiles: &Projectiles,
@@ -293,24 +336,18 @@ impl ProjectileVisuals {
             while trail.front().is_some_and(|(at, _)| time - at > 0.5) {
                 trail.pop_front();
             }
-            let points: Vec<(f64, Vec3)> = trail.iter().copied().collect();
-            for pair in points.windows(2) {
-                let ((t0, a), (t1, b)) = (pair[0], pair[1]);
-                let width = |t: f64| 1. + 7. * (1. - ((time - t) / 0.5).clamp(0., 1.) as f32);
-                let along = (b - a).normalize_or_zero();
-                let side = along.cross(direction).normalize_or_zero();
-                if side == Vec3::ZERO || !self.sprites.contains_key("sprites/bluelaser1") {
-                    continue;
-                }
-                let (w0, w1) = (width(t0) * 0.5, width(t1) * 0.5);
-                self.quads.push(Quad {
-                    material: "sprites/bluelaser1".into(),
-                    // Beam textures run along v; u spans the width.
-                    positions: [a - side * w0, b - side * w1, b + side * w1, a + side * w0],
-                    color: [255, 0, 0, 255],
-                    uv: crate::explosion_particles::UV,
-                });
+            if !self.sprites.contains_key("sprites/bluelaser1") {
+                continue;
             }
+            let points: Vec<(f64, Vec3)> = trail.iter().copied().collect();
+            self.sprite_trail(
+                "sprites/bluelaser1",
+                [255, 0, 0],
+                &points,
+                eye,
+                time,
+                (0.5, 8., 1.),
+            );
         }
         for effect in &projectiles.effects {
             let age = (time - effect.at).max(0.) as f32;
@@ -373,5 +410,42 @@ mod tests {
             assert!(right.dot(up).abs() < 0.00001);
             assert!(direction.normalize().dot(right).abs() < 0.00001);
         }
+    }
+    #[test]
+    fn sprite_trail_is_one_strip_fading_with_point_life() {
+        let mut visuals = ProjectileVisuals::empty();
+        let points: Vec<(f64, Vec3)> = (0..5)
+            .map(|i| {
+                (
+                    f64::from(i) * 0.1,
+                    Vec3::new(f32::from(i as u8) * 20., 0., f32::from((i * i) as u8)),
+                )
+            })
+            .collect();
+        visuals.sprite_trail(
+            "sprites/bluelaser1",
+            [255, 0, 0],
+            &points,
+            Vec3::new(40., -200., 0.),
+            0.4,
+            (0.5, 8., 1.),
+        );
+        assert_eq!(visuals.quads.len(), 4);
+        for pair in visuals.quads.windows(2) {
+            // Adjacent segments share the edge vertices (no kinks or gaps at joints).
+            assert_eq!(pair[0].positions[1], pair[1].positions[0]);
+            assert_eq!(pair[0].positions[2], pair[1].positions[3]);
+            assert!(pair[0].color[3] < pair[1].color[3]);
+        }
+        // The newest point is full width (8) and the 0.4 s old one is near the end width.
+        let head = &visuals.quads[3];
+        assert!((head.positions[2].distance(head.positions[1]) - 8.).abs() < 1e-3);
+        let tail = &visuals.quads[0];
+        let tail_width = tail.positions[3].distance(tail.positions[0]);
+        assert!((tail_width - (1. + 7. * 0.2)).abs() < 1e-3, "{tail_width}");
+        assert!(visuals
+            .quads
+            .iter()
+            .all(|q| q.uv.iter().all(|uv| uv[1] == 0.)));
     }
 }
