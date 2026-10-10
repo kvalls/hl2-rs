@@ -21,7 +21,7 @@ LOCAL VALIDATION CHECKLIST additions (this session; the list below still applies
 8. RPG lowered: `bevy-rpg.json` with the RPG emptied (fire all rockets, wait for the last to die): capture the lowered idle and the laser off; native: same view, empty RPG via `give`/fire, compare the lowered pose and that the dot disappears.
 9. Sounds: `--audio-trace` on bevy-rpg.json (Missile.Ignite must stop at the explosion) and bevy-physcannon.json (HoldSound starts silent at pitch 50, reaches 0.8 within 0.5 s, winds down over 1 s on drop/launch); compare with native per-process recordings while holding a prop.
 10. Effects: stuck bolts visible on the monument after bevy-crossbow.json, sparks at the hit, charger glow during reload, load blast; RPG beam/muzzle sprite; gravity gun glows, end caps, cores and fork beams while holding. Native oracle: same views (d1_trainstation_02 eye (-3104,-2018,128) NATIVE setang -10 12 for crossbow/RPG; a prop view for the gravity gun), HDR captures for side-by-side (remember 11f: our additive sprites are dimmer).
-11. View punch: capture frames 0-10 after a crossbow shot and a gravity gun punt; native: same, '!attack'; compare the pitch kick (crossbow -2 deg peak ~1.3 deg after damping) and the return time.
+11. View punch: capture frames 0-10 after a crossbow shot and a gravity gun punt; native: same, '!attack'; compare the pitch kick (crossbow ViewPunch(-2): our spring peaks at -2.62 deg (view up) at 0.135 s at 15 ms ticks) and the return time.
 12. Carry speed: hold a prop with the gravity gun and walk (W) for 2 s with --report; speed should be 150 + 40 x (1 - mass/250); native: `cl_showpos 1` while holding the same prop.
 
 
