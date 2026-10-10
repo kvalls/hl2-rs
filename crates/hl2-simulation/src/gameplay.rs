@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Default)]
 pub struct Weapon {
+    /// Entity class (weapon_*), the script file name.
+    pub class: String,
     pub name: String,
     pub slot: usize,
     pub slot_position: usize,
@@ -29,7 +31,7 @@ pub struct Weapon {
     pub damage: f32,
     pub sounds: BTreeMap<String, String>,
 }
-const IMPLEMENTED: [&str; 7] = [
+const IMPLEMENTED: [&str; 9] = [
     "weapon_crowbar",
     "weapon_pistol",
     "weapon_357",
@@ -37,6 +39,8 @@ const IMPLEMENTED: [&str; 7] = [
     "weapon_ar2",
     "weapon_shotgun",
     "weapon_frag",
+    "weapon_crossbow",
+    "weapon_rpg",
 ];
 /// Thrown frag kinds by viewmodel event (npcevent.h EVENT_WEAPON_THROW/2/3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -94,8 +98,11 @@ pub fn definitions(vfs: &Vfs) -> Result<BTreeMap<String, Weapon>> {
             secondary_ammo_type.to_ascii_lowercase()
         };
         // Buckshot is the ammunition/damage name; sk_plr_dmg_shotgun does not exist.
+        // CAmmoDef (hl2_gamerules.cpp GetAmmoDef): XBowBolt uses the sk_*_crossbow cvars.
         let skill_name = if class == "weapon_crowbar" {
             "crowbar".into()
+        } else if ammo_type.eq_ignore_ascii_case("XBowBolt") {
+            "crossbow".into()
         } else {
             ammo_type.to_ascii_lowercase()
         };
@@ -107,6 +114,7 @@ pub fn definitions(vfs: &Vfs) -> Result<BTreeMap<String, Weapon>> {
         weapons.insert(
             class.into(),
             Weapon {
+                class: class.into(),
                 name,
                 slot: value("bucket").and_then(|s| s.parse().ok()).unwrap_or(0),
                 slot_position: value("bucket_position")
@@ -203,9 +211,9 @@ struct Reload {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
-struct EmptyFire {
+pub(crate) struct EmptyFire {
     latched: bool,
-    next_sound: f64,
+    pub(crate) next_sound: f64,
 }
 
 /// CSingleplayRules::FlPlayerFallDamage with the HL2_DLL constants: damage grows linearly
@@ -246,25 +254,44 @@ pub struct Inventory {
     pub delayed_secondary_attack: bool,
     #[serde(skip)]
     attack_input: Option<(bool, bool)>,
-    next_attack: f64,
-    next_secondary: BTreeMap<String, f64>,
-    owner_attack_until: f64,
+    pub(crate) next_attack: f64,
+    pub(crate) next_secondary: BTreeMap<String, f64>,
+    pub(crate) owner_attack_until: f64,
     #[serde(skip)]
     ar2_charge_until: Option<f64>,
-    soonest_attack: f64,
+    pub(crate) soonest_attack: f64,
     reload: Option<Reload>,
-    empty_fire: BTreeMap<String, EmptyFire>,
+    pub(crate) empty_fire: BTreeMap<String, EmptyFire>,
     shotgun_need_pump: bool,
     #[serde(skip)]
     holding_attack: bool,
     /// weapon_frag throw state.
     #[serde(skip)]
     pub frag: FragState,
+    /// weapon_crossbow zoom, reload and charger state.
+    #[serde(skip)]
+    pub crossbow: crate::weapon_crossbow::CrossbowState,
+    /// CBasePlayer::SetFOV state (crossbow zoom); the host draws `view_fov`.
+    #[serde(skip)]
+    pub fov: crate::weapon_crossbow::FovRamp,
+    /// weapon_rpg guiding, laser dot and missile handle.
+    #[serde(skip)]
+    pub rpg: crate::weapon_rpg::RpgState,
+    /// Sounds requested where no scene is at hand (holster); emitted on the next tick.
+    #[serde(skip)]
+    deferred_sounds: Vec<String>,
+    /// Idle sequence resolved from ACT_VM_IDLE/ACT_VM_FIDGET for script-only viewmodels.
+    #[serde(skip)]
+    pub idle_override: Option<String>,
+    /// SetSuitUpdate requests (sentence without '!', no-repeat seconds); the host
+    /// forwards them to its suit queue.
+    #[serde(skip)]
+    pub suit_updates: Vec<(String, f32)>,
     /// IN_DUCK for the frag roll, set by the host before tick.
     #[serde(skip)]
     pub ducking: bool,
     burst: usize,
-    last_shot: f64,
+    pub(crate) last_shot: f64,
     penalty: f32,
     rng: u64,
 }
@@ -300,6 +327,12 @@ impl Default for Inventory {
             shotgun_need_pump: false,
             holding_attack: false,
             frag: FragState::default(),
+            crossbow: Default::default(),
+            fov: Default::default(),
+            rpg: Default::default(),
+            deferred_sounds: Vec::new(),
+            idle_override: None,
+            suit_updates: Vec::new(),
             ducking: false,
             burst: 0,
             last_shot: -1e30,
@@ -348,7 +381,7 @@ impl Inventory {
             .map(|w| self.ammo(&w.secondary_ammo_type))
             .unwrap_or(0)
     }
-    fn ammo(&self, ammo_type: &str) -> i32 {
+    pub(crate) fn ammo(&self, ammo_type: &str) -> i32 {
         if ammo_type.eq_ignore_ascii_case("Pistol") {
             self.pistol_ammo.max(0)
         } else {
@@ -359,7 +392,7 @@ impl Inventory {
                 .max(0)
         }
     }
-    fn set_ammo(&mut self, ammo_type: &str, value: i32) {
+    pub(crate) fn set_ammo(&mut self, ammo_type: &str, value: i32) {
         if ammo_type.eq_ignore_ascii_case("Pistol") {
             self.pistol_ammo = value.max(0);
         } else if !ammo_type.eq_ignore_ascii_case("None") && !ammo_type.is_empty() {
@@ -404,7 +437,7 @@ impl Inventory {
         self.reload.is_some()
     }
     pub fn can_holster(&self) -> bool {
-        self.ar2_charge_until.is_none()
+        self.ar2_charge_until.is_none() && self.rpg_can_holster()
     }
     pub fn charge_until(&self) -> Option<f64> {
         self.ar2_charge_until
@@ -414,7 +447,10 @@ impl Inventory {
     pub fn set_attack_input(&mut self, primary: bool, secondary: bool) {
         self.attack_input = Some((primary, secondary));
     }
-    pub fn idle_animation(&self) -> &'static str {
+    pub fn idle_animation(&self) -> &str {
+        if let Some(idle) = &self.idle_override {
+            return idle;
+        }
         match self.active.as_str() {
             "weapon_ar2" => "ir_idle",
             "weapon_pistol" if self.owned.get(&self.active) == Some(&0) => "idle01empty",
@@ -439,8 +475,25 @@ impl Inventory {
             if !self.can_holster() {
                 return;
             }
+            // CWeaponCrossbow::Holster -> StopEffects (unzoom over 0.2 s, charger off).
+            if self.active == "weapon_crossbow" {
+                self.crossbow_holster(time);
+            }
+            // CWeaponRPG::Holster -> StopGuiding (SPECIAL2 while guiding).
+            if self.active == "weapon_rpg" {
+                if self.rpg.guiding {
+                    if let Some(sound) = weapons
+                        .get("weapon_rpg")
+                        .and_then(|w| w.sounds.get("special2"))
+                    {
+                        self.deferred_sounds.push(sound.clone());
+                    }
+                }
+                self.rpg_holster(None);
+            }
             self.previous = self.active.clone();
             self.reload = None;
+            self.idle_override = None;
             self.delayed_attack = false;
             self.delayed_secondary_attack = false;
             self.attack_input = None;
@@ -454,6 +507,13 @@ impl Inventory {
                 "ir_draw"
             } else if class == "weapon_pistol" && self.owned[class] == 0 {
                 "drawempty"
+            } else if class == "weapon_rpg" {
+                self.rpg_deploy();
+                "ACT_VM_DRAW"
+            } else if class == "weapon_crossbow" {
+                // CWeaponCrossbow::Deploy; the sequence is resolved from the activity
+                // on the next tick (resolve_activity), which also fixes the deadlines.
+                self.crossbow_deploy(self.owned[class])
             } else {
                 "draw"
             };
@@ -495,7 +555,17 @@ impl Inventory {
         }
         self.holding_attack = attack;
         let (primary, secondary) = self.attack_input.take().unwrap_or((attack, false));
+        for sound in std::mem::take(&mut self.deferred_sounds) {
+            scene.sounds.push(sound.into());
+        }
+        self.resolve_activity(world, weapons);
         self.advance_reload(world, scene, weapons, primary, secondary);
+        if self.active == "weapon_crossbow" && self.health > 0. {
+            self.crossbow_tick(world, scene, weapons, primary, secondary);
+        }
+        if self.active == "weapon_rpg" && self.health > 0. {
+            self.rpg_tick(world, scene, weapons, primary, secondary);
+        }
         if self.active == "weapon_frag" && self.health > 0. {
             self.frag_tick(world, scene, weapons, primary, secondary);
         }
@@ -710,23 +780,27 @@ impl Inventory {
             if self.owned[&self.active] == 0 {
                 self.shotgun_need_pump = true;
             }
-            ("reload1", ReloadPhase::ShellStart)
+            ("reload1".to_owned(), ReloadPhase::ShellStart)
         } else {
             (
                 if self.active == "weapon_ar2" {
-                    "ir_reload"
+                    "ir_reload".to_owned()
+                } else if self.active == "weapon_crossbow" {
+                    activity_sequence(world, w, "ACT_VM_RELOAD")
                 } else {
-                    "reload"
+                    "reload".to_owned()
                 },
                 ReloadPhase::Magazine,
             )
         };
-        let end = scene.time + duration(world, w, animation);
+        let end = scene.time + duration(world, w, &animation);
         self.reload = Some(Reload {
             weapon: self.active.clone(),
             at: end,
             phase,
         });
+        // CWeaponCrossbow::Reload clears m_bMustReload once the base reload starts.
+        self.crossbow.must_reload = false;
         self.next_attack = end;
         // Retail SMG reload restores the secondary/owner timer so that a
         // grenade can interrupt a magazine reload. AR2 retains the owner gate.
@@ -735,10 +809,10 @@ impl Inventory {
         } else {
             end
         };
-        self.animate(animation, scene.time);
+        self.animate(&animation, scene.time);
         self.penalty = 0.;
         if self.active != "weapon_shotgun" {
-            play_sound(scene, w, "reload", world, animation);
+            play_sound(scene, w, "reload", world, &animation);
         }
     }
     pub fn attack(
@@ -762,6 +836,10 @@ impl Inventory {
         let Some(w) = weapons.get(&self.active) else {
             return;
         };
+        if self.active == "weapon_rpg" {
+            self.rpg_fire(w, world, scene, physics, eye, direction);
+            return;
+        }
         let Some(&clip) = self.owned.get(&self.active) else {
             return;
         };
@@ -783,12 +861,23 @@ impl Inventory {
                 }
             } else if self.ammo(&w.ammo_type) > 0 {
                 self.reload(weapons, scene, world);
+            } else if self.active == "weapon_crossbow" {
+                // HandleFireOnEmpty: the empty click (0.5 s apart); no dry-fire sequence.
+                let empty = self.empty_fire.entry(self.active.clone()).or_default();
+                if scene.time > empty.next_sound {
+                    play_sound(scene, w, "empty", world, "");
+                    empty.next_sound = scene.time + 0.5;
+                }
             } else {
                 self.soonest_attack = scene.time + 0.2;
                 self.next_attack = scene.time + duration(world, w, "dryfire");
                 self.animate("dryfire", scene.time);
                 play_sound(scene, w, "empty", world, "dryfire");
             }
+            return;
+        }
+        if self.active == "weapon_crossbow" {
+            self.crossbow_fire(w, world, scene, eye, direction);
             return;
         }
         let automatic = is_automatic(&self.active);
@@ -1308,7 +1397,28 @@ impl Inventory {
             });
         }
     }
-    fn animate(&mut self, name: &str, time: f64) {
+    /// Replace an activity placeholder ("ACT_*", set where no world is available) with
+    /// the viewmodel's sequence; a draw placeholder also fixes the deadlines it set.
+    fn resolve_activity(&mut self, world: &World, weapons: &BTreeMap<String, Weapon>) {
+        if !self.animation.starts_with("ACT_") {
+            return;
+        }
+        let Some(weapon) = weapons.get(&self.active) else {
+            return;
+        };
+        let activity = std::mem::take(&mut self.animation);
+        self.animation = activity_sequence(world, weapon, &activity);
+        if activity.contains("DRAW") {
+            let end = self.animation_at + duration(world, weapon, &self.animation);
+            self.next_attack = end;
+            self.owner_attack_until = end;
+            self.soonest_attack = end;
+            self.next_secondary.insert(self.active.clone(), end);
+            // SetIdealActivity: the weapon idle time is the sequence end.
+            self.rpg.idle_at = end;
+        }
+    }
+    pub(crate) fn animate(&mut self, name: &str, time: f64) {
         self.animation = name.into();
         self.animation_at = time;
     }
@@ -1331,7 +1441,7 @@ impl Inventory {
         let up = right.cross(direction).normalize_or_zero();
         (direction + right * x * spread_cone + up * y * spread_cone).normalize_or_zero()
     }
-    fn random(&mut self) -> f32 {
+    pub(crate) fn random(&mut self) -> f32 {
         self.rng ^= self.rng << 13;
         self.rng ^= self.rng >> 7;
         self.rng ^= self.rng << 17;
@@ -1383,7 +1493,13 @@ fn melee_trace(
     }
     closest.or(Some(hit))
 }
-fn play_sound(scene: &mut Scene, weapon: &Weapon, key: &str, world: &World, animation: &str) {
+pub(crate) fn play_sound(
+    scene: &mut Scene,
+    weapon: &Weapon,
+    key: &str,
+    world: &World,
+    animation: &str,
+) {
     let Some(sound) = weapon.sounds.get(key) else {
         return;
     };
@@ -1495,7 +1611,19 @@ fn cone(degrees: f32) -> f32 {
         _ => (degrees.to_radians() * 0.5).sin(),
     }
 }
-fn duration(world: &World, weapon: &Weapon, animation: &str) -> f64 {
+/// The viewmodel sequence for an activity (CBaseAnimating::SelectWeightedSequence with
+/// the first weighted choice), or the lowercase activity name when the rig is absent.
+pub(crate) fn activity_sequence(world: &World, weapon: &Weapon, activity: &str) -> String {
+    world
+        .rigs
+        .get(&format!("{}#0", weapon.viewmodel.to_lowercase()))
+        .and_then(|rig| {
+            rig.lookup_sequence(activity, None, |_| 0)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| activity.to_lowercase())
+}
+pub(crate) fn duration(world: &World, weapon: &Weapon, animation: &str) -> f64 {
     world
         .rigs
         .get(&format!("{}#0", weapon.viewmodel.to_lowercase()))
@@ -1505,6 +1633,9 @@ fn duration(world: &World, weapon: &Weapon, animation: &str) -> f64 {
         .unwrap_or_else(|| fallback_duration(weapon_class(weapon), animation))
 }
 fn weapon_class(weapon: &Weapon) -> &str {
+    if !weapon.class.is_empty() {
+        return &weapon.class;
+    }
     match weapon.ammo_type.as_str() {
         "Pistol" => "weapon_pistol",
         "357" => "weapon_357",

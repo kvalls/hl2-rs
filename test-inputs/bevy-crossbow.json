@@ -1,0 +1,19 @@
+[
+  {"tick":1,"label":"aim","eye":[-3104,-2018,128],"yaw":12,"pitch":10,"actions":[{"action":"loadout"},{"action":"slot","slot":3}]},
+  {"tick":2,"actions":[{"action":"slot","slot":3}]},
+  {"tick":3,"actions":[{"action":"confirm"}]},
+  {"tick":4},
+  {"tick":100,"label":"fire","primary":true},
+  {"tick":102,"label":"t003"},
+  {"tick":104,"label":"t030"},
+  {"tick":110,"label":"t150"},
+  {"tick":130,"label":"reload"},
+  {"tick":200,"label":"zoom","secondary":true},
+  {"tick":202,"label":"z030"},
+  {"tick":210,"label":"zoomed"},
+  {"tick":260,"label":"fire-zoomed","primary":true},
+  {"tick":262,"label":"zf030"},
+  {"tick":300,"label":"unzoom","secondary":true},
+  {"tick":302},
+  {"tick":320,"label":"unzoomed"}
+]

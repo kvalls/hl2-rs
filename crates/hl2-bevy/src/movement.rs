@@ -347,6 +347,8 @@ impl Simulation {
             if let Some(game) = game.as_deref_mut() {
                 let direction =
                     glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array());
+                // GetDefaultFOV for SetFOV ramps (the `fov` command / fixture FOV).
+                game.inventory.fov.default_fov = self.fov;
                 game.tick(
                     &mut self.physics,
                     &self.player,
@@ -642,6 +644,7 @@ pub(crate) fn vertical_fov(degrees: f32) -> f32 {
 }
 pub(crate) fn present(
     sim: Res<Simulation>,
+    game: Option<Res<crate::gameplay::Gameplay>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<FlyCamera>>,
 ) {
     if let Ok((mut camera, mut projection)) = cameras.single_mut() {
@@ -649,7 +652,11 @@ pub(crate) fn present(
             source_to_bevy(source_direction(sim.yaw, sim.pitch)),
             Vec3::Y,
         );
-        let fov = vertical_fov(sim.fov);
+        // SetFOV (crossbow zoom) ramps from the player's default FOV.
+        let fov = vertical_fov(
+            game.as_deref()
+                .map_or(sim.fov, |game| game.inventory.view_fov(game.scene.time)),
+        );
         if let Projection::Perspective(p) = &mut *projection
             && p.fov != fov
         {

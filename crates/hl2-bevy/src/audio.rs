@@ -351,6 +351,11 @@ impl PreparedAudio {
                 "Player.PlasmaDamage",
                 "Player.SonicDamage",
                 "Flesh.BulletImpact",
+                // weapon_crossbow.cpp CCrossbowBolt::BoltTouch.
+                "Weapon_Crossbow.BoltHitWorld",
+                "Weapon_Crossbow.BoltHitBody",
+                // weapon_rpg.cpp CMissile::IgniteThink.
+                "Missile.Ignite",
             ]
             .into_iter()
             .map(str::to_owned),

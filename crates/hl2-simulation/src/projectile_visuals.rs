@@ -19,6 +19,11 @@ pub const SPRITES: &[&str] = &[
     "effects/fire_cloud2",
     "sprites/redglow1",
     "sprites/bluelaser1",
+    // weapon_crossbow (bolt glow, charger, load blast).
+    "sprites/light_glow02_noz",
+    "sprites/blueflare1",
+    // weapon_rpg (RocketTrail puffs; the dot uses redglow1).
+    "particle/particle_smokegrenade",
 ];
 pub struct Sprite {
     pub image: std::sync::Arc<vtf::Image>,
@@ -45,6 +50,24 @@ pub struct ProjectileVisuals {
     fuse_offset: Vec3,
     /// Frag trail points (time, position) per grenade, 0.5 s long.
     trails: HashMap<u64, std::collections::VecDeque<(f64, Vec3)>>,
+    /// RocketTrail emitter position per missile and its live puffs.
+    rocket_emitters: HashMap<u64, Vec3>,
+    puffs: Vec<Puff>,
+    last_frame: f64,
+}
+/// One C_RocketTrail SimpleParticle (size/alpha lerp over its life, drifting).
+#[derive(Clone, Debug)]
+struct Puff {
+    born: f64,
+    life: f32,
+    position: Vec3,
+    velocity: Vec3,
+    sizes: (f32, f32),
+    alpha: f32,
+    color: u8,
+    roll: f32,
+    roll_delta: f32,
+    material: usize,
 }
 pub fn load_sprite(vfs: &Vfs, material: &str) -> Result<Sprite> {
     let base = vfs
@@ -60,7 +83,11 @@ pub fn load_sprite(vfs: &Vfs, material: &str) -> Result<Sprite> {
         // redglow1 is kRenderGlow and its bluelaser1 trail kRenderTransAdd.
         kind: if matches!(
             material,
-            "sprites/lgtning" | "sprites/redglow1" | "sprites/bluelaser1"
+            "sprites/lgtning"
+                | "sprites/redglow1"
+                | "sprites/bluelaser1"
+                | "sprites/light_glow02_noz"
+                | "sprites/blueflare1"
         ) {
             3
         } else {
@@ -128,6 +155,9 @@ impl ProjectileVisuals {
             missing_particle_draws: 0,
             fuse_offset: Vec3::ZERO,
             trails: HashMap::new(),
+            rocket_emitters: HashMap::new(),
+            puffs: Vec::new(),
+            last_frame: 0.,
         }
     }
     pub fn new(vfs: &Vfs) -> Self {
@@ -207,6 +237,87 @@ impl ProjectileVisuals {
             color: [shade, shade, shade, 255],
             uv: crate::explosion_particles::UV,
         });
+    }
+
+    /// C_RocketTrail::Update for ignited missiles: puffs every StartSize/2 units moved
+    /// (at most 50 per frame), life 0.5 + [0.45, 0.55], size 8 -> 32 (x 0.75..1.25 and
+    /// 1..1.25), alpha 0.2 (x 0.75..1.25) -> 0, gray 0.65 (x 0.75..1.25), drifting 2..16
+    /// u/s. The muzzle-flash flare (m_flFlareScale) is not drawn.
+    fn rocket_trails(
+        &mut self,
+        projectiles: &Projectiles,
+        axes: (Vec3, Vec3),
+        time: f64,
+        paused: bool,
+    ) {
+        let trail = &crate::weapon_rpg::ROCKET_TRAIL;
+        self.rocket_emitters
+            .retain(|id, _| projectiles.active.iter().any(|p| p.id == *id));
+        let dt = if paused {
+            0.
+        } else {
+            (time - self.last_frame).clamp(0., 0.1) as f32
+        };
+        self.last_frame = time;
+        if !paused {
+            for missile in projectiles
+                .active
+                .iter()
+                .filter(|p| p.kind == ProjectileKind::RpgMissile && p.ignited)
+            {
+                let last = *self
+                    .rocket_emitters
+                    .entry(missile.id)
+                    .or_insert(missile.position);
+                let delta = missile.position - last;
+                let length = delta.length();
+                let count = ((length / (trail.start_size / 2.)) as usize).min(50);
+                for i in 1..=count {
+                    let position = last + delta * (i as f32 / count as f32);
+                    let mut r = || self.random();
+                    let life =
+                        trail.particle_lifetime + trail.particle_lifetime * (0.9 + 0.2 * r());
+                    let direction = Vec3::new(r() * 2. - 1., r() * 2. - 1., r() * 2. - 1.);
+                    let speed = trail.min_speed + (trail.max_speed - trail.min_speed) * r();
+                    let gray = (trail.start_color[0] * (0.75 + 0.5 * r())).clamp(0., 1.);
+                    let puff = Puff {
+                        born: time,
+                        life,
+                        position,
+                        velocity: direction * speed,
+                        sizes: (
+                            trail.start_size * (0.75 + 0.5 * r()),
+                            trail.end_size * (1. + 0.25 * r()),
+                        ),
+                        alpha: (trail.opacity * (0.75 + 0.5 * r())).clamp(0., 1.),
+                        color: (gray * 255.) as u8,
+                        roll: r() * std::f32::consts::TAU,
+                        roll_delta: (r() * 2. - 1.) * 8.,
+                        material: usize::from(r() >= 0.5),
+                    };
+                    if self.puffs.len() < 2048 {
+                        self.puffs.push(puff);
+                    }
+                }
+                self.rocket_emitters.insert(missile.id, missile.position);
+            }
+        }
+        self.puffs.retain(|p| time - p.born < f64::from(p.life));
+        for i in 0..self.puffs.len() {
+            let mut puff = self.puffs[i].clone();
+            puff.position += puff.velocity * dt;
+            puff.roll += puff.roll_delta * dt;
+            self.puffs[i] = puff.clone();
+            let t = ((time - puff.born) as f32 / puff.life).clamp(0., 1.);
+            let size = puff.sizes.0 + (puff.sizes.1 - puff.sizes.0) * t;
+            let alpha = puff.alpha * (1. - t);
+            let material = crate::weapon_rpg::TRAIL_MATERIALS[puff.material];
+            let before = self.quads.len();
+            self.quad(material, puff.position, axes, size * 0.5, puff.roll, 1.);
+            if let Some(quad) = self.quads.get_mut(before) {
+                quad.color = [puff.color, puff.color, puff.color, (alpha * 255.) as u8];
+            }
+        }
     }
 
     /// C_SpriteTrail::DrawModel through CBeamSegDraw: one camera-facing strip whose
@@ -349,6 +460,22 @@ impl ProjectileVisuals {
                 (0.5, 8., 1.),
             );
         }
+        self.rocket_trails(projectiles, axes, time, paused);
+        // CLaserDot: redglow1, kRenderGlow 255, LaserThink scale.
+        if let Some(dot) = projectiles.laser_dot.filter(|d| d.on) {
+            let size = self
+                .sprites
+                .get(crate::weapon_rpg::DOT_SPRITE)
+                .map_or(0., |s| s.image.width as f32 * 0.5 * dot.scale);
+            self.quad(
+                crate::weapon_rpg::DOT_SPRITE,
+                dot.position,
+                axes,
+                size,
+                0.,
+                1.,
+            );
+        }
         for effect in &projectiles.effects {
             let age = (time - effect.at).max(0.) as f32;
             let position = Vec3::new(effect.position.x, effect.position.y, effect.position.z);
@@ -374,7 +501,23 @@ impl ProjectileVisuals {
                         (1. - age / 0.5).max(0.),
                     );
                 }
-                EffectKind::GrenadeExplosion | EffectKind::BallExplosion => (),
+                EffectKind::BoltGlow => {
+                    // CCrossbowBolt glow: kRenderGlow, alpha 128, scale 0.2, FadeAndDie(3).
+                    let size = self
+                        .sprites
+                        .get(crate::weapon_crossbow::BOLT_GLOW_SPRITE)
+                        .map_or(0., |s| s.image.width as f32 * 0.5 * 0.2);
+                    let fade = (1. - age / crate::weapon_crossbow::STUCK_GLOW_TIME as f32).max(0.);
+                    self.quad(
+                        crate::weapon_crossbow::BOLT_GLOW_SPRITE,
+                        position,
+                        axes,
+                        size,
+                        0.,
+                        128. / 255. * fade,
+                    );
+                }
+                EffectKind::GrenadeExplosion | EffectKind::BallExplosion | EffectKind::Sparks => (),
             }
             self.effect_frames += 1;
         }

@@ -229,6 +229,8 @@ impl Particles {
                         self.diagnostics.rings_emitted += 1;
                     }
                 }
+                // Sprite-only (projectile_visuals) or not drawn yet.
+                EffectKind::BoltGlow | EffectKind::Sparks => {}
             }
         }
         for particle in &mut self.particles {

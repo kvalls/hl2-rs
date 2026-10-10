@@ -1,0 +1,17 @@
+[
+  {"tick":1,"label":"aim","eye":[-3104,-2018,128],"yaw":12,"pitch":10,"actions":[{"action":"loadout"},{"action":"slot","slot":4}]},
+  {"tick":2,"actions":[{"action":"slot","slot":4}]},
+  {"tick":3,"actions":[{"action":"confirm"}]},
+  {"tick":4},
+  {"tick":100,"label":"laser"},
+  {"tick":120,"label":"fire","primary":true},
+  {"tick":122,"label":"t030"},
+  {"tick":140,"label":"t300-ignite"},
+  {"tick":141,"label":"t315"},
+  {"tick":160,"label":"t600"},
+  {"tick":180,"label":"steer","yaw":20},
+  {"tick":200,"label":"t1200"},
+  {"tick":240,"label":"t1800"},
+  {"tick":300,"label":"reload"},
+  {"tick":400,"label":"end"}
+]

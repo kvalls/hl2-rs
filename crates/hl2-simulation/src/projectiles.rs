@@ -37,6 +37,10 @@ pub enum ProjectileKind {
     SmgGrenade,
     CombineBall,
     FragGrenade,
+    /// crossbow_bolt (weapon_crossbow.rs).
+    CrossbowBolt,
+    /// rpg_missile (weapon_rpg.rs).
+    RpgMissile,
 }
 /// npc_grenade_frag timer state (CGrenadeFrag::SetTimer / DelayThink).
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -77,12 +81,20 @@ pub struct Projectile {
     pub radius: f32,
     pub mass: f32,
     expires_at: Option<f64>,
-    damage: f32,
+    pub(crate) damage: f32,
     last_bounce: f64,
     struck_entity: bool,
     next_whiz: f64,
     hit_entities: Vec<usize>,
     pub fuse: Option<Fuse>,
+    /// MOVETYPE_FLYGRAVITY entity gravity scale (crossbow bolt 0.05, then 1.0).
+    pub gravity: f32,
+    /// Next think time (crossbow BubbleThink, missile IgniteThink).
+    pub(crate) next_think: f64,
+    /// rpg_missile after IgniteThink (MOVETYPE_FLY, w_missile.mdl).
+    pub ignited: bool,
+    /// FSOLID_NOT_SOLID until this time (missile grace period).
+    pub(crate) solid_at: f64,
 }
 impl Projectile {
     pub fn model(&self) -> &'static str {
@@ -90,6 +102,9 @@ impl Projectile {
             ProjectileKind::SmgGrenade => GRENADE_MODEL,
             ProjectileKind::CombineBall => BALL_MODEL,
             ProjectileKind::FragGrenade => FRAG_MODEL,
+            ProjectileKind::CrossbowBolt => crate::weapon_crossbow::BOLT_MODEL,
+            ProjectileKind::RpgMissile if self.ignited => crate::weapon_rpg::MISSILE_MODEL,
+            ProjectileKind::RpgMissile => crate::weapon_rpg::MISSILE_LAUNCH_MODEL,
         }
     }
     pub fn physical_radius(&self) -> f32 {
@@ -98,6 +113,9 @@ impl Projectile {
             ProjectileKind::CombineBall => self.radius,
             // CGrenadeFrag::Spawn SetSize(-4, 4).
             ProjectileKind::FragGrenade => 4.,
+            ProjectileKind::CrossbowBolt => 0.3,
+            ProjectileKind::RpgMissile if self.ignited => 0.,
+            ProjectileKind::RpgMissile => 4.,
         }
     }
 }
@@ -107,6 +125,10 @@ pub enum EffectKind {
     GrenadeExplosion,
     BallImpact,
     BallExplosion,
+    /// The crossbow bolt's glow sprite, turned on where it stuck and faded over 3 s.
+    BoltGlow,
+    /// g_pEffects->Sparks where a bolt hit the world (host-drawn; not drawn yet).
+    Sparks,
 }
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct Effect {
@@ -124,6 +146,8 @@ impl Effect {
             EffectKind::BallImpact => 4.,
             EffectKind::GrenadeExplosion => 3.,
             EffectKind::BallExplosion => 8.,
+            EffectKind::BoltGlow => crate::weapon_crossbow::STUCK_GLOW_TIME,
+            EffectKind::Sparks => 0.5,
         }
     }
 }
@@ -144,6 +168,8 @@ pub struct Damage {
 #[derive(Default, Serialize)]
 pub struct Diagnostics {
     pub grenades_spawned: u64,
+    pub bolts_spawned: u64,
+    pub missiles_spawned: u64,
     pub balls_spawned: u64,
     pub grenade_detonations: u64,
     pub ball_bounces: u64,
@@ -162,6 +188,15 @@ pub struct Projectiles {
     pub active: Vec<Projectile>,
     pub effects: Vec<Effect>,
     pub diagnostics: Diagnostics,
+    /// Crossbow bolts stuck in the world (C_TEStickyBolt temp models, never die in SP).
+    pub stuck_bolts: Vec<crate::weapon_crossbow::StuckBolt>,
+    /// UTIL_ImpactTrace requests from projectiles (decal and surface impact sound);
+    /// the host drains them into its impact system.
+    pub impacts: Vec<crate::physics::RayHit>,
+    /// The player's RPG laser dot, copied from the weapon each tick by the host.
+    pub laser_dot: Option<crate::weapon_rpg::LaserDot>,
+    /// Missile deaths/removals this tick; the host notifies the RPG.
+    pub missile_events: Vec<crate::weapon_rpg::MissileEvent>,
     next_id: u64,
     next_effect_id: u64,
 }
@@ -189,9 +224,14 @@ impl Projectiles {
         }
         self.next_id += 1;
         let ball = launch.kind == ProjectileKind::CombineBall;
+        let bolt = launch.kind == ProjectileKind::CrossbowBolt;
         if ball {
             self.diagnostics.balls_spawned += 1;
             scene.sounds.push("NPC_CombineBall.Launch".into());
+        } else if bolt {
+            self.diagnostics.bolts_spawned += 1;
+        } else if launch.kind == ProjectileKind::RpgMissile {
+            self.diagnostics.missiles_spawned += 1;
         } else {
             self.diagnostics.grenades_spawned += 1;
         }
@@ -203,7 +243,13 @@ impl Projectiles {
                 .."Grenade.Blip".into()
             });
         }
-        let direction = launch.velocity.normalize_or_zero();
+        // CMissile::Create keeps the aim angles while the launch velocity is
+        // forward x 300 + 128 up; recover forward from that.
+        let direction = if launch.kind == ProjectileKind::RpgMissile {
+            ((launch.velocity - Vec3::Z * 128.) / 300.).normalize_or_zero()
+        } else {
+            launch.velocity.normalize_or_zero()
+        };
         self.active.push(Projectile {
             id: self.next_id,
             kind: launch.kind,
@@ -241,6 +287,26 @@ impl Projectiles {
                     next_think: launch.at,
                 }
             }),
+            gravity: if bolt {
+                crate::weapon_crossbow::INITIAL_GRAVITY
+            } else {
+                1.
+            },
+            // CCrossbowBolt::Spawn: BubbleThink 0.1 s after spawn; CMissile::Spawn:
+            // IgniteThink after 0.3 s.
+            next_think: launch.at
+                + if launch.kind == ProjectileKind::RpgMissile {
+                    0.3
+                } else {
+                    0.1
+                },
+            ignited: false,
+            // The missile's grace period travels in `lifetime`.
+            solid_at: if launch.kind == ProjectileKind::RpgMissile {
+                launch.at + f64::from(launch.lifetime.max(0.))
+            } else {
+                launch.at
+            },
         });
     }
     /// Advance only on simulation ticks. Returns damage to be applied through
@@ -265,6 +331,10 @@ impl Projectiles {
             projectile.previous_position = projectile.position;
             if projectile.position.abs().max_element() > 16384. {
                 self.diagnostics.out_of_world += 1;
+                if projectile.kind == ProjectileKind::RpgMissile {
+                    self.missile_events
+                        .push(crate::weapon_rpg::MissileEvent::Removed);
+                }
                 continue;
             }
             if projectile.expires_at.is_some_and(|end| scene.time >= end) {
@@ -354,6 +424,66 @@ impl Projectiles {
                                 .."Grenade.ImpactHard".into()
                             });
                         }
+                    }
+                }
+                ProjectileKind::CrossbowBolt => {
+                    let outcome = crate::weapon_crossbow::bolt_tick(
+                        &mut projectile,
+                        world,
+                        scene,
+                        physics,
+                        dt,
+                        &mut damage,
+                    );
+                    alive = outcome.alive;
+                    if let Some(hit) = outcome.impact {
+                        self.impacts.push(hit);
+                    }
+                    if let Some((origin, direction)) = outcome.stuck {
+                        crate::weapon_crossbow::stick(&mut self.stuck_bolts, origin, direction);
+                    }
+                    for (kind, at) in [
+                        (EffectKind::BoltGlow, outcome.glow),
+                        (EffectKind::Sparks, outcome.sparks),
+                    ] {
+                        if let Some(position) = at {
+                            self.effect(Effect {
+                                id: 0,
+                                magnitude: 0.,
+                                kind,
+                                position,
+                                normal: Vec3::Z,
+                                at: scene.time,
+                                radius: 0.,
+                            });
+                        }
+                    }
+                }
+                ProjectileKind::RpgMissile => {
+                    if let crate::weapon_rpg::MissileOutcome::Explode(_) =
+                        crate::weapon_rpg::missile_tick(
+                            &mut projectile,
+                            self.laser_dot.as_ref(),
+                            scene,
+                            physics,
+                            dt,
+                        )
+                    {
+                        // Explode -> DoExplosion (ExplosionCreate 200/200) through the
+                        // shared blast, then NotifyRocketDied.
+                        self.grenade_explosion(
+                            &projectile,
+                            Vec3::Z,
+                            world,
+                            scene,
+                            physics,
+                            player_feet,
+                            player_ducked,
+                            &mut damage,
+                        );
+                        self.missile_events
+                            .push(crate::weapon_rpg::MissileEvent::Died);
+                        alive = false;
                     }
                 }
                 ProjectileKind::CombineBall => {
@@ -819,6 +949,10 @@ mod tests {
             next_whiz: 0.,
             hit_entities: vec![],
             fuse: None,
+            gravity: 1.,
+            next_think: 0.,
+            ignited: false,
+            solid_at: 0.,
         };
         let physics = Physics::new(&World::default());
         let mut t = 0.045;

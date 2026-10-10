@@ -166,6 +166,10 @@ impl Gameplay {
             self.suit
                 .update(suit, update.sentence, update.no_repeat, now);
         }
+        // Weapon SetSuitUpdate requests (crossbow/RPG out of ammo).
+        for (sentence, no_repeat) in std::mem::take(&mut self.inventory.suit_updates) {
+            self.suit.update(suit, &sentence, no_repeat, now);
+        }
         let died = !player.dead && self.inventory.health <= 0.;
         if died {
             player.dead = true;
@@ -458,7 +462,7 @@ impl Gameplay {
             && !self.secondary_consumed
             && matches!(
                 self.inventory.active.as_str(),
-                "weapon_shotgun" | "weapon_smg1" | "weapon_ar2" | "weapon_frag"
+                "weapon_shotgun" | "weapon_smg1" | "weapon_ar2" | "weapon_frag" | "weapon_crossbow"
             );
         self.inventory.set_attack_input(primary, secondary);
         self.inventory.ducking = player.crouched;
@@ -521,6 +525,17 @@ impl Gameplay {
         for launch in self.inventory.projectile_spawns.drain(..) {
             self.projectiles.spawn(launch, &mut self.scene);
         }
+        // CWeaponRPG::UpdateLaserPosition after the weapon frame; missiles seek it.
+        self.inventory.rpg_aim(
+            physics,
+            &self.world,
+            eye,
+            direction,
+            player.feet + glam::Vec3::Z * if player.crouched { 18. } else { 36. },
+            player.feet,
+            self.scene.time,
+        );
+        self.projectiles.laser_dot = self.inventory.rpg.dot;
         physics.refresh_entity_queries();
         actors::tick_npcs(
             &mut self.npcs,
@@ -538,6 +553,11 @@ impl Gameplay {
             player.crouched,
             TICK,
         );
+        // CMissile::Explode -> CWeaponRPG::NotifyRocketDied.
+        for event in std::mem::take(&mut self.projectiles.missile_events) {
+            self.inventory
+                .rpg_missile_event(event, &self.weapons, &self.world, &mut self.scene);
+        }
         // trigger_hurt touchers from this tick's scene logic share the entity path.
         damage.append(&mut self.scene.entity_damage);
         self.inventory
@@ -550,6 +570,10 @@ impl Gameplay {
             self.scene.sounds.push(event.options.into());
         }
         for (hit, _melee) in self.inventory.impacts.drain(..) {
+            self.impacts.add(hit, &self.world, physics, &mut self.scene);
+        }
+        // Projectile UTIL_ImpactTrace (crossbow bolts in the world).
+        for hit in std::mem::take(&mut self.projectiles.impacts) {
             self.impacts.add(hit, &self.world, physics, &mut self.scene);
         }
         for sound in self.scene.sounds.drain(..) {

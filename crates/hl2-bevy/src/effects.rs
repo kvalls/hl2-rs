@@ -30,6 +30,9 @@ impl PreparedEffects {
         for path in [
             hl2_simulation::projectiles::GRENADE_MODEL,
             hl2_simulation::projectiles::FRAG_MODEL,
+            hl2_simulation::weapon_crossbow::BOLT_MODEL,
+            hl2_simulation::weapon_rpg::MISSILE_LAUNCH_MODEL,
+            hl2_simulation::weapon_rpg::MISSILE_MODEL,
         ] {
             match models::read_model(vfs, path, 0) {
                 Ok(surfaces) => {
