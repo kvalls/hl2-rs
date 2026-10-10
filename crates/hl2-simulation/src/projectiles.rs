@@ -18,6 +18,8 @@ const FRAG_BLIP_FAST: f64 = 0.3;
 const FRAG_WARN: f64 = 1.5;
 /// VPhysics contact with the world (surfaceprops grenade x default/concrete/tile).
 const FRAG_FRICTION: f32 = 0.9 * 0.8;
+/// GRENADE_COEFFICIENT_OF_RESTITUTION, only for characters (entity ray in VPhysicsUpdate).
+const GRENADE_RESTITUTION: f32 = 0.2;
 const FRAG_ELASTICITY: f32 = 0.01 * 0.2;
 /// Normal speeds below this are resting/rolling contact rather than impacts
 /// (gravity adds 9 u/s per tick); fitted with the native samples.
@@ -334,7 +336,13 @@ impl Projectiles {
                                 };
                         }
                         projectile.fuse = Some(fuse);
-                        let impact = frag_motion(&mut projectile, physics, dt);
+                        let npc = |id: usize| {
+                            world
+                                .entities
+                                .get(id)
+                                .is_some_and(|e| e.class().starts_with("npc_"))
+                        };
+                        let impact = frag_motion(&mut projectile, physics, dt, &npc);
                         // PhysCollisionSound: >= 70 u/s and 0.05 s since the last collision,
                         // volume (speed / 320)^2; the grenade surfaceprop always picks its
                         // ImpactHard sound (hardness 1.0, no hard thresholds).
@@ -577,7 +585,12 @@ impl Projectiles {
 /// lob landing 350 -> ~170 u/s, roll curb drop ~530 -> 335 u/s, street roll decay).
 /// The body is a swept 4-unit box under sv_gravity 600.
 /// Returns the strongest impact (normal) speed of this tick, 0 without an impact.
-fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) -> f32 {
+fn frag_motion(
+    projectile: &mut Projectile,
+    physics: &Physics,
+    dt: f32,
+    npc: &dyn Fn(usize) -> bool,
+) -> f32 {
     let speed = projectile.velocity.length();
     projectile.velocity *= (1. - FRAG_AIR_DRAG * speed * dt).max(0.);
     projectile.velocity.z -= 600. * dt;
@@ -598,7 +611,16 @@ fn frag_motion(projectile: &mut Projectile, physics: &Physics, dt: f32) -> f32 {
         let normal = hit.normal.normalize_or_zero();
         projectile.position = hit.position + normal * 0.03125;
         let into = projectile.velocity.dot(normal);
-        if into < 0. {
+        if npc(hit.entity) {
+            // COLLISION_GROUP_WEAPON passes through characters in VPhysics, so
+            // VPhysicsUpdate's ray reflects off them: keep 0.2, reverse half the spin.
+            // (Its 0.1 DMG_CRUSH "bonk" for NPC reactions belongs to step 14.)
+            if into < 0. {
+                projectile.velocity =
+                    (projectile.velocity - 2. * into * normal) * GRENADE_RESTITUTION;
+                projectile.angular_velocity *= -0.5;
+            }
+        } else if into < 0. {
             let tangent = projectile.velocity - into * normal;
             let tangent_speed = tangent.length();
             if -into < FRAG_RESTING_SPEED {
@@ -802,7 +824,7 @@ mod tests {
         let mut t = 0.045;
         for (at, expected) in samples {
             while t + 0.015 <= at {
-                frag_motion(&mut projectile, &physics, 0.015);
+                frag_motion(&mut projectile, &physics, 0.015, &|_| false);
                 t += 0.015;
             }
             let position = projectile.position + projectile.velocity * (at - t) as f32;
@@ -855,6 +877,58 @@ mod tests {
                 ("health".into(), "100".into()),
             ],
         }
+    }
+    #[test]
+    fn frag_reflects_off_characters_with_sdk_restitution_and_no_physics_sound() {
+        let world = World {
+            entities: vec![npc("npc_metropolice", Vec3::new(60., 0., 1000.))],
+            ..World::default()
+        };
+        let mut scene = Scene::new(&world);
+        let mut physics = Physics::new(&world);
+        cube(
+            &mut physics,
+            Vec3::new(60., 0., 1000.),
+            Vec3::new(8., 16., 36.),
+            Some(0),
+        );
+        let mut projectiles = Projectiles::default();
+        projectiles.spawn(
+            ProjectileSpawn {
+                kind: ProjectileKind::FragGrenade,
+                position: Vec3::new(0., 0., 1000.),
+                velocity: Vec3::new(500., 0., 0.),
+                angular_velocity: Vec3::new(600., 400., 0.),
+                at: 0.,
+                damage: 125.,
+                radius: 250.,
+                mass: 0.,
+                lifetime: 3.,
+            },
+            &mut scene,
+        );
+        let mut reflected = None;
+        for tick in 0..20 {
+            scene.time = f64::from(tick) * 0.015;
+            projectiles.tick(
+                &world,
+                &mut scene,
+                &mut physics,
+                Vec3::splat(9999.),
+                false,
+                0.015,
+            );
+            assert!(scene.sounds.iter().all(|s| s.name != "Grenade.ImpactHard"));
+            scene.sounds.clear();
+            let frag = &projectiles.active[0];
+            if reflected.is_none() && frag.velocity.x < 0. {
+                reflected = Some((frag.velocity, frag.angular_velocity));
+            }
+        }
+        let (velocity, spin) = reflected.expect("bounced off the NPC");
+        // 0.2 of the incoming ~485 u/s (air drag before the hit).
+        assert!((velocity.x + 97.).abs() < 3., "{velocity}");
+        assert_eq!(spin, Vec3::new(-300., -200., 0.));
     }
     #[test]
     fn frag_floor_impact_plays_one_sound_and_applies_the_friction_impulse() {
