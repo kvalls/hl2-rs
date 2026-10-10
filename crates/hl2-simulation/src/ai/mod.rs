@@ -3,6 +3,8 @@
 //! hl2_gamerules.cpp). Engine-free; hosts supply world queries and the motor through
 //! traits. Every behavior here is "SDK behavior, retail not compared".
 pub mod conditions;
+pub mod default_schedules;
 pub mod memory;
 pub mod relationships;
+pub mod schedule;
 pub mod state;
