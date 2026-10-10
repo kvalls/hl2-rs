@@ -7,4 +7,6 @@ pub mod default_schedules;
 pub mod memory;
 pub mod relationships;
 pub mod schedule;
+pub mod senses;
+pub mod squad;
 pub mod state;
