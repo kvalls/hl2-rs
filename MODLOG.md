@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 cloud session: policing behavior (`wip/cloud-npc-ai-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** `ai::police` (ai_goal_police + CAI_PolicingBehavior from SDK 2013); Behavior::select_schedule takes the NPC mutably; TASK_WAIT_RANDOM; face tasks fall back to the remembered enemy position.
+
+**Why:** owner: trainstation metrocops must hold posts and escalate through the real logic (step 14).
+
+**Tested how:** unit tests (warning cadence/outputs/baton/hostility, suppress on crossing the radius, knock-out plane, return to post); strict Clippy/fmt; hl2-bevy cargo check.
+
+**Result:** passes on Linux; not wired into the game.
+
+**Still broken or not tested:** the npc_metropolice class, host wiring, sentences/gestures in game, native comparison.
+
+**Next:** STATUS handoff checklist step 3.
+
 ## 2026-10-10 cloud session: AI schedules, senses, squads, spawn model (`wip/cloud-npc-ai-20261010`)
 
 **Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
