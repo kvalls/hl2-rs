@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 cloud session: AI schedules, senses, squads, spawn model (`wip/cloud-npc-ai-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** `ai::schedule` (+ generated default schedule table), `ai::senses`, `ai::squad`, `ai::spawn` (npc_create commands, F4 overlay model).
+
+**Why:** step 14 core (owner priority 1).
+
+**Tested how:** unit tests (13 ai:: tests), strict Clippy/fmt on Linux.
+
+**Result:** builds/passes on Linux; no runtime change (not wired).
+
+**Still broken or not tested:** host adapters, per-class NPCs, F4 drawing; everything vs native.
+
+**Next:** see STATUS checklist step 3.
+
 ## 2026-10-10 cloud session: step 14 AI core start (`wip/cloud-npc-ai-20261010`)
 
 **Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
