@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-10 second cloud session: VPhysics props, frag rigid body, +USE carry (`wip/cloud-physics-20261010`)
+
+**Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
+
+**Changed:** new branch from the arsenal branch (owner request mid-session to separate the physics work). .phy solid parameters and surfaceproperties (source-assets) into `World`; Rapier prop bodies with authored pieces, mass, inertia, damping and surfaceprop friction/elasticity; air drag and collision events in `Physics::tick`; PhysCollisionSound/AddImpactSound/PlayImpactSounds for props and frags; the thrown frag as a Rapier body from w_grenade.phy with VPhysicsUpdate's NPC reflection; `grab.rs` shared CGrabController; `player_pickup.rs` +USE carry; host wiring (frag .phy load, collision sounds, E/use routing, holstered viewmodel); merge of the arsenal branch's 13b 3-5.
+
+**Why:** owner, 2026-10-10: physics must follow Source/Havok (weights, bounciness, materials), the frag lacked a real physics object, and E should pick up small props.
+
+**Tested how:** unit tests on synthetic data (solid parsing defaults, surfaceprop inheritance and hard/soft choice, authored mass/inertia/damping/material on bodies, drag per tick and contact events, frag body landing/sound/release, carry pickup/hold/throw/deny/drop, alignment); hl2-bevy compiled/tested on Linux; strict Clippy (exit code, color off), fmt.
+
+**Result:** hl2-simulation 202 / 18 ignored, source-assets 92 / 19, modkit-core 53, hl2-ui 32 / 1, hl2-bevy 37 / 2.
+
+**Still broken or not tested:** nothing compared with native or run packaged; the frag body is not fitted (the swept box was); player does not push props; see STATUS physics handoff.
+
+**Next:** local validation per the physics checklist, decide frag body vs swept box, then merge after the arsenal branch.
+
 ## 2026-10-10 second cloud session: 13b items 3-5 (`wip/cloud-arsenal-20261010`)
 
 **Agent/model:** Claude Code cloud session (Linux sandbox), `claude-opus-5-5` per the session environment. No subagents.
