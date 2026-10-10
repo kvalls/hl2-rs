@@ -187,17 +187,39 @@ impl Inventory {
         if time < self.owner_attack_until {
             return;
         }
-        // Base ItemPostFrame, no buttons: WeaponIdle once the idle time has passed
-        // (strict). The RPG has no clip, so ReloadOrSwitchWeapons never reloads.
-        if !primary && !secondary && time > self.rpg.idle_at && self.rpg.activity != "ACT_VM_IDLE" {
-            self.rpg_send(world, &weapon, "ACT_VM_IDLE", time);
+        // Base ItemPostFrame, no buttons: CBaseHLCombatWeapon::WeaponIdle. The RPG has no
+        // clip, so ReloadOrSwitchWeapons never reloads. CWeaponRPG::WeaponShouldBeLowered:
+        // out of rockets (HasAnyAmmo counts a missile in flight) while the ideal activity
+        // is an idle one; lowered idles repeat when their idle time passes (strict), a
+        // raised weapon leaves ACT_VM_IDLE_LOWERED at once.
+        if !primary && !secondary {
+            let idle_like = matches!(
+                self.rpg.activity.as_str(),
+                "ACT_VM_IDLE"
+                    | "ACT_VM_IDLE_LOWERED"
+                    | "ACT_VM_IDLE_TO_LOWERED"
+                    | "ACT_VM_LOWERED_TO_IDLE"
+            );
+            let lowered = idle_like && !self.rpg.missile_out && self.ammo(&weapon.ammo_type) <= 0;
+            if lowered {
+                if self.rpg.activity != "ACT_VM_IDLE_LOWERED" || time > self.rpg.idle_at {
+                    self.rpg_send(world, &weapon, "ACT_VM_IDLE_LOWERED", time);
+                }
+            } else if self.rpg.activity == "ACT_VM_IDLE_LOWERED"
+                || time > self.rpg.idle_at && self.rpg.activity != "ACT_VM_IDLE"
+            {
+                self.rpg_send(world, &weapon, "ACT_VM_IDLE", time);
+            }
         }
         if self.rpg.initial_state_update && self.rpg.activity != "ACT_VM_DRAW" {
             self.start_guiding(scene, &weapon, world);
             self.rpg.initial_state_update = false;
         }
-        // SuppressGuiding(GetIdealActivity() == ACT_VM_RELOAD).
-        let suppress = self.rpg.activity == "ACT_VM_RELOAD";
+        // SuppressGuiding while lowered or reloading.
+        let suppress = matches!(
+            self.rpg.activity.as_str(),
+            "ACT_VM_RELOAD" | "ACT_VM_IDLE_LOWERED"
+        );
         self.rpg.hide_guiding = suppress;
         if self.rpg.dot.is_none() {
             self.start_guiding(scene, &weapon, world);
@@ -210,7 +232,12 @@ impl Inventory {
             self.rpg.beam_brightness = 128. + (self.random() * 8.).round();
             self.rpg.muzzle_scale = 0.1 + self.random() * 0.025;
         }
-        self.idle_override = Some(activity_sequence(world, &weapon, "ACT_VM_IDLE"));
+        let idle = if self.rpg.activity == "ACT_VM_IDLE_LOWERED" {
+            "ACT_VM_IDLE_LOWERED"
+        } else {
+            "ACT_VM_IDLE"
+        };
+        self.idle_override = Some(activity_sequence(world, &weapon, idle));
     }
     /// UpdateLaserPosition: the dot follows the eye trace (MASK_SHOT without windows),
     /// targets damageable non-world entities, and LaserThink rescales it every 0.05 s.
@@ -505,6 +532,30 @@ mod tests {
                 },
             ),
         ])
+    }
+
+    #[test]
+    fn rpg_without_rockets_idles_lowered_suppresses_the_dot_and_raises_with_ammo() {
+        let world = World::default();
+        let mut scene = Scene::new(&world);
+        let weapons = rpg();
+        let mut inv = Inventory::default();
+        inv.give("weapon_rpg", &weapons, 0.);
+        inv.set_ammo("RPG_Round", 0);
+        for t in 0..80 {
+            scene.time = f64::from(t) * 0.015;
+            inv.set_attack_input(false, false);
+            inv.tick(&world, &mut scene, &weapons, Vec3::ZERO, false, 0.015);
+        }
+        assert_eq!(inv.rpg.activity, "ACT_VM_IDLE_LOWERED");
+        assert!(inv.rpg.dot.is_none_or(|d| !d.on));
+        inv.set_ammo("RPG_Round", 1);
+        scene.time += 0.015;
+        inv.tick(&world, &mut scene, &weapons, Vec3::ZERO, false, 0.015);
+        assert_eq!(inv.rpg.activity, "ACT_VM_IDLE");
+        scene.time += 0.015;
+        inv.tick(&world, &mut scene, &weapons, Vec3::ZERO, false, 0.015);
+        assert!(inv.rpg.dot.unwrap().on);
     }
 
     #[test]

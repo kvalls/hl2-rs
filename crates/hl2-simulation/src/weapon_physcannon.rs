@@ -21,8 +21,9 @@ pub const MAX_MASS: f32 = 250.;
 pub const TRACE_LENGTH: f32 = 250.;
 pub const PULL_FORCE: f32 = 4000.;
 pub const CONE: f32 = 0.97;
-/// hl2_normspeed: the drop clamps linear speed to 1.5x this.
+/// hl2_normspeed / hl2_walkspeed (hl2_player.cpp ConVar defaults).
 const NORM_SPEED: f32 = 190.;
+const WALK_SPEED: f32 = 150.;
 /// CGrabController: maxSpeed 1000, DEFAULT_MAX_ANGULAR 360 x 10 deg/s, detach error 12.
 const HOLD_MAX_SPEED: f32 = 1000.;
 const HOLD_MAX_ANGULAR: f32 = 3600.;
@@ -178,6 +179,14 @@ impl Inventory {
             held,
             ..Default::default()
         };
+    }
+    /// CWeaponPhysCannon::AttachObject's SetMaxSpeed while holding: hl2_walkspeed (150)
+    /// + (hl2_normspeed (190) - 150) x (1 - clamp(load / physcannon_maxmass)); sprint is
+    /// disabled. DetachObject restores hl2_normspeed. None when nothing is held.
+    pub fn player_max_speed(&self) -> Option<f32> {
+        let grab = self.physcannon.grab.as_ref()?;
+        let load = (grab.saved_mass / MAX_MASS).clamp(0., 1.);
+        Some(WALK_SPEED + (NORM_SPEED - WALK_SPEED) * (1. - load))
     }
     /// CWeaponPhysCannon::CanHolster: not while holding.
     pub fn physcannon_can_holster(&self) -> bool {
@@ -627,15 +636,22 @@ impl Inventory {
                 return;
             }
             let mass = self.physcannon.grab.as_ref().map_or(1., |g| g.saved_mass);
+            let spin = Vec3::new(self.random(), self.random(), self.random()) * 600.;
             self.detach(physics, scene, weapon, world, false, true);
             if let Some(body) = physics
                 .dynamic
                 .get(&id)
                 .and_then(|h| physics.bodies.get_mut(*h))
             {
-                // AddVelocity(forward x force); the random launch spin is not modeled.
+                // ApplyVelocityBasedForce(LAUNCHED): AddVelocity(forward x force,
+                // Pickup_PhysGunLaunchAngularImpulse = RandomAngularImpulse(-600, 600)
+                // in the object's local axes, deg/s).
                 let v = forward * launch_speed(mass) * SCALE;
                 body.set_linvel(*body.linvel() + vector![v.x, v.y, v.z], true);
+                let q = body.rotation();
+                let rotation = glam::Quat::from_xyzw(q.i, q.j, q.k, q.w);
+                let w = rotation * (spin * (std::f32::consts::PI / 180.));
+                body.set_angvel(*body.angvel() + vector![w.x, w.y, w.z], true);
             }
             self.physcannon.next_primary = time + 0.5;
             self.physcannon.next_secondary = time + 0.5;
@@ -669,6 +685,9 @@ impl Inventory {
                 let p = hit.position * SCALE;
                 body.apply_impulse_at_point(vector![k.x, k.y, k.z], point![p.x, p.y, p.z], true);
             }
+            // PuntVPhysics recoil: ViewPunch(RandomFloat(1, 2), RandomFloat(-1, 1), 0).
+            let recoil = Vec3::new(1.5 + 0.5 * self.random(), self.random(), 0.);
+            self.punch.punch(recoil);
         } else {
             let class = world.entities.get(id).map_or("", |e| e.class());
             if !matches!(class, "func_breakable" | "func_physbox") && !class.starts_with("prop_") {
@@ -701,6 +720,9 @@ impl Inventory {
     /// PrimaryFireEffect: WeaponSound(SINGLE) and the white 32-alpha 0.1 s FFADE_IN
     /// (the view punch is not modeled).
     fn primary_fire_effect(&mut self, scene: &mut Scene, weapon: &Weapon, world: &World) {
+        // ViewPunch(-6, RandomInt(-2, 2), 0).
+        let yaw = ((self.random() + 1.) * 2.5).floor().min(4.) - 2.;
+        self.punch.punch(Vec3::new(-6., yaw, 0.));
         scene
             .screen_fades
             .push(crate::player_damage::ScreenFade::new(
@@ -711,7 +733,6 @@ impl Inventory {
             ));
         play_sound(scene, weapon, "single_shot", world, "");
     }
-    /// ForceDrop on holster (only reachable without a held object, see can_holster).
     /// Holster -> ForceDrop -> StopEffects: the motor fades out over 0.1 s.
     pub(crate) fn physcannon_holster(&mut self) {
         self.physcannon.held = None;
@@ -868,6 +889,8 @@ mod tests {
             .iter()
             .any(|s| s.name == "Weapon_PhysCannon.Pickup"));
         assert!(!inv.physcannon_can_holster());
+        // SetMaxSpeed: 150 + 40 x (1 - 10 / 250) while holding the 10 kg prop.
+        assert!((inv.player_max_speed().unwrap() - 188.4).abs() < 1e-3);
         // The motor patch starts silent at pitch 50 and ramps to 0.8 / 100 over 0.5 s.
         let patches: Vec<_> = scene
             .sounds
@@ -900,8 +923,13 @@ mod tests {
         assert!((c - Vec3::new(expected, 0., 64.)).length() < 2., "{c}");
         run(&mut inv, &mut scene, &mut physics, 1, true, false);
         assert_eq!(inv.physcannon.held, None);
-        let v = physics.bodies[physics.dynamic[&0]].linvel().x / SCALE;
+        assert_eq!(inv.player_max_speed(), None);
+        let body = &physics.bodies[physics.dynamic[&0]];
+        let v = body.linvel().x / SCALE;
         assert!((v - 1500.).abs() < 20., "{v}");
+        // The random launch spin: up to 600 deg/s per local axis.
+        let w = body.angvel().norm().to_degrees();
+        assert!(w > 1. && w <= 600. * 3f32.sqrt() + 1., "{w}");
         // The launch winds the motor down (volume 0, pitch 50 over 1 s).
         assert!(scene.sounds.iter().any(|s| s.name == MOTOR_SOUND
             && s.patch

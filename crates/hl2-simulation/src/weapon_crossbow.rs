@@ -313,6 +313,8 @@ impl Inventory {
             lifetime: 0.,
         });
         play_sound(scene, weapon, "single_shot", world, "");
+        // FireBolt: ViewPunch(-2, 0, 0).
+        self.punch.punch(Vec3::new(-2., 0., 0.));
         play_sound(scene, weapon, "special2", world, "");
         let animation = activity_sequence(world, weapon, "ACT_VM_PRIMARYATTACK");
         self.animate(&animation, time);

@@ -285,6 +285,9 @@ pub struct Inventory {
     /// weapon_physcannon held object and element state.
     #[serde(skip)]
     pub physcannon: crate::weapon_physcannon::PhyscannonState,
+    /// The player's punch angle (weapon recoil); decays every tick.
+    #[serde(skip)]
+    pub punch: crate::view_punch::ViewPunch,
     /// Squeezes this tick (thrown splats are in Projectiles); step 14 consumes them.
     #[serde(skip)]
     pub bugbait_events: Vec<crate::weapon_bugbait::BugBaitEvent>,
@@ -346,6 +349,7 @@ impl Default for Inventory {
             rpg: Default::default(),
             bugbait: Default::default(),
             physcannon: Default::default(),
+            punch: Default::default(),
             bugbait_events: Vec::new(),
             squeeze_origin: Vec3::ZERO,
             deferred_sounds: Vec::new(),
@@ -583,6 +587,8 @@ impl Inventory {
         self.holding_attack = attack;
         let (primary, secondary) = self.attack_input.take().unwrap_or((attack, false));
         scene.sounds.append(&mut self.deferred_sounds);
+        // CGameMovement::DecayPunchAngle (player movement, every tick).
+        self.punch.decay(dt);
         self.resolve_activity(world, weapons);
         self.advance_reload(world, scene, weapons, primary, secondary);
         if self.active == "weapon_crossbow" && self.health > 0. {

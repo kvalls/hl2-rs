@@ -20,6 +20,9 @@ pub struct Input {
     pub crouch: bool,
     pub sprint: bool,
     pub slow: bool,
+    /// CBasePlayer::SetMaxSpeed from gameplay (e.g. the gravity gun's load); it also
+    /// disables sprint (EnableSprint(false)). None keeps the normal speeds.
+    pub max_speed: Option<f32>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct Player {
@@ -136,7 +139,13 @@ impl Player {
         let forward_move = input.forward / input_length;
         let side_move = input.side / input_length;
         let wish = forward * forward_move + right * side_move;
-        let max_speed = if self.crouched {
+        let max_speed = if let Some(speed) = input.max_speed {
+            if input.slow && !self.crouched {
+                speed.min(150.)
+            } else {
+                speed
+            }
+        } else if self.crouched {
             // Settled duck keeps normal maxspeed; the command crop is separate.
             // Full suit/sprint/walk transition gating remains outside this model.
             190.
@@ -731,6 +740,24 @@ mod tests {
         assert!(p.feet.x < 16.);
         assert!((p.feet.z - 47.4325).abs() < 0.0001);
         assert!((p.velocity.z - 91.).abs() < 0.0001);
+    }
+    #[test]
+    fn gameplay_max_speed_overrides_normal_and_sprint_speed() {
+        let w = floor();
+        let mut p = Player::new(Vec3::Z * 64.05);
+        for _ in 0..100 {
+            p.step(
+                Input {
+                    forward: 1.,
+                    sprint: true,
+                    max_speed: Some(170.),
+                    ..Default::default()
+                },
+                &w,
+                TICK,
+            );
+        }
+        assert!((p.velocity.x - 170.).abs() < 0.01, "{}", p.velocity);
     }
     #[test]
     fn ground_acceleration_friction_and_speed_limit() {
