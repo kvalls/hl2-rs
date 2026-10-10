@@ -149,6 +149,12 @@ pub struct Effects {
     marks: BTreeMap<usize, (Entity, Handle<Mesh>)>,
     grenade_meshes: BTreeMap<&'static str, Vec<ModelPart>>,
     grenades: BTreeMap<u64, Vec<Entity>>,
+    /// Stuck crossbow bolt model instances by StuckBolt id.
+    stuck: BTreeMap<u64, Vec<Entity>>,
+    /// Viewmodel-space sprite/beam quads on the viewmodel camera's layer.
+    viewmodel_quads: Vec<QuadDraw>,
+    viewmodel_draws: usize,
+    rng: u64,
     model_errors: Vec<String>,
     draws: usize,
     grenade_draws: usize,
@@ -160,6 +166,7 @@ pub struct Effects {
 impl Effects {
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"sprite_draws":self.draws,"pooled_quads":self.quads.len(),
+            "viewmodel_sprite_draws":self.viewmodel_draws,"stuck_bolt_draws":self.stuck.len(),
             "grenade_draws":self.grenade_draws,"decal_draws":self.mark_draws,"pose_mismatches":self.pose_mismatches, "observed_decals":self.observed_decals,"observed_grenades":self.observed_grenades,
             "ball_frames":self.source.ball_frames,"effect_frames":self.source.effect_frames,
             "particle_emitters":self.source.particles.diagnostics,"missing_particle_draws":self.source.missing_particle_draws,
@@ -254,6 +261,10 @@ pub fn install(
         marks: BTreeMap::new(),
         grenade_meshes,
         grenades: BTreeMap::new(),
+        stuck: BTreeMap::new(),
+        viewmodel_quads: Vec::new(),
+        viewmodel_draws: 0,
+        rng: 0x2545_f491_4f6c_dd1d,
         model_errors: loaded.effects.model_errors.clone(),
         draws: 0,
         grenade_draws: 0,
@@ -304,6 +315,104 @@ fn quad_mesh(quad: &hl2_simulation::projectile_visuals::Quad) -> Mesh {
         true,
     )
 }
+/// Fill a pool of quad draws with this frame's quads (materials must hold each
+/// quad's material); `layer` puts them on another camera's render layer.
+fn draw_pool(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    pool: &mut Vec<QuadDraw>,
+    quads: &[hl2_simulation::projectile_visuals::Quad],
+    materials: &BTreeMap<String, Handle<EffectMaterial>>,
+    layer: Option<usize>,
+) {
+    let mut used = 0;
+    for quad in quads {
+        let Some(material) = materials.get(&quad.material).cloned() else {
+            continue;
+        };
+        if used == pool.len() {
+            let mesh = meshes.add(quad_mesh(quad));
+            let mut entity = commands.spawn((
+                crate::campaign::MapOwned,
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::IDENTITY,
+            ));
+            if let Some(layer) = layer {
+                entity.insert(bevy::camera::visibility::RenderLayers::layer(layer));
+            }
+            pool.push(QuadDraw {
+                entity: entity.id(),
+                mesh,
+                previous: None,
+            });
+        }
+        let slot = &mut pool[used];
+        used += 1;
+        if slot.previous.as_ref() != Some(quad) {
+            let mesh = quad_mesh(quad);
+            let bounds = mesh.compute_aabb();
+            if let Some(mut old) = meshes.get_mut(&slot.mesh) {
+                *old = mesh;
+            }
+            if let Some(bounds) = bounds {
+                commands.entity(slot.entity).insert(bounds);
+            }
+            slot.previous = Some(quad.clone());
+        }
+        commands
+            .entity(slot.entity)
+            .insert((MeshMaterial3d(material), Visibility::Visible));
+    }
+    for slot in pool.iter().skip(used) {
+        commands.entity(slot.entity).insert(Visibility::Hidden);
+    }
+}
+/// The active viewmodel's posed rig (same clip choice as rendering::animate) and the
+/// SDK viewmodel sprites/beams as viewmodel-space quads.
+fn viewmodel_quads(
+    game: &Gameplay,
+    effects: &mut Effects,
+) -> Vec<hl2_simulation::projectile_visuals::Quad> {
+    use hl2_simulation::viewmodel_effects as vm;
+    let described = game.inventory.viewmodel_effects(game.scene.time);
+    if described.sprites.is_empty() && described.beams.is_empty() {
+        return Vec::new();
+    }
+    let Some(rig) = game.weapons.get(&game.inventory.active).and_then(|w| {
+        game.world
+            .rigs
+            .get(&format!("{}#0", w.viewmodel.to_lowercase()))
+    }) else {
+        return Vec::new();
+    };
+    let elapsed = (game.scene.time - game.inventory.animation_at).max(0.) as f32;
+    let (clip, time) = if rig
+        .clips
+        .get(&game.inventory.animation)
+        .is_some_and(|c| elapsed < c.duration())
+    {
+        (game.inventory.animation.as_str(), elapsed)
+    } else {
+        (game.inventory.idle_animation(), game.scene.time as f32)
+    };
+    let matrices =
+        vm::viewmodel_matrices(rig, clip, time, &game.inventory.viewmodel_pose_values(rig));
+    let sprites = &effects.source.sprites;
+    let rng = &mut effects.rng;
+    let mut random = || {
+        *rng ^= *rng << 13;
+        *rng ^= *rng >> 7;
+        *rng ^= *rng << 17;
+        (*rng >> 40) as f32 / (1u32 << 24) as f32
+    };
+    vm::viewmodel_quads(
+        &described,
+        &|anchor| vm::anchor_position(rig, &matrices, anchor),
+        &|material| sprites.get(material).map(|s| f32::from(s.image.width)),
+        &mut random,
+    )
+}
 pub fn present(
     mut commands: Commands,
     mut effects: ResMut<Effects>,
@@ -322,44 +431,30 @@ pub fn present(
         &sim.physics,
     );
     effects.draws = effects.source.quads.len();
-    for i in 0..effects.source.quads.len() {
-        let quad = effects.source.quads[i].clone();
-        let material = effects.materials[&quad.material].clone();
-        if i == effects.quads.len() {
-            let mesh = meshes.add(quad_mesh(&quad));
-            let entity = commands
-                .spawn((
-                    crate::campaign::MapOwned,
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material.clone()),
-                    Transform::IDENTITY,
-                ))
-                .id();
-            effects.quads.push(QuadDraw {
-                entity,
-                mesh,
-                previous: None,
-            });
-        }
-        let slot = &mut effects.quads[i];
-        if slot.previous.as_ref() != Some(&quad) {
-            let mesh = quad_mesh(&quad);
-            let bounds = mesh.compute_aabb();
-            if let Some(mut old) = meshes.get_mut(&slot.mesh) {
-                *old = mesh;
-            }
-            if let Some(bounds) = bounds {
-                commands.entity(slot.entity).insert(bounds);
-            }
-            slot.previous = Some(quad);
-        }
-        commands
-            .entity(slot.entity)
-            .insert((MeshMaterial3d(material), Visibility::Visible));
-    }
-    for slot in effects.quads.iter().skip(effects.draws) {
-        commands.entity(slot.entity).insert(Visibility::Hidden);
-    }
+    let quads = std::mem::take(&mut effects.source.quads);
+    let Effects {
+        materials,
+        quads: pool,
+        ..
+    } = &mut *effects;
+    draw_pool(&mut commands, &mut meshes, pool, &quads, materials, None);
+    effects.source.quads = quads;
+    // Sprites and beams on the viewmodel (CSprite/CBeam viewmodel attachments).
+    let viewmodel = viewmodel_quads(&game, &mut effects);
+    effects.viewmodel_draws = viewmodel.len();
+    let Effects {
+        materials,
+        viewmodel_quads: pool,
+        ..
+    } = &mut *effects;
+    draw_pool(
+        &mut commands,
+        &mut meshes,
+        pool,
+        &viewmodel,
+        materials,
+        Some(1),
+    );
     let dead: Vec<_> = effects
         .marks
         .keys()
@@ -482,6 +577,48 @@ pub fn present(
                 commands.entity(*entity).insert(transform);
             }
         }
+    }
+    // Stuck crossbow bolts (CCrossbowBolt left in the world): crossbow_bolt.mdl at the
+    // recorded position/angles; the record cap drops the oldest instance.
+    let live: std::collections::BTreeSet<u64> =
+        game.projectiles.stuck_bolts.iter().map(|b| b.id).collect();
+    let gone: Vec<u64> = effects
+        .stuck
+        .keys()
+        .copied()
+        .filter(|id| !live.contains(id))
+        .collect();
+    for id in gone {
+        for entity in effects.stuck.remove(&id).unwrap_or_default() {
+            commands.entity(entity).despawn();
+        }
+    }
+    for bolt in &game.projectiles.stuck_bolts {
+        if effects.stuck.contains_key(&bolt.id) {
+            continue;
+        }
+        let transform = rendering::entity_transform(
+            bolt.position,
+            hl2_simulation::physics::angles(bolt.angles),
+        );
+        let entities = effects
+            .grenade_meshes
+            .get(hl2_simulation::weapon_crossbow::BOLT_MODEL)
+            .into_iter()
+            .flatten()
+            .map(|(mesh, material)| {
+                commands
+                    .spawn((
+                        crate::campaign::MapOwned,
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(material.clone()),
+                        transform,
+                        Visibility::Visible,
+                    ))
+                    .id()
+            })
+            .collect();
+        effects.stuck.insert(bolt.id, entities);
     }
 }
 

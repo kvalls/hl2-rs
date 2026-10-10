@@ -577,8 +577,18 @@ pub fn present_entities(
         let layers = animation
             .entity
             .map_or(0, |id| game.scene.pose_signature(id));
+        // Viewmodel pose parameters (the gravity gun's "active") change the pose too.
+        let viewmodel_params = animation
+            .entity
+            .is_none()
+            .then(|| game.inventory.viewmodel_pose_values(rig));
         let layer_key = match (layers, animation.entity) {
-            (0, _) | (_, None) => 0,
+            (_, None) => viewmodel_params.as_ref().map_or(0, |params| {
+                params.iter().fold(0u64, |hash, v| {
+                    (hash ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3)
+                })
+            }),
+            (0, _) => 0,
             (signature, Some(id)) => signature ^ (id as u64).rotate_left(32),
         };
         if animation
@@ -595,7 +605,12 @@ pub fn present_entities(
             .entry((animation.key.clone(), clip.to_owned(), key, layer_key))
             .or_insert_with(|| match animation.entity {
                 Some(id) => game.scene.actor_matrices(rig, id),
-                None => rig.matrices(clip, time),
+                None => hl2_simulation::viewmodel_effects::viewmodel_matrices(
+                    rig,
+                    clip,
+                    time,
+                    viewmodel_params.as_deref().unwrap_or_default(),
+                ),
             });
         if let Some(skeleton) = &animation.gpu {
             if updated_joints.insert(skeleton.joints[0]) {

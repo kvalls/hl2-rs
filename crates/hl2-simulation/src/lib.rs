@@ -19,6 +19,7 @@ pub mod sounds;
 pub mod soundscapes;
 pub mod suit;
 pub mod view_punch;
+pub mod viewmodel_effects;
 pub mod weapon_bugbait;
 pub mod weapon_crossbow;
 pub mod weapon_physcannon;

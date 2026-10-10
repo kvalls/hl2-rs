@@ -97,7 +97,7 @@ impl LaserDot {
 pub struct RpgState {
     pub guiding: bool,
     initial_state_update: bool,
-    hide_guiding: bool,
+    pub(crate) hide_guiding: bool,
     pub missile_out: bool,
     pub dot: Option<LaserDot>,
     /// GetActivity() of the viewmodel.
