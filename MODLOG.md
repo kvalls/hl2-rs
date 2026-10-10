@@ -12,7 +12,9 @@
 
 Hits on characters (npc_*) now use the SDK's VPhysicsUpdate ray reflection (0.2 restitution, spin x -0.5, no physics sound), since COLLISION_GROUP_WEAPON passes through characters in VPhysics; unit test added (386 tests).
 
-**Still broken or not tested:** impact sound level/timing not compared with a native per-process recording; the 0.1 DMG_CRUSH "bonk" to NPCs (step 14); the player as a reflecting character; rotational dynamics; NPC reflection not compared with native.
+Per-process recordings: native blip onsets match ours (0, 1.057, 2.102, 2.415, 2.740 s); the native impact level is masked by the plaza ambient (-43.9 dB), inconclusive.
+
+**Still broken or not tested:** impact sound level vs native (repeat at a quiet place); the 0.1 DMG_CRUSH "bonk" to NPCs (step 14); the player as a reflecting character; rotational dynamics; NPC reflection not compared with native.
 
 **Next:** see the 13b list (crossbow, RPG, bug bait, gravity gun; optional frag rigid body; DESIGN 11f).
 
