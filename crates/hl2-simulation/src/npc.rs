@@ -9,6 +9,8 @@ use serde::Serialize;
 use source_assets::{models::MotionSequence, navigation::Graph, vpk::Vfs};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// GoalKey::scene reserved for AI navigation goals (step 14); scenes use entity ids.
+pub const AI_SCENE: usize = usize::MAX - 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct GoalKey {
     pub scene: usize,
@@ -305,6 +307,9 @@ pub struct Controller {
     pending: Vec<MoveUpdate>,
     /// Door entities NPC routes may pass through by opening them.
     doors: BTreeSet<usize>,
+    /// Actors registered only for AI goals: scene requests for them stay blocked as
+    /// before (MissingActor), so scripted behavior does not change.
+    ai_only: BTreeSet<usize>,
 }
 impl Controller {
     /// Doors that block a graph link do not invalidate it; NPCs open them on contact.
@@ -330,6 +335,41 @@ impl Controller {
             goals: BTreeMap::new(),
             pending: Vec::new(),
             doors: BTreeSet::new(),
+            ai_only: BTreeSet::new(),
+        }
+    }
+    /// register_actor for an actor that only AI goals (GoalKey::scene == AI_SCENE) move.
+    pub fn register_ai_actor(
+        &mut self,
+        entity: usize,
+        model_scale: f32,
+        ground: GroundConfig,
+        locomotion: Locomotion,
+    ) -> Result<(), GoalBlockReason> {
+        self.register_actor(entity, model_scale, ground, locomotion)?;
+        self.ai_only.insert(entity);
+        Ok(())
+    }
+    pub fn has_actor(&self, entity: usize) -> bool {
+        self.actors.contains_key(&entity)
+    }
+    /// Stop one goal (the AI's TASK_STOP_MOVING); the actor keeps its pose.
+    pub fn cancel(&mut self, key: GoalKey) {
+        if let Some(goal) = self.goals.get_mut(&key) {
+            if goal.state != GoalState::Canceled {
+                goal.state = GoalState::Canceled;
+                self.pending.push(update(key, goal, &self.doors));
+            }
+        }
+    }
+    /// Drop a finished goal's record.
+    pub fn forget(&mut self, key: GoalKey) {
+        if self
+            .goals
+            .get(&key)
+            .is_some_and(|g| matches!(g.state, GoalState::Arrived | GoalState::Canceled))
+        {
+            self.goals.remove(&key);
         }
     }
     pub fn register_actor(
@@ -429,6 +469,9 @@ impl Controller {
             }
             if pose.scripted_by.is_some() {
                 return Err(GoalBlockReason::ScriptOwned);
+            }
+            if key.scene != AI_SCENE && self.ai_only.contains(&key.actor) {
+                return Err(GoalBlockReason::MissingActor);
             }
             if self.goals.iter().any(|(other, g)| {
                 other.actor == key.actor

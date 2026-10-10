@@ -47,6 +47,19 @@ impl LookTargets {
             event,
         });
     }
+    /// CAI_BaseActor::AddLookTarget(target, importance, duration) from the AI.
+    pub fn add(&mut self, actor: usize, target: Target, importance: f32, now: f64, duration: f64) {
+        let queue = self.actors.entry(actor).or_default();
+        queue.retain(|i| i.target != target);
+        queue.push(Interest {
+            target,
+            importance,
+            start: now,
+            end: now + duration,
+            scene: crate::npc::AI_SCENE,
+            event: 0,
+        });
+    }
     pub fn cleanup(&mut self, now: f64, alive: impl Fn(usize) -> bool) {
         self.actors.retain(|actor, queue| {
             queue.retain(|i| {

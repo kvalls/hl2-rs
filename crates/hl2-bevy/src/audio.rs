@@ -105,8 +105,8 @@ impl Vox {
             }
         };
         for (name, line) in source_assets::vox::sentences(&text) {
-            // Only the suit's sentences are requested by the game so far.
-            if !name.starts_with("HEV_") {
+            // The suit's sentences and the metrocops' (CAI_Sentence groups) are requested.
+            if !name.starts_with("HEV_") && !name.starts_with("METROPOLICE_") {
                 continue;
             }
             let words = source_assets::vox::words(&line);
@@ -575,7 +575,15 @@ impl Audio {
                 return None;
             }
         };
-        let volume = request.volume.unwrap_or(1.);
+        // NPC sentences (CAI_Sentence) use the class's SentenceParameters script entry
+        // for volume and soundlevel and play at the speaker; the suit's are unspatialized.
+        let parameters = hl2_simulation::ai::runtime::sentence_parameters(&request.name)
+            .map(|cue| self.library.draw_params(cue));
+        let volume = request.volume.or(parameters.map(|p| p.0)).unwrap_or(1.);
+        let spatial = request
+            .origin
+            .zip(parameters)
+            .map(|(origin, (_, _, soundlevel))| (origin, soundlevel));
         commands.spawn((
             crate::campaign::MapOwned,
             SoundPlayer {
@@ -583,13 +591,18 @@ impl Audio {
                 queued_frame: self.frame,
                 observed: false,
                 volume,
-                spatial: None,
+                spatial,
                 ambient: None,
                 soundscape: None,
             },
             AudioPlayer::new(sources.add(AudioSource { bytes: wav.into() })),
             PlaybackSettings {
-                volume: bevy::audio::Volume::Linear(volume.clamp(0., 1.)),
+                // Spatial sounds start silent; `queue` applies their distance gain.
+                volume: bevy::audio::Volume::Linear(if spatial.is_some() {
+                    0.
+                } else {
+                    volume.clamp(0., 1.)
+                }),
                 paused,
                 ..PlaybackSettings::DESPAWN
             },

@@ -4,9 +4,12 @@
 //! traits. Every behavior here is "SDK behavior, retail not compared".
 pub mod conditions;
 pub mod default_schedules;
+pub mod host;
 pub mod memory;
+pub mod metropolice;
 pub mod police;
 pub mod relationships;
+pub mod runtime;
 pub mod schedule;
 pub mod senses;
 pub mod spawn;

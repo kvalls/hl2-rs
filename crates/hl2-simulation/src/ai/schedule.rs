@@ -141,6 +141,8 @@ pub struct Context {
     pub enemy: Option<(usize, Vec3)>,
     pub target: Option<Vec3>,
     pub best_sound: Option<Vec3>,
+    /// The local player's position (TASK_FACE_PLAYER), when there is one.
+    pub player: Option<Vec3>,
     /// The NPC's yaw in degrees.
     pub yaw: f32,
     /// A uniform [0, 1) draw for this think (random waits, sentence choice).
@@ -154,6 +156,10 @@ pub trait Behavior {
     }
     fn translate_schedule(&mut self, name: &str) -> String {
         name.to_owned()
+    }
+    /// BuildScheduleTestBits: class interrupts added to the current schedule's.
+    fn custom_interrupts(&self, _npc: &AiNpc) -> Conditions {
+        Conditions::default()
     }
     fn select_fail_schedule(&mut self, npc: &AiNpc, _failed: &str) -> String {
         npc.fail_schedule
@@ -313,10 +319,11 @@ impl AiNpc {
         for _ in 0..MAX_TASKS_PER_THINK {
             let current = self.schedule.as_ref().and_then(|n| schedules.0.get(n));
             let failed = self.conditions.has(COND_TASK_FAILED);
+            let custom = behavior.custom_interrupts(self);
             let valid = current.is_some_and(|s| {
                 !failed
                     && !self.conditions.has(COND_SCHEDULE_DONE)
-                    && !self.conditions.intersects(s.interrupts)
+                    && !self.conditions.intersects(s.interrupts.union(custom))
             });
             if !valid {
                 let next = if failed {
@@ -456,6 +463,7 @@ impl AiNpc {
                 Complete
             }
             "TASK_FACE_ENEMY" => face(motor, self.enemy_position(ctx)),
+            "TASK_FACE_PLAYER" => face(motor, ctx.player),
             "TASK_FACE_TARGET" => face(motor, ctx.target),
             "TASK_FACE_SAVEPOSITION" => face(motor, self.save_position),
             "TASK_FACE_IDEAL" | "TASK_FACE_REASONABLE" => {
@@ -595,11 +603,13 @@ impl AiNpc {
             }
             "TASK_FACE_ENEMY"
             | "TASK_FACE_TARGET"
+            | "TASK_FACE_PLAYER"
             | "TASK_FACE_SAVEPOSITION"
             | "TASK_FACE_IDEAL"
             | "TASK_FACE_REASONABLE" => {
                 let goal = match task {
                     "TASK_FACE_TARGET" => ctx.target,
+                    "TASK_FACE_PLAYER" => ctx.player,
                     "TASK_FACE_SAVEPOSITION" => self.save_position,
                     _ => self.enemy_position(ctx).or(ctx.best_sound),
                 };
@@ -660,10 +670,12 @@ pub(crate) mod tests {
         pub facing_ticks: u32,
         pub path: Option<Vec3>,
         pub status: Option<MoveStatus>,
+        pub activities: Vec<String>,
     }
     impl Motor for FakeMotor {
         fn set_activity(&mut self, activity: &str) {
             self.activity = activity.into();
+            self.activities.push(activity.into());
         }
         fn activity_finished(&self) -> bool {
             self.finished

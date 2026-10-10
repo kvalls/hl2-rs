@@ -54,6 +54,9 @@ pub fn prepare_actor_animations(
 }
 /// NPC classes registered with the shared human ground-movement controller.
 pub const GROUND_HUMANS: [&str; 2] = ["npc_barney", "npc_kleiner"];
+/// Human-hull NPC classes registered for AI goals only (step 14): scripted scene moves
+/// for them stay unsupported as before. npc_metropolice: SetHullType(HULL_HUMAN).
+pub const AI_GROUND_HUMANS: [&str; 1] = ["npc_metropolice"];
 pub fn prepare_npcs(
     world: &mut World,
     vfs: &Vfs,
@@ -88,7 +91,9 @@ pub fn prepare_npcs(
         let Some(actor) = instance.entity else {
             continue;
         };
-        if !GROUND_HUMANS.contains(&world.entities[actor].class()) {
+        let class = world.entities[actor].class();
+        let ai_only = AI_GROUND_HUMANS.contains(&class);
+        if !GROUND_HUMANS.contains(&class) && !ai_only {
             continue;
         }
         let loaded = (|| -> anyhow::Result<_> {
@@ -96,9 +101,12 @@ pub fn prepare_npcs(
             let wanted = motion.required_clips();
             let ground = crate::npc::normal_human(instance.scale, 18., 1.)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            controller
-                .register_actor(actor, instance.scale, ground, motion)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            if ai_only {
+                controller.register_ai_actor(actor, instance.scale, ground, motion)
+            } else {
+                controller.register_actor(actor, instance.scale, ground, motion)
+            }
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             // Verified ordinary Barney eye offset comes from his MDL, not the player's eye.
             if instance.scale == 1. {
                 controller

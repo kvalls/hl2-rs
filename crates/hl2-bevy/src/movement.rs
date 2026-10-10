@@ -216,6 +216,12 @@ impl Simulation {
                         .give("weapon_crowbar", &game.weapons, game.scene.time);
                     ui.source.log("Granted the six implemented weapons, ammunition and suit. Remaining HL2 weapons are not implemented.");
                 }
+                Effect::AiEnable(value) => {
+                    let on = value.unwrap_or(!game.ai.enabled);
+                    game.ai.enabled = on;
+                    crate::gameplay::AI_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
+                    ui.source.log(format!("ai_enable {}", u8::from(on)));
+                }
                 Effect::Noclip(value) => {
                     self.fly = value.unwrap_or(!self.fly);
                     self.player = Player::new(self.eye);
@@ -373,6 +379,10 @@ impl Simulation {
                     noclip: false,
                 };
                 let feet = self.player.feet;
+                // NPC hits push the player (ApplyAbsVelocityImpulse) before the move.
+                if let Some(game) = game.as_deref_mut() {
+                    self.player.velocity += std::mem::take(&mut game.player_impulse);
+                }
                 self.player.step(self.input, &self.physics, TICK);
                 self.eye = self.player.eye();
                 if let Some(game) = game.as_deref_mut() {

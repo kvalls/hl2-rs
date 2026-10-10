@@ -286,6 +286,11 @@ pub struct Scene {
     player_feet: Vec3,
     /// Duration of the latest tick (NPC movement turning runs after the scene tick).
     tick_dt: f32,
+    /// Inputs for the AI (step 14): (target entity, lowercase input, parameter,
+    /// activator). The AI runtime drains them; without it they are dropped.
+    pub ai_inputs: Vec<(usize, String, String, usize)>,
+    /// When the sequence the AI started last ends, per actor.
+    ai_sequence_end: BTreeMap<usize, f64>,
 }
 impl Scene {
     pub fn new(world: &World) -> Self {
@@ -313,6 +318,8 @@ impl Scene {
             choreography: BTreeMap::new(),
             movement_commands: Vec::new(),
             movement_ready: BTreeMap::new(),
+            ai_inputs: Vec::new(),
+            ai_sequence_end: BTreeMap::new(),
             look_targets: Default::default(),
             gestures: Default::default(),
             heads: BTreeMap::new(),
@@ -1072,6 +1079,98 @@ impl Scene {
             }
         }
         (self.time - state.animation_started).max(0.) as f32
+    }
+    /// The actor belongs to a script: a scripted_sequence, a choreographed scene (as an
+    /// actor of a running playback or through its body animation) or a scene move.
+    /// The AI yields to it (NPC_STATE_SCRIPT / SCHED_AISCRIPT semantics).
+    pub fn ai_scripted(&self, id: usize) -> bool {
+        let Some(state) = self.states.get(id) else {
+            return true;
+        };
+        state.scripted_by.is_some()
+            || state.scene_animation.is_some()
+            || state
+                .movement_animation
+                .as_ref()
+                .is_some_and(|m| m.key.scene != crate::npc::AI_SCENE)
+            || self.choreography.values().any(|c| {
+                c.playback
+                    .as_ref()
+                    .is_some_and(|p| p.actors.contains(&Some(id)))
+            })
+            || self
+                .movement_ready
+                .keys()
+                .any(|k| k.actor == id && k.scene != crate::npc::AI_SCENE)
+    }
+    /// Play an activity or sequence on an actor for the AI (CAI_BaseNPC::SetActivity:
+    /// the model's weighted sequence for the activity). False when the rig has none.
+    pub fn ai_set_activity(&mut self, world: &World, id: usize, activity: &str) -> bool {
+        if !self.animate(world, id, activity, false) {
+            return false;
+        }
+        let duration = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))
+            .and_then(|i| world.rigs.get(&i.asset_key()))
+            .and_then(|rig| rig.clips.get(&self.states[id].animation))
+            .map_or(0., |clip| clip.duration().max(0.015));
+        self.ai_sequence_end
+            .insert(id, self.time + f64::from(duration));
+        true
+    }
+    /// Animation events (name, id) of the actor's current sequence whose time falls in
+    /// (from, to] (studio events, played once per sequence start).
+    pub fn ai_events(&self, world: &World, id: usize, from: f64, to: f64) -> Vec<(String, i32)> {
+        let Some(state) = self.states.get(id) else {
+            return Vec::new();
+        };
+        let Some(clip) = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))
+            .and_then(|i| world.rigs.get(&i.asset_key()))
+            .and_then(|rig| rig.clips.get(&state.animation))
+        else {
+            return Vec::new();
+        };
+        let duration = f64::from(clip.duration().max(0.015));
+        clip.events
+            .iter()
+            .filter(|e| {
+                let at = state.animation_started + f64::from(e.cycle) * duration;
+                at > from && at <= to
+            })
+            .map(|e| (e.name.clone(), e.id))
+            .collect()
+    }
+    /// The AI's current sequence has played once (m_fSequenceFinished).
+    pub fn ai_activity_finished(&self, id: usize) -> bool {
+        self.ai_sequence_end
+            .get(&id)
+            .is_none_or(|end| self.time >= *end)
+    }
+    /// Accept movement updates for an AI goal (apply_movement only follows known keys).
+    pub fn ai_register_move(&mut self, key: crate::npc::GoalKey) {
+        self.movement_ready.insert(key, false);
+    }
+    pub fn ai_forget_move(&mut self, key: crate::npc::GoalKey) {
+        self.movement_ready.remove(&key);
+        if self
+            .states
+            .get(key.actor)
+            .and_then(|s| s.movement_animation.as_ref())
+            .is_some_and(|m| m.key == key)
+        {
+            self.restore_movement_animation(key.actor);
+        }
+    }
+    /// The AI turned the actor (CAI_Motor::UpdateYaw) while standing.
+    pub fn ai_set_yaw(&mut self, id: usize, yaw_degrees: f32) {
+        if let Some(state) = self.states.get_mut(id) {
+            state.rotation = physics::angles(Vec3::new(0., yaw_degrees, 0.));
+        }
     }
     pub fn body_sequence_owner(&self, id: usize) -> Option<usize> {
         self.states
@@ -2067,6 +2166,20 @@ impl Scene {
             return;
         }
         if class == "env_global" && self.globals.input(e, &input, &p.parameter).0 {
+            return;
+        }
+        // AI inputs (step 14): npc_metropolice SetPoliceGoal / baton inputs and the
+        // ai_goal_police knock-out switches go to the AI runtime.
+        if (class == "npc_metropolice"
+            && matches!(
+                input.as_str(),
+                "setpolicegoal" | "activatebaton" | "enablemanhacktoss" | "disablemanhacktoss"
+            ))
+            || (class == "ai_goal_police"
+                && matches!(input.as_str(), "enableknockout" | "disableknockout"))
+        {
+            self.ai_inputs
+                .push((id, input, p.parameter.clone(), p.activator));
             return;
         }
         match input.as_str() {

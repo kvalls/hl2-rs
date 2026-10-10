@@ -40,6 +40,10 @@ const COMMANDS: &[(&str, &str)] = &[
         "map",
         "map <name>: load an installed map and reset the player inventory",
     ),
+    (
+        "ai_enable",
+        "ai_enable [0|1]: query or switch the NPC AI think loop (development, default 0)",
+    ),
     ("clear", "clear: clear console output"),
     ("ent_fire", "ent_fire <targetname> [input=Use] [parameter] [delay]: queue entity input; names/globs supported (cheat)"),
     ("echo", "echo <text>: print text"),
@@ -58,6 +62,8 @@ pub enum Mode {
 #[derive(Debug, PartialEq)]
 pub enum Effect {
     Loadout,
+    /// ai_enable: None toggles.
+    AiEnable(Option<bool>),
     Noclip(Option<bool>),
     Getpos,
     Setpos {
@@ -610,6 +616,14 @@ impl Console {
                 };
                 cheat()?;
                 return Ok(Some(Effect::Noclip(value)));
+            }
+            "ai_enable" => {
+                let value = match args {
+                    [] => None,
+                    [value] => Some(boolean(value).ok_or_else(usage)?),
+                    _ => return Err(usage()),
+                };
+                return Ok(Some(Effect::AiEnable(value)));
             }
             "getpos" => {
                 if !args.is_empty() {

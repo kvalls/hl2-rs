@@ -78,6 +78,8 @@ impl Action {
         }
     }
 }
+/// The `ai_enable` switch across map loads (`--ai` sets it at startup).
+pub static AI_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 #[derive(Resource)]
 pub struct Gameplay {
     pub world: Arc<World>,
@@ -106,6 +108,11 @@ pub struct Gameplay {
     pub damage_messages: Vec<hl2_simulation::player_damage::DamageMessage>,
     /// HEV suit voice queue.
     pub suit: hl2_simulation::suit::Suit,
+    /// Step 14 NPC AI (off until `ai_enable 1` / `--ai`).
+    pub ai: hl2_simulation::ai::runtime::AiRuntime,
+    /// Velocity impulses on the player from NPC hits (ApplyAbsVelocityImpulse), applied
+    /// before the next player move.
+    pub player_impulse: glam::Vec3,
 }
 impl Gameplay {
     /// After the player move: this tick's damage (trigger_hurt, blasts, then the
@@ -268,6 +275,8 @@ impl Gameplay {
             player_damage: Default::default(),
             damage_messages: Vec::new(),
             suit: Default::default(),
+            ai: hl2_simulation::ai::runtime::AiRuntime::new(&World::default(), None),
+            player_impulse: glam::Vec3::ZERO,
         }
     }
     pub fn load_with_campaign(
@@ -289,7 +298,11 @@ impl Gameplay {
             .map(|b| String::from_utf8_lossy(&b).into_owned());
         let player_damage =
             hl2_simulation::player_damage::PlayerDamage::with_skill(2, skill.as_deref());
+        let mut ai = hl2_simulation::ai::runtime::AiRuntime::new(&world, Some(vfs));
+        ai.enabled = AI_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
         Ok(Self {
+            ai,
+            player_impulse: glam::Vec3::ZERO,
             player_damage,
             damage_messages: Vec::new(),
             suit: Default::default(),
@@ -505,6 +518,39 @@ impl Gameplay {
             self.projectiles.spawn(launch, &mut self.scene);
         }
         physics.refresh_entity_queries();
+        // NPC stage: the AI thinks (when enabled) before the movement controller tick.
+        self.ai.tick(
+            &self.world,
+            &mut self.scene,
+            &mut self.npcs,
+            physics,
+            &[],
+            hl2_simulation::ai::runtime::PlayerState {
+                feet: player.feet,
+                velocity: player.velocity,
+                crouched: player.crouched,
+                on_ground: player.grounded,
+                dead: player.dead,
+                suit: self.inventory.suit,
+                noclip: fly,
+            },
+        );
+        for hit in std::mem::take(&mut self.ai.player_hits) {
+            if hit.damage > 0. {
+                self.scene
+                    .player_damage
+                    .push(hl2_simulation::player_damage::DamageInfo {
+                        amount: hit.damage,
+                        kind: hl2_simulation::player_damage::DMG_CLUB,
+                        inflictor: self.scene.states[hit.attacker].origin,
+                    });
+            }
+            self.player_impulse += hit.impulse;
+            if let Some(fade) = hit.fade {
+                self.scene.screen_fades.push(fade);
+            }
+            // ViewPunch needs the punch-angle path of the arsenal branch (not here).
+        }
         actors::tick_npcs(
             &mut self.npcs,
             &mut self.scene,
@@ -583,7 +629,7 @@ impl Gameplay {
         serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"player_damage":self.player_damage,"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"gesture_layers":self.scene.gestures.report(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),
-            "projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
+            "ai":serde_json::to_value(&self.ai).unwrap_or_default(),"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
             "unplayed_sounds":self.unplayed_sounds,"queued_sounds":self.sound_requests.len(),"recent_sound_cues":self.sound_cues})
     }
 }
