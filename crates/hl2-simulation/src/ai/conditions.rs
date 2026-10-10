@@ -215,6 +215,6 @@ mod tests {
         set.clear(COND_NEW_ENEMY);
         assert_eq!(set.names(), vec!["COND_SEE_ENEMY"]);
         assert!(set.intersects(Conditions::of(&[COND_SEE_ENEMY, COND_LIGHT_DAMAGE])));
-        assert!(LAST_SHARED_CONDITION < 128);
+        const { assert!(LAST_SHARED_CONDITION < 128) };
     }
 }
