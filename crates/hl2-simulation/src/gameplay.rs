@@ -293,7 +293,7 @@ pub struct Inventory {
     pub(crate) squeeze_origin: Vec3,
     /// Sounds requested where no scene is at hand (holster); emitted on the next tick.
     #[serde(skip)]
-    deferred_sounds: Vec<String>,
+    pub(crate) deferred_sounds: Vec<crate::sounds::SoundRequest>,
     /// Idle sequence resolved from ACT_VM_IDLE/ACT_VM_FIDGET for script-only viewmodels.
     #[serde(skip)]
     pub idle_override: Option<String>,
@@ -507,7 +507,7 @@ impl Inventory {
                         .get("weapon_rpg")
                         .and_then(|w| w.sounds.get("special2"))
                     {
-                        self.deferred_sounds.push(sound.clone());
+                        self.deferred_sounds.push(sound.as_str().into());
                     }
                 }
                 self.rpg_holster(None);
@@ -582,9 +582,7 @@ impl Inventory {
         }
         self.holding_attack = attack;
         let (primary, secondary) = self.attack_input.take().unwrap_or((attack, false));
-        for sound in std::mem::take(&mut self.deferred_sounds) {
-            scene.sounds.push(sound.into());
-        }
+        scene.sounds.append(&mut self.deferred_sounds);
         self.resolve_activity(world, weapons);
         self.advance_reload(world, scene, weapons, primary, secondary);
         if self.active == "weapon_crossbow" && self.health > 0. {

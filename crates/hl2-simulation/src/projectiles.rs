@@ -478,8 +478,13 @@ impl Projectiles {
                             dt,
                         )
                     {
-                        // Explode -> DoExplosion (ExplosionCreate 200/200) through the
-                        // shared blast, then NotifyRocketDied.
+                        // Explode: StopSound("Missile.Ignite"), DoExplosion
+                        // (ExplosionCreate 200/200) through the shared blast, then
+                        // NotifyRocketDied.
+                        scene.sounds.push(crate::sounds::SoundRequest::stop(
+                            "Missile.Ignite",
+                            crate::sounds::projectile_emitter(projectile.id),
+                        ));
                         self.grenade_explosion(
                             &projectile,
                             Vec3::Z,

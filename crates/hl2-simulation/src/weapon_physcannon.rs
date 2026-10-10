@@ -32,6 +32,29 @@ const PLAYER_RADIUS: f32 = 22.627417;
 /// Inches to Rapier metres (physics.rs SCALE).
 const SCALE: f32 = 1. / 39.37;
 
+/// GetMotorSound: the CSoundPatch looping on the weapon (CHAN_STATIC, ATTN_NORM).
+pub const MOTOR_SOUND: &str = "Weapon_PhysCannon.HoldSound";
+fn motor(op: crate::sounds::PatchOp) -> crate::sounds::SoundRequest {
+    crate::sounds::SoundRequest::patch(
+        MOTOR_SOUND,
+        crate::sounds::weapon_emitter("weapon_physcannon"),
+        op,
+    )
+}
+/// "Stop our looping sound": volume to 0 and pitch to 50 over 1 s (DetachObject,
+/// PrimaryAttack's launch, CloseElements).
+fn motor_wind_down(scene: &mut Scene) {
+    use crate::sounds::PatchOp;
+    scene.sounds.push(motor(PatchOp::Volume {
+        volume: 0.,
+        seconds: 1.,
+    }));
+    scene.sounds.push(motor(PatchOp::Pitch {
+        pitch: 50.,
+        seconds: 1.,
+    }));
+}
+
 /// What the viewmodel/elements are doing (EFFECT_* and OpenElements/CloseElements).
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct PhyscannonState {
@@ -255,6 +278,7 @@ impl Inventory {
         self.physcannon.element_destination = 0.;
         self.cannon_send(world, weapon, "ACT_VM_IDLE", time);
         self.physcannon.open = false;
+        motor_wind_down(scene);
     }
     /// FindObjectTrace: a line to TraceLength x 4, then a 4-unit hull when it hit no
     /// entity. Returns (entity or world, fraction of the 1000 units, end).
@@ -429,6 +453,22 @@ impl Inventory {
         body.wake_up(true);
         self.physcannon.held = Some(id);
         self.physcannon.grab = Some(grab);
+        // AttachObject: Play(motor, 0, 50), pitch to 100 and volume to 0.8 over 0.5 s.
+        {
+            use crate::sounds::PatchOp;
+            scene.sounds.push(motor(PatchOp::Play {
+                volume: 0.,
+                pitch: 50.,
+            }));
+            scene.sounds.push(motor(PatchOp::Pitch {
+                pitch: 100.,
+                seconds: 0.5,
+            }));
+            scene.sounds.push(motor(PatchOp::Volume {
+                volume: 0.8,
+                seconds: 0.5,
+            }));
+        }
         self.physcannon.next_secondary = time + 0.4;
         self.open_elements(scene, weapon, world, time);
     }
@@ -471,6 +511,7 @@ impl Inventory {
                 }
             }
         }
+        motor_wind_down(scene);
         if sound {
             play_sound(scene, weapon, "melee_miss", world, "");
         }
@@ -671,9 +712,12 @@ impl Inventory {
         play_sound(scene, weapon, "single_shot", world, "");
     }
     /// ForceDrop on holster (only reachable without a held object, see can_holster).
+    /// Holster -> ForceDrop -> StopEffects: the motor fades out over 0.1 s.
     pub(crate) fn physcannon_holster(&mut self) {
         self.physcannon.held = None;
         self.physcannon.grab = None;
+        self.deferred_sounds
+            .push(motor(crate::sounds::PatchOp::FadeOut { seconds: 0.1 }));
     }
 }
 
@@ -681,6 +725,7 @@ impl Inventory {
 mod tests {
     use super::*;
 
+    use crate::sounds::PatchOp;
     fn cannon() -> BTreeMap<String, Weapon> {
         // Synthetic definition (not the installed script).
         let sounds = [
@@ -823,6 +868,31 @@ mod tests {
             .iter()
             .any(|s| s.name == "Weapon_PhysCannon.Pickup"));
         assert!(!inv.physcannon_can_holster());
+        // The motor patch starts silent at pitch 50 and ramps to 0.8 / 100 over 0.5 s.
+        let patches: Vec<_> = scene
+            .sounds
+            .iter()
+            .filter(|s| s.name == MOTOR_SOUND)
+            .filter_map(|s| s.patch)
+            .collect();
+        assert_eq!(
+            patches,
+            vec![
+                PatchOp::Play {
+                    volume: 0.,
+                    pitch: 50.
+                },
+                PatchOp::Pitch {
+                    pitch: 100.,
+                    seconds: 0.5
+                },
+                PatchOp::Volume {
+                    volume: 0.8,
+                    seconds: 0.5
+                },
+            ]
+        );
+        scene.sounds.clear();
         run(&mut inv, &mut scene, &mut physics, 60, false, false);
         let c = center(&physics, 0).unwrap();
         // Held at 24 + 2r - r from the eye, r = player radius + 8 (cube half extent).
@@ -832,6 +902,13 @@ mod tests {
         assert_eq!(inv.physcannon.held, None);
         let v = physics.bodies[physics.dynamic[&0]].linvel().x / SCALE;
         assert!((v - 1500.).abs() < 20., "{v}");
+        // The launch winds the motor down (volume 0, pitch 50 over 1 s).
+        assert!(scene.sounds.iter().any(|s| s.name == MOTOR_SOUND
+            && s.patch
+                == Some(PatchOp::Volume {
+                    volume: 0.,
+                    seconds: 1.
+                })));
         // A 300 kg prop: deny sound, no pickup.
         let mut heavy = prop(Vec3::new(150., 0., 64.), 300.);
         let mut inv = Inventory::default();

@@ -369,6 +369,7 @@ pub(crate) fn missile_tick(
             missile.velocity = crate::physics::angles(missile.angles) * Vec3::X * RPG_SPEED;
             scene.sounds.push(crate::sounds::SoundRequest {
                 origin: Some(missile.position),
+                emitter: Some(crate::sounds::projectile_emitter(missile.id)),
                 .."Missile.Ignite".into()
             });
             scene
@@ -725,6 +726,19 @@ mod tests {
         // Passed the near wall (x = 20) while non-solid; exploded on the far one.
         assert!(blast.position.x > 390., "{}", blast.position);
         assert_eq!(projectiles.missile_events, vec![MissileEvent::Died]);
+        // CMissile::Explode stops the ignition loop on the missile's own emitter.
+        let ignite = scene
+            .sounds
+            .iter()
+            .find(|s| s.name == "Missile.Ignite" && !s.stop)
+            .expect("ignite");
+        let stop = scene
+            .sounds
+            .iter()
+            .find(|s| s.name == "Missile.Ignite" && s.stop)
+            .expect("stop");
+        assert!(ignite.emitter.is_some());
+        assert_eq!(ignite.emitter, stop.emitter);
         let hit = damage
             .iter()
             .find(|d| matches!(d.target, DamageTarget::Entity(0)))
