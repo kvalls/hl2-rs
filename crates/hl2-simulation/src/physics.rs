@@ -117,6 +117,62 @@ fn mesh_shape(
         .ok()
     }
 }
+/// The .phy solid after CPhysicsProp::CreateVPhysics' keyvalue scaling: mass x
+/// massScale (when > 0), inertia x inertiaScale (when > 0, at least 0.5).
+fn authored_solid(
+    solid: &modkit_core::PhysicsSolid,
+    keyvalue: impl Fn(&str) -> Option<f32>,
+) -> modkit_core::PhysicsSolid {
+    let mut solid = solid.clone();
+    if let Some(scale) = keyvalue("massScale").filter(|s| *s > 0.) {
+        solid.mass *= scale;
+    }
+    if let Some(scale) = keyvalue("inertiaScale").filter(|s| *s > 0.) {
+        solid.inertia = (solid.inertia * scale).max(0.5);
+    }
+    // VPhysics rejects non-positive masses; keep the body simulable.
+    solid.mass = solid.mass.max(0.001);
+    solid
+}
+fn surface_material<'a>(world: &'a World, name: &str) -> Option<&'a modkit_core::SurfaceMaterial> {
+    world
+        .surface_materials
+        .get(name)
+        .or_else(|| world.surface_materials.get("default"))
+}
+fn world_material(world: &World) -> impl Fn(ColliderBuilder) -> ColliderBuilder + '_ {
+    let material = world.surface_materials.get("default");
+    move |builder| match material {
+        Some(m) => builder
+            .friction(m.friction)
+            .restitution(m.elasticity)
+            .friction_combine_rule(CoefficientCombineRule::Multiply)
+            .restitution_combine_rule(CoefficientCombineRule::Multiply),
+        None => builder.friction(0.8),
+    }
+}
+/// The body's mass properties from the authored total mass: uniform density over
+/// the convex pieces, then the whole inertia tensor times the solid's "inertia"
+/// multiplier (VPhysics scales the object's tensor, parallel-axis terms included).
+fn authored_mass_properties(shapes: &[SharedShape], mass: f32, inertia: f32) -> MassProperties {
+    let unit = shapes
+        .iter()
+        .map(|s| s.mass_properties(1.))
+        .fold(MassProperties::default(), |sum, m| sum + m);
+    let composite = if unit.mass() > 1e-9 {
+        let mut scaled = unit;
+        scaled.set_mass(mass, true);
+        scaled
+    } else {
+        MassProperties::new(Point::origin(), mass, Vector::repeat(mass * 0.01))
+    };
+    MassProperties::with_principal_inertia_frame(
+        composite.local_com,
+        mass,
+        composite.principal_inertia() * inertia,
+        composite.principal_inertia_local_frame,
+    )
+}
 struct PropShapes {
     shapes: Vec<SharedShape>,
     native: bool,
@@ -141,6 +197,8 @@ pub struct Physics {
     player_world_brushes: Vec<Brush>,
     player_convex_cache: Mutex<player_convex::ConvexCache>,
     pub dynamic: BTreeMap<usize, RigidBodyHandle>,
+    /// Surfaceprop of each authored VPhysics prop (entity id -> lowercase name).
+    pub prop_materials: BTreeMap<usize, String>,
     pub native_shape_count: usize,
     pub native_shape_fallbacks: usize,
     pub skipped: usize,
@@ -151,11 +209,14 @@ impl Physics {
             player_world_brushes: world.brushes.clone(),
             ..Self::default()
         };
+        // World brushes carry no per-side material here, so they use the
+        // "default" surfaceprop (friction/elasticity) when the table is loaded.
+        let world_material = world_material(world);
         for brush in &world.brushes {
             if let Some(shape) = brush_shape(brush) {
                 let collider = p
                     .colliders
-                    .insert(ColliderBuilder::new(shape).friction(0.8));
+                    .insert(world_material(ColliderBuilder::new(shape)));
                 p.world_brush_contents.insert(collider, brush.contents);
                 p.npc_collider_contents.insert(collider, brush.contents);
             } else {
@@ -165,7 +226,7 @@ impl Physics {
         for surface in &world.terrain {
             if let Some(shape) = mesh_shape(std::slice::from_ref(surface), false, None) {
                 p.colliders
-                    .insert(ColliderBuilder::new(shape).friction(0.8));
+                    .insert(world_material(ColliderBuilder::new(shape)));
             }
         }
         for (id, e) in world.entities.iter().enumerate() {
@@ -247,7 +308,15 @@ impl Physics {
                     .unwrap_or("idle")
                     .to_lowercase()
             });
-            let native_eligible = instance.kind == "static_prop" && instance.solid_mode == Some(6);
+            // VPhysics props use their authored .phy pieces once the model loader
+            // read the solid parameters (CPhysicsProp::CreateVPhysics); otherwise
+            // the prior render-hull policy stays.
+            let authored = dynamic
+                .then(|| world.model_physics.get(&instance.asset_key()))
+                .flatten();
+            let native_eligible = (instance.kind == "static_prop"
+                && instance.solid_mode == Some(6))
+                || authored.is_some();
             let key = (instance.asset_key(), dynamic, clip.clone(), native_eligible);
             let cached = shape_cache.entry(key).or_insert_with(|| {
                 let pieces = native_eligible
@@ -311,28 +380,65 @@ impl Physics {
             p.native_shape_fallbacks += usize::from(cached.native_failed);
             let position = pose(instance.origin, angles(instance.angles));
             let entity = instance.entity;
+            let keyvalue = |key: &str| {
+                instance
+                    .entity
+                    .and_then(|id| world.entities.get(id))
+                    .and_then(|e| e.get(key))
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .filter(|v| v.is_finite())
+            };
+            let solid = authored.map(|solid| authored_solid(solid, keyvalue));
+            let (linear_damping, angular_damping) = solid
+                .as_ref()
+                .map_or((0.05, 0.1), |s| (s.damping, s.rotdamping));
+            let masses = solid
+                .as_ref()
+                .map(|s| authored_mass_properties(&cached.shapes, s.mass, s.inertia));
             let body = dynamic.then(|| {
                 p.bodies.insert(
                     RigidBodyBuilder::dynamic()
+                        .additional_mass_properties(masses.unwrap_or_default())
                         .position(position)
                         .sleeping(prop_flags & 1 != 0)
                         .ccd_enabled(true)
-                        .linear_damping(0.05)
-                        .angular_damping(0.1),
+                        .linear_damping(linear_damping)
+                        .angular_damping(angular_damping),
                 )
             });
             if let (Some(id), Some(body)) = (entity, body) {
                 p.dynamic.insert(id, body);
             }
+            let material = solid
+                .as_ref()
+                .and_then(|s| surface_material(world, &s.surfaceprop));
+            if let (Some(id), Some(s)) = (entity, &solid) {
+                p.prop_materials.insert(id, s.surfaceprop.clone());
+            }
             for shape in &cached.shapes {
-                let collider = ColliderBuilder::new(shape.clone())
-                    .friction(0.7)
-                    .restitution(0.05)
-                    .user_data(entity.map_or(0, |i| i as u128 + 1));
+                let collider = match material {
+                    // VPhysics multiplies both surfaces' friction and elasticity
+                    // (frag fit: grenade 0.9 x concrete 0.8). Rapier restitution is
+                    // not IVP elasticity: "native fit needed".
+                    Some(m) => ColliderBuilder::new(shape.clone())
+                        .friction(m.friction)
+                        .restitution(m.elasticity)
+                        .friction_combine_rule(CoefficientCombineRule::Multiply)
+                        .restitution_combine_rule(CoefficientCombineRule::Multiply),
+                    None => ColliderBuilder::new(shape.clone())
+                        .friction(0.7)
+                        .restitution(0.05),
+                }
+                .user_data(entity.map_or(0, |i| i as u128 + 1));
                 let c = match body {
                     Some(body) => {
+                        // Authored bodies carry their mass on the body; pieces add none.
+                        let collider = match &masses {
+                            Some(_) => collider.density(0.),
+                            None => collider.mass(10.),
+                        };
                         p.colliders
-                            .insert_with_parent(collider.mass(10.), body, &mut p.bodies)
+                            .insert_with_parent(collider, body, &mut p.bodies)
                     }
                     None => p.colliders.insert(collider.position(position)),
                 };
@@ -347,6 +453,12 @@ impl Physics {
                         1
                     },
                 );
+            }
+        }
+        // Fold additional (authored) mass properties in before the first query.
+        for handle in p.dynamic.values() {
+            if let Some(body) = p.bodies.get_mut(*handle) {
+                body.recompute_mass_properties_from_colliders(&p.colliders);
             }
         }
         p.query.update(&p.colliders);
@@ -1276,6 +1388,68 @@ mod tests {
         assert_eq!(dynamic.bodies.len(), 1);
         assert_eq!(dynamic.native_shape_count, 0);
         assert_eq!(dynamic.native_shape_fallbacks, 0);
+    }
+    #[test]
+    fn authored_vphysics_props_use_phy_mass_pieces_damping_and_surface_material() {
+        // Synthetic parameters (not read from a game file).
+        let mut world = native_prop_world();
+        world.model_instances[0].kind = "prop_physics".into();
+        world.model_instances[0].entity = Some(0);
+        world.entities.push(modkit_core::Entity {
+            properties: vec![("classname".into(), "prop_physics".into())],
+        });
+        let key = world.model_instances[0].asset_key();
+        world.model_physics.insert(
+            key,
+            modkit_core::PhysicsSolid {
+                mass: 35.,
+                damping: 0.,
+                rotdamping: 0.2,
+                inertia: 2.,
+                surfaceprop: "synthetic_wood".into(),
+                ..Default::default()
+            },
+        );
+        world.surface_materials.insert(
+            "synthetic_wood".into(),
+            modkit_core::SurfaceMaterial {
+                friction: 0.6,
+                elasticity: 0.3,
+                ..Default::default()
+            },
+        );
+        let physics = Physics::new(&world);
+        assert_eq!(
+            physics.native_shape_count, 2,
+            "authored pieces, not the hull"
+        );
+        let body = &physics.bodies[physics.dynamic[&0]];
+        assert!((body.mass() - 35.).abs() < 1e-3, "{}", body.mass());
+        assert_eq!(body.linear_damping(), 0.);
+        assert_eq!(body.angular_damping(), 0.2);
+        assert_eq!(physics.prop_materials[&0], "synthetic_wood");
+        for (_, collider) in physics.colliders.iter() {
+            assert_eq!(collider.friction(), 0.6);
+            assert_eq!(collider.restitution(), 0.3);
+            assert_eq!(
+                collider.friction_combine_rule(),
+                CoefficientCombineRule::Multiply
+            );
+        }
+        let inertia = body.mass_properties().local_mprops.principal_inertia();
+        // massScale doubles the mass; inertiaScale 0.1 clamps to 0.5 x the authored 2.
+        world.entities[0]
+            .properties
+            .push(("massScale".into(), "2".into()));
+        world.entities[0]
+            .properties
+            .push(("inertiaScale".into(), "0.1".into()));
+        let scaled = Physics::new(&world);
+        let body = &scaled.bodies[scaled.dynamic[&0]];
+        assert!((body.mass() - 70.).abs() < 1e-3);
+        let scaled_inertia = body.mass_properties().local_mprops.principal_inertia();
+        // 2x mass and a 0.5 / 2 inertia multiplier: half the tensor.
+        assert!((scaled_inertia - inertia * 0.5).norm() < inertia.norm() * 1e-3);
     }
     #[test]
     fn static_prop_bbox_and_unknown_modes_do_not_reuse_native_hulls() {

@@ -508,8 +508,18 @@ pub struct ModelReport {
     pub collision_pieces_loaded: usize,
     pub collision_models_missing: usize,
     pub collision_warnings: Vec<String>,
+    /// prop_physics models with authored .phy solid parameters.
+    pub physics_solids_loaded: usize,
+    pub surface_materials_loaded: usize,
 }
 pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
+    let mut physics_report = (0usize, Vec::new());
+    match crate::surfaceprops::read(vfs) {
+        Ok(table) => world.surface_materials = table,
+        Err(error) => physics_report
+            .1
+            .push(format!("surfaceproperties: {error:#}")),
+    }
     for (entity_id, entity) in world.entities.iter().enumerate() {
         if !entity.class().starts_with("npc_")
             && !entity.class().starts_with("weapon_")
@@ -653,6 +663,33 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
                 )),
             }
         }
+        // VPhysics props (CPhysicsProp::CreateVPhysics): authored solid parameters and,
+        // when the identity-root adapter applies, the authored convex pieces.
+        if instance.kind.starts_with("prop_physics")
+            && !world.model_physics.contains_key(&instance.asset_key())
+        {
+            match read_physics(vfs, &instance.model) {
+                Ok(Some((solid, pieces))) => {
+                    physics_report.0 += 1;
+                    world.model_physics.insert(instance.asset_key(), solid);
+                    match pieces {
+                        Ok(pieces) => {
+                            report.collision_models_loaded += 1;
+                            report.collision_pieces_loaded += pieces.len();
+                            world.model_collision.insert(instance.asset_key(), pieces);
+                        }
+                        Err(error) => physics_report.1.push(format!(
+                            "{}: {error:#}; dynamic prop uses its render hull",
+                            instance.model
+                        )),
+                    }
+                }
+                Ok(None) => report.collision_models_missing += 1,
+                Err(error) => physics_report
+                    .1
+                    .push(format!("{}: {error:#}", instance.model)),
+            }
+        }
         report.instances_loaded += 1;
         if instance.entity.is_some() && !world.rigs.contains_key(&instance.asset_key()) {
             let mut wanted = [
@@ -754,6 +791,9 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
         }
     }
     world.surfaces = batches.into_values().collect();
+    report.physics_solids_loaded = physics_report.0;
+    report.surface_materials_loaded = world.surface_materials.len();
+    report.collision_warnings.extend(physics_report.1);
     report
 }
 /// Linear vertex lighting as a gamma-encoded byte color (the world shader
@@ -784,6 +824,31 @@ pub fn read_illumination(
         position: crate::vec3(&mdl, 92)?,
         flags: u32le(&mdl, 152)?,
     })
+}
+/// The first .phy solid's parameters, plus its convex pieces when the single-solid
+/// identity-root reader supports the file (the error otherwise).
+#[allow(clippy::type_complexity)]
+pub fn read_physics(
+    vfs: &Vfs,
+    model: &str,
+) -> Result<
+    Option<(
+        modkit_core::PhysicsSolid,
+        Result<Vec<modkit_core::ConvexPiece>>,
+    )>,
+> {
+    let stem = model.trim_end_matches(".mdl");
+    let Some(phy) = vfs.read(&format!("{stem}.phy"))? else {
+        return Ok(None);
+    };
+    let entries = crate::phy::read_keyvalues(&phy)?;
+    let solid = crate::phy::first_solid(&entries).context("PHY has no solid block")?;
+    let pieces = (|| {
+        let mdl = vfs.read(model)?.context("PHY companion MDL missing")?;
+        let checksum = crate::phy::identity_root_checksum(&mdl)?;
+        Ok(crate::phy::read(&phy, checksum)?.pieces)
+    })();
+    Ok(Some((solid, pieces)))
 }
 pub fn read_collision(vfs: &Vfs, model: &str) -> Result<Option<Vec<modkit_core::ConvexPiece>>> {
     let stem = model.trim_end_matches(".mdl");
@@ -961,6 +1026,51 @@ mod tests {
                 sequence.blends.len()
             );
         }
+    }
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; reads prop_physics .phy solids"]
+    fn owned_prop_physics_masses_and_surface_materials_are_plausible() {
+        let game = crate::install::discover().unwrap();
+        let vfs = Vfs::mount(&game).unwrap();
+        let table = crate::surfaceprops::read(&vfs).unwrap();
+        for name in ["default", "metal", "wood_crate", "concrete", "grenade"] {
+            let m = table.get(name).unwrap_or_else(|| panic!("{name}"));
+            println!(
+                "{name}: friction {} elasticity {} density {} hard {:?} soft {:?}",
+                m.friction, m.elasticity, m.density, m.impact_hard, m.impact_soft
+            );
+            assert!(m.friction > 0. && m.density > 0.);
+        }
+        let mut checked = 0;
+        for map in ["d1_trainstation_02", "d1_trainstation_05", "d1_canals_01"] {
+            let data = std::fs::read(game.join(format!("hl2/maps/{map}.bsp"))).unwrap();
+            let bsp = crate::bsp::Bsp::parse(&data).unwrap();
+            let entities = crate::keyvalues::entities(bsp.lump(0)).unwrap();
+            let props: Vec<_> = entities
+                .into_iter()
+                .filter(|e| e.class().starts_with("prop_physics"))
+                .collect();
+            let mut world = World {
+                entities: props,
+                ..Default::default()
+            };
+            append_models(&mut world, &vfs);
+            for (key, solid) in &world.model_physics {
+                println!(
+                    "{map} {key}: mass {} surfaceprop {} damping {} rotdamping {} inertia {} pieces {}",
+                    solid.mass,
+                    solid.surfaceprop,
+                    solid.damping,
+                    solid.rotdamping,
+                    solid.inertia,
+                    world.model_collision.get(key).map_or(0, Vec::len)
+                );
+                assert!(solid.mass > 0. && solid.mass < 5000., "{key}");
+                assert!(table.contains_key(&solid.surfaceprop), "{key}");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 3, "{checked}");
     }
     #[test]
     #[ignore = "requires an installed owned HL2 copy; reads installed Gman mesh only"]

@@ -177,6 +177,76 @@ pub fn read(data: &[u8], mdl_checksum: u32) -> Result<Phy> {
     })
 }
 
+/// The KeyValues text after every solid, for any solid count (ragdolls included),
+/// without reading collision geometry.
+pub fn read_keyvalues(data: &[u8]) -> Result<Vec<keyvalues::Entry>> {
+    if data.len() > 64 * 1024 * 1024 || u32le(data, 0)? != 16 {
+        bail!("unsupported PHY header");
+    }
+    let count = u32le(data, 8)?;
+    if count == 0 || count > 1024 {
+        bail!("unsupported PHY solid count");
+    }
+    let mut at = 16usize;
+    for _ in 0..count {
+        let size = usize::try_from(u32le(data, at)?)?;
+        at = at
+            .checked_add(4)
+            .and_then(|a| a.checked_add(size))
+            .context("PHY solid size overflow")?;
+        if at > data.len() {
+            bail!("truncated PHY solid");
+        }
+    }
+    let tail = &data[at..];
+    let nul = tail
+        .iter()
+        .take(1024 * 1024)
+        .position(|b| *b == 0)
+        .unwrap_or(tail.len().min(1024 * 1024));
+    if !tail[..nul].is_ascii() {
+        bail!("non-ASCII PHY KeyValues");
+    }
+    keyvalues::parse(std::str::from_utf8(&tail[..nul])?)
+}
+
+/// The "solid" blocks' VPhysics parameters, in file order. Keys are read in order,
+/// so a repeated key keeps its last value; absent keys keep the SDK defaults
+/// (g_PhysDefaultObjectParams). The key parser itself lives in vphysics.dll, so key
+/// names follow the shipped .phy text: index, mass, inertia, damping, rotdamping,
+/// surfaceprop, volume.
+pub fn solids(entries: &[keyvalues::Entry]) -> Vec<modkit_core::PhysicsSolid> {
+    entries
+        .iter()
+        .filter(|e| e.key.eq_ignore_ascii_case("solid"))
+        .map(|block| {
+            let mut solid = modkit_core::PhysicsSolid::default();
+            for child in block.children() {
+                let Some(value) = child.text() else {
+                    continue;
+                };
+                let number = value.trim().parse::<f32>().ok().filter(|v| v.is_finite());
+                match child.key.to_lowercase().as_str() {
+                    "index" => solid.index = value.trim().parse().unwrap_or(solid.index),
+                    "mass" => solid.mass = number.unwrap_or(solid.mass),
+                    "inertia" => solid.inertia = number.unwrap_or(solid.inertia),
+                    "damping" => solid.damping = number.unwrap_or(solid.damping),
+                    "rotdamping" => solid.rotdamping = number.unwrap_or(solid.rotdamping),
+                    "volume" => solid.volume = number.unwrap_or(solid.volume),
+                    "surfaceprop" => solid.surfaceprop = value.trim().to_lowercase(),
+                    _ => {}
+                }
+            }
+            solid
+        })
+        .collect()
+}
+
+/// PhysModelParseSolid with solidIndex -1 (physics_shared.cpp): the first solid block.
+pub fn first_solid(entries: &[keyvalues::Entry]) -> Option<modkit_core::PhysicsSolid> {
+    solids(entries).into_iter().next()
+}
+
 /// Narrow adapter guard: only a version-44 MDL with one identity root has
 /// a proved PHY-to-model transform. Do not silently apply this to ragdolls/doors.
 pub fn identity_root_checksum(mdl: &[u8]) -> Result<u32> {
@@ -253,6 +323,34 @@ mod tests {
         put32(&mut b, 244, (-144i32) as u32);
         b.extend_from_slice(b"solid { \"index\" \"0\" \"mass\" \"1\" \"mass\" \"2\" }\0");
         b
+    }
+    #[test]
+    fn solid_parameters_use_sdk_defaults_and_last_repeated_key() {
+        let data = fixture();
+        let entries = read_keyvalues(&data).unwrap();
+        let solid = first_solid(&entries).unwrap();
+        assert_eq!(solid.mass, 2.);
+        assert_eq!(solid.damping, 0.1);
+        assert_eq!(solid.rotdamping, 0.1);
+        assert_eq!(solid.inertia, 1.);
+        assert_eq!(solid.surfaceprop, "default");
+        // Synthetic block with every key (not from a game file).
+        let entries = keyvalues::parse(
+            "solid { \"index\" \"0\" \"mass\" \"35.5\" \"surfaceprop\" \"Wood_Crate\" \"damping\" \"0\" \"rotdamping\" \"0.2\" \"inertia\" \"2\" \"volume\" \"300\" } editparams { \"totalmass\" \"35.5\" }",
+        )
+        .unwrap();
+        let solid = first_solid(&entries).unwrap();
+        assert_eq!(
+            (
+                solid.mass,
+                solid.damping,
+                solid.rotdamping,
+                solid.inertia,
+                solid.volume
+            ),
+            (35.5, 0., 0.2, 2., 300.)
+        );
+        assert_eq!(solid.surfaceprop, "wood_crate");
     }
     #[test]
     fn signed_pointers_handedness_and_duplicate_metadata() {

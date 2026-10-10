@@ -112,6 +112,61 @@ pub struct World {
     /// Studio illumination origin and flags per model asset key.
     #[serde(default)]
     pub illumination: std::collections::BTreeMap<String, lighting::ModelIllumination>,
+    /// Authored VPhysics solid parameters (.phy "solid" block) per model asset key.
+    #[serde(default)]
+    pub model_physics: std::collections::BTreeMap<String, PhysicsSolid>,
+    /// Resolved surfaceproperties entries (lowercase name, "base" inheritance applied).
+    #[serde(default)]
+    pub surface_materials: std::collections::BTreeMap<String, SurfaceMaterial>,
+}
+/// One .phy "solid" block. Defaults follow SDK g_PhysDefaultObjectParams
+/// (physics_shared.cpp): mass 1, inertia 1, damping 0.1, rotdamping 0.1, "DEFAULT".
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PhysicsSolid {
+    pub index: i32,
+    /// Kilograms.
+    pub mass: f32,
+    /// Multiplier on the shape inertia tensor.
+    pub inertia: f32,
+    pub damping: f32,
+    pub rotdamping: f32,
+    pub surfaceprop: String,
+    /// Cubic inches, 0 when absent.
+    pub volume: f32,
+}
+impl Default for PhysicsSolid {
+    fn default() -> Self {
+        Self {
+            index: 0,
+            mass: 1.,
+            inertia: 1.,
+            damping: 0.1,
+            rotdamping: 0.1,
+            surfaceprop: "default".into(),
+            volume: 0.,
+        }
+    }
+}
+/// surfacedata_t fields that gameplay uses (vphysics_interface.h), values from
+/// scripts/surfaceproperties*.txt after "base" inheritance.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SurfaceMaterial {
+    pub friction: f32,
+    pub elasticity: f32,
+    /// kg / m^3.
+    pub density: f32,
+    pub hardness_factor: f32,
+    pub hard_threshold: f32,
+    pub hard_velocity_threshold: f32,
+    pub roughness_factor: f32,
+    pub rough_threshold: f32,
+    pub impact_hard: Option<String>,
+    pub impact_soft: Option<String>,
+    pub scrape_smooth: Option<String>,
+    pub scrape_rough: Option<String>,
+    pub break_sound: Option<String>,
+    /// Game material character ('X' marks no-sound surfaces such as sky/nodraw).
+    pub game_material: Option<char>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConvexPiece {

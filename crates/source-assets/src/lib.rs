@@ -13,6 +13,7 @@ pub mod proximity_material;
 pub mod scenes;
 pub mod sky;
 pub mod sounds;
+pub mod surfaceprops;
 pub mod visibility;
 pub mod vox;
 pub mod vpk;
