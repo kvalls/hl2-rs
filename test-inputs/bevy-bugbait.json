@@ -1,0 +1,13 @@
+[
+  {"tick":1,"label":"aim","eye":[-3104,-2018,128],"yaw":12,"pitch":10,"actions":[{"action":"loadout"},{"action":"slot","slot":5}]},
+  {"tick":2,"actions":[{"action":"confirm"}]},
+  {"tick":3},
+  {"tick":100,"label":"haulback","primary":true},
+  {"tick":160,"label":"release"},
+  {"tick":170,"label":"flight"},
+  {"tick":190,"label":"splat"},
+  {"tick":260,"label":"redraw"},
+  {"tick":320,"label":"squeeze","secondary":true},
+  {"tick":322},
+  {"tick":360,"label":"end"}
+]

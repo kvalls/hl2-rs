@@ -462,7 +462,12 @@ impl Gameplay {
             && !self.secondary_consumed
             && matches!(
                 self.inventory.active.as_str(),
-                "weapon_shotgun" | "weapon_smg1" | "weapon_ar2" | "weapon_frag" | "weapon_crossbow"
+                "weapon_shotgun"
+                    | "weapon_smg1"
+                    | "weapon_ar2"
+                    | "weapon_frag"
+                    | "weapon_crossbow"
+                    | "weapon_bugbait"
             );
         self.inventory.set_attack_input(primary, secondary);
         self.inventory.ducking = player.crouched;
@@ -522,6 +527,9 @@ impl Gameplay {
                 self.scene.time,
             );
         }
+        // weapon_bugbait ThrowGrenade from this tick's EVENT_WEAPON_THROW.
+        self.inventory
+            .launch_bugbait(physics, eye, direction, player.velocity, self.scene.time);
         for launch in self.inventory.projectile_spawns.drain(..) {
             self.projectiles.spawn(launch, &mut self.scene);
         }
@@ -553,6 +561,9 @@ impl Gameplay {
             player.crouched,
             TICK,
         );
+        // Bug bait splats/squeezes are for step 14 (antlion reactions); not consumed yet.
+        self.inventory.bugbait_events.clear();
+        self.projectiles.bugbait_events.clear();
         // CMissile::Explode -> CWeaponRPG::NotifyRocketDied.
         for event in std::mem::take(&mut self.projectiles.missile_events) {
             self.inventory

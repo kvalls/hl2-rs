@@ -31,7 +31,7 @@ pub struct Weapon {
     pub damage: f32,
     pub sounds: BTreeMap<String, String>,
 }
-const IMPLEMENTED: [&str; 9] = [
+const IMPLEMENTED: [&str; 10] = [
     "weapon_crowbar",
     "weapon_pistol",
     "weapon_357",
@@ -41,6 +41,7 @@ const IMPLEMENTED: [&str; 9] = [
     "weapon_frag",
     "weapon_crossbow",
     "weapon_rpg",
+    "weapon_bugbait",
 ];
 /// Thrown frag kinds by viewmodel event (npcevent.h EVENT_WEAPON_THROW/2/3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -277,6 +278,15 @@ pub struct Inventory {
     /// weapon_rpg guiding, laser dot and missile handle.
     #[serde(skip)]
     pub rpg: crate::weapon_rpg::RpgState,
+    /// weapon_bugbait throw state.
+    #[serde(skip)]
+    pub bugbait: crate::weapon_bugbait::BugBaitState,
+    /// Squeezes this tick (thrown splats are in Projectiles); step 14 consumes them.
+    #[serde(skip)]
+    pub bugbait_events: Vec<crate::weapon_bugbait::BugBaitEvent>,
+    /// The weapon's origin for the squeeze (the player's feet from tick).
+    #[serde(skip)]
+    pub(crate) squeeze_origin: Vec3,
     /// Sounds requested where no scene is at hand (holster); emitted on the next tick.
     #[serde(skip)]
     deferred_sounds: Vec<String>,
@@ -330,6 +340,9 @@ impl Default for Inventory {
             crossbow: Default::default(),
             fov: Default::default(),
             rpg: Default::default(),
+            bugbait: Default::default(),
+            bugbait_events: Vec::new(),
+            squeeze_origin: Vec3::ZERO,
             deferred_sounds: Vec::new(),
             idle_override: None,
             suit_updates: Vec::new(),
@@ -507,6 +520,9 @@ impl Inventory {
                 "ir_draw"
             } else if class == "weapon_pistol" && self.owned[class] == 0 {
                 "drawempty"
+            } else if class == "weapon_bugbait" {
+                self.bugbait_deploy();
+                "ACT_VM_DRAW"
             } else if class == "weapon_rpg" {
                 self.rpg_deploy();
                 "ACT_VM_DRAW"
@@ -565,6 +581,10 @@ impl Inventory {
         }
         if self.active == "weapon_rpg" && self.health > 0. {
             self.rpg_tick(world, scene, weapons, primary, secondary);
+        }
+        if self.active == "weapon_bugbait" && self.health > 0. {
+            self.squeeze_origin = feet;
+            self.bugbait_tick(world, scene, weapons, primary, secondary);
         }
         if self.active == "weapon_frag" && self.health > 0. {
             self.frag_tick(world, scene, weapons, primary, secondary);
@@ -829,7 +849,7 @@ impl Inventory {
             || self.ar2_charge_until.is_some()
             || scene.time < self.next_attack
             || scene.time < self.owner_attack_until
-            || self.active == "weapon_frag"
+            || matches!(self.active.as_str(), "weapon_frag" | "weapon_bugbait")
         {
             return;
         }
@@ -965,7 +985,7 @@ impl Inventory {
         eye: Vec3,
         direction: Vec3,
     ) {
-        if self.active == "weapon_frag" {
+        if matches!(self.active.as_str(), "weapon_frag" | "weapon_bugbait") {
             return;
         }
         if matches!(self.active.as_str(), "weapon_smg1" | "weapon_ar2") {

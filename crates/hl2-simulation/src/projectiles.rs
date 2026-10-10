@@ -41,6 +41,8 @@ pub enum ProjectileKind {
     CrossbowBolt,
     /// rpg_missile (weapon_rpg.rs).
     RpgMissile,
+    /// npc_grenade_bugbait (weapon_bugbait.rs).
+    BugBait,
 }
 /// npc_grenade_frag timer state (CGrenadeFrag::SetTimer / DelayThink).
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -105,6 +107,7 @@ impl Projectile {
             ProjectileKind::CrossbowBolt => crate::weapon_crossbow::BOLT_MODEL,
             ProjectileKind::RpgMissile if self.ignited => crate::weapon_rpg::MISSILE_MODEL,
             ProjectileKind::RpgMissile => crate::weapon_rpg::MISSILE_LAUNCH_MODEL,
+            ProjectileKind::BugBait => crate::weapon_bugbait::BAIT_MODEL,
         }
     }
     pub fn physical_radius(&self) -> f32 {
@@ -116,6 +119,7 @@ impl Projectile {
             ProjectileKind::CrossbowBolt => 0.3,
             ProjectileKind::RpgMissile if self.ignited => 0.,
             ProjectileKind::RpgMissile => 4.,
+            ProjectileKind::BugBait => 2.,
         }
     }
 }
@@ -197,6 +201,8 @@ pub struct Projectiles {
     pub laser_dot: Option<crate::weapon_rpg::LaserDot>,
     /// Missile deaths/removals this tick; the host notifies the RPG.
     pub missile_events: Vec<crate::weapon_rpg::MissileEvent>,
+    /// Thrown bug bait splats this tick (step 14 antlion reactions consume them).
+    pub bugbait_events: Vec<crate::weapon_bugbait::BugBaitEvent>,
     next_id: u64,
     next_effect_id: u64,
 }
@@ -302,7 +308,10 @@ impl Projectiles {
                 },
             ignited: false,
             // The missile's grace period travels in `lifetime`.
-            solid_at: if launch.kind == ProjectileKind::RpgMissile {
+            solid_at: if matches!(
+                launch.kind,
+                ProjectileKind::RpgMissile | ProjectileKind::BugBait
+            ) {
                 launch.at + f64::from(launch.lifetime.max(0.))
             } else {
                 launch.at
@@ -483,6 +492,33 @@ impl Projectiles {
                         );
                         self.missile_events
                             .push(crate::weapon_rpg::MissileEvent::Died);
+                        alive = false;
+                    }
+                }
+                ProjectileKind::BugBait => {
+                    if let Some(at) =
+                        crate::weapon_bugbait::bait_tick(&mut projectile, physics, scene.time, dt)
+                    {
+                        // BugBaitTouch: SporeExplosion (not drawn), BeerSplash decal (not
+                        // placed), the splat sound, sensors/antlion call, removal.
+                        scene.sounds.push(crate::sounds::SoundRequest {
+                            origin: Some(at),
+                            .."GrenadeBugBait.Splat".into()
+                        });
+                        let (suppress, combine) = crate::weapon_bugbait::activate_targets(
+                            world,
+                            scene,
+                            Some(physics),
+                            at,
+                            false,
+                        );
+                        self.bugbait_events
+                            .push(crate::weapon_bugbait::BugBaitEvent {
+                                position: at,
+                                squeezed: false,
+                                call: !suppress,
+                                combine,
+                            });
                         alive = false;
                     }
                 }

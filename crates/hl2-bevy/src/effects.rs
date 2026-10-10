@@ -33,6 +33,7 @@ impl PreparedEffects {
             hl2_simulation::weapon_crossbow::BOLT_MODEL,
             hl2_simulation::weapon_rpg::MISSILE_LAUNCH_MODEL,
             hl2_simulation::weapon_rpg::MISSILE_MODEL,
+            hl2_simulation::weapon_bugbait::BAIT_MODEL,
         ] {
             match models::read_model(vfs, path, 0) {
                 Ok(surfaces) => {

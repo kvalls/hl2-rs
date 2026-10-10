@@ -356,6 +356,9 @@ impl PreparedAudio {
                 "Weapon_Crossbow.BoltHitBody",
                 // weapon_rpg.cpp CMissile::IgniteThink.
                 "Missile.Ignite",
+                // weapon_bugbait.cpp squeeze, grenade_bugbait.cpp splat.
+                "Weapon_Bugbait.Splat",
+                "GrenadeBugBait.Splat",
             ]
             .into_iter()
             .map(str::to_owned),
