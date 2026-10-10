@@ -748,6 +748,28 @@ impl AiRuntime {
         let AiClass::Metropolice(cop) = &mut actor.class;
         cop.hit_by_player_thrown_object(&mut actor.npc, &ctx);
     }
+    /// +USE on an AI NPC (npc_metropolice's SetUse(PrecriminalUse)). False when the AI
+    /// is off or `id` is not an AI actor, so the host falls back to the ordinary use.
+    pub fn player_used(
+        &mut self,
+        id: usize,
+        world: &World,
+        scene: &mut Scene,
+        physics: &Physics,
+        player: PlayerState,
+    ) -> bool {
+        if !self.enabled || !self.actors.contains_key(&id) {
+            return false;
+        }
+        if !scene.ai_scripted(id) {
+            let ctx = self.context(id, world, scene, player, scene.time, 0.);
+            let actor = self.actors.get_mut(&id).expect("actor");
+            let AiClass::Metropolice(cop) = &mut actor.class;
+            cop.precriminal_use(&mut actor.npc, &ctx);
+            self.apply_requests(id, world, scene, physics, player);
+        }
+        true
+    }
     /// CSoundEnt::InsertSound from gameplay (gunfire, impacts, explosions, footsteps).
     pub fn insert_sound(&mut self, kind: u32, origin: Vec3, volume: f32, duration: f64, now: f64) {
         self.sounds
@@ -856,6 +878,29 @@ mod tests {
             .iter()
             .any(|s| s.name.starts_with("#METROPOLICE_BACK_UP") && s.origin.is_some()));
         assert!(r.ai.diagnostics.thinks >= 2);
+    }
+
+    #[test]
+    fn using_a_calm_cop_counts_as_bothering_him() {
+        let mut r = rig();
+        let far = player_at(500.);
+        assert!(!r.ai.player_used(0, &r.world, &mut r.scene, &r.physics, far));
+        r.ai.enabled = true;
+        run(&mut r, 5, far);
+        assert!(!r.ai.player_used(2, &r.world, &mut r.scene, &r.physics, far));
+        for _ in 0..3 {
+            assert!(r.ai.player_used(0, &r.world, &mut r.scene, &r.physics, far));
+        }
+        let AiClass::Metropolice(cop) = &r.ai.actors[&0].class;
+        assert_eq!(
+            cop.warnings,
+            super::super::metropolice::METROPOLICE_MAX_WARNINGS
+        );
+        assert!(r
+            .scene
+            .sounds
+            .iter()
+            .any(|s| s.name.starts_with("#METROPOLICE_BACK_UP")));
     }
 
     #[test]

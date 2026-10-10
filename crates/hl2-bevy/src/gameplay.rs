@@ -376,6 +376,21 @@ impl Gameplay {
         );
         message
     }
+    fn ai_player_state(
+        &self,
+        player: &Player,
+        fly: bool,
+    ) -> hl2_simulation::ai::runtime::PlayerState {
+        hl2_simulation::ai::runtime::PlayerState {
+            feet: player.feet,
+            velocity: player.velocity,
+            crouched: player.crouched,
+            on_ground: player.grounded,
+            dead: player.dead,
+            suit: self.inventory.suit,
+            noclip: fly,
+        }
+    }
     pub fn consume_attacks(&mut self) {
         self.primary_consumed = true;
         self.secondary_consumed = true;
@@ -450,7 +465,13 @@ impl Gameplay {
                 }
                 Action::Use => {
                     if let Some((id, _)) = physics.ray(eye, direction, 96.) {
-                        self.scene.use_entity_at(&self.world, id, player.feet);
+                        let state = self.ai_player_state(player, fly);
+                        if !self
+                            .ai
+                            .player_used(id, &self.world, &mut self.scene, physics, state)
+                        {
+                            self.scene.use_entity_at(&self.world, id, player.feet);
+                        }
                     }
                     continue;
                 }
@@ -567,21 +588,14 @@ impl Gameplay {
         }
         physics.refresh_entity_queries();
         // NPC stage: the AI thinks (when enabled) before the movement controller tick.
+        let ai_player = self.ai_player_state(player, fly);
         self.ai.tick(
             &self.world,
             &mut self.scene,
             &mut self.npcs,
             physics,
             &[],
-            hl2_simulation::ai::runtime::PlayerState {
-                feet: player.feet,
-                velocity: player.velocity,
-                crouched: player.crouched,
-                on_ground: player.grounded,
-                dead: player.dead,
-                suit: self.inventory.suit,
-                noclip: fly,
-            },
+            ai_player,
         );
         for hit in std::mem::take(&mut self.ai.player_hits) {
             if hit.damage > 0. {
