@@ -8,5 +8,6 @@ pub mod memory;
 pub mod relationships;
 pub mod schedule;
 pub mod senses;
+pub mod spawn;
 pub mod squad;
 pub mod state;
