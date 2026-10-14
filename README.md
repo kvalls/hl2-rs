@@ -2,6 +2,27 @@
 
 A standalone, partial Rust reconstruction of Half-Life 2 that reads maps, models, textures, animations and sounds from an installed copy. It does not load Valve's game or engine DLLs. The full campaign is not playable yet.
 
+## Setup steps
+
+1. **Install Half-Life 2 through Steam.** HL2-RS needs the files from your owned Steam PC copy (app 220). It reads those files in place; the rewrite does not include or download them.
+2. **Build HL2-RS.** This repository contains source, not a ready-to-play executable. On Windows, install [Rust](https://rustup.rs/) using the MSVC toolchain, [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/) with **Desktop development with C++** and a Windows SDK, and [Git](https://git-scm.com/downloads). Open PowerShell in the folder where you want the project and run:
+
+   ```powershell
+   git clone https://github.com/kvalls/hl2-rs.git
+   cd hl2-rs
+   .\scripts\build-bevy.ps1
+   .\launch-bevy.cmd
+   ```
+
+   If PowerShell blocks the build script, use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-bevy.ps1` for that command. On macOS, install Rust and the Xcode command-line tools (`xcode-select --install`), then follow the [macOS build instructions](#macos). See [Platforms](#platforms) for tested systems.
+3. **Let HL2-RS find the game.** It searches Steam and additional Steam libraries automatically. If the installation is ready, gameplay loads directly. If it cannot find usable files, a **Locate Half-Life 2** window opens: use **Browse...**, type or paste the folder path, or choose **Retry detection** after installing/moving the game.
+4. **Choose the folder and Continue.** Select `Half-Life 2` or its `hl2` subfolder. To locate it yourself, open Steam > Half-Life 2 > Properties > Installed Files > Browse. HL2-RS checks the requested map and representative required content, explains missing files, and remembers the selected location. For damaged/incomplete content, use Steam's [Verify integrity of game files](https://help.steampowered.com/en/faqs/view/0C48-FCBD-DA71-93EB). This startup check is not a complete integrity scan.
+5. **Launch again whenever you want to playtest.** Double-click `launch-bevy.cmd` on Windows, or run `./launch-bevy.sh` on macOS. Rust is only needed to build/rebuild. The current default map is `d1_trainstation_02`; click the game window to capture the mouse, use WASD to move, and Escape to pause/release the mouse. Campaign completion remains unfinished.
+
+To change the remembered folder, run `.\launch-bevy.cmd --setup` (macOS: `./launch-bevy.sh --setup`). If a remembered folder stops working, HL2-RS retries Steam discovery and opens setup if necessary. `--game PATH` takes priority over `HL2_ROOT`, then the remembered folder, then Steam discovery; explicit overrides apply to that launch and are not automatically saved. Correct or unset an outdated `HL2_ROOT` so it does not keep overriding your saved choice.
+
+The folder preference is stored in `%LOCALAPPDATA%\hl2-rs\installation.json` on Windows, `~/Library/Application Support/hl2-rs/installation.json` on macOS, or `${XDG_CONFIG_HOME:-~/.config}/hl2-rs/installation.json` on Linux. `HL2_RS_CONFIG_DIR` selects an alternative settings directory. To reset setup, remove that file or use `--setup`. Automated runs can use `--no-setup` to return a text error instead of opening a window; bounded captures, movement scripts and `--no-focus` runs already do this unless `--setup` is explicit. The new setup screen has not yet been tested on macOS/Linux.
+
 ## Platforms
 
 | Operating system | Status | Evidence |
@@ -48,7 +69,7 @@ cd hl2-rs
 .\launch-bevy.cmd
 ```
 
-The repository contains source, not a prebuilt executable. Building creates `bin/hl2-bevy.exe` and its shader folder `bin/bevy-assets`. If PowerShell blocks the local build script, invoke `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-bevy.ps1` for that process. To uninstall, remove the checkout; the game installation is read-only.
+The repository contains source, not a prebuilt executable. Building creates `bin/hl2-bevy.exe` and its shader folder `bin/bevy-assets`. If PowerShell blocks the local build script, invoke `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-bevy.ps1` for that process. To uninstall, remove the checkout and optionally the folder preference listed in [Setup steps](#setup-steps); the game installation is read-only.
 
 ### macOS
 

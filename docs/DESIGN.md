@@ -1,5 +1,11 @@
 # Design
 
+## Friendly installation setup (2026-10-15)
+
+Owner requested a first-launch recovery screen and beginner setup instructions. Keep this in a separate bootstrap module, independent of the in-game menu/settings. Resolve explicit `--game`, `HL2_ROOT`, a remembered per-user installation, then Steam discovery. Accept the install root or its `hl2` subfolder. Check the requested map and representative core content through the existing VFS before loading gameplay; this is a readiness check, not a full Steam integrity audit. Missing/stale content opens an asset-independent window with a path field, paste, native folder browser, retry detection and continue/cancel. Remember a successful selection outside the checkout and installed game. `--setup` reopens setup; `--no-setup` and bounded/scripted runs retain noninteractive errors.
+
+The bootstrap window runs in a short-lived helper process so the gameplay process creates its Bevy/winit event loop only once. Folder browsing/discovery/validation run on workers; the screen uses a bundled licensed font. No gameplay/menu implementation changes. Validation: synthetic resolution/content/config tests, locked tests and strict Clippy/formatting; packaged setup/recovery/cancel and normal auto-detected launch, with captures and failures recorded. macOS/Linux setup remains not tested until run there.
+
 ## Goal and architecture
 
 Reconstruct HL2 in Rust using owned content. No host-game transport or Valve DLL dependency. Native analysis/databases stay private; public source contains original implementation and permitted third-party resources.

@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-10-15: friendly game installation setup
+
+**Agent/model:** Codex Desktop, GPT-6 family (exact model identifier not exposed). No subagents.
+
+**Changed:** an independent bootstrap window with editable/pasteable folder, native Browse, Retry detection, Continue and Cancel; remembered per-user installation, automatic recovery/discovery, `--setup`, `--no-setup` and a setup-preview diagnostic. Root/hl2-subfolder normalization and bounded map/core-content checks reuse source-assets/VFS. A short-lived helper owns the setup window's event loop before gameplay starts. Added beginner **Setup steps** near the top of README. Fixed discovery returning its raw rather than validated root. Replaced two brittle constant-pointer assertions in an existing physics test with checks of the selected tables' damage behavior; no physics runtime changes.
+
+**Why:** owner requested a friendly first launch so new playtesters can locate their installed game without command-line path configuration.
+
+**Tested how:** `cargo test --locked --workspace` (498 passed, 48 ignored, none excluded); focused setup tests 5/5; install fixtures and explicit owned readiness test; strict workspace Clippy, formatting, diff/whitelist checks. Release package rebuilt and executable/shader hashes verified. Packaged auto-discovery saved a test preference and captured station02; invalid noninteractive root exited 1. Setup ready/missing screenshots were visually inspected. Evidence and rejected captures: `artifacts/friendly-setup-20261015`; details in docs/validation.md.
+
+**Result:** setup, remembered-path recovery and beginner instructions are implemented on `codex/friendly-game-setup`, based on the existing NPC validation checkout. In-game menu/settings code is unchanged. Initial blank diagnostic captures were retained; preview now waits for renderer readiness. The initial full-suite failure from constant-address comparison is corrected by behavior assertions and the complete suite passes.
+
+**Still broken or not tested:** native picker/clipboard interaction, title-bar cancellation and the complete interactive Continue-to-game transition could not be exercised because Windows computer-use timed out through recovery; control/validation/response paths have programmatic tests. macOS/Linux setup is **not tested**. Readiness is not a full integrity/compatibility scan. Existing campaign limitations remain.
+
+**Next:** integrate the scoped setup commit independently of the unrelated NPC branch history; manually exercise native picker/clipboard on supported desktops when computer use is available.
+
 ## 2026-10-14 session 17: metrocop AI fixes from the first packaged AI-on runs (`wip/npc-ai-20261014`)
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5`. No subagents. Fixes the cloud sessions' SDK-only AI code (`claude-opus-5-5`, cloud) found in its first packaged runs.

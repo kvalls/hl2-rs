@@ -428,8 +428,12 @@ mod tests {
             prop_damage(&GLASS_TABLE, 1., 1., hit(1., 0., 0.), hit(0.5, 1500., 0.)),
             10.
         );
-        assert!(std::ptr::eq(table_named(Some("glass")), &GLASS_TABLE));
-        assert!(std::ptr::eq(table_named(None), &NPC_TABLE));
+        // Constants may have separate allocations: check the selected behavior.
+        assert_eq!(
+            prop_damage(table_named(Some("glass")), 1., 0.1, drop, floor),
+            10.
+        );
+        assert_eq!(prop_damage(table_named(None), 1., 0.1, drop, floor), 0.);
     }
 
     #[test]

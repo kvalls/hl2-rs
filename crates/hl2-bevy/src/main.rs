@@ -14,6 +14,7 @@ mod monitors;
 mod movement;
 mod performance;
 mod rendering;
+mod setup;
 mod sky;
 mod studio_decals;
 mod tonemap;
@@ -75,6 +76,9 @@ impl Options {
     fn parse() -> Result<Self> {
         let mut args = std::env::args().skip(1);
         let mut game = None;
+        let mut show_setup = false;
+        let mut no_setup = false;
+        let mut setup_preview = None;
         let mut options = Self {
             game: PathBuf::new(),
             map: "d1_trainstation_02".into(),
@@ -109,6 +113,9 @@ impl Options {
             };
             match arg.as_str() {
                 "--game" => game = Some(PathBuf::from(next(&mut args)?)),
+                "--setup" => show_setup = true,
+                "--no-setup" => no_setup = true,
+                "--setup-preview" => setup_preview = Some(PathBuf::from(next(&mut args)?)),
                 "--map" => options.map = next(&mut args)?,
                 "--frames" => options.frames = Some(next(&mut args)?.parse()?),
                 "--capture" => options.capture = Some(next(&mut args)?.into()),
@@ -155,6 +162,9 @@ impl Options {
                 }
                 "--help" | "-h" => {
                     println!(
+                        "Installation: auto-detect Steam or use the remembered folder.\n--setup: choose/remember the game folder; --no-setup: fail without opening setup.\n--game PATH and HL2_ROOT override the remembered folder.\n--setup-preview PNG: capture setup and exit without loading a map."
+                    );
+                    println!(
                         "HL2-RS Bevy migration preview (campaign incomplete).\n--game PATH --map NAME --borderless --width N --height N\n--position X Y Z --yaw DEGREES --pitch DEGREES\n--frames N --capture PNG --capture-burst N --capture-monitor PNG --report JSON\n--fly --movement-script JSON --profile --uncapped --cpu-skinning --no-pvs --world-partition\n--volume 0..1 --audio-trace JSONL --mute-ambient --ai (NPC AI on) --frag-swept-box (legacy fitted frag instead of its w_grenade.phy body) --no-focus (start unfocused for unattended tests) --tonemap-scale S (fixed HDR exposure)\nClick to capture mouse; WASD move, Space jump, Ctrl crouch, Shift sprint, Alt walk. F1 toggles developer diagnostics/FPS; F2 toggles fly. F3 gives weapons; slots/wheel select; mouse buttons fire/confirm; R reloads; Q last weapon; E uses. Esc cancels selection then opens the pause menu; select Resume to continue. Tilde toggles the console. F10 quits."
                     );
                     std::process::exit(0);
@@ -194,9 +204,21 @@ impl Options {
         {
             options.frames = Some(120);
         }
-        options.game = match game {
-            Some(path) => source_assets::install::validate(path)?,
-            None => source_assets::install::discover()?,
+        if (show_setup || setup_preview.is_some()) && no_setup {
+            bail!("--setup and --no-setup cannot be used together");
+        }
+        options.game = match setup::resolve(
+            game,
+            &options.map,
+            show_setup || setup_preview.is_some(),
+            no_setup
+                || options.frames.is_some()
+                || options.movement_script.is_some()
+                || options.no_focus,
+            setup_preview,
+        )? {
+            Some(path) => path,
+            None => std::process::exit(0), // Setup cancelled; no game was loaded.
         };
         for path in [
             Some(&options.report),
@@ -268,6 +290,9 @@ fn source_direction(yaw: f32, pitch: f32) -> Vec3 {
 }
 
 fn main() -> Result<()> {
+    if setup::run_helper()? {
+        return Ok(());
+    }
     let options = Options::parse()?;
     println!(
         "Loading owned {} for Bevy/wgpu migration host...",

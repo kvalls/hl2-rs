@@ -13,7 +13,8 @@ source-assets.workspace = true
 hl2-ui.workspace = true
 glam.workspace = true
 hl2-simulation = { path = "../hl2-simulation" }
-bevy = { version = "=0.19.1", default-features = false, features = ["3d", "2d_bevy_render", "bevy_audio", "wav", "bevy_log"] }
+bevy = { version = "=0.19.1", default-features = false, features = ["3d", "2d_bevy_render", "bevy_audio", "wav", "bevy_log", "ui", "system_clipboard"] }
+rfd = "0.17.2"
 
 [[bin]]
 name = "hl2-bevy"
