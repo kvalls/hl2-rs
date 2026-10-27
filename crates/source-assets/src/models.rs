@@ -1292,6 +1292,11 @@ pub const NPC_BASE_AI_ACTIVITIES: &[&str] = &[
     "ACT_DIEBACKWARD",
     "ACT_DIEFORWARD",
     "ACT_DIEVIOLENT",
+    // CAI_BaseNPC::SelectDeathPose (the client ragdoll's initial bone velocities).
+    "ACT_DIE_FRONTSIDE",
+    "ACT_DIE_BACKSIDE",
+    "ACT_DIE_LEFTSIDE",
+    "ACT_DIE_RIGHTSIDE",
     "ACT_JUMP",
     "ACT_GLIDE",
     "ACT_LAND",

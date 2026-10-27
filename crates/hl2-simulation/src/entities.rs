@@ -380,6 +380,9 @@ pub struct Scene {
     /// hit hitbox's physics bone in m_nForceBone): later deaths without a trace (blasts)
     /// push that solid.
     pub npc_force_points: BTreeMap<usize, Vec3>,
+    /// CBaseCombatCharacter m_LastHitGroup: the hitgroup of each NPC's last trace attack
+    /// (the death pose frame).
+    pub npc_hit_groups: BTreeMap<usize, i32>,
     /// Damage forces of projectile hits applied through the entity damage list this tick
     /// (crossbow bolts: CalculateMeleeDamageForce x 0.7), with the hit position, by NPC.
     pub npc_hit_forces: BTreeMap<usize, (Vec3, Vec3)>,
@@ -607,6 +610,7 @@ impl Scene {
             npc_deaths: Vec::new(),
             npc_death_forces: BTreeMap::new(),
             npc_force_points: BTreeMap::new(),
+            npc_hit_groups: BTreeMap::new(),
             npc_hit_forces: BTreeMap::new(),
             ragdoll_impacts: Vec::new(),
             player_hurts_friendlies: false,

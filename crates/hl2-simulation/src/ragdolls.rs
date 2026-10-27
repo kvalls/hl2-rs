@@ -52,8 +52,6 @@ pub struct Ragdoll {
     inverse_binds: Vec<Mat4>,
     scale: f32,
     serial: u64,
-    /// Scene time of RagdollCreate (WasRagdollCreatedOnCurrentTick).
-    born: f64,
     /// World anchors of crossbow pins (StickRagdollNow ball-sockets).
     pins: Vec<RigidBodyHandle>,
     /// Render alpha once retired (C_ClientRagdoll::SUB_Remove starts FadeOut).
@@ -75,13 +73,15 @@ pub struct Ragdolls {
     pub last_missed_shot: Option<(Vec3, Vec3)>,
     pub blast_pushes: u32,
     pub pins: u32,
+    /// Ragdolls that started with a death pose's animation velocity.
+    pub death_poses: u32,
     /// Every NPC's origin at the previous tick (its root velocity at death).
     last_origins: BTreeMap<usize, Vec3>,
 }
 
 impl Ragdolls {
-    /// RagdollApplyAnimationAsVelocity approximated by root motion: each NPC's origin
-    /// change over the last tick, for the ragdolls of NPCs that die on the next one.
+    /// The root motion part of RagdollApplyAnimationAsVelocity: each NPC's origin change
+    /// over the last tick, for the ragdolls of NPCs that die on the next one.
     pub fn track(&mut self, world: &World, scene: &Scene) {
         self.last_origins.clear();
         for (id, entity) in world.entities.iter().enumerate() {
@@ -153,7 +153,8 @@ impl Ragdolls {
             self.skipped += 1;
             return;
         }
-        if let Some((force, position)) = scene.npc_death_forces.remove(&id) {
+        let death = scene.npc_death_forces.remove(&id);
+        if let Some((force, position)) = death {
             // m_nForceBone: the solid nearest the force point (the hit hitbox's physics
             // bone), else the root.
             let nearest = position.map_or(0, |position| {
@@ -168,6 +169,25 @@ impl Ragdolls {
                     .map_or(0, |(i, _)| i)
             });
             physics.ragdoll_nudge(&bodies, nearest, force);
+        }
+        // CRagdoll::Init: RagdollApplyAnimationAsVelocity from the bones 0.1 s before death
+        // (taken as the current pose; the root's motion is the spawn velocity) to the death
+        // pose (C_AI_BaseNPC::GetRagdollInitBoneArrays).
+        let hitgroup = scene.npc_hit_groups.remove(&id).unwrap_or(0);
+        let force = death.map_or(Vec3::ZERO, |(force, _)| force);
+        let roll = crate::fire::roll(id, scene.time, 21);
+        if let Some(pose) =
+            death_pose_matrices(rig, scene.states[id].rotation, force, hitgroup, roll)
+        {
+            for (handle, body) in bodies.iter().zip(&model.bodies) {
+                let (linear, angular) = bone_velocity(
+                    entity * matrices[body.bone],
+                    entity * pose[body.bone],
+                    DEATH_POSE_DT,
+                );
+                physics.ragdoll_add_velocity(*handle, linear, angular);
+            }
+            self.death_poses += 1;
         }
         let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
         let locals = parents
@@ -189,7 +209,6 @@ impl Ragdolls {
                 inverse_binds: rig.bones.iter().map(|b| b.inverse_bind).collect(),
                 scale: instance.scale,
                 serial: self.serial,
-                born: scene.time,
                 pins: Vec::new(),
                 fade: None,
             },
@@ -270,7 +289,11 @@ impl Ragdolls {
     /// This tick's client ragdoll effects (`scene.ragdoll_impacts`), after this tick's
     /// deaths became ragdolls: shots and blasts skip ragdolls created on this tick (the
     /// death force already pushed them), bolts pin them too.
+    /// This tick's client ragdoll effects. The killing shot's or blast's ragdoll exists
+    /// already: the client builds it in the entity update (BecomeRagdollOnClient) before
+    /// the same snapshot's temp entities (Impact, explosion) fire, so they push it.
     pub fn impacts(&mut self, scene: &mut Scene, physics: &mut Physics) {
+        physics.refresh_entity_queries();
         let impacts = std::mem::take(&mut scene.ragdoll_impacts);
         let mut retry = Vec::new();
         let owner = |active: &BTreeMap<usize, Ragdoll>, body| {
@@ -303,9 +326,6 @@ impl Ragdolls {
                         continue;
                     };
                     let ragdoll = &self.active[&id];
-                    if ragdoll.born >= scene.time {
-                        continue;
-                    }
                     // C_ClientRagdoll::ImpactTrace on VPhysicsGetObject (the root solid):
                     // 4000 along the shot at start + fraction x (endpos - start), the
                     // trace fraction applied twice as in the SDK and retail.
@@ -327,9 +347,6 @@ impl Ragdolls {
                         continue;
                     }
                     for (&id, ragdoll) in &self.active {
-                        if ragdoll.born >= scene.time {
-                            continue;
-                        }
                         let position = scene.states[id].origin;
                         let delta = position - origin;
                         let distance = delta.length().max(1e-3);
@@ -441,9 +458,132 @@ impl Ragdolls {
         scene.ragdoll_frame = scene.ragdoll_frame.wrapping_add(1);
     }
 }
+/// C_BaseAnimating::BecomeRagdollOnClient's boneDt.
+const DEATH_POSE_DT: f32 = 0.1;
+/// MAX_DEATHPOSE_FRAMES: the death pose cycle is frame / 6.
+const DEATH_POSE_FRAMES: f32 = 6.;
+/// SelectDeathPoseActivityAndFrame (shared/death_pose.cpp): GetDeathPoseActivity compares
+/// the side the force came from (-force) with the NPC's forward and right, the larger
+/// absolute dot product deciding; the frame follows the last hitgroup (generic and the
+/// rest keep the activity with the head frame).
+pub fn death_pose(rotation: Quat, force: Vec3, hitgroup: i32) -> (&'static str, u32) {
+    use crate::skill::*;
+    let from = (-force).normalize_or_zero();
+    let forward = (rotation * Vec3::X).dot(from);
+    let right = (rotation * -Vec3::Y).dot(from);
+    let activity = if right.abs() > forward.abs() {
+        if right < 0. {
+            "ACT_DIE_LEFTSIDE"
+        } else {
+            "ACT_DIE_RIGHTSIDE"
+        }
+    } else if forward < 0. {
+        "ACT_DIE_BACKSIDE"
+    } else {
+        "ACT_DIE_FRONTSIDE"
+    };
+    let frame = match hitgroup {
+        HITGROUP_CHEST | HITGROUP_STOMACH => 2,
+        HITGROUP_LEFTARM => 3,
+        HITGROUP_RIGHTARM => 4,
+        HITGROUP_LEFTLEG => 5,
+        HITGROUP_RIGHTLEG => 6,
+        _ => 1,
+    };
+    (activity, frame)
+}
+/// The death pose's model-space bone matrices: SelectWeightedSequence for the activity
+/// (`roll` in [0, 1)), sampled at cycle frame / 6. None when the model has no such
+/// sequence (ACT_INVALID: no animation velocity).
+fn death_pose_matrices(
+    rig: &modkit_core::animation::Rig,
+    rotation: Quat,
+    force: Vec3,
+    hitgroup: i32,
+    roll: f32,
+) -> Option<Vec<Mat4>> {
+    let (activity, frame) = death_pose(rotation, force, hitgroup);
+    let choices: Vec<_> = rig
+        .sequences
+        .iter()
+        .filter(|s| s.activity.eq_ignore_ascii_case(activity) && s.weight > 0)
+        .filter(|s| rig.clips.contains_key(&s.name.to_lowercase()))
+        .collect();
+    let total: i32 = choices.iter().map(|s| s.weight).sum();
+    let mut pick = (roll * total as f32) as i32;
+    let sequence = choices.iter().find(|s| {
+        pick -= s.weight;
+        pick < 0
+    })?;
+    let clip = rig.clips.get(&sequence.name.to_lowercase())?;
+    let poses = clip.sample(frame as f32 / DEATH_POSE_FRAMES)?;
+    Some(
+        rig.local_matrices(&poses)
+            .iter()
+            .zip(&rig.bones)
+            .map(|(m, b)| *m * b.inverse_bind.inverse())
+            .collect(),
+    )
+}
+/// CalcBoneDerivatives: a bone's linear (units/s) and world angular (rad/s) velocity
+/// from one world pose to the next over `dt`.
+fn bone_velocity(previous: Mat4, current: Mat4, dt: f32) -> (Vec3, Vec3) {
+    let (_, from, start) = previous.to_scale_rotation_translation();
+    let (_, to, end) = current.to_scale_rotation_translation();
+    let (axis, angle) = (to * from.inverse()).normalize().to_axis_angle();
+    let angle = if angle > std::f32::consts::PI {
+        angle - std::f32::consts::TAU
+    } else {
+        angle
+    };
+    ((end - start) / dt, axis * angle / dt)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn death_poses_follow_the_hit_side_and_hitgroup() {
+        use crate::skill::*;
+        // An NPC facing +X (yaw 0); its right is -Y.
+        let yaw0 = Quat::IDENTITY;
+        // Shot from the front (force along -X): front side, chest frame.
+        assert_eq!(
+            death_pose(yaw0, -Vec3::X * 9000., HITGROUP_CHEST),
+            ("ACT_DIE_FRONTSIDE", 2)
+        );
+        assert_eq!(
+            death_pose(yaw0, Vec3::X * 9000., HITGROUP_HEAD),
+            ("ACT_DIE_BACKSIDE", 1)
+        );
+        // From its right (force along +Y): right side; legs and arms pick their frames.
+        assert_eq!(
+            death_pose(yaw0, Vec3::Y, HITGROUP_LEFTLEG),
+            ("ACT_DIE_RIGHTSIDE", 5)
+        );
+        assert_eq!(
+            death_pose(yaw0, -Vec3::Y, HITGROUP_RIGHTARM),
+            ("ACT_DIE_LEFTSIDE", 4)
+        );
+        // No force (SetHealth) and a generic hit: front side, head frame.
+        assert_eq!(
+            death_pose(yaw0, Vec3::ZERO, HITGROUP_GENERIC),
+            ("ACT_DIE_FRONTSIDE", 1)
+        );
+        // Facing +Y (yaw 90), shot from the front (force along -Y).
+        let yaw90 = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        assert_eq!(
+            death_pose(yaw90, -Vec3::Y, HITGROUP_STOMACH).0,
+            "ACT_DIE_FRONTSIDE"
+        );
+        // CalcBoneDerivatives: 10 units and 90 degrees about Z in 0.1 s.
+        let (linear, angular) = bone_velocity(
+            Mat4::IDENTITY,
+            Mat4::from_rotation_translation(yaw90, Vec3::X * 10.),
+            0.1,
+        );
+        assert!((linear - Vec3::X * 100.).length() < 1e-3, "{linear}");
+        assert!((angular - Vec3::Z * std::f32::consts::FRAC_PI_2 * 10.).length() < 1e-3);
+    }
 
     #[test]
     fn the_lru_fades_out_of_view_ragdolls_first_then_the_oldest() {
@@ -479,7 +619,6 @@ mod tests {
                     inverse_binds: Vec::new(),
                     scale: 1.,
                     serial: id as u64,
-                    born: 0.,
                     pins: Vec::new(),
                     fade: None,
                 },

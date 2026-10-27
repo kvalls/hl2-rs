@@ -2070,6 +2070,8 @@ impl Physics {
                     .insert_with_parent(builder, handle, &mut self.bodies);
                 self.collider_materials
                     .insert(collider, body.surfaceprop.clone());
+                // Rays against ragdolls see the new solids before the next step.
+                self.changed_entity_colliders.push(collider);
             }
             if let Some(b) = self.bodies.get_mut(handle) {
                 b.recompute_mass_properties_from_colliders(&self.colliders);
@@ -2202,6 +2204,15 @@ impl Physics {
         if let Some(body) = self.bodies.get_mut(handle) {
             let f = impulse / 39.37;
             body.apply_impulse_at_point(vector![f.x, f.y, f.z], Point::from(vector(point)), true);
+        }
+    }
+    /// IPhysicsObject::AddVelocity: linear (Source units/s) and world angular (rad/s).
+    pub fn ragdoll_add_velocity(&mut self, handle: RigidBodyHandle, linear: Vec3, angular: Vec3) {
+        if let Some(body) = self.bodies.get_mut(handle) {
+            let v = *body.linvel() + vector(linear);
+            let w = *body.angvel() + vector![angular.x, angular.y, angular.z];
+            body.set_linvel(v, true);
+            body.set_angvel(w, true);
         }
     }
     /// A ragdoll body's center of mass (Source units) and whether it is simulating.
@@ -4920,6 +4931,12 @@ mod tests {
             (Vec3::new(0., 0., 20.), Quat::IDENTITY),
         ];
         let handles = physics.spawn_ragdoll(&world, &model, &poses, Vec3::ZERO, 1);
+        // A ragdoll created this tick is already in the ragdoll ray query (the killing
+        // shot's impact effects push it).
+        physics.refresh_entity_queries();
+        assert!(physics
+            .ragdoll_ray(Vec3::new(-100., 0., 20.), Vec3::new(100., 0., 20.))
+            .is_some());
         physics.tick(0.015);
         // The client's ray against ragdolls finds the child cube's face.
         let (body, point, fraction) = physics

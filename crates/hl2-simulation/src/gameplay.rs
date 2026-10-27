@@ -2214,6 +2214,7 @@ pub fn apply_hit(
         return false;
     }
     scene.npc_force_points.insert(id, hit.position);
+    scene.npc_hit_groups.insert(id, hit.hitgroup);
     // CHalfLife2::GetAmmoDamage: the player's shots on NPCs scale by skill
     // (AdjustPlayerDamageInflicted); CAI_BaseNPC::TraceAttack then scales by the
     // hitbox's hitgroup before blood and TraceBleed.
