@@ -304,8 +304,15 @@ pub fn append_pool(world: &mut modkit_core::World) {
     }
 }
 /// Models that CreateRagGib turns into client ragdolls at runtime (CZombie::Precache
-/// precaches the halves): one hidden "raggib" template each, label `raggib <model>`.
-pub const GIB_MODELS: &[&str] = &["models/zombie/classic_legs.mdl"];
+/// precaches the halves and the crab): one hidden "raggib" template each, label
+/// `raggib <model>`, all bodygroups 0 (the torso and the whole zombie without their crab:
+/// a headless zombie's corpse and DieChopped's torso).
+pub const GIB_MODELS: &[&str] = &[
+    "models/zombie/classic_legs.mdl",
+    "models/zombie/classic_torso.mdl",
+    "models/zombie/classic.mdl",
+    "models/headcrabclassic.mdl",
+];
 pub fn gib_label(model: &str) -> String {
     format!("raggib {model}")
 }

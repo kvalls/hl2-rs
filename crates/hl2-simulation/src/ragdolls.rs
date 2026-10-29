@@ -241,6 +241,19 @@ impl Ragdolls {
         id: usize,
         dt: f32,
     ) {
+        self.spawn_as(world, scene, physics, id, id, dt);
+    }
+    /// `spawn` for NPC `source` drawn by entity `id` (a model with the same skeleton: the
+    /// headless zombie corpse): the pose, motion and death force come from `source`.
+    pub fn spawn_as(
+        &mut self,
+        world: &World,
+        scene: &mut Scene,
+        physics: &mut Physics,
+        source: usize,
+        id: usize,
+        dt: f32,
+    ) {
         let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
             self.skipped += 1;
             return;
@@ -251,9 +264,15 @@ impl Ragdolls {
             self.skipped += 1;
             return;
         };
+        let source_rig = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(source))
+            .and_then(|i| world.rigs.get(&i.asset_key()))
+            .unwrap_or(rig);
         // actor_matrices are skinning matrices (pose x inverse bind): the bones' model
         // space poses are those times the bind pose.
-        let skin = scene.actor_matrices(rig, id);
+        let skin = scene.actor_matrices(source_rig, source);
         if skin.len() != rig.bones.len() {
             self.skipped += 1;
             return;
@@ -263,7 +282,7 @@ impl Ragdolls {
             .zip(&rig.bones)
             .map(|(m, b)| *m * b.inverse_bind.inverse())
             .collect();
-        let state = &scene.states[id];
+        let state = &scene.states[source];
         let entity = Mat4::from_scale_rotation_translation(
             Vec3::splat(instance.scale),
             state.rotation,
@@ -281,7 +300,7 @@ impl Ragdolls {
         // Root velocity over the last tick (a teleport or respawn is not motion).
         let velocity = self
             .last_origins
-            .get(&id)
+            .get(&source)
             .map(|last| (state.origin - *last) / dt.max(1e-3))
             .filter(|v| v.length() < 1000.)
             .unwrap_or(Vec3::ZERO);
@@ -292,8 +311,8 @@ impl Ragdolls {
             self.skipped += 1;
             return;
         }
-        let death = scene.npc_death_forces.remove(&id);
-        let hit_bone = scene.npc_force_bones.remove(&id);
+        let death = scene.npc_death_forces.remove(&source);
+        let hit_bone = scene.npc_force_bones.remove(&source);
         if let Some((force, position)) = death {
             // m_nForceBone = the trace's physicsbone: the solid that simulates the hit
             // hitbox's bone (its own, else its nearest ancestor's). Without a hitbox, the
@@ -320,11 +339,11 @@ impl Ragdolls {
         // CRagdoll::Init: RagdollApplyAnimationAsVelocity from the bones 0.1 s before death
         // (taken as the current pose; the root's motion is the spawn velocity) to the death
         // pose (C_AI_BaseNPC::GetRagdollInitBoneArrays).
-        let hitgroup = scene.npc_hit_groups.remove(&id).unwrap_or(0);
+        let hitgroup = scene.npc_hit_groups.remove(&source).unwrap_or(0);
         let force = death.map_or(Vec3::ZERO, |(force, _)| force);
-        let roll = crate::fire::roll(id, scene.time, 21);
+        let roll = crate::fire::roll(source, scene.time, 21);
         if let Some(pose) =
-            death_pose_matrices(rig, scene.states[id].rotation, force, hitgroup, roll)
+            death_pose_matrices(rig, scene.states[source].rotation, force, hitgroup, roll)
         {
             for (handle, body) in bodies.iter().zip(&model.bodies) {
                 let (linear, angular) = bone_velocity(
@@ -345,6 +364,15 @@ impl Ragdolls {
                 None => matrices[i],
             })
             .collect();
+        if source != id {
+            // The drawing entity takes the corpse's frame; it is done like a corpse.
+            let (origin, rotation) = (scene.states[source].origin, scene.states[source].rotation);
+            let state = &mut scene.states[id];
+            state.origin = origin;
+            state.rotation = rotation;
+            state.killed = true;
+            state.visible = false;
+        }
         scene.ragdoll_matrices.insert(id, skin);
         self.active.insert(
             id,

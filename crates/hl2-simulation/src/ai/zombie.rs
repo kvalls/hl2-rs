@@ -447,6 +447,29 @@ pub struct TorsoSplit {
     pub dies: Option<Vec3>,
     pub ignite: Option<f32>,
 }
+/// A lethal blast's ReleaseHeadcrab(RELEASE_RAGDOLL) for the host: the crab becomes a
+/// ragdoll at the "headcrab" attachment pushed with the damage force x 0.25, the body
+/// dies headless; `chopped` (DieChopped, one in three) splits the body into legs and a
+/// headless torso instead: (legs force, torso force).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct CrabRelease {
+    pub entity: usize,
+    pub crab_force: Vec3,
+    pub chopped: Option<(Vec3, Vec3)>,
+}
+/// DieChopped's gib forces from the damage force and four rolls in [0, 1): the legs get
+/// (U(-400, 400), U(-400, 400), U(0, 250)); the torso CalcDamageForceVector x U(0.04,
+/// 0.06) with its z replaced by 6000 x U(0.8, 1.2).
+pub fn chopped_forces(force: Vec3, rolls: [f32; 5]) -> (Vec3, Vec3) {
+    let legs = Vec3::new(
+        -400. + 800. * rolls[0],
+        -400. + 800. * rolls[1],
+        250. * rolls[2],
+    );
+    let mut torso = force * (0.04 + 0.02 * rolls[3]);
+    torso.z = 100. * 12. * 5. * (0.8 + 0.4 * rolls[4]);
+    (legs, torso)
+}
 /// The class sound of a zombie animation event (CNPC_BaseZombie::HandleAnimEvent).
 pub fn event_sound(event: &str) -> Option<&'static str> {
     Some(match event.to_ascii_uppercase().as_str() {
@@ -1010,6 +1033,15 @@ mod tests {
             z.select_fail_schedule(&npc, "SCHED_ZOMBIE_MELEE_ATTACK1"),
             "SCHED_CHASE_ENEMY_FAILED"
         );
+    }
+    #[test]
+    fn die_chopped_throws_the_legs_randomly_and_the_torso_up() {
+        let (legs, torso) = chopped_forces(Vec3::new(10000., 0., 2000.), [0., 1., 0.5, 0.5, 0.5]);
+        assert_eq!(legs, Vec3::new(-400., 400., 125.));
+        // x 0.05 of the damage force, z replaced by 6000.
+        assert!(torso.distance(Vec3::new(500., 0., 6000.)) < 1e-2, "{torso}");
+        let (_, low) = chopped_forces(Vec3::X, [0.; 5]);
+        assert!((low.z - 4800.).abs() < 1e-3);
     }
     #[test]
     fn closed_brush_doors_get_bashed_then_rested() {

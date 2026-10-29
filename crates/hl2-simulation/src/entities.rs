@@ -390,6 +390,8 @@ pub struct Scene {
     /// the DieChopped outcomes among them: counted, not modeled yet.
     pub zombie_crab_releases: u32,
     pub zombie_chops: u32,
+    /// This tick's lethal-blast crab releases for the host (at the zombies' deaths).
+    pub crab_releases: Vec<crate::ai::zombie::CrabRelease>,
     /// The latest trace attack's position per NPC (CAI_BaseNPC::TraceAttack keeps the
     /// hit hitbox's physics bone in m_nForceBone): later deaths without a trace (blasts)
     /// push that solid.
@@ -630,6 +632,7 @@ impl Scene {
             zombie_splits: Vec::new(),
             zombie_crab_releases: 0,
             zombie_chops: 0,
+            crab_releases: Vec::new(),
             npc_force_points: BTreeMap::new(),
             npc_hit_groups: BTreeMap::new(),
             npc_force_bones: BTreeMap::new(),

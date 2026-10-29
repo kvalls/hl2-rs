@@ -1677,6 +1677,13 @@ impl Inventory {
                             }
                             if headless {
                                 scene.zombie_crab_releases += 1;
+                                let rolls = [roll(41), roll(42), roll(43), roll(44), roll(45)];
+                                scene.crab_releases.push(crate::ai::zombie::CrabRelease {
+                                    entity: id,
+                                    crab_force: force * 0.25,
+                                    chopped: (split == crate::ai::zombie::Split::Chopped)
+                                        .then(|| crate::ai::zombie::chopped_forces(force, rolls)),
+                                });
                             }
                         }
                     }

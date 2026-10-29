@@ -178,6 +178,8 @@ pub struct Gameplay {
     pub runtime_entities: Vec<usize>,
     /// BecomeTorso replacements (zombie, torso, legs raggib) and splits that failed.
     pub zombie_splits: Vec<(usize, usize, Option<usize>)>,
+    /// Lethal-blast crab releases rendered (zombie, chopped).
+    pub crab_releases: Vec<(usize, bool)>,
     pub zombie_split_failures: Vec<String>,
     /// Runtime entities whose Bevy draws were despawned after they were killed.
     pub despawned_draws: std::collections::BTreeSet<usize>,
@@ -410,6 +412,7 @@ impl Gameplay {
             spawn_counts: Default::default(),
             render_spawns: Vec::new(),
             zombie_splits: Vec::new(),
+            crab_releases: Vec::new(),
             zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
@@ -458,6 +461,7 @@ impl Gameplay {
             spawn_counts: Default::default(),
             render_spawns: Vec::new(),
             zombie_splits: Vec::new(),
+            crab_releases: Vec::new(),
             zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
@@ -714,6 +718,128 @@ impl Gameplay {
             self.zombie_splits.push((id, torso, legs));
         }
     }
+    /// A raggib of `model` at `origin` with Source `angles` (degrees), ragdolled with `force`
+    /// unless `posed_from` gives the NPC whose death pose it takes. None without a template.
+    fn spawn_raggib(
+        &mut self,
+        model: &str,
+        origin: Vec3,
+        angles: Vec3,
+        force: Vec3,
+        posed_from: Option<usize>,
+        physics: &mut Physics,
+    ) -> Option<usize> {
+        use hl2_simulation::ai::spawn;
+        let template = *spawn::templates(&self.world, &spawn::gib_label(model)).first()?;
+        let id = self
+            .create_from_template(
+                template,
+                origin,
+                angles.y,
+                &[("angles", format!("{} {} {}", angles.x, angles.y, angles.z))],
+                physics,
+            )
+            .map_err(|e| self.zombie_split_failures.push(format!("{model}: {e}")))
+            .ok()?;
+        let world = self.world.clone();
+        match posed_from {
+            Some(npc) => self
+                .ragdolls
+                .spawn_as(&world, &mut self.scene, physics, npc, id, TICK),
+            None => {
+                if !self
+                    .ragdolls
+                    .spawn_gib(&world, &mut self.scene, physics, id, force)
+                {
+                    self.zombie_split_failures
+                        .push(format!("{model}: no ragdoll"));
+                }
+            }
+        }
+        Some(id)
+    }
+    /// ReleaseHeadcrab(RELEASE_RAGDOLL) at a lethal blast (DESIGN 14o session 37): the crab
+    /// as a raggib whose root bone sits on the zombie's "headcrab" attachment
+    /// (SetHeadcrabSpawnLocation, roll removed; HeadcrabFits is not checked), pushed with
+    /// the damage force x 0.25; the body dies headless (the crabless classic.mdl posed
+    /// like the zombie), or DieChopped splits it into legs at the origin and a headless
+    /// torso 64 up pitched -90.
+    fn release_crab(
+        &mut self,
+        release: hl2_simulation::ai::zombie::CrabRelease,
+        physics: &mut Physics,
+    ) {
+        let npc = release.entity;
+        let (origin, rotation) = (
+            self.scene.states[npc].origin,
+            self.scene.states[npc].rotation,
+        );
+        let facing = rotation * Vec3::X;
+        let yaw = facing.y.atan2(facing.x).to_degrees();
+        let world = self.world.clone();
+        let crab_model = "models/headcrabclassic.mdl";
+        let root = hl2_simulation::ai::spawn::templates(
+            &world,
+            &hl2_simulation::ai::spawn::gib_label(crab_model),
+        )
+        .first()
+        .and_then(|t| world.model_instances.iter().find(|i| i.entity == Some(*t)))
+        .and_then(|i| world.rigs.get(&i.asset_key()))
+        .and_then(|rig| {
+            let first = rig.sequences.iter().min_by_key(|s| s.order)?;
+            let skin = rig.matrices(&first.name, 0.);
+            Some(*skin.first()? * rig.bones.first()?.inverse_bind.inverse())
+        });
+        let attachment = self.scene.attachment_frames(&world, npc, &["headcrab"])[0];
+        let (crab_origin, crab_angles) = match (attachment, root) {
+            (Some(frame), Some(root)) => {
+                let (_, r, t) = (frame * root.inverse()).to_scale_rotation_translation();
+                let (y, p, _) = r.to_euler(glam::EulerRot::ZYX);
+                (t, Vec3::new(p.to_degrees(), y.to_degrees(), 0.))
+            }
+            // EyePosition with the zombie's angles.
+            _ => (origin + Vec3::Z * 64., Vec3::new(0., yaw, 0.)),
+        };
+        self.spawn_raggib(
+            crab_model,
+            crab_origin,
+            crab_angles,
+            release.crab_force,
+            None,
+            physics,
+        );
+        match release.chopped {
+            Some((legs, torso)) => {
+                self.spawn_raggib(
+                    "models/zombie/classic_legs.mdl",
+                    origin,
+                    Vec3::new(0., yaw, 0.),
+                    legs,
+                    None,
+                    physics,
+                );
+                self.spawn_raggib(
+                    "models/zombie/classic_torso.mdl",
+                    origin + Vec3::Z * 64.,
+                    Vec3::new(-90., yaw, 0.),
+                    torso,
+                    None,
+                    physics,
+                );
+            }
+            None => {
+                self.spawn_raggib(
+                    "models/zombie/classic.mdl",
+                    origin,
+                    Vec3::new(0., yaw, 0.),
+                    Vec3::ZERO,
+                    Some(npc),
+                    physics,
+                );
+            }
+        }
+        self.crab_releases.push((npc, release.chopped.is_some()));
+    }
     /// CBaseCombatCharacter::Event_Killed -> Weapon_Drop (DESIGN 14r part B): each NPC
     /// killed this tick drops its active weapon as a new weapon entity with VPhysics
     /// (FallInit; the world model's .phy is preloaded with the NPC weapons), refilled
@@ -723,8 +849,13 @@ impl Gameplay {
     /// force) with AngularImpulse(200, 200, 200). SF_NPC_NO_WEAPON_DROP removes it.
     fn drop_weapons(&mut self, physics: &mut Physics) {
         let deaths = std::mem::take(&mut self.scene.npc_deaths);
+        let releases = std::mem::take(&mut self.scene.crab_releases);
         // Event_Killed -> BecomeRagdollOnClient before the weapon leaves the hand.
         for &npc in &deaths {
+            if let Some(release) = releases.iter().find(|r| r.entity == npc) {
+                self.release_crab(*release, physics);
+                continue;
+            }
             let world = self.world.clone();
             self.ragdolls
                 .spawn(&world, &mut self.scene, physics, npc, TICK);
@@ -1824,7 +1955,7 @@ impl Gameplay {
             })
             .collect();
         // BecomeTorso replacements: (zombie, torso, legs), each torso's origin, death, health.
-        let zombies = serde_json::json!({"splits":self.zombie_splits,"torsos":self.zombie_splits.iter().map(|(_, t, _)| (t.to_string(), (self.scene.states[*t].origin.to_array(), self.scene.states[*t].killed, self.scene.states[*t].value))).collect::<std::collections::BTreeMap<_,_>>(),"failures":self.zombie_split_failures,"crab_releases":self.scene.zombie_crab_releases,"chops":self.scene.zombie_chops});
+        let zombies = serde_json::json!({"splits":self.zombie_splits,"torsos":self.zombie_splits.iter().map(|(_, t, _)| (t.to_string(), (self.scene.states[*t].origin.to_array(), self.scene.states[*t].killed, self.scene.states[*t].value))).collect::<std::collections::BTreeMap<_,_>>(),"failures":self.zombie_split_failures,"crab_releases":self.scene.zombie_crab_releases,"released":self.crab_releases,"chops":self.scene.zombie_chops});
         let ragdolls = serde_json::json!({"active":self.ragdolls.active.len(),"spawned":self.ragdolls.spawned,"skipped":self.ragdolls.skipped,"removed":self.ragdolls.removed,"shot_pushes":self.ragdolls.shot_pushes,"blast_pushes":self.ragdolls.blast_pushes,"pins":self.ragdolls.pins,"death_poses":self.ragdolls.death_poses,"bolt_misses":self.ragdolls.bolt_misses,"last_missed_bolt":self.ragdolls.last_missed_bolt.map(|(a,b)| [a.to_array(),b.to_array()]),"missed_bolt_bodies":self.ragdolls.missed_bolt_bodies.iter().map(|v| v.to_array()).collect::<Vec<_>>(),"fading":self.ragdolls.fading(),"shots_seen":self.ragdolls.shots_seen,"shots_busy":self.ragdolls.shots_busy,"simulating":self.ragdolls.simulating(physics),"forced_sleeps":self.ragdolls.forced_sleeps,"props":self.ragdolls.props.len(),"prop_origins":self.ragdolls.props.keys().map(|id| (id.to_string(), (self.scene.states[*id].origin.to_array(), self.scene.ragdoll_matrices.contains_key(id)))).collect::<std::collections::BTreeMap<_,_>>(),"props_skipped":self.ragdolls.props_skipped,"last_force_body":self.ragdolls.last_force_body,"activity":self.ragdolls.activity(physics),"last_missed_shot":self.ragdolls.last_missed_shot.map(|(a,b)| [a.to_array(),b.to_array()]),"origins":self.ragdolls.active.keys().map(|id| (id.to_string(), self.scene.states[*id].origin.to_array())).collect::<std::collections::BTreeMap<_,_>>()});
         serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"carrying":self.inventory.carrying(),"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
