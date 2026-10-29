@@ -1,5 +1,11 @@
 # STATUS
 
+## Extended scale domains and bounded component exhaustion (2026-10-29 EF/EG)
+
+EF passes74,520 rows/298,080 exact words across6,210 authored quaternions, both forced math paths/aliases and new table2/near-one input domains. Derived read ranges cover all239 table1 indices and161 table2 indices;27..32 remain explicitly absent from EF. Eighteen byte anchors/26 admission/15 runtime controls pass; process44252 exit0,97-file seal. MXCSR8064->8114 sets sticky mask50 while control bits stay fixed; x87 control639 fixed and original controls restored.
+
+EG independently replays2,195,456 norm words to bound all167 possible table2 indices26..192, supplements EF's six missing bins, and tests every65,536 x-component word in[.99609375,1) with fixed remaining components/one weight. Four owned batches pass262,216 rows/1,048,864 exact words,131,108 dispatch/131,108 alias comparisons, source/code/literal/pin/canary/input/FP/footer/cleanup checks; all four processes exit0. Eleven admission/14 runtime controls and359-file seal pass. Derived domains are not branch-PC traces; exhaustion applies only to that component family. No game/DLL initialization/Rust or actual actor/rendering/campaign parity; first_map_finished:false. Next close fast acos before separately enabling that full-blend frontier. Continue toward98% usage.
+
 ## Complete conditional client blend kernel (2026-10-29 ED/EE)
 
 ED binds32 exact client/server bodies,16 client PE windows and16 complete scalar graph pairs:3,237 bytes/938 reachable instructions per module,25 consumed read-only literal pairs and10 independent mutable/context roles. Thirteen controls pass. Five descriptor4000/fast/error frontiers remain excluded; initial syntax draft is retained.

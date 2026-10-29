@@ -1,5 +1,13 @@
 # Design
 
+## Research plan: exact fast-acos frontier (2026-10-29 EH)
+
+EF/EG now add finite table2/near-one scale evidence and a bounded exhaustive x-component family, with explicit derived-domain limits. Next retrieve the fast-acos numerical bodies only through the exact server/client wrapper CALLs; compare complete reachable graphs, consumed literal/table extents, relocations and error transfers. Keep mutable flags/context independent and opaque errors guarded. Only after static closure may a separate authored fixture enable the previously excluded fast-acos/full-blend path, retaining new inputs, raw mappings, FP state, pins, footer/cleanup and any disagreement. No native actor/rendering/campaign/Rust claim or implementation change follows automatically.
+
+## Research plan: bounded near-one component family (2026-10-29 EG)
+
+EF's extended scale inputs pass while explicitly leaving table2 indices27..32 uncovered. Next independently enumerate the finite float32 norm interval to bound possible table2 indices, then admit representatives for those six bins. Separately test all65,536 positive x-component words in `[.99609375,1)` with fixed remaining components, one weight, both forced paths/aliases, split into new owned fixture batches below the existing loader cap. Retain exact union/order/source/mapping/FP/cleanup evidence and any numerical failure. This is a bounded component family and derived read-domain audit, not all quaternion inputs, live branch-PC traces, actual actor rendering or Rust parity. No game or implementation action.
+
 ## Research plan: finite fast-scale domain extension (2026-10-29 EF)
 
 ED closes the selected client scalar blend graphs and EE's separate client process agrees with all retained server numerical/FP/context records under authored inputs. Keep this isolated computational contract separate from actual actor/cache/rendering evidence and retain all rejected preparations.

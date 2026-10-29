@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Fast/scalar scale domain extension (2026-10-29 EF/EG)
+
+EF extends the retained scale bundle to6,210 authored quaternions/74,520 rows, admitting table2/near-one inputs and all239 table1 indices. The original161 table2 indices leave six explicit gaps. EG independently enumerates/replays2,195,456 finite norm words to bound the167 possible table2 indices, supplements those six gaps, and tests the65,536-word near-one x-component family with fixed other components/one weight. All262,216 native rows match reference/path/alias expectations in four bounded authored processes.
+
+These results are finite isolated numerical evidence and derived index/read coverage. The exhaustion scope is the declared component family, with no live branch-PC, runtime flags, arbitrary quaternion/FP/error ABI, actor/rendering/campaign or Rust-parity inference. Code/literal/source pins, canaries/input/FP/cleanup checks and controls pass; first_map_finished:false. No native game or initialized Valve DLL.
+
 ## Client scalar blend closure and separate execution (2026-10-29 ED/EE)
 
 ED extends the local client blend comparison to16 complete selected graphs:32 exact body bindings,3,237 bytes/938 reachable instructions per module and25 equal consumed read-only literals. Ten mutable/global-context roles stay independent inputs; five descriptor4000/fast/error targets stay explicit frontiers.

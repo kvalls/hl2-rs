@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Extended scale and bounded exhaustive family (2026-10-29 EF/EG)
+
+EF:74,520 native rows/298,080 exact reference words,37,260 dispatch/37,260 alias comparisons,6,210 authored inputs,18 index/address anchors,26 admission/15 runtime controls. Derived domains:21 tiny/142 polynomial/2,746 table1/1,234 table2/2,060 near-one/7 unit. All239 table1 indices and161 table2 indices26..192 are represented;27..32 remain absent in EF. Process44252 exit0, unchanged code/literals/pins/canaries/inputs and97-file seal. x87 control639 fixed; MXCSR8064->8114 retains controls, sticky mask50; originals restored. x87 sticky status is not recorded.
+
+EG:2,195,456 scalar-replayed norm words establish167 possible derived table2 indices26..192.18 supplemental sources fill EF's six gaps; every65,536 near-one x word is tested at fixed y/z/w/weight. Four batches80,000/80,000/80,000/22,216 rows, PIDs43072/51428/28300/44848, all exit0.262,216 rows/1,048,864 exact words,131,108 dispatch/131,108 alias comparisons, independent source/code/literal/pin/canary/input/FP/footer/cleanup checks,11 admission/14 runtime controls and359-file seal pass. MXCSR8064->8096 sticky precision; original controls restored. No fixture-time/native-performance inference.
+
+Read-only `C:/Python310/python.exe -B` checks in private `scale-domain-fixture-20261029ef/{admit.py,verify.py,seal.py verify}` and `scale-near-one-fixture-20261029eg/{admit.py,verify.py,seal.py verify}`. Never rerun sealed producers/batches/create. Domains are derived, not PC-traced; bounded exhaustion is not all-quaternion/runtime/actor/rendering/campaign/Rust parity. No game/DLL initialization/Rust build/test; first_map_finished:false.
+
 ## Client scalar kernel and paired-process comparison (2026-10-29 ED/EE)
 
 ED:32 exact body bindings/16 client PE windows/16 complete graph pairs,3,237 bytes/938 instructions per module,35 absolute roles (25 consumed literals/10 mutable-context inputs) and13 controls pass. Runtime global values and five guarded frontiers remain unadmitted; rejected syntax source retained.44 files sealed.

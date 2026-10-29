@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: scale domains and bounded component family
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Extended finite scale evidence into table2/near-one domains and closed six omitted table2 bins with a separately admitted bounded x-component family.
+
+**Tested how:** EF74,520 rows/298,080 exact words/37,260 paired path and alias checks,18 anchors/26+15 controls, process44252 exit0. EG2,195,456-word independent norm/index replay,65,536 x words plus18 bin-neighbor inputs,262,216 rows/1,048,864 exact words/131,108 paired path and alias checks across four exited owned processes,11+14 controls. Exact frozen DS loader/bundle reuse, independent pins/maps/FP/canaries/footer/cleanup. Seals97/359 files. No Rust or native-game action.
+
+**Result / Still untested / Next:** Finite native outputs and prepared/recomputed references agree. EF+EG represent all167 derived table2 indices; EG exhausts only the declared x family. Sticky FP flags are retained, with no branch-PC/live-state/general quaternion/rendering/campaign/Rust-parity claim; first_map_finished:false. Continue exact fast-acos closure toward98% usage.
+
 ## 2026-10-29 research: complete conditional client blend kernel
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
