@@ -155,6 +155,13 @@ pub enum CopRequest {
     /// CNPC_Combine COMBINE_AE_GREN_TOSS: Fraggrenade_Create at "lefthand" with
     /// m_vecTossVelocity (the runtime reads both).
     GrenadeToss,
+    /// CNPC_BaseZombie AE_ZOMBIE_SWATITEM: AddVelocity on the object (world in/s, local
+    /// angular deg/s) with NPC_BaseZombie.Swat.
+    Swat {
+        entity: usize,
+        velocity: Vec3,
+        angular: Vec3,
+    },
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Metropolice {

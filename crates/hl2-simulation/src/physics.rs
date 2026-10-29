@@ -2947,6 +2947,32 @@ impl Physics {
     pub fn entity_mass(&self, id: usize) -> Option<f32> {
         Some(self.bodies.get(*self.dynamic.get(&id)?)?.mass())
     }
+    /// The entity's body mass (kg) and whether it is asleep and moveable (IsAsleep, IsMoveable:
+    /// simulated, not motion-disabled), for CZombieSwatEntitiesEnum.
+    pub fn entity_rest_state(&self, id: usize) -> Option<(f32, bool, bool)> {
+        let body = self.bodies.get(*self.dynamic.get(&id)?)?;
+        Some((
+            body.mass(),
+            body.is_sleeping(),
+            body.is_dynamic() && body.is_enabled(),
+        ))
+    }
+    /// IPhysicsObject::AddVelocity: world velocity (units/s) and local angular velocity (deg/s)
+    /// added to the entity's body, which wakes.
+    pub fn add_entity_velocity(&mut self, id: usize, velocity: Vec3, local_angular_degrees: Vec3) {
+        let Some(handle) = self.dynamic.get(&id).copied() else {
+            return;
+        };
+        if let Some(b) = self.bodies.get_mut(handle) {
+            let q = b.position().rotation.quaternion();
+            let rotation = Quat::from_xyzw(q.i, q.j, q.k, q.w);
+            let w = rotation * (local_angular_degrees * std::f32::consts::PI / 180.);
+            let linvel = *b.linvel() + vector(velocity);
+            let angvel = *b.angvel() + vector![w.x, w.y, w.z];
+            b.set_linvel(linvel, true);
+            b.set_angvel(angvel, true);
+        }
+    }
     pub fn entity_pose(&self, id: usize) -> Option<(Vec3, Quat)> {
         let b = self.bodies.get(*self.dynamic.get(&id)?)?;
         let p = b.position();

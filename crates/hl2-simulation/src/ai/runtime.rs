@@ -507,6 +507,9 @@ pub struct AiRuntime {
     pub grenade_tosses: Vec<(usize, Vec3, Vec3, Vec3)>,
     /// Elite combine balls (CreateCombineBall at 1000 units/s).
     ball_launches: Vec<(usize, Vec3, Vec3)>,
+    /// Zombie swats this tick for the host's physics: (object entity, velocity in/s, local
+    /// angular deg/s), IPhysicsObject::AddVelocity.
+    pub prop_swats: Vec<(usize, Vec3, Vec3)>,
     /// WeaponSound(SINGLE_NPC, soundtime) requests that start later (WeaponSoundRealtime
     /// schedules a machine gun's second sound ahead of the next think).
     #[serde(skip)]
@@ -947,6 +950,7 @@ impl AiRuntime {
             melee_hits: Vec::new(),
             grenade_tosses: Vec::new(),
             ball_launches: Vec::new(),
+            prop_swats: Vec::new(),
             delayed_sounds: Vec::new(),
             diagnostics: Diagnostics::default(),
             random: 0x9e37_79b9_7f4a_7c15,
@@ -1952,6 +1956,14 @@ impl AiRuntime {
                     (state >> 40) as f32 / (1u32 << 23) as f32 - 1.
                 };
                 let npc_class = world.entities.get(id).map_or("", |e| e.class());
+                // The enemy's WorldSpaceCenter, where AE_ZOMBIE_SWATITEM sends the object.
+                let swat_target = self.actors[&id].npc.enemy.map(|e| {
+                    if e == PLAYER {
+                        player.center()
+                    } else {
+                        scene.states[e].origin + Vec3::Z * 36.
+                    }
+                });
                 let actor = self.actors.get_mut(&id).expect("actor");
                 let AiActor {
                     npc,
@@ -1971,7 +1983,22 @@ impl AiRuntime {
                         } else if let AiClass::Zombie(z) = class {
                             // CNPC_BaseZombie::HandleAnimEvent: claws and class sounds.
                             let rolls = ((uniform() + 1.) * 0.5, (uniform() + 1.) * 0.5);
-                            if let Some((punch, impulse)) =
+                            if name.eq_ignore_ascii_case(zombie::AE_SWATITEM) {
+                                // Send the object toward the enemy's center, forget it and
+                                // scan again no sooner than ZOMBIE_SWAT_DELAY.
+                                if let (Some((entity, center)), Some(target)) =
+                                    (z.physics_ent.take(), swat_target)
+                                {
+                                    let (velocity, angular) =
+                                        zombie::swat_velocity(center, target, rolls);
+                                    z.requests.push(CopRequest::Swat {
+                                        entity,
+                                        velocity,
+                                        angular,
+                                    });
+                                    z.next_swat_scan = ctx.now + zombie::SWAT_DELAY;
+                                }
+                            } else if let Some((punch, impulse)) =
                                 zombie::claw_punch(&name, ctx.yaw, rolls)
                             {
                                 let yaw = ctx.yaw.to_radians();
@@ -3085,6 +3112,63 @@ impl AiRuntime {
                 }
             }
         }
+        // CNPC_BaseZombie::GatherConditions: in combat, every 2 s while it has no object,
+        // FindNearestPhysicsObject; COND_ZOMBIE_CAN_SWAT_ATTACK while it has one, m_flNextSwat
+        // has passed and it sees the enemy. The object's center follows its body.
+        if let AiClass::Zombie(z) = &mut actor.class {
+            z.physics_ent = z.physics_ent.and_then(|(object, _)| {
+                physics
+                    .entity_body(object)
+                    .and_then(|body| physics.bounds_center(body))
+                    .map(|center| (object, center))
+            });
+            let enemy_feet = actor.npc.enemy.map(|e| {
+                if e == PLAYER {
+                    player.feet
+                } else {
+                    scene.states[e].origin
+                }
+            });
+            if let (NpcState::Combat, Some(enemy_feet), true) =
+                (actor.npc.state, enemy_feet, z.kind.swats())
+            {
+                if now >= z.next_swat_scan && z.physics_ent.is_none() {
+                    // The human hull: 72 units tall, knees at a quarter of it.
+                    if let Some(half) = zombie::swat_search_box(origin, enemy_feet, 72.) {
+                        let candidates =
+                            swat_candidates(physics, world, &sight, id, origin, eye, half);
+                        z.physics_ent = zombie::find_nearest_physics_object(
+                            origin,
+                            enemy_feet,
+                            origin.z + 18.,
+                            eye.z,
+                            &candidates,
+                        )
+                        .and_then(|object| {
+                            candidates
+                                .iter()
+                                .find(|c| c.entity == object)
+                                .map(|c| (object, c.center))
+                        });
+                    }
+                    z.next_swat_scan = now + zombie::SWAT_SCAN_INTERVAL;
+                }
+            }
+            if z.physics_ent.is_some()
+                && now >= z.next_swat
+                && actor.npc.conditions.has(COND_SEE_ENEMY)
+            {
+                actor
+                    .npc
+                    .conditions
+                    .set(zombie::COND_ZOMBIE_CAN_SWAT_ATTACK);
+            } else {
+                actor
+                    .npc
+                    .conditions
+                    .clear(zombie::COND_ZOMBIE_CAN_SWAT_ATTACK);
+            }
+        }
         // CNPC_Combine grenades without a squad: CanGrenadeEnemy(false) (the flush, at the
         // last seen position) and CanGrenadeEnemy() (the last known position, e.g. the 20%
         // grenade before reloading) -> CanThrowGrenade -> CheckCanThrowGrenade (VecCheckThrow
@@ -4041,6 +4125,17 @@ impl AiRuntime {
                     f64::from(duration),
                 ),
                 CopRequest::Output(name) => scene.fire(id, name, usize::MAX),
+                CopRequest::Swat {
+                    entity,
+                    velocity,
+                    angular,
+                } => {
+                    self.prop_swats.push((entity, velocity, angular));
+                    scene.sounds.push(crate::sounds::SoundRequest {
+                        origin: Some(origin + Vec3::Z * 36.),
+                        ..String::from("NPC_BaseZombie.Swat").into()
+                    });
+                }
                 CopRequest::Sound(name) => {
                     let cue = match name {
                         "melee_hit" => self.stunstick_sounds.0.clone(),
@@ -4583,6 +4678,46 @@ impl AiRuntime {
         self.sounds
             .insert(kind, origin, volume, duration, None, now);
     }
+}
+
+/// CZombieSwatEntitiesEnum over UTIL_EntitiesInBox(origin -+ half): entities whose VPhysics
+/// body is at most ZOMBIE_MAX_PHYSOBJ_MASS, asleep and moveable, with what
+/// FindNearestPhysicsObject then reads (center, BoundingRadius from the world bounds, AABB
+/// top, FVisible from the eyes, ragdoll classes).
+fn swat_candidates(
+    physics: &Physics,
+    world: &World,
+    sight: &PhysicsSight,
+    zombie: usize,
+    origin: Vec3,
+    eye: Vec3,
+    half: Vec3,
+) -> Vec<zombie::SwatCandidate> {
+    let (lo, hi) = (origin - half, origin + half);
+    physics
+        .dynamic
+        .iter()
+        .filter_map(|(&entity, &body)| {
+            let (mass, asleep, moveable) = physics.entity_rest_state(entity)?;
+            if mass > zombie::MAX_PHYSOBJ_MASS || !asleep || !moveable {
+                return None;
+            }
+            let (mins, maxs) = physics.entity_world_bounds(entity)?;
+            if maxs.cmplt(lo).any() || mins.cmpgt(hi).any() {
+                return None;
+            }
+            let center = physics.bounds_center(body)?;
+            let class = world.entities.get(entity).map_or("", |e| e.class());
+            Some(zombie::SwatCandidate {
+                entity,
+                center,
+                radius: (maxs - mins).length() * 0.5,
+                top: maxs.z,
+                visible: sight.visible(eye, center, &[zombie, entity]),
+                ragdoll: matches!(class, "physics_prop_ragdoll" | "prop_ragdoll"),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

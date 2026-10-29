@@ -1002,6 +1002,9 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
             if instance.kind.starts_with("npc_") {
                 wanted.extend(NPC_BASE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
             }
+            if instance.kind == "npc_zombie" {
+                wanted.extend(ZOMBIE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
+            }
             for e in &world.entities {
                 for key in [
                     "DefaultAnim",
@@ -1316,6 +1319,14 @@ pub const NPC_BASE_AI_ACTIVITIES: &[&str] = &[
     "ACT_CLIMB_UP",
     "ACT_CLIMB_DOWN",
     "ACT_CLIMB_DISMOUNT",
+];
+/// CNPC_BaseZombie's class activities (DECLARE_ACTIVITY): GetSwatActivity's physics swats,
+/// for the zombies that can swat (CanSwatPhysicsObjects: not the fast zombie).
+pub const ZOMBIE_AI_ACTIVITIES: &[&str] = &[
+    "ACT_ZOM_SWATLEFTMID",
+    "ACT_ZOM_SWATRIGHTMID",
+    "ACT_ZOM_SWATLEFTLOW",
+    "ACT_ZOM_SWATRIGHTLOW",
 ];
 /// Activities the humanoid AI classes (npc_citizen, npc_barney, npc_alyx, npc_combine_s;
 /// hl2-simulation ai::humanoid and the base schedules) set, and every acttable result of

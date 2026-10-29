@@ -1198,6 +1198,10 @@ impl Gameplay {
             ai_player,
         );
         self.scene.npc_knows_player = self.ai.npcs_knowing_player();
+        // Zombie swats (AE_ZOMBIE_SWATITEM -> IPhysicsObject::AddVelocity).
+        for (object, velocity, angular) in std::mem::take(&mut self.ai.prop_swats) {
+            physics.add_entity_velocity(object, velocity, angular);
+        }
         for hit in std::mem::take(&mut self.ai.player_hits) {
             if hit.damage > 0. {
                 self.scene
