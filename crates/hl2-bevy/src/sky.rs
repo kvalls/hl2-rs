@@ -1,8 +1,11 @@
 //! Ordered owned LDR background and miniature scenery, before playable-world depth.
 use crate::{FlyCamera, assets::LoadedMap, bevy_to_source, rendering, source_to_bevy};
 use bevy::{
-    asset::RenderAssetUsages, camera::visibility::RenderLayers,
-    core_pipeline::tonemapping::Tonemapping, mesh::Indices, prelude::*,
+    asset::RenderAssetUsages,
+    camera::{RenderTarget, visibility::RenderLayers},
+    core_pipeline::tonemapping::Tonemapping,
+    mesh::Indices,
+    prelude::*,
     render::render_resource::PrimitiveTopology,
 };
 use source_assets::{
@@ -53,90 +56,14 @@ pub fn install(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<rendering::SourceMaterial>,
     images: &mut Assets<Image>,
+    target: Option<&Handle<Image>>,
 ) {
     if let Some(sky) = &loaded.sky {
-        let white = images.add(rendering::image(1, 1, vec![255; 4], false));
-        let black_cube = images.add(rendering::black_cube());
-        for (face, data) in sky.faces.iter().enumerate() {
-            let corners = [(-1., -1.), (-1., 1.), (1., 1.), (1., -1.)];
-            let mut mesh = Mesh::new(
-                PrimitiveTopology::TriangleList,
-                RenderAssetUsages::RENDER_WORLD,
-            );
-            mesh.insert_attribute(
-                Mesh::ATTRIBUTE_POSITION,
-                corners
-                    .iter()
-                    .map(|&(s, t)| {
-                        source_to_bevy(
-                            Vec3::from_array(
-                                source_assets::sky::face_vector(face, s, t).to_array(),
-                            ) * 16000.,
-                        )
-                        .to_array()
-                    })
-                    .collect::<Vec<_>>(),
-            );
-            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 1., 0.]; 4]);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.; 4]; 4]);
-            mesh.insert_attribute(
-                Mesh::ATTRIBUTE_UV_0,
-                corners
-                    .iter()
-                    .map(|&(s, t)| source_assets::sky::face_uv(s, t, data.transform).to_array())
-                    .collect::<Vec<_>>(),
-            );
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0.; 2]; 4]);
-            mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
-            // HDR faces are linear RGBA16F, drawn through the shader's linear-base path
-            // (parameters.w = -2 with a white second texture), times the tonemap scale.
-            let (base, linear) = if let Some(hdr) = &data.hdr {
-                let image = Image::new(
-                    bevy::render::render_resource::Extent3d {
-                        width: hdr.width.into(),
-                        height: hdr.height.into(),
-                        depth_or_array_layers: 1,
-                    },
-                    bevy::render::render_resource::TextureDimension::D2,
-                    hdr.rgba.iter().flat_map(|t| t.to_le_bytes()).collect(),
-                    bevy::render::render_resource::TextureFormat::Rgba16Float,
-                    RenderAssetUsages::RENDER_WORLD,
-                );
-                (images.add(image), true)
-            } else {
-                let image = rendering::image(
-                    data.image.width,
-                    data.image.height,
-                    data.image.rgba.clone(),
-                    false,
-                );
-                (images.add(image), false)
-            };
-            commands.spawn((
-                crate::campaign::MapOwned,
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(materials.add(rendering::SourceMaterial {
-                    tint: Vec4::ONE,
-                    parameters: Vec4::new(0., 1., 0., if linear { -2. } else { 0. }),
-                    base,
-                    lightmap: white.clone(),
-                    iris: white.clone(),
-                    secondary_uv: Mat3::IDENTITY,
-                    lighting: Default::default(),
-                    envmap: black_cube.clone(),
-                    envmap_tint: Vec4::ZERO,
-                    envmap_contrast: Vec4::ZERO,
-                    envmap_saturation: Vec4::ZERO,
-                    envmap_mask: white.clone(),
-                    self_illum: Vec4::ZERO,
-                    alpha: AlphaMode::Opaque,
-                    two_sided: true,
-                })),
-                Transform::IDENTITY,
-                RenderLayers::layer(3),
-            ));
-        }
+        spawn_skybox_faces(sky, commands, meshes, materials, images);
     }
+    let target_comp = target
+        .map(|t| RenderTarget::Image(t.clone().into()))
+        .unwrap_or_default();
     for (is_2d, layer, order) in [(true, 3, -2), (false, 4, -1)] {
         commands.spawn((
             crate::campaign::MapOwned,
@@ -146,6 +73,7 @@ pub fn install(
                 is_active: false,
                 ..default()
             },
+            target_comp.clone(),
             RenderLayers::layer(layer),
             SkyCamera(is_2d),
             Tonemapping::None,
@@ -163,8 +91,82 @@ pub fn install(
         ));
     }
 }
+
+fn spawn_skybox_faces(
+    sky: &Skybox,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<rendering::SourceMaterial>,
+    images: &mut Assets<Image>,
+) {
+    let white = images.add(rendering::image(1, 1, vec![255; 4], false));
+    let black_cube = images.add(rendering::black_cube());
+    for (face, data) in sky.faces.iter().enumerate() {
+        let corners = [(-1., -1.), (-1., 1.), (1., 1.), (1., -1.)];
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            corners
+                .iter()
+                .map(|&(s, t)| {
+                    source_to_bevy(
+                        Vec3::from_array(source_assets::sky::face_vector(face, s, t).to_array())
+                            * 16000.,
+                    )
+                    .to_array()
+                })
+                .collect::<Vec<_>>(),
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 1., 0.]; 4]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.; 4]; 4]);
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_UV_0,
+            corners
+                .iter()
+                .map(|&(s, t)| source_assets::sky::face_uv(s, t, data.transform).to_array())
+                .collect::<Vec<_>>(),
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0.; 2]; 4]);
+        mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+        // HDR faces are linear RGBA16F, drawn through the shader's linear-base path
+        // (parameters.w = -2 with a white second texture), times the tonemap scale.
+        let (base, linear) = if let Some(hdr) = &data.hdr {
+            let image = Image::new(
+                bevy::render::render_resource::Extent3d {
+                    width: hdr.width.into(),
+                    height: hdr.height.into(),
+                    depth_or_array_layers: 1,
+                },
+                bevy::render::render_resource::TextureDimension::D2,
+                hdr.rgba.iter().flat_map(|t| t.to_le_bytes()).collect(),
+                bevy::render::render_resource::TextureFormat::Rgba16Float,
+                RenderAssetUsages::RENDER_WORLD,
+            );
+            (images.add(image), true)
+        } else {
+            let image = rendering::image(
+                data.image.width,
+                data.image.height,
+                data.image.rgba.clone(),
+                false,
+            );
+            (images.add(image), false)
+        };
+        commands.spawn((
+            crate::campaign::MapOwned,
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(materials.add(face_material(base, linear, (&white, &black_cube)))),
+            Transform::IDENTITY,
+            RenderLayers::layer(3),
+        ));
+    }
+}
 pub fn present(
     mut sky: ResMut<Sky>,
+    frame: Option<Res<crate::video::GameFrame>>,
     mut world: Query<(&Transform, &mut Camera, &Projection), With<FlyCamera>>,
     mut backgrounds: Query<
         (&SkyCamera, &mut Transform, &mut Camera, &mut Projection),
@@ -201,6 +203,10 @@ pub fn present(
         {
             sky_p.fov = world_p.fov;
         }
+        if frame.as_ref().is_some_and(|f| f.suspended > 0) {
+            camera.is_active = false;
+            continue;
+        }
         camera.is_active = if kind.0 { visible_2d } else { visible_3d };
         camera.clear_color = if !kind.0 && visible_2d {
             ClearColorConfig::None
@@ -215,5 +221,35 @@ pub fn present(
                 source_to_bevy(Vec3::from_array((b.origin + eye / b.scale).to_array()))
             })
         };
+    }
+}
+
+/// A 2D sky face's material: its texture unlit (`linear`: already linear HDR), no flashlight.
+fn face_material(
+    base: Handle<Image>,
+    linear: bool,
+    (white, black_cube): (&Handle<Image>, &Handle<Image>),
+) -> rendering::SourceMaterial {
+    rendering::SourceMaterial {
+        tint: Vec4::ONE,
+        parameters: Vec4::new(0., 1., 0., if linear { -2. } else { 0. }),
+        base,
+        lightmap: white.clone(),
+        iris: white.clone(),
+        secondary_uv: Mat3::IDENTITY,
+        lighting: rendering::ModelLighting {
+            params: Vec4::W,
+            ..Default::default()
+        },
+        flashlight: white.clone(),
+        viewmodel_flashlight: Default::default(),
+        envmap: black_cube.clone(),
+        envmap_tint: Vec4::ZERO,
+        envmap_contrast: Vec4::ZERO,
+        envmap_saturation: Vec4::ZERO,
+        envmap_mask: white.clone(),
+        self_illum: Vec4::ZERO,
+        alpha: AlphaMode::Opaque,
+        two_sided: true,
     }
 }

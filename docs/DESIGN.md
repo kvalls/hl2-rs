@@ -1,5 +1,15 @@
 # Design
 
+## Background projection independent of gameplay (2026-10-28)
+
+Correct the previous follow-up: stabilizing a saved gameplay FOV was the wrong menu policy.
+Use the authored 75-degree 4:3 background reference and preserve existing aspect cropping;
+ignore gameplay horizontal/vertical FOV and weapon/env zoom in background projection.
+The older a7f071e3/be113848 paths also consume player FOV; history does not establish Fit
+Display as the cause. Add geometry tests against the artwork crop, setting independence,
+Fit Display's actual internal resolution, and first-view/fixed-tick stability. Verify and
+commit this bounded correction without unrelated projection refactoring.
+
 ## Research plan: retail virtual sequence source mapping (2026-10-28)
 
 Resolve the nine base sequence IDs retained in the selected citizen's passive opening capture. Bind retail sequence lookup, virtual group/local-index selection and included-header access with exact pass14 identities and independent PE bytes. Read the selected owned model and its include dependencies in place, preserving source ranges and hashes. Keep an offline reconstruction distinct from an actual loaded virtual table; admit a runtime clip identity only with a guarded raw table/header witness. Preserve missing lookups and rejected assumptions in a new private root. Overlay, flex, root motion, final pose and Rust parity remain separate questions.
@@ -7,6 +17,413 @@ Resolve the nine base sequence IDs retained in the selected citizen's passive op
 After two failed passive diagnostics, stop coupling content interpretation to live acquisition. Collect a bounded raw graph using the byte-bound retail layout, retain uncached groups explicitly, and resolve captured headers offline by checksum/name. The content inventory's alphabetical order is not virtual group order. Treat any error key as failure even when its assertion text is empty; cap consecutive tick-race exclusions separately. Synthetic controls must use independently ordered metadata so the same mistaken assumption cannot pass both collector and fixture.
 
 Outcome: the independent BW raw graph verifies all nine selected group/local pairs and eight cached descriptors against owned content. The direct root descriptor is a separate witness while its group cache is null. Three graphs agree with the1416-entry candidate pattern; one tick-crossing actor acquisition is excluded from timing. Owned root version44 versus loaded48 is an observed header difference, not a traced conversion. Next bind overlay/gesture source and record layout before passive layer/flex measurement. No final-pose or Rust implementation conclusion follows from base sequence labels.
+
+## Preserve configured FOV on background reveal (2026-10-27)
+
+The authored camera is now initialized before reveal, but inventory FOV still starts at
+75 until the first fixed tick adopts the configured default. Initialize that same inventory
+FOV during background view preparation before resolving zoom. Extend the existing camera
+unit test and install-frame replay with a nondefault FOV, reproduce the old failure, then
+run full validation, Windows-target checks and the focused packaged replay. Keep this a
+single small checkpoint; no new render work, FOV policy or speculative investigation.
+
+## Preserve weapon coverage at clipped blur footprints (2026-10-27)
+
+Reproduce SMG/shotgun firing and reloading with the cutout-alpha fix retained. The weapon
+reconstruction skips offscreen taps but divides color and coverage by the full requested
+count. A clipped footprint therefore loses energy and becomes spuriously transparent near
+the bottom/right edges. Accumulate the number of in-frame taps and use it for both divisions;
+in-frame background remains part of coverage, while unknown offscreen pixels are excluded.
+Keep exposure, reach cap, tap density, source ownership and world/retail paths unchanged.
+A private GPU negative control restores only the old divisor and must report the failure
+on real animated geometry. Verify both weapons/animations at no AA and 4x AA, then run the
+existing crowbar/option-lifecycle coverage and inspect normal captures. The previous cutout
+fix stays active in every case. No new texture sampling/pass/resource is required.
+
+## Opaque alpha for cutout survivors (2026-10-27)
+
+The Source color shader discarded below the authored cutoff but retained fractional alpha
+for accepted masked fragments. Later camera composition blended sky through these edges,
+matching sky-dependent bright rims even with blur off; reconstructed blur could spread them.
+Use the existing MAY_DISCARD pipeline specialization to make surviving masked fragments
+opaque after the test. Preserve texture alpha for self-illumination/environment masks and
+leave translucent/additive materials unchanged. No texture replacement, mip/filtering/AA
+change, new pass or render resource is needed. Verify trees and fences on Metal with no AA,
+4x AA and Ultra; a private GPU probe reports partial survivor alpha, and a negative control
+must detect the old shader. Capture normal output as well as diagnostic colors.
+
+## Loading and rendering regressions (2026-10-27)
+
+Address three owner reports as separate verified commits: (1) background-map handoff
+flicker, (2) firing/reloading weapon transparency and screen-edge artifacts, (3) bright
+cutout borders on fences/branches, apparently strongest on Metal. Reproduce each with
+isolated packaged captures, retain rejected evidence, identify the owning render stage,
+and add focused regression coverage. Loading presentation must reveal the authored camera from the first exposed frame,
+without an arbitrary sleep. The captured first-frame regression is a spawn-view flash: zero-time
+logic_auto events and shared scripted-camera resolution must finish before reveal. Weapon fixes must preserve strong reconstruction
+and surface ownership. Cutout fixes must preserve depth/sky ordering and configured AA.
+Run relevant owned probes and workspace/Windows-target checks before each commit, update
+MODLOG/STATUS and detailed validation evidence, and stop on unresolved verification failure.
+No feature is considered fixed from a single clean frame or source inspection alone.
+
+## Integrate chapter UI and rendering work (2026-10-27)
+
+Merge orbitalman/hl2-ui-chapters into orbitalman/hl2-ui. Preserve the resource-driven
+chapter browser, asynchronous startup/loading, commentary and movie paths together with
+the four blur tiers and startup-only rendering policy. Resolve startup composition by
+reusing the existing app helper; preserve both branches' evidence rather than choosing
+one history. Recalculate architecture exceptions from actual merged code without hiding
+growth. Validate workspace tests, strict host/Windows-target Clippy, formatting and the
+packaged chapter/loading, commentary, movie and blur coverage checks. Record failures
+and untested runtime scope explicitly. Leave unrelated files untouched.
+
+## Restore weapon-only Advanced and opt into Ultra (2026-10-27)
+
+Owner decision during wrap-up: Disabled and Enabled retain retail behavior. Advanced adds
+only viewmodel animation reconstruction to retail camera blur, as the a8 design did. Ultra
+adds reconstructed camera/world and opaque/masked projectile motion. A default-false
+motion_blur_world field preserves old Advanced saves as weapon-only; a shared typed mode
+policy drives UI and host gates. Selecting Ultra enables both extensions; the retail master
+cvar resets to Enabled. Ultra is a localized HL2RS label: the installed GameUI_Ultra token
+actually displays Very High. A cyan status explains Ultra's experimental GPU tuning.
+Retain the saved fields, test all four modes/legacy JSON/cvar reset and owned labels, then
+verify GPU world/weapon pass activation and Advanced performance. Historical benchmark
+series labelled Advanced before this split measured what is now Ultra. No GPU model is
+required/blocked for Ultra; frame budgets and measured resolution/AA determine suitability.
+
+## Bound the weapon reduction to current raster coverage (2026-10-27)
+
+Both cooperative kernels preserve their results but fail to establish a Metal cost win;
+retain them and their GPU comparator on the cooperative archive branch. Return to the
+fragment reduction. For the weapon camera only, project the existing per-camera visible
+meshes' current AABBs after transform/visibility updates. Union conservative screen bounds;
+missing/nonfinite or near-plane-crossing bounds fail open to the full frame. Fully behind
+or offscreen boxes contribute nothing. Expand by two source pixels and round outward to
+4x4 reduction texels. Clear the entire existing reduced attachment, then scissor only the
+first reduction draw; later dilation/gathers remain full and preserve blur trails. No new
+image/pass, sample/tap/exposure/AA reduction or per-frame heap allocation. World reduction
+stays full. Test projection conservativeness and odd/edge/empty extents, then weapon coverage,
+silhouettes and three native pairs. Profile projected-region CPU cost and processed texels.
+
+Promote the independently useful direct-drawing policy only for the measured Apple M1 Pro
+Metal adapter, with an explicit startup override and the profiling override retained. Other
+GPUs keep their existing default. Choose/register before cameras spawn; record the selected
+mode, test hardware/override policy and verify normal packaged captures before committing.
+Move background app construction into a startup helper to keep main.rs within its existing
+size baseline. This is a narrow startup policy, not a new renderer or third-party patch.
+
+## Declare priming separately from sustained measurements (2026-10-27)
+
+Several first pairs have baseline-memory drift while subsequent pairs are stable. Keep
+those original results. For future sustained qualification, BLUR_PRIME=1 prospectively
+records one Enabled and one Advanced priming run before the three measured alternating
+pairs. Retain their full reports/counters in priming.json; do not mix them into sustained
+medians or delete cold/pressure evidence. Every measured pair retains the same resource
+matching and frame-time guards. Priming is explicit and defaults off. This distinguishes
+cold allocation/cache behavior from steady workload; it does not establish lower peak memory
+or excuse pressure caused by a feature. Record the command/policy before collecting data.
+
+## Cooperative motion reduction with unchanged samples (2026-10-27)
+
+Direct drawing removes most render-phase write overhead and greatly improves 720p, but the
+native 4x-AA blur still fails its budget. Preserve that source on its archive branch. Replace
+only the first 4x4 maximum-motion reduction with a cooperative compute kernel: an 8x8 source
+block produces four reduced texels, with up to four sample lanes sharing MSAA loads. Keep
+all samples, thresholding and y/x/sample tie order identical; no tap/exposure/AA change and
+no readback. Write the existing RGBA16F reduced image directly, avoiding a new image or extra
+pass. Dispatch covers partial edge tiles and all output texels. Keep later reductions and
+world/weapon gathers unchanged. Validate shader compilation, actual motion/silhouette/coverage
+probes, then three alternating native pairs and work/frame against the archived direct path.
+Reject/archive any cost or correctness regression. The owner deprioritised watt telemetry;
+continue measured work/frame and memory proxies without pursuing privileged power sampling.
+
+## Reduce render preparation and measure work per frame (2026-10-27)
+
+Uncapped native and 720p data show render-phase buffer preparation around 2.3 ms Enabled
+and 4.5-4.7 ms Advanced, despite the pixel-count reduction. Test the supported direct-draw
+camera mode as a profiling-only experiment: an opt-in startup flag adds NoIndirectDrawing
+when cameras are initially created, never during play. Keep default rendering unchanged
+until measured. Retain geometry, materials, resolution/AA, simulation and blur filter math.
+Compare three alternating pairs at matched settings, CPU work/frame, GPU busy-time proxies
+and memory, then image/pose/occlusion checks. The documented general risk is extra CPU draw
+work and lost indirect batching/culling; reject/archive a regression rather than assuming a
+win. Do not modify Bevy. Preserve this variant separately before replacing it.
+
+The owner also requires compute/energy efficiency, beyond maximum FPS. Report process CPU
+milliseconds per rendered frame and explicitly system-wide GPU-busy milliseconds/frame as
+a proxy, with missing watt/joule fields null. Local powermetrics refuses unprivileged use;
+actual power is unavailable, not estimated from utilisation. Later energy comparisons need
+matched-FPS, scene, resolution, thermal and power-source conditions and a trustworthy power
+source. Fixed-rate and uncapped measurements answer different questions; neither alone
+establishes energy savings. Keep peak FPS, frame tails, work/frame and memory as separate
+criteria, preserving gameplay and blur quality.
+
+## Uncapped profiling before low-settings throughput work (2026-10-27)
+
+The existing background runner's 1/60 s interval includes profiling runs. Separate test
+pacing from throughput: uncap only background --profile, retaining ordinary background replay
+pacing, interactive behavior and the two-marker GPU completion bound. Test the selection
+policy, then check scripted time/pose outcomes and completed-frame telemetry. In an exclusive
+timing window, repeat fixed scenes across 720p, 1080p and native resolution, AA off/4x, and
+Enabled/Advanced/reference weapon-only modes. Report CPU work, waits and completed throughput
+separately; fixed 15 ms gameplay order stays intact. Targeting 120 FPS requires an 8.33 ms
+frame budget; success is not established by the previous 60 Hz-paced observations. A wider
+low-settings renderer redesign requires a separate measured plan after these results.
+
+## Sample main depth without a copied prepass image (2026-10-27)
+
+The repeated direct-colour candidate fails the comparable swing budget. Its source remains
+archived. Bevy's DepthPrepass exports depth by copying the main multisampled depth texture;
+our reconstruction runs after drawing and can sample that main depth directly. Keep motion
+prepasses, replace only the exported depth binding, and request TEXTURE_BINDING while a blur
+camera is active. Record and remove only usage bits added by this feature on disable; retain
+other camera settings. Do not change filter taps, exposure, geometry AA or off-mode passes.
+Verify activation/disable usage restoration, bloom tests, packaged depth/occlusion/MSAA and
+weapon probes, then repeated resource-aware native pairs before accepting this candidate.
+
+## Direct resolved colour sources (2026-10-27)
+
+After switching compositions to single-sample post_process_write, the per-view foreground
+colour copy is redundant. Bind both of Bevy's resolved main texture views ahead of time and
+select the current source by identity during rendering. Treat the pair as unordered in the
+cache key so normal ping-pong flips do not create bind groups each frame. Keep only the
+weapon's pre-draw world-background snapshot. Remove the two owned native foreground images
+and their copies; keep all filter math/geometry AA and the existing quarter world targets.
+Verify source-pair cache invariance, resize/AA changes, GPU surface/occlusion/crowbar probes,
+normal captures and three alternating native timing pairs per scene. Empty-ray skipping did
+not establish a gain in its contextual batch and is preserved on its archive branch rather
+than retained in the preferred path. No shader sample quality reduction is part of this step.
+
+Repeated native qualification defaults to three Enabled/Advanced pairs per scene, with
+order reversed in the middle pair. Report every iteration, paired cost ratios and median/
+minimum/maximum frame means and p95/p99 values. Medians smooth ordinary noise; known
+interference remains flagged rather than averaged away. The raw evidence is never hidden.
+
+## Conservative empty-ray skipping (2026-10-27)
+
+Reuse the existing undilated 32x32 maximum-motion tiles for native world gathers. When the
+destination is stationary, samples with no independent object motion contribute neither
+colour nor coverage. If an undilated tile is zero, its raw samples are all below the motion
+onset. Skip directly to a conservative sample index at/before the ray exits that tile,
+retaining the original tap denominator and every potentially contributing sample. Do not
+skip revealed-background estimates for moving destinations. Enable the lookup only on rays
+at least sixteen pixels long, where skipping can offset its cost. Unlike the rejected
+occupancy lookup, this avoids whole loop iterations; no image or pass is added. Validate
+GPU foreground ownership, occlusion, projected projectile silhouettes and native performance.
+
+Quiet preflight is preferred, but resource comparability remains the committed matched-input
+protocol: a stable moderate baseline is a valid input. Retain the quiet-baseline observation
+without requiring an arbitrary completely idle machine. Earlier experimental quiet-only
+flags stay in their evidence; use fresh runs for qualification. Frame-time thresholds and
+actual competing-work/pressure rejection remain unchanged.
+
+## Lazy native world gather (2026-10-27)
+
+World producers already export object-only UV motion and explicitly disable sky/background
+vectors. The native object gather can classify static samples from motion alone. Read
+MSAA depth only for moving samples, for the destination's occlusion depth, or when a moving
+centre estimates revealed background. Compute camera reprojection only for contributing
+foreground samples. Quarter camera filtering retains its current depth handling. No new
+mask/cache/pass is needed. For short world trajectories, use the existing 1.5 samples/pixel
+density with an odd minimum of three instead of seventeen; trajectories over eleven pixels
+and the weapon filter retain their dense counts. Preserve odd centred coverage, silhouette
+expansion, foreground occlusion, exposure and reach. Validate native performance and all
+world/weapon GPU probes before accepting; avoid the rejected extra occupancy texture.
+
+## Conservative weapon motion precheck (2026-10-27)
+
+Reuse the existing dilated maximum-UV-motion field before reading native/MSAA weapon depth
+and vectors. If length(maximum UV motion) * max(width,height) * exposure is below one pixel,
+all owned sample/mean velocities are also below the existing filter onset, including on
+non-square views. Return the same sharp input immediately. Use the conservative maximum
+frame dimension, not the dominant vector's pixel length, because maximum UV length does
+not preserve pixel-length ordering across axes. Keep all active filter taps, coverage,
+shutter and surface ownership unchanged. This adds no resource or pass. Verify the existing
+GPU ownership/coverage and crowbar silhouette tests at no AA/4x AA and native performance.
+
+## Headless GPU completion pacing (2026-10-27)
+
+Resource traces show a rising GPU-managed memory footprint during expensive headless runs.
+Unlike a window surface, the offscreen target supplies no acquisition backpressure. Test
+whether submission outruns completion before accepting CPU-present FPS as GPU throughput.
+For headless --profile only, keep two submission fences in a fixed ring. Use an empty queue
+submission as a completion marker after rendering; wait only for the oldest marker before
+reusing its slot. Record submitted/observed-completed frames, bounded pending fences and
+wait durations. This adds no new dependency, render pass, callback allocation or ordinary/
+interactive-game work. Verify completion pacing, resource stability and measured throughput;
+if it does not explain the growth, retain the failed evidence and change approach.
+
+The environment sampler's first GPU reading can retain the preceding run's load while CPU
+counters have no initial delta. Retain this primer separately, wait one sampling interval,
+and compare the subsequent baseline only; otherwise stale GPU readings create false
+ambient-load mismatches. Preserve raw data and mark earlier qualification flags accordingly.
+
+## Resolved weapon composition follow-up (2026-10-27)
+
+The weapon filter also consumes an already-resolved colour image and writes identical
+reconstructed values to each MSAA output sample. Preserve its exact a8 sampling/coverage
+math and multisampled motion/depth inputs, but test the same single-sample post-process
+destination and shared draw helper for its final composition. Scene and weapon geometry
+still render at the configured AA level. Qualify the surface-ownership/coverage probes at
+no AA and 4x AA plus crowbar strength/off/pause checks, and native-resolution paired costs.
+
+## Resolved world post-processing experiment (2026-10-27)
+
+The resource-aware batch shows Advanced near GPU saturation and higher driver-managed
+system-memory use/pressure. The world reconstruction currently writes a full-screen filter
+back into a multisampled colour attachment and resolves it again, although its colour input
+is already resolved and every output sample receives the same reconstructed value. Test
+Bevy's normal single-sample post_process_write destination for the world composite; retain
+MSAA motion/depth input, scene/weapon AA, shutter length, native object gather and weapon
+algorithm. Use the shared draw helper, without another pass or framebuffer. Bevy's existing
+MSAA writeback supplies the processed background to the subsequent weapon view. Verify
+background preservation, native AA, projectile/weapon GPU probes and actual-resolution
+mean/tail/resource changes before qualifying; do not accept just a faster averaged frame.
+
+## Hardware-aware blur qualification (2026-10-27)
+
+Pair each native-resolution blur run with bounded, timestamp-aligned frame and host-resource
+windows. Frame windows collect only under --profile after warm-up, without per-frame
+allocation or file access. Keep 128 windows in a ring, whole-run frame percentiles, and
+report retained/dropped counts. Sample host telemetry about once per second outside the
+game; record sampler overhead and missing fields. On Apple Silicon, read aggregate CPU
+load counters, driver-reported renderer/tiler/device utilisation, VM page counts/pressure
+and benchmark-process CPU time/RSS. Unified memory is one pool; dedicated VRAM availability
+is unavailable, not total RAM minus GPU allocations. Unsupported platforms retain explicit
+unavailable metrics; do not invent compute availability from core count or free memory.
+
+Align resource samples with frame windows, report same-workload associations and paired
+Advanced/Enabled cost ratios. Pixel throughput and frames per consumed game CPU-second
+are defined ratios; system GPU busy-time throughput is a labelled utilisation proxy, not
+FLOPS or an isolated GPU duration. Resource use includes the workload itself, so correlation
+is not causation. Record competing games/builds and pressure changes, flag mismatched
+paired environments, and never relax the existing frame-time thresholds to explain a
+regression away. Collect all cases even when one performance guard fails. Validate counter
+parsers, alignment, unified-memory semantics, missing metrics and correlations with fake
+samples, then run isolated owned packages. Keep render experiments separate from this
+instrumentation checkpoint; primary checkout/user settings remain untouched.
+
+## Advanced high-resolution/MSAA regression (2026-10-27)
+
+Owner measures a8a050b at about 50 FPS with no shake penalty, versus f7369cd at about
+40 FPS idle and 10 FPS shaking, at 3456x2168 with 4x MSAA. The earlier 1024x768/no-AA
+measurements do not qualify this path. Preserve the a8 weapon filter and retail modes.
+First isolate full-resolution reconstruction, MSAA reads and world-prepass costs with copied
+packages at the owner's settings. Bound expensive world gathers to a reduced-resolution
+intermediate, composite to native resolution only where motion contributes, and avoid
+repeated MSAA/depth/reprojection work in gathers. Retain projectile silhouette tests and
+bright-lamp quality checks; do not accept a smooth-but-aliased or scenery-smearing fallback.
+Measure still/violent turns at actual resolution/AA against both commits, report peaks as
+well as averages, run local/Windows-target checks and packaged regressions, then commit.
+Isolation shows the prepass alone is not dominant. Source/effect prepasses export an
+explicit host-owned object-only motion channel; only our Advanced filters consume it.
+Static positions return zero before projection. Disable the world background-vector pass,
+since this renderer reconstructs sky/camera motion itself. Camera reprojection runs separately in the
+bounded image filter; moving silhouettes stay native resolution in motion-bounded tiles.
+Record --profile frame p95/p99 upper bounds and exact maximum without per-frame allocation;
+ordinary play does not collect the distribution. Preserve the same alpha masks in effect
+depth/color paths. This channel is not compatible with a future generic temporal consumer
+without an adapter; no such consumer is currently installed on these views.
+
+The extra full-resolution resolved-motion cache failed both dense and sparse variants;
+a separate single-sample prepass camera also failed the idle budget. Reject both instead
+of retaining their framebuffer/geometry overhead. An occupancy-mask lookup using the
+existing conservative 4x4 reduction also failed its initial guard; contributor compilation
+overlapped part of that batch, so it does not establish isolated GPU cost. Remove the
+experiment and obtain individual GPU pass timings before further structural changes.
+Potential next designs: motion-bounded work lists, short multiscale camera gathers and
+shared-memory tile caching. Preserve thin projectiles, occlusion, the a8 weapon path,
+configured visible MSAA and the native-resolution performance thresholds.
+
+## Advanced world and projectile blur (2026-10-27)
+
+Reuse the Advanced reconstruction backend for the world camera, with its own lifecycle.
+Enable depth/motion prepasses only in Advanced gameplay, warm after discontinuities, and
+keep Disabled/Enabled on their existing paths. Use the prepass's PreviousViewData and reproject depth to separate camera motion
+from object motion; reduce relative object motion for silhouette expansion. Use dense,
+centered camera gathers and depth-aware moving-surface gathers, with no color history.
+World reconstruction must use the rendered world rather than the weapon-only background
+snapshot; sky has camera-only motion. Own persistent textures per view rather than borrowing
+from a one-frame pool. Cache GPU resources; skip static pixels and all option-off work. Transparent
+particles lack motion vectors and remain an explicit limitation. Validate model projectiles,
+fast turns and bright lamps with packaged GPU probes/captures, check weapon regressions,
+measure paired timings, run local/Windows-target checks and commit the bounded checkpoint.
+
+## Advanced weapon blur flicker (2026-10-27)
+
+Work in the isolated hl2-ui checkout while chapter-selection work proceeds separately.
+Reproduce pistol firing/reload/draw and weapon switches with matched-frame Advanced and
+retail/sharp captures. Separate prepass/color visibility errors from motion reconstruction
+by suppressing only the composite while retaining Advanced prepasses, then inspect coverage,
+motion fields and resets as needed. Fix the demonstrated cause in the host/shader boundary;
+keep the strong crowbar silhouette trails and retail modes, with no work when disabled.
+Add focused regressions, inspect captures, measure matched before/after frame times and
+pass CPU cost, run standard/Windows-target checks and packaged blur coverage, rebuild and
+verify package hashes, then commit the checkpoint. Keep chapter UI files untouched.
+
+## Horizontal HUD symbol centering follow-up (2026-10-27)
+
+- Reproduce residual left drift with installed glyph bearings and emitted bounds.
+- Preserve authored arc spacing, translate the pair by its actual horizontal midpoint,
+  and center the portable crosshair by ink bounds rather than advance width.
+- Compare retained accepted native 720p/1080p captures. Use the installed desktop
+  QuickInfo font definition with our character-cell rasterizer; do not apply macOS
+  backend-specific font sizes as Windows cell sizes or alter global resource conditions.
+- Assert both axes, retail size/spacing and equal outer margins across viewport/aspect/state cases;
+  compare packaged captures and timings, run workspace and Windows-target checks.
+
+## Quick-info arc alignment and HUD layout coverage (2026-10-27)
+
+- Reproduce the vertical offset using actual installed glyphs and emitted canvas quads.
+- Keep quick-info drawing in its own HUD module; center arc bitmap bounds on the
+  view center without altering text font metrics or progress clipping. Apply the
+  same correction to the portable weapon reticle; preserve native Windows raster placement.
+- Test full, partial and warning geometry, resolution/font-range transitions,
+  odd dimensions, portrait and HUD aspect framing. Keep resource-driven panel tests.
+- Run workspace validation, Windows-target Clippy and owned-install layout tests.
+  Compare packaged HUD/aspect replays and frame/HUD timings before and after;
+  inspect captures and refresh executable/shader metadata.
+
+## Movie playback and startup video sequence (2026-10-27)
+
+Bounded design for full-screen movie playback (`playvideo` / `playvideo_exitcommand`) and the startup video sequence across `source-assets`, `hl2-ui`, and `hl2-bevy`:
+
+1. **Bink container parser (`source-assets::bink`)**:
+   - Parse Bink 1 container header (`BIKi`, `BIKb`, `BIKf`, `BIKg`, `BIKh`): file size, frame count, width, height, FPS (`fps_num / fps_den`), calculated duration in seconds, flags, and audio track parameters.
+   - Unit tests against synthetic header fixtures and owned installation videos (`media/valve.bik`, `media/ep1_recap.bik`, `media/ep2_teaser.bik`).
+2. **Console commands and modal `VideoPanel` (`hl2-ui::console`, `hl2-ui::gameui::video`)**:
+   - Register `playvideo <filename> [width height]` and `playvideo_exitcommand <filename> <exit command>` in `COMMANDS` (`cvars.golden`).
+   - Path resolution: look under `media/<filename>`, appending `.bik` if unadorned.
+   - Implement `VideoPanelState`: full-screen modal blackout, aspect-ratio letterboxing/pillarboxing (`flVideoRatio` vs `flFrameRatio`), skip key handling (`KEY_ESCAPE`, `KEY_SPACE`, `KEY_ENTER`, `KEY_BACKQUOTE` / `~`), elapsed playback clock, and exit command dispatch.
+   - Retail fallback invariant: if the video cannot be opened or played, log `Unable to play video: %s` and immediately dispatch the exit command (`engine->ClientCmd(pExitCommand)`) so campaign progression (e.g. `ep2/cfg/chapter1.cfg` -> `map ep2_outland_01`) never soft-locks.
+3. **Host wiring and startup sequence (`hl2-bevy`)**:
+   - Wire `Effect::PlayVideo` in `sim.console_effects`, muting active background/ambient audio while playback is active and unmuting on stop.
+   - Startup videos: on launch without `--novid` / `-novid`, without `--map`, and without `--no-setup`, check `media/StartupVids.txt` (default `media/valve.bik`), play before displaying the main menu, and transition to the menu upon completion or skip.
+   - Instrument presentation report with active `video` playback state (`filename`, `playing`, `elapsed`, `duration`, `exit_command`).
+
+Validation: unit tests in `source-assets` and `hl2-ui`; `validate.sh`, `check_windows.sh`, and packaged replay checks (`replays.py`).
+
+## Developer commentary mode (2026-10-27)
+
+Bounded design for Developer Commentary across `source-ui`, `hl2-ui`, `hl2-simulation` and `hl2-bevy`:
+
+1. **Chapter browser footer toggle and card badge (`source-ui::card_browser`, `hl2-ui::gameui::new_game`)**:
+   - Read `newgamedialog.res` and `newgamechapterpanel.res` through `Reader::new(vfs)` so `hl2_complete/resource/newgamedialog.res` and `hl2_complete/resource/newgamechapterpanel.res` take precedence when present.
+   - Parse `ImagePanel1` (`22, 254, 308x40`), `CommentaryIcon` (`25, 258, 43x42`, `scaleAmount 0.5`), and `Commentary` (`CheckButton` at `60, 262, 264x24`, font `ChapterTitle`, label `#HL2_Enable_Commentary`) from `newgamedialog.res`, plus the per-card `CommentaryIcon` (`10, 100, 43x42`, `scaleAmount 0.5`) from `newgamechapterpanel.res`.
+   - Decode `materials/vgui/resource/commentary_hl2c.vtf` (fallback `materials/vgui/hud/icon_commentary_small.vtf`).
+   - Add generic optional footer toggle and card badge specs to `source_ui::card_browser::BrowserLayout` without naming HL2 in `source-ui`. When checked, each chapter card renders the scaled badge at `(10, 100)` over the thumbnail's bottom-left corner. Include the checkbox in `CardBrowser`'s keyboard focus and pointer handling.
+2. **Explanation confirmation and cvar (`hl2-ui::console`, `hl2-ui::config`)**:
+   - Add `commentary: bool` (`#[serde(default)]`) to `GameplaySettings` and register the `commentary` cvar in `COMMANDS` (`cvars.golden`).
+   - When starting a chapter from `NewGameDialog` with commentary unchecked, clear `config.gameplay.commentary` and `cheats`, emit `Effect::ApplyConfig`, close `NewGame` and start the map.
+   - When starting a chapter with commentary checked, open modal `ConfirmKind::StartCommentary(GameMap)` using `MessageBox` (`380x240`, title `#GameUI_CommentaryDialogTitle`, text `#GAMEUI_Commentary_Console_Explanation`, OK `#vgui_ok`, Cancel `#vgui_cancel`, matching `hl2/resource/commentaryexplanationdialog.res`). Confirming sets `config.gameplay.commentary = true` and `cheats = true`, emits `Effect::ApplyConfig`, closes `NewGame` and starts the map; cancelling returns focus to `NewGame`.
+3. **In-game `point_commentary_node` simulation and presentation (`hl2-simulation::commentary`, `hl2-ui::hud`, `hl2-bevy`)**:
+   - Parse `maps/<map>_commentary.txt` (`Entities` -> `entity` blocks, replacing `^` with `"` in string values and converting `connections` subblocks to standard entity outputs).
+   - When commentary mode is enabled on a gameplay map, append the parsed commentary entities and the `commentary_semaphore` `info_target` before model loading so `point_commentary_node` spawns with `models/extras/info_speech.mdl` (preloading both skin 0 `speech_info` and skin 1 `speech_info_used`). Fire `commentary_auto` outputs (`OnCommentaryNewGame`, `OnCommentaryMultiplayerSpawn`) on map spawn.
+   - Support `StartCommentary`, `StopCommentary`, `StartUnstoppableCommentary`, `Enable`, `Disable` and `Toggle` inputs on `point_commentary_node`.
+   - Run per-tick commentary logic only while `commentary` is enabled (zero per-frame work when off): raycast the player's view against visible `point_commentary_node` `[-16, -16, -16]..[16, 16, 16]` bounds, spin the speech balloon (`0x` idle, `1x` when aimed at while unlistened, `3x` while active), toggle targeted nodes on `+use`, jump to the next node with a brief black fade on `+attack2`, execute `precommands` / `postcommands`, interpolate camera overrides for `viewposition` / `viewtarget` (with `point_commentary_viewpoint` sprite visibility and `prevent_movement`), emit audio and closed captions, switch finished nodes to skin 1 (`speech_info_used`), and make the player invulnerable to damage while commentary mode is active.
+   - Add `HudCommentary` (`crates/hl2-ui/src/hud/commentary.rs`, parsed from `scripts/hudlayout.res` `HudCommentary`: `c-190, 350, 380x40`, `vgui/hud/icon_commentary`, speaker label, `N \ M` counter and orange progress bar), drawn while a node is active and `closecaption` is disabled (matching `CHudCommentary::ShouldDraw`).
+
+Validation: unit tests and owned-install tests across `source-ui`, `hl2-ui`, `hl2-simulation` and `hl2-bevy`; `validate.sh`, `check_windows.sh`, and packaged UI/HUD checks.
 
 ## Research plan: selected retail LookAt and animation-state admission (2026-10-27)
 
@@ -24,6 +441,531 @@ After fixture acceptance, adapt the existing byte-bound function-entry observer 
 
 This bounded plan now passes fixture and finite native/control verification. All39+11 opening tuples reach callback entry, including a LookAt from a channel marked inactive in the authoring catalogue. Preserve separate actor/channel/event authoring flags and observed callback/effect state; the combined enabled flag is not sufficient to infer retail callback omission. Endline OnCompletion can occur with playing still set, so output completion must remain distinct from playback/ownership cleanup. The next research step binds the exact retail registration path and actual actor animation fields; it does not authorize a Rust change from callback evidence alone.
 
+## Windows unit-test portability follow-up (2026-10-26)
+
+Keep the Retina clamp assertion macOS-only, matching its margin constant. Separate flag
+parsing/validation from installation discovery, setup UI and output-directory creation;
+unit tests inject Config defaults and inspect an unresolved installation request. Production
+startup still resolves installation and prepares output directories in the same order.
+Normalize only CRLF in the golden transcript comparison, preserving all other bytes.
+CI and local workspace tests use --no-fail-fast so one crate cannot hide other failures.
+Validate owning tests, an actual CRLF golden fixture, full checks and Windows-target Clippy;
+rebuild and smoke-test the packaged startup path. Record Windows execution as not tested
+unless a Windows run is available; no native-game parity claim follows from these fixes.
+
+## PR readiness maintenance (2026-10-26)
+
+Owner keeps pre-build automatic stale cleanup by default, with --no-clean as a launcher-only
+opt-out. --no-build and fresh launches do not clean. Restrict candidates to workspace crates.
+Before any scan/deletion, acquire exclusive nonblocking Cargo compatibility locks for both
+local debug/release profiles, retain them throughout pruning, and never unlink lock files.
+Skip cleanup if busy or locking is unsupported; let the subsequent Cargo build coordinate
+normally. Release cleanup locks before invoking Cargo, avoiding self-deadlock.
+
+Validate workspace/dependency retention, dry-run behavior, launcher ordering/argument
+forwarding and both directions of exclusion with an isolated real Cargo build. No actual
+project caches are pruned during tests. Update README claims in place and run helper,
+workspace, Windows-target, shell and whitespace checks. Game/shader behavior is unchanged.
+
+## Stronger Advanced weapon blur (2026-10-26)
+
+Owner reports sparse sharp afterimages during fast crowbar swings. Replace the interior-only
+seven-tap filter with silhouette reconstruction over a longer exposure. Snapshot the world
+before the weapon camera, retain weapon depth as coverage, and build a coarse dominant-motion
+field with bounded reductions/dilation. Gather dense, pixel-length-dependent samples and
+composite foreground coverage over the preserved background. Keep retail modes unchanged,
+no weapon resources/work when disabled, cached GPU state and no CPU vertex history.
+
+Validate actual live swing bursts against the preserved package, including new pixels outside
+the current silhouette, smooth coverage, stationary world/HUD, MSAA and history cleanup.
+Measure frame time and pass encoding before/after; run standard validation and Windows
+checks, update evidence and commit the checkpoint. No README feature-log edits.
+
+## Initial viewmodel animation motion blur (2026-10-26; superseded above)
+
+Owner-requested Advanced mode in the Motion blur dropdown. Disabled and Enabled retain
+retail behavior; Advanced adds animation blur. Keep the existing persisted boolean and
+a new false-by-default viewmodel flag, so old saves remain camera-only; the retail cvar
+selects retail off/on. Reuse an installed localized Advanced token.
+
+Implementation: use current/previous GPU-skinned weapon poses in the viewmodel camera, including crowbar swings. Keep the world camera
+blur independent. Reuse Bevy motion-vector prepass and the existing cached frame-copy
+pass, with a bounded seven-tap half-frame shutter reconstruction. Preserve MSAA and
+alpha-tested silhouettes. No history from hidden weapons, map changes, pause or disabled
+settings; warm history before blurring. No weapon prepass/resources in Disabled or
+retail Enabled. The extension also gates on a visible GPU-skinned weapon and holster state, and resets on lens/map changes.
+
+Pack SourceMaterial uniforms into one shared shader layout: the previous separate
+buffers exhausted Metal vertex bindings once previous skinning was enabled. Preserve
+all field semantics and validate flashlight, alpha-tested shadows and emissive materials.
+
+Validate component lifecycle and owning math, then packaged stationary-camera swings
+with blur on/off, still poses, weapon switches, pause and MSAA. Inspect captures and
+measure packaged frame time against the preserved package. Record remaining limitations
+(screen-space edge coverage, transparent effects, CPU-skinning diagnostic mode), keeping
+README unchanged. Commit the validated checkpoint.
+
+## Platform availability and development hints (2026-10-26)
+
+Owner request: hide controls unavailable on the running platform, and mark unfinished
+settings with cyan hover status, stacked just below an existing orange retail hint.
+
+1. Keep platform availability and implementation status in one typed settings policy.
+   Filter unavailable controls and their associated labels before drawing, hit testing,
+   focus ordering or footer sizing. Preserve stored configuration. Test Windows/macOS/Linux
+   policy independently of the build target; keep cross-platform HDR/brightness support.
+2. Audit current setting consumers. Only unfinished/partial controls get a cyan corner mark
+   and specific localized status. Completed HDR, model/texture/shadow detail, colour
+   correction, motion blur and ordinary implemented controls have no development status.
+   Remove an entry from the policy when its feature is finished; test completed examples.
+3. Reuse source-ui tooltip wrapping/positioning with generic prepared coloured sections.
+   Clamp the whole stack together, keep the orange hint above cyan with a two-unit gap,
+   and cache text/layout while the hovered control is unchanged. Cover disabled controls,
+   associated labels, subdialogs, popup/confirmation occlusion, clicks and tab changes.
+   New development-only text uses HL2RS_ localization placeholders after checking resources.
+4. Run owning unit/owned-resource checks, validation and Windows-target checks. Build and
+   inspect muted packaged captures for cyan-only, orange-only, stacked and Advanced hints;
+   assert platform-hidden controls, completed controls and hint dismissal. Measure packaged
+   UI/frame time against the prior package. Record evidence in MODLOG/STATUS/validation/
+   performance; README remains unchanged. Commit the reviewed checkpoint.
+
+## Lighting bug follow-up (2026-10-26)
+
+Owner scope, separate checkpoint commits:
+
+1. Check ordinary shadow direction against SDK and bounded installed-client evidence.
+   Report map-controlled/vertical behavior and any unimplemented entity override; do not
+   replace it with nearest-light shadows without retail evidence.
+2. Reproduce shadows over floor overlays in the start corridor of `d1_canals_01` with
+   installed materials and a controlled caster. Check geometry depth and transparent draw
+   order; fix the receiver/compositing cause, not individual paper materials. Unit-test
+   ordering/offset policy and assert packaged Low/Medium/flashlight captures. Measure
+   before/after frame and shadow-update time with completed scripts and a useful window.
+3. Inspect the actual lamp/tube VMT/VTF data in the reported area. Follow its installed
+   self-illumination/unlit/mask rules through decoding and shading; add owning tests and
+   captures of the lit fixture, preserving non-emissive materials. Measure any runtime
+   cost and keep worker-time asset loading.
+4. Audit flashlight availability from spawn, suit pickup/removal, death, map transitions,
+   batteries and authored Enable/Disable inputs. Compare SDK with exact installed server
+   functions; fix missing gameplay integration in the simulation/registered input path,
+   keeping the host as an adapter. Test unit transitions and packaged pre/post-suit and
+   authored enable/disable cases, without claiming an ordinary campaign playthrough.
+
+Checkpoint 1 reports the verified downward/global direction contract. Checkpoint 2 found
+that the reported sheets are static prop meshes. The owner confirmed physics-object
+shadows at Medium/High: SDK deliberately excludes this receiver combination. An owned
+regression checks exclusion and positive NPC-style reception, so no runtime policy change
+is appropriate. The overlay-depth hypothesis was not the cause of these sheets.
+
+Checkpoint 3 corrects emissive albedo before baked static-prop illumination. The installed
+alpha mask and material tint remain; packaged old-expression control proves tube-only
+brightness, and alternating timing pairs measure the shader change.
+
+Checkpoint 4 keeps portable state and deferred permission inputs in a simulation-owned
+PlayerFlashlight on Scene. The registered player handler receives the local-player sentinel;
+!player resolves independently of an output's activator. The host supplies suit/game/skill,
+alive state, toggles and time, then presents light/sounds. Campaign changelevel moves the
+controller and rebases its recharge clock; direct loads construct fresh state. Existing
+initial-idle and player-carry code is factored to keep functions within their size ratchet.
+
+Keep README unchanged. Record failures, exact commands, captures and costs in validation,
+performance, STATUS and MODLOG; commit each independently reviewable checkpoint.
+
+## Shadow detail and the flashlight (2026-10-25)
+
+Goal (owner): Options > Video > Advanced > Shadow detail at all three levels, and the flashlight that High
+needs. Retail sources: Source SDK `game/client/clientshadowmgr.cpp` (casters, frames, atlas, blob and
+render-to-texture shadows), `materialsystem/stdshaders/shadow_ps2x.fxc` (the receiver), `flashlighteffect.cpp`
+and `common_flashlight_fxc.h` (the flashlight light and its depth shadow), `game/server/hl2/hl2_player.cpp`
+(suit power, `impulse 100`); the installed `decals/simpleshadow`, `decals/rendershadow`, `effects/flashlight*`
+materials and the maps' `shadow_control` entities (66 of 78 base maps).
+
+Levels: Low = `r_shadowrendertotexture 0` (every caster a blob of `decals/simpleshadow` straight down), Medium =
+render-to-texture silhouettes along the map's shadow direction, High = Medium plus the flashlight's depth-map
+shadows (`r_flashlightdepthtexture 1`). Shadows exist at every level (retail has no "off" in the dialog).
+
+Steps, each committed on its own:
+
+1. Shadow geometry, pure and tested in hl2-simulation (`shadows`): `shadow_control` settings and the
+   no-entity defaults; one caster's projected frame (origin, axes, size, falloff start, cast distance, the
+   light-facing box faces); the receiver grid over the world's triangles (brush faces and displacements;
+   static props, baked into the world's batches and told apart by their bone weights, receive only NPC
+   shadows at render-to-texture detail, as `AddShadowToReceiver` rules); the engine's clipper as the retail
+   engine runs it: receivers facing the light (`n . d <= -0.01`) with the shadow origin in front of them,
+   polygons kept when a vertex is short of the cast end, clipped to the texture square, to depth 0 and to
+   the light faces, each vertex given the fade byte `min(255, 240 * (z - falloff start) / span + bias)`
+   (240 at the cast end, fading on past it: nothing is clipped there); the blob frame (+10 units, origin
+   backed up twice, snapped to 0.5).
+2. Low: host module `hl2-bevy` `shadows/`: the receiver grid built on the map worker (translucent,
+   alpha-tested, additive and `SURF_NOSHADOWS` water materials do not receive); one shadow mesh per caster
+   entity (studio-model entities without `disableshadows`, bounds as `C_BaseAnimating::GetRenderBounds`: the
+   model's view box or hull with the current sequence's box), rewritten in place when its caster moved by a
+   quarter shadow texel; a `ShadowMaterial` (multiply blend, the 5-tap coverage blur, colour gamma-to-linear
+   from `shadow_control`, no fog term as the world has none yet) drawn with other translucent geometry; the
+   blob picture from the installed `decals/simpleshadow`.
+3. Medium: the engine's per-frame flow. Shadows in view (frustum and PVS) are ranked by screen area; the 32
+   largest get a fragment of the 1024-texel page (`CTextureAllocator`: blocks of 16 to 256 texels, an LRU
+   per size, sized by screen area up to the caster's own 2-texels-per-unit size) and their silhouette is
+   rasterized on the CPU into it when the fragment is new, the caster moved, or it has pose parameters;
+   the rest show the blob picture on the same projection without clip planes. Silhouettes come from the
+   caster's coarsest drawable level (a trailing `$shadowlod` is not read yet), posed with its bone
+   matrices, translucent and alpha-tested parts by texture alpha.
+4. The flashlight: `impulse 100` and the default F bind, suit power drain and recharge and the HUD's power
+   bar device line, the on/off sounds, and the light itself: the projected `effects/flashlight_border`
+   texture with the SDK's attenuation (constant 0, linear 100), far fade (750 units, from 60 %) and Lambert
+   term added to world and model shading in `source.wgsl` (one pass instead of the engine's extra additive
+   pass), the origin pull-back trace of `UpdateLightNew`.
+5. High: a depth map rendered from the flashlight's frustum (`r_flashlightdepthres` 1024) sampled by the
+   flashlight term with the SDK's Poisson filter and shadow attenuation (`r_flashlightshadowatten` 0.35);
+   rendered only while the flashlight is on at High.
+
+Performance rules: no shadow work for a caster that did not move and is not animating (its mesh and cell are
+kept); the receiver grid is built once per map off the main thread; silhouettes of animated casters only when
+their pose sample changes; the flashlight term costs nothing while it is off (a uniform flag, no texture
+binding change), its depth pass exists only at High with the light on. Each step measures frame time with the
+level off and on (packaged, `d1_trainstation_02` plaza and a citizen-heavy view) and records it in MODLOG.
+
+Not planned: receivers on brush entities (doors, trains), shadows of brush physboxes.
+
+Handoff (2026-10-25): steps 1-3 are committed (blob shadows at Low, render-to-texture at Medium/High). Step 4 is
+committed in part at that checkpoint: `hl2_simulation::flashlight` (power, toggle, placement, flicker) and `hl2-bevy` `flashlight.rs`
+(input, sounds, a Bevy `SpotLight` read by `source.wgsl`'s `flashlight()`). Frame time is measured (spawn corridor of `d1_trainstation_02`,
+eye -4304 -224 64, yaw -90, pitch -10: previous commit 18.40, off 18.40, on 18.39 ms). Left for step 4 at that checkpoint (completed by the continuation below): the HUD: `HudSuitPower` from `hl2/scripts/hudlayout.res` (16/420,
+102x48, bar inset 8/15 width 92 height 4, chunks 6 gap 3, label 8/4, device lines from 8/22 every 10, colours 255 220
+0 220 / low 255 0 0 220, exhausted alpha 70), its `SuitAuxPower*` animations in `hudanimations.txt`, tokens
+`#Valve_Hud_AUX_POWER` and `#Valve_Hud_FLASHLIGHT`, fed from the host's `HostFlashlight` (suit power, flashlight
+on); Episode Two's `HudFlashlight` (WeaponIconsSmall glyphs 169/174 and a 28-wide bar). Step 5 (High): turn on
+`shadow_maps_enabled` on the flashlight spot light only at High, sample `fetch_spot_shadow` with the light id found
+in `flashlight()`, blend toward 1 by `r_flashlightshadowatten` 0.35 as `DoFlashlight` does; custom materials need a
+shadow (prepass) shader that discards alpha-tested texels.
+
+### Continuation: power HUD (2026-10-25)
+
+Bounded step: complete the remaining HUD part of step 4 before High's depth shadows.
+Read the owned `HudSuitPower` / `HudFlashlight` layouts, fonts, colours, localization and
+animation sequences on the map worker. Reuse the HUD animation controller and rounded
+panel painter; keep the new power element in its own child module and extract the existing
+font helper to keep the HUD file smaller. Pass the host flashlight state as a borrowed value
+and present it after its update. Do no asset reads or text lookup in frame systems.
+
+Legacy: rounded chunk count, device line, maximum-charge fade, low-charge colour and
+active-device geometry from the installed sequences. Episode Two: independent battery,
+on/off glyphs, charge bar and exhausted alpha, with no legacy flashlight device line.
+Sprint and oxygen devices remain outside this flashlight step (simulation does not yet
+supply them). Preserve suit/death/background visibility and proportional/HUD aspect layout.
+
+Validation: unit tests for chunk boundaries, state transitions, animation fade/geometry,
+battery separation and draw visibility; owned-file tests for both mounted games. Run
+`validate.sh`, `check_windows.sh`, packaged captures and relevant HUD/UI replays. Measure
+packaged corridor frame time and HUD CPU time against the preceding packaged build;
+retain rejected evidence alongside accepted captures in ignored `artifacts/`.
+
+Validation completed: all 5 power HUD tests (including the 2 owned-install tests),
+validate.sh, Windows-target Clippy, and 6 packaged HUD/UI check groups pass. Active HUD CPU rises about 0.018 ms; frame
+timing remains noisy (docs/performance.md). Captures
+show the legacy device line, recharge fade and Episode Two's separate battery; see
+`docs/validation.md`. No High depth-shadow implementation is included in this step.
+
+
+### Continuation: High flashlight depth shadows (2026-10-25)
+
+Bounded step 5: enable a 1024-square spotlight depth map only for High while the
+flashlight contributes light (skip zero-brightness battery flicker). Reuse Bevy's shadow views, visibility and GPU skinning; all material
+logic stays in this host. Source materials get a depth-only fragment shader that discards
+base-texture alpha at the same cutoff as their colour shader. Preserve two-sided meshes,
+exclude the viewmodel/sky through their existing render layers, and test opaque/cutout
+casters as well as a posed NPC. Keep Medium and Low free of the depth pass.
+
+The flashlight alone samples that map: eight rotated Poisson comparison samples at the
+SDK filter footprint, then the 0.35 shadow-attenuation blend with distance attenuation.
+Use the spotlight's actual square projection and a stable screen-space rotation; the
+engine's generated noise texture/jitter sequence is not available as installed content,
+so exact native noise matching remains unverified. Check the spotlight/cookie frustum
+agreement against Medium captures before accepting any cone change. Keep the installed
+cookie and surface lighting intact. Depth bias and any sampling difference must be recorded.
+
+Validate pure High/on gating, the depth material contract and owned cutout data; then
+packaged High/Medium/off captures with report assertions and pixel comparisons. Run local
+validation, Windows-target checking and the relevant packaged checks. Measure baseline
+and new frame/render-stage time in the plaza and a citizen-heavy view, without concurrent
+builds or replays. Retain failed captures.
+
+Completed: High/on gating, cookie/depth projection tests and two owned-data checks pass;
+packaged actor and fence captures, a solid-cutout negative control and Low/Medium/off
+checks pass. Bevy already omits the opaque fragment stage; no extra opaque-path override
+was retained. The eight offsets are shader constants; no speedup is claimed from that
+change. The filter uses reverse-depth receiver bias 0.0005 and no raster slope bias;
+native slope bias 16 and generated noise/jitter matching remain unverified. Frame cost is
+about 1.4 ms in the plaza and 3.8 ms mean in the three-citizen view (noisy). Full cost and
+validation evidence: docs/performance.md and docs/validation.md. Next bounded step:
+flashlight lighting on the viewmodel.
+
+### Continuation: flashlight on the viewmodel (2026-10-25)
+
+Bounded step: light the weapon with the same placed flashlight, cookie, Lambert term,
+near/far planes and attenuation used by the world. Keep the existing origin-based
+viewmodel camera and its framing. Transform its fragment position/normal through the
+existing draw-to-world lighting basis. Supply the placed beam directly to viewmodel
+materials, since the origin-based camera's light clusters cannot locate a world-space
+flashlight. Reuse one shader implementation of the cookie/attenuation calculation;
+add no light, render pass, shadow map or asset read. Off supplies a zero-enabled uniform.
+Move model-light presentation to a child module before extending the oversized renderer.
+
+Evidence: Source SDK `game/client/viewrender.cpp` draws the viewmodel with its own FOV
+and depth range through the normal model draw path. The exact installed-client draw
+wrapper has the same projection/depth/list flow; it does not establish shader parity.
+The current step adds diffuse flashlight illumination; viewmodel self-shadowing and
+world-depth-map sampling on the weapon remain unverified and outside this bounded step.
+
+Validation: unit tests for translated/rotated world-to-beam projection, power/plane
+values and off clearing. Capture pistol/SMG on/off with fixed exposure; isolate weapon
+pixels using a disposable shader control, preserve world pixels and run existing High
+shadow/HUD/camera checks. Test a turned/translated view and portrait framing. Run local
+validation and Windows-target checking, refresh the package and measure before/after
+off/on frame and model-light CPU time without concurrent builds/replays. Keep README
+unchanged; record limitations and failed evidence in the feature logs.
+
+Completed: numerical projection/basis tests and the owned obstruction test pass. Packaged
+pistol, SMG, portrait and off controls pass, with the upper world region unchanged. The
+first open-corridor comparison changed only HUD pixels; the accepted test excludes them
+and derives clear close-wall views from collision data. In the open view the weapon lies
+outside the actual beam and correctly receives no added light. Local validation and
+Windows-target checks pass; six relevant packaged groups pass across the accepted runs.
+See docs/validation.md and docs/performance.md. Native viewmodel shader comparison,
+self-shadowing and world-depth-map reception remain unverified.
+
+## Architecture guardrails (2026-10-24)
+
+Goal (owner): the refactoring series stops; checks keep the structure from decaying instead.
+`scripts/checks/architecture.py` (standard library Python, about 4 s) runs first in validate.sh, in
+CI and in the local pre-commit hook, and names the file and the fix in every failure (rules in
+AGENTS.md "Architecture guardrails").
+
+- Sizes: functions up to 100 lines, a file's production code up to 1,000 lines, its tests up to
+  2,000. Limits apply to new code; the 113 functions, 25 files and 3 test files over them today are
+  listed with their sizes in `architecture-baseline.json` and may only shrink (a ratchet:
+  `UPDATE_BASELINE=1` lowers entries, nothing raises them except `ACCEPT_GROWTH=1`, for merges of
+  main or with the owner's approval). Functions are keyed by file and name, sizes sorted, so
+  reordering or moving within a file changes nothing.
+- Coupling: the allowed edges between workspace crates (any dependency table, dev and target
+  included), the crates that may use bevy/rfd (hl2-bevy) and rapier3d/symphonia/hound
+  (hl2-simulation), no file IO in modkit-core, hl2-simulation and source-ui, no HL2 names in
+  source-ui's code.
+- Duplication: every 8-line window of significant production lines (comments, imports,
+  attributes and lone brackets left out; strings kept) is fingerprinted; a fingerprint seen twice
+  that the baseline does not list fails. Fingerprints follow the text, so moving code keeps them.
+  The 143 known ones are mostly authored data tables (activity tables, default schedules).
+- Counts per crate that may not grow: mutable statics, `too_many_arguments` and `dead_code`
+  allowances, glob imports.
+- Counting: `#[cfg(test)]` items are skipped by matching their braces (not by cutting the file at
+  the first one), and braces inside strings, raw strings, chars and comments are ignored.
+- Proven to bite (each case reverted): a new 101-line function, one more line in
+  `AiRuntime::think`, source-ui depending on hl2-ui, hl2-ui on bevy, file IO and an `HL2RS_` token
+  in source-ui, a pasted 8-line block, a new `dead_code` allowance; an improvement left unrecorded
+  fails until `UPDATE_BASELINE=1` records it.
+- Not covered: architecture that no metric shows (a concern in the wrong crate within the allowed
+  layers, blocking reads in frame systems); review still applies.
+
+## Exact and local checks (2026-10-24)
+
+Goal (owner, after the architecture review of 2026-10-24): every change is cheap to check. A
+failing check points at its cause, and a replay difference always means a real change. Two steps;
+the current scope is the UI, so entity and NPC work from that review is not part of it.
+
+1. Replays that repeat exactly. The gameplay outcome comparison already leaves out fields that
+   differ between two runs of one build (`hits` and `ray` of three pallet fixtures,
+   `occluded_blast_targets` everywhere), and two more varied during the toolkit split without
+   being left out: `bevy-pallet-gibs-fade`'s kill and gibs at tick 32 instead of 34, and
+   `bevy-monitors-kleiner-scene`'s gib removals (7 instead of 8 at its last two labels).
+   - Method: run each of these four fixtures ten times one game at a time and ten times two at
+     once (how often each field varies, and whether machine load matters); compare every report
+     field of two differing runs to find the earliest sample and field that diverge; trace that
+     field to its inputs.
+   - Hypotheses, in this order: a model the map did not preload, loaded on a worker thread and
+     inserted when ready (`runtime_props`), arriving a tick later under load; iteration over
+     hash-ordered collections (Rust randomizes their order per process; hl2-simulation's physics
+     keeps about twenty); something sampled per rendered frame instead of per fixed tick.
+   - Fix: in the host, the smallest replay-only change that leaves ordinary play unchanged (as
+     `--mute` is); in the simulation, a deterministic order. A field whose cause is fixed leaves
+     the comparison's list of varying fields.
+   - Stop rule: two real attempts at the cause, then the evidence goes into STATUS and the two
+     unmarked fields are marked as varying.
+   - Done when each of the four fixtures gives identical outcomes over ten runs, and every field
+     still listed as varying is explained in STATUS.
+   - Closed without a change (owner): the cause is in the physics library (STATUS), and its fix
+     (rapier3d's `enhanced-determinism`, which also forces software math) is not worth its cost
+     for UI work; performance is never traded. The fields keep varying as before.
+2. Tests for the toolkit itself. Five source-ui files have no tests of their own (`shell.rs`,
+   `console/panel.rs`, `console/editor.rs`, `console/command.rs`, `input.rs`: 2,143 lines, 65
+   public functions); hl2-ui's console tests cover them only through HL2's `Console`.
+   - New tests inside source-ui over a small fake app: a `shell::Host` with two windows, a modal
+     window, the console and a base, recording every hook call so the documented call order is
+     asserted; a minimal `command::Context` with one command, one cvar and one list of names.
+   - Cases: Escape's order (the app's drag, the console's drag, history search or completion, the
+     modal state, the top window, the base) and a held Escape closing on release; the pointer to
+     the topmost window else the base, a press staying with its window until release, a modal
+     window taking every press; key repeat stopping on a mode change and during key capture; the
+     console toggle (blocked, enabled, opening, closed); `close_window`; the console dialog's
+     scrollback and numbering, `replace_snapshot`, filters and timestamps, wrapping, selection
+     and copying, Close and Submit (Enter too); commands (run, unknown, usage, tokenizing); the
+     editor's history and completion through a fake `Completer`; key repeat timing.
+   - hl2-ui's console tests stay: they test HL2's use of the toolkit.
+   - Done when no source-ui file is without tests, and an Escape-order bug introduced on purpose
+     fails a source-ui test (then reverted).
+   - Done: the five files test themselves over a fake app (`shell::tests::App`, a `command`
+     test context, a completer for the editor, one that completes nothing for the dialog). The
+     key-repeat test and the four line-editor tests moved from hl2-ui, which keeps its tests of
+     HL2's own completion; moving the app's modal-state check before the console's history
+     search fails `escape_undoes_a_drag_then_ends_the_console_search_then_the_modal_state_then_closes_the_top`.
+
+Validation: step 1 with the repeated runs and the full replay suite; step 2 with
+`scripts/checks/validate.sh` and the Windows-target check (tests only, no behaviour change).
+
+## UI toolkit split: source-ui and Half-Life 2's UI (2026-10-24)
+
+Goal (owner): code that is easy to find and understand. hl2-ui is split into a game-agnostic,
+Source-aware UI toolkit, `source-ui`, and Half-Life 2's own UI, `hl2-ui`, the way the Source SDK
+keeps `vgui_controls` (Source SDK `vgui2/vgui_controls/`: `Button.cpp`, `Frame.cpp`,
+`PropertySheet.cpp`, `Menu.cpp`, `RichText.cpp`, `MessageBox.cpp`, `consoledialog.cpp`, shared by
+every Source game) apart from the game's GameUI module (main menu, Options pages, loading dialog;
+not part of the SDK 2013 release) and the client HUD (Source SDK
+`game/client/hl2/hud_weaponselection.cpp`, `game/client/hud_closecaption.cpp`). The toolkit reads
+Source formats through source-assets (`.res` layouts, KeyValues, schemes, fonts from the game's
+file system), depends on no hl2-* crate and knows no HL2 content or settings: no `Config`,
+`Effect`, weapons, maps, chapters, cvars, console commands, `HL2RS_` tokens or fallback strings.
+hl2-ui keeps its name and depends on source-ui (and, from step 5, on hl2-simulation directly).
+Call sites import from where the code lives; there are no compatibility re-exports. Nothing
+changes behaviour: output, errors, effects, UI and gameplay outcomes stay identical.
+
+Rule: what Source keeps in `vgui_controls`, or what knows nothing about HL2 content or settings,
+belongs to the toolkit.
+
+1. `source-ui` with the clearly generic modules, moved verbatim (only paths and visibility
+   change, tests move with their code): `canvas`, `native_font` (Windows GDI), `font`
+   (`FontFace`, `TextOutline`, from `hud.rs`), `input` (`Key`, `Input`, `KeyRepeat`, from
+   `console.rs`), `widgets`, `placement` (with `DialogPlacement`, from `config.rs`), `windows`,
+   `layout`, `scheme_fonts`, `keys`, `message_box` (from `gameui/menu.rs`), `viewport` (its
+   generic part), `localize` (the token table, parser, escapes and key-name fallback, with a
+   `Fallback` trait through which an app adds its own text) and the ProggyClean font. Kept in
+   hl2-ui after reading the code: `input.rs` (bindings and mouse filtering read `Config` and
+   `MouseSettings`; Source's client `CInput`), `gameui/display.rs` (the Video page's choices,
+   with `HL2RS_` placeholder labels, stored in `VideoSettings`), `gameui/loading.rs` (the
+   loading dialog carries the background-map transition and the pre-blurred backgrounds),
+   `proportional.rs` and `tuning.rs` (HL2RS's narrow-screen design height and menu growth from
+   `assets/ui/tuning.json`), and the flexible-frame ("Fit Display") viewport functions, which
+   use HL2RS's `9:16..=32:9` range from the same file (`hl2_ui::flexible_frame`). So
+   `Painter::scale_for_canvas`, which applied that design height, is hl2-ui's
+   `proportional::dialog_scale`; the quit and return-to-menu boxes are `menu::quit_box` /
+   `menu::return_to_main_menu_box` over the toolkit's `MessageBox`; `Windows::new` takes the
+   unfocused alpha from the app; hl2-ui's `gameui::localize::Localization` is the toolkit engine
+   with HL2RS's `InRepoText` (the placeholders, then `FALLBACK_STRINGS`). The `Window` ids
+   (Options, Console, SubDialog, Confirmation) stay as they are until step 4.
+2. Declarative cvars in hl2-ui `console/commands/`: a golden test of every cvar (query, valid
+   set, invalid value, too many arguments: logged lines, error, `Effect`) committed first, then
+   each cvar described once (value function and setter) with one shared function that prints
+   `"name" = "value"`, saves, echoes and returns `ApplyConfig`, keeping the special cases exact.
+3. A generic console framework in source-ui: line editor, history, completion, output buffer,
+   panel drawing and a command registry the app fills in, with handlers over an app-provided
+   context. HL2's command table, handlers and completion sources (maps, entity targets and
+   inputs) stay in hl2-ui and register into it. Two commits:
+   - 3a: `source_ui::console::{command, complete, editor}`. The registry is generic over the app
+     (`command::Context`: the effect type and the app's lists of names, `Arg::Names`);
+     `Spec<C>`, handlers, value functions and setters take the app's context, so HL2's setters
+     take the console. hl2-ui's `console::commands` is HL2's instantiation (`Names`,
+     `impl Context for Console`, aliases of `Spec`/`Arg`/`Outcome`, the table, `run_setting`);
+     its `console::complete` keeps the host-supplied `Sources` and binds the toolkit's
+     completion to `COMMANDS` (the editor completes through `complete::Completer`).
+   - 3b: the output buffer and the console dialog as one toolkit component: the lines, levels
+     (the viewmodel tuner's replaceable line becomes a neutral replaceable level), filter,
+     timestamps, wrapping, scrolling, selection, copying, the entry, the completion popup and
+     the dialog's buttons and placement. The app passes in what is its own: the scale policy
+     (hl2-ui's `proportional::dialog_scale`), the resolved title, Submit and reverse-search
+     texts, the window theme and focus, and the Painter's fonts; the component answers input
+     with actions (close, submit a line), which the app turns into effects in the current
+     order; the app keeps saving the placement in `Config`.
+4. `Console` (63 fields, 121 methods) split along the toolkit/app line: the source-ui shell
+   (window stack, focus, Escape, pointer and keyboard routing, modal occlusion, the developer
+   console panel) and hl2-ui's GameUI (main and pause menus, backgrounds and chapters, the quit
+   box, the Options lifecycle, loading, commands, `Config`), each owning the fields it uses. The
+   design (see "Step 4 design" below) comes before the code.
+5. hl2-shared folds back into hl2-simulation (weapons, selection, damage and `VIEWMODEL_FOV`
+   return to their original modules; `InventoryView`, `Inventory`'s delegating methods and the
+   HUD tests' copy of the inventory go); hl2-ui depends on hl2-simulation, source-ui still does
+   not.
+6. Visibility and imports narrowed: functions used only in their own file become private
+   (checked by the compiler), glob imports become explicit.
+7. `AiRuntime::think` (1,225 lines) split into its phases, one commit per phase, if its local
+   state allows it. Not done: one `&mut AiActor` borrow spans about 1,040 of its lines beside 13
+   other `AiRuntime` fields and 7 parameters, and 19 locals live more than 300 lines, so phase
+   functions would need the actor taken out of `self.actors` for the whole think and a context
+   struct of 20 to 30 values; the sensing prefix alone would leave a 1,070-line function.
+
+Validation per step: `scripts/checks/validate.sh`, the Windows-target check (it also lints
+source-ui), the packaged console and UI replays (steps 2, 3 and 6) or the full replay suite
+(steps 1, 4, 5 and 7) compared with the recorded baseline (only fields the suite marks unstable
+may differ), the repository isolation check, the owned-install tests after steps 1, 4 and 5, and
+the size change of each step in MODLOG.
+
+### Step 4 design: the shell and HL2's GameUI
+
+After step 3 the developer console dialog is the toolkit's `ConsolePanel`; `Console` still holds
+the window stack and runs the control flow every frame goes through. That control flow is generic
+(which window gets the pointer and the keyboard, Escape's hold-and-release, the console's own
+Escape and toggling), but every step of it asks GameUI questions (is the loading dialog or the
+quit box up, which Options layer is active, does the menu take the pointer). Three shapes were
+weighed:
+
+- A shell struct that only bundles the toolkit state (`Windows`, `ConsolePanel`, key repeat,
+  Escape hold) moves five fields and leaves Escape, routing and modal occlusion in hl2-ui:
+  little value, and not the split asked for.
+- Splitting `Console` into separately borrowed `{shell, ui}` parts with the routing calling into
+  the UI part breaks the command handlers, which run inside the routing loop (a submitted
+  `map` starts loading and the loop then stops on the modal loading dialog) on `&mut Console`:
+  they would have to be rethreaded or run after the loop, which changes behaviour.
+- Chosen: the shell's control flow as generic toolkit code over a host trait that `Console`
+  implements. `Console` stays hl2-bevy's facade and the commands' context; the toolkit code
+  reaches the shell's state through short `host.shell()` / `host.shell_mut()` borrows and asks
+  the host everything that is GameUI's.
+
+The toolkit (`source_ui::shell`, `source_ui::windows`):
+
+- `windows::WindowId`: what the toolkit needs of an app's window ids, whether one is modal and
+  which one is the developer console. `Windows<W: WindowId>` keeps the z-order, focus, pointer
+  ownership and fades as today. HL2's `Window` enum (Options, Console, SubDialog, Confirmation)
+  moves back to hl2-ui and implements it, so reports still name the windows as before.
+- `shell::Shell<W>` owns the window stack, the console dialog (`ConsolePanel`), whether Escape
+  is held, the key repeat and the latest pointer. It answers what only needs them: the console
+  window's theme and bounds, its cursor hint, opening it on screen.
+- `shell::Host`: the hooks the control flow calls, in the order it calls them today: the host's
+  mode (the key repeat stops when it changes) and key capture; its modal input (the loading
+  dialog and the quit box, with the menu's occlusion); preparing a frame's windows (its dialog
+  windows synchronized, the modal layer, which dialog takes input); window bounds and the
+  console popup's; whether the base takes the pointer; per-window input (the console window's
+  too, through the host, which owns the canvas and completion sources); whether the rest is
+  blocked; the base's occlusion and input; and for Escape: whether a modal state blocks it,
+  whether it closes a window, the held looks, cancelling the host's own drag, the modal Escape
+  (loading, quit box), a dialog's Escape, the base's; for the console toggle: blocked,
+  enabled, opening, closed; and window-closed bookkeeping.
+- `shell::{input, escape_pressed, escape_released, escape, toggle, close_window}`: today's
+  `Console` control flow, generic over the host. The order of every check and side effect is
+  kept (for example Escape: the host's drag, the console's drag, the console's history search
+  and completion list, the loading dialog and quit box, the top window, the base).
+
+hl2-ui keeps everything GameUI: `Mode`, the base, menus, backgrounds and chapters, the quit box
+and its placement, the Options lifecycle and its sub-dialog and confirmation windows, loading,
+commands, `Config`, saving placements, themes and fonts; `Console` implements `Host` and its
+public API (`input`, `escape_pressed`, `toggle`, `log`...) calls the toolkit functions.
+
+Commits, each with `scripts/checks/validate.sh`, the Windows-target check and the console and UI
+replays; the full replay suite against the baseline and the owned-install tests after the last:
+
+- 4a: `WindowId`, generic `Windows<W>`, `Window` back to hl2-ui (the toolkit's window tests get
+  a local window enum).
+- 4b: `Shell<W>`: the window stack, console dialog, Escape hold, key repeat and pointer move
+  from `Console` into `console.shell`.
+- 4c: input routing over `Host` (`shell::input`).
+- 4d: Escape, the console toggle and closing windows over `Host`.
+
 ## Research contract: instruction probes and field boundaries (2026-10-24)
 
 Use documented function-callback probes at interior instructions and function-call listeners at actual entries. A disposable 32-bit baseline/negative/probe fixture demonstrates the distinction: a call listener without a leave callback still traps returns and can alter a saved register, consistent with [Frida's listener/probe distinction](https://frida.re/docs/gum/class.Interceptor.html). Preserve failed captures and audit earlier loaded-script sources; timing perturbation alone is insufficient. Retain raw relocated-prefix equality, source hashes, process creation/module identity, state and owned cleanup. Give each guard stage a separate output path. AX's overwritten original snapshot is a retained limitation, with independent identity/prefix records still available.
@@ -31,6 +973,40 @@ Use documented function-callback probes at interior instructions and function-ca
 Corrected AX records five actual glass lookup chains with scale 1 and zero selected damage below the first threshold. Separate corrected BA probes corroborate per-line reset and cumulative same-line additions; timing units remain unproven. Both are instrumented controls. X remains an observed instrumented transition with the historical-hook caveat; ordinary campaign completion stays false.
 
 Keep field boundaries explicit. The normal velocity getter adds pending increments before coordinate conversion; a sampled base vector alone is incomplete. The implicit getter is separate. Calculator stack slots are reused after entry, so a later frame is not an unchanged typed argument record. Private static bodies, actual lookup values and caller joins support bounded findings without complete ABI/solver certification. No implementation refactor follows automatically. Further research should resolve a concrete consuming-step or authored-scene question while preserving first-map audiovisual/transfer criteria. Current checkpoint: work/publishing/research-followup-continuation-20261024bb.md.
+
+## Architecture review: structure without behaviour change (2026-10-23)
+
+Code review findings, worked through in order, one reviewable commit each. None changes console
+output, errors, effects, UI behaviour or gameplay outcomes.
+
+1. Console commands are described once: each `console::commands::Spec` carries its handler (and a
+   cvar its value), the handlers live in `console/commands/` by area, `Console::interpret` only
+   dispatches.
+2. Entity inputs dispatch through a class-to-handler table instead of class-name comparisons in
+   `hl2-simulation::entities::Scene::deliver`, starting with the door family, triggers and
+   `logic_*`; the order of the special cases (monitors, `env_global`, `npc_template_maker`, AI
+   inputs) is kept.
+3. `hl2-ui` stops depending on `hl2-simulation`, so the UI crate no longer pulls in Rapier and
+   Symphonia. Besides `player_damage::{ScreenFade, DamageMessage}` (and the damage/fade bits),
+   `gameplay::definitions` and `viewmodel_effects::VIEWMODEL_FOV`, the HUD reads
+   `gameplay::{Inventory, Weapon}` and the `selection` module. These move verbatim into a new
+   `hl2-shared` crate (a new crate rather than modkit-core, which stays at glam/serde and
+   mod-neutral; weapon script parsing needs source-assets and anyhow). The HUD and selection read
+   the inventory through `hl2_shared::inventory::InventoryView` (`&dyn`), which the simulation's
+   `Inventory` implements; `Inventory` keeps its fields (about 200 accesses), and hl2-simulation
+   re-exports everything at the old paths.
+4. Oversized files are split: test modules first, then `console.rs` by concern (windows/focus,
+   menu flow, the Options lifecycle), and `entities.rs` / `ai/runtime.rs` if step 2 leaves them
+   large. Done as whole-method moves into child modules (`impl` blocks per concern; private
+   methods become `pub(super)`): `console/{focus,menu_flow,loading,options_dialog,panel}.rs`,
+   `entities/{choreography,parenting,io,sequences,triggers}.rs` and
+   `ai/runtime/{goal_inputs,equipment,squads,speech,requests}.rs`. Long functions stay as they
+   are (`AiRuntime::think` 1,225 lines, `tick_choreography` 376, `Console::draw` 368); splitting
+   them changes code, not just its place.
+
+Validation per step: `scripts/checks/validate.sh`, the Windows-target check, the packaged console
+and UI replays (steps 1 and 4) or the full replay suite with every gameplay outcome unchanged
+(steps 2-4).
 
 ## Research plan: bounded aligned-impact diagnostic (2026-10-23)
 
@@ -89,6 +1065,72 @@ Both fresh non-Frida controls break the window but fail crossing/placement. The 
 ## Research plan: native storage interaction (2026-10-23)
 
 The owner lifted the previous running-game restriction and authorized native HL2 testing. Codex will first bind the selected grab-controller physics virtual to one exact retail implementation, with at most two necessary direct helpers and existing constructor/table evidence reused. A fresh guarded private session will then replay the input-led first-map route and distinguish actual window health, pickup, sustained carry, throw, damage, break, passage and map transfer. Each milestone needs fresh identity/state and visual evidence; outputs alone are insufficient. Preserve rejected attempts and stop an approach after two failures. No Rust implementation changes, full solver reconstruction or campaign/parity completion claim is implied.
+
+## Portrait viewmodels and Fit Display handoff (2026-10-22)
+
+Portrait framing remains data-driven in `assets/ui/tuning.json`: `fov_offset` adjusts horizontal
+viewmodel FOV in degrees (at the 4:3 reference aspect), while `offset` moves the camera in Source
+units (`[forward, left, up]`). The viewmodel transform keeps unit scale, so the model's proportions
+remain intact. Aspect interpolation blends these explicit FOV and position values from the
+unmodified 5:4 boundary to the portrait profile. Portrait values have been restored to the `97fac81`
+baseline: default/crowbar `+8°`, physcannon `0°`, and RPG `+16°` with a 4-unit left shift. These
+remain direct tuning values; packaged portrait appearance has not been visually verified.
+
+Fit Display is first in the Aspect Ratio combo. Selecting it adopts the active physical
+window/display content area (with out-of-range letter/pillarbox stripes removed) as its configured
+detail resolution; the host also raises a stale fixed configured size to the active physical area
+when applying Fit Display. This prevents a previous 640x480 4:3 choice from silently continuing as
+a low-resolution flexible frame on a high-DPI panel. Validation is unit-level: aspect selection,
+portrait/launcher bounds, and the 640x480-to-Fit-Display host transition.
+Packaged visual comparison on an actual portrait display remains not tested.
+
+## Viewmodel tuning overlay (2026-10-22)
+
+`viewmodel_tweak_mode 1|0` (console) toggles a runtime-only viewmodel tuning mode, only while a gameplay map is loaded; a map load, a return to the main menu or a background level ends it. F5 and F6 are not bound. Its debug overlay reports the current aspect
+profile, active weapon classname, and direct profile `fov_offset` / `[forward, left, up]` offsets.
+`[`/`]` adjust FOV, `,`/`.` adjust forward X, Up/Down adjust Z, and Left/Right adjust lateral Y;
+Shift changes each step from 0.1 to 1.0 and Alt/Option to 0.01. Adjust keys autorepeat while held, using the same delay
+and interval as Options > Keyboard list arrows (press once, then repeat after 0.4 s every 0.05 s;
+the latest pressed adjust key is the one that repeats). `viewmodel_tweak_reset` (only while the mode is on) zeros `fov_offset` and `offset` for the
+selected weapon's current aspect profile and records that as the session edit. The mode only adds the
+editor adjustments; normal mouse look, movement, firing, reloading, and weapon selection continue
+through the ordinary gameplay input path. F1 and the tweak overlay may be shown together.
+
+The tuning asset gains zero-valued standard profiles so the same workflow works at ordinary aspect
+ratios as well as portrait/ultrawide; their defaults preserve existing standard-aspect rendering.
+Each adjustment updates the live camera and viewmodel-attached effects, and emits a complete,
+pretty-printed `tuning.json` snapshot to the developer console log with the selected profile value
+replaced. It never writes the file. Unit validation covers profile selection/blending, snapshot JSON,
+toggle state, and adjustment steps/signs. Packaged input capture and visual presentation remain
+runtime checks.
+
+Session editing extension: keep direct edits in memory by `(weapon classname, aspect profile)` for
+the lifetime of one tweak-mode session. Before switching to another weapon/profile, retain the current
+framing; when revisiting a key, restore its pending edit, otherwise load the asset baseline. Number
+keys 1-6 run the normal slot selection/confirmation path while the tuner is active. The session
+survives Pause/Options so the owner can change resolution/aspect; while paused, input belongs to the
+UI and tuning resumes after returning to gameplay. Each adjustment prints a full tuning snapshot
+with every session edit merged, so the accumulated result can be copied once. Turning the mode off resets the
+entire session. Validation covers switching/restoring independent keys, accumulated serialization,
+and session reset; hold-repeat and reset are unit-tested. Packaged interaction remains a
+separate check.
+
+Gameplay-input correction: tweak mode remains a tuning display, not a gameplay input mode. Keep the existing
+target-sync/edit/snapshot path, then continue through normal input sampling so mouse look, movement,
+attacks, reload, and configured weapon selection continue unchanged. Remove the separate slot
+shortcut to avoid duplicating the normal action path. Validate with the host input and gameplay tests
+plus the full strict check suite; packaged firing/reload animation observation remains needed.
+
+Console output correction: mark live `tuning.json` snapshots as replaceable console output. On each
+adjustment, update the most recent tuning snapshot line in place (including its timestamp and cached
+wrapping), or append the first one if none remains. Preserve unrelated console output and submitted
+command history. Validate that repeated snapshots occupy one line entry while other output remains.
+
+## Closed captions (2026-10-17)
+
+Retail model (SDK `hud_closecaption.cpp`, `SoundEmitterSystem.cpp`, `sceneentity.cpp`; installed files): every `resource/closecaption_<language>.dat` (`VCCD` v1: header, directory of `{crc32(lower(token)), block, offset, length}`, UCS-2 text blocks) on the game search path is a dictionary, the first one holding a token wins. Ordinary `EmitSound` of a sound script captions the script name for the chosen wave's length unless every sound origin is beyond 1200 units of the player; raw `.wav`/`!sentence` emits and client soundscapes do not caption; `ambient_generic` plays caption at any distance. Choreographed SPEAK events caption only their master event's token (cc token, else the sound name), for the longer of the event length and the last slave's end, never "from player", after a 1200-unit `scene_maxcaptionradius` check against the player and view entity unless the event suppresses attenuation; their sound itself emits no caption. The panel (`HudLayout.res` `HudCloseCaption`, `ClientScheme.res` `CloseCaption_*` fonts and `Panel.BgColor` with `BgAlpha`) runs the SDK item queue: `<delay>` splitting, `<len>`, `<sfx>` (instant; dropped by `cc_subtitles`), `<norepeat>`, `<clr>`/`<playerclr>` stacks, `<B>`/`<I>`/`<cr>`, word wrap, linger/predisplay times, box growth and item fades. Options > Audio "Closed captions": none = `closecaption 0`, subtitles and sound effects = `closecaption 1, cc_subtitles 0`, subtitles = `closecaption 1, cc_subtitles 1`.
+
+Plan: `source-assets::captions` decodes the dictionaries at map load (no frame reads; retail streams 8 KB blocks asynchronously). `hl2-simulation` emits `CaptionRequest`s for scene SPEAK masters (`Scene::captions`) and marks the scene's sound request as captionless; the Bevy audio queue emits sound-script captions after a successful emit with the decoded wave length. `hl2-ui::closecaption` owns the pure caption model (parsing, timing, wrap, paint) on scene time, so pause freezes it, and draws on the HUD canvas in the background level too (retail draws captions behind the main menu), before GameUI. Fonts resolve among the scheme's registered installed files; the requested Tahoma/Verdana are not installed, so the scheme's registered DejaVu Sans family (regular, bold, oblique, bold oblique) is used. Validation: unit tests for the parser and model, owned-file tests for the dictionaries and the Kleiner scenes, strict Clippy/format/Windows check and a packaged capture on `ep1_background02`.
 
 ## Offline research continuation boundary (2026-10-22)
 
@@ -204,13 +1246,13 @@ Separate press/release requests work without sv_noclipduringpause override;the p
 
 ## First-map completion boundary and natural observation (2026-10-20)
 
-Owner requires first-map completion review before d1_trainstation_02. Revalidate authored joins,all retained native/static lanes and explicit closure failures;then observe original map requests with genuine actors/models in a new private write mount. Reuse exact native entry/relocation checks and owned-PID/focus guards. Record requested/accepted/output states,raw source clocks,actor generations and actual caller identities;compare a fresh process without Frida. No Rust implementation or automatic promotion from resource readiness to playback. Private bounded plan: ../../work/hl2-decompiled/scene-natural-firstmap-20261020/PLAN.md.
+Owner requires first-map completion review before d1_trainstation_02. Revalidate authored joins,all retained native/static lanes and explicit closure failures;then observe original map requests with genuine actors/models in a new private write mount. Reuse exact native entry/relocation checks and owned-PID/focus guards. Record requested/accepted/output states,raw source clocks,actor generations and actual caller identities;compare a fresh process without Frida. No Rust implementation or automatic promotion from resource readiness to playback. Private bounded plan retained.
 
 Eleven retained checks pass. Genuine G-Man intro policy0 and train endline policy1 both accept through their authored relay callers;the latter's speech-scene query returns0. This adds two natural start observations to the earlier seeded gate fixture. Actor/model generations and callback clocks are byte-consistent;controller serials and relay/event-queue dispatch itself are not observed. A fresh VM_READ-only process corroborates G-Man playback then later cleared state/absent actor,not equivalent call timing. Keep source entity ordinal,live entity index,request acceptance,full scene playback and full-map completion separate. The map is not finished: ordinary movement/customs/Barney/exit,layer/root/flex/event playback,audio/camera and Rust comparison remain open. The failed forward rehearsal established no route progress. Stay on the first map;the sealed static handoff and16 gaps remain intact.
 
 ## Bounded scene-start observation (2026-10-20, research only)
 
-Trace the exact retail CheckActors decision at server.dll 0x1023aaa0 (owned hash 99f01211453b2c4a773ee81d73622b8b27d38b54483a4ae5ee48d33a38ec986b; pass14 baseline/original), then observe that same decision in a disposable first-map native replay. Compare busyactor=1 and0 controllers sharing a verified live NPC. Record InputStart, StartPlayback and CheckActors entry/return, raw state bytes, module relocation, clocks and output/console evidence. Keep the game installation read-only through a new private write mount and reuse the owned-PID/cursor/focus guards. Frida hooks change process memory; label their evidence instrumented and retain a separate uninstrumented comparison. No Rust implementation or parity claim. Private plan/results: ../../work/hl2-decompiled/scene-start-frida-20261020. Failures, missing bindings and timing perturbation remain explicit.
+Trace the exact retail CheckActors decision at server.dll 0x1023aaa0 (owned hash 99f01211453b2c4a773ee81d73622b8b27d38b54483a4ae5ee48d33a38ec986b; baseline/original), then observe that same decision in a disposable first-map native replay. Compare busyactor=1 and0 controllers sharing a verified live NPC. Record InputStart, StartPlayback and CheckActors entry/return, raw state bytes, module relocation, clocks and output/console evidence. Keep the game installation read-only through a new private write mount and reuse the owned-PID/cursor/focus guards. Frida hooks change process memory; label their evidence instrumented and retain a separate uninstrumented comparison. No Rust implementation or parity claim. Private plan and results retained. Failures, missing bindings and timing perturbation remain explicit.
 
 Completed with a corrected literal-name fixture after two !Target1 setups failed: an owned security01 scene binds a disposable citizen named Barney. With native hl2_episodic=1, the existing-scene-with-speech query at1023f750 returned true for201 rejected CheckActors calls over3.015game seconds. Cancellation of the owning scene was followed by a false query, acceptance, OnStart and playing1/wait0 on StartPlayback return. Repeated Start while pending did not reenter StartPlayback. Policy0 bypassed the query and accepted concurrently. A fresh never-attached native process corroborated output order. This supports separate requested/waiting/accepted states and distinguishes a scene containing speech from proven audible speech. General ABI, the separate expresser predicate, actual Barney gestures, ordinary progression and Rust parity remain untested. Two raced optional timer samples are excluded; all decisive callback clocks agree with retained raw bytes. The private README lists the accepted Evidence IDs and preserved failures.
 
@@ -224,9 +1266,19 @@ The bootstrap window runs in a short-lived helper process so the gameplay proces
 
 Reconstruct HL2 in Rust using owned content. No host-game transport or Valve DLL dependency. Native analysis/databases stay private; public source contains original implementation and permitted third-party resources.
 
-Owned VPK/loose/map content -> source-assets bounded decoders -> modkit-core contracts/player/pose math -> hl2-simulation gameplay/choreography/Rapier -> Bevy or retained presentation. hl2-ui records CPU draw commands for both hosts. Setup or asynchronous transitions load resources; frame systems consume prepared data.
+Owned VPK/loose/map content -> source-assets bounded decoders -> modkit-core contracts/player/pose math -> hl2-simulation gameplay/choreography/Rapier -> Bevy or retained presentation. source-ui is the game-agnostic UI toolkit (CPU canvas, fonts, widgets, dialog frames, window focus, `.res` layouts, localization engine; see the toolkit split above). hl2-ui, Half-Life 2's UI over it and over hl2-simulation (the HUD reads the simulation's inventory, weapons and selection), records CPU draw commands for both hosts. Setup or asynchronous transitions load resources; frame systems consume prepared data.
 
 AGENTS.md records fixed-step order and renderer invariants. Bevy uses custom materials/lightmaps, separate sky/world/viewmodel/HUD cameras, GPU skinning/current bounds and player/monitor PVS/frustum rejection. Identical material/lightmap pairs share handles. Spatial splitting remains off by default. Replacing Rapier is a separate behavior migration.
+
+## UI, render-frame input, and movement boundary (2026-10-09)
+
+The portable UI crates own UI-facing policy and data: `source-ui` the canvas geometry, viewport fitting and pointer translation and the CPU draw-command interface, `hl2-ui` binding names/defaults and text/menu input interpretation. A host adapts its native events and window/camera API at the edge only; it does not duplicate viewport math or UI-state policy. Bevy input is split by consumer: `ui.rs` handles menu/console focus, pointer/text adaptation, cursor capture, and UI effects; `input.rs` converts the captured keyboard/mouse frame into gameplay actions and a character movement intent; `video.rs` applies the toolkit's viewport bounds to Bevy cameras.
+
+`movement.rs` owns only character state advancement: the Source player/physics controller, walking/flying, eye origin, angles and fixed-tick movement outcome. Script replay, report sampling, gameplay sequencing, console effects, and Bevy camera presentation are hosted in their respective runtime/input/UI/camera modules. Preserve the existing 15 ms order: UI transition/focus first, input sampling second, then scene/weapons/entity refresh/NPCs/physics/player; a UI transition consumes held attacks and jump before character movement. Validate with the existing UI/menu and movement tests plus a scripted packaged console run. This is a structural move only; it must not change binding defaults, cursor/letterbox hit testing, paused-input semantics, or fixed-step behavior.
+
+## GameUI: startup flow, main menu, options (2026-10-11)
+
+Bounded plan and architecture: [gameui.md](gameui.md). `hl2-ui::gameui` owns resource-driven menu/options models (installed `GameMenu.res`, `OptionsSub*.res`) over the toolkit's `.res` layouts, localization with key-name fallback and `kb_act.lst` parsing (`source-ui`), and draws on the toolkit's CPU canvas; `hl2-bevy` only adapts input, display modes (`Monitor::video_modes`) and applies `Config` effects. Without a valid `--map` the host starts in the main menu over the chapter-1 background map. Validation: unit tests per model/parser plus headless Bevy system tests and a packaged capture.
 
 ## Campaign NPC scene research (owner request, 2026-10-16)
 
@@ -240,10 +1292,10 @@ Research delivery order (owner, 2026-10-16): detailed map handoffs proceed from 
 
 ### Verified inventory and Claude's entry point
 
-Consolidated first-map handoff (2026-10-18): private `../../work/hl2-decompiled/campaign-scenes-20261018c-firstmap-handoff/CLAUDE-START-HERE.md` gives one read-only query surface for all66 controllers (44 scenes,18 sequences,four AI schedules). `query.py controller 808 --part events --offset 0 --limit 20` pages enabled/serialized event data; parts `entity`, `io`, `actors`, `resources` and `contracts` expose the corresponding exact records. Seven progression groups preserve duplicate names and concurrent ambience. Every card distinguishes static requirements from unassessed Rust implementation and untested runtime parity. The gap ledger carries missing functions,authored gaps,conditional models and replay requirements rather than inventing replacements.
+Consolidated first-map handoff (2026-10-18): research notes provide one read-only query surface for all66 controllers (44 scenes,18 sequences,four AI schedules). `query.py controller 808 --part events --offset 0 --limit 20` pages enabled/serialized event data; parts `entity`, `io`, `actors`, `resources` and `contracts` expose the corresponding exact records. Seven progression groups preserve duplicate names and concurrent ambience. Every card distinguishes static requirements from unassessed Rust implementation and untested runtime parity. The gap ledger carries missing functions,authored gaps,conditional models and replay requirements rather than inventing replacements.
 
 
-Private research root, relative to the checkout: `../../work/hl2-decompiled/campaign-scenes-20261016h`. Start with `CLAUDE-START-HERE.md`, then `first-map/README.md`; canonical map cards/contracts are in `guide-v3`. `claude_query.py` pages map controllers, scene timelines, actor candidates, animation requests, event features and changelevel links without executing the game. Every controller retains map SHA, entity ordinal/Hammer ID, ordered duplicate outputs, actor selectors/slots, template/maker dependencies, authored animation requests and inbound/outbound candidate I/O. Do not replace this data with per-map timers or manually reconstructed dialogue lists.
+Private research records retained. Start with the research guide and first-map documentation; canonical map cards/contracts are in `guide-v3`. `claude_query.py` pages map controllers, scene timelines, actor candidates, animation requests, event features and changelevel links without executing the game. Every controller retains map SHA, entity ordinal/Hammer ID, ordered duplicate outputs, actor selectors/slots, template/maker dependencies, authored animation requests and inbound/outbound candidate I/O. Do not replace this data with per-map timers or manually reconstructed dialogue lists.
 
 The independently checked stock inventory contains 69 numbered campaign maps plus `intro` and credits, 77,628 ordered entity records, 760 choreography controllers, 641 `scripted_sequence` controllers, 507 `aiscripted_schedule` controllers and 26,488 five-field output connections. All 1,837 installed VSIF/BVCD cache records parse completely, containing 15,114 authored events; cache-only response/ambient content is not automatically a campaign dependency. Map references identify 665 scene CRCs, with 663 cache hits and two explicit missing identities. The review queue has 27 special/empty/ambiguous actor bindings; those are not automatically missing actors. The 6,356 animation requests retain candidate models but do not prove clip availability, include/autolayer closure, precache success or runtime selection. Twenty `On`-prefixed configuration fields were excluded from output counts; duplicate output keys remain ordered.
 
@@ -280,7 +1332,7 @@ Preserve requested, actor-waiting, interrupt-waiting, playing, manually paused, 
 
 LOOP rewinds to authored backtime and maintains a per-controller remaining counter (`-1` is unbounded). It is not a scene restart or nominal-duration completion. A non-automated SECTION freezes the scene clock while resume-condition callbacks and actor movement continue; the callback list combines completion with AND, and an empty list succeeds. Manual pause and interruption have separate resume gates. PERMIT_RESPONSES grants an actor deadline on global game time and admits responses only if they fit before it; it does not itself choose dialogue. See `event-control/CONTRACT.md`. Exact LOOP speech/output replay across rewind remains unresolved: the pinned SDK's extra loop-start speech-suppression state was not established by the reviewed retail setter. No SUBSCENE or INTERRUPT event instances occur in the parsed cache; generated scenes and busyactor interruption remain separate scope.
 
-First-map LOOP replay followup (`../../work/hl2-decompiled/campaign-scenes-20261016i-loop-replay/CONTRACT.md`): retain a processing flag per event across rewinds. Native Start sets processing before its callback; End calls its callback before clearing processing. At a backtime inside an already-processing event's inclusive window, that event continues; a stopped event can start on a later forward crossing. Weapon-point controllers 392/393 rewind 4.213334 -> 3.1: enabled FACE/LOOKAT overlap that backtime, while earlier MOVETO/SECTION do not restart from zero. The authored AI_AIM channel is inactive; do not enable it to imitate a live effect. `security_intro01b` and `cit_pacing` rewind to zero and revisit speech/gesture windows; use native SPEAK startup-latency/SECTION eligibility, not an extra repeat timer or the unproven SDK loop-start suppression shortcut. None of these three unique first-map LOOP assets has FIRETRIGGER events. Multi-loop/long-frame ordering, sound dependency helpers and actual audible replay remain **not tested/unresolved**; this followup establishes scheduler structure, not audio parity.
+First-map LOOP replay followup: retain a processing flag per event across rewinds. Native Start sets processing before its callback; End calls its callback before clearing processing. At a backtime inside an already-processing event's inclusive window, that event continues; a stopped event can start on a later forward crossing. Weapon-point controllers 392/393 rewind 4.213334 -> 3.1: enabled FACE/LOOKAT overlap that backtime, while earlier MOVETO/SECTION do not restart from zero. The authored AI_AIM channel is inactive; do not enable it to imitate a live effect. `security_intro01b` and `cit_pacing` rewind to zero and revisit speech/gesture windows; use native SPEAK startup-latency/SECTION eligibility, not an extra repeat timer or the unproven SDK loop-start suppression shortcut. None of these three unique first-map LOOP assets has FIRETRIGGER events. Multi-loop/long-frame ordering, sound dependency helpers and actual audible replay remain **not tested/unresolved**; this followup establishes scheduler structure, not audio parity.
 
 `scripted_sequence` needs distinct acquire, move/face, readiness, entry, action, postidle and cleanup stages, persistent actor ownership and a protected single successor. Same-name controllers remain separate instances with group readiness counters. Movement 5 turns in place; route modes need actual arrival. Preserve nested output order: without postidle, PostIdleEnd precedes End; with ordinary postidle, End precedes later PostIdleEnd. Looped PostIdleEnd does not imply release. Cleanup restores actor state and conditionally applies root-bone end correction, with selected retail bytes supporting an 8-unit threshold and 1-unit floor probe lift. Explicit cancellation and queued-controller cleanup need dedicated fixtures; trace spaces, support behavior and runtime parity remain unverified. See `scripted-sequences/README.md`.
 
@@ -558,3 +1610,84 @@ Unstarted pass15 (dropped): trace unresolved dispatchers from raw instruction ed
 ## Publication validation
 
 Public changes for this pass are documentation only: preserve history/invariants and the source-only whitelist, update evidence and the private checkpoint, check links and audit the public snapshot, then commit/push to bevy-migration. Do not rebuild/replay unchanged runtime code.
+
+## Chapter selection (2026-10-27, bounded plan)
+
+New Game opens a non-modal chapter browser owned by hl2-ui over source-ui; it no
+longer submits chapter 1 immediately. Discover nonempty chapter configs from the
+selected game's own mounted content, not inherited expansion/base configs or the
+background-map index. Resolve names with installed localization and thumbnails
+with that game's material/VTF search path. Installed NewGameDialog and
+NewGameChapterPanel layouts supply frame and control geometry. Keep game/map
+identity explicit when Start New Game submits the selected chapter's first map
+to the existing asynchronous loader. Resource loading/decoding is startup work.
+
+1. Record SDK, owned resources and identity-pinned private native findings;
+   separate observed static behavior from untested native UI interaction.
+2. Add independently tested chapter catalog/model and shared-widget dialog,
+   then wire its window, cancellation and loading effect without gameplay changes.
+3. Validate discovery against all installed expansions, pointer/keyboard/focus
+   cancellation and map identity; run local/Windows checks, packaged captures
+   and replays. Measure menu frame time before/after and document limitations.
+
+Owner requests selectable chapter starts. Progress locking/commentary and intro
+movie playback are separate unfinished gameplay features; expose all discovered
+launchable chapters rather than inventing progress from installed save files.
+
+### Chapter browser ownership correction (2026-10-27)
+
+Owner clarification: reusable UI-only chapter-browser mechanics belong in source-ui.
+Move the generic paged card dialog, geometry, selection/focus/capture, placement and
+drawing to `source_ui::card_browser`. The caller supplies resolved card text/images,
+layout rectangles, colors, labels, sound and scaling; toolkit outcomes carry only a
+card index. Keep config enumeration, installed resource interpretation/localization,
+chapter keys and game/map conversion in hl2-ui. Move generic interaction/canvas tests
+into source-ui and retain chapter/catalog/typed-effect tests in hl2-ui. Preserve the
+existing packaged behavior and repeat captures/replays/performance after the move.
+
+## Portability and declared dependencies (2026-10-27)
+
+Owner deferred movies/commentary before runtime code or dependencies were added.
+Keep that work aside. Maintain a cross-platform host and declare runtime versus
+build/test prerequisites in README. Audit subprocesses and native linkage; document
+the existing Linux folder-picker backend separately from gameplay. Preserve the
+Windows CI job and add native Linux/macOS source validation without owned assets.
+Local macOS validation and Windows-target checking do not establish a Linux pass;
+new hosted jobs remain pending until run. No runtime, Cargo dependency or asset
+changes are needed for this bounded documentation/CI checkpoint.
+
+## Background loading and dialog lifetime (2026-10-27)
+
+Reproduce the return-confirmation silhouette and requests made while a background
+worker is running. Remove orphaned closing dialog payloads when the window stack
+is replaced; compose confirmations only at their actual stack position. Keep
+chapter controls available during background work. Pending-request flags do not
+describe the active worker: campaign owns that distinction. Preserve foreground
+loads, queue the newest background request, and discard superseded background
+results before installing their world or changing the newer loading presentation.
+Foreground loading cancels the background transition presentation. Closing a
+browser does not cancel its background worker.
+
+Validate with UI lifetime/drawing and pending-worker regressions, owned asynchronous
+loads, packaged return-to-menu captures and chapter replays; run strict portable
+checks. Inspect pinned retail loading notifications/resources, distinguishing
+static presentation evidence from untested native responsiveness. Avoid rebuilding
+unused GameUI resources on each runtime map load; measure loading/frame costs.
+
+## Wait for background loading (2026-10-27)
+
+Owner still observes chapter input lag under actual background decoding. Previous
+checks established event acceptance/completion, not low input latency. Owned retail
+loading-state dispatch reaches `InstantHideMainMenu` and menu/title alpha zero;
+replace the unsupported interactive-during-load policy with a wait presentation.
+Hide main/submenu titles/buttons and chapter content while background loading is
+active, retaining authored background imagery and localized corner plaque. Gate
+pointer, keyboard, Escape and direct menu activation consistently; consume held
+interaction so it cannot activate a control when loading ends. Keep existing windows
+and selection to restore after successful or failed loading. Preserve background
+request coordination and foreground loading behavior. This is HL2 GameUI policy.
+
+Add rendering/input/held-release/success/failure regressions, adapt owned asynchronous
+and native-input tests, rebuild and capture the wait state plus restored browser,
+run strict cross-platform checks and packaged menu/chapter replays. Compare steady
+browser frame time and record the limits of static retail evidence.

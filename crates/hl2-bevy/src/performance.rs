@@ -1,12 +1,18 @@
 //! Optional bounded CPU stage measurements; disabled for ordinary play.
+mod gpu_completion;
+mod pacing;
 use bevy::prelude::*;
+pub(crate) use pacing::background_interval;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
     time::Instant,
 };
 #[derive(Resource, Default, Clone)]
-pub struct Performance(Arc<Mutex<BTreeMap<&'static str, Samples>>>);
+pub struct Performance(
+    Arc<Mutex<BTreeMap<&'static str, Samples>>>,
+    Arc<Mutex<Option<gpu_completion::Stats>>>,
+);
 #[derive(Default)]
 struct Samples {
     calls: u64,
@@ -40,6 +46,36 @@ impl Drop for Scope<'_> {
     }
 }
 impl Performance {
+    pub(crate) fn record_reduction(&self, world: bool, processed: u64, full: u64) {
+        if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
+            stats.reduction(world, processed, full);
+        }
+    }
+    pub(crate) fn set_camera_drawing(&self, direct: bool) {
+        if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
+            stats.camera_indirect_drawing_disabled = direct;
+        }
+    }
+    pub fn write_report(
+        &self,
+        output: &mut serde_json::Value,
+        diagnostics: Option<&bevy::diagnostic::DiagnosticsStore>,
+    ) {
+        output["cpu_stages"] = self.report();
+        output["background_profile_interval_ms"] = self
+            .1
+            .lock()
+            .expect("GPU profiling state")
+            .as_ref()
+            .map(|_| background_interval(true).as_secs_f64() * 1000.)
+            .into();
+        output["gpu_completion"] =
+            serde_json::to_value(&*self.1.lock().expect("GPU profiling state"))
+                .expect("GPU profiling report");
+        if let Some(diagnostics) = diagnostics {
+            output["render_diagnostics"] = render_report(diagnostics);
+        }
+    }
     pub fn report(&self) -> serde_json::Value {
         let all = self.0.lock().expect("CPU timing");
         serde_json::Value::Object(all.iter().map(|(name,samples)| {
@@ -71,7 +107,7 @@ struct RenderTimers(BTreeMap<&'static str, Instant>);
 /// Optional render-stage CPU wall timings. Ordering fences exist only with --profile.
 pub fn install(app: &mut App) {
     use bevy::render::{Render, RenderApp, RenderSystems};
-    let performance = Performance::default();
+    let performance = gpu_completion::prepare(app);
     app.insert_resource(performance.clone())
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     let Some(render) = app.get_sub_app_mut(RenderApp) else {
@@ -204,4 +240,31 @@ pub fn install(app: &mut App) {
         }
         render.add_systems(Render, (begin, end));
     }
+}
+/// Draw candidates and their triangles, all and visible in any view.
+pub fn render_candidates<'a>(
+    geometry: impl Iterator<
+        Item = (
+            &'a bevy::camera::visibility::ViewVisibility,
+            &'a crate::rendering::DrawTriangles,
+        ),
+    >,
+) -> serde_json::Value {
+    let mut visible_meshes = 0;
+    let mut visible_triangles = 0;
+    let mut total_triangles = 0;
+    let mut meshes = 0;
+    for (visible, triangles) in geometry {
+        meshes += 1;
+        total_triangles += triangles.0;
+        if visible.get() {
+            visible_meshes += 1;
+            visible_triangles += triangles.0;
+        }
+    }
+    serde_json::json!({
+        "tagged_meshes":meshes,"tagged_triangles":total_triangles,
+        "visible_any_view_meshes":visible_meshes,"visible_any_view_triangles":visible_triangles,
+        "scope":"world/entity candidates after PVS/frustum/layer checks; excludes sky and viewmodels; union of all views, not GPU draw-call counts"
+    })
 }

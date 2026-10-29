@@ -1,0 +1,194 @@
+[
+  {
+    "tick": 20,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 21,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 22,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 23,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "enter-episode-two"
+  },
+  {
+    "tick": 700,
+    "ui": [
+      {
+        "action": "command",
+        "command": "map d1_trainstation_02"
+      }
+    ],
+    "label": "map-hl2"
+  },
+  {
+    "tick": 2000,
+    "ui": [
+      {
+        "action": "escape"
+      }
+    ],
+    "label": "pause"
+  },
+  {
+    "tick": 2002,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "up"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 2003,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "up"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 2004,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "return-to-main-menu"
+  },
+  {
+    "tick": 2010,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "confirm"
+  },
+  {
+    "tick": 2800,
+    "ui": [
+      {
+        "action": "command",
+        "command": "background_map"
+      }
+    ],
+    "label": "settle"
+  },
+  {
+    "tick": 2808,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 2810,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 2811,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 2812,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 2900,
+    "label": "chapters-after-return"
+  }
+]

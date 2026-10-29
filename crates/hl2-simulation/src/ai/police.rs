@@ -3,7 +3,7 @@
 //! within twice the police radius (move-along sentences, harass gestures, warning-level
 //! outputs), turning hostile with the baton after POLICE_MAX_WARNINGS or when the target
 //! crosses the radius, and returning to the post. SDK behavior, retail not compared.
-use super::conditions::*;
+use super::conditions::{Cond, Conditions, COND_CAN_MELEE_ATTACK1, LAST_SHARED_CONDITION};
 use super::schedule::{
     AiNpc, Behavior, Context, Goal, Motor, Schedule, Schedules, TaskArg, TaskStatus,
 };

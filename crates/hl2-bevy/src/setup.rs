@@ -85,7 +85,7 @@ fn save(path: &Path, game: &Path) -> Result<()> {
     result
 }
 
-fn checked(path: PathBuf, map: &str) -> Result<PathBuf> {
+fn checked(path: PathBuf, map: Option<&str>) -> Result<PathBuf> {
     install::validate_content(path, map)
 }
 
@@ -93,7 +93,7 @@ fn select_install(
     explicit: Option<PathBuf>,
     environment: Option<PathBuf>,
     saved: Option<PathBuf>,
-    map: &str,
+    map: Option<&str>,
     discover: impl FnOnce() -> Result<PathBuf>,
 ) -> Result<PathBuf> {
     if let Some(path) = explicit {
@@ -119,7 +119,7 @@ fn select_install(
 
 pub fn resolve(
     explicit: Option<PathBuf>,
-    map: &str,
+    map: Option<&str>,
     force: bool,
     noninteractive: bool,
     preview: Option<PathBuf>,
@@ -178,7 +178,8 @@ pub fn resolve(
     let status = std::process::Command::new(std::env::current_exe()?)
         .arg("--setup-window")
         .arg(&response.0)
-        .arg(map)
+        // Positional helper argument: empty means no requested map.
+        .arg(map.unwrap_or_default())
         .arg(initial.unwrap_or_default())
         .arg(message)
         .arg(preview.unwrap_or_default())
@@ -218,7 +219,7 @@ enum Work {
 #[derive(Resource)]
 struct Setup {
     response: PathBuf,
-    map: String,
+    map: Option<String>,
     initial: String,
     message: String,
     worker: Option<Mutex<mpsc::Receiver<Work>>>,
@@ -263,11 +264,13 @@ pub fn run_helper() -> Result<bool> {
         return Ok(false);
     }
     let response = PathBuf::from(args.next().context("Missing setup response file")?);
-    let map = args
-        .next()
-        .context("Missing setup map")?
-        .to_string_lossy()
-        .into_owned();
+    let map = Some(
+        args.next()
+            .context("Missing setup map")?
+            .to_string_lossy()
+            .into_owned(),
+    )
+    .filter(|map| !map.is_empty());
     let initial = path_text(&PathBuf::from(args.next().unwrap_or_default()));
     let message = args
         .next()
@@ -374,9 +377,7 @@ fn capture_preview(
 }
 
 fn screen(mut commands: Commands, mut fonts: ResMut<Assets<Font>>, setup: Res<Setup>) {
-    let font = fonts.add(Font::from_bytes(
-        include_bytes!("../../hl2-ui/assets/fonts/ProggyClean.ttf").to_vec(),
-    ));
+    let font = fonts.add(Font::from_bytes(source_ui::PROGGY_CLEAN.to_vec()));
     let normal = TextFont {
         font: font.into(),
         font_size: FontSize::Px(20.),
@@ -478,11 +479,11 @@ fn start_action(setup: &mut Setup, action: Action, path: String) {
             }
             Action::Detect => Work::Detected(
                 install::discover_steam()
-                    .and_then(|p| checked(p, &map))
+                    .and_then(|p| checked(p, map.as_deref()))
                     .map_err(|e| format!("{e:#}")),
             ),
             _ => Work::Validated(
-                checked(PathBuf::from(path.trim().trim_matches('"')), &map)
+                checked(PathBuf::from(path.trim().trim_matches('"')), map.as_deref())
                     .map_err(|e| format!("{e:#}")),
             ),
         };
@@ -547,12 +548,18 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
+            // Parallel tests can read the same clock value (microseconds on macOS): the counter
+            // keeps their folders apart, so one test's cleanup never deletes another's.
+            static COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let count = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let nonce = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let root =
-                std::env::temp_dir().join(format!("hl2-setup-test-{}-{nonce}", std::process::id()));
+            let root = std::env::temp_dir().join(format!(
+                "hl2-setup-test-{}-{nonce}-{count}",
+                std::process::id()
+            ));
             for file in [
                 "hl2/gameinfo.txt",
                 "hl2/scripts/game_sounds_manifest.txt",
@@ -578,7 +585,7 @@ mod tests {
         app.add_message::<AppExit>()
             .insert_resource(Setup {
                 response,
-                map: "test".into(),
+                map: Some("test".into()),
                 initial: String::new(),
                 message: String::new(),
                 worker: None,
@@ -673,7 +680,7 @@ mod tests {
                 Some(explicit.0.clone()),
                 Some(environment.0.clone()),
                 Some(saved.0.clone()),
-                "test",
+                Some("test"),
                 unexpected
             )
             .unwrap(),
@@ -684,14 +691,14 @@ mod tests {
                 None,
                 Some(environment.0.clone()),
                 Some(saved.0.clone()),
-                "test",
+                Some("test"),
                 unexpected
             )
             .unwrap(),
             environment.0.canonicalize().unwrap()
         );
         assert_eq!(
-            select_install(None, None, Some(saved.0.clone()), "test", unexpected).unwrap(),
+            select_install(None, None, Some(saved.0.clone()), Some("test"), unexpected).unwrap(),
             saved.0.canonicalize().unwrap()
         );
         assert!(
@@ -699,7 +706,7 @@ mod tests {
                 Some(explicit.0.join("missing")),
                 None,
                 Some(saved.0.clone()),
-                "test",
+                Some("test"),
                 unexpected
             )
             .is_err()
@@ -709,9 +716,9 @@ mod tests {
     fn stale_saved_path_recovers_through_steam() {
         let game = Fixture::new();
         assert_eq!(
-            select_install(None, None, Some(game.0.join("moved")), "test", || Ok(game
-                .0
-                .clone()))
+            select_install(None, None, Some(game.0.join("moved")), Some("test"), || Ok(
+                game.0.clone()
+            ))
             .unwrap(),
             game.0.canonicalize().unwrap()
         );

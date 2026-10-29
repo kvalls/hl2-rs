@@ -72,11 +72,19 @@ struct Layout {
     /// Authored mips stored below the chosen one.
     smaller_mips: usize,
 }
-fn layout(data: &[u8], max_dimension: usize) -> Result<Layout> {
-    layout_level(data, max_dimension, 0)
+
+pub const TEXTUREFLAGS_IGNORE_PICMIP: u32 = 0x0020_0000;
+
+fn layout_picmip(data: &[u8], max_dimension: usize, picmip: i32) -> Result<Layout> {
+    layout_level_picmip(data, max_dimension, picmip, 0)
 }
-/// The mip `below` levels under the largest mip that fits `max_dimension`.
-fn layout_level(data: &[u8], max_dimension: usize, below: usize) -> Result<Layout> {
+/// The mip `below` levels under the largest mip that fits `max_dimension` and `picmip`.
+fn layout_level_picmip(
+    data: &[u8],
+    max_dimension: usize,
+    picmip: i32,
+    below: usize,
+) -> Result<Layout> {
     if bytes(data, 0, 4)? != b"VTF\0" {
         bail!("not a VTF texture");
     }
@@ -153,6 +161,10 @@ fn layout_level(data: &[u8], max_dimension: usize, below: usize) -> Result<Layou
     while mip + 1 < mip_count && (full_w >> mip).max(full_h >> mip) > max_dimension.max(1) {
         mip += 1;
     }
+    if flags & TEXTUREFLAGS_IGNORE_PICMIP == 0 && picmip > 0 {
+        let skip = (picmip as usize).min(mip_count.saturating_sub(1).saturating_sub(mip));
+        mip += skip;
+    }
     mip = mip
         .checked_add(below)
         .filter(|&mip| mip < mip_count)
@@ -180,13 +192,24 @@ fn layout_level(data: &[u8], max_dimension: usize, below: usize) -> Result<Layou
     })
 }
 pub fn decode(data: &[u8], max_dimension: usize) -> Result<Image> {
-    let l = layout(data, max_dimension)?;
+    decode_picmip(data, max_dimension, 0)
+}
+pub fn decode_picmip(data: &[u8], max_dimension: usize, picmip: i32) -> Result<Image> {
+    let l = layout_picmip(data, max_dimension, picmip)?;
     decode_face(data, &l, 0)
 }
 /// All frames of a 2D texture at one mip, checked against the caller's decoded budget
 /// before allocating. VTF storage orders each mip by frame, then cube face.
 pub fn decode_frames(data: &[u8], max_dimension: usize, byte_budget: usize) -> Result<Vec<Image>> {
-    let l = layout(data, max_dimension)?;
+    decode_frames_picmip(data, max_dimension, 0, byte_budget)
+}
+pub fn decode_frames_picmip(
+    data: &[u8],
+    max_dimension: usize,
+    picmip: i32,
+    byte_budget: usize,
+) -> Result<Vec<Image>> {
+    let l = layout_picmip(data, max_dimension, picmip)?;
     if l.faces != 1 {
         bail!("animated 2D texture cannot be a cubemap");
     }
@@ -209,7 +232,7 @@ pub fn decode_frames(data: &[u8], max_dimension: usize, byte_budget: usize) -> R
         .map(|frame| decode_face(data, &l, frame))
         .collect()
 }
-/// Every frame's authored mip chain, from the largest mip that fits `max_dimension` down to
+/// Every frame's authored mip chain, from the largest mip that fits `max_dimension` and `picmip` down to
 /// the smallest stored mip. Source samples these hand-made or tool-made levels with distance,
 /// so they are uploaded as they are rather than regenerated.
 pub fn decode_frame_mips(
@@ -217,12 +240,20 @@ pub fn decode_frame_mips(
     max_dimension: usize,
     byte_budget: usize,
 ) -> Result<Vec<Vec<Image>>> {
-    let top = layout(data, max_dimension)?;
+    decode_frame_mips_picmip(data, max_dimension, 0, byte_budget)
+}
+pub fn decode_frame_mips_picmip(
+    data: &[u8],
+    max_dimension: usize,
+    picmip: i32,
+    byte_budget: usize,
+) -> Result<Vec<Vec<Image>>> {
+    let top = layout_picmip(data, max_dimension, picmip)?;
     if top.faces != 1 {
         bail!("animated 2D texture cannot be a cubemap");
     }
     let levels = (0..=top.smaller_mips)
-        .map(|below| layout_level(data, max_dimension, below))
+        .map(|below| layout_level_picmip(data, max_dimension, picmip, below))
         .collect::<Result<Vec<_>>>()?;
     let mut decoded = 0usize;
     for l in &levels {
@@ -258,7 +289,10 @@ pub struct Cube {
     pub faces: [Vec<u8>; 6],
 }
 pub fn decode_cube(data: &[u8], max_dimension: usize) -> Result<Cube> {
-    let l = layout(data, max_dimension)?;
+    decode_cube_picmip(data, max_dimension, 0)
+}
+pub fn decode_cube_picmip(data: &[u8], max_dimension: usize, picmip: i32) -> Result<Cube> {
+    let l = layout_picmip(data, max_dimension, picmip)?;
     if l.faces < 6 || l.width != l.height {
         bail!("VTF is not a square cubemap");
     }
@@ -543,6 +577,35 @@ mod tests {
         assert!(decode_frame_mips(&d[..d.len() - 1], 512, 1 << 20).is_err());
     }
     #[test]
+    fn picmip_skips_mips_unless_ignore_picmip_is_set() {
+        // 4x2 texture, 3 mips (4x2, 2x1, 1x1).
+        let mut d = header(4, 2, 1, 3);
+        for (_mip, (w, h)) in [(2, (1, 1)), (1, (2, 1)), (0, (4, 2))] {
+            for _ in 0..w * h {
+                d.extend_from_slice(&[255, 0, 0, 255]);
+            }
+        }
+        // picmip 0 -> full resolution (4, 2)
+        let img0 = decode_picmip(&d, 512, 0).unwrap();
+        assert_eq!((img0.width, img0.height), (4, 2));
+
+        // picmip 1 -> skips 1 mip -> (2, 1)
+        let img1 = decode_picmip(&d, 512, 1).unwrap();
+        assert_eq!((img1.width, img1.height), (2, 1));
+
+        // picmip 2 -> skips 2 mips -> (1, 1)
+        let img2 = decode_picmip(&d, 512, 2).unwrap();
+        assert_eq!((img2.width, img2.height), (1, 1));
+
+        // Now set TEXTUREFLAGS_IGNORE_PICMIP (0x0020_0000) at flags offset 20..24
+        let mut d_ignored = d.clone();
+        d_ignored[20..24].copy_from_slice(&TEXTUREFLAGS_IGNORE_PICMIP.to_le_bytes());
+
+        // picmip 2 on texture with IGNORE_PICMIP should remain at full (4, 2)
+        let img_ignored = decode_picmip(&d_ignored, 512, 2).unwrap();
+        assert_eq!((img_ignored.width, img_ignored.height), (4, 2));
+    }
+    #[test]
     fn truncated_vtf_is_error() {
         assert!(decode(b"VTF\0", 512).is_err());
     }
@@ -648,10 +711,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_combine_barrier_frames_fade_to_black() {
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         for name in ["comshieldwall", "comshieldwall_close"] {
             let data = vfs
                 .read(&format!("materials/effects/combineshield/{name}.vtf"))
@@ -677,10 +737,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_trainstation_window_cubemaps_decode() {
-        let mut vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let mut vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();
         let bsp = crate::bsp::Bsp::parse(&bytes).unwrap();
         vfs.mount_pak(bsp.lump(40)).unwrap();

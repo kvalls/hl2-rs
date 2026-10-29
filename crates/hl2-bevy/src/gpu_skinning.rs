@@ -203,6 +203,7 @@ mod tests {
         };
         let bind_matrix = glam::Mat4::from_rotation_translation(bind.rotation, bind.position);
         let rig = Rig {
+            view_bounds: Default::default(),
             pose_parameters: Vec::new(),
             autoplay: Vec::new(),
             attachments: Vec::new(),

@@ -742,7 +742,7 @@ fn drag_geometry(body: &RigidBody, colliders: &ColliderSet) -> Option<crate::dra
 }
 /// One drag-controller step on a body (retail 10012ec0 order: linear, then angular).
 fn apply_drag(body: &mut RigidBody, geometry: &crate::drag::DragGeometry, density: f32, dt: f32) {
-    use crate::drag::*;
+    use crate::drag::{angular_query, linear_query, step_factor, DEFAULT_COEFFICIENT};
     let props = body.mass_properties().local_mprops;
     let inertia = props.inv_principal_inertia_sqrt;
     let inv_inertia = Vec3::new(
@@ -3746,6 +3746,7 @@ mod tests {
             rigs: BTreeMap::from([(
                 key,
                 Rig {
+                    view_bounds: Default::default(),
                     pose_parameters: Vec::new(),
                     autoplay: Vec::new(),
                     attachments: Vec::new(),

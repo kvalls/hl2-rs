@@ -1,5 +1,26 @@
 # Local validation — 2026-10-05
 
+## Background projection independence and Fit Display (2026-10-28)
+
+The previous follow-up initialized the saved player FOV, stabilizing an incorrect dependency.
+Background projection now ignores gameplay FOV, vertical overrides and zoom, using the authored
+75-degree 4:3 reference with the existing aspect adaptation. Gameplay remains adjustable.
+The inspected a7f071e3/be113848 paths also consume player FOV; no Fit Display regression date
+is established. The prior inventory workaround is removed.
+
+New host tests cover FOV/zoom independence at portrait, square, 5:4, 4:3, 16:10, 16:9,
+21:9 and 32:9; projection-ray equivalence with artwork crops at portrait/square/4:3/16:9/
+ultrawide; and actual Fit Display frame.size_for/aspect changes across landscape, portrait,
+ultrawide and 4:3 windows. The first-view/tick lifecycle test asserts the menu invariant.
+These are geometry/component tests, not interactive window-drag or native-image comparisons.
+
+validate.sh passes (1,190 Rust / 100 ignored, 27 Python, strict Clippy/fmt/architecture), as
+does check_windows.sh and release packaging. NO_BUILD=1 ONLY='background_fov background_reveal
+coverage' python3 scripts/checks/replays.py passes all three groups. Paired 75/110 player FOV
+and 0/90 vertical overrides change only 521 pixels at 4:3 and 9 at 16:9, in animated details.
+Logs/captures remain in artifacts/background-projection and artifacts/replays. Windows runtime,
+interactive Fit Display resizing, every background artwork and native visual parity NOT TESTED.
+
 ## Virtual sequence lookup and raw loaded mapping (2026-10-28)
 
 From this checkout, `C:/Python310/python.exe -B ../../work/hl2-decompiled/actor-virtual-sequences-20261028bs/verify_static.py` passes11 exact unchanged pass14 identities,7 dumpbin windows/723 instruction starts checked against PE bytes,11 selected anchors and2 direct edges. Windows do not establish complete function extents. The optional fresh Ghidra import times out at330 seconds; its diagnostics and zero-record export remain retained. REA closes with open:false/cleanup_pending:false; the temporary recovery setting is reset.
@@ -9,6 +30,605 @@ From this checkout, `C:/Python310/python.exe -B ../../work/hl2-decompiled/actor-
 `C:/Python310/python.exe -B ../../work/hl2-decompiled/actor-virtual-raw-20261028bw/verify.py` replays3 accepted raw graph samples/201 reads/169128 bytes through the actual collector, compares1416 group/local tuples per sample and admits9 selected tuples/8 cached descriptors against owned checksum/name/label sources. It rejects9 in-memory corruptions, including coherent-hash metadata changes, truncated table, forged output and an empty error key. Two actor acquisitions remain in one tick; the third is excluded from actor-state timing. Root group0 stays uncached; direct-root local0 `ragdoll` is separately read. Root owned44/loaded48 is observed, not a converter trace.
 
 `C:/Python310/python.exe -B ../../work/publishing/seal-research-sequences-20261028.py verify BS BU BV BW` passes37/43/54/46 files and2/9/15/9 external bindings. `C:/Python310/python.exe -B ../../work/hl2-decompiled/actor-sequence-content-20261028bt/seal.py verify` passes8 files/7 external bindings/5 owned member ranges. BU/BV acceptance means intact rejected diagnostic inventories, not successful mapping:1/12 rejected snapshots respectively. All three native games exit0 with six checked installed settings unchanged. The raw title-card screenshot is visually inspected; no actor pose comparison. No Frida attachment, Rust tests/builds or parity test. Document diff, source-whitelist and exact staged-set checks apply. First_map_finished:false; original16 gaps/four missing bodies remain.
+
+## Nondefault background FOV at reveal (2026-10-27)
+
+Background preparation now copies configured FOV into inventory before the initial camera
+presentation. A 75/87.3083/90-degree lifecycle test asserts the initial and ordinary fixed-tick
+values agree without advancing clocks. Removing the assignment rejects the old 75-degree
+initialization at configured 87.3083. Both old/new screenshot guards pass, so they are not
+decisive evidence for this short transition; logs are retained in artifacts/background-fov.
+validate.sh passes (1,187 Rust, 100 ignored; 27 Python; strict Clippy/fmt/architecture), as does
+check_windows.sh and release packaging. NO_BUILD=1 ONLY='background_reveal coverage' python3
+scripts/checks/replays.py passes at FOV 90. Interactive owner confirmation and Windows runtime
+NOT TESTED. No frame-cost claim; the assignment runs only during background installation.
+
+## Advanced weapon blur at viewport edges (2026-10-27)
+
+All captures retain the cutout-alpha correction. Normal SMG/shotgun fire/reload captures
+still show fading when their gather footprints leave the viewport. The shader skipped
+outside taps but normalized both color and coverage by the requested count. It now counts
+in-frame taps and uses that divisor for both; in-frame background is still included. No
+exposure, reach cap, tap density, ownership rule, world/retail path or texture fetch changes.
+Normal fixed SMG fire/shotgun reload bursts were inspected alongside the earlier output.
+
+NO_BUILD=1 python3 scripts/checks/check_weapon_edges.py uses real animated geometry and
+13-frame bursts. A private old-divisor control detects 6,843 pixels losing coverage. All
+corrected cases report zero loss, with these peak counts proving real edge execution:
+
+| Case | No AA | 4x AA |
+| --- | ---: | ---: |
+| SMG fire | 5,098 | 5,078 |
+| SMG reload | 1,200 | 644 |
+| Shotgun fire | 9,933 | 10,426 |
+| Shotgun reload | 2,309 | 1,277 |
+
+The private shader is restored on failure/success. Evidence: artifacts/weapon-edges and
+artifacts/render-fixes. scripts/checks/validate.sh passes (1,186 Rust / 100 ignored,
+27 Python, strict Clippy/fmt/architecture), as does scripts/checks/check_windows.sh;
+release package rebuilt. NO_BUILD=1 ONLY='viewmodel_motion_blur coverage' python3
+scripts/checks/replays.py passes both groups. NO_BUILD=1 python3 scripts/checks/check_weapon_blur.py passes all eight pistol/switch/
+reload/SMG ownership cases at no AA/4x, with zero borrowed-motion and missing-coverage
+pixels. Strong crowbar reconstruction and pause/still/switch/off states remain verified. No new pass/resource or CPU work; only a scalar
+GPU tap count is added. Fresh FPS, Windows/other GPU runtime, every animation phase and
+native comparison are NOT TESTED. Current-frame reconstruction cannot recover hidden or
+offscreen source geometry/colors.
+
+## Cutout alpha and sky-dependent fringes (2026-10-27)
+
+The accepted Source alpha-test output retained fractional texture alpha. Setting surviving
+masked fragments to opaque alpha removes background/sky bleed during later camera composition.
+Flat-black probes ruled out uninitialized white MSAA samples. An isolated opaque-alpha color
+comparison darkens 4,203 tree-edge pixels at 4x AA and 4,296 without AA, with no brightened
+pixels. Ultra/4x shows the same static correction. The sample/cutoff/mip/filtering rules and
+prepass are unchanged; original texture alpha still controls material masks.
+
+Run NO_BUILD=1 python3 scripts/checks/check_cutout_alpha.py after release packaging. On M1 Pro/
+Metal at 1024x768 its private shader probe reports 7,339 partial-alpha survivors when the
+correction is removed. Corrected trees: no AA 111,920 opaque/0 partial; 4x and Ultra/4x
+108,103 opaque/0 partial. Corridor fence/4x: 57,334 opaque/0 partial. Real diagnostic execution
+and clean GPU logs are asserted; normal tree/fence captures are retained for visual review.
+The private copy's shader is restored even on failure. Evidence: artifacts/cutout-alpha and
+artifacts/render-fixes/cutout-*. No installation content or user settings are modified.
+
+scripts/checks/validate.sh passes (1,186 Rust / 100 ignored; 27 Python; strict Clippy/fmt/
+architecture), as does scripts/checks/check_windows.sh. Other GPU runtime, Windows runtime,
+all resolutions/maps, native visual parity and new FPS measurements are NOT TESTED.
+
+## Background camera handoff regression (2026-10-27)
+
+The old install frame exposed the player spawn view; the next fixed tick enabled the
+logic_auto-authored menu camera. A temporary install-time capture reproduced a 532,602-pixel
+change at threshold 35 versus the settled 1024x768 frame. Ordinary post-tick bursts missed
+this frame. The production diagnostic capture now saves -installed.png whenever --capture
+is requested, with no extra capture work in ordinary play.
+
+Due zero-time background map-spawn I/O and the shared scripted-view resolver now run before
+loading is dismissed. Unit tests prove immediate camera setup, unchanged clocks and preserved
+nonzero output delays. Packaged background_reveal measures 2,931 changed pixels (0.37%,
+animated details), below its conservative 5% guard; inspect both captures alongside assertions.
+The old captured output fails that guard (67.7%). Evidence: artifacts/render-fixes and
+artifacts/replays/background_reveal*.png.
+
+scripts/checks/validate.sh passes (1,186 Rust, 100 ignored; 27 Python; strict Clippy/fmt/
+architecture), as does scripts/checks/check_windows.sh. Both owned campaign submenu tests
+pass. NO_BUILD=1 ONLY='background_reveal submenus return_menu coverage' python3
+scripts/checks/replays.py passes all four groups. Release package rebuilt. Initial test
+compilation rejected mixed Bevy/portable vector assertions; corrected to coordinate arrays
+and all final checks pass. Windows runtime, native comparison and full campaign NOT TESTED.
+
+## Chapter/rendering branch integration (2026-10-27)
+
+Merged chapter UI/loading, commentary/movie playback and HUD alignment with the four-tier
+blur and M1 Pro/Metal rendering policy. scripts/checks/validate.sh passes: 1,184 Rust tests,
+100 ignored; 27 Python tests; strict host Clippy, formatting and architecture. The Windows
+target check, release packaging and owned startup stub test also pass.
+
+Packaged command: NO_BUILD=1 ONLY='chapter_selection return_menu submenus commentary video
+motion_blur_options viewmodel_motion_blur coverage' python3 scripts/checks/replays.py.
+Seven groups pass initially; motion_blur_options fails because its stale Video-tab pixel
+lands outside the tab after incoming font/layout changes. Replace that click with existing
+Tab/Right navigation and assert Video, VideoAdvanced and Advanced-without-Ultra states.
+The focused NO_BUILD=1 ONLY='motion_blur_options' rerun passes, completing all eight groups.
+Retain the failed report/capture and run logs under artifacts/merge-ui-chapters. No runtime
+behavior was changed to satisfy the fixture. Inspect the chapter dialog capture alongside
+report assertions; captures do not prove transient loading frames or native parity.
+
+Windows runtime, fresh interactive FPS, other GPU performance and ordinary full-campaign
+playthrough are NOT TESTED in this integration. Prior performance figures remain historical;
+this merge adds no measured performance claim.
+
+Repeated native qualification defaults to three Enabled/Advanced pairs per scene, with
+order reversed in the middle pair. Report every iteration, paired cost ratios and median/
+minimum/maximum frame means and p95/p99 values. Medians smooth ordinary noise; known
+interference remains flagged rather than averaged away. The raw evidence is never hidden.
+
+## Wrap-up validation and tier split (2026-10-27)
+
+validate.sh passes 1,143 Rust tests (92 ignored), 27 Python tests, strict Clippy, formatting
+and architecture. check_windows.sh passes strict cross-target Clippy; Windows runtime is
+not tested. Owned blur labels resolve. GPU counters verify Enabled has no reconstruction,
+Advanced has weapon-only reconstruction and Ultra has both. Existing saves and console
+master resets are tested. Eight normal weapon surface cases before the label split (same weapon algorithm) and final
+ONLY="viewmodel_motion_blur coverage" replays pass. No user-launched app is closed.
+
+Native idle frame budgets pass for new Advanced, but pressure flags leave qualification
+provisional. Ultra still fails the strict budget. Priming, cold/failed and every measured
+run are retained; no threshold is loosened. Historical full-blur Advanced series are now
+Ultra. Final-tier Ultra projectile/world suite and interactive FPS remain untested.
+The cooperative archive holds the GPU serial comparator/canary; both kernels were rejected
+for Metal cost and are not active in the preferred build. The normal fragment path remains.
+
+## Known-workload preflight and main-depth probes (2026-10-27)
+
+The native guard saves each .preflight.json before launch. Known other games or compiler
+processes in the current baseline abort the batch before invoking a game; moderate CPU/GPU
+utilisation alone does not. Unknown counters do not establish idleness and still fail later
+resource qualification. A workload beginning during a run remains flagged in its retained
+samples. No automatic retry, data removal or threshold change is introduced. Twenty-five
+Python tests include a busy-baseline case proving saved evidence and no game launch.
+
+The main-depth candidate passes check_world_blur.py and all eight check_weapon_blur.py
+cases (no AA/4x). Normal camera/lamp images were inspected. Full validate.sh passes 1,136
+Rust tests (92 ignored), 23 Python tests at that point, strict Clippy, fmt and architecture;
+the later harness checks raise the Python total to 25. The active-camera bookkeeping
+refinement passes eleven bloom tests and host/Windows-target strict Clippy. These are
+packaged Metal image and cross-compilation checks, not Windows runtime validation.
+
+Native attempts main-depth-repeated and main-depth-isolated are retained separately. The
+former overlaps another replay; only this task's harness/children are stopped. The latter
+passes idle budgets with two comparable pairs and one memory-mismatched pair, then refuses
+a compiler-contended preflight. Three pairs across all scenes, the broader crowbar replay
+and interactive FPS are not qualified. After two interrupted attempts, further timing waits
+for an exclusive window instead of launching more known-contended batches.
+
+## Repeated direct-colour candidate (2026-10-27)
+
+NO_BUILD=1 BLUR_LABEL=direct-sources-repeated BLUR_RUNS=3 python3
+scripts/checks/check_blur_performance.py completes eighteen runs. All have valid GPU
+completion bounds and zero rendering/wait errors; the overall performance guard fails.
+Three swing pairs are resource-comparable and consistently fail both budgets; idle/turn
+pairs retain their interference flags. All iterations remain in the named ignored evidence
+directory, with source/package identities and resource-report.md. The direct-colour world
+GPU probe passes; no interactive or Windows runtime qualification is claimed. Source is
+preserved on codex/experiment/blur-direct-colour-sources. The main-depth follow-up is a
+separate archived candidate, not implicitly qualified by these earlier captures.
+
+## Headless GPU completion and settled baselines (2026-10-27)
+
+Headless --profile runs use a two-marker ring in the host render graph. Completion markers
+follow render submission; the oldest marker is awaited before reuse, bounding GPU render
+submission without serialising every CPU frame. Reports expose submitted/observed-completed
+frames, maximum pending fences, wait time and errors. The native guard requires a limit of
+two, at least 100 observed completions and zero errors. No marker or wait is installed for
+ordinary or interactive runs. Empty submissions add no render pass or callback allocation.
+
+A native six-run batch exercises the limiter. Swing driver-managed memory averages about
+2.23 GiB versus 4.40 GiB in the earlier unpaced resolved-world run; these are aggregate
+counters. Marked waits are GPU backpressure, not render-pass timing. Pre-pacing headless
+FPS reports measure produced-frame cadence and cannot alone establish GPU throughput.
+The limiter retains CPU/GPU overlap; isolated overhead and native Windows/Linux are untested.
+
+The sampler's first reading is retained as a primer, excluded from baseline means. It can
+contain the previous game's GPU load while CPU counters have no initial delta. Subsequent
+samples prefer a quiet baseline for up to five seconds; all baseline history is saved.
+Resource comparison remains the committed matched-input protocol: stable moderate load is
+comparable, while hardware differences, material shifts and known interference/pressure
+remain flagged. A short-lived experimental requirement for total quietness is removed;
+earlier files keep their original flags. No frame-time threshold is loosened.
+
+## Hardware-aware benchmark evidence (2026-10-27)
+
+The native blur guard writes per-run `.environment.json`, `resource-report.md`, package hashes
+and source identity. `BLUR_LABEL` selects a simple directory label under the ignored evidence
+root; `BLUR_TELEMETRY_INTERVAL` defaults to one second. Frame windows are epoch-aligned after
+warm-up, retain 128 completed windows plus the partial tail, and report dropped windows.
+The helper asserts aligned frame counts when no windows were dropped. Resource/output ratios
+use that same retained window. No per-frame allocation or file access is added to the game.
+
+Live host sampling is currently macOS-only: aggregate CPU ticks, process CPU time/RSS,
+IOAccelerator utilisation and GPU-managed system-memory counters, VM pages and pressure.
+CPU idle and driver GPU headroom are occupancy proxies, not available FLOPS. RAM availability
+is free+inactive+speculative pages; purgeable pages are not added again. Apple Silicon uses
+one unified pool, so dedicated VRAM availability is null. GPU counters are system-wide;
+multiple ambiguous accelerators and unsupported platforms leave metrics unavailable.
+Thermal limits are recorded where the OS supplies them; missing clocks/limits are unknown.
+
+Qualification retains the existing mean/p95 thresholds. It also flags builds/other games,
+pressure/pageout/swapout changes, unavailable samples, hardware mismatches, material baseline
+memory differences and baseline CPU/GPU changes over 10 percentage points. These criteria
+are declared before measuring; resource pressure caused by Advanced remains a regression
+cost, not a reason to excuse the rendering. All cases are collected even when one fails.
+Within-run Pearson correlations require six aligned windows; constant/insufficient inputs
+produce null. No significance test, causal claim or cross-GPU compute-efficiency claim is
+made. Sampler CPU accounting includes its child commands; a sample containing a game exit
+is excluded from that accounting. Actual isolated FPS overhead is not tested.
+
+The first six-run native batch and the sampler-accounting run complete without render errors,
+but all scene pairs fail qualification. Evidence is in artifacts/blur-performance-regression/
+environment-loaded and environment-observer. The latter detects competing builds instead of
+silently treating a later retail slowdown as renderer cost. See docs/performance.md.
+
+## Native-resolution blur performance guard (2026-10-27)
+
+`NO_BUILD=1 python3 scripts/checks/check_blur_performance.py` uses a copied muted package,
+owned d1_trainstation_02 content, 3456x2168 / 4x MSAA / HDR None / VSync off. It never edits
+the user's package settings. Idle, continuous yaw turns and repeated crowbar swings are
+paired between retail Enabled and Advanced. Each report must show the requested internal
+viewport and at least 100 post-warm-up measured frames. Defaults can be changed with
+BLUR_WIDTH, BLUR_HEIGHT, BLUR_AA and BLUR_RUNS; altered workloads do not qualify the owner's
+native-resolution case. Do not overlap GPU runs with other games, builds or image analysis.
+
+Acceptance thresholds remain mean <= retail * 1.20 + 0.25 ms and p95 <= retail * 1.25 +
+1 ms. These are regression guards, not FPS guarantees; the current renderer fails them.
+A failing crate does not prevent these opt-in owned checks from being run separately.
+
+The --profile frame histogram starts after 120 warm-up frames. Percentiles are conservative
+1 ms bin upper bounds; the overflow bin returns the exact maximum, retaining hitches above
+255 ms. Maximum is exact. Ordinary-play percentile/max fields are null and collection is
+skipped. Unit tests cover these boundaries and the ordinary-play/warm-up gates.
+
+Encoder-boundary GPU timestamp experiments on Metal return zero durations for every blur
+span. Those values are unavailable measurements, not evidence of zero GPU cost. The
+experiment was removed; existing CPU command-encoding spans must not be called GPU timings.
+The separate single-sample camera and resolved-motion cache experiments also failed the
+native idle budget and were removed. Full investigation evidence remains in ignored
+artifacts/blur-performance-regression and STATUS.md.
+
+## Advanced world/projectile reconstruction (2026-10-27)
+
+Baseline a8a050b uses camera-only retail world blur even in Advanced; a still camera gives
+projectile models no independent blur. The new world path shares cached reconstruction
+plumbing with the weapon path. Relative object motion comes from depth reprojection;
+camera gathers use odd 17-257 densely spaced samples, and dynamic gathers extend moving
+opaque/masked silhouettes while rejecting objects behind a nearer stationary surface.
+Transparent smoke/glow/additive sprites do not supply independent motion vectors.
+
+The owned isolated/muted GPU probe is `NO_BUILD=1 python3 scripts/checks/check_world_blur.py`.
+Generated fixtures reuse existing grenade/RPG/bugbait inputs and recorded lamp coordinates.
+It asserts live projectile state, current poses, no render errors, actual camera/object
+motion at no AA/4x AA, expanded silhouettes, and absence of the Advanced world path in
+Disabled/retail Enabled. Projectile error-color counts are restricted to the projected
+projectile neighborhood, avoiding unrelated moving actors. Normal and diagnostic bursts
+are retained in artifacts/advanced-world-blur/runs. Shader probes restore the copied shader
+in finally; the owned installation and user config are untouched.
+
+Initial probes find 1,431/1,492 moving grenade pixels, 17/13 missile pixels and 563/591
+bugbait pixels at no AA/4x AA. Silhouette probes find 4,936/46/214 surrounding pixels for
+grenade/missile/bugbait. These are GPU-path evidence, not native-image fidelity or proof
+of every projectile/frame rate. Normal captures were inspected qualitatively; different
+live bursts are not exact pose/history-aligned before/after pixel comparisons.
+
+Rejected first composite: averaging static background along an object's ray smeared a
+neighborhood of scenery. Static background now keeps its own color except for actual
+foreground coverage; only moving center surfaces estimate hidden background from samples.
+Rejected world-prepass depth hypothesis: plaza stippling also exists with blur/prepasses
+off, so a speculative depth-bias experiment was removed. Initial Clippy type-complexity
+failure was fixed with the shared view-query alias. A later turn probe found sky pixels
+classified as relative object motion; zero-depth pixels now use camera-only motion and are
+excluded from object tiles. MSAA samples subtract their own depth-dependent camera motion
+before averaging; using the nearest sample depth for all samples falsely marked static
+edges as object motion. The superseded probe batch was stopped before completion.
+Reprojection now consumes the same PreviousViewData as Bevy's prepass. Persistent per-view
+textures are owned directly: Bevy's one-frame texture pool cannot safely reserve retained
+textures for independently activated cameras. No third-party changes were made.
+
+Existing `viewmodel_motion_blur coverage` and standalone weapon-surface probes preserve
+crowbar trails and slow pistol/switch ownership. Final local validation passes (1,127 Rust
+tests, 92 ignored, 13 Python helpers,
+architecture, strict Clippy/fmt), as does Windows-target Clippy. The full owned world batch
+passes; the final affected MSAA, pause and normal lamp/turn cases are rerun separately
+(final-extra.log), with at most 254 relative-motion pixels in the camera-only MSAA case
+instead of the earlier sky-sized classification. The standalone weapon-surface suite passes
+all eight animation/AA combinations with zero borrowed-motion or lost-center pixels.
+Normal lamp and projectile captures inspected. Final package executable and all ten shader
+hashes match metadata and the tested copies. Native Windows/Linux execution, native visual
+comparison, all frame rates/resolutions, arbitrary transparent effects and ordinary campaign play are **not tested**.
+Performance evidence is in docs/performance.md. The old detached worktree remains parked:
+archival was rejected because the app identifies it as this chat's primary checkout;
+attaching the original checkout was rejected because it is not app-managed. Work continued
+in the original hl2-ui checkout without changing unrelated scratch files.
+
+## Advanced weapon blur surface stability (2026-10-27)
+
+The owner reports blinking/twitching on pistol and weapon-change animations in Advanced.
+The original gather assigns dominant neighboring motion to covered pixels moving below one
+pixel. An actual GPU diagnostic on the original shader finds up to 4,603 fully covered
+pistol pixels borrowing unrelated motion. Only the postprocess diagnostic in a copied
+package is changed; animation/model poses remain the owned ones. The fix always uses local
+motion on covered pixels, includes the center via odd 17-97 taps, and fades reconstruction
+from one to three pixels of motion. The fast trail footprint/exposure remains unchanged.
+
+`NO_BUILD=1 python3 scripts/checks/check_weapon_blur.py` passes four animations (pistol fire,
+pistol reload, switch-to-pistol draw, SMG fire) at no AA and 4x AA. Each nine-image live burst
+asserts the selected weapon/animation, zero pose-bound mismatches, no rendering errors,
+positive GPU diagnostic execution, zero borrowed-motion pixels and zero covered pixels
+with no gathered coverage. The positive control prevents a missing/failed pass from passing
+only because it drew no error color. Generated variations reuse the registered viewmodel
+fixture and standard isolated/muted/background runner; no chapter runner/UI files changed.
+Run this check separately from replays.py because both stage their own test package.
+
+`NO_BUILD=1 ONLY='viewmodel_motion_blur coverage' python3 -u scripts/checks/replays.py`
+passes both checks. The existing crowbar test still asserts real GPU motion at no AA/4x AA,
+blur outside the current silhouette, unchanged upper world, and correct still/pause/switch/
+Disabled/retail behavior. Its copied shader hooks are restored afterward.
+
+`scripts/checks/validate.sh` passes (1,125 Rust tests, 92 ignored, 13 Python helpers,
+architecture, strict Clippy/fmt); `scripts/checks/check_windows.sh` passes. Release builds
+use scripts/build-bevy.sh and executable/shader hashes are checked against metadata and the
+tested copy. No new runtime dependency, pass, texture or CPU animation history is introduced.
+Performance evidence: docs/performance.md.
+
+Normal live bursts/contact sheets were inspected qualitatively. Initial frame-index pixel
+comparisons are rejected because request scene times differ. Matching request times also
+does not fix the preceding-pose history, so these images are not exact visual-parity or
+pixel-improvement measurements. One matched sharp prepass/retail sample differs by zero
+pixels above threshold 2 (maximum 1); a separate unaligned frozen pair differs by 5,007 and
+cannot establish/exclude a depth-prepass bug. The accepted regression instead examines the
+GPU's own per-fragment motion choice. Initial contact-sheet output had a two-row header;
+a correctly sized replacement supersedes it. Failure qualifications and original/fixed
+captures/logs live under artifacts/advanced-blur-flicker and artifacts/replays.
+
+Windows/Linux runtime, every weapon/animation, all frame rates/resolutions, ordinary campaign
+play and native visual comparison are not tested. Advanced remains a screen-space animation
+blur approximation and excludes transparent/diagnostic CPU-skinned draws.
+
+## Retail quick-info size and horizontal alignment follow-up (2026-10-27)
+
+The earlier vertical alignment checks did not constrain the horizontal midpoint
+or native size. A new midpoint assertion fails on the previous revision: x319.274
+instead of x320 at 640x480. Center the pair's bitmap bounds while preserving the
+installed glyph spacing, and center the portable weapon glyph by ink width.
+
+Retained accepted retail captures at 720p and 1080p were inspected beside the
+packaged output. The 1080p capture's recorded hl2.exe, engine.dll, client.dll and
+server.dll hashes all match the current owned installation. Its session closed
+normally with settings unchanged. The first 1080p session had an empty module
+manifest; use the second verified session for provenance. Rejected SMG-labelled
+captures are excluded (they actually showed a pistol). The accepted 720p pistol
+reference and verified 1080p pistol reference contain the same reticle type as
+our SMG layout fixture; compare layout, not the captured weapon label.
+
+Retail arcs are about 55x42 pixels at 720p and 85x63 at 1080p. The previous macOS
+package drew 75-pixel-tall arcs at 720p: ClientScheme's macOS QuickInfo tall=50
+was interpreted using Windows character-cell metrics. The local QuickInfo font
+resolver now selects the installed desktop tall=28 for that raster contract.
+No global platform condition or stored option is changed. The corrected emitted
+bitmap bounds are approximately 57x42 and 86x63, with at most two pixels of fontdue
+antialias fringe versus the visible native footprint. Tests constrain those sizes,
+both axes, partial/warning geometry and all existing viewport/aspect cases.
+A parser test verifies a consumer override cannot alter normal host conditions.
+
+Reproduction uses the same commands in the section below. Workspace validation
+passes (1,166 Rust tests, 100 ignored, 13 Python helper tests, strict Clippy/fmt/
+architecture); Windows-target Clippy and five owned HUD tests pass. Packaged
+HUD/aspect checks pass before (2/2); HUD/aspect/power pass after (3/3, 101 s).
+Evidence, native module hashes, retained
+failed midpoint assertion and the nearest-neighbor comparison image are in
+artifacts/quickinfo-horizontal. The comparison uses retained retail captures;
+no fresh native game run or exact cross-platform antialias/color equivalence is claimed.
+
+## Quick-info and crosshair layout (2026-10-27)
+
+The installed-resource regression fails on the prior geometry: at 640x480 the arc
+bitmap center is y245.541 instead of y240. Portable SMG crosshair pixels were also
+above view center; both symbol paths now center bitmap bounds independently of
+text ascent. Native Windows GDI reticle placement is preserved.
+
+```sh
+scripts/checks/validate.sh
+scripts/checks/check_windows.sh
+cargo test -p hl2-ui hud:: -- --ignored --nocapture
+NO_BUILD=1 ONLY='hud hud_aspect power_hud' python3 scripts/checks/replays.py
+```
+
+Workspace validation passes: 1,165 Rust tests, 100 ignored, 13 Python helper tests,
+strict Clippy/fmt/architecture. Windows-target Clippy passes. Five owned HUD tests
+pass, including health/ammo panel framing and power HUD behavior. The new layout
+test checks actual emitted arc and weapon-crosshair quads across 640x480, 1280x720,
+1920x1080, 1281x721, 3440x1440 and 720x1280 with all four HUD aspect settings.
+Full, half-filled and warning arcs must center within pixel-rounding tolerance;
+both progress pieces must meet without gaps/overlap, and both arcs stay additive.
+Packaged HUD/aspect checks pass before the change (2 groups); HUD/aspect/power
+checks pass afterward (3 groups, zero failures, 99 seconds). The 720p gameplay
+capture was inspected: both arcs and the SMG reticle share view center. All eleven
+executable/shader hashes match package metadata.
+A portable font test deliberately changes ascent and checks full/split symbol
+bounds at three sizes, with and without blur, including progress endpoints.
+
+Initial failed alignment evidence is retained. The warning test initially sampled
+the zero-time blink-off phase; it now uses a visible pulse phase. An unused import
+after extraction was caught and fixed by strict Clippy. Evidence lives in
+artifacts/quickinfo-layout. Native Windows execution, retail raster equivalence
+and an ordinary campaign playthrough are not tested by these checks.
+
+## Background-loading wait presentation (2026-10-27)
+
+Production package `fa4a000` supersedes the interactive-during-background-load policy.
+The owner still observed lag; earlier acceptance/completion tests were insufficient
+latency evidence. On-demand native dispatch review now establishes menu hiding
+(`InstantHideMainMenu`, menu/title alpha zero); details in gameui.md. Ordinary native
+retail playback/input timing remains not tested.
+
+`scripts/checks/validate.sh` passes: 1,145 Rust tests / 94 ignored, 13 Python helpers,
+architecture, strict Clippy and fmt. `scripts/checks/check_windows.sh` passes.
+Owned checks pass:
+
+```sh
+cargo test -p hl2-bevy --bin hl2-bevy native_menu_wait -- --ignored --nocapture
+cargo test -p hl2-bevy --bin hl2-bevy headless_bevy_app_submenu_entry_switches_background_map_and_scene -- --ignored --nocapture
+```
+
+The native input-system check blocks arrows/Enter/Escape during the wait, then allows
+opening, selecting and starting a chapter after completion. The actual asynchronous
+worker test attempts chapter opening while a worker owns its consumed request and
+asserts the menu is hidden, input is gated, the load remains alive, and scene replacement
+completes (10.59 s). Unit tests cover success and failure restoring access, direct
+activation, Escape, hidden-window canvas rendering, preserved chapter selection, and
+shared card-browser occlusion cancelling held activation. Background request safeguards
+remain independently tested. No English UI literal or new dependency was introduced.
+
+Build with scripts/build-bevy.sh. Eleven executable/shader hashes match package metadata
+for fa4a000. Packaged checks use a private copy and default config:
+
+```sh
+NO_BUILD=1 ONLY='return_menu submenus chapter_selection menu_options coverage' python3 scripts/checks/replays.py
+```
+
+Transient capture limitations are retained rather than counted as passing evidence.
+The burst capture experiment skipped the loading interval because diagnostics/capture
+counters stop while simulation is loading. It recorded the loading-request label with
+menu.visible=false and subsequent restored controls, but its images are not screenshots
+of the wait state. The controlled attached windowed launch loads an owned map through
+map_background; its report also records false at request and true after completion.
+Computer use could not bind the unbundled binary as an app (Invalid app; absent from
+inventory), so no native wait-screen screenshot was obtained. No further capture retry
+was made. Headless canvas-quad comparisons verify hidden rendering; packaged restored
+browser captures provide visual restoration evidence. Final physics/GPU installation
+can still hitch. Native Windows/Linux execution and end-to-end retail UI latency are
+not tested here.
+
+Evidence in artifacts/chapter-loading-gate: validate.log, windows.log, ui-tests-final.log,
+toolkit-tests.log, native-wait.log, owned-wait.log, build.log, package-hashes.json,
+replays.log, wait-burst-report.json and retained burst PNGs/log, window-wait-report.json
+and log. Initial compile/test assumptions and their corrections are retained in ui-tests.log.
+All five groups pass, zero failures, 270 s. Restored return-menu and Episode Two
+browser captures were inspected and copied alongside their reports; both report
+menu.visible=true and NewGame after loading. The burst and controlled windowed
+reports record menu.visible=false at the request and true after successful completion.
+
+Three isolated alternating prior/current browser pairs compare package 6019af3 with
+fa4a000: 18.693/18.743 ms mean frame, HUD CPU 0.1550/0.1581 ms. Run ranges overlap
+slightly; a 0.051 ms difference is not isolated causal evidence. No added render pass
+or frame asset access. Details and reproduction in performance.md.
+
+## Dialog occlusion and background loading (2026-10-27)
+
+Runtime checkpoints: `5a70c90` (dialog/request lifetime), `6019af3` (resource reuse
+and rapid switch back). Full `scripts/checks/validate.sh` passes: 1,143 Rust tests,
+94 ignored, 13 Python helper tests, strict Clippy/fmt and architecture. The
+architecture baseline shrinks for the asset loader/file and campaign poll.
+`scripts/checks/check_windows.sh` passes against final source; native Windows/Linux
+execution is not tested here.
+
+Owned-content checks:
+
+```sh
+cargo test -p hl2-bevy --bin hl2-bevy native_chapter_input -- --ignored --nocapture
+cargo test -p hl2-bevy --bin hl2-bevy headless_bevy_app_submenu_entry_switches_background_map_and_scene -- --ignored --nocapture
+```
+
+Both pass. The first drives the actual per-frame Bevy keyboard input system while
+simulation is marked loading: arrow selection responds, Escape waits for release,
+closing preserves background work, reopening and Enter release submit a chapter
+with foreground loading. This is a controlled headless input-system check, not
+an OS event-latency measurement. The second decodes and installs actual Episode
+One/Lost Coast background worlds asynchronously and checks scene replacement.
+It now opens chapter selection after the actual worker consumes the pending flag,
+changes selection, closes on Escape release, verifies the load remains active, and
+then checks successful completion and scene replacement. This strengthened test
+passes in 11.30 s; final local/Windows strict Clippy and fmt also pass.
+Unit regressions cover the return confirmation's lifetime, queued/active load
+kinds, background result supersession/coalescing, foreground presentation, stale
+failure and rapid return to the already installed background without reloading.
+
+The old packaged build reproduces the reported rectangular hole after gameplay,
+return confirmation, background completion and reopening chapter selection.
+The revised return-menu fixture includes that sequence and asserts the final
+browser/game identity and absence of an active confirmation. Captures and reports
+are under artifacts/chapter-bugs: return-before and return-after (with suffixes).
+The first baseline attempt selected no keyboard row and is retained as
+return-before-rejected-no-selection; it is not visual evidence of the fix.
+Initial native-input test failures incorrectly used press activation and expected
+selection to survive reopening; corrected to release activation and reset-on-open.
+
+The final release package is built with scripts/build-bevy.sh; executable and ten
+shader hashes match build-bevy-info metadata for `6019af3`. Initial fix/resource-reuse
+package: `NO_BUILD=1 ONLY='return_menu chapter_selection submenus menu_options coverage'
+python3 scripts/checks/replays.py` passes five groups, zero failures, 290 s. This
+includes all four campaign chapter previews/selected-map launches. After the final
+rapid-switch reuse helper, committed package `6019af3` passes
+`NO_BUILD=1 ONLY='return_menu submenus coverage' python3 scripts/checks/replays.py`:
+three affected groups, zero failures, 111 s. Return capture is intact and inspected;
+no dialog rectangle is cut out. Performance evidence is in performance.md.
+
+Evidence: artifacts/chapter-bugs contains validate-resource-reuse.log,
+windows-test-final.log, clippy-test-final.log, fmt-final.log, native-input-resource-reuse.log,
+owned-browser-during-worker.log, replays.log, replays-final.log, package-hashes.json,
+return-before/return-after captures/reports/logs and timing outputs. Retail findings
+and verification limits are in gameui.md; static exports do not prove native loading
+input responsiveness or establish zero-hitch loading in either implementation.
+
+## Chapter selection (2026-10-27)
+
+Source implementation: `56717d2`; single-chapter containment fix: `da289c2`;
+reusable toolkit extraction: `7171e3f`.
+Research/design: `7db0bbf`; findings and limitations: [chapter-selection.md](chapter-selection.md).
+
+Commands (no installed files are changed):
+
+```sh
+scripts/checks/validate.sh
+scripts/checks/check_windows.sh
+cargo test --locked -p hl2-ui owned_chapter_catalogs -- --ignored
+scripts/build-bevy.sh
+NO_BUILD=1 ONLY='chapter_selection coverage menu_options submenus' python3 scripts/checks/replays.py
+```
+
+The final local run passes 1,135 Rust tests with 93 ignored, 13 Python tests,
+architecture, strict Clippy and formatting. Strict Windows-target Clippy passes;
+Windows native execution is **not tested**. The explicit owned-install test passes:
+15/5/7/1 selectable entries for base/Episode One/Episode Two/Lost Coast, complete
+localized titles and thumbnail coverage, correct first/last map and installed
+Play controls. VFS fixtures verify own loose/custom/archive enumeration, exclusion
+of inherited/embedded configs, and MOD-scoped reads even with embedded collisions.
+
+Input/model tests cover numeric/suffix sorting, malformed/missing-map configs,
+Episode Two recap syntax, pointer press/drag-off/back/release selection, release
+activation with game identity, arrow paging/clamping, focus/Cancel, portrait frame
+fit, Escape-on-release, preserved menu/background and input during background
+loading. Canvas regressions assert native-size thumbnail sampling and containment
+of the single-card layout. The toolkit owns five browser tests (121 total); hl2-ui has 302 passing tests/15 ignored.
+
+The first packaged round passed submenus, chapter-return backgrounds, chapter
+selection and non-modal Options (4 checks/305 s). All four selected chapters loaded,
+but its stretched-thumbnail captures were rejected. SDK ImagePanel confirmed
+native-size clipping; corrected images were inspected. A second round passed
+base/Episode One/Episode Two pointer/cancel/load checks and coverage, but Lost
+Coast's fixture clicked Cancel using wide-dialog coordinates. The failure and
+images were retained, the pointer coordinates corrected to its own layout, and
+visual inspection additionally found overwide decorative separators. The fix
+centers a single card and sizes those rules using the authored frame inset.
+
+Final committed package (`7171e3f`) passes submenus, chapter_selection, menu_options
+and coverage: 4 check groups, zero failures, 199 s. The chapter group runs four
+browser previews plus four actual chapter loads. It asserts opening does not start
+gameplay; Cancel/reopen preserves the background; all titles/thumbnails are available;
+9a sorts correctly; pointer selection and Start use the correct chapter and game;
+load completion reaches Gameplay with no loader failures:
+
+| Game | Selected chapter | Verified loaded map |
+| --- | --- | --- |
+| Half-Life 2 | 2 | d1_trainstation_05 |
+| Episode One | 2 | ep1_citadel_03 |
+| Episode Two | 2 | ep2_outland_02 |
+| Lost Coast | 1 | d2_lostcoast |
+
+All four final browser captures were inspected after the resource/containment fixes;
+post-extraction comparison changes zero of 139,040 opaque thumbnail pixels across
+ten sampled image interiors (all four games). Geometry/input behavior is covered
+by the toolkit tests; transparent/background pixels are excluded from that comparison. Captures still
+show unfinished world/material rendering; UI validation does not establish complete
+background-map fidelity. Eleven package executable/shader hashes match the build
+metadata. Replays use a muted/background copy with default settings, leaving the
+normal package's settings and owned content untouched.
+
+Retained rejected evidence: artifacts/chapter-menu/rejected-stretched,
+rejected-pointer-coordinates and rejected-single-chapter. Final check logs:
+validate-toolkit.log, windows-toolkit.log, owned-toolkit.log, replays-toolkit.log
+package-hashes-toolkit.json and toolkit-thumbnail-comparison.json under artifacts/chapter-menu. Final performance
+evidence: [performance.md](performance.md). Native desktop comparison, Windows/Linux
+runtime, other UI languages and an ordinary campaign playthrough remain **not tested**.
 
 ## Selected LookAt registration, passive requests and animation fields (2026-10-27)
 
@@ -34,6 +654,255 @@ BM/verify.py accepts4,138 of4,143 samples, checks62,710 reads/15,072,408 bytes a
 
 All three owned native processes close with exit0 and unchanged checked installed settings; the Frida session closes and process-specific audio finishes. BK's finalized129.97s stereo44100Hz waveform is nonzero; no dialogue listening/identity/mix fidelity was tested. No Rust tests/builds apply to this documentation milestone. Original16 gaps/four missing scene procedures and first_map_finished:false remain.
 
+## Windows unit-test portability (2026-10-26)
+
+Contributor kvalls reports three failures on Windows 11 at 4405064 using
+`cargo test --workspace --locked --no-fail-fast`. The fixes gate the macOS-specific Retina
+assertion, defer installation/setup/output effects until after flag parsing, and normalize
+CRLF in the cvar golden comparison. Local validation and CI now use --no-fail-fast.
+
+`scripts/checks/validate.sh` passes: 1,125 Rust tests, 92 ignored, 13 Python tests,
+architecture, strict Clippy and fmt. `scripts/checks/check_windows.sh` passes. Parser tests
+supply Config directly and assert unresolved installation requests, background override,
+setup conflict validation and noninteractive flags. The initial compiler run exposed three
+campaign test callers of the old API; they now share an explicit fixture-startup helper.
+
+The actual cvars.golden was changed temporarily to 626 CRLF lines, then
+`cargo test -p hl2-ui --locked every_cvar_matches_its_golden_transcript -- --nocapture`
+passed. A finally block restored the original file bytes and verified its SHA-256; the
+fixture has no source diff. Evidence: windows-crlf-golden.log/windows-crlf-fixture.json.
+
+`scripts/build-bevy.sh` rebuilds the release package. Muted, background
+`NO_BUILD=1 ONLY='bg_compare hud coverage' python3 -u scripts/checks/replays.py` passes:
+default/menu startup across the four installed games and direct-map HUD startup. An explicit
+missing installation with --no-setup --background --frames 30 exits 1 with an installation
+error and no setup-window launch. Eleven executable/shader package hashes are verified.
+Logs/reports are under artifacts/pr-readiness and artifacts/replays. The startup split adds
+no per-frame work or render pass; no new frame-time comparison is needed.
+
+Windows execution and the new Windows CI run are not tested locally. Cross-target Clippy,
+macOS unit execution and CRLF simulation are distinct evidence and are not a Windows pass.
+
+## PR readiness and automatic target maintenance (2026-10-26)
+
+Runtime baseline 4405064: `NO_BUILD=1 JOBS=2 python3 -u scripts/checks/replays.py`
+passes all 102 default background/muted checks (30 UI/rendering, 72 gameplay/coverage),
+zero failures in 1,730 seconds on macOS/Metal. All eleven original-package and tested-copy
+executable/shader hashes match afterward. Portrait Options and orange/cyan stacked tooltip
+captures were inspected without clipping or incorrect panel spacing. An earlier interrupted
+run stopped after two passing checks and is not counted as a full-suite pass.
+
+`python3 -m unittest discover -s scripts/checks -p 'test_*.py'` passes 13 checks: three image
+helpers, four cache/launcher cases and six locking cases. Cache fixtures cover workspace-only
+incremental/dependency deletion, profile retention and dry-run bytes. Stubbed POSIX launches
+cover default cleanup, --no-clean, rebuild/debug and --no-build, including game arguments.
+The original regression fixture reproduced missing dependency-cache bytes; its initial
+launcher marker leaked between subtests and was corrected before accepting results.
+
+An isolated real Cargo 1.99 project proves both directions of exclusion. Cargo reports
+waiting for a file lock while cleanup holds profile locks. After release its build script
+signals readiness and waits for a test gate; stale cleanup skips without deleting candidate
+bytes while Cargo holds its lock. After Cargo exits, cleanup removes only the old workspace
+fixture. Other tests cover shared debug/release lock contention, partial-lock release,
+exceptions during pruning, missing locking support and network/unknown filesystems.
+No actual project Cargo cache is pruned. The POSIX-specific cases are skipped on Windows.
+
+The lock contract was checked against [Cargo's profile layout](https://doc.rust-lang.org/stable/nightly-rustc/cargo/compiler/layout/index.html)
+and [its compatibility-lock implementation](https://doc.rust-lang.org/stable/nightly-rustc/src/cargo/compiler/layout.rs.html).
+Exclusive .cargo-lock guards coordinate with the installed Cargo build. Cargo can omit
+locks on network mounts, so pruning is restricted to recognized local filesystems.
+Rejected probes: BSD stat format strings returned file metadata; disk-management services
+were unavailable; Python statvfs exposed no local-mount flag. Native Darwin statfs, using
+its verified 64-bit record, identifies the tested filesystem as APFS without those services.
+The first filesystem guard rejected APFS and failed four tests; the corrected native probe
+passes the complete suite. Linux uses its filesystem-type probe but lock integration there
+is not tested in this session.
+
+The first full validation attempt failed `installed_maps_list_every_games_loose_maps_once`:
+an unexpected `test` map from another fixture appeared. Timestamp-only directory names can
+collide between parallel tests. Installation fixtures now reserve paths with exclusive
+create_dir and retry suffixes. A deterministic identical-nonce test checks independent bytes
+and drop lifetimes. This changes only test code; production asset loading is untouched.
+The subsequent full suite passes; the failed log is retained alongside the final run.
+
+`scripts/checks/validate.sh` passes: 1,123 Rust tests, 92 ignored, 13 Python helper tests,
+architecture, strict Clippy and formatting. `scripts/checks/check_windows.sh` passes.
+`bash -n launch-bevy.sh scripts/clean-target.sh scripts/checks/validate.sh` and
+`git diff --check upstream/main` pass. CI runs the Python helper suite as well.
+README describes default auto-clean, --no-clean and safe skipping; other capability claims
+were corrected in place without a feature history. No game/shader payload changed, so no
+additional gameplay rebuild/replay or frame-time comparison was run. Windows PR CI remains
+a merge gate. Evidence: artifacts/pr-readiness (helper/validation/Windows logs, full runtime
+replay log and pre/post package hashes).
+
+## Stronger Advanced weapon blur (2026-10-26)
+
+`scripts/checks/validate.sh`: 1,122 Rust tests pass, 92 ignored; three Python image-reader
+checks, strict Clippy, formatting and architecture pass. `scripts/checks/check_windows.sh`
+passes. `scripts/build-bevy.sh` refreshes the package; eleven executable/shader hashes are
+verified. The gameplay-resource cleanup regression now also asserts depth prepass removal.
+
+`NO_BUILD=1 ONLY='viewmodel_motion_blur coverage' python3 scripts/checks/replays.py` passes.
+The updated sharp control bypasses only reconstruction. Accepted comparison: 19,226 changed
+weapon-region pixels above threshold 2, zero upper-world changes. A new GPU diagnostic,
+using actual weapon depth and nonzero integrated coverage, colours only blurred pixels
+outside the current silhouette: 13,316 pixels. This prevents an interior-only filter from
+passing. No-AA/4x-AA motion, settled/pause/switch/Disabled/retail Enabled and zero pose
+mismatch assertions pass. Copied-package shader hooks are restored in finally blocks.
+
+Prior cbe521b and current packages also run the same live fixture ending at tick 102 with
+`--capture-live --capture-burst 12`. Their first four burst scene times match exactly:
+1.545, 1.575, 1.590, 1.605 seconds. Captures show a continuous streak rather than a sharp
+outline during the fast section, and clear as the weapon leaves view/settles. These are
+controlled authored inputs, not an ordinary playthrough or native comparison.
+
+Evidence: artifacts/viewmodel-blur-strength/live.py, live.input.json, live-times.json,
+prior/current live PNGs/logs/reports, retained normal/sharp/coverage captures and timing data.
+The first live burst had no info-level timestamp logs; timestamped reruns supersede it.
+Two rejected image-analysis assumptions expected a stationary upper crop and at least six
+changing weapon frames. The fast weapon can cross that crop and leave the view after four
+visible transitions; those assumptions are invalid. Matched-time visual inspection and
+controlled same-pose coverage diagnostics provide the accepted evidence instead. Details
+are retained in rejected-live-assumptions.json. A timing round that overlapped that image
+analysis is rejected and replaced; see docs/performance.md.
+
+Initial private helper visibility and a 104-line function failed checks; the helper scope
+and pipeline factory were corrected before validation. Windows/Linux runtime, every weapon/
+reload, all frame rates/resolutions, native visual comparison, transparent effects and
+diagnostic CPU-skinned blur remain **not tested**. Straight-line current-frame reconstruction
+approximates curved movement and cannot reconstruct hidden/offscreen geometry.
+
+## Motion blur Advanced / viewmodel animation (2026-10-26)
+
+`scripts/checks/validate.sh`: 1,122 Rust tests pass, 92 ignored; three Python image-reader
+checks, architecture, strict Clippy and formatting pass. `scripts/checks/check_windows.sh`
+passes. Owning tests exercise history warming/reset, three dropdown states, invalid picks,
+old boolean saves, Advanced round trips and retail console-command behavior. A minimal
+Bevy app regression verifies existing blur/prepass components are removed when gameplay
+resources disappear. The owned
+`cargo test -p hl2-ui owned_motion_blur_advanced_token --locked -- --ignored --nocapture`
+verifies installed Disabled/Enabled/Advanced text. The initial token search found that
+GameUI_Advanced means Lock; the implementation uses verified GameUI_SettingAdvanced.
+
+Packaged, muted checks: `NO_BUILD=1 ONLY='motion_blur_options viewmodel_motion_blur
+flashlight_shadows flashlight_viewmodel options_status lamp_emission coverage' python3
+scripts/checks/replays.py`. Checks run separately against copies of the release package;
+see recorded checkpoint results. The dropdown is selected through real pointer/keyboard
+input, visually inspected, applied and read back from saved settings. Its preview is
+`artifacts/replays/motion_blur_selected.png`.
+
+The crowbar fixture releases the selection lock before attacking, asserts a miss animation
+and a fixed player view, then captures the swing and four following frames. A shader control
+bypasses only weapon reconstruction; moving-weapon pixels change while the upper still
+world is identical. A separate diagnostic colour after the one-pixel velocity threshold
+proves actual GPU-skinned movement at no MSAA and 4x MSAA, restricted to the lower weapon
+region. Settled poses, pause, switching, Disabled and retail Enabled have no stale vectors.
+Diagnostic edits affect only the copied package and are restored in finally blocks.
+
+Rejected evidence is retained under artifacts/viewmodel-motion-blur: separate material
+uniforms exceeded Metal vertex bindings with previous-pose skinning; a single shared
+buffer fixes it without third-party changes. The initial attack fixture retained the
+selection lock; an initial report assertion used a nonexistent player.eye field. A
+coverage run overlapped addition of a new registered fixture. Packing renamed two test
+shader hooks; corrected hooks are asserted against the actual shader before rerunning.
+An early recommendation initializer and profiling-span borrow also failed compilation;
+subsequent complete checks pass. These are not accepted captures or measurements.
+
+Windows/Linux runtime, every weapon/reload, native visual parity and transparent/diagnostic
+CPU-skinned weapon blur are **not tested**. Screen-space reconstruction does not expand
+silhouette coverage. Advanced is an owner-requested extension; SDK viewrender.cpp applies
+retail camera blur before DrawViewModels.
+
+## Options platform visibility and development hints (2026-10-26)
+
+Owning checks: `cargo test -p hl2-ui --locked`, `cargo test -p source-ui --locked` and
+`cargo test -p hl2-ui owned_options_support_resources --locked -- --ignored --nocapture`.
+The owned-resource check inspects actual layout visibility, disabled controls, associations
+and help tokens, and searches installed localization resources for development-report text.
+No matching installed development text was found; new text uses HL2RS_ placeholders.
+
+`scripts/checks/validate.sh`: 1,118 Rust tests passed, 91 ignored; 3 Python capture-reader
+tests, architecture, strict Clippy/fmt pass. `scripts/checks/check_windows.sh` passes.
+`scripts/build-bevy.sh` refreshes the release executable, shaders and metadata; all nine
+package hashes match. Source-ui tests cover panel order/spacing and screen-edge clamping;
+HL2 tests cover cyan-only, retail-only and stacked hints, cached hover text, disabled
+subdialog controls, popups, tab changes and preservation of hidden stored values. Pure
+platform tests explicitly exercise Windows/macOS/Linux/Other, independent of the host.
+
+Packaged `NO_BUILD=1 ONLY='options_status options menu_options coverage' python3
+scripts/checks/replays.py`: existing Options and menu/popup occlusion groups pass. The new
+three captures assert unfinished status, completed controls unmarked, Mac-only hiding,
+Aero hiding outside Windows and popup/click dismissal. Cyan pixel checks prevent a status
+report alone from masquerading as visible rendering. Accepted final results: STATUS.
+
+Rejected evidence under `artifacts/options-status`: initial fixture used unsupported
+input-key `escape` (corrected to the UI Escape action); Advanced status then inherited the
+inactive parent's fade. The latter capture/report is retained as `rejected-parent-alpha.*`.
+The tooltip now takes the focused subdialog's alpha and restores the parent multiplier;
+a regression checks both. Early compilation/test adaptation and strict iterator warnings
+are retained with the subsequent passing checks. Native colour matching is not applicable
+to this owner-requested development overlay; Windows/Linux runtime remain **not tested**.
+
+## Flashlight availability and lifetime (2026-10-26)
+
+`scripts/checks/validate.sh`: 1,111 Rust tests pass, 90 ignored; 3 Python capture-reader
+tests, architecture, strict Clippy and fmt pass. `scripts/checks/check_windows.sh` passes.
+An initial strict check rejected a helper below a test module; it was moved before tests
+and the complete validation passes. Logs retained under `artifacts/lighting-bugs`.
+`cargo test -p hl2-simulation flashlight --locked`: 11 pass. Registered player target test
+and campaign state-carry test pass separately. The architecture ratchet shrinks two long
+functions; existing idle/player-carry logic is factored without changing its behavior.
+
+Release package: `scripts/build-bevy.sh`. Availability fixture begins away from the canal
+suit, attempts impulse 100 without it, picks up the installed suit normally, then tests
+activation and authored disable/enable. No cheat loadout is used. A lethal fall tests
+death shutdown/dead impulses; a subsequent direct load tests fresh permission/power state.
+The first death assertion was too early (still airborne at tick 300; dead by tick 320),
+so labels were corrected from the recorded trajectory. Rejected evidence remains in
+`artifacts/lighting-bugs/rejected-fall-availability.*`. This was a fixture timing failure,
+not proof of a death-shutdown defect. All six packaged groups pass (`flashlight_availability`, `power_hud`, `flashlight_shadows`,
+`lamp_emission`, `flashlight_viewmodel`, `coverage`). After final review tightened invalid
+entity-id rejection, the rebuilt final package passes availability/coverage again. Its
+executable and eight shader hashes match build metadata. Results are recorded in STATUS.
+
+Campaign carry/rebased recharge and suit removal are unit-tested; an ordinary campaign,
+actual suit-removal input, save/restore, all vehicle/control locks, player-proxy outputs,
+Windows runtime and native image comparison are **not tested**. Exact installed on/off
+bodies were reviewed privately; the additional Enable/Disable/death/impulse routing comes
+from the SDK. The installed on body checks suit/disabled flags without a weapon gate.
+
+## Fluorescent self-illumination (2026-10-26)
+
+`scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` pass. Package built with
+`scripts/build-bevy.sh`. `NO_BUILD=1 ONLY='lamp_emission flashlight_viewmodel coverage'
+python3 scripts/checks/replays.py`: all three groups pass. The new fixture uses installed
+canal model/material data and fixed 1920x1080 HDR None. It requires over 10,000 brighter
+tube pixels above threshold 8 versus the old emissive expression, fewer than 10 darker,
+and fewer than 10 changed upper-wall pixels above threshold 2. The control runs in the
+disposable package and restores its shader in `finally`. Both accepted captures inspected.
+Rejected angled lamp capture retained in `artifacts/lighting-bugs/baseline-lamp.png`;
+accepted front-on probe and packaged images are retained. Native comparison and Windows
+runtime are **not tested**. Performance evidence: docs/performance.md.
+
+## Canal paper receivers (2026-10-26)
+
+`cargo test -p hl2-bevy canal_papers --locked -- --ignored --nocapture`: owned-map test passes.
+The actual corridor paper model is static, and its baked world triangles keep that identity.
+With ordinary reception disabled the isolated paper receives no triangles; NPC-style RTT
+reception produces 17. This tests geometry/policy, not native image parity. Baseline floor
+capture inspected at eye 765,-8180,-64, yaw151.4/pitch-25. Initial material diagnostic compile
+failure and corrected output are retained. Full local and Windows-target checks pass for
+the checkpoint. Native visual and packaged NPC-over-paper comparison are **not tested**.
+
+## Lighting follow-up: direction report (2026-10-26)
+
+`cargo test -p hl2-simulation shadows --locked`: all 15 pass. Exact installed-client
+registrar/callback/setter reviewed with hash-checked provenance against SDK; the command
+selects a fixed downward vector or stored global direction according to RTT mode.
+The owned canal map's authored control is recorded in docs/lighting.md. Architecture and
+repository isolation checks pass for the documentation checkpoint. Native visual play,
+per-entity overrides and live control inputs are **not tested**; no runtime rebuild needed.
+
 ## Controlled first-map route and partial capture audits (2026-10-26)
 
 `C:/Python310/python.exe -B ../../work/hl2-decompiled/firstmap-natural-progression-20261026bf/verify.py` passes 79 player snapshots,60 motion files/5976 samples,54574 raw reads/17597584 bytes,53 serialized requests, storage threshold(-3360.154,-29.031,-31.969), finalized demo/audio headers and native exit0/settings unchanged. It explicitly returns frida_trace_complete:false, fresh_never_attached_control:false, first_map_finished:false and rust_parity_tested:false. This validates bounded raw/route/cleanup integrity, not entire-map fidelity.
@@ -41,6 +910,137 @@ All three owned native processes close with exit0 and unchanged checked installe
 Independent BI checks the finite security suffix seq2558..4550:1993 events/930 closed pairs/53 complete sampled PauseThink groups,19 observed entry prefixes,28877 raw reads and2350 generation checks. Overall acceptance remains false for provider truncation/missing prefix. Two excluded boundary events and the failed broader captures remain unchanged. Three actual audio files are599.98/179.98/179.99s,stereo44100Hz; the third has one full-scale left sample. No dialogue identification, listening comparison or mix-fidelity claim follows. Demo806.8s/39542 gameframes is recording metadata, not an FPS guarantee.
 
 `C:/Python310/python.exe -B ../../work/hl2-decompiled/scene-controller-consumption-20261026bh/verify_seal.py` passes73files/16new+15reused exact bodies/38anchors. `C:/Python310/python.exe -B ../../work/hl2-decompiled/firstmap-trace-audit-20261026bi/verify_inventory.py` passes23files/15dependencies without promoting partial traces. No Rust tests/build apply to these research documentation changes; document diff/whitelist/staged-set checks apply.
+
+## Flashlight on the weapon (2026-10-25, macOS Apple Silicon)
+
+Local checks: `scripts/checks/validate.sh` (1,103 Rust tests passed, 89 ignored; 3 Python
+capture-reader tests; architecture, strict Clippy and formatting), and
+`scripts/checks/check_windows.sh`. The new numerical tests cover translated/rotated
+beam projection, narrower low-power FOV, near/far/attenuation and clearing off/dark data;
+the weapon lighting basis preserves positions and normal lengths through view rotation.
+The owned obstruction test rejects embedded camera positions and locates actual beam
+placement that includes a weapon point. Owned checks:
+`cargo test -p hl2-bevy flashlight --locked -- --include-ignored` (6 passed, 3 owned-install).
+
+Reproduce packaged captures after `scripts/build-bevy.sh`:
+
+```sh
+NO_BUILD=1 ONLY='flashlight_viewmodel flashlight_shadows power_hud hud fov_settings coverage' python3 scripts/checks/replays.py
+```
+
+The weapon check compares normal pistol/SMG and portrait images with a disposable shader
+control that suppresses only the viewmodel's flashlight contribution. It restores the
+shader in `finally`. Comparisons exclude animated HUD pixels, require over 500 brighter
+weapon pixels above threshold 8, and check the upper world region remains unchanged.
+Off is compared with its control above the HUD. Final results: 18,157/11,021/35,187
+brighter weapon pixels for pistol/SMG/portrait, zero changed upper-world pixels, zero off
+weapon pixels above threshold 2. A separate capture of the preceding `cdaf4be` package
+also matches the new world region exactly (1920x650, zero RGB difference), recorded in
+`artifacts/flashlight-viewmodel/world-baseline-comparison.json`. Captures pin dimensions and HDR None;
+reports assert selection, script completion and current posed bounds. Shader controls do
+not modify the installation or package in `bin/`.
+
+Rejected first comparison: changed pixels were in the ammo HUD, not on the weapon. A
+coordinate diagnostic proved the open-corridor weapon was outside the actual cone. No
+artificial brightness or altered beam was added. Two eye-height collision probes failed
+their pull-back assertion: the beam starts lower and misses the bar the eye ray hit. A
+beam-height probe then found a camera inside geometry and was also rejected. The final
+probe checks camera clearance and actual projection before selecting the fixtures:
+pistol eye -4324 -224 64, yaw 180/pitch 0; SMG eye -4304 -172 64, yaw 90/pitch 0.
+Failures and the diagnostic image remain in `artifacts/flashlight-viewmodel`; the original
+captures are retained under `rejected-open-view` instead of overwritten as successes.
+Early compilation caught the new uniform missing from the sky material; the architecture
+check rejected a new glob import. Both were fixed (explicit default/imports); failed
+compilation remains in `tests-initial.log`, followed by passing `tests-fixed.log`.
+
+Accepted groups: `flashlight_viewmodel`, `flashlight_shadows`, `power_hud`, `hud`,
+`fov_settings` and `coverage`. The initial combined run failed the weapon proof; corrected
+and final runs pass. Logs: `replays-initial.log`, `replays-corrected.log`, `replays-final.log`,
+`validate-final.log`, `windows-final.log`, `owned-final.log` in `artifacts/flashlight-viewmodel`.
+The final weapon run includes the world-region assertions and the shader with additive/unlit
+exclusion guards; a dedicated firing/additive-effect capture was not performed.
+
+Evidence: `artifacts/replays/flashlight_vm_*`, `artifacts/flashlight-viewmodel` logs and
+reports. Native shader parity, weapon self-shadowing, world-depth-map sampling on the
+weapon, Windows runtime and ordinary playthroughs are **not tested**. The exact installed
+viewmodel draw wrapper was reviewed alongside Source SDK `game/client/viewrender.cpp`;
+its projection/depth/list flow does not establish native illumination parity. Timing
+windows and the correction to earlier 600-frame wording are in docs/performance.md.
+
+## High flashlight shadows (2026-10-25, macOS Apple Silicon)
+
+Passed: `scripts/checks/validate.sh` (1,101 Rust tests, 88 ignored; 3 Python image-reader
+unit tests; architecture, strict Clippy and formatting), `scripts/checks/check_windows.sh`,
+and `cargo test -p hl2-bevy flashlight --locked -- --include-ignored` (4 passed, including
+2 owned-install checks). The owned cookie is black outside the cone; the map has real
+cutouts with both transparent and opaque texels. Projection tests cover the narrowed
+flicker frustum and pulled-back near plane; a dark battery-flicker sample skips the depth pass. Windows runtime rendering is **not tested**.
+
+Packaged groups `hud`, `power_hud`, `flashlight_shadows` and `coverage` passed. Reproduce
+with `NO_BUILD=1 ONLY='flashlight_shadows power_hud hud coverage' python3 scripts/checks/replays.py`
+after `scripts/build-bevy.sh`; expected: all 4 groups pass. The shadow check pins 1920x1080
+and HDR None, asserts High/on gating, checks Low/Medium/off, confirms current posed bounds,
+and compares real captures with a dependency-free PNG decoder. That decoder is tested on
+all five PNG filters and RGB/RGBA captures; it also matched an independent decoder byte
+for byte on a game capture.
+
+- High vs Medium darkens over 1,000 pixels above threshold 8 in both the posed-cop and
+  fence views. Baked light is retained: the new shadow affects the added flashlight term.
+- Negative control: the disposable copy's depth shader temporarily makes all cutouts solid;
+  its colour shader stays unchanged. The normal shader lets light through the fence holes
+  that the control blocks (171,663 brighter pixels above threshold 8 in the first accepted
+  run). The depth shader is restored in `finally` before any following check.
+- Final constant-tap shader: the fence capture has identical decoded RGB pixels to the accepted image;
+  the posed-cop capture differs by at most one channel level (zero pixels above threshold 2).
+- Source comparison at fixed exposure: the previous build's Medium fence view and the new
+  Medium view differ by at most one level. The seeded cop comparison had 9 pixels above 2;
+  no broad image-equivalence claim is made for animated/physics scenes.
+
+Evidence: `artifacts/replays/flashlight_depth_*` and
+`artifacts/flashlight-shadows/constant-tap-pixel-comparison.json`. The posed-cop fixture
+seeds an actor for this test; it does not establish ordinary campaign playback. Native
+side-by-side, exact generated noise/jitter, native slope bias, per-entity shadow-disable
+inputs and viewmodel lighting are **not tested** here.
+
+Rejected evidence is retained in `artifacts/flashlight-shadows`: initial captures restored
+1280x720 settings when a video cvar was applied and had varying HDR exposure; two attempted
+fence views hit solid walls. After those two attempts, an owned-mesh data check located
+the real fence triangles before the next capture. The first combined replay invocation
+also caught a fixture-registration edit accidentally added as call arguments (power HUD
+TypeError and missing coverage); both affected checks passed after correction. Two Clippy
+warnings in the new owned-data test were fixed with array chunks. The final shadow checks
+were rerun after the shader change. Logs: `replays.log`, `replays-fixed.log`,
+`replays-constant-taps.log`, `replays-complete.log`, `validate-complete.log`,
+`windows-complete.log` and `owned-complete.log`. Frame-time evidence
+and its limits are in `docs/performance.md`.
+
+## Flashlight power HUD (2026-10-25, macOS Apple Silicon)
+
+- `scripts/checks/validate.sh`: passes (1,099 tests passed, 87 owned-install/other ignored
+  tests not run by this command), strict Clippy, formatting and the architecture check.
+- `scripts/checks/check_windows.sh`: passes strict Windows-target Clippy; a Windows
+  executable and Windows runtime are **not tested**.
+- `cargo test -p hl2-ui hud::power --locked -- --include-ignored`: 5 passed, including
+  2 owned-install tests discovered with `source_assets::install::discover()`. Coverage:
+  chunk rounding, once-per-transition events, shared animation colour/fade/geometry,
+  suit/death hiding, portrait resizing and Episode Two's battery separation.
+- `NO_BUILD=1 ONLY='power_hud hud hud_aspect console options coverage' python3 scripts/checks/replays.py`:
+  6 check groups passed, zero failed. The new `power_hud` check runs 3 packaged captures:
+  legacy on (charge/device/colour and one-device geometry), off/recharged (100 percent,
+  no device and fully faded), and Episode Two (battery in use, suit power still 100).
+- Inspected `artifacts/replays/power_hud_on.png`, `power_hud_recharged.png` and
+  `power_hud_ep2.png`: the localized auxiliary label, bar and device line appear above
+  health, disappear after recharging, and Episode Two instead has the flashlight icon
+  and its own bar. The Episode Two image validates the HUD only; magenta world surfaces
+  are visible and their cause/regression status was not investigated in this step.
+- The release package was built with `scripts/build-bevy.sh`. All games ran in the
+  background and muted from copies with separate settings. No ordinary playthrough,
+  native side-by-side or High flashlight depth shadow validation was performed.
+
+Rejected performance launches remain in `artifacts/power-hud`: sandbox runs could not
+find the Metal GPU; the first GPU baseline rejected an unfinished 900-tick script at its
+600-frame bound. Accepted timing runs use a completed 240-tick script and GPU access.
+Timings: `docs/performance.md` and MODLOG.
 
 ## Corrected probes and retained failures (2026-10-24)
 
@@ -89,6 +1089,141 @@ Accepted native observations: window 15/15/profile strings, same-generation pick
 Fresh non-Frida Y acceptance passes 498 files, 58 motion captures/5142 samples, 11 storage captures and 62563 source reads. Z passes 631 files, 68 motion captures/6047 samples, 17 storage captures and 79294 source reads; sampled launch-to-crouch delay is0.80999755859375 game seconds, after the peak, with invalid initial lateral clearance. Both validate partial carry/window-removal evidence, **not** passage/transfer. Failed staged/placement approaches remain explicit. All owned games closed/settings matched.
 
 AA seal passes 17 files/21 bindings, six reused exact identities, 126 byte records/four slots, 12 mass-set pairs and five damping phases. The five-root navigator/audit passes 1868 files/27 distinct exact dependencies/33 per-root occurrences and 22 CLI cases, preserving all 16 original gap statuses. Separate metadata verification confirms the exact engine identity/13824 completed exports/two negative patterns without retrieving a body or proving retail wait semantics. No Rust implementation/build/test/parity result follows; first-map full semantic/audiovisual completion remains false. Current private handoff and final publication receipt are research-native-exit-continuation-20261023w.md and research-native-exit-closeout-20261023w.json.
+
+## Local check scripts (2026-10-17)
+
+`scripts/checks/architecture.py` (2026-10-24; Python 3, standard library, about 4 s) enforces the
+architecture guardrails described in AGENTS.md: function, file and test-file size limits with
+`scripts/checks/architecture-baseline.json` holding the existing offenders (they may only shrink),
+the crate layers and engine-crate owners, no file IO in modkit-core / hl2-simulation / source-ui,
+no HL2 names in source-ui, no new duplicated 8-line blocks, and per-crate counts of mutable
+statics, `too_many_arguments` and `dead_code` allowances and glob imports. validate.sh, CI and the
+local pre-commit hook run it first.
+
+`scripts/checks/validate.sh` (the architecture check, `cargo test --workspace --locked`, strict clippy
+`--workspace --all-targets --locked -D warnings` as CI, `cargo fmt --check`) and
+`scripts/checks/check_windows.sh` (strict clippy of hl2-ui/hl2-bevy for `x86_64-pc-windows-msvc`
+without linking, from macOS/Linux) are bash.
+
+The packaged checks are one cross-platform Python script, `scripts/checks/replays.py` (Python
+3.9+, standard library only; `python3 scripts/checks/replays.py`, or `py` / `python` on Windows).
+It builds once (`scripts/build-bevy.sh`, `scripts/build-bevy.ps1` on Windows), copies the packaged
+game to `artifacts/replays/game/`, runs each check as bounded launches of that copy with their own
+`--report`, and asserts on what the reports record. One ok/FAIL line per check; logs, reports and
+captures in `artifacts/replays/`. The copy keeps its own settings next to it, so every check starts
+from default settings and `bin/hl2-config.json` (and a game running from `bin/`) is never touched.
+Environment instead of arguments: `ONLY="console movement"` runs those checks, `GROUP=ui` or
+`GROUP=gameplay` one group, `JOBS=4` up to four gameplay replays at once (never more games than fit in
+physical memory: `GAME_MEMORY_GB` per game, default 6, plus 4 GB for the system; a packaged game
+measured 4.9-5.8 GB on the station maps on 2026-10-23, so a 16 GB machine runs two; the
+`parallel_jobs` check covers the rule), `WINDOWED=1` adds the
+windowed ones of this platform, `NO_BUILD=1` keeps `bin/` as it is, `UPDATE_EXPECTED=1` records the
+gameplay outcomes (below).
+
+UI group: the labelled UI states (console mode and output, the Options dialog's tab / focused
+control / pending changes / sub-dialog), loaded maps, saved settings and captures.
+
+Gameplay group: every other `test-inputs/*.json` fixture, one check per fixture (named after it
+without `bevy-`), on its map (`d1_trainstation_01` for the security-room scenes,
+`d1_trainstation_04` for player death and hurt, `d1_trainstation_02` otherwise), 1280x720, in
+three layers:
+
+1. Every fixture: every label sampled at its authored tick, the capture written at the reported
+   size, drawn entities and effects agree with the simulation, entity I/O within its budget, every
+   fixture action found its entity, models, collision models, effect sprites and sounds load. Known
+   installation gaps are listed in the script: sounds `d1_trainstation_01` references that the
+   installation lacks, collision models the loader does not support yet, and a body impact sound
+   variant that is not preloaded (three pallet fixtures; main shows it too).
+2. Specific assertions: `movement` (bench jumps, air duck, pause, held jump), `entities-weapons`
+   (doors block and open, E use, pistol / SMG grenade / AR2 ball ammo), `door-swing` and
+   `door-inputs` (both leaves swing away from the opener, `OpenAwayFrom`), the five `effect-*`
+   (grenade, ball, decal, explosion, decal on a door), the three `particles-*` (emitter counts and
+   lifetimes) and `attention` (Barney's LOOKAT interests through scene pause, UI pause, overlap,
+   cancel and tail).
+3. Expected outcomes: each labelled sample's I/O counters, inventory, active scenes, gesture and
+   look targets, projectile, gib and impact counters, the player's feet (within 1 unit), state and
+   clock, console mode and forward ray, compared with `test-inputs/expected/<fixture>.json`. Two
+   fields that vary between runs of the same build are left out for two pallet fixtures, and
+   `occluded_blast_targets` everywhere. A difference is either a regression or an intended change;
+   after reviewing it, `UPDATE_EXPECTED=1` records the new outcomes (review the diff of the expected
+   files). The outcomes were recorded on macOS; physics on another platform may differ slightly.
+
+`coverage` fails when a fixture is neither used by a UI check nor listed with its map, so a new
+fixture is never silently left out.
+
+| Check | Category | What it asserts |
+| --- | --- | --- |
+| `submenus` | shared | `test-inputs/bevy-menu-submenus.json`: Episode One, back, Half-Life 2, back, Extras > Lost Coast load `hl2/background01`, `episodic/ep1_background01`, `hl2/background01`, `lostcoast/background01`, ending in the main menu |
+| `return_menu` | shared | `bevy-menu-return.json`: Episode Two menu, `map d1_trainstation_02`, Return to main menu: back over `hl2/background01`, which is saved |
+| `chapter_menu` | shared | `bevy-menu-chapter-return.json`: `d2_coast_01` returns to `hl2/background04`, `d3_c17_10a` to `hl2/background06` |
+| `menu_options` | shared | `bevy-menu-options-nonmodal.json`: with Options open, a click on a menu row beside it runs the row (Episode One) and focuses the menu while Options stays open; Options dragged over the menu column; NEW GAME clicked under it does not start a game, Options keeps the focus (report `console.windows`); `bevy-menu-options-list.json`: with the Video > Resolution list open, a click on the menu only closes the list |
+| `video_8k` | shared | `bevy-menu-video-8k.json` with `--fake-monitor 7680x4320,3840x2160,2560x1440,1920x1080,1280x720`: Options > Video lists the 16:9 resolutions of an 8K panel from 7680 x 4320 down (report `console.options.resolutions`); the capture shows the Resolution list open |
+| `video_portrait` | shared | `bevy-menu-video-portrait.json` with `--fake-monitor 1080x1920` at 1080 x 1920: by keyboard (Tab, Right, Alt+Down) Video > Aspect Ratio opens with Portrait 9:16 selected; the Resolution choices are the 9:16 modes up to the panel; frame and capture are 1080 x 1920. | The Options dialog lies inside the frame (report `options.frame`).
+| `video_keep` | shared | `bevy-menu-video-keep-{timeout,ok,escape}.json` with `--fake-monitor 1920x1080`: Normal (4:3) picked and applied by keyboard renders 1440 x 1080 at once and opens the keep box (report `console.confirm.kind` = `keep_video`); the timeout and Escape put back 1280 x 720 (rendered and saved); OK keeps 1440 x 1080 past the timeout |
+| `narrow_layout` | shared | `bevy-console-open.json` at 1080 x 1920, 1080 x 1080 and 1920 x 1080 (report `console.menu`, `console.console_frame`): menu rows fit the width; on the narrow sizes the text is not shrunk with the width and the console spans the width inside the design area; on 1920 x 1080 the console frame is the retail one (half the screen wide, origin `(w/2 - 16, 64)` units) | It also runs 3440 x 1440 and 5120 x 1440: the menu grows relative to the height and its row stack stays inside the screen, the console is the retail one, and on every size (menu backgrounds) the world camera keeps the 4:3 vertical view (59.84 degrees at FOV 75).
+| `fov_settings` | shared | `bevy-hud.json` on `d1_trainstation_02` with the settings file preset (report sample `camera`): default 1920 x 1080 gives 59.84 degrees vertical for the world and 41.83 for the viewmodel; `vertical_fov` 90 and `viewmodel_fov` 70 give 90 and 55.41; at 1080 x 1920 the automatic world view is 89.16 (aspect-tuned Vert+) and viewmodel 84.34 (its 4:3 width kept; the portrait profiles move it, `fov_offset` 0); at 5120 x 1440 the automatic world view is 50.22 (116.19 horizontal) and viewmodel 41.83 (vertical view kept) |
+| `hud_aspect` | shared | `bevy-hud.json` on `d1_trainstation_02` at 3440 x 1440 with each `video.hud_aspect` (report `hud.frame`, `hud.panels`): Fit spans the screen (health near the left edge, ammo near the right); Centered 4:3, 16:9 and 16:10 give a centered frame of that aspect with the panels inside it at their frame-relative distances; at 1920 x 1080 Centered 16:9 equals Fit (frame, panels, quad count) | Captures `hud_aspect_*.png` inspected by eye; panel rectangles are the layout at rest, not the sliding ammo animation. |
+| `resolution_stress` | shared | `bevy-menu-resolution-stress.json` with the faked 8K monitor: Options > Video picks 7680 x 4320 from the list and Apply renders it; `mat_setvideomode` to the smallest (320 x 240) and largest (8192 x 8192) sizes the console accepts, and four changes on consecutive ticks mixing full screen and windowed (the last, 1280 x 720, wins); each labelled sample's `frame` (size of the frame image being rendered) is checked, host ticks keep advancing, the saved settings and the capture end at 1024 x 768 |
+| `chapter_quit` | shared | `--map d2_coast_01` quit mid-game: the saved background goes from `hl2/background01` to `hl2/background04` |
+| `options` | shared | every `bevy-options-capture*.json`: Keyboard / Video Advanced sub-dialogs open, the dialog drags, the console states; the `-keyboard-*` replays reach their control by keyboard only (focused control, tab and drawn focus from the report; the text entry edits; the FOV slider in Video > Advanced; the 3rd party credits' Close holds the focus and Enter closes them on release) |
+| `placement` | shared | a dragged Options dialog is saved and kept when it reopens in a second launch |
+| `captions` | shared | `episodic/ep1_background02`: closed captions on process speech, off process none |
+| `bg_compare` | shared | each game's chapter 1 background loads (FOV 75, 1024x768 captures for comparison with the installed pre-blurred `materials/console/*.vtf`) |
+| `save_config` | shared | `bevy-save-config.json`: `volume`, `sensitivity`, `fov`, `mat_hdr_level` from the console are saved |
+| `console` | shared | `bevy-console.json`: cheats refused then granted, quoted `;` kept, the console freezes the scene, `setpos` / queued `ent_fire`, Unicode input and editing, closing the console returns to the pause menu and Escape resumes, weapon selection cancelled by Escape before pausing, pause menu, outside click, console over the pause menu and back, unknown commands rejected, sounds pause and resume with the UI; the same replay at 1920x1080 (viewport and capture size) |
+| `console_map` | shared | `bevy-console-map.json`: two `map` loads, a missing map reported once without losing the player or scene, console state kept across loads |
+| `campaign` | shared | `bevy-campaign.json`: `d1_trainstation_01` > 02 > 03 through their triggers, inventory kept, the clock restarts per map |
+| `dev_overlay` | shared | `bevy-dev-overlay.json`: F1 overlay visible with its five lines and live statistics |
+| `hud` | shared | `bevy-hud.json`: unarmed start, loadout and weapon slots, HUD drawn |
+| `coverage` | shared, gameplay | every `test-inputs` fixture is run by a check |
+| one per gameplay fixture | shared, gameplay | the three layers above |
+| `window` | windowed | `bevy-menu-resolution-change.json`: a console resolution change resizes the frame and Options still opens (window captured, `--capture-window`); `bevy-options-keyboard-apply-resolution.json`: Video > Resolution changed and Apply pressed by keyboard only changes the saved resolution and the window; `bevy-menu-resolution-stress-windowed.json`: windowed-only changes on a real window (1920 x 1080, 320 x 240, four on consecutive ticks, 8192 x 8192, 1024 x 768) each reach the rendered frame and the game keeps running (no exclusive full screen, so the display mode of the desktop is never changed) |
+| `window_place` | macOS | windowed at 2560x1600 and 1024x768: sized and centred in the screen's visible frame, below the menu bar and above the Dock |
+| `no_border` | Windows | `--borderless`: "Windowed (No Border)" is a borderless window over the monitor (on macOS the same mode is the native full-screen Space, which a replay cannot drive). Not run on this machine |
+
+Writing replays: Escape clears the main menu selection, so Down then selects row 0; keyboard Down
+skips spacers; scripted `pointer` positions are UI canvas pixels of the render resolution (pin
+`--width 1024 --height 768`: Keyboard tab (389, 215), Advanced... (464, 537)); script ticks keep
+running while Options is open; end a replay with a settle step so the capture follows a presented
+frame. `bevy-console.json` has one step more than upstream's (tick 17 Escape, `resumed-from-pause`,
+because closing the console returns to the pause menu here); its `menu-resume` step presses Enter
+with no pause-menu row selected, which no longer resumes, so its assertions are left out.
+
+Shared checks run in the background (`--background`: no window, nothing takes focus, captures
+read the game frame); windowed ones open a window and take focus. On macOS a windowed run becomes
+the frontmost app at launch (winit activates the app; Bevy offers no switch); on Windows `--no-focus`
+shows the window without activating it (winit `SW_SHOWNOACTIVATE`; not run here).
+Every check runs with `--mute` (since 2026-10-23, replacing `--volume 0.01`, which a settings
+change such as the console `volume` reset to the saved value): sounds start and are reported, but
+every sink stays at zero volume, whatever the Audio settings say, and nothing is saved. Each run's
+report must show `audio.muted` true and `audio.peak_output` 0 (the loudest volume given to any
+sink), or the check fails.
+
+Verified 2026-10-17 on macOS (Apple Silicon): all 85 checks ok (14 UI, `coverage`, 70 gameplay
+fixtures) in 616 s with `JOBS=4`; the outcomes were recorded with `JOBS=4` and reproduced by a
+serial run (1227 s; one forward-ray difference on a tipping pallet, now left out) and a second
+parallel run. `window` and `window_place` ok earlier the same day (not rerun after this change).
+Not run on Windows or Linux.
+
+## Closed captions (2026-10-17, macOS Apple Silicon)
+
+`scripts/checks/validate.sh` (hl2-ui 233 passed / 7 ignored, hl2-bevy 86 / 8, strict clippy `--workspace --all-targets -D warnings`, fmt) and `scripts/checks/check_windows.sh` (strict clippy of hl2-ui/hl2-bevy for `x86_64-pc-windows-msvc`) pass; `cargo test --locked -p source-assets -p hl2-simulation`: 103 / 30 and 241 / 18. Owned-install tests (`--include-ignored`, installation discovery): the Episode One dictionaries load in search order (episodic 3153, hl2 3970 entries), every `kleinercast01..13.vcd` line resolves its caption, and the Episode One `HudCloseCaption` layout, `Panel.BgColor` and four caption faces load (DejaVu Sans substitutes for the uninstalled Tahoma). A dictionary check found every installed `.txt` token hashed in its `.dat` (ep2: 15 differing values). Packaged release (`scripts/checks/replays.py` (`captions`): `episodic/ep1_background02`, closed captions, 1024x768 windowed, 420 frames) exits 0; `artifacts/captions_capture.png` shows `ep_01.kl_fellowcitizens06` in Kleiner's `255,255,200` italics over the translucent rounded box behind the main menu; report `hud.captions`: dictionaries [3153, 3970], 1 processed, nothing missing, no attenuated scene captions. The same run with captions off (`captions_off.png`) shows no panel and 0 processed captions. Not compared with a retail capture; Subtitles mode, captions during gameplay and Windows **not tested** in a packaged run.
+
+## Merge of main into the menu branch (2026-10-16, macOS Apple Silicon)
+
+`cargo test --locked --workspace`: hl2-bevy 83 passed / 8 ignored, hl2-simulation 236 / 18, hl2-ui 193 / 5, modkit-core 58, source-assets 99 / 28 (including main's impact-table test). Owned installation (`--release -- --ignored`): hl2-bevy 8, hl2-simulation 18, hl2-ui 5 with installation discovery; source-assets 28 with `HL2_ROOT`. `cargo clippy --workspace --all-targets --locked -- -D warnings` (also for `x86_64-pc-windows-msvc`, hl2-ui/hl2-bevy) and `cargo fmt --check` clean. Packaged release: a bounded 300-frame windowed main-menu run exits 0; submenu replay (Episode One, back, Half-Life 2, back, Extras, Lost Coast) loads hl2/background01, episodic/ep1_background01, hl2/background01, lostcoast/background01 with no failures; Return to main menu from `d1_trainstation_02` comes back over hl2/background01. An intermittent Bevy "Entity despawned" command warning during the submenu replay (about one run in four) also occurs on the pre-merge build. The setup window was not opened.
+
+## GameUI settings used by the game (2026-10-11, macOS Apple Silicon)
+
+`cargo test --locked -p hl2-ui -p hl2-bevy -p hl2-simulation -p source-assets` (hl2-ui 85 passed / 3 ignored, hl2-bevy 61 / 2, hl2-simulation 169 / 14, source-assets 90 / 17), including binding parsing for every storable name and default, mouse/wheel/unbound bindings, mouse filter and acceleration, migration of missing defaults, skill rescaling, dry-mix music detection and the startup display mode. `cargo test --locked -p hl2-ui -- --ignored`: 3 owned-install tests pass. Strict Clippy (hl2-ui, hl2-bevy, source-assets, hl2-simulation) and `cargo fmt --all --check` clean. Packaged release: Keyboard-page capture (`artifacts/gameui/m6-options-keyboard.png`) with a config saved before the attack defaults shows MOUSE1/MOUSE2 added by migration and the stored Duck = CTRL kept; `--map d1_trainstation_01 --frames 120 --capture` starts windowed and completes. Live keyboard/mouse play in the packaged build (movement scripts bypass device input), audible music/mute checks, full-screen/No Border startup and Windows/Linux **not tested**. Details: [gameui.md](gameui.md) section 8.
+
+## GameUI Options dialog (2026-10-11, macOS Apple Silicon)
+
+`cargo test --locked -p hl2-ui -p hl2-bevy` (hl2-ui 83 passed / 3 ignored, hl2-bevy 56 passed / 2 ignored); `cargo test --locked -p hl2-ui -- --ignored` passes all 3 owned-install tests (the installation is discovered like the runtime does; the older HUD test no longer requires `HL2_ROOT`), including `gameui::options::tests::owned_install_pages_bind_every_expected_control`. Strict Clippy for hl2-ui, hl2-bevy and source-assets and `cargo fmt --all --check` clean. Packaged release with `--map background01 --main-menu --width 1280 --height 720 --no-focus --movement-script artifacts/gameui/options-<page>.json`: Gameplay, Keyboard (sections from `kb_act.lst`, MOUSE1/MOUSE2 on the attack rows with a fresh config), Mouse, Audio and Video (open display-mode list: Full screen / Windowed on macOS) captured and visually checked. Brightness dialog: unit tests only (its button is disabled in the windowed capture, as in retail). Windows/Linux, fullscreen switching and packaged key capture **not tested**. Details: [gameui.md](gameui.md) section 6.
+
+## GameUI startup flow and main menu (2026-10-11, macOS Apple Silicon)
+
+`cargo test --locked -p hl2-ui -p hl2-bevy` (hl2-ui 69 passed / 2 ignored, hl2-bevy 54 passed / 2 ignored); strict Clippy for hl2-ui, hl2-bevy and source-assets and `cargo fmt --all --check` clean. Packaged release (`scripts/build-bevy.sh`): no `--map` -> background01 + main menu (report mode MainMenu, background_level true); `--map no_such_map` -> failure message then the menu; `--map d1_trainstation_01` -> gameplay; `--fly --position 0 0 0` and `--map no_such_map --fly` -> exit status 1 with an error; scripted input on `--map background01 --main-menu` captured the QUIT GAME box and the HALF-LIFE 2 category. Captures are in ignored `artifacts/gameui/`. Windows/Linux **not tested**. Details: [gameui.md](gameui.md) section 5.
 
 ## Offline research final publication boundary (2026-10-22)
 
@@ -203,29 +1338,29 @@ Both owned native processes closed;selected installed cfg/four-module identities
 
 ## First-map completion audit and natural starts (2026-10-20)
 
-From checkout run `C:/Python310/python.exe -B ../../work/hl2-decompiled/scene-natural-firstmap-20261020/verify.py`;expected `passed:true`,two natural_starts,`first_map_finished:false`,`ordinary_full_traversal_tested:false`,`rust_parity_tested:false`. The new lane reran eleven retained checks,including consolidated seal,independent311-query integration and explicit16h drift acceptance. It rechecks six exact native bodies against immutable path/hash/address/baseline/original rows,six relocated hook prologues,1672 selected events/834 call pairs,raw callback clocks,actor/model generation,input pointers and OnStart output identity. Thirty-two pre-window events remain excluded. Complete exported Evidence is authoritative where MCP transport responses exceeded10MiB.
+Verification confirmed `passed:true`, two natural_starts, `first_map_finished:false`, `ordinary_full_traversal_tested:false`, `rust_parity_tested:false`. The new lane reran eleven retained checks,including consolidated seal,independent311-query integration and explicit16h drift acceptance. It rechecks six exact native bodies against immutable path/hash/address/baseline/original rows,six relocated hook prologues,1672 selected events/834 call pairs,raw callback clocks,actor/model generation,input pointers and OnStart output identity. Thirty-two pre-window events remain excluded. Complete exported Evidence is authoritative where MCP transport responses exceeded10MiB.
 
 Native scene2_lcs_intro accepted at10.230 game seconds with genuine gman_high,policy0;train endline accepted at93.165 with genuine citizen_train_1/male_01,policy1 and speech-scene query0. Independent review reconstructed raw input stacks,actors,callers,output addresses and both fresh-control snapshots;these checks are now in acceptance. Relay dispatch/controller serials were not instrumented. Fresh PID53968 without Frida shows G-Man playing at25.860..25.875,then cleared/absent at107.955..107.985;it did not catch endline playback. All three owned launches closed with checked cfg/module identities unchanged. Retained failures include an EOF rehearsal,fixed-length model decoding,old-map prefix,transport overflow,a verifier string-guard/JSON-shape correction,and forward input with identical measured position. No full route,scene completion/audio/camera/animation equivalence or current packaged Rust replay/build/tests were performed. First map remains incomplete;the second-map lane was not advanced.
 
 ## Controlled scene-start native observation (2026-10-20)
 
-From the checkout, run `C:/Python310/python.exe -B ../../work/publishing/docs-publication-20261020/validate.py`; expected `passed:true`. It checks the sealed149-file research set without rewriting its manifest, runs verify_static.py and verify_runtime.py from scene-start-frida-20261020, rechecks consolidated first-map metadata, and checks the current documentation diff/whitelist. The original research verify.py also pins its research-time Git revision and document snapshot; that guard is historical and can fail after unrelated implementation commits. Do not reseal or weaken it to accommodate a later checkout.
+Documentation validation: expected `passed:true`. It checks the sealed149-file research set without rewriting its manifest, runs verify_static.py and verify_runtime.py from scene-start-frida-20261020, rechecks consolidated first-map metadata, and checks the current documentation diff/whitelist. The original research verify.py also pins its research-time Git revision and document snapshot; that guard is historical and can fail after unrelated implementation commits. Do not reseal or weaken it to accommodate a later checkout.
 
 The native components verify six exact immutable database bodies,496 native body bytes/173 independent instruction starts, bounded static164nodes/166edges, complete selected function-call captures, actor index/serial/raw-field/clock consistency, policy1/query transitions and policy0 control, fresh native output ordering and cleanup/settings identities. Two optional timer samples raced their clock reads and are rejected; decisive function callbacks match raw bytes. The original lifecycle full checker fails its changed Rust-source external binding, which remains a historical source snapshot rather than a native identity failure. Consolidated first-map metadata verification still passes. No Rust rebuild/tests or parity replay was rerun for documentation publication. Private README retains failed/partial probes and limitations.
 
 ## First-map scene successor checks (2026-10-18)
 
-Additional parent reruns pass: `campaign-scenes-20261016j-animation-dependencies/verify.py verify`, `campaign-scenes-20261016k-responses/verify.py`, `campaign-scenes-20261018a-arrival/verify.py`, and the separate intro/arrival audit checkers. Animation validation independently reparses stock VPK/MDL/ANI references without producer imports (same research agent,not a separate-agent semantic audit). Arrival's separate audit rederives27 datamap rows,seven exact bodies/seven byte windows and115 selected entities/215 connections. First-map handoff `verify.py --check` checks all66 joins,62 resource plans,620 event occurrences across44 scene instances,seven groups and11 read-only query cases;605 events remain the count across40 distinct first-map resources. Its final package seal now passes with16 explicit gaps and finalized queue/response/speaker references. A separate preseal audit exposed cinematic actor-query KeyError1264;scene808,cinematic1264 and AI321 are now exercised separately. Repeat the consolidated package check with `C:/Python310/python.exe -B ../../work/hl2-decompiled/campaign-scenes-20261018c-firstmap-handoff/verify.py`. Queue/speaker verifiers also pass;the latter preserves missing exact SpeakerThink102c38d0 and labels recurring scheduling SDK-only. No runtime/ABI/Rust parity is implied.
+Additional parent reruns pass: `campaign-scenes-20261016j-animation-dependencies/verify.py verify`, `campaign-scenes-20261016k-responses/verify.py`, `campaign-scenes-20261018a-arrival/verify.py`, and the separate intro/arrival audit checkers. Animation validation independently reparses stock VPK/MDL/ANI references without producer imports (same research agent,not a separate-agent semantic audit). Arrival's separate audit rederives27 datamap rows,seven exact bodies/seven byte windows and115 selected entities/215 connections. First-map handoff `verify.py --check` checks all66 joins,62 resource plans,620 event occurrences across44 scene instances,seven groups and11 read-only query cases;605 events remain the count across40 distinct first-map resources. Its final package seal now passes with16 explicit gaps and finalized queue/response/speaker references. A separate preseal audit exposed cinematic actor-query KeyError1264;scene808,cinematic1264 and AI321 are now exercised separately. The consolidated package check passes. Queue/speaker verifiers also pass;the latter preserves missing exact SpeakerThink102c38d0 and labels recurring scheduling SDK-only. No runtime/ABI/Rust parity is implied.
 
 
-Documentation/private evidence only. From the checkout run `C:/Python310/python.exe -B ../../work/hl2-decompiled/campaign-scenes-20261016j-scene-scheduler/verify.py`, the corresponding `campaign-scenes-20261016j-actor-eligibility/verify.py`, and `campaign-scenes-20261016j-intro-camera/verify.py`. All parent reruns pass. They check exact frozen identities, retained body bytes, private PE witnesses and authored metadata; scheduler additionally checks15 complete spans/2329 bytes. Intro's12 listing windows include padding/neighbors and must not be called complete function coverage. Its absent exact callback103f9110 and rejected56-byte datamap interpretation remain retained.
+Documentation/private evidence only. Scheduler, actor-eligibility, and intro-camera checks all pass. They check exact frozen identities, retained body bytes, private PE witnesses and authored metadata; scheduler additionally checks15 complete spans/2329 bytes. Intro's12 listing windows include padding/neighbors and must not be called complete function coverage. Its absent exact callback103f9110 and rejected56-byte datamap interpretation remain retained.
 
 The scene-scheduler has62 manifest files/20 bindings; actor eligibility85/13. Intro checks12 exact bodies,11 input bindings,33 datamap records,1044 listing records/3098 bytes and52 selected intro entities/154 connections. Runtime audio/camera/movement, ABI, ordinary traversal and Rust parity are **not tested**. Model-dependency finalization and separate intro/arrival audits now pass; rejected intermediate model/datamap drafts remain unpromoted. Queue/speaker and consolidated package checks now pass;native runtime/ABI/Rust parity remain untested.
 
 
 ## Campaign NPC scene research checks (2026-10-16)
 
-Documentation/private research only; no Rust implementation or packaged/native runtime tests were run. From the checkout, `C:/Python310/python.exe -B ../../work/hl2-decompiled/campaign-scenes-20261016h/verify.py verify` checks the finalized root manifest, current installed entity-lump/cache bytes and sealed research bindings; expected `passed:true`. Per-lane verifiers are listed in the private handoff. The independently coded `inventory-audit/audit.py` and `verify_guide.py` reports bind complete installed map/cache identities and canonical guide-v3 derivations; their retained results passed with zero mismatches. The separate first-map audit passed 275 metadata checks. Do not rerun authoring producers or audits that write over finalized output.
+Documentation/private research only; no Rust implementation or packaged/native runtime tests were run. Verification checks the finalized root manifest, current installed entity-lump/cache bytes and sealed research bindings; expected `passed:true`. Per-lane verifiers are listed in the private handoff. The independently coded `inventory-audit/audit.py` and `verify_guide.py` reports bind complete installed map/cache identities and canonical guide-v3 derivations; their retained results passed with zero mismatches. The separate first-map audit passed 275 metadata checks. Do not rerun authoring producers or audits that write over finalized output.
 
 The inventory establishes 69 numbered campaign maps plus intro/credits, 77,628 entity records, 1,837 fully decoded cache entries/15,114 events, 760 scene-controller instances, 641 cinematic sequences, 507 AI schedules and 26,488 output connections. Root verification rechecks installed file identities/entity-lump bytes and cache hashes; the independent inventory audit supplies full map SHA verification. The first-map dossier checks authored float timings, event order/enabled state, actor/target candidates and exact output relationships. These are static data/native-evidence checks, not gameplay, ABI, animation/rendering/audio, ordinary campaign or Rust parity. Owner-confirmed native gap `d2_coast_02` remains an expected rejected zero-byte stub, not missing campaign content.
 
@@ -233,9 +1368,9 @@ Public acceptance: `git diff --check -- AGENTS.md STATUS.md MODLOG.md docs/DESIG
 
 Final checkpoint16h: primary seal and read-only rerun pass. Separate-agent final integrity review checks 566 root artifacts, 24 external bindings and 353 lane files against recorded hashes, with the exact root file set matching the declared lane exclusions. Private `research-campaign-scenes-finalization-20261016h.json` retains results; `campaign-scenes-20261016h-final-audit/REPORT.md` records the independent check. These are integrity results, not new gameplay verification.
 
-First-map LOOP successor16i: `C:/Python310/python.exe -B ../../work/hl2-decompiled/campaign-scenes-20261016i-loop-replay/verify.py` passes, including the parent read-only rerun: 29 manifest files, 15 external bindings, four exact native bodies, four selected complete spans/238 instruction records/673 PE bytes and a four-case disposition table. Actual loop/audio/frame-boundary behavior remains **not tested**. The metadata distinguishes inactive AI_AIM from enabled FACE/LOOKAT; no display/effect was inferred from an inactive authored channel.
+First-map LOOP successor16i passes, including the parent read-only rerun: 29 manifest files, 15 external bindings, four exact native bodies, four selected complete spans/238 instruction records/673 PE bytes and a four-case disposition table. Actual loop/audio/frame-boundary behavior remains **not tested**. The metadata distinguishes inactive AI_AIM from enabled FACE/LOOKAT; no display/effect was inferred from an inactive authored channel.
 
-Post-seal16j audit: first-map-path-completion's original exact file-set check now fails after11 stale-worker additions. No original file changed or disappeared; the27 original lane hashes and566 parent hashes match. Current command is `C:/Python310/python.exe -B ../../work/hl2-decompiled/campaign-scenes-20261016j-drift-audit/accept_preserved_lane.py`, expected `passed:true` and `original_closed_set_checker_passes:false`. It verifies original database/PE checks plus an explicit combined file set and preserved byte copies of additions. Added material is not adopted as semantic evidence. Neither prior seal was rewritten; the original closure failure is preserved.
+Post-seal16j audit: first-map-path-completion's original exact file-set check now fails after11 stale-worker additions. No original file changed or disappeared; the27 original lane hashes and566 parent hashes match. Validation expected `passed:true` and `original_closed_set_checker_passes:false`. It verifies original database/PE checks plus an explicit combined file set and preserved byte copies of additions. Added material is not adopted as semantic evidence. Neither prior seal was rewritten; the original closure failure is preserved.
 
 ## Installation setup on main (2026-10-15)
 
@@ -327,7 +1462,7 @@ Packaged on d1_trainstation_04 (`--map d1_trainstation_04`, no globals when load
 Barrier: packaged `test-inputs/bevy-barrier-hum.json` with `--audio-trace` and a per-process recording; the touch loop (2.69 s) stays continuous for 7.8 s and 6.7 s inside the trigger and stops on leaving. Soundscapes: packaged `test-inputs/bevy-soundscapes.json` (spawn, hall at (-4304,-722) eye 128, outside at (-3104,-2018) eye 128, 12 s each) and native oracle views at the same places with `ORACLE_SETUP="volume 0.05;snd_mute_losefocus 0"`, both recorded per process. Background medians (dB): spawn -56.0 native / -58.7 ours, hall -53.5 / -51.9, outside -44.7 / -38.1 (open). Native stays silent while unfocused unless `snd_mute_losefocus 0`. Batches artifacts/ambient-inputs-regression and artifacts/soundscapes-regression: 26/17/26.
 
 ## Audio verification method (session 8, 2026-10-08)
-Session 27 (2026-10-21): for short distance-dependent sounds compare a far-only stretch of a per-process recording (trace: every play at the same premix, e.g. `#dv16`) against native at the same layout; check the trace's `started` volume too. Our far NPC gunfire measured -99 dB there because spatial players started at volume 0 for a frame (fixed a782904); the 25 ms far crack vanished while the 125 ms near layer survived, so level-only checks at mid range had missed it. Native layout: work/hl2-decompiled/npc-dsp-20261021 (street.sh, record_ours.py).
+Session 27 (2026-10-21): for short distance-dependent sounds compare a far-only stretch of a per-process recording (trace: every play at the same premix, e.g. `#dv16`) against native at the same layout; check the trace's `started` volume too. Our far NPC gunfire measured -99 dB there because spatial players started at volume 0 for a frame (fixed a782904); the 25 ms far crack vanished while the 125 ms near layer survived, so level-only checks at mid range had missed it. Native layout observed via per-process recordings.
 
 
 Use this method for any "sound is cut / sounds different" report. Sink lifetimes and sample counts alone missed a real defect.

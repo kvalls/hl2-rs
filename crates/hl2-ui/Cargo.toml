@@ -8,10 +8,10 @@ license = "MIT"
 anyhow.workspace = true
 glam.workspace = true
 source-assets.workspace = true
+source-ui.workspace = true
+modkit-core.workspace = true
 hl2-simulation.workspace = true
 fontdue = "0.9.3"
 ttf-parser = "0.25.1"
 serde.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
+serde_json.workspace = true

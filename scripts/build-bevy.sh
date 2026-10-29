@@ -91,7 +91,10 @@ cp -R "$SHADER_SOURCE" "$SHADER_DEST"
 find "$SHADER_DEST" -name ".DS_Store" -delete 2>/dev/null || true
 
 PACKAGE_EXECUTABLE="$PACKAGE_ROOT/hl2-bevy"
-cp -f "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
+# Replace the file instead of overwriting it in place: macOS kills new launches of an executable
+# whose signed pages were rewritten (exit 137), e.g. while a previous build is still running.
+rm -f "$PACKAGE_EXECUTABLE"
+cp "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
 chmod +x "$PACKAGE_EXECUTABLE"
 
 compute_sha256() {
@@ -107,6 +110,8 @@ compute_sha256() {
 
 EXE_SHA256=$(compute_sha256 "$PACKAGE_EXECUTABLE")
 BUILT_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+GIT_BRANCH="$(git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 
 # Build shader asset array in JSON
 ASSETS_JSON="["
@@ -119,7 +124,14 @@ while IFS= read -r SHADER_FILE; do
             ASSETS_JSON+=","
         fi
         FIRST=0
-        ASSETS_JSON+=$'\n    {\n      "path": "'"$REL_PATH"'",\n      "sha256": "'"$FILE_SHA"'"\n    }'
+        ASSETS_JSON+=$(cat <<ITEM_EOF
+
+    {
+      "path": "$REL_PATH",
+      "sha256": "$FILE_SHA"
+    }
+ITEM_EOF
+)
     fi
 done < <(find "$SHADER_DEST" -type f ! -name ".*" | sort)
 ASSETS_JSON+=$'\n  ]'
@@ -133,6 +145,8 @@ cat <<EOF > "$TMP_METADATA"
   "profile": "$PROFILE_NAME",
   "executable": "bin/hl2-bevy",
   "sha256": "$EXE_SHA256",
+  "git_branch": "$GIT_BRANCH",
+  "git_commit": "$GIT_COMMIT",
   "assets": $ASSETS_JSON
 }
 EOF

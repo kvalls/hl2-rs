@@ -1,0 +1,58 @@
+{
+  "narrowest_design_aspect": [5, 4],
+  "widest_design_aspect": [16, 9],
+  "widescreen_menu_scale_max": 1.35,
+  "menu_stack_rows": 7,
+  "ui_fade_duration": 0.3,
+  "unfocused_alpha_factor": 0.3,
+  "backdrop_alpha": 0.611765,
+  "gameplay_dim_alpha": 0.3,
+  "video_confirm_seconds": 15,
+  "vertical_fov_range": [40, 120],
+  "viewmodel_fov_range": [30, 110],
+  "world_fov_offset": {
+    "portrait": -17.0,
+    "ultrawide": -11.0
+  },
+  "hud_aspects": {"normal": [4, 3], "wide16x9": [16, 9], "wide16x10": [16, 10]},
+  "viewmodel": {
+    "_viewmodel_tuning_note": "Standard entries apply from 5:4 through 16:9 and default to zero. Portrait and ultrawide entries are direct end values at portrait_aspect and ultrawide_aspect and blend from standard outside that range. fov_offset adjusts horizontal viewmodel field of view in degrees (4:3 reference); offset is [forward, left, up] Source units. Higher FOV offsets make the weapon smaller. Portrait defaults match the 97fac81 baseline; tune each profile directly without changing model scale.",
+    "portrait_aspect": [9, 16],
+    "ultrawide_aspect": [32, 9],
+    "default": {
+      "standard": {"fov_offset": 0.0, "offset": [0.0, 0.0, 0.0]},
+      "portrait": {"fov_offset": 0.0, "offset": [0.0, 0.0, 0.0]},
+      "ultrawide": {"fov_offset": 0.0, "offset": [0.0, 0.0, 0.0]}
+    },
+    "weapons": {
+      "weapon_bugbait": {
+        "portrait": {"offset": [-5.1, 0.0, -3.2]}
+      },
+      "weapon_crossbow": {
+        "portrait": {"offset": [-1.1, 0.6, -1.3]}
+      },
+      "weapon_crowbar": {
+        "portrait": {"offset": [-16.9, 5.8, -3.0]}
+      },
+      "weapon_frag": {
+        "portrait": {"offset": [-2.1, 0.0, 0.5]}
+      },
+      "weapon_physcannon": {
+        "portrait": {"offset": [-20.0, -0.6, 2.5]}
+      },
+      "weapon_pistol": {
+        "portrait": {"offset": [-3.0, 0.0, 0.0]}
+      },
+      "weapon_rpg": {
+        "portrait": {"offset": [-0.5, 7.9, -9.5]},
+        "ultrawide": {"offset": [-5.5, 0.0, 0.0]}
+      },
+      "weapon_shotgun": {
+        "portrait": {"offset": [-1.1, 1.3, -3.3]}
+      },
+      "weapon_smg1": {
+        "portrait": {"offset": [-3.3, 1.8, -0.5]}
+      }
+    }
+  }
+}

@@ -1,0 +1,158 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      607.53,
+      -8173.45,
+      -25.545
+    ]
+  },
+  {
+    "tick": 3,
+    "ui": [
+      {
+        "action": "command",
+        "command": "impulse 100"
+      }
+    ]
+  },
+  {
+    "tick": 10,
+    "label": "no-suit"
+  },
+  {
+    "tick": 20,
+    "fly": false,
+    "eye": [
+      1003.18,
+      -8290.94,
+      69
+    ]
+  },
+  {
+    "tick": 30,
+    "label": "suit-picked-up"
+  },
+  {
+    "tick": 40,
+    "ui": [
+      {
+        "action": "command",
+        "command": "impulse 100"
+      }
+    ]
+  },
+  {
+    "tick": 50,
+    "label": "suit-light-on"
+  },
+  {
+    "tick": 60,
+    "actions": [
+      {
+        "action": "send",
+        "target": "!player",
+        "input": "DisableFlashlight"
+      }
+    ]
+  },
+  {
+    "tick": 70,
+    "label": "disabled-off"
+  },
+  {
+    "tick": 80,
+    "ui": [
+      {
+        "action": "command",
+        "command": "impulse 100"
+      }
+    ]
+  },
+  {
+    "tick": 90,
+    "label": "disabled-blocked"
+  },
+  {
+    "tick": 100,
+    "actions": [
+      {
+        "action": "send",
+        "target": "!player",
+        "input": "EnableFlashlight"
+      }
+    ]
+  },
+  {
+    "tick": 110,
+    "label": "enabled-still-off"
+  },
+  {
+    "tick": 120,
+    "ui": [
+      {
+        "action": "command",
+        "command": "impulse 100"
+      }
+    ]
+  },
+  {
+    "tick": 130,
+    "label": "reenabled-on"
+  },
+  {
+    "tick": 140,
+    "fly": false,
+    "eye": [
+      1003.18,
+      -8290.94,
+      2500
+    ]
+  },
+  {
+    "tick": 320,
+    "label": "dead-off"
+  },
+  {
+    "tick": 330,
+    "ui": [
+      {
+        "action": "command",
+        "command": "impulse 100"
+      }
+    ]
+  },
+  {
+    "tick": 340,
+    "label": "dead-blocked"
+  },
+  {
+    "tick": 345,
+    "actions": [
+      {
+        "action": "send",
+        "target": "!player",
+        "input": "DisableFlashlight"
+      }
+    ]
+  },
+  {
+    "tick": 348,
+    "label": "disabled-before-direct"
+  },
+  {
+    "tick": 350,
+    "ui": [
+      {
+        "action": "command",
+        "command": "map d1_canals_01"
+      }
+    ]
+  },
+  {
+    "tick": 370,
+    "paused": true,
+    "label": "direct-load-fresh"
+  }
+]

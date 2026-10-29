@@ -1,0 +1,364 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 21,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 22,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 23,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 24,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 25,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "enter"
+     ]
+    }
+   }
+  ],
+  "label": "open-options"
+ },
+ {
+  "tick": 60,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      702,
+      215
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 61,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      702,
+      215
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "video-tab"
+ },
+ {
+  "tick": 90,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      415,
+      302
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 91,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      415,
+      302
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "resolution-open"
+ },
+ {
+  "tick": 120,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      415,
+      316
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 121,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      415,
+      316
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "picked-8k"
+ },
+ {
+  "tick": 150,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      728,
+      575
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 151,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      728,
+      575
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "applied-8k"
+ },
+ {
+  "tick": 260,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo options apply"
+   }
+  ],
+  "label": "after-options-apply"
+ },
+ {
+  "tick": 270,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      558,
+      575
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 271,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      558,
+      575
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "options-closed"
+ },
+ {
+  "tick": 300,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 320 240 1"
+   }
+  ]
+ },
+ {
+  "tick": 400,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo smallest"
+   }
+  ],
+  "label": "smallest"
+ },
+ {
+  "tick": 410,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 7680 2160 0"
+   }
+  ]
+ },
+ {
+  "tick": 411,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 640 480 1"
+   }
+  ]
+ },
+ {
+  "tick": 412,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 3440 1440 0"
+   }
+  ]
+ },
+ {
+  "tick": 413,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 1280 720 1"
+   }
+  ]
+ },
+ {
+  "tick": 520,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo rapid"
+   }
+  ],
+  "label": "rapid"
+ },
+ {
+  "tick": 530,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 8192 8192 1"
+   }
+  ]
+ },
+ {
+  "tick": 640,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo largest"
+   }
+  ],
+  "label": "largest"
+ },
+ {
+  "tick": 650,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 1024 768 1"
+   }
+  ]
+ },
+ {
+  "tick": 760,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo final"
+   }
+  ],
+  "label": "final"
+ },
+ {
+  "tick": 780,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

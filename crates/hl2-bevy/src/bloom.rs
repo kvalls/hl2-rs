@@ -22,6 +22,14 @@ use bevy::{
     },
 };
 
+pub mod color_correction;
+mod correction_pass;
+pub mod motion_blur;
+mod motion_blur_pass;
+mod viewmodel_blur;
+mod weapon_blur;
+mod world_blur;
+
 /// Bloom amount on the last 3D camera of the main view, and the image that receives the
 /// pre-bloom frame for auto exposure.
 #[derive(Component, Clone, ExtractComponent)]
@@ -34,6 +42,29 @@ pub struct SourceBloomPlugin;
 impl Plugin for SourceBloomPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ExtractComponentPlugin::<SourceBloom>::default());
+        app.add_plugins(ExtractComponentPlugin::<
+            color_correction::SourceColorCorrection,
+        >::default())
+            .init_resource::<color_correction::Lookups>()
+            .add_systems(Update, color_correction::update);
+        app.add_plugins((
+            motion_blur_pass::MotionBlurPlugin,
+            weapon_blur::WeaponBlurPlugin,
+        ))
+        .init_resource::<motion_blur::MotionBlurState>()
+        .add_systems(Update, motion_blur::update)
+        .add_systems(
+            PostUpdate,
+            (
+                (viewmodel_blur::update, world_blur::update),
+                weapon_blur::depth::update,
+            )
+                .chain()
+                .after(crate::camera::present_player_view)
+                .after(crate::rendering::present_weapons)
+                .after(crate::rendering::present_entities)
+                .before(TransformSystems::Propagate),
+        );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -44,6 +75,7 @@ impl Plugin for SourceBloomPlugin {
                 (
                     prepare_pipelines.in_set(RenderSystems::Prepare),
                     prepare_textures.in_set(RenderSystems::PrepareResources),
+                    correction_pass::prepare.in_set(RenderSystems::PrepareBindGroups),
                 ),
             )
             // After the main pass (PostProcess set), before tonemapping: ordered only
@@ -64,6 +96,8 @@ const SMALL_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 struct Pipelines {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
+    /// Group 1 of the composite that applies color correction.
+    correction_layout: BindGroupLayoutDescriptor,
     shape: CachedRenderPipelineId,
     blur: CachedRenderPipelineId,
     presample: CachedRenderPipelineId,
@@ -90,13 +124,14 @@ fn descriptor(
         vertex: fullscreen.to_vertex_state(),
         fragment: Some(FragmentState {
             shader: shader.clone(),
+            // The color correction code of the shader reads it; the plain pipelines compile it out.
+            shader_defs: vec![bevy::shader::ShaderDefVal::UInt("LOOKUPS".into(), 0)],
             entry_point: Some(entry.into()),
             targets: vec![Some(ColorTargetState {
                 format,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
-            ..default()
         }),
         ..default()
     }
@@ -153,6 +188,7 @@ fn init_pipelines(
     ));
     commands.insert_resource(Pipelines {
         layout,
+        correction_layout: correction_pass::layout(),
         sampler,
         shape,
         blur,
@@ -223,33 +259,33 @@ fn prepare_textures(
     }
 }
 
-fn source_bloom(
-    view: ViewQuery<(
-        &ViewTarget,
-        &SourceBloom,
-        &SmallTextures,
-        &CompositePipeline,
-    )>,
-    pipelines: Res<Pipelines>,
-    cache: Res<PipelineCache>,
-    images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
-    mut ctx: RenderContext,
-) {
-    let (target, bloom, small, composite) = view.into_inner();
-    let device = ctx.render_device().clone();
-    let layout = cache.get_bind_group_layout(&pipelines.layout);
-    let draw = |ctx: &mut RenderContext,
-                pipeline: &RenderPipeline,
-                source: &TextureView,
-                glow: &TextureView,
-                data: &Buffer,
-                destination: &TextureView| {
+/// One fullscreen draw of the bloom shader.
+struct Pass<'a> {
+    pipeline: &'a RenderPipeline,
+    source: &'a TextureView,
+    glow: &'a TextureView,
+    data: PassData,
+    destination: &'a TextureView,
+    /// Group 1, for the composite that applies color correction.
+    extra: Option<&'a BindGroup>,
+}
+
+impl Pass<'_> {
+    fn draw(self, ctx: &mut RenderContext, pipelines: &Pipelines, layout: &BindGroupLayout) {
+        let device = ctx.render_device().clone();
+        let mut buffer = encase::UniformBuffer::new(Vec::new());
+        buffer.write(&self.data).expect("bloom uniform");
+        let data = device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("source_bloom_data"),
+            contents: buffer.as_ref(),
+            usage: BufferUsages::UNIFORM,
+        });
         let bind_group = device.create_bind_group(
             Some("source_bloom_bind_group"),
-            &layout,
+            layout,
             &BindGroupEntries::sequential((
-                source,
-                glow,
+                self.source,
+                self.glow,
                 &pipelines.sampler,
                 data.as_entire_binding(),
             )),
@@ -257,7 +293,7 @@ fn source_bloom(
         let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("source_bloom"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                view: destination,
+                view: self.destination,
                 depth_slice: None,
                 resolve_target: None,
                 ops: Operations::default(),
@@ -267,35 +303,73 @@ fn source_bloom(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_render_pipeline(pipeline);
+        pass.set_render_pipeline(self.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
+        if let Some(extra) = self.extra {
+            pass.set_bind_group(1, extra, &[]);
+        }
         pass.draw(0..3, 0..1);
-    };
-    let uniform = |label: &str, data: PassData| {
-        let mut buffer = encase::UniformBuffer::new(Vec::new());
-        buffer.write(&data).expect("bloom uniform");
-        device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some(label),
-            contents: buffer.as_ref(),
-            usage: BufferUsages::UNIFORM,
-        })
-    };
+    }
+}
+
+/// Pass data with the bloom factor of Engine_Post (1 while bloom is enabled) in `params.x`.
+fn pass_data(texel_direction: Vec4, params: Vec4) -> PassData {
+    PassData {
+        texel_direction,
+        params,
+    }
+}
+
+fn source_bloom(
+    view: ViewQuery<(
+        &ViewTarget,
+        &SourceBloom,
+        &SmallTextures,
+        &CompositePipeline,
+        Option<&correction_pass::Correction>,
+    )>,
+    pipelines: Res<Pipelines>,
+    cache: Res<PipelineCache>,
+    images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    mut ctx: RenderContext,
+) {
+    let (target, bloom, small, composite, correction) = view.into_inner();
+    let layout = cache.get_bind_group_layout(&pipelines.layout);
     let one = Vec4::new(1., 0., 0., 0.);
     if let (Some(pipeline), Some(image)) = (
         cache.get_render_pipeline(pipelines.presample),
         bloom.presample.as_ref().and_then(|h| images.get(h)),
     ) {
-        let data = uniform(
-            "source_bloom_presample",
-            PassData {
-                texel_direction: Vec4::ZERO,
-                params: one,
-            },
-        );
         let frame = target.main_texture_view();
-        draw(&mut ctx, pipeline, frame, frame, &data, &image.texture_view);
+        Pass {
+            pipeline,
+            source: frame,
+            glow: frame,
+            data: pass_data(Vec4::ZERO, one),
+            destination: &image.texture_view,
+            extra: None,
+        }
+        .draw(&mut ctx, &pipelines, &layout);
     }
+    let corrected = correction.and_then(|c| {
+        cache
+            .get_render_pipeline(c.pipeline)
+            .map(|pipeline| (pipeline, &c.group))
+    });
     if bloom.amount <= 0. {
+        // No glow: the composite only applies the lookups, when there are any to apply.
+        if let Some((pipeline, group)) = corrected {
+            let post = target.post_process_write();
+            Pass {
+                pipeline,
+                source: post.source,
+                glow: post.source,
+                data: pass_data(Vec4::ZERO, one),
+                destination: post.destination,
+                extra: Some(group),
+            }
+            .draw(&mut ctx, &pipelines, &layout);
+        }
         return;
     }
     let (Some(shape), Some(blur), Some(composite)) = (
@@ -305,75 +379,58 @@ fn source_bloom(
     ) else {
         return;
     };
-    let small_size = small.0[0].texture.size();
-    let texel = Vec2::new(1. / small_size.width as f32, 1. / small_size.height as f32);
-    let shape_data = uniform(
-        "source_bloom_shape",
-        PassData {
-            texel_direction: Vec4::ZERO,
-            params: one,
-        },
-    );
-    let x_data = uniform(
-        "source_bloom_blur_x",
-        PassData {
-            texel_direction: Vec4::new(texel.x, texel.y, 1., 0.),
-            params: one,
-        },
-    );
-    let y_data = uniform(
-        "source_bloom_blur_y",
-        PassData {
-            texel_direction: Vec4::new(texel.x, texel.y, 0., 1.),
-            params: Vec4::new(bloom.amount, 0., 0., 0.),
-        },
-    );
-    // Engine_Post BloomFactor is 1 when bloom is enabled.
-    let composite_data = uniform(
-        "source_bloom_composite",
-        PassData {
-            texel_direction: Vec4::ZERO,
-            params: one,
-        },
-    );
+    let size = small.0[0].texture.size();
+    let texel = Vec2::new(1. / size.width as f32, 1. / size.height as f32);
+    let (a, b) = (&small.0[0].default_view, &small.0[1].default_view);
     let post = target.post_process_write();
-    let passes: [(
-        &RenderPipeline,
-        &TextureView,
-        &TextureView,
-        &Buffer,
-        &TextureView,
-    ); 4] = [
-        (
+    let pass = |pipeline, source, glow, data, destination, extra| Pass {
+        pipeline,
+        source,
+        glow,
+        data,
+        destination,
+        extra,
+    };
+    let (pipeline, extra) = corrected.map_or((composite, None), |(p, group)| (p, Some(group)));
+    let passes = [
+        pass(
             shape,
             post.source,
             post.source,
-            &shape_data,
-            &small.0[0].default_view,
+            pass_data(Vec4::ZERO, one),
+            a,
+            None,
         ),
-        (
+        pass(
             blur,
-            &small.0[0].default_view,
-            &small.0[0].default_view,
-            &x_data,
-            &small.0[1].default_view,
+            a,
+            a,
+            pass_data(Vec4::new(texel.x, texel.y, 1., 0.), one),
+            b,
+            None,
         ),
-        (
+        // The vertical blur carries the bloom amount.
+        pass(
             blur,
-            &small.0[1].default_view,
-            &small.0[1].default_view,
-            &y_data,
-            &small.0[0].default_view,
+            b,
+            b,
+            pass_data(
+                Vec4::new(texel.x, texel.y, 0., 1.),
+                Vec4::new(bloom.amount, 0., 0., 0.),
+            ),
+            a,
+            None,
         ),
-        (
-            composite,
+        pass(
+            pipeline,
             post.source,
-            &small.0[0].default_view,
-            &composite_data,
+            a,
+            pass_data(Vec4::ZERO, one),
             post.destination,
+            extra,
         ),
     ];
-    for (pipeline, source, glow, data, destination) in passes {
-        draw(&mut ctx, pipeline, source, glow, data, destination);
+    for pass in passes {
+        pass.draw(&mut ctx, &pipelines, &layout);
     }
 }

@@ -1,0 +1,26 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "ui": [
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "command",
+        "command": "sv_cheats 1; impulse 101; impulse 100"
+      },
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "escape"
+      }
+    ]
+  },
+  {
+    "tick": 120,
+    "paused": true,
+    "label": "flashlight-hud-on"
+  }
+]

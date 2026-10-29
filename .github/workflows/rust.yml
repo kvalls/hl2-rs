@@ -19,9 +19,31 @@ jobs:
           persist-credentials: false
       - name: Install stable Rust with formatting and lint tools
         run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Check architecture guardrails
+        run: python scripts/checks/architecture.py
+      - name: Check Python helpers
+        run: python -m unittest discover -s scripts/checks -p "test_*.py"
       - name: Check formatting
         run: cargo +stable fmt --all --check
       - name: Check workspace lints
         run: cargo +stable clippy --workspace --all-targets --locked -- -D warnings
       - name: Run unit tests
-        run: cargo +stable test --workspace --locked
+        run: cargo +stable test --workspace --locked --no-fail-fast
+
+  macos:
+    name: Rust checks (macos-15)
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: 2
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install stable Rust with formatting and lint tools
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Validate source, tests, lints and formatting
+        run: scripts/checks/validate.sh
+      - name: Check POSIX launcher syntax
+        run: bash -n launch-bevy.sh scripts/build-bevy.sh scripts/clean-target.sh

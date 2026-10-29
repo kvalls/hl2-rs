@@ -199,6 +199,26 @@ impl Inventory {
         }
         params
     }
+    /// Resolves the current viewmodel animation state for the active weapon.
+    pub fn viewmodel_animation_state<'a>(
+        &'a self,
+        rig: &'a Rig,
+        scene_time: f64,
+    ) -> ViewmodelAnimationState<'a> {
+        viewmodel_animation_state(
+            rig,
+            &self.animation,
+            self.animation_at,
+            self.idle_animation(),
+            scene_time,
+        )
+    }
+    /// Posed bone matrices for the active weapon's viewmodel at the given scene time,
+    /// smoothly cross-fading finishing non-looping animations into the idle sequence.
+    pub fn viewmodel_matrices(&self, rig: &Rig, scene_time: f64) -> Vec<Mat4> {
+        let state = self.viewmodel_animation_state(rig, scene_time);
+        viewmodel_state_matrices(rig, &state, &self.viewmodel_pose_values(rig))
+    }
 }
 
 fn core(material: &'static str, scale: f32, brightness: f32) -> ViewmodelSprite {
@@ -211,18 +231,181 @@ fn core(material: &'static str, scale: f32, brightness: f32) -> ViewmodelSprite 
     }
 }
 
+/// Sampling state for a weapon viewmodel animation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ViewmodelAnimationState<'a> {
+    /// Actively playing a clip at the given local animation time.
+    Playing { clip: &'a str, time: f32 },
+    /// Non-looping clip has completed its authored duration and is cross-fading
+    /// into the idle animation over `fade_time` (Source SDK MaintainSequenceTransitions).
+    Transition {
+        from: &'a str,
+        to: &'a str,
+        fade_weight: f32,
+        from_time: f32,
+        to_time: f32,
+    },
+    /// Weapon is in steady idle at the given scene time.
+    Idle { clip: &'a str, time: f32 },
+}
+
+impl<'a> ViewmodelAnimationState<'a> {
+    /// Cache lookup label and time key for mesh skinning and pose caching.
+    pub fn cache_key(&self, rig: &Rig) -> (String, u32) {
+        match self {
+            Self::Playing { clip, time } => {
+                let key = rig.clips.get(*clip).map_or(time.to_bits(), |c| {
+                    if c.frames.len() <= 1 {
+                        0
+                    } else if !c.looping && *time * c.fps >= (c.frames.len() - 1) as f32 {
+                        u32::MAX
+                    } else {
+                        time.to_bits()
+                    }
+                });
+                ((*clip).to_owned(), key)
+            }
+            Self::Idle { clip, time } => {
+                let key = rig.clips.get(*clip).map_or(time.to_bits(), |c| {
+                    if c.frames.len() <= 1 {
+                        0
+                    } else if !c.looping && *time * c.fps >= (c.frames.len() - 1) as f32 {
+                        u32::MAX
+                    } else {
+                        time.to_bits()
+                    }
+                });
+                ((*clip).to_owned(), key)
+            }
+            Self::Transition {
+                from,
+                to,
+                fade_weight,
+                to_time,
+                ..
+            } => {
+                let key = fade_weight.to_bits() ^ (to_time.to_bits().rotate_left(16));
+                (format!("{from}->{to}"), key)
+            }
+        }
+    }
+}
+
+/// Resolves the viewmodel animation state, matching Source SDK sequence transitions.
+pub fn viewmodel_animation_state<'a>(
+    rig: &'a Rig,
+    animation: &'a str,
+    animation_at: f64,
+    idle_animation: &'a str,
+    scene_time: f64,
+) -> ViewmodelAnimationState<'a> {
+    let elapsed = (scene_time - animation_at).max(0.) as f32;
+    let Some(clip) = rig.clips.get(animation) else {
+        return ViewmodelAnimationState::Idle {
+            clip: idle_animation,
+            time: scene_time as f32,
+        };
+    };
+    if clip.looping {
+        return ViewmodelAnimationState::Playing {
+            clip: animation,
+            time: elapsed,
+        };
+    }
+    let duration = clip.duration();
+    let idle_clip = rig.clips.get(idle_animation);
+    let fade_time = if let Some(idle) = idle_clip {
+        if clip.layer.fade_out > 0. && idle.layer.fade_in > 0. {
+            clip.layer.fade_out.min(idle.layer.fade_in)
+        } else if clip.layer.fade_out > 0. {
+            clip.layer.fade_out
+        } else {
+            0.2
+        }
+    } else if clip.layer.fade_out > 0. {
+        clip.layer.fade_out
+    } else {
+        0.2
+    };
+
+    if elapsed < duration {
+        ViewmodelAnimationState::Playing {
+            clip: animation,
+            time: elapsed,
+        }
+    } else if fade_time > 0.001 && elapsed < duration + fade_time {
+        let frac = ((elapsed - duration) / fade_time).clamp(0.0, 1.0);
+        let s_linear = 1.0 - frac;
+        let s = s_linear * s_linear * (3.0 - 2.0 * s_linear);
+        ViewmodelAnimationState::Transition {
+            from: animation,
+            to: idle_animation,
+            fade_weight: s,
+            from_time: duration,
+            to_time: scene_time as f32,
+        }
+    } else {
+        ViewmodelAnimationState::Idle {
+            clip: idle_animation,
+            time: scene_time as f32,
+        }
+    }
+}
+
+/// Posed viewmodel skinning matrices for the given animation state with autoplay layers.
+pub fn viewmodel_state_matrices(
+    rig: &Rig,
+    state: &ViewmodelAnimationState<'_>,
+    params: &[f32],
+) -> Vec<Mat4> {
+    let mut pose = match state {
+        ViewmodelAnimationState::Playing { clip, time } => rig.local_pose(clip, *time),
+        ViewmodelAnimationState::Idle { clip, time } => rig.local_pose(clip, *time),
+        ViewmodelAnimationState::Transition {
+            from,
+            to,
+            fade_weight,
+            from_time,
+            to_time,
+        } => {
+            let mut base = rig.local_pose(to, *to_time);
+            let finish = rig.local_pose(from, *from_time);
+            if let Some(from_clip) = rig.clips.get(&from.to_lowercase()) {
+                let _ = modkit_core::animation::slerp_bones(
+                    &mut base,
+                    &finish,
+                    &from_clip.layer,
+                    *fade_weight,
+                );
+            }
+            base
+        }
+    };
+    if !rig.autoplay.is_empty() {
+        let mut trial = pose.clone();
+        let autoplay_time = match state {
+            ViewmodelAnimationState::Playing { time, .. } => *time,
+            ViewmodelAnimationState::Idle { time, .. } => *time,
+            ViewmodelAnimationState::Transition { to_time, .. } => *to_time,
+        };
+        if rig
+            .accumulate_autoplay(&mut trial, autoplay_time, params)
+            .is_ok()
+        {
+            pose = trial;
+        }
+    }
+    rig.local_matrices(&pose)
+}
+
 /// Viewmodel skinning matrices for a base clip with the autoplay layers evaluated at
 /// the given pose parameters (the actor path's composition without gesture layers).
 pub fn viewmodel_matrices(rig: &Rig, clip: &str, time: f32, params: &[f32]) -> Vec<Mat4> {
-    if rig.autoplay.is_empty() {
-        return rig.matrices(clip, time);
-    }
-    let mut pose = rig.local_pose(clip, time);
-    let mut trial = pose.clone();
-    if rig.accumulate_autoplay(&mut trial, time, params).is_ok() {
-        pose = trial;
-    }
-    rig.local_matrices(&pose)
+    viewmodel_state_matrices(
+        rig,
+        &ViewmodelAnimationState::Playing { clip, time },
+        params,
+    )
 }
 
 /// Model-space position of an anchor on the posed rig.
@@ -243,13 +426,14 @@ pub fn anchor_position(rig: &Rig, matrices: &[Mat4], anchor: &Anchor) -> Option<
 /// with the world FOV, keeping its depth, and the world pass draws them at their world
 /// size. Drawn in the viewmodel camera instead, sizes and widths scale by
 /// tan(viewmodel FOV / 2) / tan(world FOV / 2) (Source 4:3 horizontal degrees).
-/// viewmodel_fov (the host's viewmodel camera, Source 4:3 horizontal degrees).
+/// The retail `viewmodel_fov` (the host's viewmodel camera, Source 4:3 horizontal degrees).
 pub const VIEWMODEL_FOV: f32 = 54.;
 /// CViewRender::SetUpView: the viewmodel FOV follows any FOV offset of the view
-/// (`viewmodel_fov - (default_fov - fov)`), so the crossbow zoom (FOV 20) drives it to
-/// -1 and the view moves past the viewmodel; at or below 0 it is not drawn.
-pub fn viewmodel_fov(default_fov: f32, fov: f32) -> f32 {
-    VIEWMODEL_FOV - (default_fov - fov)
+/// (`viewmodel_fov - (default_fov - fov)`, `base` being the `viewmodel_fov` setting), so the
+/// retail crossbow zoom (FOV 20) drives it to -1 and the view moves past the viewmodel; at or
+/// below 0 it is not drawn.
+pub fn viewmodel_fov(base: f32, default_fov: f32, fov: f32) -> f32 {
+    base - (default_fov - fov)
 }
 pub fn attachment_size_factor(viewmodel_fov: f32, world_fov: f32) -> f32 {
     let world = (world_fov.to_radians() * 0.5).tan();
@@ -360,8 +544,13 @@ mod tests {
         let f = super::attachment_size_factor(54., 75.);
         assert!((f - 0.664).abs() < 0.001, "{f}");
         assert!(super::attachment_size_factor(54., 20.) > 2.8);
-        assert_eq!(super::viewmodel_fov(75., 75.), 54.);
-        assert_eq!(super::viewmodel_fov(75., 20.), -1.);
+        assert_eq!(super::viewmodel_fov(VIEWMODEL_FOV, 75., 75.), 54.);
+        assert_eq!(super::viewmodel_fov(VIEWMODEL_FOV, 75., 20.), -1.);
+        assert_eq!(
+            super::viewmodel_fov(70., 75., 75.),
+            70.,
+            "a larger viewmodel_fov setting"
+        );
     }
     use super::*;
 
@@ -428,5 +617,149 @@ mod tests {
         assert_eq!(sprite.color, [255, 128, 0, 255]);
         // Shade-in: the first beam segment is darker than the last.
         assert!(quads[1].color[0] < quads[8].color[0]);
+    }
+
+    #[test]
+    fn viewmodel_animation_state_transitions_smoothly_to_idle() {
+        use modkit_core::animation::{Bone, Clip, ClipLayer, Pose};
+        let rig = Rig {
+            bones: vec![Bone {
+                name: "root".into(),
+                parent: None,
+                bind: Pose {
+                    position: Vec3::ZERO,
+                    rotation: glam::Quat::IDENTITY,
+                },
+                inverse_bind: Mat4::IDENTITY,
+            }],
+            clips: [
+                (
+                    "attack".into(),
+                    Clip {
+                        fps: 30.,
+                        looping: false,
+                        frames: (0..21)
+                            .map(|_| {
+                                vec![Pose {
+                                    position: Vec3::new(0., -10., 0.),
+                                    rotation: glam::Quat::IDENTITY,
+                                }]
+                            })
+                            .collect(),
+                        layer: ClipLayer {
+                            fade_out: 0.2,
+                            fade_in: 0.2,
+                            ..Default::default()
+                        },
+                        events: vec![],
+                    },
+                ),
+                (
+                    "idle".into(),
+                    Clip {
+                        fps: 30.,
+                        looping: true,
+                        frames: (0..60)
+                            .map(|_| {
+                                vec![Pose {
+                                    position: Vec3::new(0., 10., 0.),
+                                    rotation: glam::Quat::IDENTITY,
+                                }]
+                            })
+                            .collect(),
+                        layer: ClipLayer {
+                            fade_out: 0.2,
+                            fade_in: 0.2,
+                            ..Default::default()
+                        },
+                        events: vec![],
+                    },
+                ),
+            ]
+            .into(),
+            ..Default::default()
+        };
+
+        // Attack duration is 20 / 30 = 0.6667s. Fadeout is 0.2s (up to 0.8667s).
+        // 1. Before duration: actively playing.
+        let state_play = viewmodel_animation_state(&rig, "attack", 0.0, "idle", 0.5);
+        assert_eq!(
+            state_play,
+            ViewmodelAnimationState::Playing {
+                clip: "attack",
+                time: 0.5,
+            }
+        );
+        let (label, _) = state_play.cache_key(&rig);
+        assert_eq!(label, "attack");
+
+        // 2. Exactly at duration (0.6667s): transition starts with weight ~1.0.
+        let duration = rig.clips["attack"].duration();
+        let state_start = viewmodel_animation_state(&rig, "attack", 0.0, "idle", duration as f64);
+        match state_start {
+            ViewmodelAnimationState::Transition {
+                from,
+                to,
+                fade_weight,
+                from_time,
+                ..
+            } => {
+                assert_eq!(from, "attack");
+                assert_eq!(to, "idle");
+                assert!((fade_weight - 1.0).abs() < 1e-4);
+                assert_eq!(from_time, duration);
+            }
+            other => panic!("expected Transition, got {other:?}"),
+        }
+
+        // 3. Halfway through the 0.2s fadeout (+0.1s): smoothstep weight is exactly 0.5.
+        let state_mid =
+            viewmodel_animation_state(&rig, "attack", 0.0, "idle", (duration + 0.1) as f64);
+        match state_mid {
+            ViewmodelAnimationState::Transition { fade_weight, .. } => {
+                assert!((fade_weight - 0.5).abs() < 1e-4);
+            }
+            other => panic!("expected Transition, got {other:?}"),
+        }
+        let (label_mid, key_mid) = state_mid.cache_key(&rig);
+        assert_eq!(label_mid, "attack->idle");
+        assert_ne!(key_mid, 0);
+
+        // 4. After duration + fade_out (>= 0.8667s): steady idle.
+        let state_idle =
+            viewmodel_animation_state(&rig, "attack", 0.0, "idle", (duration + 0.21) as f64);
+        assert_eq!(
+            state_idle,
+            ViewmodelAnimationState::Idle {
+                clip: "idle",
+                time: (duration + 0.21),
+            }
+        );
+
+        // 5. Looping animation always plays without fading out.
+        let state_loop = viewmodel_animation_state(&rig, "idle", 0.0, "idle", 5.0);
+        assert_eq!(
+            state_loop,
+            ViewmodelAnimationState::Playing {
+                clip: "idle",
+                time: 5.0,
+            }
+        );
+
+        // 6. Test matrices blend smoothly.
+        let m_play = viewmodel_state_matrices(&rig, &state_play, &[]);
+        let p_play = m_play[0].transform_point3(Vec3::ZERO);
+        assert_eq!(p_play.y, -10.0);
+
+        let m_mid = viewmodel_state_matrices(&rig, &state_mid, &[]);
+        let p_mid = m_mid[0].transform_point3(Vec3::ZERO);
+        assert!(
+            (p_mid.y - 0.0).abs() < 1e-4,
+            "midpoint should be 0.0, got {p_mid:?}"
+        );
+
+        let m_idle = viewmodel_state_matrices(&rig, &state_idle, &[]);
+        let p_idle = m_idle[0].transform_point3(Vec3::ZERO);
+        assert_eq!(p_idle.y, 10.0);
     }
 }

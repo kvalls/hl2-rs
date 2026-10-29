@@ -1,79 +1,63 @@
 //! A bounded standalone console. Commands without a Rust implementation report an error.
-use crate::{canvas::*, hud::FontFace};
+pub(crate) mod background_debug;
+mod chapter_dialog;
+pub mod commands;
+pub mod complete;
+mod draw_menu;
+mod draw_windows;
+mod effect;
+mod focus;
+mod fonts;
+mod loading;
+use fonts::load_ui_fonts;
+mod menu_flow;
+mod options_dialog;
+mod panel;
+mod video_panel;
+
+use crate::gameui::{
+    menu::{GameMenu, MenuLayout},
+    options::OptionsDialog,
+    resources::{self, fallback_game_menu, GameUiResources},
+    video_confirm::VideoConfirm,
+};
+pub use effect::{Effect, GameMap};
 use glam::{vec2, Vec2};
 use serde::Serialize;
 use source_assets::{keyvalues, vpk::Vfs};
-use std::collections::VecDeque;
+use source_ui::{
+    canvas::{Canvas, Color, Texture2D, WHITE},
+    console::panel::Style as ConsoleStyle,
+    font::{FontFace, TextOutline},
+    message_box::MessageBox,
+    placement::Placement,
+    shell::Shell,
+    widgets::{scheme_color, ButtonTracker, Fonts, Painter, Theme},
+    windows::WindowId,
+};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-const COMMANDS: &[(&str, &str)] = &[
-    ("help", "help [command]: describe implemented commands"),
-    (
-        "find",
-        "find <text>: search implemented command names and descriptions",
-    ),
-    (
-        "sv_cheats",
-        "sv_cheats [0|1]: query or enable local cheat commands",
-    ),
-    (
-        "impulse",
-        "impulse 101: grant the six implemented weapons, ammunition and suit (cheat)",
-    ),
-    (
-        "noclip",
-        "noclip [0|1]: toggle collision-free flight (cheat)",
-    ),
-    (
-        "getpos",
-        "getpos: print camera position and Source pitch/yaw/roll in degrees; getpos 2 is not implemented",
-    ),
-    (
-        "setpos",
-        "setpos <x> <y> [z]: move the player origin, preserving height if z is omitted (cheat)",
-    ),
-    (
-        "setang",
-        "setang <pitch> <yaw> [roll]: set Source view angles; roll must be zero (cheat)",
-    ),
-    (
-        "map",
-        "map <name>: load an installed map and reset the player inventory",
-    ),
-    (
-        "npc_create",
-        "npc_create <class> [name]: place an NPC at the crosshair (cheat; spawning not implemented yet)",
-    ),
-    (
-        "npc_create_aimed",
-        "npc_create_aimed <class> [name]: like npc_create, facing the aim (cheat)",
-    ),
-    (
-        "npc_create_equipment",
-        "npc_create_equipment <weapon>: weapon for the next npc_create",
-    ),
-    (
-        "prop_physics_create",
-        "prop_physics_create <model>: physics prop at the crosshair, model relative to models/ (cheat)",
-    ),
-    (
-        "ent_create",
-        "ent_create <class> [key value ...]: create an entity at the crosshair; NPC classes and prop_physics with a model only (cheat)",
-    ),
-    (
-        "ai_disable",
-        "ai_disable: toggle all NPC AI off/on; disabled NPCs idle (cheat, Source command)",
-    ),
-    (
-        "ai_enable",
-        "ai_enable [0|1]: switch the NPC AI think loop (ours, default 1; Source uses ai_disable)",
-    ),
-    ("clear", "clear: clear console output"),
-    ("ent_fire", "ent_fire <targetname> [input=Use] [parameter] [delay]: queue entity input; names/globs supported (cheat)"),
-    ("echo", "echo <text>: print text"),
-    ("toggleconsole", "toggleconsole: close or open the console"),
-    ("quit", "quit: exit and save the runtime report"),
-];
+/// A dialog window over the base layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub enum Window {
+    NewGame,
+    Options,
+    Console,
+    /// A sub-dialog over a parent dialog (e.g. Video Advanced, Keyboard Advanced, Gamma, Credits).
+    SubDialog,
+    /// A modal confirmation / message box dialog (Quit, Return to menu, Video keep, Reset defaults).
+    Confirmation,
+}
+
+impl WindowId for Window {
+    const CONSOLE: Self = Window::Console;
+
+    /// Whether this window is modal (captures focus until closed).
+    fn is_modal(&self) -> bool {
+        matches!(self, Window::SubDialog | Window::Confirmation)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum Mode {
@@ -81,66 +65,97 @@ pub enum Mode {
     Gameplay,
     Pause,
     Console,
+    MainMenu,
+    NewGame,
+    Options,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Effect {
-    Loadout,
-    /// ai_enable: None toggles.
-    AiEnable(Option<bool>),
-    /// ai_disable (CC_AI_Disable): toggle the AI, Source's messages.
-    AiDisable,
-    /// npc_create / npc_create_aimed / npc_create_equipment / prop_physics_create /
-    /// ent_create, the whole line.
-    NpcCommand(String),
-    Noclip(Option<bool>),
-    Getpos,
-    Setpos {
-        x: f32,
-        y: f32,
-        z: Option<f32>,
-    },
-    Setang(glam::Vec3),
-    Map(String),
-    Fire {
-        target: String,
-        input: String,
-        parameter: String,
-        delay: f64,
-    },
+/// Action to perform upon confirming a message box dialog.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConfirmKind {
     Quit,
+    ReturnToMainMenu,
+    /// Confirm starting a chapter in developer commentary mode (`CommentaryExplanationDialog`).
+    StartCommentary(GameMap),
+    /// Keep an aspect ratio change, else revert it (counts down on [`Console::tick`]).
+    KeepVideo(VideoConfirm),
 }
 
 pub struct Console {
     pub canvas: Canvas,
-    pub mode: Mode,
-    previous: Mode,
+    /// The focused layer: a window ([`Mode::Options`], [`Mode::Console`]) or the base. Read it
+    /// with [`Console::mode`], change it with [`Console::set_mode`].
+    mode: Mode,
+    /// What the windows are over: the main menu, the pause menu or the game.
+    base: Mode,
+    /// The window stack and focus (the Options dialog and the console), the console dialog,
+    /// Escape held over a dialog, key repeat and the latest pointer.
+    pub shell: Shell<Window>,
     pub cheats: bool,
-    pub input: String,
-    pub output: VecDeque<String>,
-    history: Vec<String>,
-    history_index: Option<usize>,
-    history_draft: String,
-    cursor: usize,
-    scroll: usize,
-    menu_selection: usize,
+    /// Where the quit / main-menu box was dragged (centered on opening).
+    quit_placement: Placement,
+    /// Names arguments complete from (installed maps, the loaded map's entities), set by the host.
+    completion: complete::Sources,
     font: Option<FontFace>,
     menu_font: Option<FontFace>,
     menu_metrics: CellMetrics,
     title_font: Option<FontFace>,
     title_face: Option<Arc<fontdue::Font>>,
     title_metrics: CellMetrics,
+    lostcoast_title_font: Option<FontFace>,
+    lostcoast_title_face: Option<Arc<fontdue::Font>>,
+    lostcoast_title_metrics: CellMetrics,
     title: String,
+    category_titles: BTreeMap<String, String>,
     menu_layout: MenuLayout,
     mono: Option<FontFace>,
     developer_font: Option<FontFace>,
-    menu_labels: [String; 3],
+    /// Installed GameUI resources (localization, menu structure, dialog layouts, key actions).
+    gameui: Arc<GameUiResources>,
+    /// The out-of-game menu (main menu and its HL2/Episode categories).
+    main_menu: GameMenu,
+    /// The in-game (pause) menu.
+    pause_menu: GameMenu,
+    pub(crate) confirm_box: Option<(MessageBox, ConfirmKind)>,
+    pub(crate) closing_confirm_box: Option<(MessageBox, ConfirmKind)>,
+    /// UI clock in seconds (real time), set every frame by [`Console::tick`].
+    ui_clock: f64,
+    /// Effects of calls that return none ([`Console::escape`]), handed out by the next
+    /// [`Console::tick`] or [`Console::input`].
+    deferred: Vec<Effect>,
+    pub loading_dialog: Option<crate::gameui::loading::LoadingDialog>,
+    /// Full-screen movie playback panel (`playvideo` / `playvideo_exitcommand`).
+    pub video_panel: Option<crate::gameui::video::VideoPanelState>,
+    /// The progress the map loader reports for [`Console::loading_dialog`].
+    loading_progress: crate::gameui::loading::ProgressReport,
+    pub background_transition: crate::gameui::loading::BackgroundTransitionState,
+    /// The loaded map is a menu background: no HUD, and the main menu cannot be dismissed.
+    background_level: bool,
+    /// Currently loaded map, if any.
+    pub loaded_map: Option<GameMap>,
+    /// Chapter background for the gameplay map currently loading in [`Console::loading_dialog`].
+    pub loading_background: Option<GameMap>,
+    theme: Theme,
+    widget_fonts: Fonts,
     style: Style,
+    pub menu_tracker: ButtonTracker<usize>,
+    last_menu_hover: Option<usize>,
+    pub options: OptionsDialog,
+    chapter_dialogs: BTreeMap<String, crate::gameui::new_game::Dialog>,
+    chapter_game: Option<String>,
+
+    /// `(game, image)` -> pre-blurred background (see `GameUiResources::background_images`).
+    pub background_textures: BTreeMap<(String, String), Texture2D>,
+    pub background_debug_mode: bool,
+    pub background_blur_opacity: u8,
+    pub config: crate::config::Config,
+    /// Map -> chapter of every game (menu backgrounds after leaving a map).
+    chapter_index: crate::gameui::chapters::ChapterIndex,
 }
 
 /// Positive native font heights describe Windows character cells, not pixels per EM.
 #[derive(Clone, Copy)]
-struct CellMetrics {
+pub(crate) struct CellMetrics {
     em_per_cell: f32,
     ascent_per_cell: f32,
 }
@@ -153,7 +168,7 @@ impl Default for CellMetrics {
     }
 }
 impl CellMetrics {
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let face = ttf_parser::Face::parse(bytes, 0).ok()?;
         let units = f32::from(face.units_per_em());
         let (ascent, descent) = face.tables().os2.map_or_else(
@@ -180,111 +195,30 @@ impl CellMetrics {
         })
     }
 }
-struct MenuLayout {
-    title_x: f32,
-    title_y: f32,
-    menu_x: f32,
-    menu_y: f32,
-    title_tall: f32,
-    item_tall: f32,
-    font_ranges: Vec<(f32, f32, f32)>,
-    font_tall: f32,
-}
-impl Default for MenuLayout {
-    fn default() -> Self {
-        // Stock desktop defaults, overridden by the mounted schemes below.
-        Self {
-            title_x: 76.,
-            title_y: 145.,
-            menu_x: 76.,
-            menu_y: 240.,
-            title_tall: 32.,
-            item_tall: 14.,
-            font_ranges: vec![(1., 1080., 16.)],
-            font_tall: 11.,
-        }
-    }
-}
-#[derive(Debug)]
-struct MenuGeometry {
-    title: Vec2,
-    menu: Vec2,
-    title_tall: f32,
-    font_tall: f32,
-    item_tall: f32,
-}
-impl MenuLayout {
-    fn geometry(&self, height: f32) -> MenuGeometry {
-        let scale = height / 480.;
-        MenuGeometry {
-            title: vec2(
-                (self.title_x * scale).trunc(),
-                (self.title_y * scale).trunc(),
-            ),
-            menu: vec2((self.menu_x * scale).trunc(), (self.menu_y * scale).trunc()),
-            title_tall: (self.title_tall * scale).round(),
-            font_tall: self
-                .font_ranges
-                .iter()
-                .find(|(low, high, _)| height >= *low && height <= *high)
-                .map_or_else(|| (self.font_tall * scale).round(), |(_, _, tall)| *tall),
-            item_tall: (self.item_tall * scale).trunc().max(1.),
-        }
-    }
-}
-fn resource_number(root: &keyvalues::Entry, key: &str) -> Option<f32> {
-    root.get("BaseSettings")?
-        .get(key)?
-        .text()?
-        .parse::<f32>()
-        .ok()
-        .filter(|value| value.is_finite())
-}
-type FontRule = (f32, Option<(f32, f32)>);
-fn resource_font(root: &keyvalues::Entry, name: &str) -> Option<Vec<FontRule>> {
-    let entries = root.get("Fonts")?.get(name)?.children();
-    let values: Vec<_> = entries
-        .iter()
-        .filter_map(|entry| {
-            let tall = entry.get("tall")?.text()?.parse::<f32>().ok()?;
-            if !tall.is_finite() || tall <= 0. || tall > 256. {
-                return None;
-            }
-            let range = entry
-                .get("yres")
-                .and_then(|range| range.text())
-                .and_then(|range| {
-                    let mut parts = range
-                        .split_whitespace()
-                        .filter_map(|p| p.parse::<f32>().ok());
-                    Some((parts.next()?, parts.next()?))
-                });
-            Some((tall, range))
-        })
-        .collect();
-    (!values.is_empty()).then_some(values)
-}
-fn draw_cell_text(
-    canvas: &Canvas,
+
+fn draw_cell_text_outlined(
     value: &str,
     origin: Vec2,
     tall: f32,
     font: Option<&FontFace>,
     metrics: CellMetrics,
     color: Color,
+    outline: TextOutline,
 ) {
     let em = (tall * metrics.em_per_cell).max(1.);
     let raster_size = em.round().clamp(1., 1024.);
-    text(
-        canvas,
-        value,
-        origin + vec2(0., tall * metrics.ascent_per_cell),
-        raster_size,
-        em / raster_size,
-        font,
-        color,
-    );
+    if let Some(font) = font {
+        font.draw_baseline_outlined(
+            value,
+            origin + vec2(0., tall * metrics.ascent_per_cell),
+            raster_size,
+            em / raster_size,
+            color,
+            outline,
+        );
+    }
 }
+
 fn text(
     _canvas: &Canvas,
     value: &str,
@@ -298,48 +232,12 @@ fn text(
         font.draw_baseline(value, origin, em, scale, color);
     }
 }
-fn rectangle_lines(canvas: &Canvas, x: f32, y: f32, w: f32, h: f32, thickness: f32, color: Color) {
-    canvas.rectangle(x, y, w, thickness, color);
-    canvas.rectangle(x, y + h - thickness, w, thickness, color);
-    canvas.rectangle(x, y, thickness, h, color);
-    canvas.rectangle(x + w - thickness, y, thickness, h, color);
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Key {
-    Up,
-    Down,
-    Enter,
-    Backspace,
-    Delete,
-    Left,
-    Right,
-    Home,
-    End,
-    PageUp,
-    PageDown,
-    Tab,
-}
-#[derive(Clone, Default, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Input {
-    pub keys: std::collections::BTreeSet<Key>,
-    pub text: String,
-    pub pointer: Option<Vec2>,
-    pub click: bool,
-}
-impl Input {
-    fn pressed(&self, key: Key) -> bool {
-        self.keys.contains(&key)
-    }
-}
 
+/// The menu colors from the scheme (the console's are the panel's).
 struct Style {
     menu: Color,
     menu_armed: Color,
     panel: Color,
-    entry: Color,
-    text: Color,
 }
 impl Default for Style {
     fn default() -> Self {
@@ -347,583 +245,269 @@ impl Default for Style {
             menu: WHITE,
             menu_armed: Color::from_rgba(200, 200, 200, 255),
             panel: Color::from_rgba(132, 132, 132, 212),
-            entry: Color::from_rgba(0, 0, 0, 128),
-            text: Color::from_rgba(221, 221, 221, 255),
         }
     }
 }
-fn scheme_color(root: &keyvalues::Entry, name: &str) -> Option<Color> {
-    let mut value = name;
-    for _ in 0..8 {
-        let values: Vec<u8> = value
-            .split_whitespace()
-            .map(str::parse)
-            .collect::<Result<_, _>>()
-            .unwrap_or_default();
-        if let [r, g, b, a] = values.as_slice() {
-            return Some(Color::from_rgba(*r, *g, *b, *a));
-        }
-        value = root
-            .get("BaseSettings")
-            .and_then(|e| e.get(value))
-            .or_else(|| root.get("Colors").and_then(|e| e.get(value)))?
-            .text()?;
-    }
-    None
-}
-
 impl Default for Console {
     fn default() -> Self {
+        let config = crate::config::Config::default();
+        let gameui = GameUiResources {
+            game_menu: fallback_game_menu(),
+            ..Default::default()
+        };
+        let main_menu = GameMenu::new(Vec::new(), Default::default(), &gameui.localization);
+        let pause_menu = GameMenu::new(Vec::new(), Default::default(), &gameui.localization);
         let mut console = Self {
             canvas: Canvas::default(),
             mode: Mode::Gameplay,
-            previous: Mode::Gameplay,
+            base: Mode::Gameplay,
+            // `Frame.FocusTransitionEffectTime` of the installed desktop scheme.
+            shell: Shell::new(
+                0.3,
+                crate::tuning::unfocused_alpha_factor(),
+                crate::proportional::SCALING,
+            ),
             cheats: false,
-            input: String::new(),
-            output: VecDeque::new(),
-            history: Vec::new(),
-            history_index: None,
-            history_draft: String::new(),
-            cursor: 0,
-            scroll: 0,
-            menu_selection: 0,
+            quit_placement: Placement::default(),
+            completion: complete::Sources::default(),
             font: None,
             menu_font: None,
             menu_metrics: CellMetrics::default(),
             title_font: None,
             title_face: None,
             title_metrics: CellMetrics::default(),
+            lostcoast_title_font: None,
+            lostcoast_title_face: None,
+            lostcoast_title_metrics: CellMetrics::default(),
             title: "HL2-RS".into(),
+            category_titles: resources::fallback_category_titles(&gameui.localization),
             menu_layout: MenuLayout::default(),
             mono: None,
             developer_font: None,
-            menu_labels: [
-                "RESUME GAME".into(),
-                "DEVELOPER CONSOLE".into(),
-                "QUIT".into(),
-            ],
+            gameui: Arc::default(),
+            main_menu,
+            pause_menu,
+            confirm_box: None,
+            closing_confirm_box: None,
+            ui_clock: 0.,
+            deferred: Vec::new(),
+            loading_dialog: None,
+            loading_progress: Default::default(),
+            background_transition: crate::gameui::loading::BackgroundTransitionState::Idle,
+            background_level: false,
+            video_panel: None,
+            loaded_map: None,
+            loading_background: None,
+            theme: Theme::default(),
+            widget_fonts: Fonts::default(),
             style: Style::default(),
+            menu_tracker: ButtonTracker::new(),
+            last_menu_hover: None,
+            options: OptionsDialog::default(),
+            chapter_dialogs: BTreeMap::new(),
+            chapter_game: None,
+            background_textures: BTreeMap::new(),
+            background_debug_mode: false,
+            background_blur_opacity: 50,
+            config,
+            chapter_index: Default::default(),
         };
+        console.set_resources(gameui);
         console.log("HL2-RS developer console. Type help for implemented commands.");
         console.log("Other Source commands are not implemented in this runtime.");
         console
     }
 }
 
+/// Height of the F1 developer overlay's header.
+const DEBUG_HEADER_HEIGHT: f32 = 105.;
+
 impl Console {
     pub fn load(vfs: &Vfs, canvas: Canvas) -> Self {
-        let windows = std::env::var_os("WINDIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| "C:/Windows".into());
-        let font = |file| {
-            std::fs::read(windows.join("Fonts").join(file))
-                .ok()
-                .and_then(|bytes| FontFace::load(&bytes, canvas.clone()).ok())
-        };
+        let fonts = load_ui_fonts(vfs, &canvas);
+        let config = crate::config::Config::load_or_default();
         let mut console = Self {
             canvas: canvas.clone(),
-            developer_font: FontFace::load(
-                include_bytes!("../assets/fonts/ProggyClean.ttf"),
-                canvas.clone(),
-            )
-            .ok(),
-            font: font("tahoma.ttf"),
-            menu_font: font("verdanab.ttf"),
-            mono: font("lucon.ttf").or_else(|| {
-                vfs.read("resource/linux_fonts/DejaVuSansMono.ttf")
-                    .ok()
-                    .flatten()
-                    .and_then(|bytes| FontFace::load(&bytes, canvas.clone()).ok())
-            }),
+            developer_font: fonts.developer,
+            widget_fonts: Fonts {
+                text: fonts.ui.clone(),
+                bold: fonts.bold,
+                marlett: fonts.marlett,
+            },
+            font: fonts.ui,
+            menu_font: fonts.menu,
+            mono: fonts.mono,
+            config,
             ..Default::default()
         };
-        if let Ok(bytes) = std::fs::read(windows.join("Fonts/verdanab.ttf")) {
-            console.menu_metrics = CellMetrics::from_bytes(&bytes).unwrap_or_default();
+        let gameui = GameUiResources::load(vfs);
+        for file in &gameui.missing {
+            console.log(format!("GameUI resource unavailable: {file}"));
         }
-        if let Some(bytes) = vfs.read("resource/HALFLIFE2.ttf").ok().flatten() {
-            console.title_metrics = CellMetrics::from_bytes(&bytes).unwrap_or_default();
-            console.title_font = FontFace::load(&bytes, canvas.clone()).ok();
-            console.title_face = console.title_font.as_ref().map(FontFace::face);
-            if console.title_font.is_some() {
-                // Owned 720px retail capture + GDI probe: requested cell48 -> EM41,
-                // native title baseline262 relative to ClientScheme panelY217.
-                // Other resolutions scale this measured GDI/label relation; font rasterization remains approximate.
-                console.title_metrics = CellMetrics {
-                    em_per_cell: 41. / 48.,
-                    ascent_per_cell: 45. / 48.,
-                };
-                console.title = vfs
-                    .read("gameinfo.txt")
-                    .ok()
-                    .flatten()
-                    .and_then(|bytes| keyvalues::parse_resource(&bytes).ok())
-                    .and_then(|roots| roots.into_iter().next())
-                    .and_then(|root| {
-                        root.get("title")
-                            .and_then(|title| title.text())
-                            .map(str::to_owned)
-                    })
-                    .unwrap_or_else(|| "HALF-LIFE'".into());
-            } else {
-                console.title_face = None;
-                console.title_metrics = CellMetrics::default();
-                console.log("Owned HalfLife2 title font could not be loaded; using the HL2-RS fallback title.");
-            }
-        } else {
-            console.log("Owned HalfLife2 title font not found; using the HL2-RS fallback title.");
-        }
+        console.set_resources(gameui);
+        // Saved dialog placements (checked against the canvas when each dialog opens).
+        console.shell.panel.font = console.mono.clone();
+        console.shell.panel.placement = Placement::from_saved(console.config.dialogs.console);
+        console
+            .options
+            .set_placement(Placement::from_saved(console.config.dialogs.options));
+        console.menu_metrics = fonts.menu_metrics;
+        fonts::load_title_fonts(&mut console, vfs, &canvas);
         // Installed desktop GameUI colors. Layout/window controls remain an initial implementation.
-        if let Some(root) = vfs
+        let scheme_reader = crate::gameui::resources::Reader::new(vfs);
+        if let Some(root) = scheme_reader
             .read("resource/SourceSchemeBase.res")
-            .ok()
-            .flatten()
             .and_then(|bytes| keyvalues::parse_resource(&bytes).ok())
             .and_then(|roots| roots.into_iter().next())
         {
+            console.theme = Theme::from_scheme(&root);
+            if let Some(time) = root
+                .get("BaseSettings")
+                .and_then(|e| e.get("Frame.FocusTransitionEffectTime"))
+                .and_then(|e| e.text())
+                .and_then(|t| t.trim().parse::<f32>().ok())
+            {
+                console.shell.windows.fade_time = time;
+            }
             console.style = Style {
                 menu: scheme_color(&root, "MainMenu.TextColor").unwrap_or(console.style.menu),
                 menu_armed: scheme_color(&root, "MainMenu.ArmedTextColor")
                     .unwrap_or(console.style.menu_armed),
                 panel: scheme_color(&root, "Frame.BgColor").unwrap_or(console.style.panel),
-                entry: scheme_color(&root, "RichText.BgColor").unwrap_or(console.style.entry),
-                text: scheme_color(&root, "Console.TextColor").unwrap_or(console.style.text),
             };
-            if let Some(tall) = resource_number(&root, "MainMenu.MenuItemHeight")
-                .filter(|value| *value > 0. && *value <= 128.)
-            {
-                console.menu_layout.item_tall = tall;
-            }
-            if let Some(fonts) =
-                resource_font(&root, "MainMenuFont").or_else(|| resource_font(&root, "MenuLarge"))
-            {
-                console.menu_layout.font_ranges.clear();
-                for (tall, range) in fonts {
-                    if let Some((low, high)) = range {
-                        console.menu_layout.font_ranges.push((low, high, tall));
-                    } else {
-                        console.menu_layout.font_tall = tall;
-                    }
-                }
-            }
+            let style = &mut console.shell.panel.style;
+            *style = ConsoleStyle {
+                entry: scheme_color(&root, "RichText.BgColor").unwrap_or(style.entry),
+                text: scheme_color(&root, "Console.TextColor").unwrap_or(style.text),
+                dev_text: scheme_color(&root, "Console.DevTextColor").unwrap_or(style.dev_text),
+                ..*style
+            };
+            console.menu_layout.apply_source_scheme(&root);
         }
-        if let Some(root) = vfs
-            .read("resource/ClientScheme.res")
-            .ok()
-            .flatten()
+        // The console and history colors from the installed source scheme (the base scheme it
+        // reads above is empty in the installed game).
+        if let Some(root) = scheme_reader
+            .read("resource/SourceScheme.res")
             .and_then(|bytes| keyvalues::parse_resource(&bytes).ok())
             .and_then(|roots| roots.into_iter().next())
         {
-            for (key, target) in [
-                ("Main.Title1.X", &mut console.menu_layout.title_x),
-                ("Main.Title1.Y", &mut console.menu_layout.title_y),
-                ("Main.Menu.X", &mut console.menu_layout.menu_x),
-                ("Main.Menu.Y", &mut console.menu_layout.menu_y),
+            for (name, color) in [
+                ("Console.TextColor", &mut console.shell.panel.style.text),
+                (
+                    "Console.DevTextColor",
+                    &mut console.shell.panel.style.dev_text,
+                ),
+                ("RichText.BgColor", &mut console.shell.panel.style.entry),
+                (
+                    "RichText.SelectedBgColor",
+                    &mut console.shell.panel.style.selected_bg,
+                ),
+                (
+                    "RichText.SelectedTextColor",
+                    &mut console.shell.panel.style.selected_text,
+                ),
             ] {
-                if let Some(value) = resource_number(&root, key) {
-                    *target = value;
+                if let Some(value) = scheme_color(&root, name) {
+                    *color = value;
                 }
             }
-            if let Some(fonts) = resource_font(&root, "ClientTitleFont") {
-                console.menu_layout.title_tall = fonts[0].0;
-            }
         }
-        if let Some(root) = vfs
-            .read("resource/gameui_english.txt")
-            .ok()
-            .flatten()
+        if let Some(root) = scheme_reader
+            .read("resource/ClientScheme.res")
             .and_then(|bytes| keyvalues::parse_resource(&bytes).ok())
             .and_then(|roots| roots.into_iter().next())
         {
-            if let Some(tokens) = root.get("Tokens") {
-                for (i, key) in [
-                    (0, "GameUI_GameMenu_ResumeGame"),
-                    (2, "GameUI_GameMenu_Quit"),
-                ] {
-                    if let Some(label) = tokens.get(key).and_then(|entry| entry.text()) {
-                        console.menu_labels[i] = label.to_uppercase();
-                    }
-                }
-            }
+            console.menu_layout.apply_client_scheme(&root);
         }
         console
     }
-    pub fn paused(&self) -> bool {
-        self.mode != Mode::Gameplay
+
+    /// Replaces the GameUI resources and rebuilds both game menus from them.
+    pub fn set_resources(&mut self, resources: GameUiResources) {
+        let loc = &resources.localization;
+        self.main_menu = GameMenu::new(
+            resources.game_menu.clone(),
+            resources.new_game_maps.clone(),
+            loc,
+        );
+        self.pause_menu = GameMenu::new(
+            resources.game_menu.clone(),
+            resources.new_game_maps.clone(),
+            loc,
+        );
+        self.pause_menu.set_in_game(true, loc);
+        self.category_titles = resources.category_titles.clone();
+        self.background_textures.clear();
+        for (key, img) in &resources.background_images {
+            self.background_textures.insert(
+                key.clone(),
+                Texture2D::from_rgba8(img.width, img.height, &img.rgba),
+            );
+        }
+        self.prepare_chapters(&resources);
+        self.gameui = Arc::new(resources);
+        self.options.set_resources(self.gameui.clone());
     }
-    pub fn escape(&mut self) {
-        self.mode = match self.mode {
-            Mode::Gameplay => Mode::Pause,
-            Mode::Pause => Mode::Gameplay,
-            Mode::Console => self.previous,
-        };
+
+    pub fn resources(&self) -> &GameUiResources {
+        &self.gameui
     }
-    pub fn toggle(&mut self) {
-        if self.mode == Mode::Console {
-            self.mode = self.previous;
-        } else {
-            self.previous = self.mode;
-            self.mode = Mode::Console;
-        }
-    }
-    pub fn log(&mut self, text: impl Into<String>) {
-        self.output.push_back(text.into());
-        if self.output.len() > 256 {
-            self.output.pop_front();
-        }
-        self.scroll = 0;
-    }
-    pub fn submit(&mut self, line: &str) -> Vec<Effect> {
-        let line = line.trim();
-        if line.is_empty() {
-            return Vec::new();
-        }
-        self.log(format!("] {line}"));
-        if self.history.last().is_none_or(|last| last != line) {
-            self.history.push(line.to_owned());
-            if self.history.len() > 128 {
-                self.history.remove(0);
-            }
-        }
-        self.history_index = None;
-        self.history_draft.clear();
-        let commands = match tokenize(line) {
-            Ok(commands) => commands,
-            Err(error) => {
-                self.log(error);
-                return Vec::new();
-            }
-        };
-        let mut effects = Vec::new();
-        for tokens in commands {
-            match self.interpret(&tokens) {
-                Ok(Some(effect)) => effects.push(effect),
-                Ok(None) => (),
-                Err(error) => self.log(error),
-            }
-        }
-        effects
-    }
-    fn interpret(&mut self, tokens: &[String]) -> Result<Option<Effect>, String> {
-        let name = tokens[0].to_ascii_lowercase();
-        let args = &tokens[1..];
-        let usage = || {
-            COMMANDS.iter().find(|(n, _)| *n == name).map_or_else(
-                || format!("Unknown or unimplemented command: {}", tokens[0]),
-                |(_, d)| d.to_string(),
-            )
-        };
-        let cheat = || {
-            if self.cheats {
-                Ok(())
-            } else {
-                Err(format!("Can't use {name} without sv_cheats 1"))
-            }
-        };
-        match name.as_str() {
-            "sv_cheats" => {
-                if args.is_empty() {
-                    self.log(format!("\"sv_cheats\" = \"{}\"", u8::from(self.cheats)));
-                } else if args.len() == 1 {
-                    self.cheats = boolean(&args[0]).ok_or_else(usage)?;
-                    self.log(format!("sv_cheats {}", u8::from(self.cheats)));
-                } else {
-                    return Err(usage());
-                }
-            }
-            "impulse" => {
-                if args != ["101"] {
-                    return Err(usage());
-                }
-                cheat()?;
-                return Ok(Some(Effect::Loadout));
-            }
-            "noclip" => {
-                let value = match args {
-                    [] => None,
-                    [value] => Some(boolean(value).ok_or_else(usage)?),
-                    _ => return Err(usage()),
-                };
-                cheat()?;
-                return Ok(Some(Effect::Noclip(value)));
-            }
-            "npc_create"
-            | "npc_create_aimed"
-            | "npc_create_equipment"
-            | "prop_physics_create"
-            | "ent_create" => {
-                if name != "npc_create_equipment" {
-                    cheat()?;
-                }
-                // Re-quote arguments with spaces (ent_create angles "0 90 0").
-                return Ok(Some(Effect::NpcCommand(
-                    std::iter::once(name.clone())
-                        .chain(args.iter().map(|a| {
-                            if a.is_empty() || a.contains(char::is_whitespace) {
-                                format!("\"{a}\"")
-                            } else {
-                                a.clone()
-                            }
-                        }))
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                )));
-            }
-            "ai_disable" => {
-                if !args.is_empty() {
-                    return Err(usage());
-                }
-                cheat()?;
-                return Ok(Some(Effect::AiDisable));
-            }
-            "ai_enable" => {
-                let value = match args {
-                    [] => None,
-                    [value] => Some(boolean(value).ok_or_else(usage)?),
-                    _ => return Err(usage()),
-                };
-                return Ok(Some(Effect::AiEnable(value)));
-            }
-            "getpos" => {
-                if !args.is_empty() {
-                    return Err(usage());
-                }
-                return Ok(Some(Effect::Getpos));
-            }
-            "setpos" | "setang" => {
-                let value = vector(args).ok_or_else(usage)?;
-                cheat()?;
-                if name == "setang" && value.z != 0. {
-                    return Err("setang: camera roll is not implemented; use zero roll".into());
-                }
-                return Ok(Some(if name == "setpos" {
-                    Effect::Setpos {
-                        x: value.x,
-                        y: value.y,
-                        z: (args.len() == 3).then_some(value.z),
-                    }
-                } else {
-                    Effect::Setang(value)
-                }));
-            }
-            "map" => {
-                if args.len() != 1 {
-                    return Err(usage());
-                }
-                let map = args[0].strip_suffix(".bsp").unwrap_or(&args[0]);
-                if map.is_empty()
-                    || map.len() > 128
-                    || !map.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                {
-                    return Err("map: use a simple installed map name".into());
-                }
-                return Ok(Some(Effect::Map(map.to_owned())));
-            }
-            "ent_fire" => {
-                cheat()?;
-                if args.is_empty() || args.len() > 4 || args[0].is_empty() {
-                    return Err(usage());
-                }
-                let delay = args
-                    .get(3)
-                    .map_or(Ok(0.), |s| s.parse::<f64>())
-                    .map_err(|_| usage())?;
-                if !delay.is_finite() || delay < 0. {
-                    return Err("ent_fire: delay must be finite and nonnegative".into());
-                }
-                let input = args.get(1).map_or("Use", String::as_str);
-                if input.is_empty() {
-                    return Err(usage());
-                }
-                return Ok(Some(Effect::Fire {
-                    target: args[0].clone(),
-                    input: input.into(),
-                    parameter: args.get(2).cloned().unwrap_or_default(),
-                    // Desktop ent_fire parses an integer delay; map I/O keeps fractions.
-                    delay: delay.trunc(),
-                }));
-            }
-            "help" | "find" => {
-                if args.len() > 1 || name == "find" && args.is_empty() {
-                    return Err(usage());
-                }
-                let query = args.first().map(|s| s.to_ascii_lowercase());
-                let found: Vec<_> = COMMANDS
-                    .iter()
-                    .filter(|(n, description)| {
-                        query.as_ref().is_none_or(|q| {
-                            if name == "help" {
-                                n == q
-                            } else {
-                                description.to_ascii_lowercase().contains(q)
-                            }
-                        })
-                    })
-                    .collect();
-                if found.is_empty() {
-                    self.log("No implemented command matches.");
-                }
-                for (_, description) in found {
-                    self.log(*description);
-                }
-            }
-            "clear" => {
-                if !args.is_empty() {
-                    return Err(usage());
-                }
-                self.output.clear();
-            }
-            "echo" => self.log(args.join(" ")),
-            "toggleconsole" => {
-                if !args.is_empty() {
-                    return Err(usage());
-                }
-                self.toggle();
-            }
-            "quit" => {
-                if !args.is_empty() {
-                    return Err(usage());
-                }
-                return Ok(Some(Effect::Quit));
-            }
-            _ => return Err(usage()),
-        }
-        Ok(None)
-    }
-    fn history_move(&mut self, older: bool) {
-        if self.history.is_empty() {
-            return;
-        }
-        if self.history_index.is_none() {
-            self.history_draft = self.input.clone();
-        }
-        self.history_index = if older {
-            Some(
-                self.history_index
-                    .map_or(self.history.len() - 1, |i| i.saturating_sub(1)),
-            )
-        } else {
-            self.history_index
-                .and_then(|i| (i + 1 < self.history.len()).then_some(i + 1))
-        };
-        self.input = self
-            .history_index
-            .map_or_else(|| self.history_draft.clone(), |i| self.history[i].clone());
-        self.cursor = self.input.len();
+
+    /// A modal dialog is up: the quit / return confirmation box or a game loading dialog. It
+    /// takes every click; the Options dialog and the console are not modal (see [`Windows`]).
+    /// The canvas size in pixels.
+    fn canvas_size(&self) -> Vec2 {
+        vec2(self.canvas.width(), self.canvas.height())
     }
     /// Called before gameplay input collection. Opening characters are drained by the host.
-    pub fn input(&mut self, input: &Input) -> Vec<Effect> {
-        if self.mode == Mode::Pause {
-            if input.pressed(Key::Up) {
-                self.menu_selection = (self.menu_selection + 2) % 3;
-            }
-            if input.pressed(Key::Down) {
-                self.menu_selection = (self.menu_selection + 1) % 3;
-            }
-            let pointer = input.pointer;
-            let geometry = self.menu_layout.geometry(self.canvas.height());
-            for i in 0..3 {
-                let rect = Rect::new(
-                    geometry.menu.x,
-                    geometry.menu.y + i as f32 * geometry.item_tall,
-                    250. * self.canvas.height() / 480.,
-                    geometry.item_tall,
-                );
-                if pointer.is_some_and(|p| rect.contains(p)) {
-                    self.menu_selection = i;
-                    if input.click {
-                        return self.activate_menu();
-                    }
-                }
-            }
-            if input.pressed(Key::Enter) {
-                return self.activate_menu();
-            }
-            return Vec::new();
-        }
-        if self.mode != Mode::Console {
-            return Vec::new();
-        }
-        for c in input.text.chars() {
-            if !c.is_control() && c != '`' && c != '~' && self.input.len() + c.len_utf8() <= 1024 {
-                self.input.insert(self.cursor, c);
-                self.cursor += c.len_utf8();
+    /// Advances the UI clock to `now` (real seconds), once per frame whatever drives the input
+    /// (scripted replays too): a keep-video confirmation counts down and reverts at its timeout.
+    pub fn tick(&mut self, now: f64) -> Vec<Effect> {
+        let dt = if self.ui_clock > 0.0 {
+            (now - self.ui_clock).max(0.0) as f32
+        } else {
+            0.0
+        };
+        self.ui_clock = now;
+        self.shell.windows.set_time(now);
+        let video_effects = self.tick_video(dt);
+        self.deferred.extend(video_effects);
+        if let Some((confirm, ConfirmKind::KeepVideo(keep))) = &mut self.confirm_box {
+            if keep.expired(now) {
+                let previous = keep.previous;
+                self.closing_confirm_box = self.confirm_box.take();
+                self.reset_menu_interaction();
+                let effect = self.revert_video(previous);
+                self.deferred.push(effect);
+            } else {
+                confirm.set_text(VideoConfirm::text(
+                    &self.gameui.localization,
+                    keep.remaining(now),
+                ));
             }
         }
-        if input.pressed(Key::Backspace) && self.cursor > 0 {
-            let previous = self.input[..self.cursor].char_indices().last().unwrap().0;
-            self.input.replace_range(previous..self.cursor, "");
-            self.cursor = previous;
-        }
-        if input.pressed(Key::Delete) && self.cursor < self.input.len() {
-            let length = self.input[self.cursor..].chars().next().unwrap().len_utf8();
-            self.input
-                .replace_range(self.cursor..self.cursor + length, "");
-        }
-        if input.pressed(Key::Left) && self.cursor > 0 {
-            self.cursor = self.input[..self.cursor].char_indices().last().unwrap().0;
-        }
-        if input.pressed(Key::Right) && self.cursor < self.input.len() {
-            self.cursor += self.input[self.cursor..].chars().next().unwrap().len_utf8();
-        }
-        if input.pressed(Key::Home) {
-            self.cursor = 0;
-        }
-        if input.pressed(Key::End) {
-            self.cursor = self.input.len();
-        }
-        if input.pressed(Key::Up) {
-            self.history_move(true);
-        }
-        if input.pressed(Key::Down) {
-            self.history_move(false);
-        }
-        if input.pressed(Key::PageUp) {
-            self.scroll = (self.scroll + 10).min(self.output.len().saturating_sub(1));
-        }
-        if input.pressed(Key::PageDown) {
-            self.scroll = self.scroll.saturating_sub(10);
-        }
-        if input.pressed(Key::Tab) {
-            let matches: Vec<_> = COMMANDS
-                .iter()
-                .filter(|(name, _)| name.starts_with(&self.input))
-                .collect();
-            if matches.len() == 1 {
-                self.input = format!("{} ", matches[0].0);
-                self.cursor = self.input.len();
-            } else if matches.len() > 1 {
-                self.log(
-                    matches
-                        .into_iter()
-                        .map(|(n, _)| *n)
-                        .collect::<Vec<_>>()
-                        .join("  "),
-                );
-            }
-        }
-        if input.pressed(Key::Enter) {
-            let line = std::mem::take(&mut self.input);
-            self.cursor = 0;
-            return self.submit(&line);
-        }
-        Vec::new()
+        self.sync_dialog_windows();
+        std::mem::take(&mut self.deferred)
     }
-    fn activate_menu(&mut self) -> Vec<Effect> {
-        match self.menu_selection {
-            0 => self.mode = Mode::Gameplay,
-            1 => self.toggle(),
-            _ => return vec![Effect::Quit],
+
+    fn painter(&self, origin: Vec2, scale: f32) -> Painter<'_> {
+        Painter {
+            canvas: &self.canvas,
+            fonts: &self.widget_fonts,
+            theme: &self.theme,
+            origin,
+            scale,
         }
-        Vec::new()
     }
     /// Four compact header rows and a footer, preserving the retained host's developer layout.
     /// Font data is bundled under its own MIT license, independent of installed game content.
-    pub fn draw_debug(&self, lines: &[String]) {
+    /// Returns the height the overlay occupies at the top of the canvas.
+    pub fn draw_debug(&self, lines: &[String]) -> f32 {
         self.canvas.rectangle(
             0.,
             0.,
             self.canvas.width(),
-            105.,
+            DEBUG_HEADER_HEIGHT,
             Color::new(0.025, 0.045, 0.07, 0.88),
         );
         let rows = [
@@ -960,195 +544,163 @@ impl Console {
             );
             draw(footer, vec2(20., self.canvas.height() - 13.), 18., WHITE);
         }
+        DEBUG_HEADER_HEIGHT
+    }
+
+    fn draw_debug_lines_panel(&self, lines: &[String], top: f32, max_lines: usize) -> f32 {
+        let count = lines.len().min(max_lines);
+        let height = 20. + count as f32 * 22. + 10.;
+        self.canvas.rectangle(
+            0.,
+            top,
+            self.canvas.width(),
+            height,
+            Color::new(0.025, 0.045, 0.07, 0.9),
+        );
+        let draw = |line: &str, origin: Vec2, color| {
+            if let Some(font) = &self.developer_font {
+                font.draw_baseline(line, origin, 16., 1., color);
+            } else {
+                text(
+                    &self.canvas,
+                    line,
+                    origin,
+                    16.,
+                    1.,
+                    self.mono.as_ref().or(self.font.as_ref()),
+                    color,
+                );
+            }
+        };
+        let normal = Color::new(0.784, 0.784, 0.784, 1.);
+        let last_idx = count.saturating_sub(1);
+        for (i, line) in lines.iter().take(count).enumerate() {
+            let y = top + 20. + i as f32 * 22.;
+            let color = if i == last_idx {
+                Color::from_rgba(240, 180, 90, 255)
+            } else if i == 0 {
+                WHITE
+            } else {
+                normal
+            };
+            draw(line, vec2(22., y), color);
+        }
+        top + height
+    }
+
+    /// Draws the live viewmodel tuning values with their top edge at `top`; returns the bottom
+    /// edge.
+    pub fn draw_viewmodel_debug(&self, lines: &[String], top: f32) -> f32 {
+        self.draw_debug_lines_panel(lines, top, 5)
+    }
+
+    /// Draws the live background visual debug values with their top edge at `top`; returns the bottom
+    /// edge.
+    pub fn draw_background_debug(&self, lines: &[String], top: f32) -> f32 {
+        self.draw_debug_lines_panel(lines, top, lines.len())
+    }
+
+    pub fn current_background(&self) -> Option<(&str, &str)> {
+        let menu_cat = self.main_menu.category();
+        self.upcoming_background(menu_cat)
+    }
+
+    fn upcoming_background<'a>(&'a self, menu_cat: &'a str) -> Option<(&'a str, &'a str)> {
+        let transition = &self.background_transition;
+        transition
+            .target_category()
+            .zip(transition.target_map())
+            .or_else(|| {
+                self.loaded_map
+                    .as_ref()
+                    .map(|m| (m.game.as_str(), m.map.as_str()))
+            })
+            .or_else(|| {
+                let game = self.gameui.category_game(menu_cat);
+                self.gameui
+                    .background_maps
+                    .get(game)
+                    .map(|map| (game, map.as_str()))
+            })
+    }
+
+    fn draw_menu_background(&self, shown: Mode, time: f64) {
+        let menu_cat = if shown == Mode::Pause {
+            self.pause_menu.category()
+        } else {
+            self.main_menu.category()
+        };
+        let is_widescreen = self.canvas.width() / self.canvas.height().max(1.0) > 4. / 3. + 1e-3;
+        let upcoming = self.upcoming_background(menu_cat);
+        let bg_tex =
+            upcoming.and_then(|(game, map)| self.background_texture(game, map, is_widescreen));
+        if let Some(loading) = &self.loading_dialog {
+            if loading.is_background() {
+                loading.draw_background_overlay(&self.canvas, bg_tex);
+            }
+        } else if self.background_transition.is_active() {
+            let (w, h) = (self.canvas.width(), self.canvas.height());
+            if let Some(tex) = bg_tex {
+                crate::gameui::loading::draw_background_texture(&self.canvas, tex);
+            }
+            self.canvas.rectangle(
+                0.,
+                0.,
+                w,
+                h,
+                crate::gameui::loading::BackgroundTransitionState::MAIN_MENU_BACKDROP,
+            );
+        } else {
+            if let Some(tex) = bg_tex {
+                let map_ready = self.background_level && !self.background_transition.is_failed();
+                let alpha = if map_ready && self.background_debug_mode {
+                    (self.background_blur_opacity as f32 / 100.0).clamp(0.0, 1.0)
+                } else if !map_ready {
+                    1.0
+                } else {
+                    0.0
+                };
+                if alpha > 0.001 {
+                    crate::gameui::loading::draw_background_texture_alpha(&self.canvas, tex, alpha);
+                }
+            }
+            let dim_alpha = self.dim_overlay_alpha(time);
+            if dim_alpha > 0.001 {
+                let (w, h) = (self.canvas.width(), self.canvas.height());
+                self.canvas
+                    .rectangle(0., 0., w, h, Color::new(0., 0., 0., dim_alpha));
+            }
+        }
     }
 
     pub fn draw(&self, time: f64) {
-        if self.mode == Mode::Gameplay {
+        if self.draw_video() || self.draw_loading_screen() {
             return;
         }
-        let scale = self.canvas.height() / 720.;
-        let text = |content: &str, x, y, size, color, mono: bool| {
-            text(
-                &self.canvas,
-                content,
-                vec2(x, y),
-                (size * scale) as u16 as f32,
-                1.,
-                if mono {
-                    self.mono.as_ref()
-                } else if self.mode == Mode::Pause {
-                    self.menu_font.as_ref()
-                } else {
-                    self.font.as_ref()
-                },
-                color,
-            );
-        };
-        if self.mode == Mode::Pause {
-            // The accepted retail in-game capture has no global dimming rectangle.
-            let geometry = self.menu_layout.geometry(self.canvas.height());
-            if let Some(face) = &self.title_face {
-                let em = geometry.title_tall * self.title_metrics.em_per_cell;
-                let mut pen = geometry.title;
-                for character in self.title.chars() {
-                    draw_cell_text(
-                        &self.canvas,
-                        &character.to_string(),
-                        pen,
-                        geometry.title_tall,
-                        self.title_font.as_ref(),
-                        self.title_metrics,
-                        WHITE,
-                    );
-                    // GDI supplies integer ABC advances. Fractional accumulation visibly widens this logo.
-                    pen.x += face.metrics(character, em).advance_width.round();
-                }
-            } else {
-                draw_cell_text(
-                    &self.canvas,
-                    &self.title,
-                    geometry.title,
-                    geometry.title_tall,
-                    self.title_font.as_ref(),
-                    self.title_metrics,
-                    WHITE,
-                );
+        let shown = self.base;
+        let menu_shown =
+            shown == Mode::Pause || shown == Mode::MainMenu || self.is_background_loading();
+        if menu_shown {
+            self.draw_menu_background(shown, time);
+            if self.is_background_loading() {
+                self.draw_windows(time);
+                return;
             }
-            for (i, label) in self.menu_labels.iter().enumerate() {
-                draw_cell_text(
-                    &self.canvas,
-                    label,
-                    geometry.menu
-                        + vec2(
-                            0.,
-                            i as f32 * geometry.item_tall
-                                + (geometry.item_tall - geometry.font_tall) * 0.5,
-                        ),
-                    geometry.font_tall,
-                    self.menu_font.as_ref(),
-                    self.menu_metrics,
-                    if self.menu_selection == i {
-                        self.style.menu_armed
-                    } else {
-                        self.style.menu
-                    },
-                );
-            }
-        } else {
-            let left = 32. * scale;
-            let top = 32. * scale;
-            let width = (self.canvas.width() - 64. * scale).min(1000. * scale);
-            let height = self.canvas.height() - 64. * scale;
-            self.canvas.rectangle(
-                0.,
-                0.,
-                self.canvas.width(),
-                self.canvas.height(),
-                Color::new(0., 0., 0., 0.3),
-            );
-            self.canvas
-                .rectangle(left, top, width, height, self.style.panel);
-            rectangle_lines(
-                &self.canvas,
-                left,
-                top,
-                width,
-                height,
-                1.,
-                Color::from_rgba(150, 158, 147, 255),
-            );
-            text(
-                "Console",
-                left + 12. * scale,
-                top + 24. * scale,
-                18.,
-                WHITE,
-                false,
-            );
-            self.canvas.rectangle(
-                left + 10. * scale,
-                top + 36. * scale,
-                width - 20. * scale,
-                height - 88. * scale,
-                self.style.entry,
-            );
-            let rows = ((height / scale - 108.) / 19.).max(1.) as usize;
-            let end = self.output.len().saturating_sub(self.scroll);
-            let start = end.saturating_sub(rows);
-            for (i, line) in self.output.iter().skip(start).take(end - start).enumerate() {
-                // Bound horizontal text to the panel. Full output remains in runtime reports.
-                let columns = ((width / scale - 36.) / 9.).max(1.) as usize;
-                let mut clipped = String::new();
-                for c in line.chars().take(columns) {
-                    let mut candidate = clipped.clone();
-                    candidate.push(c);
-                    if self.mono.as_ref().is_some_and(|font| {
-                        font.width_em(&candidate, (16. * scale) as u16 as f32) > width - 36. * scale
-                    }) {
-                        break;
-                    }
-                    clipped = candidate;
-                }
-                text(
-                    &clipped,
-                    left + 18. * scale,
-                    top + (57. + i as f32 * 19.) * scale,
-                    16.,
-                    self.style.text,
-                    true,
-                );
-            }
-            let bottom = top + height - 38. * scale;
-            self.canvas.rectangle(
-                left + 10. * scale,
-                bottom,
-                width - 20. * scale,
-                28. * scale,
-                self.style.entry,
-            );
-            let columns = ((width / scale - 40.) / 9.).max(1.) as usize;
-            let preceding = self.input[..self.cursor].chars().count();
-            let start = preceding.saturating_sub(columns.saturating_sub(1));
-            let shown: String = self.input.chars().skip(start).take(columns).collect();
-            text(
-                &format!("] {shown}"),
-                left + 15. * scale,
-                bottom + 20. * scale,
-                16.,
-                WHITE,
-                true,
-            );
-            if ((time * 2.) as u64).is_multiple_of(2) {
-                let prefix = format!(
-                    "] {}",
-                    self.input
-                        .chars()
-                        .skip(start)
-                        .take(preceding - start)
-                        .collect::<String>()
-                );
-                let cursor_x = self.mono.as_ref().map_or(0., |font| {
-                    font.width_em(&prefix, (16. * scale) as u16 as f32)
-                });
-                self.canvas.rectangle(
-                    left + 15. * scale + cursor_x,
-                    bottom + 5. * scale,
-                    1.,
-                    18. * scale,
-                    WHITE,
-                );
-            }
+            let geometry = self.menu_layout.geometry_for(self.canvas_size());
+            let base_focus = self.shell.windows.base_focus_amount(time);
+            let unfocused_alpha = crate::tuning::unfocused_alpha_factor();
+            let alpha_mult = unfocused_alpha + (1.0 - unfocused_alpha) * base_focus;
+
+            self.draw_menu_titles(geometry, alpha_mult, base_focus);
+            self.draw_menu_buttons(shown, geometry, alpha_mult, base_focus);
         }
+        self.draw_windows(time);
     }
 }
 
-fn boolean(value: &str) -> Option<bool> {
-    match value {
-        "0" => Some(false),
-        "1" => Some(true),
-        _ => None,
-    }
-}
+/// Dialog push buttons play this when they activate.
+const RELEASE_SOUND: &str = "ui/buttonclickrelease.wav";
+
 fn vector(args: &[String]) -> Option<glam::Vec3> {
     if !(2..=3).contains(&args.len()) {
         return None;
@@ -1163,315 +715,9 @@ fn vector(args: &[String]) -> Option<glam::Vec3> {
         .all(|v| v.is_finite())
         .then(|| glam::Vec3::new(values[0], values[1], values.get(2).copied().unwrap_or(0.)))
 }
-/// Semicolons outside quotes separate commands; quoted arguments preserve spaces and separators.
-fn tokenize(line: &str) -> Result<Vec<Vec<String>>, String> {
-    let mut commands = Vec::new();
-    let mut tokens = Vec::new();
-    let mut token = String::new();
-    let mut quoted = false;
-    let mut started = false;
-    for c in line.chars() {
-        match c {
-            '"' => {
-                quoted = !quoted;
-                started = true;
-            }
-            ';' if !quoted => {
-                if started {
-                    tokens.push(std::mem::take(&mut token));
-                    started = false;
-                }
-                if !tokens.is_empty() {
-                    commands.push(std::mem::take(&mut tokens));
-                }
-            }
-            c if c.is_whitespace() && !quoted => {
-                if started {
-                    tokens.push(std::mem::take(&mut token));
-                    started = false;
-                }
-            }
-            _ => {
-                token.push(c);
-                started = true;
-            }
-        }
-    }
-    if quoted {
-        return Err("Unterminated quoted argument; no commands executed".into());
-    }
-    if started {
-        tokens.push(token);
-    }
-    if !tokens.is_empty() {
-        commands.push(tokens);
-    }
-    Ok(commands)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn native_menu_uses_480_coordinate_scaling_but_keeps_yres_font_height() {
-        let layout = MenuLayout::default();
-        let at_720 = layout.geometry(720.);
-        assert_eq!(at_720.title, vec2(114., 217.));
-        assert_eq!(at_720.menu, vec2(114., 360.));
-        assert_eq!(at_720.title_tall, 48.);
-        assert_eq!(at_720.item_tall, 21.);
-        assert_eq!(at_720.font_tall, 16.);
-        let at_480 = layout.geometry(480.);
-        assert_eq!(at_480.menu, vec2(76., 240.));
-        assert_eq!(at_480.font_tall, 16.);
-        assert_eq!(at_480.title_tall, 32.);
-        assert_eq!(layout.geometry(1440.).font_tall, 33.);
-    }
-    #[test]
-    fn menu_resources_resolve_desktop_colors_ranges_and_reject_bad_heights() {
-        let resource = keyvalues::parse_resource(br#"Scheme {
-            Colors { White "255 255 255 255" } BaseSettings { MainMenu.TextColor White Main.Menu.X 76 }
-            Fonts { MenuLarge { 1 { tall 16 yres "1 1080" } [$WINDOWS]
-                1 { tall 24 yres "1 1080" } [$LINUX] 2 { tall 11 } 3 { tall NaN } } }
-        }"#).unwrap();
-        let root = &resource[0];
-        assert_eq!(scheme_color(root, "MainMenu.TextColor"), Some(WHITE));
-        assert_eq!(resource_number(root, "Main.Menu.X"), Some(76.));
-        let ranges = resource_font(root, "MenuLarge").unwrap();
-        #[cfg(target_os = "windows")]
-        assert_eq!(ranges, vec![(16., Some((1., 1080.))), (11., None)]);
-        #[cfg(target_os = "linux")]
-        assert_eq!(ranges, vec![(24., Some((1., 1080.))), (11., None)]);
-        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-        assert_eq!(ranges, vec![(11., None)]);
-        assert!(resource_font(root, "Absent").is_none());
-        assert!(CellMetrics::from_bytes(b"missing font").is_none());
-    }
-    #[test]
-    fn cheats_are_gated_in_order_and_queries_do_not_change_them() {
-        let mut console = Console::default();
-        assert!(console
-            .submit("impulse 101; noclip; setpos 1 2 3; setang 0 0 0")
-            .is_empty());
-        assert_eq!(
-            console.submit("sv_cheats 1; impulse 101; noclip 1"),
-            vec![Effect::Loadout, Effect::Noclip(Some(true))]
-        );
-        assert!(console.submit("sv_cheats").is_empty());
-        assert!(console.cheats);
-        assert!(console.submit("sv_cheats 0; impulse 101").is_empty());
-        assert!(!console.cheats);
-    }
-    #[test]
-    fn npc_create_is_a_cheat_but_its_equipment_cvar_is_not() {
-        let mut console = Console::default();
-        assert_eq!(
-            console.submit("npc_create npc_metropolice; npc_create_equipment weapon_stunstick"),
-            vec![Effect::NpcCommand(
-                "npc_create_equipment weapon_stunstick".into()
-            )]
-        );
-        assert_eq!(
-            console.submit("sv_cheats 1; npc_create_aimed npc_metropolice cop1"),
-            vec![Effect::NpcCommand(
-                "npc_create_aimed npc_metropolice cop1".into()
-            )]
-        );
-    }
-    #[test]
-    fn prop_physics_create_and_ent_create_are_cheats_routed_with_npc_create() {
-        let mut console = Console::default();
-        assert_eq!(
-            console.submit("prop_physics_create props_c17/oildrum001"),
-            vec![]
-        );
-        assert_eq!(
-            console.submit("sv_cheats 1; prop_physics_create props_c17/oildrum001; ent_create npc_metropolice targetname cop9"),
-            vec![
-                Effect::NpcCommand("prop_physics_create props_c17/oildrum001".into()),
-                Effect::NpcCommand("ent_create npc_metropolice targetname cop9".into()),
-            ]
-        );
-        // Quoted values keep their spaces for the spawn parser.
-        assert_eq!(
-            console.submit("ent_create npc_citizen angles \"0 180 0\""),
-            vec![Effect::NpcCommand(
-                "ent_create npc_citizen angles \"0 180 0\"".into()
-            )]
-        );
-    }
-    #[test]
-    fn ai_disable_is_a_cheat_toggle_without_arguments() {
-        let mut console = Console::default();
-        assert_eq!(console.submit("ai_disable"), vec![]);
-        assert_eq!(
-            console.submit("sv_cheats 1; ai_disable; ai_disable 1"),
-            vec![Effect::AiDisable]
-        );
-    }
-    #[test]
-    fn quoted_separators_are_text_and_bad_quotes_execute_nothing() {
-        let mut console = Console::default();
-        console.submit("echo \"hello; world\"; echo done");
-        assert!(console.output.iter().any(|line| line == "hello; world"));
-        assert!(console.output.iter().any(|line| line == "done"));
-        console.submit("sv_cheats 1; echo \"unfinished");
-        assert!(!console.cheats);
-    }
-    #[test]
-    fn invalid_numbers_paths_impulses_and_unknown_commands_do_not_succeed() {
-        let mut console = Console::default();
-        console.submit("sv_cheats 1");
-        for line in [
-            "setpos NaN 0 0",
-            "setpos inf 0 0",
-            "setpos 1",
-            "setang 0 0 20",
-            "map ../other",
-            "map a/b",
-            "map C:\\foo",
-            "impulse 42",
-            "god",
-            "sv_cheats 2",
-        ] {
-            assert!(console.submit(line).is_empty(), "{line}");
-        }
-        assert_eq!(
-            console.submit("map d1_trainstation_02.bsp"),
-            vec![Effect::Map("d1_trainstation_02".into())]
-        );
-        assert_eq!(
-            console.submit("setpos -10 20 30"),
-            vec![Effect::Setpos {
-                x: -10.,
-                y: 20.,
-                z: Some(30.)
-            }]
-        );
-        assert_eq!(
-            console.submit("setpos 1 2"),
-            vec![Effect::Setpos {
-                x: 1.,
-                y: 2.,
-                z: None
-            }]
-        );
-    }
-
-    #[test]
-    fn entity_inputs_preserve_quoted_values_and_enforce_cheat_and_delay_rules() {
-        let mut console = Console::default();
-        assert!(console.submit("ent_fire security03 Start").is_empty());
-        assert_eq!(
-            console.submit("sv_cheats 1; ent_fire security_* Start \"value;kept\" 0.1"),
-            vec![Effect::Fire {
-                target: "security_*".into(),
-                input: "Start".into(),
-                parameter: "value;kept".into(),
-                delay: 0.,
-            }]
-        );
-        assert_eq!(
-            console.submit("ent_fire panel"),
-            vec![Effect::Fire {
-                target: "panel".into(),
-                input: "Use".into(),
-                parameter: String::new(),
-                delay: 0.,
-            }]
-        );
-        for command in [
-            "ent_fire",
-            "ent_fire door Open x NaN",
-            "ent_fire door Open x -1",
-            "ent_fire door Open x inf",
-        ] {
-            assert!(console.submit(command).is_empty());
-        }
-    }
-    #[test]
-    fn console_returns_to_its_previous_pause_state_and_history_restores_draft() {
-        let mut console = Console::default();
-        console.escape();
-        assert!(console.paused());
-        console.toggle();
-        assert_eq!(console.mode, Mode::Console);
-        console.escape();
-        assert_eq!(console.mode, Mode::Pause);
-        console.escape();
-        assert!(!console.paused());
-        console.submit("echo first");
-        console.submit("echo second");
-        console.input = "draft".into();
-        console.history_move(true);
-        assert_eq!(console.input, "echo second");
-        console.history_move(true);
-        assert_eq!(console.input, "echo first");
-        console.history_move(false);
-        assert_eq!(console.input, "echo second");
-        console.history_move(false);
-        assert_eq!(console.input, "draft");
-    }
-    #[test]
-    fn explicit_text_input_edits_unicode_at_boundaries_and_completes_commands() {
-        let mut console = Console::default();
-        console.toggle();
-        console.input(&Input {
-            text: "aé🦀".into(),
-            ..Default::default()
-        });
-        console.input(&Input {
-            keys: [Key::Left].into(),
-            ..Default::default()
-        });
-        console.input(&Input {
-            keys: [Key::Backspace].into(),
-            ..Default::default()
-        });
-        assert_eq!(console.input, "a🦀");
-        console.input(&Input {
-            keys: [Key::Delete].into(),
-            ..Default::default()
-        });
-        assert_eq!(console.input, "a");
-        console.input.clear();
-        console.cursor = 0;
-        console.input(&Input {
-            text: "noc".into(),
-            keys: [Key::Tab].into(),
-            ..Default::default()
-        });
-        assert_eq!(console.input, "noclip ");
-        console.input(&Input {
-            keys: [Key::Enter].into(),
-            ..Default::default()
-        });
-        assert!(console.input.is_empty());
-        assert!(console.output.iter().any(|s| s.contains("sv_cheats")));
-    }
-    #[test]
-    fn menu_pointer_hit_regions_and_keyboard_activate_the_same_choices() {
-        let mut console = Console::default();
-        console.escape();
-        let geometry = console.menu_layout.geometry(console.canvas.height());
-        console.input(&Input {
-            pointer: Some(geometry.menu + vec2(5., geometry.item_tall * 1.5)),
-            click: true,
-            ..Default::default()
-        });
-        assert_eq!(console.mode, Mode::Console);
-        console.escape();
-        assert_eq!(console.mode, Mode::Pause);
-        console.input(&Input {
-            keys: [Key::Down].into(),
-            ..Default::default()
-        });
-        assert_eq!(
-            console.input(&Input {
-                keys: [Key::Enter].into(),
-                ..Default::default()
-            }),
-            vec![Effect::Quit]
-        );
-    }
-}
+mod background_debug_tests;
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod viewmodel_tests;

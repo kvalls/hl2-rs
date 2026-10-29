@@ -1,6 +1,13 @@
 //! The PC HL2 HUD layout is read from the owned game's scheme and resource files.
 //! Bucket positioning and visibility follow CHudWeaponSelection, rather than a new UI design.
-use crate::canvas::*;
+mod commentary;
+mod crosshair;
+mod font;
+mod power;
+mod quick_info;
+use font::HudFont;
+use quick_info::QuickInfoHud;
+
 use anyhow::{Context, Result};
 use glam::{vec2, Vec2};
 use hl2_simulation::{
@@ -11,11 +18,14 @@ use source_assets::{
     keyvalues::{self, Entry},
     vpk::Vfs,
 };
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    path::PathBuf,
-    sync::Arc,
+use source_ui::{
+    canvas::{
+        draw_texture_ex, texture, Canvas, Color, DrawTextureParams, FilterMode, MutexCell, Rect,
+        Texture2D, YELLOW,
+    },
+    font::FontFace,
 };
+use std::collections::{BTreeMap, HashSet};
 
 fn find<'a>(entries: &'a [Entry], name: &str) -> Option<&'a Entry> {
     entries.iter().find(|e| e.key.eq_ignore_ascii_case(name))
@@ -53,319 +63,6 @@ fn uses_secondary_ammo(weapon: &Weapon) -> bool {
 }
 
 #[derive(Clone)]
-pub(crate) struct FontFace {
-    canvas: Canvas,
-    font: Arc<fontdue::Font>,
-    glyphs: GlyphCache,
-    cell_height: f32,
-    ascent: f32,
-}
-type GlyphCache = Arc<MutexCell<HashMap<(char, u32, u16, u16), Glyph>>>;
-#[derive(Clone)]
-struct Glyph {
-    texture: Option<Texture2D>,
-    x: f32,
-    y: f32,
-    advance: f32,
-}
-impl FontFace {
-    pub(crate) fn load(bytes: &[u8], canvas: Canvas) -> Result<Self> {
-        let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
-            .map_err(anyhow::Error::msg)?;
-        let face = ttf_parser::Face::parse(bytes, 0).context("read HUD font metrics")?;
-        let units = f32::from(face.units_per_em()).max(1.);
-        let (ascent, cell_height) = face.tables().os2.map_or_else(
-            || {
-                let metrics = font.horizontal_line_metrics(1.).unwrap();
-                (metrics.ascent, metrics.ascent - metrics.descent)
-            },
-            |table| {
-                let ascent = f32::from(table.windows_ascender()) / units;
-                let descent = f32::from(table.windows_descender()).abs() / units;
-                (ascent, ascent + descent)
-            },
-        );
-        Ok(Self {
-            canvas,
-            font: Arc::new(font),
-            glyphs: Arc::new(MutexCell::new(HashMap::new())),
-            cell_height: cell_height.max(0.01),
-            ascent,
-        })
-    }
-    fn width(&self, value: &str, size: f32) -> f32 {
-        // Retail CWin32Font uses a positive CreateFontA height: a character cell,
-        // whereas fontdue's size is pixels per EM. Windows OS/2 metrics supply the
-        // conversion; hhea descent differs significantly in the owned HalfLife2 font.
-        let size = size.round().max(1.) / self.cell_height;
-        value
-            .chars()
-            .map(|c| self.font.metrics(c, size).advance_width)
-            .sum()
-    }
-    fn glyph(&self, c: char, size: u16, blur: u16, scanlines: u16) -> Glyph {
-        self.raster(c, f32::from(size) / self.cell_height, blur, scanlines)
-    }
-    fn raster(&self, c: char, em_size: f32, blur: u16, scanlines: u16) -> Glyph {
-        let key = (c, em_size.to_bits(), blur, scanlines);
-        if let Some(glyph) = self.glyphs.borrow().get(&key) {
-            return glyph.clone();
-        }
-        let (metrics, coverage) = self.font.rasterize(c, em_size);
-        let margin = usize::from(blur);
-        let width = metrics.width + margin * 2;
-        let height = metrics.height + margin * 2;
-        let ascent = self.ascent * em_size;
-        let texture = if metrics.width == 0 || metrics.height == 0 {
-            None
-        } else {
-            let mut bitmap = vec![0.; width * height];
-            for y in 0..metrics.height {
-                for x in 0..metrics.width {
-                    bitmap[(y + margin) * width + x + margin] =
-                        f32::from(coverage[y * metrics.width + x]) / 255.;
-                }
-            }
-            if blur > 0 {
-                bitmap = gaussian_blur(&bitmap, width, height, margin);
-            }
-            let rgba = bitmap
-                .iter()
-                .enumerate()
-                .flat_map(|(i, coverage)| {
-                    // The configured scanline pitch is retained. Exact GDI scanline and
-                    // blur rasterization are not claimed equivalent to VGUI's native font engine.
-                    let brightness = if scanlines > 1 && (i / width) % usize::from(scanlines) != 0 {
-                        180
-                    } else {
-                        255
-                    };
-                    [
-                        brightness,
-                        brightness,
-                        brightness,
-                        (coverage.clamp(0., 1.) * 255.).round() as u8,
-                    ]
-                })
-                .collect::<Vec<_>>();
-            let texture = Texture2D::from_rgba8(width as u16, height as u16, &rgba);
-            texture.set_filter(FilterMode::Linear);
-            Some(texture)
-        };
-        let glyph = Glyph {
-            texture,
-            x: metrics.xmin as f32 - f32::from(blur),
-            y: ascent - metrics.ymin as f32 - metrics.height as f32 - f32::from(blur),
-            advance: metrics.advance_width,
-        };
-        self.glyphs.borrow_mut().insert(key, glyph.clone());
-        glyph
-    }
-    fn draw(&self, value: &str, mut x: f32, y: f32, size: f32, effects: (u16, u16), color: Color) {
-        let (blur, scanlines) = effects;
-        let size = size.round().clamp(1., 1024.) as u16;
-        for c in value.chars() {
-            let glyph = self.glyph(c, size, blur.min(64), scanlines);
-            if let Some(texture) = &glyph.texture {
-                draw_texture(&self.canvas, texture, x + glyph.x, y + glyph.y, color);
-            }
-            x += glyph.advance;
-        }
-    }
-    pub(crate) fn face(&self) -> Arc<fontdue::Font> {
-        self.font.clone()
-    }
-    pub(crate) fn width_em(&self, value: &str, em: f32) -> f32 {
-        value
-            .chars()
-            .map(|c| self.font.metrics(c, em).advance_width)
-            .sum()
-    }
-    pub(crate) fn draw_baseline(
-        &self,
-        value: &str,
-        mut origin: Vec2,
-        em: f32,
-        scale: f32,
-        color: Color,
-    ) {
-        for c in value.chars() {
-            let glyph = self.raster(c, em, 0, 0);
-            if let Some(texture) = &glyph.texture {
-                draw_texture_ex(
-                    &self.canvas,
-                    texture,
-                    origin.x + glyph.x * scale,
-                    origin.y + (glyph.y - self.ascent * em) * scale,
-                    color,
-                    DrawTextureParams {
-                        dest_size: Some(texture.size() * scale),
-                        ..Default::default()
-                    },
-                );
-            }
-            origin.x += glyph.advance * scale;
-        }
-    }
-    fn draw_cropped(
-        &self,
-        value: &str,
-        origin: Vec2,
-        size: f32,
-        effects: (u16, u16),
-        color: Color,
-        rows: Vec2,
-    ) {
-        let (blur, scanlines) = effects;
-        let size = size.round().clamp(1., 1024.) as u16;
-        let mut x = origin.x;
-        for c in value.chars() {
-            let glyph = self.glyph(c, size, blur.min(64), scanlines);
-            if let Some(texture) = &glyph.texture {
-                let first = (rows.x - glyph.y).clamp(0., texture.height());
-                let last = (rows.y - glyph.y).clamp(0., texture.height());
-                if last > first {
-                    draw_texture_ex(
-                        &self.canvas,
-                        texture,
-                        x + glyph.x,
-                        origin.y + glyph.y + first,
-                        color,
-                        DrawTextureParams {
-                            source: Some(Rect::new(0., first, texture.width(), last - first)),
-                            ..Default::default()
-                        },
-                    );
-                }
-            }
-            x += glyph.advance;
-        }
-    }
-}
-
-fn gaussian_blur(bitmap: &[f32], width: usize, height: usize, radius: usize) -> Vec<f32> {
-    let sigma = (radius as f32 * 0.5).max(0.5);
-    let mut kernel = (-(radius as isize)..=radius as isize)
-        .map(|x| (-(x * x) as f32 / (2. * sigma * sigma)).exp())
-        .collect::<Vec<_>>();
-    let sum: f32 = kernel.iter().sum();
-    for weight in &mut kernel {
-        *weight /= sum;
-    }
-    let mut horizontal = vec![0.; bitmap.len()];
-    let mut result = vec![0.; bitmap.len()];
-    for y in 0..height {
-        for x in 0..width {
-            for (i, weight) in kernel.iter().enumerate() {
-                let sample = x as isize + i as isize - radius as isize;
-                if sample >= 0 && (sample as usize) < width {
-                    horizontal[y * width + x] += bitmap[y * width + sample as usize] * weight;
-                }
-            }
-        }
-    }
-    for y in 0..height {
-        for x in 0..width {
-            for (i, weight) in kernel.iter().enumerate() {
-                let sample = y as isize + i as isize - radius as isize;
-                if sample >= 0 && (sample as usize) < height {
-                    result[y * width + x] += horizontal[sample as usize * width + x] * weight;
-                }
-            }
-        }
-    }
-    result
-}
-
-struct FontRange {
-    minimum: f32,
-    maximum: f32,
-    tall: f32,
-    proportional: bool,
-    blur: f32,
-    scanlines: f32,
-    #[cfg(windows)]
-    antialias: bool,
-}
-struct HudFont {
-    face: FontFace,
-    ranges: Vec<FontRange>,
-}
-#[cfg(windows)]
-impl FontRange {
-    fn monochrome_crosshair(&self) -> bool {
-        !self.antialias && !self.proportional && self.blur == 0. && self.scanlines == 0.
-    }
-}
-impl HudFont {
-    fn read(fonts: &Entry, name: &str, face: FontFace, fallback: f32) -> Self {
-        let ranges = fonts
-            .get(name)
-            .map(Entry::children)
-            .unwrap_or_default()
-            .iter()
-            .map(|entry| {
-                let resolution = entry.get("yres").and_then(Entry::text).and_then(|s| {
-                    let values = s
-                        .split_whitespace()
-                        .map(str::parse::<f32>)
-                        .collect::<std::result::Result<Vec<_>, _>>()
-                        .ok()?;
-                    (values.len() == 2).then_some((values[0], values[1]))
-                });
-                FontRange {
-                    minimum: resolution.map_or(0., |r| r.0),
-                    maximum: resolution.map_or(f32::MAX, |r| r.1),
-                    tall: number(entry, "tall", fallback),
-                    proportional: resolution.is_none(),
-                    blur: number(entry, "blur", 0.),
-                    scanlines: number(entry, "scanlines", 0.),
-                    #[cfg(windows)]
-                    antialias: number(entry, "antialias", 1.) != 0.,
-                }
-            })
-            .collect();
-        Self { face, ranges }
-    }
-    fn size(&self) -> f32 {
-        let height = self.face.canvas.height();
-        let range = self
-            .ranges
-            .iter()
-            .find(|r| height >= r.minimum && height <= r.maximum);
-        range.map_or(12., |r| {
-            r.tall * if r.proportional { height / 480. } else { 1. }
-        })
-    }
-    fn effects(&self) -> (u16, u16) {
-        let height = self.face.canvas.height();
-        let range = self
-            .ranges
-            .iter()
-            .find(|r| height >= r.minimum && height <= r.maximum);
-        range.map_or((0, 0), |r| {
-            let scale = if r.proportional { height / 480. } else { 1. };
-            (
-                (r.blur * scale).round() as u16,
-                (r.scanlines * scale).round() as u16,
-            )
-        })
-    }
-    fn draw(&self, value: &str, x: f32, y: f32, color: Color) {
-        let (blur, scanlines) = self.effects();
-        self.face
-            .draw(value, x, y, self.size(), (blur, scanlines), color);
-    }
-    fn width(&self, value: &str) -> f32 {
-        self.face.width(value, self.size())
-    }
-    fn draw_cropped(&self, value: &str, origin: Vec2, rows: Vec2, color: Color) {
-        self.face
-            .draw_cropped(value, origin, self.size(), self.effects(), color, rows);
-    }
-}
-
-#[derive(Clone)]
 struct PanelLayout {
     x: String,
     y: f32,
@@ -400,21 +97,24 @@ impl PanelLayout {
             ),
         }
     }
-    fn rect(&self, scale: f32, viewport_width: f32) -> Rect {
-        let x = panel_axis(&self.x, viewport_width, scale).unwrap_or(0.);
-        Rect::new(x, self.y * scale, self.width * scale, self.height * scale)
+    /// Panel rectangle: sizes and x offsets by `scale`, the y position by the full screen
+    /// height ([`crate::proportional::y_scale`]).
+    fn rect(&self, scale: f32, viewport: Vec2) -> Rect {
+        let x = panel_axis(&self.x, viewport.x, scale).unwrap_or(0.);
+        let y = self.y * crate::proportional::y_scale(viewport);
+        Rect::new(x, y, self.width * scale, self.height * scale)
     }
     fn rect_for(&self, viewport: Vec2) -> Rect {
-        let scale = viewport.y / 480.;
+        let scale = crate::proportional::scale(viewport);
         Rect::new(
             panel_axis(&self.x, viewport.x, scale).unwrap_or(0.),
-            self.y * scale,
+            self.y * crate::proportional::y_scale(viewport),
             self.width * scale,
             self.height * scale,
         )
     }
 }
-fn panel_axis(value: &str, extent: f32, scale: f32) -> Option<f32> {
+pub(crate) fn panel_axis(value: &str, extent: f32, scale: f32) -> Option<f32> {
     let (alignment, number) = if let Some(number) = value.strip_prefix('r') {
         (1, number)
     } else if let Some(number) = value.strip_prefix('c') {
@@ -592,6 +292,8 @@ enum NumericPanel {
     Ammo,
     AmmoSecondary,
     DamageIndicator,
+    SuitPower,
+    Flashlight,
 }
 impl NumericPanel {
     fn read(name: &str) -> Option<Self> {
@@ -601,6 +303,8 @@ impl NumericPanel {
             "hudammo" => Some(Self::Ammo),
             "hudammosecondary" => Some(Self::AmmoSecondary),
             "huddamageindicator" => Some(Self::DamageIndicator),
+            "hudsuitpower" => Some(Self::SuitPower),
+            "hudflashlight" => Some(Self::Flashlight),
             _ => None,
         }
     }
@@ -620,6 +324,7 @@ enum NumericProperty {
     DmgHighColorLeft,
     DmgHighColorRight,
     DmgFullscreenColor,
+    AuxPowerColor,
 }
 impl NumericProperty {
     fn read(name: &str) -> Option<Self> {
@@ -637,6 +342,7 @@ impl NumericProperty {
             "dmghighcolorleft" => Some(Self::DmgHighColorLeft),
             "dmghighcolorright" => Some(Self::DmgHighColorRight),
             "dmgfullscreencolor" => Some(Self::DmgFullscreenColor),
+            "auxpowercolor" => Some(Self::AuxPowerColor),
             _ => None,
         }
     }
@@ -652,6 +358,7 @@ impl NumericProperty {
                 | Self::DmgHighColorLeft
                 | Self::DmgHighColorRight
                 | Self::DmgFullscreenColor
+                | Self::AuxPowerColor
         )
     }
     fn geometry(self) -> bool {
@@ -663,14 +370,19 @@ impl NumericProperty {
             if parts.len() != 2 || viewport.x <= 0. || viewport.y <= 0. {
                 return None;
             }
-            let scale = viewport.y / 480.;
+            let scale = crate::proportional::scale(viewport);
+            let y_scale = if self == Self::Position {
+                crate::proportional::y_scale(viewport)
+            } else {
+                scale
+            };
             let extent = if self == Self::Position {
                 viewport
             } else {
                 Vec2::ZERO
             };
             let x = panel_axis(parts[0], extent.x, scale)?;
-            let y = panel_axis(parts[1], extent.y, scale)?;
+            let y = panel_axis(parts[1], extent.y, y_scale)?;
             if self == Self::Size && (x < 0. || y < 0.) {
                 return None;
             }
@@ -692,7 +404,7 @@ impl NumericProperty {
 }
 #[derive(Clone, Copy)]
 struct PanelEffects {
-    values: [[f32; 4]; 13],
+    values: [[f32; 4]; 14],
 }
 impl PanelEffects {
     fn new(settings: &Entry) -> Self {
@@ -715,6 +427,7 @@ impl PanelEffects {
                 [255., 0., 0., 0.],
                 [255., 0., 0., 0.],
                 [255., 0., 0., 0.],
+                [255., 0., 0., 255.],
             ],
         }
     }
@@ -770,7 +483,7 @@ struct PostedEvent {
     property: Option<String>,
 }
 struct NumericHudEffects {
-    panels: [PanelEffects; 5],
+    panels: [PanelEffects; 7],
     animations: Vec<PropertyAnimation>,
     posted: Vec<PostedEvent>,
     health: i32,
@@ -786,7 +499,7 @@ struct NumericHudEffects {
 }
 impl NumericHudEffects {
     fn new(settings: &Entry) -> Self {
-        let mut panels = [PanelEffects::new(settings); 5];
+        let mut panels = [PanelEffects::new(settings); 7];
         // CHudSecondaryAmmo::Reset starts hidden until a secondary-ammo weapon is observed.
         panels[NumericPanel::AmmoSecondary as usize].values[NumericProperty::Alpha as usize][0] =
             0.;
@@ -1209,155 +922,6 @@ impl QuickInfoState {
         Some((color, full))
     }
 }
-struct QuickInfoHud {
-    canvas: Canvas,
-    font: HudFont,
-    center: Texture2D,
-    center_rect: Rect,
-    left: String,
-    left_empty: String,
-    right: String,
-    right_empty: String,
-    normal: Color,
-    caution: Color,
-    state: MutexCell<QuickInfoState>,
-}
-impl QuickInfoHud {
-    fn load(vfs: &Vfs, fonts: &Entry, colors: &Entry, canvas: Canvas) -> Result<Self> {
-        let face = FontFace::load(
-            &vfs.read("resource/HL2crosshairs.ttf")?
-                .context("QuickInfo font missing")?,
-            canvas.clone(),
-        )?;
-        let resources = keyvalues::parse_resource(
-            &vfs.read("scripts/hud_textures.txt")?
-                .context("HUD textures missing")?,
-        )?;
-        let textures = resources
-            .first()
-            .and_then(|e| e.get("TextureData"))
-            .context("HUD TextureData missing")?;
-        let character = |name| -> Result<String> {
-            Ok(textures
-                .get(name)
-                .and_then(|e| e.get("character"))
-                .and_then(Entry::text)
-                .context("QuickInfo glyph missing")?
-                .into())
-        };
-        let center = textures
-            .get("crosshair")
-            .context("QuickInfo center missing")?;
-        let file = center
-            .get("file")
-            .and_then(Entry::text)
-            .context("QuickInfo center material missing")?;
-        Ok(Self {
-            canvas,
-            font: HudFont::read(fonts, "QuickInfo", face, 28.),
-            center: texture(vfs, file)?,
-            center_rect: Rect::new(
-                number(center, "x", 0.),
-                number(center, "y", 0.),
-                number(center, "width", 40.),
-                number(center, "height", 40.),
-            ),
-            left: character("crosshair_left_full")?,
-            left_empty: character("crosshair_left_empty")?,
-            right: character("crosshair_right_full")?,
-            right_empty: character("crosshair_right_empty")?,
-            normal: color(colors, "Normal", Color::from_rgba(255, 208, 64, 255)),
-            caution: color(colors, "Caution", Color::from_rgba(255, 48, 0, 255)),
-            state: MutexCell::new(QuickInfoState::default()),
-        })
-    }
-    fn progress(&self, full: &str, empty: &str, origin: Vec2, percentage: f32, color: Color) {
-        let height = self.font.size().round();
-        let offset = (height * percentage.clamp(0., 1.)).trunc();
-        self.font
-            .draw_cropped(empty, origin, vec2(0., offset), color);
-        self.font
-            .draw_cropped(full, origin, vec2(offset, height), color);
-    }
-    fn draw(&self, inv: &Inventory, weapons: &BTreeMap<String, Weapon>, time: f64) {
-        let Some(weapon) = weapons.get(&inv.active) else {
-            return;
-        };
-        if inv.health <= 0. || !time.is_finite() {
-            return;
-        }
-        let ammo = inv.owned.get(&inv.active).copied().unwrap_or(-1);
-        let mut state = self.state.borrow_mut();
-        let dt = state.observe(inv.health as i32, ammo, weapon.magazine, time);
-        let opacity = state.alpha.clamp(0., 255.) / 255.;
-        let x = (self.canvas.width() * 0.5).trunc();
-        let y = (self.canvas.height() * 0.5).trunc() - self.font.size().round() * 0.5;
-        self.canvas.additive(true);
-        draw_texture_ex(
-            &self.canvas,
-            &self.center,
-            x,
-            y,
-            alpha(
-                Color {
-                    a: 138. / 255.,
-                    ..self.normal
-                },
-                opacity,
-            ),
-            DrawTextureParams {
-                source: Some(self.center_rect),
-                ..Default::default()
-            },
-        );
-        let warn_health = state.warn_health;
-        if let Some((color, full)) = QuickInfoState::warning_color(
-            warn_health,
-            &mut state.health_warning,
-            time,
-            dt,
-            self.normal,
-            self.caution,
-        ) {
-            let origin = vec2(x - self.font.width(&self.left) * 2., y);
-            let color = alpha(color, opacity);
-            if full {
-                self.font.draw(&self.left, origin.x, origin.y, color);
-            } else {
-                self.progress(
-                    &self.left,
-                    &self.left_empty,
-                    origin,
-                    1. - inv.health / 100.,
-                    color,
-                );
-            }
-        }
-        let warn_ammo = state.warn_ammo;
-        if let Some((color, full)) = QuickInfoState::warning_color(
-            warn_ammo,
-            &mut state.ammo_warning,
-            time,
-            dt,
-            self.normal,
-            self.caution,
-        ) {
-            let origin = vec2(x + self.font.width(&self.right), y);
-            let color = alpha(color, opacity);
-            if full {
-                self.font.draw(&self.right, origin.x, origin.y, color);
-            } else {
-                let percentage = if weapon.magazine <= 0 {
-                    0.
-                } else {
-                    1. - ammo as f32 / weapon.magazine as f32
-                };
-                self.progress(&self.right, &self.right_empty, origin, percentage, color);
-            }
-        }
-        self.canvas.additive(false);
-    }
-}
 
 fn sprite_filter(vtf: &[u8]) -> Result<FilterMode> {
     let flags = u32::from_le_bytes(
@@ -1396,14 +960,25 @@ fn default_crosshair_rects(viewport: Vec2, atlas: Rect, texture_size: Vec2) -> (
     (destination, source)
 }
 
+/// Lays the HUD out in the Video > HUD Aspect Ratio frame until dropped
+/// ([`WeaponHud::framed`]).
+struct FrameGuard<'a>(&'a Canvas);
+impl Drop for FrameGuard<'_> {
+    fn drop(&mut self) {
+        self.0.clear_frame();
+    }
+}
+
 pub struct WeaponHud {
+    /// Options > Video > HUD Aspect Ratio: the span of a wide screen the HUD panels use.
+    pub aspect: crate::config::HudAspect,
     corners: Vec<Texture2D>,
     pub canvas: Canvas,
     icons: HudFont,
     selected_icons: HudFont,
     crosshairs: HudFont,
     #[cfg(windows)]
-    native_crosshairs: BTreeMap<(char, u16), crate::native_font::Glyph>,
+    native_crosshairs: BTreeMap<(char, u16), source_ui::native_font::Glyph>,
     numbers: HudFont,
     number_glow: HudFont,
     small_numbers: HudFont,
@@ -1428,14 +1003,63 @@ pub struct WeaponHud {
     ammo_panel: PanelLayout,
     secondary_ammo_panel: PanelLayout,
     quick_info: QuickInfoHud,
+    power: power::PowerHud,
+    commentary: commentary::CommentaryHud,
     /// HudDamageIndicator dmg_xpos, dmg_ypos, dmg_wide, dmg_tall1, dmg_tall2
     /// (proportional, 480-line units).
     damage_layout: [f32; 5],
     /// Client screen fades (CViewEffects).
     fades: MutexCell<crate::fades::ScreenFades>,
+    health_label: String,
+    suit_label: String,
+    ammo_label: String,
+    alt_label: String,
+    /// The closed caption panel (HudCloseCaption).
+    pub captions: crate::closecaption::CaptionHud,
 }
 
 impl WeaponHud {
+    /// Draws what follows inside the HUD aspect frame ([`crate::proportional::hud_frame`]):
+    /// panels, selection, captions and the damage sides. The crosshair, which belongs to the
+    /// view center, and the screen fades stay on the whole screen. Fit Display, and a screen
+    /// no wider than the chosen aspect, leave the canvas untouched.
+    fn framed(&self) -> FrameGuard<'_> {
+        let screen = self.canvas.screen_size();
+        let (x, width) =
+            crate::proportional::hud_frame(screen, crate::tuning::hud_aspect_ratio(self.aspect));
+        if width < screen.x {
+            self.canvas.set_frame(x, width);
+        }
+        FrameGuard(&self.canvas)
+    }
+    /// The HUD frame in screen pixels, `(x, width)`.
+    pub fn frame(&self) -> (f32, f32) {
+        crate::proportional::hud_frame(
+            self.canvas.screen_size(),
+            crate::tuning::hud_aspect_ratio(self.aspect),
+        )
+    }
+    /// The rectangles the numeric panels occupy in screen pixels: health, suit, ammo, secondary
+    /// ammo (their layout, before animations).
+    pub fn panel_rects(&self) -> [[f32; 4]; 4] {
+        let screen = self.canvas.screen_size();
+        let (x, width) = self.frame();
+        let inside = vec2(width, screen.y);
+        [
+            &self.health_panel,
+            &self.suit_panel,
+            &self.ammo_panel,
+            &self.secondary_ammo_panel,
+        ]
+        .map(|panel| {
+            let rect = panel.rect_for(inside);
+            [rect.x + x, rect.y, rect.w, rect.h]
+        })
+    }
+    /// The canvas size in pixels.
+    fn canvas_size(&self) -> Vec2 {
+        vec2(self.canvas.width(), self.canvas.height())
+    }
     /// Local-player warnings emitted by QuickInfo's false-to-true threshold latches.
     /// Drain after draw_status and forward these owned sound-script names to the scene.
     pub fn drain_sounds(&self) -> Vec<String> {
@@ -1443,10 +1067,7 @@ impl WeaponHud {
     }
 
     pub fn load(vfs: &Vfs, canvas: Canvas) -> Result<Self> {
-        let scheme = keyvalues::parse_resource(
-            &vfs.read("resource/ClientScheme.res")?
-                .context("ClientScheme.res missing")?,
-        )?;
+        let (scheme, quick_info_fonts) = font::schemes(vfs)?;
         let scheme = find(&scheme, "Scheme").context("Scheme block missing")?;
         let fonts = scheme.get("Fonts").context("HUD font scheme missing")?;
         let settings = scheme
@@ -1455,7 +1076,7 @@ impl WeaponHud {
             .clone();
         let quick_info = QuickInfoHud::load(
             vfs,
-            fonts,
+            &quick_info_fonts,
             scheme.get("Colors").unwrap_or(&settings),
             canvas.clone(),
         )?;
@@ -1472,13 +1093,11 @@ impl WeaponHud {
             .read("resource/HALFLIFE2.ttf")?
             .context("HalfLife2 HUD font missing")?;
         let face = FontFace::load(&icon_font, canvas.clone())?;
-        let windows = std::env::var_os("WINDIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("C:/Windows"));
-        let bold = std::fs::read(windows.join("Fonts/verdanab.ttf"))
-            .ok()
+        let bold = vfs
+            .read("resource/linux_fonts/liberationsans-bold.ttf")?
             .or(vfs.read("resource/linux_fonts/DejaVuSans-Bold.ttf")?)
-            .context("Verdana or bundled HUD fallback font missing")?;
+            .or(vfs.read("resource/gordin-bold.ttf")?)
+            .context("Owned game installation font missing")?;
         let bold = FontFace::load(&bold, canvas.clone())?;
         let animation_source = keyvalues::decode_text(
             &vfs.read("scripts/HudAnimations.txt")?
@@ -1487,40 +1106,8 @@ impl WeaponHud {
         let animation_rules = animations(&animation_source)?;
         let animation_events = event_rules(&animation_source)?;
         let numeric_effects = MutexCell::new(NumericHudEffects::new(&settings));
-        let mut ammo_icons = BTreeMap::new();
-        let mut secondary_ammo_icons = BTreeMap::new();
-        let mut weapon_crosshairs = BTreeMap::<String, String>::new();
-        for class in [
-            "weapon_crowbar",
-            "weapon_pistol",
-            "weapon_357",
-            "weapon_smg1",
-            "weapon_ar2",
-            "weapon_shotgun",
-            "weapon_crossbow",
-            "weapon_rpg",
-            "weapon_frag",
-        ] {
-            if let Some(bytes) = vfs.read(&format!("scripts/{class}.txt"))? {
-                if let Some(weapon) = keyvalues::parse_resource(&bytes)?.first() {
-                    if let Some(textures) = weapon.get("TextureData") {
-                        for (key, icons) in [
-                            ("ammo", &mut ammo_icons),
-                            ("ammo2", &mut secondary_ammo_icons),
-                            ("crosshair", &mut weapon_crosshairs),
-                        ] {
-                            if let Some(icon) = textures
-                                .get(key)
-                                .and_then(|e| e.get("character"))
-                                .and_then(Entry::text)
-                            {
-                                icons.insert(class.into(), icon.into());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let (ammo_icons, secondary_ammo_icons, weapon_crosshairs) =
+            commentary::load_weapon_icons(vfs)?;
         let hud_textures = keyvalues::parse_resource(
             &vfs.read("scripts/hud_textures.txt")?
                 .context("HUD textures missing")?,
@@ -1572,13 +1159,26 @@ impl WeaponHud {
                     })
                 })
                 .collect();
-            crate::native_font::load(&icon_font, &requests)?
+            source_ui::native_font::load(&icon_font, &requests)?
         };
         let mut corners = Vec::new();
         for number in 1..=4 {
             corners.push(texture(vfs, &format!("vgui/hud/8x800corner{number}"))?);
         }
+        let loc = commentary::load_localization(vfs);
+        let commentary = commentary::CommentaryHud::load(vfs, layout);
+        let captions = crate::closecaption::CaptionHud::load(
+            vfs,
+            scheme,
+            layout,
+            canvas.clone(),
+            crate::closecaption::LANGUAGE,
+        );
+        let power = power::PowerHud::load(layout, fonts, &loc, bold.clone(), face.clone())?;
         Ok(Self {
+            power,
+            commentary,
+            aspect: crate::config::HudAspect::default(),
             corners,
             canvas,
             icons: HudFont::read(fonts, "WeaponIcons", face.clone(), 64.),
@@ -1636,7 +1236,55 @@ impl WeaponHud {
                 ]
             },
             fades: MutexCell::new(Default::default()),
+            health_label: loc.text("#Valve_Hud_HEALTH"),
+            suit_label: loc.text("#Valve_Hud_SUIT"),
+            ammo_label: loc.text("#Valve_Hud_AMMO"),
+            alt_label: loc.text("#Valve_Hud_AMMO_ALT"),
+            captions,
         })
+    }
+
+    /// The developer commentary progress panel (`HudCommentary`), hidden when `closecaption` is on.
+    pub fn draw_commentary(
+        &self,
+        overlay: Option<&hl2_simulation::commentary::CommentaryOverlay>,
+        closecaption: bool,
+        time: f64,
+    ) {
+        self.commentary.draw(self, overlay, closecaption, time);
+    }
+
+    /// The closed caption panel (CHudCloseCaption::Paint): its box through the HUD's rounded
+    /// panel background, then the text runs. Hidden while `closecaption` is off.
+    pub fn draw_captions(&self, settings: &crate::closecaption::Settings, time: f64) {
+        self.captions.tick(time);
+        if !settings.closecaption {
+            return;
+        }
+        let _frame = self.framed();
+        let size = (self.canvas.width(), self.canvas.height());
+        let Some((panel, paint)) = self.captions.paint(size, time) else {
+            return;
+        };
+        let color = |c: [f32; 4]| Color::new(c[0], c[1], c[2], c[3]);
+        if let Some((rect, background)) = paint.background {
+            self.rounded_box(
+                Rect::new(panel.x + rect[0], panel.y + rect[1], rect[2], rect[3]),
+                color(background),
+            );
+        }
+        let scale = crate::proportional::scale(vec2(size.0, size.1));
+        for run in &paint.runs {
+            let Some((face, tall)) = self.captions.face(run.style, scale) else {
+                continue;
+            };
+            let (x, y) = (panel.x + run.x, panel.y + run.y);
+            if let Some(highlight) = run.highlight {
+                self.canvas
+                    .rectangle(x, y, run.width, run.height, color(highlight));
+            }
+            face.draw_cell(&run.text, vec2(x, y), tall, color(run.color));
+        }
     }
 
     /// A ScreenFade message (DamageEffect or env_fade) on the game clock.
@@ -1750,10 +1398,10 @@ impl WeaponHud {
             Color::from_rgba(c[0] as u8, c[1] as u8, c[2] as u8, (c[3] * alpha) as u8)
         };
         if full[3] > 0. {
-            self.canvas.rectangle(0., 0., width, height, rgba(full, 1.));
+            self.canvas.screen_rectangle(rgba(full, 1.));
         }
         // Proportional values are truncated to VGUI integers.
-        let scale = height / 480.;
+        let scale = crate::proportional::scale(vec2(width, height));
         let [xpos, ypos, wide, tall1, tall2] = self.damage_layout.map(|v| (v * scale).trunc());
         let high = high_right[3] > right[3] || high_left[3] > left[3];
         let inset = ((tall1 - tall2) / 2.).trunc();
@@ -1797,7 +1445,7 @@ impl WeaponHud {
     fn rounded_box(&self, rect: Rect, color: Color) {
         self.canvas.additive(false);
         // Retail Panel::GetCornerTextureSize uses max(scaled 8 / 2, 8).
-        let corner = ((8. * self.canvas.height() / 480.).round() / 2.)
+        let corner = ((8. * crate::proportional::scale(self.canvas_size())).round() / 2.)
             .floor()
             .max(8.)
             .min(rect.w / 2.)
@@ -1878,13 +1526,14 @@ impl WeaponHud {
         let Some(pending) = selection.pending.as_deref() else {
             return;
         };
+        let _frame = self.framed();
         let Some(selected_weapon) = weapons.get(pending) else {
             return;
         };
         if !inv.suit || inv.health <= 0. || selection.fast_switch || time > selection.until {
             return;
         }
-        let scale = self.canvas.height() / 480.;
+        let scale = crate::proportional::scale(self.canvas_size());
         let small = number(&self.layout, "SmallBoxSize", 32.) * scale;
         let wide = number(&self.layout, "LargeBoxWide", 112.) * scale;
         let tall = number(&self.layout, "LargeBoxTall", 84.) * scale;
@@ -2029,10 +1678,10 @@ impl WeaponHud {
         }
         let background = effects.color(NumericProperty::Background);
         let foreground = effects.color(NumericProperty::Foreground);
-        let scale = self.canvas.height() / 480.;
+        let scale = crate::proportional::scale(self.canvas_size());
         let rect = effects
             .rect()
-            .unwrap_or_else(|| panel.rect(scale, self.canvas.width()));
+            .unwrap_or_else(|| panel.rect(scale, self.canvas_size()));
         self.rounded_box(rect, background);
         self.canvas.additive(true);
         self.labels.draw(
@@ -2074,6 +1723,7 @@ impl WeaponHud {
         _selection: &Selection,
         time: f64,
     ) {
+        let _frame = self.framed();
         let mut effects = self.numeric_effects.borrow_mut();
         effects.configure_layouts(
             [
@@ -2099,14 +1749,14 @@ impl WeaponHud {
         }
         self.numeric_panel(
             &self.health_panel,
-            "HEALTH",
+            &self.health_label,
             inv.health as i32,
             None,
             effects.panels[NumericPanel::Health as usize],
         );
         self.numeric_panel(
             &self.suit_panel,
-            "SUIT",
+            &self.suit_label,
             inv.armor as i32,
             None,
             effects.panels[NumericPanel::Suit as usize],
@@ -2121,14 +1771,14 @@ impl WeaponHud {
             let reserve = inv.reserve_for(&inv.active, weapons);
             self.numeric_panel(
                 &self.ammo_panel,
-                "AMMO",
+                &self.ammo_label,
                 if clip < 0 { reserve } else { clip },
                 (clip >= 0).then_some(reserve),
                 effects.panels[NumericPanel::Ammo as usize],
             );
             self.ammo_icon(
                 &self.ammo_panel,
-                "AMMO",
+                &self.ammo_label,
                 self.ammo_icons.get(&inv.active),
                 effects.panels[NumericPanel::Ammo as usize],
             );
@@ -2136,14 +1786,14 @@ impl WeaponHud {
         let secondary_effects = effects.panels[NumericPanel::AmmoSecondary as usize];
         self.numeric_panel(
             &self.secondary_ammo_panel,
-            "ALT",
+            &self.alt_label,
             effects.secondary_ammo,
             None,
             secondary_effects,
         );
         self.ammo_icon(
             &self.secondary_ammo_panel,
-            "ALT",
+            &self.alt_label,
             self.secondary_ammo_icons.get(&inv.active),
             secondary_effects,
         );
@@ -2157,10 +1807,10 @@ impl WeaponHud {
         effects: PanelEffects,
     ) {
         if let Some(icon) = icon.filter(|_| effects.opacity() > 0.) {
-            let scale = self.canvas.height() / 480.;
+            let scale = crate::proportional::scale(self.canvas_size());
             let rect = effects
                 .rect()
-                .unwrap_or_else(|| panel.rect(scale, self.canvas.width()));
+                .unwrap_or_else(|| panel.rect(scale, self.canvas_size()));
             let x = rect.x
                 + panel.text.x * scale
                 + (self.labels.width(label) - self.ammo_icon_font.width(icon)) * 0.5;
@@ -2173,89 +1823,19 @@ impl WeaponHud {
             self.canvas.additive(false);
         }
     }
-
-    pub fn draw_crosshair(&self, inv: &Inventory) {
-        if inv.health <= 0. {
-            return;
-        }
-        let Some(character) = self.weapon_crosshairs.get(&inv.active) else {
-            // CHudCrosshair::ResetCrosshair uses the installed default sprite and opaque white.
-            let (destination, source) = default_crosshair_rects(
-                vec2(self.canvas.width(), self.canvas.height()),
-                self.default_crosshair_rect,
-                self.default_crosshair.size(),
-            );
-            if self.default_crosshair_additive {
-                self.canvas.additive(true);
-            }
-            draw_texture_ex(
-                &self.canvas,
-                &self.default_crosshair,
-                destination.x,
-                destination.y,
-                WHITE,
-                DrawTextureParams {
-                    source: Some(source),
-                    dest_size: Some(destination.size()),
-                },
-            );
-            self.canvas.additive(false);
-            return;
-        };
-        self.canvas.additive(true);
-        #[cfg(windows)]
-        if let Some(glyph) = character
-            .chars()
-            .next()
-            .filter(|_| character.chars().count() == 1)
-            .and_then(|c| {
-                let range = self.crosshairs.ranges.iter().find(|range| {
-                    self.canvas.height() >= range.minimum && self.canvas.height() <= range.maximum
-                })?;
-                range.monochrome_crosshair().then_some(())?;
-                self.native_crosshairs.get(&(c, range.tall.round() as u16))
-            })
-        {
-            if let Some(texture) = &glyph.texture {
-                // Integer icon dimensions and GDI's actual cell height, not the requested
-                // height or fractional fontdue EM metrics. No rasterization occurs here.
-                let center = vec2(
-                    (self.canvas.width() * 0.5 + 0.5).trunc(),
-                    (self.canvas.height() * 0.5 + 0.5).trunc(),
-                );
-                let origin = center - vec2((glyph.advance / 2) as f32, (glyph.height / 2) as f32)
-                    + glyph.origin;
-                draw_texture(
-                    &self.canvas,
-                    texture,
-                    origin.x,
-                    origin.y,
-                    self.crosshair_color,
-                );
-            }
-            self.canvas.additive(false);
-            return;
-        }
-        self.crosshairs.draw(
-            character,
-            (self.canvas.width() - self.crosshairs.width(character)) * 0.5,
-            (self.canvas.height() - self.crosshairs.size()) * 0.5,
-            self.crosshair_color,
-        );
-        self.canvas.additive(false);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use source_ui::canvas::{Quad, WHITE};
 
     #[cfg(windows)]
     #[test]
-    #[ignore = "requires an owned HL2 installation in HL2_ROOT"]
+    #[ignore = "requires an owned Half-Life 2 installation"]
     fn owned_monochrome_crosshair_matches_native_pistol_and_smg_pixels() {
-        let root = std::env::var_os("HL2_ROOT").expect("set HL2_ROOT to the owned installation");
-        let vfs = Vfs::mount(std::path::Path::new(&root)).unwrap();
+        let root = source_assets::install::discover().expect("installed game");
+        let vfs = Vfs::mount(&root).unwrap();
         let canvas = Canvas::default();
         let hud = WeaponHud::load(&vfs, canvas.clone()).unwrap();
         let mut inventory = Inventory::default();
@@ -2292,10 +1872,58 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires an owned HL2 installation in HL2_ROOT"]
+    #[ignore = "requires an owned Half-Life 2 installation"]
+    fn owned_hud_aspect_moves_the_panels_into_a_centered_frame() {
+        use crate::config::HudAspect;
+        let root = source_assets::install::discover().expect("installed game");
+        let vfs = Vfs::mount(&root).unwrap();
+        let canvas = Canvas::default();
+        let mut hud = WeaponHud::load(&vfs, canvas.clone()).unwrap();
+        let weapons = hl2_simulation::gameplay::definitions(&vfs).unwrap();
+        let mut inventory = Inventory::default();
+        inventory.health = 100.;
+        inventory.suit = true;
+        inventory.give("weapon_smg1", &weapons, 0.);
+        inventory.active = "weapon_smg1".into();
+        inventory.refill_ammo(&weapons);
+        let selection = Selection::new();
+        let signature = |hud: &WeaponHud, size: Vec2, inventory: &Inventory| {
+            canvas.resize(size.x, size.y);
+            hud.draw_status(inventory, &weapons, &selection, 0.);
+            let quads = canvas.drain();
+            assert_eq!(canvas.width(), size.x, "the frame never outlives a draw");
+            quads
+                .iter()
+                .map(|q| (q.destination, q.source, q.color, q.additive))
+                .collect::<Vec<_>>()
+        };
+        // 16:9 with Centered 16:9 is bit for bit the Fit Display layout.
+        let fit = signature(&hud, vec2(1920., 1080.), &inventory);
+        hud.aspect = HudAspect::Wide16x9;
+        assert_eq!(signature(&hud, vec2(1920., 1080.), &inventory), fit);
+        // On an ultrawide screen the panels are the 16:9 ones moved into the centered frame.
+        let reference = signature(&hud, vec2(2560., 1440.), &inventory);
+        let wide = signature(&hud, vec2(3440., 1440.), &inventory);
+        assert_eq!(wide.len(), reference.len());
+        for (wide, reference) in wide.iter().zip(&reference) {
+            assert_eq!(wide.0.x, reference.0.x + 440., "{wide:?}");
+            assert_eq!(
+                (wide.0.y, wide.0.w, wide.0.h),
+                (reference.0.y, reference.0.w, reference.0.h)
+            );
+        }
+        // Fit Display spans the whole width: the health panel hugs the left edge, ammo the right.
+        hud.aspect = HudAspect::Fit;
+        canvas.resize(3440., 1440.);
+        let [health, _, ammo, _] = hud.panel_rects();
+        assert!(health[0] < 100. && ammo[0] + ammo[2] > 3340.);
+    }
+
+    #[test]
+    #[ignore = "requires an owned Half-Life 2 installation"]
     fn owned_canvas_crosshair_and_pending_selection_preserve_status() {
-        let root = std::env::var_os("HL2_ROOT").expect("set HL2_ROOT to the owned installation");
-        let vfs = Vfs::mount(std::path::Path::new(&root)).unwrap();
+        let root = source_assets::install::discover().expect("installed game");
+        let vfs = Vfs::mount(&root).unwrap();
         let canvas = Canvas::default();
         let hud = WeaponHud::load(&vfs, canvas.clone()).unwrap();
         let mut inventory = Inventory::default();

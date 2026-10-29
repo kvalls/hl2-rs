@@ -1,0 +1,350 @@
+[
+  {
+    "tick": 20,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 22,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 70,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 72,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "chapters-open"
+  },
+  {
+    "tick": 105,
+    "label": "browser-settled"
+  },
+  {
+    "tick": 120,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 122,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 124,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 126,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 128,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 130,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 132,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 134,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 136,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ],
+    "label": "chapter9a"
+  },
+  {
+    "tick": 138,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 140,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 142,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 144,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 146,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 148,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 150,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 152,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "left"
+          ]
+        }
+      }
+    ],
+    "label": "selected-chapter"
+  },
+  {
+    "tick": 160,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            500,
+            370
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 162,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            500,
+            370
+          ],
+          "released": true
+        }
+      }
+    ],
+    "label": "pointer-selected"
+  },
+  {
+    "tick": 170,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            640,
+            508
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 172,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            640,
+            508
+          ],
+          "released": true
+        }
+      }
+    ],
+    "label": "chapter-request"
+  },
+  {
+    "tick": 260,
+    "label": "chapter-loaded"
+  }
+]

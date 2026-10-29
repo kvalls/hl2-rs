@@ -74,10 +74,43 @@ fn bone_pose(
     let rig = game.world.rigs.get(key)?;
     Some(*poses.get(&id)?.get(bone)? * rig.bones.get(bone)?.inverse_bind.inverse())
 }
+type EyeDrawItem<'a> = (
+    &'a SourceEntity,
+    &'a EyeMesh,
+    &'a Mesh3d,
+    Option<&'a bevy::mesh::skinning::SkinnedMesh>,
+);
+
+fn collect_actor_poses<'a>(
+    eyes: &'a Eyes,
+    draws: impl IntoIterator<Item = EyeDrawItem<'a>>,
+    game: &crate::gameplay::Gameplay,
+) -> BTreeMap<usize, Vec<glam::Mat4>> {
+    let mut pose_keys: BTreeMap<usize, &str> = eyes
+        .actors
+        .iter()
+        .map(|(&id, a)| (id, a.key.as_str()))
+        .collect();
+    for (owner, eye, _, _) in draws {
+        pose_keys.entry(owner.0).or_insert(&eye.key);
+    }
+    pose_keys
+        .into_iter()
+        .filter_map(|(id, key)| {
+            let state = game.scene.states.get(id)?;
+            if (state.killed || !state.visible) && !game.scene.ragdoll_matrices.contains_key(&id) {
+                return None;
+            }
+            let rig = game.world.rigs.get(key)?;
+            Some((id, game.scene.actor_matrices(rig, id)))
+        })
+        .collect()
+}
+
 pub fn present(
     mut eyes: ResMut<Eyes>,
     game: Res<crate::gameplay::Gameplay>,
-    sim: Res<crate::movement::Simulation>,
+    sim: Res<crate::simulation::Simulation>,
     camera: Query<&Transform, With<FlyCamera>>,
     draws: Query<(
         &SourceEntity,
@@ -92,25 +125,7 @@ pub fn present(
     let Ok(camera) = camera.single() else { return };
     // Evaluate each visible actor once per presentation; target and iris consumers
     // share these skin transforms rather than sampling the full rig for every eye.
-    let mut pose_keys: BTreeMap<usize, &str> = eyes
-        .actors
-        .iter()
-        .map(|(&id, a)| (id, a.key.as_str()))
-        .collect();
-    for (owner, eye, _, _) in &draws {
-        pose_keys.entry(owner.0).or_insert(&eye.key);
-    }
-    let poses: BTreeMap<_, _> = pose_keys
-        .into_iter()
-        .filter_map(|(id, key)| {
-            let state = &game.scene.states[id];
-            if (state.killed || !state.visible) && !game.scene.ragdoll_matrices.contains_key(&id) {
-                return None;
-            }
-            let rig = game.world.rigs.get(key)?;
-            Some((id, game.scene.actor_matrices(rig, id)))
-        })
-        .collect();
+    let poses = collect_actor_poses(&eyes, draws, &game);
     let mut candidates = vec![(
         None,
         glam::Vec3::from_array(bevy_to_source(camera.translation).to_array()),
@@ -119,7 +134,9 @@ pub fn present(
     let mut origins = Vec::new();
     let mut attachment_actors = 0;
     for (&id, actor) in &eyes.actors {
-        let state = &game.scene.states[id];
+        let Some(state) = game.scene.states.get(id) else {
+            continue;
+        };
         if (!state.visible || state.killed) && !game.scene.ragdoll_matrices.contains_key(&id) {
             continue;
         }
@@ -168,7 +185,9 @@ pub fn present(
     }
     let mut actor_targets = BTreeMap::<usize, Option<Selected>>::new();
     for (owner, mesh_eye, handle, skinned) in &draws {
-        let state = &game.scene.states[owner.0];
+        let Some(state) = game.scene.states.get(owner.0) else {
+            continue;
+        };
         if (!state.visible || state.killed) && !game.scene.ragdoll_matrices.contains_key(&owner.0) {
             continue;
         }
@@ -395,7 +414,7 @@ fn random_view_target(eye: glam::Vec3, forward: glam::Vec3, actor: usize, time: 
 /// leaves the set unknown, which fails open.
 pub fn attention_pvs(
     mut game: ResMut<crate::gameplay::Gameplay>,
-    sim: Res<crate::movement::Simulation>,
+    sim: Res<crate::simulation::Simulation>,
     sky: Res<crate::sky::Sky>,
     monitors: Res<crate::monitors::Monitors>,
 ) {
@@ -404,18 +423,17 @@ pub fn attention_pvs(
         return;
     }
     let mut eyes = vec![glam::Vec3::from_array(sim.eye().to_array())];
-    if let Some(camera) = monitors.selected() {
-        eyes.push(game.scene.states[camera].origin);
+    if let Some(camera) = monitors.selected().and_then(|c| game.scene.states.get(c)) {
+        eyes.push(camera.origin);
     }
     let mut visible = std::collections::BTreeSet::new();
     for (id, entity) in game.world.entities.iter().enumerate() {
         if !hl2_simulation::attention::has_animated_face(entity.class()) {
             continue;
         }
-        let state = &game.scene.states[id];
-        if state.killed {
+        let Some(state) = game.scene.states.get(id).filter(|s| !s.killed) else {
             continue;
-        }
+        };
         let head = state.origin + glam::Vec3::Z * 64.;
         for &eye in &eyes {
             match sky.bounds_in_pvs(eye, state.origin, head) {

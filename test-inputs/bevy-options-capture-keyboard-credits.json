@@ -1,0 +1,344 @@
+[
+  {
+    "tick": 20,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 21,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 22,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 23,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 24,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 25,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "open-options"
+  },
+  {
+    "tick": 60,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ],
+    "label": "focus-tab-strip"
+  },
+  {
+    "tick": 70,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 71,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 72,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 73,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ],
+    "label": "audio-tab"
+  },
+  {
+    "tick": 90,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 92,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 94,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 96,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 98,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 100,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 102,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 104,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ],
+    "label": "focus-credits-button"
+  },
+  {
+    "tick": 110,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "space"
+          ],
+          "held_keys": [
+            "space"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 111,
+    "ui": [
+      {
+        "action": "input",
+        "input": {}
+      }
+    ],
+    "label": "credits-open"
+  },
+  {
+    "tick": 130,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ],
+    "label": "focus-close"
+  },
+  {
+    "tick": 150,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ],
+          "held_keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "enter-down"
+  },
+  {
+    "tick": 151,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "held_keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "enter-held"
+  },
+  {
+    "tick": 152,
+    "ui": [
+      {
+        "action": "input",
+        "input": {}
+      }
+    ],
+    "label": "enter-released"
+  },
+  {
+    "tick": 200,
+    "ui": [
+      {
+        "action": "command",
+        "command": "echo settled"
+      }
+    ],
+    "label": "settle"
+  }
+]

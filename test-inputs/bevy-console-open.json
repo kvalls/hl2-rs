@@ -1,0 +1,21 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "toggle_console"
+   }
+  ],
+  "label": "console"
+ },
+ {
+  "tick": 120,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

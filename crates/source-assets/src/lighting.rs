@@ -12,6 +12,11 @@ pub fn use_hdr(lumps: &[Vec<u8>]) -> bool {
     let lump = |id: usize| lumps.get(id).is_none_or(Vec::is_empty);
     lump(7) || (!lump(53) && !lump(58))
 }
+/// The lighting copies to read: the HDR ones when `hdr` is wanted and the map has them; an LDR
+/// frame (`mat_hdr_level` below 2) reads the LDR ones, unless the map has none.
+pub fn choose_hdr(lumps: &[Vec<u8>], hdr: bool) -> bool {
+    use_hdr(lumps) && (hdr || lumps.get(7).is_none_or(Vec::is_empty))
+}
 #[derive(Clone, Copy)]
 pub struct FaceLight {
     pub page: usize,
@@ -20,8 +25,8 @@ pub struct FaceLight {
     pub width: usize,
     pub height: usize,
 }
-pub fn build(lumps: &[Vec<u8>]) -> Result<(Vec<Lightmap>, Vec<Option<FaceLight>>)> {
-    let hdr = use_hdr(lumps);
+pub fn build(lumps: &[Vec<u8>], hdr: bool) -> Result<(Vec<Lightmap>, Vec<Option<FaceLight>>)> {
+    let hdr = choose_hdr(lumps, hdr);
     let data = &lumps[if hdr { 53 } else { 8 }];
     let faces = records(&lumps[if hdr { 58 } else { 7 }], 56)?;
     let mut pages = Vec::<Lightmap>::new();
@@ -106,6 +111,21 @@ pub fn build(lumps: &[Vec<u8>]) -> Result<(Vec<Lightmap>, Vec<Option<FaceLight>>
 mod tests {
     use super::*;
     #[test]
+    fn an_ldr_frame_reads_the_ldr_copies_when_the_map_has_them() {
+        let mut lumps = vec![vec![]; 64];
+        assert!(
+            choose_hdr(&lumps, false),
+            "no LDR faces: HDR is all there is"
+        );
+        lumps[7] = vec![0; 56];
+        lumps[8] = vec![0; 4];
+        lumps[53] = vec![0; 4];
+        lumps[58] = vec![0; 56];
+        assert!(choose_hdr(&lumps, true));
+        assert!(!choose_hdr(&lumps, false));
+    }
+
+    #[test]
     fn rgbexp_and_border() {
         let mut lumps = vec![vec![]; 64];
         let mut face = vec![0u8; 56];
@@ -113,7 +133,7 @@ mod tests {
         lumps[7] = face;
         // Linear 2.0 (255 * 2^1) and 1.0 are both kept; the border copies the edge texel.
         lumps[8] = vec![255, 0, 0, 1, 0, 255, 0, 0];
-        let (pages, refs) = build(&lumps).unwrap();
+        let (pages, refs) = build(&lumps, true).unwrap();
         let r = refs[0].unwrap();
         let p = &pages[r.page];
         let texel = |x: usize| -> [f32; 4] {

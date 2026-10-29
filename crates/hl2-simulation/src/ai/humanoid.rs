@@ -9,7 +9,12 @@
 //! speech (response rules, COMBINE_* sentences), medic heals, mortars and the RPG
 //! schedules. SDK behavior; retail not compared.
 use super::assault::Assault;
-use super::conditions::*;
+use super::conditions::{
+    Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1, COND_ENEMY_DEAD,
+    COND_ENEMY_OCCLUDED, COND_HEAR_DANGER, COND_HEAR_MOVE_AWAY, COND_HEAR_PHYSICS_DANGER,
+    COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOW_PRIMARY_AMMO, COND_NO_PRIMARY_AMMO,
+    COND_SEE_ENEMY, COND_TOO_FAR_TO_ATTACK,
+};
 use super::metropolice::CopRequest;
 use super::schedule::{
     base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg, TaskStatus,
@@ -971,6 +976,7 @@ impl Behavior for Humanoid {
 mod tests {
     use super::super::schedule::tests::FakeMotor;
     use super::*;
+    use crate::ai::conditions::Cond;
     use crate::npc_weapons::{builtin, RegulatorRule, ShotRegulator};
 
     fn setup(kind: Kind) -> (Humanoid, AiNpc, Schedules) {

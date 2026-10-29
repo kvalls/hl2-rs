@@ -4,7 +4,10 @@
 //! follow the path (move_yaw), and the shot regulator times the shots. Native restarts
 //! the ACT_GESTURE_RANGE_ATTACK1 gesture per shot; AI gesture layers are not modeled
 //! yet, so the shot is fired directly (one weapon fire event per regulator shot).
-use super::conditions::*;
+use super::conditions::{
+    Conditions, COND_CAN_RANGE_ATTACK1, COND_ENEMY_DEAD, COND_ENEMY_OCCLUDED, COND_ENEMY_TOO_FAR,
+    COND_TOO_FAR_TO_ATTACK,
+};
 use crate::npc_weapons::ShotRegulator;
 use serde::Serialize;
 
@@ -184,6 +187,7 @@ impl MoveShoot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::conditions::COND_SEE_ENEMY;
     use crate::npc_weapons::{builtin, RegulatorRule};
 
     #[test]

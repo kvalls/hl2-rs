@@ -76,6 +76,14 @@ pub enum Action {
     },
 }
 impl Action {
+    /// A fixture's entity setup (inputs to named entities, seeded actor and prop poses), not
+    /// player input: it still applies while the player's controls are ignored.
+    pub fn entity_setup(&self) -> bool {
+        matches!(
+            self,
+            Self::Send { .. } | Self::ActorPose { .. } | Self::PropPose { .. }
+        )
+    }
     pub fn valid(&self) -> bool {
         match self {
             Self::ActorPose {
@@ -137,22 +145,30 @@ pub struct Gameplay {
     pub secondary: bool,
     pub actions: Vec<Action>,
     queued_primary: bool,
-    queued_secondary: bool,
+    pub(crate) queued_secondary: bool,
     primary_consumed: bool,
-    secondary_consumed: bool,
+    pub(crate) secondary_consumed: bool,
     pub unplayed_sounds: u64,
     pub sound_cues: Vec<String>,
     pub sound_requests: Vec<hl2_simulation::sounds::SoundRequest>,
+    /// Scene speech captions waiting for the sound queue (which resolves actor genders).
+    pub captions: Vec<hl2_simulation::captions::CaptionRequest>,
+    /// CloseCaption messages for the HUD caption panel.
+    pub caption_messages: Vec<hl2_ui::closecaption::Request>,
     weapon_sounds: hl2_simulation::sounds::WeaponAnimationSounds,
     /// Client sound events of entity animations (NPC footsteps).
     entity_sounds: hl2_simulation::sounds::EntityAnimationSounds,
     pub footsteps: hl2_simulation::footsteps::Footsteps,
-    /// Local player damage intake (skill 2, the owner's native setting).
+    /// Local player damage intake at the current skill (see [`Gameplay::set_skill`]).
     pub player_damage: hl2_simulation::player_damage::PlayerDamage,
     /// Client "Damage" messages not yet shown by the HUD.
     pub damage_messages: Vec<hl2_simulation::player_damage::DamageMessage>,
     /// HEV suit voice queue.
     pub suit: hl2_simulation::suit::Suit,
+    /// `skill` (1 Easy, 2 Normal, 3 Hard); hosts update it through [`Gameplay::set_skill`].
+    skill: u32,
+    /// The installed `cfg/skill.cfg`, kept to re-evaluate skill-dependent values.
+    skill_config: Option<String>,
     /// Step 14 NPC AI (on unless `--no-ai` / `ai_enable 0`).
     pub ai: hl2_simulation::ai::runtime::AiRuntime,
     /// Velocity impulses on the player from NPC hits (ApplyAbsVelocityImpulse), applied
@@ -209,7 +225,26 @@ pub fn spawn_usable_weapons(
         })
         .collect()
 }
+
 impl Gameplay {
+    /// Applies the `skill` setting. Like CGameRules::Think, which reads `skill` every frame,
+    /// a change takes effect immediately; values outside 1..=3 fall back to Normal.
+    pub fn set_skill(&mut self, skill: u8) {
+        let skill = if (1..=3).contains(&skill) {
+            u32::from(skill)
+        } else {
+            2
+        };
+        if skill != self.skill {
+            self.skill = skill;
+            self.scene.skill.level = skill;
+            self.player_damage.take_scale =
+                hl2_simulation::player_damage::PlayerDamage::take_scale_for(
+                    skill,
+                    self.skill_config.as_deref(),
+                );
+        }
+    }
     /// After the player move: this tick's damage (trigger_hurt, blasts, then the
     /// landing's fall damage) through the SDK player path, then death
     /// (Event_Killed/DeathSound). Returns true when the player died this tick.
@@ -390,12 +425,16 @@ impl Gameplay {
             unplayed_sounds: 0,
             sound_cues: vec![],
             sound_requests: vec![],
+            captions: vec![],
+            caption_messages: vec![],
             weapon_sounds: Default::default(),
             entity_sounds: Default::default(),
             footsteps: Default::default(),
             player_damage: Default::default(),
             damage_messages: Vec::new(),
             suit: Default::default(),
+            skill: 2,
+            skill_config: None,
             ai: hl2_simulation::ai::runtime::AiRuntime::new(&World::default(), None),
             player_impulse: glam::Vec3::ZERO,
             spawn_overlay: Default::default(),
@@ -460,6 +499,8 @@ impl Gameplay {
             player_damage,
             damage_messages: Vec::new(),
             suit: Default::default(),
+            skill: 2,
+            skill_config: skill,
             impacts,
             world: Arc::new(world),
             scene,
@@ -481,6 +522,8 @@ impl Gameplay {
             unplayed_sounds: 0,
             sound_cues: vec![],
             sound_requests: vec![],
+            captions: vec![],
+            caption_messages: vec![],
             weapon_sounds: Default::default(),
             entity_sounds: Default::default(),
             footsteps: Default::default(),
@@ -710,35 +753,7 @@ impl Gameplay {
         if Arc::strong_count(&self.world) > 1 {
             self.world_copies += 1;
         }
-        let world = Arc::make_mut(&mut self.world);
-        for (k, v) in loaded.model_assets {
-            world.model_assets.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.model_collision {
-            world.model_collision.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.rigs {
-            world.rigs.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.illumination {
-            world.illumination.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.model_physics {
-            world.model_physics.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.model_mass {
-            world.model_mass.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.model_prop_health {
-            world.model_prop_health.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.model_prop_data {
-            world.model_prop_data.entry(k).or_insert(v);
-        }
-        for (k, v) in loaded.model_breaks {
-            world.model_breaks.entry(k).or_insert(v);
-        }
-        world.warnings.extend(loaded.warnings);
+        Arc::make_mut(&mut self.world).merge_model_tables(loaded);
     }
     /// The F4/npc_create part: a class template, then the request's weapon, side and
     /// grenades.
@@ -1658,6 +1673,7 @@ impl Gameplay {
                 self.unplayed_sounds += 1;
             }
         }
+        self.captions.append(&mut self.scene.captions);
         let excess = self.sound_cues.len().saturating_sub(64);
         self.sound_cues.drain(..excess);
     }
@@ -1696,7 +1712,7 @@ impl Gameplay {
             })
             .collect();
         let ragdolls = serde_json::json!({"active":self.ragdolls.active.len(),"spawned":self.ragdolls.spawned,"skipped":self.ragdolls.skipped,"removed":self.ragdolls.removed,"shot_pushes":self.ragdolls.shot_pushes,"blast_pushes":self.ragdolls.blast_pushes,"pins":self.ragdolls.pins,"death_poses":self.ragdolls.death_poses,"bolt_misses":self.ragdolls.bolt_misses,"last_missed_bolt":self.ragdolls.last_missed_bolt.map(|(a,b)| [a.to_array(),b.to_array()]),"missed_bolt_bodies":self.ragdolls.missed_bolt_bodies.iter().map(|v| v.to_array()).collect::<Vec<_>>(),"fading":self.ragdolls.fading(),"shots_seen":self.ragdolls.shots_seen,"shots_busy":self.ragdolls.shots_busy,"simulating":self.ragdolls.simulating(physics),"forced_sleeps":self.ragdolls.forced_sleeps,"activity":self.ragdolls.activity(physics),"last_missed_shot":self.ragdolls.last_missed_shot.map(|(a,b)| [a.to_array(),b.to_array()]),"origins":self.ragdolls.active.keys().map(|id| (id.to_string(), self.scene.states[*id].origin.to_array())).collect::<std::collections::BTreeMap<_,_>>()});
-        serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"carrying":self.inventory.carrying(),"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
+        serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"flashlight":self.scene.flashlight.state(),"carrying":self.inventory.carrying(),"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"random_look_targets":self.scene.look_targets.random_report(),"heads":self.scene.heads.iter().map(|(id,h)| (id.to_string(), h.goal.to_array())).collect::<std::collections::BTreeMap<_,_>>(),"gesture_layers":self.scene.gestures.report(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),"npc_paths":self.npcs.path_stats(),
             "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"spawn_overlay":self.spawn_overlay,"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
@@ -1775,5 +1791,45 @@ mod tests {
         game.buttons(true, true);
         step(&mut game, &mut physics, &player);
         assert_eq!(game.inventory.shots, 1);
+    }
+    #[test]
+    fn skill_setting_rescales_damage_taken_and_inflicted_immediately() {
+        let mut game = Gameplay::synthetic(World::default());
+        game.skill_config = Some("sk_dmg_take_scale3 \"2.0\"\n".into());
+        assert_eq!((game.skill, game.player_damage.take_scale), (2, 1.));
+        assert_eq!(
+            (
+                game.scene.skill.level,
+                game.scene.skill.player_inflict_scale()
+            ),
+            (2, 1.0)
+        );
+        game.set_skill(1);
+        assert_eq!((game.skill, game.player_damage.take_scale), (1, 0.5));
+        assert_eq!(
+            (
+                game.scene.skill.level,
+                game.scene.skill.player_inflict_scale()
+            ),
+            (1, 1.5)
+        );
+        game.set_skill(3);
+        assert_eq!(game.player_damage.take_scale, 2., "skill.cfg override");
+        assert_eq!(
+            (
+                game.scene.skill.level,
+                game.scene.skill.player_inflict_scale()
+            ),
+            (3, 0.75)
+        );
+        game.set_skill(9);
+        assert_eq!((game.skill, game.player_damage.take_scale), (2, 1.));
+        assert_eq!(
+            (
+                game.scene.skill.level,
+                game.scene.skill.player_inflict_scale()
+            ),
+            (2, 1.0)
+        );
     }
 }

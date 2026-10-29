@@ -20,6 +20,13 @@ pub struct Vertex {
     #[serde(default)]
     pub normal: Vec3,
 }
+/// A coarser level of detail of a studio model: the LOD metric it takes over at (its .vtx switch
+/// point) and its surfaces.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelLod {
+    pub switch_point: f32,
+    pub surfaces: Vec<Surface>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Surface {
     #[serde(default)]
@@ -108,6 +115,9 @@ pub struct World {
     pub overlays: Vec<Surface>,
     #[serde(default)]
     pub model_assets: std::collections::BTreeMap<String, Vec<Surface>>,
+    /// Each model asset's levels of detail coarser than the root LOD, finest first.
+    #[serde(default)]
+    pub model_lods: std::collections::BTreeMap<String, Vec<ModelLod>>,
     /// Collision convexes are separate from visible model triangles.
     #[serde(default)]
     pub model_collision: std::collections::BTreeMap<String, Vec<ConvexPiece>>,
@@ -150,6 +160,10 @@ pub struct World {
     /// Resolved surfaceproperties entries (lowercase name, "base" inheritance applied).
     #[serde(default)]
     pub surface_materials: std::collections::BTreeMap<String, SurfaceMaterial>,
+    /// Materials of world faces flagged `SURF_NOSHADOWS` (water): no projected shadow lands on
+    /// them.
+    #[serde(default)]
+    pub no_shadow_materials: std::collections::BTreeSet<String>,
 }
 /// One .phy "solid" block. Defaults follow SDK g_PhysDefaultObjectParams
 /// (physics_shared.cpp): mass 1, inertia 1, damping 0.1, rotdamping 0.1, "DEFAULT".
@@ -417,6 +431,28 @@ impl ModelInstance {
     }
 }
 impl World {
+    /// Merge a late-loaded model's tables (keys this world lacks only) and its warnings.
+    pub fn merge_model_tables(&mut self, loaded: World) {
+        fn merge<K: Ord, V>(
+            into: &mut std::collections::BTreeMap<K, V>,
+            from: std::collections::BTreeMap<K, V>,
+        ) {
+            for (k, v) in from {
+                into.entry(k).or_insert(v);
+            }
+        }
+        merge(&mut self.model_assets, loaded.model_assets);
+        merge(&mut self.model_lods, loaded.model_lods);
+        merge(&mut self.model_collision, loaded.model_collision);
+        merge(&mut self.rigs, loaded.rigs);
+        merge(&mut self.illumination, loaded.illumination);
+        merge(&mut self.model_physics, loaded.model_physics);
+        merge(&mut self.model_mass, loaded.model_mass);
+        merge(&mut self.model_prop_health, loaded.model_prop_health);
+        merge(&mut self.model_prop_data, loaded.model_prop_data);
+        merge(&mut self.model_breaks, loaded.model_breaks);
+        self.warnings.extend(loaded.warnings);
+    }
     pub fn spawn(&self) -> (Vec3, f32) {
         if let Some(e) = self
             .entities

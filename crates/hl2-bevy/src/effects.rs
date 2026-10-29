@@ -1,21 +1,23 @@
 //! Depth-tested host adapter for shared owned projectile sprites and impact marks.
-use crate::{assets::LoadedMap, gameplay::Gameplay, movement::Simulation, rendering};
+mod gibs;
+mod material;
+mod model_reading;
+use crate::{assets::LoadedMap, gameplay::Gameplay, rendering, simulation::Simulation};
 use bevy::{
     asset::RenderAssetUsages,
     camera::primitives::MeshAabb,
-    mesh::{Indices, MeshVertexBufferLayoutRef},
-    pbr::{MaterialPipeline, MaterialPipelineKey},
+    mesh::Indices,
     prelude::*,
-    render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction,
-        PrimitiveTopology, RenderPipelineDescriptor, SpecializedMeshPipelineError,
-    },
-    shader::ShaderRef,
+    render::render_resource::{AsBindGroup, PrimitiveTopology},
 };
+pub use gibs::{gib_models, present_gibs};
 use hl2_simulation::{projectile_visuals::ProjectileVisuals, projectiles::ProjectileKind};
+pub(crate) use model_reading::read_effect_model_lod;
 use modkit_core::Surface;
-use source_assets::{models, vpk::Vfs};
+use source_assets::vpk::Vfs;
 use std::collections::BTreeMap;
+
+const TRILINEAR: hl2_ui::config::Filtering = hl2_ui::config::Filtering::Trilinear;
 
 pub struct PreparedEffects {
     pub sprites: ProjectileVisuals,
@@ -24,42 +26,14 @@ pub struct PreparedEffects {
     pub models: BTreeMap<String, Vec<Surface>>,
     model_errors: Vec<String>,
 }
-/// Gib models are precached with their breakable props (PrecacheGibsForModel), in the
-/// skins they can take: the parent's (BreakModelCreateSingle) or a chunk set's
-/// breakable_skin; propdata chunk models only where a prop uses them.
-pub fn gib_models(world: &modkit_core::World) -> std::collections::BTreeSet<(String, i32)> {
-    let mut gibs = std::collections::BTreeSet::new();
-    for instance in &world.model_instances {
-        let key = instance.asset_key();
-        if let Some(list) = world.model_breaks.get(&key) {
-            for gib in list.iter().filter(|gib| !gib.ragdoll) {
-                gibs.insert((gib.model.clone(), instance.skin as i32));
-            }
-        } else if let Some(data) = world.model_prop_data.get(&key) {
-            let set = data.breakable_model.as_deref().and_then(|name| {
-                world
-                    .breakable_chunks
-                    .iter()
-                    .find(|(set, _)| set.starts_with(name))
-            });
-            if let Some((_, models)) = set.filter(|_| data.health > 0. && data.breakable_count > 0)
-            {
-                for model in models {
-                    gibs.insert((model.clone(), data.breakable_skin));
-                }
-            }
-        }
-    }
-    gibs
-}
-/// One projectile/gib model posed at sequence 0 frame 0 (setup or worker threads).
-pub fn read_effect_model(vfs: &Vfs, path: &str, skin: i32) -> anyhow::Result<Vec<Surface>> {
-    let mut surfaces = models::read_model(vfs, path, skin.max(0) as usize)?;
-    pose_sequence_zero(vfs, path, &mut surfaces)?;
-    Ok(surfaces)
-}
+
 impl PreparedEffects {
+    #[allow(dead_code)]
     pub fn load(vfs: &Vfs, world: &modkit_core::World) -> Self {
+        Self::load_with_lod(vfs, world, 0)
+    }
+
+    pub fn load_with_lod(vfs: &Vfs, world: &modkit_core::World, root_lod: usize) -> Self {
         let mut model_errors = Vec::new();
         let mut loaded = BTreeMap::new();
         let gibs = gib_models(world);
@@ -78,7 +52,7 @@ impl PreparedEffects {
             if loaded.contains_key(&key) {
                 continue;
             }
-            match read_effect_model(vfs, &path, skin) {
+            match read_effect_model_lod(vfs, &path, skin, root_lod) {
                 Ok(surfaces) => {
                     loaded.insert(key, surfaces);
                 }
@@ -91,37 +65,6 @@ impl PreparedEffects {
             model_errors,
         }
     }
-}
-
-/// Studio models draw through their bone pose, not the VVD reference pose: projectile
-/// entities never set a sequence, so sequence 0 frame 0 applies (crossbow_bolt.mdl and
-/// w_missile*.mdl point along +x only after their root-bone animation). Setup only.
-fn pose_sequence_zero(vfs: &Vfs, path: &str, surfaces: &mut [Surface]) -> anyhow::Result<()> {
-    use anyhow::Context;
-    let Some(first) = source_assets::animation::first_sequence_name(vfs, path)? else {
-        return Ok(());
-    };
-    let rig = source_assets::animation::load(vfs, path, &[first.clone()].into())?;
-    let matrices = rig.matrices(&first, 0.);
-    for vertex in surfaces.iter_mut().flat_map(|s| s.vertices.iter_mut()) {
-        let weights = vertex.skin.as_ref();
-        let matrix = match weights {
-            Some(w) => {
-                let mut blended = glam::Mat4::ZERO;
-                for (&bone, &weight) in w.bones.iter().zip(&w.weights) {
-                    blended += *matrices
-                        .get(bone as usize)
-                        .context("vertex bone out of range")?
-                        * weight;
-                }
-                blended
-            }
-            None => matrices.first().copied().unwrap_or(glam::Mat4::IDENTITY),
-        };
-        vertex.position = matrix.transform_point3(vertex.position);
-        vertex.normal = matrix.transform_vector3(vertex.normal).normalize_or_zero();
-    }
-    Ok(())
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -149,77 +92,6 @@ impl From<&EffectMaterial> for EffectKey {
         }
     }
 }
-impl Material for EffectMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "shaders/effects.wgsl".into()
-    }
-    fn alpha_mode(&self) -> AlphaMode {
-        match self.kind {
-            0 => AlphaMode::Opaque,
-            1 => AlphaMode::Mask(0.5),
-            _ => AlphaMode::Blend,
-        }
-    }
-    fn specialize(
-        _: &MaterialPipeline,
-        descriptor: &mut RenderPipelineDescriptor,
-        _: &MeshVertexBufferLayoutRef,
-        key: MaterialPipelineKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        descriptor.primitive.cull_mode = None;
-        if key.bind_group_data.ignore_z
-            && let Some(depth) = descriptor.depth_stencil.as_mut()
-        {
-            depth.depth_compare = Some(CompareFunction::Always);
-            depth.depth_write_enabled = Some(false);
-        }
-        if let Some(blend) = effect_blend(key.bind_group_data.kind) {
-            for target in descriptor
-                .fragment
-                .as_mut()
-                .into_iter()
-                .flat_map(|f| &mut f.targets)
-                .flatten()
-            {
-                target.blend = Some(blend);
-            }
-        }
-        Ok(())
-    }
-}
-fn effect_blend(kind: usize) -> Option<BlendState> {
-    match kind {
-        3 => Some(BlendState {
-            color: BlendComponent {
-                src_factor: BlendFactor::SrcAlpha,
-                dst_factor: BlendFactor::One,
-                operation: BlendOperation::Add,
-            },
-            alpha: BlendComponent::OVER,
-        }),
-        hl2_simulation::projectile_visuals::KIND_ALPHA_ADD => Some(BlendState {
-            color: BlendComponent {
-                src_factor: BlendFactor::One,
-                dst_factor: BlendFactor::OneMinusSrcAlpha,
-                operation: BlendOperation::Add,
-            },
-            alpha: BlendComponent::OVER,
-        }),
-        4 => Some(BlendState {
-            color: BlendComponent {
-                src_factor: BlendFactor::Dst,
-                dst_factor: BlendFactor::Zero,
-                operation: BlendOperation::Add,
-            },
-            alpha: BlendComponent {
-                src_factor: BlendFactor::Zero,
-                dst_factor: BlendFactor::One,
-                operation: BlendOperation::Add,
-            },
-        }),
-        _ => None,
-    }
-}
 #[derive(Component)]
 pub(crate) struct DecalDraw {
     id: usize,
@@ -234,7 +106,7 @@ struct QuadDraw {
     previous: Option<hl2_simulation::projectile_visuals::Quad>,
 }
 /// One projectile model surface: mesh and material.
-type ModelPart = (Handle<Mesh>, Handle<rendering::SourceMaterial>);
+pub(crate) type ModelPart = (Handle<Mesh>, Handle<rendering::SourceMaterial>);
 impl Effects {
     /// Gib models loaded after the map (DESIGN 14r part B) by render key, textured from
     /// the model cache like the map's gibs.
@@ -268,7 +140,7 @@ impl Effects {
                         base,
                         cache.white.clone(),
                         None,
-                        (&cache.white, &cache.black_cube),
+                        (&cache.white, &cache.black_cube, &cache.flashlight),
                     ));
                     (
                         meshes.add(rendering::mesh_from_surface(surface, definition)),
@@ -415,8 +287,8 @@ pub fn install(
             }),
         );
     }
-    let white = images.add(rendering::image(1, 1, vec![255; 4], false));
-    let black_cube = images.add(rendering::black_cube());
+    let cookie = loaded.flashlight_cookie.as_deref();
+    let (white, black_cube, flashlight, _) = rendering::fallback_images(images, cookie, TRILINEAR);
     let mut grenade_meshes = BTreeMap::new();
     let mut bases = BTreeMap::new();
     for (model, surface) in loaded
@@ -441,7 +313,7 @@ pub fn install(
             base,
             white.clone(),
             None,
-            (&white, &black_cube),
+            (&white, &black_cube, &flashlight),
         ));
         grenade_meshes.entry(model).or_insert_with(Vec::new).push((
             meshes.add(rendering::mesh_from_surface(surface, definition)),
@@ -480,7 +352,15 @@ pub fn install(
 }
 pub fn adopt(source: ProjectileVisuals, commands: &mut Commands) {
     commands.queue(move |world: &mut World| {
-        world.resource_mut::<Effects>().source = source;
+        let mut e = world.resource_mut::<Effects>();
+        e.source = source;
+        e.quads.clear();
+        e.viewmodel_quads.clear();
+        e.marks.clear();
+        e.grenades.clear();
+        e.stuck.clear();
+        e.gibs.clear();
+        e.gib_state.clear();
     });
 }
 fn mesh(
@@ -559,17 +439,19 @@ fn draw_pool(
             if let Some(mut old) = meshes.get_mut(&slot.mesh) {
                 *old = mesh;
             }
-            if let Some(bounds) = bounds {
-                commands.entity(slot.entity).insert(bounds);
+            if let (Some(bounds), Ok(mut cmd)) = (bounds, commands.get_entity(slot.entity)) {
+                cmd.insert(bounds);
             }
             slot.previous = Some(quad.clone());
         }
-        commands
-            .entity(slot.entity)
-            .insert((MeshMaterial3d(material), Visibility::Visible));
+        if let Ok(mut cmd) = commands.get_entity(slot.entity) {
+            cmd.insert((MeshMaterial3d(material), Visibility::Visible));
+        }
     }
     for slot in pool.iter().skip(used) {
-        commands.entity(slot.entity).insert(Visibility::Hidden);
+        if let Ok(mut cmd) = commands.get_entity(slot.entity) {
+            cmd.insert(Visibility::Hidden);
+        }
     }
 }
 /// The active viewmodel's posed rig (same clip choice as rendering::animate) and the
@@ -578,6 +460,7 @@ fn viewmodel_quads(
     game: &Gameplay,
     effects: &mut Effects,
     sim: &Simulation,
+    aspect: f32,
 ) -> Vec<hl2_simulation::projectile_visuals::Quad> {
     use hl2_simulation::viewmodel_effects as vm;
     let mut described = game.inventory.viewmodel_effects(game.scene.time);
@@ -644,27 +527,31 @@ fn viewmodel_quads(
     }) else {
         return Vec::new();
     };
-    let elapsed = (game.scene.time - game.inventory.animation_at).max(0.) as f32;
-    let (clip, time) = if rig
-        .clips
-        .get(&game.inventory.animation)
-        .is_some_and(|c| elapsed < c.duration())
-    {
-        (game.inventory.animation.as_str(), elapsed)
-    } else {
-        (game.inventory.idle_animation(), game.scene.time as f32)
-    };
-    let matrices =
-        vm::viewmodel_matrices(rig, clip, time, &game.inventory.viewmodel_pose_values(rig));
+    let matrices = game.inventory.viewmodel_matrices(rig, game.scene.time);
     let fov = game.inventory.view_fov(game.scene.time);
-    let viewmodel_fov = vm::viewmodel_fov(game.inventory.fov.default_fov, fov);
+    let framing = sim.viewmodel_framing(&game.inventory.active, aspect);
+    let raw_viewmodel_fov =
+        vm::viewmodel_fov(sim.viewmodel_fov, game.inventory.fov.default_fov, fov);
+    let viewmodel_fov =
+        crate::camera::viewmodel_projection(raw_viewmodel_fov, framing.fov_offset, 1000., aspect)
+            .0
+            .to_degrees();
+    let world_fov = crate::camera::world_fov(
+        sim.view_fov(fov),
+        sim.fov,
+        aspect,
+        sim.vertical_fov,
+        sim.background_level,
+    )
+    .to_degrees();
+    let offset = glam::Vec3::from_array(framing.offset);
     // DoLoadEffect -> "CrossbowLoad" (client c_weapon_crossbow.cpp): FX_ElectricSpark at
     // viewmodel attachment 1, a world position from FormatViewModelAttachment (right/up
     // offsets scaled by tan(fov / 2) / tan(viewmodel fov / 2), depth kept).
     let forward = glam::Vec3::from_array(crate::source_direction(sim.yaw, sim.pitch).to_array());
     let right = forward.cross(glam::Vec3::Z).normalize_or(glam::Vec3::Y);
     let up = right.cross(forward);
-    let factor = (fov.to_radians() * 0.5).tan() / (viewmodel_fov.to_radians() * 0.5).tan();
+    let factor = (world_fov.to_radians() * 0.5).tan() / (viewmodel_fov.to_radians() * 0.5).tan();
     let eye = glam::Vec3::from_array(sim.eye().to_array());
     if muzzle_light_due {
         effects.player_muzzle_lights = game.inventory.muzzle_flash_count;
@@ -692,8 +579,9 @@ fn viewmodel_quads(
     if let Some(at) = new_load {
         effects.load_sparks = at;
         if let Some(local) = vm::anchor_position(rig, &matrices, &vm::Anchor::Index(1))
-            && viewmodel_fov > 0.
+            && raw_viewmodel_fov > 0.
         {
+            let local = local + offset;
             let world = eye + forward * local.x - right * local.y * factor + up * local.z * factor;
             effects.source.spawn_sparks(world, game.scene.time);
         }
@@ -720,14 +608,13 @@ fn viewmodel_quads(
                 .source
                 .spawn_gauss_sparks(end - shot * 4., direction, game.scene.time);
         }
-        if game.scene.time - at < 0.1 && viewmodel_fov > 0. {
+        if game.scene.time - at < 0.1 && raw_viewmodel_fov > 0. {
             let d = end - eye;
             described.beams.push(vm::ViewmodelBeam {
-                start: vm::Anchor::Local(glam::Vec3::new(
-                    d.dot(forward),
-                    -d.dot(right) / factor,
-                    d.dot(up) / factor,
-                )),
+                start: vm::Anchor::Local(
+                    glam::Vec3::new(d.dot(forward), -d.dot(right) / factor, d.dot(up) / factor)
+                        - offset,
+                ),
                 end: vm::Anchor::Index(1),
                 material: "sprites/orangelight1",
                 width: 6.4,
@@ -783,7 +670,7 @@ fn viewmodel_quads(
         &|anchor| vm::anchor_position(rig, &matrices, anchor),
         &|material| sprites.get(material).map(|s| f32::from(s.image.width)),
         &mut random,
-        vm::attachment_size_factor(viewmodel_fov, fov),
+        vm::attachment_size_factor(viewmodel_fov, world_fov),
     );
     quads.extend(flashes);
     quads
@@ -856,15 +743,18 @@ fn shot_effects(game: &Gameplay, effects: &mut Effects) {
         }
     }
 }
+
 pub fn present(
     mut commands: Commands,
     mut effects: ResMut<Effects>,
     game: Res<Gameplay>,
     sim: Res<Simulation>,
+    frame: Option<Res<crate::video::GameFrame>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut draws: Query<(&mut Transform, &mut Visibility)>,
 ) {
-    let direction = glam::Vec3::from_array(crate::source_direction(sim.yaw, sim.pitch).to_array());
+    let (yaw, pitch) = sim.view_angles();
+    let direction = glam::Vec3::from_array(crate::source_direction(yaw, pitch).to_array());
     // CL_DecayLights before this frame's new elights.
     let frametime = (game.scene.time - effects.elight_time).max(0.) as f32;
     effects.elight_time = game.scene.time;
@@ -876,10 +766,10 @@ pub fn present(
     shot_effects(&game, &mut effects);
     effects.source.frame(
         &game.projectiles,
-        glam::Vec3::from_array(sim.eye().to_array()),
+        glam::Vec3::from_array(sim.view_origin().to_array()),
         direction,
         game.scene.time,
-        sim.paused(),
+        !sim.world_running(),
         &sim.physics,
     );
     // C_EntityFlame's burning_character on burning props (control points: the prop's
@@ -947,7 +837,8 @@ pub fn present(
     draw_pool(&mut commands, &mut meshes, pool, &quads, materials, None);
     effects.source.quads = quads;
     // Sprites and beams on the viewmodel (CSprite/CBeam viewmodel attachments).
-    let viewmodel = viewmodel_quads(&game, &mut effects, &sim);
+    let aspect = crate::video::frame_aspect(frame.as_deref());
+    let viewmodel = viewmodel_quads(&game, &mut effects, &sim, aspect);
     effects.viewmodel_draws = viewmodel.len();
     let Effects {
         materials,
@@ -1032,6 +923,16 @@ pub fn present(
         ));
         effects.mark_draws += usize::from(visible);
     }
+    present_grenades(&mut commands, &mut effects, &game, &mut draws);
+    present_stuck_bolts(&mut commands, &mut effects, &game);
+}
+
+fn present_grenades(
+    commands: &mut Commands,
+    effects: &mut Effects,
+    game: &Gameplay,
+    draws: &mut Query<(&mut Transform, &mut Visibility)>,
+) {
     let dead: Vec<_> = effects
         .grenades
         .keys()
@@ -1087,11 +988,14 @@ pub fn present(
             if let Ok((mut current, mut visible)) = draws.get_mut(*entity) {
                 *current = transform;
                 *visible = Visibility::Visible;
-            } else {
-                commands.entity(*entity).insert(transform);
+            } else if let Ok(mut cmd) = commands.get_entity(*entity) {
+                cmd.insert(transform);
             }
         }
     }
+}
+
+fn present_stuck_bolts(commands: &mut Commands, effects: &mut Effects, game: &Gameplay) {
     // Stuck crossbow bolts (CCrossbowBolt left in the world): crossbow_bolt.mdl at the
     // recorded position/angles; the record cap drops the oldest instance.
     let live: std::collections::BTreeSet<u64> =
@@ -1104,7 +1008,9 @@ pub fn present(
         .collect();
     for id in gone {
         for entity in effects.stuck.remove(&id).unwrap_or_default() {
-            commands.entity(entity).despawn();
+            if let Ok(mut cmd) = commands.get_entity(entity) {
+                cmd.despawn();
+            }
         }
     }
     for bolt in &game.projectiles.stuck_bolts {
@@ -1135,94 +1041,6 @@ pub fn present(
         effects.stuck.insert(bolt.id, entities);
     }
 }
-
-/// Breakable-prop gibs: the gib model at its body pose, lit from the map's light state
-/// at its center like other studio models, and alpha-blended while SUB_FadeOut runs.
-pub fn present_gibs(
-    mut commands: Commands,
-    mut effects: ResMut<Effects>,
-    game: Res<Gameplay>,
-    mut materials: ResMut<Assets<rendering::SourceMaterial>>,
-    mut draws: Query<&mut Transform, With<GibDraw>>,
-) {
-    let live: std::collections::BTreeSet<u64> = game.gibs.active.iter().map(|g| g.id).collect();
-    let gone: Vec<u64> = effects
-        .gibs
-        .keys()
-        .copied()
-        .filter(|id| !live.contains(id))
-        .collect();
-    for id in gone {
-        for (entity, material, _) in effects.gibs.remove(&id).unwrap_or_default() {
-            commands.entity(entity).despawn();
-            materials.remove(&material);
-        }
-        effects.gib_state.remove(&id);
-    }
-    effects.gib_draws = 0;
-    let lighting = game.world.lighting.as_deref();
-    for gib in &game.gibs.active {
-        let transform = rendering::entity_transform(gib.position, gib.rotation);
-        if !effects.gibs.contains_key(&gib.id) {
-            let parts: Vec<ModelPart> = effects
-                .grenade_meshes
-                .get(&gib.render_key())
-                .cloned()
-                .unwrap_or_default();
-            let mut spawned = Vec::new();
-            for (mesh, material) in parts {
-                let Some(own) = materials.get(&material).cloned() else {
-                    continue;
-                };
-                let alpha = own.alpha;
-                let own = materials.add(own);
-                let entity = commands
-                    .spawn((
-                        crate::campaign::MapOwned,
-                        Mesh3d(mesh),
-                        MeshMaterial3d(own.clone()),
-                        transform,
-                        Visibility::Visible,
-                        GibDraw,
-                    ))
-                    .id();
-                spawned.push((entity, own, alpha));
-            }
-            effects.gibs.insert(gib.id, spawned);
-        }
-        let center = gib.position;
-        let refresh = effects
-            .gib_state
-            .get(&gib.id)
-            .is_none_or(|(last, alpha)| last.distance_squared(center) >= 1. || *alpha != gib.alpha);
-        effects.gib_draws += effects.gibs[&gib.id].len();
-        let parts = &effects.gibs[&gib.id];
-        for (entity, material, authored) in parts {
-            if let Ok(mut current) = draws.get_mut(*entity) {
-                *current = transform;
-            }
-            if !refresh {
-                continue;
-            }
-            if let Some(mut m) = materials.get_mut(material) {
-                if let Some(data) = lighting {
-                    m.lighting =
-                        rendering::ModelLighting::from_state(&data.state_at(center), false);
-                }
-                m.tint.w = f32::from(gib.alpha) / 255.;
-                // kRenderTransTexture once the fade starts.
-                m.alpha = if gib.alpha < 255 {
-                    AlphaMode::Blend
-                } else {
-                    *authored
-                };
-            }
-        }
-        effects.gib_state.insert(gib.id, (center, gib.alpha));
-    }
-}
-#[derive(Component)]
-pub(crate) struct GibDraw;
 
 fn agrees(actual: &Transform, expected: &Transform) -> bool {
     actual.translation.distance(expected.translation) < 0.001

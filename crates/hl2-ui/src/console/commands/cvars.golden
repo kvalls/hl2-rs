@@ -1,0 +1,639 @@
+sv_cheats
+  query: no effect
+    | "sv_cheats" = "0"
+    value Some("0")
+  1: no effect
+    | sv_cheats 1
+    value Some("1")
+  x: error "sv_cheats [0|1]: query or enable local cheat commands"
+    value Some("0")
+  9: error "sv_cheats [0|1]: query or enable local cheat commands"
+    value Some("0")
+  1 1: error "sv_cheats [0|1]: query or enable local cheat commands"
+    value Some("0")
+volume
+  query: no effect
+    | "volume" = "1.00"
+    value Some("1.00")
+  0.5: ApplyConfig [audio.volume: 1.0 -> 0.5]
+    | volume 0.50
+    value Some("0.50")
+  x: error "volume [0..1]: query or set master audio volume"
+    value Some("1.00")
+  9: ApplyConfig []
+    | volume 1.00
+    value Some("1.00")
+  1 1: error "volume [0..1]: query or set master audio volume"
+    value Some("1.00")
+snd_musicvolume
+  query: no effect
+    | "snd_musicvolume" = "1.00"
+    value Some("1.00")
+  0.25: ApplyConfig [audio.music_volume: 1.0 -> 0.25]
+    | snd_musicvolume 0.25
+    value Some("0.25")
+  x: error "snd_musicvolume [0..1]: query or set music volume"
+    value Some("1.00")
+  9: ApplyConfig []
+    | snd_musicvolume 1.00
+    value Some("1.00")
+  1 1: error "snd_musicvolume [0..1]: query or set music volume"
+    value Some("1.00")
+snd_mute_losefocus
+  query: no effect
+    | "snd_mute_losefocus" = "1"
+    value Some("1")
+  0: ApplyConfig [audio.mute_losefocus: true -> false]
+    | snd_mute_losefocus 0
+    value Some("0")
+  x: error "snd_mute_losefocus [0|1]: query or toggle muting audio when window loses focus"
+    value Some("1")
+  9: error "snd_mute_losefocus [0|1]: query or toggle muting audio when window loses focus"
+    value Some("1")
+  1 1: error "snd_mute_losefocus [0|1]: query or toggle muting audio when window loses focus"
+    value Some("1")
+closecaption
+  query: no effect
+    | "closecaption" = "0"
+    value Some("0")
+  1: ApplyConfig [audio.captions: "none" -> "closed_captions"]
+    | closecaption 1
+    value Some("1")
+  x: error "closecaption [0|1]: query or toggle closed captioning"
+    value Some("0")
+  9: error "closecaption [0|1]: query or toggle closed captioning"
+    value Some("0")
+  1 1: error "closecaption [0|1]: query or toggle closed captioning"
+    value Some("0")
+cc_subtitles
+  query: no effect
+    | "cc_subtitles" = "0"
+    value Some("0")
+  1: ApplyConfig [audio.captions: "none" -> "subtitles"]
+    | cc_subtitles 1
+    value Some("1")
+  x: error "cc_subtitles [0|1]: query or toggle subtitles only (dialogue only, no sound effects)"
+    value Some("0")
+  9: error "cc_subtitles [0|1]: query or toggle subtitles only (dialogue only, no sound effects)"
+    value Some("0")
+  1 1: error "cc_subtitles [0|1]: query or toggle subtitles only (dialogue only, no sound effects)"
+    value Some("0")
+snd_surround_speakers
+  query: no effect
+    | "snd_surround_speakers" = "2"
+    value Some("2")
+  0: ApplyConfig [audio.speakers: "two" -> "headphones"]
+    | snd_surround_speakers 0
+    value Some("0")
+  x: error "snd_surround_speakers [0|2|4|5|7]: query or set speaker configuration (0=headphones, 2=stereo, 4=surround, 5=5.1, 7=7.1)"
+    value Some("2")
+  9: error "snd_surround_speakers [0|2|4|5|7]: query or set speaker configuration (0=headphones, 2=stereo, 4=surround, 5=5.1, 7=7.1)"
+    value Some("2")
+  1 1: error "snd_surround_speakers [0|2|4|5|7]: query or set speaker configuration (0=headphones, 2=stereo, 4=surround, 5=5.1, 7=7.1)"
+    value Some("2")
+snd_pitchquality
+  query: no effect
+    | "snd_pitchquality" = "1"
+    value Some("1")
+  0: ApplyConfig [audio.quality: "high" -> "medium"]
+    | snd_pitchquality 0
+    value Some("0")
+  x: error "snd_pitchquality [0|1]: query or toggle sound pitch quality (0=low, 1=high)"
+    value Some("1")
+  9: error "snd_pitchquality [0|1]: query or toggle sound pitch quality (0=low, 1=high)"
+    value Some("1")
+  1 1: error "snd_pitchquality [0|1]: query or toggle sound pitch quality (0=low, 1=high)"
+    value Some("1")
+dsp_slow_cpu
+  query: no effect
+    | "dsp_slow_cpu" = "0"
+    value Some("0")
+  1: ApplyConfig [audio.quality: "high" -> "low"]
+    | dsp_slow_cpu 1
+    value Some("1")
+  x: error "dsp_slow_cpu [0|1]: query or toggle reduced DSP CPU quality (1=slow CPU/low, 0=normal/high)"
+    value Some("0")
+  9: error "dsp_slow_cpu [0|1]: query or toggle reduced DSP CPU quality (1=slow CPU/low, 0=normal/high)"
+    value Some("0")
+  1 1: error "dsp_slow_cpu [0|1]: query or toggle reduced DSP CPU quality (1=slow CPU/low, 0=normal/high)"
+    value Some("0")
+sensitivity
+  query: no effect
+    | "sensitivity" = "3.00"
+    value Some("3.00")
+  2.5: ApplyConfig [mouse.sensitivity: 3.0 -> 2.5]
+    | sensitivity 2.50
+    value Some("2.50")
+  x: error "sensitivity [value]: query or set mouse sensitivity"
+    value Some("3.00")
+  9: ApplyConfig [mouse.sensitivity: 3.0 -> 9.0]
+    | sensitivity 9.00
+    value Some("9.00")
+  1 1: error "sensitivity [value]: query or set mouse sensitivity"
+    value Some("3.00")
+m_pitch
+  query: no effect
+    | "m_pitch" = "0.022"
+    value Some("0.022")
+  -0.022: ApplyConfig [mouse.invert: false -> true]
+    | m_pitch -0.022
+    value Some("-0.022")
+  x: error "m_pitch [value]: query or set mouse pitch factor (negative inverts pitch)"
+    value Some("0.022")
+  9: ApplyConfig []
+    | m_pitch 0.022
+    value Some("0.022")
+  1 1: error "m_pitch [value]: query or set mouse pitch factor (negative inverts pitch)"
+    value Some("0.022")
+m_filter
+  query: no effect
+    | "m_filter" = "0"
+    value Some("0")
+  1: ApplyConfig [mouse.filter: false -> true]
+    | m_filter 1
+    value Some("1")
+  x: error "m_filter [0|1]: query or toggle two-frame mouse movement averaging"
+    value Some("0")
+  9: error "m_filter [0|1]: query or toggle two-frame mouse movement averaging"
+    value Some("0")
+  1 1: error "m_filter [0|1]: query or toggle two-frame mouse movement averaging"
+    value Some("0")
+m_rawinput
+  query: no effect
+    | "m_rawinput" = "0"
+    value Some("0")
+  1: ApplyConfig [mouse.raw_input: false -> true]
+    | m_rawinput 1
+    value Some("1")
+  x: error "m_rawinput [0|1]: query or toggle raw mouse input"
+    value Some("0")
+  9: error "m_rawinput [0|1]: query or toggle raw mouse input"
+    value Some("0")
+  1 1: error "m_rawinput [0|1]: query or toggle raw mouse input"
+    value Some("0")
+m_customaccel
+  query: no effect
+    | "m_customaccel" = "0"
+    value Some("0")
+  1: ApplyConfig [mouse.acceleration: false -> true]
+    | m_customaccel 1
+    value Some("1")
+  x: error "m_customaccel [0|1|3]: query or toggle custom mouse acceleration"
+    value Some("0")
+  9: error "m_customaccel [0|1|3]: query or toggle custom mouse acceleration"
+    value Some("0")
+  1 1: error "m_customaccel [0|1|3]: query or toggle custom mouse acceleration"
+    value Some("0")
+m_customaccel_exponent
+  query: no effect
+    | "m_customaccel_exponent" = "1.05"
+    value Some("1.05")
+  1.2: ApplyConfig [mouse.accel_exponent: 1.0499999523162842 -> 1.2000000476837158]
+    | m_customaccel_exponent 1.20
+    value Some("1.20")
+  x: error "m_customaccel_exponent [value]: query or set mouse acceleration exponent"
+    value Some("1.05")
+  9: ApplyConfig [mouse.accel_exponent: 1.0499999523162842 -> 1.399999976158142]
+    | m_customaccel_exponent 1.40
+    value Some("1.40")
+  1 1: error "m_customaccel_exponent [value]: query or set mouse acceleration exponent"
+    value Some("1.05")
+sk_autoaim_mode
+  query: no effect
+    | "sk_autoaim_mode" = "0"
+    value Some("0")
+  1: ApplyConfig [mouse.aim_assist: "off" -> "basic"]
+    | sk_autoaim_mode 1
+    value Some("1")
+  x: error "sk_autoaim_mode [0|1|2]: query or set autoaim mode (0=off, 1=basic, 2=enhanced)"
+    value Some("0")
+  9: error "sk_autoaim_mode [0|1|2]: query or set autoaim mode (0=off, 1=basic, 2=enhanced)"
+    value Some("0")
+  1 1: error "sk_autoaim_mode [0|1|2]: query or set autoaim mode (0=off, 1=basic, 2=enhanced)"
+    value Some("0")
+m_autoaim_mode
+  query: no effect
+    | "m_autoaim_mode" = "0"
+    value Some("0")
+  1: ApplyConfig [mouse.aim_assist: "off" -> "basic"]
+    | m_autoaim_mode 1
+    value Some("1")
+  x: error "m_autoaim_mode [0|1|2]: query or set autoaim mode (alias for sk_autoaim_mode)"
+    value Some("0")
+  9: error "m_autoaim_mode [0|1|2]: query or set autoaim mode (alias for sk_autoaim_mode)"
+    value Some("0")
+  1 1: error "m_autoaim_mode [0|1|2]: query or set autoaim mode (alias for sk_autoaim_mode)"
+    value Some("0")
+sk_autoaim_scale1
+  query: no effect
+    | "sk_autoaim_scale1" = "1.00"
+    value Some("1.00")
+  1.5: ApplyConfig [mouse.aim_assist_scale: 1.0 -> 1.5]
+    | sk_autoaim_scale1 1.50
+    value Some("1.50")
+  x: error "sk_autoaim_scale1 [scale]: query or set autoaim deflection scale"
+    value Some("1.00")
+  9: ApplyConfig [mouse.aim_assist_scale: 1.0 -> 2.0]
+    | sk_autoaim_scale1 2.00
+    value Some("2.00")
+  1 1: error "sk_autoaim_scale1 [scale]: query or set autoaim deflection scale"
+    value Some("1.00")
+m_autoaim_scale
+  query: no effect
+    | "m_autoaim_scale" = "1.00"
+    value Some("1.00")
+  1.5: ApplyConfig [mouse.aim_assist_scale: 1.0 -> 1.5]
+    | m_autoaim_scale 1.50
+    value Some("1.50")
+  x: error "m_autoaim_scale [scale]: query or set autoaim deflection scale (alias for sk_autoaim_scale1)"
+    value Some("1.00")
+  9: ApplyConfig [mouse.aim_assist_scale: 1.0 -> 2.0]
+    | m_autoaim_scale 2.00
+    value Some("2.00")
+  1 1: error "m_autoaim_scale [scale]: query or set autoaim deflection scale (alias for sk_autoaim_scale1)"
+    value Some("1.00")
+fov
+  query: no effect
+    | "fov" = "75"
+    value Some("75")
+  100: ApplyConfig [video.fov: 75.0 -> 100.0]
+    | fov 100
+    value Some("100")
+  x: error "fov [degrees]: query or set camera field of view"
+    value Some("75")
+  9: ApplyConfig [video.fov: 75.0 -> 50.0]
+    | fov 50
+    value Some("50")
+  1 1: error "fov [degrees]: query or set camera field of view"
+    value Some("75")
+fov_desired
+  query: no effect
+    | "fov" = "75"
+    value Some("75")
+  100: ApplyConfig [video.fov: 75.0 -> 100.0]
+    | fov 100
+    value Some("100")
+  x: error "fov_desired [degrees]: query or set desired field of view (alias for fov)"
+    value Some("75")
+  9: ApplyConfig [video.fov: 75.0 -> 50.0]
+    | fov 50
+    value Some("50")
+  1 1: error "fov_desired [degrees]: query or set desired field of view (alias for fov)"
+    value Some("75")
+vertical_fov
+  query: no effect
+    | "vertical_fov" = "0"
+    value Some("0")
+  60: ApplyConfig [video.vertical_fov: 0.0 -> 60.0]
+    | vertical_fov 60
+    value Some("60")
+  x: error "vertical_fov [degrees]: query or set vertical field of view (0 = automatic)"
+    value Some("0")
+  9: ApplyConfig [video.vertical_fov: 0.0 -> 40.0]
+    | vertical_fov 40
+    value Some("40")
+  1 1: error "vertical_fov [degrees]: query or set vertical field of view (0 = automatic)"
+    value Some("0")
+viewmodel_fov
+  query: no effect
+    | "viewmodel_fov" = "54"
+    value Some("54")
+  70: ApplyConfig [video.viewmodel_fov: 54.0 -> 70.0]
+    | viewmodel_fov 70
+    value Some("70")
+  x: error "viewmodel_fov [degrees]: query or set viewmodel field of view"
+    value Some("54")
+  9: ApplyConfig [video.viewmodel_fov: 54.0 -> 40.0]
+    | viewmodel_fov 40
+    value Some("40")
+  1 1: error "viewmodel_fov [degrees]: query or set viewmodel field of view"
+    value Some("54")
+mat_aaquality
+  query: no effect
+    | "mat_aaquality" = "0"
+    value Some("0")
+  0: no effect
+    | mat_aaquality 0
+    value Some("0")
+  x: error "mat_aaquality [quality]: query or set antialiasing quality"
+    value Some("0")
+  9: no effect
+    | mat_aaquality 9
+    value Some("0")
+  1 1: error "mat_aaquality [quality]: query or set antialiasing quality"
+    value Some("0")
+mat_antialias
+  query: no effect
+    | "mat_antialias" = "0"
+    value Some("0")
+  1: ApplyConfig []
+    | mat_antialias 0
+    value Some("0")
+  x: error "mat_antialias [0|1|2|4|8]: query or set multisample antialiasing mode"
+    value Some("0")
+  9: error "mat_antialias [0|1|2|4|8]: query or set multisample antialiasing mode"
+    value Some("0")
+  1 1: error "mat_antialias [0|1|2|4|8]: query or set multisample antialiasing mode"
+    value Some("0")
+mat_colorcorrection
+  query: no effect
+    | "mat_colorcorrection" = "1"
+    value Some("1")
+  0: ApplyConfig [video.advanced.color_correction: true -> false]
+    | mat_colorcorrection 0
+    value Some("0")
+  x: error "mat_colorcorrection [0|1]: query or toggle color correction"
+    value Some("1")
+  9: error "mat_colorcorrection [0|1]: query or toggle color correction"
+    value Some("1")
+  1 1: error "mat_colorcorrection [0|1]: query or toggle color correction"
+    value Some("1")
+mat_disable_d3d9ex
+  query: no effect
+    | "mat_disable_d3d9ex" = "0"
+    value Some("0")
+  1: ApplyConfig [video.advanced.d3d9ex: true -> false]
+    | mat_disable_d3d9ex 1
+    value Some("1")
+  x: error "mat_disable_d3d9ex [0|1]: query or toggle disabling Direct3D 9Ex extensions (0=enabled, 1=disabled)"
+    value Some("0")
+  9: error "mat_disable_d3d9ex [0|1]: query or toggle disabling Direct3D 9Ex extensions (0=enabled, 1=disabled)"
+    value Some("0")
+  1 1: error "mat_disable_d3d9ex [0|1]: query or toggle disabling Direct3D 9Ex extensions (0=enabled, 1=disabled)"
+    value Some("0")
+mat_forceaniso
+  query: no effect
+    | "mat_forceaniso" = "1"
+    value Some("1")
+  2: ApplyConfig [video.advanced.filtering: "trilinear" -> "anisotropic2"]
+    | mat_forceaniso 2
+    value Some("2")
+  x: error "mat_forceaniso [1|2|4|8|16]: query or set anisotropic texture filtering mode"
+    value Some("1")
+  9: error "mat_forceaniso [1|2|4|8|16]: query or set anisotropic texture filtering mode"
+    value Some("1")
+  1 1: error "mat_forceaniso [1|2|4|8|16]: query or set anisotropic texture filtering mode"
+    value Some("1")
+mat_hdr_level
+  query: no effect
+    | "mat_hdr_level" = "2"
+    value Some("2")
+  0: ApplyConfig [video.hdr: "full" -> "none"]
+    | mat_hdr_level 0
+    value Some("0")
+  x: error "mat_hdr_level [0|1|2]: query or set HDR level (0=None, 1=Bloom, 2=Full)"
+    value Some("2")
+  9: error "mat_hdr_level must be 0 (None), 1 (Bloom) or 2 (Full)"
+    value Some("2")
+  1 1: error "mat_hdr_level [0|1|2]: query or set HDR level (0=None, 1=Bloom, 2=Full)"
+    value Some("2")
+mat_motion_blur_enabled
+  query: no effect
+    | "mat_motion_blur_enabled" = "1"
+    value Some("1")
+  0: ApplyConfig [video.advanced.motion_blur: true -> false]
+    | mat_motion_blur_enabled 0
+    value Some("0")
+  x: error "mat_motion_blur_enabled [0|1]: query or toggle motion blur"
+    value Some("1")
+  9: error "mat_motion_blur_enabled [0|1]: query or toggle motion blur"
+    value Some("1")
+  1 1: error "mat_motion_blur_enabled [0|1]: query or toggle motion blur"
+    value Some("1")
+mat_picmip
+  query: no effect
+    | "mat_picmip" = "0"
+    value Some("0")
+  -1: ApplyConfig [video.advanced.texture_detail: "high" -> "very_high"]
+    | mat_picmip -1
+    value Some("-1")
+  x: error "mat_picmip [-1|0|1|2]: query or set texture detail (-1=very high, 0=high, 1=medium, 2=low)"
+    value Some("0")
+  9: error "mat_picmip [-1|0|1|2]: query or set texture detail (-1=very high, 0=high, 1=medium, 2=low)"
+    value Some("0")
+  1 1: error "mat_picmip [-1|0|1|2]: query or set texture detail (-1=very high, 0=high, 1=medium, 2=low)"
+    value Some("0")
+mat_queue_mode
+  query: no effect
+    | "mat_queue_mode" = "-1"
+    value Some("-1")
+  0: ApplyConfig [video.advanced.multicore: true -> false]
+    | mat_queue_mode 0
+    value Some("0")
+  x: error "mat_queue_mode [-1|0|1|2]: query or set multicore rendering (-1=multicore, 0=single threaded)"
+    value Some("-1")
+  9: ApplyConfig []
+    | mat_queue_mode -1
+    value Some("-1")
+  1 1: error "mat_queue_mode [-1|0|1|2]: query or set multicore rendering (-1=multicore, 0=single threaded)"
+    value Some("-1")
+mat_reducefillrate
+  query: no effect
+    | "mat_reducefillrate" = "0"
+    value Some("0")
+  1: ApplyConfig [video.advanced.shader_detail: "high" -> "low"]
+    | mat_reducefillrate 1
+    value Some("1")
+  x: error "mat_reducefillrate [0|1]: query or toggle reduced shader fillrate (0=high, 1=low)"
+    value Some("0")
+  9: error "mat_reducefillrate [0|1]: query or toggle reduced shader fillrate (0=high, 1=low)"
+    value Some("0")
+  1 1: error "mat_reducefillrate [0|1]: query or toggle reduced shader fillrate (0=high, 1=low)"
+    value Some("0")
+mat_trilinear
+  query: no effect
+    | "mat_trilinear" = "1"
+    value Some("1")
+  0: ApplyConfig [video.advanced.filtering: "trilinear" -> "bilinear"]
+    | mat_trilinear 0
+    value Some("0")
+  x: error "mat_trilinear [0|1]: query or toggle trilinear texture filtering"
+    value Some("1")
+  9: error "mat_trilinear [0|1]: query or toggle trilinear texture filtering"
+    value Some("1")
+  1 1: error "mat_trilinear [0|1]: query or toggle trilinear texture filtering"
+    value Some("1")
+mat_vsync
+  query: no effect
+    | "mat_vsync" = "1"
+    value Some("1")
+  0: ApplyConfig [video.advanced.vsync: true -> false]
+    | mat_vsync 0
+    value Some("0")
+  x: error "mat_vsync [0|1]: query or toggle vertical sync"
+    value Some("1")
+  9: error "mat_vsync [0|1]: query or toggle vertical sync"
+    value Some("1")
+  1 1: error "mat_vsync [0|1]: query or toggle vertical sync"
+    value Some("1")
+r_classic_blood
+  query: no effect
+    | "r_classic_blood" = "0"
+    value Some("0")
+  1: ApplyConfig [video.advanced.classic_effects: false -> true]
+    | r_classic_blood 1
+    value Some("1")
+  x: error "r_classic_blood [0|1]: query or toggle classic blood effects"
+    value Some("0")
+  9: error "r_classic_blood [0|1]: query or toggle classic blood effects"
+    value Some("0")
+  1 1: error "r_classic_blood [0|1]: query or toggle classic blood effects"
+    value Some("0")
+r_classic_fire
+  query: no effect
+    | "r_classic_fire" = "0"
+    value Some("0")
+  1: ApplyConfig [video.advanced.classic_effects: false -> true]
+    | r_classic_fire 1
+    value Some("1")
+  x: error "r_classic_fire [0|1]: query or toggle classic fire effects"
+    value Some("0")
+  9: error "r_classic_fire [0|1]: query or toggle classic fire effects"
+    value Some("0")
+  1 1: error "r_classic_fire [0|1]: query or toggle classic fire effects"
+    value Some("0")
+r_flashlightdepthtexture
+  query: no effect
+    | "r_flashlightdepthtexture" = "1"
+    value Some("1")
+  0: ApplyConfig [video.advanced.shadow_detail: "high" -> "medium"]
+    | r_flashlightdepthtexture 0
+    value Some("0")
+  x: error "r_flashlightdepthtexture [0|1]: query or toggle depth texture flashlight shadows (0=medium, 1=high)"
+    value Some("1")
+  9: error "r_flashlightdepthtexture [0|1]: query or toggle depth texture flashlight shadows (0=medium, 1=high)"
+    value Some("1")
+  1 1: error "r_flashlightdepthtexture [0|1]: query or toggle depth texture flashlight shadows (0=medium, 1=high)"
+    value Some("1")
+r_rootlod
+  query: no effect
+    | "r_rootlod" = "0"
+    value Some("0")
+  1: ApplyConfig [video.advanced.model_detail: "high" -> "medium"]
+    | r_rootlod 1
+    value Some("1")
+  x: error "r_rootlod [0|1|2]: query or set model detail (0=high, 1=medium, 2=low)"
+    value Some("0")
+  9: error "r_rootlod [0|1|2]: query or set model detail (0=high, 1=medium, 2=low)"
+    value Some("0")
+  1 1: error "r_rootlod [0|1|2]: query or set model detail (0=high, 1=medium, 2=low)"
+    value Some("0")
+r_shadowrendertotexture
+  query: no effect
+    | "r_shadowrendertotexture" = "1"
+    value Some("1")
+  0: ApplyConfig [video.advanced.shadow_detail: "high" -> "low"]
+    | r_shadowrendertotexture 0
+    value Some("0")
+  x: error "r_shadowrendertotexture [0|1]: query or toggle dynamic render-to-texture shadows (0=low, 1=medium/high)"
+    value Some("1")
+  9: error "r_shadowrendertotexture [0|1]: query or toggle dynamic render-to-texture shadows (0=low, 1=medium/high)"
+    value Some("1")
+  1 1: error "r_shadowrendertotexture [0|1]: query or toggle dynamic render-to-texture shadows (0=low, 1=medium/high)"
+    value Some("1")
+r_waterforceexpensive
+  query: no effect
+    | "r_waterforceexpensive" = "1"
+    value Some("1")
+  0: ApplyConfig [video.advanced.water_detail: "world" -> "simple"]
+    | r_waterforceexpensive 0
+    value Some("0")
+  x: error "r_waterforceexpensive [0|1]: query or toggle expensive water reflections (0=simple, 1=world/all)"
+    value Some("1")
+  9: error "r_waterforceexpensive [0|1]: query or toggle expensive water reflections (0=simple, 1=world/all)"
+    value Some("1")
+  1 1: error "r_waterforceexpensive [0|1]: query or toggle expensive water reflections (0=simple, 1=world/all)"
+    value Some("1")
+r_waterforcereflectentities
+  query: no effect
+    | "r_waterforcereflectentities" = "0"
+    value Some("0")
+  1: ApplyConfig [video.advanced.water_detail: "world" -> "all"]
+    | r_waterforcereflectentities 1
+    value Some("1")
+  x: error "r_waterforcereflectentities [0|1]: query or toggle water entity reflections (0=world only, 1=all)"
+    value Some("0")
+  9: error "r_waterforcereflectentities [0|1]: query or toggle water entity reflections (0=world only, 1=all)"
+    value Some("0")
+  1 1: error "r_waterforcereflectentities [0|1]: query or toggle water entity reflections (0=world only, 1=all)"
+    value Some("0")
+background_map
+  query: no effect
+    | "background_map" is not set
+    value None
+  background02: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "background02"]
+    | background_map background02
+    value Some("background02")
+  default: ApplyConfig []
+    | background_map reset to default (none)
+    value None
+  x: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "x"]
+    | background_map x
+    value Some("x")
+  9: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "9"]
+    | background_map 9
+    value Some("9")
+  1 1: error "background_map [name|default]: query or set the persistent main-menu background map"
+    value None
+con_filter_enable
+  query: no effect
+    | "con_filter_enable" = "0"
+    value Some("0")
+  1: no effect
+    value Some("1")
+  x: error "con_filter_enable [0|1|2]: filter console output by con_filter_text (1 hides other lines, 2 shows matches brighter)"
+    value Some("0")
+  9: error "con_filter_enable [0|1|2]: filter console output by con_filter_text (1 hides other lines, 2 shows matches brighter)"
+    value Some("0")
+  1 1: error "con_filter_enable [0|1|2]: filter console output by con_filter_text (1 hides other lines, 2 shows matches brighter)"
+    value Some("0")
+con_filter_text
+  query: no effect
+    | "con_filter_text" = ""
+    value Some("")
+  bridge: no effect
+    value Some("bridge")
+  x: no effect
+    value Some("x")
+  9: no effect
+    value Some("9")
+  1 1: error "con_filter_text [text]: the text con_filter_enable filters console output by"
+    value Some("")
+con_timestamp
+  query: no effect
+    | "con_timestamp" = "0"
+    value Some("0")
+  1: no effect
+    value Some("1")
+  x: error "con_timestamp [0|1]: prefix console output with the time it was printed"
+    value Some("0")
+  9: error "con_timestamp [0|1]: prefix console output with the time it was printed"
+    value Some("0")
+  1 1: error "con_timestamp [0|1]: prefix console output with the time it was printed"
+    value Some("0")
+skill
+  query: no effect
+    | "skill" = "2"
+    value Some("2")
+  1: ApplyConfig [gameplay.skill: 2 -> 1]
+    | skill 1
+    value Some("1")
+  x: error "skill [1|2|3]: query or set game skill level (1=easy, 2=normal, 3=hard)"
+    value Some("2")
+  9: error "skill [1|2|3]: query or set game skill level (1=easy, 2=normal, 3=hard)"
+    value Some("2")
+  1 1: error "skill [1|2|3]: query or set game skill level (1=easy, 2=normal, 3=hard)"
+    value Some("2")
+commentary
+  query: no effect
+    | "commentary" = "0"
+    value Some("0")
+  1: ApplyConfig [gameplay.commentary: false -> true]
+    | commentary 1
+    value Some("1")
+  x: error "commentary [0|1]: query or toggle developer commentary mode"
+    value Some("0")
+  9: error "commentary [0|1]: query or toggle developer commentary mode"
+    value Some("0")
+  1 1: error "commentary [0|1]: query or toggle developer commentary mode"
+    value Some("0")

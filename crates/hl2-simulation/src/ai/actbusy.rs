@@ -5,7 +5,7 @@
 //! activity from scripts/actbusy.txt for U(min_time, max_time) seconds (forever without a
 //! max time) and then searches again. SDK behavior; entry/exit animations, sounds, see
 //! entities, queues, combat actbusies, leaving and teleports are not reconstructed.
-use super::conditions::*;
+use super::conditions::COND_PROVOKED;
 use super::schedule::{
     AiNpc, Behavior, Context, Goal, Motor, Schedule, Schedules, TaskArg, TaskStatus,
 };

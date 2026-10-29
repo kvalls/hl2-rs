@@ -1,0 +1,44 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "ui": [
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "command",
+        "command": "sv_cheats 1; impulse 101; impulse 100"
+      },
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "escape"
+      }
+    ]
+  },
+  {
+    "tick": 120,
+    "ui": [
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "command",
+        "command": "impulse 100"
+      },
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "escape"
+      }
+    ]
+  },
+  {
+    "tick": 320,
+    "paused": true,
+    "label": "flashlight-hud-recharged"
+  }
+]

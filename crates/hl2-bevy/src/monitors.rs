@@ -1,6 +1,6 @@
 //! One shared procedural _rt_Camera texture, rendered from map-authored point cameras.
 use crate::{
-    assets::LoadedMap, campaign::MapOwned, gameplay::Gameplay, movement::Simulation, sky::Sky,
+    assets::LoadedMap, campaign::MapOwned, gameplay::Gameplay, simulation::Simulation, sky::Sky,
     source_to_bevy,
 };
 use bevy::{
@@ -32,8 +32,8 @@ impl Monitors {
     }
     pub fn report(&self, game: &Gameplay) -> serde_json::Value {
         serde_json::json!({"texture":"_rt_Camera","asset":format!("{:?}",self.target.id()),"size":[256,256],"materials":self.materials,"material_details":self.material_details,"eligible_cameras":self.active,
-            "selected":self.selected.map(|id| serde_json::json!({"entity":id,"name":game.world.entities[id].get("targetname"),
-                "origin":game.scene.states[id].origin.to_array(),"fov":game.scene.monitors.cameras[&id].fov})),
+            "selected":self.selected.and_then(|id| game.scene.states.get(id).map(|s| serde_json::json!({"entity":id,"name":game.world.entities[id].get("targetname"),
+                "origin":s.origin.to_array(),"fov":game.scene.monitors.cameras[&id].fov}))),
             "rendered_frames":self.frames,"visibility_error":self.error,
             "proxy_sample_time":self.proxy_sample_time,"material_samples":self.material_samples,
             "state":game.scene.monitors,
@@ -107,8 +107,10 @@ pub fn present(
         return;
     };
     let active = game.scene.monitors.eligible(&game.scene.states, |id| {
+        let Some(state) = game.scene.states.get(id) else {
+            return Ok(false);
+        };
         let entity = &game.world.entities[id];
-        let state = &game.scene.states[id];
         let brush = entity
             .get("model")
             .and_then(|m| m.strip_prefix('*'))
@@ -122,7 +124,11 @@ pub fn present(
                 r.x_axis.abs() * extent.x + r.y_axis.abs() * extent.y + r.z_axis.abs() * extent.z;
             (center - extent, center + extent)
         });
-        sky.bounds_in_pvs(glam::Vec3::from_array(sim.eye().to_array()), mins, maxs)
+        sky.bounds_in_pvs(
+            glam::Vec3::from_array(sim.view_origin().to_array()),
+            mins,
+            maxs,
+        )
     });
     match active {
         Ok(active) => {
@@ -137,8 +143,13 @@ pub fn present(
     monitors.selected = monitors.active.last().copied();
     camera.is_active = monitors.selected.is_some();
     if let Some(id) = monitors.selected {
-        let state = &game.scene.states[id];
-        let definition = &game.scene.monitors.cameras[&id];
+        let (Some(state), Some(definition)) = (
+            game.scene.states.get(id),
+            game.scene.monitors.cameras.get(&id),
+        ) else {
+            camera.is_active = false;
+            return;
+        };
         if !(0.01..179.).contains(&definition.fov) {
             camera.is_active = false;
             monitors.error = Some(format!(

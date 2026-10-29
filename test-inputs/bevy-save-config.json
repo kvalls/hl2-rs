@@ -1,0 +1,11 @@
+[
+  {
+    "tick": 1,
+    "ui": [
+      {
+        "action": "command",
+        "command": "volume 0.55; sensitivity 4.2; fov 95; mat_hdr_level 2"
+      }
+    ]
+  }
+]

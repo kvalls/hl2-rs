@@ -1,0 +1,18 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      607.53,
+      -8173.45,
+      -25.545
+    ],
+    "yaw": 0,
+    "pitch": 0
+  },
+  {
+    "tick": 120,
+    "paused": true,
+    "label": "canals-lamp"
+  }
+]

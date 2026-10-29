@@ -388,8 +388,7 @@ mod tests {
     #[test]
     #[ignore = "requires the user's installed HL2 content"]
     fn owned_station_cached_visibility_matches_raw_tree_queries() {
-        let root = std::env::var("HL2_ROOT").expect("set HL2_ROOT");
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(&root)).unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         for map in [
             "d1_trainstation_01",
             "d1_trainstation_02",

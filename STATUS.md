@@ -1,5 +1,198 @@
 # STATUS
 
+## Merge main into orbitalman/hl2-ui (2026-10-29)
+
+- Merged upstream `main` (`b4f1c7d`: sessions 31-35 including NPC death ragdolls, particle operators, bullet/shotgun multidamage, crossbow wall/door pins, friendly immunity, ragdoll rest and fadeout) into `orbitalman/hl2-ui`.
+- Resolved merge conflicts preferring readability, maintainability, reusability, testability, isolation, documentation, and test coverage:
+  - Preserved modular architecture across crates (`cues::FIXED`, `simulation.rs`, `collect_actor_poses`, `runtime.rs`, `model_cache.rs`, `entities/io.rs`, `entities/triggers.rs`).
+  - Integrated upstream ragdoll eye posing, ragdoll fadeout presentation, prop physics attacker attribution, friendly immunity refusal, and zero-health kills.
+  - Verified with full validation suite (`scripts/checks/validate.sh`), strict Clippy, format check, isolation check, and Windows cross-target check (`scripts/checks/check_windows.sh`).
+
+## Remove Ubuntu CI check (2026-10-29)
+
+- Removed Ubuntu 24.04 from GitHub Actions PR CI workflow (`.github/workflows/rust.yml`).
+  Because no Linux test environment is available to run or verify the game, CI now checks
+  Windows (`windows-latest`) and macOS (`macos-15`).
+- Removed Linux library installation step from CI and updated platform notes in README.md.
+
+## Background debug quick game background swaps and chapter background rotation (2026-10-29)
+
+Background debug mode has been expanded with quick game background swaps and chapter background cycling:
+- Quick background swaps (1-4): keys `1` (Half-Life 2), `2` (Episode One), `3` (Episode Two), and `4` (Lost Coast) immediately
+  swap to the initial background map for each game, resolving targets via existing `GameUiResources` methods (`category_game`
+  and `background_map_for`) without altering menu button categories.
+- Chapter background rotation ([/]): `[` and `]` cycle through all unique chapter background maps in sequence across all installed
+  games (`scripts/chapterbackgrounds.txt`), rotating from the final chapter background back to the initial Half-Life 2 background
+  and vice versa.
+- FOV reset on key 0: pressing `0` (or `Numpad0`) resets camera FOV override to the authored default.
+- Opacity controls cleanup: bracket keys no longer alter opacity; 0% and 100% blur opacity toggles are exclusively triggered
+  via `ArrowLeft` and `ArrowRight`.
+- Overlay updates: FOV overlay line displays `fov: X.XX°  (D/U  0: reset)` and an additional row notes `1-4: hl2/ep1/ep2/lc    [/]: prev/next chapter bg`.
+Verified with full validation suite (`validate.sh`), Windows cross-target check (`check_windows.sh`), and Bevy release build.
+
+## Background debug FOV unification, menu focus, arrow opacity toggles, and dev overlay ordering (2026-10-28)
+
+Background debug mode has been updated:
+- Menu base focus on enable: activating `background_debug_mode 1` (typically via console command) focuses the menu base and
+  moves the console out of focus, allowing background debug keyboard controls to function immediately without manual clicking.
+- FOV controls unified to `background_map_fov`: horizontal FOV commands and state have been removed; camera FOV is unified
+  under `background_map_fov [degrees]` and adjusted with `ArrowDown` and `ArrowUp`. The overlay line displays `fov: X.XX° (D/U)`.
+- Left/Right arrows for opacity toggles: `ArrowLeft` sets blur opacity to 0% (and toggles back to base opacity on repeated press),
+  while `ArrowRight` sets blur opacity to 100% (and toggles back on repeated press). `BracketLeft` and `BracketRight` remain supported.
+  The overlay line displays `blur_opacity: X%  (left: 0  right: 100  ,: -1%  .: +1%)`.
+- Developer overlay ordering: in 2D canvas presentation, the UI (including menu background blur quad, buttons, and dialogs) is now
+  drawn before developer overlays, ensuring that neither the background blur overlay nor in-game dialogs cover the F1 developer overlay,
+  the F4 NPC spawn panel, viewmodel debug overlay, or background debug overlay.
+- Dynamic blur texture label: the `blur_texture` HUD label recomputes and dynamically updates upon aspect ratio changes between
+  widescreen and standard 4:3 formats.
+Verified with full validation suite (`validate.sh`), Windows cross-target check (`check_windows.sh`), and release build.
+
+## Background debug key responsiveness in menu pause state resolved (2026-10-28)
+
+Background debug mode keys (arrow keys for camera horizontal/vertical FOV, `,`/`.` for 1% opacity adjustment, and `[`/`]`
+for 0%/100% opacity toggles) now respond correctly in the main menu. Previously, an `adjusting = !sim.paused() && !sim.transition`
+guard inherited from viewmodel debug mode blocked all key updates because the main menu is always considered paused
+(`ui.source.paused()` returns `mode != Mode::Gameplay`). Background debug key handling now activates whenever the developer
+console is not open, and mode retention in `process_debug_tuning_keys` checks `can_enable_background_debug()` to prevent
+premature deactivation. Verified with automated unit testing and full validation suite (`validate.sh`).
+
+## Background debug mode navigation isolation, raw names, and blur opacity controls (2026-10-28)
+
+Background debug mode has been refined to address navigation overlap and add granular visual opacity controls:
+- Arrow key navigation override: while background debug mode is active, arrow key presses adjust background camera
+  horizontal and vertical FOV without moving main menu or submenu selections, and debug key characters are filtered
+  from UI text input.
+- Raw map and texture names: the debug HUD overlay and console logs now display raw identifiers (e.g. `ep1_background01`
+  and its corresponding blur texture name).
+- Blur opacity controls: `,` and `.` change current blur opacity by 1% with hold-to-repeat; `[` sets blur opacity to 0%
+  and toggles back to the base `background_blur_opacity` on repeat click; `]` sets blur opacity to 100% and toggles back
+  on repeat click. The overlay line format displays `blur_opacity: X%  ([: 0  ]: 100  ,: -1%  .: +1%)`.
+- FOV reset on exit: disabling background debug mode or ending the background level automatically resets camera horizontal
+  and vertical FOV overrides to authored values.
+- Loading/error opacity clamping: visible blur opacity is clamped to 100% whenever the background map is loading,
+  missing, or failed, ensuring blur opacity adjustments take effect visually only once the background map is ready.
+Verified with full validation suite (`validate.sh`), Windows cross-target check (`check_windows.sh`), and release build.
+
+## Submenu and background switching wgpu crashes and despawn warnings resolved (2026-10-28)
+
+Switching main menu submenus and chapter background maps repeatedly across sessions no longer crashes with wgpu render
+target validation errors. During map transitions, `sky::install` now explicitly spawns `SkyCamera` with
+`RenderTarget::Image(image.into())` matching the offscreen frame image instead of defaulting to `RenderTarget::Window`.
+The offscreen frame handle is threaded from `campaign::poll` through `install_loaded_map` into `sky::install`. Child
+joint entities in `gpu_skinning.rs` no longer have redundant `MapOwned` tags that conflicted with recursive hierarchy
+despawning, and cleanup queries use `try_despawn()`. `resolve_asset_root` and `init_console_ui` helpers were extracted
+to keep `main.rs` functions and file line counts strictly within baseline limits. Verified with full validation checks,
+Windows cross-target check, and 10 consecutive 2,000-frame automated stress replays of `bevy-menu-submenus.json` (10/10 runs passing).
+
+## Background visual debug mode and FOV tuning commands implemented (2026-10-28)
+
+Background visual layout debug mode commands and controls are now implemented. Commands include:
+- `background_debug_mode 0|1`: enables or disables background debug mode. It can only be enabled while
+  in the main menu with a background map or loading blur present; starting or transitioning into a gameplay
+  map automatically disables it. Successful activation automatically disables viewmodel debug mode and vice versa.
+- `background_blur_opacity 0..100`: adjusts the alpha opacity of the pre-blurred background texture (default 50)
+  while background debug mode is enabled, keeping the blur overlay visible over the live 3D background map. During
+  active loading, blur overlay opacity remains 100.
+- `background_map_fov_horizontal [degrees]` and `background_map_fov_vertical [degrees]`: inspect or override
+  background map horizontal and vertical field of view angles independently in degrees.
+- Arrow key tuning: left/right decreases/increases horizontal FOV, down/up decreases/increases vertical FOV,
+  with key-repeat handling and Shift (= 1.0) and Alt (= 0.01) step modifiers.
+- Debug overlay: renders a HUD overlay listing background state, active map name, blur texture name, blur opacity,
+  and horizontal/vertical FOV degrees.
+- Console logging: logs background map loading start and finish (with blur texture and opacity), aspect ratio
+  changes with horizontal/vertical FOV, and gameplay map loading start and finish.
+Full validation suite, architecture guardrails, and Windows cross-target checks pass.
+
+## Background map switching and aspect ratio crashes resolved (2026-10-28)
+
+Switching menu background maps at any fixed aspect ratio or after changing aspect ratios no longer crashes.
+When switching background maps, the entity count and states are replaced by the incoming map; unchecked indexing
+into `game.scene.states` across entity presentation, eye tracking, monitors, material proxies, dynamic lighting,
+shadow casting, and choreography has been replaced with safe bounds checking (`.get(id)`). Spawned GPU skinning
+joint entities are now marked with `MapOwned` so they are reliably despawned during map reload rather than leaking
+into subsequent scenes. `SuspendedCamera` entity operations in `video.rs` and effect despawning in `effects.rs` now
+use `commands.get_entity` to prevent entity-not-found panics when camera suspension coincides with map despawning.
+`effects/gibs.rs`, `rendering/map_draw.rs`, and `rendering/runtime.rs` were extracted into submodules, and architecture
+baselines were tightened. Full test suite, architecture guardrails, and Windows checks pass.
+
+## Menu background blur texture on fit-display aspect ratios aligned (2026-10-28)
+
+Pre-blurred chapter background textures on fit-display screens (such as MacBook Pro Retina panels at
+~1.54 aspect ratio and 3:2 displays at 1.5) now select the widescreen texture and crop horizontal
+margins precisely to match the 3D background camera projection. Previously, `is_widescreen` was
+gated at `aspect >= 1.6`, classifying intermediate aspect ratios as 4:3 and stretching the 4:3
+texture uncropped across the canvas. Threshold was lowered to `aspect > 4. / 3. + 1e-3` across
+`console.rs`, `console/loading.rs`, and `gameui/loading.rs`. `background_tests.rs` verifies
+exact ray parity across 11 aspect ratios including 1.5, 3024/1964, and 3456/2234. Full validation
+suite passes.
+
+## Child subdialog parent fade-out initial flicker eliminated (2026-10-28)
+
+Opening a child subdialog over Options (such as Video > Advanced) now transitions the parent dialog's
+focus look continuously from focused (1.0) to out-of-focus (0.0) without initial flicker. `Console::input`
+now synchronizes dialog window states immediately upon handling input, opening `Window::SubDialog` and
+establishing `sub_theme` in the same frame rather than deferring to the subsequent tick. Furthermore,
+`OptionsDialog::draw_with_occluders` preserves the host-provided window theme when `parent_focused` is
+provided, eliminating the premature 1-frame drop to 0.0. `overlay_bounds` was extracted into `options/hints.rs`,
+tightening production and test baselines for `options.rs` and `console/tests.rs`. Full validation and Windows checks pass.
+
+## Developer console input caret scaling and shared text entry frame reused (2026-10-28)
+
+The developer console input caret now draws through `painter.caret`, matching the proportional thickness
+and styling of standard dialog text entries (such as the mouse sensitivity text entry in Options). On
+high-DPI and scaled displays, the caret width scales proportionally (`scale.round().max(1.)`) rather than
+drawing a hairline 1-pixel rectangle directly to canvas. Duplicated frame, sunken border, and focus edge
+drawing in `ConsolePanel::draw` is replaced with `painter.text_entry_frame`. Submodule `widgets/text_input.rs`
+was extracted, tightening architecture baselines for both `widgets.rs` and `console/panel.rs`. Full validation
+and Windows checks pass.
+
+## Menu background texture crop aligned with camera projection across aspect ratios (2026-10-28)
+
+`background_source` now aligns texture crop to the authored base aspect ratio (`4:3` for standard textures,
+`16:9` for widescreen textures). Screens narrower than the texture's base aspect (such as 5:4 for 4:3
+artwork and 16:10 for widescreen artwork) now crop horizontal margins rather than squeezing the texture,
+eliminating aspect distortion against the 3D background camera. All 8 standard aspect ratios (`9:16`, `1:1`,
+`5:4`, `4:3`, `16:10`, `16:9`, `21:9`, `32:9`) are tested and match camera projection rays with exact
+tangent parity. Full validation and replay suite pass.
+
+## Unfocused dialog click-to-focus and button hover suppression implemented (2026-10-28)
+
+Non-modal dialog frames (`Layer::Window`, including Options and the developer console) now require
+an activating click when out of focus before controls accept clicks. Button hover highlights and arming
+are suppressed while the dialog is unfocused. The activating click raises and focuses the dialog without
+triggering the control beneath the cursor; subsequent clicks on focused controls interact normally.
+The base main menu behind dialogs retains immediate click response per retail Source behavior.
+All tests, lint, Windows-target checks, and architecture guardrails pass with baseline tightening.
+
+## Developer console input font and caret positioning aligned (2026-10-28)
+
+The developer console input entry field now renders with the shared monospace `ConsoleFont`
+matching the log history and completion popup. Text metrics and cursor advances are computed
+directly from the console font face, eliminating horizontal caret displacement and font visual
+mismatches. Full validation (1,193 Rust / 100 ignored, 27 Python), Windows-target checks and
+architecture pass with panel baseline tightening.
+
+## Subdialog and window fade-out occlusion snapping resolved (2026-10-28)
+
+Canvas occluders are only registered for overlay windows, subdialogs, and confirmation boxes
+when the overlying layer is active, not closing, and fully opaque (alpha >= 0.999). During
+fade-out animations, underlying dialog content remains unclipped and visible through translucent
+overlays, eliminating premature occlusion holes and visual popping upon completion.
+Full validation (1,191 Rust / 100 ignored, 27 Python), Windows-target checks and architecture
+pass with baseline tightening.
+
+## Background projection policy corrected (2026-10-28)
+
+Supersedes the previous saved-FOV handoff workaround: menu projection is fixed to the authored
+75-degree 4:3 reference with existing aspect crop, independent of player FOV/vertical overrides
+and zoom. Both older inspected commits share player-FOV coupling; Fit Display causality is
+not established. Three new camera tests cover setting independence, artwork crop rays and
+Fit Display internal-aspect changes; first-view/tick stability test uses the corrected policy.
+Full validation (1,190 Rust / 100 ignored, 27 Python), Windows-target checks and three packaged
+groups pass. At 4:3/16:9, changing gameplay FOV/vertical overrides changes only 521/9 pixels
+in animated details. Evidence: artifacts/background-projection. Interactive window resizing,
+native parity, Windows runtime and every background artwork NOT TESTED.
+
 ## Retail virtual sequence mapping and fresh raw graph (2026-10-28)
 
 The selected citizen's nine retained base sequence IDs now have actual retail virtual group/local-index witnesses. A fresh never-attached passive capture admits eight cached descriptors and their labels against owned model files. The remaining ID0 maps to group0/local0, whose cache slot is empty; the independently read direct-root header contains local0 `ragdoll`. Do not turn the earlier initialization value0 into ragdoll playback or treat the direct-root read as a filled group-cache witness.
@@ -15,6 +208,542 @@ Private checkpoint: work/publishing/research-followup-continuation-20261028bw.md
 Two fresh passive diagnostic runs stop without an accepted mapping witness. BU rejects an empty root-group header-cache slot. BV separates that slot from the direct root header but then rejects a valid shared-model header because its verifier confuses an alphabetically sorted content list with virtual group order. A blank AssertionError string also bypasses the intended break and repeats 12 rejected snapshots within BV; none are accepted. Both owned games exit 0 with checked installed settings unchanged. Preserve both roots and stop this collector/verifier approach.
 
 The materially different BW approach subsequently passes by collecting the bounded raw virtual/header graph independently of content-list ordering, then verifying header checksum/name and group/local descriptors offline. Exact pass14 lookup bodies and independent PE byte checks remain valid. Optional fresh Ghidra import times out at330 seconds, with diagnostics retained and session closed; no fresh dossier agreement is claimed. No Rust edits/builds; first_map_finished:false.
+
+## Background FOV handoff follow-up (2026-10-27)
+
+Initialize the new background inventory's default FOV before reveal, matching the configured
+simulation FOV instead of waiting for the first fixed tick. The old path fails the new
+lifecycle test (75 vs 87.3083); final full validation, Windows-target checks and nondefault-FOV
+packaged reveal/coverage pass. The image guard missed the old transient zoom; do not claim
+an image-proven fix from that comparison. Owner interactive confirmation/Windows runtime
+NOT TESTED. Evidence: artifacts/background-fov. No FOV policy change or new frame work.
+
+## Advanced weapon edge coverage correction (2026-10-27)
+
+Reproduced with the cutout fix active: offscreen gather taps were skipped but still counted
+in the divisor, fading guns near viewport edges. Normalize color and coverage by in-frame
+taps instead. Exposure/tap density/reach and world/retail paths are preserved. Eight owned
+SMG/shotgun fire/reload cases at no AA/4x AA pass with zero lost coverage; a private old-divisor
+control detects 6,843 affected pixels. Normal captures inspected. Full validation passes
+(1,186 Rust / 100 ignored, 27 Python, strict host/Windows Clippy/fmt/architecture). Existing
+crowbar/lifecycle replay, fixture coverage and all eight pistol/switch/reload/SMG ownership
+cases pass, with zero borrowed-motion or missing-coverage pixels.
+Evidence: artifacts/weapon-edges and artifacts/render-fixes. Other GPU/Windows runtime,
+all animation phases/frame rates and native comparison NOT TESTED.
+
+## Cutout material alpha fix (2026-10-27)
+
+Alpha-test survivors now output opaque alpha, avoiding sky/background being blended through
+accepted edges in later camera composition. Authored cutoff/masks, translucent materials,
+filtering, AA and prepass are preserved. Full validation passes (1,186 Rust / 100 ignored,
+27 Python, strict host/Windows Clippy, architecture/fmt). Owned Metal tree/fence GPU probes
+pass at no AA/4x and Ultra: zero partial survivors; the negative control detects 7,339.
+Normal captures inspected; evidence in artifacts/cutout-alpha and artifacts/render-fixes.
+Windows/other GPU runtime and native comparison NOT TESTED. Next: Advanced viewmodel blur.
+
+## Background camera handoff fix (2026-10-27)
+
+Reproduced the first-frame spawn-view flash with an install-time screenshot; ordinary
+post-tick burst captures missed it. Due zero-time map-spawn events and shared scripted
+view resolution now run before revealing an installed background, preserving delayed
+outputs and fixed/script clocks. Full validation passes (1,186 Rust, 100 ignored; 27 Python,
+strict host/Windows Clippy, architecture/fmt), as do two owned asynchronous submenu tests.
+Packaged submenus, return_menu, background_reveal and coverage pass. Install-to-settled
+changed pixels fall from 532,602 to 2,931 (animated details). Next: cutout halos, then
+Advanced SMG/shotgun shooting/reloading artifacts. Original rejected captures and logs are
+retained in artifacts/render-fixes; Windows runtime remains NOT TESTED.
+
+## Integration checkpoint (2026-10-27)
+
+Merge orbitalman/hl2-ui-chapters into orbitalman/hl2-ui, retaining chapter selection,
+asynchronous startup/loading, commentary, movie playback and HUD alignment alongside
+four-tier motion blur and the measured M1 Pro/Metal rendering improvements. Startup uses
+the existing app helper before asynchronous map loading; no feature-specific duplicate
+app setup is introduced. Earlier sections below retain each branch's historical evidence.
+
+Validation: 1,184 Rust tests pass (100 ignored), 27 Python tests, strict host/Windows-target
+Clippy, formatting and architecture pass without exception growth. Release packaging and
+owned startup stub test pass. Eight packaged groups pass: submenus, return_menu,
+chapter_selection, motion_blur_options, viewmodel_motion_blur, commentary, video, coverage.
+The initial options fixture missed the Video tab after font/layout changes; existing
+keyboard navigation replaces the pixel click, with intermediate-state assertions and an
+Advanced/Ultra persistence assertion. The focused rerun passes; rejected evidence remains
+in artifacts/merge-ui-chapters. Unrelated untracked files are outside this merge. Windows runtime, ordinary campaign playthrough
+and fresh interactive FPS measurements are NOT TESTED in this integration.
+
+## Wrap-up: four blur tiers and measured rendering savings (2026-10-27)
+
+Disabled/Enabled retain retail behavior. Advanced adds only viewmodel animation blur to
+retail camera blur; Ultra enables dense world/camera and opaque/masked projectile blur too.
+Old Advanced saves default to weapon-only, and Ultra requires an explicit new choice. The
+localized Ultra label and cyan tuning status pass owned-resource checks. GPU activation
+checks prove Advanced has zero world passes and Ultra has both world and weapon passes.
+
+Apple M1 Pro/Metal automatically uses supported direct drawing, selected before cameras
+spawn. Other adapters keep the old default. HL2RS_DIRECT_DRAW=0/1 is a startup override;
+HL2RS_PROFILE_DIRECT_DRAW overrides it only in background profiling. The weapon's first
+reduction scans conservative current visible bounds, clearing the whole attachment and
+leaving later dilation/gathers full. Near-plane/missing/invalid bounds fail open. A native
+idle probe scans about 24% of weapon reduction texels for about 0.002 ms CPU per call.
+
+Uncapped native 3456x2168/4x/HDR None idle medians: Enabled 10.74 ms (~93 FPS), Advanced
+12.86 ms (~78), Ultra path 16.31 ms (~61). Advanced mean/p95 budgets pass (p95 14 vs 12 ms),
+but two pairs flag memory pressure; full native qualification remains provisional. Ultra
+still fails the strict budget. Earlier series called Advanced measured today's Ultra.
+At 720p/no AA direct drawing improved that Ultra path about 58 to 110 FPS, with median
+CPU work/frame about 36.1 to 23.7 CPU-ms. Cross-batch comparisons remain observational.
+
+Final validate.sh: 1,143 Rust tests passed, 92 ignored, 27 Python tests; strict Clippy/fmt/
+architecture pass. Windows-target strict Clippy passes; Windows runtime is NOT TESTED.
+Owned labels, three tier GPU activation checks, eight normal weapon surface probes and
+final crowbar/coverage replays pass. Full final-tier world/projectile suite, interactive
+FPS, other adapters and ordinary campaign playthrough are NOT TESTED. Earlier world probes
+passed, but do not substitute for final-tier runtime qualification. No quality taps,
+exposure or geometry AA were reduced by the new region optimization.
+
+Both cooperative reduction kernels are archived: exact GPU reference comparisons passed,
+including synthetic ties/eight samples and a deliberate-error detector, but Metal timing
+showed no win (parallel ~18.15 ms; serial-leader ~25 ms versus fragment ~17.78). The faster
+fragment kernel is retained. All failed, pressure-affected and priming runs remain in
+ignored artifacts/blur-performance-regression; no flags or thresholds were weakened.
+
+Next: manual test the packaged build, finish matched-resource Advanced turns/swings and
+final-tier Ultra projectile probes, then investigate world-motion prepass/read cost only
+if more optimization is requested. Do not repeat the rejected cooperative kernels on this
+GPU without new evidence. Watts are deprioritized; continue work/frame and memory metrics.
+
+## Direct-drawing experiment: CPU win, native blur still open (2026-10-27)
+
+HL2RS_PROFILE_DIRECT_DRAW=1 opts background --profile into NoIndirectDrawing at camera
+creation. Default/interactive rendering stays unchanged. Reports/guard verify the requested
+mode. Four profiling tests, strict host Clippy and architecture pass. The complete source
+is on codex/experiment/blur-direct-drawing; visual qualification of this mode is pending.
+
+Three 720p/no-AA idle pairs give median 8.30/9.05 ms Enabled/Advanced (about 120/110 FPS),
+versus prior 12.62/17.31 ms. Both frame-time budgets pass; two pairs are comparable, one has
+baseline-memory drift. Median process CPU work/frame falls 28.74 to 21.72 CPU-ms Enabled,
+and 36.13 to 23.73 Advanced, summed over CPU cores. System GPU busy-time/frame proxy falls
+6.81 to 5.54 ms Enabled and 8.33 to 6.37 Advanced. Cross-batch comparisons are observational;
+no energy claim is made. No per-run pressure/interference flags occur in that six-run batch.
+
+Native direct-draw medians are 10.79/17.78 ms idle, 11.73/18.15 turning, 10.86/20.51 swinging.
+Every frame-time budget fails; source is unqualified. Some paired baselines are mismatched,
+retained in artifacts/blur-performance-regression/direct-draw-native and direct-draw-720p-noaa.
+Render buffer writes drop to about 0.02 ms in the 720p representative run. Next: cooperative
+first reduction with identical samples, followed by image probes and repeated native timing.
+The owner deprioritises watt telemetry; do not pursue privileged measurements. Work/frame,
+memory and tails remain efficiency evidence, not precise energy consumption.
+
+## Uncapped baseline and efficiency scope (2026-10-27)
+
+Background --profile now has zero application-loop interval; ordinary background replays
+retain 1/60 s, interactive presentation is unchanged and the two-marker completion bound
+remains. Reports expose the selected interval; the guard asserts zero and allows explicit
+focused scene sweeps. Frame safety cap is 36,000 so fast runs can finish the full script;
+the existing script-finished check remains mandatory. No timing guard is weakened.
+
+Thirty packaged runs finish: eighteen native 3456x2168/4x, six 720p/no-AA idle and six
+1080p/no-AA idle, three alternating pairs each. Native median Enabled/Advanced frame ms:
+idle 14.27/19.17, turns 15.03/20.58, swing 14.28/21.49. Every native turning pair is resource-
+comparable and fails both budgets. 720p idle is 12.62/17.31 ms, all three pairs comparable;
+1080p idle is 12.78/17.42 ms, one Advanced run flags pressure. These do not qualify rendering.
+Native and no-AA sweeps differ in AA/aspect too; they are not isolated bandwidth tests.
+
+Render-phase buffer writes cost about 2.3 ms Enabled versus 4.5-4.7 ms Advanced at both
+native and 720p. Next: opt-in, startup-only direct drawing, preserving default rendering,
+then measure whether it reduces actual work/frame. CPU and GPU stage scopes overlap and are
+not additive GPU timings. Hardware/power-aware goal now explicitly includes CPU ms/frame,
+system GPU busy-time/frame proxy and memory; watts/joules remain unavailable. powermetrics
+requires superuser access here. No power saving is claimed from utilisation or FPS alone.
+Evidence: artifacts/blur-performance-regression/uncapped-main-depth-native,
+uncapped-main-depth-720p-noaa and uncapped-main-depth-1080p-noaa. No GPU workloads overlap.
+
+## Newly found benchmark pacing limit (2026-10-27)
+
+Source inspection finds background runs install ScheduleRunnerPlugin::run_loop at 1/60 s,
+including --profile. Existing completion markers bound the GPU queue but do not remove this
+application-loop pacing. Recorded headless frame means therefore include pacing and cannot
+establish uncapped renderer throughput or a 120 FPS ceiling. Slowdowns and resource evidence
+remain observations under that paced workload; previous comparisons are not pure GPU costs.
+No runtime pacing change or new GPU run is made yet. Next: uncap background --profile only,
+retain ordinary replay timing and the two-marker queue bound, then repeat controlled low/high
+resolution and AA sweeps after the other contributor's work. Shader Detail, Water Detail and
+Multicore explicitly report unfinished/no-effect behavior in the current settings status.
+
+## Main-depth candidate and benchmark deferral (2026-10-27)
+
+- Main-depth source is preserved on codex/experiment/blur-main-depth. World/projectile GPU
+  probes pass, including 4x MSAA, sky exclusion, silhouette expansion and off/pause omission.
+  Eight pistol/fire/reload/switch/SMG surface-motion cases pass with MSAA off and 4x: actual
+  reconstruction, zero borrowed-motion pixels, zero covered-pixel holes, no render errors.
+  Normal lamp/camera captures show continuous streaks. This does not qualify native cost.
+- Full workspace validation: 1,136 Rust tests pass, 92 ignored, strict Clippy/fmt/architecture
+  pass. After restricting depth bookkeeping to active/restoring cameras, eleven bloom tests,
+  host/Windows-target strict Clippy and architecture pass again. Native Windows runtime,
+  interactive FPS and the broader crowbar replay are not tested for this candidate.
+- Two native timing attempts cannot qualify the candidate. The first overlaps another
+  packaged replay and is interrupted by stopping only this task's benchmark processes.
+  The second completes three idle pairs, then preflight detects a competing compiler and
+  stops before starting Advanced turns. Idle medians are 19.43/20.26 ms Enabled/Advanced,
+  p95 24/24 ms; frame budgets pass, but one pair has a baseline-memory mismatch. Two
+  comparable idle pairs are insufficient for full qualification. No copy-removal speedup
+  against the previous candidate is established.
+- Retain artifacts/blur-performance-regression/main-depth-repeated (interrupted) and
+  main-depth-isolated (deferred), with all completed reports and preflight evidence.
+  Stop repeating interrupted timing attempts on the shared machine. The guard now saves
+  preflight counters and refuses known competing game/compiler workloads; moderate stable
+  utilisation remains valid. Twenty-five Python checks include proof that a busy preflight
+  saves evidence without invoking the game. Next: an exclusive native timing window, then
+  finish the crowbar replay. Rendering remains unqualified and uncommitted on this branch;
+  the primary checkout is untouched.
+
+## Repeated direct-source experiment (2026-10-27)
+
+- Eighteen native packaged runs complete: three alternating pairs per scene, middle order
+  reversed. All render without errors and observe bounded GPU completion with zero wait
+  errors. The candidate remains unqualified; no rendering source is committed to this branch.
+- Idle/turn pairs are flagged for pressure, competing builds or baseline shifts. Retain all
+  results rather than deriving a speedup from their noisy medians. Three swing pairs are
+  resource-comparable: Enabled 18.26 ms median, Advanced 23.60 ms (range 23.53-23.79), p95
+  22/33 ms. Both budgets fail. GPU busy rises from about 74% to 99%, while host CPU busy is
+  similar and no measured memory-pressure/pageout flags occur in the swing runs.
+- Source is retained on codex/experiment/blur-direct-colour-sources; detailed resources and
+  output ratios are in docs/performance.md. Raw evidence remains in ignored
+  artifacts/blur-performance-regression/direct-sources-repeated. World/projectile GPU probes pass. Exact GPU-pass cost and interactive performance remain
+  untested. The next candidate samples main depth without a copied prepass export; eleven
+  bloom tests and architecture pass, packaged qualification is pending.
+
+## Experiment preservation (2026-10-27)
+
+Thirteen local codex/experiment branches preserve meaningful blur approaches. The source-only
+index is docs/blur-experiments.md; every branch has docs/blur-experiment.md with provenance
+and reuse notes. Seven are complete recorded snapshots; partial/reconstructed shader and
+camera integrations are labelled. These archives are unqualified, and new archive checkouts
+were not rebuilt. Temporary stash cleanup does not remove the archived source objects.
+
+## Completion-paced profiling checkpoint (2026-10-27)
+
+- c53b369 and 2cca3f9 commit frame-tail reporting and host-resource measurements. Headless
+  profiling now waits on a fixed two-marker GPU completion ring; ordinary/interactive runs
+  retain their existing path. Native runs observe hundreds of completions, a maximum of
+  two pending fences and zero wait errors. No exact render-pass GPU timing is claimed.
+- GPU-managed memory in the completion-paced swing averages 2.23 GiB versus about 4.40 GiB
+  in the earlier unpaced resolved-world run, with no pressure flags. This supports queue
+  growth as a contributor; the paired frame times are not an isolated pacing speedup test.
+- The first driver GPU sample can reflect a preceding run. Retain it separately and use
+  subsequent samples as the baseline; prefer quiet samples, but compare stable moderate
+  inputs under the original resource-matching criteria rather than requiring total idleness.
+  An experimental quiet-only rejection is removed; those earlier files are not rewritten.
+- Pre-pacing headless frame rates remain exploratory submission-cadence evidence. Rendering
+  candidates still fail some native guards and remain uncommitted. Empty-ray skipping did
+  not establish a gain and is archived separately. The current candidate removes foreground
+  copies by reading resolved colour inputs directly; ten bloom tests and architecture pass,
+  but GPU quality and repeated performance qualification are pending. Concurrent build
+  activity is retained and flagged.
+
+## Hardware-aware benchmark checkpoint (2026-10-27)
+
+- c53b369 commits profiled frame-time tails and the native blur guard. Resource instrumentation
+  adds bounded epoch-aligned frame windows, macOS host CPU/GPU/VM/process counters, descriptive
+  correlations and defined resource/output ratios. Other platforms report counters unavailable.
+- The six-run native batch completes without render errors but all scene pairs fail qualification:
+  Advanced hits GPU saturation and VM pressure/pageouts; competing builds also affect some runs.
+  The first idle pair is 18.22/22.96 ms (retail/experimental Advanced), GPU busy 68.5/96.9%, and
+  minimum available-memory estimates 4.51/2.03 GiB. These are not accepted optimisation timings.
+- Resource use includes the benchmark itself: correlation is not causation, and memory pressure
+  caused by a feature is part of its cost, not an excuse for failing the guard. Precise GPU times
+  remain unavailable. Sampler CPU usage is recorded separately; isolated FPS overhead is untested.
+- Source, package hashes, raw counters and per-window associations are retained in ignored
+  artifacts/blur-performance-regression/environment-loaded and environment-observer. Rendering
+  experiments remain uncommitted. Next: single-sample resolved post-processing, preserving AA.
+
+## In progress: native-resolution Advanced regression (2026-10-27)
+
+- Owner confirms a8a050b is about 50 FPS idle/shaking, about 3-4 FPS lower during swings;
+  f7369cd is about 40 FPS idle and about 10 shaking at 3456x2168 / 4x MSAA. Earlier
+  1024x768/no-AA qualification is insufficient and superseded by this reproduction.
+- Copied native-resolution packages reproduce f7369cd at 40.45 ms idle / 110.94 ms shaking.
+  Bypassing reconstruction returns about 20 ms with the prepass retained. A quarter camera
+  filter alone still costs 28.43 ms idle. Object-only producer vectors remove repeated
+  camera/depth work, but the first crowbar-visible guard still fails at 24.06 ms idle.
+  Combining native composites and skipping static camera filtering improves idle to
+  20.29 ms; its crowbar-visible shaking guard still fails at 23.99 ms versus retail 17.89 ms.
+- Do not qualify these partial attempts. Direct a8 tests with the crowbar give 19.23 ms
+  idle, 19.05 ms shaking, 21.01 ms swinging. Preserve its exact viewmodel motion channel;
+  object-only motion belongs to world materials. Continue focused native tests before
+  committing. The first resolved-scene startup failed GPU validation because its ninth
+  binding was omitted; fixed the binding before timing. Evidence:
+  artifacts/blur-performance-regression; no Windows runtime test.
+
+- Further rejected attempts: resolved-motion cache costs 23.27 ms dense / 25.49 ms sparse
+  idle; separate single-sample motion camera costs 26.62 ms versus retail 18.24 ms. Removed
+  the auxiliary camera and the cache. Both add too much framebuffer/geometry overhead.
+  The occupancy-mask experiment also failed the guard (33.88 ms idle, p95 108 ms) and
+  was removed. Other contributor compilation overlapped part of that batch, so these
+  numbers do not isolate its GPU cost. No candidate is qualified or committed. Return to
+  the bounded camera filter and original native object gather for the next investigation;
+  retain guard thresholds and weapon reconstruction. Investigate GPU pass timings before
+  adding further full-screen passes.
+
+- Investigation moved to the dedicated codex/blur-performance worktree at the owner's
+  request. The primary checkout remains on orbitalman/hl2-ui at f7369cd for manual testing;
+  task changes were copied and hash-verified before restoring its tracked source. Unrelated
+  scratch files were preserved. GPU tests must not overlap the owner's manual testing.
+- Encoder-boundary timestamp probes finish without render errors, but all reported blur GPU
+  durations are zero on this Metal adapter. These are unavailable timings, not zero-cost
+  filters. Do not publish them as GPU cost; use controlled ablation or another profiler.
+
+## Advanced world and projectile blur (2026-10-27)
+
+- Advanced now reconstructs camera motion with dense centered 17-257 taps, plus independent
+  opaque/masked moving-model motion. Grenade, missile and bugbait GPU probes demonstrate
+  vectors and silhouette expansion with the camera held still. Disabled/retail Enabled
+  retain their existing behavior; the strong weapon reconstruction remains separate.
+- Shared render plumbing owns persistent per-view textures, skips the weapon background
+  snapshot for the world view, uses Bevy's PreviousViewData for reprojection, excludes sky from object tiles,
+  and subtracts camera motion per MSAA depth sample. World history warms after activation,
+  pause/loading, map/lens changes, time jumps and teleports. Off modes keep no active world reconstruction/prepass state.
+- Local validation: 1,127 Rust tests/92 ignored, 13 Python helpers, architecture, strict
+  Clippy/fmt; Windows-target Clippy. Owned probes/captures and paired frame timings are
+  detailed in docs/validation.md and docs/performance.md; scripts/checks/check_world_blur.py
+  is isolated from user settings and asserts actual GPU execution, not just a clean log.
+- Three isolated paired runs per scene: prior/current Advanced 19.694/19.638 ms still,
+  19.510/19.258 ms during turns. No scene frame-time regression; no general speedup or GPU
+  cost claim. Native Windows/Linux runtime remains untested.
+- Rejected first gather blurred scenery around small projectiles; fixed background ownership.
+  Rejected sky-relative and mixed-MSAA-depth motion classifications are fixed. Plaza stippling
+  also occurs with blur off; speculative depth bias was removed. Initial timing batch was
+  exploratory and overlapped checks; only the isolated final batch supports timing claims.
+- Transparent smoke/glow/additive particles lack independent motion vectors; current-frame
+  reconstruction cannot recover hidden/offscreen color or exactly integrate curved paths.
+  Native Windows/Linux, every weapon/effect/resolution/frame rate and ordinary campaign play
+  are not tested. Old detached app-primary worktree remains parked after app cleanup refusal;
+  original checkout is active, with unrelated scratch files untouched.
+
+## Advanced weapon blur surface stability (2026-10-27)
+
+- Isolated hl2-ui worktree; chapter checkout untouched. Fixed slow covered pixels borrowing
+  neighboring fast motion. Covered pixels now follow their own motion; background keeps
+  dominant-motion trails. Centered odd gathers and smooth 1-3-pixel onset preserve thin/slow
+  surfaces while retaining 1.25-frame exposure and 12% reach. No additional render resources
+  or passes; retail modes/off work unchanged.
+- Original shader fails the packaged GPU ownership check with 4,603 affected pistol pixels.
+  Fixed pistol fire/reload, switch/draw and SMG fire pass at no AA/4x AA: diagnostic execution
+  is asserted, with no borrowed surface motion or lost center coverage. Normal captures
+  inspected; existing crowbar/silhouette, MSAA, pause/still/switch/off/retail checks pass.
+- Verified: validate.sh 1,125 Rust tests/92 ignored +13 Python, architecture, strict Clippy/fmt,
+  Windows-target check, release package/hashes. Standalone owned regression command:
+  NO_BUILD=1 python3 scripts/checks/check_weapon_blur.py (run separately from replays.py).
+  Existing group: NO_BUILD=1 ONLY='viewmodel_motion_blur coverage' python3 scripts/checks/replays.py.
+- Three isolated paired Advanced runs: original/fixed 18.215/18.213 ms; overlapping ranges.
+  No general speedup, GPU timing or FPS guarantee. Detailed timings: docs/performance.md.
+- Rejected evidence: live capture indices/request timestamps are not exact pose/history
+  alignment; an unaligned frozen pair does not establish a depth bug. One matched sharp
+  pair is identical above threshold 2, but the decisive test uses GPU motion ownership.
+  Initial contact-sheet height was invalid and corrected. Evidence: docs/validation.md.
+- Windows/Linux runtime, all weapons/frame rates/resolutions and native comparison remain
+  not tested. Next: ordinary-play owner confirmation on the isolated build.
+
+## Retail quick-info size and horizontal placement corrected (2026-10-27)
+
+- Follow-up to the vertical fix: constrain horizontal midpoint instead of merely
+  checking that arcs straddle the reticle. Preserve authored spacing and account
+  for glyph bearings; center portable reticle ink horizontally too.
+- Retained accepted retail 720p and verified 1080p captures confirm oversized
+  macOS quick-info: 75-pixel height at 720p versus retail 42. Select the installed
+  desktop QuickInfo font definition for our character-cell rasterizer; leave other
+  resource consumers and platform restrictions untouched. Corrected heights are
+  42 pixels at 720p and 63 at 1080p, with 1-2 pixel antialias fringe differences.
+- All four recorded native executable/module hashes match the current owned install.
+  References are retained captures, not a fresh native run. Exclude earlier rejected
+  mislabeled screenshots and the 1080p session lacking a module manifest.
+- 1,166 Rust tests / 100 ignored, 13 Python checks, strict Clippy/fmt/architecture,
+  Windows-target Clippy and five owned HUD tests pass. Before HUD/aspect 2/2; after
+  HUD/aspect/power 3/3 (101 s). Final retail comparison image inspected.
+- Evidence: artifacts/quickinfo-horizontal; commands and raster tolerances in
+  docs/validation.md. Native Windows runtime of this change and exact antialias/
+  color parity are not tested. Next: broader HUD comparisons against native captures.
+
+## Quick-info arcs aligned with the weapon crosshair (2026-10-27)
+
+- Center quick-info arc bitmap bounds on view center instead of nominal font height.
+  Preserve full-height clipping and share placement across full, partial and warning states.
+- Correct the portable weapon-reticle bitmap center too; native Windows GDI placement
+  remains unchanged. Split reticle and quick-info drawing into HUD child modules;
+  architecture baseline shrinks from 2,044 to 1,830 production lines in hud.rs.
+- New installed-glyph regression reproduces the old 5.54-pixel offset at 640x480.
+  Checks actual emitted arc/crosshair quads across six viewport sizes, four HUD aspect
+  choices and three health/ammo states. Portable tests cover asymmetric ascent,
+  blur and progress clipping endpoints; five owned HUD checks pass.
+- Workspace validation: 1,165 Rust tests, 100 ignored, 13 Python helper tests,
+  strict Clippy/fmt/architecture pass. Windows-target Clippy passes. Packaged HUD
+  and HUD-aspect checks pass before; HUD/HUD-aspect/power pass after (3/3, 99 s).
+  Final gameplay capture inspected; all eleven package hashes verified.
+- Evidence and retained failures: artifacts/quickinfo-layout; detailed commands in
+  docs/validation.md. Native Windows runtime, native retail raster comparison and
+  ordinary campaign playthrough are not tested. Next: broader native HUD comparisons.
+
+## Chapter background presentation during background loading and unclipped QuickInfo crosshair hud (2026-10-27)
+
+- Fixed background map loading presentation: when launching the game into the main menu without a gameplay map, the chapter's pre-blurred background texture (`materials/console/<background>.vtf` / `_widescreen.vtf`) is now immediately rendered alongside the `#GameUI_Loading` tip plaque in the bottom-right corner rather than showing a plain black screen.
+- Traced root causes: `start_background_loading` retained `Mode::Gameplay` which short-circuited `draw_loading_screen` to only draw the plaque, skipping background texture rendering; `Console::draw` menu background check did not treat background loading as an active menu display; and `load_stub` in `hl2-bevy` mounted base `hl2` rather than the target expansion's mounted game paths via `Vfs::mount_game`.
+- Fixed QuickInfo HUD crosshair clipping: in `source-ui::font`, updated `FontFace::draw_cropped` to crop glyphs using normalized vertical fractions `[0.0, 1.0]` of the rendered glyph texture height instead of subtracting absolute font size from cap height (`cell_height + cap) * 0.5`). Previously, `HL2crosshairs.ttf` metrics (`unitsPerEm = 1000`, `winAscent = 573`, `capHeight = 700`) shifted `glyph.y` down by ~11.1% of the character height, clipping off the bottom pixels of health and ammo brackets `( + )`.
+- Updated `QuickInfoHud::progress` to pass normalized vertical fractions (`vec2(0., p)` for empty and `vec2(p, 1.)` for full), matching Source SDK `CHudTexture::DrawSelfCropped` UV / vertex lerp cropping and preserving full bottom bracket extents.
+- In `hl2-bevy::startup`, ensured `target_map` sets `background = true` only when `--main-menu` is explicitly requested, allowing test fixtures specifying `--map <name>` without `--main-menu` to run as gameplay levels.
+- Refactored `Console::draw` in `crates/hl2-ui/src/console.rs` (reducing production lines from 219 to 21 lines), modularizing `draw_menu_buttons` and `draw_menu_titles` into `draw_menu.rs`, tightening `architecture-baseline.json`.
+- Corrected Play button pointer coordinates in `test-inputs/bevy-chapters-lostcoast.json` (`[640, 508]`), ensuring `chapter_selection` replay test clicks Play in the 600-unit layout.
+- `validate.sh`, `check_windows.sh`, and packaged replay checks (`chapter_selection`, `power_hud`, `hud`, `hud_aspect`, `submenus`, `return_menu`, `chapter_menu`) pass with 0 failures.
+
+## Asynchronous startup map loading with chapter background and progress UI verified (2026-10-27)
+
+- Fixed initial loading sequence when launching without `--map`: immediately presents the chapter's pre-blurred background (`materials/console/<background>.vtf` / `_widescreen.vtf`) with the localized corner loading plaque (`#GameUI_Loading`) and occluded main menu buttons/titles until background level loading completes.
+- Fixed initial loading sequence when launching with gameplay `--map`: immediately presents the target chapter's pre-blurred background with the centered modal `LoadingDialog` and segmented progress bar, smoothly transitioning to gameplay and locking the cursor on load completion.
+- Bypassed 6-second blank video blackout on interactive launch when no software/hardware video frame decoder is installed (`HAS_VIDEO_DECODER = false`).
+- Replaced synchronous map parsing in `main()` with a lightweight stub map (~5 ms setup), moving all heavy map loads to asynchronous worker threads (`hl2-owned-map-loader`).
+- Tightened `architecture-baseline.json` by extracting `next_map_request` in `campaign.rs::poll` (208 -> 179 lines), `setup` (135 -> 119 lines), and `main.rs` (1,204 -> 1,109 lines).
+- `validate.sh`, `check_windows.sh`, and packaged replay checks (`video`, `campaign`, `commentary`, `console`, `bg_compare`) pass with 0 failures.
+
+## Dialog close button scaled to retail 8x8 size (2026-10-27)
+
+- Scaled VGUI dialog close button cross to retail dimensions (`CLOSE_GLYPH_TALL = 10.`, rendering an 8x8 pixel cross, 80% of raw tall-14 raster).
+- Perfectly centered inside the 18x16 close button rect with 5px horizontal and 4px vertical padding (down from 10x10 px with 4px/3px margins).
+- Re-exported `CLOSE_GLYPH_TALL` in `source_ui::widgets`; updated owned installation verification test `owned_marlett_font_resolves_for_dialog_close_buttons`.
+- `validate.sh`, `check_windows.sh`, and packaged replay checks (`video`, `commentary`, `coverage`) pass with 0 failures.
+
+## Dialog close button Marlett font rendering restored (2026-10-27)
+
+- Restored authentic Source VGUI title bar close button rendering across all dialog frames (Options, Chapters / New Game, subdialogs, Console, Message Boxes).
+- Traced root cause of tiny close buttons to `GorDIN-Regular.ttf` Unicode multiplication sign `×` (5x5 px glyph).
+- Implemented retail `vgui_controls::FrameButton` behavior: resolved `"Marlett"` font (tall 14 in `SourceScheme.res`, loaded from `resource/marlett.ttf`) and rendered glyph `'r'` centered inside the `18x16` button rectangle with +1px pressed offset and fallback symbol support.
+- Modularized `crates/source-ui/src/widgets/frame.rs` and `crates/hl2-ui/src/console/fonts.rs`, reducing `widgets.rs` to 2,381 lines and `Console::load` to 98 lines (within the 100-line limit), tightening `architecture-baseline.json`.
+- Unit tests and owned test `owned_marlett_font_resolves_for_dialog_close_buttons` pass; `validate.sh`, `check_windows.sh`, and packaged replay checks (`video`, `commentary`, `coverage`) pass with 0 failures.
+
+## Movie playback (playvideo, playvideo_exitcommand) and startup video sequence verified (2026-10-27)
+
+- Verified movie playback commands `playvideo` and `playvideo_exitcommand` and startup video sequence across `source-assets`, `hl2-ui`, and `hl2-bevy`.
+- Container parser reads Bink 1 headers (`BIKi`, `BIKb`, `BIKf`, `BIKg`, `BIKh`), frame dimensions, frame rates, and durations.
+- Console commands support path normalization (`media/<filename>.bik`), modal blackout, letterbox/pillarbox aspect framing, elapsed time tracking, and skip key inputs (Escape, Space, Enter, Backquote/Tilde, and mouse click).
+- Retail fallback invariant verified: missing or unplayable videos immediately execute the exit command and log `Unable to play video: %s`.
+- Audio output is muted during active video playback and unmuted upon completion.
+- Startup video sequence loads `StartupVids.txt` (default `media/valve.bik`), skippable with `--novid` / `-novid` or during unattended runs.
+- Packaged replay check `video` (`test-inputs/bevy-video.json`) and owned installed video parsing passed; `validate.sh` and `check_windows.sh` passed.
+
+## Developer commentary mode verified (2026-10-27)
+
+- Verified developer commentary mode across GameUI, simulation, HUD, and host runtime.
+- Chapter browser integrates the `#HL2_Enable_Commentary` footer checkbox, commentary card badge (`materials/vgui/resource/commentary_hl2c.vtf`), and the commentary explanation confirmation box (`#GameUI_CommentaryDialogTitle`, `#GAMEUI_Commentary_Console_Explanation`).
+- In-game `point_commentary_node` balloons support raycast hovering, `+use` playback toggle, sound cue dispatch, caption dictionary lookup, Hermite camera viewposition override, and secondary-attack (`+attack2`) node teleportation.
+- Balloon skin dynamically updates to `models/extras/speech_info_used` once played.
+- Player is immune to damage while commentary mode is enabled.
+- `HudCommentary` displays progress bar, speaker name, node count, and audio/caption status.
+- Zero per-frame cost when commentary is disabled.
+- Packaged replay check `commentary` (`test-inputs/bevy-lostcoast-commentary.json` on `d2_lostcoast`) and `coverage` passed; `validate.sh` and `check_windows.sh` passed.
+
+## Chapter browser layout/fonts, submenu background retention, and loading screen backdrop verified (2026-10-27)
+
+- Normalized `CardBrowser` and `Catalog::browser_layout` card geometry to `168x146` with a
+  symmetric `8px` `LevelPicBorder` (`0, 44, 168, 102`) around `LevelPic` (`8, 52, 152, 86`),
+  aligning all three cards with the `548px` divider rules and clamping label widths to `168px`.
+- Resolved `Default` (`GorDIN` Regular 400) and `UiBold` (`GorDIN` Bold 700) from
+  `resource/SourceScheme.res` in `Console::load`, centered `FontFace` ascent using
+  `OS/2.sCapHeight` when present, snapped `FontFace::draw_cell_outlined` to integer pixels,
+  and colored selected card headings/titles with `SelectionColor` (orange) and unselected
+  cards with `FgColor` (white).
+- Preserved an already-loaded chapter background from the same game when re-entering that
+  game's submenu (`Console::show_category`), and drew the target map's pre-blurred chapter
+  background (`Console::loading_background`) full-screen behind the modal `LoadingDialog`
+  with menu titles/buttons hidden during gameplay map loads.
+- `validate.sh`, `check_windows.sh`, owned-install font/catalog tests, and packaged
+  `submenus`, `return_menu`, and `chapter_selection` replays pass (3/3 checks, 0 failures).
+
+## Background loading now waits before showing controls (2026-10-27)
+
+- Production package fa4a000 supersedes the earlier interactive-loading policy. Hide menu
+  titles/buttons and dialogs, retain owned loading backdrop/localized plaque, gate pointer,
+  keyboard, Escape, console toggle and direct menu/chapter opening. Restore windows and
+  chapter selection after success/failure; consume hidden held activation.
+- Further pinned GameUI analysis traces loading state to InstantHideMainMenu and menu/title
+  alpha zero. Published SDK Panel::SetAlpha corroborates the alpha helper. The earlier
+  interactive-menu assumption was unsupported. Native retail timing remains not tested.
+- validate.sh: 1,145 Rust tests / 94 ignored, 13 Python, strict Clippy/fmt/architecture pass.
+  Windows-target Clippy, owned per-frame input wait/restore and actual asynchronous worker
+  wait/completion tests pass. Eleven package hashes verified.
+- Packaged submenus/return/chapter_selection/menu_options/coverage: five groups, zero failures,
+  270 s. Restored browser captures inspected. Controlled attached windowed report records
+  hidden controls at request and restored controls after completion; it exited normally.
+- Three isolated alternating Metal 1024x768 pairs: prior/current browser 18.693/18.743 ms,
+  HUD CPU 0.1550/0.1581 ms, slightly overlapping ranges; no causal performance claim.
+- Actual transient GPU wait-screen capture remains not tested: replay capture counters skip
+  loading, and computer use could not bind the unbundled binary. Rejected evidence retained;
+  canvas-quad tests verify hidden rendering. Final physics/GPU install can still hitch.
+- Evidence: artifacts/chapter-loading-gate; commands/limits in docs/validation.md and
+  docs/performance.md. Native Windows/Linux execution and ordinary campaign play not tested.
+
+## Dialog/background loading fixes verified (2026-10-27)
+
+- Production source/package 6019af3, following lifetime fix 5a70c90. Eleven package hashes
+  verified. Before capture reproduces the confirmation-shaped hole; fixed capture is intact.
+- Closing a browser preserves its background worker. A newer background stays queued;
+  superseded results cannot install or dismiss newer loading UI. Chapter launch resets
+  background presentation. Rapid return to the current background reuses its installed world.
+- Runtime map changes retain GameUI; they no longer rebuild and discard fonts, menus and
+  thumbnails. No new dependency, render pass or per-frame file access.
+- validate.sh passes: 1,143 Rust tests / 94 ignored, 13 Python, strict Clippy/fmt/architecture.
+  Windows-target Clippy passes. Owned native-input and actual decoding-worker browser
+  interaction/scene-replacement tests pass; final strengthened owned test takes 11.30 s.
+- Initial fix/resource-reuse package: five replay groups, zero failures/290 s, including all
+  four expansion chapter launches. Final committed package: affected submenus/return/coverage
+  groups, zero failures/111 s. Evidence and rejected assumptions: artifacts/chapter-bugs;
+  detailed commands in docs/validation.md.
+- Three isolated alternating Metal 1024x768 pairs: prior/fixed browser 18.947/18.878 ms,
+  overlapping ranges; no measured steady-state regression or established speedup.
+- Final physics/GPU installation can still hitch. Zero-hitch loading, native retail input
+  responsiveness, Windows/Linux runtime and ordinary campaign play remain not tested.
+  Native/static resource findings and their limits: docs/gameui.md; timing: docs/performance.md.
+- Next: profile individual installation phases/input latency if remaining stalls reproduce;
+  keep media deferred. Baseline invalid-entity command warnings remain outside this fix.
+
+## Portability / dependency declaration checkpoint (2026-10-27)
+
+- Owner deferred movies/commentary before runtime source or Cargo dependencies were added.
+  No FFmpeg or Rust decoder runtime dependency exists in this checkout.
+- README now distinguishes packaged runtime, platform system libraries, optional Linux Browse
+  portal/Zenity integration and build/test tools. AGENTS requires cross-platform runtime and
+  disclosure of separately installed runtime prerequisites.
+- Windows CI preserved; native Ubuntu 24.04/macOS 15 source validation configured. Hosted
+  jobs have not run; native Linux build/runtime remain not tested, with no local Linux executor.
+- Audited subprocess calls and native linkage: Windows registry discovery uses built-in reg,
+  setup relaunches the same executable; packaged macOS links only system libraries/frameworks.
+  Workflow YAML/matrix, architecture/whitelist, 13 Python tests, fmt, POSIX syntax and strict
+  Windows-target Clippy pass. Runtime unchanged; no gameplay rebuild/frame-time rerun.
+- Next: obtain hosted CI results before upgrading Linux's status; media work stays deferred.
+
+## Chapter selection / shared card browser verified (2026-10-27)
+
+- Runtime source/package: 7171e3f. New Game opens chapter selection; Start loads the selected
+  chapter's first map with explicit game identity. Installed MOD configs, localized tokens,
+  layouts, scheme colors and thumbnail materials supply all content. All 28 entries across
+  base/Episode One/Episode Two/Lost Coast are available (15/5/7/1, base includes credits).
+- source-ui::card_browser owns reusable geometry, paging, selection/focus/capture, placement
+  and drawing, returning a card index. hl2-ui keeps chapter metadata, retail resource/token
+  interpretation and game/map conversion. No new dependency edges or toolkit filesystem access.
+- validate.sh: 1,135 Rust tests/93 ignored +13 Python, architecture, strict Clippy/fmt;
+  Windows-target Clippy and owned catalog test pass. Toolkit has five browser tests; hl2-ui 302.
+- Committed release package: eleven hashes verified. Packaged submenus/chapter_selection/
+  menu_options/coverage: four groups, zero failures, 199 s. All four pointer-selected chapter
+  maps reach Gameplay in the correct game. Cancel/reopen, resource counts and 9a order pass.
+  All final captures inspected; extraction changes zero of 139,040 opaque thumbnail pixels.
+- Three isolated runs/state: prior/new closed-browser frame 20.187/20.138 ms (overlapping
+  ranges), open browser 18.703 ms with the base menu faded/outlines suppressed. No regression
+  measured in this scene or FPS guarantee. No new render pass/per-frame asset reads/card-list
+  allocation. Detailed evidence and retained rejected attempts: validation/performance docs.
+- Native UI comparison, Windows/Linux runtime, other UI languages and ordinary campaign are
+  not tested. Progress locking/commentary/intro movies/retail scroll animation are unfinished;
+  captured backgrounds still contain unfinished world/material rendering. Requested chapter
+  selection and selected-map loading are complete. Next: separately bounded native UI parity.
+
+
+ Checkpoint: 2026-10-26 (Codex desktop, GPT-6 family; exact model identifier not exposed) on orbitalman/hl2-ui. PR readiness maintenance findings are fixed; runtime behavior is unchanged. Advanced weapon blur now spreads silhouettes with a longer exposure and dense sampling; Disabled/Enabled retain retail behavior. Lighting and Options checkpoints below remain implemented; native parity remains unverified. Sections below are newest first.
 
 ## Retail LookAt registration, request updates and base-animation fields (2026-10-27)
 
@@ -36,6 +765,195 @@ A fresh never-attached control passes 4,143 samples, with five map-reload sample
 
 BJ/BK/BL/BM seals pass 309/121/85/89 retained files. All three owned native processes exit 0 with checked installed settings unchanged; the observer is detached and process-audio recorder ended. Native bodies, recordings and tools remain private. No Rust changes/builds or parity test. First_map_finished:false; original 16 gaps/four missing scene-index entries remain. Next trace the inactive-channel callback through retail actor registration and bind actual actor animation fields before measuring animation. Private checkpoint: work/publishing/research-followup-continuation-20261027bm.md.
 
+## Windows CI test portability (2026-10-26)
+
+- Addressed kvalls's three reported causes at 4405064: macOS-only Retina test is gated,
+  argument parsing no longer resolves installations or launches setup, and the cvar golden
+  comparison normalizes CRLF without changing other transcript content. CI/local workspace
+  tests use --no-fail-fast so later crates run even if an earlier test binary fails.
+- Production initialization retains installation/output preparation after parsing; unit
+  parsing receives Config directly. Campaign test fixtures explicitly complete startup.
+  Architecture baseline tightens main.rs and its existing oversized parser.
+- Verified locally: 1,125 Rust tests/92 ignored +13 Python, strict Clippy/fmt/architecture,
+  Windows-target Clippy, full transcript test with actual CRLF fixture (bytes restored),
+  release build, bg_compare/hud/coverage packaged checks and missing-install exit 1 without
+  setup UI. Source game/shader/frame-loop behavior is unchanged. No frame-time rerun needed.
+- Initial compiler failure found three campaign test callers needing the new split API;
+  fixed through their shared test helper. Evidence: artifacts/pr-readiness; validation docs.
+- kvalls's Windows reproduction is contributor evidence. Native Windows execution and the
+  new Windows CI run are not tested here; next: require that run before merge.
+
+## PR readiness maintenance fixes (2026-10-26)
+
+- Resolved both P2 findings: incremental candidates are workspace-only; stale pruning holds
+  exclusive Cargo compatibility locks for debug/release throughout scanning and deletion.
+  Auto-clean remains the POSIX pre-build default; --no-clean skips it and is consumed by
+  the launcher. Fresh launches and --no-build do not clean. Busy, unsupported or network
+  targets skip pruning; locks release before Cargo starts. Target environment is honored.
+- Verified: validate.sh 1,123 Rust tests/92 ignored +13 Python, architecture, strict Clippy/fmt;
+  Windows-target check, POSIX shell syntax and complete branch whitespace checks pass.
+  Temporary fixtures test cache retention, dry-run, launcher flags and locking/error paths.
+  An isolated real Cargo 1.99 build waits behind cleaner locks; cleanup skips during its
+  build and prunes after exit. No actual project cache is cleaned.
+- Validation exposed timestamp-colliding installation fixtures. Atomic directory reservation
+  and a forced-nonce test fix isolation; the complete suite now passes.
+- README claims corrected in place without a feature history; whitespace warnings removed.
+  Runtime unchanged: package 4405064 passed all 102 default background checks, zero failures
+  in 1,730 s; all eleven package/test-copy hashes match afterward. No gameplay rebuild or
+  frame-time comparison is needed for these script/documentation changes.
+- Rejected filesystem probes: BSD stat formatting returned file metadata, disk-management
+  services were unavailable, and statvfs exposed no local-mount flag. Switched to the native
+  Darwin statfs record; APFS is verified. Unknown/network filesystems fail closed. Initial
+  subtest marker leakage was isolated and rechecked. Details: docs/validation.md.
+- Windows/Linux runtime, Linux lock integration and Windows PR CI remain not tested.
+  Next: post the upstream PR and require Windows CI before merge.
+
+## Stronger Advanced weapon blur (2026-10-26)
+
+- Owner rejected the initial effect as barely visible, with sparse sharp afterimages.
+  Advanced now reconstructs silhouette coverage over a preserved pre-weapon background,
+  rather than filtering only inside the current outline. Exposure is 1.25 frames instead
+  of 0.5, maximum UV reach 12% instead of 4%, and sampling adapts from 16 to 96 taps.
+  Coarse GPU motion reductions/dilation find trails outside the current silhouette.
+- Retail Disabled/Enabled and saved settings are unchanged. Weapon-only depth/motion
+  prepasses, two full-size cached colour copies and three small motion textures exist
+  only in Advanced. Cached groups/uniforms avoid steady-frame allocation. Pause, switch,
+  absent gameplay and holstering remove weapon pass state, including depth prepass.
+- Verified: validate.sh 1,122 Rust tests/92 ignored +3 Python, strict Clippy/fmt/architecture,
+  Windows-target check, release package/eleven hashes. Packaged viewmodel_motion_blur and
+  coverage pass: no AA/4x AA, still/pause/switch/off/retail, zero stale posed bounds.
+  Sharp control changes 19,226 weapon-region pixels above threshold 2; upper still-world
+  comparison changes zero. Coverage diagnostic finds 13,316 pixels outside the current
+  silhouette. Normal and live swing captures visually inspected; matched scene times
+  1.545/1.575/1.590/1.605 s are recorded for prior/current bursts. README unchanged.
+- Three isolated runs/build/mode: Enabled prior/new 19.770/19.797 ms; Advanced prior/new
+  19.744/19.751 ms. Ranges overlap; no isolated GPU timing or FPS guarantee. Three motion
+  field draws plus reconstruction have measured CPU encoding spans; docs/performance.md.
+- Rejected: initial helper visibility/function size; initial live capture lacked timing
+  logs; live image assertions incorrectly assumed six changing frames and a stationary
+  upper crop even when the fast weapon crosses it/leaves view. Replaced by matched-time
+  visual inspection and controlled coverage tests. A third timing round overlapped image
+  analysis; retained and replaced with isolated measurements. Evidence: docs/validation.md.
+- Not tested: Windows/Linux runtime, every weapon/reload, all frame rates/resolutions or
+  native comparison. Current-frame straight-line blur approximates curved motion and
+  cannot recover hidden/offscreen detail; transparent and diagnostic CPU-skinned draws
+  remain excluded. No previous-colour accumulation persists after a swing.
+
+## Motion blur Advanced / viewmodel animation (2026-10-26)
+
+- Motion blur now offers Disabled, Enabled and Advanced. Disabled/Enabled preserve retail
+  off/camera-only behavior; Advanced adds current/previous GPU-skinned weapon motion.
+  Old saves default the new flag off. Retail mat_motion_blur_enabled 0/1 selects retail
+  modes. Installed GameUI_SettingAdvanced supplies the localized third label.
+- Seven-tap half-frame reconstruction runs on the weapon camera before bloom/HUD, with
+  a one-pixel threshold, 4% cap and MSAA vector averaging. History warms after activation,
+  switch, pause, holstering, lens/map changes or time jumps. Disabled/retail Enabled and
+  absent visible GPU-skinned weapons keep no weapon pass state. Material uniforms share
+  one buffer to fit Metal's previous-skinning bindings. README unchanged.
+- Verified: validate.sh 1,122 Rust tests/92 ignored +3 Python; architecture, strict Clippy,
+  fmt, Windows-target check, owned localization, release package/ten hashes. Packaged
+  motion_blur_options, viewmodel_motion_blur, flashlight_shadows, flashlight_viewmodel,
+  options_status, lamp_emission and coverage pass. Dropdown preview inspected; real Apply
+  saves Advanced. Swings assert GPU motion with no AA/4x AA, settled/pause/switch/off/
+  retail modes and zero pose mismatches. Sharp control changes 6,985 weapon pixels above
+  threshold 2 while the upper world changes zero; captures inspected.
+- Three isolated runs/build/mode: prior/current Disabled 18.444/18.509 ms; prior/current
+  Enabled 18.403/18.430 ms; Advanced 18.481 ms. Advanced adds 0.051 ms versus current
+  Enabled, with overlapping ranges. GPU timestamps unavailable; no FPS guarantee or
+  isolated GPU-cost claim. Detailed windows and pass encoding time: docs/performance.md.
+- Rejected evidence retained: Metal binding overflow before packing; attack-selection
+  lock in initial fixture; nonexistent report field; stale test shader hooks and coverage
+  inventory; initializer/profiler borrow compilation errors. Corrected checks pass.
+- Windows/Linux runtime, all weapons/reloads, native visual comparison and ordinary
+  campaign remain **not tested**. Transparent effects and diagnostic CPU-skinned meshes
+  are excluded; reconstruction does not expand the current silhouette's edge coverage.
+
+## Options platform availability and development status (2026-10-26)
+
+- Central `settings::support` policy filters controls and associated labels before drawing,
+  input, focus order and footer sizing. Aero is Windows-only; macOS raw-input/acceleration
+  controls are hidden. Stored settings are preserved; cross-platform HDR/brightness remain.
+- Unfinished/partial controls get small cyan corner marks and specific localized status.
+  Cyan hints appear alone or two layout units below existing orange retail hints. Completed
+  HDR/model/texture/shadow/colour-correction/motion-blur controls are unmarked. Shared
+  prepared tooltip geometry clamps the stack together and caches unchanged hover text.
+  Disabled controls and subdialogs work; popups and occluded layers suppress hints.
+- Verified: validate.sh 1,118 tests/91 ignored +3 Python, strict Clippy/fmt/architecture,
+  Windows-target check, owned layout/localization inspection, release package/nine hashes.
+  Packaged options, menu_options and coverage pass; final options_status/coverage pass.
+  Three inspected captures: Mouse retail+cyan, Audio cyan-only, Advanced cyan. Pixel counts:
+  9,999/14,836/15,407. Saved-value and explicit platform-policy regressions pass.
+- Rejected: first fixture used an unsupported Escape key enum; Advanced hint inherited the
+  inactive parent's fade. Corrected UI action and focused-subdialog alpha; regression also
+  checks alpha restoration. Initial compile/strict-test failures and rejected timing/capture
+  evidence retained in artifacts/options-status. Details: docs/validation.md.
+- Windows/Linux runtime remain **not tested**. Marked features still lack their consumers;
+  status is removed from the registry when a feature is finished (AGENTS maintenance rule).
+  Three paired runs/build/state: idle prior/new frame 25.145/22.351 ms; hover 25.496/25.032 ms.
+  HUD CPU idle 0.3783/0.3300 ms, hover 0.3988/0.3919 ms. No regression measured in this scene;
+  the first idle baseline is slower and no general speedup is established. Performance
+  evidence and rejected short hover control: docs/performance.md. README unchanged.
+
+## Lighting follow-up: flashlight availability and lifetime (2026-10-26)
+
+- Suit and enabled permission gate activation; no weapon is required. Registered authored
+  Disable extinguishes/blocks, Enable restores permission without activating. Death shuts
+  off and rejects dead impulses. SDK suit removal does not itself force active light off.
+- Portable controller belongs to the simulation. Campaign changelevel carries state and
+  rebases recharge timing; direct loads/respawn start fresh. !player is independent of the
+  output activator; invalid entity ids cannot become player inputs. Host no longer allocates
+  a game-name string each frame. README unchanged.
+- Verified: validate.sh 1,111 tests/90 ignored +3 Python, Windows-target check, release/hash
+  metadata. All six packaged availability, power-HUD, High-shadow, lamp, viewmodel and
+  coverage groups pass; final invalid-target guard rebuild passes availability/coverage.
+  Owned suit pickup, permission transitions, lethal fall, dead input and fresh direct load
+  are asserted from reports. Campaign/recharge carry and suit removal are unit-tested.
+- Rejected: first death label was still airborne (tick 300), later report proved death;
+  accepted label is tick 320. Initial helper-after-test Clippy failure corrected. Logs and
+  captures retained in artifacts/lighting-bugs; detailed commands: docs/validation.md.
+- Frame means prior/new: off 19.891/19.875 ms, on 19.861/19.920 ms; three alternating
+  runs/build/state, 549-559 measured frames/run. Ranges overlap; no FPS guarantee or isolated
+  controller CPU cost. Details: docs/performance.md.
+- Native visual comparison, an ordinary campaign, all vehicle/control locks, actual suit
+  removal input, player-proxy outputs, save/restore and Windows runtime are **not tested**.
+  Exact native on/off review confirms suit/disabled gates; other lifecycle rules use SDK.
+
+## Lighting follow-up: fluorescent emission fixed (2026-10-26)
+
+- Static-prop baked vertex illumination no longer dims the installed selfillum albedo.
+  Texture alpha still masks emission, material tint remains, no extra light/pass.
+- Validation and Windows-target checks pass; packaged lamp_emission, flashlight_viewmodel
+  and coverage pass. Accepted images inspected: 25,737 brighter tube pixels above 8,
+  zero darker; zero changed upper-wall pixels above 2. Rejected angled fixture retained.
+- Three alternating packaged timing pairs: prior/new mean 18.875/18.921 ms, +0.045 ms;
+  561-607 measured frames/run. Both packages slow together in the third pair. Details in
+  validation/performance docs. Native image parity, all fixtures, bloom and Windows runtime
+  are **not tested**. README unchanged. Next: flashlight availability integration.
+
+## Lighting follow-up: canal paper receiver checkpoint (2026-10-26)
+
+- The inspected corridor sheets are static model geometry, not BSP overlays. SDK excludes
+  ordinary prop/blob shadows on static props and allows NPC/player RTT and flashlight
+  projections. New owned regression on the real paper mesh: ordinary path empty; NPC-style
+  path produces 17 receiver triangles. Runtime policy unchanged; docs/lighting.md.
+- Baseline floor capture: `artifacts/lighting-bugs/baseline-floor.png`. The owner
+  confirmed a physics object at Medium/High, matching the excluded SDK case. A visual NPC
+  Medium/High failure is not reported/reproduced.
+  Native scene comparison and all BSP-overlay compositing remain **not tested**.
+- Next: fluorescent lamp emission. Its installed VMT already requests self-illumination;
+  baked static-prop vertex colour is currently multiplied into the emissive albedo.
+
+## Lighting bug follow-up: direction report checkpoint (2026-10-26)
+
+- Ordinary shadows: Low points down; Medium/High use the map's shadow-control vector,
+  independent of nearby baked lamps. SDK and exact installed `r_shadowdir` callback/setter
+  agree on that contract. High's flashlight depth shadow is separate. No nearest-lamp
+  direction change is appropriate from this evidence. Details: docs/lighting.md.
+- Entity-specific direction overrides and dynamic shadow-control inputs remain unverified.
+  Native side-by-side play is **not tested** for this checkpoint; runtime code unchanged.
+- Next checkpoints: floor overlays in the canal start corridor, lamp/tube emissive material
+  rules, then flashlight availability and authored enable/disable integration. Plan: DESIGN.
+
 ## Native first-map route/audio and immediate grab velocity (2026-10-26)
 
 New private BF controlled-input traversal reaches storage after train exit, customs, the security pen and Barney's room: 79 player snapshots, 60 motion files/5976 samples and 53 serialized requests. Raw integrity checks pass 54574 read occurrences/17597584 bytes. The owned native process exits 0 with installed settings unchanged; both Frida sessions are closed. Three process-specific audio segments and a native demo are retained privately. Waveforms are not proof of dialogue identity or 1:1 mixing.
@@ -56,6 +974,124 @@ The 27 historical manifest identities remain unchanged; their existing navigator
 
 No native game was launched or attached in this closeout, and no Rust implementation/build changed. Next feature question: can held-prop controller increments be consumed again within the same scheduler event, or do they survive for a later event? Bind concrete controller/continuation targets statically before any required runtime test. First_map_finished:false; original 16 authored gaps/four missing scene-index entries, full ABI/solver and Rust parity remain open. Claude owns Rust implementation.
 
+## Flashlight on the weapon (2026-10-25)
+
+- Implemented: the placed beam illuminates the viewmodel through its existing world-lighting
+  basis, with shared cookie/Lambert/near/far/attenuation math. It adds no light, pass or
+  shadow map. Off/dark clears the beam; the separate camera, FOV and framing remain.
+- Verified: validate.sh (1,103 Rust tests, 89 ignored; 3 capture-reader tests; architecture,
+  strict Clippy/fmt), Windows-target check, 6 flashlight tests including 3 owned-install
+  checks. Packaged `flashlight_viewmodel`, `flashlight_shadows`, `power_hud`, `hud`,
+  `fov_settings` and `coverage` pass across the accepted runs. Final weapon controls:
+  pistol/SMG/portrait 18,157/11,021/35,187 brighter pixels above threshold 8 in the weapon
+  region; zero changed upper-world pixels. Off has zero changed weapon pixels above 2.
+  The private shader control is restored in `finally`. Detailed commands: docs/validation.md.
+- Performance: paired 1920x1080 Metal means, three runs/state: prior/new off 19.484/19.490 ms,
+  on 19.525/19.328 ms. Model-light CPU on 0.02726/0.02864 ms (about +0.0014 ms). No frame
+  regression measured in this view; no speedup/FPS guarantee. Runs now measure 559-574
+  frames after warm-up; earlier 600-frame descriptions were safety caps not reached by
+  the script. The short earlier windows are corrected in docs/performance.md.
+- Rejected first comparison changed ammo-HUD pixels only. A diagnostic proved the weapon
+  lies outside the real beam in the open corridor; no artificial light was added. Two
+  eye-height probes and one beam-height probe failed their placement assumption. A final
+  clearance/projection-checked collision probe selected clear close-wall positions where
+  the actual beam reaches the weapon. All failures/captures are retained in
+  `artifacts/flashlight-viewmodel`, including `rejected-open-view`.
+- Next: native illumination comparison. Weapon self-shadowing, world-depth-map sampling
+  on the weapon, bump-normal flashlight shading, dedicated firing/additive-effect capture,
+  exact native intensity, Windows runtime and ordinary playthroughs are **not tested**.
+  README is unchanged.
+
+## High flashlight shadows (2026-10-25)
+
+- Implemented: High uses a 1024-square depth map, posed model casters and alpha-tested
+  fence holes, with eight rotated comparison taps and the SDK's shadow attenuation.
+  Low/Medium/off and zero-brightness battery flicker skip the depth pass. Baked light is
+  preserved. The cookie and shadow map share a square projection; the installed cookie
+  has no light outside the cone. Bevy supplies shadow views and GPU skinning.
+- Verified: validate.sh (1,101 Rust tests, 88 ignored; 3 image-reader tests; architecture,
+  strict Clippy/fmt), Windows-target check, 4 flashlight tests including 2 owned-install
+  checks, packaged `flashlight_shadows`, `power_hud`, `hud` and `coverage` groups.
+  High darkens the staircase behind a posed cop. A solid-depth negative control proves
+  the fence holes transmit light (171,663 brighter pixels above threshold 8). Commands
+  and evidence: docs/validation.md; captures: `artifacts/replays/flashlight_depth_*`.
+- Frame cost, 1920x1080 Metal, three runs per state: plaza Medium/High 20.60/21.98 ms;
+  three-citizen view 17.58/21.36 ms (High range 19.82-24.05 ms). High costs about 1.4/3.8 ms
+  in these views; the latter is noisy. Paired off medians prior/new 19.42/19.29 ms.
+  The shared lit path's cost against the old build is not isolated; no FPS guarantee.
+  Details and rejected performance controls: docs/performance.md.
+- Rejected captures retained: applying a video cvar restored 1280x720 and HDR exposure
+  varied; two guessed fence views hit solid walls. After those two failures an owned-mesh
+  probe located the fence. Accepted comparisons pin 1920x1080 and HDR None. The new Medium
+  fence view matches the prior build within 1 channel level; posed actor differs at 9
+  pixels above 2. A mistaken replay registration caused power-HUD/coverage failures;
+  both passed after correction. The original alleged citizen camera showed mostly cops;
+  the accepted crowd camera visibly contains three citizens.
+- Next at that checkpoint: viewmodel lighting (diffuse implemented above). Native side-by-side, exact engine-generated
+  noise/jitter, native slope bias, per-entity shadow-disable inputs, Windows runtime and
+  ordinary playthroughs are **not tested**. The current filter uses a stable procedural
+  rotation and reverse-depth receiver bias 0.0005, without native slope bias 16.
+
+## Power HUD continuation (2026-10-25)
+
+- Implemented: auxiliary power panel, its active FLASHLIGHT line and Episode Two's independent
+  battery icon/bar, using installed layouts, localization, fonts and shared animation tracks.
+  Fixed text/icons are prepared on the map worker; no runtime font rasterization is added.
+- Verified: validate.sh (1,099 tests, strict Clippy/fmt/architecture), Windows-target check,
+  all 5 power HUD tests including 2 owned-install tests, 6 packaged HUD/UI check groups.
+  Captures inspected: `power_hud_on`, `power_hud_recharged`, `power_hud_ep2` under
+  `artifacts/replays/`. The Episode Two image has magenta world surfaces; only the HUD
+  was validated here, not that map's rendering. Detailed commands: docs/validation.md.
+- Performance: prior/new corridor mean frame off 18.33/18.24 ms, on 18.51/18.67 ms; active
+  HUD CPU 0.0383/0.0566 ms (about +0.018 ms). New on runs span 18.40-19.15 ms; frame
+  comparison is noisy. Evidence: docs/performance.md.
+- Next at that checkpoint: High's flashlight depth shadows (completed above), then
+  flashlight lighting on the viewmodel. Native side-by-side, Windows runtime, sprint/oxygen power devices and ordinary
+  gameplay are **not tested** in this continuation.
+- Rejected benchmark evidence is retained in `artifacts/power-hud`: sandbox launches cannot see
+  the Metal GPU; the first GPU baseline also rejected an unfinished 900-tick script with a
+  600-frame bound. Accepted baselines use the completed 240-tick script and GPU access.
+
+## Options audit (2026-10-24)
+
+- Flashlight (in progress, MODLOG 2026-10-25): F / `impulse 100` toggles it on suit power (Episode Two: its own battery), its light is drawn with the installed cookie; power HUD completed in the continuation above; High depth shadows and diffuse viewmodel lighting completed above; native shader/shadow parity remains unverified (original unshadowed corridor frame time: 18.40 / 18.40 / 18.39 ms previous / off / on). Handoff: docs/DESIGN.md "Shadow detail and the flashlight", section "Handoff".
+- Shadow detail: Low draws blob shadows, Medium/High render-to-texture shadows with the engine's ranking and page allocator (docs/gameui.md 23e); High adds flashlight depth shadows (continuation above). Medium on the plaza: 19.69 ms vs Low 19.36 ms mean frame (3 rotating runs, spread about 1 ms), shadow update 0.52 ms CPU. Plaza view of `d1_trainstation_02` (1920x1080, 3 rotating runs each): off 18.86 ms, Low 19.03 ms mean frame (spread 18.68-19.17); the shadow update costs 0.021 ms CPU a frame (246 casters, 81 with geometry).
+- Model detail: entity models (props, NPCs) now switch levels of detail by distance with the retail metric (docs/gameui.md 23d). Plaza view of `d1_trainstation_02` at 1920x1080: visible triangles 126,141 -> 110,349, all model triangles 1,018,533 -> 892,782 at spawn; frame time 19.99 -> 20.03-20.06 ms (4 rotating runs, within noise; this view is CPU bound). Not tested: Windows; GPU-bound scenes where fewer triangles would show as frame time.
+- Motion blur implemented (docs/gameui.md 23c): packaged `d1_trainstation_02` turn capture shows the world blurred, the weapon and HUD sharp; frame time (6 rotating runs each, 1920x1080) previous commit 21.22 / off 21.66 / on 21.72 ms stop-start turning, 17.60 / 18.05 / 18.07 ms still: on vs off within noise, but off is about 0.45 ms slower than the previous commit for a reason not found (see MODLOG). Not tested: Windows, real mouse look (scripted turns step once per simulation tick), a retail comparison.
+- Color correction implemented (docs/gameui.md 23b): packaged `ep2_background01` capture off vs on (mean difference 9.2 / 3.7 / 6.6 per channel, 1920x1080), also at HDR level none; frame time 10.10 ms previous commit, 10.11 off, 10.12 on (6 rotating runs each, within noise). Not tested: Windows, the other Episode maps and entity inputs in a packaged run, a retail comparison.
+- docs/gameui.md section 23 lists every Mouse, Audio, Video > HDR and Video > Advanced option with its consumer and verdict. HDR is implemented (23a). Unfinished, with reasons: Raw input, Aim-Assist, Speakers, Sound quality, Spoken language, shader/water/shadow detail, classic effects, multicore, D3D9Ex (not applicable); Mute when unfocused is partial.
+
+## Architecture guardrails (2026-10-24)
+
+- AGENTS.md is rules only (18 KB, was 41 KB): new "Architecture rules" for agents and hard rule 11 (never make the game slower); the UI conventions moved verbatim to docs/gameui.md section 0; the architecture check keeps AGENTS.md under 20 KB.
+
+- `scripts/checks/architecture.py` (validate.sh, CI, the local pre-commit hook): size limits with a shrink-only baseline (113 functions over 100 lines, 25 files over 1,000 production lines, 3 test files over 2,000), crate layers and engine-crate owners, no file IO in modkit-core / hl2-simulation / source-ui, no HL2 names in source-ui, no new duplicated 8-line blocks (143 known), per-crate counts of mutable statics, lint allowances and glob imports. Each rule was shown to fail on a deliberate violation. Plan and limits in DESIGN.
+- Correction to the 2026-10-23 and 2026-10-24 reviews' figures: their metric cut each file at its first `#[cfg(test)]`, and four files have one early, so it missed production code: `source-assets/src/models.rs` has 1,614 production lines (counted 202), hl2-bevy `gameplay.rs` 1,671 (401), `video.rs` 1,191 (711), `hl2-simulation/src/attention.rs` 557 (487). The missed code holds the second-longest function, hl2-bevy `Gameplay::tick` (808 lines).
+
+## Exact and local checks (2026-10-24)
+
+- Plan in docs/DESIGN.md (same title): replays that repeat exactly, then tests for the toolkit itself. The current scope is the UI.
+- Step 2 done: source-ui's shell, console dialog, command registry, line editor and input frames are tested in source-ui over a fake app (114 source-ui tests, was 92; 22 new or moved from hl2-ui, whose console tests keep HL2's own completion and dialog behaviour). An Escape-order bug introduced on purpose fails a source-ui test. Verified: validate.sh (1,039 tests, strict Clippy, fmt), the Windows-target check, the isolation check. Tests only; no production code changed.
+- Step 1 closed without a change. Why gameplay replays vary between runs of one build: Rapier 0.26.1's broad phase reports new contact pairs from Parry 0.21.1's default hash map (hashbrown 0.15.5, `foldhash` seeded at random per map), so every physics world solves the same new contacts in its own order. Props made of several convex pieces (d1_trainstation_02 entities 485, 738, 807) already differ after the first tick; the drift later shows as the pallet's kill tick, hits, the forward ray and the Kleiner fixture's gib count. Evidence: two physics worlds built from the same loaded map have bit-identical colliders and the same 48 active contact pairs after one step, in a different order, and three bodies differ (a throwaway test, not committed); ten packaged runs of each of the four fixtures all differed at their first sample. Rapier's determinism guide promises identical results for identical construction order; the hash map's random seed breaks that.
+- The fix tried and reverted: rapier3d's `enhanced-determinism` feature (ordered maps; it also forces software math through simba's `libm_force`). With it two worlds and two processes step bit-identically, and ten packaged runs of each fixture gave identical labelled outcomes (other report fields still differed between some runs, so a second, unidentified source remains). Timings were not shown neutral (one run each: physics within about 5%, `bevy-monitors-kleiner-scene`'s mean step time +35%). Owner decision: not worth it for UI work; performance is never traded.
+
+## UI toolkit split: source-ui and Half-Life 2's UI (2026-10-24)
+
+- Plan in docs/DESIGN.md (same title): a game-agnostic, Source-aware toolkit crate (`source-ui`, like the SDK's `vgui_controls`) and Half-Life 2's own UI (`hl2-ui`: GameUI, HUD, captions, fades, `Config`, console commands), in seven steps, none changing behaviour.
+- Step 1 done: `source-ui` holds the canvas, fonts (`FontFace`, GDI on Windows), input frames (`Key`, `Input`, `KeyRepeat`), widgets, placement, window focus, the message box, `.res` layouts, scheme fonts, key names, the generic viewport geometry and the localization engine; it depends on no hl2-* crate. `input.rs`, `gameui/display.rs`, `gameui/loading.rs`, `proportional.rs`, `tuning.rs` and the Fit Display frame functions (`flexible_frame`) stay in hl2-ui: they read HL2RS settings or tuning. Verified: validate.sh, the Windows-target check, all 81 owned-install tests (the two headless campaign tests alone), the full replay suite (93 of 94; the one difference is noted below) and the isolation check.
+- Step 2 done: the 41 cvars stored in the settings are each a value function and a setter (`commands::setting`); one handler queries, stores, saves, echoes and returns `ApplyConfig`. A golden transcript of every cvar (`console/commands/cvars.golden`) pins the behaviour. hl2-ui production lines 18,879 -> 18,373. Verified: validate.sh, the Windows-target check, the console and UI replays (10 of 10).
+- Step 3a done: `source_ui::console::{command, complete, editor}` hold the command registry (generic over the app: `command::Context`, `Spec<C>`), completion and the line editor; hl2-ui's `console::commands` is HL2's instantiation and table, its `console::complete` the host's `Sources`. Verified: validate.sh, the Windows-target check, the console and UI replays (10 of 10). Next: 3b, the output buffer and the console dialog as a toolkit component.
+- Step 3b done (step 3 complete): the developer console dialog is the toolkit's `source_ui::console::panel::ConsolePanel` (output buffer, history, entry, completion popup, buttons, placement, drawing; `dialog` holds its layout with the app's `Scaling`); hl2-ui's `console/panel.rs` passes HL2's texts, look and commands and turns its actions into effects. Verified: validate.sh, the Windows-target check, the console and UI replays (10 of 10), the dialog's draw output byte-identical in nine states.
+- Step 4 design in docs/DESIGN.md (the shell's control flow generic over a `shell::Host` trait that `Console` implements). 4a done: `source_ui::windows` is generic (`WindowId`, `Windows<W>`); HL2's `Window` enum is in hl2-ui. Verified: validate.sh, the Windows-target check, the console and UI replays (10 of 10).
+- 4b done: `source_ui::shell::Shell<W>` (window stack, console dialog, Escape hold, key repeat, pointer) is `Console::shell`. Verified: validate.sh, the Windows-target check, the console and UI replays (10 of 10).
+- 4c done: input routing is `source_ui::shell::input` over `shell::Host`, which `Console` implements. Verified: validate.sh, the Windows-target check, the console and UI replays (10 of 10).
+- 4d done (step 4 complete): Escape, the console toggle and closing windows are `source_ui::shell` functions over `Host`. Verified: validate.sh, the Windows-target check, all 81 owned-install tests, the full replay suite (93 of 94, the difference noted below) and the isolation check.
+- Step 5 done: hl2-shared folded back into hl2-simulation (its files restored as they were); hl2-ui depends on hl2-simulation, source-ui on no hl2-* crate. Verified: validate.sh, the Windows-target check, all 81 owned-install tests, the full replay suite (94 of 94, only fields marked varying differ).
+- Step 6 done: 56 functions private (compiler-judged; `pub(super) fn` 219 -> 182, `pub(crate) fn` 98 -> 79); no production `use super::*` left in hl2-ui and hl2-simulation (hl2-bevy's `video.rs` keeps two in its display modules), re-imported names come from their real homes. Verified: validate.sh, the Windows-target check, the console and UI replays (10 of 10).
+- Step 7 not done (reported): `AiRuntime::think` (1,225 lines) holds one `&mut AiActor` borrow for about 1,040 lines alongside 13 other `AiRuntime` fields and 7 parameters, and 19 of its locals live more than 300 lines; phase functions would need the actor taken out of `self.actors` for the whole think and a context struct of 20 to 30 values (details in MODLOG).
+- Known: `monitors-kleiner-scene`'s gib removal count varies between runs of one build: once in four runs 7 gibs were removed instead of 8 at its last two labels; the replay checks do not mark it as varying.
+- Known: `pallet-gibs-fade`'s kill tick varies between runs of one build. In one of four runs the pallet's kill and its gibs came at tick 32 instead of 34; only its `hits` is marked as varying in the replay checks.
+
 ## Corrected native impact evidence and instrumentation caveat (2026-10-24)
 
 The interior-hook caveat supersedes older descriptions limited to timing perturbation. Sealed private AW reproduces saved-EDI corruption from Frida object/onEnter call-listener form at an interior instruction; the documented function-callback probe preserves the baseline sentinel. Sealed AY audits 18 selected roots/five loaded scripts/29 sites and identifies four affected interior sites across AF, AR and X. Keep their raw observations, but do not promote their dynamic causal interpretations to unmodified retail behavior. Static body/byte evidence and separate non-Frida controls remain distinct. The X transition is still an observed controlled instrumented event; ordinary first-map completion remains false.
@@ -67,6 +1103,32 @@ Corrected AX seals 615 files. Five complete collision/calculator/scale/lookup/se
 BA seals 26 files and corroborates per-line reset versus cumulative same-line wait additions using corrected probes: 10 parser pairs/eight sites/192 raw reads. It submits echo/wait commands in AX's idle owned process; no fixed timing units or button-phase claim follows. Both observers unload/close before normal native exit 0; checked settings unchanged. AZ binds normal velocity to base plus pending increments and matches 18 recorded post vectors. BB binds five actual callback return stacks to PostCollision dispatch. One separate game-data getter remains missing from pass14, with only its four raw entry bytes verified.
 
 Nine new private seals retain 1370 file occurrences. The combined 27-root navigator checks 5411 occurrences/36 exact body dependencies/19 metadata query cases; these are evidence counts, not semantic coverage. Current checkpoint: work/publishing/research-followup-continuation-20261024bb.md. No Rust changes/builds; first_map_finished:false, original 16 gaps/four missing scene-index entries and Rust parity remain open.
+
+## Architecture review: structure without behaviour change (2026-10-23)
+
+- Plan in docs/DESIGN.md (same title). Every step keeps output, errors, effects and gameplay outcomes unchanged and is verified by `scripts/checks/validate.sh`, the Windows-target check and packaged replays.
+- Step 1 done: console commands are described once. Each `console::commands::Spec` carries its handler and, for a cvar, its value function; the handlers live in `console/commands/{cheats,video,audio,mouse,map,developer}.rs`, `Console::interpret` is a 6-line dispatcher (was 1,066 lines) and `cvar_value` reads the spec. Verified: validate.sh (1,020 tests), Windows-target check, packaged `console`, `console_map`, `campaign`, `options`, `menu_options`, `save_config`; existing console tests unchanged.
+- Step 2 done: entity inputs dispatch through `entities::inputs::HANDLERS` (class name -> handler; doors, logic, triggers, scenes, env); `Scene::deliver` keeps its special cases in order, then the class handler, then the inputs every entity takes (502 -> 188 lines). Verified: validate.sh (1,021 tests), Windows-target check, owned-install simulation tests, full replay suite 94/94 before and after with identical outcomes apart from the fields the checks already mark unstable (`occluded_blast_targets`, pallet `ray`).
+- Step 3 done: hl2-ui depends on the new `hl2-shared` crate (weapons and `definitions`, selection, damage/fade messages, `VIEWMODEL_FOV`, the read-only `InventoryView` trait the simulation's `Inventory` implements) instead of hl2-simulation; `cargo tree -p hl2-ui` lists no rapier3d or symphonia. hl2-simulation re-exports the moved items at their old paths. Verified: validate.sh, Windows-target check, owned-install tests, full replay suite 94/94 with outcomes equal to the baseline apart from the fields marked unstable.
+- Step 4 done: test modules in their own `tests.rs` files; `impl` blocks split by concern into `console/{focus,menu_flow,loading,options_dialog,panel}.rs` (console.rs 9,587 -> 1,505 lines), `entities/{choreography,parenting,io,sequences,triggers}.rs` (5,621 -> 1,006) and `ai/runtime/{goal_inputs,equipment,squads,speech,requests}.rs` (5,588 -> 2,616); options.rs 5,935 -> 2,741 (tests only). Moved code verified identical item by item; validate.sh, Windows-target check, owned-install tests and the full replay suite (94/94, outcomes equal to the baseline apart from the unstable fields). Not split: `AiRuntime::think` (1,225 lines), `tick_choreography`, `Console::draw`.
+- Fixed: a flaky hl2-bevy setup test. Parallel `setup` tests could share one temporary folder (the macOS clock moves in microseconds), so one test's cleanup deleted another's `response.json`; the folder name now carries a counter.
+
+## Startup memory: a gameplay `--map` loads directly (2026-10-23)
+
+- A heap profile of one packaged fixture (`bevy-frag-lob`, d1_trainstation_02, 1280x720, `footprint` plus `malloc_history` with stack logging) against a headless build of main: startup always loaded the menu background (`hl2/background01`) on the main thread before the campaign loader loaded `--map`, so both maps were live during the load, and after the switch ~0.8 GB of the freed background stayed resident (resident heap above live heap; main: none). `malloc_zone_pressure_relief` after the switch released 0 bytes (tried and dropped).
+- Now `load_startup_map` loads a gameplay `--map` itself (as main does); `--main-menu`, no `--map`, or a map that fails to load still start over the menu background, and the campaign loader then handles the map with the loading dialog and the existing failure rules. The startup map logs `Loaded <game>/<map>` and captures the pointer like a loaded map.
+- Footprint, same fixture, default settings, one game at a time: gameplay 4.27-4.75 GB (before 4.96-5.51), peak 5.06-5.22 GB (before ~5.87); the fixture runs in ~9 s instead of ~15 s. Main: gameplay 3.30-3.45 GB.
+- Remaining gap to main (~1 GB, not fixed): fonts parsed by fontdue (~166 MB: the four closed-caption styles are four different DejaVu Sans files, about 29 MB each once fontdue has parsed every glyph; no two UI fonts share a file, so there is nothing to share), `Console::load` (~99 MB), Metal command-buffer storage (115-357 MB vs 16 MB), ~0.5 GB resident but not live heap, and 150-600 MB more graphics memory. Model LOD, picmip and texture copies are the same as main's.
+- Not tested: the fallback for a map that passes installation validation and then fails to load (installation validation rejects missing and invalid BSPs before startup, and the installed game is read-only).
+- Fixed: the flaky `console::tests::loading_dialog_state_transitions_and_dismissal` (hl2-ui). Map-load progress was one process-wide static that parallel tests reset; it is now a `gameui::loading::ProgressReport` owned by each `Console` and handed to the campaign loader's worker (`assets::load_with_progress`). hl2-ui tests: 30 of 30 repeated runs pass. `scripts/checks/validate.sh` now runs `cargo test --workspace --locked` (all 1,019 tests; it ran 489 before).
+
+## Merge of main into orbitalman/hl2-ui (2026-10-23)
+
+- main d9295d5 (sessions 28-30) merged over 210849b. Model reading is one `read_model_variant` (body + root LOD) with `read_model`/`read_model_body`/`read_model_lod` wrappers.
+- Verified: fmt, strict workspace Clippy, Windows-target Clippy, workspace tests, owned-install tests (two hl2-bevy campaign headless tests time out only under parallel load; alone they pass before and after the merge), packaged replays (93 checks: 91 pass after re-recording the gameplay outcomes; `monitors-kleiner-scene` gib removal varied once under parallel load). A headless build of main used as referee gives the same gameplay outcomes, apart from fields that already vary between runs and this branch's `env_zoom`.
+- Fixed after the merge: the replay checks `fov_settings` and `console`, which failed before it too. `fov_settings` expected the old portrait (+8) and ultrawide viewmodel FOV boosts that the per-weapon offset tuning removed; the console replay now resumes from the pause menu after closing the console.
+- Packaged checks run with `--mute` (silent, settings untouched, asserted per run) and cap `JOBS` by physical memory: a packaged game peaks at about 5.5 GB on the station maps (main: about 3.2 GB; see the startup memory section above), so a 16 GB machine runs two at once.
+- Known content gap: `Weapon_Alyx_Shotgun.Cock` (female citizen / Alyx `shoot_shotgun` event) has no Half-Life 2 sound script; main's F4 citizen spawn pool preloads it on every map.
 
 ## Aligned-release rejection and exact-entry byte supplements (2026-10-23)
 
@@ -117,6 +1179,625 @@ Fresh non-Frida Y/Z controls are sealed 498/631 files. Both corroborate carry/wi
 Separate frozen-X audit scene-carry-core-state-20261023aa is sealed 17 files/21 bindings: 12 mass-set pairs show the selected core coefficient 0.04->1->0.04; rotational-damping fields show 0->10->0 across carried/released states. This is not a typed inverse-mass getter, an observed damping-setter call or a full physics law. The finite five-root navigator passes 1868 retained files/27 distinct exact dependencies/33 per-root occurrences and 22 query checks; older navigators remain unchanged.
 
 Current private handoff: work/publishing/research-native-exit-continuation-20261023w.md; lean prompt next-research-prompt-20261023w.txt; final receipt research-native-exit-closeout-20261023w.json. Next: isolate actual input/tick acknowledgement in a small private harness before another campaign replay. Two bounded engine wait-text queries found no exact body candidate; SDK wait semantics remain unproved for retail, and that text search is stopped.
+
+## Current session: portrait viewmodel framing and Fit Display continuation (2026-10-22)
+
+- Viewmodel tuner (console `viewmodel_tweak_mode 1|0`; F5/F6 no longer bound): adjust keys (`[ ]`, `,/.`, arrows) autorepeat while held using the same 0.4 s / 0.05 s `HoldRepeat` timing as Options > Keyboard list arrows; `viewmodel_tweak_reset` zeros `fov_offset` and `offset` for the selected weapon's current aspect profile; a map change turns the mode off. Packaged hold-to-repeat and command inspection is not tested.
+- Added F5 runtime viewmodel tuning overlay: direct standard/portrait/ultrawide profile editing with `[ ]` FOV, `,/.` Z, arrows X/Y and Shift fine steps. The tuner continues through normal gameplay input, preserving mouse look, movement, firing, reload, and configured weapon selection. Changes apply to the camera and viewmodel effects; the complete copyable JSON snapshot replaces the previous tuning snapshot in console history and is not written to disk. The session retains edits by weapon/profile, survives Pause/Options for display changes, merges all edits in each JSON snapshot, and clears them on F5-off. `scripts/checks/validate.sh` passed (388 `hl2-ui` / 106 `hl2-bevy` tests, 10 ignored per crate, strict Clippy/fmt), and `scripts/checks/check_windows.sh` passed. Packaged gameplay/animation/log UI inspection is not tested.
+- Restored all portrait viewmodel FOV/offset profiles to the `97fac81` values: default `(+8°, [0, 0, -9])`, crowbar `(+8°, [0, 0, -11])`, physcannon `(0°, [0, 0, -11.5])`, and RPG `(+16°, [0, 4, -16])`. Removed the portrait-only front/rear projection assertion that described the later experimental profile. The camera remains unit scale; packaged portrait appearance is not tested.
+- Continued the interrupted UI/runtime change already in the working tree. **Portrait viewmodels:**
+  removed the horizontal camera scale after owner feedback that it distorted the models. The camera
+  remains unit scale; narrow-frame visibility uses the existing horizontal FOV and position values
+  (`fov_offset`, `offset`) in `tuning.json`, including the RPG's +16° FOV adjustment and 4-unit
+  left shift.
+- **Video > Aspect Ratio:** Fit Display is now the first combo item. Selecting it uses the current
+  physical display/window size rather than retaining a prior fixed low resolution. The Bevy host
+  likewise promotes a stale configured low fixed size to the physical content area for a flexible
+  frame, fixing the 640x480-to-Retina transition that broke subtitle/caption layout.
+- Focused portrait tuning and camera tests passed. After removing scale, `scripts/checks/validate.sh` passed: 376 `hl2-ui` and 103 `hl2-bevy` tests (20 owned/install tests ignored), strict workspace Clippy, and formatting; `scripts/checks/check_windows.sh` passed. Packaged high-DPI/portrait visual verification is not tested.
+
+## Current session: target cleaner & UI focus/animation pass (2026-10-21, branch `orbitalman/hl2-ui`)
+
+- **Hardware-aware Antialiasing capability detection and unsupported mode gating (`crates/hl2-ui`, `crates/hl2-bevy`):**
+  - Replaced global 4x clamp with hardware-aware capability detection:
+    - `GpuSpecs` detects hardware multisampling limits: Apple Silicon / Metal backend supports `[1, 2, 4]`, CPU software renderers support `[1, 2]`, integrated GPUs support `[1, 2, 4]`, while discrete desktop GPUs on Vulkan / DirectX 12 support `[1, 2, 4, 8]`.
+    - Options > Video > Advanced dialog dynamically gates unsupported antialiasing modes from the dropdown: systems limited to 4x MSAA only show `None`, `2X`, and `4X`, with `8X` excluded.
+    - System recommendations never recommend modes higher than the hardware's supported capabilities.
+    - `msaa_for` restores 1:1 mapping (`X8 -> Msaa::Sample8`), and `msaa_for_hardware` clamps to the probed adapter's sample count limits.
+    - `hl2-bevy::setup` probes `RenderAdapterInfo` and passes detected specs to `SystemRecommendation` on startup.
+  - Verified tests & runtime:
+    - Unit tests: `hardware_aware_antialiasing_supported_modes_and_gating`, `test_msaa_for_hardware`, `test_msaa_for_antialiasing`, `test_sync_antialiasing_updates_scene_cameras_and_leaves_present_camera_off`, `antialiasing_and_filtering_affect_fidelity_settings_and_samplers`.
+    - Packaged game verification: `bin/hl2-bevy` ran 240 frames cleanly and captured `artifacts/menu_capture.png` with exit code 0.
+
+- **Antialiasing mode and Filtering mode runtime rendering fidelity & performance impact (`crates/hl2-ui`, `crates/hl2-bevy`):**
+  - Connected Options > Video > Advanced Antialiasing mode and Filtering mode to Bevy multisampling and wgpu texture sampler descriptors:
+    - `Antialiasing` (`mat_antialias`): None maps to `Msaa::Off`, X2 maps to `Msaa::Sample2`, X4 and X8 map safely to `Msaa::Sample4`.
+    - `sync_antialiasing` system dynamically updates all 3D scene cameras (`FlyCamera`, `ViewmodelCamera`, `SkyCamera`, UI camera) to the active sample count while keeping `PresentCamera` at `Msaa::Off`.
+    - `Filtering` (`mat_trilinear` / `mat_forceaniso`): Bilinear sets `mipmap_filter = Nearest, aniso = 1`; Trilinear sets `mipmap_filter = Linear, aniso = 1`; Anisotropic 2X, 4X, 8X, 16X set `mipmap_filter = Linear, aniso = 2, 4, 8, 16`.
+    - `apply_filtering_to_images` and `sync_filtering` dynamically update material texture sampler descriptors in `Assets<Image>`, keeping nearest glyph caches and 1x presentation quad samplers intact.
+    - Updated `install_map`, `spawn_map_filtered`, `image_filtered`, `mip_image_filtered`, and `cube_image_filtered` so newly spawned maps and late-loaded props take the active filtering mode.
+  - Verified tests:
+    - Unit tests: `antialiasing_and_filtering_mappings`, `test_msaa_for_antialiasing`, `test_sync_antialiasing_updates_scene_cameras_and_leaves_present_camera_off`, `test_sync_filtering_updates_active_images`.
+    - Owned-install benchmark test: `antialiasing_and_filtering_affect_fidelity_settings_and_samplers` on `d1_trainstation_02`.
+
+
+- **Model LOD decimation (`r_rootlod`) and VTF texture picmip (`mat_picmip`) rendering impact (`crates/source-assets`, `crates/hl2-ui`, `crates/hl2-bevy`):**
+  - Researched retail Source Engine geometry LOD and texture mip reduction architecture:
+    - Model detail (`r_rootlod`: 0 = High, 1 = Medium, 2 = Low) selects the root LOD level in `.dx90.vtx` files authored with decimated mesh resolutions for props, characters, weapons, and gibs. `switch_point < 0.0` denotes shadow LODs and is filtered out.
+    - Texture detail (`mat_picmip`: -1 = Very High, 0 = High, 1 = Medium, 2 = Low) shifts the base mip index down by `picmip` levels during VTF decoding. Textures with `TEXTUREFLAGS_IGNORE_PICMIP (0x0020_0000)` (UI, HUD, fonts, tool textures) bypass mip skipping.
+  - Implemented in `crates/source-assets`:
+    - `vtf`: `TEXTUREFLAGS_IGNORE_PICMIP`, `layout_picmip`, `decode_picmip`, `decode_frames_picmip`, `decode_frame_mips_picmip`, `decode_cube_picmip`.
+    - `models`: `read_model_lod`, `append_models_lod`.
+  - Implemented in `crates/hl2-ui`:
+    - `ModelDetail::root_lod` (`0`, `1`, `2`) and `TextureDetail::picmip` (`-1`, `0`, `1`, `2`).
+  - Implemented in `crates/hl2-bevy`:
+    - `assets::load_with_config`, `effects::PreparedEffects::load_with_lod`, `prepare_model_with_config`.
+    - `simulation::Simulation`: tracks `applied_detail: Option<(ModelDetail, TextureDetail)>`; on detail change during `Effect::ApplyConfig`, reloads the active map so new geometry and texture levels are applied immediately.
+  - Verified benchmarks on owned retail installation:
+    - Character mesh test (`owned_barney_lod_details`): Barney indices decimate from 17,766 (LOD0) to 12,009 (LOD1) and 8,763 (LOD2) (50.7% decimation).
+    - Map integration benchmark (`detail_settings_affect_loaded_map_geometry_and_texture_budgets` on `d1_trainstation_02`):
+      - Indices: High = 1,524,027 vs Low = 891,249 (41.5% reduction in triangle workload).
+      - Texture memory: High = 855,979,008 bytes (~816 MiB) vs Low = 53,494,592 bytes (~51 MiB) (93.7% reduction in VRAM).
+
+
+- **System recommended settings detection & performance benchmark suite (`crates/hl2-ui`):**
+  - Researched retail Source Engine hardware detection and recommendation logic (`dxsupport.cfg`, `COptionsSubVideoAdvancedDlg`):
+    - Retail Source queries host CPU core count, GPU device type/vendor, and DirectX/shader capability levels.
+    - `OptionsSubVideoAdvancedDlg.res` features `Label11` ("#GameUI_RecommendedSettings" = "* Setting recommended for your system").
+    - Each combo box item matching the recommended setting is appended with an asterisk (` *`), e.g. `High *`, `Reflect all *`, `Enabled *`.
+  - Implemented `crate::gameui::recommendation`:
+    - `HardwareTier`: Low, Medium, High, Ultra.
+    - `CpuSpecs`: logical core detection via `std::thread::available_parallelism()`, `is_multicore()`.
+    - `GpuSpecs`: device type (`Discrete`, `Integrated`, `Virtual`, `Cpu`, `Other`, `Unknown`), name, vendor ID.
+    - `SystemRecommendation`: automatic host detection via `detect()`, deterministic mapping from hardware profiles (`from_specs`), recommended index resolution for all `AdvancedChoice` variants and `Choice::Hdr`.
+    - `VideoBenchmarkSuite`: evaluates simulated CPU and GPU render/simulation frame times across setting profiles (Low, Recommended, Ultra), computes estimated FPS and throughput, measures isolated setting cost deltas (MSAA, anisotropic filtering, shadows, water reflections, multicore speedup, HDR), and verifies performance budget accordance (>= 60 FPS target).
+  - Integrated into GameUI settings and options dialog:
+    - Updated `Env` with optional `recommendation: Option<&'a SystemRecommendation>`.
+    - Updated `Choice::items` for `AdvancedChoice` and `Choice::Hdr` to append ` *` to recommended choices when recommendations are active.
+    - Added `OptionsDialog::set_system_recommendation`, `system_recommendation`, `apply_recommended_video`, and disjoint environment builder `make_env`.
+    - Added `Console::set_system_recommendation` and `system_recommendation`.
+    - Added `Label11` (`#GameUI_RecommendedSettings`) to `VIDEO_ADVANCED` dialog layout.
+  - Added comprehensive test coverage:
+    - `system_recommendation_tier_inference_across_hardware_specs`
+    - `recommended_combo_indices_match_expected_settings`
+    - `performance_benchmark_suite_evaluates_profiles_and_tracks_accordance`
+    - `video_advanced_recommended_settings_displayed_with_asterisks_in_dialog_and_combos`
+    - `video_advanced_system_recommendation_scales_with_hardware_tiers`
+    - `video_advanced_performance_benchmark_tracking_and_accordance`
+
+- **Clean mock string insertions from options unit tests (`crates/hl2-ui`):**
+  - Removed mock string insertions (`res.localization.insert("GameUI_hdr_level0", "None")`, etc.) in `crates/hl2-ui/src/gameui/options.rs` test `video_options_hdr_control_layout_and_selection`.
+  - Asserted authentic unlocalized token key fallback behavior (`["GameUI_hdr_level0", "GameUI_hdr_level1", "GameUI_hdr_level2"]`) when running unit tests without mounted game resources, matching engine design and `settings.rs` tests.
+
+- **Localization resource priority and pre-resource fallback constraint (`crates/hl2-ui`):**
+  - Clarified architectural rule: always prioritize game resources/assets over in-repo constants. Never add fallback constants to `crates/hl2-ui/src/gameui/localize.rs` if they can be retrieved directly from game resources (`resource/gameui_english.txt`, `resource/valve_english.txt`, `resource/vgui_english.txt`, `hl2_complete/resource/merged_loc_all.txt`, etc.).
+  - Documented `gameui/localize` as a source primarily for text that has NO in-game resources (such as modded, reconstructed, or expanded features, mapped via `placeholders`).
+  - Constrained `FALLBACK_STRINGS` strictly to use cases when the game is launched and cannot find in-game resources (e.g. displaying a setup / browse game directory dialog, or essential error/abort confirmation dialogs before assets are mounted).
+  - Cleaned up in-game option strings (`GameUI_HDR*`, `GameUI_ClassicEffects*`, `GameUI_HDContent`, `gameui_disabled`, `gameui_enabled`) from `FALLBACK_STRINGS`.
+
+- **Options > Gameplay difficulty options, `skill` cvar parity, and simulation damage scaling (`crates/hl2-ui`, `crates/hl2-bevy`):**
+  - Audited all controls in Options > Gameplay (`Resource/OptionsSubDifficulty.res`):
+    - `Skill1Radio` ("#GameUI_SkillEasy", Easy difficulty, skill 1)
+    - `Skill2Radio` ("#GameUI_SkillNormal", Normal difficulty, skill 2)
+    - `Skill3Radio` ("#GameUI_SkillHard", Hard difficulty, skill 3)
+    - `Label1` ("#GameUI_SelectDifficulty" = "Combat difficulty:")
+    - `Label2` ("#GameUI_EasyDescription" = "Enemies are easy to defeat, and the computer helps you aim.")
+    - `Label3` ("#GameUI_NormalDescription" = "Challenging enemies; your weapons do normal damage.")
+    - `Label4` ("#GameUI_HardDescription" = "Enemies are very tough; your weapons are less effective.")
+    - `MigrateButton` ("#GameUI_MigrateEpisodicData" = "Migrate Data From Standalone Episodes", `visible 0`, command `MigrateData` / `migrate_episodic_data`).
+  - Added cvar specification and execution for `skill`:
+    - `skill`: query or set game skill level (`1`, `2`, `3`). In `cvar_value()`, returns `config.gameplay.skill`. Clamped to `1..=3`.
+  - Added placeholder command `migrate_episodic_data`:
+    - Logs that save data migration from standalone episodes is not implemented in this build.
+  - Bound `MigrateButton` in `crates/hl2-ui/src/gameui/settings.rs` to `Command::MigrateData`, marked as placeholder (`placeholder() == true`).
+  - Added authentic English fallback strings in `crates/hl2-ui/src/gameui/localize.rs` (`FALLBACK_STRINGS`) for difficulty labels, descriptions, and migration button.
+  - Synchronized `self.scene.skill.level = skill;` inside `Gameplay::set_skill` in `crates/hl2-bevy/src/gameplay.rs` so that player-inflicted weapon damage (`player_inflict_scale()`) is rescaled immediately upon difficulty changes alongside incoming damage intake (`take_scale`).
+  - Added unit test `gameplay_skill_cvar_and_migrate_command` in `crates/hl2-ui/src/console.rs`.
+  - Added unit test `gameplay_difficulty_options_and_migrate_placeholder` in `crates/hl2-ui/src/gameui/options.rs`.
+  - Updated `skill_setting_rescales_damage_taken_and_inflicted_immediately` test in `crates/hl2-bevy/src/gameplay.rs`.
+
+- **Video Advanced classic effects, D3D9Ex, and HD content placeholder (`crates/hl2-ui`):**
+  - Implemented console cvars for classic effects and D3D9Ex:
+    - `r_classic_fire`: queries and toggles classic fire particles (`0` | `1`). Maps to `classic_effects`.
+    - `r_classic_blood`: queries and toggles classic blood particles (`0` | `1`). Maps to `classic_effects`.
+    - `mat_disable_d3d9ex`: queries and toggles disabling Direct3D 9Ex extensions (`0` = enabled, `1` = disabled). Maps to `d3d9ex`.
+  - Added `Command::HDContent` placeholder for `HDContentButton` CheckButton in retail `OptionsSubVideoAdvancedDlg.res` (`visible 0`).
+  - Added authentic English fallback strings to `FALLBACK_STRINGS` for `#GameUI_HDContent`, `#GameUI_ClassicEffects`, `#GameUI_ClassicEffects_Off`, `#GameUI_ClassicEffects_On`, `#gameui_disabled`, and `#gameui_enabled`.
+  - Added unit test `video_advanced_effects_and_d3d9ex_cvars_query_set_and_cvar_value` in `crates/hl2-ui/src/console.rs`.
+  - Added unit test `video_advanced_hdcontent_placeholder_and_effects_layout` in `crates/hl2-ui/src/gameui/options.rs`.
+  - **Documented as Unfinished in Runtime (Particle Assets & Platform Extensions)**:
+    - Classic effects in Source replace orange fire and blood impact particle systems with retail 2004 sprite animations. In `hl2-bevy`, particle simulation is not yet differentiated by legacy vs modern particle manifests.
+    - Direct3D 9Ex extensions are Windows D3D9 specific (Aero window composition and fast alt-tab). On macOS (Metal) and cross-platform Wgpu, D3D9Ex has no direct API representation.
+    - HD Content button in retail toggles `game_hd.txt` pack mount, requiring game restart (`#GameUI_HDRestartRequired_Info`). In HL2RS, high definition content packaging is not implemented.
+
+- **Video Advanced filtering and antialiasing options cvar parity & runtime status (`crates/hl2-ui`):**
+  - Implemented console cvars for texture filtering and multisample antialiasing:
+    - `mat_forceaniso`: queries and sets anisotropic filtering level (`1`, `2`, `4`, `8`, `16`). Maps to `Filtering`.
+    - `mat_trilinear`: queries and toggles trilinear texture filtering (`0` = Bilinear, `1` = Trilinear). Maps to `Filtering`.
+    - `mat_antialias`: queries and sets multisample antialiasing mode (`0`/`1` = None, `2` = 2X, `4` = 4X, `8` = 8X). Maps to `Antialiasing`.
+    - `mat_aaquality`: queries and accepts CSAA quality level (`0`).
+  - Updated candidate completion test in `crates/hl2-ui/src/console/complete.rs` for alphabetical `"ma"` prefix ordering.
+  - Added unit test `video_advanced_filtering_and_antialiasing_cvars_query_set_and_cvar_value` in `crates/hl2-ui/src/console.rs`.
+  - **Documented as Unfinished in Runtime (MSAA & Sampler Anisotropy)**:
+    - In `hl2-bevy`, `Msaa` is configured at startup but not dynamically re-bound when `config.video.advanced.antialiasing` changes at runtime.
+    - Texture samplers created during VTF/VMT material loading currently use static trilinear filtering without dynamic max anisotropy reconfiguration from `config.video.advanced.filtering`.
+
+- **Video Advanced detail options cvar parity & runtime status (`crates/hl2-ui`):**
+  - Implemented console cvars for all detail options in Options > Video > Advanced:
+    - `r_rootlod`: queries and sets model detail (`0` = High, `1` = Medium, `2` = Low). Maps to `ModelDetail`.
+    - `mat_picmip`: queries and sets texture detail (`-1` = Very High, `0` = High, `1` = Medium, `2` = Low). Maps to `TextureDetail`.
+    - `mat_reducefillrate`: queries and toggles reduced shader fillrate (`0` = High/Very High, `1` = Low). Maps to `ShaderDetail`.
+    - `r_waterforceexpensive`: queries and toggles expensive water reflections (`0` = Simple, `1` = World/All). Maps to `WaterDetail`.
+    - `r_waterforcereflectentities`: queries and toggles water entity reflections (`0` = World only, `1` = All). Maps to `WaterDetail`.
+    - `r_shadowrendertotexture`: queries and toggles dynamic RTT shadows (`0` = Low, `1` = Medium/High). Maps to `ShadowDetail`.
+    - `r_flashlightdepthtexture`: queries and toggles depth texture flashlight shadows (`0` = Medium, `1` = High). Maps to `ShadowDetail`.
+  - Added unit test `video_advanced_detail_cvars_query_set_and_cvar_value` in `crates/hl2-ui/src/console.rs`.
+  - **Documented as Unfinished in Runtime (Geometry, Texture & Shadow Passes)**:
+    - Per `crates/hl2-ui/src/config.rs:172`: `/// Video > Advanced. Only vsync changes rendering today; the detail levels are stored.`
+    - Model LOD: Retail decimation uses `.dx90.vtx` and StudioModel body part root LOD levels. In `hl2-bevy`, models render at base LOD 0 without mesh decimation.
+    - Texture Picmip: Retail drops top-level mipmaps during VTF decompression/uploading (`mip_level = max(0, picmip)`). In `source-assets::vtf`, textures load full mip chains without bias.
+    - Shader Detail: In retail Source, `mat_reducefillrate 1` disables specular highlights, lightmap bicubic filtering, and simplifies fragment programs. Bevy uses StandardMaterial PBR.
+    - Water Reflections: Retail executes separate planar mirror render passes with frustum clipping for world brushes (`r_waterforceexpensive 1`) and entities (`r_waterforcereflectentities 1`). Bevy does not run secondary planar water cameras.
+    - Shadows: Retail renders dynamic depth map buffers for flashlight projection and character shadow textures. Bevy uses cascaded shadow maps for directional sunlight only.
+
+- **Video Advanced presentation options cvar parity & runtime status (`crates/hl2-ui`, `crates/hl2-bevy`):**
+  - Implemented console cvars for Video Advanced presentation controls:
+    - `mat_vsync`: queries and toggles vertical sync (`0` or `1`). Directly integrated with `hl2-bevy::video` to configure Winit window `PresentMode::AutoVsync` vs `PresentMode::AutoNoVsync`.
+    - `mat_colorcorrection`: queries and toggles color correction (`0` or `1`). Color correction 3D LUT lookups and volume triggers are unmodeled in Bevy and documented as unfinished.
+    - `mat_motion_blur_enabled`: queries and toggles motion blur (`0` or `1`). Directional camera/object velocity motion blur passes are unmodeled in Bevy and documented as unfinished.
+    - `mat_queue_mode`: queries and assigns multicore rendering mode (`-1`/`1`/`2` = multicore, `0` = single threaded). In `hl2-bevy`, Bevy ECS already utilizes multi-threaded parallel task pools by default.
+  - Added unit test `video_advanced_presentation_cvars_query_set_and_cvar_value` in `crates/hl2-ui/src/console.rs`.
+
+- **Video Advanced FOV options cvar parity (`crates/hl2-ui/src/console`, `crates/hl2-ui/src/console/commands`):**
+  - Implemented console cvars for all FOV sliders in Options > Video > Advanced:
+    - `fov_desired`: retail cvar alias for `fov`, queries and assigns desired horizontal 4:3 field of view (50..120).
+    - `vertical_fov`: queries, assigns, and clamps vertical field of view (0 = automatic, clamped to 40..100).
+    - `viewmodel_fov`: queries, assigns, and clamps viewmodel field of view (40..80, default 54).
+  - All three cvars integrate directly with camera rendering in `hl2-bevy::simulation` (`self.fov`, `self.vertical_fov`, `self.viewmodel_fov`) and `hl2-bevy::video`.
+  - Added unit test `video_fov_cvars_query_set_clamp_and_cvar_value` in `crates/hl2-ui/src/console.rs`.
+
+- **Video HDR option audit, central localization fallbacks & render pipeline status (`crates/hl2-ui`, `crates/hl2-bevy`):**
+  - Audited retail `OptionsSubVideo.res` controls for High Dynamic Range (`HDR Label` and `HDR` ComboBox):
+    1. UI Layout & Visibility: Retail layout specifies `visible 1 [!$OSX]` and `visible 0 [$OSX]`. `hl2-ui::gameui::settings::force_visible(Panel::Video, "HDR" | "HDR Label")` ensures the controls remain visible and enabled on macOS and Windows/Linux.
+    2. Settings Model & Config Persistence: Bound to `Choice::Hdr` which maps to `HdrMode::ALL` (`[None, Bloom, Full]`) corresponding to Source `mat_hdr_level` (0, 1, 2) and tokens `#GameUI_hdr_level0` ("None"), `#GameUI_hdr_level1` ("Bloom (if available)"), `#GameUI_hdr_level2` ("Full (if available)"). Value persists to `bin/hl2-config.json` under `"video": { "hdr": "none" | "bloom" | "full" }`.
+    3. Console Parity: `mat_hdr_level [0|1|2]` queries current level, assigns valid levels (clamped to 0..2), updates config, emits `Effect::ApplyConfig`, and returns string representation via `cvar_value("mat_hdr_level")`.
+    4. Localization Fallbacks: Added authentic English fallback values in `hl2-ui::gameui::localize::FALLBACK_STRINGS` for `#GameUI_HDR`, `#GameUI_hdr_level0`, `#GameUI_hdr_level1`, `#GameUI_hdr_level2`, and `#GameUI_hdr_Hint`, satisfying project localization rules when installed resource files are absent in headless/test environments.
+    5. Unit Testing: Added `video_options_hdr_control_layout_and_selection` in `crates/hl2-ui/src/gameui/options.rs` verifying layout presence under `force_visible`, item tokens, and draft selection; added `video_hdr_cvar_query_set_and_cvar_value` in `crates/hl2-ui/src/console.rs` verifying query, assignment, error rejection, and `cvar_value`.
+  - **Documented as Unfinished in Runtime (Render Pipeline Switching)**:
+    - In retail Source, changing `mat_hdr_level` requires a game restart (`#GameUI_HDRestartRequired_Info`: "The changes you have made require the game to be restarted to take effect.") because HDR vs LDR switches fundamental asset lumps and shaders:
+      - BSP Lightmaps: HDR uses Lump 53 (`LUMP_LIGHTING_HDR`) and Lump 58 (`LUMP_FACES_HDR`); LDR uses Lump 8 (`LUMP_LIGHTING`) and Lump 7 (`LUMP_FACES`). In `source-assets::lighting`, `use_hdr` unconditionally loads HDR lumps whenever present in the map.
+      - Ambient and World Lights: HDR uses Lumps 54/55; LDR uses Lumps 15/56.
+      - Material VMT Conditionals: VMT properties evaluate `$hdr` vs `$ldr` branches at load time. In `hl2-bevy::assets::evaluate_test`, `hdr` evaluates hardcoded to `true`.
+      - Cubemap Textures: HDR loads `.hdr.vtf` (linear float), while LDR loads `.vtf` (sRGB 8-bit).
+      - Tone Mapping & Shaders: Shaders multiply by `TONEMAP_SCALE_LINEAR`, and camera exposure adapts dynamically from scene histogram readbacks. LDR mode in Source clamps to 1.0 without auto-exposure adaptation and disables bloom.
+    - In the current Bevy architecture, switching to LDR (`mat_hdr_level 0`) or Bloom-only (`mat_hdr_level 1`) at runtime without a level reload or asset remount would require rebuilding GPU texture atlases, reloading VMT materials with `$ldr` branches, switching cubemap handles, and swapping the shader pipeline between linear float tonemapping and gamma LDR clamping. Furthermore, all automated replay tests (`test-inputs/`) run under `Config::default()` where `hdr` defaults to `None` while the renderer runs the HDR pipeline; dynamically cutting tone mapping without LDR lightmaps would darken scenes by ~2x and regress replay baselines. This remains an open architectural item (STATUS line 427: "HDR None/Bloom/Full switching the render pipeline (large; design note first)").
+
+- **Audio options audit, console cvar parity & runtime status (`crates/hl2-ui`, `crates/hl2-bevy`):**
+  - Audited every audio control from retail Source `OptionsSubAudio.res` across `hl2-ui`, `hl2-simulation`, and `hl2-bevy`:
+    1. `SFXSlider` (`volume`): UI slider and master volume scaling in `hl2-bevy/src/audio.rs` working.
+    2. `MusicSlider` (`snd_musicvolume`): UI slider and runtime music channel attenuation in `hl2-bevy/src/audio.rs` working. Added `snd_musicvolume` console cvar (`commands.rs`, `console.rs`) supporting query, 0.0..1.0 float assignment, and `cvar_value`.
+    3. `snd_mute_losefocus` (`snd_mute_losefocus`): UI checkbox and runtime mute on focus loss in `hl2-bevy/src/audio.rs` working. Added `snd_mute_losefocus` console cvar supporting query, boolean toggle, and `cvar_value`.
+    4. `CloseCaptionCheck` (`closecaption` & `cc_subtitles`): UI ComboBox working (`None`, `ClosedCaptions`, `Subtitles`) and driving `canvas_renderer.rs` closed caption HUD rendering. Added `closecaption` and `cc_subtitles` console cvars supporting query, boolean toggle, and `cvar_value`.
+    5. `SpeakerSetup` (`snd_surround_speakers`): UI ComboBox working (`Headphones` = 0, `2 Speakers` = 2, `4 Speakers` = 4, `5.1` = 5, `7.1` = 7) and persisted in config. Added `snd_surround_speakers` console cvar. In runtime, `bevy_audio` (rodio) outputs a stereo stream; multi-channel discrete surround rematrixing (4/5.1/7.1) is not implemented and acceptance criteria under Bevy/rodio are unclear. Documented as unfinished.
+    6. `SoundQuality` (`dsp_slow_cpu` & `snd_pitchquality`): UI ComboBox working (`High`, `Medium`, `Low`) and persisted in config. Added `dsp_slow_cpu` and `snd_pitchquality` console cvars. In simulation and runtime, DSP reverberation/room simulation is not modeled (`soundscapes.rs:570`), and rodio handles resampling transparently; software DSP filter passes are not implemented. Documented as unfinished.
+    7. `AudioSpokenLanguage`: UI ComboBox populated from `env.languages` and persisted in `config.audio.language`. In retail Source, voice language change requires a game restart. Dynamic voice VPK mount switching on restart is not fully integrated. Documented as unfinished.
+    8. `ThirdPartySoundCredits` (`ShowThirdPartyAudioCredits`): UI URLButton working, opens `Sub::AudioCredits` dialog displaying Miles Sound System and Bink Video credits with flexible layout framing.
+    9. `TestSpeakers` (`TestSpeakers`): Retail layout sets `visible 0`. Added `Command::TestSpeakers` with `placeholder() == true` in `hl2-ui::gameui::settings`, ensuring that if visible in legacy/mod layouts it is drawn disabled and handled safely without errors.
+  - In `crates/hl2-ui/src/console/editor.rs`, enhanced completion tab logic so that when a unique prefix match exists among candidates (even when low-relevance scattered-letter fuzzy candidates match as well), Tab takes the unique prefix match with a trailing space.
+  - Added unit test `audio_cvars_query_set_clamp_and_cvar_value` in `crates/hl2-ui/src/console.rs`.
+  - Added unit test `audio_options_controls_and_placeholder_handling` in `crates/hl2-ui/src/gameui/options.rs`.
+  - Verified with `scripts/checks/validate.sh` (358 hl2-ui unit tests, 97 hl2-bevy tests, strict Clippy, rustfmt check) and `scripts/checks/check_windows.sh`.
+
+- **Mouse options audit, console cvar parity & unfinished simulation features status (`crates/hl2-ui/src/console`, `crates/hl2-ui/src/gameui/options`):**
+  - Audited every mouse option from retail Source `OptionsSubMouse.res` across `hl2-ui`, `hl2-simulation`, and `hl2-bevy`:
+    1. `ReverseMouse` (`m_pitch`): UI checkbox and runtime inverted pitch working (`pitch_sign` in `input.rs`). Added `m_pitch` console cvar (`commands.rs`, `console.rs`) supporting query, positive/negative float assignment, and `cvar_value`.
+    2. `MouseFilter` (`m_filter`): UI checkbox and runtime 2-frame average in `MouseFilter::apply` working. Added `m_filter` console cvar supporting query, boolean toggle, and `cvar_value`.
+    3. `MouseRaw` (`m_rawinput`): UI checkbox present in `OptionsSubMouse.res` (`enabled 0 [$OSX]`, `enabled 1 [!$OSX]`) and persisted in config. Added `m_rawinput` console cvar. Under Bevy/Winit, cursor lock exclusively feeds `AccumulatedMouseMotion` from `DeviceEvent::MouseMotion` (raw hardware events). Winit does not expose OS pointer ballistics in locked mode; cross-platform emulation of non-raw input is unspecified/unclear and documented as unfinished.
+    4. `MouseAccelerationCheckbox` (`m_customaccel`): UI checkbox and runtime mode 3 curve in `MouseFilter::apply` working. Dynamically enables acceleration slider and label. Added `m_customaccel` console cvar supporting query, 0/1/3 modes, and `cvar_value`.
+    5. `Slider` / `SensitivityLabel` (`sensitivity`): UI slider and numeric text entry working with 2.0 Hz blinking caret on focus. Cvar already wired in console.
+    6. `MouseAccelerationSlider` / `MouseAccelerationLabel` (`m_customaccel_exponent`): UI slider and numeric text entry working (range 1.0..1.4, default 1.05). Dynamically enabled when acceleration is checked. Added `m_customaccel_exponent` console cvar supporting query, clamping, and `cvar_value`.
+    7. `HUDQuickInfo` (`hud_quickinfo`): Retail layout sets `visible 0` and `enabled 0` on Mouse tab. QuickInfo reticle logic is implemented in `hud.rs`.
+    8. `Autoaim` (`sk_autoaim_mode` / `m_autoaim_mode`): UI ComboBox working (`Off`, `Basic`, `Enhanced`) and persisted in config. Added `sk_autoaim_mode` (and alias `m_autoaim_mode`) console cvar supporting query, 0/1/2 mode assignment, and `cvar_value`. In `hl2-simulation`, bullet firing traces straight forward without target hitbox detection or deflection angle math; acceptance criteria for PC mouse play (deflection cone, magnetism, friend filtering) are unspecified and documented as unfinished.
+    9. `AutoaimScale` (`sk_autoaim_scale1` / `m_autoaim_scale`): UI slider working (range 0.5..2.0). Dynamically enabled when `Autoaim != Off`. Added `sk_autoaim_scale1` (and alias `m_autoaim_scale`) console cvar supporting query, clamping, and `cvar_value`. Unused in simulation bullet tracing until autoaim deflection is implemented.
+  - Added unit tests in `crates/hl2-ui/src/console.rs` (`mouse_cvars_query_set_clamp_and_cvar_value`) verifying query, setting, clamping, and `cvar_value` for all mouse cvars.
+  - Added unit tests in `crates/hl2-ui/src/gameui/options.rs` (`mouse_options_dynamic_enabling_and_draft_update`) verifying dynamic enabling of acceleration slider/label and autoaim scale slider/label based on draft settings.
+  - Verified with `scripts/checks/validate.sh` (356 hl2-ui unit tests, 97 hl2-bevy tests, strict Clippy, rustfmt check) and `scripts/checks/check_windows.sh`.
+
+- **Alphabetical line-by-line CLI help and early help dispatch in launch-bevy.sh & hl2-bevy (`launch-bevy.sh`, `crates/hl2-bevy`):**
+  - Added early `--help` / `-h` check in `launch-bevy.sh` before running build or freshness checks. Ignores all other arguments, skips all build checks/clean steps, and outputs help immediately with exit status 0.
+  - Implemented comprehensive `show_help` listing all launcher and engine options in alphabetical order (A to Z), one per line with aligned, helpful descriptions.
+  - Added all previously missing CLI flags (`--setup`, `--no-setup`, `--setup-preview`, `--background-map`, `--capture-window`, `--fake-monitor`, `--cpu-skinning`, `--no-pvs`, `--world-partition`, `--frag-swept-box`), and omitted removed/outdated options (`--clean`).
+  - Updated native `--help` in `crates/hl2-bevy/src/main.rs` to match the alphabetical one-per-line format.
+  - Verified with bash syntax checks (`bash -n launch-bevy.sh`), `./launch-bevy.sh --help`, `./launch-bevy.sh -h`, `./launch-bevy.sh --rebuild --debug --map d1_trainstation_01 --help`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+
+- **Automatic clean before build in launch-bevy.sh & expanded macOS instructions in README.md (`launch-bevy.sh`, `README.md`):**
+  - Removed unused `--clean` argument parsing from `launch-bevy.sh`.
+  - Configured `launch-bevy.sh` to automatically clean stale build remnants from `target/` (`scripts/clean-target.sh --stale`) prior to every build (whenever `NEEDS_BUILD` triggers), preventing disk bloat without wiping 3rd-party dependencies.
+  - Updated `README.md` macOS section with detailed `launch-bevy.sh` documentation, freshness checks, auto-clean behavior, convenience scripts, and common launcher arguments.
+  - Verified with bash syntax checks (`bash -n launch-bevy.sh`), `./launch-bevy.sh --no-build`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+
+- **Text input blinking cursor and parent-child focus hierarchy (`hl2-ui::gameui::widgets`, `hl2-ui::gameui::options`, `hl2-ui::console`):**
+  - Implemented `InputFocus` in `crates/hl2-ui/src/gameui/widgets.rs` modeling parent-child focus relations (`parent_focused: bool` and `child_focused: bool`). `is_active(&self) -> bool` returns `true` only when both parent dialog and child input element hold focus.
+  - Implemented `BlinkingCaret` providing Source SDK `TextEntry` 2.0 Hz caret blinking cycle (500ms visible, 500ms hidden). Gated via `is_visible(focus: InputFocus, time: f64)`.
+  - Implemented `TextInputModel` combining `InputFocus`, `BlinkingCaret`, and optional interaction timestamp for resetting caret blink phase on typing/interaction (`record_interaction`). Separated continuous `should_draw_focus_edge()` (focus ring) from periodic `should_draw_caret(time)` (1px insertion cursor).
+  - Updated `Painter::text_entry` to accept separate `focused: bool` and `caret_visible: bool` parameters, and added `Painter::text_entry_model(rect, text, enabled, model: &TextInputModel, time: f64)`.
+  - In `OptionsDialog` (`crates/hl2-ui/src/gameui/options.rs`), added `pub parent_focused: bool` and `pub now: Option<f64>`. In `draw_with_occluders`, resolved effective parent focus (`parent_focused && !modal`, false when SubDialog or Confirmation is active) and passed `time` and `parent_focused` down to controls. In `ControlKind::TextEntry`, constructed `TextInputModel::new(parent_focused, child_focused)` where `child_focused` is true when the entry is actively being edited, rendering the blinking caret via `p.text_entry_model`. Slider text entries (e.g. Mouse sensitivity) blink at 2.0 Hz when focused/editing and hide immediately when unfocused, when Options loses focus to another window, or when an overlying subdialog or confirmation box is open.
+  - In `Console` (`crates/hl2-ui/src/console.rs`), synchronized `options.parent_focused = self.windows.focus() == Layer::Window(Window::Options)`. In `draw_console_with_occluders`, evaluated `console_focused = self.windows.focus() == Layer::Window(Window::Console)` and `entry_focused = !self.console_placement.active()`, rendering `entry_focus_edge` and blinking caret via `TextInputModel`. Caret and focus edge hide when console is out of focus.
+  - Documented Section 22 ("Text input with blinking cursor and parent-child focus hierarchy") in `docs/gameui.md`.
+  - Verified with unit tests (`widgets::tests::input_focus_parent_child_relations`, `widgets::tests::blinking_caret_phase_timing_and_focus_gating`, `widgets::tests::text_input_model_and_interaction_restart`, `widgets::tests::painter_text_entry_focus_edge_and_caret_drawing`, `options::tests::options_slider_text_entry_cursor_blinks_when_focused_and_hides_when_unfocused`, `console::tests::console_entry_cursor_blinks_when_focused_and_hides_when_unfocused`), `scripts/checks/validate.sh` (351 hl2-ui unit tests, 93 hl2-bevy tests, strict clippy, rustfmt check), and `scripts/checks/check_windows.sh`. Visual appearance in packaged release runs is unverified, needs manual check.
+
+- **Subdialog and confirmation focus styling and reversible theme transitions (`hl2-ui::gameui::widgets`, `hl2-ui::gameui::options`, `hl2-ui::console`):**
+  - Added `frame_bg_focused: Color` and `title_text_focused: Color` to `Theme` (`crates/hl2-ui/src/gameui/widgets.rs`), initialized in `Theme::default()` and recorded from `sourcescheme.res` in `Theme::from_scheme()`.
+  - In `Theme::focus_faded(fade, focused)`, blend `frame_bg` from `self.frame_bg_out_of_focus` to `self.frame_bg_focused` (preserving focused colors), restoring `title_text_focused` when `focused` is true. Any theme can now transition to out-of-focus and back to focused without losing its authentic scheme colors.
+  - In `OptionsDialog` (`crates/hl2-ui/src/gameui/options.rs`), added `pub sub_theme: Option<Theme>` and `pub confirm_theme: Option<Theme>`. In `draw_with_occluders`, when a subdialog holds focus, its frame renders with `Frame.BgColor` (alpha 212) and focused title text `FrameTitleBar.TextColor` (white), while the underlying Options dialog renders with `Frame.OutOfFocusBgColor` (alpha 62) and `FrameTitleBar.DisabledTextColor`. When confirmation opens on top of a subdialog, confirmation renders in focus while the subdialog transitions to out-of-focus (`Frame.OutOfFocusBgColor` / alpha 62).
+  - In `Console::sync_dialog_windows` (`crates/hl2-ui/src/console.rs`), synchronized `self.options.sub_theme` and `self.options.confirm_theme` from `self.window_theme(Window::SubDialog, time)` and `self.window_theme(Window::Confirmation, time)`.
+  - Verified with unit tests (`widgets::tests::focus_faded_transitions_are_reversible_and_preserve_focused_colors`, `gameui::options::tests::dialogs_over_the_options_dialog_are_translucent_and_clip_underlying_content`, `console::tests::subdialog_in_focus_renders_focused_frame_while_parent_options_is_unfocused`), `scripts/checks/validate.sh` (345 hl2-ui unit tests, 93 hl2-bevy tests, strict clippy, rustfmt check), and `scripts/checks/check_windows.sh`. Visual appearance in packaged release runs is unverified, needs manual check.
+
+- **Stacked dialog translucency with content occlusion clipping and modal console toggle gating (`hl2-ui::canvas`, `hl2-ui::gameui::widgets`, `hl2-ui::gameui::options`, `hl2-ui::console`):**
+  - Removed 100% opacity logic for stacked dialogs (`Theme::stacked()` no longer overrides `frame_bg.a = 1.0`). All dialogs out of focus or stacked over another dialog preserve their authentic translucent scheme background (`Frame.BgColor` / `Frame.OutOfFocusBgColor` from `sourcescheme.res`).
+  - Added an occluder stack (`push_occluder`, `pop_occluder`, `clear_occluders`) to `Canvas`. In `Canvas::quad`, quads intersecting active occluders are clipped via 2D axis-aligned box subtraction (`clip_quad_against_occluder`) with proportional source texture UV scaling, removing covered regions. Polygons with all vertices inside an occluder are dropped. `Canvas::drain` clears active occluders between frames.
+  - Split `Painter::frame_spec` into `frame_background(&spec)` (unclipped frame fill and outer border) and `frame_foreground(&spec, close)` (title text and close button).
+  - In `OptionsDialog::draw_with_occluders`, the Options frame background is drawn first unclipped, then occluders for any overlying subdialog (`sub_bounds`), confirmation box (`confirm_bounds`), or external window are pushed before drawing the foreground title, close button, tabs, controls, and bottom buttons. Subdialogs similarly draw their frame background unclipped, then push occluders for overlying confirmation boxes before drawing subdialog content.
+  - In `Console::draw_console_with_occluders`, the console frame background is drawn unclipped, then occluders for overlying dialogs (e.g. Quit confirmation box) are pushed before drawing console history, entry, submit button, and completion list.
+  - In `Console::toggle()`, added guard checking `self.windows.has_modal() || self.modal_dialog_open() || self.options.has_sub() || self.options.has_confirm()`. Pressing tilde (`KeyCode::Backquote`), `Action::ToggleConsole`, or `toggleconsole` while in Options > Video > Advanced, Gamma, Credits, Keyboard Advanced, or a confirmation dialog blocks console toggle invocation early.
+  - Verified with unit tests (`canvas::tests::occluder_clips_quads_and_proportional_texture_coordinates`, `gameui::options::tests::dialogs_over_the_options_dialog_are_translucent_and_clip_underlying_content`, `console::tests::console_invocation_is_blocked_when_blocking_subdialog_or_modal_is_open`), `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`. Visual appearance in packaged release runs is unverified, needs manual check.
+
+- **Confirmation dialogs arm Cancel button on held Escape (`hl2-ui::gameui::menu`, `hl2-ui::console`, `hl2-ui::gameui::options`):**
+  - Added `escape_held: bool` to `MessageBox`. In `MessageBox::draw`, when `escape_held` is active and the dialog has a Cancel button without a title-bar close button (`!has_close`), the Cancel button renders with `armed: true` and `pressed: true` (`ButtonState::depressed`), applying sunken 3D borders, 1px text offset, and depressed styling.
+  - In `Console::escape_pressed`, synchronized dialog windows and propagated `escape_held = true` to `confirm_box` and `options.confirm` when `Window::Confirmation` is top.
+  - In `Console::escape_released`, cleared `escape_held` and dismissed the confirmation dialog upon release. Dragging confirmation boxes cancels active drags on Escape press without holding Cancel.
+  - Verified with unit tests (`message_box_escape_held_arms_cancel_when_no_close_button`, `a_held_escape_presses_confirmation_cancel_button_and_release_cancels_it`), `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`. Visual appearance in packaged release runs is unverified, needs manual check.
+
+- **Focused subdialog close button highlights on held Escape (`hl2-ui::console`):**
+  - Updated `Console::escape_pressed` to set `options.escape_held = true` when `windows.top()` is `Some(Window::SubDialog)`, causing `OptionsDialog::draw` to render the subdialog's title-bar close button in pressed/highlighted state while Escape is held.
+  - Delegated `Window::SubDialog` escape handling in `Console::escape_closes_dialog` and `Console::escape` to `options.escape_closes()` and `options.escape()`, ensuring active drags and open combo dropdowns are cancelled first without prematurely closing the subdialog.
+  - Verified with unit test `console::tests::a_held_escape_presses_subdialog_close_button_and_release_closes_it`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`. Visual appearance in packaged release runs is unverified, needs manual check.
+
+- **Options sub-dialog mouse clicks, Use Defaults confirmation, and out-of-focus title translucency (`hl2-ui::console`, `gameui::options`, `gameui::settings`):**
+  - Synchronized dialog window input routing in `Console::windows_input` to route mouse clicks strictly to `active_options_window` (`Confirmation` > `SubDialog` > `Options`), preventing lower windows from wiping `ButtonTracker` state.
+  - Added `"apply"` command mapping in `gameui::settings::command_binding` for `OptionsSubVideoAdvancedDlg.res`.
+  - Retained `confirm` across input frames in `OptionsDialog::input` when pending outcome is `None`.
+  - Modulated `title_outline` and `sub_outline` with `base_focus` in `Console::draw`, disabling black text outline when out of focus so title and subtitle glyphs render with pure translucency.
+  - Verified with unit tests (`subdialog_buttons_can_be_activated_by_mouse_click`, `keyboard_use_defaults_confirmation_works_with_click_and_keys`, `out_of_focus_menu_title_and_subtitle_are_translucent_without_black_outline`), `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`. Visual appearance in packaged release runs is unverified, needs manual check.
+
+- **Mid-gameplay developer console opens pause menu (`hl2-ui::console`, `hl2-bevy::simulation`):**
+  - Opening the developer console mid-gameplay (`toggle()`, `set_mode(Mode::Console)`) automatically transitions base to `Mode::Pause`, bringing up the authentic pause menu with dev console focused on top.
+  - Closing the developer console mid-gameplay (tilde, Escape, or `[X]` button) restores focus to the underlying pause menu (`Layer::Base`), leaving gameplay paused.
+  - Resuming from the pause menu (Escape or "Resume Game") returns cleanly to active gameplay (`Mode::Gameplay`).
+  - Unit-tested via `console::tests::mid_gameplay_tilde_dev_console_transition_and_pause_menu_focus`, `simulation::tests::ui_open_close_and_resume_consume_pointer_attack_and_held_jump`, `validate.sh`, and `check_windows.sh`. Visual backdrop in packaged runs is unverified, needs manual check.
+
+- **Context-aware background dim overlay (menu background vs. mid-gameplay) (`hl2-ui::console`, `tuning.json`):**
+  - Added `backdrop_alpha: 0.611765` matching `MainMenu.Backdrop` in `sourcescheme.res` (`156 / 255`) and `gameplay_dim_alpha: 0.3` (unverified fallback) in `assets/ui/tuning.json`.
+  - Implemented pure calculation in `Console::dim_overlay_opacity(is_mid_gameplay, menu_open, base_focus) -> f32` and `Console::dim_overlay_alpha(time)`.
+  - Menu background mode: zero dim overlay when main/sub menu is focused, smoothly fades in to `MainMenu.Backdrop` (0.6118) over 0.3s when dialogs open.
+  - Mid-gameplay mode: pause menu applies `gameplay_dim_alpha` (0.3) over gameplay; dialogs opening on top smoothly transition dim to `MainMenu.Backdrop` (0.6118).
+  - Verified with unit tests (`console::tests::context_aware_background_dim_overlay_across_all_four_cases`), `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`. Visual smoothness is unverified, needs manual check.
+
+- **Shared fade-in/out and focus-transition animations (`gameui::windows`, `canvas`, `console`, `gameui::options`):**
+  - Verified `sourcescheme.res` values: `Frame.TransitionEffectTime` = 0.3 s, `Frame.FocusTransitionEffectTime` = 0.3 s, `Frame.BgColor` alpha = 212, `Frame.OutOfFocusBgColor` alpha = 62.
+  - Implemented `Canvas::set_alpha_multiplier` and `Canvas::alpha_multiplier` (matching Source SDK `surface()->DrawSetAlphaMultiplier()`), modulating drawing primitives across dialogs, text, and widgets.
+  - Added `WindowRecord` in `gameui::windows` tracking `focus_fade`, `alpha_fade`, and `closing: bool`.
+  - Closing dialogs fade out visibility alpha from current down to 0.0 over 0.3 s; focus and interaction immediately hand off to the underlying surface without delay, and finished closing dialogs are purged automatically via `Windows::clean_closed()`.
+  - Unified composite alpha calculation: $A_{\text{comp}} = A_{\text{vis}} \times (u + (1 - u) \times F)$ with $u = 0.3$.
+  - Unit-tested via `shared_fade_state_and_interpolation_logic_with_deterministic_timesteps`, `validate.sh`, and `check_windows.sh`. Visual smoothness is unverified, needs manual check.
+
+- **Unified single-focus state across menus, dialogs, and sub-dialogs (`gameui::windows`, `console`, `gameui::options`):**
+  - Enforced single-focus invariant in `Windows::focus()`: strictly one layer (`Layer::Base` or `Layer::Window(top)`) holds keyboard and primary interaction focus at any time.
+  - Sub-dialogs and confirmation dialogs integrated into `Windows` enum as modal layers (`Window::SubDialog`, `Window::Confirmation`), synchronized through `Console::sync_dialog_windows()`.
+  - When sub-dialogs or confirmation dialogs open, parent dialogs lose focus and transition to translucent (`Theme::focus_faded` using `Frame.OutOfFocusBgColor`).
+  - When any dialog opens over the main/sub menu, the main menu loses focus: the title, subtitle, and menu buttons fade to translucent using `base_focus_amount(time)` and `unfocused_alpha_factor: 0.3` (matching `sourcescheme.res` `Frame.OutOfFocusBgColor`).
+  - Closing dialogs restores focus step by step back to the next parent dialog, or to the main menu when all dialogs are dismissed.
+  - Verified with unit tests (`single_focus_state_machine_across_menus_dialogs_and_subdialogs`, `main_menu_loses_focus_and_becomes_translucent_when_dialog_opens_and_restores_on_close`), `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`. Visual smoothness is unverified, needs manual check.
+
+- **Automated target cleaner & build verification (`scripts/checks/clean_target.py`, `scripts/clean-target.sh`, `launch-bevy.sh`):**
+  - Added standalone cleaner supporting `--stale` (default: prunes orphaned incremental sessions, stale `.rcgu.o` object files, old test runners and superseded `.rlib` archives for workspace crates, leaving active builds and 3rd-party crates intact), `--workspace` (`cargo clean -p ...` without touching Bevy/wgpu/Rapier), and `--dry-run`.
+  - Integrated into `launch-bevy.sh`: added `--clean` flag and auto-pruning of stale hashes whenever a git branch change is detected.
+  - Reclaimed 29.07 GiB of dead build remnants on disk (119,029 stale files and 68 dead incremental directories removed; `target/` reduced from 29+ GB to 9.3 GB).
+  - Verified with dry-run checks, `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+
+- **Viewmodel sequence transitions & cross-fading (fix crowbar swing twitch/hop):**
+  - In `hl2-simulation::viewmodel_effects`, added `ViewmodelAnimationState` (`Playing`, `Transition`, `Idle`), `viewmodel_animation_state`, `viewmodel_state_matrices`, and `Inventory::viewmodel_matrices`.
+  - Finishing non-looping sequences (such as crowbar `misscenter1`, pistol `fire`, shotgun `fire01`/`pump`) now cross-fade smoothly into the active weapon's idle animation over `fade_time = min(clip.fade_out, idle.fade_in)` (default 0.2s) using Source SDK `MaintainSequenceTransitions` smoothstep spline blending ($s = 3s^2 - 2s^3$), holding the finished sequence at its final frame while advancing idle.
+  - Unified viewmodel matrix evaluation across `hl2-bevy::rendering` (joint transforms and CPU skinning) and `hl2-bevy::effects` (sprites, quads and beams), preventing discrete 10.7-unit bone jumps when animations expire.
+  - Verified with unit tests (`viewmodel_effects::tests::viewmodel_animation_state_transitions_smoothly_to_idle`), owned-install regression test (`gameplay::tests::owned_crowbar_attack_transition_is_smooth_without_twitch_or_hop`), `validate.sh`, and `check_windows.sh`.
+- **Dynamic/flexible aspect ratio ("Fit Display"):** Options > Video > Aspect Ratio adds "Fit Display" (`AspectRatio::Flexible`, `video.flexible_aspect`), dynamically shaping the game frame to window, display, or workspace bounds.
+  - Universal aspect-ratio math (`hl2-ui::tuning`): `min_supported_aspect` (9:16) and `max_supported_aspect` (32:9); `clamp_supported_aspect`; `cubic_bezier_ease` ($3t^2 - 2t^3$) providing $C^1$-smooth extrapolation between known aspect ratios with zero slope at plateau boundaries; `aspect_factors` smoothly blending portrait and ultrawide strengths for world FOV and viewmodel framing.
+  - Dynamic frame resolution & viewport (`hl2-ui::viewport`, `hl2-bevy::video`): `flexible_frame_resolution` sizes the frame to the active window/display within 9:16..=32:9 at the detail level of the configured short side; `ViewportBounds::compute_with_mode` and `VideoViewport::compute_with_mode` fill 100% of the active window/display with 0 black bars in 9:16..=32:9 and letterbox/pillarbox only outside that range.
+  - Windowed mode: `flexible_windowed_size` limits each dimension independently to workspace bounds (`DesktopArea::client_room` on macOS, monitor bounds on Windows/Linux) without forcing uniform aspect shrinking; live window resizes dynamically reshape the rendering frame.
+  - Auto-resolution & disabled Resolution dropdown: when "Fit Display" is selected and active, the Resolution combo is disabled (`settings::enabled` returns false when `draft.aspect == AspectRatio::Flexible`, which also disables its associated label `ResolutionLabel`) and displays the active content resolution in physical pixels without letterbox or pillarbox black stripes (`"{w} x {h}"`, e.g. `"1920 x 1080"`, via `current.without_stripes_for_flexible()`); selecting from it is a no-op, and switching back to fixed aspect ratios re-enables Resolution.
+  - All 93 checks in `replays.py` passed; `validate.sh` and `check_windows.sh` passed.
+- **Aspect-adaptive automatic world/vertical FOV:** `tuning::world_fov_offset(aspect)` tunes automatic world FOV outside 5:4..=16:9 (`world_fov_offset` in `tuning.json`: portrait -17°, ultrawide -11°), reducing vertical fish-eye distortion on portrait (down to 9:16) and peripheral horizontal stretching on ultrawide (up to 32:9).
+- **Aspect-adaptive and per-weapon viewmodel framing:** `tuning::viewmodel_framing` adapts first-person arms and weapons outside 5:4..=16:9 using per-weapon and default profiles in `tuning.json` (offsets and FOV adjustments for gravity gun, RPG, crowbar).
+
+## Previous session: developer console (2026-10-17, branch `orbitalman/main-menu-2`)
+
+Claude Code desktop, claude-opus-5-5.
+- **Resolution lists:** each aspect choice reaches the panel's size (Retina 4:3 up to 2976x2232), ultrawide 21:9 / 32:9 modes under Widescreen 16:9 (docs/gameui.md 10c). Ultrawide displays not tested.
+- **Options and the console are non-modal windows** (owner report, retail behavior): the menu works beside them, a press raises and focuses its window, the pointer goes to the topmost window under it and a press stays with its layer until release; focused windows use `Frame.BgColor`, others `Frame.OutOfFocusBgColor` with the 0.3 s fade (docs/gameui.md section 14). Unit tests and packaged `menu_options`; Windows not tested.
+- **Slider captions, toggle focus rings, credits keys** (owner report): High ends with its slider, the FOV slider's ring clears its label, check box / radio rings are even, the 3rd party credits' Close takes keyboard focus and Enter closes on release. Unit tests and packaged captures; Windows not checked. The FOV slider's captions read 0.00 / 1.00 (not changed).
+- **Fixture setup inputs were dropped under a frozen view: fixed.** Since menu backgrounds follow their `point_viewcontrol`, a fixture's `send` / `actor_pose` / `prop_pose` actions were discarded with player input while a camera held the view; `d1_trainstation_01` starts under the intro camera, so Barney's `security_02` / `security_03` scenes in the security-room fixtures never started (attention, face, gesture, audio-scene and Kleiner-monitor fixtures). Entity setup now applies; player controls stay ignored. Found by the gameplay replays: identical outcomes to main afterwards.
+- **Every packaged check is one cross-platform Python script** (`scripts/checks/replays.py`): 14 UI checks, `coverage` and one check per gameplay fixture (70: generic checks, specific assertions for movement, doors, weapons, effects, particles, attention, and expected outcomes per label in `test-inputs/expected/`), all in the background from a copy of the game with default settings; windowed / macOS / Windows ones with `WINDOWED=1`. macOS results in docs/validation.md; Windows and Linux not run.
+- **Replays and captures run in the background** (`--background`: no window, no focus taken; captures read the game frame); window checks stay windowed (docs/validation.md).
+- **Keyboard focus, second pass:** reading-order Tab, focus shown only after Tab, padded rings (check, radio, slider, entry, key list), no default button, key list focus, menu hover only on entering a row (docs/gameui.md 6c).
+- **Keyboard focus fixes:** readable Tab order on Mouse/Audio/Video (owned-install test), label-only check box focus box, focus boxes on tabs and sliders, Escape closes dialogs on release with the close button held.
+- **Keyboard focus in every dialog** (docs/gameui.md 6c): Tab order from the layouts, Space/Enter, arrows per control, dashed focus box; keyboard-only packaged replays captured. Not tried by hand.
+- **macOS windowed placement uses the screen visible frame** (menu bar and Dock excluded, `video::DesktopArea`); real window frames read back match (`scripts/checks/replays.py` (`window_place`, macOS)).
+- **macOS display modes:** Full screen (exclusive), Windowed and Windowed (No Border = native full-screen Space) are all offered; the window sets `borderless_game: false` so the menu bar shows at the top edge in No Border. Exclusive transitions replayed without a hang; menu bar reveal not tried by hand.
+- **Picture froze after a resolution change: fixed.** The present material kept the frame texture from before an in-place resize; the frame is now a new image the material is pointed at (`video::suspend_for_resize`). Check `scripts/checks/replays.py` (`window`). Not tried by hand.
+- **Local checks ship with the repository** (`scripts/checks/`, replay inputs in `test-inputs/`, list in docs/validation.md); docs and AGENTS.md reference nothing outside the repository (hard rule 10).
+- **The played chapter's background is saved when a gameplay map loads**, so a mid-game quit relaunches over it (packaged `scripts/checks/replays.py` (`chapter_quit`): `hl2/background01` -> `hl2/background04`).
+- **Return to main menu shows the played chapter's background** (`gameui::chapters`, docs/gameui.md section 13): chapters from `chapterbackgrounds.txt`, `cfg/chapter<key>.cfg` and the maps' `trigger_changelevel` targets; `d2_coast_01` returns to `hl2/background04`, `d3_c17_10a` to `hl2/background06` (packaged replay `test-inputs/bevy-menu-chapter-return.json`). Not tried by hand; not checked on Windows.
+- **Dialogs move by their caption; the console resizes by its corners** (shared `gameui::placement`, docs/gameui.md section 12). Packaged replays checked; not tried with a real mouse.
+- **Options dialog position and console position/size are saved** (`dialogs` in the settings) and reset to the default when they would open off screen; packaged two-run check passed.
+- **Console completion, suggestions, history (100, saved), Ctrl+R search, editing keys, `con_filter_*`/`con_timestamp`, engine warnings mirrored**: see `docs/gameui.md` section 11. Packaged capture of the completion list checked; paste and log mirroring not exercised by hand; output row copy not ported.
+- **Press-and-hold repeat** (`widgets::HoldRepeat`, `console::KeyRepeat` at the top of `Console::input`): held arrows, Backspace, Delete and Page keys repeat in every UI layer; scroll bar arrows share the timer. Unit-tested; not tried by hand.
+- **Closed captions** (`source_assets::captions`, `hl2_simulation::captions`, `hl2_ui::closecaption`): installed `closecaption_<language>.dat` dictionaries (search-path order, CRC32 lookup), scene speech masters with the 1200-unit caption radius and env_microphone speakers, sound-script/ambient/patch captions from the audio queue, the SDK caption queue and panel from `HudLayout.res`/`ClientScheme.res`, Options > Audio mapping. Unit and owned-install tests; packaged capture `artifacts/captions_capture.png` shows Kleiner's line on `ep1_background02` (`scripts/checks/replays.py` (`captions`)). Gaps: VOX sentence captions, `cc_*` commands, retail side-by-side, DejaVu Sans stands in for the uninstalled Tahoma.
+- **Retail console dialog** (`console::dialog`, SDK `CConsolePanel` layout and retail default placement): frame, sunken history with scroll bar, entry, Submit; drag-select history rows and copy them (Cmd+C / Ctrl+C, Bevy `Clipboard`). Unit tests and packaged capture (`options_capture_console.png`) checked; clipboard copy and drag not exercised by hand; moving/resizing the dialog not ported.
+- **Console history wraps** (`console::dialog::wrap`, SDK `RichText` line breaks): long lines break at word boundaries (inside over-long words), embedded newlines start rows; scrolling and the scroll bar count rows, selection and copy stay whole lines. Unit tests and packaged replay capture (`artifacts/options_capture_console_wrap.png`) checked; drag/copy of wrapped rows not tried by hand.
+
+## Previous session: menu font, advanced options dialogs, Gamepad tab (2026-10-16, branch `orbitalman/main-menu-2`)
+
+Claude Code desktop, claude-opus-5-5.
+- **Menu labels in GorDIN SemiBold** (scheme `MenuLarge`, resolved from the scheme's `CustomFontFiles`), narrower than the former Liberation Sans; slightly smaller at the same cell size. Not compared with a retail capture.
+- **Keyboard > Advanced** implemented (fast weapon switch, developer console). Unit and owned-layout tests; Packaged capture (`scripts/checks/replays.py` (`options`)) shows the dialog with the installed layout (03e801d: scripted clicks do reach Options; pointer positions are render-resolution canvas pixels, an earlier note here blaming paused ticks was wrong).
+- **Video > Advanced** implemented: retail item lists, settings stored in `video.advanced`; Field of view slider (layout range 75-110) and V-sync (window present mode) take effect, the detail levels (model, texture, shader, water, shadow, antialiasing, filtering, color correction, motion blur, multicore, classic effects, Aero) are **stored only**. Not yet captured in the packaged build.
+- **Gamepad tab** implemented from `optionssubgamepad.res` (joystick sensitivity, aim assist and its sensitivity, weapon selection style), **stored only** (no gamepad input); Open Steam Input Configuration stays a disabled placeholder. Labels now follow their associated control's enabled state on every page (SDK `Label`).
+- **Stacked dialogs opaque:** every dialog over the Options dialog (sub-dialogs, confirmation box) draws an opaque frame (`Theme::stacked`).
+- **Follow-up (owner):** Video > Advanced is opaque and its footer moves below the Classic Effects row (macOS layout overlap; packaged capture checked); the active tab shares the page's surface (capture checked).
+- **Next:** owner check of the dialogs and the menu font by hand.
+- Earlier list below: item 5 (Gamepad page) is done as a stored-only page; item 6 no longer includes Gamepad or Keyboard/Video Advanced.
+
+## Previous session: merge of main (2026-10-16, branch `orbitalman/main-menu-2`)
+
+Claude Code desktop, claude-opus-5-5.
+- **main `6226ae7` merged** (installation setup, arsenal and physics sessions 11-17, impact-table CI fix). Resolutions are listed in MODLOG; validation in `docs/validation.md`. The sections below from both lines of work are kept as they were.
+- **Startup:** no `--map` still opens the main menu. Setup validates content always and the map only when one is requested (`validate_content(path, Option<map>)`, the map's game from `game_for_map`).
+- **Known, not caused by the merge:** an intermittent Bevy "Entity despawned" command warning (a command on an entity of the previous map) during submenu background switches, about one run in four; the pre-merge build shows it too. Not yet located.
+- **Not tested:** the setup window on macOS; gameplay of main's new weapons/physics in this branch beyond the automated tests and a `d1_trainstation_02` load.
+
+## Previous session: Half-Life 2 submenu background (2026-10-16, branch `orbitalman/main-menu-2`)
+
+Claude Code desktop, claude-opus-5-5.
+- **Menu backgrounds use their `point_viewcontrol` camera and `env_zoom` FOV.** Once the world ran, the Episode Two view fell to the ground: the view was the player's eye and its spawn is not under the camera. Every chapter background enables a `point_viewcontrol` (`view_controller`, spawnflags 28: freeze player, infinite hold, snap) from a `logic_auto`, looking at `view_target` (Half-Life 2, Lost Coast) or along its `angles` (episodes); Half-Life 2 ones lock FOV 75 with `env_zoom`. New `hl2_simulation::view_control` (SDK `CTriggerCamera` Enable/Disable, `OnEndFollow`, target look-at, finite `wait` return, freeze; `CEnvZoom` Zoom/UnZoom with rate blending); the host renders, culls, mixes audio and draws effects from `Simulation::view_origin`/`view_angles`/`view_fov`, freezes the player under spawnflag 4, and keeps selecting soundscapes from the player's eye (SDK `EarPosition`). Tests: `view_control` unit tests; owned `chapter_background_levels_run_live_behind_the_menu` now asserts all 15 views sit at their camera and the HL2 FOV is 75. Visual check (`scripts/checks/replays.py` (`bg_compare`), 1024x768, FOV 75) against the retail pre-blurred menu images: HL2 `background01` and `ep1_background01` line up, `ep2_background01` and Lost Coast match in layout (Lost Coast's image has its horizon a few degrees higher and shows mountains/water our render lacks). Seen while comparing, not fixed: magenta missing-material areas (ep2 ground, Lost Coast water).
+- **Menu background levels run live (ambient sounds and soundscapes play).** Before, the main menu counted as a pause, so the background world never ticked and no ambient or soundscape sound started. Like retail, a background level now keeps running behind the menu with player input ignored (SDK `in_main.cpp`): `Simulation::world_running()` (`!loading && (!paused || background_level)`, `background_level` read from the console every step) drives the world tick, audio sink pausing, effects and tonemap adaptation; `paused()` still governs input, cursor and respawn. Entities on the background animate too. Tests: unit `background_level_world_runs_behind_the_menu_without_player_input` (time advances, forward/attack ignored; the gameplay pause menu advances nothing); owned `chapter_background_levels_run_live_behind_the_menu` (all 15 chapter backgrounds of hl2/episodic/ep2/lostcoast run 10 s with no level change, death or load; each game's menu background has a soundscape or spawn-playing ambient; `ep1_background02` and `ep2_background02` select no soundscape at the spawn, as their only in-range data says). Packaged: plain launch over Lost Coast's menu, report `world_running: true`, soundscape `coast_lostcoast.general_shoreline`, 4 sinks playing, 0 paused; `d1_trainstation_02` + Escape: `world_running: false`, 4/4 sinks paused. Not checked by ear by me; not run on Windows.
+- **Search paths come from each game's `gameinfo.txt`.** `Vfs::mount_game` mounts the `FileSystem/SearchPaths` the game declares (`vpk::search_paths`: `game`/`mod`/`platform` entries in order, `|gameinfo_path|` and `|all_source_engine_paths|` resolved, `<folder>/*` expanded, `<name>.vpk` opened as `<name>_dir.vpk`, missing entries and repeats skipped); the hardcoded `mount_expansion` table (`ep2` -> `episodic`) and the separate custom-folder pass are gone. Retail order puts every VPK before every loose folder; a search-order check found no game file shadowed by that (only loose `hl2/models/weapons/*.mdl` duplicates now come from `hl2_misc`, as in retail). Tests: `games_mount_the_search_paths_their_gameinfo_declares`, owned `owned_install_games_mount_vpks_before_loose_folders`; all owned `source-assets` tests (installation discovered like the runtime, no `HL2_ROOT` needed), `hl2-simulation` with `--include-ignored`, owned `hl2-ui`/`hl2-bevy` tests pass.
+- **Return to main menu showed the previous submenu's background: fixed.** From the Episode Two menu, `map d1_trainstation_02` then Return to main menu came back over `ep2_background01`. It now shows the running game's chapter 1 background and saves it (`Console::menu_background_after_game`). Unit `return_to_main_menu_shows_the_running_games_background`; packaged replay `scripts/checks/replays.py` (`return_menu`): `hl2/background01`, `ep2/ep2_background01`, `hl2/d1_trainstation_02`, `hl2/background01`.
+- **`scripts/build-bevy.sh` replaces `bin/hl2-bevy` instead of overwriting it.** Overwriting the executable in place while an earlier build was still running made macOS kill every new launch (exit 137, empty log).
+- **The game of a map is carried, not guessed from its name.** Submenus already know their game (`SwitchExpansion <game>`), so `Effect::MainMenuMap` carries a `console::GameMap { game, map }` through the campaign request to `assets::load_with_canvas(root, game, map, ..)`, which mounts that game (`Vfs::mount_game`); `LoadedMap`, `Campaign::loaded_map`, `MapLoaded` and the run report carry the game; the persisted background keeps `gameplay.background_game`. Background images and transitions are keyed by `(game, map)`, so Lost Coast's `background01` needs no alias and a stale Half-Life 2 `background01` completion no longer finishes a Lost Coast transition. Bare map names (`map`, `map_background`, `--map`, `--background-map`, respawn, a background saved before games were recorded) resolve from assets: the game whose own folder ships `maps/<name>.bsp`, loose or in its own VPKs, `hl2` first, then the other `gameinfo.txt` folders (`source_assets::install::game_for_map`); in-session names (`map`, `map_background`, respawn) search the running game first, command-line names do not. Level transitions stay in the running game. Removed: `vpk::expansion_for_map`, `Console::expansion_category_for_map`, the `lostcoast_background01` key and its disk-name translation. Tests: unit `game_for_map_reads_each_game_folder_base_game_first`, `background_images_are_keyed_by_game_and_map`, `background_transition_tells_games_with_the_same_map_name_apart`; owned-install `owned_install_maps_belong_to_the_game_that_ships_them`, `background01_loads_from_the_named_game` (Half-Life 2 and Lost Coast `background01` load different worlds), headless Lost Coast submenu switch. Packaged replay (`scripts/checks/replays.py` (`submenus`), now Episode One -> back -> Half-Life 2 -> back -> Extras -> Lost Coast): `hl2/background01`, `episodic/ep1_background01`, `hl2/background01`, `lostcoast/background01`; a saved `ep2_background01` without a game started on `ep2/ep2_background01`. Not changed: `load_vtf_file` keeps its per-game archive order (it also reads `hl2_complete`, which no game's search path mounts). (The `mount_expansion` table was replaced afterwards, see above.)
+- **Half-Life 2 submenu did not switch the background: fixed.** Root cause: `GameUiResources` is built once from the startup map's file system, which is mounted for the game of the saved background (for example Episode Two). Half-Life 2's entry then read `scripts/chapterbackgrounds.txt` through that mount and got the episode's copy, so HL2 resolved to the episode background already showing and nothing loaded (New Game maps had the same flaw through `cfg/chapter1.cfg`). Now each game reads its own chapter files through its own mount (`resources::read_game_text`), and the games come from the `SwitchExpansion` commands of `gamemenu.res` (`resources::menu_games`); the hardcoded `INITIAL_BACKGROUND_MAPS` / `INITIAL_EPISODE_MAPS` tables and their fallbacks are gone. Tests: owned-install `every_game_reads_its_own_chapter_files_whatever_map_is_loaded` (base, Episode One, Episode Two and Lost Coast startup mounts; fails when reading through the startup mount), `menu_games_come_from_switch_expansion_commands_in_menu_order`. Packaged replay (`scripts/checks/replays.py` (`submenus`), Episode One -> back -> Half-Life 2): before, HL2 loaded `ep2_background01`; after, `ep1_background01` then `background01`. (The name-based mount and the `lostcoast_background01` key were removed afterwards, see above.)
+
+## Previous session: GameUI polish and macOS window pass (2026-10-15, branch `orbitalman/main-menu`)
+
+Claude Code desktop, claude-opus-5-5. Owner list of nine items; plan decisions: macOS scrolling uses accumulated row steps, macOS native full screen is recognized as the game's Full screen mode (mac-only), tab hover only on inactive tabs, key capture highlights only the key cell.
+- **Close button: done.** Plain × glyph, no border or fill; lightens to the title text color on hover/press (`Theme::close_style`, scheme `FrameTitleButton.*`). Test `close_cross_lightens_on_hover_and_press`; frame tests updated. Unverified, needs manual check: hover the × of the Options dialog and of the Quit box.
+- **Opaque drop-down lists and inactive tab hover: done.** `Painter::menu_list` uses the frame color at full alpha under the `Menu.BgColor` tint; `Theme::tab_style` adds the `Menu.BgColor` hover fill to inactive enabled tabs only. Tests `drop_down_list_is_fully_opaque`, `only_inactive_enabled_tabs_show_a_hover_fill`. Unverified, needs manual check: open the Video page Resolution list over other controls (nothing shows through); hover inactive tabs (slight lightening), the active tab stays unchanged.
+- **Key list group separators and key-cell capture highlight: done.** Section header rows draw a 1px `SectionedListPanel.DividerColor` line (SDK `SectionedListPanelHeader` geometry); capture fills only the key cell with the selection color. Test `key_list_separates_groups_and_capture_highlights_only_the_key_cell`. Unverified, needs manual check: Options > Keyboard shows black lines under Movement/Combat/... headers; select a row, press Edit Key: only the key cell turns orange.
+- **Double click edits a key: done.** `Input::time` (host: `Time<Real>`), shared `widgets::DoubleClick` (0.5 s, same target), `key_list_click` starts capture on a double click like Edit Key. Tests `double_click_needs_the_same_target_within_the_interval`, `double_click_on_a_key_row_starts_capture`. Unverified, needs manual check: double-click a key row, press a key, the row is rebound.
+- **Platform-specific list scrolling: done.** `widgets::ScrollMode::platform()` (Notched on Windows/Linux, Smooth on macOS) with `ScrollAccumulator`; key list and popup lists use it. Tests `scroll_steps_follow_the_platform_mode`, `popup_list_wheel_accumulates_trackpad_deltas_only_on_smooth`. Unverified, needs manual check: on macOS slow two-finger scrolling in the key list and the Resolution list moves row by row; on Windows a wheel notch moves 3 key rows (owner check on Windows).
+- **No window re-apply for non-video settings: done (all platforms).** `ApplyConfig` queues a window apply only when width, height or display mode change (`simulation::window_settings_changed`). Root cause of macOS bug A's trigger: every OK/Apply, even for a mouse option, re-requested the window size. Test `only_window_setting_changes_queue_a_window_apply`. Unverified, needs manual check: resize the window by hand, change a mouse option, OK; the window keeps its size.
+- **macOS native full screen recognition: done (macOS only).** `video::sync_native_fullscreen` reads winit's real full-screen state (read-only, main thread) and on a change maps it to the game's mode (`native_fullscreen_sync`): green button in = Full screen, out = Windowed; updates `Window::mode`, saves the display mode, drops pending windowed resizes. Fixes the stale "still full screen" state and the no-op Full screen choice. Test `native_full_screen_changes_map_to_the_game_modes`; packaged 300-frame run exit 0 (no transition exercised). Unverified, needs manual check on macOS: (1) Windowed setting, press green button, open Options: Display mode shows Full screen; change a mouse option, OK: picture stays full screen. (2) Choose Windowed, OK: leaves native full screen. (3) Enter with the green button again, leave with the green button: Options shows Windowed and choosing Full screen enters native full screen. Windows: owner check that nothing changed.
+
+- **Regression fix: resolution and display mode changes did nothing (5384402).** Root cause: the console stores the new config before emitting `ApplyConfig`, so the new check compared the new settings with themselves. Now compared against `Simulation::applied_window` (seeded from startup options, updated per apply and by the macOS sync). Test `only_window_setting_changes_queue_a_window_apply` now follows the real order and fails on the old code.
+- **Open Options dialog follows macOS green-button mode changes live** (`OptionsDialog::sync_display_mode`, `Console::set_display_mode_external`; test `external_display_mode_changes_reach_an_open_dialog`). Before, the mode showed only after reopening the dialog.
+
+- **Capture look: dim action cell.** While capturing, the action cell uses the scheme's `SectionedListPanel.OutOfFocusSelectedBgColor`/`TextColor` and the key cell stays orange (owner preferred this variant). Test updated. Unverified, needs manual check: Edit Key shows a half-transparent orange action cell next to the orange key cell.
+
+- **Scroll bars with arrow buttons and live dragging.** Shared `widgets::ScrollBarState`/`ScrollBarLayout` per SDK `ScrollBar` and the scheme (17 px wide, square arrow buttons stepping on press and repeating after 400 ms every 50 ms, live nob drag, track paging once, transparent nob with raised border). Key list and popup lists use it; scroll gestures own the pointer until release. Tests `scroll_bar_layout_has_square_end_buttons_and_a_minimum_nob`, `scroll_bar_arrows_step_on_press_and_repeat_while_held`, `scroll_bar_nob_drags_live_and_track_pages_once`, `popup_scroll_bar_scrolls_without_selecting_or_closing`, `key_list_scroll_bar_scrolls_while_held_and_blocks_row_clicks`. Unverified, needs manual check: Options > Keyboard and the Resolution list: arrows step and repeat when held, dragging the nob scrolls live, clicking the track pages.
+
+- **Capture action cell more transparent.** Half of the scheme's dim selection alpha (`CAPTURE_ACTION_FADE = 0.5`, owner tuning) with the normal text color; the key cell stays fully orange. Unverified, needs manual check.
+
+- **Brightness dialog unlocked and implemented.** The button is enabled in every display mode (retail: full screen only, hardware ramp). `mat_monitorgamma` is now applied by the presentation shader (`video::PresentMaterial`, `present.wgsl`, ramp v^(gamma/2.2) on display-encoded values, neutral at 2.2) over the whole composed picture; the dialog previews live and Cancel restores. Tests `monitor_gamma_ramp_is_neutral_at_2_2_and_lighter_below`, extended `placeholders_log_and_gamma_dialog_restores_on_cancel`; window capture `scripts/checks/replays.py` (`window`) shows the frame presented unchanged at 2.2. Exact retail ramp formula not verified. Unverified, needs manual check: open Options > Video > Adjust brightness levels in windowed mode, drag the slider: the whole picture brightens toward Light and darkens toward Dark live; Cancel restores; OK + Apply keeps it after restart.
+
+- **Branch `orbitalman/main-menu-2` (owner, 2026-10-16):** rebuilt from 85ad57b with only the capture look, scroll bar, capture fade and brightness commits cherry-picked; the macOS full-screen experiments (exclusive / simple / captured-display Full screen, No Border on macOS) were dropped by the owner as over-engineered. macOS display modes are as of 85ad57b. The test counts quoted in the cherry-picked entries come from the old branch; on this branch: 189 `hl2-ui`, 74 `hl2-bevy` tests pass, strict clippy for macOS and for `x86_64-pc-windows-msvc` passes, bounded packaged run and window capture OK. `native_fullscreen_sync` is now compiled for macOS and tests only (it was dead code on Windows and failed strict clippy there).
+
+## Previous session: GameUI widget interaction pass (2026-10-15, branch `orbitalman/main-menu`)
+
+Claude Code desktop, claude-opus-5-5.
+- **Task 1 (dialog button and tab hover): done, with a retail finding.** Push buttons now resolve their look through the shared `Theme::button_style(ButtonState)` (scheme `Button.{,Armed,Depressed}{Text,Bg}Color`, SDK `Button` precedence: pressed overrides hover, disabled never hovers). With the installed desktop scheme the armed colors equal the normal ones and bordered buttons have no armed border, so **retail desktop push buttons show no visible hover**. HL2-RS matches that through `Theme` defaults that mirror the scheme values until the empty `SourceSchemeBase.res` read is fixed; a scheme with armed colors would show them. Tabs never arm in the SDK (`PageTab`), selected or not, so tabs are unchanged (`Theme::tab_style`). Dialog controls follow SDK mouse capture on drag-off (`ButtonTracker::capturing`: stays pressed while off, release over activates, no other control arms); menu items keep cancel-on-drag-off. No keyboard focus state exists for dialog controls. Tests: `desktop_scheme_push_buttons_have_no_visible_hover`, `button_style_resolves_hover_pressed_and_disabled_from_scheme_colors`, `tabs_ignore_hover_and_press_whether_selected_or_not`, `hover_look_draws_through_the_shared_button_path`, `capturing_tracker_keeps_press_through_drag_off_and_activates_on_return`; updated drag-off cases in `options_dialog_buttons_follow_press_cancel_and_release_activation` and the message box test.
+  - Known gap found: `hl2_complete/resource/SourceSchemeBase.res` is 0 bytes, so `Theme` runs on its defaults (docs/gameui.md 6a).
+  - Unverified, needs manual check: hover over OK/Cancel/Apply and tabs looks unchanged; press OK, drag off (stays sunken), drag back and release (closes the dialog); press OK, drag off and release (nothing happens).
+- **Validation (task 1):** 171 `hl2-ui` tests, 71 `hl2-bevy` tests pass; strict clippy and fmt clean; packaged build ran 300 main-menu frames and exited 0 (`scripts/checks/replays.py` (`window`)).
+- **Task 2 (dropdown input layering): done.** Root cause: the open list closed on the press and the dialog's button tracker, not updated while the list owned input, read the next held frame as a new press on the control underneath, so the release activated it (same class: the failed loading dialog dismissed by a press let the release activate a main menu row). Fixed in the existing layer routing: layers above the page (`OptionsDialog::occlude`) and modal dialogs over the menus (`Console::input`) call `ButtonTracker::occlude`; `ButtonTracker::reset` keeps the physical button state. New shared `widgets::PopupList` (hit testing, scrolling, release-phase select/close). While a list is open nothing behind it hovers, arms, shows a tooltip or activates; outside clicks close it without activating anything (retail may pass that click through; not verified). Tests: `open_dropdown_list_gates_input_to_elements_behind_it`, `popup_list_closes_and_selects_only_on_release_of_its_own_gesture`, `occluded_tracker_never_reads_a_consumed_click_as_a_new_press`, `click_that_dismisses_a_modal_layer_does_not_reach_the_menu_below` (each fails without the fix).
+  - Unverified, needs manual check: Options > Mouse, open Auto-aim, hover entries over the Filter mouse box (no highlight or tooltip on it), click Basic (box unchanged), reopen, click Reverse mouse outside the list (list closes, box unchanged).
+- **Validation (task 2):** 175 `hl2-ui`, 71 `hl2-bevy` tests pass; strict clippy and fmt clean; packaged 300-frame main-menu run exit 0.
+- **Task 3 (dropdown header toggle): done.** Clicking the header of an open dropdown closes it on release with no selection change; this is the `PopupHit::Anchor` path of the shared `PopupList` added in task 2, so all close paths (header, entry, outside) act in the release phase and one header click never closes and reopens the list (the page stays occluded for the whole gesture). Deviation: SDK `ComboBox` toggles on press. Test: `dropdown_open_state_toggles_on_header_and_closes_in_the_release_phase` (closed->open, header close incl. slow and quick clicks, entry close, outside close, header press released elsewhere stays open).
+  - Unverified, needs manual check: Options > Video, click Resolution to open, click its header again (list closes and stays closed, value unchanged).
+- **Validation (task 3):** 176 `hl2-ui`, 71 `hl2-bevy` tests pass; strict clippy and fmt clean; packaged 300-frame main-menu run exit 0.
+- **Follow-up fix:** a captured dialog press dragged across a slider was reset by the slider shortcut in `OptionsDialog::track`, so returning to the button did not activate it and the slider armed. The shortcut now applies only when no press is captured; covered in `options_dialog_buttons_follow_press_cancel_and_release_activation`. Owned-install tests (`cargo test --locked -p hl2-ui -- --ignored`): 4 passed.
+- **Runtime scope:** the packaged runs only exercised the main menu for 300 frames; they did not open the Options dialog, so hover, drag-off and dropdown behavior are covered by unit tests only.
+- **Owner decision: visible push button hover (deviation).** When the scheme's armed background equals the normal one (desktop), `Theme::button_style` fills a hovered button with the scheme's `Menu.BgColor` (`160 160 160 64`, the menu/drop-down fill): a slight lightening, text and border unchanged, pressed/disabled unaffected, tabs unchanged. Test: `desktop_scheme_push_buttons_hover_with_the_menu_fill`. 176 `hl2-ui`, 71 `hl2-bevy` tests pass, strict clippy/fmt clean, packaged 300-frame run exit 0 (first launch after rebuild was SIGKILLed with an empty log; rerun passed).
+  - Unverified, needs manual check: hover OK/Cancel/Apply and a message box button; the button should lighten slightly and return on leave; pressing shows the sunken border without the fill; disabled buttons (Brightness while windowed) do not change.
+
+## Previous session: Code cleanup: derive blur from map names and load backgrounds directly from game resources (2026-10-15, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Code cleanup: derive blur from map names and load backgrounds directly from game resources:**
+  - Removed static `BackgroundMapReference` struct, `BACKGROUND_MAP_REFERENCES` hardcoded array, and redundant lookup functions (`background_reference_for_map`, `background_reference_for_category`, `background_reference_for_map_and_category`, `background_image_for_map_and_category`, `background_texture_for_map_and_category`).
+  - Implemented `blur(map: &str) -> &str` returning `map.trim_end_matches(".bsp")`, matching the authentic Source engine convention where console blur textures in `materials/console/` share the exact map name.
+  - Implemented `chapter_background_maps(text: &str) -> Vec<String>` to extract all unique chapter background maps directly from mounted `scripts/chapterbackgrounds.txt` resources.
+  - Updated `GameUiResources::load` to discover background maps and blur VTF textures dynamically from the game's `chapterbackgrounds.txt` files for all expansions, with automatic fallback to initial background maps.
+  - Simplified `Console::expansion_category_for_map` to derive category from `source_assets::vpk::expansion_for_map(blur(map))`.
+  - Simplified `Console::background_texture` and `GameUiResources::background_image` to look up textures directly via `blur(key)` and category aliases.
+  - Updated `Console::draw` to call `self.background_texture(upcoming_map, is_widescreen)`.
+  - Added unit tests: `test_blur_and_chapter_background_maps` in `resources.rs`, and updated `test_console_background_texture_resolution` in `console.rs`.
+- **Validation:** 166 `hl2-ui` tests pass, 70 `hl2-bevy` tests pass; 4 owned-install tests pass (`cargo test -- --ignored`); clippy clean (0 warnings), fmt clean. Packaged release binary `bin/hl2-bevy`.
+
+## Previous session: Submenu subtitle application timed to background map loading completion (2026-10-15, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Submenu subtitle application timed to background map loading completion:**
+  - Extended `BackgroundTransitionState` in `hl2-ui::gameui::loading` to track `target_category` and `displayed_category`.
+  - Derived `Console::current_title` in `hl2-ui::console` strictly from `BackgroundTransitionState::displayed_category`, preserving the previous subtitle during `Starting` and `Loading` stages.
+  - Applied the target subtitle upon reaching `Finished` or `Failed`, ensuring failures do not leave subtitles stuck on previous expansions.
+  - Guarded completion and failure reporting with `level_loaded_for_map` and `background_load_failed_for_map` so rapid switching ignores stale load events and honors the latest selection.
+  - Updated `hl2-bevy::campaign::step_map_load` to route background map results through map-validated completion methods.
+  - Added unit tests: `test_subtitle_applied_after_background_loading_finishes_or_fails` in `console.rs` and `test_background_transition_stale_completion_ignored_and_latest_wins` in `loading.rs`.
+- **Validation:** 163 `hl2-ui` tests pass, 70 `hl2-bevy` tests pass; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Submenu subtitle placement and alignment with menu button column (2026-10-15, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Submenu subtitle placement & alignment with menu button column:**
+  - Resolved root cause of subtitles shifted across the screen: in 2004 HL2 ClientScheme, `Main.Title2.X` was 291 and `Main.Title2.Y` was 207 (for the numeral '2' logo suffix). In the 20th Anniversary combined launcher (`hl2_complete/resource/clientscheme.res`), `Main.Title2.X` was set to 76 and `Main.Title2.Y` to 172, matching `Main.Menu.X = 76` and `Main.Title1.X = 76`.
+  - Updated `MenuLayout::apply_client_scheme` in `hl2-ui::gameui::menu` to normalize legacy logo-suffix coordinates (`title2_x >= 200.0` or diverging from `menu_x`) to `self.menu_x` (and `title2_y` to `DEFAULT_TITLE2_Y = 172.0`).
+  - Updated `Console::new` in `hl2-ui::console` to load schemes using `Reader::new(vfs)` so the `hl2_complete` anniversary scheme overlay is prioritized over base `hl2`.
+  - Added unit test `test_menu_title_and_subtitle_layout_alignment_across_scales_and_resolutions` in `menu.rs` verifying subtitle horizontal alignment (`title2.x == menu.x`) across 1.0x (x=76), 2.0x (x=152), and 1280x800 resolution (x=126), and verifying legacy scheme normalization.
+- **Validation:** 161 `hl2-ui` tests pass, 70 `hl2-bevy` tests pass; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Background loading plaque styling routed through shared dialog frame (2026-10-15, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Background loading plaque styling routed through shared dialog frame:**
+  - Added `bg_color: Option<Color>` to `FrameSpec` with builder method `with_bg_color`.
+  - Updated `Painter::frame_spec` to use `spec.bg_color.unwrap_or(self.theme.frame_bg)` and gate title text drawing on `!spec.title.is_empty()`.
+  - Routed `LoadingDialog::draw_background_plaque` through `Painter::frame_spec(FrameSpec::new(BACKGROUND_LOADING_SIZE, "").without_close().with_bg_color(Color::new(0.0, 0.0, 0.0, 0.65)), None)`, eliminating hardcoded square fill and 3D raised border.
+  - Audited all dialog-like surfaces across GameUI:
+    - `MessageBox` (Quit, ReturnToMainMenu, KeyDefaults): uses `p.frame_with_close` -> shared `FrameSpec` (rounded corners, no outer 3D border).
+    - `OptionsDialog` (main dialog and subdialogs Gamma/Credits): uses `p.frame_with_close` / `sp.frame_with_close` -> shared `FrameSpec` (rounded corners, no outer 3D border).
+    - `LoadingDialog` (gameplay map loading): uses `p.frame_with_close` -> shared `FrameSpec` (rounded corners, no outer 3D border).
+    - Developer console (`Console` in `console.rs`): confirmed developer tool window using custom retained border lines rather than GameUI dialog frame.
+  - Added unit test `test_background_loading_plaque_styled_with_shared_frame_rounded_corners_no_3d_border` in `loading.rs` verifying 4 corner polygon quads (rounded corners), translucent dark fill color, and zero outer 3D raised border rectangles.
+  - Added unit test `test_gameplay_loading_dialog_uses_shared_frame_rounded_corners_no_3d_border` asserting gameplay loading dialog routes through shared frame with rounded corners and no outer 3D border.
+  - Updated existing tests in `loading.rs` and `console.rs` to reflect rounded corner frame geometry.
+  - Documented findings in `AGENTS.md`.
+- **Validation:** 160 `hl2-ui` tests pass, 70 `hl2-bevy` tests pass; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Unified pointer coordinate conversion and window client alignment (2026-10-15, branch `orbitalman/main-menu`)
++
++Antigravity, Gemini 3.8 Flash model family.
++- **Unified pointer coordinate conversion & window client alignment:** Extracted pointer-to-canvas coordinate mapping into a pure function `hl2_ui::viewport::pointer_to_canvas`, verifying scale factors 1.0 and 2.0 (Retina), inner client coordinate mapping directly, outer coordinates with macOS title-bar delta subtraction, and unified behavior across windowed, borderless windowed, and fullscreen modes.
++- Routed `hl2-bevy::ui_system::cursor_to_canvas` through `pointer_to_canvas`.
++- Documented 3rd-party dependency rule (no upstream source modification) and cursor conversion invariants in `HL2RS/AGENTS.md` and root `AGENTS.md`.
++- Unit tests added: `pointer_to_canvas_handles_scale_factors_and_outer_inner_delta` in `hl2-ui` and `cursor_to_canvas_consistent_across_window_modes_and_scale` in `hl2-bevy`.
++- **Validation:** 158 `hl2-ui` tests pass, 70 `hl2-bevy` tests pass; clippy clean (0 warnings), fmt clean.
++
+ ## Previous session: Background map transition state sequence and dimming effect (2026-10-15, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Background map transition state sequence & dimming effect:** Modeled background map loading as an explicit state sequence and hardened failure cleanup:
+  - In `hl2-ui::gameui::loading`, added `BackgroundTransitionState` (`Idle`, `Starting { map }`, `Loading { map, elapsed }`, `Finished { map }`, `Failed { map, reason }`) with methods `start`, `update`, `finish`, `fail`, `reset`, `is_active`, `is_terminal`, `is_failed`, `is_finished`, `target_map`, and `overlay_alpha`.
+  - In `hl2-ui::gameui::loading`, embedded `transition: BackgroundTransitionState` on `LoadingDialog`. In `new_background`, initializes transition to `Starting { map }`. In `update`, advances transition elapsed time. In `set_error`, transitions to `Failed { reason }`. In `set_complete`, transitions to `Finished`.
+  - In `hl2-ui::gameui::loading`, updated `draw_background_overlay` and `draw` (corner plaque) to only emit quads while `transition.is_active()` is true.
+  - Added unit tests: `test_background_transition_success_sequence`, `test_background_transition_failure_sequence`, and `test_background_loading_dialog_failure_ends_transition_and_suppresses_overlay`.
+  - In `hl2-ui::console`, added `background_transition: BackgroundTransitionState` to `Console`. Added `Console::background_load_failed` and updated `Console::loading_failed` to transition to `Failed` and dismiss the dialog and plaque. Updated `Console::level_loaded` and `Console::loading_complete` to mark active transitions as `Finished`. Added `Console::background_transition_state`.
+  - Added unit tests: `background_loading_state_sequence_success`, `background_load_failed_ends_transition_and_cleans_up`, and `generic_loading_failed_on_background_cleans_up`.
+  - In `hl2-bevy::campaign`, updated `step_map_load` on background load failure to invoke `ui.source.background_load_failed(&error.to_string())`, cleanly registering failure in the transition state machine while keeping the menu intact.
+  - Root cause analysis: in `hl2-bevy`, HUD material quads do not sample the active 3D framebuffer (no intermediate render target or blur pass). True live scene blur in Source requires multi-pass offscreen render targets (`BlurFilterX/Y`), which is part of the 3D pipeline rather than 2D VGUI. Per guidance, the contained effect retains the authentic dimming overlay and non-blocking plaque while modeling the transition as an explicit, robust state sequence.
+  - Documented findings in `AGENTS.md`.
+- **Validation:** 157 `hl2-ui` tests pass, all workspace unit tests pass; all owned-install tests pass; headless Bevy app test passes in 2.08s; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Authentic episode and lost coast submenu subtitle fonts and glyph decorations (2026-10-15, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Authentic expansion submenu subtitle fonts and glyph decorations:** Fixed font selection and subtitle decorations across Episode One, Episode Two, and Lost Coast submenus:
+  - In `hl2-ui::gameui::resources`, added `normalize_subtitle_decoration` to map dash decorations (`–`, `—`, `---`, `--`) to the authentic Source GameUI character representations (`== episode one==`, `== episode two ==`, `lost coasT`). Updated `parse_gameinfo_title` to route `title2` through `normalize_subtitle_decoration`.
+  - In `hl2-ui::gameui::resources`, updated `category_title_fallback` to return authentic two-line strings with `== episode one==`, `== episode two ==`, and `lost coasT`. Added unit test `test_normalize_subtitle_decoration` and updated category title tests. Added `lostcoast` title assertion in `game_ui_resources_loads_from_installed_game`.
+  - In `hl2-ui::console`, updated `Console` to load `HL2EP2.ttf` (from `resource/HL2EP2.ttf` / `hl2/resource/hl2ep2.ttf` or fallback `HALFLIFE2.ttf`) as `title_font`, and load `lostcoast.ttf` (from `lostcoast/resource/lostcoast.ttf`) as `lostcoast_title_font`.
+  - In `hl2-ui::console`, added `Console::title_font_can_render(&self, line: &str) -> bool` to check whether the title font has glyph coverage for all non-whitespace characters in a string.
+  - In `hl2-ui::console`, updated `Console::draw` to render subtitle lines using `lostcoast_title_font` (for Lost Coast) or `title_font` (for Episode One / Episode Two) at `geometry.title_tall` with `ClientTitleFont` color `rgba(255, 255, 255, 200)` and `TextOutline::DEFAULT`, falling back to `menu_font` at `geometry.title_tall * 0.55` only if a title font lacks glyphs.
+  - In `HL2EP2.ttf` (and `hl2ep1.ttf`), the `'='` character maps to GID 17: a wide horizontal bar decoration rule (not hyphens `---`).
+  - Added regression test `test_subtitle_font_selection_and_glyph_decoration` and updated existing title tests.
+  - In `AGENTS.md`, documented authentic subtitle fonts and glyph decorations.
+- **Validation:** 151 `hl2-ui` tests pass, all workspace unit tests pass; all owned-install tests pass; headless Bevy app test passes in 2.03s; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Rounded dialog frame corners and overflow clipping (2026-10-15, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Rounded dialog corners and outer 3D border removal:** Implemented authentic Source GameUI rounded frame borders and overflow clipping across all dialogs:
+  - In `hl2-ui::gameui::widgets`, added `FRAME_CORNER_RADIUS: f32 = 5.0` (derived from Source SDK `Panel::GetCornerTextureSize` and `sourcescheme.res` `FrameBorder` `backgroundtype 2`).
+  - Added `FrameStyle` with `FrameStyle::DEFAULT` (`rounded: true`, `clip_overflow: true`, `outer_3d_border: false`, `corner_radius: 5.0`). Added geometric hit-testing via `contains_point` and child layout clipping via `clip_rect`.
+  - Updated `FrameSpec` to include `style: FrameStyle`, with `with_style` builder and overflow-clipped `close_rect()`.
+  - Added `Painter::rounded_fill(&self, rect: Rect, color: Color, radius: f32)` decomposing the rounded frame into 3 rectangular quads (top, middle, bottom) and 4 corner fan quads via `Canvas::polygon` with zero seams and zero external texture requirements.
+  - Added `Painter::frame_spec(&self, spec: FrameSpec, close: Option<ButtonState>)` and updated `Painter::frame` / `Painter::frame_with_close` to route through it. Removed outer 3D raised border from dialog frames while leaving all non-dialog widgets (push buttons, close button, sliders, tabs, text inputs, checkboxes) with their authentic 3D borders.
+  - Added unit test `dialog_frame_style_rounded_corners_and_overflow_clipping` verifying rounding, overflow clipping, outer 3D border removal, hit testing, and non-dialog widget border preservation.
+  - In `hl2-ui::gameui::options`, updated subdialog credits frame quad lookups in tests to match the rounded frame decomposition.
+  - In `AGENTS.md`, documented dialog frame rounded corners and overflow clipping.
+- **Validation:** 149 `hl2-ui` tests pass, all workspace unit tests pass; all owned-install tests pass; headless Bevy app test passes in 2.06s; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Menu title and subtitle letter contour outline (2026-10-14, branch `orbitalman/menu-button-text-border`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Menu title and subtitle letter contour outline:** Extended the glyph edge contour outline from menu buttons to the Half-Life 2 game title and expansion/episode subtitles across main and expansion submenus:
+  - In `hl2-ui::hud`, added `TextOutline::DEFAULT` (`Color::new(0.0, 0.0, 0.0, 0.45)`, thickness `1.0`). In `FontFace::draw_baseline_outlined`, guarded foreground quad emission with `color.a > 0.0` so outline-only passes emit no zero-alpha foreground quads.
+  - In `hl2-ui::console`, updated `Console::draw` to render menu titles (`HALF-LIFE 2` / `HALF-LIFE'`) and expansion subtitles (`title2`, e.g. `--- Episode One ---`, `--- Episode Two ---`, `--- Lost Coast ---` across `hl2`, `hl2ep1` / `episodic`, `hl2ep2` / `ep2`, `hl2lc` / `lostcoast`) with `TextOutline::DEFAULT`, for both the `title_face` font path and fallback `menu_font` path. For character-by-character logo rendering (`title_face` line 0), implemented two-pass layering (Pass 1 emits all 8-directional outline quads for all glyphs; Pass 2 emits all foreground quads) to ensure no character outline quad ever overlaps adjacent foreground glyphs. Added unit test `menu_titles_and_subtitles_draw_letters_with_border_along_edge_path`.
+  - In `HL2RS/AGENTS.md`, updated the Menu Button & Title Letter Outline convention to document title and subtitle letter contour outlines, two-pass character logo layering, and category coverage.
+- **Validation:** 148 `hl2-ui` tests, all workspace unit tests pass; all owned-install tests pass; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Menu button letter outline along glyph contours (2026-10-14, branch `orbitalman/menu-button-text-border`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Menu button letter outline along glyph contours:** Implemented thin semi-transparent black border along the glyph paths of menu button labels, ensuring crisp text contrast on light/white/bright backgrounds without drawing bounding boxes, panels, or fills around button clickable areas:
+  - In `hl2-ui::hud`, added `TextOutline` struct (`color: Color`, `thickness: f32`, `is_visible()`) and implemented `FontFace::draw_baseline_outlined` and `FontFace::draw_cell_outlined` to render an outline along glyph contours. Glyphs are rasterized and looked up from the cache once, then emitted as 8-directional offset textured quads (`[-1, 0, 1]` offsets scaled by `thickness`) with `outline.color` before emitting the foreground glyphs. Added unit test `font_draw_baseline_and_cell_outlined_emits_glyph_edge_contours`.
+  - In `hl2-ui::console`, added `draw_cell_text_outlined` helper using `TextOutline`. In `Console::draw`, updated menu button rendering (`Mode::MainMenu` and `Mode::Pause`) to draw non-spacer entry labels with `draw_cell_text_outlined` using a thin semi-transparent black outline (`TextOutline::new(border_color, 1.0)`, where `border_color` is `Color::new(0.0, 0.0, 0.0, 0.45)` default / `0.65` armed / `0.25` disabled). No rectangular bounding boxes, fills, or panels are drawn on the button clickable area. When pressed, the letter text and its contour outline shift together by `(1.0, 1.0)`. Added unit test `menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill`.
+  - In `HL2RS/AGENTS.md`, documented the menu button letter contour outline conventions.
+- **Validation:** 147 `hl2-ui` tests pass, all workspace unit tests pass; all owned-install tests pass; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Background loading blur overlay (2026-10-14, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Background loading blur overlay:** Differentiated the background map loading overlay from gameplay map loading:
+  - In `hl2-ui::canvas`, added `blur: bool` field to `Quad` and implemented `Canvas::blur(x, y, w, h, color)` to queue a blur effect quad with an optional color tint.
+  - In `hl2-ui::gameui::loading`, implemented `LoadingDialog::draw_background_overlay(&self, canvas: &Canvas)` emitting a full-screen `Quad::blur` with `Color::new(0.0, 0.0, 0.0, 0.45)` when `is_background()` is true. For gameplay map loading (`LoadingKind::Gameplay`), `draw_background_overlay` is a strict no-op, preserving the isolated modal progress dialog without blur. Added unit tests `background_loading_overlay_emits_blur_quad` and `gameplay_loading_overlay_does_not_emit_blur_quad`.
+  - In `hl2-ui::console`, exposed `Console::is_background_loading(&self) -> bool` reporting active background loads. In `Console::draw`, replaced the plain rectangle backdrop with `loading.draw_background_overlay(&self.canvas)` drawn behind the main menu title and buttons. Added unit tests `background_loading_draw_emits_blur_overlay_behind_menu_and_corner_plaque`, `gameplay_loading_draw_does_not_emit_blur_overlay`, and `background_loading_completion_dismisses_blur_overlay`.
+  - In `hl2-bevy::canvas_renderer`, added `blur: bool` to `HudMaterial` and `HudMaterialKey`. When processing a `quad.blur` quad, `Hud::material` generates and caches a 32x32 Gaussian-blurred diffusion texture uploaded with linear filtering to soften and diffuse the underlying scene pixels. Added unit test `blur_quad_mesh_geometry`.
+  - In `HL2RS/AGENTS.md`, updated documentation on background vs gameplay loading UI/UX to specify the full-canvas blur overlay.
+- **Validation:** 145 `hl2-ui` tests, 70 `hl2-bevy` tests pass; all owned-install tests pass; clippy clean (0 warnings), fmt clean.
+
+## Previous session: Episode Two background map and background loading UI/UX (2026-10-14, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family.
+- **Episode Two submenu background map update:** Diagnosed root cause of `ep2_background01` failing to load: in retail 20th Anniversary `ep2/ep2_pak_dir.vpk`, `scripts/HudLayout.res` contains an unquoted identifier merged into a quoted literal (`"ypos" "426"HudPoisonDamageIndicator` in `HudHealth [$DECK]`), shifting token pairs so that `}` appears where a value was expected. Implemented graceful block termination on `}` as value in `source_assets::keyvalues::parse_resource`, adhering to Source SDK `KeyValues.cpp:2490` (`got } in key`). Added unit test `parse_resource_tolerates_trailing_key_before_closing_brace` and owned test `parse_ep2_hudlayout`.
+- **Background loading UI/UX:** Differentiated background map loading from gameplay map loading:
+  - In `hl2-ui::gameui::loading`, introduced `LoadingKind` (`Gameplay` vs `Background`) and `BACKGROUND_LOADING_SIZE` (130 x 36) with `background_plaque_geometry` (24px scaled margin from canvas bottom-right). Background mode renders a non-blocking corner plaque with translucent dark fill (`rgba(0, 0, 0, 0.65)`), raised bevel border, and centered localized `#GameUI_Loading` ("LOADING..."), eliminating the modal progress bar for background levels. Added unit test `background_loading_plaque_geometry_and_drawing`.
+  - In `hl2-ui::console`, added `start_background_loading`, gated `modal_dialog_open()` and `modal_bounds()` on `!loading.is_background()`, preserving menu button rollover sounds, hover armed states, and clickability during background loading. Added a softened backdrop scrim (`rgba(0, 0, 0, 0.45)`) rendered across the canvas during background map loading. Updated `SwitchExpansion`, `SwitchCategory`, and `map_background` to dispatch `start_background_loading`. Updated unit test `submenu_entry_switches_background_map_and_persists`.
+  - In `hl2-bevy::campaign` and `hl2-bevy::main`, wired background requests to `start_background_loading`. Added headless Bevy app test `campaign::tests::headless_bevy_app_ep2_submenu_entry_switches_background_map` verifying submenu entry into Episode Two, background map state transition, asynchronous loading, and active 3D scene entity replacement to `ep2_background01`.
+- **Validation:** 140 `hl2-ui` tests, 73 `hl2-bevy` tests, 94 `source-assets` tests pass, owned-install tests pass (including `ep2_background01`), clippy clean (0 warnings), fmt clean.
+
+## Previous session: GameUI bug-fix pass (2026-10-13, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family. 5-task bug-fix pass underway:
+- **Task 1 (Rollover sound only for menu buttons): Complete.** Restricted rollover sound (`ui/buttonrollover.wav`) exclusively to menu and submenu buttons (`WidgetKind::MenuButton`). Added `WidgetKind` in `hl2-ui::gameui::widgets` with `has_rollover_sound(self) -> bool` returning true strictly for `MenuButton`. Mapped dialog controls (`Button`/`UrlButton` -> `DialogButton`, `RadioButton`, `ComboBox` -> `Dropdown`, `TextEntry` -> `TextInput`) in `hl2-ui::gameui::layout` and `hl2-ui::gameui::options::Target`. Removed rollover hover sounds from `MessageBox::input` and `combo_input`. Maintained button release click sounds (`ui/buttonclickrelease.wav`) across all dialog controls. Added unit test `rollover_sound_eligibility_only_for_menu_buttons` and updated sound interaction tests. 133 `hl2-ui` tests pass, workspace tests pass, clippy clean, 30-frame headless Bevy run clean.
+- **Task 2 (Credits dialog sizing): Complete.** Removed the scroll view from 3rd-party technology credits dialogs (`OptionsSubAudioThirdPartyDlg` / `OptionsSubVideoThirdPartyDlg`) and sized the dialog height flexibly to wrapped content layout (`sub_frame_size(&self, sub: Sub, measure_w)`). Ensured nothing overlaps or exceeds the dialog bounds (all labels, images, and bottom Close button strictly contained within bounds). Added `credits_fits_window(&self, sub: Sub, canvas: Vec2, measure_w)` and window fit check in `OptionsDialog::input` that logs a non-spamming report to console history (`self.log`) when content cannot fit the window at small display resolutions instead of reintroducing scrolling. Added unit tests `credits_subdialog_sizing_and_no_scrolling` and `credits_dialog_reports_when_exceeding_window_at_small_resolutions`. 135 `hl2-ui` tests pass, workspace tests pass, clippy clean, 30-frame headless Bevy run clean.
+- **Task 3 (Submenu title encoding): Complete.** Fixed encoding/decoding mismatch and title alias resolution at the shared boundaries (`source_assets::keyvalues::decode_text` and `Reader::read_text`). `decode_text` now handles UTF-8 with BOM, UTF-16 with BOM, UTF-16 LE without BOM heuristic, and tolerant Windows-1252 / ISO-8859-1 fallback for 8-bit characters (`\x80..=\xFF`, e.g. en-dash `\x96`, copyright `\xa9`), stripping BOM markers so tokens never contain `\u{feff}`. Replaced `String::from_utf8_lossy` in `Reader::read_text` with `decode_text`. Normalized expansion category aliases (`hl2ep1` -> `episodic`, `hl2ep2` -> `ep2`, `hl2lc` -> `lostcoast`) in `category_title_fallback`, `fallback_category_titles`, `background_map_for`, and `Console::category_title`. Updated `Console::draw` to render line 0 (`HALF-LIFE'`) with `self.title_font` and subtitle lines (`title2`) with `self.menu_font` and `self.menu_metrics` (and `menu_font` fallback when title font is missing), preventing lowercase Latin text from rendering as Half-Life symbol icons. Added regression tests in `source-assets` and `hl2-ui` covering UTF-8 with BOM, UTF-16 with/without BOM, Windows-1252 en-dash `\x96`, and expansion aliases. 136 `hl2-ui` tests, 93 `source-assets` tests, 3 owned install tests pass, clippy clean, 30-frame headless Bevy run clean.
+- **Task 4 (Hardcoded UI strings audit): Complete.** Replaced all hardcoded user-visible strings across UI crates with localized game-resource lookups. Scanned all 29 retail localization files and verified that escape sequences (`\n`, `\t`, `\"`, `\\`) exist across 42 tokens in `gameui_english.txt`, 12 in `ep2_english.txt`, 10 in `valve_english.txt`, 9 in `episodic_english.txt`, 9 in `hl2_english.txt`, and 9 in `lostcoast_english.txt`; preserved escape handling strictly at the parser boundary (`Localization::add_resource` and `Localization::insert`) and removed redundant unescape operations from runtime non-token lookups. Added centralized `FALLBACK_STRINGS` table with authentic English constants in `hl2-ui::gameui::localize` and `fallback_lookup` helper wired into `Localization::lookup` for missing-asset fallback. Replaced hardcoded `"Console"` title in `Console::draw` with `self.gameui.localization.text("#GameUI_Console")`. Localized loading dialog stages with `loc.text(stage)`, template with `loc.text("#GameUI_LoadingFilename")`, and title with `loc.text("#GameUI_Loading")`. Updated `category_title_fallback` to use `loc.text("#GameUI_...")`. In `hl2-ui::hud`, added `health_label`, `suit_label`, `ammo_label`, `alt_label` fields to `WeaponHud`, populated during `WeaponHud::load` from mounted VFS localization resources (`resource/valve_english.txt`, `resource/gameui_english.txt`, `resource/hl2_english.txt`) via `Localization`, falling back to `FALLBACK_STRINGS`, and replaced literal `"HEALTH"`, `"SUIT"`, `"AMMO"`, `"ALT"` in `draw_status` with localized fields. Added unit tests `central_fallback_table_resolves_standard_tokens_when_resources_absent`, `loaded_game_resources_take_precedence_over_central_fallbacks`, and audit test `audit_no_hardcoded_user_visible_strings_in_ui_code_outside_fallback_constants`. 139 `hl2-ui` tests, 3 owned install tests pass, clippy clean, 30-frame headless Bevy run clean.
+- **Task 5 (Background map on submenu entry): Complete.** Fixed background map updating when entering expansion submenus (Half-Life 2, Episode One, Episode Two, Lost Coast) and verified end-to-end with headless Bevy app tests. Diagnosed two root causes: (1) `Vfs::read` previously iterated all loose search paths before checking VPK archives, causing loose base `hl2/scripts/chapterbackgrounds.txt` to shadow expansion VPKs (`ep1_pak_dir.vpk`) during resource load; refactored `Vfs` into layered `SearchPath { root, archives }` so each mount layer resolves loose files and archives together in authentic Source order. (2) Lost Coast chapter 1 background map in retail is `lostcoast/maps/background01.bsp`, which collided with base `hl2/maps/background01.bsp`; canonicalized the Lost Coast background map key to `"lostcoast_background01"`, mapped it in `expansion_for_map` to `Some("lostcoast")`, and translated it to disk map `"background01"` in `assets::load_with_canvas`. Wired `Console::activate_menu` on `MenuOutcome::SwitchExpansion(game)` to query `background_map_for(&game)`, emit `Effect::MainMenuMap`, and persist `config.gameplay.background_map`. Preserved background map on Back or Escape. Added headless Bevy app tests `campaign::tests::headless_bevy_app_submenu_entry_switches_background_map_and_scene` (verifying submenu entry, state transition, async background load, and active scene entity swap across episodes and Lost Coast) and `campaign::tests::headless_bevy_app_background_map_failure_logs_warning_and_does_not_crash` (verifying failure logging to console and campaign failures without crashing or closing menu). 141 `hl2-ui` tests, 72 `hl2-bevy` tests, 93 `source-assets` tests pass, owned-install tests pass, clippy clean, fmt clean.
+- **GameUI bug-fix pass (Tasks 1-5): All 5 tasks complete and verified.**
+
+## Previous session: GameUI bug-fix and gap-filling pass (2026-10-13, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family. 9-task bug-fix and gap-filling pass underway:
+- **Task 1 (Literal \n in localized text): Complete.** Added `unescape` in `hl2-ui::gameui::localize` supporting `\n`, `\r`, `\t`, `\"`, `\\` while preserving non-escape backslashes intact. Integrated into `Localization::add_resource`, `insert`, and `localize`. Updated `Painter::text_width` and `Painter::text` to split multi-line strings across newlines and step vertically by `FONT_TALL * scale`. Updated `MessageBox::layout` to measure multi-line widths and expand height dynamically for multiple lines. Added unit tests `unescape_handles_linebreaks_tabs_quotes_and_preserves_literal_backslashes`, `localized_tokens_unescape_line_breaks`, and `return_to_main_menu_multiline_layout`. 118 `hl2-ui` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless Bevy run clean.
+- **Task 2 (Episode submenu titles): Complete.** Resolved two-line titles for Episode One and Episode Two submenus («Half-Life 2» on first line, «--- Episode One ---» / «--- Episode Two ---» on second line). Added `title2_x`, `title2_y` to `MenuLayout` (defaults 76., 172. matching `ClientScheme.res` `Main.Title2.X`/`Main.Title2.Y`) and `title2: Vec2` to `MenuGeometry`. Added `parse_gameinfo_title`, `category_title_fallback`, and `fallback_category_titles` in `hl2-ui::gameui::resources`. Populated `GameUiResources::category_titles` during resource load, prioritizing installed `gameinfo.txt` titles. Added `category_titles` to `Console` and updated `Console::draw` to render multi-line titles using `geometry.title` and `geometry.title2`. Added unit tests `parse_gameinfo_title_handles_single_and_two_line_titles`, `category_titles_fallback_provides_two_line_episode_titles`, and `episode_submenus_show_two_line_titles`. 121 `hl2-ui` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless Bevy run clean.
+- **Task 3 (Check box checkmark): Complete.** Replaced the filled square placeholder in `Painter::check_box` with `Painter::check_mark` in `hl2-ui::gameui::widgets`. Draws an authentic 2-pixel-thick checkmark using simple UI shapes (7 vertical column rectangles forming a descending short left stroke from dx=3, dy=5 to apex dx=5, dy=7..8, and an ascending long right stroke to dx=9, dy=3). Checkmark shifts by +1px on press when enabled, scales seamlessly across all DPI scales, and renders with `theme.check` (white) when enabled or `theme.text_disabled` when disabled. Added unit test `check_box_checked_draws_white_checkmark_not_plain_square`. 122 `hl2-ui` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless Bevy run clean. Unverified on physical display: visual appearance needs manual check at 1280x800 and native Retina.
+- **Task 4 (High-DPI / scale-factor consistency): Complete.** Derived menu/submenu button vertical spacing from 480p scale basis (`BASE_MENU_BUTTON_SPACING = 12.`), preserving exactly 20.0 px at 1280x800 while scaling proportionally on High-DPI/Retina screens. Added `Painter::scale_for_window` and dynamic centering/scaling for map loading dialog (`LoadingDialog::layout_geometry`). Added unit tests `scale_computation_for_scale_factors_and_window_sizes`, `native_menu_uses_480_coordinate_scaling_with_proportional_spacing`, and `loading_dialog_scaling_and_layout_geometry`. 124 `hl2-ui` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless Bevy run clean. Unverified on physical display: manual check needed at 1280x800 and native Retina.
+- **Task 5 (Wrapped multi-line labels, dialog layouts): Complete.** Added shared multi-line label support `multiline_label` and greedy word wrapping with character breaking for words exceeding max width. Fixed map loading dialog layout: wrapped status/warning label to 340px width and dynamically expanded dialog height (`layout_geometry_sized`) so long warnings stay completely inside the frame without overlapping the progress bar. Fixed 3rd-party technology credits dialog layout (`OptionsSubAudioThirdPartyDlg` / `OptionsSubVideoThirdPartyDlg`): eliminated label overlaps by measuring and stacking sections sequentially (`measure_credits_height`, `draw_credits_subdialog`, `CreditItem`), clipping content strictly to `view_rect` (above bottom Close button), and adding vertical scrollbar and wheel scrolling when content exceeds available height (`credits_scroll`, `credits_input`). Added unit tests `wrap_breaks_on_measured_width`, `loading_dialog_multiline_status_wraps_and_expands_bounds`, and `credits_subdialog_layout_prevents_overlap_and_scrolls`. 126 `hl2-ui` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless Bevy run clean. Unverified on physical display: manual check needed at 1280x800 and native Retina.
+- **Task 6 (Input blocking behind dialogs): Complete.** Added shared modal dialog occlusion and input blocking in `hl2-ui::console` (`modal_dialog_open`, `modal_bounds`, `is_occluded`, `reset_menu_interaction`, `clear_menu_hover`). Early-exited `menu_input` while modal dialogs are active to suppress rollover sounds, button presses, clicks, and activations from passing through. Gated button `armed` state in `draw` to suppress hover rendering behind dialogs. Preserved keyboard selection upon dialog dismissal. Added unit test `modal_dialog_blocks_underlying_menu_hover_sounds_and_clicks`. 127 `hl2-ui` tests pass, 3 owned-install tests pass, clippy clean, 66 Bevy host tests pass, 30-frame headless Bevy run clean.
+- **Task 7 (Episode map loading failures - UTF-8 tolerant decoding): Complete.** Replaced strict UTF-8 decoding with lossy UTF-8 in `scenes/scenes.image` cache parsing (`source_assets::scenes::Cache::parse`), tolerantly handling raw non-UTF-8 bytes in scene string tables without loosening UTF-8 validation elsewhere. Added `MapLoaded` completion marker struct, `Campaign::loaded_map`, `Campaign::is_gameplay_ready()`, and `Campaign::last_event` in `hl2-bevy::campaign` to observe gameplay-ready transitions. Handled background map load failures tolerantly (logs warning, clears loading dialog, and continues running without fatal error modal). Guarded active gameplay map loading from being interrupted or overwritten by background map requests. Added unit tests `scene_cache_tolerates_non_utf8_strings`, `background_map_setting_does_not_interrupt_gameplay_map_load`, and console command checks. Enhanced owned-install test `episode_maps_load_successfully` asserting that both Episode One (`ep1_citadel_00`) and Episode Two (`ep2_outland_01`) load completely into active gameplay-ready state. 92 `source-assets` tests, 127 `hl2-ui` tests, 67 `hl2-bevy` tests, 3 owned-install tests pass, clippy clean, 30-frame headless runs on `ep1_citadel_00` and `ep2_outland_01` clean.
+- **Task 8 (Background map on submenu entry): Complete.** Added data-driven table `INITIAL_BACKGROUND_MAPS` in `hl2-ui::gameui::resources` mapping verified initial chapter 1 background maps (`hl2` -> `background01`, `episodic` -> `ep1_background01`, `ep2` -> `ep2_background01`, `lostcoast` -> `background01`, `main` -> `background01`). Added `fallback_background_maps()`, `GameUiResources::background_maps: BTreeMap<String, String>`, and `GameUiResources::background_map_for(&self, category: &str) -> Option<&str>`. Populated `background_maps` from mounted expansion search paths in `GameUiResources::load`. Added `MenuOutcome::SwitchExpansion(String)` and `MenuOutcome::SwitchCategory(String)` to `MenuOutcome` in `hl2-ui::gameui::menu`. In `hl2-ui::console`, retained current submenu category when loading background levels (`!background` gates `self.main_menu.back(...)`), added `loaded_map` / `pending_map` tracking, and updated `activate_menu` to switch background maps on submenu entry via `Effect::MainMenuMap`, updating and persisting `config.gameplay.background_map` without redundant reloads if the target background map is already active. Preserved background map on Back or Escape. Added unit tests `initial_background_maps_table_and_fallbacks`, `submenu_entry_switches_background_map_and_persists`, and `submenu_back_and_escape_preserves_background_map`. 130 `hl2-ui` tests, 67 `hl2-bevy` tests, 3 owned-install tests pass, clippy clean, 30-frame headless runs on `ep1_background01` and `ep2_background01` clean.
+- **Task 9 (Half-Life 2: Lost Coast and the Extras submenu): Complete.** Added Lost Coast and Extras submenu support in `hl2-ui::gameui::menu` and `hl2-ui::gameui::resources`. The main menu's EXTRAS button is enabled, opening an Extras submenu with `HALF-LIFE 2: LOST COAST` (`SwitchExpansion lostcoast`), a disabled `WORKSHOP` placeholder (`openworkshopdialog` parsed to `MenuCommand::Workshop` logging placeholder activation), spacer, and `BACK` (`SwitchCategory main`). The Lost Coast entry opens the Lost Coast game submenu adhering to the standard 6-row game submenu structure (New Game, Load Game placeholder, Achievements placeholder, spacer, Options, Back) with data-driven initial map `d2_lostcoast`, background map `background01`, and authentic title. Missing content is handled gracefully via modal `LoadingDialog` and Enter/Escape recovery without crashing. Updated `normalize_menu_categories` and `fallback_game_menu` across installed and fallback paths. Added unit tests `extras_submenu_and_lostcoast_game_submenu`, `extras_keyboard_selection_skips_workshop_placeholder_and_spacer`, and `lostcoast_navigation_and_missing_content_error_recovery`. 133 `hl2-ui` tests, 67 `hl2-bevy` tests, 92 `source-assets` tests pass, owned-install tests pass (including `d2_lostcoast`), clippy clean, 30-frame headless runs on `d2_lostcoast` clean.
+
+## Previous session: GameUI follow-up pass (2026-10-13, branch `orbitalman/main-menu`)
+
+Antigravity, Gemini 3.8 Flash model family. 10-task follow-up pass underway:
+- **Task 1 (Crate restructuring and renames): Complete.** Renamed `movement.rs` -> `simulation.rs`, `hud.rs` -> `canvas_renderer.rs`, `console.rs` -> `ui_host.rs`, and `ui.rs` -> `ui_system.rs` in `hl2-bevy`. Verified `hl2-ui` / `hl2-bevy` crate boundaries and dependencies (all UI logic, layouts, models and viewport geometry in `hl2-ui`, Bevy host systems and renderers in `hl2-bevy`). Verified by 90 unit tests in `hl2-ui`, 64 unit tests in `hl2-bevy`, strict clippy (`-D warnings`), and 30-frame headless Bevy runtime test. No functional regressions.
+- **Task 2 (Quick visual fixes): Complete.** 3rd party credits sub-dialogs set to 100% opacity (`frame_bg.a = 1.0`). Main menu / submenu button spacing doubled (`MENU_BUTTON_SPACING = 20.`) and magic numbers replaced with named constants (`BASE_SCREEN_HEIGHT`, `DEFAULT_TITLE_X`, etc.). Menu button font weight lightened and all host OS font file probing removed in favor of pure owned installation VFS loading (`resource/linux_fonts/*.ttf`, `resource/HALFLIFE2.ttf`, `resource/gordin-*.ttf`). Hard font legal safety rule installed in AGENTS.md. Unit tests added and updated. Verified by 91 unit tests in `hl2-ui`, 64 unit tests in `hl2-bevy`, clippy clean, and 30-frame headless Bevy runtime test.
+- **Task 3 (Button interaction model): Complete.** Implemented shared `ButtonTracker<T>` press/hold/cancel/release activation state machine. Added `ButtonState` with Source-authentic pressed styling across push buttons, check boxes, radio buttons, and URL links (sunken borders, cavity dark backgrounds, +1px text/element offsets). Actions activate on pointer release only if cursor stays over the control; dragging away cancels activation. Sliders maintain immediate drag behavior. Added unit tests `button_tracker_press_cancel_activate_state_machine`, `widget_pressed_states_drawing`, and `options_dialog_buttons_follow_press_cancel_and_release_activation`. 94 `hl2-ui` tests, 64 `hl2-bevy` tests pass, clippy clean, 30-frame headless check clean.
+- **Task 4 (UI sounds): Complete.** Wired GameUI button rollover (`ui/buttonrollover.wav`) and activation (`ui/buttonclickrelease.wav`) audio cues through existing audio infrastructure via `SoundRequest::ui`. Preloaded cues, edge-triggered hover transition detection (avoiding continuous repeat), release-activation triggering, paused-simulation bypass, master volume integration, and silent warning logging on missing files. Added unit tests `options_dialog_sound_events_hover_and_activation`, `message_box_sound_events_hover_and_release`, and `console_effects_routes_play_sound_to_ui_sound_requests`. 96 `hl2-ui` tests, 64 `hl2-bevy` tests, clippy clean, 30-frame headless check clean.
+- **Task 5 (Close button on dialogs/menus): Complete.** Added standard Source VGUI title bar close button geometry (`CLOSE_BUTTON_SIZE = (18., 16.)`, `CLOSE_BUTTON_INSET = (24., 6.)`), declarative `FrameSpec` with data-driven `has_close: bool` (default true) and `close_rect()`, and `Painter::frame_with_close`/`Painter::close_button`. Added `Target::Close` to Options dialog and subdialogs; close acts identically to Cancel (discarding draft changes on main dialog and restoring saved state like gamma on subdialogs). Message boxes default to `has_close = false` per original SDK `vgui::MessageBox` rules, with `with_close(bool)` builder support and Cancel routing. Added unit tests `frame_spec_and_close_button_drawing`, `options_dialog_close_button_behaves_like_cancel`, `options_subdialog_close_button_cancels_and_restores`, and `message_box_close_button_data_driven_cancel`. 100 `hl2-ui` tests, 64 `hl2-bevy` tests, clippy clean, 30-frame headless check clean.
+- **Task 6 ("Return to main menu" confirmation dialog): Complete.** Added `MessageBox::return_to_main_menu(loc)` resolving retail localized tokens (`#GameUI_ConfirmMainMenu_Title`, `#GameUI_MainMenuWarning`, `#GameUI_OK`, `#GameUI_Cancel`). Reused shared `MessageBox` with `ConfirmKind { Quit, ReturnToMainMenu }`. Selecting row 5 in pause menu opens confirmation dialog; OK unloads current map and transitions to main menu via `Effect::MainMenuMap`, Cancel closes dialog and stays in pause menu. Escape closes dialog first. Added unit test `return_to_main_menu_confirmation_dialog_ok_unloads_to_background` and updated `pause_menu_entries_activate_by_pointer_and_keyboard`. 101 `hl2-ui` tests, 64 `hl2-bevy` tests pass, clippy clean, 30-frame headless check clean.
+- **Task 7 (Options tooltips): Complete.** Parsed `tooltiptext` property on controls in `.res` layouts, added `Theme` tooltip styling (`Tooltip.BgColor`, `Tooltip.TextColor`), implemented `tooltip_rect` (flipping and boundary clamping per SDK rules) and `Painter::tooltip`. Added `tip_for_control`, `tooltip_at`, and `active_tooltip` to `OptionsDialog`, displaying tooltips on hover only when controls have authored tips, and dismissing them cleanly on clicking, dragging, subdialogs, or unhovering. Added unit tests `tooltip_geometry_and_screen_clamping` and `options_tooltips_lookup_and_missing_case`. 103 `hl2-ui` tests, 64 `hl2-bevy` tests pass, clippy clean, 30-frame headless check clean.
+- **Task 8 (Map loading dialog): Complete.** Created `hl2-ui::gameui::loading` module with `LoadingDialog` (modeled after retail `LoadingDialogNoBanner.res`), thread-safe stage reporting (`report_progress`, `current_progress`, `reset_progress`), and localized stage text formatting with English fallbacks. Implemented `Painter::progress_bar` with Source SDK `ProgressBar.cpp` segmented chunks (8px width, 4px gap, 4px inset, depressed sunken border, dark cavity background). Integrated modal `LoadingDialog` into `Console` with failure state display and Enter/click/Escape dismissal back to main menu. Wired authentic loader stages into `assets::load_with_canvas` (`SpawningServer`, `LoadMap`, `PrecacheWorld`, `SignonDataLocal`, `LoadResources`, `SignonLocal`) and async loading tasks. Added unit tests `loading_dialog_initial_state_and_progress_updates`, `loading_dialog_stages_fallback_and_localization`, `loading_dialog_failure_state_handling`, `loading_dialog_completion_latch`, `loading_progress_reporting`, `progress_bar_drawing_and_segments`, and `loading_dialog_state_transitions_and_dismissal`. 109 `hl2-ui` tests, 64 `hl2-bevy` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless checks (main menu and map load) clean.
+- **Task 9 (Episode One & Two New Game maps): Complete.** Added `INITIAL_EPISODE_MAPS` data-driven table in `hl2-ui::gameui::resources` mapping verified initial chapter maps (`hl2` -> `d1_trainstation_01`, `episodic` -> `ep1_citadel_00`, `ep2` -> `ep2_outland_01`, `lostcoast` -> `d2_lostcoast`). Added `fallback_new_game_maps()` and enhanced `chapter_map` parser to extract map names from composite command lines. Populated `new_game_maps` from installed `chapter1.cfg` files. Implemented `source_assets::vpk::expansion_for_map` and `Vfs::mount_expansion` providing authentic search path inheritance (`ep2` -> `ep2` + `episodic` + `hl2` + `platform`; `episodic` -> `episodic` + `hl2` + `platform`). Updated `assets::load_with_canvas` to mount expansion content when loading episode maps. Verified modal loading dialog failure error latching and Enter / Escape recovery to main menu for missing content. Added unit tests `initial_episode_maps_table_and_fallbacks`, extended `chapter_files_name_their_maps`, `expansion_for_map_detects_episodes_and_lostcoast`, and `episode_one_and_two_new_game_navigation_and_missing_content_error_recovery`. 112 `hl2-ui` tests, 64 `hl2-bevy` tests, 91 `source-assets` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless checks (main menu, ep1, and ep2 map loads) clean.
+- **Task 10 (Background map handling): Complete.** Added `background_map: Option<String>` to `GameplaySettings` with clean serde skipping for defaults and name sanitization in `Config::migrate` (`.bsp` stripping, character validation, blank/invalid fallback to `None`). Implemented `Console::background_map` as the single source of truth (prioritizing persistent config override before falling back to `scripts/chapterbackgrounds.txt`). Wired `ConfirmKind::ReturnToMainMenu` through `self.background_map()`. Added console commands `background_map [name|default]` (query/set/reset) and `map_background <name>` (persist, modal loader, and background map transition). Added `Options::background_map` and CLI flag `--background-map NAME` in `hl2-bevy`, resolving startup background map via CLI override -> persistent config -> installed VFS fallback chain. Added unit tests `background_map_persistence_roundtrip_and_migration`, `background_map_single_source_of_truth_and_return_to_main_menu`, `background_map_and_map_background_console_commands`, and `startup_parses_background_map_override`. 115 `hl2-ui` tests, 66 `hl2-bevy` tests pass, 3 owned-install tests pass, clippy clean, 30-frame headless checks (default and overridden background maps) clean.
+- **GameUI follow-up pass (Tasks 1-10): All 10 tasks complete and verified.**
+- **Next:** Follow-up milestones in owner's order:
+  2. Gamma (`mat_monitorgamma`) in the renderer (medium): stored and edited by the brightness dialog, no visual effect yet.
+  3. (done 2026-10-24) HDR None/Bloom/Full: see docs/gameui.md 23a; the other unfinished Options items are listed in docs/gameui.md 23.
+  4. Captions/subtitles (large: closed-caption parser, HUD drawing, timing); speaker setup, sound quality and spoken language (stored only; language needs a restart path).
+  5. Gamepad page and aim assist (large; new input path).
+  6. Placeholders still disabled: Load Game, Achievements, Workshop, Gamepad, Keyboard/Video Advanced; background map frozen and seen from the spawn; music ducking not modeled.
+  7. Not tested: Windows/Linux (including No Border), full-screen/No Border startup, real monitor mode switching, audible music volume/focus mute, packaged key capture.
+
 
 ## Codex offline research handoff (2026-10-22)
 
@@ -222,13 +1903,13 @@ Owner requires checking d1_trainstation_01 before advancing to d1_trainstation_0
 
 New native evidence observes two genuine authored requests: scene2_start -> scene2_lcs_intro at10.230 game seconds with gman/models/gman_high.mdl,policy0; relay_train_reached_station -> lcs_trainride_stand_endline at93.165 with citizen_train_1/authored male_01 model,policy1. Both CheckActors calls accepted,OnStart dispatch occurred and StartPlayback returned playing1/wait0. The policy1 speech-scene query returned0;policy0 skipped it. Six exact baseline/original bodies and six PE hook prologues remain bound to the owned server.dll hash. Selected v2 evidence has1672 fresh-window events/834 paired calls with raw clock/actor-generation checks. Relay caller identity and authored outputs corroborate the source; relay output/event-queue dispatch was not hooked and controller serials were not captured.
 
-A fresh process without Frida records genuine G-Man playback then cleared playback/absent actor later; it corroborates visible intro/train progression,not identical timing or passenger return/output order. All owned processes closed with checked installed cfg/module identities unchanged. A fixed-length model decoder,old-map prefix,MCP transport overflow and forward-input rehearsal with unchanged position remain explicit rejections/limitations. Ordinary customs/Barney/exit traversal,full animation/audio/camera validation and current packaged Rust parity remain **not tested**. Private acceptance: ../../work/hl2-decompiled/scene-natural-firstmap-20261020/verify.py; handoff: ../../work/publishing/research-firstmap-completion-continuation-20261020.md. Next: first-map player control/ordinary trigger crossing and genuine downstream actors; no second-map promotion.
+A fresh process without Frida records genuine G-Man playback then cleared playback/absent actor later; it corroborates visible intro/train progression,not identical timing or passenger return/output order. All owned processes closed with checked installed cfg/module identities unchanged. A fixed-length model decoder,old-map prefix,MCP transport overflow and forward-input rehearsal with unchanged position remain explicit rejections/limitations. Ordinary customs/Barney/exit traversal,full animation/audio/camera validation and current packaged Rust parity remain **not tested**. Private acceptance verified. Next: first-map player control/ordinary trigger crossing and genuine downstream actors; no second-map promotion.
 
 ## Controlled native scene-start observation (2026-10-20, research only)
 
 Frida now observed a bounded native HL2 scene-start decision. In a disposable first-map fixture with hl2_episodic=1, busyactor=1 rejected201 actor checks over3.015 game seconds while the existing-scene-with-speech query returned true. After owner cancellation the query returned false, CheckActors accepted, OnStart fired and accepted StartPlayback returned playing1/wait0. A repeated pending Start performed no nested StartPlayback. Policy0 accepted while the owner was active and skipped that query. A fresh process with no Frida attachment corroborated both output orders. Both owned native processes closed; selected module hashes and six checked installed cfg identities match before/after.
 
-Private evidence: ../../work/hl2-decompiled/scene-start-frida-20261020/README.md; current acceptance ../../work/publishing/docs-publication-20261020/validate.py; handoff ../../work/publishing/research-scene-start-frida-continuation-20261020.md. The original research verify.py retains its historical Git/document guard. Six exact baseline/original native bodies; fresh CheckActors496bytes/173instruction starts independently checked. Static value flow164nodes/166edges remains depth0/truncated with43unknowns. The fixture binds a seeded citizen to literal Barney; missing gestures remain recorded. Ordinary campaign, audibility, separate expresser IsSpeaking, general ABI and Rust parity are **not tested**. The research pass made no Rust/build/Git mutations; its reviewed documentation is published separately.
+Private evidence retained. The original research verify.py retains its historical Git/document guard. Six exact baseline/original native bodies; fresh CheckActors496bytes/173instruction starts independently checked. Static value flow164nodes/166edges remains depth0/truncated with43unknowns. The fixture binds a seeded citizen to literal Barney; missing gestures remain recorded. Ordinary campaign, audibility, separate expresser IsSpeaking, general ABI and Rust parity are **not tested**. The research pass made no Rust/build/Git mutations; its reviewed documentation is published separately.
 
 Rejected evidence is preserved: two unresolved !Target1 rehearsals, an ASLR relocation preflight, a UTF8 decoder failure, a1500-event prefix, coalesced fractional delays, an agent-contaminated baseline, CRLF body drafts and two raced optional periodic clock samples. All decisive callback clocks match raw reads. The historical lifecycle checker still fails its mutable Rust entities.rs external binding; this lane checks native bodies independently without resealing history. Next: a naturally triggered first-map controller with its genuine actor/model; detailed trainstation02 metadata remains separate work.
 
@@ -241,7 +1922,7 @@ Model-dependency finalization now passes its separate checker/seal:37 MDLs/23 AN
 
 ## Campaign NPC scene research (2026-10-16, Codex; documentation/private evidence)
 
-Detailed research now proceeds from `d1_trainstation_01` to the campaign end so Claude can implement alongside it. See DESIGN's campaign scene section and private `../../work/hl2-decompiled/campaign-scenes-20261016h/CLAUDE-START-HERE.md`. The all-map roadmap independently checks 69 numbered campaign maps plus intro/credits, 760 choreography controllers, 641 cinematic sequences, 507 AI schedule controllers and 26,488 output connections; the complete installed cache has 1,837 decoded scenes/15,114 authored events. Later maps are inventory-only. `d2_coast_02` is the owner-confirmed expected native gap (01 -> 03), excluded from required campaign work.
+Detailed research now proceeds from `d1_trainstation_01` to the campaign end so Claude can implement alongside it. See DESIGN's campaign scene section and private research notes. The all-map roadmap independently checks 69 numbered campaign maps plus intro/credits, 760 choreography controllers, 641 cinematic sequences, 507 AI schedule controllers and 26,488 output connections; the complete installed cache has 1,837 decoded scenes/15,114 authored events. Later maps are inventory-only. `d2_coast_02` is the owner-confirmed expected native gap (01 -> 03), excluded from required campaign work.
 
 The first-map dossier covers 44 scene instances/40 distinct scenes/605 authored events, 18 cinematic sequences, four AI schedules and their template/trigger dependencies. Independent metadata review passed 275 checks. Static native contracts cover scene start/busy-actor/interrupt ownership, early completion versus cleanup, LOOP/SECTION/response permission, sequence readiness/postidle/cancellation and AI path requests. Missing native InputStopSchedule remains explicitly missing; LOOP event/audio replay, remaining path/failure handling, actual model/layer dependencies and ordinary campaign behavior remain bounded work. Empty/special/ambiguous actor references are review items, not automatically broken scenes.
 
@@ -432,7 +2113,7 @@ Open (next, in order):
 
 ## Current session 27 (2026-10-21)
 
-Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/runtime-entities-20261021` (not on main; wip/npc-ai-20261014 unchanged). Private notes: work/hl2-decompiled/npc-dsp-20261021/README.md.
+Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/runtime-entities-20261021` (not on main; wip/npc-ai-20261014 unchanged). Private research notes retained.
 - **Owner gunfire notes, far layer: root cause found and fixed (a782904).** Every new spatial sound player started at volume 0 and got its distance gain one frame later, when its sink existed. The far (right) layer of the `^` NPC SMG1/AR2/pistol waves is a single ~25 ms crack (npc_smg1_fire1.wav: left = 125 ms shot, right = crack), so far shots were silent: owner street layout (soldier spawned at the station-entrance end, walking player at the pallet-launch spot (-2935,-4431), ~1320 units, all shots `#dv16`), per-process recording before the fix: median -99 dB on the far-only stretch; after: far shots audible, far/near p99 difference -2.4 dB (native -1.7 dB). Players now start at volume x dist_gain. Retail evidence (engine.dll, Ghidra): the '^' mixers use left = near, right = far (confirms ours); SND_PickDynamicChannel keeps a same-source CHAN_WEAPON sound that has a delayed start (every WeaponSound with a soundtime) and stops it at the new sound's start sample, so native also cuts each NPC SMG1 shot at 0.075 s (not the cause of the "rat-tat-tat"). The near "saw" vs "rat-tat-tat" report is plausibly the same bug (each shot's loudest first frame was muted every 75 ms); the measurement did not separate it (our shot alignment was unreliable): **owner listening needed** (clips in the private notes).
 - **Room DSP (session 26 hypothesis): weakened.** Native street recordings with `dsp_off 1` measure and look almost the same as with DSP at both distances. Retail per-buffer mix: room buffer gets vol x min(1, dsp_volume x dsp_vol_2ch x dspmix), dry vol x (1 - dspmix); dsp_volume/dsp_vol_2ch default 1.0, dsp_room 0; nearly all HL2 soundscapes set `"dsp" "1"` (automatic DSP: templates 100+ in scripts/dsp_presets.txt from listener traces). DSP stays unimplemented (audio follow-ups).
 - **F4 Props tab (owner request, 32c8d80):** Tab switches NPCs / Props; Props lists folders and their models (every installed and map-pak `models/**/*.mdl` with a .phy: 1955 models in 41 folders, listed in 0.19 s at map load; CreatePhysicsProp only needs the vcollide), Enter opens a folder or spawns, PageUp/PageDown page. The NPC list wraps among NPC classes only (session 26 prop fixtures that pressed Up from the first class no longer reach props). Packaged (artifacts/s27/propstab*): five props from five folders (15-53 ms worker loads, step <= 4.4 ms). Not done: type-to-filter (letters would also move the player; use the console). A humans/group01 model spawns upright as one body (native not compared).
@@ -467,7 +2148,7 @@ Open (next, in order):
 
 ## Current session 25 (2026-10-21)
 
-Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-20261014`, not on main. Owner reports at the start: native NPC SMG1/AR2 bursts sound like a saw (ours a clutched rat-tat-tat) and native gunfire turns into a distinct distant sound with distance (ours sounds the same everywhere); native NPCs shoot while moving and from further away; no elite/shotgunner/prison guard in F4; Alyx (alyxgun) and RPG citizens never fired; speed up toward runtime entity spawning (DESIGN 14r). Private notes: work/hl2-decompiled/npc-gunfire-20261021/README.md.
+Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-20261014`, not on main. Owner reports at the start: native NPC SMG1/AR2 bursts sound like a saw (ours a clutched rat-tat-tat) and native gunfire turns into a distinct distant sound with distance (ours sounds the same everywhere); native NPCs shoot while moving and from further away; no elite/shotgunner/prison guard in F4; Alyx (alyxgun) and RPG citizens never fired; speed up toward runtime entity spawning (DESIGN 14r). Private research notes retained.
 - **Fire values are the SDK's (verified, not changed):** SMG1 GetFireRate 0.075 s, bursts 2-5, range 1400; AR2 0.1 s, 2-5, 65-2048 (weapon_smg1.cpp, weapon_ar2.cpp); session 24's per-process native recording already matched the 0.075 s sound runs. One SDK difference found: CWeaponSMG1::Equip gives CLASS_PLAYER_ALLY owners 3000 units of range (fixed). Retail server.dll constants were not read (SDK = ours; the native recordings agree).
 - **Distance variants (the "distant gunfire" and likely the "saw" report):** the installed scripts mark NPC SMG1/AR2/pistol shots, functank, mortar, explosions (BaseExplosionEffect.Sound, water explosions), turrets, sniper, strider footsteps, gunship/helicopter rotors and Breen's plaza lines with `^` (CHAR_DISTVARIANT: stereo wave, left = near, right = far). Retail engine.dll (no snd_dvar convars in this build): SND_Spatialize 1008f4d0 sets distmix = (clamp(dist, 240, 1320) - 240) / 1080 (constants 1031da0c/1031da20/1031d8f0), and the '^' mixers 100a3070/100a3840 mix near + (far - near) x distmix into ONE mono source. Ours played the stereo file as stereo (near in the left ear, far in the right) at every distance. Now the host preloads 17 mono premixes per stereo `^` wave and plays the one for the listener distance at the start (packaged trace: `npc_smg1_fire1.wav#dv0..#dv4` at 0-500 units). Limits: the mix is chosen once per sound (loops such as rotors do not update), no stereo panning and no DSP rooms yet (separate retail code paths, not researched). Native A/B: cadence matches the native plaza recording (in-run 0.06-0.09 s gaps: ours 62% of 200 shots, native 56% of 127 onsets); a band-spectrum fit of the near/far mix was **inconclusive** (it spreads our known 0.13-0.31 mixes over 0-0.96; private record_ours.py/fit_mix.py); next: native recordings at controlled near (< 240) and far (> 1320) distances.
 - **Move and shoot (CAI_MoveAndShootOverlay, ai::moveshoot):** continuous-move tasks of bits_CAP_MOVE_SHOOT NPCs (soldier, companions, cops) switch to the weapon's ACT_WALK_AIM/ACT_RUN_AIM sequences (preloaded per weapon with the locomotion variants), the body faces the enemy LKP (AddFacingTarget 0.8 s; the legs keep the path via move_yaw) and the shot regulator fires (soldiers get a move-only regulator since CNPC_Combine has no bits_CAP_USE_SHOT_REGULATOR; CNPC_Combine::ShouldMoveAndShoot's danger-sound schedules and the hide-and-reload stop after U(0.4, 0.6) s for 5 s). Native restarts the ACT_GESTURE_RANGE_ATTACK1 gesture per shot; AI gesture layers do not exist yet, so the weapon's fire event is dispatched directly (no upper-body recoil gesture). Packaged (artifacts/s25/ms-smg, ms-cap.png): a foe soldier hit by a friend rebel runs to the alcove sideways with his gun on the rebel and fires 5 shots on the way; AR2 elite: shots while running to reload cover.
@@ -485,7 +2166,7 @@ Open (next, in order):
 ## Current session 24, second part (2026-10-21, same chat): native comparisons (owner request)
 
 Same chat as the first part below (the date rolled over; an earlier draft of these notes and commit 9a20127's message wrongly call it session 25). Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-20261014`, not on main. Ended at the 5-hour usage limit: **the regression batch was NOT run for this session's changes** (they let soldiers and citizens move on every map: run it first next session and diff against s24-regression).
-- Native runs (private work/hl2-decompiled/npc-burst-20261020, README): hall-ar2 (station hall corridor, npc_create_aimed AR2 soldier, NumGrenades 5 via addoutput, ent_text) and flush-smg1 (same, hiding early). Owner correction: the fireballs in the native frames are AR2Impact hits on the player, not grenades; audio blips confirm no throw while the player was visible.
+- Native runs: hall-ar2 (station hall corridor, npc_create_aimed AR2 soldier, NumGrenades 5 via addoutput, ent_text) and flush-smg1 (same, hiding early). Owner correction: the fireballs in the native frames are AR2Impact hits on the player, not grenades; audio blips confirm no throw while the player was visible.
 - **AR2 cadence:** native bursts ~0.1 s apart (plus ~0.06 s detections, probably impact sounds), 0.22-0.35 s between bursts; ours 0.105 s and 0.2-0.33 s. Match within detection limits.
 - **Reload pauses (fixed):** native soldiers run to cover on COND_LOW_PRIMARY_AMMO (SCHED_COMBINE_HIDE_AND_RELOAD to the alcove at (-3512,-2475)), reload, then SCHED_COMBINE_ESTABLISH_LINE_OF_FIRE back out; ours failed the move (MissingActor: only cops were registered with the ground controller) and reloaded in place. Now npc_combine_s and npc_citizen are AI ground movers with per-weapon locomotion (Walk_all/RunALL for soldiers, walkHOLDALL1/run_holding_all for armed male citizens; DESIGN 14n session 24 second-part plan). Packaged artifacts/s24/native-cmp/hall-ar2: same alcove, same cycle; native firing phases ~8.4 s apart with ~4.2 s pauses, ours ~7.8 s and 4.0-4.9 s.
 - **Grenades:** native threw ~12 s and ~33 s after the player hid, while cycling reloads with sight of the hiding spot from the alcove: consistent with SCHED_HIDE_AND_RELOAD's 20% SCHED_COMBINE_GRENADE_AND_RELOAD (CanGrenadeEnemy at the LKP). Ported: lazy CanGrenadeEnemy (runtime throw probes without side effects; the class applies CanThrowGrenade's gate/next check only when a branch asks), the 20% branch and its schedule (unit-tested). Packaged runs flush/flush2/flush3/flush4: 17 successful checks, the seeded 20% roll never hit (dice 94, 22, 59, 57, 46, 46, 37, 77...): **no packaged throw of this branch yet**. A two-soldier attempt (flush5) was rejected: the F4 friend dummy shoots the foe.
@@ -498,7 +2179,7 @@ Same chat as the first part below (the date rolled over; an earlier draft of the
 Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-20261014`, not on main. Owner reports first (AR2 tracer, shotgun reload, NPC fire rate/sound), then the F4 grenade option the owner asked for.
 - **AR2 tracer drew a black box (owner report):** `effects/gunshiptracer` is a `Sprite` material with `$spriterendermode 8` (kRenderTransAlphaAdd) and no `$additive`, so our sprite loader treated it as opaque and drew its DXT5 texture's black background. sprite_dx9.cpp draws mode 8 in two passes (src*a + dst*(1-a), then src*(1-a) + dst) that sum to src + dst*(1-a); new effect kind 5 blends One / OneMinusSrcAlpha without the alpha discard. Only gunshiptracer (and bluelaser1, already overridden) use a sprite render mode among our effect materials. Owned test; packaged AR2 soldier burst (artifacts/s24/ar2-*.png, crop ar2-tracer-crop.png): a glowing streak, no quad. Native AR2 look still not compared.
 - **Combine soldiers reloaded forever (owner report, shotgun):** combine_soldier_anims `reload`/`reload_low` carry event 2 = COMBINE_AE_RELOAD, which CNPC_Combine::HandleAnimEvent handles (RELOAD_NPC, both clips full, ammo conditions cleared); we ignored it, so every soldier's clip stayed empty and SCHED_RELOAD repeated. Citizens (3015) and cops (3017/3018) use weapon events we already handled. Also ported: RunAttackTask's GetShotRegulator()->Reset(false) at the end of TASK_RELOAD. Packaged (artifacts/s24/sgp): a shotgun soldier fires to 1 shell, reloads to 6 (Weapon_Shotgun.NPC_Reload), three full cycles.
-- **NPC SMG1/AR2 fire too slow and too regular (owner report).** Native evidence: a native SMG1 soldier recording (private work/hl2-decompiled/npc-burst-20261020/native-smg1.wav, per-process) has Weapon_SMG1.NPC_Single onsets in runs 0.075 s apart (13.3 Hz) with 0.15-0.47 s gaps; ours fired one sound every 0.21-0.315 s. Four SDK causes, all ported: (1) `CBaseAnimating::StudioFrameAdvanceInternal` marks a non-looping sequence finished once its cycle passes `GetLastVisibleCycle` (fadeouttime 0.2 s before the end), so the 0.133 s soldier and 0.28 s citizen shoot sequences finish after one 0.1 s think and NPCs fire every think; `DispatchAnimEvents` then fires the sequence's remaining events (flEnd 1.01). (2) `CHLMachineGun::WeaponSoundRealtime` (SMG1, AR2) emits up to two SINGLE_NPC sounds per shot, GetFireRate apart, to fill the next think (delayed starts are queued in the AI runtime). (3) SINGLE_NPC is CHAN_WEAPON: a new shot sound replaces the previous one (native run level 0.94x a single attack, 1.19x if tails stacked). (4) `CNPC_Combine` never has bits_CAP_USE_SHOT_REGULATOR: its own TASK_RANGE_ATTACK1 fires GetRandomBurst() shots (2-5) and the schedule's TASK_WAIT_RANDOM 0.3 makes the gap; our soldiers used the companion/cop regulator. Also `CAI_BaseHumanoid::BuildScheduleTestBits` (no COND_CAN_RANGE_ATTACK1 interrupt while the regulator rests). Packaged soldier in the station hall (artifacts/s24/smg2): 155 sound plays in 19.7 s (before: 99), runs 0.075 s apart, burst gaps 0.13-0.27 s (native ~0.23-0.47 s, median 0.35), reload pauses ~2.1 s (native ~4 s: reload schedule differences not investigated). Native AR2 recording rejected (a map cop walked into the soldier's line of fire). Citizens/cops: same finish rule (they now also shoot every think within regulator bursts); not compared with native.
+- **NPC SMG1/AR2 fire too slow and too regular (owner report).** Native evidence: a native SMG1 soldier recording (native per-process recording) has Weapon_SMG1.NPC_Single onsets in runs 0.075 s apart (13.3 Hz) with 0.15-0.47 s gaps; ours fired one sound every 0.21-0.315 s. Four SDK causes, all ported: (1) `CBaseAnimating::StudioFrameAdvanceInternal` marks a non-looping sequence finished once its cycle passes `GetLastVisibleCycle` (fadeouttime 0.2 s before the end), so the 0.133 s soldier and 0.28 s citizen shoot sequences finish after one 0.1 s think and NPCs fire every think; `DispatchAnimEvents` then fires the sequence's remaining events (flEnd 1.01). (2) `CHLMachineGun::WeaponSoundRealtime` (SMG1, AR2) emits up to two SINGLE_NPC sounds per shot, GetFireRate apart, to fill the next think (delayed starts are queued in the AI runtime). (3) SINGLE_NPC is CHAN_WEAPON: a new shot sound replaces the previous one (native run level 0.94x a single attack, 1.19x if tails stacked). (4) `CNPC_Combine` never has bits_CAP_USE_SHOT_REGULATOR: its own TASK_RANGE_ATTACK1 fires GetRandomBurst() shots (2-5) and the schedule's TASK_WAIT_RANDOM 0.3 makes the gap; our soldiers used the companion/cop regulator. Also `CAI_BaseHumanoid::BuildScheduleTestBits` (no COND_CAN_RANGE_ATTACK1 interrupt while the regulator rests). Packaged soldier in the station hall (artifacts/s24/smg2): 155 sound plays in 19.7 s (before: 99), runs 0.075 s apart, burst gaps 0.13-0.27 s (native ~0.23-0.47 s, median 0.35), reload pauses ~2.1 s (native ~4 s: reload schedule differences not investigated). Native AR2 recording rejected (a map cop walked into the soldier's line of fire). Citizens/cops: same finish rule (they now also shoot every think within regulator bursts); not compared with native.
 - **Face/attack tasks aimed at the true enemy position:** they now use the LKP (enemy memory, which follows the enemy while seen and AI_FREE_KNOWLEDGE_DURATION 1.75 s after) like GetEnemyLKP; TASK_STORE_ENEMY_POSITION_IN_SAVEPOSITION keeps GetAbsOrigin.
 - **F4 grenades (owner request):** the options column of npc_combine_s (the only HL2 class that reads NumGrenades) has `grenades: N (NumGrenades)` after the allegiance; Enter cycles 0, 1, 2, 3, 5, 10, 99; the spawn sets the soldier's m_iNumGrenades. Native npc_create soldiers have 0. Finding the first packaged throw needed three fixes: (a) every flush toss failed because the trace from the target (the enemy's last seen feet, on the floor) reported a hit at its own start (Source ignores a start-solid surface: only fraction matters); (b) combine_soldier has no ACT_RANGE_ATTACK2 sequence: CNPC_Combine::NPC_TranslateActivity maps it to ACT_COMBINE_THROW_GRENADE (grenThrow, event 7 at 0.6), now translated and preloaded; (c) Weapon_SetActivity again gets the full SequenceDuration. New diagnostics `ai.diagnostics.grenade_checks` (out_of_range, moving, no_throw, no_toss, ready_throw, ready_toss). Packaged (artifacts/s24/gh, fixture f4-grenade-hall.json; capture burst ghc-tile.png): an F4 SMG1 soldier with 5 grenades in the station hall corridor shoots the walking player, the player steps sideways out of sight (spot found with a temporary owned BSP probe: soldier (-3356,-2300), seen (-3356,-2100), hidden (-3516,-2100)), he selects SCHED_COMBINE_RANGE_ATTACK2, throws (5 -> 4), the frag blips, bounces and explodes 3.57 s later near the last seen spot. Native flush timing not compared.
 - Fly (noclip) players are still not sensed by our AI (test aid; native noclip players are); enemy-facing tests must walk.
@@ -514,7 +2195,7 @@ Open (next, in order):
 
 Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-20261014` (pushed: 6d24cf9, 2ae8a88, b6343c5, f6c0525, 8df9a54 docs, 54b32b1 grenades). Not on main. Concurrent Codex documentation edits (scene-start Frida observation, campaign scene research, the d2_coast_02 note) remain separate and uncommitted for their owner.
 - **Owner report: Breen moved his eyes randomly during the broadcast (since the session-17 random look queue).** Cause: both maps play the broadcast through `ss_breencast` (scripted_sequence, spawnflags 480 = no interrupt, override state, no teleport, SF_SCRIPT_LOOP_IN_POST_IDLE, post idle `sitpose`); the breencast VCDs' LookAt camera_tv_breen channel is disabled, so nothing else holds his eyes. SDK: during SCRIPT_POST_IDLE the NPC keeps m_hCine and NPC_STATE_SCRIPT until PostIdleDone (never while it loops), and MaintainLookTargets picks random targets only outside NPC_STATE_SCRIPT. Ours cleared the script owner when the action ended. Now the actor keeps a post-idle script state (one cycle, or until cancelled / another script takes it with the loop flag); only the random look gate reads it (choreography MOVETO/sequence ownership unchanged). Regression batch: Breen's feed eyes now hold forward (artifacts/s23/diff-partition-breen-screen-feed-final.png, s22 left vs s23 right). Native broadcast frames were not recaptured.
-- **Muzzle-flash elights (owner detail item; parked after the owner's 2026-10-20 note: NPC work first).** Retail engine.dll research (private work/hl2-decompiled/muzzle-elight-20261020): CL_AllocElight slots, linear radius decay over 0.05 s, dlight -> dworldlight_t (intensity rgb * 2^exp / 255, quadratic 1 / (radius^2 * max(minlight, floor))), ComputeDynamicLighting slotting (dynamic lights always evict the weakest local light into the ambient cube). The minlight floor is set per map by CMapLoadHelper::Init from LUMP_MAP_FLAGS (HL2 maps with 0x200: 0.01953125); an earlier draft read it as a 1.0 constant, which made the viewmodel glow white (rejected capture artifacts/s23/elight-fire.png). Implemented for the player viewmodel (DoMuzzleFlash: pistol, SMG1, AR2, 357, shotgun, AR2 ball) and NPC weapons (DoMuzzleFlash except the AR2; MuzzleFlash_Combine_NPC blue). A native 60 fps pistol recording at the hall spot shows no visible glow on the viewmodel; ours with the per-map floor is faint (artifacts/s23/elight-fire2.png). Frame-by-frame decay and NPC elights: unit-tested only.
+- **Muzzle-flash elights (owner detail item; parked after the owner's 2026-10-20 note: NPC work first).** Retail engine.dll research: CL_AllocElight slots, linear radius decay over 0.05 s, dlight -> dworldlight_t (intensity rgb * 2^exp / 255, quadratic 1 / (radius^2 * max(minlight, floor))), ComputeDynamicLighting slotting (dynamic lights always evict the weakest local light into the ambient cube). The minlight floor is set per map by CMapLoadHelper::Init from LUMP_MAP_FLAGS (HL2 maps with 0x200: 0.01953125); an earlier draft read it as a 1.0 constant, which made the viewmodel glow white (rejected capture artifacts/s23/elight-fire.png). Implemented for the player viewmodel (DoMuzzleFlash: pistol, SMG1, AR2, 357, shotgun, AR2 ball) and NPC weapons (DoMuzzleFlash except the AR2; MuzzleFlash_Combine_NPC blue). A native 60 fps pistol recording at the hall spot shows no visible glow on the viewmodel; ours with the per-map floor is faint (artifacts/s23/elight-fire2.png). Frame-by-frame decay and NPC elights: unit-tested only.
 - **Stunstick melee against NPCs:** a swing that misses the player tests hated NPC hulls (CTraceFilterMelee D_HT) and applies sk_npc_dmg_stunstick (DMG_CLUB) through the shared hit path, with the 200-unit combat sound. Found and fixed: (a) against NPC enemies cops looped SCHED_METROPOLICE_ACTIVATE_BATON -> TASK_FACE_TARGET fail -> SCHED_FAIL because our target was always the player (SDK: SetTarget(GetEnemy())); (b) **sk_npc_dmg_stunstick was stored in a thread-local on the map-load worker thread, so every packaged baton hit (the player's included) dealt 0**; the runtime now carries it. Packaged F4 baton duel (artifacts/s23/baton-duel3): the friend cop activates its baton, closes in and kills the foe cop (40 damage vs 40 health; skill.cfg: "Kill a citizen in one hit").
 - **Combine kick:** MeleeAttack1Conditions (64 units, facing 0.7, height 64, no headcrabs, center line) and COMBINE_AE_KICK (70-unit hull trace, sk_combine_s_kick 10, ViewPunch(-12,-7,0), forward*100 + up*50, NPC_Combine.WeaponBash, COMBINE_KICK sentence; COMBINE_* sentences preloaded; retail ships no kick1/kick2 waves, so the sentence is silent like retail). Packaged (artifacts/s23/kick4): a foe soldier kicks the player twice; the knock-back puts the player out of range and he switches to SCHED_COMBINE_RANGE_ATTACK1.
 - **NPCs react to being hit:** every bullet/club hit on an NPC reaches its AI (OnTakeDamage_Alive): COND_LIGHT_DAMAGE, COND_HEAVY_DAMAGE above 20, and a hated player attacker becomes the enemy. Before, only NPC attackers reached the AI. Packaged (artifacts/s23/hurt): a soldier shot in the back turns Combat at once, tries cover and returns fire.
@@ -548,7 +2229,7 @@ Open (next, in order):
 ## Current session 21 (2026-10-16)
 
 Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-20261014`. Not on main. Concurrent Codex documentation edits (campaign scene research, d2_coast_02 note in AGENTS/STATUS/MODLOG/DESIGN/research/validation) are separate work, left uncommitted for their owner.
-- **Native NPC pistol fire with the HEV suit (step 1b), d1_canals_01 barrelpush_cop1:** native T061116Z (oracle + 60 fps gdigrab + per-process audio; private work/hl2-decompiled/npc-pistol-20261016): HUD health 91/76/64/52/34/19/4 at 3.3/8.8/14.0/19.2/24.3/30.0/35.3 s after the maker Spawn, dead by 40.5 s; ~60 shots, 3 HP per hit; shots in bursts ~0.2-0.5 s apart with ~1 s rests; ent_text `Behv: Assault` at (632,-3400), about 330 units from the player. An earlier "~25 s to kill" in chat assumed 4 s capture spacing (real ~5.2 s): wrong, corrected to 35-40 s.
+- **Native NPC pistol fire with the HEV suit (step 1b), d1_canals_01 barrelpush_cop1:** native T061116Z (oracle + 60 fps gdigrab + per-process audio): HUD health 91/76/64/52/34/19/4 at 3.3/8.8/14.0/19.2/24.3/30.0/35.3 s after the maker Spawn, dead by 40.5 s; ~60 shots, 3 HP per hit; shots in bursts ~0.2-0.5 s apart with ~1 s rests; ent_text `Behv: Assault` at (632,-3400), about 330 units from the player. An earlier "~25 s to kill" in chat assumed 4 s capture spacing (real ~5.2 s): wrong, corrected to 35-40 s.
 - **Ours before (artifacts/s21/canals-pistol):** a steady shot every ~0.5 s from the spawn point (452,-3394), 34/34 hits, dead at 17.9 s. Three causes, all fixed:
   - CNPC_MetroPolice::OnUpdateShotRegulator for pistols (bursts and rests by enemy distance 180..1800 units, shots U(0.2, 0.5) s apart; OnRangeAttack1 reruns it when a burst ends). Ours used only the weapon's fixed rate.
   - The assault behavior (DESIGN 14a): OnFoundPlayer/OnFoundEnemy/OnLost*LOS outputs, ai_goal_assault (Activate/Deactivate/BeginAssault/UpdateActors/StartActive), assault_rallypoint/assault_assaultpoint, CAI_AssaultBehavior selection/translation/tasks/schedules after policing, aiscripted_schedule StartSchedule/StopSchedule (walk/run to goal, once unless repeatable, radius, 1 s retry). AI move goals drop to the floor first (the canals rally point is 32 units up; our planner also refuses graph routes on maps with info_node_link controllers, so only direct moves work there).
@@ -574,7 +2255,7 @@ Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-2026101
 - **AI on by default** like Source (`ai_disabled` 0): `--no-ai`; console `ai_disable` (SDK CC_AI_Disable toggle, cheat; "A.I. Disabled..." HUD text while off), `ai_enable` kept as ours. Owner go-ahead for this small hl2-ui console edit (session 20).
 - **Citizens: CNPC_Citizen::SelectModel** (citizen type from `citizentype` or the map name, least-used random heads with gender flags, medic/rebel/refugee groups): the d1_trainstation_02 queue citizens #580-582 (SF_CITIZEN_RANDOM_HEAD) are now three different people like native. F4/npc_create variants `npc_citizen_rebel/_refugee/_medic` (ours; native has only npc_citizen + keyvalues), each pooled slot with its own head.
 - **VMT DirectX-level blocks** (`">=dx90_20b" {}`) applied for level 95: the combine soldier's base texture lives only there (it was magenta). May change other materials: check in the regression batch.
-- **RPG launch flash:** v_rpg.mdl event 5001 (obsolete CL_EVENT_MUZZLEFLASH0, type 0) -> retail client.dll MuzzleFlash_AR2_Player (SDK declares it, never defines it; private Ghidra decompile, constants from the installed client.dll; work/hl2-decompiled/muzzle-20261016): eight ar2_muzzle sprites along the barrel + a core, 0.025 s. Native 60 fps recording shows the fireball on launch and the 0.3 s ignition wash (already implemented). NPC RPG flash per MuzzleFlash_RPG_NPC.
+- **RPG launch flash:** v_rpg.mdl event 5001 (obsolete CL_EVENT_MUZZLEFLASH0, type 0) -> retail client.dll MuzzleFlash_AR2_Player (SDK declares it, never defines it; constants from the installed client.dll): eight ar2_muzzle sprites along the barrel + a core, 0.025 s. Native 60 fps recording shows the fireball on launch and the 0.3 s ignition wash (already implemented). NPC RPG flash per MuzzleFlash_RPG_NPC.
 - **Bullets pass grate fences** (MASK_SHOT has no CONTENTS_GRATE; `Physics::bullet_ray` for player bullets, NPC FireBullets, RPG laser). Unit-tested; not checked in a packaged canals run.
 - **Grate/window world brushes now collide:** the BSP loader dropped world brushes without SOLID/PLAYERCLIP/MONSTERCLIP, so `%compilepassbullets` gates (tr02 metal/metalgate001a scissor gates by the can cop, owner report) had no collision. Packaged walk blocked at the gate (artifacts/s20/scissor-walk). The gate is a flat alpha-tested texture in native too (no $bumpmap).
 - **Combine ball rules from the SDK:** no hit on NPCs that like the player and no dissolve for EFL_NO_DISSOLVE classes (all citizens, Alyx, Barney, Breen, Eli, Kleiner, Mossman, G-Man, scanners, manhacks, rollermines, turrets, gunships, antlion guards, bullseyes); homing per IsAttractiveTarget. Cops/soldiers dissolve (packaged: plaza cop and an F4 cop removed; the dissolve effect is not modeled). The owner's report (ball bounced off NPCs) matches native for those classes; not compared with native captures.
@@ -583,7 +2264,7 @@ Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-2026101
 
 Open (next, in order):
 - **Owner notes (session 20):** non-human NPCs attack without weapons (natural attacks: SDK capabilities, e.g. zombies/headcrabs/antlions/manhacks/barnacles/vortigaunts/hunters...: table in DESIGN 14n) for their per-class AI; antlions follow bugbait (weapon_bugbait SecondaryAttack BroadcastFollowGoal, grenade SOUND_BUGBAIT + BroadcastFightGoal, COND_HEAR_BUGBAIT, antlion_allied global); medics heal the player (< 60%, 25 HP, 25 s) and allies (< 90%, 30 HP, 20 s; sk_citizen_heal_*).
-- Our pistol flash still shows on every shot (native ~1 in 2: SDK says every shot; retail differs; next: decompile retail DoAnimationEvents / particle first-frame handling).
+- Our pistol flash still shows on every shot (native ~1 in 2: SDK says every shot; retail differs; next: analyze retail DoAnimationEvents / particle first-frame handling).
 - NPC-vs-NPC enemies (needed for friend/foe spawns to fight each other; allegiance today is toward the player only; the ball ignores F4 allegiance).
 - Then the session-19 list: native NPC pistol cadence with HEV (canals), npc_metropolice ranged schedules, flinches, player hitgroups, actbusy, scripted cops with AI on, F4 vs npc_create_aimed, citizen +USE speech, Breen glances, regression batch (AI is now on by default: expected differences), merge main 6226ae7 into the branch, merge to main; DESIGN 14r.
 - hl2-ui console help still says "six implemented weapons" (left alone).
@@ -594,7 +2275,7 @@ Claude Code desktop, `claude-opus-5-5` (side session continuing session 19's wor
 - **Floating NPCs (owner): cause = template NPCs spawned in place.** SF_NPC_TEMPLATE (2048) NPCs (tr02 citizen_passerby #439 z 104, citizen_queue #518 z 132; canals barrelpush_cop1 #126 z 288 and 18 more) are now held like native's map loader; `npc_template_maker` spawns them (first copy only: the held entity; repeats need DESIGN 14r, counted as unsupported). StartNPC drops ground NPCs to the floor once (FloorPoint -2048), SF_NPC_FALL_TO_GROUND NPCs fall under step gravity. Packaged: canals cop1 appears on `Spawn` at z 256 and fires; tr02 makers place citizens at npc_exit_point destinations (they stand there: actbusy not implemented).
 - **NPC health and hitgroups per SDK.** skill.cfg health per class (metrocop 40, citizen 40, Kleiner 8...), bullets trace animated MDL hitboxes (hitgroups), sk_npc_* multipliers. **Owner question answered with native ent_text:** no range falloff; a player headshot within 360 units on a humanoid that never had the player as enemy is the SDK `CAI_BaseHumanoid::TraceAttack` sneak attack: damage = remaining health, then x3 (native 40 -> -80, 35 -> -70; facing does not matter, notarget on or off). Beyond 360 units a headshot does 15 (native 586 u front-facing: 40 -> 25, flinch_head). Ours matches (artifacts/s19/headshot-close/far). Correction: an earlier "far front-facing" claim in chat was wrong (that cop, T164315Z, faced away); the front-facing far shot was redone (T165923Z).
 - **NPC weapons drawn bone-merged in their hands** (stunstick, pistol, SMG1...), **stunstick glow** while the baton is on (ring like native T020836Z; tesla arcs missing).
-- **Muzzle flashes and tracers** for the player arsenal (pistol, SMG1, 357, shotgun, AR2 flashes from the viewmodel's AE_MUZZLEFLASH; tracers every 2nd bullet for pistol/SMG1/AR2) and NPC weapons (AE_NPC_MUZZLEFLASH on the weapon world model; FX_Tracer lines from the muzzle). Native pistol hold recorded at 60 fps (work/hl2-decompiled/muzzle-20261015/native-pistol-hold.mkv): flash on about 1 in 2-3 shots (0.01 s particles vs ~30 rendered fps) while ours draws one frame per shot. Two oracle still attempts (T171457Z timescale 0.1, T171557Z host_framerate 0.002) missed the flash; the screen recording worked.
+- **Muzzle flashes and tracers** for the player arsenal (pistol, SMG1, 357, shotgun, AR2 flashes from the viewmodel's AE_MUZZLEFLASH; tracers every 2nd bullet for pistol/SMG1/AR2) and NPC weapons (AE_NPC_MUZZLEFLASH on the weapon world model; FX_Tracer lines from the muzzle). Native pistol hold recorded at 60 fps: flash on about 1 in 2-3 shots (0.01 s particles vs ~30 rendered fps) while ours draws one frame per shot. Two oracle still attempts (T171457Z timescale 0.1, T171557Z host_framerate 0.002) missed the flash; the screen recording worked.
 
 Open (next, in order): F4 overlay redesign (scrolling classes, usable weapons, allegiance, notarget); native NPC pistol cadence/hit-rate comparison with HEV (canals); NPC flinches; player hitgroups (player model hitboxes); actbusy for maker citizens; muzzle elights/whiz sounds/tesla arcs; frame-timing visibility of flashes; session-17 leftovers (scripted cops with AI on, F4 vs npc_create_aimed, citizen +USE speech, Breen glances); regression batch, merge to main; DESIGN 14r (repeat maker spawns, dropped weapons, gibs).
 
@@ -798,7 +2479,7 @@ SDK vs owner-prompt differences (decide locally; "retail check needed"):
 - The crossbow bolt's SpriteTrail is commented out in the SDK, and the missile trail is a RocketTrail particle emitter, so `sprite_trail` was not needed for either.
 - Bolt water speed (1500) is unused: no player water level yet.
 
-Not done / known gaps: stuck bolts are recorded (`projectiles.stuck_bolts`, report) but **not drawn**; sparks event not drawn; charger/load sprites, laser beam and muzzle sprite are state only (no host drawing); viewmodel skin not applied; ragdoll pinning; sky surfaces are not distinguished (bolts stick to / missiles explode on sky brushes); Missile.Ignite is never stopped (game cues have no stop path); ViewPunch, SOUND_COMBAT/danger sounds (AI step 14); RPG lowered idle when out of ammo; ExplosionCreate's env_explosion origin adjustments (shared blast uses position + 1 up). 
+Not done / known gaps: stuck bolts are recorded (`projectiles.stuck_bolts`, report) but **not drawn**; sparks event not drawn; charger/load sprites, laser beam and muzzle sprite are state only (no host drawing); viewmodel skin not applied; ragdoll pinning; sky surfaces are not distinguished (bolts stick to / missiles explode on sky brushes); Missile.Ignite is never stopped (game cues have no stop path); ViewPunch, SOUND_COMBAT/danger sounds (AI step 14); RPG lowered idle when out of ammo; ExplosionCreate's env_explosion origin adjustments (shared blast uses position + 1 up).
 
 Tests (Linux, this branch, at ded5dcc): `cargo test -p hl2-simulation -p source-assets -p modkit-core -p hl2-ui --locked` -> hl2-simulation 190 passed / 18 ignored, plus the other crates unchanged (32/1, 52/0, 90/18 ignored as before); `cargo test -p hl2-bevy --locked` 37 passed / 2 ignored (system libs installed here); `cargo fmt --all --check`; `cargo clippy -p hl2-simulation -p hl2-bevy --all-targets --locked -- -D warnings` clean at ded5dcc (commits 8950572..b86dbaa did **not** pass strict Clippy: a colored-output grep hid the errors; fixed in ded5dcc). Windows/MSVC build **not tested** here.
 
@@ -877,6 +2558,7 @@ Supersedes session 9's open items where they conflict. Claude Code desktop, mode
 - **Fades and indicator:** CViewEffects fades (DamageEffect, env_fade, the fatal-landing black cut), HudDamageIndicator from the owned HudAnimations sequences. Native steady-state death frames match (trigger_hurt red; fatal landing black + red, 253 vs our 255).
 - **Arsenal (DESIGN 13b): WIP on `wip/arsenal-20261009` (pushed, not merged; the owner wants one merge for all five weapons).** Done there: weapon_frag (owned v_grenade.mdl events drive pullback/throw/lob/roll, 0.5 s rethrow, redraw, clipless default ammo) and npc_grenade_frag (fuse on 0.105 s think ticks: blips at 0, 1.05, 2.10, 2.415, 2.73 s, detonation at 3.045 s; sk_plr_dmg_fraggrenade 125 / radius 250; w_grenade model, redglow1 glow and bluelaser1 red trail at the fuse attachment); item_suit logon (!HEV_AAx). Packaged throw on trainstation_02 works (unit + owned tests). Not done: native frag comparison (flight distance, bounce/roll, glow size), lob/roll packaged runs, crossbow, RPG, bug bait, gravity gun. Frag motion is a swept box with the SDK 0.2 restitution; floor friction is approximated (no VPhysics body yet).
 - **Owner direction (2026-10-09):** after player damage, the rest of the arsenal as one feature (13b), then NPC behavior/AI from SDK + private retail evidence (step 14), with a developer NPC spawn overlay on F4 (class + weapon, spawned armed; native F5 jpeg, F6 save quick, F9 load quick, owner config F3 askconnect_accept avoided). Trainstation metrocops must follow native behavior (posts, warnings, shove, stunstick escalation).
+- **UI/input/movement boundary: validated.** `hl2-ui` now owns portable viewport geometry, pointer-to-canvas translation, canvas resizing, and persisted binding lookup. `hl2-bevy::video` converts explicitly at the Bevy/portable `glam` version boundary; `hl2-bevy::ui` remains the native event/window adapter only. Bevy gameplay-input conversion moved out of `movement.rs` into `input.rs`, and camera presentation moved into `camera.rs`; movement retains the fixed character simulation. Existing menu/pause/capture behavior and binding/mouse tests pass. This is a structural refactor; packaged runtime capture is **not tested** in this session.
 
 Remaining work, in the owner's order: (0) DESIGN 13b, the rest of the arsenal in one feature (frag, crossbow, RPG, gravity gun, bug bait); (1) step 14 NPC AI + F4 spawn overlay; then the previous list: detail sprites (DESIGN 11c, `wip/detail-sprites-20261008`), audio follow-ups (outside soundscape +6.6 dB, NPC speech positioning, own-sound spatialization, DSP), displacement overlays/fades, npc_metropolice movement/idle and the security chain, renderer items (LDR, env_cubemap on brush entities/models, bumped lightmaps, ropes, env_sprite, screen glow, monitor brightness). Player leftovers: drowning (needs water movement), knockback/punch, time-based damage, NPC sk_*_health, parented triggers, VOX mixer details.
 
@@ -925,7 +2607,7 @@ Audio rejected approach: two default-endpoint system-loopback attempts included 
 
 Verification: `cargo test --locked --workspace` (344 normal), owned ignored tests (33), strict workspace/all-target Clippy and formatting pass. `scripts/build-bevy.ps1` produced SHA256 `6E6C7FE4ED4C5988553739F37F596F33CB632F8765937AEAFC3B0B4D0330A3B2` at `2026-10-08T01:39:14.6464456Z`. Batch `artifacts/owner-reports-regression` completes with verifiers movement 26/26, weapons 17/17 and attention 26/26. Known station03 material errors and the zero-byte `d2_coast_02.bsp` rejection remain distinct from this work. Weapons burst: flicker_check.py reports 0 of 121 frames missing the viewmodel.
 
-Contributor coordination: the session's `gh pr list` and `gh issue list` for `kvalls/hl2-rs` returned no open entries. @OrbitalMan still reserves main menu/settings, hl2-ui menu code, hl2-bevy menu/settings wiring and persisted settings, including later HDR None/Full. His issue number is pending; add it under **Claims** when it appears. No GitHub comments, assignments or claims were posted. Save/load remains deferred.
+Contributor coordination: the session's `gh pr list` and `gh issue list` for `kvalls/hl2-rs` returned no open entries. @OrbitalMan implemented the native Main Menu and Settings suite (`hl2-ui` menu/options, `hl2-bevy` wiring, and persisted config in `bin/hl2-config.json` next to the binary, preserving read-only game assets), including the HDR None/Full toggle option for the planned LDR renderer path. Resolution (updated 2026-10-12, docs/gameui.md section 10b): standard aspect ratio modes (4:3, 5:4, 16:9, 16:10 from 640x480 to 4K) merged with monitor modes populate the Normal 4:3 bucket on Retina displays; windowed mode sizes at 1:1 physical pixel scale (supporting resolutions up to native Retina panels without giant-window scaling); runtime resolution changes stop frame cameras, resize the frame and resume (section 10a). Validated by comprehensive unit tests and live packaged execution with real mouse interaction. Save/load remains deferred.
 
 Remaining work, in the owner's order:
 

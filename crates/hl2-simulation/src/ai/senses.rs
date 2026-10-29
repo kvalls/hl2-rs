@@ -2,7 +2,12 @@
 //! FInViewCone in basecombatcharacter.cpp), producing conditions and the best enemy.
 //! Line of sight goes through `SightWorld`, which the host implements with its world
 //! queries. SDK behavior, retail not compared.
-use super::conditions::*;
+use super::conditions::{
+    Conditions, COND_HEAR_BUGBAIT, COND_HEAR_BULLET_IMPACT, COND_HEAR_COMBAT, COND_HEAR_DANGER,
+    COND_HEAR_MOVE_AWAY, COND_HEAR_PHYSICS_DANGER, COND_HEAR_PLAYER, COND_HEAR_THUMPER,
+    COND_HEAR_WORLD, COND_NO_HEAR_DANGER, COND_SEE_FEAR, COND_SEE_HATE, COND_SEE_PLAYER,
+    COND_SMELL,
+};
 use super::relationships::{Class, Disposition, Relationships};
 use glam::Vec3;
 use serde::Serialize;

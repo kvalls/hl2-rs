@@ -1,0 +1,45 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      -4304,
+      -172,
+      64
+    ],
+    "yaw": 90,
+    "pitch": 0,
+    "ui": [
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "command",
+        "command": "sv_cheats 1; impulse 101; impulse 100"
+      },
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "escape"
+      }
+    ]
+  },
+  {
+    "tick": 20,
+    "actions": [
+      {
+        "action": "slot",
+        "slot": 2
+      },
+      {
+        "action": "confirm"
+      }
+    ]
+  },
+  {
+    "tick": 120,
+    "paused": true,
+    "label": "flashlight-viewmodel-smg"
+  }
+]

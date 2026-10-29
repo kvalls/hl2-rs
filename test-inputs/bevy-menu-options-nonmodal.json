@@ -1,0 +1,335 @@
+[
+  {
+    "tick": 20,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 21,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 22,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 23,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 24,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 25,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "options-open"
+  },
+  {
+    "tick": 60,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            160,
+            437
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 61,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            160,
+            437
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 62,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            160,
+            437
+          ],
+          "released": true
+        }
+      }
+    ],
+    "label": "menu-beside-clicked"
+  },
+  {
+    "tick": 200,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            420,
+            184
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 201,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            400,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 202,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            380,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 203,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            360,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 204,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            340,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 205,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            320,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 206,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 207,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            280,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 208,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            260,
+            184
+          ],
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 210,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            260,
+            184
+          ],
+          "released": true
+        }
+      }
+    ],
+    "label": "options-dragged"
+  },
+  {
+    "tick": 240,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            140,
+            402
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 241,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            140,
+            402
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 242,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            140,
+            402
+          ],
+          "released": true
+        }
+      }
+    ],
+    "label": "menu-under-clicked"
+  },
+  {
+    "tick": 400,
+    "ui": [
+      {
+        "action": "command",
+        "command": "echo settled"
+      }
+    ],
+    "label": "settle"
+  }
+]

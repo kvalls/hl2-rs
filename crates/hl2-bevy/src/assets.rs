@@ -1,4 +1,10 @@
 //! Read owned Source assets before constructing the Bevy app; no system performs file I/O.
+mod faces;
+mod names;
+#[cfg(test)]
+use names::rendered_material_names;
+pub(crate) use names::visible_entity;
+mod vmt_vars;
 use anyhow::{Context, Result, bail};
 use modkit_core::World;
 use source_assets::{
@@ -9,11 +15,8 @@ use source_assets::{
     vpk::{self, Vfs},
     vtf::{self, Image},
 };
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
+use vmt_vars::{direct_properties, material_properties};
 
 const MAX_TEXTURE_DIMENSION: usize = 2048;
 const MAX_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
@@ -32,9 +35,10 @@ pub struct TwoTexture {
 }
 
 pub struct LoadedMap {
+    /// Installation folder of the game the map was loaded for (`hl2`, `lostcoast`, ...).
+    pub game: String,
     pub world: Arc<World>,
     pub gameplay: crate::gameplay::Gameplay,
-    pub console: hl2_ui::console::Console,
     pub hud: hl2_ui::hud::WeaponHud,
     pub audio: crate::audio::PreparedAudio,
     pub sky: Option<source_assets::sky::Skybox>,
@@ -46,6 +50,10 @@ pub struct LoadedMap {
     pub bsp: Bsp,
     pub revision: u32,
     pub materials: BTreeMap<String, MaterialData>,
+    /// The flashlight's projected texture.
+    pub flashlight_cookie: Option<Arc<Image>>,
+    /// The world triangles projected shadows land on.
+    pub shadow_receivers: Arc<hl2_simulation::shadows::receivers::Receivers>,
     pub texture_errors: Vec<String>,
     pub models: serde_json::Value,
     /// The map's mounted content (its pak included) for runtime model loads.
@@ -159,15 +167,48 @@ impl Default for MaterialData {
 /// keeps the legacy fitted swept box for comparisons.
 pub static FRAG_RIGID_BODY: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
-pub fn load(game: &Path, map: &str) -> Result<LoadedMap> {
-    load_with_canvas(game, map, hl2_ui::canvas::Canvas::default(), true)
+#[allow(dead_code)]
+pub fn load(root: &Path, game: &str, map: &str) -> Result<LoadedMap> {
+    load_with_canvas(root, game, map, source_ui::canvas::Canvas::default(), true)
 }
+/// Loads `maps/<map>.bsp` through the search path of `game`, the installation folder of the
+/// game the map belongs to (`hl2`, `episodic`, `ep2`, `lostcoast`).
+#[allow(dead_code)]
 pub fn load_with_canvas(
-    game: &Path,
+    root: &Path,
+    game: &str,
     map: &str,
-    canvas: hl2_ui::canvas::Canvas,
+    canvas: source_ui::canvas::Canvas,
     new_game: bool,
 ) -> Result<LoadedMap> {
+    let config = hl2_ui::config::Config::load_or_default();
+    load_with_config(root, game, map, canvas, new_game, &config)
+}
+/// Loads `maps/<map>.bsp` with the specified configuration (honoring model and texture detail).
+pub fn load_with_config(
+    root: &Path,
+    game: &str,
+    map: &str,
+    canvas: source_ui::canvas::Canvas,
+    new_game: bool,
+    config: &hl2_ui::config::Config,
+) -> Result<LoadedMap> {
+    let progress = hl2_ui::gameui::loading::ProgressReport::default();
+    load_with_progress(root, game, map, canvas, new_game, config, &progress)
+}
+/// [`load_with_config`] reporting its stages to `progress` (a console's loading dialog).
+pub fn load_with_progress(
+    root: &Path,
+    game: &str,
+    map: &str,
+    canvas: source_ui::canvas::Canvas,
+    new_game: bool,
+    config: &hl2_ui::config::Config,
+    progress: &hl2_ui::gameui::loading::ProgressReport,
+) -> Result<LoadedMap> {
+    let root_lod = config.video.advanced.model_detail.root_lod();
+    let picmip = config.video.advanced.texture_detail.picmip();
+    let hdr = config.video.hdr.is_hdr();
     let map = map.trim_end_matches(".bsp");
     if map.is_empty()
         || map.len() > 128
@@ -177,15 +218,25 @@ pub fn load_with_canvas(
     {
         bail!("map must be a bare Source map name");
     }
-    let mut vfs = Vfs::mount(game).context("mount installed owned content")?;
+    progress.report(0.05, "LoadingProgress_SpawningServer");
+    if game.is_empty()
+        || !game
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+    {
+        bail!("game must be a bare installation folder name");
+    }
+    let mut vfs = Vfs::mount_game(root, game).context("mount installed owned content")?;
+    progress.report(0.15, "LoadingProgress_LoadMap");
     let bytes = vfs
         .read(&format!("maps/{map}.bsp"))?
-        .with_context(|| format!("owned map {map}.bsp not found"))?;
+        .with_context(|| format!("owned map {game}/maps/{map}.bsp not found"))?;
     if bytes.len() > 512 * 1024 * 1024 {
         bail!("owned map exceeds 512 MiB read limit");
     }
-    let bsp = Bsp::parse(&bytes).with_context(|| format!("decode {map}.bsp"))?;
+    let bsp = Bsp::parse_with(&bytes, hdr).with_context(|| format!("decode {map}.bsp"))?;
     vfs.mount_pak(bsp.lump(40)).context("mount map pak")?;
+    progress.report(0.35, "LoadingProgress_PrecacheWorld");
     let mut world = bsp.world(map).context("decode Source world")?;
     world.warnings.extend(vfs.warnings.iter().cloned());
     normalize_bsp_render_winding(&mut world);
@@ -196,7 +247,11 @@ pub fn load_with_canvas(
     hl2_simulation::ai::spawn::append_pool(&mut world);
     // CNPC_Citizen::SelectModel (citizen types, random heads), before models load.
     hl2_simulation::citizens::select_models(&mut world, hl2_simulation::ai::spawn::POOL_KEY);
-    let model_report = models::append_models(&mut world, &vfs);
+    let commentary_enabled = config.gameplay.commentary;
+    if commentary_enabled {
+        hl2_simulation::commentary::append_world_commentary(&mut world, &vfs, map);
+    }
+    let model_report = models::append_models_lod(&mut world, &vfs, root_lod);
     let _gibs_without_physics = models::append_break_physics(&mut world, &vfs);
     // NPC weapon world models: their sequence events fire NPC weapons (DESIGN 14w).
     let weapon_models: Vec<String> = hl2_simulation::npc_weapons::definitions(&vfs)
@@ -224,7 +279,7 @@ pub fn load_with_canvas(
         if world.model_assets.contains_key(&key) {
             continue;
         }
-        match models::read_model(&vfs, model, 0) {
+        match models::read_model_lod(&vfs, model, 0, root_lod) {
             Ok(surfaces) => {
                 world.model_assets.insert(key, surfaces);
             }
@@ -249,36 +304,19 @@ pub fn load_with_canvas(
             hl2_simulation::projectiles::FRAG_MODEL
         ));
     }
+    progress.report(0.50, "LoadingProgress_SignonDataLocal");
     let mut gameplay =
         crate::gameplay::Gameplay::load_with_campaign(world, &vfs, bsp.revision, new_game)?;
     let world = gameplay.world.clone();
-    let effects = crate::effects::PreparedEffects::load(&vfs, &world);
-    let mut names = rendered_material_names(&world);
-    names.extend(
-        effects
-            .models
-            .values()
-            .flatten()
-            .map(|s| s.material.clone()),
+    hl2_simulation::commentary::CommentaryState::spawn_init(
+        &mut gameplay.scene,
+        &world,
+        commentary_enabled,
+        hdr,
+        new_game,
     );
-    for model in &weapon_models {
-        if let Some(surfaces) = world
-            .model_assets
-            .get(&format!("{}#0", model.to_lowercase()))
-        {
-            names.extend(surfaces.iter().map(|s| s.material.clone()));
-        }
-    }
-    for weapon in gameplay.weapons.values() {
-        for skin in 0..2 {
-            if let Some(surfaces) = world
-                .model_assets
-                .get(&format!("{}#{skin}", weapon.viewmodel.to_lowercase()))
-            {
-                names.extend(surfaces.iter().map(|s| s.material.clone()));
-            }
-        }
-    }
+    let effects = crate::effects::PreparedEffects::load_with_lod(&vfs, &world, root_lod);
+    let names = names::map_material_names(&world, &effects, &weapon_models, &gameplay);
     if names.len() > MAX_MATERIALS {
         bail!("map exceeds {MAX_MATERIALS} unique material limit");
     }
@@ -287,7 +325,12 @@ pub fn load_with_canvas(
     let mut decoded_bytes = 0usize;
     let mut texture_cache = BTreeMap::new();
     let mut frame_cache = BTreeMap::new();
-    for name in names {
+    let total_materials = names.len().max(1);
+    for (i, name) in names.into_iter().enumerate() {
+        if i % 10 == 0 || i + 1 == total_materials {
+            let frac = 0.55 + 0.30 * (i as f32 / total_materials as f32);
+            progress.report(frac, "LoadingProgress_LoadResources");
+        }
         let material = load_material(
             &vfs,
             &name,
@@ -295,62 +338,13 @@ pub fn load_with_canvas(
             &mut frame_cache,
             &mut decoded_bytes,
             &mut texture_errors,
+            (picmip, hdr),
         );
         materials.insert(name, material);
     }
-    let mut eyes = BTreeMap::new();
-    let mut gaze = BTreeMap::new();
-    let mut flexes = BTreeMap::new();
-    for (key, surfaces) in &world.model_assets {
-        let model = key.split('#').next().unwrap_or(key);
-        let mut face = None;
-        if world.model_instances.iter().any(|i| {
-            i.asset_key() == *key
-                && i.entity
-                    .is_some_and(|id| world.entities[id].class().starts_with("npc_"))
-        }) {
-            match vfs
-                .read(model)
-                .and_then(|d| d.ok_or_else(|| anyhow::anyhow!("model missing")))
-                .and_then(|d| source_assets::flexes::read_flexes(&d))
-            {
-                Ok(model) if !model.meshes.is_empty() => {
-                    face = Some(model);
-                }
-                Ok(_) => {}
-                Err(e) => texture_errors.push(format!("{model}: facial flexes: {e:#}")),
-            }
-            match source_assets::eyes::load_gaze(&vfs, model) {
-                Ok(metadata) => {
-                    gaze.insert(key.clone(), metadata);
-                }
-                Err(e) => texture_errors.push(format!("{model}: gaze attachment metadata: {e:#}")),
-            }
-        }
-        match source_assets::eyes::load(&vfs, model) {
-            Ok(records) => {
-                if let Some(flex) = face.take() {
-                    flexes.insert(
-                        key.clone(),
-                        Arc::new(source_assets::flexes::FaceModel {
-                            flex,
-                            eyes: records.clone(),
-                        }),
-                    );
-                }
-                for eye in records {
-                    if let Some(surface) = surfaces.get(eye.surface) {
-                        eyes.insert((key.clone(), surface.material.clone()), eye);
-                    } else {
-                        texture_errors.push(format!("{model}: eyeball mesh missing"));
-                    }
-                }
-            }
-            Err(e) => texture_errors.push(format!("{model}: eyeball metadata: {e:#}")),
-        }
-    }
+    progress.report(0.90, "LoadingProgress_SignonLocal");
+    let faces = faces::load(&vfs, &world, &mut texture_errors);
     let hud = hl2_ui::hud::WeaponHud::load(&vfs, canvas)?;
-    let console = hl2_ui::console::Console::load(&vfs, hud.canvas.clone());
     let mut audio = crate::audio::PreparedAudio::load(&vfs, &gameplay);
     for (wave, sentence, seconds) in audio.sentences.drain(..) {
         gameplay
@@ -358,19 +352,16 @@ pub fn load_with_canvas(
             .lipsync
             .add_sentence(&wave, sentence, seconds);
     }
-    let sky = match source_assets::sky::load(&vfs, &world.entities, 512) {
-        Ok(sky) => sky,
-        Err(e) => {
-            texture_errors.push(format!("2D sky assets: {e:#}"));
-            None
-        }
-    };
+    let sky = load_sky(&vfs, &world, hdr, &mut texture_errors);
+    progress.report(1.0, "LoadingProgress_SignonLocal");
     Ok(LoadedMap {
-        console,
+        shadow_receivers: Arc::new(crate::shadows::receivers(&world, &materials)),
+        flashlight_cookie: crate::flashlight::load_cookie(&vfs).map(Arc::new),
+        game: game.to_owned(),
         effects,
-        eyes,
-        gaze,
-        flexes,
+        eyes: faces.eyes,
+        gaze: faces.gaze,
+        flexes: faces.flexes,
         sky,
         audio,
         hud,
@@ -403,6 +394,20 @@ pub fn prepare_model(
     class: &str,
     known: &std::collections::BTreeSet<String>,
 ) -> Result<PreparedModel> {
+    let config = hl2_ui::config::Config::load_or_default();
+    prepare_model_with_config(vfs, model, class, known, &config)
+}
+/// Load a model on a worker thread with explicit video configuration.
+pub fn prepare_model_with_config(
+    vfs: &Vfs,
+    model: &str,
+    class: &str,
+    known: &std::collections::BTreeSet<String>,
+    config: &hl2_ui::config::Config,
+) -> Result<PreparedModel> {
+    let root_lod = config.video.advanced.model_detail.root_lod();
+    let picmip = config.video.advanced.texture_detail.picmip();
+    let hdr = config.video.hdr.is_hdr();
     let mut world = World {
         entities: vec![modkit_core::Entity {
             properties: vec![
@@ -412,7 +417,7 @@ pub fn prepare_model(
         }],
         ..Default::default()
     };
-    let report = models::append_models(&mut world, vfs);
+    let report = models::append_models_lod(&mut world, vfs, root_lod);
     if world.model_assets.is_empty() {
         bail!("{model}: {}", report.errors.join("; "));
     }
@@ -422,7 +427,7 @@ pub fn prepare_model(
     let hull = models::read_hull(vfs, model)?;
     let mut gibs = BTreeMap::new();
     for (path, skin) in crate::effects::gib_models(&world) {
-        match crate::effects::read_effect_model(vfs, &path, skin) {
+        match crate::effects::read_effect_model_lod(vfs, &path, skin, root_lod) {
             Ok(surfaces) => {
                 gibs.insert(hl2_simulation::gibs::render_key(&path, skin), surfaces);
             }
@@ -448,6 +453,7 @@ pub fn prepare_model(
             &mut frames,
             &mut decoded,
             &mut errors,
+            (picmip, hdr),
         );
         materials.insert(name, material);
     }
@@ -501,7 +507,7 @@ fn add_static_decals(world: &mut World, vfs: &Vfs, errors: &mut Vec<String>) {
     world.surfaces.extend(added);
 }
 fn decal_size(vfs: &Vfs, material: &str) -> Result<glam::Vec2> {
-    let definition = definition(vfs, material, 0)?;
+    let definition = definition(vfs, material, 0, true)?;
     let base = definition
         .properties
         .get("$basetexture")
@@ -535,54 +541,32 @@ fn normalize_bsp_render_winding(world: &mut World) {
 }
 
 /// Initial static visibility only. Runtime I/O and animated render effects are separate.
-pub(crate) fn visible_entity(world: &World, id: usize) -> bool {
-    world.entities.get(id).is_some_and(|entity| {
-        !entity.class().starts_with("trigger_") && !entity.class().starts_with("func_areaportal")
-    })
-}
-
-fn rendered_material_names(world: &World) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    let mut append = |surfaces: &[modkit_core::Surface]| {
-        names.extend(
-            surfaces
-                .iter()
-                .filter(|surface| !surface.indices.is_empty())
-                .map(|surface| surface.material.clone()),
-        );
-    };
-    // Includes displacements and already-transformed static props. terrain is a
-    // duplicate collision representation, and unused model_assets are not draws.
-    append(&world.surfaces);
-    append(&world.overlays);
-    for (id, entity) in world.entities.iter().enumerate() {
-        if !visible_entity(world, id) {
-            continue;
-        }
-        if let Some(brush) = entity
-            .get("model")
-            .and_then(|name| name.strip_prefix('*'))
-            .and_then(|id| id.parse::<usize>().ok())
-            .and_then(|id| world.brush_models.iter().find(|model| model.id == id))
-        {
-            append(&brush.surfaces);
-        }
-    }
-    for instance in &world.model_instances {
-        if !instance.entity.is_some_and(|id| visible_entity(world, id)) {
-            continue;
-        }
-        if let Some(surfaces) = world.model_assets.get(&instance.asset_key()) {
-            append(surfaces);
-        }
-    }
-    names
-}
-
 struct Definition {
     shader: String,
     properties: BTreeMap<String, String>,
     proxies: Vec<Entry>,
+}
+
+/// The 2D sky; an LDR frame (below `mat_hdr_level` 2) keeps only the plain faces.
+fn load_sky(
+    vfs: &Vfs,
+    world: &World,
+    hdr: bool,
+    errors: &mut Vec<String>,
+) -> Option<source_assets::sky::Skybox> {
+    let mut sky = match source_assets::sky::load(vfs, &world.entities, 512) {
+        Ok(sky) => sky?,
+        Err(e) => {
+            errors.push(format!("2D sky assets: {e:#}"));
+            return None;
+        }
+    };
+    if !hdr {
+        for face in &mut sky.faces {
+            face.hdr = None;
+        }
+    }
+    Some(sky)
 }
 
 fn asset_path(name: &str, extension: &str) -> Result<String> {
@@ -596,80 +580,11 @@ fn asset_path(name: &str, extension: &str) -> Result<String> {
     Ok(format!("materials/{name}{extension}"))
 }
 
-/// Direct material vars, with retail MaterialSystem key conditionals (`test?$var`, optional
-/// `!`): a key whose test fails is skipped, and a passing one replaces the plain value.
-fn direct_properties(entries: &[Entry]) -> BTreeMap<String, String> {
-    let mut properties = BTreeMap::new();
-    let mut conditional = Vec::new();
-    for entry in entries {
-        let Some(text) = entry.text() else {
-            continue;
-        };
-        let key = entry.key.to_lowercase();
-        match key.split_once('?') {
-            Some((test, name)) if !test.is_empty() => {
-                if material_condition(test) {
-                    conditional.push((name.to_owned(), text.to_owned()));
-                }
-            }
-            _ => {
-                properties.insert(key, text.to_owned());
-            }
-        }
-    }
-    properties.extend(conditional);
-    properties
-}
-
-/// Tests as evaluated on a DX9, sRGB-capable renderer in HDR mode (mat_hdr_level 2, the
-/// Source default and the owner's setting). Unknown tests are false, as in retail (which
-/// also warns).
-fn material_condition(test: &str) -> bool {
-    let (negate, test) = test.strip_prefix('!').map_or((false, test), |t| (true, t));
-    let value = matches!(test, "srgb" | "hdr");
-    value != negate
-}
-
-/// DirectX-level blocks inside a material (`">=dx90_20b" { ... }`, `"<dx90" { ... }`):
-/// whether the block applies on a DX level 95 renderer (SM3 HDR, the owner's native
-/// setting). `dx90_20b` (ps2.0b) sits between levels 90 and 95. Other keys are not
-/// DX-level blocks (None).
-fn dx_level_block(key: &str) -> Option<bool> {
-    const LEVEL: f32 = 95.;
-    let key = key.to_ascii_lowercase();
-    let (op, rest) = ["<=", ">=", "<", ">"]
-        .into_iter()
-        .find_map(|op| key.strip_prefix(op).map(|rest| (op, rest)))
-        .unwrap_or(("=", key.as_str()));
-    let digits = rest.strip_prefix("dx")?;
-    let (number, b20) = digits
-        .strip_suffix("_20b")
-        .map_or((digits, false), |n| (n, true));
-    let level = number.parse::<f32>().ok()? + if b20 { 0.5 } else { 0. };
-    Some(match op {
-        "<=" => LEVEL <= level,
-        ">=" => LEVEL >= level,
-        "<" => LEVEL < level,
-        ">" => LEVEL > level,
-        _ => LEVEL == level,
-    })
-}
-/// Direct material vars plus the DX-level blocks that apply (their vars win).
-fn material_properties(entries: &[Entry]) -> BTreeMap<String, String> {
-    let mut properties = direct_properties(entries);
-    for entry in entries {
-        if matches!(entry.value, Value::Block(_)) && dx_level_block(&entry.key) == Some(true) {
-            properties.extend(direct_properties(entry.children()));
-        }
-    }
-    properties
-}
-
 // Reuse the bounded KeyValues decoder, preserving direct material parameters and
 // Patch insert/replace semantics. DX-level blocks are evaluated for level 95; the authored
 // Eyes_dx8 fallback is selected for EyeRefract; other shader fallbacks/proxies remain
 // unsupported.
-fn definition(vfs: &Vfs, name: &str, depth: usize) -> Result<Definition> {
+fn definition(vfs: &Vfs, name: &str, depth: usize, hdr: bool) -> Result<Definition> {
     if depth > 8 {
         bail!("VMT include cycle/depth limit");
     }
@@ -688,8 +603,8 @@ fn definition(vfs: &Vfs, name: &str, depth: usize) -> Result<Definition> {
     if root.key.eq_ignore_ascii_case("eyerefract")
         && let Some(fallback) = root.get("Eyes_dx8")
     {
-        let mut properties = direct_properties(root.children());
-        properties.extend(direct_properties(fallback.children()));
+        let mut properties = direct_properties(root.children(), hdr);
+        properties.extend(direct_properties(fallback.children(), hdr));
         return Ok(Definition {
             shader: "eyes_dx8".into(),
             proxies: Vec::new(),
@@ -699,7 +614,7 @@ fn definition(vfs: &Vfs, name: &str, depth: usize) -> Result<Definition> {
     if !root.key.eq_ignore_ascii_case("patch") {
         return Ok(Definition {
             shader: root.key.clone(),
-            properties: material_properties(root.children()),
+            properties: material_properties(root.children(), hdr),
             proxies: root
                 .get("Proxies")
                 .map_or(vec![], |p| p.children().to_vec()),
@@ -709,13 +624,13 @@ fn definition(vfs: &Vfs, name: &str, depth: usize) -> Result<Definition> {
         .get("include")
         .and_then(Entry::text)
         .context("VMT Patch has no include")?;
-    let mut inherited = definition(vfs, include, depth + 1)?;
+    let mut inherited = definition(vfs, include, depth + 1, hdr)?;
     for operation in ["insert", "replace"] {
         if let Some(block) = root.get(operation) {
             if !matches!(block.value, Value::Block(_)) {
                 bail!("VMT Patch {operation} must be a block");
             }
-            for (key, value) in direct_properties(block.children()) {
+            for (key, value) in direct_properties(block.children(), hdr) {
                 if inherited.properties.contains_key(&key) == (operation == "replace") {
                     inherited.properties.insert(key, value);
                 }
@@ -872,6 +787,7 @@ fn load_envmap(
     vfs: &Vfs,
     definition: &Definition,
     decoded_bytes: &mut usize,
+    (picmip, hdr): (i32, bool),
 ) -> Result<Option<(String, source_assets::vtf::Cube)>> {
     if !definition.shader.eq_ignore_ascii_case("lightmappedgeneric") {
         return Ok(None);
@@ -883,9 +799,15 @@ fn load_envmap(
         return Ok(None);
     }
     let path = asset_path(name, ".vtf")?;
-    let hdr = format!("{}.hdr.vtf", path.trim_end_matches(".vtf"));
-    let (path, data) = match vfs.read(&hdr)? {
-        Some(data) => (hdr, data),
+    let hdr_path = format!("{}.hdr.vtf", path.trim_end_matches(".vtf"));
+    // An LDR frame reads the plain cubemap and keeps the HDR copy only as a fallback.
+    let preferred = if hdr { hdr_path.clone() } else { path.clone() };
+    let (path, data) = match vfs.read(&preferred)? {
+        Some(data) => (preferred, data),
+        None if !hdr => match vfs.read(&hdr_path)? {
+            Some(data) => (hdr_path, data),
+            None => bail!("envmap absent: {path}"),
+        },
         None => {
             let data = vfs
                 .read(&path)?
@@ -896,7 +818,7 @@ fn load_envmap(
     if data.len() > MAX_TEXTURE_BYTES {
         bail!("encoded envmap exceeds 64 MiB limit: {path}");
     }
-    let cube = source_assets::vtf::decode_cube(&data, MAX_TEXTURE_DIMENSION)
+    let cube = source_assets::vtf::decode_cube_picmip(&data, MAX_TEXTURE_DIMENSION, picmip)
         .with_context(|| format!("decode {path}"))?;
     let total = decoded_bytes
         .checked_add(cube.faces.iter().map(Vec::len).sum())
@@ -915,8 +837,9 @@ fn load_material(
     frame_cache: &mut BTreeMap<String, TextureFrames>,
     decoded_bytes: &mut usize,
     errors: &mut Vec<String>,
+    (picmip, hdr): (i32, bool),
 ) -> MaterialData {
-    let definition = match definition(vfs, name, 0) {
+    let definition = match definition(vfs, name, 0, hdr) {
         Ok(definition) => definition,
         Err(error) => {
             errors.push(format!("{name}: {error:#}"));
@@ -962,7 +885,7 @@ fn load_material(
         if let Some(second) = definition.properties.get("$texture2") {
             let texture = (|| -> Result<_> {
                 let path = asset_path(second, ".vtf")?;
-                let image = cached_texture(cache, decoded_bytes, &path, || {
+                let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
                     vfs.read(&path)?.context("owned monitor overlay absent")
                 })?;
                 Ok((path, image))
@@ -1004,9 +927,10 @@ fn load_material(
                 }
                 // Source samples the authored mips with distance; the shield frames'
                 // smaller mips are part of their far look.
-                let mut images = vtf::decode_frame_mips(
+                let mut images = vtf::decode_frame_mips_picmip(
                     &data,
                     MAX_TEXTURE_DIMENSION,
+                    picmip,
                     MAX_DECODED_BYTES.saturating_sub(*decoded_bytes),
                 )?;
                 if !frames.active() {
@@ -1057,7 +981,7 @@ fn load_material(
             .or_else(|| definition.properties.get("$refracttinttexture"))
             .context("VMT has no supported base texture")?;
         let path = asset_path(base, ".vtf")?;
-        let image = cached_texture(cache, decoded_bytes, &path, || {
+        let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
             vfs.read(&path)?
                 .with_context(|| format!("VTF absent: {path}"))
         })?;
@@ -1075,7 +999,7 @@ fn load_material(
         Err(error) => errors.push(format!("{name}: selfillum: {error:#}")),
     }
     let envmap = envmap_parameters(&definition, &mut material)
-        .and_then(|()| load_envmap(vfs, &definition, decoded_bytes));
+        .and_then(|()| load_envmap(vfs, &definition, decoded_bytes, (picmip, hdr)));
     let envmap = envmap.and_then(|cube| {
         let Some(cube) = cube else {
             return Ok(None);
@@ -1083,7 +1007,7 @@ fn load_material(
         let mask = envmap_mask(&definition)
             .map(|(texture, kind)| -> Result<_> {
                 let path = asset_path(texture, ".vtf")?;
-                let image = cached_texture(cache, decoded_bytes, &path, || {
+                let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
                     vfs.read(&path)?
                         .with_context(|| format!("envmap mask absent: {path}"))
                 })?;
@@ -1120,7 +1044,7 @@ fn load_material(
                     .context("Eyes VMT missing $iris")?,
                 ".vtf",
             )?;
-            let image = cached_texture(cache, decoded_bytes, &path, || {
+            let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
                 vfs.read(&path)?.context("owned iris VTF absent")
             })?;
             Ok((path, image))
@@ -1140,6 +1064,7 @@ fn cached_texture(
     cache: &mut BTreeMap<String, Arc<Image>>,
     decoded_bytes: &mut usize,
     path: &str,
+    picmip: i32,
     read: impl FnOnce() -> Result<Vec<u8>>,
 ) -> Result<Arc<Image>> {
     if let Some(image) = cache.get(path) {
@@ -1168,8 +1093,8 @@ fn cached_texture(
     if (width.max(height) >> (mips - 1)) > MAX_TEXTURE_DIMENSION {
         bail!("VTF has no mip within the 2048 dimension limit: {path}");
     }
-    let image =
-        vtf::decode(&data, MAX_TEXTURE_DIMENSION).with_context(|| format!("decode {path}"))?;
+    let image = vtf::decode_picmip(&data, MAX_TEXTURE_DIMENSION, picmip)
+        .with_context(|| format!("decode {path}"))?;
     let total = decoded_bytes
         .checked_add(image.rgba.len())
         .context("decoded VTF byte count overflow")?;
@@ -1185,20 +1110,7 @@ fn cached_texture(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn dx_level_blocks_apply_like_a_dx95_renderer() {
-        assert_eq!(dx_level_block(">=dx90_20b"), Some(true));
-        assert_eq!(dx_level_block("<dx90_20b"), Some(false));
-        assert_eq!(dx_level_block("<dx90"), Some(false));
-        assert_eq!(dx_level_block(">dx90"), Some(true));
-        assert_eq!(dx_level_block("dx95"), Some(true));
-        assert_eq!(dx_level_block("Proxies"), None);
-        // combine_soldier/combinesoldiersheet.vmt: the base texture lives only there.
-        let text = "\"VertexLitGeneric\" { \"$model\" 1 \">=dx90_20b\" { \"$baseTexture\" \"a\" } \"<dx90_20b\" { \"$baseTexture\" \"b\" } }";
-        let entries = keyvalues::parse(text).unwrap();
-        let p = material_properties(entries[0].children());
-        assert_eq!(p.get("$basetexture").map(String::as_str), Some("a"));
-    }
+    use std::collections::BTreeSet;
 
     #[test]
     fn self_illum_needs_a_translucent_base() {
@@ -1262,21 +1174,6 @@ mod tests {
             ([1.; 3], [0.5; 3])
         );
         assert!(envmap_parameters(&definition(&[("$envmaptint", "[1 2]")]), &mut m).is_err());
-    }
-
-    #[test]
-    fn conditional_material_vars_follow_retail_tests() {
-        let entries = keyvalues::parse(
-            r#""srgb?$color2" "[2.5 2.5 2.5]" "$color2" "[1 1 1]" "hdr?$alpha" "0.5"
-            "!hdr?$nocull" "1" "ldr?$additive" "1" "360?$translucent" "1" "dx9?$x" "1""#,
-        )
-        .unwrap();
-        let p = direct_properties(&entries);
-        assert_eq!(p["$color2"], "[2.5 2.5 2.5]");
-        assert_eq!(p["$alpha"], "0.5");
-        for absent in ["$nocull", "$additive", "$translucent", "$x", "srgb?$color2"] {
-            assert!(!p.contains_key(absent), "{absent}");
-        }
     }
 
     #[test]
@@ -1351,17 +1248,18 @@ mod tests {
         let first_key = asset_path("Materials\\Shared.VTF", ".vtf").unwrap();
         let alias_key = asset_path("shared", ".vtf").unwrap();
         assert_eq!(first_key, alias_key);
-        let first = cached_texture(&mut cache, &mut used, &first_key, || Ok(tiny_vtf())).unwrap();
+        let first =
+            cached_texture(&mut cache, &mut used, &first_key, 0, || Ok(tiny_vtf())).unwrap();
         assert_eq!(first.rgba, [2, 4, 8, 16]);
         assert_eq!(used, MAX_DECODED_BYTES);
-        let alias = cached_texture(&mut cache, &mut used, &alias_key, || {
+        let alias = cached_texture(&mut cache, &mut used, &alias_key, 0, || {
             panic!("an alias must not read or decode its existing texture again")
         })
         .unwrap();
         assert!(Arc::ptr_eq(&first, &alias));
         assert_eq!(used, MAX_DECODED_BYTES);
         assert!(
-            cached_texture(&mut cache, &mut used, "materials/new.vtf", || {
+            cached_texture(&mut cache, &mut used, "materials/new.vtf", 0, || {
                 Ok(tiny_vtf())
             })
             .is_err()
@@ -1485,7 +1383,7 @@ mod tests {
         .unwrap();
         let definition = Definition {
             shader: entries[0].key.clone(),
-            properties: direct_properties(entries[0].children()),
+            properties: direct_properties(entries[0].children(), true),
             proxies: Vec::new(),
         };
         let material = metadata(&definition).unwrap();
@@ -1524,9 +1422,139 @@ mod owned_frag_replay {
     }
     #[test]
     #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn detail_settings_affect_loaded_map_geometry_and_texture_budgets() {
+        let root = source_assets::install::discover().unwrap();
+        let mut cfg_high = hl2_ui::config::Config::default();
+        cfg_high.video.advanced.model_detail = hl2_ui::config::ModelDetail::High;
+        cfg_high.video.advanced.texture_detail = hl2_ui::config::TextureDetail::High;
+
+        let mut cfg_low = hl2_ui::config::Config::default();
+        cfg_low.video.advanced.model_detail = hl2_ui::config::ModelDetail::Low;
+        cfg_low.video.advanced.texture_detail = hl2_ui::config::TextureDetail::Low;
+
+        let loaded_high = super::load_with_config(
+            &root,
+            "hl2",
+            "d1_trainstation_02",
+            source_ui::canvas::Canvas::default(),
+            true,
+            &cfg_high,
+        )
+        .unwrap();
+
+        let loaded_low = super::load_with_config(
+            &root,
+            "hl2",
+            "d1_trainstation_02",
+            source_ui::canvas::Canvas::default(),
+            true,
+            &cfg_low,
+        )
+        .unwrap();
+
+        let high_indices: usize = loaded_high
+            .world
+            .surfaces
+            .iter()
+            .map(|s| s.indices.len())
+            .sum::<usize>()
+            + loaded_high
+                .world
+                .model_assets
+                .values()
+                .flatten()
+                .map(|s| s.indices.len())
+                .sum::<usize>();
+
+        let low_indices: usize = loaded_low
+            .world
+            .surfaces
+            .iter()
+            .map(|s| s.indices.len())
+            .sum::<usize>()
+            + loaded_low
+                .world
+                .model_assets
+                .values()
+                .flatten()
+                .map(|s| s.indices.len())
+                .sum::<usize>();
+
+        eprintln!("d1_trainstation_02 indices: high={high_indices}, low={low_indices}");
+        assert!(
+            high_indices > low_indices,
+            "low model detail should have fewer indices: high={high_indices}, low={low_indices}"
+        );
+
+        let high_tex_bytes: usize = loaded_high
+            .materials
+            .values()
+            .filter_map(|m| m.base.as_ref())
+            .map(|img| img.rgba.len())
+            .sum();
+
+        let low_tex_bytes: usize = loaded_low
+            .materials
+            .values()
+            .filter_map(|m| m.base.as_ref())
+            .map(|img| img.rgba.len())
+            .sum();
+
+        eprintln!(
+            "d1_trainstation_02 base texture bytes: high={high_tex_bytes}, low={low_tex_bytes}"
+        );
+        assert!(
+            high_tex_bytes > low_tex_bytes,
+            "low texture detail should have fewer bytes: high={high_tex_bytes}, low={low_tex_bytes}"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn antialiasing_and_filtering_affect_fidelity_settings_and_samplers() {
+        use bevy::prelude::Msaa;
+        let root = source_assets::install::discover().unwrap();
+        let _loaded = super::load(&root, "hl2", "d1_trainstation_02").unwrap();
+
+        for (filtering, expected_aniso, expected_linear_mipmap) in [
+            (hl2_ui::config::Filtering::Bilinear, 1, false),
+            (hl2_ui::config::Filtering::Trilinear, 1, true),
+            (hl2_ui::config::Filtering::Anisotropic2, 2, true),
+            (hl2_ui::config::Filtering::Anisotropic4, 4, true),
+            (hl2_ui::config::Filtering::Anisotropic8, 8, true),
+            (hl2_ui::config::Filtering::Anisotropic16, 16, true),
+        ] {
+            let desc = crate::rendering::sampler_descriptor(true, filtering);
+            assert_eq!(desc.anisotropy_clamp, expected_aniso);
+            assert_eq!(
+                desc.mipmap_filter == bevy::image::ImageFilterMode::Linear,
+                expected_linear_mipmap
+            );
+        }
+
+        for (aa, expected_samples, expected_msaa) in [
+            (hl2_ui::config::Antialiasing::None, 1, Msaa::Off),
+            (hl2_ui::config::Antialiasing::X2, 2, Msaa::Sample2),
+            (hl2_ui::config::Antialiasing::X4, 4, Msaa::Sample4),
+            (hl2_ui::config::Antialiasing::X8, 8, Msaa::Sample8),
+        ] {
+            assert_eq!(aa.samples(), expected_samples);
+            assert_eq!(crate::video::msaa_for(aa), expected_msaa);
+            assert_eq!(
+                crate::video::msaa_for_hardware(aa, 4),
+                if expected_samples > 4 {
+                    Msaa::Sample4
+                } else {
+                    expected_msaa
+                }
+            );
+        }
+    }
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
     fn owned_frag_throws_follow_native_samples() {
         let root = source_assets::install::discover().unwrap();
-        let loaded = super::load(&root, "d1_trainstation_02").unwrap();
+        let loaded = super::load(&root, "hl2", "d1_trainstation_02").unwrap();
         let world = loaded.world.clone();
         let lob = vec![
             (0.195, [-3060.6, -2042.3, 98.5]),
@@ -1708,7 +1736,7 @@ mod owned_route_cost {
     #[ignore = "requires an owned installed Half-Life 2 copy"]
     fn owned_failed_routes_cost() {
         let root = source_assets::install::discover().unwrap();
-        let mut loaded = super::load(&root, "d1_trainstation_02").unwrap();
+        let mut loaded = super::load(&root, "hl2", "d1_trainstation_02").unwrap();
         let world = loaded.world.clone();
         let mut physics = Physics::new(&world);
         physics.tick(0.015);

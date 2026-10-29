@@ -1,7 +1,11 @@
 //! NPC_STATE (ai_npcstate.h) and CAI_BaseNPC::SelectIdealState with the idle, alert
 //! and script selectors (ai_basenpc.cpp). The yaw side effects (SetIdealYawToTarget
 //! toward the enemy/sound) are returned for the motor. SDK behavior.
-use super::conditions::*;
+use super::conditions::{
+    Conditions, COND_HEAR_BULLET_IMPACT, COND_HEAR_COMBAT, COND_HEAR_DANGER, COND_HEAR_PLAYER,
+    COND_HEAR_THUMPER, COND_HEAR_WORLD, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_NEW_ENEMY,
+    COND_SEE_ENEMY, COND_SMELL,
+};
 use glam::Vec3;
 use serde::Serialize;
 
@@ -95,6 +99,8 @@ pub fn select_ideal_state(state: NpcState, i: &StateInputs) -> (NpcState, Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::conditions::Cond;
+
     fn inputs(conditions: &[Cond]) -> StateInputs {
         StateInputs {
             conditions: Conditions::of(conditions),

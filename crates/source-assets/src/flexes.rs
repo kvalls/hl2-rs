@@ -517,10 +517,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_barney_and_kleiner_flexes_parse_and_evaluate() {
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         for path in ["models/barney.mdl", "models/kleiner.mdl"] {
             let data = vfs.read(path).unwrap().unwrap();
             let flexes = read_flexes(&data).unwrap();

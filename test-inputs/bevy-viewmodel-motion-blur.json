@@ -1,0 +1,54 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      -4324,
+      -224,
+      64
+    ],
+    "yaw": -90,
+    "pitch": 0,
+    "actions": [
+      {
+        "action": "loadout"
+      },
+      {
+        "action": "slot",
+        "slot": 0
+      }
+    ]
+  },
+  {
+    "tick": 2,
+    "actions": [
+      {
+        "action": "confirm"
+      }
+    ]
+  },
+  {
+    "tick": 3
+  },
+  {
+    "tick": 10,
+    "ui": [
+      {
+        "action": "command",
+        "command": "impulse 100"
+      }
+    ]
+  },
+  {
+    "tick": 100,
+    "primary": true
+  },
+  {
+    "tick": 101,
+    "primary": false
+  },
+  {
+    "tick": 107,
+    "label": "swing"
+  }
+]

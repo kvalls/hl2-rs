@@ -1,0 +1,41 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "toggle_console"
+   }
+  ],
+  "label": "open-console"
+ },
+ {
+  "tick": 30,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo \"Encountered an error in command `<Enable the debug feature to see the name>`: Entity despawned: The entity with ID 2224v1 is invalid; its index now has generation 2.\nSecond line after an embedded newline, long enough to wrap onto another history row as well.\""
+   }
+  ],
+  "label": "long-line"
+ },
+ {
+  "tick": 40,
+  "ui": [
+   {
+    "action": "command",
+    "command": "this_is_an_unknown_command_with_a_very_long_name_that_has_no_spaces_and_must_break_inside_the_word_itself"
+   }
+  ],
+  "label": "long-word"
+ },
+ {
+  "tick": 200,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

@@ -17,15 +17,24 @@
 !/launch*.sh
 !/scripts/build-bevy.ps1
 !/scripts/build-bevy.sh
+!/scripts/clean-target.sh
+!/scripts/checks/*.sh
+!/scripts/checks/*.py
+!/scripts/checks/architecture-baseline.json
 !/test-inputs/*.json
+!/test-inputs/expected/*.json
 !/docs/*.md
 !/docs/images/hl2-rs-trainstation.png
 !/crates/**/Cargo.toml
 !/crates/**/src/**/*.rs
 !/crates/hl2-bevy/assets/shaders/*.wgsl
-!/crates/hl2-ui/assets/fonts/ProggyClean.ttf
-!/crates/hl2-ui/assets/fonts/LICENSE.txt
-!/crates/hl2-ui/assets/fonts/README.md
+!/crates/source-ui/assets/fonts/ProggyClean.ttf
+!/crates/source-ui/assets/fonts/LICENSE.txt
+!/crates/source-ui/assets/fonts/README.md
+!/crates/hl2-ui/assets/display/modes.json
+!/crates/hl2-ui/assets/ui/tuning.json
+!/crates/hl2-ui/assets/ui/*.res
+!/crates/hl2-ui/src/console/commands/cvars.golden
 # Generated/private directories remain closed to all extensions.
 **/target/
 /bin/
