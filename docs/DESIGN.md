@@ -1,5 +1,9 @@
 # Design
 
+## Research plan: owned default-pose input admission (2026-10-29 EJ)
+
+EH/EI close and execute the finite fast blend contract while preserving rejected nested-verifier imports and separate offline audits. Next read only the selected owned root/include models through the pinned private reader; retain raw header/bone/default position/quaternion/flag words and selected child weights/flags with exact VPK/member/hash/range provenance. Bind DU's initializer offsets as a conditional consumer, independently compare bone inventories/default words, and preserve mismatches. Any authored name-based map must stay separate from actual loaded virtual-map/default-pose observation. No model-version conversion, actor/rendering/campaign/Rust parity, broad corpus pass, installed writes or implementation change follows automatically.
+
 ## Research plan: exact fast-acos frontier (2026-10-29 EH)
 
 EF/EG now add finite table2/near-one scale evidence and a bounded exhaustive x-component family, with explicit derived-domain limits. Next retrieve the fast-acos numerical bodies only through the exact server/client wrapper CALLs; compare complete reachable graphs, consumed literal/table extents, relocations and error transfers. Keep mutable flags/context independent and opaque errors guarded. Only after static closure may a separate authored fixture enable the previously excluded fast-acos/full-blend path, retaining new inputs, raw mappings, FP state, pins, footer/cleanup and any disagreement. No native actor/rendering/campaign/Rust claim or implementation change follows automatically.

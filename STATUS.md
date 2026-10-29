@@ -1,5 +1,13 @@
 # STATUS
 
+## Fast-acos closure and complete fast blend (2026-10-29 EH/EI)
+
+EH binds four exact client/server bodies/four PE windows:1,358 bytes/303 reachable instructions per module,30 absolute roles/four indexed sites, two full239-entry tables and12 controls. One error callee pair remains opaque.19 files sealed.
+
+EI integrates fast asin/acos with the admitted full blend:5,997 owned RX bytes/12,128 RO bytes/95 absolute/37 relative relocations per module and four guarded descriptor4000/error targets. Derived inputs admit24,660 scale/12,330 acos requests within selected finite index ranges. New processes28860/40036 each exit0 and match5,670 cases/945 context pairs/1,859,760 words, with intact sources/maps/pins/inputs/canaries/tails/stack/FP state. Nine admission/22 actual controls per variant pass. Three recorded fast-client/server and fast/scalar comparisons match all words,5,670 raw FP pairs and1,890 normalized contexts each; nine comparison controls pass.336 files sealed.
+
+Both original nested verifiers fail at import before reading captures. Their launch-pinned sources remain unchanged; a separate offline driver binds the hash-identical canonical reference and passes the numerical/control audits without rerunning native code. The original failure remains explicit. No live flags/actor/cache/full hierarchy/rendering/campaign/Rust parity; first_map_finished:false. No HL2/Valve DLL initialization/Rust action. Next admit owned root/include-model default/selected-sequence input words separately. Continue toward98% usage.
+
 ## Extended scale domains and bounded component exhaustion (2026-10-29 EF/EG)
 
 EF passes74,520 rows/298,080 exact words across6,210 authored quaternions, both forced math paths/aliases and new table2/near-one input domains. Derived read ranges cover all239 table1 indices and161 table2 indices;27..32 remain explicitly absent from EF. Eighteen byte anchors/26 admission/15 runtime controls pass; process44252 exit0,97-file seal. MXCSR8064->8114 sets sticky mask50 while control bits stay fixed; x87 control639 fixed and original controls restored.

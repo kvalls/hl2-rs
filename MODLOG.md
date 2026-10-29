@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: fast-acos closure and full blend integration
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Bound exact fast-acos client/server code and table pairs, then integrated both fast math routes into the complete finite bone-blend corpus.
+
+**Tested how:** EH4 exact bodies/4 PE windows/1,358 bytes/303 instructions per module/30 absolute roles/two239-entry tables/12 controls. EI5,997 RX bytes/12,128 RO bytes/95 absolute and37 relative relocations,21 helper buffers/four guarded frontiers,9 admission controls. Processes28860/40036 each pass5,670 contexts/1,859,760 words/source/maps/pins/canaries/tails/stack/FP and22 controls. Three recorded fast/scalar/module comparisons match all words/raw FP/normalized contexts;9 controls. Original nested verifier imports fail; separate canonical-reference offline audits pass without changing/rerunning captures. Seals19/336 files.
+
+**Result / Still untested / Next:** Finite fast/scalar/module composition agrees under authored inputs/flags. Actual runtime actor/cache/model/masks, full hierarchy/rendering/campaign and Rust parity remain open; first_map_finished:false. Continue owned default/sequence input admission toward98%; no Rust/native-game action.
+
 ## 2026-10-29 research: scale domains and bounded component family
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.

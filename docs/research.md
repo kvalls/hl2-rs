@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Fast-acos and full blend integration (2026-10-29 EH/EI)
+
+EH closes local fast-acos wrapper/body pairs (1,358 bytes/303 instructions per module), consumed literals and both bounded239-entry tables while retaining one opaque error call. EI adds these and fast asin to the full blend under explicit fixture flags. Both new server/client processes pass5,670 finite contexts/1,859,760 words and independent raw-input/mapping/canary/tail/stack/FP checks; recorded fast/scalar/module outputs, raw FP status and normalized contexts agree.
+
+The nested copied verifier initially fails at reference-import resolution before capture reads. Pinned originals remain unchanged; a separate hash-identical canonical-reference offline audit validates both captures/controls without rerunning code. This is conditional isolated composition, not actual live dispatch/actor/cache/model/whole hierarchy/rendering/campaign or Rust parity; first_map_finished:false. No game, initialized Valve DLL or Rust action.
+
 ## Fast/scalar scale domain extension (2026-10-29 EF/EG)
 
 EF extends the retained scale bundle to6,210 authored quaternions/74,520 rows, admitting table2/near-one inputs and all239 table1 indices. The original161 table2 indices leave six explicit gaps. EG independently enumerates/replays2,195,456 finite norm words to bound the167 possible table2 indices, supplements those six gaps, and tests the65,536-word near-one x-component family with fixed other components/one weight. All262,216 native rows match reference/path/alias expectations in four bounded authored processes.

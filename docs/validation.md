@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Fast-acos closure and full fast composition (2026-10-29 EH/EI)
+
+EH:4 exact bodies/4 PE windows,1,358 bytes/303 instructions per module,30 absolute pairs/4 indexed sites, full3,824-byte angle/1,912-byte factor tables and12 controls pass;19 files sealed. Opaque error handler/arbitrary domain ABI remain open.
+
+EI:21 buffers per module,5,997 owned RX bytes/45 RO blocks/12,128 bytes,95 absolute/37 relative relocations, four trapped descriptor4000/error targets and9 admission controls. Derived finite inputs:24,660 scale (5,976 table1/15,874 polynomial/2,810 tiny) and12,330 acos (8,288 table1/4,042 table2); no PC trace. Processes28860/40036 each exit0 with5,670 cases/945 context pairs/1,859,760 exact words, all source/maps/pins/inputs/canaries/tails/stack/FP checks and22 actual controls. Three fast/scalar/module comparisons each match1,859,760 words/5,670 FP pairs/1,890 normalized contexts, with9 controls.336 files sealed.
+
+Original nested `verify.py` imports remain rejected; use separate `audit_capture.py`/`audit_controls.py`, which bind the hash-identical canonical reference without editing or rerunning native evidence. Read-only `C:/Python310/python.exe -B` checks in private `fast-acos-closure-20261029eh/{verify.py,seal.py verify}` and `bone-blend-fast-fixture-20261029ei/{admit_inputs.py,admit.py,audit_capture.py,audit_controls.py,compare_modes.py,seal.py verify}`. Never rerun producers/build/run/create. No live actor/rendering/campaign/Rust parity, HL2/DLL initialization or Rust build/test; first_map_finished:false.
+
 ## Extended scale and bounded exhaustive family (2026-10-29 EF/EG)
 
 EF:74,520 native rows/298,080 exact reference words,37,260 dispatch/37,260 alias comparisons,6,210 authored inputs,18 index/address anchors,26 admission/15 runtime controls. Derived domains:21 tiny/142 polynomial/2,746 table1/1,234 table2/2,060 near-one/7 unit. All239 table1 indices and161 table2 indices26..192 are represented;27..32 remain absent in EF. Process44252 exit0, unchanged code/literals/pins/canaries/inputs and97-file seal. x87 control639 fixed; MXCSR8064->8114 retains controls, sticky mask50; originals restored. x87 sticky status is not recorded.
