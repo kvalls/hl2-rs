@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 session 36 (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: PR #4 be7008e (logo GDI/VDMX cells + 4 px drop, HUD hidden under GameUI, gravity gun idle hold); wip/session36-20261029: 152495a DecalModulate blood (no white rim), 951fddc zombie physics swats.
+- Why: owner reports (logo note, HUD in ESC menu, gravity gun jumping, white decal outlines); owner order: NPC behaviors first.
+- Tested how: unit and owned tests (source-ui 131, hl2-ui 325, hl2-simulation 434 on the PR; zombie 8 + owned swat events on session 36), strict Clippy/fmt on both before the swat commit, packaged before/after bursts (gravity gun, crowbar, decals, swat) and hl2_complete native oracle captures.
+- Result: logo within 1 px of native; HUD hidden; gun no longer thrown; blood without rim; zombies swat boxes at the player.
+- Still broken or not tested: regression batch for session 36 unfinished at handoff; zombie chase path failure at the d1_town_02 doorway; poison zombie swats; menu backdrop dim and disabled rows on the PR.
+- Next: STATUS "Current session 36" and artifacts/s36/next-session-prompt.txt.
+
 ## 2026-10-29 research: client cycle boundaries and observer preparation
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust implementation.
