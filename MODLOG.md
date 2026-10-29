@@ -1,5 +1,33 @@
 # MODLOG
 
+## 2026-10-29 session 35b: shotgun force on the hit hitbox's solid; world pellets keep the batch
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5`. No subagents.
+
+**Changed:** (1) `Inventory::pellet_hit`: a pellet into the world (CWorld has no m_takedamage) is applied on its own and no longer applies a target's pending pellets early (primary and secondary shotgun). (2) m_nForceBone: `RayHit.bone` carries the hit studio hitbox's bone, `apply_hit` records it per NPC (`Scene::npc_force_bones`), ragdoll creation pushes the solid that simulates it (`ragdolls::physics_bone`: the bone's solid or its nearest ancestor's; nearest-origin fallback without a hitbox); report `ragdolls.last_force_body` [used, nearest].
+
+**Why:** Session 34 open item: shotgun corpses ~33% long while the 357 matched. Native probe: all seven pellets hit (100 -> 44 HP), so the force total matched; our nearest-origin rule put an off-centre chest pellet's force on the 2.5 kg upper arm, which saturates at the 2000 in/s limit. CAI_BaseNPC::TraceAttack: m_nForceBone = ptr->physicsbone.
+
+**Tested how:** hl2-simulation 373 pass (the new world-pellet test fails on the old flush; physics bone mapping test), strict workspace Clippy and fmt clean. Packaged front-facing fixtures: 40 HP shotgun 132 -> 106 units (native 95.5-99.2), 357 125 -> 127 (native 122.5), 1 HP shotgun 107 -> 96 (native ~83). Regression artifacts/s35b-regression: movement 26/26, weapons 17/17, attention 26/26, finals identical to artifacts/s35-regression.
+
+**Result:** Shotgun overshoot down from ~35% to ~9% (40 HP); the 357 unchanged.
+
+**Still broken or not tested / Next:** The pistol at 1 HP slides 40.5 units (native ~11; force solid unchanged); brush entities without m_takedamage still split a pellet batch; death-pose details; native time-to-rest A/B; owner playtest of the shotgun push.
+
+## 2026-10-29 session 35b: PR #4 Windows playtest fixes (pushed to @OrbitalMan's branch)
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5`. No subagents.
+
+**Changed:** On `orbitalman/hl2-ui` (owner: push without asking): 4d408fb restores the ragdoll override lost in the PR's merge of main; 6685b91 sizes the GameUI menu from SourceScheme.res with the retail ReloadFontGlyphs/CGameMenu rules, draws GorDIN with retail CLinuxFont FreeType cells (FontInfo.kv), keeps the HUD faces on the GDI baseline, and silences dialog, message-box and console buttons.
+
+**Why:** Owner's Windows playtest: corpses frozen in animation poses (found while reviewing the merge), menu text half the native size at 1080p, HUD digits ~12 px high, click sounds in the Options dialog.
+
+**Tested how:** PR tree: hl2-ui 325, source-ui 130, hl2-simulation 434, hl2-bevy 164 pass (the 2 known release-only should_panic image tests fail as on main), strict workspace Clippy and fmt clean. Packaged 1920x1080 captures: pause menu rows within 4 px of the owner's native capture, HUD digits equal main's, Options dialog A/B with and without the fixes. Private evidence work/hl2-decompiled/gameui-fonts-20261029.
+
+**Result:** Pushed; PR comments explain the changes. The owner's test build is the scratchpad worktree pr4-9f3c4f4 (bin = 6685b91).
+
+**Still broken or not tested / Next:** The logo sits ~65 px higher than native at 1080p; New Game dialog sounds unchanged (retail plays some); macOS not re-tested after the font change (@OrbitalMan).
+
 ## 2026-10-29: fresh loaded gesture tags, duration and bounded timing correlations
 
 **Agent/model:** Codex desktop, GPT-6 family; exact model identifier unavailable. Material subagents audit_capture (CG fixture/CH replay), audit_static (CF remap/CI correlations), research_flex_route (CD filter/CJ duration). Claude owns Rust implementation.

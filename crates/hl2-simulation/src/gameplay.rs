@@ -1260,11 +1260,7 @@ impl Inventory {
                     });
                 }
                 if let Some(hit) = hit {
-                    if pending.first().is_some_and(|(h, _)| h.entity != hit.entity) {
-                        let batch = std::mem::take(&mut pending);
-                        self.hit_batch(world, scene, physics, w, batch, melee, eye);
-                    }
-                    pending.push((hit, aim));
+                    self.pellet_hit(world, scene, physics, w, &mut pending, hit, aim, melee, eye);
                 }
             }
             self.hit_batch(world, scene, physics, w, pending, melee, eye);
@@ -1338,11 +1334,7 @@ impl Inventory {
             });
             if let Some(hit) = hit {
                 // The multidamage of the primary attack above.
-                if pending.first().is_some_and(|(h, _)| h.entity != hit.entity) {
-                    let batch = std::mem::take(&mut pending);
-                    self.hit_batch(world, scene, physics, w, batch, false, eye);
-                }
-                pending.push((hit, aim));
+                self.pellet_hit(world, scene, physics, w, &mut pending, hit, aim, false, eye);
             }
         }
         self.hit_batch(world, scene, physics, w, pending, false, eye);
@@ -1785,6 +1777,33 @@ impl Inventory {
                 }
             }
         }
+    }
+    /// One pellet's DispatchTraceAttack: CBaseEntity::TraceAttack adds multidamage only with
+    /// m_takedamage, so a hit on the world (CWorld, static props) is applied on its own and
+    /// leaves the target's pending pellets together; another target applies them first
+    /// (AddMultiDamage -> ApplyMultiDamage).
+    #[allow(clippy::too_many_arguments)]
+    fn pellet_hit(
+        &mut self,
+        world: &World,
+        scene: &mut Scene,
+        physics: &mut Physics,
+        weapon: &Weapon,
+        pending: &mut Vec<(crate::physics::RayHit, Vec3)>,
+        hit: crate::physics::RayHit,
+        aim: Vec3,
+        melee: bool,
+        eye: Vec3,
+    ) {
+        if hit.entity == usize::MAX {
+            self.hit(world, scene, physics, weapon, hit, aim, melee, eye);
+            return;
+        }
+        if pending.first().is_some_and(|(h, _)| h.entity != hit.entity) {
+            let batch = std::mem::take(pending);
+            self.hit_batch(world, scene, physics, weapon, batch, melee, eye);
+        }
+        pending.push((hit, aim));
     }
     /// ApplyMultiDamage for one target's pellets of a shot: each pellet's TraceAttack in
     /// order (blood, hitgroup damage, impacts), and a target this batch kills takes the
@@ -2243,6 +2262,10 @@ pub fn apply_hit(
     }
     scene.npc_force_points.insert(id, hit.position);
     scene.npc_hit_groups.insert(id, hit.hitgroup);
+    match hit.bone {
+        Some(bone) => scene.npc_force_bones.insert(id, bone),
+        None => scene.npc_force_bones.remove(&id),
+    };
     // CHalfLife2::GetAmmoDamage: the player's shots on NPCs scale by skill
     // (AdjustPlayerDamageInflicted); CAI_BaseNPC::TraceAttack then scales by the
     // hitbox's hitgroup before blood and TraceBleed.
@@ -3024,6 +3047,7 @@ mod tests {
             position: Vec3::ZERO,
             normal: -Vec3::X,
             hitgroup: 0,
+            bone: None,
         };
         let mut inv = Inventory::default();
         let count = |inv: &mut Inventory, id: usize, damage: f32| {
@@ -3492,6 +3516,7 @@ mod tests {
                 position: Vec3::new(70., 0., z),
                 normal: -Vec3::X,
                 hitgroup: crate::skill::HITGROUP_CHEST,
+                bone: None,
             };
             apply_hit(
                 &world,
@@ -3553,6 +3578,7 @@ mod tests {
                     position: Vec3::new(70., 0., 40. + i as f32),
                     normal: -Vec3::X,
                     hitgroup: crate::skill::HITGROUP_CHEST,
+                    bone: None,
                 };
                 (hit, Vec3::X)
             })
@@ -3574,6 +3600,77 @@ mod tests {
             "{force}"
         );
         assert_eq!(at, Some(Vec3::new(70., 0., 46.)));
+    }
+    #[test]
+    fn a_world_pellet_between_a_targets_pellets_keeps_their_multidamage_batch() {
+        // Four chest pellets, one into the wall behind (CWorld has no m_takedamage, so
+        // TraceAttack adds no multidamage), three more: the 40 HP cop dies once, from one
+        // ApplyMultiDamage carrying all seven pellets' force. Splitting the batch at the wall
+        // left the cop at 8 HP and gave the corpse only the last three pellets.
+        let world = World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![
+                    ("classname".into(), "npc_metropolice".into()),
+                    ("origin".into(), "80 0 0".into()),
+                ],
+            }],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        let mut physics = Physics::new(&world);
+        scene.states[0].value = 40.;
+        let weapon = Weapon {
+            class: "weapon_shotgun".into(),
+            ammo_type: "Buckshot".into(),
+            damage: 8.,
+            ..Default::default()
+        };
+        let mut inv = Inventory::default();
+        let mut pending = Vec::new();
+        for i in 0..8 {
+            let hit = crate::physics::RayHit {
+                entity: if i == 4 { usize::MAX } else { 0 },
+                position: Vec3::new(if i == 4 { 300. } else { 70. }, 0., 40. + i as f32),
+                normal: -Vec3::X,
+                hitgroup: if i == 4 {
+                    0
+                } else {
+                    crate::skill::HITGROUP_CHEST
+                },
+                bone: None,
+            };
+            inv.pellet_hit(
+                &world,
+                &mut scene,
+                &mut physics,
+                &weapon,
+                &mut pending,
+                hit,
+                Vec3::X,
+                false,
+                Vec3::ZERO,
+            );
+            assert!(
+                !scene.states[0].killed,
+                "pellet {i} applied the batch early"
+            );
+        }
+        inv.hit_batch(
+            &world,
+            &mut scene,
+            &mut physics,
+            &weapon,
+            pending,
+            false,
+            Vec3::ZERO,
+        );
+        assert!(scene.states[0].killed);
+        let (force, at) = scene.npc_death_forces[&0];
+        assert!(
+            (force.x - 7. * bullet_impulse("Buckshot")).abs() < 1.,
+            "{force}"
+        );
+        assert_eq!(at, Some(Vec3::new(70., 0., 47.)));
     }
     #[test]
     fn player_headshots_sneak_attack_unaware_humanoids_like_native() {
@@ -3603,6 +3700,7 @@ mod tests {
                 position: Vec3::new(70., 0., 50.),
                 normal: -Vec3::X,
                 hitgroup,
+                bone: None,
             };
             apply_hit(
                 &world,

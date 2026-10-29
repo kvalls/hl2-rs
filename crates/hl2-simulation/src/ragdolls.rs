@@ -200,6 +200,8 @@ pub struct Ragdolls {
     pub death_poses: u32,
     /// PhysForceRagdollToSleep calls (CheckSettleStationaryRagdoll).
     pub forced_sleeps: u32,
+    /// The last death force's solid and the solid nearest its point (diagnostics).
+    pub last_force_body: Option<[usize; 2]>,
     /// Crossbow BoltImpacts that found no ragdoll solid after their retry, and the last
     /// one's ray (diagnostics).
     pub bolt_misses: u32,
@@ -223,7 +225,7 @@ impl Ragdolls {
         }
     }
     /// RagdollCreate for an NPC killed this tick: bodies at their bones' current world
-    /// matrices, the death force (scene.npc_death_forces) on the solid nearest the hit.
+    /// matrices, the death force (scene.npc_death_forces) on the hit hitbox's physics bone.
     pub fn spawn(
         &mut self,
         world: &World,
@@ -284,9 +286,11 @@ impl Ragdolls {
             return;
         }
         let death = scene.npc_death_forces.remove(&id);
+        let hit_bone = scene.npc_force_bones.remove(&id);
         if let Some((force, position)) = death {
-            // m_nForceBone: the solid nearest the force point (the hit hitbox's physics
-            // bone), else the root.
+            // m_nForceBone = the trace's physicsbone: the solid that simulates the hit
+            // hitbox's bone (its own, else its nearest ancestor's). Without a hitbox, the
+            // solid nearest the force point, else the root.
             let nearest = position.map_or(0, |position| {
                 poses
                     .iter()
@@ -298,7 +302,13 @@ impl Ragdolls {
                     })
                     .map_or(0, |(i, _)| i)
             });
-            physics.ragdoll_nudge(&bodies, nearest, force);
+            let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
+            let solids: Vec<_> = model.bodies.iter().map(|b| b.bone).collect();
+            let force_body = hit_bone
+                .and_then(|bone| physics_bone(&parents, &solids, bone))
+                .unwrap_or(nearest);
+            self.last_force_body = Some([force_body, nearest]);
+            physics.ragdoll_nudge(&bodies, force_body, force);
         }
         // CRagdoll::Init: RagdollApplyAnimationAsVelocity from the bones 0.1 s before death
         // (taken as the current pose; the root's motion is the spawn velocity) to the death
@@ -723,10 +733,31 @@ fn bone_velocity(previous: Mat4, current: Mat4, dt: f32) -> (Vec3, Vec3) {
     };
     ((end - start) / dt, axis * angle / dt)
 }
+/// A studio bone's physicsbone: the index of the ragdoll solid that simulates it (the
+/// bone's own solid, else its nearest ancestor's).
+fn physics_bone(parents: &[Option<usize>], solids: &[usize], bone: usize) -> Option<usize> {
+    std::iter::successors(Some(bone), |b| parents.get(*b).copied().flatten())
+        .find_map(|b| solids.iter().position(|&solid| solid == b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_death_force_goes_to_the_hit_hitboxs_physics_bone() {
+        // police.mdl-like chain: pelvis 0 -> spine 1 -> spine2 2 (solid 1) -> clavicle 3 ->
+        // upper arm 4 (solid 2); pelvis is solid 0. A chest hitbox on spine2 pushes the
+        // 17.7 kg spine solid, not the 2.6 kg arm whose origin can be nearer the chest
+        // surface; an unsimulated bone (spine 1) maps to its nearest simulated ancestor.
+        let parents = [None, Some(0), Some(1), Some(2), Some(3)];
+        let solids = [0, 2, 4];
+        assert_eq!(physics_bone(&parents, &solids, 2), Some(1));
+        assert_eq!(physics_bone(&parents, &solids, 4), Some(2));
+        assert_eq!(physics_bone(&parents, &solids, 3), Some(1));
+        assert_eq!(physics_bone(&parents, &solids, 1), Some(0));
+        assert_eq!(physics_bone(&parents, &solids, 9), None);
+    }
     #[test]
     fn a_still_ragdoll_is_forced_asleep_after_ragdoll_sleepaftertime() {
         // Created at t 10, then creeping 0.1 units per 15 ms update: asleep at t 15.

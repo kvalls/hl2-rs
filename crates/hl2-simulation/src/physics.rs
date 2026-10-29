@@ -16,6 +16,8 @@ pub struct RayHit {
     /// The studio hitbox's hitgroup when an NPC hitbox was hit (HITGROUP_GENERIC 0
     /// otherwise).
     pub hitgroup: i32,
+    /// The hit studio hitbox's bone (the trace's physicsbone source), when one was hit.
+    pub bone: Option<usize>,
 }
 /// An NPC's studio hitboxes (hitbox set 0) as trace colliders, posed from the
 /// animated skeleton every tick (DESIGN 14b).
@@ -696,6 +698,7 @@ pub struct Physics {
     /// NPCs whose traces use their animated studio hitboxes.
     studio_hitboxes: BTreeMap<usize, StudioHitboxSet>,
     collider_hitgroups: HashMap<ColliderHandle, i32>,
+    collider_hitbox_bones: HashMap<ColliderHandle, usize>,
     /// Diagnostics: wall-clock milliseconds of the last tick.
     pub last_step_ms: f64,
     /// Props launched by the gravity gun whose first collision has not happened yet
@@ -1486,6 +1489,7 @@ impl Physics {
             self.world_sides.hitboxes.insert(c);
             self.npc_collider_contents.insert(c, CONTENTS_MONSTER);
             self.collider_hitgroups.insert(c, hitbox.group);
+            self.collider_hitbox_bones.insert(c, hitbox.bone);
             boxes.push((c, hitbox.bone, center, bind));
         }
         self.studio_hitboxes.insert(
@@ -1529,6 +1533,9 @@ impl Physics {
     }
     fn hitgroup(&self, handle: ColliderHandle) -> i32 {
         self.collider_hitgroups.get(&handle).copied().unwrap_or(0)
+    }
+    fn hitbox_bone(&self, handle: ColliderHandle) -> Option<usize> {
+        self.collider_hitbox_bones.get(&handle).copied()
     }
     pub fn set_entity(&mut self, id: usize, origin: Vec3, rotation: Quat, enabled: bool) {
         let dynamic = self.dynamic.get(&id);
@@ -2987,6 +2994,7 @@ impl Physics {
             position: origin + direction * (hit.time_of_impact / SCALE),
             normal: Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z),
             hitgroup: self.hitgroup(h),
+            bone: self.hitbox_bone(h),
         })
     }
     /// A bullet trace (FireBullets, MASK_SHOT): `shot_ray` that also passes brushes
@@ -3025,6 +3033,7 @@ impl Physics {
             position: origin + direction * (hit.time_of_impact / SCALE),
             normal: Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z),
             hitgroup: self.hitgroup(h),
+            bone: self.hitbox_bone(h),
         })
     }
     /// Ground trace under the player (MASK_PLAYERSOLID: clip brushes count).
@@ -3074,6 +3083,7 @@ impl Physics {
             position: origin + direction * (hit.time_of_impact / SCALE),
             normal: Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z),
             hitgroup: self.hitgroup(h),
+            bone: self.hitbox_bone(h),
         })
     }
     /// IPhysicsObject::ApplyForceOffset: an impulse (kg m/s, world) at a world point
@@ -3213,6 +3223,7 @@ impl Physics {
             position: start + direction * (hit.time_of_impact / SCALE),
             normal: Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z),
             hitgroup: self.hitgroup(handle),
+            bone: self.hitbox_bone(handle),
         })
     }
     /// Closest collision point on an entity, for radius attenuation. Models
@@ -3290,6 +3301,7 @@ impl Physics {
             position: origin + direction * distance * hit.time_of_impact,
             normal: Vec3::new(hit.normal1.x, hit.normal1.y, hit.normal1.z),
             hitgroup: self.hitgroup(handle),
+            bone: self.hitbox_bone(handle),
         })
     }
 }

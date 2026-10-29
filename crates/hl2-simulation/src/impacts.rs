@@ -410,6 +410,7 @@ impl Impacts {
             position: collision.position,
             normal: outward,
             hitgroup: 0,
+            bone: None,
         };
         self.locate(&hit, world, physics, scene)
             .map(|l| l.prop)
@@ -896,6 +897,7 @@ mod tests {
                     position: GVec3::ZERO,
                     normal: GVec3::Z,
                     hitgroup: 0,
+                    bone: None,
                 },
                 &world,
                 &physics,
@@ -919,6 +921,7 @@ mod tests {
                 position: GVec3::Z * 10.,
                 normal: GVec3::Z,
                 hitgroup: 0,
+                bone: None,
             },
             &world,
             &physics,
@@ -983,6 +986,7 @@ mod tests {
                 position: center,
                 normal,
                 hitgroup: 0,
+                bone: None,
             },
             &world,
             &physics,

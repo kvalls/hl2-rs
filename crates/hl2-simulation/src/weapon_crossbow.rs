@@ -416,6 +416,7 @@ pub(crate) fn bolt_tick(
         position: hit.position - normal * BOLT_HALF_SIZE,
         normal,
         hitgroup: 0,
+        bone: None,
     };
     let sound = |scene: &mut Scene, name: &str, at: Vec3| {
         scene.sounds.push(crate::sounds::SoundRequest {
