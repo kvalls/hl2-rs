@@ -820,7 +820,7 @@ impl Gameplay {
         &mut self,
         release: hl2_simulation::ai::zombie::CrabRelease,
         physics: &mut Physics,
-    ) {
+    ) -> bool {
         let npc = release.entity;
         let (origin, rotation) = (
             self.scene.states[npc].origin,
@@ -859,6 +859,27 @@ impl Gameplay {
             "models/zombie/classic.mdl"
         };
         if release.live {
+            // CNPC_BaseZombie::HeadcrabFits: a tiny hull 1 unit down from the spawn spot
+            // must not start solid (ignoring the zombie); otherwise no crab is released
+            // and the zombie dies whole.
+            use hl2_simulation::npc_probe::NpcCollisionWorld;
+            let fits = !physics
+                .npc_trace_hull(
+                    crab_origin,
+                    crab_origin - Vec3::Z,
+                    hl2_simulation::ai_hull::HullType::Tiny.bounds(),
+                    hl2_simulation::npc_probe::Query {
+                        excluded_entities: &[npc],
+                        ..Default::default()
+                    },
+                )
+                .trace
+                .start_solid;
+            if !fits {
+                self.zombie_split_failures
+                    .push(format!("{npc} crab does not fit"));
+                return false;
+            }
             // RELEASE_IMMEDIATE: a live npc_headcrab (no pitch), the zombie's squad and
             // inherited flags (gag, long range, fade corpse, always think) plus
             // SF_NPC_FALL_TO_GROUND; the body ragdolls without a force.
@@ -914,7 +935,7 @@ impl Gameplay {
                 physics,
             );
             self.crab_releases.push((npc, false));
-            return;
+            return true;
         }
         self.spawn_raggib(
             crab_model,
@@ -955,6 +976,7 @@ impl Gameplay {
             }
         }
         self.crab_releases.push((npc, release.chopped.is_some()));
+        true
     }
     /// CBaseCombatCharacter::Event_Killed -> Weapon_Drop (DESIGN 14r part B): each NPC
     /// killed this tick drops its active weapon as a new weapon entity with VPhysics
@@ -968,8 +990,9 @@ impl Gameplay {
         let releases = std::mem::take(&mut self.scene.crab_releases);
         // Event_Killed -> BecomeRagdollOnClient before the weapon leaves the hand.
         for &npc in &deaths {
-            if let Some(release) = releases.iter().find(|r| r.entity == npc) {
-                self.release_crab(*release, physics);
+            if let Some(release) = releases.iter().find(|r| r.entity == npc)
+                && self.release_crab(*release, physics)
+            {
                 continue;
             }
             let world = self.world.clone();
