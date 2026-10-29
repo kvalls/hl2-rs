@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: acos return precision and caller-control sensitivity
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Tested wider acos returns/caller context, distinguished native agreement from high-precision numerical references, and bound the dispatch predicate that explains precision sensitivity.
+
+**Tested how:** EL two processes/135,584 total raw80 returns/independent64+32 rounding,67,792 module pairs/four supplied XMM contexts,10 admission/20 actual controls per variant/five comparison controls,100/160-digit stable reference/eight quantizer controls. EM two processes/101,688 total returns/three caller precisions, eight admission/19 actual controls per variant/five comparison controls and exact53-bit replay. EN two exact bodies/79-byte windows, exhaustive finite Boolean domains and14 controls. Seals185/181/12 files; all four processes exit0 with intact source/code/RO/pins/canaries/stack/FP/footer/cleanup.
+
+**Result / Still untested / Next:** EL float32 paths agree while1,077 float64 pairs differ; EM's supplied24-bit scalar context changes1,231 float32 words. Fast is insensitive to the three tested precisions; no actual runtime-CW or general-ABI inference. Fresh ownership is now clear; validate a bounded observer and repeat the guard before future actor capture. No game/DLL initialization/Rust action; first_map_finished:false. Continue toward98% usage.
+
 ## 2026-10-29 research: owned default inputs and initializer execution
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.

@@ -1,5 +1,15 @@
 # STATUS
 
+## Acos precision, caller controls and dispatch gate (2026-10-29 EL–EN)
+
+EL separately executes closed acos buffers in server46808/client40784 (both exit0): 8,474 finite double inputs, two flags/four XMM contexts, 67,792 calls per module. All raw80 returns independently round to retained64/32 words; code/RO/source/pins/canaries/stack/FP/footer/cleanup and20 controls per variant pass. Every module return+FP pair and50,844 supplied server context-pairs agree. Scalar/fast differs in8,468 raw80/1,077 float64 (max1 ULP)/zero float32/8,473 FP records. Stable100/160-digit mathematical references remain separate from native equality;185 files sealed.
+
+EM supplies nearest/masked x87 precision24/53/64 with MXCSR fixed. Processes21388/42972 each pass50,844 calls, all module pairs, exact replay of16,948 prior53-bit records per module, independent rounding/integrity and19 controls per variant. Fast output/FP stays equal across16,948 precision comparisons. Scalar24 vs53 changes1,231 float32 outputs (max1 float32 ULP); scalar64 vs53 changes zero float32 but1,076 float64 words. Actual runtime CW remains unobserved;181 files sealed.
+
+EN binds two exact79-byte dispatchers and proves the Boolean fast predicate: nonzero flag, `(MXCSR & 0x7f80)==0x1f80`, `(CW & 0x7f)==0x7f`. Exhaustive16-bit individual domains/65,536 active-field combinations/131,072 admitted cross-products/65,536 flag-zero short circuits and14 corruptions pass. Precision is ignored by the gate; reserved settings were Boolean inputs only. Twelve files sealed.
+
+A fresh ownership snapshot at20:56:23UTC now finds the cursor unconfined and no named games. Earlier confinement is no longer a current launch blocker; no game was launched or cursor/user process changed. Next independently validate a bounded observer before any new actor/FPU capture, repeat ownership immediately before launch, and keep actual caller-state evidence separate. No Rust edit/build/test or initialized Valve DLL; actor/cache/full hierarchy/rendering/AV/campaign/Rust parity remain unproven, first_map_finished:false. Continue toward98% usage.
+
 ## Owned default inputs and conditional initialization (2026-10-29 EJ/EK)
 
 EJ independently rereads two owned VPK members and validates eight source ranges (26,796 bytes), 56 bones each, four selected child descriptors/weight arrays and 14 corruption controls. Root version44 selects direct records; include version48 selects relative arrays without conversion. All56 names/parent names match diagnostically, but only4 raw position triplets,7 raw quaternion quadruplets and15 flags match. Seven files sealed; the name join is not a loaded virtual map.

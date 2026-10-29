@@ -1,5 +1,23 @@
 # Local validation — 2026-10-05
 
+## Acos wider returns and finite caller controls (2026-10-29 EL–EN)
+
+EL: nine buffers/1,694 owned RX bytes/6,072 RO bytes/37 absolute/11 relative relocations per module, separated dispatch/mode inputs, three trapped errors.8,474 finite inputs cover all239 derived table1 bins and114 table2 bins; no PC trace. Processes46808/40784 each pass67,792 raw80 returns and independent integer round64/32 checks, all source/code/RO/input/pin/canary/ESP/FP/footer/cleanup checks,10 coherent admission/20 actual controls.67,792 module pairs/50,844 server context-pairs agree. Path differences:8,468 raw80/1,077 float64/max1 ULP/zero float32/8,473 FP; five comparison controls. mpmath1.3.0 reference stable at100/160 digits/eight tie-subnormal controls: scalar64 differs1,076 times,fast64 eleven, max1 ULP; both float32 paths agree with all reference words.185 files/11 external bindings sealed.
+
+EM: same bundles/inputs, three recorded loader adaptations, explicit CW0x007f/0x027f/0x037f, zero supplied XMM context and MXCSR0x1f80. Processes21388/42972 each pass50,844 returns/independent round64+32/integrity and19 controls. Eight new admission controls plus inherited ten; exact16,948 prior53-bit records per module/all50,844 module pairs/all16,948 fast precision pairs agree. Scalar comparison to the stable reference:
+
+| Caller precision | Float64 mismatches | Float32 mismatches | Maximum float32 distance |
+| --- | ---: | ---: | ---: |
+| 24 bits | 8,455 | 1,231 | 1 ULP |
+| 53 bits | 1,076 | 0 | 0 ULP |
+| 64 bits | 2 | 0 | 0 ULP |
+
+Fast retains eleven float64/max1 ULP andzero float32 differences at all three precisions. Native CW restored per call and original controls at exit; five comparison controls.181 files/nine external bindings sealed. These are finite numerical observations, not formal arbitrary-input correct-rounding proofs or actual caller-state observations.
+
+EN: exact module/hash/address/baseline/original server1046fd70/client1032aa90 bodies/two79-byte PE windows; full normalized opcode/transfer pairing. Fast Boolean predicate checks nonzero flag,MXCSR&0x7f80==0x1f80,CW&0x7f==0x7f.65,536 CW/65,536 low16-MXCSR words admit512/256 settings,131,072 admitted cross-products and65,536 active-field/65,536 flag-zero cases pass;14 code/set corruptions. Reserved/unsupported values are enumerated Boolean inputs only. Twelve files/six external bindings sealed. Read-only ownership at20:56:23UTC finds cursorclip==virtual desktop[-1920,0,3280,1080] and no named game, superseding the earlier confinement condition. No game/cursor/user-process action.
+
+Read-only `C:/Python310/python.exe -B` checks in private `acos-return-fixture-20261029el/{admit.py,verify.py,compare.py,reference.py,seal.py verify}`, `acos-precision-fixture-20261029em/{admit.py,verify.py,compare.py,seal.py verify}` and `acos-dispatch-gate-20261029en/{verify.py,seal.py verify}`. Never rerun producer/build/run/guard/create into sealed roots. No actual runtime CW/dispatch/actor/whole hierarchy/rendering/AV/campaign/Rust parity; first_map_finished:false. Rust builds/tests not applicable.
+
 ## Owned source admission and initializer fixture (2026-10-29 EJ/EK)
 
 EJ: two exact owned VPK members independently reread with directory/member hash, CRC, member-range and archive-stamp admission. Eight retained ranges/26,796 bytes,56 bones each,four selected child descriptors/weights and14 corruptions pass.56 name/parent matches,4 raw position/7 raw quaternion/15 flag matches; versions44/48 and conditional routes retained. Seven files/eight external bindings sealed.

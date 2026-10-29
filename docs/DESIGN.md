@@ -1,5 +1,13 @@
 # Design
 
+## Research plan: exact acos dispatch predicate (2026-10-29 EN)
+
+EM observes fast output invariance across three supplied x87 precisions and scalar sensitivity under those same controls. Next independently bind the exact client/server dispatcher masks, comparisons and branch ordering to frozen PE instructions. Enumerate the declared16-bit control-word domains without executing reserved settings, distinguish tested numerical contexts from Boolean gate admission, and record which precision/rounding/DAZ/FTZ/sticky fields the gate actually inspects. Require paired-code/source checks and coherent instruction/control corruptions. This static gate audit is not arbitrary-control execution or an actual runtime flag observation; no game/Rust action.
+
+## Research plan: caller x87 precision sensitivity (2026-10-29 EM)
+
+EL retains fast/scalar raw80/64 differences despite all finite float32 results agreeing at caller x87 control0x027f. The exact scalar control helper preserves precision bits while temporarily using nearest rounding/masked exceptions; cleanup restores the caller word. Next reuse the sealed EL bundles/inputs in a new fixture at explicit nearest/masked24-,53- and64-bit precision words0x007f/0x027f/0x037f. Keep MXCSR0x1f80 and one supplied zero XMM context fixed; retain return words/native and post-store status, stack/RO/pins/cleanup. Independently compare each precision against retained53-bit records and stable mathematical references, preserving differences. This tests a supplied finite caller context, not the actual runtime CW, arbitrary rounding/error ABI, actor or Rust parity. No game/DLL initialization or implementation action.
+
 ## Research plan: acos return precision and caller context (2026-10-29 EL)
 
 EK conditionally copies admitted owned defaults through the exact initializer; actual loader/actor state remains open. The full blend's float32 comparisons also leave intermediate acos precision unspecified. Next reuse only the closed selected acos dispatch/scalar/fast/helper graphs from EI in a new authored fixture, separating dispatch and scalar-mode storage, guarding opaque errors and admitting bounded finite input/index domains. Retain raw80-bit x87 returns plus rounded64/32 words, supplied XMM context, caller stack/FP state and complete relocated code/RO/source pins. Compare server/client, forced paths and caller contexts without assuming all representations agree; report any difference and keep mathematical-reference accuracy separate from native byte equality. No general exception ABI, actual runtime flags/actor/rendering/campaign/Rust claim, game or implementation action.

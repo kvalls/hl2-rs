@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Acos representations and caller controls (2026-10-29 EL–EN)
+
+Closed server/client acos subsets agree exactly under8,474 finite double inputs/two forced flags/four supplied XMM contexts, including raw x87 status. Scalar/fast paths agree at float32 but differ in8,468 raw80 and1,077 float64 pairs (max1 ULP). A stable100/160-digit reference independently compares mathematical accuracy; native path equality and reference accuracy are separate claims.
+
+The exact scalar control helper preserves caller precision bits; a separate fixture confirms that supplied24-bit scalar precision changes1,231 float32 results versus53-bit, while64-bit changes zero float32/1,076 float64 words. Fast remains invariant across the three tested precision words. The dispatch predicate checks MXCSR masks/rounding and the low x87 mask bits while ignoring x87 precision; exhaustive Boolean admission includes reserved settings that were never executed. This explains a conditional context dependency, not the game's actual CW/dispatch state.
+
+Fresh ownership is clear at20:56:23UTC, superseding earlier confinement as a current blocker. No game was launched; a bounded actor/FPU observer still needs independent admission and a fresh immediate ownership check. No general exception/rounding ABI, actual actor/full hierarchy/rendering/AV/campaign or Rust parity; first_map_finished:false.
+
 ## Owned defaults and conditional initializer (2026-10-29 EJ/EK)
 
 Independent owned-member rereads admit the selected root/include models without changing their version44/direct and version48/relative-array headers. All56 bone names and parent names agree in a diagnostic join; stored default words and flags mostly differ, and raw differences alone do not establish geometric differences. Four selected sequence descriptors/weight arrays retain exact prior-source bindings.
