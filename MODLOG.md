@@ -10,9 +10,9 @@
 
 **Tested how:** hl2-simulation 373 pass (the new world-pellet test fails on the old flush; physics bone mapping test), strict workspace Clippy and fmt clean. Packaged front-facing fixtures: 40 HP shotgun 132 -> 106 units (native 95.5-99.2), 357 125 -> 127 (native 122.5), 1 HP shotgun 107 -> 96 (native ~83). Regression artifacts/s35b-regression: movement 26/26, weapons 17/17, attention 26/26, finals identical to artifacts/s35-regression.
 
-**Result:** Shotgun overshoot down from ~35% to ~9% (40 HP); the 357 unchanged.
+**Result:** Like-for-like (track2 on both, native cops at 1 HP via sk_metropolice_health): shotgun 40 HP 127.0 -> 107.6 (native ~97), shotgun 1 HP 102.2 (native 92.2), 357 129.0 (native 122.5), pistol 1 HP 30.7 (native 35.3-36.4: the old "native ~11" was a sideways cop).
 
-**Still broken or not tested / Next:** The pistol at 1 HP slides 40.5 units (native ~11; force solid unchanged); brush entities without m_takedamage still split a pellet batch; death-pose details; native time-to-rest A/B; owner playtest of the shotgun push.
+**Still broken or not tested / Next:** Shotgun ~11% long, pistol ~14% short (death-pose details); brush entities without m_takedamage still split a pellet batch; native time-to-rest A/B; owner playtest of the shotgun push.
 
 ## 2026-10-29 session 35b: PR #4 Windows playtest fixes (pushed to @OrbitalMan's branch)
 
