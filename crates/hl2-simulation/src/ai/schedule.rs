@@ -179,6 +179,8 @@ pub struct Context {
     pub enemy_sees_me: Option<bool>,
     /// Off the ground (falling: FL_ONGROUND clear).
     pub airborne: bool,
+    /// bits_CAP_INNATE_RANGE_ATTACK1: InnateRange1MinRange / InnateRange1MaxRange.
+    pub innate_range: Option<(f32, f32)>,
 }
 
 /// A class's schedule hooks (SelectSchedule, TranslateSchedule, StartTask/RunTask).
@@ -299,7 +301,8 @@ pub fn base_select_schedule(npc: &mut AiNpc, ctx: &Context, armed: bool) -> Stri
     default_select_schedule(npc, ctx)
 }
 /// CAI_BaseNPC::SelectCombatSchedule for an NPC with a gun (`armed`: GetActiveWeapon)
-/// and no innate attacks (the humanoids; innate classes come with DESIGN 14n step 4).
+/// or an innate range attack (`ctx.innate_range`, the headcrabs); innate melee
+/// capabilities are not modeled (the zombies select their own).
 /// Not modeled: forced interactions, flinches, D_FR enemies (FearSound/RUN_FROM_ENEMY)
 /// and squad attack slots (no squads: every slot is free).
 pub fn base_combat_schedule(npc: &mut AiNpc, ctx: &Context, armed: bool) -> String {
@@ -328,7 +331,7 @@ pub fn base_combat_schedule(npc: &mut AiNpc, ctx: &Context, armed: bool) -> Stri
     if !c.has(COND_SEE_ENEMY) {
         return if !c.has(COND_ENEMY_OCCLUDED) {
             "SCHED_COMBAT_FACE"
-        } else if armed {
+        } else if armed || ctx.innate_range.is_some() {
             "SCHED_ESTABLISH_LINE_OF_FIRE"
         } else {
             "SCHED_TAKE_COVER_FROM_ENEMY"
@@ -363,7 +366,8 @@ pub fn base_combat_schedule(npc: &mut AiNpc, ctx: &Context, armed: bool) -> Stri
             return schedule.into();
         }
     }
-    if armed {
+    // An innate range attack too far away gets line of sight; nothing else to do hides.
+    if armed || c.has(COND_TOO_FAR_TO_ATTACK) && ctx.innate_range.is_some() {
         "SCHED_MOVE_TO_WEAPON_RANGE"
     } else {
         "SCHED_TAKE_COVER_FROM_ENEMY"
@@ -884,7 +888,7 @@ impl AiNpc {
                 let Some((_, origin)) = ctx.enemy else {
                     return Failed;
                 };
-                let (min, max) = ctx.weapon_range.unwrap_or((0., 2000.));
+                let (min, max) = ctx.weapon_range.or(ctx.innate_range).unwrap_or((0., 2000.));
                 let max = max.min(if ctx.dist_too_far > 0. {
                     ctx.dist_too_far
                 } else {

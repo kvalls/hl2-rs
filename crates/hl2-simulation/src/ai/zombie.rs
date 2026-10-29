@@ -456,6 +456,30 @@ pub struct CrabRelease {
     pub entity: usize,
     pub crab_force: Vec3,
     pub chopped: Option<(Vec3, Vec3)>,
+    /// RELEASE_IMMEDIATE: a live npc_headcrab instead of a ragdoll crab, and the body
+    /// ragdolls without a force.
+    pub live: bool,
+}
+/// ZOMBIE_BULLET_DAMAGE_SCALE: OnTakeDamage_Alive halves bullet damage that did not hit
+/// the head (buckshot and sniper rounds excepted).
+pub const BULLET_DAMAGE_SCALE: f32 = 0.5;
+/// CNPC_BaseZombie::TraceAttack scales buckshot by this before the hitgroup multiplier.
+pub const BUCKSHOT_SCALE: f32 = 0.625;
+/// ShouldReleaseHeadcrab for a bullet kill (health at or below zero): a headshot that
+/// took more than a quarter of the max health throws the crab off as a ragdoll, a weaker
+/// headshot kills it with the zombie, a body shot lets it go alive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BulletRelease {
+    No,
+    Immediate,
+    Ragdoll,
+}
+pub fn bullet_release(headshot: bool, threshold: f32) -> BulletRelease {
+    match (headshot, threshold > 0.25) {
+        (true, true) => BulletRelease::Ragdoll,
+        (true, false) => BulletRelease::No,
+        (false, _) => BulletRelease::Immediate,
+    }
 }
 /// DieChopped's gib forces from the damage force and four rolls in [0, 1): the legs get
 /// (U(-400, 400), U(-400, 400), U(0, 250)); the torso CalcDamageForceVector x U(0.04,

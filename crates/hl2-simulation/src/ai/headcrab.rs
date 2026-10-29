@@ -323,6 +323,38 @@ mod tests {
         );
     }
     #[test]
+    fn crabs_seek_line_of_sight_with_their_innate_leap() {
+        use super::super::state::NpcState;
+        let ctx = Context {
+            innate_range: Some((MIN_JUMP_DIST, MAX_JUMP_DIST)),
+            ..Default::default()
+        };
+        let mut crab = Headcrab::new();
+        let pick = |crab: &mut Headcrab, conds: &[Cond]| {
+            let mut npc = AiNpc::new(1);
+            npc.state = NpcState::Combat;
+            for &c in conds {
+                npc.conditions.set(c);
+            }
+            crab.select_schedule(&mut npc, &ctx)
+        };
+        // SelectCombatSchedule: an occluded enemy gets line of fire, a visible one too far
+        // to leap at is approached, and a visible one in range before the attack delay is
+        // over makes the crab take cover.
+        assert_eq!(
+            pick(&mut crab, &[COND_ENEMY_OCCLUDED]),
+            "SCHED_ESTABLISH_LINE_OF_FIRE"
+        );
+        assert_eq!(
+            pick(&mut crab, &[COND_SEE_ENEMY, COND_TOO_FAR_TO_ATTACK]),
+            "SCHED_MOVE_TO_WEAPON_RANGE"
+        );
+        assert_eq!(
+            pick(&mut crab, &[COND_SEE_ENEMY]),
+            "SCHED_TAKE_COVER_FROM_ENEMY"
+        );
+    }
+    #[test]
     #[ignore = "requires owned installed HL2"]
     fn owned_headcrab_leap_carries_its_events() {
         let vfs =

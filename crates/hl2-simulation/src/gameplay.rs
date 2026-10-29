@@ -1683,6 +1683,7 @@ impl Inventory {
                                     crab_force: force * 0.25,
                                     chopped: (split == crate::ai::zombie::Split::Chopped)
                                         .then(|| crate::ai::zombie::chopped_forces(force, rolls)),
+                                    live: false,
                                 });
                             }
                         }
@@ -2349,10 +2350,24 @@ pub fn apply_hit(
     } else {
         damage
     };
+    // CNPC_BaseZombie::TraceAttack: buckshot x 0.625 before the hitgroup multiplier.
+    let zombie = crate::ai::zombie::is_zombie_class(e.class());
+    let headshot = hit.hitgroup == crate::skill::HITGROUP_HEAD;
+    let damage = if zombie && buckshot {
+        damage * crate::ai::zombie::BUCKSHOT_SCALE
+    } else {
+        damage
+    };
     let damage = scene
         .skill
         .npc_hit_damage(e.class(), damage, hit.hitgroup, buckshot, distance);
     trace_bleed(physics, world, id, hit, direction, damage, uniform, blood);
+    // CNPC_BaseZombie::OnTakeDamage_Alive: bullets that missed the head deal half.
+    let damage = if zombie && !melee && !buckshot && !headshot {
+        damage * crate::ai::zombie::BULLET_DAMAGE_SCALE
+    } else {
+        damage
+    };
     // TakeDamage -> PassesDamageFilter: the shooter's friends keep their health (TraceAttack
     // already bled; the player's refusal fires OnDamagedByPlayer / OnDamagedByPlayerSquad).
     if refuse_damage(world, scene, id, attacker.attacker()) {
@@ -2375,6 +2390,28 @@ pub fn apply_hit(
         scene
             .npc_death_forces
             .insert(id, (direction * force, Some(hit.position)));
+        // ShouldReleaseHeadcrab for a bullet kill of a classic zombie (or its torso).
+        if !melee
+            && crate::ai::zombie::Kind::for_class(e.class())
+                == Some(crate::ai::zombie::Kind::Classic)
+        {
+            let max = scene
+                .npc_max_health
+                .get(&id)
+                .copied()
+                .unwrap_or_else(|| npc_spawn_health(scene, e));
+            let threshold = (damage / max.max(1e-6)).min(1.);
+            let release = crate::ai::zombie::bullet_release(headshot, threshold);
+            if release != crate::ai::zombie::BulletRelease::No {
+                scene.zombie_crab_releases += 1;
+                scene.crab_releases.push(crate::ai::zombie::CrabRelease {
+                    entity: id,
+                    crab_force: direction * force * 0.25,
+                    chopped: None,
+                    live: release == crate::ai::zombie::BulletRelease::Immediate,
+                });
+            }
+        }
         scene.states[id].killed = true;
         scene.states[id].visible = false;
         physics.set_entity(
@@ -3728,6 +3765,128 @@ mod tests {
             "{force}"
         );
         assert_eq!(at, Some(Vec3::new(70., 0., 47.)));
+    }
+    #[test]
+    fn zombies_halve_body_bullets_and_release_their_crabs() {
+        let world = World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![
+                    ("classname".into(), "npc_zombie".into()),
+                    ("origin".into(), "80 0 0".into()),
+                ],
+            }],
+            ..Default::default()
+        };
+        let mut physics = Physics::new(&world);
+        let mut uniform = || 0.5;
+        let mut blood = Vec::new();
+        let player = HitSource {
+            player: true,
+            npc: None,
+            origin: Vec3::ZERO,
+        };
+        let shoot = |scene: &mut Scene,
+                     physics: &mut Physics,
+                     damage: f32,
+                     ammo: &str,
+                     hitgroup: i32,
+                     blood: &mut Vec<_>,
+                     uniform: &mut dyn FnMut() -> f32| {
+            let hit = crate::physics::RayHit {
+                entity: 0,
+                position: Vec3::new(70., 0., 50.),
+                normal: -Vec3::X,
+                hitgroup,
+                bone: None,
+            };
+            apply_hit(
+                &world,
+                scene,
+                physics,
+                damage,
+                ammo,
+                &hit,
+                Vec3::X,
+                false,
+                player,
+                uniform,
+                blood,
+            )
+        };
+        // 50 HP: a pistol body shot deals 5 x 0.5, a headshot 5 x 2.
+        let mut scene = Scene::new(&world);
+        shoot(
+            &mut scene,
+            &mut physics,
+            5.,
+            "Pistol",
+            crate::skill::HITGROUP_CHEST,
+            &mut blood,
+            &mut uniform,
+        );
+        assert_eq!(scene.states[0].value, 47.5);
+        shoot(
+            &mut scene,
+            &mut physics,
+            5.,
+            "Pistol",
+            crate::skill::HITGROUP_HEAD,
+            &mut blood,
+            &mut uniform,
+        );
+        assert_eq!(scene.states[0].value, 37.5);
+        // Buckshot: x 0.625, no halving (8 -> 5 a pellet).
+        shoot(
+            &mut scene,
+            &mut physics,
+            8.,
+            "Buckshot",
+            crate::skill::HITGROUP_CHEST,
+            &mut blood,
+            &mut uniform,
+        );
+        assert_eq!(scene.states[0].value, 32.5);
+        // A body-shot kill lets the crab go alive.
+        scene.states[0].value = 1.;
+        assert!(shoot(
+            &mut scene,
+            &mut physics,
+            5.,
+            "Pistol",
+            crate::skill::HITGROUP_CHEST,
+            &mut blood,
+            &mut uniform
+        ));
+        assert!(scene
+            .crab_releases
+            .last()
+            .is_some_and(|r| r.live && r.entity == 0));
+        // A weak headshot kill (10 of 50: under a quarter) keeps the crab on the corpse.
+        let mut scene = Scene::new(&world);
+        scene.states[0].value = 1.;
+        shoot(
+            &mut scene,
+            &mut physics,
+            5.,
+            "Pistol",
+            crate::skill::HITGROUP_HEAD,
+            &mut blood,
+            &mut uniform,
+        );
+        assert!(scene.crab_releases.is_empty());
+        // A strong one (357: 40 x 2 of 50) throws it off as a ragdoll.
+        let mut scene = Scene::new(&world);
+        scene.states[0].value = 1.;
+        shoot(
+            &mut scene,
+            &mut physics,
+            40.,
+            "357",
+            crate::skill::HITGROUP_HEAD,
+            &mut blood,
+            &mut uniform,
+        );
+        assert!(scene.crab_releases.last().is_some_and(|r| !r.live));
     }
     #[test]
     fn player_headshots_sneak_attack_unaware_humanoids_like_native() {

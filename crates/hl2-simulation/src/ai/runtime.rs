@@ -1923,6 +1923,31 @@ impl AiRuntime {
         self.npc_ids = None;
         true
     }
+    /// ReleaseHeadcrab's live crab (RELEASE_IMMEDIATE): it takes the zombie's enemy
+    /// (SetEnemy) and memory, idles (SetActivity(ACT_IDLE)), leaps no sooner than 1 s
+    /// (m_flNextAttack) and falls from the head (SF_NPC_FALL_TO_GROUND).
+    pub fn released_headcrab(&mut self, zombie: usize, crab: usize, now: f64) -> bool {
+        let Some(old) = self.actors.get(&zombie) else {
+            return false;
+        };
+        let (enemy, enemies) = (old.npc.enemy, old.npc.enemies.clone());
+        let Some(actor) = self.actors.get_mut(&crab) else {
+            return false;
+        };
+        actor.npc.enemy = enemy;
+        actor.npc.enemies = enemies;
+        if enemy.is_some() {
+            actor.npc.state = NpcState::Combat;
+        }
+        actor.npc.activity = "ACT_IDLE".into();
+        actor.fall = Some((Vec3::ZERO, now));
+        actor.next_think = now;
+        if let AiClass::Headcrab(h) = &mut actor.class {
+            h.next_attack = now + 1.;
+        }
+        self.npc_ids = None;
+        true
+    }
     /// The NumGrenades keyvalue of a spawned CNPC_Combine (F4; DESIGN 14r would set it
     /// on the new entity before Spawn). Other classes ignore it.
     pub fn set_grenades(&mut self, id: usize, grenades: i32) {
@@ -2679,6 +2704,8 @@ impl AiRuntime {
         let is_cop = actor.class.cop().is_some();
         let cop_target = actor.class.cop().and_then(|c| c.target_entity);
         let airborne = actor.fall.is_some();
+        let innate_range = matches!(actor.class, AiClass::Headcrab(_))
+            .then_some((headcrab::MIN_JUMP_DIST, headcrab::MAX_JUMP_DIST));
         let random = self.random();
         Context {
             now,
@@ -2703,6 +2730,7 @@ impl AiRuntime {
             dist_too_far: 1024.,
             enemy_sees_me: self.enemy_sees(id, scene, player),
             airborne,
+            innate_range,
         }
     }
     /// `enemy_sees_me` for the current enemy (see [`enemy_sees_me`]).
