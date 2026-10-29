@@ -33,6 +33,11 @@ pub const SOUNDS: &[&str] = &[
     "NPC_HeadCrab.Die",
     "NPC_Headcrab.Attack",
     "NPC_HeadCrab.Bite",
+    "NPC_BlackHeadcrab.Telegraph",
+    "NPC_BlackHeadcrab.Attack",
+    "NPC_BlackHeadcrab.Bite",
+    "NPC_BlackHeadcrab.Pain",
+    "NPC_BlackHeadcrab.Die",
 ];
 
 /// CBaseHeadcrab::JumpAttack's velocity toward `target` (not a random hop): the arc's
@@ -103,13 +108,25 @@ pub fn range_condition(check: LeapCheck) -> Option<Cond> {
     }
     Some(COND_CAN_RANGE_ATTACK1)
 }
-/// CHeadcrab::MaxYawSpeed.
-pub fn max_yaw_speed(activity: &str) -> f32 {
-    match activity {
-        "ACT_RUN" | "ACT_WALK" => 20.,
-        "ACT_TURN_LEFT" | "ACT_TURN_RIGHT" => 15.,
+/// CHeadcrab::MaxYawSpeed; CBlackHeadcrab::MaxYawSpeed (`black`: 10 moving, else 30).
+pub fn max_yaw_speed(activity: &str, black: bool) -> f32 {
+    match (activity, black) {
+        ("ACT_RUN" | "ACT_WALK", false) => 20.,
+        ("ACT_RUN" | "ACT_WALK", true) => 10.,
+        ("ACT_TURN_LEFT" | "ACT_TURN_RIGHT", false) => 15.,
         _ => 30.,
     }
+}
+/// CBlackHeadcrab::TouchDamage (HL2, not episodic): the bite's damage, cut to leave one
+/// health when it would kill, then DMG_POISON of all but one health; nothing below two.
+/// Returns (bite, poison).
+pub fn poison_bite(bite: f32, health: f32) -> Option<(f32, f32)> {
+    if health <= 1. {
+        return None;
+    }
+    let first = if bite >= health { health - 1. } else { bite };
+    let left = health - first;
+    Some((first, if left > 1. { left - 1. } else { 0. }))
 }
 const SCHEDULES: &[(&str, &str)] = &[(
     "SCHED_HEADCRAB_RANGE_ATTACK1",
@@ -124,7 +141,10 @@ pub fn add_schedules(schedules: &mut Schedules) {
     }
 }
 pub fn is_headcrab_class(class: &str) -> bool {
-    class == "npc_headcrab"
+    matches!(
+        class,
+        "npc_headcrab" | "npc_headcrab_black" | "npc_headcrab_poison"
+    )
 }
 /// An npc_headcrab under the AI.
 #[derive(Clone, Debug, Serialize)]
@@ -153,8 +173,33 @@ pub struct Headcrab {
     /// schedule ends within one think (SetSchedule clears them); ours does not, so
     /// SelectFailSchedule reads this copy.
     pub sees_enemy: bool,
+    /// CBlackHeadcrab (npc_headcrab_black / npc_headcrab_poison): poison bites, its sounds
+    /// and yaw speeds.
+    pub black: bool,
 }
 impl Headcrab {
+    pub fn for_class(class: &str) -> Self {
+        Self {
+            black: matches!(class, "npc_headcrab_black" | "npc_headcrab_poison"),
+            ..Self::new()
+        }
+    }
+    /// The class's sound for a cue (Telegraph, Attack, Bite, Pain, Die).
+    pub fn sound(&self, cue: &str) -> &'static str {
+        match (self.black, cue) {
+            (true, "Telegraph") => "NPC_BlackHeadcrab.Telegraph",
+            (true, "Attack") => "NPC_BlackHeadcrab.Attack",
+            (true, "Bite") => "NPC_BlackHeadcrab.Bite",
+            (true, "Pain") => "NPC_BlackHeadcrab.Pain",
+            (true, _) => "NPC_BlackHeadcrab.Die",
+            // CHeadcrab::TelegraphSound is the alert; its attack cue is spelled Headcrab.
+            (false, "Telegraph") => "NPC_HeadCrab.Alert",
+            (false, "Attack") => "NPC_Headcrab.Attack",
+            (false, "Bite") => "NPC_HeadCrab.Bite",
+            (false, "Pain") => "NPC_HeadCrab.Pain",
+            (false, _) => "NPC_HeadCrab.Die",
+        }
+    }
     pub fn new() -> Self {
         Self {
             requests: Vec::new(),
@@ -169,6 +214,7 @@ impl Headcrab {
             bites: 0,
             last_check: None,
             sees_enemy: false,
+            black: false,
         }
     }
 }
@@ -298,8 +344,21 @@ mod tests {
             }),
             Some(COND_TOO_CLOSE_TO_ATTACK)
         );
-        assert_eq!(max_yaw_speed("ACT_RUN"), 20.);
-        assert_eq!(max_yaw_speed("ACT_IDLE"), 30.);
+        assert_eq!(max_yaw_speed("ACT_RUN", false), 20.);
+        assert_eq!(max_yaw_speed("ACT_IDLE", false), 30.);
+        assert_eq!(max_yaw_speed("ACT_RUN", true), 10.);
+        assert_eq!(max_yaw_speed("ACT_TURN_LEFT", true), 30.);
+        // Poison bites leave one health: 5 then 94 of 100; a 3-health victim 2 then 0;
+        // a 5-damage bite on 5 health is cut to 4; nothing at one health.
+        assert_eq!(poison_bite(5., 100.), Some((5., 94.)));
+        assert_eq!(poison_bite(5., 3.), Some((2., 0.)));
+        assert_eq!(poison_bite(5., 5.), Some((4., 0.)));
+        assert_eq!(poison_bite(5., 1.), None);
+        let black = Headcrab::for_class("npc_headcrab_poison");
+        assert!(black.black && is_headcrab_class("npc_headcrab_black"));
+        assert_eq!(black.sound("Bite"), "NPC_BlackHeadcrab.Bite");
+        assert_eq!(Headcrab::new().sound("Telegraph"), "NPC_HeadCrab.Alert");
+        assert_eq!(Headcrab::new().sound("Attack"), "NPC_Headcrab.Attack");
         let mut schedules = Schedules::default();
         add_schedules(&mut schedules);
         assert!(schedules.0.contains_key("SCHED_HEADCRAB_RANGE_ATTACK1"));
@@ -380,5 +439,22 @@ mod tests {
                 .z,
             16.
         );
+        // The black crab's leap and run.
+        let path = "models/headcrabblack.mdl";
+        let names = source_assets::animation::sequence_names(&vfs, path).unwrap();
+        let rig =
+            source_assets::animation::load(&vfs, path, &names.iter().cloned().collect()).unwrap();
+        let leap = rig
+            .lookup_sequence("ACT_RANGE_ATTACK1", None, |_| 0)
+            .unwrap();
+        let events: Vec<_> = rig.clips[leap]
+            .events
+            .iter()
+            .map(|e| (e.name.to_uppercase(), e.cycle))
+            .collect();
+        println!("black {names:?} {leap} {events:?}");
+        assert!(events.iter().any(|(n, _)| n == AE_JUMP_TELEGRAPH));
+        assert!(events.iter().any(|(n, _)| n == AE_JUMPATTACK));
+        assert!(rig.lookup_sequence("ACT_RUN", None, |_| 0).is_some());
     }
 }

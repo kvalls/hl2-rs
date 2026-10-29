@@ -250,6 +250,40 @@ impl Gameplay {
                 self.scene.sounds.push("Player.FallDamage".into());
             }
         }
+        // CBlackHeadcrab::TouchDamage: the bite (DMG_SLASH) leaves at least one health, then
+        // DMG_POISON takes all but one; CheckTimeBasedDamage restores the poison later.
+        for (crab, bite) in std::mem::take(&mut self.ai.poison_bites) {
+            use hl2_simulation::player_damage::{DMG_POISON, DMG_SLASH};
+            let inflictor = self.scene.states[crab].origin;
+            let Some((bite, _)) =
+                hl2_simulation::ai::headcrab::poison_bite(bite, self.inventory.health)
+            else {
+                continue;
+            };
+            if invulnerable {
+                continue;
+            }
+            for kind in [DMG_SLASH, DMG_POISON] {
+                let amount = if kind == DMG_SLASH {
+                    bite
+                } else {
+                    self.inventory.health - 1.
+                };
+                if self.inventory.health > 1. && amount > 0. {
+                    self.player_damage.take(
+                        &mut self.inventory,
+                        DamageInfo {
+                            amount,
+                            kind,
+                            inflictor,
+                        },
+                    );
+                }
+            }
+        }
+        let now = self.scene.time;
+        self.player_damage
+            .check_time_based(&mut self.inventory, now);
         // PlayerFallingDamage: a landing that leaves the player dead cuts to black
         // (FlPlayerFallDeathDoesScreenFade, duration 0, hold 9999, OUT | STAYOUT).
         if player

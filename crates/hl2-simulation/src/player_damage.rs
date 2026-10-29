@@ -136,6 +136,14 @@ pub struct PlayerDamage {
     pub sounds: Vec<&'static str>,
     #[serde(skip)]
     pub suit: Vec<SuitUpdate>,
+    /// m_nPoisonDmg / m_nPoisonRestored (integers in Source).
+    pub poison_damage: f32,
+    pub poison_restored: f32,
+    /// m_tbdPrev and m_rgbTimeBasedDamage[itbd_PoisonRecover].
+    tbd_prev: f64,
+    poison_ticks: u8,
+    /// Poison taken since the last `check_time_based` (it stamps m_tbdPrev).
+    poisoned: bool,
 }
 impl Default for PlayerDamage {
     fn default() -> Self {
@@ -152,6 +160,11 @@ impl Default for PlayerDamage {
             fades: Vec::new(),
             sounds: Vec::new(),
             suit: Vec::new(),
+            poison_damage: 0.,
+            poison_restored: 0.,
+            tbd_prev: 0.,
+            poison_ticks: 0,
+            poisoned: false,
         }
     }
 }
@@ -238,11 +251,44 @@ impl PlayerDamage {
             return 0.;
         }
         inv.health = (inv.health - whole).max(0.);
+        // CBasePlayer::OnTakeDamage: poison is restored later (itbd_PoisonRecover).
+        if bits & DMG_POISON != 0 {
+            self.poison_damage += amount.trunc();
+            self.poisoned = true;
+        }
         self.origin = info.inflictor;
         self.take += amount.trunc();
         self.damage_effect(amount, bits);
         self.diagnose(inv, bits, health_before);
         health_before - inv.health
+    }
+    /// CBasePlayer::CheckTimeBasedDamage's poison recovery (the other time-based kinds deal
+    /// no damage in HL2): every 2 s while DMG_POISON is set, TakeHealth of up to 10 of the
+    /// poison not yet restored (at most 100 health), for ten ticks.
+    pub fn check_time_based(&mut self, inv: &mut Inventory, now: f64) {
+        if std::mem::take(&mut self.poisoned) {
+            self.tbd_prev = now;
+            self.poison_ticks = 0;
+        }
+        if self.bits_damage_type & DMG_POISON == 0 || (now - self.tbd_prev).abs() < 2. {
+            return;
+        }
+        self.tbd_prev = now;
+        if self.poison_damage > self.poison_restored {
+            let restore = (self.poison_damage - self.poison_restored).min(10.);
+            if inv.health > 0. {
+                inv.health = (inv.health + restore).min(100.);
+            }
+            self.poison_restored += restore;
+        }
+        if self.poison_ticks == 0 {
+            self.poison_ticks = 9;
+        } else {
+            self.poison_ticks -= 1;
+            if self.poison_ticks == 0 {
+                self.bits_damage_type &= !DMG_POISON;
+            }
+        }
     }
     /// CBasePlayer::DamageEffect (slash blood is a separate effect).
     fn damage_effect(&mut self, _amount: f32, bits: u32) {
@@ -438,6 +484,32 @@ mod tests {
         assert_eq!(damage.take(&mut inv, hit(20., DMG_BULLET)), 0.);
     }
 
+    #[test]
+    fn poison_skips_armor_and_is_restored_ten_every_two_seconds() {
+        let mut damage = PlayerDamage::default();
+        let mut inv = player(100., 50.);
+        // A black crab bite on 100 health: 5 slash (armor takes 4), then poison to 1.
+        damage.take(&mut inv, hit(5., DMG_SLASH));
+        assert_eq!((inv.health, inv.armor), (99., 46.));
+        let poison = inv.health - 1.;
+        damage.take(&mut inv, hit(poison, DMG_POISON));
+        assert_eq!((inv.health, inv.armor), (1., 46.));
+        damage.check_time_based(&mut inv, 10.);
+        assert_eq!(inv.health, 1.);
+        // 10 back at 12 s, 14 s, ...; nothing between ticks.
+        damage.check_time_based(&mut inv, 11.9);
+        assert_eq!(inv.health, 1.);
+        damage.check_time_based(&mut inv, 12.);
+        assert_eq!(inv.health, 11.);
+        for tick in 2..=10 {
+            damage.check_time_based(&mut inv, 10. + 2. * f64::from(tick));
+        }
+        // 98 poisoned: ten ticks restore it all (the last 8) and clear the bit.
+        assert_eq!(inv.health, 99.);
+        assert_eq!(damage.bits_damage_type & DMG_POISON, 0);
+        damage.check_time_based(&mut inv, 40.);
+        assert_eq!(inv.health, 99.);
+    }
     #[test]
     fn client_message_reports_once_and_keeps_time_based_bits() {
         let mut damage = PlayerDamage::default();

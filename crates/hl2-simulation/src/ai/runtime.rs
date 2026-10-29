@@ -506,6 +506,9 @@ pub struct AiRuntime {
     zombie_poison_spit_damage: f32,
     /// sk_headcrab_melee_dmg (the leap's bite).
     headcrab_melee_damage: f32,
+    /// Black crab bites on the player (crab, bite damage) for the host: CBlackHeadcrab::
+    /// TouchDamage needs the player's health (`headcrab::poison_bite`).
+    pub poison_bites: Vec<(usize, f32)>,
     /// NPC weapon definitions (installed scripts and skill.cfg).
     #[serde(skip)]
     weapon_defs: BTreeMap<String, NpcWeaponDef>,
@@ -970,6 +973,7 @@ impl AiRuntime {
             zombie_slash_damage,
             zombie_poison_spit_damage,
             headcrab_melee_damage,
+            poison_bites: Vec::new(),
             weapon_defs,
             shots: Vec::new(),
             muzzle_flashes: Vec::new(),
@@ -1699,7 +1703,7 @@ impl AiRuntime {
         let mut npc = AiNpc::new(id);
         npc.shot_regulator = Self::regulator(e.class(), weapon.as_ref(), defs, id);
         let class = match kind {
-            _ if crab => AiClass::Headcrab(Box::default()),
+            _ if crab => AiClass::Headcrab(Box::new(Headcrab::for_class(e.class()))),
             _ if zombie.is_some() => {
                 let mut z = Zombie::new(
                     zombie.unwrap_or(zombie::Kind::Classic),
@@ -1854,16 +1858,20 @@ impl AiRuntime {
                         crab.leap_touch = false;
                         crab.attack_failed = false;
                         crab.bites += 1;
-                        self.player_hits.push(PlayerHit {
-                            attacker: id,
-                            damage: self.headcrab_melee_damage,
-                            punch: Vec3::ZERO,
-                            impulse: Vec3::ZERO,
-                            fade: None,
-                        });
+                        if crab.black {
+                            self.poison_bites.push((id, self.headcrab_melee_damage));
+                        } else {
+                            self.player_hits.push(PlayerHit {
+                                attacker: id,
+                                damage: self.headcrab_melee_damage,
+                                punch: Vec3::ZERO,
+                                impulse: Vec3::ZERO,
+                                fade: None,
+                            });
+                        }
                         scene.sounds.push(crate::sounds::SoundRequest {
                             origin: Some(position + Vec3::Z * 12.),
-                            ..String::from("NPC_HeadCrab.Bite").into()
+                            ..crab.sound("Bite").into()
                         });
                     } else {
                         let failed = fraction < 1. && now >= crab.ignore_world_until && !landed;
@@ -1898,7 +1906,14 @@ impl AiRuntime {
             let AiClass::Headcrab(crab) = &mut actor.class else {
                 continue;
             };
-            if let Some(victim) = victim {
+            // CBlackHeadcrab::TouchDamage leaves the victim one health.
+            let health = victim.map_or(0., |v| scene.states[v].value);
+            let damage = if crab.black {
+                headcrab::poison_bite(damage, health).map(|(bite, poison)| bite + poison)
+            } else {
+                Some(damage)
+            };
+            if let (Some(victim), Some(damage)) = (victim, damage) {
                 // The victim's box stops the leap like the player's (NPC traces do not
                 // include NPC boxes).
                 if let Some((velocity, _)) = &mut actor.fall {
@@ -1918,7 +1933,7 @@ impl AiRuntime {
                 });
                 scene.sounds.push(crate::sounds::SoundRequest {
                     origin: Some(end + Vec3::Z * 12.),
-                    ..String::from("NPC_HeadCrab.Bite").into()
+                    ..crab.sound("Bite").into()
                 });
             } else if failed {
                 crab.attack_failed = true;
@@ -2285,7 +2300,7 @@ impl AiRuntime {
                             // CBaseHeadcrab::HandleAnimEvent: the telegraph commits to the
                             // enemy's eyes; the jump leaps at them (or hops without an enemy).
                             if name.eq_ignore_ascii_case(headcrab::AE_JUMP_TELEGRAPH) {
-                                h.requests.push(CopRequest::Sound("NPC_HeadCrab.Alert"));
+                                h.requests.push(CopRequest::Sound(h.sound("Telegraph")));
                                 h.committed_jump = ctx.enemy_eye;
                             } else if name.eq_ignore_ascii_case(headcrab::AE_JUMPATTACK)
                                 && !h.mid_jump
@@ -2296,7 +2311,7 @@ impl AiRuntime {
                                     }
                                     None => headcrab::random_hop(ctx.yaw),
                                 };
-                                h.requests.push(CopRequest::Sound("NPC_Headcrab.Attack"));
+                                h.requests.push(CopRequest::Sound(h.sound("Attack")));
                                 h.requests.push(CopRequest::Leap(velocity));
                                 h.mid_jump = true;
                                 h.leap_touch = true;
@@ -3932,7 +3947,7 @@ impl AiRuntime {
                 weapon_drawn && h.idle_angry(actor.npc.state, now),
             ),
             AiClass::Zombie(z) => (zombie::max_yaw_speed(&actor.npc.activity, z.torso), false),
-            AiClass::Headcrab(_) => (headcrab::max_yaw_speed(&actor.npc.activity), false),
+            AiClass::Headcrab(h) => (headcrab::max_yaw_speed(&actor.npc.activity, h.black), false),
         };
         if let AiClass::Headcrab(crab) = &mut actor.class {
             crab.sees_enemy = actor.npc.conditions.has(COND_SEE_ENEMY);
@@ -4393,18 +4408,18 @@ impl AiRuntime {
         };
         let state = &scene.states[id];
         // CHeadcrab::PainSound / DeathSound.
-        if let AiClass::Headcrab(_) = &actor.class {
+        if let AiClass::Headcrab(crab) = &actor.class {
             let cue = if state.killed {
                 if std::mem::replace(&mut actor.death_spoken, true) {
                     return;
                 }
-                "NPC_HeadCrab.Die"
+                crab.sound("Die")
             } else {
                 if now < actor.next_pain_sound || state.value <= 0. {
                     return;
                 }
                 actor.next_pain_sound = now + 1.;
-                "NPC_HeadCrab.Pain"
+                crab.sound("Pain")
             };
             let origin = state.origin;
             scene.sounds.push(crate::sounds::SoundRequest {
