@@ -57,7 +57,7 @@ pub const GROUND_HUMANS: [&str; 2] = ["npc_barney", "npc_kleiner"];
 /// Human-hull NPC classes registered for AI goals (step 14); scenes and scripted_sequences
 /// move them too while they own the actor. SetHullType(HULL_HUMAN) in CNPC_MetroPolice,
 /// CNPC_Combine and CNPC_PlayerCompanion (npc_citizen, npc_alyx) Spawn.
-pub const AI_GROUND_HUMANS: [&str; 7] = [
+pub const AI_GROUND_HUMANS: [&str; 8] = [
     "npc_metropolice",
     "npc_combine_s",
     "npc_citizen",
@@ -65,6 +65,7 @@ pub const AI_GROUND_HUMANS: [&str; 7] = [
     "npc_zombie",
     "npc_zombie_torso",
     "npc_poisonzombie",
+    "npc_headcrab",
 ];
 /// AI movers' walk/run per weapon class ("" unarmed): Weapon_TranslateActivity of
 /// ACT_WALK/ACT_RUN when the model has the result (else the base activity), played as
@@ -93,8 +94,9 @@ fn locomotion_variants(
     let mut aims = std::collections::BTreeMap::new();
     for weapon in std::iter::once("").chain(crate::npc_weapons::NPC_WEAPONS.iter().copied()) {
         // A model without ACT_RUN (the classic zombie, whose NPC_TranslateActivity
-        // walks instead) runs with its walk.
-        let walk = pick(weapon, "ACT_WALK");
+        // walks instead) runs with its walk; one without ACT_WALK (the headcrab, whose
+        // NPC_TranslateActivity runs instead) walks with its run.
+        let walk = pick(weapon, "ACT_WALK").or_else(|| pick(weapon, "ACT_RUN"));
         if let (Some(walk), Some(run)) = (walk.clone(), pick(weapon, "ACT_RUN").or(walk)) {
             choices.push((weapon.to_owned(), walk, run));
         }
@@ -193,8 +195,11 @@ pub fn prepare_npcs(
                     .register_ai_actor(actor, instance.scale, ground, motion)
                     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
                 controller.set_locomotion_variants(actor, variants);
-                // The zombies have no bits_CAP_DOORS_GROUP (CZombie pounds on doors).
-                if crate::ai::zombie::is_zombie_class(class) {
+                // The zombies and crabs have no bits_CAP_DOORS_GROUP (CZombie pounds on
+                // doors).
+                if crate::ai::zombie::is_zombie_class(class)
+                    || crate::ai::headcrab::is_headcrab_class(class)
+                {
                     controller.set_opens_doors(actor, false);
                 }
                 wanted

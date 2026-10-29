@@ -79,6 +79,10 @@ pub fn class_hull(class: &str) -> Option<HullType> {
         | "npc_fastzombie" | "npc_stalker" | "npc_assassin" => Some(HullType::Human),
         // CZombie::SetZombieModel / CFastZombie::SetZombieModel with m_fIsTorso.
         "npc_zombie_torso" | "npc_fastzombie_torso" => Some(HullType::Tiny),
+        // CBaseHeadcrab::Spawn.
+        "npc_headcrab" | "npc_headcrab_fast" | "npc_headcrab_black" | "npc_headcrab_poison" => {
+            Some(HullType::Tiny)
+        }
         _ => None,
     }
 }
@@ -96,6 +100,10 @@ pub fn center_height(class: &str) -> f32 {
 pub fn eye_height(class: &str) -> f32 {
     match class {
         "npc_zombie_torso" => 24.,
+        // CBaseHeadcrab::Spawn: SetViewOffset(Vector(6, 0, 11)).
+        "npc_headcrab" | "npc_headcrab_fast" | "npc_headcrab_black" | "npc_headcrab_poison" => {
+            crate::ai::headcrab::EYE_HEIGHT
+        }
         _ => 64.,
     }
 }

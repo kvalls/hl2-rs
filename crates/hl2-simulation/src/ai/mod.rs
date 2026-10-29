@@ -9,6 +9,7 @@ pub mod conditions;
 pub mod default_schedules;
 pub mod efficiency;
 pub mod enemy_choice;
+pub mod headcrab;
 pub mod host;
 pub mod humanoid;
 pub mod memory;

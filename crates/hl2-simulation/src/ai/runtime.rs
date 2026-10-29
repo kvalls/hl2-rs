@@ -9,6 +9,7 @@
 //! (npc_citizen, npc_barney, npc_alyx, npc_combine_s); other classes have no AI yet.
 use super::assault;
 use super::conditions::*;
+use super::headcrab::{self, Headcrab};
 use super::host::{yaw_of, PhysicsSight, SceneMotor};
 use super::humanoid::{self, Humanoid};
 use super::metropolice::{CopRequest, Metropolice, PlayerView, PLAYER};
@@ -271,6 +272,7 @@ pub enum AiClass {
     Metropolice(Box<Metropolice>),
     Humanoid(Box<Humanoid>),
     Zombie(Box<Zombie>),
+    Headcrab(Box<Headcrab>),
 }
 impl AiClass {
     pub fn cop(&self) -> Option<&Metropolice> {
@@ -297,6 +299,7 @@ impl AiClass {
             Self::Metropolice(cop) => cop.assault.as_ref(),
             Self::Humanoid(h) => h.assault.as_ref(),
             Self::Zombie(z) => z.assault.as_ref(),
+            Self::Headcrab(h) => h.assault.as_ref(),
         }
     }
     pub fn assault_mut(&mut self) -> &mut Option<assault::Assault> {
@@ -304,6 +307,7 @@ impl AiClass {
             Self::Metropolice(cop) => &mut cop.assault,
             Self::Humanoid(h) => &mut h.assault,
             Self::Zombie(z) => &mut z.assault,
+            Self::Headcrab(h) => &mut h.assault,
         }
     }
     /// The aiscripted_schedule goal (position, run).
@@ -312,6 +316,7 @@ impl AiClass {
             Self::Metropolice(cop) => cop.script_goal,
             Self::Humanoid(h) => h.script_goal,
             Self::Zombie(z) => z.script_goal,
+            Self::Headcrab(h) => h.script_goal,
         }
     }
     fn script_goal_mut(&mut self) -> &mut Option<(Vec3, bool)> {
@@ -319,6 +324,7 @@ impl AiClass {
             Self::Metropolice(cop) => &mut cop.script_goal,
             Self::Humanoid(h) => &mut h.script_goal,
             Self::Zombie(z) => &mut z.script_goal,
+            Self::Headcrab(h) => &mut h.script_goal,
         }
     }
     fn requests_mut(&mut self) -> &mut Vec<CopRequest> {
@@ -326,6 +332,7 @@ impl AiClass {
             Self::Metropolice(cop) => &mut cop.requests,
             Self::Humanoid(h) => &mut h.requests,
             Self::Zombie(z) => &mut z.requests,
+            Self::Headcrab(h) => &mut h.requests,
         }
     }
     fn behavior_mut(&mut self) -> &mut dyn Behavior {
@@ -333,6 +340,7 @@ impl AiClass {
             Self::Metropolice(cop) => cop.as_mut(),
             Self::Humanoid(h) => h.as_mut(),
             Self::Zombie(z) => z.as_mut(),
+            Self::Headcrab(h) => h.as_mut(),
         }
     }
     /// m_flFieldOfView.
@@ -341,6 +349,7 @@ impl AiClass {
             Self::Metropolice(_) => METROPOLICE_FOV,
             Self::Humanoid(h) => h.kind.field_of_view(),
             Self::Zombie(_) => zombie::FIELD_OF_VIEW,
+            Self::Headcrab(_) => headcrab::FIELD_OF_VIEW,
         }
     }
     /// GetSoundInterests.
@@ -349,7 +358,7 @@ impl AiClass {
             Self::Metropolice(_) => METROPOLICE_SOUNDS,
             Self::Humanoid(h) => h.kind.sound_interests(),
             // CAI_BaseNPC::GetSoundInterests (SOUND_PLAYER_VEHICLE has no source here).
-            Self::Zombie(_) => {
+            Self::Zombie(_) | Self::Headcrab(_) => {
                 use super::senses::sound;
                 sound::WORLD | sound::COMBAT | sound::PLAYER | sound::BULLET_IMPACT
             }
@@ -431,8 +440,8 @@ pub struct AiActor {
     /// m_flNextDecisionTime for the idle sound roll (UpdateEfficiency's interval).
     #[serde(skip)]
     next_idle_decision: f64,
-    /// Off the ground (FL_ONGROUND clear): vertical velocity and the last fall step.
-    pub fall: Option<(f32, f64)>,
+    /// Off the ground (FL_ONGROUND clear): velocity and the last fall step.
+    pub fall: Option<(Vec3, f64)>,
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Diagnostics {
@@ -495,6 +504,8 @@ pub struct AiRuntime {
     zombie_slash_damage: f32,
     /// sk_zombie_poison_dmg_spit (the poison zombie's bite).
     zombie_poison_spit_damage: f32,
+    /// sk_headcrab_melee_dmg (the leap's bite).
+    headcrab_melee_damage: f32,
     /// NPC weapon definitions (installed scripts and skill.cfg).
     #[serde(skip)]
     weapon_defs: BTreeMap<String, NpcWeaponDef>,
@@ -768,6 +779,7 @@ impl AiRuntime {
         super::metropolice::add_schedules(&mut schedules);
         humanoid::add_schedules(&mut schedules);
         zombie::add_schedules(&mut schedules);
+        headcrab::add_schedules(&mut schedules);
         super::actbusy::add_schedules(&mut schedules);
         let busy_anims = vfs
             .and_then(|vfs| vfs.read("scripts/actbusy.txt").ok().flatten())
@@ -813,6 +825,7 @@ impl AiRuntime {
         let mut combine_guard_kick_damage = 0.;
         let mut zombie_slash_damage = 0.;
         let mut zombie_poison_spit_damage = 0.;
+        let mut headcrab_melee_damage = 0.;
         if let Some(vfs) = vfs {
             if let Ok(Some(skill)) = vfs.read("cfg/skill.cfg") {
                 if let Ok(tokens) = keyvalues::tokens(&String::from_utf8_lossy(&skill)) {
@@ -851,6 +864,13 @@ impl AiRuntime {
                         .and_then(|p| p[1].parse::<f32>().ok())
                     {
                         zombie_poison_spit_damage = value;
+                    }
+                    if let Some(value) = tokens
+                        .windows(2)
+                        .find(|p| p[0].eq_ignore_ascii_case("sk_headcrab_melee_dmg"))
+                        .and_then(|p| p[1].parse::<f32>().ok())
+                    {
+                        headcrab_melee_damage = value;
                     }
                 }
             }
@@ -949,6 +969,7 @@ impl AiRuntime {
             combine_guard_kick_damage,
             zombie_slash_damage,
             zombie_poison_spit_damage,
+            headcrab_melee_damage,
             weapon_defs,
             shots: Vec::new(),
             muzzle_flashes: Vec::new(),
@@ -1663,7 +1684,8 @@ impl AiRuntime {
     ) -> Option<AiActor> {
         let kind = humanoid::Kind::for_class(e.class());
         let zombie = zombie::Kind::for_class(e.class());
-        if e.class() != "npc_metropolice" && kind.is_none() && zombie.is_none() {
+        let crab = headcrab::is_headcrab_class(e.class());
+        if e.class() != "npc_metropolice" && kind.is_none() && zombie.is_none() && !crab {
             return None;
         }
         let flags: u32 = e
@@ -1677,6 +1699,7 @@ impl AiRuntime {
         let mut npc = AiNpc::new(id);
         npc.shot_regulator = Self::regulator(e.class(), weapon.as_ref(), defs, id);
         let class = match kind {
+            _ if crab => AiClass::Headcrab(Box::default()),
             _ if zombie.is_some() => {
                 let mut z = Zombie::new(
                     zombie.unwrap_or(zombie::Kind::Classic),
@@ -1739,7 +1762,13 @@ impl AiRuntime {
     }
     /// MOVETYPE_STEP falling (sv_gravity 600) for NPCs off the ground (a zombie torso
     /// after BecomeTorso): a hull trace down each tick until it lands (FL_ONGROUND).
-    fn step_falls(&mut self, world: &World, scene: &mut Scene, physics: &Physics) {
+    fn step_falls(
+        &mut self,
+        world: &World,
+        scene: &mut Scene,
+        physics: &Physics,
+        player: PlayerState,
+    ) {
         use crate::npc_probe::NpcCollisionWorld;
         let now = scene.time;
         for (&id, actor) in self.actors.iter_mut() {
@@ -1751,7 +1780,7 @@ impl AiRuntime {
                 continue;
             }
             let dt = (now - last).clamp(0., 0.1) as f32;
-            let velocity = velocity - 600. * dt;
+            let mut velocity = velocity - Vec3::Z * 600. * dt;
             let hull = world
                 .entities
                 .get(id)
@@ -1759,7 +1788,7 @@ impl AiRuntime {
                 .unwrap_or(crate::ai_hull::HullType::Human)
                 .bounds();
             let origin = scene.states[id].origin;
-            let end = origin + Vec3::Z * velocity * dt;
+            let end = origin + velocity * dt;
             let trace = |excluded: &[usize]| {
                 physics.npc_trace_hull(
                     origin,
@@ -1788,8 +1817,60 @@ impl AiRuntime {
             } else {
                 hit.trace.fraction.clamp(0., 1.)
             };
-            scene.states[id].origin = origin + (end - origin) * fraction;
-            actor.fall = (fraction >= 1. || velocity > 0.).then_some((velocity, now));
+            let position = origin + (end - origin) * fraction;
+            scene.states[id].origin = position;
+            // A floor (or a stuck start) lands; a wall or ceiling stops that part of the
+            // motion and the fall goes on.
+            let landed = fraction < 1.
+                && (hit.trace.start_solid
+                    || hit.trace.normal.z > 0.7
+                    || velocity.z <= 0. && velocity.truncate().length() < 1.);
+            if fraction < 1. && !landed {
+                let n = hit.trace.normal;
+                velocity -= n * velocity.dot(n).min(0.);
+            }
+            // CBaseHeadcrab::LeapTouch while airborne: the hated player's hull bites (once);
+            // another solid after the world-ignore window fails the attack; landing ends it.
+            if let AiClass::Headcrab(crab) = &mut actor.class {
+                let player_box = (
+                    player.feet + Vec3::new(-16., -16., 0.),
+                    player.feet + Vec3::new(16., 16., 72.),
+                );
+                let (lo, hi) = (position + hull.mins, position + hull.maxs);
+                let touching =
+                    !player.noclip && lo.cmple(player_box.1).all() && hi.cmpge(player_box.0).all();
+                // The player's box stops the leap (the player is solid to NPC moves; our
+                // NPC traces do not include him): the crab drops where it hit.
+                if touching {
+                    velocity.x = 0.;
+                    velocity.y = 0.;
+                }
+                if crab.leap_touch {
+                    if touching && actor.npc.enemy == Some(PLAYER) && !player.dead {
+                        self.diagnostics.player_hits += 1;
+                        crab.leap_touch = false;
+                        crab.attack_failed = false;
+                        crab.bites += 1;
+                        self.player_hits.push(PlayerHit {
+                            attacker: id,
+                            damage: self.headcrab_melee_damage,
+                            punch: Vec3::ZERO,
+                            impulse: Vec3::ZERO,
+                            fade: None,
+                        });
+                        scene.sounds.push(crate::sounds::SoundRequest {
+                            origin: Some(position + Vec3::Z * 12.),
+                            ..String::from("NPC_HeadCrab.Bite").into()
+                        });
+                    } else if fraction < 1. && now >= crab.ignore_world_until && !landed {
+                        crab.attack_failed = true;
+                        crab.leap_touch = false;
+                    } else if landed {
+                        crab.leap_touch = false;
+                    }
+                }
+            }
+            actor.fall = (!landed).then_some((velocity, now));
             if actor.fall.is_none() {
                 let landings = &mut self.diagnostics.fall_landings;
                 if landings.len() >= 16 {
@@ -1837,7 +1918,7 @@ impl AiRuntime {
         actor.squad = squad;
         actor.squad_name = squad_name;
         actor.player_disposition = disposition;
-        actor.fall = Some((0., now));
+        actor.fall = Some((Vec3::ZERO, now));
         actor.next_think = now;
         self.npc_ids = None;
         true
@@ -1979,7 +2060,7 @@ impl AiRuntime {
             .extend(now_due.into_iter().map(|(_, request)| request));
         self.inputs(world, scene, controller);
         // PhysicsStep's gravity runs whether or not the NPC thinks (ai_disable).
-        self.step_falls(world, scene, physics);
+        self.step_falls(world, scene, physics, player);
         if !self.enabled {
             if self.was_enabled {
                 self.was_enabled = false;
@@ -2132,6 +2213,28 @@ impl AiRuntime {
                             } else if let Some(sound) = zombie::event_sound(&name) {
                                 let cue = z.kind.cue(sound);
                                 z.requests.push(CopRequest::Sound(cue));
+                            }
+                        } else if let AiClass::Headcrab(h) = class {
+                            // CBaseHeadcrab::HandleAnimEvent: the telegraph commits to the
+                            // enemy's eyes; the jump leaps at them (or hops without an enemy).
+                            if name.eq_ignore_ascii_case(headcrab::AE_JUMP_TELEGRAPH) {
+                                h.requests.push(CopRequest::Sound("NPC_HeadCrab.Alert"));
+                                h.committed_jump = ctx.enemy_eye;
+                            } else if name.eq_ignore_ascii_case(headcrab::AE_JUMPATTACK)
+                                && !h.mid_jump
+                            {
+                                let velocity = match h.committed_jump.take().or(ctx.enemy_eye) {
+                                    Some(target) => {
+                                        headcrab::jump_velocity(ctx.origin, target, 600., false)
+                                    }
+                                    None => headcrab::random_hop(ctx.yaw),
+                                };
+                                h.requests.push(CopRequest::Sound("NPC_Headcrab.Attack"));
+                                h.requests.push(CopRequest::Leap(velocity));
+                                h.mid_jump = true;
+                                h.leap_touch = true;
+                                h.ignore_world_until =
+                                    ctx.now + headcrab::IGNORE_WORLD_COLLISION_TIME;
                             }
                         } else if let AiClass::Humanoid(h) = class {
                             // CNPC_Combine::HandleAnimEvent COMBINE_AE_KICK (3); the other
@@ -2832,7 +2935,7 @@ impl AiRuntime {
                 h.armed = actor.weapon.is_some();
                 precriminal_hate
             }
-            AiClass::Zombie(_) => precriminal_hate,
+            AiClass::Zombie(_) | AiClass::Headcrab(_) => precriminal_hate,
         };
         // A cop keeps the player as its enemy for the rest of a chase.
         let chasing = actor.class.cop().is_some_and(|cop| cop.chase_until > now);
@@ -3185,6 +3288,40 @@ impl AiRuntime {
                         && sight.visible(center, t_center, &[id, enemy])
                     {
                         actor.npc.conditions.set(COND_CAN_MELEE_ATTACK1);
+                    }
+                }
+                // CBaseHeadcrab::RangeAttack1Conditions (EnemyDistance between the centers,
+                // less the height the two boxes can overlap; the high-enemy hull check is
+                // not modeled).
+                if let AiClass::Headcrab(crab) = &mut actor.class {
+                    let enemy_height = 72.;
+                    let mut delta = t_center - center;
+                    let overlap = (enemy_height + 24.) * 0.5;
+                    delta.z = if delta.z > overlap {
+                        delta.z - overlap
+                    } else if delta.z < -overlap {
+                        delta.z + overlap
+                    } else {
+                        0.
+                    };
+                    let forward = facing.truncate().normalize_or_zero();
+                    let dot = (t_feet - origin)
+                        .truncate()
+                        .normalize_or_zero()
+                        .dot(forward);
+                    let check = headcrab::LeapCheck {
+                        ready: now >= crab.next_attack,
+                        on_ground: actor.fall.is_none(),
+                        dot,
+                        distance: delta.length(),
+                        clear: sight.visible(eye, t_eye, &[id, enemy]),
+                        high_blocked: false,
+                    };
+                    let condition = headcrab::range_condition(check);
+                    crab.last_check =
+                        Some((check.distance, check.dot, condition.map(|c| c.0 as i32)));
+                    if let Some(c) = condition {
+                        actor.npc.conditions.set(c);
                     }
                 }
                 // CNPC_BaseZombie::MeleeAttack1Conditions: within the claw reach (origin
@@ -3725,7 +3862,11 @@ impl AiRuntime {
                 weapon_drawn && h.idle_angry(actor.npc.state, now),
             ),
             AiClass::Zombie(z) => (zombie::max_yaw_speed(&actor.npc.activity, z.torso), false),
+            AiClass::Headcrab(_) => (headcrab::max_yaw_speed(&actor.npc.activity), false),
         };
+        if let AiClass::Headcrab(crab) = &mut actor.class {
+            crab.sees_enemy = actor.npc.conditions.has(COND_SEE_ENEMY);
+        }
         // CNPC_BaseZombie::OnInsufficientStopDist: a move blocked by an entity while a swat
         // is allowed remembers it as m_hObstructor (only VPhysics objects can be swatted).
         if let AiClass::Zombie(z) = &mut actor.class {
@@ -4181,6 +4322,27 @@ impl AiRuntime {
             return;
         };
         let state = &scene.states[id];
+        // CHeadcrab::PainSound / DeathSound.
+        if let AiClass::Headcrab(_) = &actor.class {
+            let cue = if state.killed {
+                if std::mem::replace(&mut actor.death_spoken, true) {
+                    return;
+                }
+                "NPC_HeadCrab.Die"
+            } else {
+                if now < actor.next_pain_sound || state.value <= 0. {
+                    return;
+                }
+                actor.next_pain_sound = now + 1.;
+                "NPC_HeadCrab.Pain"
+            };
+            let origin = state.origin;
+            scene.sounds.push(crate::sounds::SoundRequest {
+                origin: Some(origin + Vec3::Z * 12.),
+                ..cue.into()
+            });
+            return;
+        }
         // CZombie / CNPC_PoisonZombie PainSound and DeathSound.
         if let AiClass::Zombie(z) = &actor.class {
             let kind = z.kind;
@@ -4521,6 +4683,14 @@ impl AiRuntime {
                         .into()
                     });
                 }
+                CopRequest::Leap(velocity) => {
+                    // CBaseHeadcrab::Leap: off the ground (MoveOrigin(0, 0, 1) with headroom)
+                    // with the velocity; step_falls carries it and its LeapTouch.
+                    scene.states[id].origin.z += 1.;
+                    if let Some(actor) = self.actors.get_mut(&id) {
+                        actor.fall = Some((velocity, scene.time));
+                    }
+                }
                 CopRequest::Kick { start, forward } => {
                     let end = start + forward * 70.;
                     let (mins, maxs) = (-Vec3::new(16., 16., 18.), Vec3::new(16., 16., 18.));
@@ -4779,7 +4949,7 @@ impl AiRuntime {
                         .is_some_and(|w| w.class == "weapon_stunstick");
                 }
                 AiClass::Humanoid(h) => h.armed = weapon.is_some(),
-                AiClass::Zombie(_) => {}
+                AiClass::Zombie(_) | AiClass::Headcrab(_) => {}
             }
             actor.weapon = weapon;
             actor.npc.shot_regulator = regulator;
