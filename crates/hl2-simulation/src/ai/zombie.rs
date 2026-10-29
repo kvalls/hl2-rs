@@ -1204,6 +1204,7 @@ mod tests {
             "models/zombie/classic.mdl",
             "models/zombie/classic_torso.mdl",
             "models/zombie/classic_legs.mdl",
+            "models/headcrabclassic.mdl",
         ] {
             println!(
                 "{model} eyes {:?}",

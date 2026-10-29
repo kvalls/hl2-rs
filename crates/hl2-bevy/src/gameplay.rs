@@ -640,8 +640,22 @@ impl Gameplay {
                 })
                 .cloned()
                 .collect();
-            let overrides: Vec<(&str, String)> =
-                keep.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+            // SF_NPC_FALL_TO_GROUND: the replacement must not take StartNPC's floor drop (the
+            // zombie entity natively stays the same; the torso falls from 40 units up).
+            let flags = keep
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("spawnflags"))
+                .and_then(|(_, v)| v.trim().parse::<u32>().ok())
+                .unwrap_or(0);
+            let mut overrides: Vec<(&str, String)> = keep
+                .iter()
+                .filter(|(k, _)| !k.eq_ignore_ascii_case("spawnflags"))
+                .map(|(k, v)| (k.as_str(), v.clone()))
+                .collect();
+            overrides.push((
+                "spawnflags",
+                (flags | hl2_simulation::npc_makers::SF_NPC_FALL_TO_GROUND).to_string(),
+            ));
             let torso = match self.create_from_template(
                 template,
                 origin + Vec3::Z * zombie::TORSO_LIFT,

@@ -79,7 +79,7 @@
 - Why: next-session steps (session 36 checks, then zombies in campaign order); the d1_town_02 doorway chase failure from session 36.
 - Tested how: unit tests (hl2-simulation 382), owned suite 67 pass, strict Clippy/fmt; packaged fixtures in artifacts/s37 (placed torso, blast splits with bursts, town_02 doorway); native hl2_complete oracle recordings of the same blast layout (private torso-split-20261029); regression batch artifacts/s37-regression.
 - Result: blasts split zombies into a crawling torso and a legs ragdoll like native; placed torsos crawl and claw; the doorway zombie swats the box and reaches the player.
-- Still broken or not tested: the live headcrab release (RELEASE_IMMEDIATE needs npc_headcrab), DieChopped in a packaged run, door bashing in a packaged fixture (two rejected door spots); the torso's fall is faster than native (ground snap); legs landing spot not compared; the torso is a new entity rather than the same one.
+- Still broken or not tested: the live headcrab release (RELEASE_IMMEDIATE needs npc_headcrab), DieChopped in a packaged run, door bashing in a packaged fixture (two rejected door spots); legs landing spot not compared; the torso is a new entity rather than the same one.
 - Next: STATUS "Current session 37" and artifacts/s37/next-session-prompt.txt.
 
 ## 2026-10-29 research: optional callback and pose initialization
