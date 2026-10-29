@@ -69,8 +69,8 @@ pub struct Mark {
 pub struct Texture {
     pub image: Arc<vtf::Image>,
     pub scale: f32,
-    /// `$translucent` decals alpha-blend over the surface (beersplash); the others
-    /// modulate it (bullet holes, DecalModulate).
+    /// `$translucent` decals alpha-blend over the surface (beersplash, blood_gunshot_decal);
+    /// DecalModulate always modulates it (bullet holes, blood), whatever its `$translucent`.
     pub translucent: bool,
 }
 /// A decal on a skinned NPC (DESIGN 13f): built by the host from the model as posed
@@ -725,7 +725,7 @@ fn load_decal(vfs: &Vfs, material: &str) -> anyhow::Result<Texture> {
         return Ok(Texture {
             image: sprite.image,
             scale,
-            translucent: value(material, "$translucent").is_some_and(|v| v.trim() == "1"),
+            translucent: alpha_blended(vfs, material),
         });
     };
     let pair = |key: &str| -> anyhow::Result<[usize; 2]> {
@@ -775,8 +775,42 @@ fn load_decal(vfs: &Vfs, material: &str) -> anyhow::Result<Texture> {
             format: atlas_image.format,
             translucent: atlas_image.translucent,
         }),
-        translucent: value(&atlas, "$translucent").is_some_and(|v| v.trim() == "1"),
+        translucent: alpha_blended(vfs, &atlas),
     })
+}
+/// Whether a decal material alpha-blends: `$translucent` on any shader but DecalModulate,
+/// whose mod2x blend (DST_COLOR, SRC_COLOR) ignores it. Retail blood (decals/blood1,
+/// decals/flesh/blood1, the decals_mod2x atlas) is DecalModulate with `$translucent 1`.
+fn alpha_blended(vfs: &Vfs, material: &str) -> bool {
+    let translucent = vfs
+        .material_value(material, "$translucent")
+        .ok()
+        .flatten()
+        .is_some_and(|v| v.trim() == "1");
+    translucent
+        && !material_shader(vfs, material).is_some_and(|s| s.eq_ignore_ascii_case("DecalModulate"))
+}
+/// A VMT's shader (its root key), through `patch` includes.
+fn material_shader(vfs: &Vfs, material: &str) -> Option<String> {
+    let mut material = material.to_owned();
+    for _ in 0..8 {
+        let path = format!(
+            "materials/{}.vmt",
+            material
+                .trim_end_matches(".vmt")
+                .trim_start_matches("materials/")
+        );
+        let data = vfs.read(&path).ok().flatten()?;
+        let root = keyvalues::parse(&String::from_utf8_lossy(&data))
+            .ok()?
+            .into_iter()
+            .next()?;
+        if !root.key.eq_ignore_ascii_case("patch") {
+            return Some(root.key);
+        }
+        material = root.get("include")?.text()?.to_owned();
+    }
+    None
 }
 /// Baked light (linear) at `point` on the lightmapped face of `surfaces` it lies on.
 fn lightmap_light(
@@ -966,6 +1000,16 @@ mod tests {
         assert!(impacts.textures.contains_key("decals/beersplashmodel"));
         assert!(impacts.textures[crate::weapon_bugbait::SPLAT_DECAL].translucent);
         assert!(!impacts.textures["decals/concrete/shot1"].translucent);
+        // Blood is DecalModulate with $translucent 1: mod2x, not alpha-blended (the alpha
+        // blend drew the mod2x texture's light edges as a white rim).
+        for blood in [
+            "decals/blood1_subrect",
+            "decals/flesh/blood1_subrect",
+            "decals/flesh/blood1",
+            "decals/yblood1_subrect",
+        ] {
+            assert!(!impacts.textures[blood].translucent, "{blood}");
+        }
         assert_eq!(impacts.errors.len(), 5);
         assert!(impacts.errors.keys().all(|k| k.starts_with("decals/sand/")));
         assert!(!impacts.required_sound_requests().is_empty());

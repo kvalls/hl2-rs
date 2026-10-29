@@ -405,10 +405,10 @@ pub fn install(
                     ignore_z: false,
                 }
             } else {
-                // DecalModulate (mod2x).
+                // DecalModulate (mod2x), alpha-tested above 0 like the retail shader.
                 EffectMaterial {
                     texture,
-                    parameters: Vec4::new(0.001, 1., 2., 0.),
+                    parameters: Vec4::new(0.001, 0., 2., 2.),
                     kind: 4,
                     ignore_z: false,
                 }
