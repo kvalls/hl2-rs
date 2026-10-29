@@ -2132,9 +2132,12 @@ impl Physics {
                 .limits(JointAxis::AngX, limit(0))
                 .limits(JointAxis::AngY, limit(1))
                 .limits(JointAxis::AngZ, limit(2));
-            // constraint_axislimit_t torque: joint friction, x DEG2RAD into IVP (retail
-            // vphysics converts every constraint torque so: InitHinge FUN_1000b110,
-            // SetAngularMotor FUN_1000c820; the ragdoll init itself is not read).
+            // constraint_axislimit_t torque: joint friction, x DEG2RAD (as SetAngularMotor
+            // FUN_1000c820 and InitHinge FUN_1000b110). Retail InitRagdoll FUN_1000b890
+            // instead puts the raw .phy friction x the reference (child) GetMass() into the
+            // IVP constraint template; that template's conversion is not read, and that
+            // value made kills fly 2-13% further than ours already do (session 35b), so it
+            // is not used. The first animated-friction think replaces it either way.
             for (axis, friction) in [JointAxis::AngX, JointAxis::AngY, JointAxis::AngZ]
                 .into_iter()
                 .zip(joint.friction)
