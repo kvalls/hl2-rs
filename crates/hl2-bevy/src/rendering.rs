@@ -601,10 +601,16 @@ pub fn present_entities(
                 (game.inventory.idle_animation(), game.scene.time as f32)
             }
         };
-        let Some(definition) = rig.clips.get(clip) else {
-            continue;
+        // A ragdoll's pose comes from its solids (pose_signature changes per ragdoll frame),
+        // so a prop_ragdoll without a clip still samples.
+        let ragdoll = animation
+            .entity
+            .is_some_and(|id| game.scene.ragdoll_matrices.contains_key(&id));
+        let key = match rig.clips.get(clip) {
+            Some(definition) => sample_key(definition, time),
+            None if ragdoll => 0,
+            None => continue,
         };
-        let key = sample_key(definition, time);
         // Gesture layers make the pose actor-specific; the entity id keeps cache entries apart.
         let layers = animation
             .entity

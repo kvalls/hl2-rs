@@ -746,6 +746,7 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
                     | "prop_dynamic"
                     | "prop_dynamic_override"
                     | "prop_door_rotating"
+                    | "prop_ragdoll"
             )
         {
             continue;
@@ -798,8 +799,10 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
                     .filter(|s| s.is_finite() && *s > 0.)
                     .unwrap_or(1.),
                 kind: entity.class().into(),
+                // A prop_ragdoll collides through its ragdoll solids, not a model collider.
                 solid: !entity.class().starts_with("item_")
                     && !entity.class().starts_with("weapon_")
+                    && entity.class() != "prop_ragdoll"
                     && entity.get("solid").is_none_or(|s| s != "0"),
                 solid_mode: None,
                 entity: Some(entity_id),
@@ -809,6 +812,7 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
     let mut cache: BTreeMap<(String, usize, i32), Option<Vec<Surface>>> = BTreeMap::new();
     let mut report = ModelReport::default();
     let mut collision_attempted = BTreeSet::new();
+    let mut ragdolls_read = BTreeSet::new();
     let mut collision_modes_reported = BTreeSet::new();
     let mut batches: BTreeMap<(String, Option<usize>, bool), Surface> = world
         .surfaces
@@ -1018,25 +1022,32 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
                     report
                         .animation_warnings
                         .extend(rig.warnings.iter().cloned());
-                    // NPC deaths become ragdolls (C_BaseAnimating::BecomeRagdollOnClient).
-                    if instance.kind.starts_with("npc_") {
-                        match read_ragdoll(vfs, &instance.model, &rig) {
-                            Ok(Some(ragdoll)) => {
-                                world
-                                    .model_ragdolls
-                                    .insert(instance.asset_key(), std::sync::Arc::new(ragdoll));
-                            }
-                            Ok(None) => {}
-                            Err(e) => report
-                                .animation_warnings
-                                .push(format!("{} ragdoll: {e:#}", instance.model)),
-                        }
-                    }
                     world.rigs.insert(instance.asset_key(), rig);
                 }
                 Err(e) => report
                     .animation_warnings
                     .push(format!("{}: {e:#}", instance.model)),
+            }
+        }
+        // NPC deaths become ragdolls (C_BaseAnimating::BecomeRagdollOnClient); map
+        // prop_ragdolls are ragdolls from the start (CRagdollProp::Spawn). Another instance
+        // of the model (a prop_physics mattress) may have loaded the rig first.
+        if (instance.kind.starts_with("npc_") || instance.kind == "prop_ragdoll")
+            && !ragdolls_read.contains(&instance.asset_key())
+        {
+            ragdolls_read.insert(instance.asset_key());
+            if let Some(rig) = world.rigs.get(&instance.asset_key()) {
+                match read_ragdoll(vfs, &instance.model, rig) {
+                    Ok(Some(ragdoll)) => {
+                        world
+                            .model_ragdolls
+                            .insert(instance.asset_key(), std::sync::Arc::new(ragdoll));
+                    }
+                    Ok(None) => {}
+                    Err(e) => report
+                        .animation_warnings
+                        .push(format!("{} ragdoll: {e:#}", instance.model)),
+                }
             }
         }
         let illumination = *world

@@ -182,6 +182,13 @@ impl AnimatedFriction {
 #[derive(Default)]
 pub struct Ragdolls {
     pub active: BTreeMap<usize, Ragdoll>,
+    /// Map prop_ragdolls (CRagdollProp: server ragdolls, outside the client LRU,
+    /// FX_AffectRagdolls, settling and fading), created once per map.
+    pub props: BTreeMap<usize, Ragdoll>,
+    /// prop_ragdoll entities not created yet (point_template children wait for ForceSpawn).
+    props_waiting: Option<Vec<usize>>,
+    /// prop_ragdolls without a rig, .phy ragdoll or matching solids: entity and reason.
+    pub props_skipped: Vec<(usize, &'static str)>,
     serial: u64,
     pub spawned: u32,
     /// Deaths without a ragdoll (no .phy ragdoll, rig or instance).
@@ -357,6 +364,128 @@ impl Ragdolls {
             },
         );
         self.spawned += 1;
+    }
+    /// CRagdollProp::Spawn for the map's prop_ragdolls once their entities exist (at map
+    /// spawn, or at a point_template's ForceSpawn): SetupBones at the entity's angles
+    /// (sequence 0 when its clip is loaded, else the bind pose), RagdollCreate, angleOverride,
+    /// RagdollActivate (asleep with SF_RAGDOLLPROP_STARTASLEEP), then SetAbsAngles(vec3_angle).
+    pub fn spawn_props(&mut self, world: &World, scene: &mut Scene, physics: &mut Physics) {
+        let waiting = self.props_waiting.get_or_insert_with(|| {
+            world
+                .model_instances
+                .iter()
+                .filter(|i| i.kind == "prop_ragdoll")
+                .filter_map(|i| i.entity)
+                .collect()
+        });
+        if waiting.is_empty() {
+            return;
+        }
+        let ready: Vec<usize> = waiting
+            .iter()
+            .copied()
+            .filter(|id| scene.states.get(*id).is_some_and(|s| !s.killed))
+            .collect();
+        waiting.retain(|id| !ready.contains(id));
+        for id in ready {
+            let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
+                continue;
+            };
+            let key = instance.asset_key();
+            let (rig, model) = match (world.rigs.get(&key), world.model_ragdolls.get(&key)) {
+                (Some(rig), Some(model)) => (rig, model),
+                (None, _) => {
+                    self.props_skipped.push((id, "no rig"));
+                    continue;
+                }
+                (_, None) => {
+                    self.props_skipped.push((id, "no ragdoll"));
+                    continue;
+                }
+            };
+            let entity = world.entities.get(id);
+            let flags = entity
+                .and_then(|e| e.get("spawnflags"))
+                .and_then(|f| f.parse::<u32>().ok())
+                .unwrap_or(0);
+            let sequence = rig
+                .sequences
+                .iter()
+                .min_by_key(|s| s.order)
+                .map_or("", |s| s.name.as_str());
+            let placement = Mat4::from_scale_rotation_translation(
+                Vec3::splat(instance.scale),
+                crate::physics::angles(instance.angles),
+                instance.origin,
+            );
+            let mut bones: Vec<Mat4> = rig
+                .matrices(sequence, 0.)
+                .iter()
+                .zip(&rig.bones)
+                .map(|(m, b)| placement * *m * b.inverse_bind.inverse())
+                .collect();
+            // Bones without a solid keep their sequence pose relative to their parents.
+            let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
+            let unposed = bones.clone();
+            if let Some(text) = entity.and_then(|e| e.get("angleOverride")) {
+                angle_override(&mut bones, model, text, instance.origin);
+            }
+            let poses: Vec<(Vec3, Quat)> = model
+                .bodies
+                .iter()
+                .filter_map(|b| bones.get(b.bone))
+                .map(|m| {
+                    let (_, rotation, translation) = m.to_scale_rotation_translation();
+                    (translation, rotation.normalize())
+                })
+                .collect();
+            self.serial += 1;
+            let bodies = physics.spawn_ragdoll(world, model, &poses, Vec3::ZERO, self.serial);
+            if poses.len() != model.bodies.len() || bodies.len() != model.bodies.len() {
+                physics.remove_ragdoll(&bodies);
+                self.props_skipped.push((id, "solids"));
+                continue;
+            }
+            if flags & SF_RAGDOLLPROP_STARTASLEEP != 0 {
+                physics.ragdoll_sleep(&bodies);
+            }
+            // SetAbsAngles(vec3_angle): the entity's model space is unrotated from now on;
+            // its origin follows the root solid.
+            let state = &mut scene.states[id];
+            state.rotation = Quat::IDENTITY;
+            state.origin = poses[0].0;
+            let unrotated = Mat4::from_scale_rotation_translation(
+                Vec3::splat(instance.scale),
+                Quat::IDENTITY,
+                poses[0].0,
+            )
+            .inverse();
+            let locals = parents
+                .iter()
+                .enumerate()
+                .map(|(i, parent)| match parent {
+                    Some(p) => unposed[*p].inverse() * unposed[i],
+                    None => unrotated * bones[i],
+                })
+                .collect();
+            self.props.insert(
+                id,
+                Ragdoll {
+                    model: model.clone(),
+                    bodies,
+                    parents,
+                    locals,
+                    inverse_binds: rig.bones.iter().map(|b| b.inverse_bind).collect(),
+                    scale: instance.scale,
+                    serial: self.serial,
+                    born: scene.time,
+                    pins: Vec::new(),
+                    fade: None,
+                    friction: AnimatedFriction::default(),
+                    settle: Settle::new(scene.time),
+                },
+            );
+        }
     }
     /// CRagdollLRURetirement::Update as retail runs it for HL2 (client.dll FUN_101aa3a0
     /// takes the SDK's non-episodic branch while hl2_episodic is 0): beyond
@@ -614,7 +743,7 @@ impl Ragdolls {
                 self.forced_sleeps += 1;
             }
         }
-        for (&id, ragdoll) in &self.active {
+        for (&id, ragdoll) in self.active.iter().chain(&self.props) {
             let Some(poses) = physics.ragdoll_poses(&ragdoll.bodies) else {
                 continue;
             };
@@ -733,6 +862,70 @@ fn bone_velocity(previous: Mat4, current: Mat4, dt: f32) -> (Vec3, Vec3) {
     };
     ((end - start) / dt, axis * angle / dt)
 }
+/// SF_RAGDOLLPROP_STARTASLEEP (SDK physics_prop_ragdoll.cpp).
+const SF_RAGDOLLPROP_STARTASLEEP: u32 = 0x10000;
+
+/// CRagdollProp::InitRagdoll's angleOverride ("index,pitch yaw roll,index,..."): each
+/// listed solid's bone takes those world angles at its parent solid's (possibly already
+/// overridden) bone x originParentSpace (the offset in the unposed bones); a root solid
+/// stays at the entity origin. Returns the overridden solids.
+fn angle_override(
+    bones: &mut [Mat4],
+    model: &modkit_core::RagdollModel,
+    text: &str,
+    origin: Vec3,
+) -> usize {
+    let parent_of = |element: usize| {
+        model
+            .joints
+            .iter()
+            .find(|j| j.child == element)
+            .map(|j| j.parent)
+    };
+    let solid_bone = |element: usize| model.bodies.get(element).map(|b| b.bone);
+    // originParentSpace: each solid's origin in its parent solid's bone, before overrides.
+    let offsets: Vec<Option<Vec3>> = (0..model.bodies.len())
+        .map(|element| {
+            let parent = solid_bone(parent_of(element)?)?;
+            let bone = solid_bone(element)?;
+            Some(
+                bones[parent]
+                    .inverse()
+                    .transform_point3(bones[bone].w_axis.truncate()),
+            )
+        })
+        .collect();
+    let tokens: Vec<&str> = text.split(',').map(str::trim).collect();
+    let mut overridden = 0;
+    for pair in tokens.chunks(2) {
+        let [index, angles] = pair else { break };
+        let Some(element) = index
+            .parse::<usize>()
+            .ok()
+            .filter(|e| *e < model.bodies.len())
+        else {
+            continue;
+        };
+        let values: Vec<f32> = angles
+            .split_whitespace()
+            .filter_map(|v| v.parse().ok())
+            .collect();
+        let (Some(bone), [pitch, yaw, roll]) = (solid_bone(element), values.as_slice()) else {
+            continue;
+        };
+        let position = match (parent_of(element).and_then(solid_bone), offsets[element]) {
+            (Some(parent), Some(offset)) => bones[parent].transform_point3(offset),
+            _ => origin,
+        };
+        bones[bone] = Mat4::from_rotation_translation(
+            crate::physics::angles(Vec3::new(*pitch, *yaw, *roll)),
+            position,
+        );
+        overridden += 1;
+    }
+    overridden
+}
+
 /// A studio bone's physicsbone: the index of the ragdoll solid that simulates it (the
 /// bone's own solid, else its nearest ancestor's).
 fn physics_bone(parents: &[Option<usize>], solids: &[usize], bone: usize) -> Option<usize> {
@@ -744,6 +937,50 @@ fn physics_bone(parents: &[Option<usize>], solids: &[usize], bone: usize) -> Opt
 mod tests {
     use super::*;
 
+    #[test]
+    fn angle_override_poses_solids_in_world_angles_from_their_parents() {
+        // Two solids: root on bone 0, child on bone 1, 10 units along the root's X. The
+        // override turns the root 90 degrees of yaw and gives the child pitch 90: the child
+        // follows the turned root (originParentSpace) and takes its own world angles.
+        let body = |bone| modkit_core::RagdollBody {
+            bone,
+            pieces: Vec::new(),
+            mass: 1.,
+            inertia: 1.,
+            damping: 0.,
+            rotdamping: 0.,
+            surfaceprop: "default".into(),
+            compact_inertia: None,
+        };
+        let model = RagdollModel {
+            bodies: vec![body(0), body(1)],
+            joints: vec![modkit_core::RagdollJoint {
+                parent: 0,
+                child: 1,
+                limits: [(-30., 30.); 3],
+                friction: [0.; 3],
+                child_in_parent: (Vec3::X * 10., Quat::IDENTITY),
+            }],
+            self_collisions: false,
+            collision_pairs: Vec::new(),
+            animated_friction: None,
+        };
+        let origin = Vec3::new(100., 0., 50.);
+        let mut bones = vec![
+            Mat4::from_translation(origin),
+            Mat4::from_translation(origin + Vec3::X * 10.),
+        ];
+        assert_eq!(
+            angle_override(&mut bones, &model, "0,0 90 0,1,90 90 0,7,0 0 0", origin),
+            2
+        );
+        let close = |a: Vec3, b: Vec3| a.distance(b) < 1e-3;
+        assert!(close(bones[0].w_axis.truncate(), origin));
+        assert!(close(bones[0].transform_vector3(Vec3::X), Vec3::Y));
+        assert!(close(bones[1].w_axis.truncate(), origin + Vec3::Y * 10.));
+        // Pitch 90 points the child's X down (Source pitch is positive down).
+        assert!(close(bones[1].transform_vector3(Vec3::X), Vec3::NEG_Z));
+    }
     #[test]
     fn the_death_force_goes_to_the_hit_hitboxs_physics_bone() {
         // police.mdl-like chain: pelvis 0 -> spine 1 -> spine2 2 (solid 1) -> clavicle 3 ->

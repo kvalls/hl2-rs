@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-10-29 session 35b: map prop_ragdolls exist (step 1)
+
+**Agent/model:** Claude Code desktop, `claude-opus-5-5`. No subagents.
+
+**Changed:** source-assets instances prop_ragdoll (skinned, no model collider) and reads its .phy ragdoll for any instance of the model; `Ragdolls::spawn_props` (CRagdollProp::Spawn: sequence-0 pose at the entity angles, angleOverride, start asleep, SetAbsAngles(0)) once each entity exists (point_template children on ForceSpawn); a separate `props` map published like client ragdolls; the renderer samples ragdolled entities without a clip; report fields props, props_skipped, prop_origins.
+
+**Why:** 284 prop_ragdoll entities in 51 maps (corpses, zombie halves, mattresses) were invisible; session 34's open list named the station03 dead citizen and trainstation_04 ragdoll cops.
+
+**Tested how:** Unit test (angleOverride pose); hl2-simulation 374, source-assets 96, strict Clippy and fmt clean. Packaged: station03 dead citizen against the native oracle view from the same camera; d1_town_01 pyre empty at start (native too) and filled on ForceSpawn. Regression artifacts/s35c-regression: 26/26, 17/17, 26/26, finals unchanged.
+
+**Result:** Map corpses and ragdoll props appear and settle like native in the checked scenes.
+
+**Still broken or not tested / Next:** Player collision for COLLISION_GROUP_NONE props, motion-disabled props, damage pushes, physcannon pickup, inputs, template phys constraints (pyre hooks), server joint friction units; trainstation_04's ragdoll cops not viewed (camera picked a hallway).
+
 ## 2026-10-29 session 35b: shotgun force on the hit hitbox's solid; world pellets keep the batch
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5`. No subagents.
