@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Passive live flex gate and loaded tracks (2026-10-29)
+
+Run C:/Python310/python.exe -B with actor-flex-live-contract-20261029cp/verify.py: two local/seven external exact bodies, two PE windows/16 instruction starts/seven anchors/five controls. Under actor-flex-passive-20261029cq, verify.py replays2,988 acquisitions/2,757 accepted/231 exclusions,123,436 ordered reads/6,560,799 bytes/one chunk; verify_admission.py replays1,703 initial identity reads; check_fixture.py passes94 reads/9,732 bytes/15 controls; check_actual.py rejects12 actual-record corruptions. All private paths are under ../../work/hl2-decompiled from this checkout.
+
+The live gate is1 in all accepted samples.133 loaded event observations join11 authored tracks;130 are initialized and three retain pre-lookup head indices-1/-1. Initialized head raw indices44/45/46/51 and server flag agree with CD's static classifier. Seven active eye/facial tracks lack the server bit; only those four server storage slots vary. These are gate/source/conditional-eligibility witnesses, not callback/client/final-face evidence. Conservative name-range rereads account for93 exclusions; all failed partial reads remain replayed. Native42144/driver exit0, six installed settings and source/module identities agree after cleanup; screenshot visually reviewed with asynchronous timing limits. seal-flex-runtime-20261029.py verify CP CQ passes10/55 files. No Rust build/test, ordinary playthrough, final pose or parity; first_map_finished:false.
+
 ## Actual gesture callback, fixture and arithmetic audit (2026-10-29)
 
 From the checkout, run C:/Python310/python.exe -B with ../../work/hl2-decompiled/actor-gesture-probe-fixture-20261029cl/verify.py and its seal.py verify:240 native/uninstrumented-oracle-equal fixture calls,2,162 records,9,360 reads/236,160 bytes,14 corruption controls,71 sealed files. Normal nested instruction-hook behavior is verified; this is not native-HL2 performance or general exception/ABI certification.

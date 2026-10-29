@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Actual server flex filtering inputs (2026-10-29)
+
+CP binds the event track-vector/count/selector through two exact retail bodies and reuses seven CD helpers for lookup-init, flags and raw local indices. CQ's fresh never-attached passive run observes gate1 throughout2,757 accepted samples, with133 loaded event rows and all11 authored track joins. Three head-event rows precede lookup;130 rows are initialized. The initialized four head tracks have the server flag and local44/45/46/51, while the seven eye/facial tracks lack that flag. Only those four server input slots vary in this run. This admits actual gate/track source-state and conditional eligibility; callback execution, causality and client facial evaluation remain separate.
+
+Full replay retains all2,988 samples/231 exclusions/123,436 reads/6,560,799 bytes;15 collector-fixture and12 actual-record controls pass. Name-buffer rereads conservatively include trailing bytes, so their93 race exclusions are not evidence that controller names changed. Owned process/driver close0 with checked settings/modules/pins unchanged. CP/CQ are sealed privately; no Rust/final pose/campaign parity claim. The next selected animation investigation follows the actual head parent sequences' child dependencies rather than interpreting a zero-data parent as a finished pose result.
+
 ## Selected callback-time gesture calculation (2026-10-29)
 
 Private CL verifies pre-CALL/stored-float probes and three-deep normal returns on240 authored x86 calls, matching independent native and uninstrumented oracles. CN then records65 genuine selected endline gesture calls/68 remap pairs/65 setter pairs with raw identity, ownership, clock, stack and layer witnesses. Replay passes593 records/18,293 reads/394,154 bytes and20 actual-transcript controls. CM's pre-attach null-scene assumption remains rejected. Owned processes exit0/settings unchanged; actual sources are pinned before launch and checked after cleanup.

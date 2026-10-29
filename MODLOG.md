@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-10-29 research: live server flex gate and loaded track lookup
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust implementation.
+
+**Changed / Why:** Published CP's exact track-accessor contract and CQ's fresh passive runtime gate/loaded-track evidence, resolving the prior static-initializer/current-gate uncertainty while preserving server/client boundaries.
+
+**Tested how:** Two local/seven external exact bodies,16 PE starts/seven anchors/five controls; actual collector15 fixture controls; full replay2,988 samples/2,757 accepted/231 exclusions/123,436 reads/6,560,799 bytes; initial identity1,703 reads;12 actual-record controls. CP/CQ seals10/55 files. Owned native/driver exit0 with six checked settings/module/source pins unchanged; screenshot visually reviewed as context. No Rust tests/builds.
+
+**Result:** Live gate1; all11 authored tracks join133 loaded event rows,130 initialized/three pre-lookup. Only four head tracks carry server flags/local44/45/46/51 and only those server storage slots vary. Raw unused scalar side and pre-lookup-1 indices remain explicit.93 conservative trailing-name-range races are retained.
+
+**Still broken or not tested / Next:** Callback/write causality, client facial evaluation, final bones/gaze/face/full AV/transfer, ordinary completion and Rust parity. First_map_finished:false. Continue with the observed head parents' automatic child layers and exact retail routing; checkpoint research-followup-continuation-20261029cq.md.
+
 ## 2026-10-29 research: actual gesture callback inputs and held layer cycles
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude's implementation work is separate.

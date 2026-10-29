@@ -1,5 +1,13 @@
 # STATUS
 
+## Live server flex gate and initialized tracks (2026-10-29)
+
+A fresh never-attached native run now observes the actual server filter gate as1 in all2,757 accepted acquisitions. Full replay accounts for2,988 samples,231 explicit race exclusions and123,436 ordered reads/6,560,799 bytes. Its133 loaded type10 event observations include130 initialized rows and three head-event rows before lookup initialization. All11 authored tracks join to the owned model-local contract. Initialized head tracks carry active/server flags and indices44/45/46/51; seven eye/facial tracks carry active or active/combo flags without the server bit. These live inputs establish conditional eligibility under the captured gate, not callback execution, write causality or client facial evaluation.
+
+Only server storage slots44/45/46/51 vary across accepted samples. Before lookup, head tracks retain indices-1/-1 and no server flag; unused scalar side1 remains-1 after lookup. Never treat those raw words as fabricated second controllers. Conservative256-byte name rereads account for93 exclusions and may include adjacent-memory changes. Every partial/failed acquisition remains retained. Fixture15 controls, actual-record12 controls and initial1,703-read identity replay pass. Owned native42144/driver exit0, six checked settings/module/source pins unchanged; screenshot reviewed as asynchronous scene context.
+
+CP binds two new exact track-accessor bodies plus seven existing bodies; CP/CQ seals pass10/55 files. Private checkpoint: work/publishing/research-followup-continuation-20261029cq.md. Next investigate the observed head parents' automatic child layers and bounded retail evaluation path. No Rust edits/builds; first_map_finished:false. Final client facial/bone/gaze/full AV/transfer behavior and Rust parity remain untested.
+
 ## Actual native gesture callback inputs and cycle writes (2026-10-29)
 
 A finite instrumented opening/endline window now records65 selected gesture processor calls,68 remap pairs and65 cycle-setter pairs. Independent replay passes593 records/18,293 raw reads/394,154 bytes, with zero open calls/errors/suppressed records and20 actual-transcript controls. All three authored head-gesture intervals are observed. Owned native/driver exit0; six checked installed settings, loaded module identity and pinned sources agree after cleanup. The rejected first preparation required an endline choreography object before it was loaded; it stopped before attachment and is preserved.

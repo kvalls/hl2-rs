@@ -1,5 +1,11 @@
 # Design
 
+## Loaded server flex state and head-child evaluation plan (2026-10-29)
+
+The passive follow-up observes the server gate enabled, initialized head-track server flags/local indices and the corresponding four changing server storage slots. Eye/facial tracks are loaded and active but lack the server bit under this gate. Preserve lookup initialization, raw scalar/combo sides and server/client distinctions; server storage alone cannot determine rendered facial behavior. The selected acquisition retains pre-lookup head indices-1/-1 and excludes raced full-name buffers explicitly.
+
+Next bounded plan: inspect the owned automatic child layers of the two head parents already observed in native captures. Bind the retail parent-zero-data test, relative child-sequence lookup and selected autolayer ramp/weight routing through exact bodies and PE witnesses. Keep owned dependency metadata, calculated child weights, observed native child execution, ANI decoding and final skeleton as separate claims. No broad corpus pass, Rust implementation/refactor or next-map promotion. If the exact selected evaluator is missing, retain that failure and stop that line rather than substituting a nearby function.
+
 ## Actual gesture inputs, held layer values and next flex boundary (2026-10-29)
 
 Fixture-validated native probes now retain actual scene-time/duration/progress, loaded remap inputs and stored float32 output through the cycle setter. All65 selected calls agree with the duration/progress and actual setter audit; the real-arithmetic remap comparison is within1.2634e-7 cycle. This closes the selected callback-input observation gap, not native FP-control or pose fidelity. Preserve the float32 stores, distinguish setup remapping from normal updates, and retain AL-only boolean semantics where retail writes only the low byte.
