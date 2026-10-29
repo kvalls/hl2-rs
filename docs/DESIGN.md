@@ -1,5 +1,11 @@
 # Design
 
+## Research plan: finite fast-scale domain extension (2026-10-29 EF)
+
+ED closes the selected client scalar blend graphs and EE's separate client process agrees with all retained server numerical/FP/context records under authored inputs. Keep this isolated computational contract separate from actual actor/cache/rendering evidence and retain all rejected preparations.
+
+Next extend DS's finite scale corpus into its unexercised table2/near-one interiors. Reuse the sealed canonical bundle and authored loader image in a new root; force explicit fast/scalar paths and aliases. Derive branch/index/range admission from exact instructions, sample table bins and float32 threshold neighbors, and retain prepared host-double expectations plus actual outputs/pins/FP/mappings/footer/cleanup. Report disagreements without fitting or rewriting captures. No live runtime-state, general transcendental/exception ABI, actor/rendering/campaign or Rust-parity inference; no Rust or native-game action.
+
 ## Research plan: complete client blend graph (2026-10-29 ED)
 
 EC validates the exact stack allocator over544 finite cases; EB's complete server blend composition passes5,670 authored contexts/1,859,760 words with explicit metadata, scalar flags, stack/FP/canary/raw-source evidence and guarded frontiers. Keep source-present and positive-effective-weight coverage separate, and preserve the rejected prelaunch line-ending preparation.

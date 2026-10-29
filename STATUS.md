@@ -1,5 +1,11 @@
 # STATUS
 
+## Complete conditional client blend kernel (2026-10-29 ED/EE)
+
+ED binds32 exact client/server bodies,16 client PE windows and16 complete scalar graph pairs:3,237 bytes/938 reachable instructions per module,25 consumed read-only literal pairs and10 independent mutable/context roles. Thirteen controls pass. Five descriptor4000/fast/error frontiers remain excluded; initial syntax draft is retained.
+
+EE separately executes client buffers in process4256 exit0 using the identical authored EB loader/cases with a newly pinned client bundle. All5,670 cases/945 RO context pairs/1,859,760 recomputed/prepared/actual words pass, with intact mappings/pins/inputs/canaries/tails/stack/FP checks. The separate comparison to EB matches all numerical words,5,670 raw FP-status pairs and1,890 pointer-normalized context records. Sixteen admission/22 actual/11 comparison controls pass; ED/EE seals44/89 files. No Valve DLL initialization, native game, actual client actor/rendering or Rust action; first_map_finished:false. Next independently exercise the previously untested fast-scale table2/near-one domains under explicit fixture flags, retaining any numerical disagreement.
+
 ## Conditional full bone-blend composition (2026-10-29 EB/EC)
 
 EC validates the exact65-byte stack-probe head/tail in544 authored allocation/alignment cases, preserving five registers, original return-site EAX, expected aligned ESP and allocated/caller canaries; process48832 exit0,15 controls and24-file seal pass. EB then executes the complete1,071-byte blend body with16 selected dependency/guard buffers:3,237 owned RX bytes/176 RO bytes,35 absolute/33 relative relocations and five trapped descriptor4000/fast/error frontiers.

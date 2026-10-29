@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Client scalar blend closure and separate execution (2026-10-29 ED/EE)
+
+ED extends the local client blend comparison to16 complete selected graphs:32 exact body bindings,3,237 bytes/938 reachable instructions per module and25 equal consumed read-only literals. Ten mutable/global-context roles stay independent inputs; five descriptor4000/fast/error targets stay explicit frontiers.
+
+EE executes the client instruction buffers in a separate authored process with the same frozen server cases and identical loader image. All1,859,760 finite words,5,670 raw FP-status pairs and1,890 pointer-normalized metadata records match the retained server run, while each process independently passes its mapping/source/canary/tail/stack/FP checks. This is actual isolated client-buffer execution, not an initialized Valve DLL or observed client actor/cache/rendering. No campaign/Rust-parity claim; first_map_finished:false.
+
 ## Conditional full blend composition (2026-10-29 EB/EC)
 
 EC exercises the exact aligned stack allocator and page-probe tail over544 bounded cases with explicit caller ESP restoration and register/return/canary checks. EB then runs the complete server blend body with selected scalar math dependencies in an authored process. Its5,670 cases admit945 disjoint RO model/flags/weights/virtual-map graphs and compare1,859,760 words exactly, including223,830 untouched bone slots. The6,346 input decoder states and6,334 positive-effective-weight states are counted separately.

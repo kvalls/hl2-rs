@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: complete conditional client blend kernel
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Closed the remaining exact client allocator/nondelta/scalar dependencies and independently executed client buffers against the admitted server corpus.
+
+**Tested how:** ED32 exact body bindings/16 client PE windows/16 complete graph pairs,3,237 bytes/938 instructions per module/25 literal pairs/10 independent mutable-context roles/13 controls. EE5,670 cases/945 RO contexts/1,859,760 exact words, process4256 exit0, mappings/source/input/canary/tail/stack/FP checks and16+22 controls. Separate server comparison matches all words/5,670 FP pairs/1,890 normalized contexts, with11 controls. Seals44/89 files; original syntax rejection retained. No Rust/game/DLL initialization.
+
+**Result / Still untested / Next:** Conditional client/server scalar blend contracts agree under identical authored inputs/FP controls. Five guarded frontiers and actual runtime flags/actor/cache/full skeleton/rendering/campaign/Rust parity remain unproven; first_map_finished:false. Continue with finite fast-math domain coverage toward98% usage.
+
 ## 2026-10-29 research: conditional full bone-blend composition
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.

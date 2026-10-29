@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Client scalar kernel and paired-process comparison (2026-10-29 ED/EE)
+
+ED:32 exact body bindings/16 client PE windows/16 complete graph pairs,3,237 bytes/938 instructions per module,35 absolute roles (25 consumed literals/10 mutable-context inputs) and13 controls pass. Runtime global values and five guarded frontiers remain unadmitted; rejected syntax source retained.44 files sealed.
+
+EE:process4256 exit0;5,670 cases/945 RO context pairs,1,859,760 exact prepared/recomputed/actual words,260,820 bone slots/223,830 untouched.3,237 RX bytes/176 RO bytes/35 absolute/33 relative relocations, five trapped frontiers, intact pins/inputs/maps/canaries/tails/stack/FP controls,16 admission/22 result controls pass. Server comparison matches every numerical word,5,670 raw FP pairs and1,890 normalized contexts with11 controls.89 files sealed. Exact EB loader/source/cases were reused without rebuilding; client bundle and capture are new.
+
+Read-only `C:/Python310/python.exe -B` checks: private `client-blend-closure-20261029ed/{verify.py,seal.py verify}` and `client-blend-fixture-20261029ee/{admit.py,verify.py,check_controls.py,compare_server.py,seal.py verify}`. Never rerun sealed producers/create/run. No native game, initialized Valve DLL, actual actor/full skeleton/rendering/campaign or Rust parity; first_map_finished:false.
+
 ## Full blend and stack-probe fixtures (2026-10-29 EB/EC)
 
 EC:544 finite allocations across34 sizes/16 caller offsets,65 owned RX bytes/one JMP relocation, five preserved registers, actual return-site EAX, aligned pre/post ESP, first/last allocated-byte accesses and caller canaries pass. Fifteen controls, process48832 exit0 and24-file seal pass. Overflow/underflow, stack exhaustion and exception/unwind ABI are not tested.
