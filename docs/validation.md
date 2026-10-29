@@ -2,6 +2,8 @@
 
 ## Acos wider returns and finite caller controls (2026-10-29 EL–EN)
 
+EO: exact client10097bd0 identity/source body/PE prefix558bec83ec14, three instructions/six bytes, continuation10097bd6, four rejected cuts/corruptions; four files/four external bindings sealed. Read-only `C:/Python310/python.exe -B` checks in private `pose-observer-preflight-20261029eo/{entry_admission.py,seal.py verify}`. No observer/trampoline/FP-state transparency or native capture tested; never rerun create.
+
 EL: nine buffers/1,694 owned RX bytes/6,072 RO bytes/37 absolute/11 relative relocations per module, separated dispatch/mode inputs, three trapped errors.8,474 finite inputs cover all239 derived table1 bins and114 table2 bins; no PC trace. Processes46808/40784 each pass67,792 raw80 returns and independent integer round64/32 checks, all source/code/RO/input/pin/canary/ESP/FP/footer/cleanup checks,10 coherent admission/20 actual controls.67,792 module pairs/50,844 server context-pairs agree. Path differences:8,468 raw80/1,077 float64/max1 ULP/zero float32/8,473 FP; five comparison controls. mpmath1.3.0 reference stable at100/160 digits/eight tie-subnormal controls: scalar64 differs1,076 times,fast64 eleven, max1 ULP; both float32 paths agree with all reference words.185 files/11 external bindings sealed.
 
 EM: same bundles/inputs, three recorded loader adaptations, explicit CW0x007f/0x027f/0x037f, zero supplied XMM context and MXCSR0x1f80. Processes21388/42972 each pass50,844 returns/independent round64+32/integrity and19 controls. Eight new admission controls plus inherited ten; exact16,948 prior53-bit records per module/all50,844 module pairs/all16,948 fast precision pairs agree. Scalar comparison to the stable reference:

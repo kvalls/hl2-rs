@@ -2,6 +2,8 @@
 
 ## 2026-10-29 research: acos return precision and caller-control sensitivity
 
+**EO preflight:** Bound the exact six-byte/three-instruction client initializer prefix, continuation and four rejected cuts/corruptions; four files sealed. This is static entry admission only. Observer/trampoline/state preservation/runtime capture remain not tested; next validate a disposable fixture.
+
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
 
 **Changed / Why:** Tested wider acos returns/caller context, distinguished native agreement from high-precision numerical references, and bound the dispatch predicate that explains precision sensitivity.

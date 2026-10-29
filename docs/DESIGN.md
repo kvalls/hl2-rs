@@ -2,6 +2,8 @@
 
 ## Research plan: exact acos dispatch predicate (2026-10-29 EN)
 
+EO now admits only the exact six-byte initializer entry boundary/continuation and rejects four invalid cuts/corruptions. Before a future native hook, build a disposable fixture that verifies entry GPR/ESP/EFLAGS and x87/SSE preservation before any callback, alignment, source identity, disjoint bounded recorder memory, reentrancy/thread isolation, overflow/drop/footer behavior and perturbation. Entry admission alone does not establish safe patching, observer transparency or actual actor data. Repeat current ownership before any owned launch.
+
 EM observes fast output invariance across three supplied x87 precisions and scalar sensitivity under those same controls. Next independently bind the exact client/server dispatcher masks, comparisons and branch ordering to frozen PE instructions. Enumerate the declared16-bit control-word domains without executing reserved settings, distinguish tested numerical contexts from Boolean gate admission, and record which precision/rounding/DAZ/FTZ/sticky fields the gate actually inspects. Require paired-code/source checks and coherent instruction/control corruptions. This static gate audit is not arbitrary-control execution or an actual runtime flag observation; no game/Rust action.
 
 ## Research plan: caller x87 precision sensitivity (2026-10-29 EM)

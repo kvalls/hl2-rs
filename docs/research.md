@@ -2,6 +2,8 @@
 
 ## Acos representations and caller controls (2026-10-29 EL–EN)
 
+EO separately binds the exact initializer first-three-instruction/six-byte boundary and continuation with four corruption controls. This does not implement or validate a detour, observer, FPU transparency, concurrency or actual actor capture; a disposable observer fixture remains the next bounded step.
+
 Closed server/client acos subsets agree exactly under8,474 finite double inputs/two forced flags/four supplied XMM contexts, including raw x87 status. Scalar/fast paths agree at float32 but differ in8,468 raw80 and1,077 float64 pairs (max1 ULP). A stable100/160-digit reference independently compares mathematical accuracy; native path equality and reference accuracy are separate claims.
 
 The exact scalar control helper preserves caller precision bits; a separate fixture confirms that supplied24-bit scalar precision changes1,231 float32 results versus53-bit, while64-bit changes zero float32/1,076 float64 words. Fast remains invariant across the three tested precision words. The dispatch predicate checks MXCSR masks/rounding and the low x87 mask bits while ignoring x87 precision; exhaustive Boolean admission includes reserved settings that were never executed. This explains a conditional context dependency, not the game's actual CW/dispatch state.

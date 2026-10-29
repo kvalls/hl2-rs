@@ -2,6 +2,8 @@
 
 ## Acos precision, caller controls and dispatch gate (2026-10-29 EL–EN)
 
+EO admits only the initializer entry boundary: three exact instructions/six bytes, continuation client10097bd6 and four rejected corruptions/cuts. A five-byte cut intersects the third instruction. Four private files sealed. No detour/observer/trampoline/FP transparency or native capture was implemented/tested; the next step is a disposable observer fixture before any game hook.
+
 EL separately executes closed acos buffers in server46808/client40784 (both exit0): 8,474 finite double inputs, two flags/four XMM contexts, 67,792 calls per module. All raw80 returns independently round to retained64/32 words; code/RO/source/pins/canaries/stack/FP/footer/cleanup and20 controls per variant pass. Every module return+FP pair and50,844 supplied server context-pairs agree. Scalar/fast differs in8,468 raw80/1,077 float64 (max1 ULP)/zero float32/8,473 FP records. Stable100/160-digit mathematical references remain separate from native equality;185 files sealed.
 
 EM supplies nearest/masked x87 precision24/53/64 with MXCSR fixed. Processes21388/42972 each pass50,844 calls, all module pairs, exact replay of16,948 prior53-bit records per module, independent rounding/integrity and19 controls per variant. Fast output/FP stays equal across16,948 precision comparisons. Scalar24 vs53 changes1,231 float32 outputs (max1 float32 ULP); scalar64 vs53 changes zero float32 but1,076 float64 words. Actual runtime CW remains unobserved;181 files sealed.
