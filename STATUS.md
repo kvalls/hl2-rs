@@ -1,5 +1,11 @@
 # STATUS
 
+## Conditional bone composition and client leaf equivalence (2026-10-29)
+
+DM binds6 exact bodies/6 PE windows/860 starts,28 anchors/14 edges/four literals/18 controls. Finite incoming weight, model bone-mask/sequence-weight/virtual-map filtering and DELTA/POST order are static contracts. All four owned children have DELTA+POST and48 weights1.0; runtime masks/flags remain unadmitted. Scale's x87 dispatcher/runtime flags/callees stay open. DN separately executes only aligned product/self-recursion and normalization:90,991 prepared/recomputed exact matches from3,638 distinct quaternions/6,346 source record states, two authored bases, both orders and aliases. Canonical635 bytes/three literal relocations/one recursive CALL/48 literal bytes, canaries/non-output buffers, process46404 exit0 and18 controls pass. FP controls are unchanged. A float-key cache that collapsed signed zero is rejected and retained; accepted keys are raw uint32 words.
+
+DO binds10 exact bodies across client/server modules and10 PE windows(791/747 starts), with15 controls. Product488 bytes/normalizer147 bytes are closed relocation-equivalent pairs, including consumed literal values and self-call. Bone-blend1071 bytes and scale208 bytes match locally after relocation, with opaque callees/dispatch remaining separate. Client's optional indirect callback is a caller-context boundary. DM/DN/DO seals20/34/19 files. No client execution, weighted whole-pose/actor/rendering/campaign or Rust-parity evidence; first_map_finished:false. Continue into selected client record-decoder dependencies.
+
 ## Composite selected record decoder verified (2026-10-29)
 
 DK binds10 exact bodies/10 PE windows/1,403 instruction starts,1,026 reachable graph instructions/18 direct-call edges,16 anchors/five literals/13 controls. DL executes those admitted instruction buffers only in an authored x86 process. All12,692 combined position/quaternion outputs match both prepared expectations and prior isolated native component outputs. The39 owned records cover918 integer frame states and seven finite fractions, with paired last-frame requests excluded. Two distinct base inputs/bone flags give6,346 identical DELTA-output pairs.

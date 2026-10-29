@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Bone DELTA leaves and client relocation comparison (2026-10-29)
+
+DM at use/work/hl2-decompiled/child-bone-blend-contract-20261029dm: `C:/Python310/python.exe -B verify.py` and `seal.py verify` pass6 exact bodies/6 PE windows/860 starts/28 anchors/14 edges/four literals/18 controls and6 owned flag/weight profiles;20 files sealed. Product graph131 instructions/one self-call/two returns; normalizer38 instructions/no calls/one return. Scale dispatch1046fec0/runtime flags and other main-function callees remain frontiers.
+
+DN at child-product-fixture-20261029dn: `verify.py`, `check_controls.py`, `seal.py verify` pass90,991 exact prepared/recomputed outputs(43,674 raw products/43,674 normalized products/3,643 normalizations), aliases29,116/32,759/29,116 and18 controls. All canaries/non-output buffers, canonical635 code bytes/three literal relocations/one recursive CALL/48 literal bytes, RX/RO mappings/pins and process46404 exit0 pass. x87 control589855 unchanged; MXCSR8064->8096 only sticky precision. The rejected float-tuple memoization draft collapses signed zero at case90988; accepted exact-word keys match the unchanged native/prepared outputs.34 files sealed.
+
+DO at client-bone-blend-contract-20261029do: `verify.py`, `seal.py verify` pass10 exact client/server bodies/10 PE windows(791server/747client starts),15 corruption controls and19 sealed files. Closed product/normalizer spans488/147 bytes match after complete literal/self-call relocation accounting and consumed-value checks. Local bone-blend1071/scale208 bytes also match, with their callee frontiers left unproven. No client code executes in DO. No native game action/Rust tests/builds, weighted whole pose, actual actor/cache/full skeleton/rendering/campaign or Rust parity; first_map_finished:false.
+
 ## Source-case admission and composite record decoder (2026-10-29)
 
 DI at use/work/hl2-decompiled/child-quaternion-source-audit-20261029di retains nominal rows and two rejected controls. `C:/Python310/python.exe -B audit.py` and `seal.py verify` pass at their stated diagnostic/integrity scopes; check_controls.py is rejected and must not be reported as passing. DJ at child-source-case-admission-20261029dj: `admit.py`, `check_controls.py` and `seal.py verify` pass5,759 primitive source cases/14,660 exact source-alias memberships,17 packed quaternion records/six raw half components,880 Euler/4,300 fraction rows and14 actual-change controls. All4,300 DI nominal words/routes agree. Null-channel integer defaults are independently checked after one retained failed control preparation. DI/DJ seals10/9 files.

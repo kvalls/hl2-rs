@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Bone weighting, DELTA order and client leaf code (2026-10-29)
+
+DM byte-binds finite incoming-weight gating/clamp, CStudioHdr bone-flag mask filtering, sequence weights, virtual group/bone mapping and descriptor DELTA/POST branches in101301b0. The owned four child sequences have DELTA+POST and48 weights1.0; this does not admit loaded runtime flags or actual BoneSetup masks. POST calls product(existing,scaled_delta), the other DELTA branch reverses operands, both normalize and add weighted child position. Scale uses a2^-23 denominator epsilon and an x87 runtime dispatcher; its selected runtime path remains unobserved.
+
+DN isolates only aligned product and normalization, including left-output alias recursion and x87 length return. All90,991 prepared/recomputed outputs agree with635 canonical code bytes/three literal relocations/one self-call relocation/48 literal bytes, intact canaries/non-output buffers, unchanged source/input/mappings and18 controls. Inputs include3,638 distinct DL quaternions/6,346 source states and two authored base poses. A cached float-key signed-zero error remains rejected; raw-word keys correct only the verifier.
+
+DO proves the client product1027a360/normalizer1027a550 are closed relocation-equivalent to the server leaf bodies, with exact consumed literal values and self-call structure. Client10098720 bone blend and1027a5f0 scale local code match1071/208 bytes after address normalization, while their callee/dispatch/input contexts remain open. Ten exact cross-module bodies/10 PE windows/15 controls pass. These are conditional static/isolated numerical contracts; no client actor/cache/full-skeleton/rendering or Rust parity is observed. First_map_finished:false.
+
 ## Source-case admission and complete record composition (2026-10-29)
 
 DI's nominal source join retains two rejected control preparations. DJ replaces metadata-led selection with independently derived sequential source IDs/headers/raw payloads/required alias membership, expands every raw RLE/default channel and admits5,759 primitive source cases plus14,660 quaternion source cases. Its14 controls reject, including the previously accepted equal-valued duplicate source assignment. All4,300 DI nominal word/route rows are corroborated;131 equal-Euler pairs yield655 helper bypass rows. DI's ideal interpolation-method comparison is a conditional source calculation, not rendering error.

@@ -1,5 +1,13 @@
 # Design
 
+## Bone composition boundary and client comparison (2026-10-29)
+
+DM binds conditional model-mask/sequence-weight/virtual-map filtering and DELTA/POST operand order. Its scale helper retains an unresolved runtime CRT dispatch frontier. DN separately validates only the closed aligned-product/self-recursion and normalizer graph against finite selected record outputs, authored bases and aliases. Keep those claims separate from weighted whole-pose execution.
+
+DO now binds the client target and proves closed relocation-equivalence for aligned product/normalization; local bone-blend/scale code also matches with frontier callees still open. DN's finite leaf contract is reusable only under equal input words/aliases/FP controls and valid relocated memory. The client accumulator's optional indirect callback remains a context boundary, not an observed execution.
+
+Next bounded research: follow the selected client pose core into10093880 and its record-decoder dependencies, using decompiler token correspondences only for navigation. Bind exact client bodies/PE bytes and compare complete leaf instructions, consumed literals and mapped calls with the admitted server graph. Keep virtual/cache/actor input and final rendering separate; do not infer runtime dispatch flags or initialize Valve DLLs. No Rust or native-game change.
+
 ## Composite record decoder plan (2026-10-29)
 
 DJ independently admits sequential source-case/payload/alias membership and corroborates DI's nominal output words/routes while retaining failed preparations. Equal-Euler pairs bypass interpolation even when the standalone helper was tested on them. Preserve source raw-run/default validation before interpreting metadata.

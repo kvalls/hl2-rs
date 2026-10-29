@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: bone DELTA leaves and client comparison
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Bound conditional per-bone weighting and DELTA/POST order, isolated product/normalization with alias recursion, and compared exact client/server code while retaining the unresolved scale dispatcher.
+
+**Tested how:** DM6 exact bodies/6 PE windows/28 anchors/14 edges/18 controls. DN90,991 prepared/recomputed bit-exact outputs,3,638 distinct source quaternions/two authored bases/orders/aliases,635 code bytes/three literal relocations/one self-call/48 literal bytes/18 controls, fixture exit0. DO10 cross-module bodies/10 PE windows/15 controls and closed635-byte leaf equivalence. DM/DN/DO seals20/34/19 files. No native game action or Rust edits/builds/tests.
+
+**Result / Still untested / Next:** Owned children select DELTA+POST with48 weights1.0, but actual mask/runtime flag/context values remain open. Product/normalization finite contracts and client leaf relocation equivalence are admitted; weighted scale dispatch/whole actor pose/client rendering and campaign/Rust parity remain untested. Signed-zero cache-key and syntax drafts remain rejected. First_map_finished:false. Next bind selected client record-decoder graphs. Work continues toward98% five-hour usage.
+
 ## 2026-10-29 research: source admission and composite record decoder
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
