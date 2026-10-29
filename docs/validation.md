@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Loaded child metadata and client overlay validation (2026-10-29)
+
+Under ../../work/hl2-decompiled/actor-child-loaded-20261029cw, C:/Python310/python.exe -B check_fixture.py, verify.py and check_capture.py pass193 fixture reads/22,600 bytes/10 controls and898 actual rows/3,515 reads/235,476 bytes/12 controls. Six graphs accepted/three tick-crossed graphs excluded;36 mask/24 edge/36 animation-descriptor/36 sequence-descriptor comparisons pass, the latter excluding raw flags/activity. Native50192/driver exits0; module/source pins and six checked settings unchanged. Screenshot reviewed as asynchronous scene context only. No Frida/native helper calls or final-pose assertion.
+
+client-overlay-route-20261029cx/verify.py passes seven exact bodies/seven finite PE windows/1,157 starts/21 anchors/13 edges/nine literals/14 controls. Adjacent window bytes do not certify function extent or ABI. CV's rejected two mock preparations and CX's rejected initial witness offset remain preserved. publishing/seal-loaded-client-20261029.py verify CV CW CX passes10/56/23 files, with CV explicitly rejected and never loaded. No Rust tests/builds, actual child/client execution, network/interpolation latency, final pose/AV/campaign/Rust parity; first_map_finished:false.
+
 ## Selected channel source and isolated primitive validation (2026-10-29)
 
 Under ../../work/hl2-decompiled/actor-head-animation-decode-20261029cs, C:/Python310/python.exe -B verify.py/decode.py/check_decode.py/seal.py verify pass12 exact bodies/12 finite PE windows/2,630 starts,14 anchors/12 edges/five constants/11 controls;39 selected record chains/48 nonnull channels;2,904 independent integer lookups/eight structural controls;37 sealed files. Four pure-helper CFGs have no calls/foreign branches. Source/channel results are separate from live cache and pose execution.

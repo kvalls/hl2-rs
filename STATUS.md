@@ -1,5 +1,15 @@
 # STATUS
 
+## Loaded child metadata and client overlay consumer (2026-10-29)
+
+CW's fresh never-attached native50192 exits0 with checked settings/module/source pins unchanged. Six accepted graphs span opening/endline; three tick-crossed graphs remain excluded. Replay accounts for898 rows/3,515 reads/235,476 bytes:36 selected masks,24 relative child edges,36 full animation descriptors and36 sequence descriptors excluding their flags/activity DWORDs agree with owned metadata. Runtime flags/activity remain raw and unadmitted. Collector fixture10 controls and actual replay12 controls pass. This binds loaded source metadata, not executed child weights, live ANI cache payloads or final bones.
+
+CX statically binds the exact client overlay/history consumer through seven bodies and seven finite PE windows/1,157 instruction starts,21 anchors/13 edges/nine literals/14 controls.44-byte overlays use15 order slots and positive-weight filtering;48-byte history records undergo sequence-change repair. The nonlooping cycle maximum is0.9990000128746033; looping cycles truncate/wrap. No live client route, interpolation latency or final pose is observed. A wrong initial AND-witness address is retained as a rejected verifier draft. CV/CW/CX seals pass10/56/23 files. No Rust changes/builds; first_map_finished:false. Work continues toward the owner's usage target with an isolated cycle-helper boundary test.
+
+## Rejected evaluator-test preparation; passive child source follow-up (2026-10-29)
+
+The copied CV evaluator mock failed two preparation attempts before native launch/attachment: its initial controller gate filtered both nominal calls; the correction referenced an undefined scaffold alias. Both drafts/diagnostic are retained and that scaffold approach is stopped. CV's observer must not be loaded without a new accepted fixture; actual child evaluator execution remains unproven. Continue with a materially different VM_READ-only loaded child descriptor/mask/mapping capture in CW. No Rust or game process was changed by these failures.
+
 ## Selected child channels and isolated primitive replay (2026-10-29)
 
 CS validates four owned child clips: two44-frame apex streams and two2-frame loop streams,39 record chains/48 nonnull compressed channels. Twelve exact retail bodies bind the virtual decoder, record/channel helpers and opaque cache boundary;12 PE windows/2,630 starts,14 anchors/12 edges/five constants/11 controls pass. Independent run expansion versus integer lookup passes2,904 values and eight structural controls. This is source/channel evidence, not a live cache or final-pose result.

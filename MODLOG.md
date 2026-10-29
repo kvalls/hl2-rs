@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: loaded child metadata and client overlay boundary
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Published CW's passive loaded source joins and CX's exact client consumer/history route. Retained CV's two rejected mock preparations; the active evaluator adapter remains unaccepted and was never loaded.
+
+**Tested how:** CW six accepted/three excluded graphs,898 rows/3,515 reads/235,476 bytes;36 masks/24 edges/36 animation descriptors/36 partial sequence descriptors,10 collector and12 actual-capture controls. Owned native50192 exits0/settings and pins unchanged. CX seven exact bodies/1,157 PE starts/21 anchors/13 edges/nine literals/14 controls. CV/CW/CX seals10/56/23 files. Documentation checks only; no Rust build/test.
+
+**Result / Still untested / Next:** Loaded metadata agrees with owned source under recorded raw flag exceptions. Client static routing separates44-byte overlays from48-byte history, cycle clamp and sequence-change repair. Actual child weights/cache payloads, client execution/latency, final pose/AV/campaign/Rust parity remain untested; first_map_finished:false. Next isolate the client cycle helper's finite/nonfinite boundary in an authored fixture.
+
 ## 2026-10-29 research: selected channels and isolated retail primitives
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust.

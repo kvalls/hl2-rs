@@ -1,5 +1,11 @@
 # Design
 
+## Loaded-source and client-cycle boundary (2026-10-29)
+
+CW admits selected loaded child descriptors/masks/relative edges under raw identity/range/tick brackets, preserving runtime flags/activity separately. CV's copied active mock scaffold stopped after two failed preparations and must not be loaded without a materially different accepted fixture. CX then binds static client layer ordering, history repair, cycle preparation and pose forwarding; neither lane observes actual recursive evaluation or final presentation.
+
+Next bounded research plan: extract only the closed, call-free client100a0d40 cycle helper and its exact PE literals into a private authored x86 fixture. Verify control-flow closure/relocation coverage before execution; pin sources/image/inputs, map code RX and literals RO, retain before/after dumps and FP controls, and compare finite boundaries plus signed-zero/nonfinite cases with an independent instruction-aware reference. No Valve DLL initialization, game attachment, Rust changes or performance/parity inference. Retain rejected cases and seal independently.
+
 ## Primitive decoding boundary and next native child probe (2026-10-29)
 
 Owned selected child channels and isolated retail helper replay now bind RLE single/pair behavior, the1-valid/1-total pair guard, packed Quaternion64 scale/rounding and half conversion policy under recorded fixture controls. Keep record DELTA, descriptor DELTA and ALLZEROS flag domains distinct. Preserve negative zero; infinity/NaN handling follows the admitted retail helper rather than a generic IEEE conversion. No Rust parser or pose implementation changes were made here.

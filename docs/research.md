@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Passive loaded children and static client consumption (2026-10-29)
+
+CW joins six accepted live graphs to owned selected parent/child metadata:36 masks,24 relative edges,36 full animation descriptors and36 sequence descriptors with flags/activity excluded. Three tick-crossed graphs remain excluded; raw flags/activity are retained without new semantics. Full replay binds898 rows/3,515 reads/235,476 bytes. This closes loaded metadata identity for the sampled graphs while leaving executed child requests, ANI cache association and final bones open. CV's two rejected mock preparations were stopped before native use.
+
+CX's seven exact client bodies bind44-byte overlay ordering/positive-weight selection, optional inline blend ramps, looping-bit lookup, nonloop cycle clamp to0.9990000128746033 and forwarding to pose accumulation. The separate48-byte history route repairs selected sequence changes and dispatches interpolation; static thresholds are float0.001, loop difference0.5 and double0.01 event-cycle subtraction. These are exact static contracts, not observed client interpolation, network latency or visual fidelity. No Rust/campaign completion claim; first_map_finished:false.
+
 ## Child channel decoding and isolated numerical helpers (2026-10-29)
 
 CS reads the selected owned apex/loop payloads in place and retains39 chains/48 nonnull RLE channels, raw packed ranges and all runs. Twelve exact retail bodies bind virtual group/bone routing, descriptor/block selection, shared position/rotation helpers and the opaque cache call. Two apex clips have44 frames; two packed loop clips have2. No AngleQuaternion/Slerp output, final skeleton or live cache association is inferred from those channels.
