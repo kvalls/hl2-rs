@@ -1771,6 +1771,9 @@ impl AiRuntime {
     ) {
         use crate::npc_probe::NpcCollisionWorld;
         let now = scene.time;
+        // Airborne crab steps that did not bite the player: (crab, swept box start, end,
+        // mins, maxs, hit a solid after the world-ignore window, landed).
+        let mut npc_touches = Vec::new();
         for (&id, actor) in self.actors.iter_mut() {
             let Some((velocity, last)) = actor.fall else {
                 continue;
@@ -1862,11 +1865,9 @@ impl AiRuntime {
                             origin: Some(position + Vec3::Z * 12.),
                             ..String::from("NPC_HeadCrab.Bite").into()
                         });
-                    } else if fraction < 1. && now >= crab.ignore_world_until && !landed {
-                        crab.attack_failed = true;
-                        crab.leap_touch = false;
-                    } else if landed {
-                        crab.leap_touch = false;
+                    } else {
+                        let failed = fraction < 1. && now >= crab.ignore_world_until && !landed;
+                        npc_touches.push((id, origin, end, hull.mins, hull.maxs, failed, landed));
                     }
                 }
             }
@@ -1883,6 +1884,47 @@ impl AiRuntime {
                     hit.trace.start_solid,
                     fraction,
                 ));
+            }
+        }
+        // LeapTouch on an NPC: a hated one (that takes damage) in the step bites
+        // (TouchDamage: sk_headcrab_melee_dmg, through the shared melee hit path); else a
+        // solid after the world-ignore window fails the attack and a landing ends it.
+        for (id, start, end, mins, maxs, failed, landed) in npc_touches {
+            let victim = self.melee_victim(id, world, scene, start, end, mins, maxs);
+            let damage = self.headcrab_melee_damage;
+            let Some(actor) = self.actors.get_mut(&id) else {
+                continue;
+            };
+            let AiClass::Headcrab(crab) = &mut actor.class else {
+                continue;
+            };
+            if let Some(victim) = victim {
+                // The victim's box stops the leap like the player's (NPC traces do not
+                // include NPC boxes).
+                if let Some((velocity, _)) = &mut actor.fall {
+                    velocity.x = 0.;
+                    velocity.y = 0.;
+                }
+                crab.leap_touch = false;
+                crab.attack_failed = false;
+                crab.bites += 1;
+                self.diagnostics.npc_melee_hits += 1;
+                self.melee_hits.push(MeleeHit {
+                    attacker: id,
+                    victim,
+                    damage,
+                    position: scene.states[victim].origin + Vec3::Z * center_z(world, victim),
+                    direction: (end - start).normalize_or_zero(),
+                });
+                scene.sounds.push(crate::sounds::SoundRequest {
+                    origin: Some(end + Vec3::Z * 12.),
+                    ..String::from("NPC_HeadCrab.Bite").into()
+                });
+            } else if failed {
+                crab.attack_failed = true;
+                crab.leap_touch = false;
+            } else if landed {
+                crab.leap_touch = false;
             }
         }
     }
@@ -5849,6 +5891,48 @@ mod tests {
         run(&mut r, 20, player_at(-3000.));
         assert_eq!(r.ai.actors[&0].npc.enemy, Some(id));
         assert_eq!(r.ai.actors[&id].npc.enemy, Some(0));
+    }
+    #[test]
+    fn leaping_headcrabs_bite_hated_npcs_they_touch() {
+        let world = World {
+            entities: vec![
+                entity(&[("classname", "npc_headcrab"), ("origin", "0 0 0")]),
+                entity(&[("classname", "npc_metropolice"), ("origin", "60 0 0")]),
+            ],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        let physics = Physics::new(&world);
+        let mut ai = AiRuntime::new(&world, None);
+        scene.time = 1.;
+        let leap = |ai: &mut AiRuntime| {
+            let actor = ai.actors.get_mut(&0).unwrap();
+            actor.fall = Some((Vec3::new(400., 0., 100.), 0.9));
+            let AiClass::Headcrab(crab) = &mut actor.class else {
+                panic!("not a crab");
+            };
+            crab.leap_touch = true;
+        };
+        let bites = |ai: &AiRuntime| match &ai.actors[&0].class {
+            AiClass::Headcrab(crab) => (crab.bites, crab.leap_touch),
+            _ => unreachable!(),
+        };
+        // A 40-unit step toward the cop 60 ahead: its box is touched, one bite.
+        leap(&mut ai);
+        ai.step_falls(&world, &mut scene, &physics, player_at(-3000.));
+        assert_eq!(ai.melee_hits.len(), 1);
+        assert_eq!(ai.melee_hits[0].victim, 1);
+        assert_eq!(bites(&ai), (1, false));
+        let fall = ai.actors[&0].fall.unwrap().0;
+        assert_eq!((fall.x, fall.y), (0., 0.));
+        // Out of reach: no bite, the touch stays armed.
+        ai.melee_hits.clear();
+        scene.states[1].origin = Vec3::new(300., 0., 0.);
+        scene.states[0].origin = Vec3::ZERO;
+        leap(&mut ai);
+        ai.step_falls(&world, &mut scene, &physics, player_at(-3000.));
+        assert!(ai.melee_hits.is_empty());
+        assert_eq!(bites(&ai), (1, true));
     }
     #[test]
     fn stunstick_swings_strike_only_hated_npcs_in_the_swept_box() {
