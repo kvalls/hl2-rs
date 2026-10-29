@@ -1,5 +1,11 @@
 # STATUS
 
+## Head-gesture nonlocal child layers (2026-10-29)
+
+Sealed CR binds the selected head parents' automatic child route. Owned parents823/827 have zero56-bone masks and zero-data animation descriptors; each references apexDelta/loopDelta children with48 nonzero source mask entries. Three retained raw virtual-table graphs bind all six parent/child tuples(18 comparisons). Exact retail control flow skips direct/local blending after a false direct-pose result but still reaches the nonlocal child walker. Relative sequence lookup,24-byte edge stride, ramp/flag paths and recursive call are byte-bound.
+
+Five local/one external exact bodies, five PE windows/1,374 instruction starts,14 anchors/nine edges/four constants/10 static controls and seven owned structural controls pass. Conditional real arithmetic from65 recorded post-callback parent states produces119 candidate child requests/117 positive weights; these are not observed evaluator outputs. Child weights are independent and must not be normalized as one blend grid. Loaded child descriptors, native recursive execution/weights, ANI decoding and final bones remain untested. CR seal31 files/15 external bindings; checkpoint work/publishing/research-followup-continuation-20261029cr.md. No Rust changes/builds; first_map_finished:false.
+
 ## Live server flex gate and initialized tracks (2026-10-29)
 
 A fresh never-attached native run now observes the actual server filter gate as1 in all2,757 accepted acquisitions. Full replay accounts for2,988 samples,231 explicit race exclusions and123,436 ordered reads/6,560,799 bytes. Its133 loaded type10 event observations include130 initialized rows and three head-event rows before lookup initialization. All11 authored tracks join to the owned model-local contract. Initialized head tracks carry active/server flags and indices44/45/46/51; seven eye/facial tracks carry active or active/combo flags without the server bit. These live inputs establish conditional eligibility under the captured gate, not callback execution, write causality or client facial evaluation.

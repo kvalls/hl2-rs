@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Head-parent automatic child source/byte contract (2026-10-29)
+
+Under ../../work/hl2-decompiled/actor-head-autolayers-20261029cr, run C:/Python310/python.exe -B with verify.py, owned.py, join_graph.py, calculate.py, check_owned.py and seal.py verify. Static checks pass five local/one external exact bodies,five finite PE windows/1,374 starts,14 anchors/nine edges/four constants/10 controls. Owned selected-source checks reject seven structural mutations; three older raw graphs bind18 group/local tuples. The seal covers31 files/15 external bindings. Initial self-declaration-only navigation is not caller evidence; the separate exact incoming chain is retained. Finite windows do not certify full extents/ABI.
+
+Owned parent masks are zero across56 bones; four child masks have48 nonzero entries each. Conditional real arithmetic from65 post-callback parent states yields119 candidate child requests/117 positive weights, with no observed child evaluator/FP-output/ANI/final-bone claim. The selected retail false-direct-pose branch still reaches nonlocal children; independent child weights remain unnormalized. Loaded child descriptors, native child execution and full pose/AV/campaign/Rust parity remain not tested; first_map_finished:false.
+
 ## Passive live flex gate and loaded tracks (2026-10-29)
 
 Run C:/Python310/python.exe -B with actor-flex-live-contract-20261029cp/verify.py: two local/seven external exact bodies, two PE windows/16 instruction starts/seven anchors/five controls. Under actor-flex-passive-20261029cq, verify.py replays2,988 acquisitions/2,757 accepted/231 exclusions,123,436 ordered reads/6,560,799 bytes/one chunk; verify_admission.py replays1,703 initial identity reads; check_fixture.py passes94 reads/9,732 bytes/15 controls; check_actual.py rejects12 actual-record corruptions. All private paths are under ../../work/hl2-decompiled from this checkout.

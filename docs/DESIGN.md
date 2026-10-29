@@ -1,5 +1,11 @@
 # Design
 
+## Zero-data parents and nonlocal child traversal (2026-10-29)
+
+The selected retail accumulator reaches nonlocal autolayers even when direct parent pose calculation returns false. For the observed head parents, owned zero masks/zero-data descriptors coexist with apex and loop delta child edges. Keep recursive traversal separate from direct parent contribution; preserve start-inclusive/end-exclusive ramps, optional smoothing, relative child lookup and independent child weights. The selected loop's authored end exceeds parent cycle1; do not clamp that source ramp end to1 or normalize apex/loop weights as a blend grid. The source/byte contract does not establish actual native child weighting, decompression or final pose.
+
+Next bounded plan: identify the four selected child animation payload ranges, validate record chains and compressed-channel boundaries against owned content, and bind the corresponding retail decoder decisions through exact procedures/PE bytes. Keep a conditional offline decode separate from loaded cache bytes and observed native bone results. No corpus expansion, Rust edits or campaign advancement.
+
 ## Loaded server flex state and head-child evaluation plan (2026-10-29)
 
 The passive follow-up observes the server gate enabled, initialized head-track server flags/local indices and the corresponding four changing server storage slots. Eye/facial tracks are loaded and active but lack the server bit under this gate. Preserve lookup initialization, raw scalar/combo sides and server/client distinctions; server storage alone cannot determine rendered facial behavior. The selected acquisition retains pre-lookup head indices-1/-1 and excludes raced full-name buffers explicitly.

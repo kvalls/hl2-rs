@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: zero-data head parents and automatic child route
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Documented the selected head parents' owned apex/loop delta dependencies and exact nonlocal recursion path so a zero-data direct parent result does not incorrectly end authored child traversal.
+
+**Tested how:** Five local/one external exact bodies,five PE windows/1,374 starts,14 anchors/nine edges/four constants/10 controls; seven owned structural controls;18 raw virtual-tuple comparisons. CR seal31 files/15 external bindings. Conditional arithmetic from65 observed parent states yields119 candidate child requests/117 positive weights. No native run or Rust tests/builds for this lane.
+
+**Result / Still untested / Next:** Static retail routing preserves nonlocal children after false direct-pose calculation. Independent child masks/ramps/weights are source contracts; actual child execution/weights, loaded descriptors, ANI decoding, final bones/gaze/face/AV and campaign/Rust parity remain untested. First_map_finished:false. Next bind/decode the four selected child payloads; checkpoint research-followup-continuation-20261029cr.md.
+
 ## 2026-10-29 research: live server flex gate and loaded track lookup
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust implementation.

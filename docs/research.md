@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Selected head parents retain automatic children (2026-10-29)
+
+CR's owned metadata/retail-byte audit shows why zero-data parents cannot alone terminate authored child traversal. The two native-observed head parents have zero masks/ALLZEROS animation descriptors, with separate apex/loop delta children. The exact accumulator's false direct-pose branch still reaches the nonlocal walker, which resolves relative child sequence IDs and recurses with independent cycle/weight. Selected loop edges use a smooth ramp; selected apex edges have a hard end. Three older raw graphs admit18 parent/child virtual tuples, while actual child evaluation and loaded descriptor contents remain unobserved.
+
+Static checks pass six exact bodies(five local/one external),1,374 PE starts/14 anchors/nine edges/four constants/10 controls; seven owned structural controls pass. Source child masks have48 nonzero entries, which does not prove animation on each bone. Conditional calculations from65 actual parent states produce119 child requests/117 positive weights; they are not native output or pose evidence. Preserve independent weights, source/loaded/executed distinctions and first_map_finished:false. Next investigate the four child animation payloads and their exact retail decoding route.
+
 ## Actual server flex filtering inputs (2026-10-29)
 
 CP binds the event track-vector/count/selector through two exact retail bodies and reuses seven CD helpers for lookup-init, flags and raw local indices. CQ's fresh never-attached passive run observes gate1 throughout2,757 accepted samples, with133 loaded event rows and all11 authored track joins. Three head-event rows precede lookup;130 rows are initialized. The initialized four head tracks have the server flag and local44/45/46/51, while the seven eye/facial tracks lack that flag. Only those four server input slots vary in this run. This admits actual gate/track source-state and conditional eligibility; callback execution, causality and client facial evaluation remain separate.
