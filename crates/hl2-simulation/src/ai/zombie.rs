@@ -683,10 +683,12 @@ impl Behavior for Zombie {
         if failed == "SCHED_ZOMBIE_WANDER_MEDIUM" {
             return "SCHED_ZOMBIE_WANDER_FAIL".into();
         }
-        // Swat the obstructor (CanSwatPhysicsObjects, not as a torso).
+        // Swat the obstructor (CanSwatPhysicsObjects: the poison zombie too, whose ATTACKITEM
+        // is its ordinary melee attack; not as a torso). Native session 37: a poison zombie
+        // shoves a box out of a doorway and comes through.
         let obstructor = self.obstructor.take();
         if let Some((entity, center, _)) = obstructor
-            .filter(|_| self.swats() && path_failure)
+            .filter(|_| !self.torso && path_failure)
             .filter(|(_, _, mass)| *mass < ATTACKITEM_MAX_MASS)
         {
             self.physics_ent = Some((entity, center));
@@ -1023,6 +1025,13 @@ mod tests {
         torso.obstructor = Some((7, Vec3::ZERO, 15.));
         assert_ne!(
             torso.select_fail_schedule(&npc, "SCHED_ZOMBIE_CHARGE_ENEMY"),
+            "SCHED_ZOMBIE_ATTACKITEM"
+        );
+        // The poison zombie (no charge or wander) attacks the obstructor too.
+        let mut poison = Zombie::new(Kind::Poison, false, 3);
+        poison.obstructor = Some((7, Vec3::ZERO, 15.));
+        assert_eq!(
+            poison.select_fail_schedule(&npc, "SCHED_ZOMBIE_CHASE_ENEMY"),
             "SCHED_ZOMBIE_ATTACKITEM"
         );
         // Without a path failure (an animation task failed) there is no swat.
