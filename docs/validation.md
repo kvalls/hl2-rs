@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Full blend and stack-probe fixtures (2026-10-29 EB/EC)
+
+EC:544 finite allocations across34 sizes/16 caller offsets,65 owned RX bytes/one JMP relocation, five preserved registers, actual return-site EAX, aligned pre/post ESP, first/last allocated-byte accesses and caller canaries pass. Fifteen controls, process48832 exit0 and24-file seal pass. Overflow/underflow, stack exhaustion and exception/unwind ABI are not tested.
+
+EB:5,670 cases/945 raw context pairs,1,859,760 exact prepared/recomputed/actual words,260,820 bone slots/223,830 untouched. All6,346 source states appear;6,334 have positive effective-weight use. Routes:12,330 DELTA-pre/12,330 POST/9,792 nondelta-fixed/2,538 aligned.3,237 owned RX bytes/176 RO bytes/35 absolute/33 relative relocations, five trapped frontiers, intact contexts/source hashes/code/pins/canaries/tails and5,670 stack/FP checks pass. Sixteen admission/22 result corruption controls, process51016 exit0 and93-file seal pass. x87 control639 is fixed; status0/32/544 and MXCSR8064/8096 retained; original controls restored. One LF/CRLF preparation stopped before launch, with unchanged compiled C bytes and a separate raw/normalized digest audit.
+
+Read-only commands use `C:/Python310/python.exe -B` with private `stack-probe-fixture-20261029ec/{verify.py,seal.py verify}` and `bone-blend-composition-20261029eb/{admit.py,verify.py,check_controls.py,seal.py verify}`. Never rerun sealed producers/build/run/create. This is authored isolated composition, not actual actor/full skeleton/client rendering, campaign completion or Rust parity; first_map_finished:false. No native game or Rust build/test.
+
 ## Nondelta finite scalar and alias audit (2026-10-29 DX–EA)
 
 Private DX/DY checks bind seven exact bodies each,31/16 anchors and17/14 controls; DX also admits the allocator's directly reached probe tail and retains two rejected verifier drafts. DZ admits1,005 owned instruction bytes/128 literal bytes,13 absolute/11 relative relocations and three trapped frontiers. Authored process25944 exits0 after175,008 cases with intact RX/RO mappings, code/literal/input bytes, pins, canaries and FP controls. Nine pre-admission/nine result-framing controls pass. Raw x87 status0/32/544 and MXCSR8064/8096 are retained; x87 control stays639 and original controls are restored.

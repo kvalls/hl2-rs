@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Conditional full blend composition (2026-10-29 EB/EC)
+
+EC exercises the exact aligned stack allocator and page-probe tail over544 bounded cases with explicit caller ESP restoration and register/return/canary checks. EB then runs the complete server blend body with selected scalar math dependencies in an authored process. Its5,670 cases admit945 disjoint RO model/flags/weights/virtual-map graphs and compare1,859,760 words exactly, including223,830 untouched bone slots. The6,346 input decoder states and6,334 positive-effective-weight states are counted separately.
+
+This closes a finite conditional composition contract for masks, weight clamps, DELTA order and nondelta selection. It does not observe actual actor inputs, whole skeletal hierarchy evaluation or client rendering. Descriptor4000, unadmitted fast math and error transfers trap; none executes. Controls/pins/maps/canaries/stack/FP/cleanup pass. No native game, Valve DLL initialization or Rust change; first_map_finished:false.
+
 ## Nondelta spherical interpolation and alias order (2026-10-29 DX–EA)
 
 DX binds the nondelta caller's fixed-alignment flag, complement-weight argument, distance-aligned wrapper and spherical core, plus the descriptor4000 and stack-probe frontiers. The core uses epsilon1e-6 at same/opposite boundaries and x87 acos/FSIN coefficients; it does not normalize afterward. The opposite branch constructs a perpendicular quaternion, updates xyz and leaves the constructed w. DY binds the scalar acos/classifier/control/cleanup graph while keeping fast/error paths explicit. Static contracts do not establish live math flags or input state.

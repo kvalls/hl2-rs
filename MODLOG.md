@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: conditional full bone-blend composition
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Closed the selected server blend composition around authored masks, sequence weights and virtual maps, after separately validating its dynamic-stack allocator.
+
+**Tested how:** EC544 finite cases/65 owned bytes/15 controls, process48832 exit0. EB5,670 cases/945 RO graph pairs/1,859,760 exact words/260,820 bone slots,3,237 RX bytes/176 RO bytes/35 absolute and33 relative relocations, five trapped frontiers, context/source/code/pin/canary/tail/stack/FP checks, process51016 exit0 and16+22 controls. EC/EB seals24/93 files. No native game or Rust action.
+
+**Result / Still untested / Next:** All finite prepared/recomputed/actual words agree, including223,830 untouched slots. Inputs cover6,346 DL states;6,334 reach positive effective weight. A prelaunch LF/CRLF hash preparation remains recorded. Actual actor/cache/mask/weights, full skeleton/rendering/campaign/Rust parity remain unproven; first_map_finished:false. Continue exact client closure and a separately admitted client fixture toward98% usage.
+
 ## 2026-10-29 research: nondelta interpolation and alias-store audit
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.

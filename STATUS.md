@@ -1,5 +1,13 @@
 # STATUS
 
+## Conditional full bone-blend composition (2026-10-29 EB/EC)
+
+EC validates the exact65-byte stack-probe head/tail in544 authored allocation/alignment cases, preserving five registers, original return-site EAX, expected aligned ESP and allocated/caller canaries; process48832 exit0,15 controls and24-file seal pass. EB then executes the complete1,071-byte blend body with16 selected dependency/guard buffers:3,237 owned RX bytes/176 RO bytes,35 absolute/33 relative relocations and five trapped descriptor4000/fast/error frontiers.
+
+All5,670 authored contexts/945 RO graph pairs pass, with1,859,760 prepared/recomputed/actual words equal across260,820 bone slots (223,830 untouched). All6,346 DL source states occur in inputs;6,334 occur at positive effective weight. Masks, negative/distinct virtual maps, invalid-sequence fallback, count-1/0/1/2/7/56/256, weight clamping, DELTA-pre/POST and nondelta aligned/fixed routes are conditional fixture inputs. Raw context/source hashes, code/literal/pins/canaries/untouched tails, every caller ESP and FP controls pass; process51016 exit0. Sixteen pre-admission/22 actual corruption controls and93-file seal pass. One LF/CRLF driver preparation stopped before launch and remains retained.
+
+This is finite isolated blend composition, not an observed actor or complete skeletal/rendering path. No game/DLL initialization or Rust edit/build/test; first_map_finished:false. Next close the remaining client allocator/nondelta/scalar graph against the already matched client local blend body, then use a separate client fixture if admitted. Work continues toward98% usage.
+
 ## Nondelta interpolation and alias-store boundary (2026-10-29 DX–EA)
 
 DX binds seven exact server bodies/seven PE windows/1,173 starts,31 anchors/10 edges/17 controls: nondelta alignment/spherical branches, descriptor4000 redirect and the stack allocator's directly reached page-probe tail. Two failed verifier preparations are retained; independent instruction admission replaces the guessed anchor. DY binds seven exact bodies/seven windows,137 starts/16 anchors/14 controls for scalar acos and its classifier/FP-control/cleanup context; fast/error bodies remain opaque.

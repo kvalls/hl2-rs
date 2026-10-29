@@ -1,5 +1,11 @@
 # Design
 
+## Research plan: complete client blend graph (2026-10-29 ED)
+
+EC validates the exact stack allocator over544 finite cases; EB's complete server blend composition passes5,670 authored contexts/1,859,760 words with explicit metadata, scalar flags, stack/FP/canary/raw-source evidence and guarded frontiers. Keep source-present and positive-effective-weight coverage separate, and preserve the rejected prelaunch line-ending preparation.
+
+Next bind the exact client allocator/nondelta/acos/scalar dependencies reached by the already relocation-matched local blend body. Compare full reachable instructions, transfer roles, PE relocations and actual consumed literal widths against the admitted server graph. Treat writable globals as independent inputs and descriptor4000/fast/error paths as explicit frontiers. Only after closure, execute client instruction buffers in a separate authored fixture under the same retained EB contexts and compare outputs, FP state, mappings, source pins and cleanup. No native actor/rendering/campaign or Rust-parity claim follows automatically; no Rust implementation or broad corpus change.
+
 ## Research plan: remaining pose-blend frontiers (2026-10-29 DX)
 
 Continue DW with exact on-demand retrieval of the stack allocator, descriptor `0x4000` redirect and nondelta quaternion helpers. Bind complete PE instruction graphs, caller argument/order, consumed literals and opaque transfers before any separate authored fixture. Preserve DM/DU/DS seals and DE/DF/DR rejections. A fresh read-only guard still finds preexisting cursor confinement, so native capture remains deferred without changing cursor or user processes. No Rust change or whole-corpus pass. Publish only research additions, preserving existing contributor edits in this shared checkout.
