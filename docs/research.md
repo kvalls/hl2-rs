@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Source-case admission and complete record composition (2026-10-29)
+
+DI's nominal source join retains two rejected control preparations. DJ replaces metadata-led selection with independently derived sequential source IDs/headers/raw payloads/required alias membership, expands every raw RLE/default channel and admits5,759 primitive source cases plus14,660 quaternion source cases. Its14 controls reject, including the previously accepted equal-valued duplicate source assignment. All4,300 DI nominal word/route rows are corroborated;131 equal-Euler pairs yield655 helper bypass rows. DI's ideal interpolation-method comparison is a conditional source calculation, not rendering error.
+
+DK closes the selected rotation/position record call graph:10 exact bodies/10 byte-bound PE windows/1,026 reachable instructions/18 direct calls, with the unselected Quaternion48 branch included statically. DL then executes these buffers in isolation against39 owned records/seven finite fractions/two base-input variants. All12,692 combined position/quaternion outputs match both the pre-execution reference and previously admitted isolated component outputs. The6,346 base-invariance pairs apply to these selected DELTA records.20 literal/18 call relocations,3,257 code bytes/192 literal bytes, RX/RO maps, input hashes/canaries, unchanged pins and19 controls pass; owned fixture exits0. No live cache/virtual/accumulator/actor/full-skeleton/rendering or Rust-parity claim follows. First_map_finished:false.
+
 ## Selected quaternion representation and interpolation (2026-10-29)
 
 DG's exact retail server route resolves the previously unconfirmed interpolation helper:1045c1e0 compares squared distances to q and -q, uses the original q on a tie, linearly blends components and normalizes a nonzero norm with SQRTSS/DIVSS. The byte-bound route contains no spherical interpolation weights. The separate10458880 helper consumes radian Euler components in z/y/x half-angle order, stores x87 FSINCOS outputs as float32, then writes x/y/z/w. Decoder-equal Euler pairs bypass the blend; the fraction threshold is float0.0010000000474974513. Post-alignment requires a nondelta record; all39 selected owned records are delta.

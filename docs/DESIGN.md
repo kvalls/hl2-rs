@@ -1,5 +1,13 @@
 # Design
 
+## Composite record decoder plan (2026-10-29)
+
+DJ independently admits sequential source-case/payload/alias membership and corroborates DI's nominal output words/routes while retaining failed preparations. Equal-Euler pairs bypass interpolation even when the standalone helper was tested on them. Preserve source raw-run/default validation before interpreting metadata.
+
+DK admits all10 exact record-helper bodies and18 direct-call edges; DL's isolated composite replay passes12,692 prepared/prior-native-component comparisons,6,346 base-invariance pairs and19 controls. Original exact record bytes, threshold sides, equal-Euler/default paths, input hashes/canaries, RX/RO mappings and FP controls are retained. This does not execute the virtual/cache/bone-accumulator route or observe final skeleton/rendering.
+
+Next bounded research: bind the selected accumulator's per-bone mask/sequence-weight/virtual-map route and DELTA composition helper101301b0. Retrieve only exact relevant dependencies, distinguish descriptor flags from record flags, and resolve quaternion scale/multiply/normalization and pre/post ordering before any separate isolated leaf replay. Native actor inputs, full pose composition and final rendering remain unobserved. No native-game launch, broad corpus pass or Rust change.
+
 ## Selected quaternion decoder follow-up (2026-10-29)
 
 DD's authored native test validates normal entry/nesting/file-recorder behavior with the exact selected first27-byte prefix and RET1c, while retaining the different post-prefix stack allocation and exception limitations. DE/DF stop before native launch; DF explicitly records the owner's existing cursor confinement. After two preparations this capture approach is stopped until the external state changes. Preserve the active game and all rejected evidence.

@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Source-case admission and composite record decoder (2026-10-29)
+
+DI at use/work/hl2-decompiled/child-quaternion-source-audit-20261029di retains nominal rows and two rejected controls. `C:/Python310/python.exe -B audit.py` and `seal.py verify` pass at their stated diagnostic/integrity scopes; check_controls.py is rejected and must not be reported as passing. DJ at child-source-case-admission-20261029dj: `admit.py`, `check_controls.py` and `seal.py verify` pass5,759 primitive source cases/14,660 exact source-alias memberships,17 packed quaternion records/six raw half components,880 Euler/4,300 fraction rows and14 actual-change controls. All4,300 DI nominal words/routes agree. Null-channel integer defaults are independently checked after one retained failed control preparation. DI/DJ seals10/9 files.
+
+DK at child-record-decoder-contract-20261029dk: `verify.py` and `seal.py verify` pass10 exact bodies/10 PE windows/1,403 starts/1,026 reachable instructions/18 call edges,16 anchors/five constants/13 controls;11 files sealed. No foreign or indirect call is admitted. Quaternion48 is statically included for closure and absent from selected execution cases.
+
+DL at child-record-decoder-fixture-20261029dl: `verify.py`, `check_controls.py` and `seal.py verify` pass12,692 combined bit-exact prepared/prior-native-component matches over39 records and seven fractions,6,346 distinct-base invariance pairs and12,692 input-hash/canary checks. Canonical3,257 code bytes/20 literal relocations/18 direct-call relocations/192 literal bytes, actual RX/RO maps, unchanged dumps/pins, process16600 exit0 and19 corruption controls pass;46 files sealed. x87 control589855 remains fixed; MXCSR8064->8096 changes sticky precision status only. Rejected initial zero-literal whitelist preparation is retained. No native game launch or Rust tests/builds; actual virtual/cache/accumulator/actor/full-skeleton/rendering/campaign and Rust parity remain untested. First_map_finished:false.
+
 ## Native entry and selected quaternion helpers (2026-10-29)
 
 Private DD: from use/work/hl2-decompiled/child-entry-fixture-20261029dd, run `C:/Python310/python.exe -B verify.py`, `check_controls.py` and `seal.py verify`:36 calls/12 roots/72 phases,144 local-array comparisons,2,988 reads/243,936 bytes and15 corruption controls. Instrumented/uninstrumented C oracles agree, sources remain pinned and both fixtures exit0. The exact retail first27 bytes and RET1c are tested; post-prefix stack allocation differs from retail's probe CALL and arbitrary exceptions remain untested. DD seal42 files.

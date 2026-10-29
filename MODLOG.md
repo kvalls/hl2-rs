@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: source admission and composite record decoder
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Replaced a rejected metadata-led source join with independent sequential case/alias admission, then closed and executed the selected complete position/rotation record helper graph in an authored process.
+
+**Tested how:** DJ5,759 primitive/14,660 quaternion source cases and14 controls; all4,300 DI nominal rows corroborated while its two failed controls remain rejected. DK10 exact bodies/10 PE windows/1,026 reachable instructions/18 calls/13 controls. DL12,692 bit-exact prepared/prior-native-component comparisons,6,346 base-invariance pairs, input hashes/canaries,3,257 code bytes/20 literal and18 call relocations/192 literal bytes/19 controls, fixture exit0. DI/DJ/DK/DL seals10/9/11/46 files. No native game action or Rust edits/builds/tests.
+
+**Result / Still untested / Next:** Selected record math composes correctly under these finite inputs; equal-Euler bypass, fraction threshold and DELTA defaults are retained. This does not establish live cache/actor/bone-accumulator/final rendering or campaign/Rust parity; first_map_finished:false. Next bind bone-mask/sequence-weight mapping and the selected delta composition helpers. Work continues toward the requested usage target.
+
 ## 2026-10-29 research: native entry fixture and quaternion contract
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust implementation.

@@ -1,5 +1,21 @@
 # STATUS
 
+## Composite selected record decoder verified (2026-10-29)
+
+DK binds10 exact bodies/10 PE windows/1,403 instruction starts,1,026 reachable graph instructions/18 direct-call edges,16 anchors/five literals/13 controls. DL executes those admitted instruction buffers only in an authored x86 process. All12,692 combined position/quaternion outputs match both prepared expectations and prior isolated native component outputs. The39 owned records cover918 integer frame states and seven finite fractions, with paired last-frame requests excluded. Two distinct base inputs/bone flags give6,346 identical DELTA-output pairs.
+
+Canonical3,257 code bytes/20 literal relocations/18 direct-call relocations/192 literal bytes, RX/RO mappings, unchanged code/source/input bytes,12,692 input-hash/canary checks, process16600 exit0 and19 corruption controls pass. FP controls stay unchanged; MXCSR sticky precision status changes. Quaternion48 closes the static graph but is absent from selected runtime cases. A rejected zero-literal whitelist preparation is retained; no rejected image ran. DK/DL seals11/46 files. No virtual/cache/accumulator/full-skeleton/actor/rendering/Rust parity evidence is added; first_map_finished:false. Next bind per-bone mask/weight mapping and the selected delta composition path.
+
+## Independent source-case admission (2026-10-29)
+
+DJ replaces the rejected metadata-led admission with sequential source-derived IDs/headers/payloads and alias membership. It validates5,759 CT source cases(2,904 single/2,838 pair/17 packed quaternions),six raw half components and14,660 DH source cases/unique memberships. All880 Euler outputs/4,300 fraction rows are admitted;131 equal-Euler pairs yield655 helper bypass rows. All4,300 DI nominal output-word/route rows agree. Fourteen actual-change-checked controls pass, including the duplicate equal-valued identity. DI retains its two rejected preparations; DJ retains an earlier null-channel integer-list control defect, corrected by independent raw-run expansion/default checks. DI/DJ seals10/9 files.
+
+DI's analytic comparison on normalized finite inputs gives at most1.2092639508604376e-7 radians of ideal interpolation-method difference across these source pairs. This is a conditional source calculation, not actor/rendering fidelity. Native cache/child calls/full skeleton/Rust parity remain untested; first_map_finished:false. Next admit the full selected record-decoder dependency graph and a separate composite isolated replay.
+
+## Source-join control failures retained (2026-10-29)
+
+DI's nominal metadata-driven join passes880 Euler frame outputs/2,640 scalar and2,580 paired channel joins, but two corruption-control preparations are rejected: the first replaces an already-zero input with zeros; the second lets an equal-valued alias row hide a duplicate source identity. The source files/results remain unchanged and this does not invalidate DH's isolated helper acceptance. Stop repeating that join/control approach. Next DJ derives source-case order, exact payloads and required alias membership independently from the owned records and actual case streams before admitting DI's numerical rows. No native game launch, Rust change or final pose claim.
+
 ## Exact quaternion interpolation and isolated replay (2026-10-29)
 
 DG binds four exact server bodies/four PE windows/798 starts,21 anchors/five edges/five literals/15 controls. The selected rotation decoder uses shortest-representation normalized linear quaternion blending at1045c1e0. Radian-Euler conversion uses three x87 FSINCOS operations followed by float32 SSE arithmetic. A separate post-alignment gate requires nondelta record data and bone bit100000; all39 selected owned records are delta. Closed helper graphs contain78/124/72 starts.
