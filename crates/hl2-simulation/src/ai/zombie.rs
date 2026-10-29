@@ -947,15 +947,30 @@ mod tests {
             .iter()
             .map(|a| a.to_lowercase())
             .collect();
+        let swats = || {
+            source_assets::models::ZOMBIE_AI_ACTIVITIES
+                .iter()
+                .filter(|a| a.starts_with("ACT_ZOM_SWAT"))
+        };
         // The poison zombie inherits CanSwatPhysicsObjects but its model has no swat sequences.
         let poison =
             source_assets::animation::load(&vfs, "models/zombie/poison.mdl", &wanted).unwrap();
-        assert!(source_assets::models::ZOMBIE_AI_ACTIVITIES
-            .iter()
-            .all(|a| poison.lookup_sequence(a, None, |_| 0).is_none()));
+        assert!(swats().all(|a| poison.lookup_sequence(a, None, |_| 0).is_none()));
         for model in ["models/zombie/classic.mdl"] {
             let rig = source_assets::animation::load(&vfs, model, &wanted).unwrap();
-            for activity in source_assets::models::ZOMBIE_AI_ACTIVITIES {
+            // SCHED_ZOMBIE_CHARGE_ENEMY's tantrum and SCHED_ZOMBIE_BASH_DOOR's pounding.
+            for activity in ["ACT_ZOMBIE_TANTRUM", "ACT_ZOMBIE_WALLPOUND"] {
+                let sequence = rig
+                    .lookup_sequence(activity, None, |_| 0)
+                    .unwrap_or_else(|| panic!("{model} {activity}"));
+                let events: Vec<_> = rig.clips[sequence]
+                    .events
+                    .iter()
+                    .map(|e| e.name.to_uppercase())
+                    .collect();
+                println!("{model} {activity}: {sequence} {events:?}");
+            }
+            for activity in swats() {
                 let sequence = rig
                     .lookup_sequence(activity, None, |_| 0)
                     .unwrap_or_else(|| panic!("{model} {activity}"));
