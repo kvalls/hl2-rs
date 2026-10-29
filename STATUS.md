@@ -1,5 +1,13 @@
 # STATUS
 
+## Owned default inputs and conditional initialization (2026-10-29 EJ/EK)
+
+EJ independently rereads two owned VPK members and validates eight source ranges (26,796 bytes), 56 bones each, four selected child descriptors/weight arrays and 14 corruption controls. Root version44 selects direct records; include version48 selects relative arrays without conversion. All56 names/parent names match diagnostically, but only4 raw position triplets,7 raw quaternion quadruplets and15 flags match. Seven files sealed; the name join is not a loaded virtual map.
+
+EK process6116 exits0 after272 calls under68 explicit masks and both initializer/wrapper entries. Exact429-byte code passes106,624 output words across15,232 slots (5,406 copied/9,826 untouched),136 entry-pairs,272 RO page/ESP pairs, two unchanged source models, code/pins/canaries/FP/footer/cleanup. x87CW639/status0 and MXCSR8064 stay fixed; original controls restored. Thirteen initial/12 coherent admission controls and20 actual-record controls pass;40 files sealed. The original pinned verifier rejects Windows CRLF stdout before numerical reads. Its traceback remains; a separate offline audit validates raw stdout and normalizes only an in-memory copy without changing/rerunning native evidence.
+
+This supplies owned words/flags and authored masks to sparse private buffers. Actual model conversion, runtime wrapper flags/mask/actor association, virtual mapping, full hierarchy/rendering/AV/campaign and Rust parity remain unproven; first_map_finished:false. No game/DLL initialization or Rust edit/build/test. Next compare intermediate acos return precision and caller context separately from float32 blend agreement; continue toward98% usage.
+
 ## Fast-acos closure and complete fast blend (2026-10-29 EH/EI)
 
 EH binds four exact client/server bodies/four PE windows:1,358 bytes/303 reachable instructions per module,30 absolute roles/four indexed sites, two full239-entry tables and12 controls. One error callee pair remains opaque.19 files sealed.

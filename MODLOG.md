@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: owned default inputs and initializer execution
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Admitted two owned default-pose source graphs and tested their distinct direct/relative routes through the exact native initializer with explicit masks.
+
+**Tested how:** EJ independent VPK reread, eight ranges/26,796 bytes/56 bones per model/four child descriptors/14 controls. EK process6116 exit0,272 calls/68 masks/106,624 exact words/136 entry-pairs/272 RO page and ESP pairs, source/model/code/pin/canary/FP/footer/cleanup checks. Thirteen initial/12 coherent admission and20 actual-record controls; seals7/40 files. Original pinned verifier fails on CRLF stdout; separate offline audit passes unchanged capture after in-memory line-ending normalization. No native rerun.
+
+**Result / Still untested / Next:** Conditional copying/untouched outputs agree with prepared and independently replayed owned words. Sparse supplied contexts are not actual loaded actor/default/mask/virtual-map evidence. Full hierarchy/rendering/AV/campaign/Rust parity remain open; first_map_finished:false. Continue intermediate acos precision/context research toward98%; no Rust/native-game action.
+
 ## 2026-10-29 research: fast-acos closure and full blend integration
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.

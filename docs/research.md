@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Owned defaults and conditional initializer (2026-10-29 EJ/EK)
+
+Independent owned-member rereads admit the selected root/include models without changing their version44/direct and version48/relative-array headers. All56 bone names and parent names agree in a diagnostic join; stored default words and flags mostly differ, and raw differences alone do not establish geometric differences. Four selected sequence descriptors/weight arrays retain exact prior-source bindings.
+
+A separate x86 process feeds the original admitted ranges at original offsets into sparse read-only buffers, supplies owned flags and68 explicit masks, and executes the exact401-byte initializer/28-byte wrapper. All272 calls/106,624 words and136 entry-pairs agree with independent conditional source replay; code/model/page/input/pin/stack/FP/cleanup checks and deliberate corruptions pass. The original LF-only verifier rejection and separate raw-CRLF offline audit remain explicit. No actual loader conversion, runtime actor/mask/virtual-map/full hierarchy/rendering/AV/campaign or Rust parity; first_map_finished:false. No game or initialized Valve DLL.
+
 ## Fast-acos and full blend integration (2026-10-29 EH/EI)
 
 EH closes local fast-acos wrapper/body pairs (1,358 bytes/303 instructions per module), consumed literals and both bounded239-entry tables while retaining one opaque error call. EI adds these and fast asin to the full blend under explicit fixture flags. Both new server/client processes pass5,670 finite contexts/1,859,760 words and independent raw-input/mapping/canary/tail/stack/FP checks; recorded fast/scalar/module outputs, raw FP status and normalized contexts agree.

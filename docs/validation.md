@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Owned source admission and initializer fixture (2026-10-29 EJ/EK)
+
+EJ: two exact owned VPK members independently reread with directory/member hash, CRC, member-range and archive-stamp admission. Eight retained ranges/26,796 bytes,56 bones each,four selected child descriptors/weights and14 corruptions pass.56 name/parent matches,4 raw position/7 raw quaternion/15 flag matches; versions44/48 and conditional routes retained. Seven files/eight external bindings sealed.
+
+EK:429 exact native bytes/one wrapper CALL relocation,two sparse source buffers/602,112 bytes,68 explicit masks/272 calls/106,624 exact words.15,232 bone slots:5,406 copied/9,826 untouched;136 direct/wrapper comparisons,272 full page/ESP pairs,two model pairs/code/pins/canaries/FP/footer/cleanup pass. Process6116 exit0; x87CW639/status0,MXCSR8064 fixed and originals restored. Thirteen initial digest/12 coherent outer-digest-recomputed admission controls and20 actual-record corruptions pass;40 files/eight external bindings sealed.
+
+Original pinned `verify.py create` fails before numerical reads because stdout is CRLF; `verification-rejection.json` retains the traceback. Separate `audit_capture.py` validates raw stdout, normalizes only an in-memory metadata copy and adds x87 reserved-status admission; no original source/capture edit or native rerun. Read-only `C:/Python310/python.exe -B` checks in private `owned-pose-inputs-20261029ej/{verify.py,seal.py verify}` and `owned-pose-init-fixture-20261029ek/{admit.py,admission_controls.py,audit_capture.py,seal.py verify}`. Never rerun producer/build/run/create or use the rejected original verifier as a passing check. Actual loader/actor/mask/virtual-map/hierarchy/rendering/AV/campaign/Rust parity remain unproven; first_map_finished:false. Documentation checks only; Rust build/test not applicable.
+
 ## Fast-acos closure and full fast composition (2026-10-29 EH/EI)
 
 EH:4 exact bodies/4 PE windows,1,358 bytes/303 instructions per module,30 absolute pairs/4 indexed sites, full3,824-byte angle/1,912-byte factor tables and12 controls pass;19 files sealed. Opaque error handler/arbitrary domain ABI remain open.
