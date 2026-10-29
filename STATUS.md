@@ -1,5 +1,11 @@
 # STATUS
 
+## Optional client callback and initializer boundary (2026-10-29)
+
+DT binds9 exact bodies/9 PE windows/1,823 starts,21 anchors/11 edges/32 controls. Three exact context constructor callers pass a zero final argument stored at+0xc; the optional accumulator vtable+4 call and both continuations are byte-bound. DU then binds the only intervening call in each first constructor-to-wrapper interval: a28-byte wrapper that reads model/mask and a401-byte call-free/no-relocation initializer(136 reachable starts/two returns). Two exact bodies/two PE windows/173 starts/18 controls pass. Under valid disjoint memory/no asynchronous mutation, the initially-zero callback field is preserved through those first intervals. This is not a live pointer observation or a claim about later loop iterations/other callers.
+
+DV executes only those two buffers in an authored process with separate RO model/flags/context and guarded outputs:756 cases/296,352 exact words,15,624 copied/280,728 untouched,378 direct/wrapper pairs, three relative-pose modes, seven masks and counts-1/0/1/2/7/56. Direct x87 position copies quiet444 signaling-NaN words; alternate MOVSS/quaternion integer moves preserve1,044. Sixteen controls, RX429 bytes/one CALL relocation, unchanged pins/mapped bytes, per-case context/canary/RO/FP checks and process50280 exit0 pass. Native x87CW639/MXCSR8064 stay fixed; x87 sticky status is not captured. DT/DU/DV seals27/11/22 files. Authored data do not admit installed/live defaults, masks, actor pose/rendering, campaign completion or Rust parity; first_map_finished:false. No native game or Rust action. Next bind selected live accumulator inputs only after ownership/cursor admission, or independently investigate another exact static frontier.
+
 ## Client decoder and guarded scale paths (2026-10-29)
 
 DP binds34 exact client/server bodies and34 PE windows(4,004/4,075 starts), ten complete record-kernel pairs/3,257 bytes/1,026 reachable instructions/18 calls, eight wrapper/cache route-edge groups and15 controls. Literal values/read-only sections and the opaque cache-interface slot are checked separately. DL's finite numerical contract can be reused conditionally under equal input words/FP state/valid memory; no client execution or loaded cache association is observed.

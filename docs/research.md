@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Optional callback and default pose initialization (2026-10-29)
+
+DT binds the16-byte context allocator's final argument store at+0xc and three exact caller sites that supply zero. The accumulator tests this field and optionally calls vtable+4 before pose evaluation/blending. SDK IPoseDebugger is navigation-only naming; callback effects and all possible callers are not inferred. DU binds the only intervening initializer call in each first constructor-to-wrapper interval: its wrapper reads model/mask, and its401-byte call-free leaf writes stack and selected output arrays. Valid disjoint memory/no asynchronous mutation is necessary to infer the initially-zero field stays zero through those first intervals.
+
+The initializer gates model bone flags by the supplied mask and selects direct0xd8-stride records or relative alternate arrays. DV's authored756-case replay passes296,352 exact words/378 wrapper pairs, including280,728 untouched words. Direct position FLD/FSTP quiet444 signaling-NaN words, while alternate MOVSS and quaternion integer moves preserve1,044; a raw-copy oracle is rejected. Sixteen controls, RX/RO/context/canary/FP/pin checks and owned fixture exit0 pass. These are authored graphs, not installed/live actor/default data. No final pose/client rendering/campaign/Rust-parity evidence; first_map_finished:false.
+
 ## Complete client record kernel and scale dispatch (2026-10-29)
 
 DP proves ten complete client record-helper graphs relocation-equivalent to the admitted server kernel, including exact read-only consumed values and mapped calls. Thirty-four exact bodies/PE windows bind the caller, selector, virtual wrapper and cache interface edges separately; indirect slot60 and loaded cache bytes remain opaque. This extends conditional numerical reuse, not live client input/rendering evidence.

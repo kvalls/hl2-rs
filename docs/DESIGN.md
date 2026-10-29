@@ -1,5 +1,13 @@
 # Design
 
+## Optional callback and pose initializer follow-up (2026-10-29)
+
+DT binds the optional context+0xc/virtual+4 call and three exact constructor sites that pass zero. Intervening initialization calls remain a boundary before claiming the field stays zero.
+
+DU binds the28-byte wrapper and401-byte call-free/no-relocation initializer; all three first intervals contain only that wrapper call. Under valid disjoint memory/no asynchronous mutation, the zero callback remains zero through those first intervals. DV passes756 authored cases/296,352 copied-or-untouched words and16 controls with explicit RO context/model/flags. Direct x87 signaling-NaN position quieting is retained separately from alternate MOVSS/raw quaternion words. This does not admit installed/live data or later/other callers.
+
+Next bounded research: admit actual accumulator model/mask/record/output identities only when the ownership/cursor guard allows a new finite native observation; preserve DE/DF/DR rejections and never rerun sealed producers. Independent static alternatives include the dynamic allocator/descriptor4000/nondelta frontiers in DM. No final-pose/campaign/Rust parity follows automatically. No Rust change.
+
 ## Scale dispatch and finite path validation plan (2026-10-29)
 
 DP binds the complete client record decoder to the admitted server kernel, while DQ binds the scale dispatcher and exposes flag/x87 context that the decompiler signatures omit. Dispatch/math-mode globals remain runtime inputs; local code equivalence does not close indexed tables or error handlers.

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: optional callback and pose initialization
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Bound constructor-zero callback arguments, optional virtual dispatch/continuation and the intervening initializer before first accumulation. Separated direct x87 default-position copying from alternate MOVSS/raw quaternion copying.
+
+**Tested how:** DT9 exact bodies/9 PE windows/21 anchors/11 edges/32 controls; DU2 exact bodies/2 PE windows/closed401-byte graph/18 controls. DV756 authored cases/296,352 exact copied-or-untouched words/378 wrapper pairs,429 RX bytes/one relative CALL, RO source/context/canaries/FP controls/pins, process50280 exit0 and16 controls. DT/DU/DV seals27/11/22 files. No Rust edit/build/test or native-game action.
+
+**Result / Still untested / Next:** Callback zero is preserved through three admitted first constructor-to-wrapper intervals only under disjoint valid memory/no asynchronous mutation. Direct x87 copies quiet444 signaling-NaN position words; alternate/quaternion moves preserve1,044. Live pointers, later/other callers, installed default data, actor skeleton/rendering/campaign/Rust parity remain unproven; first_map_finished:false. Preserve sealed producers and continue from the private handoff after the usage checkpoint.
+
 ## 2026-10-29 research: client decoder and finite scale dispatch
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
