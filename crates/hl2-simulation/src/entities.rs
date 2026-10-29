@@ -188,6 +188,10 @@ pub struct State {
     pub parent: Option<Parent>,
 }
 impl State {
+    /// A door at or going to its closed position (TS_AT_BOTTOM / TS_GOING_DOWN).
+    pub fn door_closed(&self) -> bool {
+        self.target <= 0.
+    }
     /// The actor plays authored locomotion (IsMoving for look-target choice).
     pub fn is_moving(&self) -> bool {
         self.movement_animation.is_some()
@@ -376,6 +380,16 @@ pub struct Scene {
     /// damage force; the ragdoll's nudge) and the point whose nearest solid takes it
     /// (m_nForceBone; None: the root solid, the server's default force bone 0).
     pub npc_death_forces: BTreeMap<usize, (Vec3, Option<Vec3>)>,
+    /// m_iMaxHealth of NPCs whose max differs from their class's Spawn health (zombie
+    /// torsos: BecomeTorso halves it).
+    pub npc_max_health: BTreeMap<usize, f32>,
+    /// Zombies a blast split this tick (CNPC_BaseZombie::BecomeTorso); the host replaces
+    /// each with its torso and legs.
+    pub zombie_splits: Vec<crate::ai::zombie::TorsoSplit>,
+    /// Lethal blasts that would release a zombie's crab as a ragdoll (RELEASE_RAGDOLL) and
+    /// the DieChopped outcomes among them: counted, not modeled yet.
+    pub zombie_crab_releases: u32,
+    pub zombie_chops: u32,
     /// The latest trace attack's position per NPC (CAI_BaseNPC::TraceAttack keeps the
     /// hit hitbox's physics bone in m_nForceBone): later deaths without a trace (blasts)
     /// push that solid.
@@ -612,6 +626,10 @@ impl Scene {
             npc_damage: Vec::new(),
             npc_deaths: Vec::new(),
             npc_death_forces: BTreeMap::new(),
+            npc_max_health: BTreeMap::new(),
+            zombie_splits: Vec::new(),
+            zombie_crab_releases: 0,
+            zombie_chops: 0,
             npc_force_points: BTreeMap::new(),
             npc_hit_groups: BTreeMap::new(),
             npc_force_bones: BTreeMap::new(),

@@ -2,6 +2,7 @@
 //! Authored central-forward root motion drives travel. This is not the full AI
 //! motor: pose weighting, acceleration/turn planning, ETA, triangulation, door
 //! opening, give-way and dynamic/hint link semantics remain unsupported.
+use crate::ai_hull::HullType;
 use crate::npc_probe::{self, ActorHull, GroundConfig, Hull, NpcCollisionWorld, Query};
 use glam::Vec3;
 use modkit_core::{animation::RootMotion, World};
@@ -484,14 +485,16 @@ fn validate_forward_track(track: &RootMotion) -> Result<(), GoalBlockReason> {
     for record in &track.records {
         let amount = (record.v0 + record.v1) * 0.5;
         // The classic zombie's walks drift sideways by ~1e-4 of their direction (0.01
-        // units a cycle); such drift is ignored, the track moves along +X.
+        // units a cycle) and the torso's crawl by 0.2 degrees (0.13 of 37.4 units); the
+        // motor moves along the path at the ground speed, so such drift is ignored and
+        // the track moves along +X.
         let drift = record.cumulative_position - Vec3::X * (previous + amount);
-        if record.direction.distance(Vec3::X) > 0.001
+        if record.direction.distance(Vec3::X) > 0.01
             || record.end_yaw_degrees.abs() > 0.0001
             || record.v0 <= 0.
             || record.v1 <= 0.
             || drift.x.abs() > 0.001
-            || drift.truncate().length() > 0.05
+            || drift.truncate().length() > 0.05f32.max(0.005 * amount)
             || drift.z.abs() > 0.001
         {
             return Err(error());
@@ -523,17 +526,33 @@ pub fn normal_human(
         step_down_multiplier,
     })
 }
+/// `normal_human` for another table hull (a class's SetHullType).
+pub fn ground_for_hull(
+    hull: HullType,
+    scale: f32,
+    step_height: f32,
+    step_down_multiplier: f32,
+) -> Result<GroundConfig, GoalBlockReason> {
+    Ok(GroundConfig {
+        hull: hull.scaled(scale),
+        ..normal_human(scale, step_height, step_down_multiplier)?
+    })
+}
 
 #[derive(Clone)]
 struct Actor {
     scale: f32,
     ground: GroundConfig,
+    /// The table hull of `ground.hull` (node offsets and link move types).
+    hull: HullType,
     locomotion: Locomotion,
     /// Locomotion per active weapon class ("" unarmed), preloaded (`set_locomotion`).
     variants: BTreeMap<String, Locomotion>,
     view_offset: Option<Vec3>,
     /// Move and shoot: play the aiming walk/run.
     aiming: bool,
+    /// bits_CAP_DOORS_GROUP: route doors are opened for this actor (zombies have none).
+    opens_doors: bool,
 }
 struct Goal {
     request: MoveRequest,
@@ -691,6 +710,7 @@ impl Controller {
     /// Usable node feet and the usable ground links of each node (the graph search's
     /// filters); None without a graph or beyond the native node limit.
     fn usable_graph(&self) -> Option<UsableGraph> {
+        let hull = HullType::Human;
         let graph = self.graph.as_ref()?;
         let restrictions = &self.restrictions;
         let count = graph.nodes.len();
@@ -698,13 +718,13 @@ impl Controller {
             return None;
         }
         let positions: Vec<_> = (0..count)
-            .map(|n| node_feet(graph, n, restrictions))
+            .map(|n| node_feet(graph, n, restrictions, hull))
             .collect();
         let mut adjacent = vec![Vec::new(); count];
         for (index, link) in graph.links.iter().enumerate() {
             if link.source < count
                 && link.destination < count
-                && link.accepted_move_types[0] & 1 != 0
+                && ground_link(link, hull)
                 && !restrictions.unusable_links.contains(&index)
                 && !restrictions.off_links.contains(&index)
                 && positions[link.source].is_some()
@@ -797,6 +817,15 @@ impl Controller {
         }
         None
     }
+    /// Whether the controller opens route doors for this actor (bits_CAP_DOORS_GROUP).
+    pub fn opens_doors(&self, entity: usize) -> bool {
+        self.actors.get(&entity).is_none_or(|a| a.opens_doors)
+    }
+    pub fn set_opens_doors(&mut self, entity: usize, on: bool) {
+        if let Some(actor) = self.actors.get_mut(&entity) {
+            actor.opens_doors = on;
+        }
+    }
     pub fn has_actor(&self, entity: usize) -> bool {
         self.actors.contains_key(&entity)
     }
@@ -826,22 +855,25 @@ impl Controller {
         ground: GroundConfig,
         locomotion: Locomotion,
     ) -> Result<(), GoalBlockReason> {
-        let normal = normal_human(model_scale, ground.step_height, ground.step_down_multiplier)?;
-        if !ground.hull.valid()
-            || ground.hull.mins.distance(normal.hull.mins) > 0.001
-            || ground.hull.maxs.distance(normal.hull.maxs) > 0.001
-        {
-            return Err(GoalBlockReason::UnsupportedHull);
-        }
+        // Validates the scale and step parameters.
+        normal_human(model_scale, ground.step_height, ground.step_down_multiplier)?;
+        let hull = ground
+            .hull
+            .valid()
+            .then(|| HullType::from_bounds(ground.hull, model_scale))
+            .flatten()
+            .ok_or(GoalBlockReason::UnsupportedHull)?;
         self.actors.insert(
             entity,
             Actor {
                 scale: model_scale,
                 ground,
+                hull,
                 locomotion,
                 variants: BTreeMap::new(),
                 view_offset: None,
                 aiming: false,
+                opens_doors: true,
             },
         );
         Ok(())
@@ -1326,13 +1358,25 @@ fn pop_nearest(open: &mut Vec<(usize, f32)>) -> Option<usize> {
     let best = (0..open.len()).min_by(|&a, &b| open[a].1.total_cmp(&open[b].1))?;
     Some(open.swap_remove(best).0)
 }
-fn node_feet(graph: &Graph, node: usize, restrictions: &NavRestrictions) -> Option<Vec3> {
+/// CAI_Node::GetPosition(hull): the node origin raised by the hull's offset.
+fn node_feet(
+    graph: &Graph,
+    node: usize,
+    restrictions: &NavRestrictions,
+    hull: HullType,
+) -> Option<Vec3> {
     let value = graph.nodes.get(node)?;
     if value.node_type != 2 || value.info != 0 || restrictions.unusable_nodes.contains(&node) {
         return None;
     }
-    let feet = value.origin + Vec3::Z * value.hull_z_offsets[0];
+    let feet = value.origin + Vec3::Z * *value.hull_z_offsets.get(hull.index())?;
     feet.is_finite().then_some(feet)
+}
+/// The link's accepted move types for the hull include bits_CAP_MOVE_GROUND.
+fn ground_link(link: &source_assets::navigation::Link, hull: HullType) -> bool {
+    link.accepted_move_types
+        .get(hull.index())
+        .is_some_and(|types| types & 1 != 0)
 }
 fn connector<W: NpcCollisionWorld>(
     world: &W,
@@ -1361,7 +1405,7 @@ fn candidates<W: NpcCollisionWorld>(
 ) -> Vec<usize> {
     let mut nearest: Vec<_> = (0..graph.nodes.len())
         .filter_map(|index| {
-            let feet = node_feet(graph, index, restrictions)?;
+            let feet = node_feet(graph, index, restrictions, actor.hull)?;
             ((graph.nodes[index].origin - point)
                 .abs()
                 .cmple(Vec3::splat(720.))
@@ -1374,7 +1418,7 @@ fn candidates<W: NpcCollisionWorld>(
         .into_iter()
         .take(10)
         .filter_map(|(index, _)| {
-            let feet = node_feet(graph, index, restrictions)?;
+            let feet = node_feet(graph, index, restrictions, actor.hull)?;
             let visible = world
                 .npc_trace_hull(
                     feet + view,
@@ -1460,7 +1504,7 @@ fn plan<W: NpcCollisionWorld>(
                 world,
                 actor,
                 start,
-                node_feet(graph, *n, restrictions).unwrap(),
+                node_feet(graph, *n, restrictions, actor.hull).unwrap(),
                 0.1,
                 query,
             )
@@ -1473,7 +1517,7 @@ fn plan<W: NpcCollisionWorld>(
             connector(
                 world,
                 actor,
-                node_feet(graph, *n, restrictions).unwrap(),
+                node_feet(graph, *n, restrictions, actor.hull).unwrap(),
                 end,
                 tolerance,
                 query,
@@ -1488,6 +1532,7 @@ fn plan<W: NpcCollisionWorld>(
     let nodes = search(
         graph,
         restrictions,
+        actor.hull,
         start_node,
         end_node,
         |link, from, to| {
@@ -1512,7 +1557,7 @@ fn plan<W: NpcCollisionWorld>(
     )?;
     let mut feet: Vec<_> = nodes
         .iter()
-        .map(|n| node_feet(graph, *n, restrictions).unwrap())
+        .map(|n| node_feet(graph, *n, restrictions, actor.hull).unwrap())
         .collect();
     feet.push(end);
     // Doors along the route are probed as the actor reaches each segment (probe_doors).
@@ -1573,6 +1618,7 @@ fn probe_doors<W: NpcCollisionWorld>(
 fn search(
     graph: &Graph,
     restrictions: &NavRestrictions,
+    hull: HullType,
     start: usize,
     end: usize,
     mut cost: impl FnMut(usize, Vec3, Vec3) -> Option<f32>,
@@ -1581,20 +1627,20 @@ fn search(
     if count == 0
         || count > 1500
         || graph.links.len() > 1_000_000
-        || node_feet(graph, start, restrictions).is_none()
-        || node_feet(graph, end, restrictions).is_none()
+        || node_feet(graph, start, restrictions, hull).is_none()
+        || node_feet(graph, end, restrictions, hull).is_none()
     {
         return Err(GoalBlockReason::InvalidGraph);
     }
     let positions: Vec<_> = (0..count)
-        .map(|n| node_feet(graph, n, restrictions))
+        .map(|n| node_feet(graph, n, restrictions, hull))
         .collect();
     let mut adjacent = vec![Vec::new(); count];
     for (index, link) in graph.links.iter().enumerate() {
         if link.source >= count || link.destination >= count {
             return Err(GoalBlockReason::InvalidGraph);
         }
-        if link.accepted_move_types[0] & 1 != 0
+        if ground_link(link, hull)
             && !restrictions.unusable_links.contains(&index)
             && !restrictions.off_links.contains(&index)
             && positions[link.source].is_some()
@@ -2092,13 +2138,16 @@ mod tests {
         let mut invalid = graph(&points, &[(0, 1), (1, 2), (2, 3)]);
         invalid.nodes[1].node_type = 3;
         invalid.nodes[1].hull_z_offsets[0] = -500.;
-        assert!(node_feet(&invalid, 1, &NavRestrictions::default()).is_none());
-        assert!(
-            search(&invalid, &NavRestrictions::default(), 0, 3, |_, a, b| Some(
-                a.distance(b)
-            ))
-            .is_err()
-        );
+        assert!(node_feet(&invalid, 1, &NavRestrictions::default(), HullType::Human).is_none());
+        assert!(search(
+            &invalid,
+            &NavRestrictions::default(),
+            HullType::Human,
+            0,
+            3,
+            |_, a, b| Some(a.distance(b))
+        )
+        .is_err());
         let map = World {
             entities: vec![Entity {
                 properties: vec![
@@ -2160,9 +2209,14 @@ mod tests {
             &[(0, 2), (2, 3), (0, 1), (1, 3)],
         );
         assert_eq!(
-            search(&diamond, &NavRestrictions::default(), 0, 3, |_, a, b| Some(
-                a.distance(b)
-            ))
+            search(
+                &diamond,
+                &NavRestrictions::default(),
+                HullType::Human,
+                0,
+                3,
+                |_, a, b| Some(a.distance(b))
+            )
             .unwrap(),
             vec![0, 1, 3]
         );
@@ -2180,16 +2234,26 @@ mod tests {
         // supports base Euclidean costs, not NPC virtual MovementCost overrides.
         let costs = [10., 1., 1., 1., 1000.];
         assert_eq!(
-            search(&reopen, &NavRestrictions::default(), 0, 4, |link, _, _| {
-                Some(costs[link])
-            })
+            search(
+                &reopen,
+                &NavRestrictions::default(),
+                HullType::Human,
+                0,
+                4,
+                |link, _, _| { Some(costs[link]) }
+            )
             .unwrap(),
             vec![0, 2, 1, 3, 4]
         );
         assert_eq!(
-            search(&reopen, &NavRestrictions::default(), 0, 4, |_, _, _| Some(
-                f32::NAN
-            )),
+            search(
+                &reopen,
+                &NavRestrictions::default(),
+                HullType::Human,
+                0,
+                4,
+                |_, _, _| Some(f32::NAN)
+            ),
             Err(GoalBlockReason::InvalidGraph)
         );
     }

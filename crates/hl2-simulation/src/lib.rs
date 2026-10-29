@@ -10,6 +10,7 @@ pub mod physics;
 
 pub mod actors;
 pub mod ai;
+pub mod ai_hull;
 pub mod citizens;
 pub mod entities;
 pub mod footsteps;

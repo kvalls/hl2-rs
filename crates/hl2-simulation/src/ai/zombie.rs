@@ -21,6 +21,12 @@ use serde::Serialize;
 pub const CLAW_REACH: f32 = 55.;
 /// COND_ZOMBIE_CAN_SWAT_ATTACK (the first class condition).
 pub const COND_ZOMBIE_CAN_SWAT_ATTACK: Cond = Cond(LAST_SHARED_CONDITION);
+/// CZombie's class conditions after CNPC_BaseZombie's (CAN_SWAT_ATTACK, RELEASECRAB,
+/// LOCAL_MELEE_OBSTRUCTION).
+pub const COND_BLOCKED_BY_DOOR: Cond = Cond(LAST_SHARED_CONDITION + 3);
+pub const COND_DOOR_OPENED: Cond = Cond(LAST_SHARED_CONDITION + 4);
+/// m_NextTimeToStartDoorBash's interval (CSimTimer 3.0).
+pub const DOOR_BASH_INTERVAL: f64 = 3.;
 /// ZOMBIE_MAX_PHYSOBJ_MASS: the heaviest object a zombie swats (kg).
 pub const MAX_PHYSOBJ_MASS: f32 = 60.;
 /// ZOMBIE_PHYSOBJ_SWATDIST: swat from this close (UTIL_DistApprox2D to the object center).
@@ -31,6 +37,28 @@ pub const PLAYER_MAX_SWAT_DIST: f32 = 1000.;
 pub const FARTHEST_PHYSICS_OBJECT: f32 = 480.;
 /// ZOMBIE_SWAT_DELAY: no new object scan this long after a swat.
 pub const SWAT_DELAY: f64 = 5.;
+/// CNPC_BaseZombie::SelectFailSchedule swats an obstructor lighter than this (kg).
+pub const ATTACKITEM_MAX_MASS: f32 = 100.;
+/// ClawAttack's push on the swatted obstructor (5 x 24, the damage force).
+pub const ATTACKITEM_FORCE: f32 = 120.;
+/// IsPathTaskFailure: the failed task built or followed a route (FAIL_NO_ROUTE..ILLEGAL).
+pub fn path_task(task: &str) -> bool {
+    matches!(
+        task,
+        "TASK_GET_CHASE_PATH_TO_ENEMY"
+            | "TASK_GET_PATH_TO_ENEMY"
+            | "TASK_GET_PATH_TO_ENEMY_LKP"
+            | "TASK_GET_PATH_TO_ENEMY_LOS"
+            | "TASK_GET_PATH_TO_TARGET"
+            | "TASK_GET_PATH_TO_SAVEPOSITION"
+            | "TASK_GET_PATH_TO_PLAYER"
+            | "TASK_ZOMBIE_GET_PATH_TO_PHYSOBJ"
+            | "TASK_ZOMBIE_CHARGE_ENEMY"
+            | "TASK_RUN_PATH"
+            | "TASK_WALK_PATH"
+            | "TASK_WAIT_FOR_MOVEMENT"
+    )
+}
 /// GatherConditions rescans this often while it has no object.
 pub const SWAT_SCAN_INTERVAL: f64 = 2.;
 pub const AE_SWATITEM: &str = "AE_ZOMBIE_SWATITEM";
@@ -156,7 +184,8 @@ impl Kind {
     }
     pub fn for_class(class: &str) -> Option<Self> {
         match class {
-            "npc_zombie" => Some(Self::Classic),
+            // npc_zombie_torso is CZombie placed with m_fIsTorso.
+            "npc_zombie" | "npc_zombie_torso" => Some(Self::Classic),
             "npc_poisonzombie" => Some(Self::Poison),
             _ => None,
         }
@@ -256,6 +285,28 @@ const ZOMBIE_SCHEDULES: &[(&str, &str)] = &[
         "Tasks TASK_ZOMBIE_DELAY_SWAT 3 TASK_SET_FAIL_SCHEDULE SCHEDULE:SCHED_CHASE_ENEMY          TASK_FACE_ENEMY 0 TASK_ZOMBIE_SWAT_ITEM 0 Interrupts COND_ENEMY_DEAD COND_NEW_ENEMY",
     ),
     (
+        "SCHED_ZOMBIE_BASH_DOOR",
+        "Tasks TASK_SET_ACTIVITY ACTIVITY:ACT_ZOMBIE_TANTRUM \
+         TASK_SET_FAIL_SCHEDULE SCHEDULE:SCHED_TAKE_COVER_FROM_ENEMY TASK_ZOMBIE_YAW_TO_DOOR 0 \
+         TASK_FACE_IDEAL 0 TASK_ZOMBIE_ATTACK_DOOR 0 Interrupts COND_ENEMY_DEAD COND_NEW_ENEMY",
+    ),
+    (
+        "SCHED_ZOMBIE_ATTACKITEM",
+        "Tasks TASK_FACE_ENEMY 0 TASK_MELEE_ATTACK1 0 Interrupts COND_ENEMY_DEAD COND_NEW_ENEMY",
+    ),
+    // CZombie's (npc_zombie.cpp).
+    (
+        "SCHED_ZOMBIE_WANDER_ANGRILY",
+        "Tasks TASK_WANDER 480240 TASK_WALK_PATH 0 TASK_WAIT_FOR_MOVEMENT 4 Interrupts \
+         COND_ENEMY_DEAD COND_NEW_ENEMY",
+    ),
+    (
+        "SCHED_ZOMBIE_CHARGE_ENEMY",
+        "Tasks TASK_ZOMBIE_CHARGE_ENEMY 0 TASK_WALK_PATH 0 TASK_WAIT_FOR_MOVEMENT 0 \
+         TASK_PLAY_SEQUENCE ACTIVITY:ACT_ZOMBIE_TANTRUM Interrupts COND_ENEMY_DEAD \
+         COND_NEW_ENEMY",
+    ),
+    (
         "SCHED_ZOMBIE_WANDER_FAIL",
         "Tasks TASK_STOP_MOVING 0 TASK_WAIT 1 \
          TASK_SET_SCHEDULE SCHEDULE:SCHED_ZOMBIE_WANDER_MEDIUM Interrupts COND_NEW_ENEMY \
@@ -270,8 +321,11 @@ pub fn add_schedules(schedules: &mut Schedules) {
     }
 }
 
-/// CNPC_BaseZombie::MaxYawSpeed (not a torso, no move_yaw pose blend).
-pub fn max_yaw_speed(activity: &str) -> f32 {
+/// CNPC_BaseZombie::MaxYawSpeed (torsos turn at 60; no move_yaw pose blend).
+pub fn max_yaw_speed(activity: &str, torso: bool) -> f32 {
+    if torso {
+        return 60.;
+    }
     match activity {
         "ACT_TURN_LEFT" | "ACT_TURN_RIGHT" => 100.,
         "ACT_RUN" => 15.,
@@ -326,6 +380,73 @@ pub fn claw_punch(event: &str, yaw: f32, rolls: (f32, f32)) -> Option<(Vec3, Vec
     }
 }
 
+/// ZOMBIE_TORSO_HEALTH_FACTOR: BecomeTorso halves max health and refills health to it.
+pub const TORSO_HEALTH_FACTOR: f32 = 0.5;
+/// BecomeTorso lifts the torso this far (where it was on the whole zombie) and spawns the
+/// legs this far below it.
+pub const TORSO_LIFT: f32 = 40.;
+pub const DMG_REMOVENORAGDOLL: u32 = 1 << 22;
+/// CNPC_BaseZombie::OnTakeDamage_Alive's split decision for one damage after the base
+/// damage was applied (retail FUN_1033b6b0 follows the SDK).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum Split {
+    /// No split.
+    None,
+    /// BecomeTorso (it had its head): a live torso, or one that dies at once when the
+    /// damage reached its max health (threshold 1).
+    Torso { dies: bool },
+    /// Headless after a lethal blast (RELEASE_RAGDOLL): DieChopped, one time in three.
+    Chopped,
+}
+/// The damage outcome for a CZombie (`torso`: already split; `slumped`: CZombie never
+/// splits a slumped zombie; `roll3`: RandomInt(1, 3) == 1). The poison zombie overrides
+/// ShouldBecomeTorso to false. Returns the split and whether a lethal blast released the
+/// headcrab as a ragdoll (headless).
+#[allow(clippy::too_many_arguments)]
+pub fn split(
+    kind: Kind,
+    torso: bool,
+    slumped: bool,
+    damage_type: u32,
+    damage: f32,
+    max_health: f32,
+    health_after: f32,
+    roll3: bool,
+) -> (Split, bool) {
+    use crate::player_damage::DMG_BLAST;
+    let threshold = (damage / max_health.max(1e-6)).min(1.);
+    // ShouldReleaseHeadcrab (health <= 0): a blast kill releases a ragdoll crab.
+    let headless = health_after <= 0.
+        && damage_type & DMG_REMOVENORAGDOLL == 0
+        && damage_type & DMG_BLAST != 0;
+    let should = kind == Kind::Classic
+        && damage_type & DMG_REMOVENORAGDOLL == 0
+        && !torso
+        && !slumped
+        && damage_type & DMG_BLAST != 0
+        && threshold >= 0.5;
+    let split = match (should, headless) {
+        (false, _) => Split::None,
+        // CanBecomeLiveTorso: !m_fIsHeadless.
+        (true, false) => Split::Torso {
+            dies: threshold >= 1.,
+        },
+        (true, true) if roll3 => Split::Chopped,
+        (true, true) => Split::None,
+    };
+    (split, headless)
+}
+/// One BecomeTorso for the host: the zombie entity, the legs raggib's force (the damage
+/// force x 0.5), the torso's new max health, whether it dies at once (threshold 1, with
+/// the damage force) and the blast's ignition time (50% of blasts: 5-10 s).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct TorsoSplit {
+    pub entity: usize,
+    pub legs_force: Vec3,
+    pub max_health: f32,
+    pub dies: Option<Vec3>,
+    pub ignite: Option<f32>,
+}
 /// The class sound of a zombie animation event (CNPC_BaseZombie::HandleAnimEvent).
 pub fn event_sound(event: &str) -> Option<&'static str> {
     Some(match event.to_ascii_uppercase().as_str() {
@@ -356,6 +477,8 @@ pub fn is_zombie_class(class: &str) -> bool {
 #[derive(Clone, Debug, Serialize)]
 pub struct Zombie {
     pub kind: Kind,
+    /// m_fIsTorso (npc_zombie_torso, or a zombie split by a blast).
+    pub torso: bool,
     #[serde(skip)]
     pub requests: Vec<CopRequest>,
     /// Hosted behaviors the shared code expects on every class (never set here yet).
@@ -370,12 +493,26 @@ pub struct Zombie {
     /// m_flNextSwat (TASK_ZOMBIE_DELAY_SWAT) and m_flNextSwatScan (Spawn: now).
     pub next_swat: f64,
     pub next_swat_scan: f64,
+    /// m_hObstructor (OnInsufficientStopDist: the entity that blocked a move while a swat
+    /// was allowed), with its WorldSpaceCenter and mass.
+    pub obstructor: Option<(usize, Vec3, f32)>,
+    /// m_vPositionCharged (TASK_ZOMBIE_CHARGE_ENEMY).
+    pub charge_position: Option<Vec3>,
+    /// m_hBlockingDoor and m_flDoorBashYaw (OnObstructingDoor: a closed brush door that
+    /// blocked a move).
+    pub blocking_door: Option<(usize, f32)>,
+    /// m_DurationDoorBash's end and m_NextTimeToStartDoorBash.
+    pub door_bash_until: f64,
+    pub next_door_bash: f64,
+    /// The last think's time (SelectFailSchedule reads the door bash timer).
+    pub now: f64,
     seed: u64,
 }
 impl Zombie {
     pub fn new(kind: Kind, gagged: bool, seed: u64) -> Self {
         Self {
             kind,
+            torso: false,
             requests: Vec::new(),
             assault: None,
             script_goal: None,
@@ -384,8 +521,26 @@ impl Zombie {
             physics_ent: None,
             next_swat: 0.,
             next_swat_scan: 0.,
+            obstructor: None,
+            charge_position: None,
+            blocking_door: None,
+            door_bash_until: 0.,
+            next_door_bash: 0.,
+            now: 0.,
             seed: seed | 1,
         }
+    }
+    /// CZombie::SelectDoorBash: RandomInt(1, 3) == 1 swings, else pounds.
+    fn door_bash_activity(&mut self) -> &'static str {
+        if self.random() < 1. / 3. {
+            "ACT_MELEE_ATTACK1"
+        } else {
+            "ACT_ZOMBIE_WALLPOUND"
+        }
+    }
+    /// GatherConditions scans for swats only in combat and not as a torso.
+    pub fn swats(&self) -> bool {
+        self.kind.swats() && !self.torso
     }
     /// DistToPhysicsEnt (ZOMBIE_PHYSOBJ_SWATDIST + 1 without an object).
     pub fn dist_to_physics_ent(&self, origin: Vec3) -> f32 {
@@ -404,6 +559,7 @@ impl Zombie {
     /// is true for small groups unless gagged), then U(2, 5) s until the next.
     /// CNPC_PoisonZombie::IdleSound plays only outside combat.
     pub fn moan(&mut self, now: f64, combat: bool) {
+        self.now = now;
         let first = now + 1. + 3. * f64::from(self.random());
         let next = *self.next_moan.get_or_insert(first);
         if now <= next {
@@ -458,14 +614,60 @@ impl Behavior for Zombie {
     /// conditions): a swattable object breaks off the chase.
     fn custom_interrupts(&self, npc: &AiNpc) -> Conditions {
         let mut interrupts = Conditions::default();
-        if npc.schedule.as_deref() == Some("SCHED_ZOMBIE_CHASE_ENEMY") {
-            interrupts.set(COND_ZOMBIE_CAN_SWAT_ATTACK);
+        match npc.schedule.as_deref() {
+            Some("SCHED_ZOMBIE_CHASE_ENEMY") => interrupts.set(COND_ZOMBIE_CAN_SWAT_ATTACK),
+            Some(
+                "SCHED_ZOMBIE_BASH_DOOR"
+                | "SCHED_ZOMBIE_WANDER_ANGRILY"
+                | "SCHED_ZOMBIE_CHARGE_ENEMY",
+            ) => interrupts.set(COND_DOOR_OPENED),
+            _ => {}
         }
         interrupts
     }
+    /// CZombie::SelectFailSchedule (door bashing not modeled), then
+    /// CNPC_BaseZombie::SelectFailSchedule, then the base m_failSchedule.
     fn select_fail_schedule(&mut self, npc: &AiNpc, failed: &str) -> String {
+        let path_failure = npc
+            .last_failed_task
+            .as_deref()
+            .and_then(|t| t.rsplit('/').next())
+            .is_some_and(path_task);
+        if self.kind == Kind::Classic {
+            // A closed brush door in the way: bash it (not again right after a bash).
+            if self.blocking_door.is_some() {
+                if self.now >= self.next_door_bash && failed != "SCHED_ZOMBIE_BASH_DOOR" {
+                    return "SCHED_ZOMBIE_BASH_DOOR".into();
+                }
+                self.blocking_door = None;
+            }
+            // RandomInt(1, 100) < 50.
+            if failed != "SCHED_ZOMBIE_CHARGE_ENEMY"
+                && path_failure
+                && ((self.random() * 100.) as u32) < 49
+            {
+                return "SCHED_ZOMBIE_CHARGE_ENEMY".into();
+            }
+            if failed != "SCHED_ZOMBIE_WANDER_ANGRILY"
+                && matches!(
+                    failed,
+                    "SCHED_TAKE_COVER_FROM_ENEMY" | "SCHED_CHASE_ENEMY_FAILED"
+                )
+            {
+                return "SCHED_ZOMBIE_WANDER_ANGRILY".into();
+            }
+        }
         if failed == "SCHED_ZOMBIE_WANDER_MEDIUM" {
             return "SCHED_ZOMBIE_WANDER_FAIL".into();
+        }
+        // Swat the obstructor (CanSwatPhysicsObjects, not as a torso).
+        let obstructor = self.obstructor.take();
+        if let Some((entity, center, _)) = obstructor
+            .filter(|_| self.swats() && path_failure)
+            .filter(|(_, _, mass)| *mass < ATTACKITEM_MAX_MASS)
+        {
+            self.physics_ent = Some((entity, center));
+            return "SCHED_ZOMBIE_ATTACKITEM".into();
         }
         npc.fail_schedule
             .clone()
@@ -504,6 +706,35 @@ impl Behavior for Zombie {
                 }
                 _ => TaskStatus::Failed,
             },
+            // SetIdealYaw(m_flDoorBashYaw), turned to by TASK_FACE_IDEAL.
+            "TASK_ZOMBIE_YAW_TO_DOOR" => match self.blocking_door {
+                Some(_) => TaskStatus::Complete,
+                None => TaskStatus::Failed,
+            },
+            "TASK_FACE_IDEAL" => match self.blocking_door {
+                Some((_, yaw)) if motor.face(super::schedule::Goal::Yaw(yaw)) => {
+                    TaskStatus::Complete
+                }
+                Some(_) => TaskStatus::Running,
+                None => TaskStatus::Complete,
+            },
+            // m_DurationDoorBash (2-6 s) of SelectDoorBash: one in three a claw swing,
+            // else ACT_ZOMBIE_WALLPOUND.
+            "TASK_ZOMBIE_ATTACK_DOOR" => {
+                self.door_bash_until = ctx.now + 2. + 4. * f64::from(self.random());
+                let activity = self.door_bash_activity();
+                npc.activity = activity.into();
+                motor.set_activity(activity);
+                TaskStatus::Running
+            }
+            // SetVectorGoalFromTarget(enemy origin): a route to where the enemy stands.
+            "TASK_ZOMBIE_CHARGE_ENEMY" => match ctx.enemy {
+                Some((_, position)) if motor.path_to(position, false) => {
+                    self.charge_position = Some(position);
+                    TaskStatus::Complete
+                }
+                _ => TaskStatus::Failed,
+            },
             // CAI_BaseNPC TASK_SOUND_WAKE -> CZombie::AlertSound.
             "TASK_SOUND_WAKE" => {
                 self.requests
@@ -528,19 +759,37 @@ impl Behavior for Zombie {
     }
     fn run_task(
         &mut self,
-        _npc: &mut AiNpc,
+        npc: &mut AiNpc,
         task: &str,
         _arg: &TaskArg,
-        _ctx: &Context,
+        ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
-        (task == "TASK_ZOMBIE_SWAT_ITEM").then(|| {
-            if motor.activity_finished() {
+        match task {
+            "TASK_ZOMBIE_SWAT_ITEM" => Some(if motor.activity_finished() {
                 TaskStatus::Complete
             } else {
                 TaskStatus::Running
-            }
-        })
+            }),
+            "TASK_FACE_IDEAL" => Some(match self.blocking_door {
+                Some((_, yaw)) if !motor.face(super::schedule::Goal::Yaw(yaw)) => {
+                    TaskStatus::Running
+                }
+                _ => TaskStatus::Complete,
+            }),
+            "TASK_ZOMBIE_ATTACK_DOOR" => Some(if !motor.activity_finished() {
+                TaskStatus::Running
+            } else if ctx.now >= self.door_bash_until {
+                self.next_door_bash = ctx.now + DOOR_BASH_INTERVAL;
+                TaskStatus::Complete
+            } else {
+                let activity = self.door_bash_activity();
+                npc.activity = activity.into();
+                motor.set_activity(activity);
+                TaskStatus::Running
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -699,6 +948,227 @@ mod tests {
         }
     }
 
+    #[test]
+    fn failed_chases_charge_wander_or_swat_the_obstructor() {
+        let mut npc = AiNpc::new(1);
+        npc.fail_schedule = Some("SCHED_CHASE_ENEMY_FAILED".into());
+        npc.last_failed_task = Some("SCHED_ZOMBIE_CHASE_ENEMY/TASK_WAIT_FOR_MOVEMENT".into());
+        // CZombie: about half of path failures charge, the rest fall through to the base
+        // zombie, which swats a light obstructor.
+        let mut charges = 0;
+        let mut swats = 0;
+        for seed in 0..200u64 {
+            // Runtime seeds are large (0x3c6e_f372_fe94_f82b ^ id).
+            let mut z = Zombie::new(
+                Kind::Classic,
+                false,
+                0x9e37_79b9_7f4a_7c15u64.wrapping_mul(seed + 1),
+            );
+            z.obstructor = Some((7, Vec3::new(40., 0., 20.), 15.));
+            match z
+                .select_fail_schedule(&npc, "SCHED_ZOMBIE_CHASE_ENEMY")
+                .as_str()
+            {
+                "SCHED_ZOMBIE_CHARGE_ENEMY" => charges += 1,
+                "SCHED_ZOMBIE_ATTACKITEM" => {
+                    assert_eq!(z.physics_ent, Some((7, Vec3::new(40., 0., 20.))));
+                    swats += 1;
+                }
+                other => panic!("{other}"),
+            }
+        }
+        assert!((70..130).contains(&charges), "{charges}");
+        assert_eq!(charges + swats, 200);
+        // A failed charge never charges again; a heavy obstructor is not swatted.
+        let mut z = Zombie::new(Kind::Classic, false, 3);
+        z.obstructor = Some((7, Vec3::ZERO, 150.));
+        assert_eq!(
+            z.select_fail_schedule(&npc, "SCHED_ZOMBIE_CHARGE_ENEMY"),
+            "SCHED_CHASE_ENEMY_FAILED"
+        );
+        // A cover run that finds no cover (not a path failure) wanders angrily; a torso
+        // never swats.
+        let mut no_cover = npc.clone();
+        no_cover.last_failed_task =
+            Some("SCHED_CHASE_ENEMY_FAILED/TASK_FIND_COVER_FROM_ENEMY".into());
+        assert_eq!(
+            z.select_fail_schedule(&no_cover, "SCHED_CHASE_ENEMY_FAILED"),
+            "SCHED_ZOMBIE_WANDER_ANGRILY"
+        );
+        let mut torso = Zombie::new(Kind::Classic, false, 3);
+        torso.torso = true;
+        torso.obstructor = Some((7, Vec3::ZERO, 15.));
+        assert_ne!(
+            torso.select_fail_schedule(&npc, "SCHED_ZOMBIE_CHARGE_ENEMY"),
+            "SCHED_ZOMBIE_ATTACKITEM"
+        );
+        // Without a path failure (an animation task failed) there is no swat.
+        npc.last_failed_task = Some("SCHED_ZOMBIE_MELEE_ATTACK1/TASK_MELEE_ATTACK1".into());
+        let mut z = Zombie::new(Kind::Poison, false, 3);
+        z.obstructor = Some((7, Vec3::ZERO, 15.));
+        assert_eq!(
+            z.select_fail_schedule(&npc, "SCHED_ZOMBIE_MELEE_ATTACK1"),
+            "SCHED_CHASE_ENEMY_FAILED"
+        );
+    }
+    #[test]
+    fn closed_brush_doors_get_bashed_then_rested() {
+        let mut npc = AiNpc::new(1);
+        npc.fail_schedule = Some("SCHED_CHASE_ENEMY_FAILED".into());
+        npc.last_failed_task = Some("SCHED_ZOMBIE_CHASE_ENEMY/TASK_WAIT_FOR_MOVEMENT".into());
+        let mut z = Zombie::new(Kind::Classic, false, 0x1234_5678_9abc_def1);
+        z.blocking_door = Some((9, 90.));
+        z.now = 10.;
+        // CZombie bashes before it would charge or swat.
+        assert_eq!(
+            z.select_fail_schedule(&npc, "SCHED_ZOMBIE_CHASE_ENEMY"),
+            "SCHED_ZOMBIE_BASH_DOOR"
+        );
+        // Not right after a bash (m_NextTimeToStartDoorBash), nor after a failed bash: the
+        // door is forgotten.
+        z.next_door_bash = 12.;
+        assert_ne!(
+            z.select_fail_schedule(&npc, "SCHED_ZOMBIE_CHASE_ENEMY"),
+            "SCHED_ZOMBIE_BASH_DOOR"
+        );
+        assert_eq!(z.blocking_door, None);
+        z.blocking_door = Some((9, 90.));
+        z.next_door_bash = 0.;
+        assert_ne!(
+            z.select_fail_schedule(&npc, "SCHED_ZOMBIE_BASH_DOOR"),
+            "SCHED_ZOMBIE_BASH_DOOR"
+        );
+        // SelectDoorBash: about one swing in three, else wall pounding.
+        let swings = (0..300)
+            .filter(|_| z.door_bash_activity() == "ACT_MELEE_ATTACK1")
+            .count();
+        assert!((60..140).contains(&swings), "{swings}");
+        // The open door interrupts the bash.
+        npc.schedule = Some("SCHED_ZOMBIE_BASH_DOOR".into());
+        assert!(z.custom_interrupts(&npc).has(COND_DOOR_OPENED));
+    }
+    #[test]
+    fn blasts_split_zombies_like_on_take_damage_alive() {
+        use crate::player_damage::{DMG_BLAST, DMG_BULLET};
+        let c = Kind::Classic;
+        // A full 50 HP zombie: 25-49 blast damage leaves a live torso.
+        assert_eq!(
+            split(c, false, false, DMG_BLAST, 25., 50., 25., false),
+            (Split::Torso { dies: false }, false)
+        );
+        assert_eq!(
+            split(c, false, false, DMG_BLAST, 49., 50., 1., true),
+            (Split::Torso { dies: false }, false)
+        );
+        // Under half of max health: no split.
+        assert_eq!(
+            split(c, false, false, DMG_BLAST, 24., 50., 26., true).0,
+            Split::None
+        );
+        // A lethal blast releases the crab (headless): chopped one time in three.
+        assert_eq!(
+            split(c, false, false, DMG_BLAST, 50., 50., 0., true),
+            (Split::Chopped, true)
+        );
+        assert_eq!(
+            split(c, false, false, DMG_BLAST, 30., 50., -5., false),
+            (Split::None, true)
+        );
+        // Threshold 1 with health left (health above max): a torso that dies at once.
+        assert_eq!(
+            split(c, false, false, DMG_BLAST, 60., 50., 10., false).0,
+            Split::Torso { dies: true }
+        );
+        // Bullets, torsos, slumped zombies, REMOVENORAGDOLL and poison zombies never split.
+        assert_eq!(
+            split(c, false, false, DMG_BULLET, 30., 50., 20., true).0,
+            Split::None
+        );
+        assert_eq!(
+            split(c, true, false, DMG_BLAST, 30., 50., 20., true).0,
+            Split::None
+        );
+        assert_eq!(
+            split(c, false, true, DMG_BLAST, 30., 50., 20., true).0,
+            Split::None
+        );
+        assert_eq!(
+            split(
+                c,
+                false,
+                false,
+                DMG_BLAST | DMG_REMOVENORAGDOLL,
+                30.,
+                50.,
+                20.,
+                true
+            ),
+            (Split::None, false)
+        );
+        assert_eq!(
+            split(Kind::Poison, false, false, DMG_BLAST, 100., 175., 75., true).0,
+            Split::None
+        );
+        assert_eq!(max_yaw_speed("ACT_WALK", true), 60.);
+        assert_eq!(max_yaw_speed("ACT_WALK", false), 25.);
+    }
+    #[test]
+    #[ignore = "requires owned installed HL2"]
+    fn owned_zombie_halves_list_their_sequences() {
+        let vfs =
+            source_assets::vpk::Vfs::mount(&source_assets::install::discover().unwrap()).unwrap();
+        let wanted = ["crawl".to_owned()].into();
+        let motion = source_assets::models::read_root_motion(
+            &vfs,
+            "models/zombie/classic_torso.mdl",
+            &wanted,
+        )
+        .unwrap();
+        for (name, s) in &motion {
+            println!(
+                "{name} flags {} act {} blend {} of {}",
+                s.flags,
+                s.activity_name,
+                s.central_blend,
+                s.blends.len()
+            );
+            if let Some(track) = s.blends.get(s.central_blend) {
+                println!("frames {} records {:?}", track.frame_count, track.records);
+            }
+        }
+        let locomotion = crate::npc::Locomotion::from_named(
+            &motion,
+            [
+                (crate::npc::MoveStyle::Walk, "crawl", "ACT_WALK"),
+                (crate::npc::MoveStyle::Run, "crawl", "ACT_WALK"),
+            ],
+        );
+        assert!(locomotion.complete(), "the torso crawls with its walk");
+        for model in [
+            "models/zombie/classic.mdl",
+            "models/zombie/classic_torso.mdl",
+            "models/zombie/classic_legs.mdl",
+        ] {
+            println!(
+                "{model} eyes {:?}",
+                source_assets::models::read_eye_position(&vfs, model)
+            );
+            let names = source_assets::animation::sequence_names(&vfs, model).unwrap();
+            let wanted = names.iter().map(|n| n.to_lowercase()).collect();
+            let rig = source_assets::animation::load(&vfs, model, &wanted).unwrap();
+            for s in &rig.sequences {
+                let clip = rig.clips.get(&s.name.to_lowercase());
+                println!(
+                    "{model} {} {} w{} {:.2}s {:?}",
+                    s.name,
+                    s.activity,
+                    s.weight,
+                    clip.map_or(0., |c| c.duration()),
+                    clip.map(|c| c.events.iter().map(|e| e.name.clone()).collect::<Vec<_>>())
+                );
+            }
+        }
+    }
     #[test]
     fn swat_arm_height_and_kick_follow_the_sdk() {
         // Facing +x: right is -y. An object above the zombie's center is MID.

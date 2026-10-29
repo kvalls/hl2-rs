@@ -747,6 +747,7 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
                     | "prop_dynamic_override"
                     | "prop_door_rotating"
                     | "prop_ragdoll"
+                    | "raggib"
             )
         {
             continue;
@@ -803,6 +804,8 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
                 solid: !entity.class().starts_with("item_")
                     && !entity.class().starts_with("weapon_")
                     && entity.class() != "prop_ragdoll"
+                    // CRagGib::Spawn: FSOLID_NOT_SOLID, then a client ragdoll.
+                    && entity.class() != "raggib"
                     && entity.get("solid").is_none_or(|s| s != "0"),
                 solid_mode: None,
                 entity: Some(entity_id),
@@ -1002,8 +1005,15 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
             if instance.kind.starts_with("npc_") {
                 wanted.extend(NPC_BASE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
             }
-            if instance.kind == "npc_zombie" {
+            if matches!(instance.kind.as_str(), "npc_zombie" | "npc_zombie_torso") {
                 wanted.extend(ZOMBIE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
+            }
+            // A raggib ragdolls from its sequence 0 (cycle 0).
+            if instance.kind == "raggib" {
+                if let Ok(Some(first)) = crate::animation::first_sequence_name(vfs, &instance.model)
+                {
+                    wanted.insert(first.to_lowercase());
+                }
             }
             for e in &world.entities {
                 for key in [
@@ -1035,7 +1045,9 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
         // NPC deaths become ragdolls (C_BaseAnimating::BecomeRagdollOnClient); map
         // prop_ragdolls are ragdolls from the start (CRagdollProp::Spawn). Another instance
         // of the model (a prop_physics mattress) may have loaded the rig first.
-        if (instance.kind.starts_with("npc_") || instance.kind == "prop_ragdoll")
+        if (instance.kind.starts_with("npc_")
+            || instance.kind == "prop_ragdoll"
+            || instance.kind == "raggib")
             && !ragdolls_read.contains(&instance.asset_key())
         {
             ragdolls_read.insert(instance.asset_key());
@@ -1327,6 +1339,9 @@ pub const ZOMBIE_AI_ACTIVITIES: &[&str] = &[
     "ACT_ZOM_SWATRIGHTMID",
     "ACT_ZOM_SWATLEFTLOW",
     "ACT_ZOM_SWATRIGHTLOW",
+    // SCHED_ZOMBIE_CHARGE_ENEMY's frustration and SCHED_ZOMBIE_BASH_DOOR (CZombie).
+    "ACT_ZOMBIE_TANTRUM",
+    "ACT_ZOMBIE_WALLPOUND",
 ];
 /// Activities the humanoid AI classes (npc_citizen, npc_barney, npc_alyx, npc_combine_s;
 /// hl2-simulation ai::humanoid and the base schedules) set, and every acttable result of

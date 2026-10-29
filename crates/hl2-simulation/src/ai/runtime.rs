@@ -431,10 +431,17 @@ pub struct AiActor {
     /// m_flNextDecisionTime for the idle sound roll (UpdateEfficiency's interval).
     #[serde(skip)]
     next_idle_decision: f64,
+    /// Off the ground (FL_ONGROUND clear): vertical velocity and the last fall step.
+    pub fall: Option<(f32, f64)>,
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Diagnostics {
     pub thinks: u64,
+    /// NPC falls that ended (entity, z, what the trace hit, start solid, fraction); the
+    /// last 16.
+    pub fall_landings: Vec<(usize, f32, Option<usize>, bool, f32)>,
+    /// SCHED_ZOMBIE_ATTACKITEM claws that struck their obstructor.
+    pub obstructor_swats: u32,
     /// CNPC_Combine flush-grenade checks by outcome (out_of_range, moving, no_toss, ready).
     pub grenade_checks: BTreeMap<String, u32>,
     /// Melee swings that struck an NPC.
@@ -1670,11 +1677,15 @@ impl AiRuntime {
         let mut npc = AiNpc::new(id);
         npc.shot_regulator = Self::regulator(e.class(), weapon.as_ref(), defs, id);
         let class = match kind {
-            _ if zombie.is_some() => AiClass::Zombie(Box::new(Zombie::new(
-                zombie.unwrap_or(zombie::Kind::Classic),
-                flags & SF_NPC_GAG != 0,
-                0x3c6e_f372_fe94_f82b ^ id as u64,
-            ))),
+            _ if zombie.is_some() => {
+                let mut z = Zombie::new(
+                    zombie.unwrap_or(zombie::Kind::Classic),
+                    flags & SF_NPC_GAG != 0,
+                    0x3c6e_f372_fe94_f82b ^ id as u64,
+                );
+                z.torso = e.class().ends_with("_torso");
+                AiClass::Zombie(Box::new(z))
+            }
             Some(kind) => {
                 let mut h =
                     Humanoid::new(kind, weapon.is_some(), 0x6a09_e667_f3bc_c909 ^ id as u64);
@@ -1723,7 +1734,113 @@ impl AiRuntime {
             idle_chatter: COP_CHATTER_ASK_QUESTION,
             harassed: false,
             next_idle_decision: 0.,
+            fall: None,
         })
+    }
+    /// MOVETYPE_STEP falling (sv_gravity 600) for NPCs off the ground (a zombie torso
+    /// after BecomeTorso): a hull trace down each tick until it lands (FL_ONGROUND).
+    fn step_falls(&mut self, world: &World, scene: &mut Scene, physics: &Physics) {
+        use crate::npc_probe::NpcCollisionWorld;
+        let now = scene.time;
+        for (&id, actor) in self.actors.iter_mut() {
+            let Some((velocity, last)) = actor.fall else {
+                continue;
+            };
+            if scene.states[id].killed {
+                actor.fall = None;
+                continue;
+            }
+            let dt = (now - last).clamp(0., 0.1) as f32;
+            let velocity = velocity - 600. * dt;
+            let hull = world
+                .entities
+                .get(id)
+                .and_then(|e| crate::ai_hull::class_hull(e.class()))
+                .unwrap_or(crate::ai_hull::HullType::Human)
+                .bounds();
+            let origin = scene.states[id].origin;
+            let end = origin + Vec3::Z * velocity * dt;
+            let trace = |excluded: &[usize]| {
+                physics.npc_trace_hull(
+                    origin,
+                    end,
+                    hull,
+                    crate::npc_probe::Query {
+                        excluded_entities: excluded,
+                        ..Default::default()
+                    },
+                )
+            };
+            // A dead entity's colliders stay until the next collider pose stage (the zombie
+            // a torso replaces this tick, whose mesh collider the torso starts inside): they
+            // do not hold the faller up.
+            let mut excluded = vec![id];
+            let mut hit = trace(&excluded);
+            while let Some(dead) = hit
+                .entity
+                .filter(|e| excluded.len() < 4 && scene.states.get(*e).is_some_and(|s| s.killed))
+            {
+                excluded.push(dead);
+                hit = trace(&excluded);
+            }
+            let fraction = if hit.trace.start_solid {
+                0.
+            } else {
+                hit.trace.fraction.clamp(0., 1.)
+            };
+            scene.states[id].origin = origin + (end - origin) * fraction;
+            actor.fall = (fraction >= 1. || velocity > 0.).then_some((velocity, now));
+            if actor.fall.is_none() {
+                let landings = &mut self.diagnostics.fall_landings;
+                if landings.len() >= 16 {
+                    landings.remove(0);
+                }
+                landings.push((
+                    id,
+                    scene.states[id].origin.z,
+                    hit.entity,
+                    hit.trace.start_solid,
+                    fraction,
+                ));
+            }
+        }
+    }
+    /// CNPC_BaseZombie::BecomeTorso's AI part on the torso entity that replaces the
+    /// zombie (DESIGN 14o session 37; Source keeps one entity): the zombie's state, enemy,
+    /// memories and squad carry over; ClearSchedule, SetSchedule(SCHED_FALL_TO_GROUND)
+    /// from 40 units up with no torso impulse; SetZombieModel's SetActivity(ACT_IDLE).
+    pub fn become_torso(
+        &mut self,
+        world: &World,
+        scene: &mut Scene,
+        zombie: usize,
+        torso: usize,
+    ) -> bool {
+        let now = scene.time;
+        let Some(old) = self.actors.get(&zombie) else {
+            return false;
+        };
+        let npc = old.npc.clone();
+        let (squad, squad_name, disposition) = (
+            old.squad.clone(),
+            old.squad_name.clone(),
+            old.player_disposition,
+        );
+        let Some(actor) = self.actors.get_mut(&torso) else {
+            return false;
+        };
+        actor.npc = npc;
+        actor.npc.entity = torso;
+        actor.npc.force_schedule("SCHED_FALL_TO_GROUND");
+        actor.npc.activity = "ACT_IDLE".into();
+        scene.ai_set_activity(world, torso, "ACT_IDLE");
+        actor.squad = squad;
+        actor.squad_name = squad_name;
+        actor.player_disposition = disposition;
+        actor.fall = Some((0., now));
+        actor.next_think = now;
+        self.npc_ids = None;
+        true
     }
     /// The NumGrenades keyvalue of a spawned CNPC_Combine (F4; DESIGN 14r would set it
     /// on the new entity before Spawn). Other classes ignore it.
@@ -1861,6 +1978,8 @@ impl AiRuntime {
             .sounds
             .extend(now_due.into_iter().map(|(_, request)| request));
         self.inputs(world, scene, controller);
+        // PhysicsStep's gravity runs whether or not the NPC thinks (ai_disable).
+        self.step_falls(world, scene, physics);
         if !self.enabled {
             if self.was_enabled {
                 self.was_enabled = false;
@@ -1961,7 +2080,7 @@ impl AiRuntime {
                     if e == PLAYER {
                         player.center()
                     } else {
-                        scene.states[e].origin + Vec3::Z * 36.
+                        scene.states[e].origin + Vec3::Z * center_z(world, e)
                     }
                 });
                 let actor = self.actors.get_mut(&id).expect("actor");
@@ -2003,7 +2122,7 @@ impl AiRuntime {
                             {
                                 let yaw = ctx.yaw.to_radians();
                                 z.requests.push(CopRequest::Claw {
-                                    start: ctx.origin + Vec3::Z * 36.,
+                                    start: ctx.origin + Vec3::Z * center_z(world, id),
                                     forward: Vec3::new(yaw.cos(), yaw.sin(), 0.),
                                     punch,
                                     impulse,
@@ -2411,7 +2530,7 @@ impl AiRuntime {
             return false;
         };
         let visible = PhysicsSight { physics, world }.visible(
-            scene.states[id].origin + Vec3::Z * 64.,
+            scene.states[id].origin + Vec3::Z * eye_z(world, id),
             player.center(),
             &[id],
         );
@@ -2456,6 +2575,7 @@ impl AiRuntime {
         let weapon_burst = fire.map(|f| (f.min_burst, f.max_burst, f.fire_rate));
         let is_cop = actor.class.cop().is_some();
         let cop_target = actor.class.cop().and_then(|c| c.target_entity);
+        let airborne = actor.fall.is_some();
         let random = self.random();
         Context {
             now,
@@ -2479,6 +2599,7 @@ impl AiRuntime {
             // m_flDistTooFar (SF_NPC_LONG_RANGE is not read yet).
             dist_too_far: 1024.,
             enemy_sees_me: self.enemy_sees(id, scene, player),
+            airborne,
         }
     }
     /// `enemy_sees_me` for the current enemy (see [`enemy_sees_me`]).
@@ -2513,7 +2634,8 @@ impl AiRuntime {
                 .and_then(|d| d.fire)
                 .map(|f| (f, w.clip1, w.class == "weapon_rpg", w.missile_out))
         });
-        let eye = origin + Vec3::Z * 64.;
+        let eye = origin + Vec3::Z * eye_z(world, id);
+        let center = origin + Vec3::Z * center_z(world, id);
         let facing = scene.states[id].rotation * Vec3::X;
         let sight = PhysicsSight { physics, world };
         let class_name = world.entities.get(id).map_or("", |e| e.class());
@@ -2943,7 +3065,12 @@ impl AiRuntime {
                 (player.feet, player.center(), player.eye(), player.velocity)
             } else {
                 let o = scene.states[enemy].origin;
-                (o, o + Vec3::Z * 36., o + Vec3::Z * 64., Vec3::ZERO)
+                (
+                    o,
+                    o + Vec3::Z * center_z(world, enemy),
+                    o + Vec3::Z * eye_z(world, enemy),
+                    Vec3::ZERO,
+                )
             };
             // GatherEnemyConditions: OnFoundPlayer/OnFoundEnemy when LOS to the enemy
             // is gained (bits_MEMORY_HAD_LOS), OnLostPlayerLOS/OnLostEnemyLOS when lost.
@@ -2963,7 +3090,7 @@ impl AiRuntime {
                 actor.npc.conditions.set(COND_SEE_ENEMY);
                 // CWeaponStunStick::WeaponMeleeAttack1Condition (player in 48 units in
                 // 0.35 s, within 70 of height and facing within 0.7).
-                let delta = t_center - (origin + Vec3::Z * 36.);
+                let delta = t_center - center;
                 let forward = facing.truncate().normalize_or_zero();
                 let projected = (t_feet + t_velocity * 0.35 - origin).truncate();
                 if has_baton {
@@ -3041,7 +3168,7 @@ impl AiRuntime {
                 // 0.7, no more than 64 units of height apart, never a headcrab, and a
                 // center-to-center line that reaches the enemy.
                 if innate_kick {
-                    let delta = t_center - (origin + Vec3::Z * 36.);
+                    let delta = t_center - center;
                     let dot = delta
                         .truncate()
                         .normalize_or_zero()
@@ -3055,7 +3182,7 @@ impl AiRuntime {
                         && dot >= 0.7
                         && (t_feet.z - origin.z).abs() <= 64.
                         && !headcrab
-                        && sight.visible(origin + Vec3::Z * 36., t_center, &[id, enemy])
+                        && sight.visible(center, t_center, &[id, enemy])
                     {
                         actor.npc.conditions.set(COND_CAN_MELEE_ATTACK1);
                     }
@@ -3067,10 +3194,16 @@ impl AiRuntime {
                     let to = t_feet - origin;
                     let forward = facing.truncate().normalize_or_zero().extend(0.);
                     let dot = to.truncate().normalize_or_zero().dot(forward.truncate());
-                    let start = origin + Vec3::Z * 36.;
+                    let start = center;
                     let end = start + forward * reach;
                     let half = if enemy == PLAYER { 16. } else { 13. };
-                    let cube = Vec3::splat(13.);
+                    let cube = Vec3::splat(
+                        world
+                            .entities
+                            .get(id)
+                            .and_then(|e| crate::ai_hull::class_hull(e.class()))
+                            .map_or(13., |h| h.bounds().maxs.x),
+                    );
                     let reaches = super::metropolice::segment_hits_box(
                         start,
                         end,
@@ -3112,6 +3245,20 @@ impl AiRuntime {
                 }
             }
         }
+        // CZombie::GatherConditions: the blocking door opened (or is opening): COND_DOOR_OPENED
+        // and forget it; still closed: COND_BLOCKED_BY_DOOR.
+        if let AiClass::Zombie(z) = &mut actor.class {
+            actor.npc.conditions.clear(zombie::COND_BLOCKED_BY_DOOR);
+            actor.npc.conditions.clear(zombie::COND_DOOR_OPENED);
+            if let Some((door, _)) = z.blocking_door {
+                if scene.states.get(door).is_some_and(|s| s.door_closed()) {
+                    actor.npc.conditions.set(zombie::COND_BLOCKED_BY_DOOR);
+                } else {
+                    actor.npc.conditions.set(zombie::COND_DOOR_OPENED);
+                    z.blocking_door = None;
+                }
+            }
+        }
         // CNPC_BaseZombie::GatherConditions: in combat, every 2 s while it has no object,
         // FindNearestPhysicsObject; COND_ZOMBIE_CAN_SWAT_ATTACK while it has one, m_flNextSwat
         // has passed and it sees the enemy. The object's center follows its body.
@@ -3130,7 +3277,7 @@ impl AiRuntime {
                 }
             });
             if let (NpcState::Combat, Some(enemy_feet), true) =
-                (actor.npc.state, enemy_feet, z.kind.swats())
+                (actor.npc.state, enemy_feet, z.swats())
             {
                 if now >= z.next_swat_scan && z.physics_ent.is_none() {
                     // The human hull: 72 units tall, knees at a quarter of it.
@@ -3577,8 +3724,49 @@ impl AiRuntime {
                 h.kind.max_yaw_speed(&actor.npc.activity),
                 weapon_drawn && h.idle_angry(actor.npc.state, now),
             ),
-            AiClass::Zombie(_) => (zombie::max_yaw_speed(&actor.npc.activity), false),
+            AiClass::Zombie(z) => (zombie::max_yaw_speed(&actor.npc.activity, z.torso), false),
         };
+        // CNPC_BaseZombie::OnInsufficientStopDist: a move blocked by an entity while a swat
+        // is allowed remembers it as m_hObstructor (only VPhysics objects can be swatted).
+        if let AiClass::Zombie(z) = &mut actor.class {
+            let blocker = actor
+                .goal
+                .and_then(|key| controller.status(key))
+                .and_then(|status| match status {
+                    crate::npc::GoalState::Blocked(crate::npc::GoalBlockReason::Collision {
+                        blocker: Some(b),
+                        ..
+                    }) => Some(*b),
+                    _ => None,
+                });
+            // CZombie::OnObstructingDoor: a closed brush door (CBaseDoor) blocked the move;
+            // face it (the hit normal reversed: here the direction to its center).
+            if let Some(door) = blocker.filter(|b| {
+                world
+                    .entities
+                    .get(*b)
+                    .is_some_and(|e| matches!(e.class(), "func_door" | "func_door_rotating"))
+                    && scene.states.get(*b).is_some_and(|s| s.door_closed())
+            }) {
+                let origin = scene.states[id].origin;
+                let center = physics
+                    .entity_world_bounds(door)
+                    .map_or(origin, |(lo, hi)| (lo + hi) * 0.5);
+                let to = center - origin;
+                z.blocking_door = Some((door, to.y.atan2(to.x).to_degrees()));
+            }
+            if let Some(b) = blocker.filter(|_| now >= z.next_swat) {
+                if let (Some((mass, _, _)), Some(center)) = (
+                    physics.entity_rest_state(b),
+                    physics
+                        .dynamic
+                        .get(&b)
+                        .and_then(|h| physics.bounds_center(*h)),
+                ) {
+                    z.obstructor = Some((b, center, mass));
+                }
+            }
+        }
         let on_fire = matches!(&actor.class, AiClass::Zombie(_)) && scene.fires.burning(id);
         let mut motor = SceneMotor {
             entity: id,
@@ -4230,18 +4418,27 @@ impl AiRuntime {
                         if e == PLAYER {
                             player.center()
                         } else {
-                            scene.states[e].origin + Vec3::Z * 36.
+                            scene.states[e].origin + Vec3::Z * center_z(world, e)
                         }
                     });
                     // ClawAttack: no swing through a wall between the zombie and its
-                    // enemy (an 8-unit hull to the enemy's center, brushes only).
-                    let sight = PhysicsSight { physics, world };
-                    let ignore: Vec<usize> = std::iter::once(id).chain(enemy).collect();
-                    if enemy_center.is_some_and(|c| !sight.visible(start, c, &ignore)) {
+                    // enemy (an 8-unit hull to the enemy's center, MASK_SOLID_BRUSHONLY:
+                    // world brushes and static props, not physics props).
+                    if enemy_center.is_some_and(|c| {
+                        physics
+                            .filtered_ray(start, c, &|entity| entity == usize::MAX)
+                            .is_some()
+                    }) {
                         continue;
                     }
                     let end = start + forward * reach;
-                    let (mins, maxs) = (-Vec3::splat(13.), Vec3::splat(13.));
+                    // The hull made a cube (the x extents).
+                    let cube = world
+                        .entities
+                        .get(id)
+                        .and_then(|e| crate::ai_hull::class_hull(e.class()))
+                        .map_or(13., |h| h.bounds().maxs.x);
+                    let (mins, maxs) = (-Vec3::splat(cube), Vec3::splat(cube));
                     let damage = if bite {
                         self.zombie_poison_spit_damage
                     } else {
@@ -4268,7 +4465,8 @@ impl AiRuntime {
                         self.melee_victim(id, world, scene, start, end, mins, maxs)
                     {
                         self.diagnostics.npc_melee_hits += 1;
-                        let center = scene.states[victim].origin + Vec3::Z * 36.;
+                        let center =
+                            scene.states[victim].origin + Vec3::Z * center_z(world, victim);
                         self.melee_hits.push(MeleeHit {
                             attacker: id,
                             victim,
@@ -4278,7 +4476,40 @@ impl AiRuntime {
                         });
                         true
                     } else {
-                        false
+                        // SCHED_ZOMBIE_ATTACKITEM: a miss strikes m_hPhysicsEnt (TakeDamage
+                        // with a 120 push toward it, then m_flNextSwat = now + U(2, 4)).
+                        let attack_item = self.actors[&id].npc.schedule.as_deref()
+                            == Some("SCHED_ZOMBIE_ATTACKITEM");
+                        let roll = self.random();
+                        match &mut self.actors.get_mut(&id).expect("actor").class {
+                            AiClass::Zombie(z) if attack_item => match z.physics_ent.take() {
+                                Some((object, center)) => {
+                                    let me = origin + Vec3::Z * center_z(world, id);
+                                    let direction = (center - me).normalize_or_zero();
+                                    scene.entity_damage.push(crate::projectiles::Damage {
+                                        target: crate::projectiles::DamageTarget::Entity(object),
+                                        amount: damage,
+                                        kind: crate::player_damage::DMG_SLASH,
+                                        dissolve: false,
+                                        direction,
+                                        origin: center,
+                                        attacker: crate::projectiles::Attacker::Entity(id),
+                                    });
+                                    if let Some((mass, _, _)) = physics.entity_rest_state(object) {
+                                        self.prop_swats.push((
+                                            object,
+                                            direction * zombie::ATTACKITEM_FORCE / mass.max(1.),
+                                            Vec3::ZERO,
+                                        ));
+                                    }
+                                    z.next_swat = scene.time + 2. + 2. * f64::from(roll);
+                                    self.diagnostics.obstructor_swats += 1;
+                                    true
+                                }
+                                None => false,
+                            },
+                            _ => false,
+                        }
                     };
                     scene.sounds.push(crate::sounds::SoundRequest {
                         origin: Some(origin + Vec3::Z * 36.),
@@ -4321,7 +4552,8 @@ impl AiRuntime {
                         self.melee_victim(id, world, scene, start, end, mins, maxs)
                     {
                         self.diagnostics.npc_melee_hits += 1;
-                        let center = scene.states[victim].origin + Vec3::Z * 36.;
+                        let center =
+                            scene.states[victim].origin + Vec3::Z * center_z(world, victim);
                         self.melee_hits.push(MeleeHit {
                             attacker: id,
                             victim,
@@ -4364,7 +4596,8 @@ impl AiRuntime {
                     let victim = self.melee_victim(id, world, scene, start, end, mins, maxs);
                     let cue = if let Some(victim) = victim {
                         self.diagnostics.npc_melee_hits += 1;
-                        let center = scene.states[victim].origin + Vec3::Z * 36.;
+                        let center =
+                            scene.states[victim].origin + Vec3::Z * center_z(world, victim);
                         self.melee_hits.push(MeleeHit {
                             attacker: id,
                             victim,
@@ -4718,6 +4951,20 @@ fn swat_candidates(
             })
         })
         .collect()
+}
+
+/// WorldSpaceCenter / EyePosition heights of an NPC by class (`ai_hull`).
+fn center_z(world: &World, id: usize) -> f32 {
+    world
+        .entities
+        .get(id)
+        .map_or(36., |e| crate::ai_hull::center_height(e.class()))
+}
+fn eye_z(world: &World, id: usize) -> f32 {
+    world
+        .entities
+        .get(id)
+        .map_or(64., |e| crate::ai_hull::eye_height(e.class()))
 }
 
 #[cfg(test)]

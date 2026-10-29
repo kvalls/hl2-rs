@@ -365,6 +365,99 @@ impl Ragdolls {
         );
         self.spawned += 1;
     }
+    /// CRagGib::Spawn -> BecomeRagdollOnClient(force) for a runtime raggib entity (the
+    /// zombie's legs after BecomeTorso): a client ragdoll (LRU, fade) posed by the model's
+    /// sequence 0 at cycle 0 at the entity's origin and angles, at rest, with the force on
+    /// the root solid (m_nForceBone 0). False without a rig or .phy ragdoll.
+    pub fn spawn_gib(
+        &mut self,
+        world: &World,
+        scene: &mut Scene,
+        physics: &mut Physics,
+        id: usize,
+        force: Vec3,
+    ) -> bool {
+        let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
+            return false;
+        };
+        let key = instance.asset_key();
+        let (Some(rig), Some(model)) = (world.rigs.get(&key), world.model_ragdolls.get(&key))
+        else {
+            self.skipped += 1;
+            return false;
+        };
+        let sequence = rig
+            .sequences
+            .iter()
+            .min_by_key(|s| s.order)
+            .map_or("", |s| s.name.as_str());
+        let skin = rig.matrices(sequence, 0.);
+        if skin.len() != rig.bones.len() {
+            self.skipped += 1;
+            return false;
+        }
+        let matrices: Vec<Mat4> = skin
+            .iter()
+            .zip(&rig.bones)
+            .map(|(m, b)| *m * b.inverse_bind.inverse())
+            .collect();
+        let state = &scene.states[id];
+        let entity = Mat4::from_scale_rotation_translation(
+            Vec3::splat(instance.scale),
+            state.rotation,
+            state.origin,
+        );
+        let poses: Vec<(Vec3, Quat)> = model
+            .bodies
+            .iter()
+            .filter_map(|b| matrices.get(b.bone))
+            .map(|m| {
+                let (_, rotation, translation) = (entity * *m).to_scale_rotation_translation();
+                (translation, rotation.normalize())
+            })
+            .collect();
+        self.serial += 1;
+        let bodies = physics.spawn_ragdoll(world, model, &poses, Vec3::ZERO, self.serial);
+        if poses.len() != model.bodies.len() || bodies.len() != model.bodies.len() {
+            physics.remove_ragdoll(&bodies);
+            self.skipped += 1;
+            return false;
+        }
+        physics.ragdoll_nudge(&bodies, 0, force);
+        let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
+        let locals = parents
+            .iter()
+            .enumerate()
+            .map(|(i, parent)| match parent {
+                Some(p) => matrices[*p].inverse() * matrices[i],
+                None => matrices[i],
+            })
+            .collect();
+        // The server entity is done (like a corpse's): only the client ragdoll draws.
+        let state = &mut scene.states[id];
+        state.killed = true;
+        state.visible = false;
+        scene.ragdoll_matrices.insert(id, skin);
+        self.active.insert(
+            id,
+            Ragdoll {
+                model: model.clone(),
+                bodies,
+                parents,
+                locals,
+                inverse_binds: rig.bones.iter().map(|b| b.inverse_bind).collect(),
+                scale: instance.scale,
+                serial: self.serial,
+                born: scene.time,
+                pins: Vec::new(),
+                fade: None,
+                friction: AnimatedFriction::default(),
+                settle: Settle::new(scene.time),
+            },
+        );
+        self.spawned += 1;
+        true
+    }
     /// CRagdollProp::Spawn for the map's prop_ragdolls once their entities exist (at map
     /// spawn, or at a point_template's ForceSpawn): SetupBones at the entity's angles
     /// (sequence 0 when its clip is loaded, else the bind pose), RagdollCreate, angleOverride,

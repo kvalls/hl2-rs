@@ -194,6 +194,8 @@ pub fn load_with_canvas(
     add_static_decals(&mut world, &vfs, &mut decal_errors);
     // F4 / npc_create spawn pool: hidden NPCs every load-time system builds.
     hl2_simulation::ai::spawn::append_pool(&mut world);
+    // CreateRagGib models (the zombie's legs), precached like the zombie's Precache.
+    hl2_simulation::ai::spawn::append_gib_pool(&mut world);
     // CNPC_Citizen::SelectModel (citizen types, random heads), before models load.
     hl2_simulation::citizens::select_models(&mut world, hl2_simulation::ai::spawn::POOL_KEY);
     let model_report = models::append_models(&mut world, &vfs);
@@ -1704,6 +1706,89 @@ mod owned_route_cost {
         npc::{ActorPose, GoalKey, GoalState, MoveRequest, MoveStyle},
         physics::Physics,
     };
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn owned_tiny_hull_falls_to_the_hall_floor() {
+        use hl2_simulation::npc_probe::{NpcCollisionWorld, Query};
+        let root = source_assets::install::discover().unwrap();
+        let loaded = super::load(&root, "d1_trainstation_02").unwrap();
+        let world = loaded.world.clone();
+        let mut physics = Physics::new(&world);
+        physics.tick(0.015);
+        let hull = hl2_simulation::ai_hull::HullType::Tiny.bounds();
+        for z in [104.03f32, 103., 102.34, 100., 90., 80., 70.] {
+            let start = Vec3::new(-3356., -2300., z);
+            let hit = physics.npc_trace_hull(start, start - Vec3::Z * 50., hull, Query::default());
+            println!(
+                "z {z}: fraction {} start_solid {} entity {:?}",
+                hit.trace.fraction, hit.trace.start_solid, hit.entity
+            );
+        }
+    }
+    /// A zombie torso (HULL_TINY) plans the same hall routes as a whole zombie (HULL_HUMAN).
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn owned_tiny_hull_routes_like_the_human_hull() {
+        let root = source_assets::install::discover().unwrap();
+        let mut loaded = super::load(&root, "d1_trainstation_02").unwrap();
+        let world = loaded.world.clone();
+        let mut physics = Physics::new(&world);
+        physics.tick(0.015);
+        let template = |label: &str| {
+            hl2_simulation::ai::spawn::templates(&world, label)
+                .first()
+                .copied()
+                .unwrap()
+        };
+        let npcs = &mut loaded.gameplay.npcs;
+        let from = Vec3::new(-3356., -2241., 64.);
+        let mut cases = Vec::new();
+        for dx in [-300., -150., 0., 150., 300.] {
+            for dy in [-300., -150., 150., 300.] {
+                cases.push(Vec3::new(from.x + dx, from.y + dy, 64.));
+            }
+        }
+        let mut differ = 0;
+        for (i, to) in cases.iter().enumerate() {
+            let mut states = Vec::new();
+            for (j, label) in ["npc_zombie", "npc_zombie_torso"].into_iter().enumerate() {
+                let actor = template(label);
+                let key = GoalKey {
+                    scene: usize::MAX,
+                    event: 1000 + i * 2 + j,
+                    actor,
+                };
+                let state = npcs.request(
+                    key,
+                    MoveRequest {
+                        target_entity: actor,
+                        target_feet: *to,
+                        style: MoveStyle::Run,
+                        event_distance: 0.,
+                        force_short: false,
+                    },
+                    ActorPose {
+                        entity: actor,
+                        feet: from,
+                        yaw_degrees: 270.,
+                        scripted_by: None,
+                    },
+                    &physics,
+                    &[],
+                );
+                states.push(matches!(state, GoalState::Blocked(_)));
+                npcs.cancel(key);
+                npcs.forget(key);
+            }
+            println!(
+                "to {to:?}: human blocked {} tiny blocked {}",
+                states[0], states[1]
+            );
+            differ += usize::from(states[0] != states[1]);
+        }
+        // Session 37: both hulls reach (or miss) the same 20 hall targets.
+        assert_eq!(differ, 0);
+    }
     #[test]
     #[ignore = "requires an owned installed Half-Life 2 copy"]
     fn owned_failed_routes_cost() {

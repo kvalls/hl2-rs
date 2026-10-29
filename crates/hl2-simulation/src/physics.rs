@@ -151,30 +151,10 @@ const PLAYER_GROUPS: InteractionGroups = InteractionGroups::new(
 );
 /// The SDK hull (mins, maxs) of npc_* classes (SetHullType), for those done so far.
 pub fn npc_hull(class: &str) -> Option<(Vec3, Vec3)> {
-    // HULL_HUMAN (ai_hull.cpp, non-HL1 table).
-    const HUMAN: (Vec3, Vec3) = (Vec3::new(-13., -13., 0.), Vec3::new(13., 13., 72.));
-    matches!(
-        class,
-        "npc_metropolice"
-            | "npc_combine_s"
-            | "npc_citizen"
-            | "npc_alyx"
-            | "npc_barney"
-            | "npc_kleiner"
-            | "npc_eli"
-            | "npc_breen"
-            | "npc_mossman"
-            | "npc_magnusson"
-            | "npc_gman"
-            | "npc_monk"
-            | "npc_zombie"
-            | "npc_zombine"
-            | "npc_poisonzombie"
-            | "npc_fastzombie"
-            | "npc_stalker"
-            | "npc_assassin"
-    )
-    .then_some(HUMAN)
+    crate::ai_hull::class_hull(class).map(|t| {
+        let hull = t.bounds();
+        (hull.mins, hull.maxs)
+    })
 }
 /// Traces with COLLISION_GROUP_NONE (FindUseEntity, the gravity gun's FindObject and
 /// punt): they also hit COLLISION_GROUP_WEAPON bodies such as a thrown frag.
@@ -3357,9 +3337,11 @@ impl NpcCollisionWorld for Physics {
             let entity = entity_of(collider);
             collider.is_enabled()
                 && !collider.is_sensor()
+                // Client ragdolls never block server traces (the convex path below does
+                // not apply QUERY_GROUPS).
                 && !matches!(
                     collider.collision_groups().memberships,
-                    PROJECTILE_GROUP | SHADOW_GROUP | HULL_GROUP | WEAPON_GROUP
+                    PROJECTILE_GROUP | SHADOW_GROUP | HULL_GROUP | WEAPON_GROUP | RAGDOLL_GROUP
                 )
                 && entity.is_none_or(|id| !query.excluded_entities.contains(&id))
                 // Explicit actor bounds supersede an NPC's render-mesh collider.
@@ -5190,6 +5172,20 @@ mod tests {
             trace.fraction == 1. && !trace.start_solid,
             "the player hull hit the ragdoll: {}",
             trace.fraction
+        );
+        // So do NPC hull traces (session 37: a zombie torso landed on its own legs gib).
+        let hit = crate::npc_probe::NpcCollisionWorld::npc_trace_hull(
+            &physics,
+            center + Vec3::Z * 40.,
+            center + Vec3::Z * 0.5,
+            crate::ai_hull::HullType::Tiny.bounds(),
+            Default::default(),
+        );
+        assert!(
+            !hit.trace.start_solid && hit.trace.fraction > 0.95,
+            "the NPC hull hit the ragdoll: {} {:?}",
+            hit.trace.fraction,
+            hit.entity
         );
         physics.remove_ragdoll(&handles);
         assert!(physics.world_sides.ragdoll_bodies.is_empty());

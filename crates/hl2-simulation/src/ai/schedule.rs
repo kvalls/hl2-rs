@@ -177,6 +177,8 @@ pub struct Context {
     pub dist_too_far: f32,
     /// Whether the enemy has me in its view cone (FInViewCone), with `enemy`.
     pub enemy_sees_me: Option<bool>,
+    /// Off the ground (falling: FL_ONGROUND clear).
+    pub airborne: bool,
 }
 
 /// A class's schedule hooks (SelectSchedule, TranslateSchedule, StartTask/RunTask).
@@ -761,6 +763,12 @@ impl AiNpc {
                 self.run_task(behavior, task, arg, ctx, motor)
             }
             "TASK_WAIT_INDEFINITE" => Running,
+            // SetWait(4): after 4 s of falling the SDK slams the ground entity (done here
+            // by completing).
+            "TASK_FALL_TO_GROUND" => {
+                self.wait_until = ctx.now + 4.;
+                self.run_task(behavior, task, arg, ctx, motor)
+            }
             "TASK_WAIT_PVS"
             | "TASK_SOUND_WAKE"
             | "TASK_SOUND_DIE"
@@ -1008,6 +1016,14 @@ impl AiNpc {
         }
         use TaskStatus::*;
         match task {
+            // FL_ONGROUND.
+            "TASK_FALL_TO_GROUND" => {
+                if !ctx.airborne || ctx.now >= self.wait_until {
+                    Complete
+                } else {
+                    Running
+                }
+            }
             "TASK_WAIT" | "TASK_WAIT_RANDOM" => {
                 if ctx.now >= self.wait_until {
                     Complete

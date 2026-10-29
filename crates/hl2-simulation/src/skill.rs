@@ -82,7 +82,8 @@ impl Skill {
             "npc_monk" => 100.,
             "npc_dog" => 999.,
             "npc_vortigaunt" => sk("sk_vortigaunt_health", 100.),
-            "npc_zombie" => sk("sk_zombie_health", 50.),
+            // CZombie::Spawn sets the same health for npc_zombie_torso.
+            "npc_zombie" | "npc_zombie_torso" => sk("sk_zombie_health", 50.),
             "npc_fastzombie" => 50.,
             "npc_poisonzombie" => sk("sk_zombie_poison_health", 175.),
             "npc_zombine" => sk("sk_zombie_soldier_health", 100.),
@@ -112,7 +113,12 @@ impl Skill {
         if hitgroup == HITGROUP_HEAD {
             match class {
                 "npc_combine_s" => return 2.,
-                "npc_zombie" | "npc_fastzombie" | "npc_poisonzombie" | "npc_zombine" => {
+                "npc_zombie"
+                | "npc_zombie_torso"
+                | "npc_fastzombie"
+                | "npc_fastzombie_torso"
+                | "npc_poisonzombie"
+                | "npc_zombine" => {
                     if !buckshot {
                         return 2.;
                     }

@@ -57,12 +57,13 @@ pub const GROUND_HUMANS: [&str; 2] = ["npc_barney", "npc_kleiner"];
 /// Human-hull NPC classes registered for AI goals (step 14); scenes and scripted_sequences
 /// move them too while they own the actor. SetHullType(HULL_HUMAN) in CNPC_MetroPolice,
 /// CNPC_Combine and CNPC_PlayerCompanion (npc_citizen, npc_alyx) Spawn.
-pub const AI_GROUND_HUMANS: [&str; 6] = [
+pub const AI_GROUND_HUMANS: [&str; 7] = [
     "npc_metropolice",
     "npc_combine_s",
     "npc_citizen",
     "npc_alyx",
     "npc_zombie",
+    "npc_zombie_torso",
     "npc_poisonzombie",
 ];
 /// AI movers' walk/run per weapon class ("" unarmed): Weapon_TranslateActivity of
@@ -165,7 +166,8 @@ pub fn prepare_npcs(
             continue;
         }
         let loaded = (|| -> anyhow::Result<_> {
-            let ground = crate::npc::normal_human(instance.scale, 18., 1.)
+            let hull = crate::ai_hull::class_hull(class).unwrap_or(crate::ai_hull::HullType::Human);
+            let ground = crate::npc::ground_for_hull(hull, instance.scale, 18., 1.)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             let wanted = if ai_only {
                 let rig = world
@@ -191,6 +193,10 @@ pub fn prepare_npcs(
                     .register_ai_actor(actor, instance.scale, ground, motion)
                     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
                 controller.set_locomotion_variants(actor, variants);
+                // The zombies have no bits_CAP_DOORS_GROUP (CZombie pounds on doors).
+                if crate::ai::zombie::is_zombie_class(class) {
+                    controller.set_opens_doors(actor, false);
+                }
                 wanted
             } else {
                 let motion = crate::npc::Locomotion::load(vfs, &instance.model)?;
@@ -283,7 +289,10 @@ pub fn tick_npcs(
         }
     }
     for update in controller.tick(physics, &poses, &transients, TICK, false) {
-        if let Some(door) = update.door {
+        if let Some(door) = update
+            .door
+            .filter(|_| controller.opens_doors(update.key.actor))
+        {
             scene.npc_open_door(world, door, update.feet);
         }
         scene.apply_movement(

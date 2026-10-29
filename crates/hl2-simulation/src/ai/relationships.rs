@@ -770,7 +770,12 @@ pub fn classify(classname: &str, precriminal: bool) -> Class {
         "npc_headcrab" | "npc_headcrab_fast" | "npc_headcrab_black" | "npc_headcrab_poison" => {
             Headcrab
         }
-        "npc_zombie" | "npc_fastzombie" | "npc_poisonzombie" | "npc_zombine" => Zombie,
+        "npc_zombie"
+        | "npc_zombie_torso"
+        | "npc_fastzombie"
+        | "npc_fastzombie_torso"
+        | "npc_poisonzombie"
+        | "npc_zombine" => Zombie,
         "npc_manhack" => Manhack,
         "npc_cscanner" | "npc_clawscanner" => Scanner,
         "npc_stalker" => Stalker,

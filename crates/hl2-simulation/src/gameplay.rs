@@ -265,7 +265,9 @@ pub fn blood_color(class: &str) -> Option<BloodColor> {
         | "npc_headcrab_black"
         | "npc_headcrab_poison"
         | "npc_zombie"
+        | "npc_zombie_torso"
         | "npc_fastzombie"
+        | "npc_fastzombie_torso"
         | "npc_poisonzombie"
         | "npc_zombine"
         | "npc_barnacle"
@@ -1598,8 +1600,15 @@ impl Inventory {
                         // their own flame's damage; enough burn damage ignites them for
                         // 100 s with health capped to about ten seconds of burning
                         // (FLAME_DIRECT_DAMAGE_PER_SEC x (ZOMBIE_BURN_TIME +- noise)).
-                        if npc && crate::ai::zombie::is_zombie_class(entity.class()) {
-                            let max = class_health.or(health).unwrap_or(50.);
+                        let zombie = npc && crate::ai::zombie::is_zombie_class(entity.class());
+                        let max = scene
+                            .npc_max_health
+                            .get(&id)
+                            .copied()
+                            .or(class_health)
+                            .or(health)
+                            .unwrap_or(50.);
+                        if zombie {
                             match scene.fires.zombie_damage(
                                 id,
                                 amount,
@@ -1629,6 +1638,47 @@ impl Inventory {
                             }
                         }
                         state.value -= amount;
+                        // The rest of OnTakeDamage_Alive: a lethal blast releases the crab
+                        // (headless, not modeled yet), then ShouldBecomeTorso / BecomeTorso.
+                        if let Some(kind) = zombie
+                            .then(|| crate::ai::zombie::Kind::for_class(entity.class()))
+                            .flatten()
+                        {
+                            let time = scene.time;
+                            let roll = |salt| crate::fire::roll(id, time, salt);
+                            let (split, headless) = crate::ai::zombie::split(
+                                kind,
+                                entity.class() != "npc_zombie",
+                                false,
+                                damage.kind,
+                                amount,
+                                max,
+                                state.value,
+                                roll(31) < 1. / 3.,
+                            );
+                            // CalculateExplosiveDamageForce: the info's damage force.
+                            let force = damage.direction
+                                * (damage.amount * 300.).min(30000.)
+                                * (0.85 + 0.3 * roll(11));
+                            match split {
+                                crate::ai::zombie::Split::Torso { dies } => {
+                                    scene.zombie_splits.push(crate::ai::zombie::TorsoSplit {
+                                        entity: id,
+                                        legs_force: force * 0.5,
+                                        max_health: max * crate::ai::zombie::TORSO_HEALTH_FACTOR,
+                                        dies: dies.then_some(force),
+                                        ignite: (roll(32) < 0.5).then(|| 5. + 5. * roll(33)),
+                                    });
+                                }
+                                crate::ai::zombie::Split::Chopped => {
+                                    scene.zombie_chops += 1;
+                                }
+                                crate::ai::zombie::Split::None => {}
+                            }
+                            if headless {
+                                scene.zombie_crab_releases += 1;
+                            }
+                        }
                     }
                     let dead = state.value <= 0.;
                     scene.fire(id, "OnDamaged", usize::MAX);

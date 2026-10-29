@@ -303,6 +303,28 @@ pub fn append_pool(world: &mut modkit_core::World) {
         }
     }
 }
+/// Models that CreateRagGib turns into client ragdolls at runtime (CZombie::Precache
+/// precaches the halves): one hidden "raggib" template each, label `raggib <model>`.
+pub const GIB_MODELS: &[&str] = &["models/zombie/classic_legs.mdl"];
+pub fn gib_label(model: &str) -> String {
+    format!("raggib {model}")
+}
+/// Append the hidden raggib templates (after `append_pool`, before models load).
+pub fn append_gib_pool(world: &mut modkit_core::World) {
+    for model in GIB_MODELS {
+        world.entities.push(modkit_core::Entity {
+            properties: vec![
+                ("classname".into(), "raggib".into()),
+                (
+                    "origin".into(),
+                    format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
+                ),
+                ("model".into(), (*model).into()),
+                (POOL_KEY.into(), gib_label(model)),
+            ],
+        });
+    }
+}
 /// Source's edict limit (MAX_EDICT_BITS 11, a compile-time constant tied to the
 /// network entity handles): native npc_create past it fails in ED_Alloc ("no free
 /// edicts"). Runtime spawns stop at this many live entities; the host's

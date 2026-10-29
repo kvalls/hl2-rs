@@ -176,6 +176,9 @@ pub struct Gameplay {
     pub render_spawns: Vec<(usize, usize)>,
     /// Runtime-spawned entity ids (DESIGN 14r part A), in creation order.
     pub runtime_entities: Vec<usize>,
+    /// BecomeTorso replacements (zombie, torso, legs raggib) and splits that failed.
+    pub zombie_splits: Vec<(usize, usize, Option<usize>)>,
+    pub zombie_split_failures: Vec<String>,
     /// Runtime entities whose Bevy draws were despawned after they were killed.
     pub despawned_draws: std::collections::BTreeSet<usize>,
     /// Spawns that had to copy the World because another Arc held it (should stay 0).
@@ -406,6 +409,8 @@ impl Gameplay {
             stunstick_glows: Vec::new(),
             spawn_counts: Default::default(),
             render_spawns: Vec::new(),
+            zombie_splits: Vec::new(),
+            zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
             world_copies: 0,
@@ -452,6 +457,8 @@ impl Gameplay {
             stunstick_glows: Vec::new(),
             spawn_counts: Default::default(),
             render_spawns: Vec::new(),
+            zombie_splits: Vec::new(),
+            zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
             world_copies: 0,
@@ -593,6 +600,119 @@ impl Gameplay {
         self.runtime_entities.push(id);
         self.ai.add_actor(id, &entity);
         Ok(id)
+    }
+    /// CNPC_BaseZombie::BecomeTorso for the zombies a blast split this tick (DESIGN 14o
+    /// session 37). Source keeps the zombie entity and swaps its model and hull; here a
+    /// runtime npc_zombie_torso from its pool template replaces it 40 units up with the
+    /// zombie's keyvalues (name, squad, outputs, flags), AI state and burning, half its max
+    /// health, falling to the ground; the zombie leaves without dying. The legs are a
+    /// raggib (CreateRagGib) at the zombie's origin and angles with the legs force. With
+    /// a threshold-1 blast the torso dies at once (BecomeRagdollOnClient with the force).
+    fn split_zombies(&mut self, physics: &mut Physics) {
+        use hl2_simulation::ai::{spawn, zombie};
+        let splits = std::mem::take(&mut self.scene.zombie_splits);
+        let mut done = std::collections::BTreeSet::new();
+        for split in splits {
+            let id = split.entity;
+            if !done.insert(id) || self.scene.states.get(id).is_none_or(|s| s.killed) {
+                continue;
+            }
+            let Some(&template) = spawn::templates(&self.world, "npc_zombie_torso").first() else {
+                self.zombie_split_failures
+                    .push(format!("{id}: no npc_zombie_torso template"));
+                continue;
+            };
+            let (origin, rotation) = (self.scene.states[id].origin, self.scene.states[id].rotation);
+            let facing = rotation * Vec3::X;
+            let yaw = facing.y.atan2(facing.x).to_degrees();
+            let keep: Vec<(String, String)> = self.world.entities[id]
+                .properties
+                .iter()
+                .filter(|(k, _)| {
+                    !matches!(
+                        k.to_ascii_lowercase().as_str(),
+                        "classname" | "model" | "origin" | "angles" | "body" | "skin" | "health"
+                    )
+                })
+                .cloned()
+                .collect();
+            let overrides: Vec<(&str, String)> =
+                keep.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+            let torso = match self.create_from_template(
+                template,
+                origin + Vec3::Z * zombie::TORSO_LIFT,
+                yaw,
+                &overrides,
+                physics,
+            ) {
+                Ok(torso) => torso,
+                Err(error) => {
+                    self.zombie_split_failures.push(format!("{id}: {error}"));
+                    continue;
+                }
+            };
+            // The zombie leaves (no OnDeath, no ragdoll: the torso is it from now on).
+            let state = &mut self.scene.states[id];
+            state.killed = true;
+            state.visible = false;
+            state.enabled = false;
+            physics.set_entity(id, origin, rotation, false);
+            let now = self.scene.time;
+            let world = self.world.clone();
+            self.ai.become_torso(&world, &mut self.scene, id, torso);
+            self.scene.states[torso].value = split.max_health;
+            self.scene.npc_max_health.insert(torso, split.max_health);
+            // BecomeTorso: a burning zombie's torso burns 30 s; then 50% of blasts ignite
+            // it for 5-10 s (Ignite while burning does nothing).
+            let flammable = hl2_simulation::fire::Interactions {
+                flammable: true,
+                ..Default::default()
+            };
+            let center = origin + Vec3::Z * (zombie::TORSO_LIFT + 12.);
+            if self.scene.fires.burning(id) {
+                self.scene.fires.extinguish(id, origin);
+                self.scene
+                    .fires
+                    .ignite(torso, flammable, 30., 16., center, now);
+            }
+            if let Some(time) = split.ignite {
+                self.scene
+                    .fires
+                    .ignite(torso, flammable, time, 16., center, now);
+            }
+            let legs = spawn::templates(&self.world, &spawn::gib_label(spawn::GIB_MODELS[0]))
+                .first()
+                .copied()
+                .and_then(|gib| {
+                    self.create_from_template(gib, origin, yaw, &[], physics)
+                        .map_err(|e| self.zombie_split_failures.push(format!("{id} legs: {e}")))
+                        .ok()
+                });
+            if let Some(legs) = legs {
+                let world = self.world.clone();
+                if !self.ragdolls.spawn_gib(
+                    &world,
+                    &mut self.scene,
+                    physics,
+                    legs,
+                    split.legs_force,
+                ) {
+                    self.zombie_split_failures
+                        .push(format!("{id} legs: no ragdoll"));
+                }
+            }
+            if let Some(force) = split.dies {
+                let state = &mut self.scene.states[torso];
+                state.value = 0.;
+                state.killed = true;
+                state.visible = false;
+                physics.set_entity(torso, origin, rotation, false);
+                self.scene.fire(torso, "OnDeath", usize::MAX);
+                self.scene.npc_deaths.push(torso);
+                self.scene.npc_death_forces.insert(torso, (force, None));
+            }
+            self.zombie_splits.push((id, torso, legs));
+        }
     }
     /// CBaseCombatCharacter::Event_Killed -> Weapon_Drop (DESIGN 14r part B): each NPC
     /// killed this tick drops its active weapon as a new weapon entity with VPhysics
@@ -1528,6 +1648,7 @@ impl Gameplay {
             self.inventory
                 .apply_projectile_damage(blast, &self.world, &mut self.scene, physics);
         }
+        self.split_zombies(physics);
         let fire_sounds = std::mem::take(&mut self.scene.fires.sounds);
         self.scene.sounds.extend(fire_sounds);
         // PropBreakableCreateAll for props broken by this tick's damage.
@@ -1702,11 +1823,13 @@ impl Gameplay {
                     .then(|| (id, errors.iter().map(|e| format!("{e:?}")).collect()))
             })
             .collect();
+        // BecomeTorso replacements: (zombie, torso, legs), each torso's origin, death, health.
+        let zombies = serde_json::json!({"splits":self.zombie_splits,"torsos":self.zombie_splits.iter().map(|(_, t, _)| (t.to_string(), (self.scene.states[*t].origin.to_array(), self.scene.states[*t].killed, self.scene.states[*t].value))).collect::<std::collections::BTreeMap<_,_>>(),"failures":self.zombie_split_failures,"crab_releases":self.scene.zombie_crab_releases,"chops":self.scene.zombie_chops});
         let ragdolls = serde_json::json!({"active":self.ragdolls.active.len(),"spawned":self.ragdolls.spawned,"skipped":self.ragdolls.skipped,"removed":self.ragdolls.removed,"shot_pushes":self.ragdolls.shot_pushes,"blast_pushes":self.ragdolls.blast_pushes,"pins":self.ragdolls.pins,"death_poses":self.ragdolls.death_poses,"bolt_misses":self.ragdolls.bolt_misses,"last_missed_bolt":self.ragdolls.last_missed_bolt.map(|(a,b)| [a.to_array(),b.to_array()]),"missed_bolt_bodies":self.ragdolls.missed_bolt_bodies.iter().map(|v| v.to_array()).collect::<Vec<_>>(),"fading":self.ragdolls.fading(),"shots_seen":self.ragdolls.shots_seen,"shots_busy":self.ragdolls.shots_busy,"simulating":self.ragdolls.simulating(physics),"forced_sleeps":self.ragdolls.forced_sleeps,"props":self.ragdolls.props.len(),"prop_origins":self.ragdolls.props.keys().map(|id| (id.to_string(), (self.scene.states[*id].origin.to_array(), self.scene.ragdoll_matrices.contains_key(id)))).collect::<std::collections::BTreeMap<_,_>>(),"props_skipped":self.ragdolls.props_skipped,"last_force_body":self.ragdolls.last_force_body,"activity":self.ragdolls.activity(physics),"last_missed_shot":self.ragdolls.last_missed_shot.map(|(a,b)| [a.to_array(),b.to_array()]),"origins":self.ragdolls.active.keys().map(|id| (id.to_string(), self.scene.states[*id].origin.to_array())).collect::<std::collections::BTreeMap<_,_>>()});
         serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"carrying":self.inventory.carrying(),"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"random_look_targets":self.scene.look_targets.random_report(),"heads":self.scene.heads.iter().map(|(id,h)| (id.to_string(), h.goal.to_array())).collect::<std::collections::BTreeMap<_,_>>(),"gesture_layers":self.scene.gestures.report(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),"npc_paths":self.npcs.path_stats(),
-            "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"spawn_overlay":self.spawn_overlay,"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
+            "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"zombies":zombies,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"spawn_overlay":self.spawn_overlay,"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
             "unplayed_sounds":self.unplayed_sounds,"queued_sounds":self.sound_requests.len(),"recent_sound_cues":self.sound_cues})
     }
 }
