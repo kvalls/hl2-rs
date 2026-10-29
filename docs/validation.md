@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Nondelta finite scalar and alias audit (2026-10-29 DX–EA)
+
+Private DX/DY checks bind seven exact bodies each,31/16 anchors and17/14 controls; DX also admits the allocator's directly reached probe tail and retains two rejected verifier drafts. DZ admits1,005 owned instruction bytes/128 literal bytes,13 absolute/11 relative relocations and three trapped frontiers. Authored process25944 exits0 after175,008 cases with intact RX/RO mappings, code/literal/input bytes, pins, canaries and FP controls. Nine pre-admission/nine result-framing controls pass. Raw x87 status0/32/544 and MXCSR8064/8096 are retained; x87 control stays639 and original controls are restored.
+
+DZ's prepared numerical comparison is deliberately FAILING:175,001 matches/seven opposite output-q alias mismatches. EA independently reconstructs3,638 DL quaternions/6,346 source states and8,400,397 input bytes; its store-order reference matches all175,008 retained outputs. Six exact PE anchors/18 controls pass; only seven y expectations differ from the frozen DZ oracle. Seals DX28/DY12/DZ61/EA7 files pass integrity; DZ is not relabeled as a passing prepared comparison. No fixture rerun, game launch, DLL initialization or Rust build/test occurred.
+
+Read-only checks use `C:/Python310/python.exe -B` with private roots `pose-blend-frontiers-20261029dx/{admit_anchors.py,verify.py,seal.py verify}`, `nondelta-acos-contract-20261029dy/{verify.py,seal.py verify}`, `nondelta-slerp-fixture-20261029dz/{admit.py,verify.py,seal.py verify}` and `nondelta-alias-audit-20261029ea/{audit.py,seal.py verify}`. Never rerun producers/create/build/run into sealed roots. Finite scalar instruction behavior does not establish arbitrary transcendental/error/alias ABI, native actor/cache/full pose/rendering, campaign completion or Rust parity; first_map_finished:false.
+
 ## Callback context and closed initializer replay (2026-10-29)
 
 DT at use/work/hl2-decompiled/client-pose-debug-context-20261029dt: `C:/Python310/python.exe -B verify.py` and `seal.py verify` pass9 exact bodies/9 PE windows/1,823 starts,21 anchors/11 direct edges/32 controls and three constructor zero-argument sites. SDK naming is reference-only;27 files sealed.

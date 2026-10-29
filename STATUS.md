@@ -1,5 +1,13 @@
 # STATUS
 
+## Nondelta interpolation and alias-store boundary (2026-10-29 DX–EA)
+
+DX binds seven exact server bodies/seven PE windows/1,173 starts,31 anchors/10 edges/17 controls: nondelta alignment/spherical branches, descriptor4000 redirect and the stack allocator's directly reached page-probe tail. Two failed verifier preparations are retained; independent instruction admission replaces the guessed anchor. DY binds seven exact bodies/seven windows,137 starts/16 anchors/14 controls for scalar acos and its classifier/FP-control/cleanup context; fast/error bodies remain opaque.
+
+DZ completes175,008 isolated authored cases with1,005 owned RX bytes/128 RO bytes,13 absolute/11 relative relocations, explicit scalar flags, three trapped frontiers, intact canaries/inputs/mappings/pins and process25944 exit0. Its initial reference FAILS seven opposite output-q alias cases. EA independently reconstructs all source memberships/case bytes and models the actual store-before-reload order; all175,008 retained outputs then match, with only those seven y expectations changed. Original DZ reference/failures stay frozen; no fixture rerun. x87 control639 stays fixed, raw status0/32/544 is retained, MXCSR8064->8096 changes sticky precision. DX/DY/DZ/EA seals28/12/61/7 files; DZ integrity passes while its prepared numerical comparison remains rejected.
+
+The fresh ownership check still finds preexisting cursor confinement, so no native game was launched or cursor changed. No Rust edit/build/test. Actor/cache/mask/weights/full skeleton/rendering, ordinary campaign completion and Rust parity remain unproven; first_map_finished:false. Next bounded test: conditional full bone-blend composition with authored disjoint model/mask/weight/virtual-map inputs and guarded descriptor4000/opaque transfers. Continue toward98% usage.
+
 ## Optional client callback and initializer boundary (2026-10-29)
 
 DT binds9 exact bodies/9 PE windows/1,823 starts,21 anchors/11 edges/32 controls. Three exact context constructor callers pass a zero final argument stored at+0xc; the optional accumulator vtable+4 call and both continuations are byte-bound. DU then binds the only intervening call in each first constructor-to-wrapper interval: a28-byte wrapper that reads model/mask and a401-byte call-free/no-relocation initializer(136 reachable starts/two returns). Two exact bodies/two PE windows/173 starts/18 controls pass. Under valid disjoint memory/no asynchronous mutation, the initially-zero callback field is preserved through those first intervals. This is not a live pointer observation or a claim about later loop iterations/other callers.

@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Nondelta spherical interpolation and alias order (2026-10-29 DX–EA)
+
+DX binds the nondelta caller's fixed-alignment flag, complement-weight argument, distance-aligned wrapper and spherical core, plus the descriptor4000 and stack-probe frontiers. The core uses epsilon1e-6 at same/opposite boundaries and x87 acos/FSIN coefficients; it does not normalize afterward. The opposite branch constructs a perpendicular quaternion, updates xyz and leaves the constructed w. DY binds the scalar acos/classifier/control/cleanup graph while keeping fast/error paths explicit. Static contracts do not establish live math flags or input state.
+
+DZ runs175,008 finite isolated cases with scalar dispatch forced by authored RO globals. Execution/mapping/FP/input/canary checks pass, but its original prepared reference fails seven direct-core output-q opposite cases. EA independently reconstructs DL source memberships and complete case order, then matches every retained output using actual store/load order. Output.x overwrites q.x before the later q.x reload; a cached-input oracle changes y, including four signed-zero results. The original reference and seven failures remain unchanged. No actor/full-skeleton/rendering/campaign/Rust-parity evidence follows; first_map_finished:false.
+
 ## Optional callback and default pose initialization (2026-10-29)
 
 DT binds the16-byte context allocator's final argument store at+0xc and three exact caller sites that supply zero. The accumulator tests this field and optionally calls vtable+4 before pose evaluation/blending. SDK IPoseDebugger is navigation-only naming; callback effects and all possible callers are not inferred. DU binds the only intervening initializer call in each first constructor-to-wrapper interval: its wrapper reads model/mask, and its401-byte call-free leaf writes stack and selected output arrays. Valid disjoint memory/no asynchronous mutation is necessary to infer the initially-zero field stays zero through those first intervals.

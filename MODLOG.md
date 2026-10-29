@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: nondelta interpolation and alias-store audit
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Bound the remaining bone-blend allocator/descriptor/nondelta frontiers and scalar acos context. Separated spherical composition from the record decoder's normalized linear interpolation; retained actual opposite-branch alias store order.
+
+**Tested how:** DX7 exact bodies/7 PE windows/31 anchors/17 controls; DY7 bodies/7 windows/16 anchors/14 controls. DZ175,008 isolated cases/1,005 owned RX bytes/128 RO bytes/13 absolute and11 relative relocations, explicit scalar globals/three trapped targets, mappings/canaries/inputs/pins/FP checks, process25944 exit0. Its prepared oracle fails seven cases. EA independently reconstructs all source/case identities and matches all retained outputs with six store/load anchors/18 controls; original DZ failures remain. Seals28/12/61/7 files. No Rust edit/build/test or native-game action.
+
+**Result / Still untested / Next:** The finite scalar contract includes an output-q opposite alias that overwrites q.x before reloading it, changing y (four signed-zero cases). The original reference remains rejected; the corrected audit is separate. Live actor/cache/masks/weights/full skeleton/rendering/campaign/Rust parity remain unproven; first_map_finished:false. Continue with guarded full bone-blend composition toward98% usage.
+
 ## 2026-10-29 session 37 (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

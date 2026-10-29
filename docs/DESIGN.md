@@ -1,5 +1,13 @@
 # Design
 
+## Research plan: remaining pose-blend frontiers (2026-10-29 DX)
+
+Continue DW with exact on-demand retrieval of the stack allocator, descriptor `0x4000` redirect and nondelta quaternion helpers. Bind complete PE instruction graphs, caller argument/order, consumed literals and opaque transfers before any separate authored fixture. Preserve DM/DU/DS seals and DE/DF/DR rejections. A fresh read-only guard still finds preexisting cursor confinement, so native capture remains deferred without changing cursor or user processes. No Rust change or whole-corpus pass. Publish only research additions, preserving existing contributor edits in this shared checkout.
+
+DX/DY now bind those conditional graphs and the scalar acos context. DZ's isolated175,008-case execution passes integrity but its prepared oracle fails seven direct-core opposite aliases; EA's independent memory-order/source audit matches all retained outputs without changing or rerunning DZ. The nondelta spherical routine is distinct from the record decoder's normalized linear helper; its opposite fallback retains store-order alias effects.
+
+Next bounded plan: execute the complete existing bone-blend body in a new authored x86 process with the exact stack-probe tail, admitted DELTA leaves and scalar nondelta dependencies. Use disjoint RO model/flag/weight/virtual-map graphs, guarded outputs and explicit math globals. Test mask exclusion, negative mapped bones, effective weights, DELTA/POST order, nondelta alignment flags, entry weight clamps and untouched elements. Trap descriptor4000/opaque transfers, validate all relocations and stack/canary/FP/input/code preservation before accepting finite component-reference comparisons. This remains conditional isolated composition, not observed actor input, final skeleton/rendering or Rust parity.
+
 ## Optional callback and pose initializer follow-up (2026-10-29)
 
 DT binds the optional context+0xc/virtual+4 call and three exact constructor sites that pass zero. Intervening initialization calls remain a boundary before claiming the field stays zero.
