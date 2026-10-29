@@ -1,5 +1,15 @@
 # Local validation — 2026-10-05
 
+## Native entry and selected quaternion helpers (2026-10-29)
+
+Private DD: from use/work/hl2-decompiled/child-entry-fixture-20261029dd, run `C:/Python310/python.exe -B verify.py`, `check_controls.py` and `seal.py verify`:36 calls/12 roots/72 phases,144 local-array comparisons,2,988 reads/243,936 bytes and15 corruption controls. Instrumented/uninstrumented C oracles agree, sources remain pinned and both fixtures exit0. The exact retail first27 bytes and RET1c are tested; post-prefix stack allocation differs from retail's probe CALL and arbitrary exceptions remain untested. DD seal42 files.
+
+DE/DF retain two rejected pre-ready preparations. DE's cleanup loses the underlying oracle error; DF streams stderr before queue delivery and explicitly records `Existing cursor confinement; native launch deferred` before Popen. Neither starts or attaches HL2. Checked installed settings and pinned sources remain unchanged. From use, `C:/Python310/python.exe -B work/publishing/seal-entry-attempts-20261029.py verify` passes19/19 files. Stop this capture approach until external state changes; do not release the owner's cursor or close their game.
+
+DG: from use/work/hl2-decompiled/child-quaternion-contract-20261029dg, run `C:/Python310/python.exe -B verify.py` and `seal.py verify`: four exact bodies/four PE windows/798 starts/21 anchors/five edges/five constants/15 controls and19 sealed files. The selected interpolator is a normalized linear blend with representation alignment. Three helper graphs are closed and call-free.
+
+DH: from use/work/hl2-decompiled/child-quaternion-fixture-20261029dh, run `C:/Python310/python.exe -B verify.py`, `check_controls.py` and `seal.py verify`:14,816 prepared/recomputed exact matches:1772 angle conversions/13026 blends/18 alignments; alias modes5234 separate/5234 out==p/input/4348 out==q. Canonical1036 code bytes/five relocations/64 literal bytes, RX/RO protection, unchanged mappings/pins, process10640 exit0 and14 corruption controls pass;34 files sealed. x87 control589855 stays fixed; MXCSR8064->8096 changes only sticky precision status. Finite trig reference uses host double math then float32 stores. Native cache/child execution/local arrays, arbitrary FP/exception behavior, final rendering/campaign and Rust parity remain untested; first_map_finished:false. No Rust tests/builds were run.
+
 ## Cycle primitive, client child route and recorder preparation (2026-10-29)
 
 Under ../../work/hl2-decompiled/client-cycle-fixture-20261029cy, run C:/Python310/python.exe -B verify.py, check_controls.py and seal.py verify. All 131,282 outputs match both references; 14 artifact controls pass. Canonical 117 bytes/four relocations/12 literal bytes, RX/RO maps, raw argument pushes, one x87 float store, before/after dumps, source/image/input pins and process exit 0 are checked. The sampled float domain and recorded FP controls are explicit; general ABI, arbitrary modes and native gameplay are not tested. Rejected relocation-count, inline-assembler and caller-witness drafts remain preserved.

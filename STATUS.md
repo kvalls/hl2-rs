@@ -1,5 +1,17 @@
 # STATUS
 
+## Exact quaternion interpolation and isolated replay (2026-10-29)
+
+DG binds four exact server bodies/four PE windows/798 starts,21 anchors/five edges/five literals/15 controls. The selected rotation decoder uses shortest-representation normalized linear quaternion blending at1045c1e0. Radian-Euler conversion uses three x87 FSINCOS operations followed by float32 SSE arithmetic. A separate post-alignment gate requires nondelta record data and bone bit100000; all39 selected owned records are delta. Closed helper graphs contain78/124/72 starts.
+
+DH executes only those three isolated helper buffers in an authored x86 process:14,816 bit-exact prepared and recomputed reference matches, including separate/out==p/out==q outputs and a distance tie where a dot-sign shortcut differs. Canonical1036 code bytes/five relocations/64 literal bytes, RX/RO mappings, unchanged source/input/mapped bytes, process10640 exit0 and14 corruption controls pass. FP controls are unchanged; MXCSR sticky precision status changes. Reference trig uses host double math at float32 stores; arbitrary inputs/control modes/exceptions remain untested. DG/DH seals19/34 files. No actual native child/cache/local-array/final-pose/Rust parity evidence is added; first_map_finished:false. Continue with an independent selected-source output join and interpolation audit.
+
+## Native entry fixture accepted; live attempt deferred (2026-10-29)
+
+DD validates the exact selected server accumulator's first27 prologue bytes and seven-argument normal RET1c path in an authored x86 process. The frozen observer and production Frida File sink retain36 calls/12 roots/72 phases,2,988 reads/243,936 raw bytes and144 local array comparisons. Instrumented and uninstrumented C oracles agree exactly;15 corruption controls pass. Both fixture processes exit0/source pins unchanged. The post-prefix allocation differs from retail's stack-probe CALL; arbitrary exception/ABI behavior is not certified.
+
+DE/DF do not launch or attach HL2: DE loses the pre-ready oracle error through an inherited closed-pipe cleanup bug; DF fixes transcript retention and explicitly rejects existing cursor confinement before native Popen. After these two failed preparations this approach is stopped. Owner foreground deadlock.exe was observed only and left alone. Checked settings/source pins remain unchanged. Actual child weights/arrays remain unobserved. Continue independent static selected decoder/quaternion research; no Rust edits/builds and first_map_finished:false.
+
 ## Isolated client cycle boundary and next evaluator capture (2026-10-29)
 
 CY executes only the call-free client cycle helper in an authored x86 fixture: 117 canonical code bytes/four literal relocations/12 literal bytes, actual RX/RO mappings and unchanged dumps/pins. All 131,282 outputs match both prepared binary expectations and an independent exact-rational rounding reference; 14 corruption controls pass. This samples 65,641 float patterns in two modes, not the entire float32 domain. Fixture 50300 exits 0; FP controls stay unchanged while sticky status bits change. Loop negative zero survives, tiny negative input can round to 1.0, and out-of-int32-range values follow the instruction's indefinite conversion path. Nonloop cycles clamp to 0..0.9990000128746033. Rejected static/build/verifier preparations remain retained; no rejected image was executed.

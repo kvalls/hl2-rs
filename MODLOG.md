@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: native entry fixture and quaternion contract
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust implementation.
+
+**Changed / Why:** Validated the selected native entry pattern/recorder on an authored process, retained two prelaunch failures without disturbing the owner's game, and resolved the selected retail quaternion interpolation/helper path.
+
+**Tested how:** DD36 normal calls/12 roots/144 array comparisons/2,988 reads/15 controls; both fixture exits0. DE/DF stop before HL2 launch; DF retains cursor-confinement rejection, settings/pins unchanged. DG four exact bodies/four PE windows/798 starts/21 anchors/five edges/five literals/15 controls. DH14,816 bit-exact isolated helper outputs with aliases,1036 code bytes/five relocations/64 literal bytes/14 controls, fixture exit0. DD/DE/DF/DG/DH seals42/19/19/19/34 files. Documentation checks only; no Rust edits/builds/tests.
+
+**Result / Still untested / Next:** The selected retail decoder uses normalized linear quaternion blending, and its distance tie can differ from a dot-sign shortcut. Isolated radian conversion/blend/alignment match the finite references under recorded controls. Actual native child calls/cache/local arrays, arbitrary exceptions/FP controls, final bones/AV/campaign and Rust parity remain open; first_map_finished:false. Next independently join the selected source records and isolated outputs. Work continues toward the requested five-hour usage target.
+
 ## 2026-10-29 session 36 (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

@@ -1,5 +1,13 @@
 # Design
 
+## Selected quaternion decoder follow-up (2026-10-29)
+
+DD's authored native test validates normal entry/nesting/file-recorder behavior with the exact selected first27-byte prefix and RET1c, while retaining the different post-prefix stack allocation and exception limitations. DE/DF stop before native launch; DF explicitly records the owner's existing cursor confinement. After two preparations this capture approach is stopped until the external state changes. Preserve the active game and all rejected evidence.
+
+DG now binds the selected dependencies; DH's isolated replay of three closed graphs passes14,816 finite cases and output aliases. Preserve the actual normalized linear blend, float32 distance-tie rule, radian ordering and record/bone flag gates. The finite reference matches do not certify arbitrary trigonometric/FP-control behavior.
+
+Next bounded research: independently join isolated helper outputs to the four selected owned clip records, preserving frame/fraction/channel identities, missing-channel defaults and delta semantics. Quantify the interpolation distinction separately from final skeleton composition; actual cache association, native child invocation and final rendering remain open. No Rust implementation change or broad corpus pass.
+
 ## Cycle fixture result and native evaluator admission (2026-10-29)
 
 The isolated cycle-helper plan passes 131,282 prepared/exact-rational comparisons under recorded FP controls. Preserve signed-zero and conversion-domain behavior; a generic clamp/modulo is not an admitted substitute. CZ independently binds client nonlocal child continuation after a false direct-pose result. Neither result establishes a live client pose.

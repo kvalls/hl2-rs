@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Selected quaternion representation and interpolation (2026-10-29)
+
+DG's exact retail server route resolves the previously unconfirmed interpolation helper:1045c1e0 compares squared distances to q and -q, uses the original q on a tie, linearly blends components and normalizes a nonzero norm with SQRTSS/DIVSS. The byte-bound route contains no spherical interpolation weights. The separate10458880 helper consumes radian Euler components in z/y/x half-angle order, stores x87 FSINCOS outputs as float32, then writes x/y/z/w. Decoder-equal Euler pairs bypass the blend; the fraction threshold is float0.0010000000474974513. Post-alignment requires a nondelta record; all39 selected owned records are delta.
+
+DG binds four exact bodies/four PE windows/798 starts/21 anchors/five edges/five literals/15 controls. DH separately executes the three closed helper graphs as relocation-only code in an authored x86 process:14,816 bit-exact outputs, five relocations/1036 code bytes/64 literal bytes and14 corruption controls. Output aliases and a finite distance tie that differs from a dot-sign shortcut are tested. This establishes the finite isolated numerical contract under recorded controls; actual HL2 cache/child calls/local arrays/final rendering remain unobserved. Native attempts DE/DF stop before launch, with DF explicitly retaining the owner's existing cursor-confinement guard. No Rust edits/builds; first_map_finished:false.
+
 ## Client numerical boundary and automatic children (2026-10-29)
 
 CY isolates the exact retail cycle instructions with three literals, mapped RX/RO in an authored x86 process. All 131,282 prepared cases also match an independent exact-rational reference. Under these controls, looping negative zero is preserved, a tiny negative cycle can round to 1.0, large values outside the conversion range are not ordinary remainder output, nonloop NaNs become zero and looping NaNs retain sign/payload with the quiet bit. These selected isolated results do not establish live client scheduling, networking or visual output.
