@@ -1,5 +1,15 @@
 # Local validation — 2026-10-05
 
+## Actual gesture callback, fixture and arithmetic audit (2026-10-29)
+
+From the checkout, run C:/Python310/python.exe -B with ../../work/hl2-decompiled/actor-gesture-probe-fixture-20261029cl/verify.py and its seal.py verify:240 native/uninstrumented-oracle-equal fixture calls,2,162 records,9,360 reads/236,160 bytes,14 corruption controls,71 sealed files. Normal nested instruction-hook behavior is verified; this is not native-HL2 performance or general exception/ABI certification.
+
+CN actor-gesture-callback-20261029cn/replay.py and check_controls.py pass65 selected processor calls,68 nested remap pairs,65 setter pairs,593 records,18,293 ordered reads/394,154 raw bytes and20 actual-transcript controls. Its actual reader adapter separately passes10 authored controls. Raw initial entity/model/name snapshot, exact relocated probe bytes, live generation/membership/event ownership, per-phase clocks, local source pins and final loaded modules are checked. Owned native30564/driver exit0 with six installed settings unchanged; Frida closes. CM owned34016 stopped before attach on an unloaded-scene assumption and closes0/settings unchanged. Preserve both CM and CN's rejected verifier drafts.
+
+CO actor-gesture-input-audit-20261029co/analyze.py, timing.py, verify_setup.py and check_controls.py pass65 duration/progress/output/setter/access-clock comparisons,65 stable loaded-tag pairs,three separately bound setup remaps and eight arithmetic controls. Real-arithmetic remap error is at most1.263368920589869e-7 cycle(64 Catmull-Rom/one linear). Four writes have zero layer weight. All62 subsequent same-event comparisons have seven-tick gaps and held prior outputs; this is scoped instrumented timing, not a fitted shift, global scheduler contract or closure of every older CG discrepancy. Regular hooked CALL continuation bytes were not captured; no native return-PC/full trampoline claim. PE anchors establish the processor's AL-only boolean stores.
+
+../../work/publishing/seal-gesture-20261029.py verify CM CN CO passes40/70/11 retained files. Screenshot visually confirms selected train-scene context; asynchronous capture timing prevents a pose comparison. No Rust tests/builds are relevant to these research-documentation-only changes. Final bones/gaze/face/full AV/transfer, ordinary completion and Rust parity remain not tested; first_map_finished:false.
+
 ## Fresh loaded-tag/source observation and timing limits (2026-10-29)
 
 CK actor-gesture-probe-preflight-20261029ck/verify.py passes12 PE anchors/four direct edges/three corrupted-anchor controls. This verifies selected static stored-float/argument-reuse sites only; no hook/context/relocation fixture or native invocation was tested.

@@ -1,5 +1,13 @@
 # Design
 
+## Actual gesture inputs, held layer values and next flex boundary (2026-10-29)
+
+Fixture-validated native probes now retain actual scene-time/duration/progress, loaded remap inputs and stored float32 output through the cycle setter. All65 selected calls agree with the duration/progress and actual setter audit; the real-arithmetic remap comparison is within1.2634e-7 cycle. This closes the selected callback-input observation gap, not native FP-control or pose fidelity. Preserve the float32 stores, distinguish setup remapping from normal updates, and retain AL-only boolean semantics where retail writes only the low byte.
+
+Within this instrumented window, all62 subsequent same-event callback comparisons are seven ticks apart and begin with the prior captured cycle. A presentation/sample clock can therefore advance while this layer value is held. Do not replace this scoped observation with a universal offset or scheduler-frequency rule. Four cycle writes have zero layer weight; cycle state alone cannot establish visible contribution. Hooked CALL return addresses can be instrumentation continuations; ordered exact-site/argument/output witnesses govern this result, with trampoline bytes and general exception handling still untested.
+
+Next bounded research plan: read the live conditional server flex gate and loaded type10 track flags/local indices under actor/controller generation, event/scene membership and native tick brackets. Pin the actual collector sources before launch, retain raw ranges and rereads, test corruptions, and close only owned processes. Compare loaded tracks with the admitted authored/model-local contract; keep this server-side source/gate evidence separate from client facial evaluation and final geometry. No Rust implementation change or next-map promotion follows automatically.
+
 ## Loaded gesture timing findings and next boundary (2026-10-29)
 
 CK preflight identifies explicit stored-float probe sites and argument-slot reuse in the exact processor. Original info/scene stack slots become scene-time/duration floats before the remap call. Preserve original identity separately; do not interpret those later slots as pointers or an integer return-value handle as floating-point result evidence. Disposable-fixture proof of instruction-hook context, relocation and reentrancy remains required before HL2 instrumentation.

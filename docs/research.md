@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Selected callback-time gesture calculation (2026-10-29)
+
+Private CL verifies pre-CALL/stored-float probes and three-deep normal returns on240 authored x86 calls, matching independent native and uninstrumented oracles. CN then records65 genuine selected endline gesture calls/68 remap pairs/65 setter pairs with raw identity, ownership, clock, stack and layer witnesses. Replay passes593 records/18,293 reads/394,154 bytes and20 actual-transcript controls. CM's pre-attach null-scene assumption remains rejected. Owned processes exit0/settings unchanged; actual sources are pinned before launch and checked after cleanup.
+
+CO admits all65 actual duration/progress/remap-argument/output/setter-cycle/access-clock comparisons. Loaded tags are stable across the recorded mapping; a real-arithmetic evaluator differs by at most1.2634e-7 cycle, without claiming exact native FP emulation. Three setup remaps are separately bound to the retained setup caller. Four setter calls have zero weight. All62 subsequent same-event comparisons are seven ticks apart with the pre-call cycle equal to the prior output. This scoped held-value observation does not retrospectively adjudicate every old passive mismatch or establish uninstrumented cadence/performance.
+
+The native boolean return updates AL only; upper EAX bits are not normalized. Regular hooked CALLs return through instrumentation continuations whose bytes were not captured. Preserve rejected verifier assumptions and use ordered exact-site/input/output witnesses rather than inventing a full ABI/trampoline proof. Final ANI/blend/bone/eye/facial/AV evaluation, ordinary campaign completion and Rust parity remain untested. CL/CM/CN/CO are sealed; first_map_finished:false. Next observe CD's actual server flex gate and loaded flags/local indices.
+
 ## Loaded gesture tags, duration and server flex filtering (2026-10-29)
 
 Private CK statically binds stored-float probe sites and the processor's reused stack slots with12 PE anchors/four call edges/three corruption controls. It adds no new decompiler body or runtime evidence. Original info/scene identities must survive separately from the stack slots later reused for scene time/duration; instruction-hook semantics remain fixture-unverified.

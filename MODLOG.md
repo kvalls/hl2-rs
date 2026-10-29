@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-10-29 research: actual gesture callback inputs and held layer cycles
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude's implementation work is separate.
+
+**Changed:** Published the sealed CL fixture, rejected CM preparation, CN native callback trace and CO arithmetic/held-cycle audit. Recorded actual selected duration/progress/remap-output/setter relationships and a bounded plan for live server flex gate/track-state research.
+
+**Why:** Earlier passive scene-clock hypotheses still disagreed with some stored layer cycles. Actual callback inputs and writes were needed before interpreting those sampled differences.
+
+**Tested how:**240 three-deep authored x86 calls match independent native/uninstrumented oracles;14 controls. Actual reader adapter10 controls. Native replay65 selected calls/593 records/18,293 raw reads/394,154 bytes/20 controls; eight arithmetic controls. All65 duration/progress/output/setter/access-clock comparisons pass; real-arithmetic remap error at most1.2634e-7 cycle. Seals and owned cleanup/settings/source/module checks pass; screenshot visually reviewed as scene context. Documentation-only changes; no Rust tests/builds.
+
+**Result:** Captured callbacks directly separate actual calculation from held layer state: all62 subsequent same-event comparisons have seven-tick gaps and begin with the previous recorded output. Three setup remaps and four zero-weight cycle writes remain distinct. Rejected null-scene, full-EAX-return, linked-word-control and original-return-PC assumptions are preserved.
+
+**Still broken or not tested / Next:** General ABI/exception/trampoline-code/FP-control proof, uninstrumented cadence, older CG mismatch causes, final layered bones/eye/face/full AV/transfer, ordinary campaign completion and Rust parity. First_map_finished:false. Continue with the actual conditional server flex gate and loaded track flags/local indices; private checkpoint research-followup-continuation-20261029co.md.
+
 ## 2026-10-29 session 35b: map prop_ragdolls exist (step 1)
 
 **Agent/model:** Claude Code desktop, `claude-opus-5-5`. No subagents.

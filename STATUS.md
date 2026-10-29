@@ -1,5 +1,15 @@
 # STATUS
 
+## Actual native gesture callback inputs and cycle writes (2026-10-29)
+
+A finite instrumented opening/endline window now records65 selected gesture processor calls,68 remap pairs and65 cycle-setter pairs. Independent replay passes593 records/18,293 raw reads/394,154 bytes, with zero open calls/errors/suppressed records and20 actual-transcript controls. All three authored head-gesture intervals are observed. Owned native/driver exit0; six checked installed settings, loaded module identity and pinned sources agree after cleanup. The rejected first preparation required an endline choreography object before it was loaded; it stopped before attachment and is preserved.
+
+All65 actual stored duration/progress values, remap arguments, stored outputs, setter arguments and resulting active layer cycles agree in the bounded audit. The real-arithmetic remap comparison differs by at most1.2634e-7 cycle; this is not bit-identical floating-point emulation. Four setter calls have zero layer weight. Three additional setup remaps remain distinct from main updates. In62 subsequent same-event comparisons, callbacks are seven native ticks apart and the pre-call cycle equals the prior recorded output. This demonstrates held layer state in this instrumented window, without fitting a clock shift or retroactively explaining every older sampled mismatch.
+
+The preceding authored x86 fixture verifies240 nested calls against independent native/uninstrumented oracles, with14 controls. The actual reader adapter passes10 mock-memory controls; the arithmetic audit passes eight controls. Normal instruction-hook context/stored-float behavior is fixture-tested. General exception unwinding, ABI, trampoline code bytes and uninstrumented timing are not certified. An AL-only boolean-return verifier assumption and a linked-word corruption-control mistake are retained as rejected drafts. The screenshot shows scene context, not exact pose fidelity.
+
+Private roots CL/CM/CN/CO are sealed; checkpoint: work/publishing/research-followup-continuation-20261029co.md. Work continues with the runtime server flex gate and loaded track flags/indices. No Rust edits/builds; first_map_finished:false. Final bones/gaze/face, full audiovisual/camera/transfer behavior, original16 authored gaps/four missing scene bodies and Rust parity remain open.
+
 ## Fresh loaded gesture tags and source-state capture (2026-10-29)
 
 Final CK static preflight binds12 instruction anchors/four direct edges and rejects three corrupted anchors. The processor overwrites original argument stack slots with float32 scene time/duration; preserve entry identities or retained registers before probing later sites. Instruction-hook context/relocation still requires fixture validation. No callback execution or timing resolution is claimed.
