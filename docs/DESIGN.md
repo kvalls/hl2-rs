@@ -1,5 +1,11 @@
 # Design
 
+## Primitive decoding boundary and next native child probe (2026-10-29)
+
+Owned selected child channels and isolated retail helper replay now bind RLE single/pair behavior, the1-valid/1-total pair guard, packed Quaternion64 scale/rounding and half conversion policy under recorded fixture controls. Keep record DELTA, descriptor DELTA and ALLZEROS flag domains distinct. Preserve negative zero; infinity/NaN handling follows the admitted retail helper rather than a generic IEEE conversion. No Rust parser or pose implementation changes were made here.
+
+Next bounded native plan: retain loaded parent/child descriptors, masks/edges and relative source mappings, then observe selected evaluator entry/leave calls only when the actual actor wrapper, entity generation, scene/event/layer association and finite call nesting admit them. Record stored cycle/weight inputs and bounded output buffers with exact probe bytes, source pins, raw ranges and explicit finish/cleanup. Fixture/mock validation precedes new instrumentation. Keep wrapper-associated server evaluation, output local arrays, client rendering and final world-space bones as separate claims; a missing selected call is a bounded negative observation, not absent animation or a reason for blind retries.
+
 ## Zero-data parents and nonlocal child traversal (2026-10-29)
 
 The selected retail accumulator reaches nonlocal autolayers even when direct parent pose calculation returns false. For the observed head parents, owned zero masks/zero-data descriptors coexist with apex and loop delta child edges. Keep recursive traversal separate from direct parent contribution; preserve start-inclusive/end-exclusive ramps, optional smoothing, relative child lookup and independent child weights. The selected loop's authored end exceeds parent cycle1; do not clamp that source ramp end to1 or normalize apex/loop weights as a blend grid. The source/byte contract does not establish actual native child weighting, decompression or final pose.

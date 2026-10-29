@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Selected channel source and isolated primitive validation (2026-10-29)
+
+Under ../../work/hl2-decompiled/actor-head-animation-decode-20261029cs, C:/Python310/python.exe -B verify.py/decode.py/check_decode.py/seal.py verify pass12 exact bodies/12 finite PE windows/2,630 starts,14 anchors/12 edges/five constants/11 controls;39 selected record chains/48 nonnull channels;2,904 independent integer lookups/eight structural controls;37 sealed files. Four pure-helper CFGs have no calls/foreign branches. Source/channel results are separate from live cache and pose execution.
+
+CT actor-animation-primitive-fixture-20261029ct/verify.py and check_controls.py pass71,306 exact outputs(2,904 single RLE/2,849 pair-boundary/17 Quaternion64/65,536 half),789 canonical code bytes/eight relocations/112 literal bytes, actual RX/RO protections and unchanged before/after mappings. Authored process32336 exits0; source/input/image pins and completion agree;12 artifact controls reject. x87 control589855 remains unchanged; MXCSR8064->8096 changes only sticky precision status. No Valve DLL/game launch/attachment or general ABI/native performance claim. compare_cs.py retains half8000 signed-zero discrepancy; CU/verify.py fixes only the private research helper and matches all65,536 outputs, with three policy/sign controls. Two selected packed position records/six source half components remain unchanged. seal-primitives-20261029.py verify CT CU passes36/4 files. No Rust tests/builds, final bone/face/AV/campaign parity; first_map_finished:false.
+
 ## Head-parent automatic child source/byte contract (2026-10-29)
 
 Under ../../work/hl2-decompiled/actor-head-autolayers-20261029cr, run C:/Python310/python.exe -B with verify.py, owned.py, join_graph.py, calculate.py, check_owned.py and seal.py verify. Static checks pass five local/one external exact bodies,five finite PE windows/1,374 starts,14 anchors/nine edges/four constants/10 controls. Owned selected-source checks reject seven structural mutations; three older raw graphs bind18 group/local tuples. The seal covers31 files/15 external bindings. Initial self-declaration-only navigation is not caller evidence; the separate exact incoming chain is retained. Finite windows do not certify full extents/ABI.

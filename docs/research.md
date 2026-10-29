@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Child channel decoding and isolated numerical helpers (2026-10-29)
+
+CS reads the selected owned apex/loop payloads in place and retains39 chains/48 nonnull RLE channels, raw packed ranges and all runs. Twelve exact retail bodies bind virtual group/bone routing, descriptor/block selection, shared position/rotation helpers and the opaque cache call. Two apex clips have44 frames; two packed loop clips have2. No AngleQuaternion/Slerp output, final skeleton or live cache association is inferred from those channels.
+
+CT's authored x86 process maps only four byte-bound, relocation-only pure helper buffers and exact literals, with no Valve DLL/game attachment.71,306 outputs match their binary references exactly, including exhaustive65,536 half encodings,2,904 single/2,849 paired channel cases and17 packed quaternions. Canonical code/literals, RX/RO protection, unchanged mappings/source pins, explicit completion and fixture FP controls pass, with12 corruption controls. This is isolated instruction evidence under those controls, not gameplay/cache/pose or general ABI/performance proof. Retail half conversion saturates infinities, maps NaNs tozero and preserves signed zero. A generic CS negative-zero loss is retained; CU corrects that private helper and rechecks the exhaustive domain. Selected raw positions are unchanged; no Rust code was edited.
+
 ## Selected head parents retain automatic children (2026-10-29)
 
 CR's owned metadata/retail-byte audit shows why zero-data parents cannot alone terminate authored child traversal. The two native-observed head parents have zero masks/ALLZEROS animation descriptors, with separate apex/loop delta children. The exact accumulator's false direct-pose branch still reaches the nonlocal walker, which resolves relative child sequence IDs and recurses with independent cycle/weight. Selected loop edges use a smooth ramp; selected apex edges have a hard end. Three older raw graphs admit18 parent/child virtual tuples, while actual child evaluation and loaded descriptor contents remain unobserved.

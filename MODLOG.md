@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: selected channels and isolated retail primitives
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust.
+
+**Changed / Why:** Published selected child-channel source/retail routing and isolated numerical-helper replay, preserving the live cache/final-pose boundary. Corrected a generic private half helper's negative-zero loss in a separate audit root; sealed originals stay unchanged.
+
+**Tested how:** CS12 exact bodies/2,630 PE starts/14 anchors/12 edges/five constants/11 controls;39 chains/48 channels/2,904 integer comparisons/eight structural controls. CT authored x86 process71,306 bit-exact cases, canonical code/literals/relocations/RX-RO mappings/FP controls/cleanup and12 controls. CU65,536 half comparisons/three policy controls. CS/CT/CU seals37/36/4 files. Fixture exit0; no native game/Rust tests/builds.
+
+**Result / Still untested / Next:** Primitive behavior is admitted under the recorded isolated fixture controls; source channels are decoded conditionally. Selected raw positions remain unchanged by the signed-zero correction. Live model-cache bytes, actual child evaluation/local arrays, final bones/gaze/face/AV and campaign/Rust parity remain untested. First_map_finished:false. Next bounded loaded-source/evaluator observation; checkpoint research-followup-continuation-20261029cu.md.
+
 ## 2026-10-29 research: zero-data head parents and automatic child route
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.

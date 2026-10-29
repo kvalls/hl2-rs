@@ -1,5 +1,13 @@
 # STATUS
 
+## Selected child channels and isolated primitive replay (2026-10-29)
+
+CS validates four owned child clips: two44-frame apex streams and two2-frame loop streams,39 record chains/48 nonnull compressed channels. Twelve exact retail bodies bind the virtual decoder, record/channel helpers and opaque cache boundary;12 PE windows/2,630 starts,14 anchors/12 edges/five constants/11 controls pass. Independent run expansion versus integer lookup passes2,904 values and eight structural controls. This is source/channel evidence, not a live cache or final-pose result.
+
+CT executes four bounded relocation-only helper buffers in an authored x86 process, loading no Valve DLL and attaching to no game. All71,306 cases match bit for bit:2,904 single RLE,2,849 pair/boundary,17 packed quaternions and65,536 half encodings. Canonical789 code bytes/eight literal relocations/112 literal bytes, RX/RO protections and before/after dumps verify;12 artifact controls pass. Owned fixture exits0; x87/MXCSR control bits agree(sticky precision status changes). This isolated instruction replay does not certify HL2 cache/scene/bone execution or general ABI/performance.
+
+The comparison preserves one generic sealed-CS helper error: half8000 lost negative-zero sign. CU corrects the private research helper and matches all65,536 isolated native outputs, without changing frozen CS or Rust. The six selected raw position components are unaffected. CS/CT/CU seals pass37/36/4 files. Checkpoint work/publishing/research-followup-continuation-20261029cu.md. Work continues toward the requested usage target with loaded child source/evaluator observation. First_map_finished:false; final skeleton/gaze/face/AV/campaign/Rust parity remain untested.
+
 ## Head-gesture nonlocal child layers (2026-10-29)
 
 Sealed CR binds the selected head parents' automatic child route. Owned parents823/827 have zero56-bone masks and zero-data animation descriptors; each references apexDelta/loopDelta children with48 nonzero source mask entries. Three retained raw virtual-table graphs bind all six parent/child tuples(18 comparisons). Exact retail control flow skips direct/local blending after a false direct-pose result but still reaches the nonlocal child walker. Relative sequence lookup,24-byte edge stride, ramp/flag paths and recursive call are byte-bound.
