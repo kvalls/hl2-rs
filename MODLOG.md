@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: client decoder and finite scale dispatch
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
+
+**Changed / Why:** Bound the complete client record-helper kernel, scale dispatch predicates/hidden x87 context and read-only table pairs. Validated both forced scale paths with explicit authored globals and traps on opaque error transfers.
+
+**Tested how:** DP34 exact bodies/34 PE windows/15 controls; DQ14 exact bodies/14 PE windows/15 controls. DR's access violation is rejected and frozen. DS58,320 bit-exact reference outputs/29,160 paired dispatch and29,160 alias matches,3,638 selected quaternions, four weights/seven crafted quaternions,2,233 owned buffer bytes/49 absolute/16 relative relocations/6,104 RO bytes, canaries/mappings/pins, process44412 exit0 and17+14+6 controls. Seals42/37/58/105 files. Documentation/whitelist checks apply; no Rust or native-game action.
+
+**Result / Still untested / Next:** Selected finite scale outputs agree across fixture paths and the host-double transcendental reference. A return-only decompiler helper hides actual FLDCW behavior. DR's allocator alignment/extent failure remains distinct from accepted DS. Table2/near-one interiors, opaque CRT errors/ABI, live dispatch/cache/actor/full pose/client rendering/campaign/Rust parity remain untested; first_map_finished:false. Continue exact caller-context research toward98% usage.
+
 ## 2026-10-29 research: bone DELTA leaves and client comparison
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.

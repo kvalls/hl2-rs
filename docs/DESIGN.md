@@ -1,5 +1,13 @@
 # Design
 
+## Scale dispatch and finite path validation plan (2026-10-29)
+
+DP binds the complete client record decoder to the admitted server kernel, while DQ binds the scale dispatcher and exposes flag/x87 context that the decompiler signatures omit. Dispatch/math-mode globals remain runtime inputs; local code equivalence does not close indexed tables or error handlers.
+
+DR's first fixture is rejected for literal alignment/extent admission; DS preserves the rejection and corrects both in a new root. DS passes58,320 finite exact outputs across both forced math paths/aliases with explicit authored globals and trapped opaque transfers. Indexed table bytes and scalar cleanup are now bound; table2/near-one interiors remain unexercised. A guarded finite path is not an unrestricted CRT/ABI contract or a live actor pose.
+
+Next bounded research: bind the client's optional pose-debug callback context through exact constructors/callers, using SDK names only as navigation. Distinguish an optional pointer read and virtual slot from a live callback or mutation; preserve the direct bone-blend continuation. No Valve DLL initialization, native-game launch or Rust change.
+
 ## Bone composition boundary and client comparison (2026-10-29)
 
 DM binds conditional model-mask/sequence-weight/virtual-map filtering and DELTA/POST operand order. Its scale helper retains an unresolved runtime CRT dispatch frontier. DN separately validates only the closed aligned-product/self-recursion and normalizer graph against finite selected record outputs, authored bases and aliases. Keep those claims separate from weighted whole-pose execution.

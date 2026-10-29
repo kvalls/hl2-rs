@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Complete client record kernel and scale dispatch (2026-10-29)
+
+DP proves ten complete client record-helper graphs relocation-equivalent to the admitted server kernel, including exact read-only consumed values and mapped calls. Thirty-four exact bodies/PE windows bind the caller, selector, virtual wrapper and cache interface edges separately; indirect slot60 and loaded cache bytes remain opaque. This extends conditional numerical reuse, not live client input/rendering evidence.
+
+DQ byte-binds the mutable flag/MXCSR/x87 predicates and both inverse-sine routes. The scalar classifier's EAX/ZF and x87 stack matter; a decompiler-empty control helper executes FLDCW. Seven local graph pairs match, including directly consumed literals; mutable globals and opaque cleanup/error context remain distinct. DS additionally binds the two full239-entry table byte pairs and exact scalar cleanup bodies.
+
+The rejected DR fixture exposes a relocation admission defect: an overlapping literal lost its native16-byte alignment and complete consumer extent. DS preserves both and guards all opaque transfers. Its58,320 finite scale outputs all match prepared/recomputed reference words and both dispatch choices/aliases. Inputs are3,638 selected DL quaternion words/6,346 record states, seven crafted quaternions and weights0/.25/.5/1. All mappings/pins/canaries and17+14+6 controls pass; owned process exits0. Explicit fixture-owned globals select the paths; no native runtime flags are inferred. The reference uses host-double asin/sin at float32 stages; finite bit agreement does not certify arbitrary transcendental domains. Table2/near-one interiors and CRT error/exception ABI are untested. No actual weighted accumulator/actor/client skeleton/rendering/campaign or Rust parity; first_map_finished:false.
+
 ## Bone weighting, DELTA order and client leaf code (2026-10-29)
 
 DM byte-binds finite incoming-weight gating/clamp, CStudioHdr bone-flag mask filtering, sequence weights, virtual group/bone mapping and descriptor DELTA/POST branches in101301b0. The owned four child sequences have DELTA+POST and48 weights1.0; this does not admit loaded runtime flags or actual BoneSetup masks. POST calls product(existing,scaled_delta), the other DELTA branch reverses operands, both normalize and add weighted child position. Scale uses a2^-23 denominator epsilon and an x87 runtime dispatcher; its selected runtime path remains unobserved.

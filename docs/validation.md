@@ -1,5 +1,15 @@
 # Local validation — 2026-10-05
 
+## Client record kernel and guarded scale paths (2026-10-29)
+
+DP at use/work/hl2-decompiled/client-record-decoder-contract-20261029dp: `C:/Python310/python.exe -B verify.py` and `seal.py verify` pass34 exact bodies/34 PE windows(4,004server/4,075client starts), ten closed kernel comparisons/3,257 code bytes/1,026 reachable instructions/18 calls, eight wrapper/cache edge groups, three additional DO read-only literal slots and15 controls. Forty-two files sealed. No client execution; cache slot60 remains opaque.
+
+DQ at scale-dispatch-contract-20261029dq: `verify.py` and `seal.py verify` pass14 exact bodies/14 PE windows(509server/508client starts), seven paired local graphs/404 reachable starts/1,725 covered bytes per module and15 controls;37 files sealed. Mutable flags/context are address bindings only. Decompiler-empty control helper FLDCW and classifier EAX/ZF are byte-bound. A slow verifier preparation and two stopped overlapping read-only checks are retained; neither produced a result or executed native code.
+
+DR at scale-finite-paths-20261029dr is rejected: process45808 returns0xc0000005 after READY, no accepted output/FINISH, launch pins unchanged. Misaligned/short overlapping literal admission is retained with the full inputs/layout; `seal.py verify` proves integrity only, not execution success. Fifty-eight files sealed. Do not rerun this root.
+
+DS at scale-finite-paths-20261029ds: `admit.py`, `source_admission.py`, `verify.py` and `seal.py verify` pass17+6+14 corruption controls and58,320 exact prepared/recomputed reference output words. All29,160 paired dispatch/29,160 alias rows match;3,638 selected source quaternions/6,346 unique record memberships, seven crafted quaternions and weights0/.25/.5/1. Twelve RX buffers comprise11 owned buffers/2,233 bytes plus one authored INT3 guard;49 absolute/16 relative relocations,25 RO blocks/6,104 bytes, full extents/native alignments and all before/after dumps/pins/canaries pass. Three opaque transfers target the guard and none executes. Process44412 exits0; raw x87CW639 is unchanged, MXCSR8064->8096 differs only in sticky precision, original controls restored. One hundred five files sealed. Finite inputs exercise tiny3/polynomial2626/table1:1013/one3, table indices0..46. Table2/near-one interiors and arbitrary-domain/error/exception ABI remain untested. Host-double transcendental reference agreement is finite evidence; no live actor/client execution, final pose/rendering/campaign/Rust parity is added; first_map_finished:false.
+
 ## Bone DELTA leaves and client relocation comparison (2026-10-29)
 
 DM at use/work/hl2-decompiled/child-bone-blend-contract-20261029dm: `C:/Python310/python.exe -B verify.py` and `seal.py verify` pass6 exact bodies/6 PE windows/860 starts/28 anchors/14 edges/four literals/18 controls and6 owned flag/weight profiles;20 files sealed. Product graph131 instructions/one self-call/two returns; normalizer38 instructions/no calls/one return. Scale dispatch1046fec0/runtime flags and other main-function callees remain frontiers.
