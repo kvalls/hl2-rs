@@ -1,5 +1,15 @@
 # Local validation — 2026-10-05
 
+## Cycle primitive, client child route and recorder preparation (2026-10-29)
+
+Under ../../work/hl2-decompiled/client-cycle-fixture-20261029cy, run C:/Python310/python.exe -B verify.py, check_controls.py and seal.py verify. All 131,282 outputs match both references; 14 artifact controls pass. Canonical 117 bytes/four relocations/12 literal bytes, RX/RO maps, raw argument pushes, one x87 float store, before/after dumps, source/image/input pins and process exit 0 are checked. The sampled float domain and recorded FP controls are explicit; general ABI, arbitrary modes and native gameplay are not tested. Rejected relocation-count, inline-assembler and caller-witness drafts remain preserved.
+
+client-child-route-20261029cz/verify.py and seal.py verify pass three local/one external exact bodies, three local/one external windows/1,226 PE starts, 20 anchors/eight edges/four constants/14 controls; 13 sealed files. loaded-child-admission-audit-20261029da/verify.py, check_controls.py and seal.py verify pass 1,703 identity reads/six accepted-graph joins/nine controls; six sealed files. Initial identity collection spans tick 440->441 and is not atomic.
+
+child-observer-adapter-fixture-20261029db: node check.cjs plus Python verify_retained.py/seal.py verify pass five closed pairs/two threads/415 reads/33,880 bytes/18 controls; eight sealed files. child-recorder-integration-20261029dc: Python verify.py/check_controls.py/seal.py verify pass 19 actual disk fixtures/208 records/196 chunks and 12 disk corruption controls; 227 sealed files. Nominal disk capture has 12 JSON/10 raw chunks and 415 raw joins to DB. Production class text is newline-normalized for its text digest; exact file bytes are separately sealed, with the initial rejected comparison preserved. The inherited DB scope sentence remains identified in the separate disk audit.
+
+These are private isolated/fixture/static checks. No Rust tests/builds, real child/client invocation, native hook exception/ABI certification, final bone/AV/campaign/parity test; first_map_finished:false.
+
 ## Loaded child metadata and client overlay validation (2026-10-29)
 
 Under ../../work/hl2-decompiled/actor-child-loaded-20261029cw, C:/Python310/python.exe -B check_fixture.py, verify.py and check_capture.py pass193 fixture reads/22,600 bytes/10 controls and898 actual rows/3,515 reads/235,476 bytes/12 controls. Six graphs accepted/three tick-crossed graphs excluded;36 mask/24 edge/36 animation-descriptor/36 sequence-descriptor comparisons pass, the latter excluding raw flags/activity. Native50192/driver exits0; module/source pins and six checked settings unchanged. Screenshot reviewed as asynchronous scene context only. No Frida/native helper calls or final-pose assertion.

@@ -1,5 +1,11 @@
 # Design
 
+## Cycle fixture result and native evaluator admission (2026-10-29)
+
+The isolated cycle-helper plan passes 131,282 prepared/exact-rational comparisons under recorded FP controls. Preserve signed-zero and conversion-domain behavior; a generic clamp/modulo is not an admitted substitute. CZ independently binds client nonlocal child continuation after a false direct-pose result. Neither result establishes a live client pose.
+
+The rejected CV scaffold remains frozen. DB replaces it with a directly authored actual-adapter fixture; DC checks production recorder logic and real disk output under the modeled API. Next bounded native plan: assemble a newly pinned observer/recorder source; verify exact retail/live entry bytes, displaced prologue and calling context against the existing native fixture evidence; then admit the owned process, module, actor/controller generations, wrapper, scene/event/layer association and finite nesting. Preserve every raw phase, error, footer and cleanup witness. One finite absence is a negative result; do not retry blind or promote fixture validation to actual child weights/final pose. No Rust change follows automatically.
+
 ## Loaded-source and client-cycle boundary (2026-10-29)
 
 CW admits selected loaded child descriptors/masks/relative edges under raw identity/range/tick brackets, preserving runtime flags/activity separately. CV's copied active mock scaffold stopped after two failed preparations and must not be loaded without a materially different accepted fixture. CX then binds static client layer ordering, history repair, cycle preparation and pose forwarding; neither lane observes actual recursive evaluation or final presentation.

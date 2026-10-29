@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Client numerical boundary and automatic children (2026-10-29)
+
+CY isolates the exact retail cycle instructions with three literals, mapped RX/RO in an authored x86 process. All 131,282 prepared cases also match an independent exact-rational reference. Under these controls, looping negative zero is preserved, a tiny negative cycle can round to 1.0, large values outside the conversion range are not ordinary remainder output, nonloop NaNs become zero and looping NaNs retain sign/payload with the quiet bit. These selected isolated results do not establish live client scheduling, networking or visual output.
+
+CZ independently binds the client direct-pose zero-data return, accumulator continuation, 24-byte automatic-child edges, relative sequence mapping and independent child weights. The selected false direct-pose branch preserves nonlocal traversal. This agrees structurally with the separately pinned server route at the reviewed contracts; actual client metadata, cache association, numerical equivalence and final bones remain open.
+
+DA adds full initial-identity replay to CW without altering the sealed capture. DB/DC validate the actual observer adapter and production recorder logic using a new authored model, retaining five closed calls across two threads and 415 exact raw joins. Modeled API/disk checks remain separate from Frida/native hook validation. No Rust implementation, final pose/AV/campaign parity or first-map completion is claimed.
+
 ## Passive loaded children and static client consumption (2026-10-29)
 
 CW joins six accepted live graphs to owned selected parent/child metadata:36 masks,24 relative edges,36 full animation descriptors and36 sequence descriptors with flags/activity excluded. Three tick-crossed graphs remain excluded; raw flags/activity are retained without new semantics. Full replay binds898 rows/3,515 reads/235,476 bytes. This closes loaded metadata identity for the sampled graphs while leaving executed child requests, ANI cache association and final bones open. CV's two rejected mock preparations were stopped before native use.

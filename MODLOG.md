@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-29 research: client cycle boundaries and observer preparation
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents. Claude owns Rust implementation.
+
+**Changed / Why:** Published isolated client cycle behavior, the conditional client automatic-child route, independent loaded-source admission replay and a new authored observer/recorder fixture. Preserved failed preparations and the distinction between fixture validation and actual child execution.
+
+**Tested how:** CY: 131,282 bit-exact outputs against both prepared and exact-rational references, 14 controls, owned fixture exit 0. CZ: four exact bodies, 1,226 PE starts, 20 anchors/eight edges/four constants/14 controls. DA: 1,703 initial identity reads/six later graph joins/nine controls. DB: five closed calls/two threads/415 reads/18 controls. DC: 19 disk fixtures, 208 records/196 chunks/12 disk corruption controls; nominal 415 raw reads match DB. CY/CZ/DA/DB/DC seals cover 33/13/6/8/227 files. No Rust tests/builds.
+
+**Result / Still untested / Next:** Looping signed zero, tiny-negative rounding and out-of-range conversion follow the isolated retail instructions rather than a generic modulo. Client zero-data direct pose still permits nonlocal children. Actual native child/client calls, cache payload association, final bones/gaze/face/AV and campaign/Rust parity remain untested; first_map_finished:false. Next validate exact live probe admission and run one finite owned evaluator capture. Private handoff: research-followup-continuation-20261029dc.md.
+
 ## 2026-10-29 research: loaded child metadata and client overlay boundary
 
 **Agent/model:** Codex desktop, GPT-6 family; exact identifier unavailable. No subagents; Claude owns Rust.
