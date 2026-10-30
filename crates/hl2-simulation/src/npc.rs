@@ -1169,7 +1169,12 @@ impl Controller {
                     goal.state = GoalState::Moving;
                 }
                 let excluded = excluded_for(key.actor);
-                let moved = advance(world, actor, *key, goal, track, transients, &excluded, dt);
+                let query = Query {
+                    excluded_entities: &excluded,
+                    transients,
+                    ..Default::default()
+                };
+                let moved = advance(world, actor, *key, goal, track, query, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
             })();
@@ -1241,15 +1246,10 @@ fn advance<W: NpcCollisionWorld>(
     key: GoalKey,
     goal: &mut Goal,
     track: &RootMotion,
-    transients: &[ActorHull],
-    excluded: &[usize],
+    // The mover's exclusions (itself, or every crab for a crab) and the other actors.
+    query: Query<'_>,
     dt: f32,
 ) -> Result<(), GoalBlockReason> {
-    let query = Query {
-        excluded_entities: excluded,
-        transients,
-        ..Default::default()
-    };
     if !npc_probe::fits(world, goal.feet, actor.ground.hull, query)
         || !npc_probe::stand(world, goal.feet, actor.ground, query)
     {
@@ -1273,8 +1273,8 @@ fn advance<W: NpcCollisionWorld>(
             let forced = !goal.simplified;
             goal.simplified = true;
             let plain = Query {
-                excluded_entities: excluded,
-                ..Default::default()
+                transients: &[],
+                ..query
             };
             simplify_path_forward(world, actor, goal, plain, forced);
         }
