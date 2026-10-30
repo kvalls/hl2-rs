@@ -14,6 +14,7 @@ use super::schedule::{
     TaskStatus,
 };
 use super::state::NpcState;
+use crate::sounds::PatchOp;
 use glam::Vec3;
 use serde::Serialize;
 
@@ -260,6 +261,12 @@ pub const FIELD_OF_VIEW: f32 = 0.2;
 
 /// Every sound cue this class emits (the host preloads them; a cue that is not
 /// preloaded is dropped).
+/// CNPC_PoisonZombie's breathing loops: m_pFastBreathSound and m_pSlowBreathSound.
+pub const POISON_FAST_BREATH: &str = "NPC_PoisonZombie.FastBreath";
+pub const POISON_SLOW_BREATH: &str = "NPC_PoisonZombie.Moan1";
+/// BREATH_VOL_MAX and ZOMBIE_ENEMY_BREATHE_DIST.
+pub const BREATH_VOL_MAX: f32 = 0.6;
+pub const ENEMY_BREATHE_DIST: f32 = 300.;
 pub const SOUNDS: &[&str] = &[
     "Zombie.FootstepLeft",
     "Zombie.FootstepRight",
@@ -282,6 +289,8 @@ pub const SOUNDS: &[&str] = &[
     "NPC_PoisonZombie.Die",
     "NPC_PoisonZombie.ThrowWarn",
     "NPC_PoisonZombie.Throw",
+    POISON_FAST_BREATH,
+    POISON_SLOW_BREATH,
 ];
 /// CNPC_BaseZombie's schedules (SDK text, the non-episodic SCHED_ZOMBIE_CHASE_ENEMY;
 /// COND_ZOMBIE_CAN_SWAT_ATTACK, COND_ZOMBIE_RELEASECRAB and the obstruction condition
@@ -590,6 +599,9 @@ pub struct Zombie {
     pub script_goal: Option<(Vec3, bool)>,
     /// m_flNextMoanSound (Spawn: now + U(1, 4)).
     pub next_moan: Option<f64>,
+    /// CNPC_PoisonZombie's breathing patches (Spawn creates them) and m_bNearEnemy.
+    pub breathing: bool,
+    pub near_enemy: bool,
     pub gagged: bool,
     /// m_hPhysicsEnt and its WorldSpaceCenter (the runtime refreshes the center each think
     /// and drops the object when its body is gone).
@@ -631,6 +643,8 @@ impl Zombie {
             assault: None,
             script_goal: None,
             next_moan: None,
+            breathing: false,
+            near_enemy: false,
             gagged,
             physics_ent: None,
             next_swat: 0.,
@@ -792,6 +806,94 @@ impl Zombie {
         self.seed ^= self.seed << 17;
         (self.seed >> 40) as f32 / (1u64 << 24) as f32
     }
+    /// CNPC_PoisonZombie's breathing (Spawn and PrescheduleThink): FastBreath (ATTN_IDLE)
+    /// silent and Moan1 at BREATH_VOL_MAX; an enemy within 300 units ramps the fast
+    /// breath up over U(1, 2) s (pitch 100-120 over U(1, 2) s) and the slow one out. The
+    /// SDK's far branch also ramps the fast breath to BREATH_VOL_MAX (over U(2, 4) s), so
+    /// once near it keeps breathing fast; ported as written.
+    pub fn breathe(&mut self, enemy_distance: Option<f32>) {
+        if !self.breathing {
+            self.breathing = true;
+            self.requests.push(CopRequest::Patch {
+                cue: POISON_FAST_BREATH,
+                op: PatchOp::Play {
+                    volume: 0.,
+                    pitch: 100.,
+                },
+            });
+            self.requests.push(CopRequest::Patch {
+                cue: POISON_SLOW_BREATH,
+                op: PatchOp::Play {
+                    volume: BREATH_VOL_MAX,
+                    pitch: 100.,
+                },
+            });
+        }
+        let near = enemy_distance.is_some_and(|d| d < ENEMY_BREATHE_DIST);
+        if near == self.near_enemy {
+            return;
+        }
+        self.near_enemy = near;
+        let seconds = if near {
+            1. + self.random()
+        } else {
+            2. + 2. * self.random()
+        };
+        self.requests.push(CopRequest::Patch {
+            cue: POISON_FAST_BREATH,
+            op: PatchOp::Volume {
+                volume: BREATH_VOL_MAX,
+                seconds,
+            },
+        });
+        if near {
+            let pitch = 100. + (self.random() * 21.).floor().min(20.);
+            let pitch_seconds = 1. + self.random();
+            self.requests.push(CopRequest::Patch {
+                cue: POISON_FAST_BREATH,
+                op: PatchOp::Pitch {
+                    pitch,
+                    seconds: pitch_seconds,
+                },
+            });
+        }
+        self.requests.push(CopRequest::Patch {
+            cue: POISON_SLOW_BREATH,
+            op: PatchOp::Volume {
+                volume: 0.,
+                seconds,
+            },
+        });
+    }
+    /// CNPC_PoisonZombie::BreatheOffShort before a vocal sound: the current breath drops
+    /// out for two seconds (envPoisonZombieBreatheVolumeOffShort).
+    pub fn breathe_off_short(&mut self) {
+        if !self.breathing {
+            return;
+        }
+        let cue = if self.near_enemy {
+            POISON_FAST_BREATH
+        } else {
+            POISON_SLOW_BREATH
+        };
+        self.requests.push(CopRequest::Patch {
+            cue,
+            op: PatchOp::Envelope {
+                points: [(0., 0.1), (0., 2.), (BREATH_VOL_MAX, 1.)],
+            },
+        });
+    }
+    /// StopLoopingSounds (death): both breathing patches go.
+    pub fn stop_breathing(&mut self) {
+        if std::mem::take(&mut self.breathing) {
+            for cue in [POISON_FAST_BREATH, POISON_SLOW_BREATH] {
+                self.requests.push(CopRequest::Patch {
+                    cue,
+                    op: PatchOp::Destroy,
+                });
+            }
+        }
+    }
     /// CZombie::PrescheduleThink's moan clock: IdleSound (Zombie.Idle; CanPlayMoanSound
     /// is true for small groups unless gagged), then U(2, 5) s until the next.
     /// CNPC_PoisonZombie::IdleSound plays only outside combat.
@@ -805,6 +907,10 @@ impl Zombie {
         if self.gagged || (combat && self.kind == Kind::Poison) {
             self.next_moan = Some(now + 1. + f64::from(self.random()));
             return;
+        }
+        // CNPC_PoisonZombie::IdleSound: BreatheOffShort first.
+        if self.kind == Kind::Poison {
+            self.breathe_off_short();
         }
         self.requests
             .push(CopRequest::Sound(self.kind.cue("Zombie.Idle")));
@@ -1634,6 +1740,66 @@ mod tests {
         assert!(z.custom_interrupts(&npc).has(COND_ZOMBIE_CAN_SWAT_ATTACK));
         npc.schedule = Some("SCHED_ZOMBIE_MELEE_ATTACK1".into());
         assert!(!z.custom_interrupts(&npc).has(COND_ZOMBIE_CAN_SWAT_ATTACK));
+    }
+    #[test]
+    fn poison_zombies_breathe_slow_then_fast_near_their_enemy() {
+        let mut z = Zombie::new(Kind::Poison, false, 11);
+        let patches = |z: &mut Zombie| {
+            z.requests
+                .drain(..)
+                .filter_map(|r| match r {
+                    CopRequest::Patch { cue, op } => Some((cue, op)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        // Spawn: the fast breath silent, the slow breath at BREATH_VOL_MAX.
+        z.breathe(Some(500.));
+        let start = patches(&mut z);
+        assert_eq!(
+            start,
+            [
+                (
+                    POISON_FAST_BREATH,
+                    PatchOp::Play {
+                        volume: 0.,
+                        pitch: 100.
+                    }
+                ),
+                (
+                    POISON_SLOW_BREATH,
+                    PatchOp::Play {
+                        volume: 0.6,
+                        pitch: 100.
+                    }
+                ),
+            ]
+        );
+        z.breathe(Some(400.));
+        assert!(patches(&mut z).is_empty());
+        // Within 300 units: fast up (pitch 100-120), slow out, over 1-2 s.
+        z.breathe(Some(250.));
+        let near = patches(&mut z);
+        assert_eq!(near.len(), 3);
+        assert!(
+            matches!(near[0], (POISON_FAST_BREATH, PatchOp::Volume { volume, seconds }) if volume == 0.6 && (1. ..=2.).contains(&seconds))
+        );
+        assert!(
+            matches!(near[1], (POISON_FAST_BREATH, PatchOp::Pitch { pitch, .. }) if (100. ..=120.).contains(&pitch))
+        );
+        assert!(
+            matches!(near[2], (POISON_SLOW_BREATH, PatchOp::Volume { volume, .. }) if volume == 0.)
+        );
+        // BreatheOffShort dips the current (fast) breath; death destroys both.
+        z.breathe_off_short();
+        assert!(matches!(
+            patches(&mut z)[..],
+            [(POISON_FAST_BREATH, PatchOp::Envelope { .. })]
+        ));
+        z.stop_breathing();
+        assert_eq!(patches(&mut z).len(), 2);
+        z.stop_breathing();
+        assert!(patches(&mut z).is_empty());
     }
     #[test]
     fn idle_moans_come_every_two_to_five_seconds_unless_gagged() {

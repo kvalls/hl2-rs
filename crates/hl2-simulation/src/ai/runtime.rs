@@ -2471,8 +2471,10 @@ impl AiRuntime {
                             {
                                 z.requests
                                     .push(CopRequest::Sound("NPC_PoisonZombie.ThrowWarn"));
+                                z.breathe_off_short();
                             } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_SOUND) {
                                 z.requests.push(CopRequest::Sound("NPC_PoisonZombie.Throw"));
+                                z.breathe_off_short();
                             } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_CRAB) {
                                 if z.holding_crab {
                                     z.throw_held_crab(ctx.now, ctx.enemy_eye);
@@ -4236,6 +4238,16 @@ impl AiRuntime {
                     actor.npc.conditions.has(COND_NEW_ENEMY),
                     std::mem::take(&mut actor.largest_hit) / max_health,
                 );
+                let origin = scene.states[id].origin;
+                let enemy_distance = actor.npc.enemy.and_then(|e| {
+                    let position = if e == PLAYER {
+                        Some(player.feet)
+                    } else {
+                        scene.states.get(e).map(|s| s.origin)
+                    };
+                    position.map(|p| (p - origin).length())
+                });
+                z.breathe(enemy_distance);
             }
         }
         // MaxYawSpeed and NPC_TranslateActivity's ACT_IDLE_ANGRY by class.
@@ -4749,21 +4761,39 @@ impl AiRuntime {
             return;
         }
         // CZombie / CNPC_PoisonZombie PainSound and DeathSound.
-        if let AiClass::Zombie(z) = &actor.class {
+        if let AiClass::Zombie(z) = &mut actor.class {
             let kind = z.kind;
             let cue = if state.killed {
                 if std::mem::replace(&mut actor.death_spoken, true) {
                     return;
                 }
+                // StopLoopingSounds: the breathing patches go with the body.
+                z.stop_breathing();
                 kind.cue("Zombie.Die")
             } else {
                 if now < actor.next_pain_sound || state.value <= 0. {
                     return;
                 }
                 actor.next_pain_sound = now + 1.;
+                // CNPC_PoisonZombie::PainSound: BreatheOffShort first.
+                if kind == zombie::Kind::Poison {
+                    z.breathe_off_short();
+                }
                 kind.cue("Zombie.Pain")
             };
             let origin = state.origin;
+            for request in z.requests.drain(..) {
+                if let CopRequest::Patch { cue, op } = request {
+                    scene.sounds.push(crate::sounds::SoundRequest {
+                        origin: Some(origin + Vec3::Z * 64.),
+                        ..crate::sounds::SoundRequest::patch(
+                            cue,
+                            crate::sounds::entity_emitter(id),
+                            op,
+                        )
+                    });
+                }
+            }
             scene.sounds.push(crate::sounds::SoundRequest {
                 origin: Some(origin + Vec3::Z * 64.),
                 ..cue.into()
@@ -4889,6 +4919,16 @@ impl AiRuntime {
                     scene.sounds.push(crate::sounds::SoundRequest {
                         origin: Some(origin + Vec3::Z * 36.),
                         ..String::from("NPC_BaseZombie.Swat").into()
+                    });
+                }
+                CopRequest::Patch { cue, op } => {
+                    scene.sounds.push(crate::sounds::SoundRequest {
+                        origin: Some(origin + Vec3::Z * 64.),
+                        ..crate::sounds::SoundRequest::patch(
+                            cue,
+                            crate::sounds::entity_emitter(id),
+                            op,
+                        )
                     });
                 }
                 CopRequest::Sound(name) => {

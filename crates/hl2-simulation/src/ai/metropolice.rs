@@ -105,6 +105,11 @@ pub struct PlayerView {
 pub enum CopRequest {
     /// m_Sentences.Speak(group).
     Sentence(&'static str),
+    /// A CSoundEnvelopeController operation on this NPC's looping patch of `cue`.
+    Patch {
+        cue: &'static str,
+        op: crate::sounds::PatchOp,
+    },
     /// CAI_PlayerAlly::SpeakIfAllowed(concept) (`ally_speech`).
     Concept(&'static str),
     /// AddLookTarget(player, importance, duration).

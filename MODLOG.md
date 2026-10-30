@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 39: poison zombie breathing loops (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session39-20261030: CNPC_PoisonZombie's FastBreath/Moan1 patches (near-enemy switch, BreatheOffShort dips, destroyed at death); `PatchOp::Envelope`; CopRequest::Patch; host patches follow their entity and keep their envelope volume.
+- Why: STATUS next step 2 (poison zombie leftovers).
+- Tested how: unit tests (hl2-simulation 400), packaged artifacts/s39 poison-breath audio trace, strict Clippy/fmt.
+- Result: the poison zombie breathes like the SDK describes.
+- Still broken or not tested: loudness vs native; owner listening.
+- Next: STATUS "Current session 39".
+
 ## 2026-10-30 session 39: poison zombie passive after a throw; black headcrab panic (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

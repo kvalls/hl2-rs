@@ -347,7 +347,7 @@ pub struct SoundRequest {
 }
 
 /// CSoundEnvelopeController (SDK soundenvelope.cpp) operations on one looping patch.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub enum PatchOp {
     /// Play(patch, volume, pitch): start (or restart) looping at this volume/pitch.
     Play { volume: f32, pitch: f32 },
@@ -357,6 +357,9 @@ pub enum PatchOp {
     Pitch { pitch: f32, seconds: f32 },
     /// SoundFadeOut(patch, seconds): ramp to silence, then stop.
     FadeOut { seconds: f32 },
+    /// SoundPlayEnvelope(patch, SOUNDCTRL_CHANGE_VOLUME, points): volume ramps run one
+    /// after another, (target volume, seconds) each.
+    Envelope { points: [(f32, f32); 3] },
     /// SoundDestroy: stop immediately.
     Destroy,
 }
@@ -366,6 +369,9 @@ pub enum PatchOp {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PatchEnvelope {
     volume: Ramp,
+    /// Envelope ramps still to run after `volume` (front first).
+    queued: [(f32, f32); 2],
+    queued_len: usize,
     pitch: Ramp,
     /// SoundFadeOut: stop once the volume ramp reaches silence.
     fading: bool,
@@ -407,15 +413,44 @@ impl PatchEnvelope {
     pub fn new(volume: f32, pitch: f32, time: f64) -> Self {
         Self {
             volume: Ramp::set(volume, time),
+            queued: [(0., 0.); 2],
+            queued_len: 0,
             pitch: Ramp::set(pitch, time),
             fading: false,
             stopped: false,
         }
     }
+    /// Start the next queued envelope ramp once the current one has ended.
+    fn advance(&mut self, time: f64) {
+        while self.queued_len > 0 {
+            let end = self.volume.start + f64::from(self.volume.seconds);
+            if time < end {
+                break;
+            }
+            let (to, seconds) = self.queued[0];
+            self.volume = Ramp {
+                from: self.volume.to,
+                to,
+                start: end,
+                seconds,
+            };
+            self.queued.rotate_left(1);
+            self.queued_len -= 1;
+        }
+    }
     pub fn apply(&mut self, op: PatchOp, time: f64) {
+        self.advance(time);
+        if !matches!(op, PatchOp::Pitch { .. }) {
+            self.queued_len = 0;
+        }
         match op {
             PatchOp::Play { volume, pitch } => *self = Self::new(volume, pitch, time),
             PatchOp::Volume { volume, seconds } => self.volume.change(volume, seconds, time),
+            PatchOp::Envelope { points } => {
+                self.volume.change(points[0].0, points[0].1, time);
+                self.queued = [points[1], points[2]];
+                self.queued_len = 2;
+            }
             PatchOp::Pitch { pitch, seconds } => self.pitch.change(pitch, seconds, time),
             PatchOp::FadeOut { seconds } => {
                 self.volume.change(0., seconds, time);
@@ -426,6 +461,7 @@ impl PatchEnvelope {
     }
     /// (volume, pitch percent) at `time`; marks a finished fade-out as stopped.
     pub fn sample(&mut self, time: f64) -> (f32, f32) {
+        self.advance(time);
         let volume = self.volume.at(time);
         if self.fading && volume <= 0. {
             self.stopped = true;
@@ -1200,6 +1236,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn patch_envelopes_chain_their_ramps() {
+        // CNPC_PoisonZombie::BreatheOffShort: to 0 in 0.1 s, hold 2 s, back to 0.6 in 1 s.
+        let mut e = PatchEnvelope::new(0.6, 100., 0.);
+        let points = [(0., 0.1), (0., 2.), (0.6, 1.)];
+        e.apply(PatchOp::Envelope { points }, 1.);
+        assert!((e.sample(1.05).0 - 0.3).abs() < 1e-4);
+        assert_eq!(e.sample(1.5).0, 0.);
+        assert_eq!(e.sample(3.).0, 0.);
+        assert!((e.sample(3.6).0 - 0.3).abs() < 1e-4);
+        assert!((e.sample(5.).0 - 0.6).abs() < 1e-6);
+        // A volume change cancels what is left of an envelope.
+        e.apply(PatchOp::Envelope { points }, 10.);
+        e.apply(
+            PatchOp::Volume {
+                volume: 0.2,
+                seconds: 0.,
+            },
+            10.5,
+        );
+        assert_eq!(e.sample(14.).0, 0.2);
+    }
     #[test]
     fn patch_envelopes_ramp_linearly_from_the_current_value_and_fade_out_stops() {
         let mut env = PatchEnvelope::new(0., 50., 0.);

@@ -827,6 +827,7 @@ pub fn queue(
         settings.paused = paused;
         let mut sink = sink;
         // CSoundPatch: the envelope drives volume and pitch (scene time, so pause holds).
+        let mut patched = false;
         if let Some(envelope) = player
             .emitter
             .as_ref()
@@ -840,8 +841,21 @@ pub fn queue(
                 commands.entity(entity).despawn();
                 continue;
             }
+            // An entity's patch moves with it (CSoundPatch follows its entity's origin).
+            let spatial = player.spatial.map(|(origin, soundlevel)| {
+                let followed = player
+                    .emitter
+                    .as_ref()
+                    .filter(|(emitter, _)| *emitter < 1 << 40)
+                    .and_then(|(emitter, _)| game.scene.states.get(*emitter as usize))
+                    .filter(|s| !s.killed)
+                    .map_or(origin, |s| {
+                        glam::Vec3::from_array(s.origin.to_array()) + glam::Vec3::Z * 64.
+                    });
+                (followed, soundlevel)
+            });
             if let Some(sink) = sink.as_deref_mut() {
-                let gain = player.spatial.map_or(1., |(origin, soundlevel)| {
+                let gain = spatial.map_or(1., |(origin, soundlevel)| {
                     hl2_simulation::sounds::dist_gain(soundlevel, listener.distance(origin))
                 });
                 sink.set_volume(bevy::audio::Volume::Linear(
@@ -849,6 +863,7 @@ pub fn queue(
                 ));
                 sink.set_speed(pitch.max(1.) / 100.);
             }
+            patched = true;
         }
         // Soundscape loops fade; their current volume replaces the spawn volume.
         let base = player
@@ -862,7 +877,9 @@ pub fn queue(
                 base.clamp(0., 1.) * global.volume.to_linear(),
             ));
         }
-        if let (Some((origin, soundlevel)), Some(sink)) = (player.spatial, sink.as_deref_mut()) {
+        if let (false, Some((origin, soundlevel)), Some(sink)) =
+            (patched, player.spatial, sink.as_deref_mut())
+        {
             let gain = hl2_simulation::sounds::dist_gain(soundlevel, listener.distance(origin));
             let volume = (base * gain).clamp(0., 1.);
             sink.set_volume(bevy::audio::Volume::Linear(
