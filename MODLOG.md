@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 38: owner playtest fixes (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session38-20261030: zombie crab releases (and the torso split's legs) no longer copy the whole map World while creating entities; the player's box is solid in falling NPC traces (a leaping crab stops at him, bites, slides down or rests on his head, and is pushed out if a tick-order overlap left it inside); the poison bite moved into `PlayerDamage::poison_bite`; `--profile` reports each CPU stage's maximum and slowest samples.
+- Why: owner playtest of session 37: a frame freeze when a crab detaches (worse with live crabs), the player stuck after a crab leap reaches him; owner note that poison bites lower the health the recovery returns to.
+- Tested how: packaged A/B against the pre-fix build (artifacts/s38: rel-before/rel-after with --profile, stuck-before/stuck-after, box-back), blackcrab-town2 on d1_town_02, unit tests (hl2-simulation 390), strict Clippy/fmt, regression artifacts/s38-regression.
+- Result: the kill tick of a crab release took 449 ms before and 13 ms after (no map copy); after a leap the player is never stuck (old build: stuck from the third bite on with the crab inside his box); repeated poison bites recover to 95, 90 ... 10, 5, then one for good, as the owner described (already the SDK model).
+- Still broken or not tested: a light prop_physics can rest ~0.1 units inside the player's box (with a crab in front of him he stays stuck); ground NPCs can overlap him a few units for a few ticks (tick order); native A/B of the leap not done.
+- Next: STATUS "Current session 38".
+
 ## 2026-10-29 research: acos return precision and caller-control sensitivity
 
 **EO preflight:** Bound the exact six-byte/three-instruction client initializer prefix, continuation and four rejected cuts/corruptions; four files sealed. This is static entry admission only. Observer/trampoline/state preservation/runtime capture remain not tested; next validate a disposable fixture.

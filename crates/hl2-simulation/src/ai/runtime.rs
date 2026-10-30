@@ -449,6 +449,8 @@ pub struct Diagnostics {
     /// NPC falls that ended (entity, z, what the trace hit, start solid, fraction); the
     /// last 16.
     pub fall_landings: Vec<(usize, f32, Option<usize>, bool, f32)>,
+    /// Falling NPCs pushed out of the player's box before their step (tick-order overlap).
+    pub player_box_pushouts: u32,
     /// SCHED_ZOMBIE_ATTACKITEM claws that struck their obstructor.
     pub obstructor_swats: u32,
     /// CNPC_Combine flush-grenade checks by outcome (out_of_range, moving, no_toss, ready).
@@ -1778,6 +1780,18 @@ impl AiRuntime {
         // Airborne crab steps that did not bite the player: (crab, swept box start, end,
         // mins, maxs, hit a solid after the world-ignore window, landed).
         let mut npc_touches = Vec::new();
+        // PhysicsTryMove traces with the NPC's solid mask, which the player's box blocks
+        // (NPCs have colliders; the player has none, so it is a transient box here). A
+        // dead player is not solid.
+        let player_box = (!player.noclip && !player.dead).then(|| crate::npc_probe::ActorHull {
+            entity: None,
+            feet: player.feet,
+            hull: crate::npc_probe::Hull {
+                mins: Vec3::new(-16., -16., 0.),
+                maxs: Vec3::new(16., 16., if player.crouched { 36. } else { 72. }),
+            },
+        });
+        let transients: Vec<_> = player_box.into_iter().collect();
         for (&id, actor) in self.actors.iter_mut() {
             let Some((velocity, last)) = actor.fall else {
                 continue;
@@ -1794,7 +1808,37 @@ impl AiRuntime {
                 .and_then(|e| crate::ai_hull::class_hull(e.class()))
                 .unwrap_or(crate::ai_hull::HullType::Human)
                 .bounds();
-            let origin = scene.states[id].origin;
+            let mut origin = scene.states[id].origin;
+            // Our player moves after the NPCs against their colliders from before this
+            // tick's NPC moves, so a leaping crab can start a tick a few units inside the
+            // player's box (Source moves both on current positions and never overlaps):
+            // push it out sideways first; if that fails the player box is left out.
+            let mut transients = transients.as_slice();
+            if let Some(player_box) = player_box {
+                let (lo, hi) = (
+                    player_box.feet + player_box.hull.mins,
+                    player_box.feet + player_box.hull.maxs,
+                );
+                if let Some(out) = push_out_of_box(origin, hull, lo, hi, |p| {
+                    !physics
+                        .npc_trace_hull(
+                            p,
+                            p,
+                            hull,
+                            crate::npc_probe::Query {
+                                excluded_entities: &[id],
+                                ..Default::default()
+                            },
+                        )
+                        .trace
+                        .start_solid
+                }) {
+                    origin = out;
+                    self.diagnostics.player_box_pushouts += 1;
+                } else if overlaps(origin + hull.mins, origin + hull.maxs, lo, hi) {
+                    transients = &[];
+                }
+            }
             let end = origin + velocity * dt;
             let trace = |excluded: &[usize]| {
                 physics.npc_trace_hull(
@@ -1803,6 +1847,7 @@ impl AiRuntime {
                     hull,
                     crate::npc_probe::Query {
                         excluded_entities: excluded,
+                        transients,
                         ..Default::default()
                     },
                 )
@@ -1826,12 +1871,19 @@ impl AiRuntime {
             };
             let position = origin + (end - origin) * fraction;
             scene.states[id].origin = position;
+            // The player's box was the first solid in this step's path.
+            let player_hit = hit.transient && hit.entity.is_none() && fraction < 1.;
             // A floor (or a stuck start) lands; a wall or ceiling stops that part of the
-            // motion and the fall goes on.
+            // motion and the fall goes on. On the player's head it rests without landing
+            // (PhysicsStepRecheckGround drops it once he steps away; our ground movement
+            // cannot stand on him).
             let landed = fraction < 1.
+                && !player_hit
                 && (hit.trace.start_solid
                     || hit.trace.normal.z > 0.7
                     || velocity.z <= 0. && velocity.truncate().length() < 1.);
+            // PhysicsTryMove's ClipVelocity (overbounce 1): a crab that strikes the player
+            // keeps only the motion along his box and slides down beside him.
             if fraction < 1. && !landed {
                 let n = hit.trace.normal;
                 velocity -= n * velocity.dot(n).min(0.);
@@ -1839,19 +1891,7 @@ impl AiRuntime {
             // CBaseHeadcrab::LeapTouch while airborne: the hated player's hull bites (once);
             // another solid after the world-ignore window fails the attack; landing ends it.
             if let AiClass::Headcrab(crab) = &mut actor.class {
-                let player_box = (
-                    player.feet + Vec3::new(-16., -16., 0.),
-                    player.feet + Vec3::new(16., 16., 72.),
-                );
-                let (lo, hi) = (position + hull.mins, position + hull.maxs);
-                let touching =
-                    !player.noclip && lo.cmple(player_box.1).all() && hi.cmpge(player_box.0).all();
-                // The player's box stops the leap (the player is solid to NPC moves; our
-                // NPC traces do not include him): the crab drops where it hit.
-                if touching {
-                    velocity.x = 0.;
-                    velocity.y = 0.;
-                }
+                let touching = player_hit;
                 if crab.leap_touch {
                     if touching && actor.npc.enemy == Some(PLAYER) && !player.dead {
                         self.diagnostics.player_hits += 1;
@@ -5208,6 +5248,36 @@ fn swat_candidates(
         .collect()
 }
 
+/// Strict box overlap (touching faces do not overlap).
+fn overlaps(lo: Vec3, hi: Vec3, box_lo: Vec3, box_hi: Vec3) -> bool {
+    lo.cmplt(box_hi).all() && hi.cmpgt(box_lo).all()
+}
+/// The nearest horizontal spot (DIST_EPSILON outside) where `hull` at `origin` no longer
+/// overlaps the box, shallowest side first, among those `clear` accepts; None when it does
+/// not overlap or no side is clear.
+fn push_out_of_box(
+    origin: Vec3,
+    hull: crate::npc_probe::Hull,
+    box_lo: Vec3,
+    box_hi: Vec3,
+    clear: impl Fn(Vec3) -> bool,
+) -> Option<Vec3> {
+    let (lo, hi) = (origin + hull.mins, origin + hull.maxs);
+    if !overlaps(lo, hi, box_lo, box_hi) {
+        return None;
+    }
+    let mut moves = [
+        Vec3::X * (box_hi.x - lo.x),
+        -Vec3::X * (hi.x - box_lo.x),
+        Vec3::Y * (box_hi.y - lo.y),
+        -Vec3::Y * (hi.y - box_lo.y),
+    ];
+    moves.sort_by(|a, b| a.length().total_cmp(&b.length()));
+    moves
+        .into_iter()
+        .map(|m| origin + m + m.normalize_or_zero() * 0.03125)
+        .find(|p| clear(*p))
+}
 /// WorldSpaceCenter / EyePosition heights of an NPC by class (`ai_hull`).
 fn center_z(world: &World, id: usize) -> f32 {
     world
@@ -5948,6 +6018,65 @@ mod tests {
         ai.step_falls(&world, &mut scene, &physics, player_at(-3000.));
         assert!(ai.melee_hits.is_empty());
         assert_eq!(bites(&ai), (1, true));
+    }
+    #[test]
+    fn leaping_headcrabs_stop_at_the_player_box_instead_of_entering_it() {
+        // Owner playtest (session 38): a crab that reached the player landed inside his
+        // box and he could not move. PhysicsTryMove's trace stops it at his box.
+        let world = World {
+            entities: vec![entity(&[
+                ("classname", "npc_headcrab"),
+                ("origin", "0 0 0"),
+            ])],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        let physics = Physics::new(&world);
+        let mut ai = AiRuntime::new(&world, None);
+        scene.time = 1.;
+        {
+            let actor = ai.actors.get_mut(&0).unwrap();
+            actor.npc.enemy = Some(PLAYER);
+            actor.fall = Some((Vec3::new(400., 0., 100.), 0.9));
+            let AiClass::Headcrab(crab) = &mut actor.class else {
+                panic!("not a crab");
+            };
+            crab.leap_touch = true;
+        }
+        // The player's box spans x 34..66: the 40-unit step stops at x 22 and bites once.
+        ai.step_falls(&world, &mut scene, &physics, player_at(50.));
+        let crab = scene.states[0].origin;
+        assert!(crab.x > 21.9 && crab.x + 12. <= 34., "{crab}");
+        assert_eq!(ai.player_hits.len(), 1);
+        // ClipVelocity: no motion into the box remains; it slides down beside him.
+        assert_eq!(ai.actors[&0].fall.unwrap().0.x, 0.);
+        for _ in 0..30 {
+            scene.time += 0.015;
+            ai.step_falls(&world, &mut scene, &physics, player_at(50.));
+            assert!(scene.states[0].origin.x + 12. <= 34.);
+        }
+        assert_eq!(ai.player_hits.len(), 1);
+        // A crab a tick-order overlap left 3 units inside the box is pushed out sideways.
+        scene.states[0].origin = Vec3::new(25., 0., 10.);
+        ai.actors.get_mut(&0).unwrap().fall = Some((Vec3::ZERO, scene.time));
+        scene.time += 0.015;
+        ai.step_falls(&world, &mut scene, &physics, player_at(50.));
+        assert!(
+            scene.states[0].origin.x + 12. < 34.,
+            "{}",
+            scene.states[0].origin
+        );
+        assert_eq!(ai.diagnostics.player_box_pushouts, 1);
+        // Dropped onto his head it rests there without landing, and falls once he leaves.
+        scene.states[0].origin = Vec3::new(50., 0., 80.);
+        ai.actors.get_mut(&0).unwrap().fall = Some((Vec3::new(0., 0., -200.), scene.time));
+        scene.time += 0.05;
+        ai.step_falls(&world, &mut scene, &physics, player_at(50.));
+        assert!((scene.states[0].origin.z - 72.).abs() < 0.1);
+        assert!(ai.actors[&0].fall.is_some());
+        scene.time += 0.05;
+        ai.step_falls(&world, &mut scene, &physics, player_at(200.));
+        assert!(scene.states[0].origin.z < 71.9);
     }
     #[test]
     fn stunstick_swings_strike_only_hated_npcs_in_the_swept_box() {

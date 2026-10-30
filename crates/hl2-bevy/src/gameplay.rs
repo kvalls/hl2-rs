@@ -253,32 +253,10 @@ impl Gameplay {
         // CBlackHeadcrab::TouchDamage: the bite (DMG_SLASH) leaves at least one health, then
         // DMG_POISON takes all but one; CheckTimeBasedDamage restores the poison later.
         for (crab, bite) in std::mem::take(&mut self.ai.poison_bites) {
-            use hl2_simulation::player_damage::{DMG_POISON, DMG_SLASH};
-            let inflictor = self.scene.states[crab].origin;
-            let Some((bite, _)) =
-                hl2_simulation::ai::headcrab::poison_bite(bite, self.inventory.health)
-            else {
-                continue;
-            };
-            if invulnerable {
-                continue;
-            }
-            for kind in [DMG_SLASH, DMG_POISON] {
-                let amount = if kind == DMG_SLASH {
-                    bite
-                } else {
-                    self.inventory.health - 1.
-                };
-                if self.inventory.health > 1. && amount > 0. {
-                    self.player_damage.take(
-                        &mut self.inventory,
-                        DamageInfo {
-                            amount,
-                            kind,
-                            inflictor,
-                        },
-                    );
-                }
+            if !invulnerable {
+                let inflictor = self.scene.states[crab].origin;
+                self.player_damage
+                    .poison_bite(&mut self.inventory, bite, inflictor);
             }
         }
         let now = self.scene.time;
@@ -714,8 +692,10 @@ impl Gameplay {
             state.enabled = false;
             physics.set_entity(id, origin, rotation, false);
             let now = self.scene.time;
-            let world = self.world.clone();
-            self.ai.become_torso(&world, &mut self.scene, id, torso);
+            // No second handle on the World while the legs are created below: make_mut
+            // would copy the whole map (a frame hitch).
+            self.ai
+                .become_torso(&self.world, &mut self.scene, id, torso);
             self.scene.states[torso].value = split.max_health;
             self.scene.npc_max_health.insert(torso, split.max_health);
             // BecomeTorso: a burning zombie's torso burns 30 s; then 50% of blasts ignite
@@ -828,10 +808,13 @@ impl Gameplay {
         );
         let facing = rotation * Vec3::X;
         let yaw = facing.y.atan2(facing.x).to_degrees();
-        let world = self.world.clone();
+        // Read the World through the field, never a second Arc handle: an entity created
+        // below while another handle lives makes Arc::make_mut copy the whole map (the
+        // frame hitch of every crab release before session 38).
+        let world = &*self.world;
         let crab_model = "models/headcrabclassic.mdl";
         let root = hl2_simulation::ai::spawn::templates(
-            &world,
+            world,
             &hl2_simulation::ai::spawn::gib_label(crab_model),
         )
         .first()
@@ -842,7 +825,7 @@ impl Gameplay {
             let skin = rig.matrices(&first.name, 0.);
             Some(*skin.first()? * rig.bones.first()?.inverse_bind.inverse())
         });
-        let attachment = self.scene.attachment_frames(&world, npc, &["headcrab"])[0];
+        let attachment = self.scene.attachment_frames(world, npc, &["headcrab"])[0];
         let (crab_origin, crab_angles) = match (attachment, root) {
             (Some(frame), Some(root)) => {
                 let (_, r, t) = (frame * root.inverse()).to_scale_rotation_translation();
@@ -883,7 +866,7 @@ impl Gameplay {
             // RELEASE_IMMEDIATE: a live npc_headcrab (no pitch), the zombie's squad and
             // inherited flags (gag, long range, fade corpse, always think) plus
             // SF_NPC_FALL_TO_GROUND; the body ragdolls without a force.
-            let flags = world.entities[npc]
+            let flags = self.world.entities[npc]
                 .get("spawnflags")
                 .and_then(|v| v.trim().parse::<u32>().ok())
                 .unwrap_or(0);
@@ -893,10 +876,10 @@ impl Gameplay {
                     | hl2_simulation::npc_makers::SF_NPC_FALL_TO_GROUND)
                     .to_string(),
             )];
-            if let Some(squad) = world.entities[npc].get("squadname") {
+            if let Some(squad) = self.world.entities[npc].get("squadname") {
                 overrides.push(("squadname", squad.to_owned()));
             }
-            let crab = hl2_simulation::ai::spawn::templates(&world, "npc_headcrab")
+            let crab = hl2_simulation::ai::spawn::templates(&self.world, "npc_headcrab")
                 .first()
                 .copied()
                 .and_then(|template| {

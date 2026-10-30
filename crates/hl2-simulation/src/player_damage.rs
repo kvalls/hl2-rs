@@ -262,6 +262,33 @@ impl PlayerDamage {
         self.diagnose(inv, bits, health_before);
         health_before - inv.health
     }
+    /// CBlackHeadcrab::TouchDamage on the player (HL2, not episodic): above one health, the
+    /// bite (DMG_SLASH, cut to leave one health) and then DMG_POISON of all but one health.
+    /// Only the poison comes back (check_time_based), so every bite lowers the health the
+    /// recovery reaches by what the slash took; enough bites leave one health that no
+    /// longer regenerates (owner, native), and a bite at one health does nothing.
+    pub fn poison_bite(&mut self, inv: &mut Inventory, bite: f32, inflictor: Vec3) {
+        let Some((bite, _)) = crate::ai::headcrab::poison_bite(bite, inv.health) else {
+            return;
+        };
+        for kind in [DMG_SLASH, DMG_POISON] {
+            let amount = if kind == DMG_SLASH {
+                bite
+            } else {
+                inv.health - 1.
+            };
+            if inv.health > 1. && amount > 0. {
+                self.take(
+                    inv,
+                    DamageInfo {
+                        amount,
+                        kind,
+                        inflictor,
+                    },
+                );
+            }
+        }
+    }
     /// CBasePlayer::CheckTimeBasedDamage's poison recovery (the other time-based kinds deal
     /// no damage in HL2): every 2 s while DMG_POISON is set, TakeHealth of up to 10 of the
     /// poison not yet restored (at most 100 health), for ten ticks.
@@ -509,6 +536,45 @@ mod tests {
         assert_eq!(damage.bits_damage_type & DMG_POISON, 0);
         damage.check_time_based(&mut inv, 40.);
         assert_eq!(inv.health, 99.);
+    }
+    #[test]
+    fn repeated_poison_bites_lower_the_recovered_health_until_one() {
+        // Owner (native, 2026-10-30): a poison bite cannot take the player below one
+        // health, but each one lowers the health the recovery returns to (only the poison
+        // half comes back, not the slash), down to one health that does not regenerate.
+        let mut damage = PlayerDamage::default();
+        let mut inv = player(100., 0.);
+        let mut now = 0.;
+        let mut recover = |damage: &mut PlayerDamage, inv: &mut Inventory| {
+            for _ in 0..12 {
+                now += 2.;
+                damage.check_time_based(inv, now);
+            }
+            inv.health
+        };
+        let mut reached = Vec::new();
+        for _ in 0..22 {
+            damage.poison_bite(&mut inv, 5., Vec3::ZERO);
+            assert_eq!(inv.health, 1.);
+            reached.push(recover(&mut damage, &mut inv));
+        }
+        assert_eq!(&reached[..3], &[95., 90., 85.]);
+        // ... 10, 5, then the bite at 5 is cut to 4 and poisons nothing: one for good.
+        assert_eq!(&reached[17..], &[10., 5., 1., 1., 1.]);
+        // Bites during the recovery cost the same 5 each.
+        let mut damage = PlayerDamage::default();
+        let mut inv = player(100., 0.);
+        damage.poison_bite(&mut inv, 5., Vec3::ZERO);
+        for t in [2., 4., 6.] {
+            damage.check_time_based(&mut inv, t);
+        }
+        assert_eq!(inv.health, 21.);
+        damage.poison_bite(&mut inv, 5., Vec3::ZERO);
+        assert_eq!(inv.health, 1.);
+        for t in 4..16 {
+            damage.check_time_based(&mut inv, 2. * f64::from(t));
+        }
+        assert_eq!(inv.health, 90.);
     }
     #[test]
     fn client_message_reports_once_and_keeps_time_based_bits() {
