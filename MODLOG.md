@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 39: NPC idle hiccups (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session39-20261030: TASK_SET_ACTIVITY as SetIdealActivity (`Motor::reselect_activity`, `Scene::ai_reselect_activity`); client sequence transitions for NPCs (`Scene::update_sequence_transitions`, `GestureLayers::compose_blended`, report `sequence_fades`).
+- Why: owner playtest: NPCs jerk every few seconds (the can cop's head); SCHED_IDLE_STAND restarted the idle every 5 s and no base-sequence change was blended.
+- Tested how: packaged fixture artifacts/s39 cupcop-look (before/after reports), unit tests (hl2-simulation 395), strict Clippy/fmt, Regression artifacts/s39-regression: movement 26/26, weapons 17/17, attention 26/26; finals within 7 levels of s38c-regression except bevy-attention-player (58 pixels on the console citizen's body: his pose now blends).
+- Result: the cop's idle plays continuously; sequence changes fade over 0.2 s like Source's CSequenceTransitioner.
+- Still broken or not tested: owner playtest; native side-by-side; non-NPC entities do not blend; one blended restart when the AI takes over after a script.
+- Next: STATUS "Current session 39".
+
 ## 2026-10-30 session 38: poison zombie deaths (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

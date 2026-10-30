@@ -171,14 +171,47 @@ impl GestureLayers {
         time: f32,
         params: &[f32],
     ) -> (Vec<Mat4>, Vec<PoseError>) {
+        self.compose_blended(rig, actor, base, time, params, &[])
+    }
+    /// `compose` with previous base sequences (sequence, time in seconds, weight) blended
+    /// over the base before the layers (C_BaseAnimating::MaintainSequenceTransitions).
+    pub fn compose_blended(
+        &self,
+        rig: &Rig,
+        actor: usize,
+        base: &str,
+        time: f32,
+        params: &[f32],
+        fades: &[(&str, f32, f32)],
+    ) -> (Vec<Mat4>, Vec<PoseError>) {
         let layers = self.layers(actor);
-        if layers.is_empty() && rig.autoplay.is_empty() {
+        if layers.is_empty() && rig.autoplay.is_empty() && fades.is_empty() {
             return (rig.matrices(base, time), Vec::new());
         }
         let mut pose = rig.local_pose(base, time);
+        let mut errors = Vec::new();
+        for (sequence, at, weight) in fades {
+            let Some(clip) = rig.clips.get(&sequence.to_lowercase()) else {
+                errors.push(PoseError::MissingSequence((*sequence).to_owned()));
+                continue;
+            };
+            // Cycle at the sequence's own rate (local_pose: fps over the last frame).
+            let frames = clip.frames.len().saturating_sub(1).max(1) as f32;
+            let cycle = at.max(0.) * clip.fps / frames;
+            let mut trial = pose.clone();
+            match rig.accumulate_pose_with(
+                &mut trial,
+                &sequence.to_lowercase(),
+                cycle,
+                *weight,
+                params,
+            ) {
+                Ok(()) => pose = trial,
+                Err(e) => errors.push(e),
+            }
+        }
         let mut ordered = layers.iter().collect::<Vec<_>>();
         ordered.sort_by_key(|l| (l.priority, l.order));
-        let mut errors = Vec::new();
         for layer in ordered {
             let Some(clip) = rig.clips.get(&layer.sequence) else {
                 errors.push(PoseError::MissingSequence(layer.sequence.clone()));

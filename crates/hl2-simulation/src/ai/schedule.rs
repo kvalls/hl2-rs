@@ -122,6 +122,12 @@ pub enum MoveStatus {
 /// The motor/navigator the host provides (npc.rs Controller, animation state).
 pub trait Motor {
     fn set_activity(&mut self, activity: &str);
+    /// SetIdealActivity of the activity already playing: MaintainActivity changes the
+    /// sequence only when SelectWeightedSequence picks another one (cycle 0); the same
+    /// sequence keeps playing. Hosts without weighted sequences restart it.
+    fn reselect_activity(&mut self, activity: &str) {
+        self.set_activity(activity);
+    }
     /// The current activity's sequence has finished (m_fSequenceFinished).
     fn activity_finished(&self) -> bool;
     /// Stop; true once stopped.
@@ -783,10 +789,17 @@ impl AiNpc {
             | "TASK_IGNORE_OLD_ENEMIES"
             | "TASK_DEFER_DODGE"
             | "TASK_SPEAK_SENTENCE" => Complete,
+            // SetIdealActivity: CAI_BaseNPC::SetActivity and MaintainActivity leave a
+            // running activity alone unless its re-rolled weighted sequence differs
+            // (SCHED_IDLE_STAND repeats every 5 s; restarting the idle jerked the head).
             "TASK_SET_ACTIVITY" => {
                 if let TaskArg::Activity(a) = arg {
-                    self.activity = a.clone();
-                    motor.set_activity(a);
+                    if self.activity == *a {
+                        motor.reselect_activity(a);
+                    } else {
+                        self.activity = a.clone();
+                        motor.set_activity(a);
+                    }
                 }
                 Complete
             }
@@ -1158,11 +1171,16 @@ pub(crate) mod tests {
         /// path_to fails (no route) and counts the requests.
         pub no_route: bool,
         pub path_requests: u32,
+        /// SetIdealActivity calls for the activity already playing.
+        pub reselects: u32,
     }
     impl Motor for FakeMotor {
         fn set_activity(&mut self, activity: &str) {
             self.activity = activity.into();
             self.activities.push(activity.into());
+        }
+        fn reselect_activity(&mut self, _activity: &str) {
+            self.reselects += 1;
         }
         fn activity_finished(&self) -> bool {
             self.finished
@@ -1306,6 +1324,24 @@ pub(crate) mod tests {
         assert!(Schedule::parse("X", "Interrupts COND_BOGUS").is_err());
     }
 
+    #[test]
+    fn repeated_idle_stand_keeps_the_running_idle() {
+        // SCHED_IDLE_STAND repeats after TASK_WAIT 5; its TASK_SET_ACTIVITY ACT_IDLE is
+        // SetIdealActivity of the running activity, which must not restart the sequence
+        // (owner playtest 2026-10-30: the can cop's head jerked every 5 s).
+        let schedules = Schedules::default();
+        let mut npc = AiNpc::new(1);
+        let mut motor = FakeMotor::default();
+        let mut ctx = Context::default();
+        let mut base = Base;
+        for t in 0..160 {
+            ctx.now = f64::from(t) * 0.1;
+            npc.maintain(&schedules, &mut base, &ctx, &mut motor);
+        }
+        assert_eq!(npc.schedule.as_deref(), Some("SCHED_IDLE_STAND"));
+        assert_eq!(motor.activities, ["ACT_IDLE"]);
+        assert!(motor.reselects >= 3, "{}", motor.reselects);
+    }
     #[test]
     fn idle_stand_waits_then_is_interrupted_by_a_new_enemy() {
         let schedules = Schedules::default();

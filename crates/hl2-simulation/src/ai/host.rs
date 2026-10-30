@@ -71,10 +71,10 @@ impl SceneMotor<'_> {
         }
     }
 }
-impl Motor for SceneMotor<'_> {
-    fn set_activity(&mut self, activity: &str) {
-        // CAI_BaseNPC::NPC_TranslateActivity -> Weapon_TranslateActivity: the active
-        // weapon's acttable, kept only when the model has the result.
+impl SceneMotor<'_> {
+    /// CAI_BaseNPC::NPC_TranslateActivity -> Weapon_TranslateActivity: the active
+    /// weapon's acttable, kept only when the model has the result.
+    fn translate_activity(&self, activity: &str) -> String {
         let weapon = self.weapon.as_deref().unwrap_or("");
         let activity = if self.idle_angry && activity == "ACT_IDLE" {
             "ACT_IDLE_ANGRY"
@@ -95,15 +95,33 @@ impl Motor for SceneMotor<'_> {
             .unwrap_or(activity);
         let translated = crate::npc_weapons::translate(weapon, activity)
             .filter(|t| self.scene.actor_has_activity(self.world, self.entity, t));
-        let activity = translated.unwrap_or(activity);
+        translated.unwrap_or(activity).to_owned()
+    }
+    /// Weapon_SetActivity(weapon activity, SequenceDuration) after a sequence change.
+    fn weapon_follows(&mut self, activity: String) {
+        if self.weapon.is_some() {
+            let duration = self.scene.ai_sequence_duration(self.world, self.entity);
+            self.weapon_activity = Some((activity, duration));
+        }
+    }
+}
+impl Motor for SceneMotor<'_> {
+    fn set_activity(&mut self, activity: &str) {
+        let activity = self.translate_activity(activity);
         if self
             .scene
-            .ai_set_activity(self.world, self.entity, activity)
-            && self.weapon.is_some()
+            .ai_set_activity(self.world, self.entity, &activity)
         {
-            // Weapon_SetActivity(weapon activity, SequenceDuration).
-            let duration = self.scene.ai_sequence_duration(self.world, self.entity);
-            self.weapon_activity = Some((activity.to_owned(), duration));
+            self.weapon_follows(activity);
+        }
+    }
+    fn reselect_activity(&mut self, activity: &str) {
+        let activity = self.translate_activity(activity);
+        if self
+            .scene
+            .ai_reselect_activity(self.world, self.entity, &activity)
+        {
+            self.weapon_follows(activity);
         }
     }
     fn activity_finished(&self) -> bool {

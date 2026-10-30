@@ -20,6 +20,47 @@ fn is_vphysics_class(class: &str) -> bool {
             "physics_prop" | "func_physbox" | "func_physbox_multiplayer" | "prop_ragdoll"
         )
 }
+/// A base sequence an actor left that still blends over the new one (an entry of the
+/// client CSequenceTransitioner's m_animationQueue). It keeps advancing while it fades.
+#[derive(Clone, Debug, Serialize)]
+pub struct SequenceFade {
+    pub sequence: String,
+    /// The sequence's own time (seconds) when it was replaced.
+    pub time: f32,
+    pub changed: f64,
+    /// min(previous fadeouttime, new fadeintime).
+    pub fade: f32,
+}
+impl SequenceFade {
+    /// C_AnimationLayer::GetFadeout: 1 -> 0 over `fade` on the 3s^2 - 2s^3 spline.
+    pub fn weight(&self, now: f64) -> f32 {
+        if self.fade <= 0. {
+            return 0.;
+        }
+        let s = 1. - (now - self.changed) as f32 / self.fade;
+        if s > 1. {
+            1.
+        } else if s > 0. {
+            3. * s * s - 2. * s * s * s
+        } else {
+            0.
+        }
+    }
+    /// The sequence time it is drawn at now.
+    pub fn time_at(&self, now: f64) -> f32 {
+        self.time + (now - self.changed).max(0.) as f32
+    }
+}
+/// The base sequence seen at the last update and the sequences fading out behind it.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SequenceTransitions {
+    sequence: String,
+    time: f32,
+    seen: Option<f64>,
+    pub fades: Vec<SequenceFade>,
+}
+/// studio.h STUDIO_SNAP: the sequence starts without blending from the previous one.
+const STUDIO_SNAP: u32 = 0x0002;
 pub enum SceneMoveCommand {
     Start {
         key: crate::npc::GoalKey,
@@ -345,6 +386,8 @@ pub struct Scene {
     pub gestures: crate::gestures::GestureLayers,
     /// CAI_BaseActor head control per actor, driven by look interests.
     pub heads: BTreeMap<usize, crate::attention::Head>,
+    /// Client CSequenceTransitioner per NPC: base sequences still fading out.
+    pub sequence_transitions: BTreeMap<usize, SequenceTransitions>,
     /// Flex controller values per actor (controller name lowercase -> value in its range).
     pub flex_controllers: BTreeMap<usize, BTreeMap<String, f32>>,
     /// Speech visemes added on top of the scene flex controllers.
@@ -656,6 +699,7 @@ impl Scene {
             look_targets: Default::default(),
             gestures: Default::default(),
             heads: BTreeMap::new(),
+            sequence_transitions: BTreeMap::new(),
             flex_controllers: BTreeMap::new(),
             lipsync: Default::default(),
             monitors: crate::monitors::Cameras::new(world),
@@ -1283,15 +1327,87 @@ impl Scene {
             return ragdoll.clone();
         }
         let params = self.actor_pose_values(rig, id);
+        let fades = self.sequence_fades(id);
         self.gestures
-            .compose(
+            .compose_blended(
                 rig,
                 id,
                 &self.states[id].animation,
                 self.animation_time(id),
                 &params,
+                &fades,
             )
             .0
+    }
+    /// Previous base sequences to blend now, newest first: (sequence, time, weight).
+    pub fn sequence_fades(&self, id: usize) -> Vec<(&str, f32, f32)> {
+        self.sequence_transitions
+            .get(&id)
+            .map_or_else(Vec::new, |t| {
+                t.fades
+                    .iter()
+                    .rev()
+                    .map(|f| {
+                        (
+                            f.sequence.as_str(),
+                            f.time_at(self.time),
+                            f.weight(self.time),
+                        )
+                    })
+                    .filter(|(_, _, w)| *w > 0.)
+                    .collect()
+            })
+    }
+    /// C_BaseAnimating::MaintainSequenceTransitions after the tick's AI: a changed or
+    /// restarted base sequence of an NPC pushes the previous one, which keeps playing and
+    /// fades out (CSequenceTransitioner::CheckForSequenceChange/UpdateCurrent); a
+    /// STUDIO_SNAP sequence clears the queue. Killed or ragdolled actors drop theirs.
+    pub fn update_sequence_transitions(&mut self, world: &World) {
+        let now = self.time;
+        for id in 0..self.states.len().min(world.entities.len()) {
+            let state = &self.states[id];
+            if state.killed
+                || self.ragdoll_matrices.contains_key(&id)
+                || !self.ent(world, id).class().starts_with("npc_")
+            {
+                if !self.sequence_transitions.is_empty() {
+                    self.sequence_transitions.remove(&id);
+                }
+                continue;
+            }
+            let time = self.animation_time(id);
+            let sequence = &self.states[id].animation;
+            let entry = self.sequence_transitions.entry(id).or_default();
+            let changed = entry.seen.is_some()
+                && (!entry.sequence.eq_ignore_ascii_case(sequence) || time + 1e-3 < entry.time);
+            if changed {
+                let rig = world
+                    .model_instances
+                    .iter()
+                    .find(|i| i.entity == Some(id))
+                    .and_then(|i| world.rigs.get(&i.asset_key()));
+                let clip = |name: &str| rig.and_then(|r| r.clips.get(&name.to_lowercase()));
+                match (clip(&entry.sequence), clip(sequence)) {
+                    (_, Some(new)) if new.layer.flags & STUDIO_SNAP != 0 => entry.fades.clear(),
+                    (Some(old), Some(new)) => {
+                        let seen = entry.seen.unwrap_or(now);
+                        entry.fades.push(SequenceFade {
+                            sequence: entry.sequence.clone(),
+                            time: entry.time + (now - seen).max(0.) as f32,
+                            changed: now,
+                            fade: old.layer.fade_out.min(new.layer.fade_in),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            entry.fades.retain(|f| f.weight(now) > 0.);
+            if entry.sequence != *sequence {
+                entry.sequence.clone_from(sequence);
+            }
+            entry.time = time;
+            entry.seen = Some(now);
+        }
     }
     /// Normalized pose parameters: model defaults plus head control (head_pitch/yaw/roll)
     /// and the server-side body/head flex controllers (CAI_BaseActor UpdateHeadControl adds
@@ -1346,6 +1462,9 @@ impl Scene {
             for v in head.goal.to_array() {
                 hash = mix(hash, v);
             }
+        }
+        for (_, time, weight) in self.sequence_fades(id) {
+            hash = mix(mix(hash, time), weight);
         }
         if let Some(m) = self
             .states
@@ -1502,6 +1621,32 @@ impl Scene {
             .map_or(0., sequence_finish);
         self.ai_sequence_end.insert(id, self.time + finish);
         true
+    }
+    /// SetIdealActivity + MaintainActivity for the activity already playing:
+    /// SelectWeightedSequence(activity, current) and a switch only to another sequence
+    /// (true). The same pick, an unknown activity or a missing rig keep the sequence.
+    pub fn ai_reselect_activity(&mut self, world: &World, id: usize, activity: &str) -> bool {
+        let Some(rig) = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))
+            .and_then(|i| world.rigs.get(&i.asset_key()))
+        else {
+            return false;
+        };
+        let current = self.states[id].animation.clone();
+        let random = &mut self.random;
+        let picked = rig.lookup_sequence(activity, Some(&current), |upper| {
+            *random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (*random >> 32) as u32 % upper
+        });
+        match picked {
+            Some(picked) if !picked.eq_ignore_ascii_case(&current) => {
+                let picked = picked.to_owned();
+                self.ai_set_activity(world, id, &picked)
+            }
+            _ => false,
+        }
     }
     /// Animation events (name, id) of the actor's current sequence whose time falls in
     /// (from, to] (studio events, played once per sequence start).
@@ -5164,6 +5309,119 @@ mod tests {
         );
         assert_eq!(scene.states[1].animation, "smg1idle1");
         assert_eq!(scene.states[2].animation, "idle_baton");
+    }
+    #[test]
+    fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
+        use modkit_core::{
+            animation::{Bone, Clip, Pose, Rig, Sequence},
+            ModelInstance,
+        };
+        // A one-bone idle turning 0.01 rad per frame, looping over 300 frames (10 s).
+        let clip = || Clip {
+            layer: modkit_core::animation::ClipLayer {
+                flags: modkit_core::animation::sequence_flags::LOOPING,
+                fade_in: 0.2,
+                fade_out: 0.2,
+                ..Default::default()
+            },
+            events: Vec::new(),
+            fps: 30.,
+            looping: true,
+            frames: (0..301)
+                .map(|i| {
+                    vec![Pose {
+                        position: Vec3::ZERO,
+                        rotation: Quat::from_rotation_z(i as f32 * 0.01),
+                    }]
+                })
+                .collect(),
+        };
+        let w = World {
+            entities: vec![entity("npc_metropolice", "cop", &[])],
+            model_instances: vec![ModelInstance {
+                background: false,
+                model: "police.mdl".into(),
+                origin: Vec3::ZERO,
+                angles: Vec3::ZERO,
+                skin: 0,
+                body: 0,
+                scale: 1.,
+                kind: "npc_metropolice".into(),
+                solid: false,
+                solid_mode: None,
+                entity: Some(0),
+            }],
+            rigs: BTreeMap::from([(
+                "police.mdl#0".into(),
+                Rig {
+                    bones: vec![Bone {
+                        name: "root".into(),
+                        parent: None,
+                        bind: Pose {
+                            position: Vec3::ZERO,
+                            rotation: Quat::IDENTITY,
+                        },
+                        inverse_bind: Mat4::IDENTITY,
+                    }],
+                    clips: BTreeMap::from([("batonidle1".to_string(), clip())]),
+                    sequences: vec![Sequence {
+                        name: "batonidle1".into(),
+                        activity: "ACT_IDLE".into(),
+                        weight: 2,
+                        order: 0,
+                    }],
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&w);
+        let rig = &w.rigs["police.mdl#0"];
+        let angle = |scene: &Scene| {
+            let (_, r, _) = scene.actor_matrices(rig, 0)[0].to_scale_rotation_translation();
+            r.to_axis_angle().1
+        };
+        assert!(scene.ai_set_activity(&w, 0, "ACT_IDLE"));
+        for _ in 0..200 {
+            scene.tick(&w, Vec3::ZERO, 0.015);
+            scene.update_sequence_transitions(&w);
+        }
+        // The only ACT_IDLE sequence is playing: reselecting keeps it running.
+        let started = scene.states[0].animation_started;
+        assert!(!scene.ai_reselect_activity(&w, 0, "ACT_IDLE"));
+        assert_eq!(scene.states[0].animation_started, started);
+        // A forced restart (cycle 0) blends from the old pose: no jump at the change,
+        // the smoothstep halfway at 0.1 s, the new sequence alone after 0.2 s.
+        scene.tick(&w, Vec3::ZERO, 0.015);
+        scene.update_sequence_transitions(&w);
+        let before = angle(&scene);
+        assert!(scene.ai_set_activity(&w, 0, "ACT_IDLE"));
+        scene.update_sequence_transitions(&w);
+        assert_eq!(scene.sequence_fades(0).len(), 1);
+        assert!(
+            (angle(&scene) - before).abs() < 1e-4,
+            "{} {}",
+            angle(&scene),
+            before
+        );
+        for _ in 0..7 {
+            scene.tick(&w, Vec3::ZERO, 0.015);
+            scene.update_sequence_transitions(&w);
+        }
+        let fades = scene.sequence_fades(0);
+        assert!((fades[0].2 - 0.5).abs() < 0.12, "{fades:?}");
+        assert_ne!(scene.pose_signature(0), 0);
+        for _ in 0..7 {
+            scene.tick(&w, Vec3::ZERO, 0.015);
+            scene.update_sequence_transitions(&w);
+        }
+        assert!(scene.sequence_fades(0).is_empty());
+        let fresh = scene.animation_time(0) * 30. * 0.01;
+        assert!(
+            (angle(&scene) - fresh).abs() < 1e-3,
+            "{} {fresh}",
+            angle(&scene)
+        );
     }
     #[test]
     fn combine_cameras_deploy_retract_and_redeploy() {
