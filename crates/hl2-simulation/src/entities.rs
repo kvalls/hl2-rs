@@ -3251,6 +3251,24 @@ impl Scene {
             _ => self.unsupported_input(class, &p.input),
         }
     }
+    /// The activity of the actor's current sequence, ACT_IDLE when it has none
+    /// (CAI_ScriptedSequence::StartSequence: SetActivityAndSequence(act, ...)).
+    pub fn sequence_activity(&self, world: &World, id: usize) -> Option<String> {
+        let animation = &self.states.get(id)?.animation;
+        let rig = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))
+            .and_then(|i| world.rigs.get(&i.asset_key()))?;
+        let activity = rig
+            .sequences
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(animation))
+            .map(|s| s.activity.as_str())
+            .filter(|a| !a.is_empty())
+            .unwrap_or("ACT_IDLE");
+        Some(activity.to_owned())
+    }
     /// HaveSequenceForActivity on the actor's loaded rig.
     pub fn actor_has_activity(&self, world: &World, id: usize, activity: &str) -> bool {
         world

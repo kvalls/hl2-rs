@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 39: no idle restart when the AI takes over from a script (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session39-20261030: Scene::sequence_activity; the AI's activity follows the script's sequence while a script owns the actor.
+- Why: the last idle restart in the owner's can cop case (4.07 s, when the AI took over from the map script).
+- Tested how: packaged artifacts/s39 cupcop-look, hl2-simulation 401, strict Clippy/fmt, regression artifacts/s39d-regression (26/26, 17/17, 26/26).
+- Result: no restart at the takeover; idle variations switch only when the weighted re-roll picks another (SDK), blended.
+- Still broken or not tested: owner playtest; native side-by-side of the cop.
+- Next: STATUS "Current session 39".
+
 ## 2026-10-30 session 39: headcrabs pass each other on the ground; poison blast kill (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

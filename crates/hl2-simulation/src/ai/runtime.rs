@@ -2383,6 +2383,11 @@ impl AiRuntime {
                 if let Some(cop) = actor.class.cop_mut() {
                     cop.scripted = true;
                 }
+                // The script's sequence sets m_Activity: when the AI takes over, its
+                // TASK_SET_ACTIVITY of that same activity keeps the sequence running.
+                if let Some(activity) = scene.sequence_activity(world, id) {
+                    actor.npc.activity = activity;
+                }
                 self.diagnostics.scripted_skips += 1;
                 continue;
             }
