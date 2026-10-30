@@ -169,12 +169,98 @@ pub fn set_bodygroup(parts: &[BodyPart], body: i32, group: usize, value: i32) ->
     let Some(part) = parts.get(group) else {
         return body;
     };
-    let models = part.models as i32;
-    if value < 0 || value >= models || part.base <= 0 {
+    set_body_value((part.models, part.base), body, value)
+}
+/// ::SetBodygroup for one body part given as (submodel count, base).
+pub fn set_body_value((models, base): (usize, i32), body: i32, value: i32) -> i32 {
+    let models = models as i32;
+    if value < 0 || value >= models || base <= 0 {
         return body;
     }
-    let current = (body / part.base) % models;
-    body - current * part.base + value * part.base
+    let current = (body / base) % models;
+    body - current * base + value * base
+}
+/// ::GetBodygroup for one body part given as (submodel count, base).
+pub fn body_value((models, base): (usize, i32), body: i32) -> i32 {
+    if models <= 1 || base <= 0 {
+        0
+    } else {
+        (body / base).rem_euclid(models as i32)
+    }
+}
+/// Classes whose AI calls SetBodygroup after spawning, and the groups it changes:
+/// CNPC_PoisonZombie's nest crabs (ZOMBIE_BODYGROUP_NEST_BASE 2..4) and the crab in its
+/// hand (ZOMBIE_BODYGROUP_THROW 5).
+pub const RUNTIME_BODYGROUPS: &[(&str, &[usize])] = &[("npc_poisonzombie", &[2, 3, 4, 5])];
+/// Every body value reachable from `body` by setting `groups` (each to any submodel).
+pub fn body_variants(parts: &[(usize, i32)], body: i32, groups: &[usize]) -> Vec<i32> {
+    let mut bodies = vec![body];
+    for &group in groups {
+        let Some(&part) = parts.get(group) else {
+            continue;
+        };
+        bodies = bodies
+            .iter()
+            .flat_map(|&b| (0..part.0 as i32).map(move |v| set_body_value(part, b, v)))
+            .collect();
+    }
+    bodies.sort_unstable();
+    bodies.dedup();
+    bodies
+}
+/// Load the body variants of instances whose class changes bodygroups at runtime
+/// (RUNTIME_BODYGROUPS) into `model_assets` with their body part table, at map load so the
+/// frame systems never read models.
+fn append_runtime_body_variants(world: &mut World, vfs: &Vfs, report: &mut ModelReport) {
+    let mut wanted = Vec::new();
+    for instance in &world.model_instances {
+        let Some(class) = instance
+            .entity
+            .and_then(|id| world.entities.get(id))
+            .map(|e| e.class())
+        else {
+            continue;
+        };
+        let Some((_, groups)) = RUNTIME_BODYGROUPS.iter().find(|(c, _)| *c == class) else {
+            continue;
+        };
+        wanted.push((instance.clone(), *groups));
+    }
+    for (instance, groups) in wanted {
+        let path = instance.model.to_lowercase();
+        if !world.model_body_parts.contains_key(&path) {
+            let parts = match vfs.read(&path).ok().flatten().map(|d| body_parts(&d)) {
+                Some(Ok(parts)) => parts,
+                _ => {
+                    report
+                        .errors
+                        .push(format!("{path}: no body parts for runtime bodygroups"));
+                    continue;
+                }
+            };
+            world.model_body_parts.insert(
+                path.clone(),
+                parts.iter().map(|p| (p.models, p.base)).collect(),
+            );
+        }
+        let parts = world.model_body_parts[&path].clone();
+        for body in body_variants(&parts, instance.body, groups) {
+            let variant = ModelInstance {
+                body,
+                ..instance.clone()
+            };
+            let key = variant.asset_key();
+            if world.model_assets.contains_key(&key) {
+                continue;
+            }
+            match read_model_body(vfs, &path, instance.skin, body) {
+                Ok(surfaces) => {
+                    world.model_assets.insert(key, surfaces);
+                }
+                Err(e) => report.errors.push(format!("{key}: {e:#}")),
+            }
+        }
+    }
 }
 /// The submodel a body value selects in each body part (::GetBodygroup).
 pub fn body_selection(parts: &[BodyPart], body: i32) -> Vec<usize> {
@@ -1008,6 +1094,10 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
             if matches!(instance.kind.as_str(), "npc_zombie" | "npc_zombie_torso") {
                 wanted.extend(ZOMBIE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
             }
+            // SCHED_ZOMBIE_POISON_RANGE_ATTACK2's threat sequence.
+            if instance.kind == "npc_poisonzombie" {
+                wanted.insert("act_zombie_poison_threat".into());
+            }
             // A raggib ragdolls from its sequence 0 (cycle 0).
             if instance.kind == "raggib" {
                 if let Ok(Some(first)) = crate::animation::first_sequence_name(vfs, &instance.model)
@@ -1115,6 +1205,7 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
         }
     }
     world.surfaces = batches.into_values().collect();
+    append_runtime_body_variants(world, vfs, &mut report);
     report.physics_solids_loaded = physics_report.0;
     report.surface_materials_loaded = world.surface_materials.len();
     report.collision_warnings.extend(physics_report.1);
@@ -2227,6 +2318,63 @@ mod body_tests {
         // Out-of-range groups and values leave the body alone.
         assert_eq!(set_bodygroup(&p, body, 9, 1), 15);
         assert_eq!(set_bodygroup(&p, body, 1, 2), 15);
+    }
+    #[test]
+    fn poison_zombie_runtime_bodies_cover_the_nest_and_the_hand() {
+        let p: Vec<_> = parts().iter().map(|p| (p.models, p.base)).collect();
+        // Spawn: the head crab and all three nest crabs (15); the AI toggles 2..5.
+        let bodies = body_variants(&p, 15, &[2, 3, 4, 5]);
+        assert_eq!(bodies.len(), 16);
+        assert!(bodies.iter().all(|b| b & 1 == 1));
+        assert_eq!((bodies[0], bodies[15]), (1, 31));
+        assert_eq!(body_value(p[5], set_body_value(p[5], 15, 1)), 1);
+        assert_eq!(body_value(p[3], 15), 1);
+        assert_eq!(body_value(p[3], 11), 0);
+    }
+    #[test]
+    #[ignore = "requires owned HL2 installation"]
+    fn owned_poison_zombie_runtime_variants_differ_by_their_crabs() {
+        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
+            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
+        ))
+        .unwrap();
+        let mut world = World::default();
+        world.entities.push(modkit_core::Entity {
+            properties: vec![
+                ("classname".into(), "npc_poisonzombie".into()),
+                ("model".into(), "models/zombie/poison.mdl".into()),
+            ],
+        });
+        append_models(&mut world, &vfs);
+        let parts = &world.model_body_parts["models/zombie/poison.mdl"];
+        assert_eq!(parts.len(), 6);
+        let triangles = |body: i32| {
+            let key = if body == 0 {
+                "models/zombie/poison.mdl#0".to_owned()
+            } else {
+                format!("models/zombie/poison.mdl#0@{body}")
+            };
+            world.model_assets[&key]
+                .iter()
+                .map(|s| s.indices.len() / 3)
+                .sum::<usize>()
+        };
+        // Spawn body 15 (head crab + three nest crabs) and its 15 runtime variants.
+        let bodies = body_variants(parts, 15, RUNTIME_BODYGROUPS[0].1);
+        assert_eq!(bodies.len(), 16);
+        for body in &bodies {
+            assert!(triangles(*body) > 0, "{body}");
+        }
+        // Each nest crab and the crab in hand adds geometry.
+        assert!(triangles(15) > triangles(13));
+        assert!(triangles(13) > triangles(9));
+        assert!(triangles(31) > triangles(15));
+        println!(
+            "triangles 1 {} 15 {} 31 {}",
+            triangles(1),
+            triangles(15),
+            triangles(31)
+        );
     }
     #[test]
     #[ignore = "requires owned HL2 installation"]

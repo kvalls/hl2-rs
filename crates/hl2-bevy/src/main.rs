@@ -466,6 +466,12 @@ fn main() -> Result<()> {
         )
         .add_systems(
             PostUpdate,
+            rendering::swap_runtime_bodies
+                .after(rendering::spawn_runtime_draws)
+                .before(rendering::present_entities),
+        )
+        .add_systems(
+            PostUpdate,
             rendering::present_ragdoll_fades.after(rendering::present_entities),
         )
         .add_systems(

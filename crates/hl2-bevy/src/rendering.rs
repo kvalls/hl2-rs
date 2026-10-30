@@ -1567,6 +1567,69 @@ pub fn despawn_killed_runtime_draws(
     }
     game.despawned_draws.extend(killed);
 }
+/// CBaseAnimating::SetBodygroup at runtime (DESIGN 14o session 38): an entity whose Scene
+/// body differs from the one it is drawn with gets its draws (and GPU skeleton) rebuilt
+/// from the preloaded variant. Entities with eye or bone-merged weapon draws, which
+/// build_model_draws does not make, are refused and reported.
+#[allow(clippy::too_many_arguments)]
+pub fn swap_runtime_bodies(
+    mut commands: Commands,
+    mut game: ResMut<crate::gameplay::Gameplay>,
+    draws: Query<(Entity, &SourceEntity, Has<EyeMesh>, Has<NpcWeaponDraw>)>,
+    cache: Res<ModelCache>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<SourceMaterial>>,
+    mut inverse_binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+) {
+    let changed: Vec<(usize, i32)> = game
+        .scene
+        .bodies
+        .iter()
+        .filter(|(id, body)| game.drawn_bodies.get(id) != Some(body))
+        .map(|(id, body)| (*id, *body))
+        .collect();
+    if changed.is_empty() {
+        return;
+    }
+    let world = game.world.clone();
+    for (id, body) in changed {
+        game.drawn_bodies.insert(id, body);
+        let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
+            continue;
+        };
+        let key = modkit_core::ModelInstance {
+            body,
+            ..instance.clone()
+        }
+        .asset_key();
+        if !world.model_assets.contains_key(&key) {
+            game.body_swap_failures
+                .push(format!("{id}: {key} not preloaded"));
+            continue;
+        }
+        let own: Vec<_> = draws.iter().filter(|d| d.1.0 == id).collect();
+        if own.iter().any(|d| d.2 || d.3) {
+            game.body_swap_failures
+                .push(format!("{id}: eye or weapon draws"));
+            continue;
+        }
+        for draw in &own {
+            commands.entity(draw.0).despawn();
+        }
+        let state = &game.scene.states[id];
+        let transform = entity_transform(state.origin, state.rotation);
+        build_model_draws(
+            &mut commands,
+            (&mut meshes, &mut materials, &mut inverse_binds),
+            &cache,
+            &world,
+            id,
+            transform,
+            Some(body),
+        );
+        game.body_swaps += 1;
+    }
+}
 pub fn spawn_runtime_draws(
     mut commands: Commands,
     mut game: ResMut<crate::gameplay::Gameplay>,
@@ -1776,11 +1839,22 @@ pub(crate) fn build_model_draws(
     world: &modkit_core::World,
     id: usize,
     transform: Transform,
+    body: Option<i32>,
 ) -> usize {
     let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
         return 0;
     };
-    let Some(surfaces) = world.model_assets.get(&instance.asset_key()) else {
+    // A runtime body draws its preloaded variant's surfaces; the rig, lighting and
+    // animation stay on the spawn key.
+    let surface_key = match body {
+        Some(body) => modkit_core::ModelInstance {
+            body,
+            ..instance.clone()
+        }
+        .asset_key(),
+        None => instance.asset_key(),
+    };
+    let Some(surfaces) = world.model_assets.get(&surface_key) else {
         return 0;
     };
     let scale = Mat4::from_scale(Vec3::splat(instance.scale));

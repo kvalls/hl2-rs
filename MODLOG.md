@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 38: runtime bodygroups and poison zombie crab throws (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session38-20261030: runtime SetBodygroup (World.model_body_parts, preloaded body variants for npc_poisonzombie, Scene::set_bodygroup, the host's draw swap); CNPC_PoisonZombie's crab throw and crab leap (range conditions, schedules, threat/pickup/throw events, a thrown npc_headcrab_poison); LeapTouch's mid-jump reset on any touch or landing; a crab landing on the player's head drops off his side; the owner's faction question answered against the SDK relationship table.
+- Why: next-session step 2 (zombies in campaign order: the poison zombie's throws needed runtime bodygroups first).
+- Tested how: unit tests (hl2-simulation 393, source-assets body variants), owned poison.mdl variant test, packaged artifacts/s38 poison-throw and poison-pickup-burst (d1_town_02), strict Clippy/fmt, regression artifacts/s38b-regression 26/26 17/17 26/26.
+- Result: a poison zombie that sees the player 347 units away throws a crab after 1.35 s; the nest crab vanishes, the crab shows in its hand and flies at the player, bites to one health and keeps attacking.
+- Still broken or not tested: EvacuateNest/Eject on death; the poison zombie's head crab release uses classic models (code reading) and bullet releases are classic-only; panic hops; native A/B of the throw.
+- Next: STATUS "Current session 38".
+
 ## 2026-10-30 session 38: owner playtest fixes (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

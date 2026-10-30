@@ -392,6 +392,9 @@ pub struct Scene {
     pub zombie_chops: u32,
     /// This tick's lethal-blast crab releases for the host (at the zombies' deaths).
     pub crab_releases: Vec<crate::ai::zombie::CrabRelease>,
+    /// Studio body values changed at runtime (CBaseAnimating::SetBodygroup), by entity;
+    /// the host draws the matching preloaded variant. Others keep their spawn body.
+    pub bodies: BTreeMap<usize, i32>,
     /// The latest trace attack's position per NPC (CAI_BaseNPC::TraceAttack keeps the
     /// hit hitbox's physics bone in m_nForceBone): later deaths without a trace (blasts)
     /// push that solid.
@@ -633,6 +636,7 @@ impl Scene {
             zombie_crab_releases: 0,
             zombie_chops: 0,
             crab_releases: Vec::new(),
+            bodies: BTreeMap::new(),
             npc_force_points: BTreeMap::new(),
             npc_hit_groups: BTreeMap::new(),
             npc_force_bones: BTreeMap::new(),
@@ -1065,6 +1069,46 @@ impl Scene {
         }
     }
     /// World frames of named animated attachments (one pose evaluation for all names).
+    /// The entity's studio body (m_nBody): a runtime SetBodygroup value, else its model
+    /// instance's spawn body.
+    pub fn body(&self, world: &World, id: usize) -> Option<i32> {
+        self.bodies.get(&id).copied().or_else(|| {
+            world
+                .model_instances
+                .iter()
+                .find(|i| i.entity == Some(id))
+                .map(|i| i.body)
+        })
+    }
+    /// CBaseAnimating::GetBodygroup for models with runtime bodygroups.
+    pub fn bodygroup(&self, world: &World, id: usize, group: usize) -> Option<i32> {
+        let part = *self.body_parts(world, id)?.get(group)?;
+        Some(source_assets::models::body_value(
+            part,
+            self.body(world, id)?,
+        ))
+    }
+    /// CBaseAnimating::SetBodygroup for models with runtime bodygroups
+    /// (World::model_body_parts); false when the model has none or the group is unknown.
+    pub fn set_bodygroup(&mut self, world: &World, id: usize, group: usize, value: i32) -> bool {
+        let (Some(part), Some(body)) = (
+            self.body_parts(world, id)
+                .and_then(|p| p.get(group).copied()),
+            self.body(world, id),
+        ) else {
+            return false;
+        };
+        self.bodies
+            .insert(id, source_assets::models::set_body_value(part, body, value));
+        true
+    }
+    fn body_parts<'a>(&self, world: &'a World, id: usize) -> Option<&'a Vec<(usize, i32)>> {
+        let instance = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))?;
+        world.model_body_parts.get(&instance.model.to_lowercase())
+    }
     pub fn attachment_frames(&self, world: &World, id: usize, names: &[&str]) -> Vec<Option<Mat4>> {
         let none = || vec![None; names.len()];
         let Some(state) = self.states.get(id) else {
@@ -3719,6 +3763,41 @@ pub fn sequence_finish(clip: &modkit_core::animation::Clip) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn runtime_bodygroups_change_the_scene_body() {
+        let mut world = World::default();
+        world.entities.push(modkit_core::Entity {
+            properties: vec![("classname".into(), "npc_poisonzombie".into())],
+        });
+        world.model_instances.push(modkit_core::ModelInstance {
+            background: false,
+            model: "models/zombie/Poison.mdl".into(),
+            origin: Vec3::ZERO,
+            angles: Vec3::ZERO,
+            skin: 0,
+            body: 15,
+            scale: 1.,
+            kind: "npc_poisonzombie".into(),
+            solid: true,
+            solid_mode: None,
+            entity: Some(0),
+        });
+        let mut scene = Scene::new(&world);
+        // No body part table: SetBodygroup is refused and the spawn body stays.
+        assert!(!scene.set_bodygroup(&world, 0, 5, 1));
+        assert_eq!(scene.body(&world, 0), Some(15));
+        world.model_body_parts.insert(
+            "models/zombie/poison.mdl".into(),
+            vec![(1, 1), (2, 1), (2, 2), (2, 4), (2, 8), (2, 16)],
+        );
+        assert_eq!(scene.bodygroup(&world, 0, 3), Some(1));
+        assert!(scene.set_bodygroup(&world, 0, 3, 0));
+        assert!(scene.set_bodygroup(&world, 0, 5, 1));
+        assert_eq!(scene.body(&world, 0), Some(27));
+        assert_eq!(scene.bodygroup(&world, 0, 3), Some(0));
+        assert_eq!(scene.bodygroup(&world, 0, 5), Some(1));
+        assert!(!scene.set_bodygroup(&world, 0, 9, 1));
+    }
     #[test]
     fn sequences_finish_at_the_last_visible_cycle_like_studio_frame_advance() {
         let clip = |frames: usize, fps: f32, looping: bool| modkit_core::animation::Clip {

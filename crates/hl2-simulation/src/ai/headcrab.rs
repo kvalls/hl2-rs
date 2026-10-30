@@ -283,6 +283,19 @@ impl Behavior for Headcrab {
 mod tests {
     use super::*;
     #[test]
+    fn thrown_crabs_fly_higher_and_faster_than_leaps() {
+        // ThrowAt -> JumpAttack(bThrown): the height clamps at 400 (not 120) and the speed
+        // at 1000 (not 650).
+        let origin = Vec3::new(0., 0., 60.);
+        let far_up = Vec3::new(1500., 0., 400.);
+        let thrown = jump_velocity(origin, far_up, 600., true);
+        let leap = jump_velocity(origin, far_up, 600., false);
+        assert!((thrown.length() - 1000.).abs() < 0.5);
+        assert!((leap.length() - 650.).abs() < 0.5);
+        let near = jump_velocity(origin, Vec3::new(400., 0., 64.), 600., true);
+        assert!((near.z - (2. * 600. * 24f32).sqrt()).abs() < 0.01 && near.length() < 1000.);
+    }
+    #[test]
     fn leaps_follow_jump_attack() {
         let g = 600.;
         // A target 200 ahead at the same height: the 16 + 8 unit arc.

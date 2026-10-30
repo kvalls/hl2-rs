@@ -131,6 +131,11 @@ pub struct World {
     /// asset key.
     #[serde(default)]
     pub model_mass: std::collections::BTreeMap<String, f32>,
+    /// Studio body parts (submodel count, body value stride) per lowercase model path,
+    /// for models whose bodygroups change at runtime (SetBodygroup); their body variants
+    /// are preloaded in `model_assets`.
+    #[serde(default)]
+    pub model_body_parts: std::collections::BTreeMap<String, Vec<(usize, i32)>>,
     /// prop_data health per model asset key (CPropData::ParsePropData: the MDL's
     /// prop_data block over its propdata.txt base chain); 0 = unbreakable.
     #[serde(default)]

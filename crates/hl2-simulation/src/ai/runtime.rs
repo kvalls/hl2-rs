@@ -384,6 +384,9 @@ pub struct AiActor {
     /// The largest single hit since the last think (IsLightDamage > 0, IsHeavyDamage > 20).
     #[serde(skip)]
     damage_taken: f32,
+    /// This think's largest hit (CNPC_PoisonZombie::OnTakeDamage_Alive's 20% rule).
+    #[serde(skip)]
+    largest_hit: f32,
     /// The player hit this NPC since the last think.
     #[serde(skip)]
     damaged_by_player: bool,
@@ -442,6 +445,9 @@ pub struct AiActor {
     next_idle_decision: f64,
     /// Off the ground (FL_ONGROUND clear): velocity and the last fall step.
     pub fall: Option<(Vec3, f64)>,
+    /// SetOwnerEntity: the thrower whose box the falling NPC does not hit (a poison
+    /// zombie's thrown crab) until it lands.
+    pub fall_owner: Option<usize>,
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Diagnostics {
@@ -511,6 +517,9 @@ pub struct AiRuntime {
     /// Black crab bites on the player (crab, bite damage) for the host: CBlackHeadcrab::
     /// TouchDamage needs the player's health (`headcrab::poison_bite`).
     pub poison_bites: Vec<(usize, f32)>,
+    /// AE_ZOMBIE_POISON_THROW_CRAB this tick for the host: (zombie, EyePosition, yaw, the
+    /// enemy's eyes); the host creates the black crab and calls `thrown_headcrab`.
+    pub crab_throws: Vec<(usize, Vec3, f32, Option<Vec3>)>,
     /// NPC weapon definitions (installed scripts and skill.cfg).
     #[serde(skip)]
     weapon_defs: BTreeMap<String, NpcWeaponDef>,
@@ -976,6 +985,7 @@ impl AiRuntime {
             zombie_poison_spit_damage,
             headcrab_melee_damage,
             poison_bites: Vec::new(),
+            crab_throws: Vec::new(),
             weapon_defs,
             shots: Vec::new(),
             muzzle_flashes: Vec::new(),
@@ -1738,6 +1748,7 @@ impl AiRuntime {
             yaw: 0.,
             damaged_by: None,
             damage_taken: 0.,
+            largest_hit: 0.,
             damaged_by_player: false,
             goal: None,
             events_until: 0.,
@@ -1764,6 +1775,7 @@ impl AiRuntime {
             harassed: false,
             next_idle_decision: 0.,
             fall: None,
+            fall_owner: None,
         })
     }
     /// MOVETYPE_STEP falling (sv_gravity 600) for NPCs off the ground (a zombie torso
@@ -1856,6 +1868,7 @@ impl AiRuntime {
             // a torso replaces this tick, whose mesh collider the torso starts inside): they
             // do not hold the faller up.
             let mut excluded = vec![id];
+            excluded.extend(actor.fall_owner);
             let mut hit = trace(&excluded);
             while let Some(dead) = hit
                 .entity
@@ -1874,9 +1887,7 @@ impl AiRuntime {
             // The player's box was the first solid in this step's path.
             let player_hit = hit.transient && hit.entity.is_none() && fraction < 1.;
             // A floor (or a stuck start) lands; a wall or ceiling stops that part of the
-            // motion and the fall goes on. On the player's head it rests without landing
-            // (PhysicsStepRecheckGround drops it once he steps away; our ground movement
-            // cannot stand on him).
+            // motion and the fall goes on. The player's box never lands it (below).
             let landed = fraction < 1.
                 && !player_hit
                 && (hit.trace.start_solid
@@ -1888,10 +1899,43 @@ impl AiRuntime {
                 let n = hit.trace.normal;
                 velocity -= n * velocity.dot(n).min(0.);
             }
+            // Onto his head (JumpAttack aims at the eyes inside his box, so a crab can land
+            // on top, as the SDK notes): Source stands it on him and its AI walks it off;
+            // ours cannot stand on the player, so it drops off his nearest side at once.
+            if let (true, Some(player_box)) = (player_hit && hit.trace.normal.z > 0.7, player_box) {
+                let lo = player_box.feet + player_box.hull.mins;
+                let mut hi = player_box.feet + player_box.hull.maxs;
+                hi.z = hi.z.max(position.z + hull.maxs.z + 1.);
+                let clear = |p: Vec3| {
+                    !physics
+                        .npc_trace_hull(
+                            p,
+                            p,
+                            hull,
+                            crate::npc_probe::Query {
+                                excluded_entities: &[id],
+                                ..Default::default()
+                            },
+                        )
+                        .trace
+                        .start_solid
+                };
+                if let Some(off) = push_out_of_box(position, hull, lo, hi, clear) {
+                    scene.states[id].origin = off;
+                    velocity.x = 0.;
+                    velocity.y = 0.;
+                    self.diagnostics.player_box_pushouts += 1;
+                }
+            }
             // CBaseHeadcrab::LeapTouch while airborne: the hated player's hull bites (once);
             // another solid after the world-ignore window fails the attack; landing ends it.
             if let AiClass::Headcrab(crab) = &mut actor.class {
                 let touching = player_hit;
+                // LeapTouch starts with m_bMidJump = false: any touch or landing ends the
+                // jump (a thrown crab never runs the leap task that also clears it).
+                if touching || landed {
+                    crab.mid_jump = false;
+                }
                 if crab.leap_touch {
                     if touching && actor.npc.enemy == Some(PLAYER) && !player.dead {
                         self.diagnostics.player_hits += 1;
@@ -1921,6 +1965,7 @@ impl AiRuntime {
             }
             actor.fall = (!landed).then_some((velocity, now));
             if actor.fall.is_none() {
+                actor.fall_owner = None;
                 let landings = &mut self.diagnostics.fall_landings;
                 if landings.len() >= 16 {
                     landings.remove(0);
@@ -2042,6 +2087,49 @@ impl AiRuntime {
         if let AiClass::Headcrab(h) = &mut actor.class {
             h.next_attack = now + 1.;
         }
+        self.npc_ids = None;
+        true
+    }
+    /// AE_ZOMBIE_POISON_THROW_CRAB's crab (CreateNoSpawn at the zombie's EyePosition, owner
+    /// the zombie, SF_NPC_FALL_TO_GROUND): ACT_RANGE_ATTACK1, the zombie's enemy, and
+    /// ThrowAt(the enemy's eyes) = JumpAttack thrown (LeapTouch armed); no target: it falls.
+    pub fn thrown_headcrab(
+        &mut self,
+        zombie: usize,
+        crab: usize,
+        target: Option<Vec3>,
+        scene: &mut Scene,
+    ) -> bool {
+        let now = scene.time;
+        let Some(old) = self.actors.get(&zombie) else {
+            return false;
+        };
+        let (enemy, enemies) = (old.npc.enemy, old.npc.enemies.clone());
+        let origin = scene.states[crab].origin;
+        let Some(actor) = self.actors.get_mut(&crab) else {
+            return false;
+        };
+        actor.npc.enemy = enemy;
+        actor.npc.enemies = enemies;
+        if enemy.is_some() {
+            actor.npc.state = NpcState::Combat;
+        }
+        actor.npc.activity = "ACT_RANGE_ATTACK1".into();
+        actor.next_think = now;
+        actor.fall_owner = Some(zombie);
+        let velocity = target.map_or(Vec3::ZERO, |t| {
+            headcrab::jump_velocity(origin, t, 600., true)
+        });
+        if let AiClass::Headcrab(h) = &mut actor.class {
+            if target.is_some() {
+                // Leap: MoveOrigin(0, 0, 1), LeapTouch, the world-ignore window.
+                scene.states[crab].origin.z += 1.;
+                h.mid_jump = true;
+                h.leap_touch = true;
+                h.ignore_world_until = now + headcrab::IGNORE_WORLD_COLLISION_TIME;
+            }
+        }
+        actor.fall = Some((velocity, now));
         self.npc_ids = None;
         true
     }
@@ -2305,7 +2393,20 @@ impl AiRuntime {
                         } else if let AiClass::Zombie(z) = class {
                             // CNPC_BaseZombie::HandleAnimEvent: claws and class sounds.
                             let rolls = ((uniform() + 1.) * 0.5, (uniform() + 1.) * 0.5);
-                            if name.eq_ignore_ascii_case(zombie::AE_SWATITEM) {
+                            // CNPC_PoisonZombie::HandleAnimEvent: the crab throw.
+                            if name.eq_ignore_ascii_case(zombie::AE_POISON_PICKUP_CRAB) {
+                                z.pick_up_crab();
+                            } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_WARN_SOUND)
+                            {
+                                z.requests
+                                    .push(CopRequest::Sound("NPC_PoisonZombie.ThrowWarn"));
+                            } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_SOUND) {
+                                z.requests.push(CopRequest::Sound("NPC_PoisonZombie.Throw"));
+                            } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_CRAB) {
+                                if z.holding_crab {
+                                    z.throw_held_crab(ctx.now, ctx.enemy_eye);
+                                }
+                            } else if name.eq_ignore_ascii_case(zombie::AE_SWATITEM) {
                                 // Send the object toward the enemy's center, forget it and
                                 // scan again no sooner than ZOMBIE_SWAT_DELAY.
                                 if let (Some((entity, center)), Some(target)) =
@@ -3091,6 +3192,7 @@ impl AiRuntime {
         // hated player attacker is remembered (UpdateEnemyMemory) and becomes the enemy
         // when there is none.
         let damage_taken = std::mem::take(&mut actor.damage_taken);
+        actor.largest_hit = damage_taken;
         if damage_taken > 0. {
             actor.npc.conditions.set(COND_LIGHT_DAMAGE);
         }
@@ -3477,6 +3579,40 @@ impl AiRuntime {
                         .npc
                         .conditions
                         .set(zombie::melee_condition(distance, dot, reaches));
+                }
+                // CNPC_PoisonZombie::RangeAttack1/2Conditions (EnemyDistance between the
+                // centers less the boxes' height overlap; a CAN condition needs the line
+                // from the eyes, GatherAttackConditions' weapon LOS).
+                let poison = match &mut actor.class {
+                    AiClass::Zombie(z) if z.kind == zombie::Kind::Poison && !z.torso => Some(z),
+                    _ => None,
+                };
+                if let Some(z) = poison {
+                    if z.nest.is_none() {
+                        z.nest = Some(std::array::from_fn(|i| {
+                            scene.bodygroup(world, id, zombie::BODYGROUP_NEST_BASE + i) == Some(1)
+                        }));
+                    }
+                    let mut delta = t_center - center;
+                    let overlap = 72.;
+                    delta.z = if delta.z > overlap {
+                        delta.z - overlap
+                    } else if delta.z < -overlap {
+                        delta.z + overlap
+                    } else {
+                        0.
+                    };
+                    let dot = (t_feet - origin)
+                        .truncate()
+                        .normalize_or_zero()
+                        .dot(facing.truncate().normalize_or_zero());
+                    let los = sight.visible(eye, t_eye, &[id, enemy]);
+                    for condition in z.poison_range_conditions(now, delta.length(), dot) {
+                        let Some(c) = condition else { continue };
+                        if !matches!(c, COND_CAN_RANGE_ATTACK1 | COND_CAN_RANGE_ATTACK2) || los {
+                            actor.npc.conditions.set(c);
+                        }
+                    }
                 }
             } else {
                 actor.npc.conditions.set(COND_ENEMY_OCCLUDED);
@@ -3968,6 +4104,23 @@ impl AiRuntime {
         }
         if let AiClass::Zombie(z) = &mut actor.class {
             z.moan(now, actor.npc.state == NpcState::Combat);
+        }
+        if let AiClass::Zombie(z) = &mut actor.class {
+            if z.kind == zombie::Kind::Poison {
+                let max_health = scene
+                    .npc_max_health
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        crate::gameplay::npc_spawn_health(scene, &world.entities[id])
+                    })
+                    .max(1.);
+                z.poison_think(
+                    now,
+                    actor.npc.conditions.has(COND_NEW_ENEMY),
+                    std::mem::take(&mut actor.largest_hit) / max_health,
+                );
+            }
         }
         // MaxYawSpeed and NPC_TranslateActivity's ACT_IDLE_ANGRY by class.
         let weapon_drawn = actor.weapon.is_some();
@@ -4807,6 +4960,13 @@ impl AiRuntime {
                         })
                         .into()
                     });
+                }
+                CopRequest::SetBodygroup { group, value } => {
+                    scene.set_bodygroup(world, id, group, value);
+                }
+                CopRequest::ThrowCrab { target } => {
+                    let eye = origin + Vec3::Z * eye_z(world, id);
+                    self.crab_throws.push((id, eye, yaw_of(scene, id), target));
                 }
                 CopRequest::Leap(velocity) => {
                     // CBaseHeadcrab::Leap: off the ground (MoveOrigin(0, 0, 1) with headroom)
@@ -6067,15 +6227,17 @@ mod tests {
             scene.states[0].origin
         );
         assert_eq!(ai.diagnostics.player_box_pushouts, 1);
-        // Dropped onto his head it rests there without landing, and falls once he leaves.
-        scene.states[0].origin = Vec3::new(50., 0., 80.);
+        // Dropped onto his head it is moved off his nearest side and keeps falling.
+        scene.states[0].origin = Vec3::new(40., 0., 80.);
         ai.actors.get_mut(&0).unwrap().fall = Some((Vec3::new(0., 0., -200.), scene.time));
         scene.time += 0.05;
         ai.step_falls(&world, &mut scene, &physics, player_at(50.));
-        assert!((scene.states[0].origin.z - 72.).abs() < 0.1);
+        let off = scene.states[0].origin;
+        assert!((off.z - 72.).abs() < 0.1 && off.x + 12. < 34., "{off}");
         assert!(ai.actors[&0].fall.is_some());
+        assert_eq!(ai.diagnostics.player_box_pushouts, 2);
         scene.time += 0.05;
-        ai.step_falls(&world, &mut scene, &physics, player_at(200.));
+        ai.step_falls(&world, &mut scene, &physics, player_at(50.));
         assert!(scene.states[0].origin.z < 71.9);
     }
     #[test]

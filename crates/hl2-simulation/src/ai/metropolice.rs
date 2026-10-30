@@ -164,6 +164,11 @@ pub enum CopRequest {
         velocity: Vec3,
         angular: Vec3,
     },
+    /// CBaseAnimating::SetBodygroup (the poison zombie's nest and hand crabs).
+    SetBodygroup { group: usize, value: i32 },
+    /// CNPC_PoisonZombie AE_ZOMBIE_POISON_THROW_CRAB: a npc_headcrab_poison thrown at the
+    /// enemy's eyes (None: it only falls).
+    ThrowCrab { target: Option<Vec3> },
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Metropolice {

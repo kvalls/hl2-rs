@@ -182,11 +182,18 @@ pub struct Gameplay {
     pub crab_releases: Vec<(usize, bool)>,
     /// Live headcrabs released by dying zombies (RELEASE_IMMEDIATE).
     pub released_crabs: Vec<usize>,
+    /// Black crabs poison zombies threw (AE_ZOMBIE_POISON_THROW_CRAB).
+    pub thrown_crabs: Vec<usize>,
     pub zombie_split_failures: Vec<String>,
     /// Runtime entities whose Bevy draws were despawned after they were killed.
     pub despawned_draws: std::collections::BTreeSet<usize>,
     /// Spawns that had to copy the World because another Arc held it (should stay 0).
     pub world_copies: usize,
+    /// Runtime SetBodygroup (Scene::bodies): the body each entity is drawn with, the draw
+    /// rebuilds done and the ones refused (`rendering::swap_runtime_bodies`).
+    pub drawn_bodies: std::collections::BTreeMap<usize, i32>,
+    pub body_swaps: u32,
+    pub body_swap_failures: Vec<String>,
     /// prop_physics_create requests (model, eye, aim) for the host's model loader.
     pub prop_requests: Vec<(String, Vec3, Vec3)>,
     /// Runtime entities whose model draws the host builds next frame (dropped weapons).
@@ -428,10 +435,14 @@ impl Gameplay {
             zombie_splits: Vec::new(),
             crab_releases: Vec::new(),
             released_crabs: Vec::new(),
+            thrown_crabs: Vec::new(),
             zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
             world_copies: 0,
+            drawn_bodies: Default::default(),
+            body_swaps: 0,
+            body_swap_failures: Vec::new(),
             prop_requests: Vec::new(),
             model_draws: Vec::new(),
         }
@@ -478,10 +489,14 @@ impl Gameplay {
             zombie_splits: Vec::new(),
             crab_releases: Vec::new(),
             released_crabs: Vec::new(),
+            thrown_crabs: Vec::new(),
             zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
             world_copies: 0,
+            drawn_bodies: Default::default(),
+            body_swaps: 0,
+            body_swap_failures: Vec::new(),
             prop_requests: Vec::new(),
             model_draws: Vec::new(),
             player_damage,
@@ -748,6 +763,59 @@ impl Gameplay {
                 self.scene.npc_death_forces.insert(torso, (force, None));
             }
             self.zombie_splits.push((id, torso, legs));
+        }
+    }
+    /// CNPC_PoisonZombie AE_ZOMBIE_POISON_THROW_CRAB (DESIGN 14o session 38): a
+    /// npc_headcrab_poison from its pool template at the zombie's EyePosition with its
+    /// angles, SF_NPC_FALL_TO_GROUND (and SF_NPC_FADE_CORPSE when the zombie has it), set
+    /// on fire for 100 s when the zombie burns, then thrown at the enemy's eyes.
+    fn throw_crabs(&mut self, physics: &mut Physics) {
+        for (zombie, eye, yaw, target) in std::mem::take(&mut self.ai.crab_throws) {
+            // GetHeadcrabClassname: npc_headcrab_poison (the same CBlackHeadcrab as
+            // npc_headcrab_black, whose pool template stands in when the map has none).
+            let Some(&template) = ["npc_headcrab_poison", "npc_headcrab_black"]
+                .iter()
+                .find_map(|class| {
+                    hl2_simulation::ai::spawn::templates(&self.world, class)
+                        .first()
+                        .copied()
+                })
+                .as_ref()
+            else {
+                self.zombie_split_failures
+                    .push(format!("{zombie}: no black headcrab template"));
+                continue;
+            };
+            let zombie_flags = self.world.entities[zombie]
+                .get("spawnflags")
+                .and_then(|v| v.trim().parse::<u32>().ok())
+                .unwrap_or(0);
+            let flags = hl2_simulation::npc_makers::SF_NPC_FALL_TO_GROUND | (zombie_flags & 512);
+            let crab = match self.create_from_template(
+                template,
+                eye,
+                yaw,
+                &[("spawnflags", flags.to_string())],
+                physics,
+            ) {
+                Ok(crab) => crab,
+                Err(e) => {
+                    self.zombie_split_failures
+                        .push(format!("{zombie} thrown crab: {e}"));
+                    continue;
+                }
+            };
+            if self.scene.fires.burning(zombie) {
+                let flammable = hl2_simulation::fire::Interactions {
+                    flammable: true,
+                    ..Default::default()
+                };
+                let now = self.scene.time;
+                self.scene.fires.ignite(crab, flammable, 100., 8., eye, now);
+            }
+            self.ai
+                .thrown_headcrab(zombie, crab, target, &mut self.scene);
+            self.thrown_crabs.push(crab);
         }
     }
     /// A raggib of `model` at `origin` with Source `angles` (degrees), ragdolled with `force`
@@ -1571,6 +1639,7 @@ impl Gameplay {
             ai_player,
         );
         self.scene.npc_knows_player = self.ai.npcs_knowing_player();
+        self.throw_crabs(physics);
         // Zombie swats (AE_ZOMBIE_SWATITEM -> IPhysicsObject::AddVelocity).
         for (object, velocity, angular) in std::mem::take(&mut self.ai.prop_swats) {
             physics.add_entity_velocity(object, velocity, angular);
@@ -2077,12 +2146,12 @@ impl Gameplay {
             })
             .collect();
         // BecomeTorso replacements: (zombie, torso, legs), each torso's origin, death, health.
-        let zombies = serde_json::json!({"splits":self.zombie_splits,"torsos":self.zombie_splits.iter().map(|(_, t, _)| (t.to_string(), (self.scene.states[*t].origin.to_array(), self.scene.states[*t].killed, self.scene.states[*t].value))).collect::<std::collections::BTreeMap<_,_>>(),"failures":self.zombie_split_failures,"crab_releases":self.scene.zombie_crab_releases,"released":self.crab_releases,"live_crabs":self.released_crabs,"chops":self.scene.zombie_chops});
+        let zombies = serde_json::json!({"splits":self.zombie_splits,"torsos":self.zombie_splits.iter().map(|(_, t, _)| (t.to_string(), (self.scene.states[*t].origin.to_array(), self.scene.states[*t].killed, self.scene.states[*t].value))).collect::<std::collections::BTreeMap<_,_>>(),"failures":self.zombie_split_failures,"crab_releases":self.scene.zombie_crab_releases,"released":self.crab_releases,"live_crabs":self.released_crabs,"thrown_crabs":self.thrown_crabs,"chops":self.scene.zombie_chops});
         let ragdolls = serde_json::json!({"active":self.ragdolls.active.len(),"spawned":self.ragdolls.spawned,"skipped":self.ragdolls.skipped,"removed":self.ragdolls.removed,"shot_pushes":self.ragdolls.shot_pushes,"blast_pushes":self.ragdolls.blast_pushes,"pins":self.ragdolls.pins,"death_poses":self.ragdolls.death_poses,"bolt_misses":self.ragdolls.bolt_misses,"last_missed_bolt":self.ragdolls.last_missed_bolt.map(|(a,b)| [a.to_array(),b.to_array()]),"missed_bolt_bodies":self.ragdolls.missed_bolt_bodies.iter().map(|v| v.to_array()).collect::<Vec<_>>(),"fading":self.ragdolls.fading(),"shots_seen":self.ragdolls.shots_seen,"shots_busy":self.ragdolls.shots_busy,"simulating":self.ragdolls.simulating(physics),"forced_sleeps":self.ragdolls.forced_sleeps,"props":self.ragdolls.props.len(),"prop_origins":self.ragdolls.props.keys().map(|id| (id.to_string(), (self.scene.states[*id].origin.to_array(), self.scene.ragdoll_matrices.contains_key(id)))).collect::<std::collections::BTreeMap<_,_>>(),"props_skipped":self.ragdolls.props_skipped,"last_force_body":self.ragdolls.last_force_body,"activity":self.ragdolls.activity(physics),"last_missed_shot":self.ragdolls.last_missed_shot.map(|(a,b)| [a.to_array(),b.to_array()]),"origins":self.ragdolls.active.keys().map(|id| (id.to_string(), self.scene.states[*id].origin.to_array())).collect::<std::collections::BTreeMap<_,_>>()});
         serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"carrying":self.inventory.carrying(),"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"random_look_targets":self.scene.look_targets.random_report(),"heads":self.scene.heads.iter().map(|(id,h)| (id.to_string(), h.goal.to_array())).collect::<std::collections::BTreeMap<_,_>>(),"gesture_layers":self.scene.gestures.report(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),"npc_paths":self.npcs.path_stats(),
-            "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"zombies":zombies,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"spawn_overlay":self.spawn_overlay,"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
+            "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"zombies":zombies,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"bodies":{"current":self.scene.bodies.iter().map(|(id, b)| (id.to_string(), *b)).collect::<std::collections::BTreeMap<_,_>>(),"swaps":self.body_swaps,"failures":self.body_swap_failures},"spawn_overlay":self.spawn_overlay,"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
             "unplayed_sounds":self.unplayed_sounds,"queued_sounds":self.sound_requests.len(),"recent_sound_cues":self.sound_cues})
     }
 }

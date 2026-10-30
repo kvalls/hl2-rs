@@ -97,6 +97,7 @@ pub fn poll(
             &world,
             id,
             transform,
+            None,
         );
     }
     let mut pending = Vec::new();
@@ -138,6 +139,7 @@ pub fn poll(
                     &world,
                     id,
                     transform,
+                    None,
                 );
                 game.spawn_log.push(serde_json::json!({"prop":job.model,"entity":id,"draws":draws,"load_ms":load_ms,"origin":origin.to_array()}));
                 format!(

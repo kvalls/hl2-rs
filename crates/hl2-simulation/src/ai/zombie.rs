@@ -41,6 +41,49 @@ pub const SWAT_DELAY: f64 = 5.;
 pub const ATTACKITEM_MAX_MASS: f32 = 100.;
 /// ClawAttack's push on the swatted obstructor (5 x 24, the damage force).
 pub const ATTACKITEM_FORCE: f32 = 120.;
+/// CNPC_PoisonZombie (npc_PoisonZombie.cpp): the throw (range attack 2) and the
+/// headcrab leap off its back (range attack 1) ranges and cones, the first throw after a
+/// new enemy and the time between throws (RandomInt seconds).
+pub const THROW_RANGE: (f32, f32) = (250., 800.);
+pub const THROW_CONE: f32 = 0.6;
+pub const HC_LEAP_RANGE: (f32, f32) = (12., 256.);
+pub const HC_LEAP_CONE: f32 = 0.6;
+pub const THROW_FIRST_DELAY: (i32, i32) = (1, 2);
+pub const THROW_DELAY: (i32, i32) = (4, 10);
+/// ZOMBIE_BODYGROUP_NEST_BASE (three nest crabs from here) and ZOMBIE_BODYGROUP_THROW.
+pub const BODYGROUP_NEST_BASE: usize = 2;
+pub const BODYGROUP_THROW: usize = 5;
+pub const AE_POISON_PICKUP_CRAB: &str = "AE_ZOMBIE_POISON_PICKUP_CRAB";
+pub const AE_POISON_THROW_WARN_SOUND: &str = "AE_ZOMBIE_POISON_THROW_WARN_SOUND";
+pub const AE_POISON_THROW_SOUND: &str = "AE_ZOMBIE_POISON_THROW_SOUND";
+pub const AE_POISON_THROW_CRAB: &str = "AE_ZOMBIE_POISON_THROW_CRAB";
+/// CNPC_PoisonZombie::RangeAttack1Conditions (`leap`: the crab leap off its back) or
+/// RangeAttack2Conditions (the throw): nothing without crabs or before the next throw
+/// time, then the range, then the cone.
+pub fn poison_range_condition(
+    leap: bool,
+    crabs: usize,
+    ready: bool,
+    distance: f32,
+    dot: f32,
+) -> Option<Cond> {
+    let ((min, max), cone, can) = if leap {
+        (HC_LEAP_RANGE, HC_LEAP_CONE, COND_CAN_RANGE_ATTACK1)
+    } else {
+        (THROW_RANGE, THROW_CONE, COND_CAN_RANGE_ATTACK2)
+    };
+    if crabs == 0 || !ready {
+        None
+    } else if distance < min {
+        Some(COND_TOO_CLOSE_TO_ATTACK)
+    } else if distance > max {
+        Some(COND_TOO_FAR_TO_ATTACK)
+    } else if dot < cone {
+        Some(COND_NOT_FACING_ATTACK)
+    } else {
+        Some(can)
+    }
+}
 /// IsPathTaskFailure: the failed task built or followed a route (FAIL_NO_ROUTE..ILLEGAL).
 pub fn path_task(task: &str) -> bool {
     matches!(
@@ -237,6 +280,8 @@ pub const SOUNDS: &[&str] = &[
     "NPC_PoisonZombie.Idle",
     "NPC_PoisonZombie.Pain",
     "NPC_PoisonZombie.Die",
+    "NPC_PoisonZombie.ThrowWarn",
+    "NPC_PoisonZombie.Throw",
 ];
 /// CNPC_BaseZombie's schedules (SDK text, the non-episodic SCHED_ZOMBIE_CHASE_ENEMY;
 /// COND_ZOMBIE_CAN_SWAT_ATTACK, COND_ZOMBIE_RELEASECRAB and the obstruction condition
@@ -293,6 +338,18 @@ const ZOMBIE_SCHEDULES: &[(&str, &str)] = &[
     (
         "SCHED_ZOMBIE_ATTACKITEM",
         "Tasks TASK_FACE_ENEMY 0 TASK_MELEE_ATTACK1 0 Interrupts COND_ENEMY_DEAD COND_NEW_ENEMY",
+    ),
+    // CNPC_PoisonZombie's (npc_PoisonZombie.cpp).
+    (
+        "SCHED_ZOMBIE_POISON_RANGE_ATTACK2",
+        "Tasks TASK_STOP_MOVING 0 TASK_FACE_IDEAL 0 \
+         TASK_PLAY_PRIVATE_SEQUENCE_FACE_ENEMY ACTIVITY:ACT_ZOMBIE_POISON_THREAT \
+         TASK_FACE_IDEAL 0 TASK_RANGE_ATTACK2 0 Interrupts COND_NO_PRIMARY_AMMO",
+    ),
+    (
+        "SCHED_ZOMBIE_POISON_RANGE_ATTACK1",
+        "Tasks TASK_STOP_MOVING 0 TASK_FACE_ENEMY 0 TASK_ANNOUNCE_ATTACK 1 \
+         TASK_RANGE_ATTACK1 0 Interrupts COND_NO_PRIMARY_AMMO",
     ),
     // CZombie's (npc_zombie.cpp).
     (
@@ -553,6 +610,16 @@ pub struct Zombie {
     pub next_door_bash: f64,
     /// The last think's time (SelectFailSchedule reads the door bash timer).
     pub now: f64,
+    /// CNPC_PoisonZombie m_bCrabs (the nest; None until read from the spawn body).
+    pub nest: Option<[bool; 3]>,
+    /// m_flNextCrabThrowTime.
+    pub next_crab_throw: f64,
+    /// m_nThrowCrab (RandomThrowCrab at the last range condition).
+    pub throw_crab: usize,
+    /// ZOMBIE_BODYGROUP_THROW is on: a crab in its hand.
+    pub holding_crab: bool,
+    /// Crabs thrown or leapt off (diagnostics).
+    pub crabs_thrown: u32,
     seed: u64,
 }
 impl Zombie {
@@ -574,6 +641,11 @@ impl Zombie {
             door_bash_until: 0.,
             next_door_bash: 0.,
             now: 0.,
+            nest: None,
+            next_crab_throw: 0.,
+            throw_crab: 0,
+            holding_crab: false,
+            crabs_thrown: 0,
             seed: seed | 1,
         }
     }
@@ -583,6 +655,124 @@ impl Zombie {
             "ACT_MELEE_ATTACK1"
         } else {
             "ACT_ZOMBIE_WALLPOUND"
+        }
+    }
+    /// m_nCrabCount: the nest crabs left.
+    pub fn crab_count(&self) -> usize {
+        self.nest.map_or(0, |n| n.iter().filter(|c| **c).count())
+    }
+    /// RandomThrowCrab: a random nest crab that is still there.
+    fn random_throw_crab(&mut self) -> usize {
+        let nest = self.nest.unwrap_or_default();
+        if !nest.contains(&true) {
+            return 0;
+        }
+        loop {
+            let crab = ((self.random() * 3.) as usize).min(2);
+            if nest[crab] {
+                return crab;
+            }
+        }
+    }
+    /// The two range conditions of a think; a CAN condition picks the crab to throw.
+    pub fn poison_range_conditions(
+        &mut self,
+        now: f64,
+        distance: f32,
+        dot: f32,
+    ) -> [Option<Cond>; 2] {
+        let ready = now >= self.next_crab_throw;
+        let crabs = self.crab_count();
+        let conditions =
+            [true, false].map(|leap| poison_range_condition(leap, crabs, ready, distance, dot));
+        if conditions
+            .iter()
+            .any(|c| matches!(*c, Some(COND_CAN_RANGE_ATTACK1 | COND_CAN_RANGE_ATTACK2)))
+        {
+            self.throw_crab = self.random_throw_crab();
+        }
+        conditions
+    }
+    /// CNPC_PoisonZombie::PrescheduleThink's first throw 1-2 s after a new enemy, and
+    /// OnTakeDamage_Alive's throw at once after a hit of 20% of max health or more.
+    pub fn poison_think(&mut self, now: f64, new_enemy: bool, damage_fraction: f32) {
+        if new_enemy {
+            let (min, max) = THROW_FIRST_DELAY;
+            self.next_crab_throw = now + self.random_int(min, max);
+        }
+        if damage_fraction >= 0.2 {
+            self.next_crab_throw = now;
+        }
+    }
+    /// AE_ZOMBIE_POISON_PICKUP_CRAB: EnableCrab(m_nThrowCrab, false) and the crab in hand.
+    pub fn pick_up_crab(&mut self) {
+        let crab = self.throw_crab.min(2);
+        if let Some(nest) = &mut self.nest {
+            nest[crab] = false;
+        }
+        self.holding_crab = true;
+        self.requests.push(CopRequest::SetBodygroup {
+            group: BODYGROUP_NEST_BASE + crab,
+            value: 0,
+        });
+        self.requests.push(CopRequest::SetBodygroup {
+            group: BODYGROUP_THROW,
+            value: 1,
+        });
+    }
+    /// AE_ZOMBIE_POISON_THROW_CRAB: the hand empties, a black crab is thrown at the
+    /// enemy's eyes and the next throw waits RandomInt(4, 10) s.
+    pub fn throw_held_crab(&mut self, now: f64, target: Option<Vec3>) {
+        self.holding_crab = false;
+        self.requests.push(CopRequest::SetBodygroup {
+            group: BODYGROUP_THROW,
+            value: 0,
+        });
+        self.requests.push(CopRequest::ThrowCrab { target });
+        self.crabs_thrown += 1;
+        let (min, max) = THROW_DELAY;
+        self.next_crab_throw = now + self.random_int(min, max);
+    }
+    /// RandomInt(min, max) seconds.
+    fn random_int(&mut self, min: i32, max: i32) -> f64 {
+        let span = (max - min + 1) as f32;
+        f64::from(min + ((self.random() * span) as i32).min(max - min))
+    }
+    /// CAI_BaseNPC::SelectCombatSchedule as CNPC_PoisonZombie gets it (innate melee and,
+    /// while it has crabs, innate range attacks): back away when a throw is too close,
+    /// leap, throw, claw, face, else shamble on.
+    fn poison_combat_schedule(&self, npc: &AiNpc, ctx: &Context) -> &'static str {
+        let c = &npc.conditions;
+        let range = self.crab_count() > 0 || self.holding_crab;
+        if c.has(COND_NEW_ENEMY)
+            && npc
+                .enemy
+                .and_then(|e| npc.enemies.find(Some(e)))
+                .is_some_and(|m| ctx.now - m.time_first_seen < 2.)
+        {
+            "SCHED_WAKE_ANGRY"
+        } else if !c.has(COND_SEE_ENEMY) {
+            if !c.has(COND_ENEMY_OCCLUDED) {
+                "SCHED_COMBAT_FACE"
+            } else if range {
+                "SCHED_ESTABLISH_LINE_OF_FIRE"
+            } else {
+                "SCHED_CHASE_ENEMY"
+            }
+        } else if c.has(COND_TOO_CLOSE_TO_ATTACK) {
+            "SCHED_BACK_AWAY_FROM_ENEMY"
+        } else if c.has(COND_CAN_RANGE_ATTACK1) {
+            "SCHED_RANGE_ATTACK1"
+        } else if c.has(COND_CAN_RANGE_ATTACK2) {
+            "SCHED_RANGE_ATTACK2"
+        } else if c.has(COND_CAN_MELEE_ATTACK1) {
+            "SCHED_MELEE_ATTACK1"
+        } else if c.has(COND_NOT_FACING_ATTACK) {
+            "SCHED_COMBAT_FACE"
+        } else if c.has(COND_TOO_FAR_TO_ATTACK) && range {
+            "SCHED_MOVE_TO_WEAPON_RANGE"
+        } else {
+            "SCHED_CHASE_ENEMY"
         }
     }
     /// GatherConditions scans for swats only in combat and not as a torso.
@@ -642,9 +832,27 @@ impl Behavior for Zombie {
             }
             _ => {}
         }
+        if self.kind == Kind::Poison && npc.state == NpcState::Combat {
+            return self.poison_combat_schedule(npc, ctx).into();
+        }
         default_select_schedule(npc, ctx)
     }
-    fn translate_schedule(&mut self, name: &str, _npc: &AiNpc, ctx: &Context) -> String {
+    fn translate_schedule(&mut self, name: &str, npc: &AiNpc, ctx: &Context) -> String {
+        // CNPC_PoisonZombie::TranslateSchedule.
+        if self.kind == Kind::Poison {
+            let unreachable = npc
+                .enemy
+                .is_some_and(|e| npc.unreachable.iter().any(|u| u.entity == e));
+            match name {
+                "SCHED_RANGE_ATTACK2" => return "SCHED_ZOMBIE_POISON_RANGE_ATTACK2".into(),
+                "SCHED_RANGE_ATTACK1" => return "SCHED_ZOMBIE_POISON_RANGE_ATTACK1".into(),
+                "SCHED_COMBAT_FACE" if unreachable => {
+                    return "SCHED_TAKE_COVER_FROM_ENEMY".into();
+                }
+                "SCHED_MOVE_TO_WEAPON_RANGE" => return "SCHED_ZOMBIE_CHASE_ENEMY".into(),
+                _ => {}
+            }
+        }
         match name {
             // Walk to an object that is out of reach, else swat it from here.
             "SCHED_ZOMBIE_SWATITEM" if self.dist_to_physics_ent(ctx.origin) > PHYSOBJ_SWATDIST => {
@@ -718,9 +926,17 @@ impl Behavior for Zombie {
             self.physics_ent = Some((entity, center));
             return "SCHED_ZOMBIE_ATTACKITEM".into();
         }
-        npc.fail_schedule
+        let base = npc
+            .fail_schedule
             .clone()
-            .unwrap_or_else(|| "SCHED_FAIL".into())
+            .unwrap_or_else(|| "SCHED_FAIL".into());
+        // CNPC_PoisonZombie::SelectFailSchedule: a failed chase with crabs left gets a line
+        // of fire instead.
+        if self.kind == Kind::Poison && self.crab_count() > 0 && base == "SCHED_CHASE_ENEMY_FAILED"
+        {
+            return "SCHED_ESTABLISH_LINE_OF_FIRE".into();
+        }
+        base
     }
     fn start_task(
         &mut self,
@@ -784,6 +1000,15 @@ impl Behavior for Zombie {
                 }
                 _ => TaskStatus::Failed,
             },
+            // The threat sequence, turning to the enemy while it plays.
+            "TASK_PLAY_PRIVATE_SEQUENCE_FACE_ENEMY" => match arg {
+                TaskArg::Activity(activity) => {
+                    npc.activity = activity.clone();
+                    motor.set_activity(activity);
+                    TaskStatus::Running
+                }
+                _ => TaskStatus::Failed,
+            },
             // CAI_BaseNPC TASK_SOUND_WAKE -> CZombie::AlertSound.
             "TASK_SOUND_WAKE" => {
                 self.requests
@@ -815,6 +1040,16 @@ impl Behavior for Zombie {
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
         match task {
+            "TASK_PLAY_PRIVATE_SEQUENCE_FACE_ENEMY" => {
+                if let Some((_, enemy)) = ctx.enemy {
+                    motor.face(super::schedule::Goal::Position(enemy));
+                }
+                Some(if motor.activity_finished() {
+                    TaskStatus::Complete
+                } else {
+                    TaskStatus::Running
+                })
+            }
             "TASK_ZOMBIE_SWAT_ITEM" => Some(if motor.activity_finished() {
                 TaskStatus::Complete
             } else {
@@ -886,6 +1121,99 @@ mod tests {
             z.select_fail_schedule(&npc, "SCHED_ZOMBIE_WANDER_MEDIUM"),
             "SCHED_ZOMBIE_WANDER_FAIL"
         );
+    }
+
+    #[test]
+    fn poison_zombies_leap_or_throw_crabs_like_the_sdk() {
+        // RangeAttack1Conditions (12..256) and RangeAttack2Conditions (250..800).
+        let c = |leap, crabs, ready, d, dot| poison_range_condition(leap, crabs, ready, d, dot);
+        assert_eq!(c(false, 0, true, 400., 1.), None);
+        assert_eq!(c(false, 3, false, 400., 1.), None);
+        assert_eq!(c(false, 3, true, 200., 1.), Some(COND_TOO_CLOSE_TO_ATTACK));
+        assert_eq!(c(false, 3, true, 900., 1.), Some(COND_TOO_FAR_TO_ATTACK));
+        assert_eq!(c(false, 3, true, 400., 0.5), Some(COND_NOT_FACING_ATTACK));
+        assert_eq!(c(false, 1, true, 400., 0.7), Some(COND_CAN_RANGE_ATTACK2));
+        assert_eq!(c(true, 1, true, 100., 0.7), Some(COND_CAN_RANGE_ATTACK1));
+        assert_eq!(c(true, 1, true, 8., 1.), Some(COND_TOO_CLOSE_TO_ATTACK));
+        assert_eq!(c(true, 1, true, 300., 1.), Some(COND_TOO_FAR_TO_ATTACK));
+        // Selection (SelectCombatSchedule order) and CNPC_PoisonZombie::TranslateSchedule.
+        let mut z = Zombie::new(Kind::Poison, false, 11);
+        z.nest = Some([true, false, true]);
+        let ctx = Context::default();
+        let mut npc = AiNpc::new(1);
+        npc.state = NpcState::Combat;
+        let pick = |z: &mut Zombie, npc: &mut AiNpc, conds: &[Cond]| {
+            npc.conditions = Conditions::default();
+            npc.conditions.set(COND_SEE_ENEMY);
+            for c in conds {
+                npc.conditions.set(*c);
+            }
+            let s = z.select_schedule(npc, &ctx);
+            z.translate_schedule(&s, npc, &ctx)
+        };
+        assert_eq!(
+            pick(&mut z, &mut npc, &[COND_CAN_RANGE_ATTACK2]),
+            "SCHED_ZOMBIE_POISON_RANGE_ATTACK2"
+        );
+        assert_eq!(
+            pick(
+                &mut z,
+                &mut npc,
+                &[COND_CAN_RANGE_ATTACK1, COND_CAN_MELEE_ATTACK1]
+            ),
+            "SCHED_ZOMBIE_POISON_RANGE_ATTACK1"
+        );
+        assert_eq!(
+            pick(
+                &mut z,
+                &mut npc,
+                &[COND_TOO_CLOSE_TO_ATTACK, COND_CAN_RANGE_ATTACK1]
+            ),
+            "SCHED_BACK_AWAY_FROM_ENEMY"
+        );
+        assert_eq!(
+            pick(&mut z, &mut npc, &[COND_CAN_MELEE_ATTACK1]),
+            "SCHED_ZOMBIE_MELEE_ATTACK1"
+        );
+        assert_eq!(
+            pick(&mut z, &mut npc, &[COND_TOO_FAR_TO_ATTACK]),
+            "SCHED_ZOMBIE_CHASE_ENEMY"
+        );
+        // The conditions pick a crab that is still in the nest.
+        for _ in 0..20 {
+            let [_, throw] = z.poison_range_conditions(10., 400., 1.);
+            assert_eq!(throw, Some(COND_CAN_RANGE_ATTACK2));
+            assert!(z.throw_crab == 0 || z.throw_crab == 2);
+        }
+        // Pickup: the nest crab off, the hand on; the throw: the hand off, the crab flies,
+        // the next throw in 4..10 s; with no crabs left nothing more is offered.
+        z.throw_crab = 2;
+        z.pick_up_crab();
+        assert_eq!(z.nest, Some([true, false, false]));
+        assert!(z.holding_crab);
+        z.throw_held_crab(20., Some(Vec3::new(400., 0., 64.)));
+        assert!(!z.holding_crab);
+        assert!((24. ..=30.).contains(&z.next_crab_throw));
+        let groups: Vec<_> = z
+            .requests
+            .iter()
+            .filter_map(|r| match r {
+                CopRequest::SetBodygroup { group, value } => Some((*group, *value)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(groups, vec![(4, 0), (5, 1), (5, 0)]);
+        assert!(z
+            .requests
+            .iter()
+            .any(|r| matches!(r, CopRequest::ThrowCrab { target: Some(_) })));
+        z.nest = Some([false; 3]);
+        assert_eq!(z.poison_range_conditions(40., 400., 1.), [None, None]);
+        // A new enemy delays the first throw 1-2 s; a hit of 20% max health allows one now.
+        z.poison_think(50., true, 0.);
+        assert!((51. ..=52.).contains(&z.next_crab_throw));
+        z.poison_think(50.5, false, 0.25);
+        assert_eq!(z.next_crab_throw, 50.5);
     }
 
     #[test]
