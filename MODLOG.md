@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 39: poison zombie passive after a throw; black headcrab panic (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session39-20261030: `conditions::clear_range_complaints` (GatherAttackConditions' clearing of TOO_CLOSE/TOO_FAR/BLOCKED_BY_FRIEND when an attack is possible); NPC memory bits (TASK_REMEMBER/FORGET, INCOVER, FLINCHED); CBlackHeadcrab flinch hops, panic, cover, ambush, eject panic, Scurry locomotion and sounds; the rig loads ACT_BLACKHEADCRAB_RUN_PANIC; the HUD poison indicator (NEUROTOXIN DETECTED).
+- Why: owner playtest (a poison zombie froze or walked away after one throw); STATUS next step 2 (the black crab's panic and flinch hops).
+- Tested how: packaged artifacts/s39 poison-close (before/after), blackcrab-flinch, poison-kill; unit tests (hl2-simulation 398); owned headcrab/poison tests; strict Clippy/fmt; Regression artifacts/s39b-regression (before the HUD panel): movement 26/26, weapons 17/17, attention 26/26; finals vs s39-regression within the known attention glance spot (59 pixels) and exposure (max 9).
+- Result: the zombie leaps a crab and claws instead of backing away forever; shot black crabs hop, scurry away and come back.
+- Still broken or not tested: owner playtest; native A/B of the panic and of the HUD panel; SCHED_HEADCRAB_AMBUSH not packaged-shown; poison zombie breathing loops still missing.
+- Next: STATUS "Current session 39".
+
 ## 2026-10-30 session 39: NPC idle hiccups (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

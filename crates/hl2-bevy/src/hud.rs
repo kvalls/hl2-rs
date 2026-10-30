@@ -324,6 +324,8 @@ pub fn present(
         );
     }
     hud.source.draw_fade(time);
+    hud.source
+        .set_poisoned(game.player_damage.hud_poisoned(&game.inventory));
     hud.source.draw_status(
         &game.inventory,
         &game.weapons,

@@ -7,7 +7,8 @@ use super::assault::Assault;
 use super::conditions::*;
 use super::metropolice::CopRequest;
 use super::schedule::{
-    base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg, TaskStatus,
+    base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg,
+    TaskStatus, MEMORY_FLINCHED, MEMORY_INCOVER,
 };
 use glam::Vec3;
 use serde::Serialize;
@@ -25,6 +26,13 @@ pub const FAILED_ATTACK_DELAY: f64 = 1.2;
 pub const EYE_HEIGHT: f32 = 11.;
 pub const AE_JUMPATTACK: &str = "AE_HEADCRAB_JUMPATTACK";
 pub const AE_JUMP_TELEGRAPH: &str = "AE_HEADCRAB_JUMP_TELEGRAPH";
+/// CBlackHeadcrab events (headcrabblack.mdl flinch1 at 0.235, Scurry, Threatdisplay).
+pub const AE_FLINCH_HOP: &str = "AE_POISONHEADCRAB_FLINCH_HOP";
+pub const AE_POISON_FOOTSTEP: &str = "AE_POISONHEADCRAB_FOOTSTEP";
+pub const AE_POISON_THREAT_SOUND: &str = "AE_POISONHEADCRAB_THREAT_SOUND";
+/// ACT_BLACKHEADCRAB_RUN_PANIC (Scurry): CBlackHeadcrab::NPC_TranslateActivity of
+/// ACT_RUN/ACT_WALK while panicking or burning; the locomotion variant's key.
+pub const RUN_PANIC: &str = "ACT_BLACKHEADCRAB_RUN_PANIC";
 /// Every sound cue this class emits (the host preloads them).
 pub const SOUNDS: &[&str] = &[
     "NPC_HeadCrab.Idle",
@@ -38,6 +46,10 @@ pub const SOUNDS: &[&str] = &[
     "NPC_BlackHeadcrab.Bite",
     "NPC_BlackHeadcrab.Pain",
     "NPC_BlackHeadcrab.Die",
+    "NPC_BlackHeadcrab.Threat",
+    "NPC_BlackHeadcrab.Alert",
+    "NPC_BlackHeadcrab.Footstep",
+    "NPC_BlackHeadcrab.FootstepWalk",
 ];
 
 /// CBaseHeadcrab::JumpAttack's velocity toward `target` (not a random hop): the arc's
@@ -108,6 +120,15 @@ pub fn range_condition(check: LeapCheck) -> Option<Cond> {
     }
     Some(COND_CAN_RANGE_ATTACK1)
 }
+/// CBlackHeadcrab::JumpFlinch's velocity: `forward` x 4 (or U(-4, 4) on both axes) with
+/// the upright up.z of 1, all times U(40, 80). `rolls` are three U(0, 1) draws.
+pub fn jump_flinch(forward: Option<Vec3>, rolls: [f32; 3]) -> Vec3 {
+    let direction = match forward {
+        Some(f) => Vec3::new(f.x * 4., f.y * 4., 1.),
+        None => Vec3::new(rolls[0] * 8. - 4., rolls[1] * 8. - 4., 1.),
+    };
+    direction * (40. + 40. * rolls[2])
+}
 /// CHeadcrab::MaxYawSpeed; CBlackHeadcrab::MaxYawSpeed (`black`: 10 moving, else 30).
 pub fn max_yaw_speed(activity: &str, black: bool) -> f32 {
     match (activity, black) {
@@ -128,12 +149,21 @@ pub fn poison_bite(bite: f32, health: f32) -> Option<(f32, f32)> {
     let left = health - first;
     Some((first, if left > 1. { left - 1. } else { 0. }))
 }
-const SCHEDULES: &[(&str, &str)] = &[(
-    "SCHED_HEADCRAB_RANGE_ATTACK1",
-    "Tasks TASK_STOP_MOVING 0 TASK_FACE_ENEMY 0 TASK_RANGE_ATTACK1 0 \
-     TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_FACE_IDEAL 0 TASK_WAIT_RANDOM 0.5 Interrupts \
-     COND_ENEMY_OCCLUDED COND_NO_PRIMARY_AMMO",
-)];
+const SCHEDULES: &[(&str, &str)] = &[
+    (
+        "SCHED_HEADCRAB_RANGE_ATTACK1",
+        "Tasks TASK_STOP_MOVING 0 TASK_FACE_ENEMY 0 TASK_RANGE_ATTACK1 0 \
+         TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_FACE_IDEAL 0 TASK_WAIT_RANDOM 0.5 Interrupts \
+         COND_ENEMY_OCCLUDED COND_NO_PRIMARY_AMMO",
+    ),
+    // The black crab lurks where it hid until something shows up.
+    (
+        "SCHED_HEADCRAB_AMBUSH",
+        "Tasks TASK_STOP_MOVING 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT_INDEFINITE 0 \
+         Interrupts COND_SEE_ENEMY COND_SEE_HATE COND_CAN_RANGE_ATTACK1 COND_LIGHT_DAMAGE \
+         COND_HEAVY_DAMAGE COND_PROVOKED",
+    ),
+];
 pub fn add_schedules(schedules: &mut Schedules) {
     for (name, text) in SCHEDULES {
         let schedule = Schedule::parse(name, text).expect("headcrab schedule");
@@ -176,6 +206,13 @@ pub struct Headcrab {
     /// CBlackHeadcrab (npc_headcrab_black / npc_headcrab_poison): poison bites, its sounds
     /// and yaw speeds.
     pub black: bool,
+    /// CBlackHeadcrab m_bPanicState / m_flPanicStopTime: hide (scurrying) until then.
+    pub panic: bool,
+    pub panic_stop: f64,
+    /// m_flNextHopTime: the next damage flinch hop no sooner.
+    pub next_hop: f64,
+    /// EjectTouch is set (an EvacuateNest crab panics when it lands).
+    pub eject_touch: bool,
 }
 impl Headcrab {
     pub fn for_class(class: &str) -> Self {
@@ -191,6 +228,10 @@ impl Headcrab {
             (true, "Attack") => "NPC_BlackHeadcrab.Attack",
             (true, "Bite") => "NPC_BlackHeadcrab.Bite",
             (true, "Pain") => "NPC_BlackHeadcrab.Pain",
+            (true, "Threat") => "NPC_BlackHeadcrab.Threat",
+            (true, "Alert") => "NPC_BlackHeadcrab.Alert",
+            (true, "Footstep") => "NPC_BlackHeadcrab.Footstep",
+            (true, "FootstepWalk") => "NPC_BlackHeadcrab.FootstepWalk",
             (true, _) => "NPC_BlackHeadcrab.Die",
             // CHeadcrab::TelegraphSound is the alert; its attack cue is spelled Headcrab.
             (false, "Telegraph") => "NPC_HeadCrab.Alert",
@@ -199,6 +240,11 @@ impl Headcrab {
             (false, "Pain") => "NPC_HeadCrab.Pain",
             (false, _) => "NPC_HeadCrab.Die",
         }
+    }
+    /// CBlackHeadcrab::Panic: hide for `duration` seconds.
+    pub fn start_panic(&mut self, now: f64, duration: f64) {
+        self.panic_stop = now + duration;
+        self.panic = true;
     }
     pub fn new() -> Self {
         Self {
@@ -215,6 +261,10 @@ impl Headcrab {
             last_check: None,
             sees_enemy: false,
             black: false,
+            panic: false,
+            panic_stop: 0.,
+            next_hop: 0.,
+            eject_touch: false,
         }
     }
 }
@@ -226,10 +276,49 @@ impl Default for Headcrab {
 impl Behavior for Headcrab {
     /// CBaseHeadcrab::SelectSchedule's special states (hidden, ceiling, burrowed, water,
     /// NPC heads, barnacles) are not modeled: CAI_BaseNPC::SelectSchedule (unarmed).
+    /// CBlackHeadcrab::SelectSchedule first (SF_NPC_WAIT_TILL_SEEN not modeled): damage
+    /// flinches (a hop) at most every U(1, 3) s; a panicking crab takes cover and, once in
+    /// cover, stops panicking and lurks (SCHED_HEADCRAB_AMBUSH).
     fn select_schedule(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        if self.black {
+            let damaged =
+                npc.conditions.has(COND_LIGHT_DAMAGE) || npc.conditions.has(COND_HEAVY_DAMAGE);
+            if damaged && ctx.now >= self.next_hop {
+                self.next_hop = ctx.now + 1. + 2. * f64::from(ctx.random);
+                return "SCHED_SMALL_FLINCH".into();
+            }
+            if self.panic {
+                if npc.memory.contains(MEMORY_INCOVER) {
+                    self.panic = false;
+                    self.panic_stop = ctx.now;
+                    return "SCHED_HEADCRAB_AMBUSH".into();
+                }
+                return "SCHED_TAKE_COVER_FROM_ENEMY".into();
+            }
+        }
         base_select_schedule(npc, ctx, false)
     }
-    fn translate_schedule(&mut self, name: &str, _npc: &AiNpc, _ctx: &Context) -> String {
+    /// CBlackHeadcrab::BuildScheduleTestBits: damage interrupts every schedule but the
+    /// leap and a cover run right after a flinch.
+    fn custom_interrupts(&self, npc: &AiNpc) -> Conditions {
+        let mut interrupts = Conditions::default();
+        let schedule = npc.schedule.as_deref().unwrap_or("");
+        let busy = schedule == "SCHED_HEADCRAB_RANGE_ATTACK1"
+            || schedule == "SCHED_TAKE_COVER_FROM_ENEMY" && npc.memory.contains(MEMORY_FLINCHED);
+        if self.black && !busy {
+            interrupts.set(COND_LIGHT_DAMAGE);
+            interrupts.set(COND_HEAVY_DAMAGE);
+        }
+        interrupts
+    }
+    fn translate_schedule(&mut self, name: &str, _npc: &AiNpc, ctx: &Context) -> String {
+        // CBlackHeadcrab::TranslateSchedule: a failed cover run past the panic time
+        // gives up hiding and chases.
+        if name == "SCHED_FAIL_TAKE_COVER" && self.black && self.panic && ctx.now > self.panic_stop
+        {
+            self.panic = false;
+            return "SCHED_CHASE_ENEMY".into();
+        }
         match name {
             "SCHED_RANGE_ATTACK1" => "SCHED_HEADCRAB_RANGE_ATTACK1",
             "SCHED_FAIL_TAKE_COVER" => "SCHED_ALERT_FACE",
@@ -282,6 +371,69 @@ impl Behavior for Headcrab {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn black_crabs_flinch_hop_panic_hide_and_lurk() {
+        let mut crab = Headcrab::for_class("npc_headcrab_poison");
+        let mut npc = AiNpc::new(1);
+        npc.state = super::super::state::NpcState::Combat;
+        let mut ctx = Context {
+            now: 10.,
+            random: 0.5,
+            ..Default::default()
+        };
+        // Damage: a flinch (the hop event), then no other flinch for U(1, 3) s.
+        npc.conditions.set(COND_HEAVY_DAMAGE);
+        assert_eq!(crab.select_schedule(&mut npc, &ctx), "SCHED_SMALL_FLINCH");
+        assert_eq!(crab.next_hop, 12.);
+        // The hop panics it: take cover until it is in cover, then lurk.
+        crab.start_panic(ctx.now, 3.);
+        npc.conditions = Default::default();
+        assert_eq!(
+            crab.select_schedule(&mut npc, &ctx),
+            "SCHED_TAKE_COVER_FROM_ENEMY"
+        );
+        npc.memory.insert(MEMORY_INCOVER.into());
+        assert_eq!(
+            crab.select_schedule(&mut npc, &ctx),
+            "SCHED_HEADCRAB_AMBUSH"
+        );
+        assert!(!crab.panic);
+        // A failed cover run after the panic time chases instead.
+        crab.start_panic(ctx.now, 3.);
+        assert_eq!(
+            crab.translate_schedule("SCHED_FAIL_TAKE_COVER", &npc, &ctx),
+            "SCHED_ALERT_FACE"
+        );
+        ctx.now = 13.5;
+        assert_eq!(
+            crab.translate_schedule("SCHED_FAIL_TAKE_COVER", &npc, &ctx),
+            "SCHED_CHASE_ENEMY"
+        );
+        // Damage interrupts all but the leap and a flinched cover run.
+        assert!(crab.custom_interrupts(&npc).has(COND_LIGHT_DAMAGE));
+        npc.schedule = Some("SCHED_HEADCRAB_RANGE_ATTACK1".into());
+        assert!(!crab.custom_interrupts(&npc).has(COND_LIGHT_DAMAGE));
+        // Classic crabs keep the base selection.
+        let mut classic = Headcrab::new();
+        npc.conditions.set(COND_HEAVY_DAMAGE);
+        assert_ne!(
+            classic.select_schedule(&mut npc, &ctx),
+            "SCHED_SMALL_FLINCH"
+        );
+    }
+    #[test]
+    fn flinch_hops_follow_jump_flinch() {
+        // Random: (U(-4, 4), U(-4, 4), 1) x U(40, 80); panicking: forward x 4.
+        assert_eq!(jump_flinch(None, [0.5, 1., 0.]), Vec3::new(0., 160., 40.));
+        assert_eq!(
+            jump_flinch(Some(Vec3::X), [0., 0., 1.]),
+            Vec3::new(320., 0., 80.)
+        );
+        let s = Schedules::default();
+        let mut schedules = s;
+        add_schedules(&mut schedules);
+        assert!(schedules.0.contains_key("SCHED_HEADCRAB_AMBUSH"));
+    }
     #[test]
     fn thrown_crabs_fly_higher_and_faster_than_leaps() {
         // ThrowAt -> JumpAttack(bThrown): the height clamps at 400 (not 120) and the speed

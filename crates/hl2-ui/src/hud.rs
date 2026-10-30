@@ -515,6 +515,32 @@ fn damage_angle(delta: glam::Vec3, view_yaw: f32) -> f32 {
     let (x, y) = (360. * -side, 360. * -front);
     (x.atan2(y) + std::f32::consts::PI).to_degrees()
 }
+/// resource/valve_english.txt's Valve_HudPoisonDamage ("NEUROTOXIN DETECTED\nADMINISTERING
+/// ANTIDOTE"), one entry per line; empty when the file or token is missing.
+fn poison_lines(vfs: &Vfs) -> Vec<String> {
+    let Ok(Some(data)) = vfs.read("resource/valve_english.txt") else {
+        return Vec::new();
+    };
+    let Ok(text) = keyvalues::decode_text(&data) else {
+        return Vec::new();
+    };
+    localized(&text, "Valve_HudPoisonDamage").map_or_else(Vec::new, |value| {
+        value
+            .replace("\\n", "\n")
+            .split('\n')
+            .map(str::to_owned)
+            .collect()
+    })
+}
+/// A token's quoted value in a localization file (`"token" "value"`, escapes kept).
+fn localized(text: &str, token: &str) -> Option<String> {
+    let quoted = format!("\"{token}\"");
+    let start = text.find(&quoted)? + quoted.len();
+    let rest = &text[start..];
+    let open = rest.find('"')? + 1;
+    let close = rest[open..].find('"')? + open;
+    Some(rest[open..close].to_owned())
+}
 fn animations(source: &str) -> Result<Vec<Animate>> {
     let mut result = Vec::new();
     for (event, tokens) in animation_lines(source)? {
@@ -592,6 +618,7 @@ enum NumericPanel {
     Ammo,
     AmmoSecondary,
     DamageIndicator,
+    PoisonDamageIndicator,
 }
 impl NumericPanel {
     fn read(name: &str) -> Option<Self> {
@@ -601,6 +628,7 @@ impl NumericPanel {
             "hudammo" => Some(Self::Ammo),
             "hudammosecondary" => Some(Self::AmmoSecondary),
             "huddamageindicator" => Some(Self::DamageIndicator),
+            "hudpoisondamageindicator" => Some(Self::PoisonDamageIndicator),
             _ => None,
         }
     }
@@ -770,7 +798,13 @@ struct PostedEvent {
     property: Option<String>,
 }
 struct NumericHudEffects {
-    panels: [PanelEffects; 5],
+    panels: [PanelEffects; 6],
+    /// The local player's m_bPoisoned as last reported, and as the indicator shows it
+    /// (CHudPoisonDamageIndicator::m_bDamageIndicatorVisible).
+    poisoned: bool,
+    poison_shown: bool,
+    /// The indicator's layout TextColor (its animations start from it).
+    poison_text: [f32; 4],
     animations: Vec<PropertyAnimation>,
     posted: Vec<PostedEvent>,
     health: i32,
@@ -786,12 +820,18 @@ struct NumericHudEffects {
 }
 impl NumericHudEffects {
     fn new(settings: &Entry) -> Self {
-        let mut panels = [PanelEffects::new(settings); 5];
+        let mut panels = [PanelEffects::new(settings); 6];
         // CHudSecondaryAmmo::Reset starts hidden until a secondary-ammo weapon is observed.
         panels[NumericPanel::AmmoSecondary as usize].values[NumericProperty::Alpha as usize][0] =
             0.;
+        // CHudPoisonDamageIndicator::Reset: SetAlpha(0).
+        panels[NumericPanel::PoisonDamageIndicator as usize].values
+            [NumericProperty::Alpha as usize][0] = 0.;
         Self {
             panels,
+            poisoned: false,
+            poison_shown: false,
+            poison_text: [255., 170., 0., 220.],
             animations: Vec::new(),
             posted: Vec::new(),
             health: -1,
@@ -805,6 +845,13 @@ impl NumericHudEffects {
             viewport: Vec2::ZERO,
             initial_rects: None,
         }
+    }
+    /// The indicator's layout TextColor (kept across resets).
+    fn with_poison_text(mut self, text: [f32; 4]) -> Self {
+        self.poison_text = text;
+        self.panels[NumericPanel::PoisonDamageIndicator as usize].values
+            [NumericProperty::TextColor as usize] = text;
+        self
     }
     fn stop(&mut self, event: &str) {
         self.animations
@@ -966,7 +1013,9 @@ impl NumericHudEffects {
         if time < self.time {
             let viewport = self.viewport;
             let rects = self.initial_rects;
-            *self = Self::new(settings);
+            let (poison_text, poisoned) = (self.poison_text, self.poisoned);
+            *self = Self::new(settings).with_poison_text(poison_text);
+            self.poisoned = poisoned;
             self.viewport = viewport;
             self.initial_rects = rects;
             if let Some(rects) = rects {
@@ -976,6 +1025,17 @@ impl NumericHudEffects {
             }
         }
         self.advance(time);
+        // CHudPoisonDamageIndicator::OnThink: PoisonDamageTaken / PoisonDamageCured when
+        // the player's m_bPoisoned changes.
+        if self.poisoned != self.poison_shown {
+            self.poison_shown = self.poisoned;
+            let event = if self.poisoned {
+                "PoisonDamageTaken"
+            } else {
+                "PoisonDamageCured"
+            };
+            self.start(event, time, rules, events, settings);
+        }
         let health = (inv.health as i32).max(0);
         if health != self.health {
             if health >= 20 {
@@ -1427,6 +1487,10 @@ pub struct WeaponHud {
     suit_panel: PanelLayout,
     ammo_panel: PanelLayout,
     secondary_ammo_panel: PanelLayout,
+    /// HudPoisonDamageIndicator (text_ygap) and its localized lines
+    /// (Valve_HudPoisonDamage).
+    poison_panel: Option<(PanelLayout, f32)>,
+    poison_lines: Vec<String>,
     quick_info: QuickInfoHud,
     /// HudDamageIndicator dmg_xpos, dmg_ypos, dmg_wide, dmg_tall1, dmg_tall2
     /// (proportional, 480-line units).
@@ -1486,7 +1550,17 @@ impl WeaponHud {
         )?;
         let animation_rules = animations(&animation_source)?;
         let animation_events = event_rules(&animation_source)?;
-        let numeric_effects = MutexCell::new(NumericHudEffects::new(&settings));
+        let poison_entry = layout.get("HudPoisonDamageIndicator");
+        let poison_text = poison_entry
+            .and_then(|e| e.get("TextColor"))
+            .and_then(Entry::text)
+            .and_then(rgba)
+            .map_or([255., 170., 0., 220.], |c| {
+                [c.r * 255., c.g * 255., c.b * 255., c.a * 255.]
+            });
+        let numeric_effects =
+            MutexCell::new(NumericHudEffects::new(&settings).with_poison_text(poison_text));
+        let poison_lines = poison_lines(vfs);
         let mut ammo_icons = BTreeMap::new();
         let mut secondary_ammo_icons = BTreeMap::new();
         let mut weapon_crosshairs = BTreeMap::<String, String>::new();
@@ -1605,6 +1679,8 @@ impl WeaponHud {
                     .get("HudAmmoSecondary")
                     .context("Secondary ammo HUD layout missing")?,
             ),
+            poison_panel: poison_entry.map(|e| (PanelLayout::read(e), number(e, "text_ygap", 14.))),
+            poison_lines,
             layout: weapon_layout,
             settings,
             animation_rules,
@@ -2067,6 +2143,32 @@ impl WeaponHud {
         self.canvas.additive(false);
     }
 
+    /// The local player's m_bPoisoned this frame (CBasePlayer::UpdateClientData).
+    pub fn set_poisoned(&self, poisoned: bool) {
+        self.numeric_effects.borrow_mut().poisoned = poisoned;
+    }
+    /// CHudPoisonDamageIndicator::Paint: the panel background and the localized lines
+    /// (Valve_HudPoisonDamage, split at newlines) in its TextColor.
+    fn poison_indicator(&self, effects: PanelEffects) {
+        let Some((panel, gap)) = &self.poison_panel else {
+            return;
+        };
+        if effects.opacity() <= 0. {
+            return;
+        }
+        let scale = self.canvas.height() / 480.;
+        let rect = panel.rect(scale, self.canvas.width());
+        self.rounded_box(rect, effects.color(NumericProperty::Background));
+        let color = effects.color(NumericProperty::TextColor);
+        for (row, line) in self.poison_lines.iter().enumerate() {
+            self.labels.draw(
+                line,
+                rect.x + panel.text.x * scale,
+                rect.y + (panel.text.y + gap * row as f32) * scale,
+                color,
+            );
+        }
+    }
     pub fn draw_status(
         &self,
         inv: &Inventory,
@@ -2111,6 +2213,7 @@ impl WeaponHud {
             None,
             effects.panels[NumericPanel::Suit as usize],
         );
+        self.poison_indicator(effects.panels[NumericPanel::PoisonDamageIndicator as usize]);
         // HIDEHUD_WEAPONSELECTION is a player hide-bit. Opening the bucket selector
         // does not set it; the active weapon's ammunition remains visible.
         let Some(weapon) = weapons.get(&inv.active) else {
@@ -2903,6 +3006,42 @@ mod tests {
             Some("64")
         );
         assert_eq!(fonts.get("Text").unwrap().children().len(), 2);
+    }
+    #[test]
+    fn poison_indicator_reads_its_token_and_follows_the_poisoned_flag() {
+        let text = "\"lang\" { \"Tokens\" { \"Valve_HudPoisonDamage\"	\"NEUROTOXIN DETECTED\nADMINISTERING ANTIDOTE\" } }";
+        assert_eq!(
+            localized(text, "Valve_HudPoisonDamage").as_deref(),
+            Some("NEUROTOXIN DETECTED\nADMINISTERING ANTIDOTE")
+        );
+        let source = "event PoisonDamageTaken
+{
+Animate HudPoisonDamageIndicator Alpha 255 Linear 0.0 1.0
+}
+event PoisonDamageCured
+{
+Animate HudPoisonDamageIndicator Alpha 0 Linear 0.0 1.0
+}";
+        let rules = animations(source).unwrap();
+        let events = event_rules(source).unwrap();
+        let settings = settings();
+        let mut effects = NumericHudEffects::new(&settings);
+        let inv = Inventory::default();
+        let weapons = BTreeMap::new();
+        let alpha = |e: &NumericHudEffects| {
+            e.panels[NumericPanel::PoisonDamageIndicator as usize].values
+                [NumericProperty::Alpha as usize][0]
+        };
+        effects.observe(&inv, &weapons, 0., &rules, &events, &settings);
+        assert_eq!(alpha(&effects), 0.);
+        effects.poisoned = true;
+        effects.observe(&inv, &weapons, 1., &rules, &events, &settings);
+        effects.observe(&inv, &weapons, 2.5, &rules, &events, &settings);
+        assert_eq!(alpha(&effects), 255.);
+        effects.poisoned = false;
+        effects.observe(&inv, &weapons, 3., &rules, &events, &settings);
+        effects.observe(&inv, &weapons, 3.5, &rules, &events, &settings);
+        assert!((alpha(&effects) - 127.5).abs() < 1.);
     }
     #[test]
     fn utf16_localization_and_animation_conditions_are_not_corrupted() {

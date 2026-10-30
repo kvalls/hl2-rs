@@ -102,6 +102,16 @@ fn locomotion_variants(
         if let (Some(walk), Some(run)) = (walk.clone(), pick(weapon, "ACT_RUN").or(walk)) {
             choices.push((weapon.to_owned(), walk, run));
         }
+        // CBlackHeadcrab's panic scurry (ACT_BLACKHEADCRAB_RUN_PANIC) for both styles.
+        if weapon.is_empty() {
+            if let Some(panic) = pick("", crate::ai::headcrab::RUN_PANIC) {
+                choices.push((
+                    crate::ai::headcrab::RUN_PANIC.to_owned(),
+                    panic.clone(),
+                    panic,
+                ));
+            }
+        }
         if let (Some(walk), Some(run)) = (pick(weapon, "ACT_WALK_AIM"), pick(weapon, "ACT_RUN_AIM"))
         {
             aims.insert(weapon.to_owned(), (walk.0, run.0));

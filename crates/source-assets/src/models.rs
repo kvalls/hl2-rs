@@ -1094,6 +1094,13 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
             if matches!(instance.kind.as_str(), "npc_zombie" | "npc_zombie_torso") {
                 wanted.extend(ZOMBIE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
             }
+            // CBlackHeadcrab::NPC_TranslateActivity's panic scurry.
+            if matches!(
+                instance.kind.as_str(),
+                "npc_headcrab_black" | "npc_headcrab_poison"
+            ) {
+                wanted.insert("act_blackheadcrab_run_panic".into());
+            }
             // SCHED_ZOMBIE_POISON_RANGE_ATTACK2's threat sequence.
             if instance.kind == "npc_poisonzombie" {
                 wanted.insert("act_zombie_poison_threat".into());

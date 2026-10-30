@@ -210,9 +210,35 @@ impl Conditions {
     }
 }
 
+/// The end of CAI_BaseNPC::GatherAttackConditions: when any attack is possible,
+/// COND_TOO_CLOSE_TO_ATTACK, COND_TOO_FAR_TO_ATTACK and COND_WEAPON_BLOCKED_BY_FRIEND go.
+pub fn clear_range_complaints(conditions: &mut Conditions) {
+    let can = [
+        COND_CAN_RANGE_ATTACK1,
+        COND_CAN_RANGE_ATTACK2,
+        COND_CAN_MELEE_ATTACK1,
+        COND_CAN_MELEE_ATTACK2,
+    ];
+    if can.into_iter().any(|c| conditions.has(c)) {
+        conditions.clear(COND_TOO_CLOSE_TO_ATTACK);
+        conditions.clear(COND_TOO_FAR_TO_ATTACK);
+        conditions.clear(COND_WEAPON_BLOCKED_BY_FRIEND);
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn possible_attacks_drop_the_range_complaints() {
+        // A poison zombie ready to throw with the player 40 units away: the crab leap is
+        // possible (12..256) while the throw (250..800) is too close; it must not back away.
+        let mut c = Conditions::of(&[COND_CAN_RANGE_ATTACK1, COND_TOO_CLOSE_TO_ATTACK]);
+        clear_range_complaints(&mut c);
+        assert!(c.has(COND_CAN_RANGE_ATTACK1) && !c.has(COND_TOO_CLOSE_TO_ATTACK));
+        let mut c = Conditions::of(&[COND_TOO_CLOSE_TO_ATTACK, COND_NOT_FACING_ATTACK]);
+        clear_range_complaints(&mut c);
+        assert!(c.has(COND_TOO_CLOSE_TO_ATTACK));
+    }
     #[test]
     fn conditions_keep_sdk_names_and_set_semantics() {
         assert_eq!(COND_SEE_ENEMY.name(), "COND_SEE_ENEMY");

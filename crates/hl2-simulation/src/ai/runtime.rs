@@ -15,7 +15,7 @@ use super::humanoid::{self, Humanoid};
 use super::metropolice::{CopRequest, Metropolice, PlayerView, PLAYER};
 use super::police::{PoliceGoal, Policing};
 use super::relationships::{classify, Class, Disposition, Relationships};
-use super::schedule::{AiNpc, Behavior, Context, Schedules};
+use super::schedule::{self, AiNpc, Behavior, Context, Schedules};
 use super::senses::{self, SightWorld, SoundEnt, Viewer};
 use super::state::{select_ideal_state, NpcState, StateInputs};
 use super::zombie::{self, Zombie};
@@ -448,6 +448,8 @@ pub struct AiActor {
     /// SetOwnerEntity: the thrower whose box the falling NPC does not hit (a poison
     /// zombie's thrown crab) until it lands.
     pub fall_owner: Option<usize>,
+    /// The controller plays the black crab's panic locomotion (Scurry).
+    pub panic_locomotion: bool,
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Diagnostics {
@@ -1776,6 +1778,7 @@ impl AiRuntime {
             next_idle_decision: 0.,
             fall: None,
             fall_owner: None,
+            panic_locomotion: false,
         })
     }
     /// MOVETYPE_STEP falling (sv_gravity 600) for NPCs off the ground (a zombie torso
@@ -1792,6 +1795,7 @@ impl AiRuntime {
         // Airborne crab steps that did not bite the player: (crab, swept box start, end,
         // mins, maxs, hit a solid after the world-ignore window, landed).
         let mut npc_touches = Vec::new();
+        let mut panics = Vec::new();
         // PhysicsTryMove traces with the NPC's solid mask, which the player's box blocks
         // (NPCs have colliders; the player has none, so it is a transient box here). A
         // dead player is not solid.
@@ -1972,6 +1976,12 @@ impl AiRuntime {
                 }
             }
             actor.fall = (!landed).then_some((velocity, now));
+            // CBlackHeadcrab::EjectTouch: on the ground, Panic(U(2, 8)).
+            if let AiClass::Headcrab(crab) = &mut actor.class {
+                if landed && std::mem::take(&mut crab.eject_touch) {
+                    panics.push(id);
+                }
+            }
             if actor.fall.is_none() {
                 actor.fall_owner = None;
                 let landings = &mut self.diagnostics.fall_landings;
@@ -1990,6 +2000,12 @@ impl AiRuntime {
         // LeapTouch on an NPC: a hated one (that takes damage) in the step bites
         // (TouchDamage: sk_headcrab_melee_dmg, through the shared melee hit path); else a
         // solid after the world-ignore window fails the attack and a landing ends it.
+        for id in panics {
+            let duration = 2. + 6. * f64::from(self.random());
+            if let Some(AiClass::Headcrab(crab)) = self.actors.get_mut(&id).map(|a| &mut a.class) {
+                crab.start_panic(now, duration);
+            }
+        }
         for (id, start, end, mins, maxs, failed, landed) in npc_touches {
             let victim = self.melee_victim(id, world, scene, start, end, mins, maxs);
             let damage = self.headcrab_melee_damage;
@@ -2157,7 +2173,7 @@ impl AiRuntime {
     }
     /// CBlackHeadcrab::Eject (EvacuateNest): off the ground with `velocity`, the zombie's
     /// attacker as enemy (here its enemy), alert, ACT_RANGE_ATTACK1, EjectTouch = LeapTouch
-    /// (the panic on landing is not modeled), the zombie left out of its fall trace.
+    /// then Panic(U(2, 8)) on landing, the zombie left out of its fall trace.
     pub fn ejected_headcrab(
         &mut self,
         zombie: usize,
@@ -2183,6 +2199,7 @@ impl AiRuntime {
         if let AiClass::Headcrab(h) = &mut actor.class {
             h.leap_touch = true;
             h.ignore_world_until = now;
+            h.eject_touch = h.black;
         }
         self.npc_ids = None;
         true
@@ -2497,6 +2514,35 @@ impl AiRuntime {
                             if name.eq_ignore_ascii_case(headcrab::AE_JUMP_TELEGRAPH) {
                                 h.requests.push(CopRequest::Sound(h.sound("Telegraph")));
                                 h.committed_jump = ctx.enemy_eye;
+                            } else if name.eq_ignore_ascii_case(headcrab::AE_FLINCH_HOP) && h.black
+                            {
+                                // CBlackHeadcrab: a spastic hop (forward while already
+                                // panicking, else random), then Panic(U(2, 5)).
+                                let rolls = [
+                                    (uniform() + 1.) * 0.5,
+                                    (uniform() + 1.) * 0.5,
+                                    (uniform() + 1.) * 0.5,
+                                ];
+                                let yaw = ctx.yaw.to_radians();
+                                let forward = h.panic.then(|| Vec3::new(yaw.cos(), yaw.sin(), 0.));
+                                h.requests
+                                    .push(CopRequest::Leap(headcrab::jump_flinch(forward, rolls)));
+                                let duration = 2. + 3. * f64::from((uniform() + 1.) * 0.5);
+                                h.start_panic(ctx.now, duration);
+                            } else if name.eq_ignore_ascii_case(headcrab::AE_POISON_FOOTSTEP)
+                                && h.black
+                            {
+                                let cue = if npc.activity == "ACT_WALK" {
+                                    "FootstepWalk"
+                                } else {
+                                    "Footstep"
+                                };
+                                h.requests.push(CopRequest::Sound(h.sound(cue)));
+                            } else if name.eq_ignore_ascii_case(headcrab::AE_POISON_THREAT_SOUND)
+                                && h.black
+                            {
+                                h.requests.push(CopRequest::Sound(h.sound("Threat")));
+                                h.requests.push(CopRequest::Sound(h.sound("Alert")));
                             } else if name.eq_ignore_ascii_case(headcrab::AE_JUMPATTACK)
                                 && !h.mid_jump
                             {
@@ -3247,10 +3293,22 @@ impl AiRuntime {
         // when there is none.
         let damage_taken = std::mem::take(&mut actor.damage_taken);
         actor.largest_hit = damage_taken;
+        let flinched = actor.npc.memory.contains(schedule::MEMORY_FLINCHED);
+        // CBlackHeadcrab::IsHeavyDamage: any hit over 1 is heavy while it has not flinched.
+        let heavy = match &actor.class {
+            AiClass::Headcrab(h) if h.black => !flinched && damage_taken > 1.,
+            _ => damage_taken > 20.,
+        };
         if damage_taken > 0. {
             actor.npc.conditions.set(COND_LIGHT_DAMAGE);
+            // OnTakeDamage_Alive: Forget(bits_MEMORY_INCOVER), and bits_MEMORY_FLINCHED
+            // once m_flNextFlinchTime has passed.
+            actor.npc.memory.remove(schedule::MEMORY_INCOVER);
+            if flinched && now > actor.npc.next_flinch {
+                actor.npc.memory.remove(schedule::MEMORY_FLINCHED);
+            }
         }
-        if damage_taken > 20. {
+        if heavy {
             actor.npc.conditions.set(COND_HEAVY_DAMAGE);
         }
         if std::mem::take(&mut actor.damaged_by_player) && hates && !player.noclip {
@@ -3668,6 +3726,10 @@ impl AiRuntime {
                         }
                     }
                 }
+                // GatherAttackConditions: when any attack is possible the range complaints
+                // go (a poison zombie ready to throw at a player inside the throw's 250
+                // units backed away forever instead of leaping a crab or clawing).
+                clear_range_complaints(&mut actor.npc.conditions);
             } else {
                 actor.npc.conditions.set(COND_ENEMY_OCCLUDED);
             }
@@ -4241,6 +4303,17 @@ impl AiRuntime {
             }
         }
         let on_fire = matches!(&actor.class, AiClass::Zombie(_)) && scene.fires.burning(id);
+        // CBlackHeadcrab::NPC_TranslateActivity: ACT_RUN/ACT_WALK scurry while panicking or
+        // burning (the controller's locomotion variant).
+        if let AiClass::Headcrab(h) = &actor.class {
+            if h.black {
+                let panic = h.panic || scene.fires.burning(id);
+                if panic != actor.panic_locomotion {
+                    actor.panic_locomotion = panic;
+                    controller.set_locomotion(id, if panic { headcrab::RUN_PANIC } else { "" });
+                }
+            }
+        }
         let mut motor = SceneMotor {
             entity: id,
             world,

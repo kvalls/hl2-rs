@@ -262,6 +262,13 @@ impl PlayerDamage {
         self.diagnose(inv, bits, health_before);
         health_before - inv.health
     }
+    /// CBasePlayer::UpdateClientData's m_bPoisoned: DMG_POISON pending, poison not yet all
+    /// restored and less than full health (the HUD's NEUROTOXIN DETECTED panel).
+    pub fn hud_poisoned(&self, inv: &Inventory) -> bool {
+        self.bits_damage_type & DMG_POISON != 0
+            && self.poison_damage > self.poison_restored
+            && inv.health < 100.
+    }
     /// CBlackHeadcrab::TouchDamage on the player (HL2, not episodic): above one health, the
     /// bite (DMG_SLASH, cut to leave one health) and then DMG_POISON of all but one health.
     /// Only the poison comes back (check_time_based), so every bite lowers the health the
@@ -519,8 +526,11 @@ mod tests {
         damage.take(&mut inv, hit(5., DMG_SLASH));
         assert_eq!((inv.health, inv.armor), (99., 46.));
         let poison = inv.health - 1.;
+        assert!(!damage.hud_poisoned(&inv));
         damage.take(&mut inv, hit(poison, DMG_POISON));
         assert_eq!((inv.health, inv.armor), (1., 46.));
+        // m_bPoisoned: the HUD shows NEUROTOXIN DETECTED until it is all restored.
+        assert!(damage.hud_poisoned(&inv));
         damage.check_time_based(&mut inv, 10.);
         assert_eq!(inv.health, 1.);
         // 10 back at 12 s, 14 s, ...; nothing between ticks.
@@ -534,6 +544,7 @@ mod tests {
         // 98 poisoned: ten ticks restore it all (the last 8) and clear the bit.
         assert_eq!(inv.health, 99.);
         assert_eq!(damage.bits_damage_type & DMG_POISON, 0);
+        assert!(!damage.hud_poisoned(&inv));
         damage.check_time_based(&mut inv, 40.);
         assert_eq!(inv.health, 99.);
     }

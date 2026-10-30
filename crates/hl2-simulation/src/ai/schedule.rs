@@ -18,7 +18,12 @@ pub enum TaskArg {
     Activity(String),
     Task(String),
     State(String),
+    /// MEMORY:<name> (bits_MEMORY_INCOVER, FLINCHED, ...).
+    Memory(String),
 }
+/// ai_schedule.cpp memory names (bits_MEMORY_INCOVER, bits_MEMORY_FLINCHED).
+pub const MEMORY_INCOVER: &str = "INCOVER";
+pub const MEMORY_FLINCHED: &str = "FLINCHED";
 impl TaskArg {
     pub fn parse(text: &str) -> Self {
         let (kind, value) = text.split_once(':').unwrap_or(("", text));
@@ -27,6 +32,7 @@ impl TaskArg {
             "ACTIVITY" => Self::Activity(value.into()),
             "TASK" => Self::Task(value.into()),
             "NPC_STATE" | "STATE" => Self::State(value.into()),
+            "MEMORY" => Self::Memory(value.to_ascii_uppercase()),
             _ => Self::Number(text.parse().unwrap_or(0.)),
         }
     }
@@ -385,6 +391,10 @@ pub fn base_combat_schedule(npc: &mut AiNpc, ctx: &Context, armed: bool) -> Stri
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct AiNpc {
     pub entity: usize,
+    /// bits_MEMORY_* the NPC remembers (Remember/Forget by name: INCOVER, FLINCHED).
+    pub memory: std::collections::BTreeSet<String>,
+    /// m_flNextFlinchTime: damage after it forgets bits_MEMORY_FLINCHED.
+    pub next_flinch: f64,
     pub state: NpcState,
     pub ideal_state: NpcState,
     pub conditions: Conditions,
@@ -783,7 +793,6 @@ impl AiNpc {
             | "TASK_SOUND_WAKE"
             | "TASK_SOUND_DIE"
             | "TASK_ANNOUNCE_ATTACK"
-            | "TASK_REMEMBER"
             | "TASK_SET_ROUTE_SEARCH_TIME"
             | "TASK_SET_TOLERANCE_DISTANCE"
             | "TASK_IGNORE_OLD_ENEMIES"
@@ -792,6 +801,17 @@ impl AiNpc {
             // SetIdealActivity: CAI_BaseNPC::SetActivity and MaintainActivity leave a
             // running activity alone unless its re-rolled weighted sequence differs
             // (SCHED_IDLE_STAND repeats every 5 s; restarting the idle jerked the head).
+            // Remember/Forget (bits_MEMORY_*).
+            "TASK_REMEMBER" | "TASK_FORGET" => {
+                if let TaskArg::Memory(m) = arg {
+                    if task == "TASK_REMEMBER" {
+                        self.memory.insert(m.clone());
+                    } else {
+                        self.memory.remove(m);
+                    }
+                }
+                Complete
+            }
             "TASK_SET_ACTIVITY" => {
                 if let TaskArg::Activity(a) = arg {
                     if self.activity == *a {
@@ -982,6 +1002,8 @@ impl AiNpc {
                 } else {
                     "ACT_RUN"
                 };
+                // "Cover is void once I move."
+                self.memory.remove(MEMORY_INCOVER);
                 self.activity = activity.into();
                 motor.set_activity(activity);
                 Complete
@@ -1008,6 +1030,12 @@ impl AiNpc {
                         _ => None,
                     },
                 };
+                // TASK_SMALL/BIG_FLINCH: Remember(bits_MEMORY_FLINCHED), the next full
+                // flinch no sooner than U(3, 5) s.
+                if matches!(task, "TASK_SMALL_FLINCH" | "TASK_BIG_FLINCH") {
+                    self.memory.insert(MEMORY_FLINCHED.into());
+                    self.next_flinch = ctx.now + 3. + 2. * f64::from(ctx.random);
+                }
                 if let Some(a) = activity {
                     self.activity = a.into();
                     motor.set_activity(a);
