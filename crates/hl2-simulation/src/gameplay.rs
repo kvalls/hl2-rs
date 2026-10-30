@@ -1701,6 +1701,7 @@ impl Inventory {
                             // attack's solid, else the root (the server's default 0).
                             let force_point = scene.npc_force_points.get(&id).copied();
                             if damage.kind & crate::player_damage::DMG_BLAST != 0 {
+                                scene.npc_death_blasts.insert(id, damage.amount);
                                 // CalculateExplosiveDamageForce: the (falloff) damage x
                                 // ImpulseScale(75, 4), clamped to ImpulseScale(75, 400),
                                 // x U(0.85, 1.15); CalcDamageForceVector fudges it again:
@@ -2390,10 +2391,13 @@ pub fn apply_hit(
         scene
             .npc_death_forces
             .insert(id, (direction * force, Some(hit.position)));
-        // ShouldReleaseHeadcrab for a bullet kill of a classic zombie (or its torso).
+        // ShouldReleaseHeadcrab for a bullet kill of a classic or poison zombie (or a
+        // torso): CNPC_BaseZombie's, with the class's GetHeadcrabClassname/Model.
         if !melee
-            && crate::ai::zombie::Kind::for_class(e.class())
-                == Some(crate::ai::zombie::Kind::Classic)
+            && matches!(
+                crate::ai::zombie::Kind::for_class(e.class()),
+                Some(crate::ai::zombie::Kind::Classic | crate::ai::zombie::Kind::Poison)
+            )
         {
             let max = scene
                 .npc_max_health

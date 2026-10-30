@@ -184,6 +184,8 @@ pub struct Gameplay {
     pub released_crabs: Vec<usize>,
     /// Black crabs poison zombies threw (AE_ZOMBIE_POISON_THROW_CRAB).
     pub thrown_crabs: Vec<usize>,
+    /// Nest crabs dying poison zombies ejected (EvacuateNest).
+    pub evacuated_crabs: Vec<usize>,
     pub zombie_split_failures: Vec<String>,
     /// Runtime entities whose Bevy draws were despawned after they were killed.
     pub despawned_draws: std::collections::BTreeSet<usize>,
@@ -436,6 +438,7 @@ impl Gameplay {
             crab_releases: Vec::new(),
             released_crabs: Vec::new(),
             thrown_crabs: Vec::new(),
+            evacuated_crabs: Vec::new(),
             zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
@@ -490,6 +493,7 @@ impl Gameplay {
             crab_releases: Vec::new(),
             released_crabs: Vec::new(),
             thrown_crabs: Vec::new(),
+            evacuated_crabs: Vec::new(),
             zombie_split_failures: Vec::new(),
             runtime_entities: Vec::new(),
             despawned_draws: Default::default(),
@@ -818,6 +822,102 @@ impl Gameplay {
             self.thrown_crabs.push(crab);
         }
     }
+    /// CNPC_PoisonZombie::EvacuateNest (DESIGN 14o session 38): the crab in its hand only
+    /// loses its bodygroup (the SDK adds it to the count but ejects nest slots only); each
+    /// nest crab becomes a npc_headcrab_poison at its headcrab2/3/4 attachment with a random
+    /// yaw (HeadcrabFits, or it is dropped), burning 100 s with a burning zombie, ejected at
+    /// RandomInt(20, 50) x (U(-1,1), U(-1,1), U(0.5,1)) x 2 (0.1 x the blast damage for a
+    /// blast over 10), and its nest bodygroup turns off on the corpse.
+    fn evacuate_nest(&mut self, zombie: usize, physics: &mut Physics) {
+        use hl2_simulation::ai::zombie;
+        let Some((nest, holding, enemy)) = self.ai.take_poison_nest(zombie) else {
+            return;
+        };
+        if holding {
+            self.scene
+                .set_bodygroup(&self.world, zombie, zombie::BODYGROUP_THROW, 0);
+        }
+        let scale = match self.scene.npc_death_blasts.get(&zombie) {
+            Some(&damage) if damage > 10. => 0.1 * damage,
+            _ => 2.,
+        };
+        let names = ["headcrab2", "headcrab3", "headcrab4"];
+        let frames = self.scene.attachment_frames(&self.world, zombie, &names);
+        let time = self.scene.time;
+        for (i, frame) in frames.into_iter().enumerate() {
+            if !nest[i] {
+                continue;
+            }
+            let roll = |salt| hl2_simulation::fire::roll(zombie, time, 60 + i as u64 * 8 + salt);
+            let origin = frame.map_or(self.scene.states[zombie].origin + Vec3::Z * 50., |f| {
+                f.w_axis.truncate()
+            });
+            let yaw = 360. * roll(0);
+            {
+                use hl2_simulation::npc_probe::NpcCollisionWorld;
+                let fits = !physics
+                    .npc_trace_hull(
+                        origin,
+                        origin - Vec3::Z,
+                        hl2_simulation::ai_hull::HullType::Tiny.bounds(),
+                        hl2_simulation::npc_probe::Query {
+                            excluded_entities: &[zombie],
+                            ..Default::default()
+                        },
+                    )
+                    .trace
+                    .start_solid;
+                if !fits {
+                    self.zombie_split_failures
+                        .push(format!("{zombie} nest crab {i} does not fit"));
+                    continue;
+                }
+            }
+            let Some(&template) = ["npc_headcrab_poison", "npc_headcrab_black"]
+                .iter()
+                .find_map(|class| {
+                    hl2_simulation::ai::spawn::templates(&self.world, class)
+                        .first()
+                        .copied()
+                })
+                .as_ref()
+            else {
+                continue;
+            };
+            let flags = hl2_simulation::npc_makers::SF_NPC_FALL_TO_GROUND;
+            let crab = match self.create_from_template(
+                template,
+                origin,
+                yaw,
+                &[("spawnflags", flags.to_string())],
+                physics,
+            ) {
+                Ok(crab) => crab,
+                Err(e) => {
+                    self.zombie_split_failures
+                        .push(format!("{zombie} nest crab: {e}"));
+                    continue;
+                }
+            };
+            if self.scene.fires.burning(zombie) {
+                let flammable = hl2_simulation::fire::Interactions {
+                    flammable: true,
+                    ..Default::default()
+                };
+                self.scene
+                    .fires
+                    .ignite(crab, flammable, 100., 8., origin, time);
+            }
+            let speed = scale * (20. + (31. * roll(1)).floor().min(30.));
+            let velocity =
+                speed * Vec3::new(2. * roll(2) - 1., 2. * roll(3) - 1., 0.5 + 0.5 * roll(4));
+            self.ai
+                .ejected_headcrab(zombie, crab, velocity, enemy, &mut self.scene);
+            self.scene
+                .set_bodygroup(&self.world, zombie, zombie::BODYGROUP_NEST_BASE + i, 0);
+            self.evacuated_crabs.push(crab);
+        }
+    }
     /// A raggib of `model` at `origin` with Source `angles` (degrees), ragdolled with `force`
     /// unless `posed_from` gives the NPC whose death pose it takes. None without a template.
     fn spawn_raggib(
@@ -880,7 +980,13 @@ impl Gameplay {
         // below while another handle lives makes Arc::make_mut copy the whole map (the
         // frame hitch of every crab release before session 38).
         let world = &*self.world;
-        let crab_model = "models/headcrabclassic.mdl";
+        // GetHeadcrabModel / GetHeadcrabClassname: the poison zombie's black crab.
+        let poison = world.entities[npc].class() == "npc_poisonzombie";
+        let (crab_model, crab_class) = if poison {
+            ("models/headcrabblack.mdl", "npc_headcrab_poison")
+        } else {
+            ("models/headcrabclassic.mdl", "npc_headcrab")
+        };
         let root = hl2_simulation::ai::spawn::templates(
             world,
             &hl2_simulation::ai::spawn::gib_label(crab_model),
@@ -947,7 +1053,7 @@ impl Gameplay {
             if let Some(squad) = self.world.entities[npc].get("squadname") {
                 overrides.push(("squadname", squad.to_owned()));
             }
-            let crab = hl2_simulation::ai::spawn::templates(&self.world, "npc_headcrab")
+            let crab = hl2_simulation::ai::spawn::templates(&self.world, crab_class)
                 .first()
                 .copied()
                 .and_then(|template| {
@@ -977,6 +1083,12 @@ impl Gameplay {
                 self.released_crabs.push(crab);
             }
             self.scene.npc_death_forces.insert(npc, (Vec3::ZERO, None));
+            self.crab_releases.push((npc, false));
+            // fRemoveHead on the zombie itself (runtime bodygroups); its ragdoll follows.
+            if poison {
+                self.scene.set_bodygroup(&self.world, npc, 1, 0);
+                return false;
+            }
             self.spawn_raggib(
                 corpse_model,
                 origin,
@@ -985,7 +1097,6 @@ impl Gameplay {
                 Some(npc),
                 physics,
             );
-            self.crab_releases.push((npc, false));
             return true;
         }
         self.spawn_raggib(
@@ -996,6 +1107,12 @@ impl Gameplay {
             None,
             physics,
         );
+        if poison {
+            // The headless poison zombie ragdolls itself with its death force.
+            self.scene.set_bodygroup(&self.world, npc, 1, 0);
+            self.crab_releases.push((npc, false));
+            return false;
+        }
         match release.chopped {
             Some((legs, torso)) => {
                 self.spawn_raggib(
@@ -1041,6 +1158,7 @@ impl Gameplay {
         let releases = std::mem::take(&mut self.scene.crab_releases);
         // Event_Killed -> BecomeRagdollOnClient before the weapon leaves the hand.
         for &npc in &deaths {
+            self.evacuate_nest(npc, physics);
             if let Some(release) = releases.iter().find(|r| r.entity == npc)
                 && self.release_crab(*release, physics)
             {
@@ -1054,6 +1172,7 @@ impl Gameplay {
         self.ragdolls.impacts(&mut self.scene, physics);
         self.ragdolls.track(&self.world, &self.scene);
         self.scene.npc_death_forces.clear();
+        self.scene.npc_death_blasts.clear();
         self.scene.npc_hit_forces.clear();
         for npc in deaths {
             let Some(class) = self.ai.weapon_class(npc) else {
@@ -2146,7 +2265,7 @@ impl Gameplay {
             })
             .collect();
         // BecomeTorso replacements: (zombie, torso, legs), each torso's origin, death, health.
-        let zombies = serde_json::json!({"splits":self.zombie_splits,"torsos":self.zombie_splits.iter().map(|(_, t, _)| (t.to_string(), (self.scene.states[*t].origin.to_array(), self.scene.states[*t].killed, self.scene.states[*t].value))).collect::<std::collections::BTreeMap<_,_>>(),"failures":self.zombie_split_failures,"crab_releases":self.scene.zombie_crab_releases,"released":self.crab_releases,"live_crabs":self.released_crabs,"thrown_crabs":self.thrown_crabs,"chops":self.scene.zombie_chops});
+        let zombies = serde_json::json!({"splits":self.zombie_splits,"torsos":self.zombie_splits.iter().map(|(_, t, _)| (t.to_string(), (self.scene.states[*t].origin.to_array(), self.scene.states[*t].killed, self.scene.states[*t].value))).collect::<std::collections::BTreeMap<_,_>>(),"failures":self.zombie_split_failures,"crab_releases":self.scene.zombie_crab_releases,"released":self.crab_releases,"live_crabs":self.released_crabs,"thrown_crabs":self.thrown_crabs,"evacuated_crabs":self.evacuated_crabs,"chops":self.scene.zombie_chops});
         let ragdolls = serde_json::json!({"active":self.ragdolls.active.len(),"spawned":self.ragdolls.spawned,"skipped":self.ragdolls.skipped,"removed":self.ragdolls.removed,"shot_pushes":self.ragdolls.shot_pushes,"blast_pushes":self.ragdolls.blast_pushes,"pins":self.ragdolls.pins,"death_poses":self.ragdolls.death_poses,"bolt_misses":self.ragdolls.bolt_misses,"last_missed_bolt":self.ragdolls.last_missed_bolt.map(|(a,b)| [a.to_array(),b.to_array()]),"missed_bolt_bodies":self.ragdolls.missed_bolt_bodies.iter().map(|v| v.to_array()).collect::<Vec<_>>(),"fading":self.ragdolls.fading(),"shots_seen":self.ragdolls.shots_seen,"shots_busy":self.ragdolls.shots_busy,"simulating":self.ragdolls.simulating(physics),"forced_sleeps":self.ragdolls.forced_sleeps,"props":self.ragdolls.props.len(),"prop_origins":self.ragdolls.props.keys().map(|id| (id.to_string(), (self.scene.states[*id].origin.to_array(), self.scene.ragdoll_matrices.contains_key(id)))).collect::<std::collections::BTreeMap<_,_>>(),"props_skipped":self.ragdolls.props_skipped,"last_force_body":self.ragdolls.last_force_body,"activity":self.ragdolls.activity(physics),"last_missed_shot":self.ragdolls.last_missed_shot.map(|(a,b)| [a.to_array(),b.to_array()]),"origins":self.ragdolls.active.keys().map(|id| (id.to_string(), self.scene.states[*id].origin.to_array())).collect::<std::collections::BTreeMap<_,_>>()});
         serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"carrying":self.inventory.carrying(),"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),

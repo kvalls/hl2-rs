@@ -1870,10 +1870,18 @@ impl AiRuntime {
             let mut excluded = vec![id];
             excluded.extend(actor.fall_owner);
             let mut hit = trace(&excluded);
-            while let Some(dead) = hit
-                .entity
-                .filter(|e| excluded.len() < 4 && scene.states.get(*e).is_some_and(|s| s.killed))
-            {
+            // CHalfLife2::ShouldCollide: HL2COLLISION_GROUP_HEADCRAB never collides with
+            // itself (a poison zombie's nest crabs eject from overlapping spots).
+            let crab = matches!(actor.class, AiClass::Headcrab(_));
+            let passable = |e: usize| {
+                scene.states.get(e).is_some_and(|s| s.killed)
+                    || crab
+                        && world
+                            .entities
+                            .get(e)
+                            .is_some_and(|x| headcrab::is_headcrab_class(x.class()))
+            };
+            while let Some(dead) = hit.entity.filter(|e| excluded.len() < 8 && passable(*e)) {
                 excluded.push(dead);
                 hit = trace(&excluded);
             }
@@ -2130,6 +2138,52 @@ impl AiRuntime {
             }
         }
         actor.fall = Some((velocity, now));
+        self.npc_ids = None;
+        true
+    }
+    /// CNPC_PoisonZombie::Event_Killed (not a torso): the nest crabs to evacuate (and
+    /// whether one was in its hand, which only turns its bodygroup off), with the zombie's
+    /// enemy for them; the nest empties. None for other NPCs.
+    pub fn take_poison_nest(&mut self, zombie: usize) -> Option<([bool; 3], bool, Option<usize>)> {
+        let actor = self.actors.get_mut(&zombie)?;
+        let enemy = actor.npc.enemy;
+        match &mut actor.class {
+            AiClass::Zombie(z) if z.kind == zombie::Kind::Poison && !z.torso => {
+                let nest = z.nest.take().unwrap_or_default();
+                Some((nest, std::mem::take(&mut z.holding_crab), enemy))
+            }
+            _ => None,
+        }
+    }
+    /// CBlackHeadcrab::Eject (EvacuateNest): off the ground with `velocity`, the zombie's
+    /// attacker as enemy (here its enemy), alert, ACT_RANGE_ATTACK1, EjectTouch = LeapTouch
+    /// (the panic on landing is not modeled), the zombie left out of its fall trace.
+    pub fn ejected_headcrab(
+        &mut self,
+        zombie: usize,
+        crab: usize,
+        velocity: Vec3,
+        enemy: Option<usize>,
+        scene: &mut Scene,
+    ) -> bool {
+        let now = scene.time;
+        let enemies = self.actors.get(&zombie).map(|a| a.npc.enemies.clone());
+        let Some(actor) = self.actors.get_mut(&crab) else {
+            return false;
+        };
+        actor.npc.enemy = enemy;
+        if let Some(enemies) = enemies {
+            actor.npc.enemies = enemies;
+        }
+        actor.npc.state = NpcState::Alert;
+        actor.npc.activity = "ACT_RANGE_ATTACK1".into();
+        actor.next_think = now;
+        actor.fall_owner = Some(zombie);
+        actor.fall = Some((velocity, now));
+        if let AiClass::Headcrab(h) = &mut actor.class {
+            h.leap_touch = true;
+            h.ignore_world_until = now;
+        }
         self.npc_ids = None;
         true
     }

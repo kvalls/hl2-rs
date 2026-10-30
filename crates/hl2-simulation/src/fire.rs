@@ -67,7 +67,7 @@ fn emitter(entity: usize) -> u64 {
     (5 << 40) | entity as u64
 }
 /// A uniform [0, 1) draw from the entity and the time (deterministic replays).
-pub(crate) fn roll(entity: usize, now: f64, salt: u64) -> f32 {
+pub fn roll(entity: usize, now: f64, salt: u64) -> f32 {
     let mut x = (entity as u64)
         .wrapping_mul(0x9e37_79b9_7f4a_7c15)
         .wrapping_add(now.to_bits())

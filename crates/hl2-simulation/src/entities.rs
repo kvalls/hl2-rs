@@ -395,6 +395,9 @@ pub struct Scene {
     /// Studio body values changed at runtime (CBaseAnimating::SetBodygroup), by entity;
     /// the host draws the matching preloaded variant. Others keep their spawn body.
     pub bodies: BTreeMap<usize, i32>,
+    /// The blast damage that killed an NPC this tick (CNPC_PoisonZombie::Event_Killed's
+    /// EvacuateNest(bExplosion, flDamage)).
+    pub npc_death_blasts: BTreeMap<usize, f32>,
     /// The latest trace attack's position per NPC (CAI_BaseNPC::TraceAttack keeps the
     /// hit hitbox's physics bone in m_nForceBone): later deaths without a trace (blasts)
     /// push that solid.
@@ -637,6 +640,7 @@ impl Scene {
             zombie_chops: 0,
             crab_releases: Vec::new(),
             bodies: BTreeMap::new(),
+            npc_death_blasts: BTreeMap::new(),
             npc_force_points: BTreeMap::new(),
             npc_hit_groups: BTreeMap::new(),
             npc_force_bones: BTreeMap::new(),

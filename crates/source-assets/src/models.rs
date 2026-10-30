@@ -189,9 +189,9 @@ pub fn body_value((models, base): (usize, i32), body: i32) -> i32 {
     }
 }
 /// Classes whose AI calls SetBodygroup after spawning, and the groups it changes:
-/// CNPC_PoisonZombie's nest crabs (ZOMBIE_BODYGROUP_NEST_BASE 2..4) and the crab in its
-/// hand (ZOMBIE_BODYGROUP_THROW 5).
-pub const RUNTIME_BODYGROUPS: &[(&str, &[usize])] = &[("npc_poisonzombie", &[2, 3, 4, 5])];
+/// CNPC_PoisonZombie's head crab (ReleaseHeadcrab's fRemoveHead, group 1), nest crabs
+/// (ZOMBIE_BODYGROUP_NEST_BASE 2..4) and the crab in its hand (ZOMBIE_BODYGROUP_THROW 5).
+pub const RUNTIME_BODYGROUPS: &[(&str, &[usize])] = &[("npc_poisonzombie", &[1, 2, 3, 4, 5])];
 /// Every body value reachable from `body` by setting `groups` (each to any submodel).
 pub fn body_variants(parts: &[(usize, i32)], body: i32, groups: &[usize]) -> Vec<i32> {
     let mut bodies = vec![body];
@@ -2359,9 +2359,9 @@ mod body_tests {
                 .map(|s| s.indices.len() / 3)
                 .sum::<usize>()
         };
-        // Spawn body 15 (head crab + three nest crabs) and its 15 runtime variants.
+        // Spawn body 15 (head crab + three nest crabs) and its 31 runtime variants.
         let bodies = body_variants(parts, 15, RUNTIME_BODYGROUPS[0].1);
-        assert_eq!(bodies.len(), 16);
+        assert_eq!(bodies.len(), 32);
         for body in &bodies {
             assert!(triangles(*body) > 0, "{body}");
         }
@@ -2369,6 +2369,8 @@ mod body_tests {
         assert!(triangles(15) > triangles(13));
         assert!(triangles(13) > triangles(9));
         assert!(triangles(31) > triangles(15));
+        // Headless (ReleaseHeadcrab removes the head crab).
+        assert!(triangles(15) > triangles(14));
         println!(
             "triangles 1 {} 15 {} 31 {}",
             triangles(1),

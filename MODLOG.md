@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 38: poison zombie deaths (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session38-20261030: CNPC_PoisonZombie::EvacuateNest (live nest crabs ejected at death, nest bodygroups off), the poison zombie's head crab release (npc_headcrab_poison / headcrabblack.mdl, its own headless ragdoll through runtime bodygroups, bullet releases no longer classic-only), headcrabs pass each other while falling (HL2COLLISION_GROUP_HEADCRAB).
+- Why: the remaining poison zombie step of DESIGN 14o session 38; a latent wrong-model release found by code reading.
+- Tested how: packaged artifacts/s38 poison-kill and poison-kill-body (hall, one pistol shot at 1 HP), unit tests (hl2-simulation 393), owned variant test, strict Clippy/fmt, regression artifacts/s38c-regression: movement 26/26, weapons 17/17, attention 26/26, finals within 7 levels of s38b-regression (none above 5).
+- Result: three nest crabs pop out, land and attack; a body-shot kill also frees the head crab alive; the corpse is drawn headless and nest-less.
+- Still broken or not tested: the ground controller blocks crabs on each other; panic hops; native A/B of throws and deaths; blast kills of poison zombies not packaged-tested.
+- Next: STATUS "Current session 38" and artifacts/s38/next-session-prompt.txt.
+
 ## 2026-10-30 session 38: runtime bodygroups and poison zombie crab throws (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
