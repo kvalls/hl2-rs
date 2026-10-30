@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-30 session 39: headcrabs pass each other on the ground; poison blast kill (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session39-20261030: the controller's HL2COLLISION_GROUP_HEADCRAB set (crab moves ignore other crabs).
+- Why: STATUS session 38 open item (the ground controller still blocked crabs on each other).
+- Tested how: unit test, packaged artifacts/s39 poison-kill (blocked moves 46 -> 1) and poison-blast (first packaged poison zombie blast kill), strict Clippy/fmt.
+- Result: evacuated nest crabs no longer jam on each other.
+- Still broken or not tested: native A/B.
+- Next: STATUS "Current session 39".
+
 ## 2026-10-30 session 39: poison zombie breathing loops (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

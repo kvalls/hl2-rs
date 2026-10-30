@@ -588,6 +588,9 @@ pub struct Controller {
     pending: Vec<MoveUpdate>,
     /// Door entities NPC routes may pass through by opening them.
     doors: BTreeSet<usize>,
+    /// Actors in HL2COLLISION_GROUP_HEADCRAB (CHalfLife2::ShouldCollide: never with
+    /// each other): their moves pass the other crabs.
+    headcrabs: BTreeSet<usize>,
     stats: PathStats,
     /// Movement time (unpaused ticks), the clock of the stale-link expiries.
     clock: f64,
@@ -642,6 +645,7 @@ impl Controller {
             goals: BTreeMap::new(),
             pending: Vec::new(),
             doors: BTreeSet::new(),
+            headcrabs: BTreeSet::new(),
             stats: PathStats::default(),
             clock: 0.,
             stale: BTreeMap::new(),
@@ -693,6 +697,9 @@ impl Controller {
         };
         actor.aiming = false;
         self.actors.insert(entity, actor);
+        if self.headcrabs.contains(&template) {
+            self.headcrabs.insert(entity);
+        }
         true
     }
     pub fn set_locomotion(&mut self, entity: usize, weapon: &str) -> bool {
@@ -820,6 +827,26 @@ impl Controller {
     /// Whether the controller opens route doors for this actor (bits_CAP_DOORS_GROUP).
     pub fn opens_doors(&self, entity: usize) -> bool {
         self.actors.get(&entity).is_none_or(|a| a.opens_doors)
+    }
+    /// HL2COLLISION_GROUP_HEADCRAB membership (the headcrab classes).
+    pub fn set_headcrab(&mut self, entity: usize, on: bool) {
+        if on {
+            self.headcrabs.insert(entity);
+        } else {
+            self.headcrabs.remove(&entity);
+        }
+    }
+    /// The entities a mover's hull traces leave out: itself, and every crab for a crab.
+    fn excluded_for(&self, entity: usize) -> Vec<usize> {
+        if self.headcrabs.contains(&entity) {
+            let mut all: Vec<usize> = self.headcrabs.iter().copied().collect();
+            if !all.contains(&entity) {
+                all.push(entity);
+            }
+            all
+        } else {
+            vec![entity]
+        }
     }
     pub fn set_opens_doors(&mut self, entity: usize, on: bool) {
         if let Some(actor) = self.actors.get_mut(&entity) {
@@ -974,7 +1001,7 @@ impl Controller {
             }
             .max(goal.request.event_distance)
             .max(0.1);
-            let excluded = [key.actor];
+            let excluded = self.excluded_for(key.actor);
             let query = Query {
                 excluded_entities: &excluded,
                 transients,
@@ -1060,6 +1087,14 @@ impl Controller {
             self.clock += f64::from(dt);
         }
         let mut updates = std::mem::take(&mut self.pending);
+        let crabs: Vec<usize> = self.headcrabs.iter().copied().collect();
+        let excluded_for = |entity: usize| {
+            if crabs.contains(&entity) {
+                crabs.clone()
+            } else {
+                vec![entity]
+            }
+        };
         for (key, goal) in &mut self.goals {
             if matches!(goal.state, GoalState::Arrived | GoalState::Canceled) {
                 continue;
@@ -1133,7 +1168,8 @@ impl Controller {
                     goal.next = 0;
                     goal.state = GoalState::Moving;
                 }
-                let moved = advance(world, actor, *key, goal, track, transients, dt);
+                let excluded = excluded_for(key.actor);
+                let moved = advance(world, actor, *key, goal, track, transients, &excluded, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
             })();
@@ -1206,11 +1242,11 @@ fn advance<W: NpcCollisionWorld>(
     goal: &mut Goal,
     track: &RootMotion,
     transients: &[ActorHull],
+    excluded: &[usize],
     dt: f32,
 ) -> Result<(), GoalBlockReason> {
-    let excluded = [key.actor];
     let query = Query {
-        excluded_entities: &excluded,
+        excluded_entities: excluded,
         transients,
         ..Default::default()
     };
@@ -1237,7 +1273,7 @@ fn advance<W: NpcCollisionWorld>(
             let forced = !goal.simplified;
             goal.simplified = true;
             let plain = Query {
-                excluded_entities: &excluded,
+                excluded_entities: excluded,
                 ..Default::default()
             };
             simplify_path_forward(world, actor, goal, plain, forced);
@@ -2012,6 +2048,36 @@ mod tests {
         assert!(canceled.last().unwrap().sequence.is_none());
         assert_eq!(feet, before.feet);
         assert!(!controller.status(key(1)).unwrap().is_arrived());
+    }
+    #[test]
+    fn headcrabs_move_through_each_other() {
+        // HL2COLLISION_GROUP_HEADCRAB: a crab's move is blocked by another NPC's hull
+        // (entity 8) unless both are crabs.
+        let physics = Physics::new(&world(vec![]));
+        let blocker = [ActorHull {
+            entity: Some(8),
+            feet: Vec3::X * 50.,
+            hull: normal_human(1., 18., 1.).unwrap().hull,
+        }];
+        let blocked = |crabs: bool| {
+            let mut controller = make_controller(None);
+            controller.set_headcrab(7, crabs);
+            controller.set_headcrab(8, crabs);
+            controller.request(
+                key(1),
+                request(Vec3::X * 200.),
+                pose(Vec3::ZERO),
+                &physics,
+                &[],
+            );
+            let updates = controller.tick(&physics, &[pose(Vec3::ZERO)], &blocker, 0.5, false);
+            matches!(
+                updates.last().unwrap().state,
+                GoalState::Blocked(GoalBlockReason::Collision { .. })
+            )
+        };
+        assert!(blocked(false));
+        assert!(!blocked(true));
     }
     #[test]
     fn player_obstruction_holds_idle_then_retries_actual_ground_travel() {

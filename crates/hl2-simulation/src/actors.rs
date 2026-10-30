@@ -214,6 +214,7 @@ pub fn prepare_npcs(
                 {
                     controller.set_opens_doors(actor, false);
                 }
+                controller.set_headcrab(actor, crate::ai::headcrab::is_headcrab_class(class));
                 wanted
             } else {
                 let motion = crate::npc::Locomotion::load(vfs, &instance.model)?;
