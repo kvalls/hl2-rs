@@ -40,6 +40,7 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 - There is no declared-dependency or capability validation between plugins, because the two current plugins are independent.
 - `cargo run` without packaging has no `weapon_blur.wgsl` in its asset root, so run the packaged build for Advanced or Ultra blur.
 - Plugin developer text in the F4 panel and debug overlays still has English literals.
+- Core `hl2-ui` still declares plugin-specific settings: `Value::VerticalFov` and `Value::ViewmodelFov`, their slider bindings, and the extra aspect variants. A new plugin cannot add a slider of its own without a core edit.
 - `modkit_core::ModPlugin` is an older, unused simulation contract, not this mechanism.
 
 ## Workflows

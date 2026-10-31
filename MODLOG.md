@@ -17,9 +17,8 @@ state; the debug runtime was installed after first-level callbacks; the Props li
 the frame adopting a map; unknown replay and UI events passed silently; the HUD report used
 fixed AI and notarget values.
 
-**Awaiting owner confirmation:** the crate edges hl2-debug -> hl2-ui, hl2-bevy, source-assets;
-hl2-advanced-options -> hl2-ui, hl2-bevy; and the application layer follow DESIGN's direction
-but have not been confirmed individually. **Owner decision:** for this session the owner
+**Owner decisions:** the owner confirmed the crate edges hl2-debug -> hl2-ui, hl2-bevy,
+source-assets; hl2-advanced-options -> hl2-ui, hl2-bevy; and the application layer. For this session the owner
 asked for commits as tracking checkpoints without tests before each one; hooks were not
 bypassed.
 
