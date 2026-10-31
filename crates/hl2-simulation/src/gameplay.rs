@@ -1639,6 +1639,17 @@ impl Inventory {
                                 }
                                 Some(false) => {}
                             }
+                            // Scorch(ZOMBIE_SCORCH_RATE 8, ZOMBIE_MIN_RENDERCOLOR 50): the
+                            // burn damage it takes blackens it.
+                            if damage.kind & crate::player_damage::DMG_BURN != 0 {
+                                crate::entities::scorch(
+                                    &mut scene.render_colors,
+                                    entity,
+                                    id,
+                                    8,
+                                    50,
+                                );
+                            }
                         }
                         state.value -= amount;
                         // The rest of OnTakeDamage_Alive: a lethal blast releases the crab
@@ -3265,6 +3276,43 @@ mod tests {
         assert_eq!((magnitude, radius), (100., 250.));
         // The shooter is the explosion's attacker (m_hLastAttacker).
         assert_eq!(attacker, Attacker::Player);
+    }
+    #[test]
+    fn burn_damage_scorches_a_zombie_down_to_fifty() {
+        // OnTakeDamage_Alive: Scorch(8, 50) per accepted DMG_BURN hit.
+        use crate::projectiles::{Damage, DamageTarget};
+        let world = World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![
+                    ("classname".into(), "npc_zombie".into()),
+                    ("rendercolor".into(), "255 200 40".into()),
+                ],
+            }],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        scene.states[0].value = 1000.;
+        let mut physics = Physics::new(&world);
+        let burn = Damage {
+            target: DamageTarget::Entity(0),
+            amount: 1.,
+            kind: crate::player_damage::DMG_BURN | crate::fire::DMG_DIRECT,
+            dissolve: false,
+            direction: Vec3::ZERO,
+            origin: Vec3::ZERO,
+            attacker: Attacker::None,
+        };
+        Inventory::default().apply_projectile_damage(vec![burn], &world, &mut scene, &mut physics);
+        assert_eq!(scene.render_colors[&0], [247, 192, 40]);
+        for _ in 0..40 {
+            Inventory::default().apply_projectile_damage(
+                vec![burn],
+                &world,
+                &mut scene,
+                &mut physics,
+            );
+        }
+        assert_eq!(scene.render_colors[&0], [47, 48, 40]);
     }
     #[test]
     fn a_gas_can_burst_ignites_only_npcs_allowed_to_burn_within_its_radius() {

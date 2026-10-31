@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-31 session 40: native gas-can A/B; burning zombies blacken (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session40-20261031: Scene::render_colors + entities::scorch (CNPC_BaseZombie's Scorch 8/50 on burn hits), the host's present_render_colors; docs: the crab steering conclusion corrected (native never steers crabs around crabs).
+- Why: native A/B of the gas-can ignition showed the zombie turning black; owner asked to keep working.
+- Tested how: hl2-simulation 408 (scorch test), strict Clippy, packaged artifacts/s40 gascan-burning; native oracle recording (private record_gascan.py).
+- Result: ignition and burn time match native within the random health cap; the zombie darkens like native.
+- Still broken or not tested: burning ragdolls (native burns ~6 s after death).
+- Next: STATUS "Current session 40".
+
 ## 2026-10-31 session 40: owner playtest (fire, sawblades, nest crabs, crosshair) (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

@@ -815,6 +815,39 @@ pub fn present_ragdoll_fades(
         }
     }
 }
+/// SetRenderColor at runtime (Scene::render_colors, e.g. a burning zombie's Scorch): the
+/// entity's model materials take the color in place of their keyvalue modulation; its
+/// client ragdoll keeps the entity id and so the color (C_ClientRagdoll copies it).
+pub fn present_render_colors(
+    game: Res<crate::gameplay::Gameplay>,
+    draws: Query<(&ModelLit, &MeshMaterial3d<SourceMaterial>)>,
+    mut materials: ResMut<Assets<SourceMaterial>>,
+    mut base: Local<std::collections::HashMap<AssetId<SourceMaterial>, Vec4>>,
+) {
+    if game.scene.render_colors.is_empty() {
+        return;
+    }
+    for (lit, material) in &draws {
+        let Some(color) = lit.entity.and_then(|id| game.scene.render_colors.get(&id)) else {
+            continue;
+        };
+        let Some(mut m) = materials.get_mut(&material.0) else {
+            continue;
+        };
+        let original = *base.entry(material.0.id()).or_insert(m.tint);
+        // The runtime color replaces the keyvalue color the material was built with.
+        let keyvalue = lit
+            .entity
+            .map_or(Vec4::ONE, |id| entity_modulation(&game.world, id))
+            .truncate()
+            .max(Vec3::splat(1e-3));
+        let rgb = Vec3::from_array(color.map(|c| f32::from(c) / 255.));
+        let tint = (original.truncate() / keyvalue * rgb).extend(m.tint.w);
+        if m.tint != tint {
+            m.tint = tint;
+        }
+    }
+}
 /// Rotate a bind normal by the weighted bone matrices (CPU skinning path).
 fn skin_normal(
     normal: glam::Vec3,

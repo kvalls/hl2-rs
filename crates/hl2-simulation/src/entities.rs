@@ -441,6 +441,10 @@ pub struct Scene {
     /// Studio body values changed at runtime (CBaseAnimating::SetBodygroup), by entity;
     /// the host draws the matching preloaded variant. Others keep their spawn body.
     pub bodies: BTreeMap<usize, i32>,
+    /// Render colors changed at runtime (CBaseEntity::SetRenderColor, e.g. a burning
+    /// zombie's Scorch), by entity; the host tints the entity's model (and its client
+    /// ragdoll, which keeps the entity id) with it. Others keep their keyvalue color.
+    pub render_colors: BTreeMap<usize, [u8; 3]>,
     /// The blast damage that killed an NPC this tick (CNPC_PoisonZombie::Event_Killed's
     /// EvacuateNest(bExplosion, flDamage)).
     pub npc_death_blasts: BTreeMap<usize, f32>,
@@ -490,6 +494,29 @@ pub fn allowed_to_ignite(class: &str) -> bool {
                 | "npc_headcrab_black"
                 | "npc_headcrab_poison"
         )
+}
+/// CBaseAnimating::Scorch(rate, floor) on `entity`'s runtime render color (`colors`,
+/// starting from its rendercolor keyvalue, default white): each channel above `floor`
+/// drops by `rate`.
+pub fn scorch(
+    colors: &mut BTreeMap<usize, [u8; 3]>,
+    entity: &modkit_core::Entity,
+    id: usize,
+    rate: u8,
+    floor: u8,
+) {
+    let color = colors.entry(id).or_insert_with(|| {
+        let c = entity
+            .get("rendercolor")
+            .and_then(modkit_core::parse_vec3)
+            .unwrap_or(Vec3::splat(255.));
+        [c.x, c.y, c.z].map(|v| v.clamp(0., 255.) as u8)
+    });
+    for channel in color.iter_mut() {
+        if *channel > floor {
+            *channel = channel.saturating_sub(rate);
+        }
+    }
 }
 impl Scene {
     /// CBaseAnimating::Ignite on a live NPC for `lifetime` seconds: once (already burning
@@ -785,6 +812,7 @@ impl Scene {
             crab_releases: Vec::new(),
             bodies: BTreeMap::new(),
             npc_death_blasts: BTreeMap::new(),
+            render_colors: BTreeMap::new(),
             npc_force_points: BTreeMap::new(),
             npc_hit_groups: BTreeMap::new(),
             npc_force_bones: BTreeMap::new(),
