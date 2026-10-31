@@ -10,13 +10,15 @@
 
 Framing profiles and their data moved to the plugin behind `FramingProfiles` at the owner's request, replacing a proposed adapter crate. A core-only build now keeps the retail view at portrait and ultrawide shapes. `hl2-debug` names aspect choices through the selected policy, using installed tokens.
 
-**Still broken or not tested:** Packaged runs, UI (the moved sliders have never been drawn) and frame time are **not tested**.
+Packaged replays, default build: 101 of 107 passed. The six failures reproduced identically on the pre-extraction revision, so the extraction did not cause them. Five stale fixtures and one stale line count were corrected, plus a real F1 label bug from the move (`frame.textures`). The six then passed; the full suite was not rerun. Captures show the moved sliders drawn in their earlier positions.
+
+**Still broken or not tested:** Other plugin selections at runtime, windowed checks, ordinary play and frame time are **not tested**.
 
 The owner moved the plugin rules to docs/plugins.md "Rules", added an interaction check between plugins and a report line; AGENTS keeps the direction, the core test and the pointer. Documentation only for this change.
 
 Input audit: Escape order, F4 capture and secondary attacks match the base revision by code comparison. One difference fixed: the panel again claims no input without a loaded game. Regression tests added for all three.
 
-**Next:** Packaged replays and timing.
+**Next:** Play the packaged build and list what breaks; then timing.
 
 ## 2026-10-31 Plugin extraction recovery
 
