@@ -2,6 +2,30 @@
 
 HL2-RS plugins are ordinary source-built Rust crates selected when the executable is built. There is no native library loading, hot unloading, scripting engine or package manager.
 
+## Rules
+
+These apply when you change `plugins/`, `apps/`, an extension contract or any optional or non-retail feature, including one in core. The architecture check only sees plugin crate and feature names, so following the rest is on you.
+
+1. **Core test.** For every line added to core, ask: would it still make sense if this plugin had never been written? If not, it belongs in the plugin. Core holds no plugin settings, enum variants, control names, tokens, assets, debug state or tests. Renaming a leak does not fix it.
+2. **Interaction check.** Before changing a plugin, check whether it reads, assumes or duplicates another plugin's data or behavior, today or through this change. Ignore hypothetical plugins. If it does, neither plugin may hardcode the other. Use the first that fits:
+   1. an existing contract;
+   2. a small new trait in core, if the concept passes the core test;
+   3. the provider plugin's public contract, with the dependency declared and acyclic;
+   4. an adapter crate selected by the application, as a last resort.
+3. **New contracts.** Keep a trait small and about one kind of question, and prove it in core with a test using a fake contributor. Choose behavior at startup or on a settings change and cache the answer; per-frame state stays ECS data and systems on the Bevy side. Adding or replacing a plugin edits only the plugin and the application.
+4. **State.** Plugin state is instance-owned, with no mutable globals. Validate plugin dependencies before gameplay.
+5. **Selection.** Contributors coexist by ID and are selected explicitly. A conflict is an error, never last-registration wins.
+6. **Omission.** Build features belong to the application. An omitted plugin adds no UI, commands, systems, assets or frame work, and its saved preferences survive.
+7. **Validation.** Validate core-only, each-plugin and combined builds. Hypothetical future plugins do not authorize implementation.
+8. **Review and report.** Before finishing, read `git diff -- crates/` and apply the core test to each hunk. End your report with `Plugin rules read: yes; exceptions: <none or list>`, and report each exception to the owner.
+
+Worked examples:
+
+- **Viewmodel framing (rule 2.2).** Both plugins needed the same data, and "weapon framing" makes sense with no plugins, so core gained `FramingProfiles`. The portrait and ultrawide data moved to `hl2-advanced-options`, and `hl2-debug` tunes whatever profile ids the policy offers.
+- **Aspect labels (rule 2.1).** `hl2-debug` hardcoded labels for the other plugin's choices. `VideoExtension` could already name the current choice, so no new trait was needed.
+- **FOV sliders (rule 1).** `hl2-ui` declared the optional sliders, and a rename would not have helped. Core gained the generic `CustomValue`, and the sliders moved to the plugin.
+- **A hypothetical attachment plugin needing a weapon plugin (rule 2.3).** Attachments fail the core test, so the contract would belong to the weapon plugin, not core.
+
 ## Structure
 
 Dependencies point one way: application (`apps/hl2rs`, package `hl2-app`) -> plugins (`plugins/*`) -> core (`crates/*`).

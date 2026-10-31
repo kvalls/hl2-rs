@@ -12,6 +12,8 @@ Framing profiles and their data moved to the plugin behind `FramingProfiles` at 
 
 **Still broken or not tested:** Packaged runs, UI (the moved sliders have never been drawn) and frame time are **not tested**.
 
+The owner moved the plugin rules to docs/plugins.md "Rules", added an interaction check between plugins and a report line; AGENTS keeps the direction, the core test and the pointer. Documentation only for this change.
+
 **Next:** Packaged replays and timing.
 
 ## 2026-10-31 Plugin extraction recovery

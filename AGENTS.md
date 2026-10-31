@@ -44,19 +44,14 @@ HL2-RS is an experimental Rust rewrite of Half-Life 2 and relevant Source behavi
 ## Architecture rules
 
 Where code goes:
-- Optional plugins live in plugins/; the application composes them through injected core contracts; core crates never depend on, import or feature-gate concrete plugins; optional plugin adapters may consume the public host API (docs/DESIGN.md).
+- Optional plugins live in plugins/; the application composes them through injected core contracts; optional plugin adapters may consume the public host API (docs/plugins.md).
 - source-assets reads file formats. modkit-core holds contracts, the player and pose math. hl2-simulation holds gameplay, physics, entities and NPCs, with no engine. source-ui is the game-agnostic UI toolkit (like the SDK's `vgui_controls`) and knows nothing of HL2. hl2-ui is HL2's UI (GameUI, HUD, captions, `Config`, console commands) over source-ui and hl2-simulation. hl2-bevy is the Bevy host only.
 - Depend only downward: modkit-core <- source-assets <- source-ui; modkit-core, source-assets <- hl2-simulation; source-ui, hl2-simulation <- hl2-ui <- hl2-bevy. Bevy only in hl2-bevy and optional plugin Bevy adapters; rfd only in hl2-bevy; rapier3d, symphonia and hound only in hl2-simulation. A new crate, a new edge between crates or a new engine dependency needs the owner.
 - modkit-core, hl2-simulation and source-ui never touch the file system: bytes come through source-assets' `Vfs` or from the host. source-ui takes HL2's text, settings and looks through traits or values.
 
-Plugins (checks only see crate names; these rules are on you):
-- Core test, for every line added to core: would it still make sense if this plugin had never been written? If not, it belongs in the plugin. No plugin settings, enum variants, control names, tokens, assets, debug state or tests in core; renaming a leak does not fix it.
-- A plugin needing core support gets a generic contract, proven in core by a test with a fake contributor. Adding or replacing a plugin edits only the plugin and the application.
-- Before finishing plugin work, read `git diff -- crates/`, apply the core test to each hunk, report exceptions.
-- Plugin state is instance-owned, no mutable globals. Plugin dependencies use public contracts, stay acyclic and are validated before gameplay.
-- Contributors coexist by ID and are selected explicitly; a conflict is an error, never last-registration wins.
-- Features belong to the application; omitted plugins add no UI, commands, systems, assets or frame work; saved preferences survive.
-- Validate core-only, each-plugin and combined builds; hypothetical future plugins do not authorize implementation.
+Plugins:
+- Direction: application -> plugins -> core. Core never names a plugin, and no line in core may depend on a plugin having been written.
+- Before changing plugins/, apps/, an extension contract or any optional or non-retail feature, including one in core, read docs/plugins.md "Rules" and follow it. End your report with `Plugin rules read: yes; exceptions: <none or list>`.
 
 Keep it small:
 - Functions up to 100 lines; a file's production code up to 1,000 lines, its tests up to 2,000. When you touch code already over a limit, do not make it longer: first move what you add (or a piece of what is there) into a new function or module.
