@@ -1395,8 +1395,11 @@ pub const NPC_BASE_AI_ACTIVITIES: &[&str] = &[
     "ACT_IDLE",
     // CAI_ActBusyBehavior's standing busy hint (scripts/actbusy.txt ACT_BUSY_STAND).
     "ACT_BUSY_STAND",
-    // CNPC_BaseZombie::NPC_TranslateActivity while burning.
+    // CNPC_BaseZombie::NPC_TranslateActivity while burning; CNPC_Combine's burning
+    // flail and CNPC_MetroPolice's burning run.
     "ACT_WALK_ON_FIRE",
+    "ACT_COMBINE_BUGBAIT",
+    "ACT_RUN_ON_FIRE",
     "ACT_IDLE_ON_FIRE",
     "ACT_IDLE_ANGRY",
     "ACT_WALK",

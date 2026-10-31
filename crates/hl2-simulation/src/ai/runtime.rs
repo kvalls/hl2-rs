@@ -4191,6 +4191,14 @@ impl AiRuntime {
         if let AiClass::Metropolice(cop) = &mut actor.class {
             cop.gather_conditions(&mut actor.npc, &ctx);
         }
+        // CNPC_Combine::PrescheduleThink: COND_COMBINE_ON_FIRE while IsOnFire.
+        if matches!(&actor.class, AiClass::Humanoid(h) if h.kind == humanoid::Kind::Combine) {
+            if scene.fires.burning(id) {
+                actor.npc.conditions.set(humanoid::COND_COMBINE_ON_FIRE);
+            } else {
+                actor.npc.conditions.clear(humanoid::COND_COMBINE_ON_FIRE);
+            }
+        }
         let dt = (now - actor.last_think).clamp(0., 0.2) as f32;
         actor.last_think = now;
         if dt > 0. {
@@ -4332,8 +4340,10 @@ impl AiRuntime {
                 }
             }
         }
-        let on_fire = matches!(&actor.class, AiClass::Zombie(_) | AiClass::Metropolice(_))
-            && scene.fires.burning(id);
+        let on_fire = matches!(
+            &actor.class,
+            AiClass::Zombie(_) | AiClass::Metropolice(_) | AiClass::Humanoid(_)
+        ) && scene.fires.burning(id);
         // CNPC_BaseZombie::Ignite / CZombie::Ignite and CZombie::Extinguish, for every
         // ignition path (burn damage, blasts, gas cans, inputs): the burning moan, and the
         // walk/run/idle switched to its _ON_FIRE activity at once.

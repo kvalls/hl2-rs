@@ -70,9 +70,17 @@ impl Kind {
 /// npc_citizen17.cpp RPG_SAFE_DISTANCE (CMissile::EXPLOSION_RADIUS + 64).
 pub const RPG_SAFE_DISTANCE: f32 = 200. + 64.;
 
+/// CNPC_Combine's PrescheduleThink condition while IsOnFire.
+pub const COND_COMBINE_ON_FIRE: Cond = Cond(LAST_SHARED_CONDITION + 1);
 /// CNPC_Combine's schedules used here (SDK text; COND_COMBINE_NO_FIRE and
 /// COND_COMBINE_ATTACK_SLOT_AVAILABLE need squads and are left out of the interrupts).
 const COMBINE_SCHEDULES: &[(&str, &str)] = &[
+    (
+        "SCHED_COMBINE_BURNING_STAND",
+        "Tasks TASK_SET_ACTIVITY ACTIVITY:ACT_COMBINE_BUGBAIT TASK_RANDOMIZE_FRAMERATE 20 \
+         TASK_WAIT 2 TASK_WAIT_RANDOM 3 TASK_COMBINE_DIE_INSTANTLY DMG_BURN TASK_WAIT 1.0 \
+         Interrupts",
+    ),
     (
         "SCHED_COMBINE_TAKE_COVER_FROM_BEST_SOUND",
         "Tasks TASK_SET_FAIL_SCHEDULE SCHEDULE:SCHED_COMBINE_RUN_AWAY_FROM_BEST_SOUND \
@@ -497,6 +505,10 @@ impl Humanoid {
     }
     /// CNPC_Combine::SelectSchedule without a squad.
     fn select_combine(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        // CNPC_Combine::SelectSchedule: burning comes first (after rappelling).
+        if npc.conditions.has(COND_COMBINE_ON_FIRE) {
+            return "SCHED_COMBINE_BURNING_STAND".into();
+        }
         if npc.state != NpcState::Script {
             if npc.conditions.has(COND_HEAR_MOVE_AWAY) {
                 return "SCHED_MOVE_AWAY".into();
@@ -776,12 +788,19 @@ impl Behavior for Humanoid {
         name
     }
     fn custom_interrupts(&self, npc: &AiNpc) -> Conditions {
+        let mut c = Conditions::default();
+        // CNPC_Combine::BuildScheduleTestBits: fire interrupts all but the burning stand.
+        if self.kind == Kind::Combine
+            && npc.schedule.as_deref() != Some("SCHED_COMBINE_BURNING_STAND")
+        {
+            c.set(COND_COMBINE_ON_FIRE);
+        }
         if self.running_assault {
             if let Some(assault) = &self.assault {
-                return assault.custom_interrupts(npc, self.now);
+                c = c.union(assault.custom_interrupts(npc, self.now));
             }
         }
-        Conditions::default()
+        c
     }
     fn start_task(
         &mut self,
@@ -805,6 +824,13 @@ impl Behavior for Humanoid {
             | "TASK_COMBINE_SET_STANDING"
             | "TASK_COMBINE_SIGNAL_BEST_SOUND"
             | "TASK_COMBINE_DEFER_SQUAD_GRENADES" => TaskStatus::Complete,
+            // m_flPlaybackRate = U(0.8, 1.2): the sequence rate is not modeled.
+            "TASK_RANDOMIZE_FRAMERATE" => TaskStatus::Complete,
+            "TASK_COMBINE_DIE_INSTANTLY" => {
+                self.requests
+                    .push(CopRequest::DieInstantly(crate::player_damage::DMG_BURN));
+                TaskStatus::Complete
+            }
             "TASK_COMBINE_PLAY_SEQUENCE_FACE_ALTFIRE_TARGET" => {
                 let activity = match arg {
                     TaskArg::Activity(a) => a.clone(),
@@ -1005,6 +1031,24 @@ mod tests {
             npc.conditions.set(cond);
         }
         npc.maintain(s, h, &ctx(5.), m);
+    }
+
+    #[test]
+    fn a_burning_soldier_flails_then_dies_of_burns() {
+        let (mut h, mut npc, s) = setup(Kind::Combine);
+        let mut m = FakeMotor::default();
+        think(&mut h, &mut npc, &s, &mut m, &[COND_COMBINE_ON_FIRE]);
+        assert_eq!(npc.schedule.as_deref(), Some("SCHED_COMBINE_BURNING_STAND"));
+        assert!(m.activities.iter().any(|a| a == "ACT_COMBINE_BUGBAIT"));
+        for i in 1..=60 {
+            npc.maintain(&s, &mut h, &ctx(5. + f64::from(i) * 0.1), &mut m);
+        }
+        assert!(h
+            .requests
+            .contains(&CopRequest::DieInstantly(crate::player_damage::DMG_BURN)));
+        // Fire interrupts other schedules.
+        npc.schedule = Some("SCHED_RANGE_ATTACK1".into());
+        assert!(h.custom_interrupts(&npc).has(COND_COMBINE_ON_FIRE));
     }
 
     #[test]

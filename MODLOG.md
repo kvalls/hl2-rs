@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-31 session 40: burning Combine soldiers (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session40-20261031: COND_COMBINE_ON_FIRE, SCHED_COMBINE_BURNING_STAND, TASK_COMBINE_DIE_INSTANTLY, the ACT_COMBINE_BUGBAIT override while burning (rig activity loaded).
+- Why: gas cans now ignite soldiers; STATUS session 40 open item.
+- Tested how: unit test, packaged artifacts/s40 gascan-soldier, strict Clippy.
+- Result: a burning soldier flails and dies of burns like the SDK schedule.
+- Still broken or not tested: native A/B; TASK_RANDOMIZE_FRAMERATE.
+- Next: STATUS "Current session 40".
+
 ## 2026-10-31 session 40: native gas-can A/B; burning zombies blacken (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

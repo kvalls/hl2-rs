@@ -76,7 +76,11 @@ impl SceneMotor<'_> {
     /// weapon's acttable, kept only when the model has the result.
     fn translate_activity(&self, activity: &str) -> String {
         let weapon = self.weapon.as_deref().unwrap_or("");
-        let activity = if self.idle_angry && activity == "ACT_IDLE" {
+        // CNPC_Combine::NPC_TranslateActivity: nothing changes the activity while it
+        // burns (ACT_COMBINE_BUGBAIT).
+        let activity = if self.combine && self.on_fire {
+            "ACT_COMBINE_BUGBAIT"
+        } else if self.idle_angry && activity == "ACT_IDLE" {
             "ACT_IDLE_ANGRY"
         } else if self.combine && activity == "ACT_RANGE_ATTACK2" {
             "ACT_COMBINE_THROW_GRENADE"
@@ -92,7 +96,9 @@ impl SceneMotor<'_> {
                 Some("ACT_WALK_ON_FIRE")
             }
             "ACT_IDLE" if self.on_fire && self.walk_only => Some("ACT_IDLE_ON_FIRE"),
-            "ACT_RUN" if self.on_fire && !self.walk_only => Some("ACT_RUN_ON_FIRE"),
+            "ACT_RUN" if self.on_fire && !self.walk_only && !self.combine => {
+                Some("ACT_RUN_ON_FIRE")
+            }
             _ => None,
         };
         let activity = on_fire
