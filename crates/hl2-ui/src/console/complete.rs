@@ -2,7 +2,7 @@
 //! HL2's commands ([`COMMANDS`]) and the names the host supplies for their arguments (installed
 //! maps, the loaded map's entity names and the inputs its connections fire).
 
-use super::commands::{Names, COMMANDS};
+use super::commands::{Names, Spec, COMMANDS};
 use source_ui::console::complete::{self, ArgHelp, Completer, Completion};
 
 /// Host-supplied names that arguments complete from.
@@ -27,6 +27,25 @@ impl Sources {
     }
 }
 
+#[derive(Default)]
+pub struct Context {
+    pub sources: Sources,
+    pub commands: std::sync::Arc<[Spec]>,
+}
+impl Context {
+    pub fn commands(&self) -> &[Spec] {
+        if self.commands.is_empty() {
+            COMMANDS
+        } else {
+            &self.commands
+        }
+    }
+}
+impl Completer for Context {
+    fn complete(&self, line: &str) -> Completion {
+        complete::candidates(line, self.commands(), |names| self.sources.list(names))
+    }
+}
 impl Completer for Sources {
     fn complete(&self, line: &str) -> Completion {
         candidates(line, self)

@@ -7,7 +7,9 @@ impl Simulation {
         if self.background_level {
             crate::camera::background_fov(aspect, self.background_force_default_blur)
         } else {
-            crate::camera::world_fov(view_degrees, self.fov, aspect, self.vertical_fov, false)
+            self.video_policy
+                .0
+                .projection(view_degrees, self.fov, aspect, self.vertical_fov)
         }
     }
 

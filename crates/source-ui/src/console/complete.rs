@@ -106,7 +106,7 @@ fn spec_candidate<C: Context>(spec: &Spec<C>) -> Candidate {
 /// the app's `lists` for arguments that complete from names.
 pub fn candidates<'a, C: Context>(
     line: &str,
-    commands: &'static [Spec<C>],
+    commands: &[Spec<C>],
     lists: impl Fn(C::Names) -> &'a [String],
 ) -> Completion {
     let start = last_command_start(line);
@@ -163,7 +163,7 @@ pub struct ArgHelp {
 }
 
 /// The help line for `line`'s last command, once its command word names one of `commands`.
-pub fn arg_help<C: Context>(line: &str, commands: &'static [Spec<C>]) -> Option<ArgHelp> {
+pub fn arg_help<C: Context>(line: &str, commands: &[Spec<C>]) -> Option<ArgHelp> {
     let command = &line[last_command_start(line)..];
     let name = command.split_whitespace().next()?;
     let spec = command::find(commands, name)?;

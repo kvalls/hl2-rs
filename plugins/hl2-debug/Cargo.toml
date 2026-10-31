@@ -1,0 +1,21 @@
+[package]
+name = "hl2-debug"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[features]
+default = []
+bevy = ["dep:bevy", "dep:hl2-bevy", "dep:source-assets"]
+
+[dependencies]
+source-assets = { workspace = true, optional = true }
+hl2-ui.workspace = true
+modkit-core.workspace = true
+source-ui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+glam.workspace = true
+bevy = { workspace = true, optional = true }
+hl2-simulation.workspace = true
+hl2-bevy = { workspace = true, optional = true }

@@ -25,9 +25,6 @@ use bevy::{
 use source_ui::canvas::{FilterMode, Quad, Texture2D};
 use std::collections::HashMap;
 
-/// Space between stacked developer overlays.
-const OVERLAY_GAP: f32 = 5.;
-
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 #[bind_group_data(HudMaterialKey)]
 pub struct HudMaterial {
@@ -158,15 +155,7 @@ pub struct Hud {
     pool: Vec<(Entity, Handle<Mesh>)>,
     pub quads: usize,
     timing: FrameTiming,
-    debug_lines: Vec<String>,
-    /// F4 overlay font (rasterized at setup).
-    spawn_font: Option<crate::spawn_panel::PanelFont>,
-    /// The F4 panel drawn last frame (report).
-    spawn_panel: Option<hl2_simulation::ai::spawn::Panel>,
-    /// The F4 panel's clickable rows drawn last frame (canvas pixels), for the pointer.
-    pub spawn_hits: Vec<([f32; 4], hl2_simulation::ai::spawn::PanelTarget)>,
-    /// F4 list rows that fit in the window.
-    pub spawn_rows: usize,
+    diagnostic_font: Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>>,
 }
 impl Hud {
     fn observe_frame(&mut self, now: f64, profile: bool) {
@@ -177,9 +166,12 @@ impl Hud {
         let state = captions.state.borrow();
         let captions = serde_json::json!({"dictionaries":captions.captions.dictionaries.iter().map(|d| d.len()).collect::<Vec<_>>(),
             "errors":captions.errors,"processed":state.processed,"queued":state.streams().collect::<Vec<_>>(),"recent":state.recent,"missing":state.missing});
-        serde_json::json!({"quads":self.quads,"pooled_meshes":self.pool.len(),"owned_textures":self.textures.len(),"viewport":[self.source.canvas.width(),self.source.canvas.height()], "frame":self.source.frame(), "panels":self.source.panel_rects(), "power":self.source.power_report(), "developer_overlay":{"visible":!self.debug_lines.is_empty(),"fps":self.timing.fps(),"frame_ms":self.timing.frame_ms,"benchmark":self.timing.benchmark(),"lines":self.debug_lines},"captions":captions, "spawn_overlay":self.spawn_panel})
+        let report = serde_json::json!({"quads":self.quads,"pooled_meshes":self.pool.len(),"owned_textures":self.textures.len(),"viewport":[self.source.canvas.width(),self.source.canvas.height()], "frame":self.source.frame(), "panels":self.source.panel_rects(), "power":self.source.power_report(), "captions":captions});
+        report
     }
     pub fn new(source: hl2_ui::hud::WeaponHud) -> Self {
+        let diagnostic_font =
+            source_ui::bitmap_text::BitmapFont::load(18.).map(std::sync::Arc::new);
         Self {
             source,
             textures: HashMap::new(),
@@ -188,12 +180,18 @@ impl Hud {
             pool: vec![],
             quads: 0,
             timing: FrameTiming::default(),
-            debug_lines: vec![],
-            spawn_font: crate::spawn_panel::PanelFont::load(18.),
-            spawn_panel: None,
-            spawn_hits: vec![],
-            spawn_rows: 0,
+            diagnostic_font,
         }
+    }
+    pub fn bitmap_font(&self) -> Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>> {
+        self.diagnostic_font.clone()
+    }
+    pub fn frame_statistics(&self) -> (f64, f64, serde_json::Value) {
+        (
+            self.timing.fps(),
+            self.timing.frame_ms,
+            self.timing.benchmark(),
+        )
     }
     fn material(
         &mut self,
@@ -302,54 +300,19 @@ type HudAssets<'w> = (
     ResMut<'w, Assets<Mesh>>,
 );
 type HudResources<'w> = (
-    Res<'w, crate::ui_host::Console>,
+    ResMut<'w, crate::ui_host::Console>,
     Res<'w, Time<Real>>,
-    Res<'w, crate::simulation::Simulation>,
+    ResMut<'w, crate::simulation::Simulation>,
     Res<'w, crate::Status>,
     Option<Res<'w, crate::performance::Performance>>,
 );
-fn draw_debug_overlays(
-    ui: &crate::ui_host::Console,
-    sim: &crate::simulation::Simulation,
-    debug_lines: &[String],
-    width: f32,
-    height: f32,
-) -> f32 {
-    let mut stack_top = 0.;
-    if !debug_lines.is_empty() {
-        stack_top = ui.source.draw_debug(debug_lines) + OVERLAY_GAP;
-    }
-    if sim.viewmodel_debug.enabled
-        && let Some(profile) = sim.viewmodel_debug.profile
-    {
-        let value = sim.viewmodel_debug.framing;
-        let lines = vec![
-            format!("aspect_ratio: {}", profile.as_str()),
-            format!("weapon: {}", sim.viewmodel_debug.weapon),
-            format!("fov_offset: {:.2}    [ ]", value.fov_offset),
-            format!("offset.x: {:.2}    ,/.", value.offset[0]),
-            format!("offset.y: {:.2}    L/R", value.offset[1]),
-            format!("offset.z: {:.2}    U/D", value.offset[2]),
-            "Shift = 1.0  Alt = 0.01    hold to repeat    viewmodel_tweak_reset".to_owned(),
-        ];
-        stack_top = ui.source.draw_viewmodel_debug(&lines, stack_top) + OVERLAY_GAP;
-    }
-    if sim.background_debug.enabled {
-        let aspect = width / height.max(1.);
-        let lines = sim
-            .background_debug
-            .lines(aspect, ui.source.config.video.background_force_default_blur);
-        stack_top = ui.source.draw_background_debug(&lines, stack_top) + OVERLAY_GAP;
-    }
-    stack_top
-}
 
 #[allow(clippy::too_many_arguments)]
 pub fn present(
     mut commands: Commands,
     mut hud: ResMut<Hud>,
     mut game: ResMut<crate::gameplay::Gameplay>,
-    (ui, clock, sim, status, performance): HudResources,
+    (mut ui, clock, mut sim, status, performance): HudResources,
     windows: Query<&Window, With<PrimaryWindow>>,
     video_viewport: Option<Res<crate::video::VideoViewport>>,
     (mut images, mut materials, mut meshes): HudAssets,
@@ -401,55 +364,19 @@ pub fn present(
         game_hud::draw(&hud, &game, &ui);
     }
     hud.observe_frame(clock.elapsed_secs_f64(), performance.is_some());
-    hud.debug_lines.clear();
-    if sim.dev_overlay {
-        let stats = status.0.lock().expect("developer statistics");
-        let eye = sim.eye();
-        let textures = stats.map_metadata["textures"]["unique_base_textures"]
-            .as_u64()
-            .unwrap_or(0);
-        hud.debug_lines = vec![
-            format!("HL2-RS  /  Rust runtime  /  {}", game.world.name),
-            format!("{} triangles  |  {} textures  |  {} entities  |  {}  |  {:.0} fps", stats.triangles, textures, game.world.entities.len(), if sim.flying() { "FLY" } else { "WALK" }, hud.timing.fps()),
-            "WASD / click: mouse / Esc pause / tilde console / F2 fly / Space,Ctrl vertical in fly / G prop impulse".into(),
-            "E use / Ctrl crouch / Space jump / R reload / 1-6 / wheel: weapon menu / Q last / F3 dev loadout / F1 overlay / F4 NPC spawn".into(),
-            format!("Player hurts friendlies: {} (F4 options, debug)", if game.scene.player_hurts_friendlies { "ON" } else { "off" }),
-            format!("Map reconstruction preview  |  position {:.1}, {:.1}, {:.1}  |  Bevy/wgpu  |  {:.2} ms  |  {} materials / {} colliders / {} bodies", eye.x, eye.y, eye.z, hud.timing.frame_ms, stats.materials, sim.physics.colliders.len(), sim.physics.bodies.len()),
-        ];
-    }
     ui.source.draw(clock.elapsed_secs_f64());
-    // Overlays stack down the left edge in the order F1, viewmodel tweak, F4; hidden ones leave no gap.
-    let stack_top = draw_debug_overlays(&ui, &sim, &hud.debug_lines, width, height);
-    // F4 NPC spawn panel (ours, outside the hl2-ui menus).
-    hud.spawn_panel = game.spawn_overlay.open.then(|| {
-        game.spawn_overlay
-            .panel(game.ai.enabled, game.ai.ignore_player)
-    });
     draw_ai_disabled(&hud, &game, width, height);
-    let hits = if let (Some(font), Some(panel)) = (&hud.spawn_font, &hud.spawn_panel) {
-        let message = game
-            .spawn_log
-            .last()
-            .and_then(|entry| entry["message"].as_str());
-        let hits = font.draw(&hud.source.canvas, panel, message, stack_top);
-        // The panel can cover the screen center: mark where spawns aim (ours).
-        let (x, y) = ((width / 2.).round(), (height / 2.).round());
-        let canvas = &hud.source.canvas;
-        let dark = source_ui::canvas::Color::new(0., 0., 0., 0.8);
-        canvas.rectangle(x - 8., y - 2., 17., 5., dark);
-        canvas.rectangle(x - 2., y - 8., 5., 17., dark);
-        let mark = source_ui::canvas::Color::from_rgba(255, 238, 160, 255);
-        canvas.rectangle(x - 7., y - 1., 15., 3., mark);
-        canvas.rectangle(x - 1., y - 7., 3., 15., mark);
-        hits
-    } else {
-        vec![]
-    };
-    hud.spawn_hits = hits;
-    hud.spawn_rows = hud
-        .spawn_font
-        .as_ref()
-        .map_or(0, |font| font.rows_fit(stack_top, height));
+    sim.with_extensions(|extension, simulation| {
+        extension.present(
+            &mut crate::extensions::Context {
+                simulation,
+                gameplay: Some(&mut game),
+                console: Some(&mut ui),
+            },
+            &mut hud,
+            &status,
+        )
+    });
     game.scene
         .sounds
         .extend(hud.source.drain_sounds().into_iter().map(Into::into));
@@ -538,7 +465,7 @@ fn draw_ai_disabled(hud: &Hud, game: &crate::gameplay::Gameplay, width: f32, hei
     // CAI_BaseNPC::PreThink: "A.I. Disabled..." at (0.7, 0.65) while ai_disable is on
     // (HUD message font not reproduced: the developer font).
     if !game.ai.enabled
-        && let Some(font) = &hud.spawn_font
+        && let Some(font) = &hud.diagnostic_font
     {
         font.text(
             &hud.source.canvas,

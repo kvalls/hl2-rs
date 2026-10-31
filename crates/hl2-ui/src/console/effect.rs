@@ -2,6 +2,8 @@
 
 #[derive(Debug, PartialEq)]
 pub enum Effect {
+    /// An opaque contribution event, interpreted by an application-installed handler.
+    Extension(serde_json::Value),
     Loadout,
     /// ai_enable: None toggles.
     AiEnable(Option<bool>),
@@ -31,13 +33,8 @@ pub enum Effect {
     ApplyConfig(Box<crate::config::Config>),
     /// Load a game's main-menu background map and show the main menu over it.
     MainMenuMap(GameMap),
-    /// viewmodel_debug_mode: the host enables or disables the tuning overlay, or refuses with its
-    /// reason.
-    ViewmodelDebugMode(bool),
     /// `impulse 100`: the flashlight toggles (CBasePlayer::ImpulseCommands).
     Flashlight,
-    /// viewmodel_tweak_reset: the host zeroes the selected weapon's framing, if the mode is on.
-    ViewmodelTweakReset,
     /// Play a UI sound cue (e.g. button hover or release activation).
     PlaySound(String),
     /// Play a full-screen video file (Bink `.bik`) with optional exit command upon completion or skip.
@@ -47,12 +44,6 @@ pub enum Effect {
         width: Option<u32>,
         height: Option<u32>,
     },
-    /// background_debug_mode: toggle the background visual layout debug mode.
-    BackgroundDebugMode(bool),
-    /// background_blur_opacity: set opacity of background blur overlay (0..=100).
-    BackgroundBlurOpacity(u8),
-    /// background_map_fov: query (None) or set (Some) background map FOV.
-    BackgroundMapFov(Option<f32>),
 }
 
 /// A map of one installed game, named by the game's installation folder (`hl2`, `episodic`,

@@ -591,7 +591,7 @@ impl OptionsDialog {
         self.modes = modes;
         if self.draft.aspect == crate::gameui::display::AspectRatio::Flexible {
             if let Some(current) = self.modes.current.or(self.modes.desktop) {
-                let res = current.without_stripes_for_flexible();
+                let res = self.draft.config.video.policy.0.presented(current);
                 self.draft.config.video.width = res.width;
                 self.draft.config.video.height = res.height;
                 if self.applied.video.flexible_aspect {
@@ -1311,7 +1311,7 @@ impl OptionsDialog {
             Some(Binding::Skill(skill)) => self.draft.config.gameplay.skill = skill,
             Some(Binding::Slider(value)) => {
                 let fraction = widgets::slider_fraction_at(widget.rect, pointer.x);
-                let range = value.slider_range(widget.control.range);
+                let range = value.slider_range(widget.control.range, &self.draft.config);
                 value.set(&mut self.draft.config, range.value(fraction));
                 self.drag = Some((value, widget.rect, range));
             }
@@ -1476,7 +1476,7 @@ impl OptionsDialog {
                 } else {
                     return None;
                 };
-                let range = value.slider_range(widget?.control.range);
+                let range = value.slider_range(widget?.control.range, &self.draft.config);
                 let fraction = range.fraction(value.get(&self.draft.config));
                 value.set(
                     &mut self.draft.config,
@@ -2322,9 +2322,9 @@ impl OptionsDialog {
             (ControlKind::ComboBox, _) => p.combo(w.rect, "", false, false, false),
             (ControlKind::Slider, binding) => {
                 let fraction = match binding {
-                    Some(Binding::Slider(value)) => {
-                        value.slider_range(c.range).fraction(value.get(config))
-                    }
+                    Some(Binding::Slider(value)) => value
+                        .slider_range(c.range, config)
+                        .fraction(value.get(config)),
                     _ => 0.,
                 };
                 p.slider(

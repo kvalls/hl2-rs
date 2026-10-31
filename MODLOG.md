@@ -1,5 +1,84 @@
 # MODLOG
 
+## 2026-10-31 Upcoming plugin architecture guardrails
+
+**Agent/model:** Codex desktop, gpt-6.1-sol. No subagent involvement in this update.
+
+**Changed / Why:** At the owner's request, added concise AGENTS rules for typed
+contracts, instance-owned state, explicit acyclic dependencies, namespaced
+contributors, conflict validation, application-owned selection and plugin exclusion.
+Recorded the build/replacement proof and the boundary between design scenarios and
+authorized implementation. DESIGN now permits declared future plugin dependencies
+through public contracts, correcting the older blanket prohibition.
+
+**Tested how / Result:** Documentation whitespace, source-whitelist and AGENTS
+byte-limit checks; no gameplay rebuild for this documentation-only change.
+The refactor's full architecture/test failures remain an existing handoff item.
+
+**Still broken or not tested:** Rules describe the required target, not proof that
+the unfinished refactor satisfies it. No runtime code changed or gameplay tested.
+
+**Next:** Claude follows the handoff and enforces these guardrails while restoring
+a bounded green checkpoint; implementation remains handed off.
+
+## 2026-10-31 Plugin refactor handoff to Claude Opus 5.5
+
+**Agent/model:** Codex desktop, gpt-6.1-sol for the current checkpoint. Earlier
+extraction: GPT-6 family, exact identifier not recorded. The existing subagent
+provided architecture review and then implemented portable UI injection; its
+later turns reached a usage limit, so final review was not completed.
+
+**Changed / Why:** Recorded a precise local handoff and corrected stale status.
+No refactor code changed after the owner's pause. Core-to-plugin concrete imports
+and manifest dependencies have been removed; the application selects contributors.
+The current broad runtime interface is provisional, not a stable finished API.
+
+**Tested how / Result:** Last default production check:
+`cargo check --locked -p hl2-app --offline` passes. Latest core test compilation:
+`cargo test -p hl2-bevy --lib --no-run --offline` fails with 90 errors / 32 warnings.
+Earlier command-injection test passed; latest architecture and whitespace status
+remain failing. No current packaged runtime or valid performance comparison.
+
+**Still broken or not tested:** See STATUS and the ignored local handoff for input,
+startup, replay, localization, source-whitelist and packaging audit items. Full
+feature matrix, Clippy, Windows, replays and performance not tested. Work remains
+uncommitted on the experimental branch; hypothetical crossover plugins are out of
+scope. The separate engine reference checkout was researched read-only.
+
+**Next:** Claude should audit and recover a bounded green checkpoint, tighten
+contracts, complete extraction/validation/docs, then commit only reviewed task files.
+
+## 2026-10-31 Plugin extraction architecture correction (work in progress)
+
+**Agent/model:** Codex desktop; current model gpt-6.1-sol. Earlier extraction used
+GPT-6 family; exact identifier not recorded. A read-only reviewer checked the
+initial layering and found repeated spawn-catalog construction; the catalog is
+now built once during scene preparation. The later reviewer turn hit a usage limit.
+
+**Changed / Why:** Started extracting advanced options and debug facilities into
+two packages. Owner review rejected concrete plugin dependencies in core: revised
+design uses an application composition root and injected contracts. Converted the
+host to a library, added the executable package and per-console command registries,
+and relaxed command-description borrowing so injected registries need no leaked
+process-global allocation. Command dispatch, completion and help use the same
+instance registry; registration rejects case-insensitive name collisions.
+
+**Tested how / Result:** `cargo check --locked -p hl2-app --offline` passes. Focused
+`cargo test --locked --offline -p hl2-ui extensions::tests --lib` passes one test
+for per-console injection, execution and collision rejection. Formatting and
+`git diff --check` pass. Previous core-only checks passed before this architecture
+revision; they do not establish the final feature matrix.
+
+**Still broken or not tested:** Extraction remains uncommitted and incomplete.
+Concrete-plugin bridges still exist in core and must be removed. Architecture
+limits, full tests, strict Clippy, Windows cross-checks, optional packaging,
+localized debug text and packaged behavior require completion. GPU baseline
+attempts rejected for unavailable sandbox GPU and concurrent compilation/memory
+pressure; no valid before/after frame-time comparison yet. Ordinary play not tested.
+
+**Next:** Finish dependency inversion and plugin-owned runtime state, then validate
+all four plugin configurations and packaged captures before committing the work.
+
 ## 2026-10-30 Ultra review: rocket coverage and payload correction
 
 **Agent/model:** Codex desktop; exact model identifier unavailable. No subagents.

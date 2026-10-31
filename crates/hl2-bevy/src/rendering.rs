@@ -719,7 +719,7 @@ fn skin_normal(
     if total > 0. { out } else { normal }
 }
 #[derive(Component)]
-pub struct WeaponMesh(pub(crate) String);
+pub struct WeaponMesh(pub String);
 /// A viewmodel draw that belongs to one skin only (surfaces whose material differs
 /// between skins 0 and 1).
 #[derive(Component)]
@@ -1020,6 +1020,8 @@ pub fn spawn_map_filtered(
             }
         }
     }
+    let ai = &loaded.gameplay.ai;
+    let usable_weapons = crate::gameplay::spawn_usable_weapons(world, ai);
     // NPC weapons: the active weapon's world model follows its owner (DESIGN 14w step 4).
     // A pooled F4 spawn gets one per weapon its class can use, shown only while it is
     // the active one (NpcWeaponDraw); the pool and this goes with DESIGN 14r.
@@ -1027,16 +1029,14 @@ pub fn spawn_map_filtered(
         let Some(id) = instance.entity.filter(|id| visible_entity(world, *id)) else {
             continue;
         };
-        let ai = &loaded.gameplay.ai;
         let mut models: BTreeSet<String> = ai.weapon_world_model(id).into_iter().collect();
         let entity = &world.entities[id];
         if let Some(label) = entity.get(hl2_simulation::ai::spawn::POOL_KEY) {
             models.extend(
-                loaded
-                    .gameplay
-                    .spawn_overlay
-                    .usable(label)
-                    .iter()
+                usable_weapons
+                    .get(label)
+                    .into_iter()
+                    .flatten()
                     .filter_map(|w| ai.weapon_model(w)),
             );
         }

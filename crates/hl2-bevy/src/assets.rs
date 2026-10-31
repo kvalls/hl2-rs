@@ -45,7 +45,7 @@ pub struct LoadedMap {
     pub gameplay: crate::gameplay::Gameplay,
     pub hud: hl2_ui::hud::WeaponHud,
     pub audio: crate::audio::PreparedAudio,
-    pub pending_audio: Option<work::Work<crate::audio::PreparedAudio>>,
+    pub(crate) pending_audio: Option<work::Work<crate::audio::PreparedAudio>>,
     pub sky: Option<source_assets::sky::Skybox>,
     pub effects: crate::effects::PreparedEffects,
     pub gaze: BTreeMap<String, source_assets::eyes::Gaze>,

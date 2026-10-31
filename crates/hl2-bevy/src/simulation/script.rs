@@ -23,7 +23,7 @@ pub struct Command {
     /// Horizontal 4:3 field of view in degrees, like the Source `fov` command.
     pub(crate) fov: Option<f32>,
     pub(crate) paused: Option<bool>,
-    pub(crate) dev_overlay: Option<bool>,
+    pub(crate) extension: Option<serde_json::Value>,
     pub(crate) fly: Option<bool>,
     #[serde(default)]
     pub(crate) forward: f32,

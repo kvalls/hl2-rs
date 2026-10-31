@@ -1,17 +1,17 @@
 //! The developer console itself: help, output, filters and leaving.
 
-use super::{Outcome, Spec, COMMANDS};
+use super::{Outcome, Spec};
 use crate::console::{Console, Effect};
 use source_ui::console::command::boolean;
 
-pub(super) fn help(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn help(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.len() > 1 {
         return Err(spec.usage());
     }
     list(console, args, |spec, query| spec.name == query)
 }
 
-pub(super) fn find(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn find(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.len() != 1 {
         return Err(spec.usage());
     }
@@ -23,20 +23,22 @@ pub(super) fn find(console: &mut Console, spec: &'static Spec, args: &[String]) 
 /// Prints the help of every command `matches` the query (all without one).
 fn list(console: &mut Console, args: &[String], matches: fn(&Spec, &str) -> bool) -> Outcome {
     let query = args.first().map(|s| s.to_ascii_lowercase());
-    let found: Vec<_> = COMMANDS
+    let found: Vec<_> = console
+        .commands()
         .iter()
         .filter(|spec| query.as_ref().is_none_or(|q| matches(spec, q)))
+        .map(|spec| spec.help)
         .collect();
     if found.is_empty() {
         console.log("No implemented command matches.");
     }
-    for spec in found {
-        console.log(spec.help);
+    for help in found {
+        console.log(help);
     }
     Ok(None)
 }
 
-pub(super) fn clear(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn clear(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());
     }
@@ -44,16 +46,12 @@ pub(super) fn clear(console: &mut Console, spec: &'static Spec, args: &[String])
     Ok(None)
 }
 
-pub(super) fn echo(console: &mut Console, _spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn echo(console: &mut Console, _spec: &Spec, args: &[String]) -> Outcome {
     console.log(args.join(" "));
     Ok(None)
 }
 
-pub(super) fn toggleconsole(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn toggleconsole(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());
     }
@@ -61,7 +59,7 @@ pub(super) fn toggleconsole(
     Ok(None)
 }
 
-pub(super) fn quit(_console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn quit(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());
     }
@@ -72,7 +70,7 @@ pub(super) fn quit(_console: &mut Console, spec: &'static Spec, args: &[String])
 /// the bottom (the filter changes what is shown).
 fn console_cvar(
     console: &mut Console,
-    spec: &'static Spec,
+    spec: &Spec,
     args: &[String],
     set: impl FnOnce(&mut Console, &String) -> Result<(), String>,
 ) -> Outcome {
@@ -90,36 +88,7 @@ fn console_cvar(
     Ok(None)
 }
 
-pub(super) fn viewmodel_debug_mode(
-    _console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
-    match args {
-        [value] => Ok(Some(Effect::ViewmodelDebugMode(
-            boolean(value).ok_or_else(|| spec.usage())?,
-        ))),
-        _ => Err(spec.usage()),
-    }
-}
-
-pub(super) fn viewmodel_tweak_reset(
-    _console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
-    if args.is_empty() {
-        Ok(Some(Effect::ViewmodelTweakReset))
-    } else {
-        Err(spec.usage())
-    }
-}
-
-pub(super) fn con_filter_enable(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn con_filter_enable(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     console_cvar(console, spec, args, |console, value| {
         console.shell.panel.con_filter = value
             .parse::<u8>()
@@ -134,11 +103,7 @@ pub(super) fn con_filter_enable_value(console: &Console) -> Option<String> {
     Some(console.shell.panel.con_filter.to_string())
 }
 
-pub(super) fn con_filter_text(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn con_filter_text(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     console_cvar(console, spec, args, |console, value| {
         console.shell.panel.con_filter_text = value.clone();
         Ok(())
@@ -149,11 +114,7 @@ pub(super) fn con_filter_text_value(console: &Console) -> Option<String> {
     Some(console.shell.panel.con_filter_text.clone())
 }
 
-pub(super) fn con_timestamp(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn con_timestamp(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     console_cvar(console, spec, args, |console, value| {
         console.shell.panel.con_timestamp = boolean(value).ok_or_else(|| spec.usage())?;
         Ok(())

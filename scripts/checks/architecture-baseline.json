@@ -41,7 +41,6 @@
   "1df1a9c95e4d",
   "1f9ef171c188",
   "2271ba803239",
-  "22c0bd364003",
   "23430b1bd1e5",
   "242143c071e6",
   "24708fc0342e",
@@ -149,7 +148,6 @@
   "bfab1442c9f0",
   "c028c18b77f0",
   "c2895edca4e3",
-  "c38b3fd31dd7",
   "c598e4b6274f",
   "c5dba2c36fc2",
   "c775201a664b",
@@ -182,14 +180,12 @@
  ],
  "files": {
   "crates/hl2-bevy/src/effects.rs": 1085,
-  "crates/hl2-bevy/src/gameplay.rs": 1637,
-  "crates/hl2-bevy/src/main.rs": 1061,
+  "crates/hl2-bevy/src/gameplay.rs": 1632,
   "crates/hl2-bevy/src/rendering.rs": 1534,
-  "crates/hl2-bevy/src/video.rs": 1187,
+  "crates/hl2-bevy/src/video.rs": 1132,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2642,
   "crates/hl2-simulation/src/ai/schedule.rs": 1132,
-  "crates/hl2-simulation/src/ai/spawn.rs": 1409,
   "crates/hl2-simulation/src/entities/choreography.rs": 1229,
   "crates/hl2-simulation/src/gameplay.rs": 2909,
   "crates/hl2-simulation/src/npc.rs": 1671,
@@ -215,7 +211,7 @@
    108
   ],
   "crates/hl2-bevy/src/canvas_renderer.rs::present": [
-   150
+   114
   ],
   "crates/hl2-bevy/src/effects.rs::install": [
    142
@@ -239,19 +235,7 @@
    818
   ],
   "crates/hl2-bevy/src/input.rs::controls": [
-   116
-  ],
-  "crates/hl2-bevy/src/main.rs::main": [
-   315
-  ],
-  "crates/hl2-bevy/src/main.rs::monitor": [
-   146
-  ],
-  "crates/hl2-bevy/src/main.rs::parse_from": [
-   203
-  ],
-  "crates/hl2-bevy/src/main.rs::setup": [
-   102
+   112
   ],
   "crates/hl2-bevy/src/performance.rs::install": [
    136
@@ -271,14 +255,11 @@
   "crates/hl2-bevy/src/simulation.rs::step": [
    167
   ],
-  "crates/hl2-bevy/src/spawn_panel.rs::draw": [
-   120
-  ],
   "crates/hl2-bevy/src/studio_decals.rs::present": [
    156
   ],
   "crates/hl2-bevy/src/ui_system.rs::update_ui": [
-   267
+   219
   ],
   "crates/hl2-bevy/src/visibility.rs::present": [
    115
@@ -321,12 +302,6 @@
   ],
   "crates/hl2-simulation/src/ai/schedule.rs::start_generic_task": [
    264
-  ],
-  "crates/hl2-simulation/src/ai/spawn.rs::key": [
-   123
-  ],
-  "crates/hl2-simulation/src/ai/spawn.rs::panel": [
-   142
   ],
   "crates/hl2-simulation/src/ai/spawn.rs::parse": [
    101
@@ -455,7 +430,7 @@
    107
   ],
   "crates/hl2-ui/src/config.rs::migrate": [
-   123
+   113
   ],
   "crates/hl2-ui/src/gameui/chapters.rs::assign": [
    102
@@ -480,9 +455,6 @@
   ],
   "crates/hl2-ui/src/gameui/resources.rs::fallback_game_menu": [
    165
-  ],
-  "crates/hl2-ui/src/gameui/settings.rs::select": [
-   113
   ],
   "crates/hl2-ui/src/hud.rs::draw_selection": [
    148
@@ -535,7 +507,7 @@
  },
  "test_files": {
   "crates/hl2-simulation/src/entities/tests.rs": 2141,
-  "crates/hl2-ui/src/console/tests.rs": 4683,
-  "crates/hl2-ui/src/gameui/options/tests.rs": 2905
+  "crates/hl2-ui/src/console/tests.rs": 4557,
+  "crates/hl2-ui/src/gameui/options/tests.rs": 2839
  }
 }

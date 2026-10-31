@@ -58,8 +58,6 @@ pub const STATUS_UNIMPLEMENTED: &str = "#HL2RS_StatusUnimplemented";
 
 /// Temporary English text of each placeholder token (keys without the `#`).
 pub const PLACEHOLDER_STRINGS: &[(&str, &str)] = &[
-    ("HL2RS_MotionBlurUltra", "Ultra"),
-    ("HL2RS_StatusMotionBlur", "Advanced adds viewmodel animation blur. Ultra also reconstructs world/camera and projectile motion; GPU performance tuning is in progress."),
     ("HL2RS_StatusRawInput", "In development: raw input is always used. Turning it off has no effect yet."),
     ("HL2RS_StatusFocusAudio", "Partially implemented: muting works, but disabling it cannot keep audio playing while the game pauses on focus loss."),
     ("HL2RS_StatusAimAssist", "Not implemented: aim assistance and its strength setting have no effect yet."),
@@ -75,15 +73,6 @@ pub const PLACEHOLDER_STRINGS: &[(&str, &str)] = &[
     ("HL2RS_StatusSteamInput", "Not implemented: opening Steam Input configuration from this button is not connected yet."),
     ("HL2RS_StatusUnimplemented", "Not implemented: this control has no effect yet."),
     // Worded like the installed "Widescreen 16:9" / "Widescreen 16:10" choices.
-    ("HL2RS_AspectUltrawide21x9", "Ultrawide 21:9"),
-    ("HL2RS_AspectUltrawide32x9", "Super Ultrawide 32:9"),
-    ("HL2RS_AspectSquare1x1", "Square 1:1"),
-    ("HL2RS_AspectPortrait3x4", "Portrait 3:4"),
-    ("HL2RS_AspectPortrait10x16", "Portrait 10:16"),
-    ("HL2RS_AspectPortrait9x16", "Portrait 9:16"),
-    ("HL2RS_KeepVideoSettings", "Keep these display settings?"),
-    ("HL2RS_VerticalFov", "Vertical FOV"),
-    ("HL2RS_ViewmodelFov", "Viewmodel FOV"),
     ("HL2RS_Console_ReverseSearch", "reverse-i-search"),
 ];
 
@@ -102,21 +91,8 @@ mod tests {
 
     #[test]
     fn every_constant_has_placeholder_text_and_an_hl2rs_token() {
-        for token in [
-            ASPECT_ULTRAWIDE_21X9,
-            ASPECT_ULTRAWIDE_32X9,
-            ASPECT_SQUARE_1X1,
-            ASPECT_PORTRAIT_3X4,
-            ASPECT_PORTRAIT_10X16,
-            ASPECT_PORTRAIT_9X16,
-            KEEP_VIDEO_SETTINGS,
-            VERTICAL_FOV,
-            VIEWMODEL_FOV,
-            CONSOLE_REVERSE_SEARCH,
-        ] {
-            assert!(token.starts_with("#HL2RS_"), "{token}");
-            assert!(lookup(token).is_some_and(|t| !t.is_empty()), "{token}");
-        }
+        assert!(CONSOLE_REVERSE_SEARCH.starts_with("#HL2RS_"));
+        assert!(lookup(CONSOLE_REVERSE_SEARCH).is_some_and(|t| !t.is_empty()));
         for (key, _) in PLACEHOLDER_STRINGS {
             assert!(key.starts_with("HL2RS_"), "{key}");
             assert!(
@@ -131,8 +107,8 @@ mod tests {
     #[test]
     fn loaded_resources_override_placeholders() {
         let mut loc = super::super::Localization::default();
-        assert_eq!(loc.text(ASPECT_ULTRAWIDE_21X9), "Ultrawide 21:9");
-        loc.insert(ASPECT_ULTRAWIDE_21X9, "Ultralarge 21:9");
-        assert_eq!(loc.text(ASPECT_ULTRAWIDE_21X9), "Ultralarge 21:9");
+        assert_eq!(loc.text(CONSOLE_REVERSE_SEARCH), "reverse-i-search");
+        loc.insert(CONSOLE_REVERSE_SEARCH, "history search");
+        assert_eq!(loc.text(CONSOLE_REVERSE_SEARCH), "history search");
     }
 }

@@ -50,12 +50,20 @@ impl Console {
 
     /// Runs one command through its [`commands::Spec`] handler.
     pub(super) fn interpret(&mut self, tokens: &[String]) -> commands::Outcome {
-        command::run(self, commands::COMMANDS, tokens)
+        {
+            let entries = self.completion.commands.clone();
+            let entries = if entries.is_empty() {
+                commands::COMMANDS
+            } else {
+                &entries
+            };
+            command::run(self, entries, tokens)
+        }
     }
 
     /// The current value of an implemented cvar, as the console prints it.
     pub fn cvar_value(&self, name: &str) -> Option<String> {
-        commands::find(name)?.value?(self)
+        command::find(self.commands(), name)?.value?(self)
     }
 
     /// The text being typed on the console line.
@@ -65,7 +73,7 @@ impl Console {
 
     /// Names that command arguments complete from (installed maps, the loaded map's entities).
     pub fn set_completion_sources(&mut self, sources: complete::Sources) {
-        self.completion = sources;
+        self.completion.sources = sources;
         self.shell.panel.editor.refresh(&self.completion);
     }
 
@@ -125,7 +133,7 @@ impl Console {
             reverse_search: &reverse_search,
             focused: self.shell.windows.focus() == Layer::Window(Window::Console),
             closing: self.shell.escape_held && self.shell.windows.top() == Some(Window::Console),
-            commands: commands::COMMANDS,
+            commands: self.commands(),
             context: self,
         };
         self.shell.panel.draw(&self.canvas, &look, time, occluders);

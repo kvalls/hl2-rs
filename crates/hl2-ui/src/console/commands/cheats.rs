@@ -14,7 +14,7 @@ fn cheat(console: &Console, spec: &Spec) -> Result<(), String> {
     }
 }
 
-pub(super) fn sv_cheats(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn sv_cheats(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.is_empty() {
         console.log(format!("\"sv_cheats\" = \"{}\"", u8::from(console.cheats)));
     } else if args.len() == 1 {
@@ -31,7 +31,7 @@ pub(super) fn sv_cheats_value(console: &Console) -> Option<String> {
 }
 
 /// `impulse 100` toggles the flashlight (not a cheat); `impulse 101` grants the loadout (a cheat).
-pub(super) fn impulse(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn impulse(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     match args {
         [n] if n == "100" => Ok(Some(Effect::Flashlight)),
         [n] if n == "101" => {
@@ -42,7 +42,7 @@ pub(super) fn impulse(console: &mut Console, spec: &'static Spec, args: &[String
     }
 }
 
-pub(super) fn noclip(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn noclip(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let value = match args {
         [] => None,
         [value] => Some(boolean(value).ok_or_else(|| spec.usage())?),
@@ -54,7 +54,7 @@ pub(super) fn noclip(console: &mut Console, spec: &'static Spec, args: &[String]
 
 /// `npc_create`, `npc_create_aimed`, `prop_physics_create` and `ent_create`: cheats the host's
 /// NPC console runs.
-pub(super) fn create(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn create(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     cheat(console, spec)?;
     npc_command(spec, args)
 }
@@ -62,7 +62,7 @@ pub(super) fn create(console: &mut Console, spec: &'static Spec, args: &[String]
 /// Not a cheat: it only picks the weapon for the next `npc_create`.
 pub(super) fn npc_create_equipment(
     _console: &mut Console,
-    spec: &'static Spec,
+    spec: &Spec,
     args: &[String],
 ) -> Outcome {
     npc_command(spec, args)
@@ -84,7 +84,7 @@ fn npc_command(spec: &Spec, args: &[String]) -> Outcome {
     )))
 }
 
-pub(super) fn ai_disable(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn ai_disable(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());
     }
@@ -92,7 +92,7 @@ pub(super) fn ai_disable(console: &mut Console, spec: &'static Spec, args: &[Str
     Ok(Some(Effect::AiDisable))
 }
 
-pub(super) fn ai_enable(_console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn ai_enable(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let value = match args {
         [] => None,
         [value] => Some(boolean(value).ok_or_else(|| spec.usage())?),
@@ -101,14 +101,14 @@ pub(super) fn ai_enable(_console: &mut Console, spec: &'static Spec, args: &[Str
     Ok(Some(Effect::AiEnable(value)))
 }
 
-pub(super) fn getpos(_console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn getpos(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());
     }
     Ok(Some(Effect::Getpos))
 }
 
-pub(super) fn setpos(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn setpos(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let value = vector(args).ok_or_else(|| spec.usage())?;
     cheat(console, spec)?;
     Ok(Some(Effect::Setpos {
@@ -118,7 +118,7 @@ pub(super) fn setpos(console: &mut Console, spec: &'static Spec, args: &[String]
     }))
 }
 
-pub(super) fn setang(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn setang(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let value = vector(args).ok_or_else(|| spec.usage())?;
     cheat(console, spec)?;
     if value.z != 0. {
@@ -127,7 +127,7 @@ pub(super) fn setang(console: &mut Console, spec: &'static Spec, args: &[String]
     Ok(Some(Effect::Setang(value)))
 }
 
-pub(super) fn ent_fire(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn ent_fire(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let usage = || spec.usage();
     cheat(console, spec)?;
     if args.is_empty() || args.len() > 4 || args[0].is_empty() {

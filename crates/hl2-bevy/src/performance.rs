@@ -46,17 +46,6 @@ impl Drop for Scope<'_> {
     }
 }
 impl Performance {
-    pub(crate) fn record_blur_memory(&self, report: crate::bloom::BlurMemory) {
-        if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
-            stats.blur_memory = Some(report);
-        }
-    }
-
-    pub(crate) fn record_reduction(&self, world: bool, processed: u64, full: u64) {
-        if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
-            stats.reduction(world, processed, full);
-        }
-    }
     pub(crate) fn set_camera_drawing(&self, direct: bool) {
         if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
             stats.camera_indirect_drawing_disabled = direct;
@@ -273,4 +262,25 @@ pub fn render_candidates<'a>(
         "visible_any_view_meshes":visible_meshes,"visible_any_view_triangles":visible_triangles,
         "scope":"world/entity candidates after PVS/frustum/layer checks; excludes sky and viewmodels; union of all views, not GPU draw-call counts"
     })
+}
+
+impl Performance {
+    pub fn record_contribution(&self, name: &'static str, value: serde_json::Value) {
+        if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
+            stats.contributions.insert(name, value);
+        }
+    }
+    pub fn record_reduction(&self, world: bool, processed: u64, full: u64) {
+        if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
+            stats.reduction(world, processed, full);
+        }
+    }
+    pub fn record_stage(&self, name: &'static str, milliseconds: f64) {
+        let mut all = self.0.lock().expect("CPU timing");
+        let samples = all.entry(name).or_default();
+        samples.calls += 1;
+        if samples.calls > 30 && samples.values.len() < 4096 {
+            samples.values.push(milliseconds);
+        }
+    }
 }

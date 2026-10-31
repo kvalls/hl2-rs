@@ -169,7 +169,7 @@ impl Console {
         self.loading_progress.reset();
         self.background_level = background;
         // A pending keep-video confirmation outlives the load: closing it would keep the change.
-        if !matches!(self.confirm_box, Some((_, ConfirmKind::KeepVideo(_)))) {
+        if !matches!(self.confirm_box, Some((_, ConfirmKind::Extension(_)))) {
             self.confirm_box = None;
         }
         if !background {
@@ -377,7 +377,7 @@ impl Console {
                 ConfirmKind::Quit => "quit",
                 ConfirmKind::ReturnToMainMenu => "return_to_main_menu",
                 ConfirmKind::StartCommentary(_) => "start_commentary",
-                ConfirmKind::KeepVideo(_) => "keep_video",
+                ConfirmKind::Extension(extension) => extension.0.kind(),
             };
             serde_json::json!({"kind": kind, "text": confirm.text})
         })
@@ -412,8 +412,9 @@ impl Console {
                             effects.push(Effect::Quit);
                             return effects;
                         }
-                        ConfirmKind::KeepVideo(_) => {
+                        ConfirmKind::Extension(extension) => {
                             self.reset_menu_interaction();
+                            effects.extend(extension.0.accept(self));
                             return effects;
                         }
                         ConfirmKind::StartCommentary(target) => {
@@ -437,8 +438,8 @@ impl Console {
                 Some(false) => {
                     self.closing_confirm_box = Some((confirm, kind.clone()));
                     self.reset_menu_interaction();
-                    if let ConfirmKind::KeepVideo(keep) = kind {
-                        effects.push(self.revert_video(keep.previous));
+                    if let ConfirmKind::Extension(keep) = kind {
+                        effects.extend(keep.0.cancel(self));
                     }
                     self.sync_dialog_windows();
                 }
@@ -502,7 +503,7 @@ impl Console {
             Mode::MainMenu => &mut self.main_menu,
             _ => &mut self.pause_menu,
         };
-        if !self.background_debug_mode && input.pressed(Key::Up) {
+        if !self.presentation.capture_menu_navigation && input.pressed(Key::Up) {
             let prev = menu.selection;
             menu.step(-1);
             if menu.selection != prev
@@ -514,7 +515,7 @@ impl Console {
                 effects.push(Effect::PlaySound("ui/buttonrollover.wav".into()));
             }
         }
-        if !self.background_debug_mode && input.pressed(Key::Down) {
+        if !self.presentation.capture_menu_navigation && input.pressed(Key::Down) {
             let prev = menu.selection;
             menu.step(1);
             if menu.selection != prev

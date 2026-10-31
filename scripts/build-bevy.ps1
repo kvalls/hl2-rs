@@ -12,7 +12,7 @@ try {
     if (!(Get-ChildItem -LiteralPath $shaderSource -File -Recurse)) { throw 'Bevy shader assets are empty.' }
 
     $profileName = if ($DebugBuild) { 'debug' } else { 'release' }
-    $cargoArguments = @('build', '--locked', '-p', 'hl2-bevy', '--bin', 'hl2-bevy')
+    $cargoArguments = @('build', '--locked', '-p', 'hl2-app', '--bin', 'hl2-bevy')
     if (!$DebugBuild) { $cargoArguments += '--release' }
     & $cargoBinary @cargoArguments
     if ($LASTEXITCODE -ne 0) { throw 'Cargo Bevy build failed.' }
@@ -41,6 +41,7 @@ try {
     # Only replace this verified generated directory, so removed shaders cannot linger.
     if (Test-Path -LiteralPath $shaderDestination) { Remove-Item -LiteralPath $shaderDestination -Recurse -Force }
     Copy-Item -LiteralPath $shaderSource -Destination $shaderDestination -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'plugins\hl2-advanced-options\assets\shaders\weapon_blur.wgsl') -Destination (Join-Path $shaderDestination 'shaders\weapon_blur.wgsl') -Force
     $packageExecutable = Join-Path $packageRoot 'hl2-bevy.exe'
     Copy-Item -LiteralPath $sourceExecutable -Destination $packageExecutable -Force
 

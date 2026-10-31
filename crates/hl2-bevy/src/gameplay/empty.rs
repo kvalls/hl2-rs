@@ -19,7 +19,6 @@ impl Gameplay {
                 player_damage: Default::default(),
                 skill_config: None,
                 ai: hl2_simulation::ai::runtime::AiRuntime::new(&World::default(), None),
-                spawn_overlay: Default::default(),
             },
         )
     }
@@ -58,7 +57,6 @@ impl Gameplay {
             skill_config: prepared.skill_config,
             ai: prepared.ai,
             player_impulse: glam::Vec3::ZERO,
-            spawn_overlay: prepared.spawn_overlay,
             spawn_console: Default::default(),
             spawn_log: Vec::new(),
             shot_effects: Vec::new(),
@@ -82,5 +80,4 @@ pub(super) struct PreparedGameplay {
     pub player_damage: hl2_simulation::player_damage::PlayerDamage,
     pub skill_config: Option<String>,
     pub ai: hl2_simulation::ai::runtime::AiRuntime,
-    pub spawn_overlay: hl2_simulation::ai::spawn::Overlay,
 }

@@ -44,9 +44,17 @@ HL2-RS is an experimental Rust rewrite of Half-Life 2 and relevant Source behavi
 ## Architecture rules
 
 Where code goes:
+- Optional plugins live in plugins/; the application composes them through injected core contracts; core crates never depend on, import or feature-gate concrete plugins; optional plugin adapters may consume the public host API (docs/DESIGN.md).
 - source-assets reads file formats. modkit-core holds contracts, the player and pose math. hl2-simulation holds gameplay, physics, entities and NPCs, with no engine. source-ui is the game-agnostic UI toolkit (like the SDK's `vgui_controls`) and knows nothing of HL2. hl2-ui is HL2's UI (GameUI, HUD, captions, `Config`, console commands) over source-ui and hl2-simulation. hl2-bevy is the Bevy host only.
-- Depend only downward: modkit-core <- source-assets <- source-ui; modkit-core, source-assets <- hl2-simulation; source-ui, hl2-simulation <- hl2-ui <- hl2-bevy. Bevy and rfd only in hl2-bevy; rapier3d, symphonia and hound only in hl2-simulation. A new crate, a new edge between crates or a new engine dependency needs the owner.
+- Depend only downward: modkit-core <- source-assets <- source-ui; modkit-core, source-assets <- hl2-simulation; source-ui, hl2-simulation <- hl2-ui <- hl2-bevy. Bevy only in hl2-bevy and optional plugin Bevy adapters; rfd only in hl2-bevy; rapier3d, symphonia and hound only in hl2-simulation. A new crate, a new edge between crates or a new engine dependency needs the owner.
 - modkit-core, hl2-simulation and source-ui never touch the file system: bytes come through source-assets' `Vfs` or from the host. source-ui takes HL2's text, settings and looks through traits or values.
+
+Plugins:
+- Keep contracts small and typed; prefer components, events and namespaced registries over whole-world callbacks; plugin state is instance-owned, with no mutable globals or leaked registration state.
+- Declare plugin dependencies through public contracts; keep them acyclic and validate missing capabilities and registration conflicts before gameplay, with explicit override order.
+- Contributors coexist by ID; select them explicitly, never through last-registration wins or one shared hook slot.
+- Selection/build features belong to the application; omitted plugins add no UI, commands, systems, assets or frame work; preserve dormant saved preferences.
+- Validate core-only, each-plugin and combined builds plus replacement without core edits; hypothetical future plugins do not authorize implementation.
 
 Keep it small:
 - Functions up to 100 lines; a file's production code up to 1,000 lines, its tests up to 2,000. When you touch code already over a limit, do not make it longer: first move what you add (or a piece of what is there) into a new function or module.

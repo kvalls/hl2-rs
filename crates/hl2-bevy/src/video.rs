@@ -21,83 +21,7 @@ use bevy::window::{
     Monitor, MonitorSelection, PrimaryMonitor, PrimaryWindow, Window, WindowMode, WindowPosition,
 };
 
-pub mod display {
-    use super::*;
-
-    /// Metrics and bounds for the primary display.
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct DisplayMetrics {
-        pub physical_width: u32,
-        pub physical_height: u32,
-        pub scale_factor: f32,
-    }
-
-    impl DisplayMetrics {
-        /// Metrics of a monitor.
-        pub fn of(monitor: &Monitor) -> Self {
-            Self {
-                physical_width: monitor.physical_width,
-                physical_height: monitor.physical_height,
-                scale_factor: monitor.scale_factor as f32,
-            }
-        }
-
-        /// Queries display metrics from the primary monitor, if available.
-        #[allow(dead_code)]
-        pub fn from_monitors(monitors: &Query<&Monitor, With<PrimaryMonitor>>) -> Option<Self> {
-            monitors.iter().next().map(Self::of)
-        }
-
-        /// Detects if a window currently in `WindowMode::Windowed` is actually occupying the full
-        /// display (such as macOS native workspace fullscreen via the green zoom button).
-        pub fn is_workspace_fullscreen(&self, window: &Window) -> bool {
-            let tolerance = (window.scale_factor().max(1.0).ceil() as u32).max(2);
-            window.mode == WindowMode::Windowed
-                && window
-                    .resolution
-                    .physical_width()
-                    .abs_diff(self.physical_width)
-                    <= tolerance
-                && window
-                    .resolution
-                    .physical_height()
-                    .abs_diff(self.physical_height)
-                    <= tolerance
-        }
-    }
-
-    /// Resolutions offered on the Video page: the primary monitor's reported video modes plus
-    /// the standard list, filtered and sorted by [`hl2_ui::gameui::display::usable_modes`], and
-    /// the desktop size in pixels that windowed choices must fit (windowed mode shows one frame
-    /// pixel per display pixel). Falls back to the current window size when nothing is usable.
-    /// A `--fake-monitor` spec replaces the monitor's size and reported modes.
-    pub fn modes(
-        monitors: &Query<&Monitor, With<PrimaryMonitor>>,
-        window: &Window,
-        fake: Option<&hl2_ui::gameui::display::MonitorSpec>,
-    ) -> hl2_ui::gameui::display::DisplayModes {
-        use hl2_ui::gameui::display::{DisplayModes, Resolution, usable_modes};
-        let current = Resolution::new(
-            window.resolution.physical_width(),
-            window.resolution.physical_height(),
-        );
-        if let Some(fake) = fake {
-            return fake.display_modes(current);
-        }
-        let monitor = monitors.iter().next();
-        let reported = monitor
-            .into_iter()
-            .flat_map(|m| m.video_modes.iter())
-            .map(|mode| Resolution::new(mode.physical_size.x, mode.physical_size.y));
-        let size = monitor.map(|m| Resolution::new(m.physical_width, m.physical_height));
-        DisplayModes {
-            fullscreen: usable_modes(reported, size, current),
-            desktop: size,
-            current: Some(current),
-        }
-    }
-}
-
+pub mod display;
 pub mod mode {
     use super::*;
     use hl2_ui::config::DisplayMode;
@@ -164,9 +88,10 @@ const SUSPEND_FRAMES: u32 = 4;
 /// The offscreen game frame: every scene, viewmodel and HUD camera renders into it.
 #[derive(Resource, Clone, Debug)]
 pub struct GameFrame {
+    pub policy: hl2_ui::extensions::VideoPolicy,
     pub image: Handle<Image>,
     /// Frame size in pixels: the configured video resolution, or for a flexible frame the size
-    /// [`hl2_ui::flexible_frame::flexible_frame_resolution`] derives from it and the window.
+    /// the injected video policy derives from it and the window.
     pub resolution: UVec2,
     /// Configured video resolution, in frame pixels (also the requested windowed size).
     pub configured: UVec2,
@@ -185,21 +110,19 @@ impl GameFrame {
     /// window-shaped size of the same detail. A window with no area (minimized) keeps the
     /// current size.
     pub fn size_for(&self, window: &Window) -> UVec2 {
-        let physical = UVec2::new(
+        let window = glam::UVec2::new(
             window.resolution.physical_width(),
             window.resolution.physical_height(),
         );
-        if !self.flexible {
-            self.configured.max(UVec2::ONE)
-        } else if physical.x == 0 || physical.y == 0 {
-            self.resolution
-        } else {
-            let size = hl2_ui::flexible_frame::flexible_frame_resolution(
-                glam::UVec2::new(self.configured.x, self.configured.y),
-                glam::UVec2::new(physical.x, physical.y),
-            );
-            UVec2::new(size.x, size.y)
+        if window.x == 0 || window.y == 0 {
+            return self.resolution;
         }
+        let size = self.policy.0.frame_size(
+            glam::UVec2::new(self.configured.x, self.configured.y),
+            window,
+            self.flexible,
+        );
+        UVec2::new(size.x, size.y)
     }
 }
 
@@ -292,10 +215,12 @@ pub(crate) fn install_frame(
     resolution: UVec2,
     flexible: bool,
     windowed: bool,
+    policy: hl2_ui::extensions::VideoPolicy,
 ) {
     let resolution = resolution.max(UVec2::ONE);
     let image = images.add(frame_image(resolution));
     commands.insert_resource(GameFrame {
+        policy,
         image: image.clone(),
         resolution,
         configured: resolution,
@@ -408,26 +333,33 @@ impl VideoViewport {
         window: &Window,
         flexible: bool,
     ) -> Self {
+        Self::compute_with_policy(target_w, target_h, window, flexible, &Default::default())
+    }
+    pub fn compute_with_policy(
+        target_w: u32,
+        target_h: u32,
+        window: &Window,
+        flexible: bool,
+        policy: &hl2_ui::extensions::VideoPolicy,
+    ) -> Self {
         let win_w = window.resolution.physical_width().max(1);
         let win_h = window.resolution.physical_height().max(1);
         let scale = window.scale_factor().max(1.0);
 
-        let bounds = hl2_ui::flexible_frame::compute_with_mode(
+        let bounds = policy.0.viewport(
             glam::UVec2::new(target_w, target_h),
             glam::UVec2::new(win_w, win_h),
             scale,
             flexible,
         );
 
-        let physical_rect = Viewport {
-            physical_position: UVec2::new(bounds.physical_offset.x, bounds.physical_offset.y),
-            physical_size: UVec2::new(bounds.physical_size.x, bounds.physical_size.y),
-            depth: 0.0..1.0,
-        };
-
         Self {
             target_resolution: UVec2::new(bounds.target_resolution.x, bounds.target_resolution.y),
-            physical_rect,
+            physical_rect: Viewport {
+                physical_position: UVec2::new(bounds.physical_offset.x, bounds.physical_offset.y),
+                physical_size: UVec2::new(bounds.physical_size.x, bounds.physical_size.y),
+                ..Default::default()
+            },
             logical_offset: Vec2::new(bounds.logical_offset.x, bounds.logical_offset.y),
             logical_size: Vec2::new(bounds.logical_size.x, bounds.logical_size.y),
         }
@@ -492,22 +424,25 @@ fn apply_video_config_to_window(
         window.mode = target_mode;
     }
     if let Some(frame) = frame {
-        let mut configured = UVec2::new(cfg.width, cfg.height).max(UVec2::ONE);
-        if cfg.flexible_aspect {
-            let physical = UVec2::new(
-                window.resolution.physical_width(),
-                window.resolution.physical_height(),
-            );
-            if physical.x > 0 && physical.y > 0 {
-                let size = hl2_ui::flexible_frame::flexible_presented_resolution(glam::UVec2::new(
-                    physical.x, physical.y,
+        let configured = UVec2::new(cfg.width, cfg.height).max(UVec2::ONE);
+        let configured = if cfg.effective_flexible_aspect() {
+            let native = cfg
+                .policy
+                .0
+                .presented(hl2_ui::gameui::display::Resolution::new(
+                    window.resolution.physical_width(),
+                    window.resolution.physical_height(),
                 ));
-                let native = UVec2::new(size.x, size.y);
-                configured = UVec2::new(configured.x.max(native.x), configured.y.max(native.y));
-            }
-        }
+            UVec2::new(
+                configured.x.max(native.width),
+                configured.y.max(native.height),
+            )
+        } else {
+            configured
+        };
+        frame.policy = cfg.policy.clone();
         frame.configured = configured;
-        frame.flexible = cfg.flexible_aspect;
+        frame.flexible = cfg.effective_flexible_aspect();
         frame.resolution = frame.size_for(window);
         frame.pending_window =
             (target_mode == WindowMode::Windowed).then_some(WINDOW_RESIZE_FRAMES);
@@ -729,6 +664,23 @@ pub fn window_resize_in(
     area: Option<&DesktopArea>,
     flexible: bool,
 ) -> WindowResize {
+    window_resize_with_policy(
+        window,
+        monitor,
+        resolution,
+        area,
+        flexible,
+        &Default::default(),
+    )
+}
+pub fn window_resize_with_policy(
+    window: &Window,
+    monitor: Option<&Monitor>,
+    resolution: UVec2,
+    area: Option<&DesktopArea>,
+    flexible: bool,
+    policy: &hl2_ui::extensions::VideoPolicy,
+) -> WindowResize {
     if window.mode != WindowMode::Windowed {
         return WindowResize::Cancel;
     }
@@ -740,11 +692,7 @@ pub fn window_resize_in(
     let sized = |room: Option<Vec2>| {
         let resolution = glam::UVec2::new(resolution.x, resolution.y);
         let room = room.map(|room| glam::Vec2::new(room.x, room.y));
-        let size = if flexible {
-            hl2_ui::flexible_frame::flexible_windowed_size(resolution, room)
-        } else {
-            source_ui::viewport::windowed_size(resolution, room)
-        };
+        let size = policy.0.window_size(resolution, room, flexible);
         Vec2::new(size.x, size.y)
     };
     let available = metrics.map(|m| Vec2::new(m.physical_width as f32, m.physical_height as f32));
@@ -798,7 +746,14 @@ pub(crate) fn resize_window(
         return;
     }
     let area = area.as_deref();
-    let decision = window_resize_in(&window, monitor, frame.configured, area, frame.flexible);
+    let decision = window_resize_with_policy(
+        &window,
+        monitor,
+        frame.configured,
+        area,
+        frame.flexible,
+        &frame.policy,
+    );
     debug!(
         "[video] resize_window frames={frames} mode={:?} window={}x{} px -> {decision:?}",
         window.mode,
@@ -1024,11 +979,12 @@ pub(crate) fn present_frame(
             camera.viewport = None;
         }
     }
-    let computed = VideoViewport::compute_with_mode(
+    let computed = VideoViewport::compute_with_policy(
         frame.resolution.x,
         frame.resolution.y,
         window,
         frame.flexible,
+        &frame.policy,
     );
     if *video_viewport != computed {
         debug!(
@@ -1169,19 +1125,8 @@ pub(crate) fn vertical_fov_with(
     aspect: f32,
     vertical: f32,
 ) -> f32 {
-    let derived = vertical_fov_for(view_degrees, aspect);
-    let base = vertical_fov_for(default_degrees, aspect);
-    let target_base = if vertical > 0. {
-        vertical.to_radians()
-    } else {
-        let offset = hl2_ui::tuning::world_fov_offset(aspect);
-        if offset == 0. {
-            return derived;
-        }
-        vertical_fov_for((default_degrees + offset).clamp(1., 160.), aspect)
-    };
-    let tangent = (derived / 2.).tan() * (target_base / 2.).tan() / (base / 2.).tan();
-    2. * tangent.atan()
+    let _ = (default_degrees, vertical);
+    vertical_fov_for(view_degrees, aspect)
 }
 
 /// [`vertical_fov_for`] on a 4:3 frame.
@@ -1204,38 +1149,23 @@ mod tests {
     use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
 
     #[test]
-    fn an_explicit_vertical_fov_replaces_the_derived_one_and_scales_with_zoom() {
-        for aspect in [5. / 4., 4. / 3., 16. / 10., 16. / 9.] {
-            assert_eq!(
-                vertical_fov_with(75., 75., aspect, 0.),
-                vertical_fov_for(75., aspect),
-                "retail aspects are untouched in automatic mode"
-            );
-        }
-        // Outside 5:4..=16:9, automatic mode applies `world_fov_offset` to tame vertical fish-eye
-        // in portrait and horizontal peripheral stretching in ultrawide.
-        assert!(vertical_fov_with(75., 75., 9. / 16., 0.) < vertical_fov_for(75., 9. / 16.));
-        assert!(vertical_fov_with(75., 75., 9. / 16., 0.) > vertical_fov_for(75., 4. / 3.));
-        assert!(vertical_fov_with(75., 75., 32. / 9., 0.) < vertical_fov_for(75., 32. / 9.));
-
-        for aspect in [9. / 16., 1., 4. / 3., 16. / 9., 32. / 9.] {
-            let derived = vertical_fov_for(75., aspect);
-            let auto = vertical_fov_with(75., 75., aspect, 0.);
-            let explicit = vertical_fov_with(75., 75., aspect, 90.);
-            assert!(
-                (explicit.to_degrees() - 90.).abs() < 1e-3,
-                "{aspect}: {explicit}"
-            );
-            // Zoom (a smaller view FOV) narrows both automatic and explicit vertical FOV in the
-            // same proportion as the derived one.
-            let derived_ratio = (vertical_fov_for(20., aspect) / 2.).tan() / (derived / 2.).tan();
-            let auto_zoomed = vertical_fov_with(20., 75., aspect, 0.);
-            let auto_ratio = (auto_zoomed / 2.).tan() / (auto / 2.).tan();
-            assert!((auto_ratio - derived_ratio).abs() < 1e-5, "{aspect}");
-            let zoomed = vertical_fov_with(20., 75., aspect, 90.);
-            let ratio = (zoomed / 2.).tan() / (explicit / 2.).tan();
-            assert!((ratio - derived_ratio).abs() < 1e-5, "{aspect}");
-            assert!(zoomed < explicit);
+    fn core_projection_ignores_a_dormant_vertical_fov_preference() {
+        for aspect in [
+            9. / 16.,
+            1.,
+            5. / 4.,
+            4. / 3.,
+            16. / 10.,
+            16. / 9.,
+            32. / 9.,
+        ] {
+            for vertical in [0., 90.] {
+                assert_eq!(
+                    vertical_fov_with(75., 75., aspect, vertical),
+                    vertical_fov_for(75., aspect),
+                    "{aspect} {vertical}"
+                );
+            }
         }
     }
 
@@ -1278,6 +1208,7 @@ mod tests {
             pending_window: None,
             suspended: 0,
             recenter: false,
+            policy: Default::default(),
         }
     }
 
@@ -1315,10 +1246,20 @@ mod tests {
     }
 
     #[test]
-    fn fit_display_replaces_a_low_fixed_frame_with_current_physical_resolution() {
-        // Switching from 640x480 to Fit Display must not retain 480 lines just because that was
-        // the previously selected fixed mode. On high-DPI panels `Window` reports physical
-        // pixels, which are also the game frame's resolution.
+    fn an_injected_policy_sizes_the_frame_from_the_physical_window() {
+        // A flexible policy must not retain 480 lines just because that was the previously
+        // selected fixed mode. On high-DPI panels `Window` reports physical pixels, which are
+        // also the game frame's resolution.
+        #[derive(Debug)]
+        struct FillWindow;
+        impl hl2_ui::extensions::VideoExtension for FillWindow {
+            fn frame_size(&self, _: glam::UVec2, window: glam::UVec2, _: bool) -> glam::UVec2 {
+                window
+            }
+            fn flexible(&self, video: &hl2_ui::config::VideoSettings) -> bool {
+                video.flexible_aspect
+            }
+        }
         let mut window = window(
             3024,
             1964,
@@ -1330,6 +1271,7 @@ mod tests {
             height: 480,
             flexible_aspect: true,
             display_mode: hl2_ui::config::DisplayMode::NoBorder,
+            policy: hl2_ui::extensions::VideoPolicy::new(FillWindow),
             ..Default::default()
         };
         let mut frame = frame(UVec2::new(640, 480));
@@ -1423,20 +1365,6 @@ mod tests {
         assert_eq!(at.y, 74, "just below the menu bar");
         assert!(bottom(at, client) <= area.visible.max.y);
 
-        // Flexible frame: each side is limited to the area on its own without scaling the aspect ratio.
-        let WindowResize::Resize(client) = window_resize_in(
-            &window,
-            Some(&retina),
-            UVec2::new(3456, 2160),
-            Some(&area),
-            true,
-        ) else {
-            panic!("a resize");
-        };
-        assert_eq!(client, UVec2::new(3456, 1964));
-        let at = area.centered(client, 2.);
-        assert_eq!(at, IVec2::new(0, 74), "fills width and sits below menu bar");
-        assert!(bottom(at, client) <= area.visible.max.y);
         let at = area.centered(client, 2.);
         assert_eq!(at.y, 74, "just below the menu bar");
         assert!(
@@ -1678,6 +1606,7 @@ mod tests {
             pending_window: None,
             suspended: 0,
             recenter: false,
+            policy: Default::default(),
         });
         // Full screen on a Retina panel.
         app.world_mut().spawn((

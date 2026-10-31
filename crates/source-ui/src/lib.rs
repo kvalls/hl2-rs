@@ -23,3 +23,5 @@ pub mod windows;
 
 /// Embedded MIT-licensed fallback / developer font bytes (ProggyClean).
 pub const PROGGY_CLEAN: &[u8] = include_bytes!("../assets/fonts/ProggyClean.ttf");
+
+pub mod bitmap_text;

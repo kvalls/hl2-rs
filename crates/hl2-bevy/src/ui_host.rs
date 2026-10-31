@@ -33,39 +33,51 @@ impl Console {
 }
 #[derive(Clone, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+enum CoreAction {
+    Escape,
+    ToggleConsole,
+    Resume,
+    Command { command: String },
+    Input { input: source_ui::input::Input },
+}
+#[derive(Clone)]
 pub enum Action {
     Escape,
     ToggleConsole,
     Resume,
-    Command {
-        command: String,
-    },
-    Input {
-        input: source_ui::input::Input,
-    },
-    /// One F4 overlay key, as if pressed (Toggle, Up, Down, Left, Right, Enter).
-    SpawnOverlay {
-        key: hl2_simulation::ai::spawn::OverlayKey,
-    },
-    /// Text typed into the F4 Props filter (while it is typing).
-    SpawnOverlayText {
-        text: String,
-    },
-    /// A pointer click on an F4 row, e.g. {"Row": ["Options", 3]} or "Filter".
-    SpawnOverlayClick {
-        target: hl2_simulation::ai::spawn::PanelTarget,
-    },
-    /// Mouse wheel rows over an F4 column (null: the focused one).
-    SpawnOverlayScroll {
-        column: Option<hl2_simulation::ai::spawn::Column>,
-        rows: isize,
-    },
+    Command { command: String },
+    Input { input: source_ui::input::Input },
+    Extension(serde_json::Value),
+}
+impl<'de> serde::Deserialize<'de> for Action {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let name = value
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| serde::de::Error::custom("action must name an operation"))?;
+        if !matches!(
+            name,
+            "escape" | "toggle_console" | "resume" | "command" | "input"
+        ) {
+            return Ok(Self::Extension(value));
+        }
+        let action =
+            serde_json::from_value::<CoreAction>(value).map_err(serde::de::Error::custom)?;
+        Ok(match action {
+            CoreAction::Escape => Self::Escape,
+            CoreAction::ToggleConsole => Self::ToggleConsole,
+            CoreAction::Resume => Self::Resume,
+            CoreAction::Command { command } => Self::Command { command },
+            CoreAction::Input { input } => Self::Input { input },
+        })
+    }
 }
 impl Action {
     pub fn valid(&self) -> bool {
         match self {
             Self::Command { command } => command.len() <= 1024,
-            Self::SpawnOverlayText { text } => text.len() <= 256,
+            Self::Extension(value) => value.to_string().len() <= 4096,
             Self::Input { input } => {
                 input.text.len() <= 4096 && input.pointer.is_none_or(|p| p.is_finite())
             }
@@ -99,25 +111,17 @@ impl crate::simulation::Simulation {
             }
             Action::Command { command } => ui.source.submit(command),
             Action::Input { input } => ui.source.input(input),
-            Action::SpawnOverlay { key } => {
-                if let Some(message) = self.spawn_overlay_key(game, *key) {
-                    ui.source.log(message);
-                }
-                vec![]
-            }
-            Action::SpawnOverlayText { text } => {
-                game.spawn_overlay.type_text(text);
-                vec![]
-            }
-            Action::SpawnOverlayClick { target } => {
-                let command = game.spawn_overlay.click(*target);
-                if let Some(message) = self.spawn_overlay_command(game, command) {
-                    ui.source.log(message);
-                }
-                vec![]
-            }
-            Action::SpawnOverlayScroll { column, rows } => {
-                game.spawn_overlay.scroll(*column, *rows);
+            Action::Extension(value) => {
+                self.with_extensions(|extension, simulation| {
+                    extension.action(
+                        &mut crate::extensions::Context {
+                            simulation,
+                            gameplay: Some(game),
+                            console: Some(ui),
+                        },
+                        value,
+                    );
+                });
                 vec![]
             }
         };

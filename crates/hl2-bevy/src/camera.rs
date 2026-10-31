@@ -67,7 +67,7 @@ type ViewmodelCameraFilter = (With<ViewmodelCamera>, Without<crate::FlyCamera>);
 /// Publishes the view after the fixed simulation loop: a point_viewcontrol camera or env_zoom
 /// when active, otherwise the player's eye with the weapon punch and SetFOV zoom. Character
 /// motion itself remains in `simulation`.
-pub(crate) fn present_player_view(
+pub fn present_player_view(
     sim: Res<crate::simulation::Simulation>,
     game: Option<Res<crate::gameplay::Gameplay>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<crate::FlyCamera>>,
@@ -110,13 +110,11 @@ pub(crate) fn present_player_view(
         );
         let fov = sim.world_camera_fov(sim.view_fov(player_fov), aspect);
         if let Projection::Perspective(perspective) = &mut *projection {
-            let active_fov = if sim.background_debug.enabled {
-                sim.background_debug
-                    .fov(aspect, sim.background_force_default_blur)
-                    .to_radians()
-            } else {
-                fov
-            };
+            let active_fov = sim
+                .extensions
+                .iter()
+                .find_map(|extension| extension.projection(&sim, aspect))
+                .unwrap_or(fov);
             if perspective.fov != active_fov {
                 perspective.fov = active_fov;
             }
@@ -245,13 +243,8 @@ mod tests {
                 "{aspect}: ultrawide menu background keeps the 16:9 horizontal view"
             );
             assert!(
-                bg < game && game < v_4_3,
-                "{aspect}: ultrawide gameplay trims vertical FOV to reduce peripheral stretching"
-            );
-            assert!(
-                horizontal(game, aspect) > h_16_9
-                    && horizontal(game, aspect) < horizontal(v_4_3, aspect),
-                "{aspect}: ultrawide gameplay expands horizontally beyond 16:9 without full 4:3 fish-eye"
+                bg < game && game == v_4_3,
+                "{aspect}: without an injected policy gameplay keeps the 4:3 vertical view"
             );
         }
     }

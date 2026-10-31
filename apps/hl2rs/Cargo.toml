@@ -1,0 +1,21 @@
+[package]
+name = "hl2-app"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[features]
+default = ["advanced-options", "debug-tools"]
+advanced-options = ["dep:hl2-advanced-options", "hl2-advanced-options/bevy"]
+debug-tools = ["dep:hl2-debug", "hl2-debug/bevy"]
+
+[dependencies]
+anyhow.workspace = true
+bevy.workspace = true
+hl2-debug = { workspace = true, optional = true }
+hl2-advanced-options = { workspace = true, optional = true }
+hl2-bevy.workspace = true
+
+[[bin]]
+name = "hl2-bevy"
+path = "src/main.rs"

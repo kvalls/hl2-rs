@@ -117,7 +117,19 @@ pub(crate) fn install_map(
     ));
     effects::adopt(loaded.effects.sprites, commands);
     audio::deferred::stage(commands, loaded.pending_audio);
+    let extension_vfs = loaded.vfs.clone();
     commands.insert_resource(loaded.gameplay);
+    commands.queue(move |world: &mut World| {
+        world.resource_scope(
+            |world, mut simulation: bevy::prelude::Mut<crate::simulation::Simulation>| {
+                if let Some(mut game) = world.get_resource_mut::<crate::gameplay::Gameplay>() {
+                    for extension in &mut simulation.extensions {
+                        extension.map_installed(&mut game, &extension_vfs);
+                    }
+                }
+            },
+        );
+    });
     // Studio decal draws went with the old map; its entity indices now name the new map's.
     commands.queue(|world: &mut World| {
         if let Some(mut decals) = world.get_resource_mut::<studio_decals::StudioDecals>() {

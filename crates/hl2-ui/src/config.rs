@@ -208,6 +208,8 @@ impl Filtering {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AdvancedVideoSettings {
+    #[serde(skip)]
+    pub policy: crate::extensions::VideoPolicy,
     pub model_detail: ModelDetail,
     pub texture_detail: TextureDetail,
     pub shader_detail: ShaderDetail,
@@ -236,6 +238,7 @@ pub struct AdvancedVideoSettings {
 impl Default for AdvancedVideoSettings {
     fn default() -> Self {
         Self {
+            policy: Default::default(),
             model_detail: ModelDetail::High,
             texture_detail: TextureDetail::High,
             shader_detail: ShaderDetail::High,
@@ -258,6 +261,8 @@ impl Default for AdvancedVideoSettings {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VideoSettings {
+    #[serde(skip)]
+    pub policy: crate::extensions::VideoPolicy,
     pub width: u32,
     pub height: u32,
     pub display_mode: DisplayMode,
@@ -291,6 +296,16 @@ pub struct VideoSettings {
 pub type LoadDetail = (ModelDetail, TextureDetail, bool);
 
 impl VideoSettings {
+    pub fn effective_flexible_aspect(&self) -> bool {
+        self.policy.0.flexible(self)
+    }
+    pub fn effective_vertical_fov(&self) -> f32 {
+        self.policy.0.vertical_fov(self)
+    }
+    pub fn effective_viewmodel_fov(&self) -> f32 {
+        self.policy.0.viewmodel_fov(self)
+    }
+
     /// Effective artwork variant; presentation aspect and gameplay FOV are independent.
     pub fn background_uses_widescreen(&self, widescreen: bool) -> bool {
         widescreen && !self.background_force_default_blur
@@ -308,6 +323,7 @@ impl VideoSettings {
 impl Default for VideoSettings {
     fn default() -> Self {
         Self {
+            policy: Default::default(),
             width: 1280,
             height: 720,
             display_mode: DisplayMode::Fullscreen,
@@ -635,7 +651,6 @@ impl Default for Config {
         keys.insert("impulse".into(), "KeyG".into());
         // config_default.cfg: `bind "f" "impulse 100"`.
         keys.insert("impulse 100".into(), "KeyF".into());
-        keys.insert("loadout".into(), "F3".into());
         keys.insert("slot1".into(), "Digit1".into());
         keys.insert("slot2".into(), "Digit2".into());
         keys.insert("slot3".into(), "Digit3".into());
@@ -735,22 +750,12 @@ impl Config {
             defaults.gamepad.aim_assist_scale,
         );
         clamp(&mut self.video.fov, 50., 120., defaults.video.fov);
-        let (vertical_min, vertical_max) = crate::tuning::vertical_fov_range();
-        if self.video.vertical_fov != 0. {
-            clamp(
-                &mut self.video.vertical_fov,
-                vertical_min,
-                vertical_max,
-                defaults.video.vertical_fov,
-            );
+        if !self.video.vertical_fov.is_finite() {
+            self.video.vertical_fov = 0.;
         }
-        let (viewmodel_min, viewmodel_max) = crate::tuning::viewmodel_fov_range();
-        clamp(
-            &mut self.video.viewmodel_fov,
-            viewmodel_min,
-            viewmodel_max,
-            defaults.video.viewmodel_fov,
-        );
+        if !self.video.viewmodel_fov.is_finite() {
+            self.video.viewmodel_fov = defaults.video.viewmodel_fov;
+        }
         self.gameplay.skill = self.gameplay.skill.clamp(1, 3);
         if let Some(map) = self.gameplay.background_map.take() {
             let clean = map

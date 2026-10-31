@@ -19,29 +19,6 @@ pub(super) fn set_fov(console: &mut Console, arg: &str) -> Result<(), Invalid> {
     Ok(())
 }
 
-pub(super) fn vertical_fov_value(console: &Console) -> Option<String> {
-    Some(format!("{:.0}", console.config.video.vertical_fov))
-}
-
-pub(super) fn set_vertical_fov(console: &mut Console, arg: &str) -> Result<(), Invalid> {
-    let fov = parse::<f32>(arg)?;
-    console.config.video.vertical_fov = if fov <= 0.0 {
-        0.0
-    } else {
-        fov.clamp(40.0, 100.0)
-    };
-    Ok(())
-}
-
-pub(super) fn viewmodel_fov_value(console: &Console) -> Option<String> {
-    Some(format!("{:.0}", console.config.video.viewmodel_fov))
-}
-
-pub(super) fn set_viewmodel_fov(console: &mut Console, arg: &str) -> Result<(), Invalid> {
-    console.config.video.viewmodel_fov = parse::<f32>(arg)?.clamp(40.0, 80.0);
-    Ok(())
-}
-
 pub(super) fn mat_colorcorrection_value(console: &Console) -> Option<String> {
     Some(u8::from(console.config.video.advanced.color_correction).to_string())
 }
@@ -109,11 +86,7 @@ pub(super) fn set_mat_antialias(console: &mut Console, arg: &str) -> Result<(), 
     Ok(())
 }
 
-pub(super) fn mat_aaquality(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn mat_aaquality(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.is_empty() {
         console.log("\"mat_aaquality\" = \"0\"");
     } else if args.len() == 1 {
@@ -323,11 +296,7 @@ pub(super) fn set_r_flashlightdepthtexture(
     Ok(())
 }
 
-pub(super) fn mat_setvideomode(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn mat_setvideomode(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let usage = || spec.usage();
     let [w, h, windowed] = args else {
         return Err(usage());

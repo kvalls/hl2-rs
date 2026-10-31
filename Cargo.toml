@@ -1,8 +1,11 @@
 [workspace]
-members = ["crates/modkit-core", "crates/source-assets", "crates/source-ui", "crates/hl2-simulation", "crates/hl2-ui", "crates/hl2-bevy"]
+members = ["crates/modkit-core", "crates/source-assets", "crates/source-ui", "crates/hl2-simulation", "crates/hl2-ui", "crates/hl2-bevy", "plugins/hl2-debug", "plugins/hl2-advanced-options", "apps/hl2rs"]
 resolver = "2"
 
 [workspace.dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = ["3d", "2d_bevy_render", "bevy_audio", "wav", "bevy_log", "ui", "system_clipboard"] }
+hl2-debug = { path = "plugins/hl2-debug", default-features = false }
+hl2-advanced-options = { path = "plugins/hl2-advanced-options", default-features = false }
 anyhow = "1"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
@@ -11,7 +14,8 @@ modkit-core = { path = "crates/modkit-core" }
 source-assets = { path = "crates/source-assets" }
 source-ui = { path = "crates/source-ui" }
 hl2-simulation = { path = "crates/hl2-simulation" }
-hl2-ui = { path = "crates/hl2-ui" }
+hl2-ui = { path = "crates/hl2-ui", default-features = false }
+hl2-bevy = { path = "crates/hl2-bevy", default-features = false }
 
 [profile.dev]
 opt-level = 1

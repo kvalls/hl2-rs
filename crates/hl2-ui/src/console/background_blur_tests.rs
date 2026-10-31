@@ -7,14 +7,14 @@ fn stored_default_blur_is_backward_compatible_and_independent_of_debug_mode() {
     let legacy = Config::from_json(br#"{"video":{"width":1280,"height":720}}"#).unwrap();
     assert!(!legacy.video.background_force_default_blur);
     let mut console = Console::default();
-    assert!(!console.background_debug_mode);
+    assert!(!console.presentation.capture_menu_navigation);
     assert!(!console.config.video.background_uses_widescreen(false));
     assert!(console.config.video.background_uses_widescreen(true));
     let effects = console.submit("background_force_default_blur 1");
     assert!(
         matches!(effects.as_slice(), [Effect::ApplyConfig(config)] if config.video.background_force_default_blur)
     );
-    assert!(!console.background_debug_mode);
+    assert!(!console.presentation.capture_menu_navigation);
     assert!(!console.config.video.background_uses_widescreen(true));
     let saved = serde_json::to_vec(&console.config).unwrap();
     assert!(
@@ -31,7 +31,8 @@ fn stored_default_blur_is_backward_compatible_and_independent_of_debug_mode() {
     assert!(console.submit("background_force_default_blur 9").is_empty());
     assert!(console.config.video.background_force_default_blur);
     console.base = super::Mode::MainMenu;
-    console.submit("background_debug_mode 1; background_debug_mode 0");
+    console.presentation.capture_menu_navigation = true;
+    console.presentation.capture_menu_navigation = false;
     assert!(
         console.config.video.background_force_default_blur,
         "debug mode lifetime must not reset a saved option"

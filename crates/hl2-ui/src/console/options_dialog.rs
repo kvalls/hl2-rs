@@ -1,11 +1,10 @@
 //! The Options dialog's lifecycle: display modes and recommendations it offers, opening it,
 //! its input, applying settings and reverting a video change.
 
-use super::{ConfirmKind, Console, Effect, Mode, Window};
+use super::{Console, Effect, Mode, Window};
 use crate::gameui::display::DisplayModes;
 use crate::gameui::options::OptionsOutcome;
-use crate::gameui::video_confirm::VideoConfirm;
-use crate::gameui::video_confirm::VideoMode;
+
 use glam::vec2;
 use glam::Vec2;
 use source_ui::input::Input;
@@ -82,17 +81,13 @@ impl Console {
         })
     }
 
-    /// Puts back the video mode an unconfirmed change replaced, and applies it.
-    pub(super) fn revert_video(&mut self, previous: VideoMode) -> Effect {
-        previous.restore(&mut self.config.video);
+    /// Applies a replacement configuration without invoking extension apply callbacks again.
+    pub fn replace_config(&mut self, config: crate::config::Config) -> Effect {
+        self.config = config;
         if let Err(error) = self.config.save() {
             self.log(format!("Could not save settings: {error}"));
         }
         self.options.reset_applied(self.config.clone());
-        self.log(format!(
-            "Video mode reverted to {}x{}",
-            previous.width, previous.height
-        ));
         Effect::ApplyConfig(Box::new(self.config.clone()))
     }
 
@@ -131,7 +126,7 @@ impl Console {
 
     /// Saves and applies settings from the Options dialog. An aspect ratio change opens the
     /// keep-or-revert confirmation ([`VideoConfirm`]).
-    pub(super) fn apply_settings(&mut self, config: crate::config::Config) -> Vec<Effect> {
+    pub fn apply_settings(&mut self, config: crate::config::Config) -> Vec<Effect> {
         let mut effects = Vec::new();
         // The dialog's copy of the settings predates any drag made while it was open.
         let mut config = config;
@@ -139,15 +134,11 @@ impl Console {
         if let Err(error) = config.save() {
             self.log(format!("Could not save settings: {error}"));
         }
-        let confirm = VideoConfirm::needed(&self.config.video, &config.video)
-            .then(|| VideoConfirm::new(VideoMode::of(&self.config.video), self.ui_clock));
+        let previous = self.config.clone();
         self.config = config.clone();
         effects.push(Effect::ApplyConfig(Box::new(config)));
-        if let Some(keep) = confirm {
-            self.reset_menu_interaction();
-            self.quit_placement.reset();
-            let message = keep.message_box(&self.gameui.localization, self.ui_clock);
-            self.confirm_box = Some((message, ConfirmKind::KeepVideo(keep)));
+        for after_apply in self.extensions.after_apply.clone() {
+            after_apply(self, &previous);
         }
         effects
     }

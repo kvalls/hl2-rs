@@ -1,7 +1,8 @@
 //! Windows and focus: the console's single-focus window stack (Options, the developer
 //! console, their modal layers), Escape, and routing each frame's input to the layers.
 
-use super::{commands, ConfirmKind, Console, Effect, Mode, Window};
+use super::ConfirmKind;
+use super::{Console, Effect, Mode, Window};
 use glam::vec2;
 use glam::Vec2;
 use source_ui::canvas::Canvas;
@@ -178,7 +179,7 @@ impl Console {
     pub(super) fn completion_bounds(&self) -> Option<Rect> {
         self.shell
             .panel
-            .completion_bounds(&self.canvas, &self.theme, commands::COMMANDS, self)
+            .completion_bounds(&self.canvas, &self.theme, self.commands(), self)
     }
 
     /// A window's frame on the canvas, in canvas pixels.
@@ -558,9 +559,9 @@ impl Host for Console {
             box_.escape_held = false;
             self.closing_confirm_box = Some((box_, kind.clone()));
             self.reset_menu_interaction();
-            if let ConfirmKind::KeepVideo(keep) = kind {
-                let effect = self.revert_video(keep.previous);
-                self.deferred.push(effect);
+            if let ConfirmKind::Extension(keep) = kind {
+                let effects = keep.0.cancel(self);
+                self.deferred.extend(effects);
             }
             self.sync_dialog_windows();
             return true;

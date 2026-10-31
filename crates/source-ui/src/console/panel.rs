@@ -146,7 +146,7 @@ pub struct Look<'a, C: Context> {
     /// Escape is held and closes the console on release: its Close button looks pressed.
     pub closing: bool,
     /// The commands the help line and the cvar values in the popup come from.
-    pub commands: &'static [Spec<C>],
+    pub commands: &'a [Spec<C>],
     pub context: &'a C,
 }
 
@@ -800,7 +800,7 @@ impl ConsolePanel {
         &self,
         canvas: &Canvas,
         theme: &Theme,
-        commands: &'static [Spec<C>],
+        commands: &[Spec<C>],
         context: &C,
     ) -> Option<Rect> {
         let layout = self.dialog_layout(canvas);
@@ -824,7 +824,7 @@ impl ConsolePanel {
         &self,
         canvas: &Canvas,
         theme: &Theme,
-        commands: &'static [Spec<C>],
+        commands: &[Spec<C>],
         context: &C,
         scale: f32,
         (x, entry_y, w, entry_h): (f32, f32, f32, f32),

@@ -36,7 +36,7 @@ if [[ -z "$(find "$SHADER_SOURCE" -type f ! -name ".*" 2>/dev/null)" ]]; then
 fi
 
 PROFILE_NAME="release"
-CARGO_ARGS=("build" "--locked" "-p" "hl2-bevy" "--bin" "hl2-bevy")
+CARGO_ARGS=("build" "--locked" "-p" "hl2-app" "--bin" "hl2-bevy")
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
     PROFILE_NAME="debug"
 else
@@ -88,6 +88,7 @@ if [[ -d "$SHADER_DEST" ]]; then
     rm -rf "$SHADER_DEST"
 fi
 cp -R "$SHADER_SOURCE" "$SHADER_DEST"
+cp "$PROJECT_ROOT/plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl" "$SHADER_DEST/shaders/weapon_blur.wgsl"
 find "$SHADER_DEST" -name ".DS_Store" -delete 2>/dev/null || true
 
 PACKAGE_EXECUTABLE="$PACKAGE_ROOT/hl2-bevy"

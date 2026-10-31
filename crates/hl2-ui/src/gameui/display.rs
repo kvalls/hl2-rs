@@ -61,11 +61,11 @@ impl AspectEntry {
 
 fn data() -> &'static ModeData {
     static DATA: LazyLock<ModeData> = LazyLock::new(|| {
-        serde_json::from_str(include_str!(concat!(
+        let resource = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/assets/display/modes.json"
-        )))
-        .expect("embedded display mode data is valid")
+        ));
+        serde_json::from_str(resource).expect("embedded display mode data is valid")
     });
     &DATA
 }
@@ -134,33 +134,8 @@ pub enum AspectRatio {
 }
 
 impl AspectRatio {
-    /// Combo order: the flexible frame first (Fit Display), then the retail choices, then the
-    /// wider ones, then the narrower ones.
-    pub const ALL: [Self; 10] = [
-        Self::Flexible,
-        Self::Normal,
-        Self::Wide16x9,
-        Self::Wide16x10,
-        Self::Ultrawide21x9,
-        Self::Ultrawide32x9,
-        Self::Square1x1,
-        Self::Portrait3x4,
-        Self::Portrait10x16,
-        Self::Portrait9x16,
-    ];
-
-    /// The fixed-ratio buckets of the mode data (every choice but [`Self::Flexible`]).
-    pub const FIXED: [Self; 9] = [
-        Self::Normal,
-        Self::Wide16x9,
-        Self::Wide16x10,
-        Self::Ultrawide21x9,
-        Self::Ultrawide32x9,
-        Self::Square1x1,
-        Self::Portrait3x4,
-        Self::Portrait10x16,
-        Self::Portrait9x16,
-    ];
+    pub const ALL: [Self; 3] = [Self::Normal, Self::Wide16x9, Self::Wide16x10];
+    pub const FIXED: [Self; 3] = Self::ALL;
 
     /// Bucket of a width/height pair: a window bucket (`tolerance`) around its exact ratio wins,
     /// otherwise the first bucket whose `below` bound exceeds the ratio.
@@ -233,14 +208,6 @@ impl Resolution {
 
     /// Returns the active resolution without letterbox or pillarbox black stripes when flexible
     /// aspect ratio is enabled (clamped to the supported 9:16..=32:9 range).
-    pub fn without_stripes_for_flexible(self) -> Self {
-        let size = crate::flexible_frame::flexible_presented_resolution(glam::UVec2::new(
-            self.width,
-            self.height,
-        ));
-        Self::new(size.x, size.y)
-    }
-
     /// Whether this resolution is at least `min` in either orientation (a portrait mode is
     /// measured with its sides swapped).
     pub fn at_least(self, min: Resolution) -> bool {
@@ -453,44 +420,6 @@ mod tests {
     }
 
     #[test]
-    fn aspect_buckets_match_the_video_page_grouping() {
-        assert_eq!(AspectRatio::of(1024, 768), AspectRatio::Normal);
-        assert_eq!(
-            AspectRatio::of(1280, 1024),
-            AspectRatio::Normal,
-            "5:4 joins 4:3"
-        );
-        assert_eq!(AspectRatio::of(1680, 1050), AspectRatio::Wide16x10);
-        assert_eq!(
-            AspectRatio::of(1512, 982),
-            AspectRatio::Wide16x9,
-            "1.54 is wider than 16:10's window"
-        );
-        assert_eq!(AspectRatio::of(1920, 1080), AspectRatio::Wide16x9);
-        assert_eq!(AspectRatio::of(2160, 1080), AspectRatio::Wide16x9, "2:1");
-        for (w, h) in [(2560, 1080), (3440, 1440), (3840, 1600), (5120, 2160)] {
-            assert_eq!(AspectRatio::of(w, h), AspectRatio::Ultrawide21x9, "{w}x{h}");
-        }
-        assert_eq!(AspectRatio::of(3840, 1080), AspectRatio::Ultrawide32x9);
-        assert_eq!(AspectRatio::of(1080, 1080), AspectRatio::Square1x1);
-        assert_eq!(AspectRatio::of(768, 1024), AspectRatio::Portrait3x4);
-        assert_eq!(AspectRatio::of(1080, 1350), AspectRatio::Portrait3x4, "4:5");
-        assert_eq!(AspectRatio::of(1200, 1920), AspectRatio::Portrait10x16);
-        assert_eq!(AspectRatio::of(1080, 1920), AspectRatio::Portrait9x16);
-        assert_eq!(
-            AspectRatio::of(1170, 2532),
-            AspectRatio::Portrait9x16,
-            "phone"
-        );
-        assert_eq!(AspectRatio::of(5120, 1440), AspectRatio::Ultrawide32x9);
-        assert_eq!(
-            AspectRatio::of(10, 0),
-            AspectRatio::Ultrawide32x9,
-            "zero height is safe"
-        );
-    }
-
-    #[test]
     fn modes_are_filtered_sorted_deduplicated_with_a_fallback() {
         let modes = usable_modes(
             [
@@ -515,13 +444,8 @@ mod tests {
                 r(1280, 720),
                 r(1152, 864),
                 r(1024, 768),
-                r(1000, 1000),
                 r(800, 600),
-                r(744, 992),
-                r(720, 720),
                 r(640, 480),
-                r(560, 896),
-                r(504, 896),
             ],
             "reported, standard and native-fit modes up to the monitor, largest first, no duplicates"
         );
@@ -614,76 +538,6 @@ mod tests {
     }
 
     #[test]
-    fn ultrawide_panels_get_their_own_aspect_choices() {
-        let modes = usable_modes([r(3440, 1440)], Some(r(3440, 1440)), r(1920, 1080));
-        let wide = resolution_choices(&modes, AspectRatio::Ultrawide21x9);
-        assert_eq!(wide[0], r(3440, 1440));
-        assert!(wide.contains(&r(2560, 1080)));
-        assert!(!modes.contains(&r(5120, 1440)), "larger than the panel");
-        assert_eq!(
-            resolution_choices(&modes, AspectRatio::Wide16x9)[0],
-            r(2560, 1440),
-            "16:9 no longer lists ultrawide modes"
-        );
-        let super_wide = usable_modes([], Some(r(5120, 1440)), r(1920, 1080));
-        let thirty_two = resolution_choices(&super_wide, AspectRatio::Ultrawide32x9);
-        assert_eq!(thirty_two, [r(5120, 1440), r(3840, 1080)]);
-        assert_eq!(
-            resolution_choices(&super_wide, AspectRatio::Normal)[0],
-            r(1920, 1440),
-            "4:3 up to the panel's height"
-        );
-    }
-
-    #[test]
-    fn an_8k_panel_offers_every_aspect_up_to_its_size() {
-        let panel = r(7680, 4320);
-        let reported = [r(7680, 4320), r(3840, 2160), r(1920, 1080), r(1280, 720)];
-        let modes = DisplayModes {
-            fullscreen: usable_modes(reported, Some(panel), r(3840, 2160)),
-            desktop: Some(panel),
-            current: None,
-        };
-        let top = |aspect| resolution_choices(&modes.choices(false), aspect)[0];
-        assert_eq!(top(AspectRatio::Normal), r(5760, 4320));
-        assert_eq!(top(AspectRatio::Wide16x9), r(7680, 4320));
-        assert_eq!(top(AspectRatio::Wide16x10), r(6912, 4320));
-        assert_eq!(top(AspectRatio::Ultrawide21x9), r(7680, 3240));
-        assert_eq!(top(AspectRatio::Ultrawide32x9), r(7680, 2160));
-        let all = modes.choices(false);
-        assert!(all.contains(&r(5120, 2880)) && all.contains(&r(640, 480)));
-        assert_eq!(
-            modes.choices(true),
-            all,
-            "every mode fits an 8K desktop in pixels"
-        );
-    }
-
-    #[test]
-    fn a_rotated_monitor_offers_portrait_and_landscape_modes() {
-        let panel = r(1080, 1920);
-        let modes = usable_modes([panel], Some(panel), r(1080, 1920));
-        let top = |aspect| resolution_choices(&modes, aspect)[0];
-        assert_eq!(top(AspectRatio::Portrait9x16), r(1080, 1920));
-        assert_eq!(top(AspectRatio::Portrait10x16), r(1050, 1680));
-        assert_eq!(top(AspectRatio::Portrait3x4), r(1080, 1440));
-        assert_eq!(top(AspectRatio::Square1x1), r(1080, 1080));
-        assert_eq!(top(AspectRatio::Normal), r(1056, 792), "landscape fits too");
-        assert!(modes
-            .iter()
-            .all(|m| m.fits(panel) && m.at_least(min_size())));
-        assert!(
-            r(480, 640).at_least(min_size()) && !r(480, 480).at_least(min_size()),
-            "portrait counts with its sides swapped"
-        );
-        assert_eq!(
-            "1080x1920".parse::<MonitorSpec>().unwrap().size,
-            panel,
-            "portrait monitors can be faked"
-        );
-    }
-
-    #[test]
     fn monitor_specs_parse_from_the_command_line() {
         let spec: MonitorSpec = "7680x4320,3840X2160".parse().unwrap();
         assert_eq!(spec.size, r(7680, 4320));
@@ -702,28 +556,6 @@ mod tests {
         ] {
             assert!(bad.parse::<MonitorSpec>().is_err(), "{bad:?}");
         }
-    }
-
-    #[test]
-    fn the_flexible_choice_lists_every_mode_and_keeps_the_resolution() {
-        let modes = [r(1920, 1080), r(1680, 1050), r(1024, 768), r(1080, 1920)];
-        assert_eq!(resolution_choices(&modes, AspectRatio::Flexible), modes);
-        assert_eq!(
-            choose_after_aspect_change(&modes, AspectRatio::Flexible, r(1024, 768)),
-            Some(r(1024, 768))
-        );
-        assert_eq!(AspectRatio::ALL.first(), Some(&AspectRatio::Flexible));
-        assert_eq!(
-            AspectRatio::ALL[1..],
-            AspectRatio::FIXED,
-            "the fixed choices keep their combo positions"
-        );
-        assert!(!AspectRatio::FIXED.contains(&AspectRatio::Flexible));
-        assert!(AspectRatio::FIXED
-            .iter()
-            .all(
-                |&a| AspectRatio::of(a.exact_ratio().0, a.exact_ratio().1) != AspectRatio::Flexible
-            ));
     }
 
     #[test]
@@ -762,35 +594,6 @@ mod tests {
         assert_eq!(
             choose_after_aspect_change(&[], AspectRatio::Normal, r(800, 600)),
             None
-        );
-    }
-
-    #[test]
-    fn resolution_without_stripes_for_flexible() {
-        // Fits within supported 9:16..=32:9 range: unchanged
-        assert_eq!(
-            Resolution::new(1920, 1080).without_stripes_for_flexible(),
-            Resolution::new(1920, 1080)
-        );
-        assert_eq!(
-            Resolution::new(5120, 1440).without_stripes_for_flexible(),
-            Resolution::new(5120, 1440)
-        );
-        assert_eq!(
-            Resolution::new(1080, 1920).without_stripes_for_flexible(),
-            Resolution::new(1080, 1920)
-        );
-
-        // Exceeds 32:9: pillarbox black stripes excluded
-        assert_eq!(
-            Resolution::new(8000, 1000).without_stripes_for_flexible(),
-            Resolution::new(3556, 1000)
-        );
-
-        // Taller than 9:16: letterbox black stripes excluded
-        assert_eq!(
-            Resolution::new(500, 2000).without_stripes_for_flexible(),
-            Resolution::new(500, 889)
         );
     }
 }

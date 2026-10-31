@@ -7,13 +7,6 @@
   "unfocused_alpha_factor": 0.3,
   "backdrop_alpha": 0.611765,
   "gameplay_dim_alpha": 0.3,
-  "video_confirm_seconds": 15,
-  "vertical_fov_range": [40, 120],
-  "viewmodel_fov_range": [30, 110],
-  "world_fov_offset": {
-    "portrait": -17.0,
-    "ultrawide": -11.0
-  },
   "hud_aspects": {"normal": [4, 3], "wide16x9": [16, 9], "wide16x10": [16, 10]},
   "viewmodel": {
     "_viewmodel_tuning_note": "Standard entries apply from 5:4 through 16:9 and default to zero. Portrait and ultrawide entries are direct end values at portrait_aspect and ultrawide_aspect and blend from standard outside that range. fov_offset adjusts horizontal viewmodel field of view in degrees (4:3 reference); offset is [forward, left, up] Source units. Higher FOV offsets make the weapon smaller. Portrait defaults match the 97fac81 baseline; tune each profile directly without changing model scale.",

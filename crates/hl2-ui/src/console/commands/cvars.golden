@@ -293,34 +293,6 @@ fov_desired
     value Some("50")
   1 1: error "fov_desired [degrees]: query or set desired field of view (alias for fov)"
     value Some("75")
-vertical_fov
-  query: no effect
-    | "vertical_fov" = "0"
-    value Some("0")
-  60: ApplyConfig [video.vertical_fov: 0.0 -> 60.0]
-    | vertical_fov 60
-    value Some("60")
-  x: error "vertical_fov [degrees]: query or set vertical field of view (0 = automatic)"
-    value Some("0")
-  9: ApplyConfig [video.vertical_fov: 0.0 -> 40.0]
-    | vertical_fov 40
-    value Some("40")
-  1 1: error "vertical_fov [degrees]: query or set vertical field of view (0 = automatic)"
-    value Some("0")
-viewmodel_fov
-  query: no effect
-    | "viewmodel_fov" = "54"
-    value Some("54")
-  70: ApplyConfig [video.viewmodel_fov: 54.0 -> 70.0]
-    | viewmodel_fov 70
-    value Some("70")
-  x: error "viewmodel_fov [degrees]: query or set viewmodel field of view"
-    value Some("54")
-  9: ApplyConfig [video.viewmodel_fov: 54.0 -> 40.0]
-    | viewmodel_fov 40
-    value Some("40")
-  1 1: error "viewmodel_fov [degrees]: query or set viewmodel field of view"
-    value Some("54")
 mat_aaquality
   query: no effect
     | "mat_aaquality" = "0"

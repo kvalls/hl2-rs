@@ -1,8 +1,6 @@
 //! Console commands and state for background visual debug mode.
 
-use super::commands::{Outcome, Spec};
 use super::{Console, Effect};
-use source_ui::console::command::{boolean, parse};
 
 impl Console {
     /// Whether background debug mode can currently be enabled (background map or blur present).
@@ -123,78 +121,4 @@ impl Console {
         self.start_background_loading(game, map);
         Effect::MainMenuMap(background)
     }
-}
-
-pub(super) fn background_debug_mode(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
-    let [value] = args else {
-        return Err(spec.usage());
-    };
-    let Some(on) = boolean(value) else {
-        return Err(spec.usage());
-    };
-    if on {
-        if !console.can_enable_background_debug() {
-            console.log("background_debug_mode needs a background map or loading blur; start or return to the main menu.");
-            return Ok(None);
-        }
-        console.background_debug_mode = true;
-        console.log("background_debug_mode 1");
-        console.shell.windows.focus_base();
-        console.sync_mode();
-        Ok(Some(Effect::BackgroundDebugMode(true)))
-    } else {
-        console.background_debug_mode = false;
-        console.log("background_debug_mode 0");
-        Ok(Some(Effect::BackgroundDebugMode(false)))
-    }
-}
-
-pub(super) fn background_blur_opacity(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
-    if args.is_empty() {
-        console.log(format!(
-            "\"background_blur_opacity\" = \"{}\"",
-            console.background_blur_opacity
-        ));
-        return Ok(None);
-    }
-    let [value] = args else {
-        return Err(spec.usage());
-    };
-    if !console.background_debug_mode {
-        console.log("background_blur_opacity requires background_debug_mode 1.");
-        return Ok(None);
-    }
-    let opacity: u8 = parse(value).map_err(|_| spec.usage())?;
-    if opacity > 100 {
-        return Err(spec.usage());
-    }
-    console.background_blur_opacity = opacity;
-    console.log(format!("background_blur_opacity {opacity}"));
-    Ok(Some(Effect::BackgroundBlurOpacity(opacity)))
-}
-
-pub(super) fn background_map_fov(
-    _console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
-    if args.is_empty() {
-        return Ok(Some(Effect::BackgroundMapFov(None)));
-    }
-    let [value] = args else {
-        return Err(spec.usage());
-    };
-    let deg: f32 = parse(value).map_err(|_| spec.usage())?;
-    if !(1.0..=170.0).contains(&deg) {
-        return Err(spec.usage());
-    }
-    Ok(Some(Effect::BackgroundMapFov(Some(deg))))
 }

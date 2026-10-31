@@ -5,10 +5,12 @@ pub mod closecaption;
 pub mod config;
 pub mod console;
 pub mod fades;
-pub mod flexible_frame;
+
 pub mod gameui;
 pub mod hdr;
 pub mod hud;
 pub mod input;
 pub mod proportional;
 pub mod tuning;
+
+pub mod extensions;

@@ -23,26 +23,11 @@ struct Tuning {
     backdrop_alpha: f32,
     /// Unverified fallback opacity for mid-gameplay pause menu dimming overlay.
     gameplay_dim_alpha: f32,
-    /// Seconds before an unconfirmed video change reverts (`gameui::video_confirm`).
-    video_confirm_seconds: f64,
-    /// Smallest and largest explicit vertical field of view of the Video > Advanced slider
-    /// (below the smallest the slider means automatic).
-    vertical_fov_range: (f32, f32),
-    /// Smallest and largest viewmodel field of view of the Video > Advanced slider.
-    viewmodel_fov_range: (f32, f32),
-    /// Aspect-adaptive additive world 4:3 base FOV offset (degrees) outside `5:4..=16:9`.
-    world_fov_offset: WorldFovOffset,
     /// Width:height of each centered HUD aspect of Video > HUD Aspect Ratio
     /// ([`crate::proportional::hud_frame`]).
     hud_aspects: HudAspects,
     /// Aspect-adaptive and per-weapon viewmodel framing outside `5:4..=16:9`.
     viewmodel: ViewmodelTuning,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-struct WorldFovOffset {
-    portrait: f32,
-    ultrawide: f32,
 }
 
 /// The centered HUD aspects, width:height, named like [`crate::config::HudAspect`].
@@ -78,40 +63,7 @@ struct ViewmodelWeaponTuning {
     ultrawide: ViewmodelFraming,
 }
 
-/// Direct tuning profile selected by the active frame aspect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ViewmodelProfile {
-    Standard,
-    Portrait,
-    Ultrawide,
-}
-
-impl ViewmodelProfile {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Standard => "standard",
-            Self::Portrait => "portrait",
-            Self::Ultrawide => "ultrawide",
-        }
-    }
-}
-
-/// Additive viewmodel horizontal field-of-view offset (degrees, measured at the 4:3 reference
-/// aspect) and local camera-space translation offset (`[forward, left, up]` in Source units) for
-/// frames narrower than `5:4` or wider than `16:9`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize)]
-#[serde(default)]
-pub struct ViewmodelFraming {
-    pub fov_offset: f32,
-    pub offset: [f32; 3],
-}
-
-impl ViewmodelFraming {
-    pub const ZERO: Self = Self {
-        fov_offset: 0.0,
-        offset: [0.0; 3],
-    };
-}
+pub use modkit_core::viewmodel::{ViewmodelFraming, ViewmodelProfile};
 
 fn data() -> &'static Tuning {
     static DATA: LazyLock<Tuning> = LazyLock::new(|| {
@@ -147,9 +99,6 @@ pub fn menu_stack_rows() -> f32 {
 }
 
 /// Seconds before an unconfirmed video change reverts.
-pub fn video_confirm_seconds() -> f64 {
-    data().video_confirm_seconds
-}
 
 /// Duration of UI focus and window fade animations in seconds.
 pub fn ui_fade_duration() -> f32 {
@@ -172,14 +121,8 @@ pub fn gameplay_dim_alpha() -> f32 {
 }
 
 /// Smallest and largest explicit vertical field of view (degrees).
-pub fn vertical_fov_range() -> (f32, f32) {
-    data().vertical_fov_range
-}
 
 /// Smallest and largest viewmodel field of view (degrees).
-pub fn viewmodel_fov_range() -> (f32, f32) {
-    data().viewmodel_fov_range
-}
 
 /// Width / height the HUD is laid out in on a wider screen, or `None` for Fit Display.
 pub fn hud_aspect_ratio(aspect: crate::config::HudAspect) -> Option<f32> {
@@ -260,10 +203,8 @@ pub fn aspect_factors(aspect: f32) -> (f32, f32) {
 /// `world_fov_offset.portrait` at `9:16` (reducing vertical fish-eye distortion); above `16:9`
 /// toward `world_fov_offset.ultrawide` at `32:9` (reducing peripheral horizontal stretching),
 /// with the strengths of [`aspect_factors`].
-pub fn world_fov_offset(aspect: f32) -> f32 {
-    let (portrait, ultrawide) = aspect_factors(aspect);
-    let offsets = data().world_fov_offset;
-    offsets.portrait * portrait + offsets.ultrawide * ultrawide
+pub fn world_fov_offset(_aspect: f32) -> f32 {
+    0.
 }
 
 /// Aspect-adaptive viewmodel framing (`fov_offset` and Source `[forward, left, up]` offset) for
@@ -460,7 +401,6 @@ mod tests {
     #[test]
     fn tuning_data_parses_with_usable_values() {
         assert!(narrowest_design_aspect() >= 1.0, "a landscape design");
-        assert!(video_confirm_seconds() >= 5.0, "time to read and answer");
         assert!(widest_design_aspect() > narrowest_design_aspect());
         assert!(widescreen_menu_scale_max() >= 1.0 && menu_stack_rows() >= 1.0);
         assert_eq!(hud_aspect_ratio(crate::config::HudAspect::Fit), None);
@@ -470,14 +410,6 @@ mod tests {
                 "{aspect:?}"
             );
         }
-        for (min, max) in [vertical_fov_range(), viewmodel_fov_range()] {
-            assert!(0. < min && min < max && max < 180., "{min} {max}");
-        }
-        for aspect in [5. / 4., 4. / 3., 16. / 10., 16. / 9.] {
-            assert_eq!(world_fov_offset(aspect), 0.0, "{aspect}");
-        }
-        assert!(world_fov_offset(9. / 16.) < -10.0);
-        assert!(world_fov_offset(32. / 9.) < -5.0);
     }
 
     #[test]

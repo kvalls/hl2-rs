@@ -1,5 +1,33 @@
 # STATUS
 
+## Plugin extraction handoff — incomplete (2026-10-31)
+
+Branch `orbitalman/plugin-support`, base `66c4a73`. Large uncommitted extraction;
+new packages and moved files must be preserved. The application now composes the
+two plugins through injected contracts. Both core manifests are free of concrete
+plugin dependencies, and the latest source search found no concrete plugin imports
+in either core source tree. The broad runtime callback interface still needs review.
+
+Verified: `cargo check --locked -p hl2-app --offline` passes for the default combined
+production build. An earlier focused command-injection test passed; it must be rerun
+after the subsequent UI changes. Latest core test compilation fails with 90 errors
+and 32 warnings, including stale developer-state tests and missing frame-policy
+initializers. Architecture validation last failed and its dependency rules still
+need inversion. Current whitespace checks fail. Full matrix, strict Clippy, Windows,
+packaged behavior and valid before/after performance remain unverified.
+
+Known audit items: startup callbacks precede debug-state installation; replay
+fixtures still use the previous developer-overlay schema; plugin localization
+insertion may override installed tokens; shader packaging is unconditional; the
+embedded advanced-options tuning JSON is ignored by the current whitelist.
+
+Prior GPU baseline attempts are rejected (sandbox GPU unavailable, then concurrent
+compilation/memory pressure). Existing packaged executable predates the extraction.
+No task commit or push has been made. The owner paused implementation and requested
+a handoff to Claude Opus 5.5; the detailed local prompt is in ignored
+`artifacts/claude-plugin-refactor-handoff.md`. Future weapon/NPC plugins discussed
+in chat are hypothetical architecture scenarios, not implementation scope.
+
 ## Ultra optimization review (2026-10-30)
 
 Owner reports overall appearance looks fine. Eight packaged rocket cases (four small yaw shifts,

@@ -78,7 +78,7 @@ const fn cvar(
 }
 
 /// A cvar stored in the settings: `value` is what the console prints, `set` stores a typed value.
-const fn setting(
+pub const fn setting(
     name: &'static str,
     help: &'static str,
     args: &'static [Arg],
@@ -122,7 +122,7 @@ const fn setting_alias(
 
 /// Runs a [`setting`]: without an argument it prints `"name" = "value"`; with one it stores the
 /// value, saves the settings, echoes `name value` and has the host apply them.
-fn run_setting(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+fn run_setting(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let (Some(value), Some(setting)) = (spec.value, spec.setting) else {
         unreachable!("{} is built by `setting`", spec.name);
     };
@@ -181,42 +181,12 @@ pub const COMMANDS: &[Spec] = &[
         BOOLEAN,
         cheats::noclip,
     ),
-    command(
-        "viewmodel_debug_mode",
-        "viewmodel_debug_mode <0|1>: toggle the runtime viewmodel tuning overlay (gameplay map only)",
-        &[Arg::Values(&["0", "1"])],
-        developer::viewmodel_debug_mode,
-    ),
-    command(
-        "viewmodel_tweak_reset",
-        "viewmodel_tweak_reset: zero the selected weapon's framing offsets (viewmodel_debug_mode 1 only)",
-        &[],
-        developer::viewmodel_tweak_reset,
-    ),
     setting(
         "background_force_default_blur",
         "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios",
         BOOLEAN,
         video::background_force_default_blur_value,
         video::set_background_force_default_blur,
-    ),
-    command(
-        "background_debug_mode",
-        "background_debug_mode <0|1>: toggle background visual debug mode (background map/blur only)",
-        &[Arg::Values(&["0", "1"])],
-        super::background_debug::background_debug_mode,
-    ),
-    command(
-        "background_blur_opacity",
-        "background_blur_opacity [0..100]: query or set blur background overlay opacity (background_debug_mode 1 only)",
-        &[Arg::Free],
-        super::background_debug::background_blur_opacity,
-    ),
-    command(
-        "background_map_fov",
-        "background_map_fov [degrees]: query or set background map field of view",
-        &[Arg::Free],
-        super::background_debug::background_map_fov,
     ),
     command(
         "getpos",
@@ -467,20 +437,6 @@ pub const COMMANDS: &[Spec] = &[
         video::fov_value,
         video::set_fov,
     ),
-    setting(
-        "vertical_fov",
-        "vertical_fov [degrees]: query or set vertical field of view (0 = automatic)",
-        &[Arg::Free],
-        video::vertical_fov_value,
-        video::set_vertical_fov,
-    ),
-    setting(
-        "viewmodel_fov",
-        "viewmodel_fov [degrees]: query or set viewmodel field of view",
-        &[Arg::Free],
-        video::viewmodel_fov_value,
-        video::set_viewmodel_fov,
-    ),
     cvar(
         "mat_aaquality",
         "mat_aaquality [quality]: query or set antialiasing quality",
@@ -683,7 +639,7 @@ pub const COMMANDS: &[Spec] = &[
 ];
 
 /// The implemented command or cvar named `name` (case-insensitive).
-pub fn find(name: &str) -> Option<&'static Spec> {
+pub fn find(name: &str) -> Option<&Spec> {
     command::find(COMMANDS, name)
 }
 

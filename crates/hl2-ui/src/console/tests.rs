@@ -1310,109 +1310,6 @@ fn loading_a_map_saves_its_chapter_background_for_the_menu() {
     );
 }
 
-/// A main-menu console at 1280x720 whose Options applied a change to `width` x `height`
-/// at UI time 10; returns the applied effects.
-fn applied_video_change(width: u32, height: u32) -> (Console, Vec<Effect>) {
-    let mut console = installed_console();
-    console.set_mode(Mode::MainMenu);
-    console.config.video.width = 1280;
-    console.config.video.height = 720;
-    let _ = console.tick(10.);
-    let mut config = console.config.clone();
-    config.video.width = width;
-    config.video.height = height;
-    let effects = console.apply_settings(config);
-    (console, effects)
-}
-
-fn applied_size(effects: &[Effect]) -> Option<(u32, u32)> {
-    effects.iter().find_map(|e| match e {
-        Effect::ApplyConfig(c) => Some((c.video.width, c.video.height)),
-        _ => None,
-    })
-}
-
-fn keep_video_open(console: &Console) -> bool {
-    matches!(console.confirm_box, Some((_, ConfirmKind::KeepVideo(_))))
-}
-
-#[test]
-fn an_aspect_change_applies_and_asks_to_keep_it() {
-    let (console, effects) = applied_video_change(1024, 768);
-    assert_eq!(applied_size(&effects), Some((1024, 768)), "applied at once");
-    assert!(keep_video_open(&console));
-    assert!(console.modal_dialog_open());
-    let (mut loaded, _) = applied_video_change(1024, 768);
-    loaded.level_loaded(true);
-    assert!(
-        keep_video_open(&loaded),
-        "a background load does not decide it"
-    );
-    let (same_aspect, _) = applied_video_change(1920, 1080);
-    assert!(
-        same_aspect.confirm_box.is_none(),
-        "16:9 to 16:9 needs no confirmation"
-    );
-}
-
-#[test]
-fn the_keep_video_box_counts_down_and_reverts_at_the_timeout() {
-    let (mut console, _) = applied_video_change(1024, 768);
-    let seconds = crate::tuning::video_confirm_seconds();
-    let text = |c: &Console| c.confirm_box.as_ref().unwrap().0.text.clone();
-    let first = text(&console);
-    assert!(
-        first.contains(&format!("{}", seconds.ceil() as u32)),
-        "{first}"
-    );
-    assert!(console.tick(10. + seconds - 2.5).is_empty());
-    assert!(text(&console).contains('3'), "{}", text(&console));
-    let effects = console.tick(10. + seconds);
-    assert_eq!(applied_size(&effects), Some((1280, 720)), "reverted");
-    assert!(console.confirm_box.is_none());
-    assert_eq!(
-        (console.config.video.width, console.config.video.height),
-        (1280, 720)
-    );
-    assert_eq!(
-        console.options.draft().video.width,
-        1280,
-        "Options shows it too"
-    );
-}
-
-#[test]
-fn ok_keeps_the_change_and_cancel_escape_revert_it() {
-    let enter = |console: &mut Console| {
-        let mut effects = console.input(&Input {
-            keys: [Key::Enter].into(),
-            held_keys: [Key::Enter].into(),
-            ..Default::default()
-        });
-        effects.extend(console.input(&Input::default()));
-        effects
-    };
-    // Cancel has the focus: Enter reverts.
-    let (mut console, _) = applied_video_change(1024, 768);
-    assert_eq!(applied_size(&enter(&mut console)), Some((1280, 720)));
-    assert!(console.confirm_box.is_none());
-    // Tab to OK, Enter keeps it: nothing reverts later.
-    let (mut console, _) = applied_video_change(1024, 768);
-    let _ = console.input(&Input {
-        keys: [Key::Tab].into(),
-        ..Default::default()
-    });
-    assert_eq!(applied_size(&enter(&mut console)), None);
-    assert!(console.confirm_box.is_none());
-    assert!(console.tick(1000.).is_empty(), "no timeout after OK");
-    assert_eq!(console.config.video.width, 1024);
-    // Escape reverts; the effect comes with the next tick.
-    let (mut console, _) = applied_video_change(1080, 1920);
-    console.escape();
-    assert!(console.confirm_box.is_none());
-    assert_eq!(applied_size(&console.tick(11.)), Some((1280, 720)));
-}
-
 #[test]
 fn a_resting_pointer_does_not_take_the_menu_selection_back_from_the_arrows() {
     let mut console = installed_console();
@@ -4231,29 +4128,6 @@ fn video_fov_cvars_query_set_clamp_and_cvar_value() {
 
     console.submit("fov 105");
     assert_eq!(console.config.video.fov, 105.0);
-
-    // vertical_fov
-    assert_eq!(console.cvar_value("vertical_fov").as_deref(), Some("0"));
-    console.submit("vertical_fov 60");
-    assert_eq!(console.config.video.vertical_fov, 60.0);
-    assert_eq!(console.cvar_value("vertical_fov").as_deref(), Some("60"));
-
-    console.submit("vertical_fov 0");
-    assert_eq!(console.config.video.vertical_fov, 0.0);
-
-    console.submit("vertical_fov 150");
-    assert_eq!(console.config.video.vertical_fov, 100.0); // clamped to 100
-
-    // viewmodel_fov
-    assert_eq!(console.cvar_value("viewmodel_fov").as_deref(), Some("54"));
-    console.submit("viewmodel_fov 65");
-    assert_eq!(console.config.video.viewmodel_fov, 65.0);
-    assert_eq!(console.cvar_value("viewmodel_fov").as_deref(), Some("65"));
-
-    console.submit("viewmodel_fov 20");
-    assert_eq!(console.config.video.viewmodel_fov, 40.0); // clamped to 40
-    console.submit("viewmodel_fov 120");
-    assert_eq!(console.config.video.viewmodel_fov, 80.0); // clamped to 80
 }
 
 #[test]

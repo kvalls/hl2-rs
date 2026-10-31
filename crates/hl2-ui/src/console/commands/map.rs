@@ -5,7 +5,7 @@ use super::{Outcome, Spec};
 use crate::console::{Console, Effect, Mode};
 use source_ui::console::command::{flag, parse, Invalid};
 
-pub(super) fn map(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn map(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.len() != 1 {
         return Err(spec.usage());
     }
@@ -20,7 +20,7 @@ pub(super) fn map(console: &mut Console, spec: &'static Spec, args: &[String]) -
     Ok(Some(Effect::Map(map.to_owned())))
 }
 
-pub(super) fn mainmenu(console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn mainmenu(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());
     }
@@ -28,11 +28,7 @@ pub(super) fn mainmenu(console: &mut Console, spec: &'static Spec, args: &[Strin
     Ok(None)
 }
 
-pub(super) fn background_map(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn background_map(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.is_empty() {
         match console.background_map() {
             Some(map) => console.log(format!("\"background_map\" = \"{map}\"")),
@@ -72,11 +68,7 @@ pub(super) fn background_map_value(console: &Console) -> Option<String> {
     Some(console.background_map()?.to_owned())
 }
 
-pub(super) fn map_background(
-    console: &mut Console,
-    spec: &'static Spec,
-    args: &[String],
-) -> Outcome {
+pub(super) fn map_background(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.len() != 1 {
         return Err(spec.usage());
     }
@@ -132,7 +124,7 @@ pub(super) fn set_commentary(console: &mut Console, arg: &str) -> Result<(), Inv
 
 pub(super) fn migrate_episodic_data(
     console: &mut Console,
-    spec: &'static Spec,
+    spec: &Spec,
     args: &[String],
 ) -> Outcome {
     if !args.is_empty() {

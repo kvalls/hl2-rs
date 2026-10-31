@@ -26,11 +26,6 @@ pub mod color_correction;
 mod correction_pass;
 pub mod motion_blur;
 mod motion_blur_pass;
-mod viewmodel_blur;
-mod weapon_blur;
-mod world_blur;
-pub(crate) use weapon_blur::memory::{Report as BlurMemory, install as install_memory_probe};
-
 /// Bloom amount on the last 3D camera of the main view, and the image that receives the
 /// pre-bloom frame for auto exposure.
 #[derive(Component, Clone, ExtractComponent)]
@@ -39,6 +34,8 @@ pub struct SourceBloom {
     pub presample: Option<Handle<Image>>,
 }
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BloomSet;
 pub struct SourceBloomPlugin;
 impl Plugin for SourceBloomPlugin {
     fn build(&self, app: &mut App) {
@@ -48,24 +45,9 @@ impl Plugin for SourceBloomPlugin {
         >::default())
             .init_resource::<color_correction::Lookups>()
             .add_systems(Update, color_correction::update);
-        app.add_plugins((
-            motion_blur_pass::MotionBlurPlugin,
-            weapon_blur::WeaponBlurPlugin,
-        ))
-        .init_resource::<motion_blur::MotionBlurState>()
-        .add_systems(Update, motion_blur::update)
-        .add_systems(
-            PostUpdate,
-            (
-                (viewmodel_blur::update, world_blur::update),
-                weapon_blur::depth::update,
-            )
-                .chain()
-                .after(crate::camera::present_player_view)
-                .after(crate::rendering::present_weapons)
-                .after(crate::rendering::present_entities)
-                .before(TransformSystems::Propagate),
-        );
+        app.add_plugins(motion_blur_pass::MotionBlurPlugin)
+            .init_resource::<motion_blur::MotionBlurState>()
+            .add_systems(Update, motion_blur::update);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -85,6 +67,7 @@ impl Plugin for SourceBloomPlugin {
             .add_systems(
                 Core3d,
                 source_bloom
+                    .in_set(BloomSet)
                     .in_set(Core3dSystems::PostProcess)
                     .before(tonemapping),
             );

@@ -779,13 +779,8 @@ fn combos_select_items_and_aspect_resets_resolution() {
     assert_eq!(h.dialog.draft().mouse.aim_assist, AimAssist::Basic);
     h.tab(Tab::Video);
     h.click(page(40., 125.));
-    // Row 0 is now Fit Display (Flexible)
+    // Row 0 is Normal 4:3.
     h.click(page(40., 141. + MENU_ROW * 0.5));
-    assert_eq!(h.dialog.draft.aspect, AspectRatio::Flexible);
-    assert!(h.dialog.draft().video.flexible_aspect);
-    // Open aspect combo again and pick row 1 (Normal 4:3)
-    h.click(page(40., 125.));
-    h.click(page(40., 141. + MENU_ROW * 1.5));
     assert_eq!(h.dialog.draft.aspect, AspectRatio::Normal);
     assert_eq!(
         (h.dialog.draft().video.width, h.dialog.draft().video.height),
@@ -1035,6 +1030,11 @@ fn key_capture_clear_and_defaults() {
     );
     h.click(page(390., 280.));
     assert_eq!(h.dialog.draft().keys.get("+jump").unwrap(), keys::UNBOUND);
+    h.dialog
+        .draft
+        .config
+        .keys
+        .insert("loadout".into(), "F3".into());
     h.click(page(20., 280.));
     assert!(h.dialog.confirm.is_some());
     h.key(Key::Enter);
@@ -1326,72 +1326,6 @@ fn video_advanced_combo_and_fov_slider_apply_on_ok() {
     };
     assert!(!applied.video.advanced.vsync);
     assert_eq!(applied.video.fov, 110.);
-}
-
-#[test]
-fn the_vertical_and_viewmodel_fov_sliders_are_added_and_apply_on_ok() {
-    let mut res = (*resources()).clone();
-    crate::gameui::resources::apply_layout_addenda(&mut res.layouts);
-    let draft = Draft::new(Config::default());
-    let widgets = layout_widgets(
-        &res,
-        Panel::VideoAdvanced,
-        Rect::new(0., 0., 482., 510.),
-        &draft,
-        &draft.config,
-    );
-    let find = |name: &str| {
-        widgets
-            .iter()
-            .find(|w| w.control.name == name)
-            .unwrap_or_else(|| panic!("{name}"))
-    };
-    for (slider, label, value) in [
-        (
-            "VerticalFovSlider",
-            "VerticalFovValueLabel",
-            Value::VerticalFov,
-        ),
-        (
-            "ViewmodelFovSlider",
-            "ViewmodelFovValueLabel",
-            Value::ViewmodelFov,
-        ),
-    ] {
-        assert_eq!(find(slider).binding, Some(Binding::Slider(value)));
-        assert!(find(slider).interactive());
-        assert_eq!(find(label).binding, Some(Binding::ValueLabel(value)));
-        assert!(
-            !find(label).interactive(),
-            "the value label is display only"
-        );
-    }
-    // They sit under the Field of view slider and clear of the divider at 352.
-    let fov = find("FovSlider").control.rect((482., 510.));
-    let vertical = find("VerticalFovSlider").control.rect((482., 510.));
-    assert!(vertical.1 >= fov.1 + find("FovSlider").control.tall);
-    assert!(vertical.1 + find("VerticalFovSlider").control.tall <= 352.);
-    // Their labels are content, not footer captions: the footer reflow must not move them.
-    let controls: Vec<&Control> = res.layouts["optionssubvideoadvanceddlg"]
-        .controls
-        .iter()
-        .collect();
-    let (shift, footer) = footer_reflow(Panel::VideoAdvanced, &controls, (482., 358.));
-    for (control, is_footer) in controls.iter().zip(&footer) {
-        if control.name.to_ascii_lowercase().contains("fov") {
-            assert!(!is_footer, "{} is not footer", control.name);
-        }
-    }
-    assert!(
-        shift > 0.,
-        "the dialog grows to hold the new sliders on the short layout"
-    );
-    let mut from = Config::default();
-    from.video.vertical_fov = 90.;
-    from.video.viewmodel_fov = 70.;
-    let mut to = Config::default();
-    assert!(Sub::VideoAdvanced.apply_on_ok(&from, &mut to));
-    assert_eq!((to.video.vertical_fov, to.video.viewmodel_fov), (90., 70.));
 }
 
 #[test]

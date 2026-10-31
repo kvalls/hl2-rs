@@ -25,6 +25,12 @@
 !/test-inputs/expected/*.json
 !/docs/*.md
 !/docs/images/hl2-rs-trainstation.png
+!/plugins/*/Cargo.toml
+!/plugins/*/src/**/*.rs
+!/plugins/*/assets/shaders/*.wgsl
+!/plugins/*/assets/ui/*.res
+!/plugins/*/assets/ui/tuning.json
+!/plugins/*/assets/display/*.json
 !/crates/**/Cargo.toml
 !/crates/**/src/**/*.rs
 !/crates/hl2-bevy/assets/shaders/*.wgsl
@@ -41,3 +47,9 @@
 /artifacts/
 /local.json
 /docs/local-recon.json
+
+!apps/
+!apps/hl2rs/
+!apps/hl2rs/Cargo.toml
+!apps/hl2rs/src/
+!apps/hl2rs/src/*.rs

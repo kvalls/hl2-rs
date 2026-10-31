@@ -207,7 +207,7 @@ pub fn poll(
         ui.source
             .level_loaded_for_map(&loaded.game, &loaded.world.name, false);
     }
-    loading::log_debug_load_finish(&job.request, true, &mut sim, &mut ui);
+    loading::notify_finished(&job.request, &mut sim, &mut ui);
     ui.source
         .log(format!("Loaded {}/{}", loaded.game, loaded.world.name));
     let install_started = std::time::Instant::now();

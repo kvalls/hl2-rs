@@ -3103,12 +3103,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hl2-advanced-options"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "glam 0.27.0",
+ "hl2-bevy",
+ "hl2-ui",
+ "modkit-core",
+ "serde",
+ "serde_json",
+ "source-ui",
+]
+
+[[package]]
+name = "hl2-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "hl2-advanced-options",
+ "hl2-bevy",
+ "hl2-debug",
+]
+
+[[package]]
 name = "hl2-bevy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy",
- "fontdue",
  "glam 0.27.0",
  "hl2-simulation",
  "hl2-ui",
@@ -3118,6 +3142,22 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "raw-window-handle",
  "rfd",
+ "serde",
+ "serde_json",
+ "source-assets",
+ "source-ui",
+]
+
+[[package]]
+name = "hl2-debug"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "glam 0.27.0",
+ "hl2-bevy",
+ "hl2-simulation",
+ "hl2-ui",
+ "modkit-core",
  "serde",
  "serde_json",
  "source-assets",

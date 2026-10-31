@@ -31,7 +31,7 @@ pub enum Arg<N> {
 pub type Outcome<E> = Result<Option<E>, String>;
 
 /// Runs a command with its arguments (the words after its name).
-pub type Handler<C> = fn(&mut C, &'static Spec<C>, &[String]) -> Outcome<<C as Context>::Effect>;
+pub type Handler<C> = fn(&mut C, &Spec<C>, &[String]) -> Outcome<<C as Context>::Effect>;
 
 /// A cvar's current value, as the console prints it (`None` while unset).
 pub type Value<C> = fn(&C) -> Option<String>;
@@ -139,7 +139,7 @@ pub fn boolean(value: &str) -> Option<bool> {
 }
 
 /// The implemented command or cvar named `name` (case-insensitive).
-pub fn find<C: Context>(commands: &'static [Spec<C>], name: &str) -> Option<&'static Spec<C>> {
+pub fn find<'a, C: Context>(commands: &'a [Spec<C>], name: &str) -> Option<&'a Spec<C>> {
     commands.iter().find(|s| s.name.eq_ignore_ascii_case(name))
 }
 
@@ -153,7 +153,7 @@ pub fn usage<C: Context>(spec: &Spec<C>) -> (Vec<String>, String) {
 /// Runs one command (its name, then its arguments) through its [`Spec`] handler.
 pub fn run<C: Context>(
     context: &mut C,
-    commands: &'static [Spec<C>],
+    commands: &[Spec<C>],
     tokens: &[String],
 ) -> Outcome<C::Effect> {
     let Some(spec) = find(commands, &tokens[0]) else {
@@ -224,7 +224,7 @@ mod tests {
         type Names = ();
     }
 
-    fn echo(app: &mut App, spec: &'static Spec<App>, args: &[String]) -> Outcome<&'static str> {
+    fn echo(app: &mut App, spec: &Spec<App>, args: &[String]) -> Outcome<&'static str> {
         if args.is_empty() {
             return Err(spec.usage());
         }
@@ -236,7 +236,7 @@ mod tests {
         Some(app.volume.to_string())
     }
 
-    fn set_volume(app: &mut App, _: &'static Spec<App>, args: &[String]) -> Outcome<&'static str> {
+    fn set_volume(app: &mut App, _: &Spec<App>, args: &[String]) -> Outcome<&'static str> {
         match args {
             [value] => {
                 app.volume = parse(value).map_err(|_| "volume <0..1>".to_owned())?;

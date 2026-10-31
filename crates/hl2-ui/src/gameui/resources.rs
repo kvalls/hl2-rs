@@ -345,24 +345,6 @@ pub const LAYOUT_FILES: &[&str] = &[
 
 /// HL2-RS layout additions appended to an installed layout, keyed like [`LAYOUT_FILES`]: extra
 /// controls for settings the installed dialogs lack (embedded from `assets/ui/*.res`).
-const LAYOUT_ADDENDA: &[(&str, &str)] = &[(
-    "optionssubvideoadvanceddlg",
-    include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/assets/ui/optionssubvideoadvanceddlg_extra.res"
-    )),
-)];
-
-/// Appends the [`LAYOUT_ADDENDA`] controls to the layouts they extend.
-pub fn apply_layout_addenda(layouts: &mut BTreeMap<String, Layout>) {
-    for (name, addendum) in LAYOUT_ADDENDA {
-        let extra = Layout::parse(addendum.as_bytes()).expect("embedded layout addendum parses");
-        if let Some(layout) = layouts.get_mut(*name) {
-            layout.controls.extend(extra.controls);
-        }
-    }
-}
-
 /// Everything the GameUI reads from the installation.
 #[derive(Clone, Debug, Default)]
 pub struct GameUiResources {
@@ -484,7 +466,6 @@ impl GameUiResources {
                 None => res.missing.push(file),
             }
         }
-        apply_layout_addenda(&mut res.layouts);
         match reader.read_text("scripts/kb_act.lst") {
             Some(text) => res.key_rows = keys::parse_actions(&text),
             None => res.missing.push("scripts/kb_act.lst".into()),

@@ -78,7 +78,7 @@ pub(super) fn begin(
     sim.background_audio_pending = false;
     let started = std::time::Instant::now();
     let result = spawn_worker(&request, options, ui, reuse)?;
-    log_debug_load_start(&request, sim, ui);
+    sim.notify_loading(ui, &request.map, request.background, None);
     start(&request, ui);
     sim.loading = true;
     Ok(super::Job {
@@ -120,6 +120,14 @@ pub(super) fn spawn_worker(
             },
         )
     })
+}
+
+pub(super) fn notify_finished(
+    request: &Request,
+    sim: &mut crate::simulation::Simulation,
+    ui: &mut ui_host::Console,
+) {
+    sim.notify_loading(ui, &request.map, request.background, Some(true));
 }
 
 pub(super) fn start(request: &Request, ui: &mut ui_host::Console) {
@@ -229,73 +237,6 @@ pub(super) fn exercise_menu_wait_during_worker(app: &mut bevy::prelude::App) {
     assert_eq!(ui.source.menu_category(), "episodic");
 }
 
-pub(super) fn log_debug_load_start(
-    request: &Request,
-    sim: &mut crate::simulation::Simulation,
-    ui: &mut ui_host::Console,
-) {
-    if request.background {
-        if sim.background_debug.enabled {
-            let is_wide = ui.source.is_widescreen();
-            let blur_name = ui.source.blur_texture_name(&request.map, is_wide);
-            ui.source.log(format!(
-                "Started loading {}, applied {}.",
-                request.map, blur_name
-            ));
-            sim.background_debug.map_name = request.map.clone();
-            sim.background_debug.blur_texture_name = blur_name;
-            sim.background_debug.state_label = "Loading".to_owned();
-        }
-    } else if sim.background_debug.enabled {
-        let is_wide = ui.source.is_widescreen();
-        let bg_map = ui
-            .source
-            .loading_background
-            .as_ref()
-            .map(|m| m.map.as_str())
-            .unwrap_or("background01");
-        let blur_name = ui.source.blur_texture_name(bg_map, is_wide);
-        ui.source.log(format!(
-            "Started loading map {}, applied {}.",
-            request.map, blur_name
-        ));
-        sim.background_debug.pending_gameplay_finish = true;
-        sim.background_debug.enabled = false;
-        ui.source.background_debug_mode = false;
-        sim.background_debug.state_label = "Gameplay loading".to_owned();
-    }
-}
-
-pub(super) fn log_debug_load_finish(
-    request: &Request,
-    success: bool,
-    sim: &mut crate::simulation::Simulation,
-    ui: &mut ui_host::Console,
-) {
-    if request.background {
-        if sim.background_debug.enabled {
-            if success {
-                let opacity = sim.background_debug.blur_opacity;
-                let blur_name = &sim.background_debug.blur_texture_name;
-                ui.source.log(format!(
-                    "Finished loading {}, success, set blur overlay {} opacity to {}.",
-                    request.map, blur_name, opacity
-                ));
-                sim.background_debug.state_label = "Ready".to_owned();
-            } else {
-                ui.source
-                    .log(format!("Finished loading {}, failure.", request.map));
-                sim.background_debug.state_label = "Failure".to_owned();
-            }
-        }
-    } else if sim.background_debug.pending_gameplay_finish {
-        sim.background_debug.pending_gameplay_finish = false;
-        let status = if success { "success." } else { "failure." };
-        ui.source
-            .log(format!("Finished loading map {}, {}", request.map, status));
-    }
-}
-
 /// Transfer gameplay state only after a worker succeeds and wins request arbitration.
 pub(super) fn carry_state(
     request: &Request,
@@ -323,7 +264,7 @@ pub(super) fn failed(
     ui: &mut ui_host::Console,
     sim: &mut crate::simulation::Simulation,
 ) {
-    log_debug_load_finish(request, false, sim, ui);
+    sim.notify_loading(ui, &request.map, request.background, Some(false));
     if request.background {
         let warning = format!("Warning: background map {} failed: {error}", request.map);
         ui.source.log(&warning);

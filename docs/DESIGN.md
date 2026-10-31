@@ -1,5 +1,78 @@
 # Design
 
+## Plugin composition and dependency injection revision (2026-10-31)
+
+The owner's review supersedes the earlier composition direction: core crates must
+have no dependency, import, feature switch or registration naming a concrete
+plugin. The executable is the composition root. It depends on the host library
+and the selected plugins and injects their contributions before startup.
+
+Dependency direction: application -> plugins -> core. A plugin may consume the
+public host API in its optional Bevy adapter; its portable implementation stays
+independent of Bevy. Core owns extension contracts and default behavior, while
+plugins own implementations and state. Generic hooks and contributed commands,
+settings, resources and presentation policies must support another implementation
+without editing the core. Do not substitute a renamed facade containing concrete
+plugins or global mutable registration for dependency injection.
+
+Bounded migration: (1) expose the host as a library and create the executable's
+composition root; (2) inject portable UI contributions through owned per-instance
+registries, with duplicate registration errors and no process-global registry;
+(3) inject runtime hooks and keep plugin state in plugin resources, moving all
+F1-F4 policy out of core; (4) inject video policy and render adapters; (5) enforce
+the dependency boundary and validate core-only, each plugin alone and both.
+The existing extraction is work in progress until all five steps pass. Preserve
+settings, input ordering, lifecycle behavior and the previous validation scope.
+
+### Extension contract guardrails (owner review, 2026-10-31)
+
+Application composition owns plugin selection and build features. Core exposes
+small typed contracts; implementations own their state. Prefer typed components,
+events and namespaced registries to a broad callback object with mutable access to
+all host state. Multiple contributors must coexist, with explicit selection and
+conflict/override rules rather than accidental registration-order replacement.
+Validate declared dependencies and required capabilities before gameplay; dependencies
+between plugins use public contracts and form an acyclic graph.
+
+Omitted plugins contribute no controls, commands, systems, packaged assets or frame
+work, while saved preferences remain intact. Verify core-only, each-plugin and
+combined configurations, and demonstrate adding/replacing an independent contributor
+without editing core. Keep localized resource priority and engine-independent
+simulation boundaries. Future NPC, weapon, ironsight and attachment examples are
+contract-design scenarios, not authorization to implement those features now.
+
+## Optional advanced-options and debug plugins (2026-10-30)
+
+Owner-approved extraction: two independently optional source-built plugins,
+`hl2-advanced-options` and `hl2-debug`, with the current combined build remaining
+the default. Advanced options owns Advanced/Ultra motion blur, additional aspect
+choices including Fit Display, the 15-second aspect-change confirmation, and the
+vertical/viewmodel FOV controls. Debug owns viewmodel/background debug modes and
+all F1/F4 overlay and F2/F3 action policy. Shared flight, spawning, camera, UI,
+localization and simulation mechanisms remain reusable core services.
+
+Implement in bounded steps: establish acyclic extension interfaces and package
+ownership; extract debug state/input/presentation; extract advanced UI/display
+policy; extract render systems/shaders; integrate feature-aware packaging; validate
+the four feature combinations; finish the authoring/maintenance guide and agent
+rules. Use one read-only reviewer at the interface/extraction and final checkpoints.
+The owner approved a narrow Bevy dependency exception for plugin host adapters.
+Portable modules must remain free of Bevy types. These two plugins remain independent;
+future declared dependencies may use another plugin's public contracts and must be acyclic.
+
+Preserve existing behavior during the move, including confirmation only on an
+aspect-choice change, input/focus ordering, temporary debug edits, resource-driven
+backgrounds and ordinary motion blur. Disabled builds must neither register plugin
+controls/commands nor run their systems or package their shaders. Preserve saved
+plugin preferences when a build cannot apply them. No runtime DLL loading,
+unloading, third-party engine patching or scripting runtime is introduced.
+
+Validation: focused state and integration tests, all four build configurations,
+strict Clippy/format/architecture checks, Windows cross-checks, packaged UI/replay
+captures and before/after render timing. Keep failures and untested platforms
+explicit. Extend the source whitelist and architecture scanner to plugin sources;
+do not bypass existing limits. Document the final interfaces in `docs/plugins.md`.
+
 ## Ultra camera highlights, door budget and retail frame reuse (2026-10-30)
 
 Stronger camera blur follows contrast with the surroundings, not brightness: compare a trail's brightest and

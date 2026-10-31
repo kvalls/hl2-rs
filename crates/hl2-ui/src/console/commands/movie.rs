@@ -3,7 +3,7 @@
 use super::{Outcome, Spec};
 use crate::console::{Console, Effect};
 
-pub(super) fn playvideo(_console: &mut Console, spec: &'static Spec, args: &[String]) -> Outcome {
+pub(super) fn playvideo(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     let (filename, width, height) = match args {
         [filename] => (filename.clone(), None, None),
         [filename, w, h] => {
@@ -23,7 +23,7 @@ pub(super) fn playvideo(_console: &mut Console, spec: &'static Spec, args: &[Str
 
 pub(super) fn playvideo_exitcommand(
     _console: &mut Console,
-    spec: &'static Spec,
+    spec: &Spec,
     args: &[String],
 ) -> Outcome {
     if args.len() < 2 {

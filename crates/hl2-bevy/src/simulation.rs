@@ -11,20 +11,6 @@ use modkit_core::{
     movement::{Input, Player, TICK},
 };
 use serde::Serialize;
-use std::collections::BTreeMap;
-
-#[derive(Debug, Clone, Default)]
-pub struct ViewmodelDebug {
-    pub enabled: bool,
-    pub weapon: String,
-    pub profile: Option<hl2_ui::tuning::ViewmodelProfile>,
-    pub framing: hl2_ui::tuning::ViewmodelFraming,
-    /// `viewmodel_tweak_reset` ran; `controls` zeroes the selected profile once it is selected.
-    pub reset_pending: bool,
-    /// Edits retained for the current tweak-mode session, keyed by weapon classname and direct profile.
-    pub edits:
-        BTreeMap<(String, hl2_ui::tuning::ViewmodelProfile), hl2_ui::tuning::ViewmodelFraming>,
-}
 
 pub use script::{Command, read_script};
 #[derive(Serialize)]
@@ -55,6 +41,9 @@ struct Sample {
 }
 #[derive(Resource)]
 pub struct Simulation {
+    pub extensions: Vec<Box<dyn crate::extensions::RuntimeExtension>>,
+    pub input_claims: crate::extensions::InputClaims,
+    pub pointer_capture_was_active: bool,
     /// Wall-clock milliseconds of the last whole fixed step (test reports).
     last_step_ms: f64,
     pub player: Player,
@@ -88,11 +77,8 @@ pub struct Simulation {
     pub finished: bool,
     /// Keep simulating with idle input after the script ends (`--capture-live` bursts).
     pub run_after_script: bool,
-    pub dev_overlay: bool,
     /// Runtime-only viewmodel tuning overlay and active direct-profile edit.
-    pub viewmodel_debug: ViewmodelDebug,
     /// Runtime background layout visual analysis overlay and FOV tuning.
-    pub background_debug: crate::background_debug::BackgroundDebug,
     pub pending_video_config: Option<hl2_ui::config::VideoSettings>,
     /// Window settings last given to the window: startup values (after command-line overrides)
     /// or the last queued apply. `None` applies the next configuration unconditionally.
@@ -107,6 +93,7 @@ pub struct Simulation {
     pub camera_fov: Option<[f32; 2]>,
     /// `video.vertical_fov` (0 = automatic) and `video.viewmodel_fov` of the applied settings.
     pub vertical_fov: f32,
+    pub video_policy: hl2_ui::extensions::VideoPolicy,
     pub viewmodel_fov: f32,
     /// Saved menu artwork policy, applied independently of background debug mode.
     pub background_force_default_blur: bool,
@@ -125,6 +112,9 @@ impl Simulation {
         commands: Vec<Command>,
     ) -> Self {
         Self {
+            extensions: Vec::new(),
+            input_claims: Default::default(),
+            pointer_capture_was_active: false,
             last_step_ms: 0.,
             player: Player::new(eye),
             physics: Physics::new(world),
@@ -149,15 +139,13 @@ impl Simulation {
             samples: vec![],
             finished: false,
             run_after_script: false,
-            dev_overlay: false,
-            viewmodel_debug: ViewmodelDebug::default(),
-            background_debug: crate::background_debug::BackgroundDebug::default(),
             pending_video_config: None,
             applied_window: None,
             applied_detail: None,
             frame_size: None,
             camera_fov: None,
             vertical_fov: 0.,
+            video_policy: Default::default(),
             background_force_default_blur: false,
             viewmodel_fov: hl2_simulation::viewmodel_effects::VIEWMODEL_FOV,
             death_buttons_released: true,
@@ -189,26 +177,14 @@ impl Simulation {
     }
     /// The current viewmodel framing, including the selected direct profile while viewmodel tweak mode is on.
     pub fn viewmodel_framing(&self, weapon: &str, aspect: f32) -> hl2_ui::tuning::ViewmodelFraming {
-        let profile = hl2_ui::tuning::viewmodel_profile(aspect);
-        if self.viewmodel_debug.enabled
-            && let Some(framing) = self
-                .viewmodel_debug
-                .edits
-                .iter()
-                .find(|((edited_weapon, edited_profile), _)| {
-                    edited_weapon == weapon && *edited_profile == profile
-                })
-                .map(|(_, framing)| *framing)
-                .or_else(|| {
-                    (self.viewmodel_debug.weapon == weapon
-                        && self.viewmodel_debug.profile == Some(profile))
-                    .then_some(self.viewmodel_debug.framing)
-                })
+        if let Some(framing) = self
+            .extensions
+            .iter()
+            .find_map(|extension| extension.framing(weapon, aspect))
         {
-            hl2_ui::tuning::viewmodel_framing_with_profile(weapon, aspect, profile, framing)
-        } else {
-            hl2_ui::tuning::viewmodel_framing(weapon, aspect)
+            return framing;
         }
+        hl2_ui::tuning::viewmodel_framing(weapon, aspect)
     }
     /// Whether the view is the player's own (no point_viewcontrol camera).
     pub fn player_view(&self) -> bool {
@@ -239,15 +215,16 @@ impl Simulation {
         self.loading = false;
         self.transition = true;
     }
-    pub fn apply_startup_settings(
+    pub(crate) fn apply_startup_settings(
         &mut self,
         options: &crate::Options,
         target: &crate::startup::StartupTarget,
     ) {
+        self.video_policy = options.config.video.policy.clone();
         self.fov = options.config.video.fov;
-        self.vertical_fov = options.config.video.vertical_fov;
+        self.vertical_fov = options.config.video.effective_vertical_fov();
         self.background_force_default_blur = options.config.video.background_force_default_blur;
-        self.viewmodel_fov = options.config.video.viewmodel_fov;
+        self.viewmodel_fov = options.config.video.effective_viewmodel_fov();
         self.applied_window = Some(
             WindowSettings::new(options.width, options.height, options.display_mode)
                 .with_flexible_aspect(options.flexible_aspect),
@@ -255,33 +232,22 @@ impl Simulation {
         self.run_after_script = options.capture_live;
         self.loading = true;
         self.background_level = target.background;
-        let is_wide = options.config.video.background_uses_widescreen(
-            options.width as f32 / (options.height as f32).max(1.0) > 4. / 3. + 1e-3,
+        let wide = options.config.video.background_uses_widescreen(
+            options.width as f32 / options.height.max(1) as f32 > 4. / 3. + 1e-3,
         );
-        self.init_background_target(target, is_wide);
-    }
-    pub fn init_background_target(
-        &mut self,
-        target: &crate::startup::StartupTarget,
-        is_wide: bool,
-    ) {
-        if target.background {
-            let base = hl2_ui::gameui::resources::blur(&target.map);
-            self.background_debug.map_name = target.map.clone();
-            self.background_debug.blur_texture_name = if is_wide {
-                format!("{base}_widescreen")
-            } else {
-                base.to_owned()
-            };
+        for extension in &mut self.extensions {
+            extension.startup(&options.config);
+            extension.level_target(&target.map, target.background, wide);
         }
     }
+
     pub fn change_map(&mut self, world: &World, eye: glam::Vec3, direct: bool) {
         self.physics = Physics::new(world);
         self.eye = eye;
         self.player = Player::new(eye);
         self.view_control = None;
         self.zoom_fov = None;
-        self.viewmodel_debug = ViewmodelDebug::default();
+        self.with_extensions(|extension, simulation| extension.map_changed(simulation));
         if direct {
             self.fly = false;
             self.yaw = world.spawn().1;
@@ -294,15 +260,21 @@ impl Simulation {
         self.jump_suppressed = true;
     }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"player": self.player, "eye": self.eye.to_array(), "fly": self.fly,
-            "paused": self.paused(), "background_level": self.background_level, "world_running": self.world_running(), "dev_overlay":self.dev_overlay,
-            "viewmodel_debug": {"visible": self.viewmodel_debug.enabled, "weapon": self.viewmodel_debug.weapon,
-                "profile": self.viewmodel_debug.profile.map(|profile| profile.as_str()),
-                "fov_offset": self.viewmodel_debug.framing.fov_offset, "offset": self.viewmodel_debug.framing.offset},
+        let mut report = serde_json::json!({"player": self.player, "eye": self.eye.to_array(), "fly": self.fly,
+            "paused": self.paused(), "background_level": self.background_level, "world_running": self.world_running(),
             "dead": self.player.dead, "loading":self.loading,"host_tick": self.host_tick, "script_finished": self.finished,
             "samples": self.samples, "colliders": self.physics.colliders.len(),
             "native_convex_shapes": self.physics.native_shape_count, "native_shape_fallbacks": self.physics.native_shape_fallbacks,
-            "skipped_colliders": self.physics.skipped, "dynamic_props": self.physics.dynamic.len()})
+            "skipped_colliders": self.physics.skipped, "dynamic_props": self.physics.dynamic.len()});
+        for extension in &self.extensions {
+            if let Some(serde_json::Value::Object(fields)) = extension.report() {
+                report
+                    .as_object_mut()
+                    .expect("simulation report")
+                    .extend(fields);
+            }
+        }
+        report
     }
     fn request_gameplay_map(
         &mut self,
@@ -315,97 +287,10 @@ impl Simulation {
         ui.background_request = false;
         self.loading = true;
     }
-    pub(crate) fn set_fly(&mut self, fly: bool) {
+    pub fn set_fly(&mut self, fly: bool) {
         if self.fly != fly {
             self.fly = fly;
             self.player = Player::new(self.eye);
-        }
-    }
-    /// `viewmodel_debug_mode`: only while a gameplay map is loaded.
-    fn viewmodel_debug_mode(&mut self, ui: &mut crate::ui_host::Console, on: bool) {
-        if !on {
-            self.viewmodel_debug = ViewmodelDebug::default();
-            ui.source.log("viewmodel_debug_mode 0");
-        } else if self.loading || self.background_level {
-            ui.source
-                .log("viewmodel_debug_mode needs a loaded gameplay map; start or load one first.");
-        } else {
-            self.background_debug.enabled = false;
-            ui.source.background_debug_mode = false;
-            self.viewmodel_debug.enabled = true;
-            ui.source.log("viewmodel_debug_mode 1");
-        }
-    }
-    /// `viewmodel_tweak_reset`: only while `viewmodel_debug_mode` is on.
-    fn viewmodel_tweak_reset(&mut self, ui: &mut crate::ui_host::Console) {
-        if self.viewmodel_debug.enabled {
-            self.viewmodel_debug.reset_pending = true;
-            ui.source.log("viewmodel_tweak_reset");
-        } else {
-            ui.source
-                .log("viewmodel_tweak_reset needs viewmodel_debug_mode 1.");
-        }
-    }
-    fn apply_background_debug_effect(
-        &mut self,
-        ui: &mut crate::ui_host::Console,
-        effect: hl2_ui::console::Effect,
-    ) {
-        use hl2_ui::console::Effect;
-        let aspect = self
-            .frame_size
-            .map_or(4. / 3., |s| s[0] as f32 / s[1].max(1) as f32);
-        match effect {
-            Effect::BackgroundDebugMode(on) => {
-                if !on {
-                    self.background_debug.enabled = false;
-                    self.background_debug.fov = None;
-                    ui.source.background_debug_mode = false;
-                    ui.source.log("background_debug_mode 0");
-                } else {
-                    let can_enable = self.background_level
-                        || self.loading
-                        || ui.source.can_enable_background_debug();
-                    if !can_enable {
-                        ui.source.log(
-                            "background_debug_mode needs a background map or loading blur; start or return to the main menu.",
-                        );
-                    } else {
-                        self.viewmodel_debug = ViewmodelDebug::default();
-                        self.background_debug.enabled = true;
-                        ui.source.background_debug_mode = true;
-                        let is_wide = ui.source.is_widescreen();
-                        if let Some((_, map)) = ui.source.current_background() {
-                            self.background_debug.map_name = map.to_owned();
-                            self.background_debug.blur_texture_name =
-                                ui.source.blur_texture_name(map, is_wide);
-                        } else if let Some(bg) = ui.source.background() {
-                            self.background_debug.map_name = bg.map.clone();
-                            self.background_debug.blur_texture_name =
-                                ui.source.blur_texture_name(&bg.map, is_wide);
-                        }
-                        ui.source.log("background_debug_mode 1");
-                    }
-                }
-            }
-            Effect::BackgroundBlurOpacity(opacity) => {
-                self.background_debug.blur_opacity = opacity;
-                self.background_debug.base_blur_opacity = opacity;
-                ui.source.background_blur_opacity = opacity;
-            }
-            Effect::BackgroundMapFov(Some(deg)) => {
-                self.background_debug.fov = Some(deg);
-                ui.source.log(format!("background_map_fov {deg:.2}"));
-            }
-            Effect::BackgroundMapFov(None) => {
-                let fov = self
-                    .background_debug
-                    .fov(aspect, self.background_force_default_blur);
-                self.background_debug.fov = None;
-                ui.source
-                    .log(format!("\"background_map_fov\" = \"{fov:.2}\""));
-            }
-            _ => {}
         }
     }
 
@@ -478,6 +363,18 @@ impl Simulation {
         use hl2_ui::console::Effect;
         for effect in effects {
             match effect {
+                Effect::Extension(event) => {
+                    self.with_extensions(|extension, simulation| {
+                        extension.effect(
+                            &mut crate::extensions::Context {
+                                simulation,
+                                gameplay: Some(game),
+                                console: Some(ui),
+                            },
+                            &event,
+                        );
+                    });
+                }
                 Effect::Loadout => grant_loadout(ui, game),
                 Effect::AiEnable(value) => {
                     let on = set_ai(game, value.unwrap_or(!game.ai.enabled));
@@ -494,12 +391,7 @@ impl Simulation {
                     self.player = Player::new(self.eye);
                     ui.source.log(format!("noclip {}", u8::from(self.fly)));
                 }
-                Effect::ViewmodelDebugMode(on) => self.viewmodel_debug_mode(ui, on),
                 Effect::Flashlight => self.flashlight_toggles += 1,
-                Effect::ViewmodelTweakReset => self.viewmodel_tweak_reset(ui),
-                Effect::BackgroundDebugMode(_)
-                | Effect::BackgroundBlurOpacity(_)
-                | Effect::BackgroundMapFov(_) => self.apply_background_debug_effect(ui, effect),
                 Effect::Getpos | Effect::Setpos { .. } | Effect::Setang(_) => {
                     self.apply_pose_effect(ui, effect)
                 }
@@ -512,10 +404,10 @@ impl Simulation {
                         ui.source
                             .log("Gameplay map load in progress; ignoring background map request");
                     } else {
-                        let is_wide = ui.source.is_widescreen();
-                        let blur_name = ui.source.blur_texture_name(&background.map, is_wide);
-                        self.background_debug.map_name = background.map.clone();
-                        self.background_debug.blur_texture_name = blur_name;
+                        let wide = ui.source.is_widescreen();
+                        for extension in &mut self.extensions {
+                            extension.level_target(&background.map, true, wide);
+                        }
                         ui.map_request = Some(background.map);
                         ui.map_request_game = Some(background.game);
                         ui.background_request = true;
@@ -558,13 +450,11 @@ impl Simulation {
         game: &mut crate::gameplay::Gameplay,
         cfg: &hl2_ui::config::Config,
     ) {
+        self.video_policy = cfg.video.policy.clone();
         self.fov = cfg.video.fov;
-        self.vertical_fov = cfg.video.vertical_fov;
-        if self.background_force_default_blur != cfg.video.background_force_default_blur {
-            self.background_debug.fov = None;
-        }
+        self.vertical_fov = cfg.video.effective_vertical_fov();
         self.background_force_default_blur = cfg.video.background_force_default_blur;
-        self.viewmodel_fov = cfg.video.viewmodel_fov;
+        self.viewmodel_fov = cfg.video.effective_viewmodel_fov();
         let target = WindowSettings::of(&cfg.video);
         if self.applied_window != Some(target) {
             self.applied_window = Some(target);
@@ -574,11 +464,16 @@ impl Simulation {
         let detail_changed = self.applied_detail.is_some_and(|prev| prev != detail);
         self.applied_detail = Some(detail);
         ui.source.config = cfg.clone();
-        if self.background_debug.enabled {
-            self.background_debug.blur_texture_name = ui
-                .source
-                .blur_texture_name(&self.background_debug.map_name, ui.source.is_widescreen());
-        }
+        self.with_extensions(|extension, simulation| {
+            extension.config_changed(
+                &mut crate::extensions::Context {
+                    simulation,
+                    gameplay: Some(game),
+                    console: Some(ui),
+                },
+                cfg,
+            )
+        });
         if detail_changed && !self.loading {
             let map = game.world.name.clone();
             if !map.is_empty() {
@@ -588,50 +483,9 @@ impl Simulation {
             }
         }
     }
-    /// One F4 overlay key; a spawn returns its console message.
-    pub fn spawn_overlay_key(
-        &mut self,
-        game: &mut crate::gameplay::Gameplay,
-        key: hl2_simulation::ai::spawn::OverlayKey,
-    ) -> Option<String> {
-        let command = game.spawn_overlay.key(key);
-        self.spawn_overlay_command(game, command)
-    }
-    /// Carry out what an F4 overlay key or click asked; a spawn returns its console message.
-    pub fn spawn_overlay_command(
-        &mut self,
-        game: &mut crate::gameplay::Gameplay,
-        command: Option<hl2_simulation::ai::spawn::OverlayCommand>,
-    ) -> Option<String> {
-        use hl2_simulation::ai::spawn::OverlayCommand;
-        match command? {
-            OverlayCommand::Spawn(request) => Some(self.spawn_npc(game, request)),
-            OverlayCommand::SpawnProp(model) => {
-                let model = crate::runtime_props::model_path(&model);
-                let message = format!("prop_physics_create {model}");
-                game.prop_requests.push((model, self.eye, self.forward()));
-                Some(message)
-            }
-            OverlayCommand::ToggleNotarget => {
-                game.ai.ignore_player = !game.ai.ignore_player;
-                None
-            }
-            OverlayCommand::ToggleFriendlyFire => {
-                let on = !game.scene.player_hurts_friendlies;
-                game.scene.player_hurts_friendlies = on;
-                game.spawn_overlay.friendly_fire = on;
-                None
-            }
-            OverlayCommand::ToggleAi => {
-                let on = !game.ai.enabled;
-                game.ai.enabled = on;
-                crate::gameplay::AI_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
-                None
-            }
-        }
-    }
+
     /// The view direction (Source axes).
-    fn forward(&self) -> glam::Vec3 {
+    pub fn forward(&self) -> glam::Vec3 {
         glam::Vec3::new(
             self.pitch.cos() * self.yaw.cos(),
             self.pitch.cos() * self.yaw.sin(),
@@ -673,8 +527,8 @@ impl Simulation {
         if let Some(fly) = c.fly {
             self.set_fly(fly);
         }
-        if let Some(enabled) = c.dev_overlay {
-            self.dev_overlay = enabled;
+        if let Some(event) = &c.extension {
+            self.with_extensions(|extension, simulation| extension.script(simulation, event));
         }
         if let Some(paused) = c.paused {
             self.paused = paused;
@@ -982,7 +836,7 @@ impl WindowSettings {
 
     pub fn of(video: &hl2_ui::config::VideoSettings) -> Self {
         Self::new(video.width, video.height, video.display_mode)
-            .with_flexible_aspect(video.flexible_aspect)
+            .with_flexible_aspect(video.effective_flexible_aspect())
     }
 }
 
@@ -1612,61 +1466,6 @@ mod tests {
             hl2_simulation::sounds::SoundRequest::ui("ui/buttonclickrelease.wav")
         );
         assert!(game.sound_requests[1].ui);
-    }
-
-    #[test]
-    fn viewmodel_tweak_commands_follow_the_gameplay_map_state() {
-        use hl2_ui::console::Effect::{ViewmodelDebugMode, ViewmodelTweakReset};
-        let mut sim = Simulation::new(&World::default(), glam::Vec3::ZERO, 0., 0., false, vec![]);
-        let mut game = crate::gameplay::Gameplay::synthetic(World::default());
-        let mut ui = crate::ui_host::Console::new(Default::default());
-        let mut run =
-            |sim: &mut Simulation, effect| sim.console_effects(&mut ui, &mut game, vec![effect]);
-
-        run(&mut sim, ViewmodelTweakReset);
-        assert!(!sim.viewmodel_debug.reset_pending);
-        sim.background_level = true;
-        run(&mut sim, ViewmodelDebugMode(true));
-        assert!(!sim.viewmodel_debug.enabled);
-        sim.background_level = false;
-        sim.loading = true;
-        run(&mut sim, ViewmodelDebugMode(true));
-        assert!(!sim.viewmodel_debug.enabled);
-        sim.loading = false;
-        run(&mut sim, ViewmodelDebugMode(true));
-        assert!(sim.viewmodel_debug.enabled);
-        run(&mut sim, ViewmodelTweakReset);
-        assert!(sim.viewmodel_debug.reset_pending);
-        sim.change_map(&World::default(), glam::Vec3::ZERO, true);
-        assert!(!sim.viewmodel_debug.enabled && !sim.viewmodel_debug.reset_pending);
-        run(&mut sim, ViewmodelDebugMode(true));
-        run(&mut sim, ViewmodelDebugMode(false));
-        assert!(!sim.viewmodel_debug.enabled);
-    }
-
-    #[test]
-    fn background_and_viewmodel_debug_modes_mutually_exclusive() {
-        use hl2_ui::console::Effect::{BackgroundDebugMode, ViewmodelDebugMode};
-        let mut sim = Simulation::new(&World::default(), glam::Vec3::ZERO, 0., 0., false, vec![]);
-        let mut game = crate::gameplay::Gameplay::synthetic(World::default());
-        let mut ui = crate::ui_host::Console::new(Default::default());
-        let mut run =
-            |sim: &mut Simulation, effect| sim.console_effects(&mut ui, &mut game, vec![effect]);
-
-        sim.background_level = true;
-        run(&mut sim, BackgroundDebugMode(true));
-        assert!(sim.background_debug.enabled);
-        assert!(!sim.viewmodel_debug.enabled);
-
-        sim.background_level = false;
-        run(&mut sim, ViewmodelDebugMode(true));
-        assert!(sim.viewmodel_debug.enabled);
-        assert!(!sim.background_debug.enabled);
-
-        sim.background_level = true;
-        run(&mut sim, BackgroundDebugMode(true));
-        assert!(sim.background_debug.enabled);
-        assert!(!sim.viewmodel_debug.enabled);
     }
 
     #[test]

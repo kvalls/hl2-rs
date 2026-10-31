@@ -20,7 +20,6 @@ use crate::gameui::{
     menu::{GameMenu, MenuLayout},
     options::OptionsDialog,
     resources::{self, fallback_game_menu, GameUiResources},
-    video_confirm::VideoConfirm,
 };
 pub use effect::{Effect, GameMap};
 use glam::{vec2, Vec2};
@@ -79,10 +78,12 @@ pub enum ConfirmKind {
     /// Confirm starting a chapter in developer commentary mode (`CommentaryExplanationDialog`).
     StartCommentary(GameMap),
     /// Keep an aspect ratio change, else revert it (counts down on [`Console::tick`]).
-    KeepVideo(VideoConfirm),
+    Extension(crate::extensions::Confirmation),
 }
 
 pub struct Console {
+    pub extensions: crate::extensions::Extensions,
+    pub presentation: crate::extensions::Presentation,
     pub canvas: Canvas,
     /// The focused layer: a window ([`Mode::Options`], [`Mode::Console`]) or the base. Read it
     /// with [`Console::mode`], change it with [`Console::set_mode`].
@@ -96,7 +97,7 @@ pub struct Console {
     /// Where the quit / main-menu box was dragged (centered on opening).
     quit_placement: Placement,
     /// Names arguments complete from (installed maps, the loaded map's entities), set by the host.
-    completion: complete::Sources,
+    completion: complete::Context,
     font: Option<FontFace>,
     menu_font: Option<FontFace>,
     menu_metrics: CellMetrics,
@@ -147,8 +148,7 @@ pub struct Console {
 
     /// `(game, image)` -> pre-blurred background (see `GameUiResources::background_images`).
     pub background_textures: BTreeMap<(String, String), Texture2D>,
-    pub background_debug_mode: bool,
-    pub background_blur_opacity: u8,
+
     pub config: crate::config::Config,
     /// Map -> chapter of every game (menu backgrounds after leaving a map).
     chapter_index: crate::gameui::chapters::ChapterIndex,
@@ -255,20 +255,6 @@ fn draw_cell_text_outlined(
     }
 }
 
-fn text(
-    _canvas: &Canvas,
-    value: &str,
-    origin: Vec2,
-    em: f32,
-    scale: f32,
-    font: Option<&FontFace>,
-    color: Color,
-) {
-    if let Some(font) = font {
-        font.draw_baseline(value, origin, em, scale, color);
-    }
-}
-
 /// The menu colors from the scheme (the console's are the panel's).
 struct Style {
     menu: Color,
@@ -305,7 +291,7 @@ impl Default for Console {
             ),
             cheats: false,
             quit_placement: Placement::default(),
-            completion: complete::Sources::default(),
+            completion: complete::Context::default(),
             font: None,
             menu_font: None,
             menu_metrics: CellMetrics::default(),
@@ -343,8 +329,8 @@ impl Default for Console {
             chapter_dialogs: BTreeMap::new(),
             chapter_game: None,
             background_textures: BTreeMap::new(),
-            background_debug_mode: false,
-            background_blur_opacity: 50,
+            extensions: Default::default(),
+            presentation: Default::default(),
             config,
             chapter_index: Default::default(),
         };
@@ -354,9 +340,6 @@ impl Default for Console {
         console
     }
 }
-
-/// Height of the F1 developer overlay's header.
-const DEBUG_HEADER_HEIGHT: f32 = 105.;
 
 impl Console {
     pub fn load(vfs: &Vfs, canvas: Canvas) -> Self {
@@ -394,7 +377,8 @@ impl Console {
     }
 
     /// Replaces the GameUI resources and rebuilds both game menus from them.
-    pub fn set_resources(&mut self, resources: GameUiResources) {
+    pub fn set_resources(&mut self, mut resources: GameUiResources) {
+        self.extensions.prepare_resources(&mut resources);
         let loc = &resources.localization;
         self.main_menu = GameMenu::new(
             resources.game_menu.clone(),
@@ -443,24 +427,28 @@ impl Console {
         self.shell.windows.set_time(now);
         let video_effects = self.tick_video(dt);
         self.deferred.extend(video_effects);
-        if let Some((confirm, ConfirmKind::KeepVideo(keep))) = &mut self.confirm_box {
-            if keep.expired(now) {
-                let previous = keep.previous;
+        if let Some((_, ConfirmKind::Extension(extension))) = &self.confirm_box {
+            let extension = extension.clone();
+            if extension.0.expired(now) {
                 self.closing_confirm_box = self.confirm_box.take();
                 self.reset_menu_interaction();
-                let effect = self.revert_video(previous);
-                self.deferred.push(effect);
-            } else {
-                confirm.set_text(VideoConfirm::text(
-                    &self.gameui.localization,
-                    keep.remaining(now),
-                ));
+                let effects = extension.0.cancel(self);
+                self.deferred.extend(effects);
+            } else if let Some((confirm, _)) = &mut self.confirm_box {
+                confirm.set_text(extension.0.message(&self.gameui.localization, now).text);
             }
         }
         self.sync_dialog_windows();
         std::mem::take(&mut self.deferred)
     }
 
+    pub fn commands(&self) -> &[commands::Spec] {
+        self.completion.commands()
+    }
+    pub fn set_commands(&mut self, entries: Arc<[commands::Spec]>) {
+        self.completion.commands = entries;
+        self.shell.panel.editor.refresh(&self.completion);
+    }
     fn painter(&self, origin: Vec2, scale: f32) -> Painter<'_> {
         Painter {
             canvas: &self.canvas,
@@ -470,105 +458,27 @@ impl Console {
             scale,
         }
     }
-    /// Four compact header rows and a footer, preserving the retained host's developer layout.
-    /// Font data is bundled under its own MIT license, independent of installed game content.
-    /// Returns the height the overlay occupies at the top of the canvas.
-    pub fn draw_debug(&self, lines: &[String]) -> f32 {
-        self.canvas.rectangle(
-            0.,
-            0.,
-            self.canvas.width(),
-            DEBUG_HEADER_HEIGHT,
-            Color::new(0.025, 0.045, 0.07, 0.88),
-        );
-        let rows = [
-            (vec2(22., 30.), 27., WHITE),
-            (vec2(22., 55.), 19., Color::new(0.784, 0.784, 0.784, 1.)),
-            (vec2(22., 78.), 17., Color::new(0.784, 0.784, 0.784, 1.)),
-            (vec2(22., 98.), 16., Color::from_rgba(240, 180, 90, 255)),
-        ];
-        let draw = |line: &str, origin: Vec2, size: f32, color| {
-            if let Some(font) = &self.developer_font {
-                font.draw_baseline(line, origin, size, 1., color);
-            } else {
-                text(
-                    &self.canvas,
-                    line,
-                    origin,
-                    size,
-                    1.,
-                    self.mono.as_ref().or(self.font.as_ref()),
-                    color,
-                );
-            }
-        };
-        for (line, (origin, size, color)) in lines.iter().take(4).zip(rows) {
-            draw(line, origin, size, color);
-        }
-        if let Some(footer) = lines.get(4) {
-            self.canvas.rectangle(
-                0.,
-                self.canvas.height() - 38.,
-                self.canvas.width(),
-                38.,
-                Color::new(0.025, 0.045, 0.07, 0.85),
-            );
-            draw(footer, vec2(20., self.canvas.height() - 13.), 18., WHITE);
-        }
-        DEBUG_HEADER_HEIGHT
+    pub fn overlay_font(&self) -> Option<&FontFace> {
+        self.developer_font
+            .as_ref()
+            .or(self.mono.as_ref())
+            .or(self.font.as_ref())
     }
-
-    fn draw_debug_lines_panel(&self, lines: &[String], top: f32, max_lines: usize) -> f32 {
-        let count = lines.len().min(max_lines);
-        let height = 20. + count as f32 * 22. + 10.;
-        self.canvas.rectangle(
-            0.,
-            top,
-            self.canvas.width(),
-            height,
-            Color::new(0.025, 0.045, 0.07, 0.9),
-        );
-        let draw = |line: &str, origin: Vec2, color| {
-            if let Some(font) = &self.developer_font {
-                font.draw_baseline(line, origin, 16., 1., color);
-            } else {
-                text(
-                    &self.canvas,
-                    line,
-                    origin,
-                    16.,
-                    1.,
-                    self.mono.as_ref().or(self.font.as_ref()),
-                    color,
-                );
-            }
-        };
-        let normal = Color::new(0.784, 0.784, 0.784, 1.);
-        let last_idx = count.saturating_sub(1);
-        for (i, line) in lines.iter().take(count).enumerate() {
-            let y = top + 20. + i as f32 * 22.;
-            let color = if i == last_idx {
-                Color::from_rgba(240, 180, 90, 255)
-            } else if i == 0 {
-                WHITE
-            } else {
-                normal
-            };
-            draw(line, vec2(22., y), color);
-        }
-        top + height
+    pub fn focus_base(&mut self) {
+        self.shell.windows.focus_base();
+        self.sync_mode();
     }
-
-    /// Draws the live viewmodel tuning values with their top edge at `top`; returns the bottom
-    /// edge.
-    pub fn draw_viewmodel_debug(&self, lines: &[String], top: f32) -> f32 {
-        self.draw_debug_lines_panel(lines, top, lines.len())
+    pub fn clock(&self) -> f64 {
+        self.ui_clock
     }
-
-    /// Draws the live background visual debug values with their top edge at `top`; returns the bottom
-    /// edge.
-    pub fn draw_background_debug(&self, lines: &[String], top: f32) -> f32 {
-        self.draw_debug_lines_panel(lines, top, lines.len())
+    pub fn open_extension_confirmation(&mut self, extension: crate::extensions::Confirmation) {
+        self.reset_menu_interaction();
+        self.quit_placement.reset();
+        let message = extension
+            .0
+            .message(&self.gameui.localization, self.ui_clock);
+        self.confirm_box = Some((message, ConfirmKind::Extension(extension)));
+        self.sync_dialog_windows();
     }
 
     pub fn current_background(&self) -> Option<(&str, &str)> {
@@ -624,8 +534,9 @@ impl Console {
         } else {
             if let Some(tex) = bg_tex {
                 let map_ready = self.background_level && !self.background_transition.is_failed();
-                let alpha = if map_ready && self.background_debug_mode {
-                    (self.background_blur_opacity as f32 / 100.0).clamp(0.0, 1.0)
+                let alpha = if map_ready && self.presentation.capture_menu_navigation {
+                    (self.presentation.background_opacity.unwrap_or(100) as f32 / 100.0)
+                        .clamp(0.0, 1.0)
                 } else if !map_ready {
                     1.0
                 } else {
@@ -687,8 +598,6 @@ fn vector(args: &[String]) -> Option<glam::Vec3> {
 mod background_debug_tests;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod viewmodel_tests;
 
 #[cfg(test)]
 mod button_padding_tests;

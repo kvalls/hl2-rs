@@ -10,7 +10,7 @@ mod motion_blur_tests;
 pub mod support;
 
 use super::{
-    display::{self, AspectRatio, DisplayModes, Resolution},
+    display::{AspectRatio, DisplayModes, Resolution},
     localize::Localization,
 };
 use crate::config::{
@@ -31,10 +31,14 @@ pub struct Draft {
 
 impl Draft {
     pub fn new(config: Config) -> Self {
-        let aspect = if config.video.flexible_aspect {
+        let aspect = if config.video.effective_flexible_aspect() {
             AspectRatio::Flexible
         } else {
-            AspectRatio::of(config.video.width, config.video.height)
+            config
+                .video
+                .policy
+                .0
+                .aspect_of(config.video.width, config.video.height)
         };
         Self { config, aspect }
     }
@@ -78,7 +82,10 @@ impl<'a> Env<'a> {
 
 /// Resolutions `modes` offers for the draft's display mode (windowed ones must fit the desktop).
 pub fn offered_resolutions(modes: &DisplayModes, draft: &Draft) -> Vec<Resolution> {
-    modes.choices(draft.config.video.display_mode.effective() == DisplayMode::Windowed)
+    draft.config.video.policy.0.modes(
+        modes,
+        draft.config.video.display_mode.effective() == DisplayMode::Windowed,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,9 +160,9 @@ impl Value {
             Self::Gamma => SliderRange::new(1.6, 2.6),
             Self::Fov => SliderRange::new(75., 110.),
             // The low end of the vertical slider is automatic (0), then the explicit range.
-            Self::VerticalFov => SliderRange::new(0., crate::tuning::vertical_fov_range().1),
+            Self::VerticalFov => SliderRange::new(0., 0.),
             Self::ViewmodelFov => {
-                let (min, max) = crate::tuning::viewmodel_fov_range();
+                let (min, max) = (54., 54.);
                 SliderRange::new(min, max)
             }
         }
@@ -173,8 +180,18 @@ impl Value {
     }
 
     /// The range of a slider bound to this value: the layout's own range when it gives one.
-    pub fn slider_range(self, layout: Option<(f32, f32)>) -> SliderRange {
-        layout.map_or_else(|| self.range(), |(min, max)| SliderRange::new(min, max))
+    pub fn slider_range(self, layout: Option<(f32, f32)>, config: &Config) -> SliderRange {
+        layout.map_or_else(
+            || match self {
+                Self::VerticalFov => SliderRange::new(0., config.video.policy.0.vertical_range().1),
+                Self::ViewmodelFov => {
+                    let (min, max) = config.video.policy.0.viewmodel_range();
+                    SliderRange::new(min, max)
+                }
+                _ => self.range(),
+            },
+            |(min, max)| SliderRange::new(min, max),
+        )
     }
 
     pub fn get(self, c: &Config) -> f32 {
@@ -203,14 +220,14 @@ impl Value {
             Self::Sensitivity => value.clamp(0.1, 20.),
             // Below the smallest explicit field of view the slider means automatic.
             Self::VerticalFov => {
-                let (min, max) = crate::tuning::vertical_fov_range();
+                let (min, max) = c.video.policy.0.vertical_range();
                 if value < min * 0.5 {
                     0.
                 } else {
                     value.clamp(min, max)
                 }
             }
-            _ => self.range().clamp(value),
+            _ => self.slider_range(None, c).clamp(value),
         };
         *match self {
             Self::Volume => &mut c.audio.volume,
@@ -317,12 +334,7 @@ impl AdvancedChoice {
             }
             Self::Filtering => listed_tokens::<Filtering>(),
             Self::ClassicEffects => CLASSIC_EFFECTS_TOKENS.to_vec(),
-            Self::MotionBlur => vec![
-                FLAG_TOKENS[0],
-                FLAG_TOKENS[1],
-                "#GameUI_SettingAdvanced",
-                super::localize::placeholders::MOTION_BLUR_ULTRA,
-            ],
+
             _ => FLAG_TOKENS.to_vec(),
         }
     }
@@ -351,11 +363,8 @@ impl AdvancedChoice {
             Self::Antialiasing => listed_pick(index, &mut a.antialiasing),
             Self::Filtering => listed_pick(index, &mut a.filtering),
             Self::MotionBlur => {
-                if index < 4 {
-                    a.motion_blur = index != 0;
-                    a.motion_blur_viewmodel = index >= 2;
-                    a.motion_blur_world = index == 3;
-                }
+                let policy = a.policy.clone();
+                policy.0.select_blur(a, index);
             }
             flag => {
                 if let (Some(value), true) = (flag.flag_mut(a), index < 2) {
@@ -398,19 +407,22 @@ impl Choice {
                 let rec_idx = env
                     .recommendation
                     .map(|r| r.recommended_advanced_index(advanced));
-                advanced
-                    .tokens_with_rec(env.recommendation)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, t)| {
-                        let text = loc.text(t);
-                        if rec_idx == Some(i) {
-                            format!("{text} *")
-                        } else {
-                            text
-                        }
-                    })
-                    .collect()
+                (if advanced == AdvancedChoice::MotionBlur {
+                    draft.config.video.policy.0.blur_tokens().to_vec()
+                } else {
+                    advanced.tokens_with_rec(env.recommendation)
+                })
+                .into_iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let text = loc.text(t);
+                    if rec_idx == Some(i) {
+                        format!("{text} *")
+                    } else {
+                        text
+                    }
+                })
+                .collect()
             }
             Self::GamepadAimAssist => tokens(&mut AimAssist::ALL.iter().map(|v| v.token())),
             Self::WeaponSelection => {
@@ -420,7 +432,16 @@ impl Choice {
             Self::Speakers => tokens(&mut Speakers::ALL.iter().map(|v| v.token())),
             Self::Quality => tokens(&mut SoundQuality::ALL.iter().map(|v| v.token())),
             Self::Captions => tokens(&mut Captions::ALL.iter().map(|v| v.token())),
-            Self::Aspect => tokens(&mut AspectRatio::ALL.iter().map(|v| v.token())),
+            Self::Aspect => tokens(
+                &mut draft
+                    .config
+                    .video
+                    .policy
+                    .0
+                    .aspects()
+                    .iter()
+                    .map(|v| v.token()),
+            ),
             Self::DisplayMode => tokens(&mut DisplayMode::choices().iter().map(|v| v.token())),
             Self::HudAspect => tokens(&mut HudAspect::ALL.iter().map(|v| v.token())),
             Self::Hdr => {
@@ -448,9 +469,13 @@ impl Choice {
                     let current = env.modes.current.unwrap_or_else(|| {
                         Resolution::new(draft.config.video.width, draft.config.video.height)
                     });
-                    vec![current.without_stripes_for_flexible().label()]
+                    vec![draft.config.video.policy.0.presented(current).label()]
                 } else {
-                    display::resolution_choices(&env.resolutions(draft), draft.aspect)
+                    draft
+                        .config
+                        .video
+                        .policy
+                        .resolution_choices(&env.resolutions(draft), draft.aspect)
                         .into_iter()
                         .map(Resolution::label)
                         .collect()
@@ -486,7 +511,7 @@ impl Choice {
             Self::Speakers => find(&Speakers::ALL, c.audio.speakers),
             Self::Quality => find(&SoundQuality::ALL, c.audio.quality),
             Self::Captions => find(&Captions::ALL, c.audio.captions),
-            Self::Aspect => find(&AspectRatio::ALL, draft.aspect),
+            Self::Aspect => find(c.video.policy.0.aspects(), draft.aspect),
             Self::DisplayMode => DisplayMode::choices()
                 .iter()
                 .position(|m| *m == c.video.display_mode.effective()),
@@ -500,7 +525,11 @@ impl Choice {
                 if draft.aspect == AspectRatio::Flexible {
                     Some(0)
                 } else {
-                    display::resolution_choices(&env.resolutions(draft), draft.aspect)
+                    draft
+                        .config
+                        .video
+                        .policy
+                        .resolution_choices(&env.resolutions(draft), draft.aspect)
                         .iter()
                         .position(|r| *r == Resolution::new(c.video.width, c.video.height))
                 }
@@ -571,23 +600,7 @@ impl Choice {
                     c.audio.captions = *v;
                 }
             }
-            Self::DisplayMode => {
-                if let Some(v) = DisplayMode::choices().get(index) {
-                    c.video.display_mode = *v;
-                }
-                // The resolution list depends on the display mode (windowed resolutions must
-                // fit the desktop); keep the resolution when it is still offered.
-                let current = Resolution::new(c.video.width, c.video.height);
-                let offered = env.resolutions(draft);
-                if !offered.contains(&current) {
-                    if let Some(r) =
-                        display::choose_after_aspect_change(&offered, draft.aspect, current)
-                    {
-                        draft.config.video.width = r.width;
-                        draft.config.video.height = r.height;
-                    }
-                }
-            }
+            Self::DisplayMode => select_display_mode(env, draft, index),
             Self::HudAspect => {
                 if let Some(v) = HudAspect::ALL.get(index) {
                     c.video.hud_aspect = *v;
@@ -607,40 +620,72 @@ impl Choice {
                 if draft.aspect == AspectRatio::Flexible {
                     return;
                 }
-                if let Some(r) = display::resolution_choices(&resolutions, draft.aspect).get(index)
+                if let Some(r) = c
+                    .video
+                    .policy
+                    .resolution_choices(&resolutions, draft.aspect)
+                    .get(index)
                 {
                     c.video.width = r.width;
                     c.video.height = r.height;
                 }
             }
-            Self::Aspect => {
-                let Some(aspect) = AspectRatio::ALL.get(index).copied() else {
-                    return;
-                };
-                if aspect == draft.aspect {
-                    return;
-                }
-                draft.aspect = aspect;
-                c.video.flexible_aspect = aspect == AspectRatio::Flexible;
-                if aspect == AspectRatio::Flexible {
-                    let current = env
-                        .modes
-                        .current
-                        .or(env.modes.desktop)
-                        .unwrap_or_else(|| Resolution::new(c.video.width, c.video.height))
-                        .without_stripes_for_flexible();
-                    c.video.width = current.width;
-                    c.video.height = current.height;
-                } else {
-                    let current = Resolution::new(c.video.width, c.video.height);
-                    if let Some(r) =
-                        display::choose_after_aspect_change(&resolutions, aspect, current)
-                    {
-                        c.video.width = r.width;
-                        c.video.height = r.height;
-                    }
-                }
-            }
+            Self::Aspect => select_aspect(env, draft, index, &resolutions),
+        }
+    }
+}
+
+fn select_display_mode(env: &Env, draft: &mut Draft, index: usize) {
+    let c = &mut draft.config;
+    if let Some(v) = DisplayMode::choices().get(index) {
+        c.video.display_mode = *v;
+    }
+    // The resolution list depends on the display mode (windowed resolutions must
+    // fit the desktop); keep the resolution when it is still offered.
+    let current = Resolution::new(c.video.width, c.video.height);
+    let offered = env.resolutions(draft);
+    if !offered.contains(&current) {
+        if let Some(r) =
+            draft
+                .config
+                .video
+                .policy
+                .choose_resolution(&offered, draft.aspect, current)
+        {
+            draft.config.video.width = r.width;
+            draft.config.video.height = r.height;
+        }
+    }
+}
+
+fn select_aspect(env: &Env, draft: &mut Draft, index: usize, resolutions: &[Resolution]) {
+    let c = &mut draft.config;
+    let Some(aspect) = c.video.policy.0.aspects().get(index).copied() else {
+        return;
+    };
+    if aspect == draft.aspect {
+        return;
+    }
+    draft.aspect = aspect;
+    c.video.flexible_aspect = aspect == AspectRatio::Flexible;
+    if aspect == AspectRatio::Flexible {
+        let current = env
+            .modes
+            .current
+            .or(env.modes.desktop)
+            .unwrap_or_else(|| Resolution::new(c.video.width, c.video.height));
+        let current = c.video.policy.0.presented(current);
+        c.video.width = current.width;
+        c.video.height = current.height;
+    } else {
+        let current = Resolution::new(c.video.width, c.video.height);
+        if let Some(r) = c
+            .video
+            .policy
+            .choose_resolution(resolutions, aspect, current)
+        {
+            c.video.width = r.width;
+            c.video.height = r.height;
         }
     }
 }
@@ -945,7 +990,7 @@ mod tests {
             Choice::Resolution.items(&env, &draft),
             ["1920 x 1080", "1280 x 720"]
         );
-        Choice::Aspect.select(&env, &mut draft, 1);
+        Choice::Aspect.select(&env, &mut draft, 0);
         assert_eq!(draft.aspect, AspectRatio::Normal);
         assert_eq!(
             (draft.config.video.width, draft.config.video.height),
@@ -953,7 +998,7 @@ mod tests {
         );
         assert_eq!(Choice::Resolution.selected(&env, &draft), Some(0));
         assert_eq!(applied.video.width, 1280, "nothing applied before OK/Apply");
-        Choice::Aspect.select(&env, &mut draft, 3);
+        Choice::Aspect.select(&env, &mut draft, 2);
         assert_eq!(
             (draft.config.video.width, draft.config.video.height),
             (1680, 1050)
@@ -1077,39 +1122,11 @@ mod tests {
         );
         assert_eq!(binding(Panel::VideoAdvanced, "dxlabel"), None);
         assert_eq!(
-            Value::Fov.slider_range(Some((75., 110.))),
+            Value::Fov.slider_range(Some((75., 110.)), &Config::default()),
             SliderRange::new(75., 110.)
         );
         let mut c = Config::default();
         Value::Fov.set(&mut c, 130.);
-        // The vertical field of view: automatic at the slider's low end, else an explicit
-        // value in the tuned range.
-        let (vertical_min, vertical_max) = crate::tuning::vertical_fov_range();
-        let mut v = Config::default();
-        assert_eq!(Value::VerticalFov.get(&v), 0., "automatic by default");
-        Value::VerticalFov.set(&mut v, vertical_min - 1.);
-        assert_eq!(
-            v.video.vertical_fov, vertical_min,
-            "just below the range clamps up"
-        );
-        Value::VerticalFov.set(&mut v, vertical_min * 0.4);
-        assert_eq!(v.video.vertical_fov, 0., "the low end is automatic");
-        Value::VerticalFov.set(&mut v, 999.);
-        assert_eq!(v.video.vertical_fov, vertical_max);
-        let mut loc = Localization::default();
-        loc.insert("#Spec_Auto", "Auto");
-        Value::VerticalFov.set(&mut v, 0.);
-        assert_eq!(Value::VerticalFov.label(&v, &loc), "Auto");
-        Value::VerticalFov.set(&mut v, 90.);
-        assert_eq!(Value::VerticalFov.label(&v, &loc), "90");
-        assert_eq!(Value::Fov.label(&v, &loc), "75");
-        // The viewmodel field of view keeps to its tuned range.
-        let (view_min, view_max) = crate::tuning::viewmodel_fov_range();
-        assert_eq!(Value::ViewmodelFov.get(&v), 54., "retail default");
-        Value::ViewmodelFov.set(&mut v, 1.);
-        assert_eq!(v.video.viewmodel_fov, view_min);
-        Value::ViewmodelFov.set(&mut v, 500.);
-        assert_eq!(v.video.viewmodel_fov, view_max);
         assert_eq!(c.video.fov, 110.);
     }
 
@@ -1163,99 +1180,5 @@ mod tests {
         assert!(enabled(resolution, true, &draft, &applied));
         draft.aspect = AspectRatio::Flexible;
         assert!(!enabled(resolution, true, &draft, &applied));
-    }
-
-    #[test]
-    fn flexible_aspect_disables_resolution_and_shows_fit_display() {
-        let mut loc = Localization::default();
-        loc.insert("#GameUI_HUDAspectRatio_FitDisplay", "Fit Display");
-        let modes = DisplayModes {
-            fullscreen: vec![Resolution::new(1920, 1080), Resolution::new(1280, 720)],
-            desktop: Some(Resolution::new(1920, 1080)),
-            current: Some(Resolution::new(1600, 900)),
-        };
-        let langs = ["english".to_owned()];
-        let env = env(&loc, &langs, &modes);
-        let mut draft = Draft::new(Config::default());
-        let res_binding = Some(Binding::Choice(Choice::Resolution));
-        assert!(enabled(res_binding, true, &draft, &draft.config));
-        assert_eq!(
-            Choice::Resolution.items(&env, &draft),
-            ["1920 x 1080", "1280 x 720"]
-        );
-
-        // Switch to Flexible ("Fit Display")
-        let flexible_idx = AspectRatio::ALL
-            .iter()
-            .position(|a| *a == AspectRatio::Flexible)
-            .unwrap();
-        assert_eq!(flexible_idx, 0, "Fit Display is in the first place");
-        Choice::Aspect.select(&env, &mut draft, flexible_idx);
-        assert_eq!(draft.aspect, AspectRatio::Flexible);
-        assert!(draft.config.video.flexible_aspect);
-        assert_eq!(draft.config.video.width, 1600);
-        assert_eq!(draft.config.video.height, 900);
-
-        // Resolution is now disabled and shows "1600 x 900"
-        assert!(!enabled(res_binding, true, &draft, &draft.config));
-        assert_eq!(Choice::Resolution.items(&env, &draft), ["1600 x 900"]);
-        assert_eq!(Choice::Resolution.selected(&env, &draft), Some(0));
-        assert_eq!(Choice::Resolution.text(&env, &draft), "1600 x 900");
-
-        // Selecting resolution while flexible is a no-op
-        Choice::Resolution.select(&env, &mut draft, 0);
-
-        // Window exceeding 32:9 has pillarbox black stripes; reading excludes them (8000x1000 -> 3556x1000)
-        let pillarbox_modes = DisplayModes {
-            fullscreen: vec![],
-            desktop: None,
-            current: Some(Resolution::new(8000, 1000)),
-        };
-        let env_pillarbox = Env {
-            localization: &loc,
-            languages: &langs,
-            modes: &pillarbox_modes,
-            recommendation: None,
-        };
-        assert_eq!(
-            Choice::Resolution.items(&env_pillarbox, &draft),
-            ["3556 x 1000"]
-        );
-        assert_eq!(
-            Choice::Resolution.text(&env_pillarbox, &draft),
-            "3556 x 1000"
-        );
-
-        // Window taller than 9:16 has letterbox black stripes; reading excludes them (500x2000 -> 500x889)
-        let letterbox_modes = DisplayModes {
-            fullscreen: vec![],
-            desktop: None,
-            current: Some(Resolution::new(500, 2000)),
-        };
-        let env_letterbox = Env {
-            localization: &loc,
-            languages: &langs,
-            modes: &letterbox_modes,
-            recommendation: None,
-        };
-        assert_eq!(
-            Choice::Resolution.items(&env_letterbox, &draft),
-            ["500 x 889"]
-        );
-        assert_eq!(Choice::Resolution.text(&env_letterbox, &draft), "500 x 889");
-
-        // Switch back to 16:9
-        let wide_idx = AspectRatio::ALL
-            .iter()
-            .position(|a| *a == AspectRatio::Wide16x9)
-            .unwrap();
-        Choice::Aspect.select(&env, &mut draft, wide_idx);
-        assert_eq!(draft.aspect, AspectRatio::Wide16x9);
-        assert!(!draft.config.video.flexible_aspect);
-        assert!(enabled(res_binding, true, &draft, &draft.config));
-        assert_eq!(
-            Choice::Resolution.items(&env, &draft),
-            ["1920 x 1080", "1280 x 720"]
-        );
     }
 }

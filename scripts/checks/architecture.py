@@ -42,10 +42,14 @@ LAYERS = {
     "hl2-simulation": {"modkit-core", "source-assets"},
     "hl2-ui": {"modkit-core", "source-assets", "source-ui", "hl2-simulation"},
     "hl2-bevy": {"modkit-core", "source-assets", "source-ui", "hl2-simulation", "hl2-ui"},
+    # Plugins consume core contracts; only the application selects them.
+    "hl2-debug": {"modkit-core", "source-assets", "source-ui", "hl2-simulation", "hl2-ui", "hl2-bevy"},
+    "hl2-advanced-options": {"modkit-core", "source-assets", "source-ui", "hl2-ui", "hl2-bevy"},
+    "hl2rs": {"hl2-bevy", "hl2-debug", "hl2-advanced-options"},
 }
 # External crate -> the only workspace crates that may depend on it directly.
 ONLY_IN = {
-    "bevy": {"hl2-bevy"},
+    "bevy": {"hl2-bevy", "hl2-debug", "hl2-advanced-options", "hl2rs"},
     "rfd": {"hl2-bevy"},
     "rapier3d": {"hl2-simulation"},
     "symphonia": {"hl2-simulation"},
@@ -53,6 +57,10 @@ ONLY_IN = {
 }
 # Crates that get their bytes from source-assets or the host, never from the file system.
 NO_FILE_IO = {"modkit-core", "hl2-simulation", "source-ui"}
+# Concrete plugins and their selection features: core sources and manifests never name them.
+CORE_CRATES = {"modkit-core", "source-assets", "source-ui", "hl2-simulation", "hl2-ui", "hl2-bevy"}
+CONCRETE_PLUGIN = re.compile(
+    r"\bhl2[_-]debug\b|\bhl2[_-]advanced[_-]options\b|feature\s*=\s*\"(debug-tools|advanced-options)\"")
 FILE_IO = re.compile(r"\bstd::fs\b|\bfs::(read|write|create_dir|remove|rename|copy|File)|\bFile::(open|create)\b")
 # The toolkit knows nothing of HL2: no HL2 crate paths or HL2RS-only tokens in its code.
 TOOLKIT = "source-ui"
@@ -211,9 +219,14 @@ def measure():
     state = {"functions": defaultdict(list), "files": {}, "test_files": {},
              "counts": defaultdict(lambda: defaultdict(int))}
     problems, windows = [], defaultdict(list)
-    crates = sorted(p.name for p in (REPO / "crates").iterdir() if (p / "Cargo.toml").is_file())
+    packages = {p.name: p for root in ("crates", "plugins", "apps")
+                for p in (REPO / root).iterdir() if (p / "Cargo.toml").is_file()}
+    crates = sorted(packages)
     for crate in crates:
-        deps = dependencies(REPO / "crates" / crate / "Cargo.toml")
+        deps = dependencies(packages[crate] / "Cargo.toml")
+        if crate in CORE_CRATES and CONCRETE_PLUGIN.search(
+                (packages[crate] / "Cargo.toml").read_text(encoding="utf-8")):
+            problems.append(f"crate {crate}: its manifest names a concrete plugin; the application selects plugins")
         allowed = LAYERS.get(crate)
         if allowed is None:
             problems.append(f"crate {crate} is not in LAYERS: decide its layer with the owner and add it")
@@ -228,9 +241,12 @@ def measure():
             if owners and crate not in owners:
                 problems.append(f"crate {crate} depends on {dep}, which only {', '.join(sorted(owners))} "
                                 f"may use directly")
-        for path in sorted((REPO / "crates" / crate / "src").rglob("*.rs")):
+        for path in sorted((packages[crate] / "src").rglob("*.rs")):
             rel = path.relative_to(REPO).as_posix()
-            code, plain = scan(path.read_text(encoding="utf-8", errors="replace"))
+            source = path.read_text(encoding="utf-8", errors="replace")
+            code, plain = scan(source)
+            if crate in CORE_CRATES and CONCRETE_PLUGIN.search(source):
+                problems.append(f"{rel}: names a concrete plugin; core knows only injected contracts")
             mask = test_mask(path, code)
             production = sum(1 for m in mask if not m)
             tests = len(mask) - production
