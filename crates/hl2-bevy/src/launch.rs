@@ -281,6 +281,12 @@ pub(super) fn finish(
     {
         bail!("movement script did not finish; inspect report/log");
     }
+    if let Some(rejected) = status.simulation["extension_rejected"]
+        .as_array()
+        .filter(|rejected| !rejected.is_empty())
+    {
+        bail!("no selected extension handled: {rejected:?}");
+    }
     if options.capture.is_some()
         && (!status.capture_completed || !capture_exists || capture_write_error.is_some())
     {

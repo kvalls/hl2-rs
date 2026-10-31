@@ -495,3 +495,60 @@ fn forced_resize_uses_the_normal_projection_baseline() {
     assert_eq!(state.background_debug.fov, Some(expected));
     assert!(state.background_debug.lines(expected, true)[4].contains(&format!("{expected:.2}")));
 }
+
+#[test]
+fn developer_shortcuts_follow_gameplay_input_gates() {
+    let (mut state, mut sim) = (State::default(), simulation());
+    let keys = ButtonInput::default();
+    let buttons = ButtonInput::default();
+    let input = |cursor_grabbed| hl2_bevy::extensions::Input {
+        keys: &keys,
+        buttons: &buttons,
+        focused: true,
+        cursor_grabbed,
+        aspect: ASPECT,
+        time: Some(0.),
+    };
+    assert!(state.shortcuts_allowed(&sim, &input(true)));
+    assert!(!state.shortcuts_allowed(&sim, &input(false)), "free cursor");
+    state.overlay.open = true;
+    assert!(
+        state.shortcuts_allowed(&sim, &input(false)),
+        "F4 frees the cursor"
+    );
+    state.overlay.typing = true;
+    assert!(!state.shortcuts_allowed(&sim, &input(true)), "typing");
+    state.overlay.typing = false;
+    sim.paused = true;
+    assert!(!state.shortcuts_allowed(&sim, &input(true)), "paused");
+    sim.paused = false;
+    sim.transition = true;
+    assert!(!state.shortcuts_allowed(&sim, &input(true)), "transition");
+}
+
+#[test]
+fn the_saved_artwork_choice_does_not_count_as_a_change_at_startup() {
+    let (mut state, mut sim, mut ui) = (State::default(), simulation(), console());
+    let mut config = ui.source.config.clone();
+    config.video.background_force_default_blur = true;
+    state.startup(&config);
+    state.background_debug.fov = Some(65.);
+    state.config_changed(
+        &mut Context {
+            simulation: &mut sim,
+            gameplay: None,
+            console: Some(&mut ui),
+        },
+        &config,
+    );
+    assert_eq!(state.background_debug.fov, Some(65.));
+}
+
+#[test]
+fn unknown_script_events_are_not_claimed() {
+    let (mut state, mut sim) = (State::default(), simulation());
+    assert!(state.script(&mut sim, &serde_json::json!({"developer_overlay": true})));
+    assert!(state.dev_overlay);
+    assert!(!state.script(&mut sim, &serde_json::json!({"dev_overlay": true})));
+    assert!(!state.script(&mut sim, &serde_json::json!({"developer_overlay": "yes"})));
+}

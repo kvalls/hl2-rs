@@ -9,6 +9,9 @@ python3 scripts/checks/architecture.py
 echo "=== Checking Python helpers ==="
 python3 -m unittest discover -s scripts/checks -p 'test_*.py'
 
+echo "=== Checking application plugin selections ==="
+python3 scripts/checks/check_plugin_selection.py
+
 echo "=== Running workspace tests ==="
 cargo test --workspace --locked --no-fail-fast
 

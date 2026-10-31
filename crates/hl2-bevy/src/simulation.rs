@@ -43,6 +43,8 @@ struct Sample {
 pub struct Simulation {
     pub extensions: Vec<Box<dyn crate::extensions::RuntimeExtension>>,
     pub input_claims: crate::extensions::InputClaims,
+    /// Opaque script, UI or effect events no selected extension handled.
+    pub extension_rejected: Vec<String>,
     pub pointer_capture_was_active: bool,
     /// Wall-clock milliseconds of the last whole fixed step (test reports).
     last_step_ms: f64,
@@ -113,6 +115,7 @@ impl Simulation {
     ) -> Self {
         Self {
             extensions: Vec::new(),
+            extension_rejected: Vec::new(),
             input_claims: Default::default(),
             pointer_capture_was_active: false,
             last_step_ms: 0.,
@@ -263,7 +266,7 @@ impl Simulation {
         let mut report = serde_json::json!({"player": self.player, "eye": self.eye.to_array(), "fly": self.fly,
             "paused": self.paused(), "background_level": self.background_level, "world_running": self.world_running(),
             "dead": self.player.dead, "loading":self.loading,"host_tick": self.host_tick, "script_finished": self.finished,
-            "samples": self.samples, "colliders": self.physics.colliders.len(),
+            "extension_rejected": self.extension_rejected, "samples": self.samples, "colliders": self.physics.colliders.len(),
             "native_convex_shapes": self.physics.native_shape_count, "native_shape_fallbacks": self.physics.native_shape_fallbacks,
             "skipped_colliders": self.physics.skipped, "dynamic_props": self.physics.dynamic.len()});
         for extension in &self.extensions {
@@ -364,8 +367,9 @@ impl Simulation {
         for effect in effects {
             match effect {
                 Effect::Extension(event) => {
+                    let mut handled = false;
                     self.with_extensions(|extension, simulation| {
-                        extension.effect(
+                        handled |= extension.effect(
                             &mut crate::extensions::Context {
                                 simulation,
                                 gameplay: Some(game),
@@ -374,6 +378,9 @@ impl Simulation {
                             &event,
                         );
                     });
+                    if !handled {
+                        self.reject_extension_event("effect", &event);
+                    }
                 }
                 Effect::Loadout => grant_loadout(ui, game),
                 Effect::AiEnable(value) => {
@@ -528,7 +535,7 @@ impl Simulation {
             self.set_fly(fly);
         }
         if let Some(event) = &c.extension {
-            self.with_extensions(|extension, simulation| extension.script(simulation, event));
+            self.script_extension(event);
         }
         if let Some(paused) = c.paused {
             self.paused = paused;

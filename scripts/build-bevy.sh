@@ -6,15 +6,21 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 DEBUG_BUILD=0
+# Application plugin features; "none" builds the core alone.
+PLUGINS="advanced-options,debug-tools"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --debug|-d|-DebugBuild)
             DEBUG_BUILD=1
             shift
             ;;
+        --plugins)
+            PLUGINS="${2:?--plugins needs a comma-separated list or none}"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1" >&2
-            echo "Usage: $0 [--debug]" >&2
+            echo "Usage: $0 [--debug] [--plugins advanced-options,debug-tools|none]" >&2
             exit 1
             ;;
     esac
@@ -36,7 +42,10 @@ if [[ -z "$(find "$SHADER_SOURCE" -type f ! -name ".*" 2>/dev/null)" ]]; then
 fi
 
 PROFILE_NAME="release"
-CARGO_ARGS=("build" "--locked" "-p" "hl2-app" "--bin" "hl2-bevy")
+CARGO_ARGS=("build" "--locked" "-p" "hl2-app" "--bin" "hl2-bevy" "--no-default-features")
+if [[ "$PLUGINS" != "none" ]]; then
+    CARGO_ARGS+=("--features" "$PLUGINS")
+fi
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
     PROFILE_NAME="debug"
 else
@@ -88,7 +97,9 @@ if [[ -d "$SHADER_DEST" ]]; then
     rm -rf "$SHADER_DEST"
 fi
 cp -R "$SHADER_SOURCE" "$SHADER_DEST"
-cp "$PROJECT_ROOT/plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl" "$SHADER_DEST/shaders/weapon_blur.wgsl"
+if [[ ",$PLUGINS," == *",advanced-options,"* ]]; then
+    cp "$PROJECT_ROOT/plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl" "$SHADER_DEST/shaders/weapon_blur.wgsl"
+fi
 find "$SHADER_DEST" -name ".DS_Store" -delete 2>/dev/null || true
 
 PACKAGE_EXECUTABLE="$PACKAGE_ROOT/hl2-bevy"

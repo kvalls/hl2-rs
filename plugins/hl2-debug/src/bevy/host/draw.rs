@@ -42,6 +42,7 @@ impl State {
         {
             let stack_top = draw_debug_overlays(self, &ui, &sim, &self.lines, width, height);
             // F4 NPC spawn panel (ours, outside the hl2-ui menus).
+            self.panel_switches = Some((game.ai.enabled, game.ai.ignore_player));
             let panel = self
                 .overlay
                 .open

@@ -112,8 +112,9 @@ impl crate::simulation::Simulation {
             Action::Command { command } => ui.source.submit(command),
             Action::Input { input } => ui.source.input(input),
             Action::Extension(value) => {
+                let mut handled = false;
                 self.with_extensions(|extension, simulation| {
-                    extension.action(
+                    handled |= extension.action(
                         &mut crate::extensions::Context {
                             simulation,
                             gameplay: Some(game),
@@ -122,6 +123,9 @@ impl crate::simulation::Simulation {
                         value,
                     );
                 });
+                if !handled {
+                    self.reject_extension_event("UI action", value);
+                }
                 vec![]
             }
         };

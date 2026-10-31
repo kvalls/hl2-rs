@@ -305,3 +305,22 @@ fn every_plugin_placeholder_has_text_and_an_hl2rs_token() {
         );
     }
 }
+
+#[test]
+fn installed_localization_wins_over_plugin_placeholders() {
+    let mut resources = hl2_ui::gameui::resources::GameUiResources::default();
+    resources
+        .localization
+        .insert("#HL2RS_VerticalFov", "Installed");
+    let mut extensions = Extensions::default();
+    crate::register(&mut extensions).unwrap();
+    extensions.prepare_resources(&mut resources);
+    assert_eq!(
+        resources.localization.text("#HL2RS_VerticalFov"),
+        "Installed"
+    );
+    assert_eq!(
+        resources.localization.text("#HL2RS_ViewmodelFov"),
+        "Viewmodel FOV"
+    );
+}

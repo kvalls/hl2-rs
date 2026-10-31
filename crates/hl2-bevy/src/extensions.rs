@@ -16,6 +16,7 @@ pub struct Input<'a> {
     pub keys: &'a ButtonInput<KeyCode>,
     pub buttons: &'a ButtonInput<MouseButton>,
     pub focused: bool,
+    pub cursor_grabbed: bool,
     pub aspect: f32,
     pub time: Option<f64>,
 }
@@ -55,7 +56,12 @@ pub trait RuntimeExtension: Send + Sync + 'static {
     }
     fn loading(&mut self, _context: &mut Context<'_>, _event: &MapLoad<'_>) {}
     fn map_changed(&mut self, _simulation: &mut Simulation) {}
-    fn map_installed(&mut self, _game: &mut Gameplay, _vfs: &source_assets::vpk::Vfs) {}
+    fn map_installed(
+        &mut self,
+        _game: &mut Gameplay,
+        _vfs: &std::sync::Arc<source_assets::vpk::Vfs>,
+    ) {
+    }
     /// The stored settings, before the first `level_target`.
     fn startup(&mut self, _config: &hl2_ui::config::Config) {}
     fn level_target(&mut self, _map: &str, _background: bool, _widescreen: bool) {}
@@ -63,7 +69,10 @@ pub trait RuntimeExtension: Send + Sync + 'static {
     fn action(&mut self, _context: &mut Context<'_>, _action: &serde_json::Value) -> bool {
         false
     }
-    fn script(&mut self, _simulation: &mut Simulation, _event: &serde_json::Value) {}
+    /// Handles a replay event; an event no contributor handles fails the run.
+    fn script(&mut self, _simulation: &mut Simulation, _event: &serde_json::Value) -> bool {
+        false
+    }
     fn framing(
         &self,
         _weapon: &str,
@@ -146,6 +155,40 @@ impl Simulation {
         });
     }
 
+    pub(crate) fn script_extension(&mut self, event: &serde_json::Value) {
+        let mut handled = false;
+        self.with_extensions(|extension, simulation| {
+            handled |= extension.script(simulation, event)
+        });
+        if !handled {
+            self.reject_extension_event("script event", event);
+        }
+    }
+
+    pub(crate) fn extensions_input(
+        &mut self,
+        mut gameplay: Option<&mut Gameplay>,
+        mut console: Option<&mut Console>,
+        input: &Input<'_>,
+    ) {
+        self.with_extensions(|extension, simulation| {
+            extension.input(
+                &mut Context {
+                    simulation,
+                    gameplay: gameplay.as_deref_mut(),
+                    console: console.as_deref_mut(),
+                },
+                input,
+            );
+        });
+    }
+
+    /// Records an opaque contribution no selected extension handled; a script run then fails.
+    pub(crate) fn reject_extension_event(&mut self, kind: &str, event: &serde_json::Value) {
+        bevy::log::error!("no extension handled the {kind} {event}");
+        self.extension_rejected.push(format!("{kind}: {event}"));
+    }
+
     /// Moves the existing vector while callbacks run; no per-frame allocation or locking.
     pub fn with_extensions(&mut self, mut visit: impl FnMut(&mut dyn RuntimeExtension, &mut Self)) {
         let mut extensions = std::mem::take(&mut self.extensions);
@@ -153,5 +196,68 @@ impl Simulation {
             visit(extension.as_mut(), self);
         }
         self.extensions = extensions;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An independent contributor: nothing in core names it.
+    #[derive(Default)]
+    struct Recorder(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+    impl RuntimeExtension for Recorder {
+        fn startup(&mut self, _config: &hl2_ui::config::Config) {
+            self.0.lock().unwrap().push("startup".into());
+        }
+        fn map_changed(&mut self, _simulation: &mut Simulation) {
+            self.0.lock().unwrap().push("map_changed".into());
+        }
+        fn script(&mut self, _simulation: &mut Simulation, event: &serde_json::Value) -> bool {
+            event.get("recorder").is_some()
+        }
+    }
+
+    fn simulation() -> Simulation {
+        Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        )
+    }
+
+    #[test]
+    fn an_injected_contributor_receives_lifecycle_callbacks_without_core_edits() {
+        let log = std::sync::Arc::default();
+        let mut sim = simulation();
+        sim.extensions
+            .push(Box::new(Recorder(std::sync::Arc::clone(&log))));
+        sim.change_map(&modkit_core::World::default(), glam::Vec3::ZERO, true);
+        assert_eq!(*log.lock().unwrap(), ["map_changed"]);
+    }
+
+    #[test]
+    fn unhandled_script_events_are_rejected_rather_than_ignored() {
+        let mut sim = simulation();
+        sim.extensions.push(Box::<Recorder>::default());
+        sim.script_extension(&serde_json::json!({"recorder": 1}));
+        assert!(sim.extension_rejected.is_empty());
+        sim.script_extension(&serde_json::json!({"typo": 1}));
+        assert_eq!(sim.extension_rejected.len(), 1);
+        assert!(
+            sim.report()["extension_rejected"]
+                .as_array()
+                .is_some_and(|a| a.len() == 1)
+        );
+    }
+
+    #[test]
+    fn without_a_contributor_every_event_is_rejected() {
+        let mut sim = simulation();
+        sim.script_extension(&serde_json::json!({"developer_overlay": true}));
+        assert_eq!(sim.extension_rejected.len(), 1);
     }
 }

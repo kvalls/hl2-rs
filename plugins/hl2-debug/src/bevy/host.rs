@@ -23,9 +23,33 @@ pub struct State {
     lines: Vec<String>,
     /// The artwork choice last seen in a config update; only a change resets temporary FOV.
     force_default_blur: bool,
+    /// The AI and notarget switches last drawn, for the HUD report.
+    panel_switches: Option<(bool, bool)>,
+    /// The Props listing being read off the frame thread for the installed map.
+    props: Option<PropListing>,
+}
+type PropListing =
+    std::sync::Arc<std::sync::OnceLock<std::collections::BTreeMap<String, Vec<String>>>>;
+impl State {
+    /// Developer shortcuts follow gameplay input: not during scripts, pause, transitions or
+    /// typing, and only with a captured cursor unless the F4 panel freed it.
+    fn shortcuts_allowed(&self, sim: &hl2_bevy::simulation::Simulation, input: &Input<'_>) -> bool {
+        sim.commands.is_empty()
+            && !sim.paused()
+            && !sim.transition
+            && !self.overlay.typing
+            && (input.cursor_grabbed || self.overlay.open)
+    }
+    fn adopt_finished_props(&mut self) {
+        if let Some(folders) = self.props.as_ref().and_then(|props| props.get()) {
+            self.overlay.set_props(folders.clone());
+            self.props = None;
+        }
+    }
 }
 impl RuntimeExtension for State {
     fn input(&mut self, context: &mut Context<'_>, input: &Input<'_>) {
+        self.adopt_finished_props();
         let sim = &mut *context.simulation;
         if input.focused && input.keys.just_pressed(crate::bevy::input::OVERLAY_KEY) {
             self.dev_overlay = !self.dev_overlay;
@@ -47,11 +71,12 @@ impl RuntimeExtension for State {
         sim.input_claims.attacks |= self.overlay.open;
         sim.input_claims.keyboard |= self.overlay.typing;
         sim.input_claims.pointer |= self.overlay.open;
-        if !sim.commands.is_empty() || sim.paused() || sim.transition || self.overlay.typing {
+        if !self.shortcuts_allowed(sim, input) {
             return;
         }
         if input.keys.just_pressed(crate::bevy::input::FLIGHT_KEY) {
-            sim.set_fly(!sim.fly);
+            let fly = !sim.flying();
+            sim.set_fly(fly);
         }
         if let Some(game) = context.gameplay.as_deref_mut() {
             let config = context.console.as_ref().map(|ui| &ui.source.config);
@@ -106,7 +131,7 @@ impl RuntimeExtension for State {
     fn map_installed(
         &mut self,
         game: &mut hl2_bevy::gameplay::Gameplay,
-        vfs: &source_assets::vpk::Vfs,
+        vfs: &std::sync::Arc<source_assets::vpk::Vfs>,
     ) {
         self.overlay = Overlay::default();
         self.overlay
@@ -114,7 +139,13 @@ impl RuntimeExtension for State {
                 &game.world,
                 &game.ai,
             ));
-        self.overlay.set_props(vfs.physics_prop_models());
+        // Listing every archive is too slow for the frame that adopts the map.
+        let listing = PropListing::default();
+        self.props = Some(listing.clone());
+        let vfs = vfs.clone();
+        std::thread::spawn(move || {
+            let _ = listing.set(vfs.physics_prop_models());
+        });
     }
     fn startup(&mut self, config: &hl2_ui::config::Config) {
         self.force_default_blur = config.video.background_force_default_blur;
@@ -136,13 +167,18 @@ impl RuntimeExtension for State {
                 .blur_texture_name(&self.background_debug.map_name, ui.source.is_widescreen());
         }
     }
-    fn script(&mut self, _sim: &mut hl2_bevy::simulation::Simulation, event: &serde_json::Value) {
-        if let Some(enabled) = event
+    fn script(
+        &mut self,
+        _sim: &mut hl2_bevy::simulation::Simulation,
+        event: &serde_json::Value,
+    ) -> bool {
+        let enabled = event
             .get("developer_overlay")
-            .and_then(serde_json::Value::as_bool)
-        {
+            .and_then(serde_json::Value::as_bool);
+        if let Some(enabled) = enabled {
             self.dev_overlay = enabled;
         }
+        enabled.is_some()
     }
     fn action(&mut self, context: &mut Context<'_>, action: &serde_json::Value) -> bool {
         self.replay_action(context, action)
@@ -186,7 +222,7 @@ impl RuntimeExtension for State {
     }
     fn hud_report(&self, hud: &hl2_bevy::canvas_renderer::Hud) -> Option<serde_json::Value> {
         Some(
-            serde_json::json!({"spawn_overlay":self.overlay.open.then(||self.overlay.panel(true,false)),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines}}),
+            serde_json::json!({"spawn_overlay":self.overlay.open.then(||{let (ai,notarget)=self.panel_switches.unwrap_or((true,false));self.overlay.panel(ai,notarget)}),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines}}),
         )
     }
     fn gameplay_report(&self) -> Option<(&'static str, serde_json::Value)> {

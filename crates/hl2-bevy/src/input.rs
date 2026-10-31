@@ -290,19 +290,13 @@ pub(crate) fn controls(
         keys: &keys,
         buttons: &buttons,
         focused: windows.single().is_ok_and(|(window, _)| window.focused),
+        cursor_grabbed: windows
+            .single()
+            .is_ok_and(|(_, cursor)| cursor.grab_mode != CursorGrabMode::None),
         aspect: crate::video::frame_aspect(_frame.as_deref()),
         time: real_time.as_deref().map(Time::elapsed_secs_f64),
     };
-    sim.with_extensions(|extension, simulation| {
-        extension.input(
-            &mut crate::extensions::Context {
-                simulation,
-                gameplay: game.as_deref_mut(),
-                console: ui.as_deref_mut(),
-            },
-            &input,
-        );
-    });
+    sim.extensions_input(game.as_deref_mut(), ui.as_deref_mut(), &input);
     // CGameRules::Think reads `skill` every frame, and weapon selection reads
     // `hud_fastswitch` on each key, so changed settings apply at once.
     if let (Some(game), Some(ui)) = (game.as_deref_mut(), ui.as_deref()) {
