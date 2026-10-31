@@ -594,7 +594,7 @@ impl OptionsDialog {
                 let res = self.draft.config.video.policy.0.presented(current);
                 self.draft.config.video.width = res.width;
                 self.draft.config.video.height = res.height;
-                if self.applied.video.flexible_aspect {
+                if self.applied.video.effective_flexible_aspect() {
                     self.applied.video.width = res.width;
                     self.applied.video.height = res.height;
                 }

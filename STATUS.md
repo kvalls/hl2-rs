@@ -17,8 +17,14 @@ and after. Earlier blur baselines stay rejected, so no timing claim exists for t
 replay fixture for F1 was migrated but has not been run. Owned-install `#[ignore]` tests were
 not run.
 
-Known gaps: the runtime contract is still broad and `VideoPolicy` is a single slot (see
-docs/plugins.md); plugin dependency validation is not implemented; developer text in the F4
+No replay opens the Props tab, so the off-thread listing's timing affects no current check;
+opening it right after a load can briefly show the default listing.
+
+Not audited: Escape ordering, F4 input capture and secondary-weapon preservation. The string
+audit does not scan `plugins/`. The `startup` hook and load-failure path have no lifecycle test.
+
+Known gaps: the runtime contract is still broad, and `framing` and `projection` take the first
+answer instead of an explicit selection (see docs/plugins.md); plugin dependency validation is not implemented; developer text in the F4
 panel and overlays still has English literals; running from `cargo run` without packaging has
 no `weapon_blur.wgsl` in the asset root.
 

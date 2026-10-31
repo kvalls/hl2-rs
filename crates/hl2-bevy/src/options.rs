@@ -60,7 +60,7 @@ impl Options {
             width: config.video.width,
             height: config.video.height,
             display_mode: config.video.display_mode,
-            flexible_aspect: config.video.flexible_aspect,
+            flexible_aspect: config.video.effective_flexible_aspect(),
             fly: false,
             movement_script: None,
             volume: config.audio.volume,

@@ -36,8 +36,9 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 ## Known gaps
 
 - `RuntimeExtension` is broader than the project's target: `Context` gives mutable access to `Simulation`, `Gameplay` and the console. Treat it as unstable.
-- `VideoPolicy` is a single slot, so a second video plugin replaces the first. Explicit selection among several video contributors is not implemented.
+- One video policy can be selected; `Extensions::select_video` rejects a second. Selecting among several video contributors is not implemented, and `framing` and `projection` take the first contributor's answer.
 - There is no declared-dependency or capability validation between plugins, because the two current plugins are independent.
+- `cargo run` without packaging has no `weapon_blur.wgsl` in its asset root, so run the packaged build for Advanced or Ultra blur.
 - Plugin developer text in the F4 panel and debug overlays still has English literals.
 - `modkit_core::ModPlugin` is an older, unused simulation contract, not this mechanism.
 

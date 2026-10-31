@@ -39,6 +39,23 @@ fn old_saves_remain_retail_and_dormant_tiers_survive_without_the_plugin() {
 }
 
 #[test]
+fn dormant_display_preferences_do_not_apply_without_the_plugin() {
+    let config = Config::from_json(
+        br#"{"video":{"flexible_aspect":true,"vertical_fov":90.0,"viewmodel_fov":70.0}}"#,
+    )
+    .unwrap();
+    let draft = super::Draft::new(config);
+    assert_ne!(draft.aspect, crate::gameui::display::AspectRatio::Flexible);
+    assert!(!draft.config.video.effective_flexible_aspect());
+    assert_eq!(draft.config.video.effective_vertical_fov(), 0.);
+    let resolution = Some(super::Binding::Choice(super::Choice::Resolution));
+    assert!(super::enabled(resolution, true, &draft, &draft.config));
+    let restored = Config::from_json(&serde_json::to_vec(&draft.config).unwrap()).unwrap();
+    assert!(restored.video.flexible_aspect);
+    assert_eq!(restored.video.vertical_fov, 90.);
+}
+
+#[test]
 #[ignore = "requires an owned installed Half-Life 2 copy"]
 fn owned_motion_blur_tokens() {
     use crate::gameui::resources::GameUiResources;

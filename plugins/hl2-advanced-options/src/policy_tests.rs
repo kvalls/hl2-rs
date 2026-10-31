@@ -324,3 +324,32 @@ fn installed_localization_wins_over_plugin_placeholders() {
         "Viewmodel FOV"
     );
 }
+
+#[test]
+fn a_second_video_policy_is_rejected_rather_than_replacing_the_first() {
+    let mut extensions = Extensions::default();
+    crate::register(&mut extensions).unwrap();
+    let error = extensions
+        .select_video("another", VideoPolicy::new(AdvancedPolicy))
+        .unwrap_err();
+    assert!(
+        error.contains("hl2-advanced-options") && error.contains("another"),
+        "{error}"
+    );
+}
+
+#[test]
+fn malformed_fov_cvars_change_nothing() {
+    let mut console = console();
+    console.set_mode(Mode::Console);
+    for command in [
+        "vertical_fov x",
+        "vertical_fov 1 1",
+        "viewmodel_fov x",
+        "viewmodel_fov 1 1",
+    ] {
+        let before = console.config.clone();
+        console.submit(command);
+        assert_eq!(console.config, before, "{command}");
+    }
+}

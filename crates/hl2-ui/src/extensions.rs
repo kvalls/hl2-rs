@@ -20,6 +20,7 @@ pub struct Extensions {
     pub commands: Arc<[Spec]>,
     pub initialize: Vec<fn(&mut Console)>,
     pub video: VideoPolicy,
+    video_owner: Option<&'static str>,
     pub layouts: Vec<(&'static str, &'static str)>,
     pub localization: Vec<(&'static str, &'static str)>,
     pub bindings: Vec<(&'static str, &'static str)>,
@@ -31,6 +32,7 @@ impl Default for Extensions {
             commands: COMMANDS.into(),
             initialize: Vec::new(),
             video: VideoPolicy::default(),
+            video_owner: None,
             layouts: Vec::new(),
             localization: Vec::new(),
             bindings: Vec::new(),
@@ -39,6 +41,17 @@ impl Default for Extensions {
     }
 }
 impl Extensions {
+    /// Selects the one video policy; a second contributor is an error, never a silent replacement.
+    pub fn select_video(&mut self, owner: &'static str, policy: VideoPolicy) -> Result<(), String> {
+        if let Some(existing) = self.video_owner {
+            return Err(format!(
+                "video policy already selected by {existing}: {owner}"
+            ));
+        }
+        self.video_owner = Some(owner);
+        self.video = policy;
+        Ok(())
+    }
     /// Reject collisions so removing a contributor never changes another command's meaning.
     pub fn commands(&mut self, entries: &[Spec]) -> Result<(), String> {
         let mut commands = self.commands.to_vec();

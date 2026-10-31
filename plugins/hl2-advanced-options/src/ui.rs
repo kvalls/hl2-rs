@@ -95,7 +95,7 @@ impl VideoExtension for AdvancedPolicy {
 }
 pub fn register(extensions: &mut Extensions) -> Result<(), String> {
     extensions.commands(&crate::commands::SPECS)?;
-    extensions.video = VideoPolicy::new(AdvancedPolicy);
+    extensions.select_video("hl2-advanced-options", VideoPolicy::new(AdvancedPolicy))?;
     extensions.layouts.extend_from_slice(crate::LAYOUT_ADDENDA);
     extensions
         .localization
