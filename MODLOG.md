@@ -1,5 +1,39 @@
 # MODLOG
 
+## 2026-10-31 Plugin extraction recovery
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents edited code.
+
+**Changed / Why:** Continued the extraction from the handoff. Moved debug and advanced tests
+into the owning plugins and kept core retail and dormant-preference regressions. Split
+`hl2-bevy` `lib.rs` (options, monitor, launch, startup cameras), the F4 panel, settings
+selection and video modules so no size limit grew. The architecture check now forbids core
+naming a plugin, scans `apps/` and lists the real plugin edges. Build scripts take a plugin
+selection and package only selected shaders; added a selection check and docs/plugins.md.
+
+Regressions found and fixed: temporary background FOV was cleared on every config apply; F2
+and F3 ignored the free-cursor gate; F2 toggled the requested rather than effective flight
+state; the debug runtime was installed after first-level callbacks; the Props listing ran on
+the frame adopting a map; unknown replay and UI events passed silently; the HUD report used
+fixed AI and notarget values.
+
+**Owner decisions recorded:** plugin edges to `hl2-ui`, `hl2-bevy` and `source-assets` follow
+application -> plugins -> core and the approved adapter exception. For this session the owner
+asked for commits as tracking checkpoints without tests before each one; hooks were not
+bypassed.
+
+**Tested how / Result:** On macOS, workspace unit tests, strict Clippy, fmt, architecture,
+four-selection check and the Windows Clippy cross-check all pass. A mistaken empty
+`UPDATE_GOLDEN=` rewrote `cvars.golden`; the result was reviewed against the base revision and
+only removes `vertical_fov` and `viewmodel_fov`, which moved to the plugin and have a plugin test.
+
+**Still broken or not tested:** Packaged replays, UI captures, ordinary play, per-selection
+runtime, Windows runtime, owned-install tests and frame time before and after are **not
+tested**. No frame-time numbers are recorded, so hard rule 11's measurement is outstanding.
+Contract gaps are listed in docs/plugins.md.
+
+**Next:** Packaged replays and quiet paired timing, then narrow `RuntimeExtension`.
+
 ## 2026-10-31 Upcoming plugin architecture guardrails
 
 **Agent/model:** Codex desktop, gpt-6.1-sol. No subagent involvement in this update.

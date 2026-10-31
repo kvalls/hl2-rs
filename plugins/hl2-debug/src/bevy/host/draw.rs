@@ -25,7 +25,7 @@ impl State {
             let eye = sim.eye();
             self.lines = crate::overlay::developer_lines(crate::overlay::DeveloperFrame {
                 map: &game.world.name,
-                triangles: triangles,
+                triangles,
                 textures,
                 entities: game.world.entities.len(),
                 flying: sim.flying(),
@@ -33,14 +33,14 @@ impl State {
                 friendly_fire: game.scene.player_hurts_friendlies,
                 eye: eye.to_array(),
                 frame_ms: hud.frame_statistics().1,
-                materials: materials,
+                materials,
                 colliders: sim.physics.colliders.len(),
                 bodies: sim.physics.bodies.len(),
             });
         }
         // Overlays stack down the left edge in the order F1, viewmodel tweak, F4; hidden ones leave no gap.
         {
-            let stack_top = draw_debug_overlays(self, &ui, &sim, &self.lines, width, height);
+            let stack_top = draw_debug_overlays(self, ui, sim, &self.lines, width, height);
             // F4 NPC spawn panel (ours, outside the hl2-ui menus).
             self.panel_switches = Some((game.ai.enabled, game.ai.ignore_player));
             let panel = self

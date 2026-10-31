@@ -61,12 +61,11 @@ pub(super) fn default_plugins(
     // Background runs have no operating-system window: without winit nothing is created on the
     // desktop or activated (winit activates the app on launch). Profiling runs uncapped;
     // ordinary background replays retain the fixed-rate loop.
-    let default_plugins = if options.background {
+    if options.background {
         default_plugins.disable::<bevy::winit::WinitPlugin>()
     } else {
         default_plugins
-    };
-    default_plugins
+    }
 }
 
 pub(super) fn add_video_systems(app: &mut App) {

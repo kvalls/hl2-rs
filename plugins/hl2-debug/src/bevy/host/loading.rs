@@ -6,7 +6,7 @@ pub(super) fn log_debug_load_start(
     if request.background {
         if state.background_debug.enabled {
             let is_wide = ui.source.is_widescreen();
-            let blur_name = ui.source.blur_texture_name(&request.map, is_wide);
+            let blur_name = ui.source.blur_texture_name(request.map, is_wide);
             ui.source.log(format!(
                 "Started loading {}, applied {}.",
                 request.map, blur_name

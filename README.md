@@ -233,6 +233,8 @@ cargo fmt --all --check
 
 The separate native research folder for this checkout is `../../work/hl2-decompiled`. Its private binary copies, Ghidra databases, C pseudocode, indices and research scripts are outside this project. It is a reference for implementing behavior; none of its native code is loaded or compiled into the Rust runtime. Native exports are approximate pseudocode, not recovered original source.
 
+Advanced video options and developer tools are optional source-built plugins, on by default; see [plugins](docs/plugins.md). Packaged runs of the plugin selections are **not tested**.
+
 Development used the universal-modder Codex plugin and ten skills, version 0.2.0. They are not runtime or build dependencies. Its FAL capabilities are unused. The requested three reference repositories were read and are recorded in [research](docs/research.md). See [validation](docs/validation.md) for concrete checks and [MODLOG](MODLOG.md) for implementation notes.
 
 This is an AI-assisted project developed with OpenAI Codex (GPT-6) and, since 2026-10-06, Anthropic Claude Code (Claude Opus 5.5), with original-game testing and manual review of selected native behavior. It remains an experimental reconstruction. Contributions are welcome; read [CONTRIBUTING](CONTRIBUTING.md) for the code boundaries, checks and useful evidence to include in a PR.

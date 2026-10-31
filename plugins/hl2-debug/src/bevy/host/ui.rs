@@ -15,8 +15,8 @@ impl State {
     }
     pub(super) fn after_ui(&mut self, context: &mut Context<'_>, input: &UiInput<'_>) {
         let sim = &mut *context.simulation;
-        let mut game = context.gameplay.as_deref_mut();
-        let mut ui = context.console.as_deref_mut();
+        let game = context.gameplay.as_deref_mut();
+        let ui = context.console.as_deref_mut();
         let (keys, buttons, text, wheel, window, cursor) = (
             input.keys,
             input.buttons,
@@ -28,7 +28,7 @@ impl State {
         let overlay_open = self.overlay.open;
 
         let typing = self.overlay.typing;
-        if let Some(game) = game.as_deref_mut()
+        if let Some(game) = game
             && !sim.paused
             && !sim.transition
         {
@@ -48,7 +48,7 @@ impl State {
             }
             let dt = input.delta;
             if let Some((key, presses)) = self.repeat.update(
-                &keys,
+                keys,
                 &[
                     KeyCode::ArrowUp,
                     KeyCode::ArrowDown,
@@ -68,7 +68,7 @@ impl State {
                 pressed.extend(std::iter::repeat_n(overlay, presses));
             }
             if typing {
-                self.overlay.type_text(&text);
+                self.overlay.type_text(text);
             }
             let mut messages = Vec::new();
             for overlay in pressed {
@@ -90,7 +90,7 @@ impl State {
                     self.overlay.scroll(column, rows.round() as isize);
                 }
             }
-            if let Some(ui) = ui.as_deref_mut() {
+            if let Some(ui) = ui {
                 for message in messages {
                     ui.source.log(message);
                 }

@@ -163,7 +163,7 @@ fn draw_consistency(
             .unwrap_or((state.origin, state.rotation));
         let expected = rendering::entity_transform(origin, rotation);
         let hidden =
-            rendering::draw_hidden(&game, owner.0, weapon) || pvs.is_some_and(|pvs| pvs.culled);
+            rendering::draw_hidden(game, owner.0, weapon) || pvs.is_some_and(|pvs| pvs.culled);
         if transform.translation.distance(expected.translation) > 0.001
             || transform.rotation.dot(expected.rotation).abs() < 0.99999
             || (*visibility == Visibility::Hidden) != hidden

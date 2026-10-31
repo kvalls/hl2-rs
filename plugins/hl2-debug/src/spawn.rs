@@ -89,8 +89,6 @@ pub struct Panel {
 /// The F4 grenade counts Enter cycles through (a developer choice: native npc_create
 /// spawns soldiers with NumGrenades 0, so they never throw; maps set it per soldier).
 pub const GRENADE_CHOICES: &[i32] = &[0, 1, 2, 3, 5, 10, 99];
-/// Classes whose spawn reads the NumGrenades keyvalue (CNPC_Combine::KeyValue).
-
 /// Class rows shown at once; the list scrolls to keep the selection visible.
 pub const VISIBLE_CLASSES: usize = 14;
 /// The overlay's two tabs (Tab switches): NPC classes, or physics props by folder.
@@ -419,7 +417,7 @@ impl Overlay {
             }
             _ => {}
         }
-        return None;
+        None
     }
     fn key_npcs(&mut self, key: OverlayKey, step: KeyStep) -> Option<OverlayCommand> {
         match key {

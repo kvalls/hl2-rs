@@ -39,11 +39,7 @@ mod ui_system;
 pub mod video;
 mod visibility;
 use anyhow::Result;
-use bevy::{
-    prelude::*,
-    render::renderer::RenderAdapterInfo,
-    window::{CursorOptions, PrimaryWindow},
-};
+use bevy::{prelude::*, render::renderer::RenderAdapterInfo};
 pub(crate) use map_install::{StartupAssets, install_loaded_map};
 use serde::Serialize;
 use std::{
@@ -246,16 +242,15 @@ pub fn run(application: extensions::Application) -> Result<()> {
     launch::finish(&status, &options, summary, exit)
 }
 fn setup(
-    contributions: Res<extensions::UiContributions>,
     mut commands: Commands,
     mut prepared: ResMut<PreparedMap>,
     options: Res<Options>,
     status: Res<Status>,
     mut assets: StartupAssets,
     mut present_materials: ResMut<Assets<video::PresentMaterial>>,
-    (adapter, _windows): (
+    (adapter, contributions): (
         Option<Res<RenderAdapterInfo>>,
-        Query<&mut CursorOptions, With<PrimaryWindow>>,
+        Res<extensions::UiContributions>,
     ),
 ) {
     let loaded = prepared.0.take().expect("startup map consumed once");
@@ -282,10 +277,12 @@ fn setup(
         &mut assets.2,
         &mut assets.0,
         &mut present_materials,
-        UVec2::new(options.width, options.height),
-        options.flexible_aspect,
-        options.display_mode.effective() == hl2_ui::config::DisplayMode::Windowed,
-        options.config.video.policy.clone(),
+        video::FrameRequest {
+            resolution: UVec2::new(options.width, options.height),
+            flexible: options.flexible_aspect,
+            windowed: options.display_mode.effective() == hl2_ui::config::DisplayMode::Windowed,
+            policy: options.config.video.policy.clone(),
+        },
     );
     startup_cameras::spawn(&mut commands, adapter.as_deref(), &options, position, yaw);
 }
@@ -352,6 +349,19 @@ fn request_startup_map(console_ui: &mut ui_host::Console, target: &startup::Star
     }
     console_ui.map_request = Some(target.map.clone());
     console_ui.map_request_game = Some(target.game.clone());
+}
+
+impl Status {
+    pub fn geometry_statistics(&self) -> (usize, usize, u64) {
+        let stats = self.0.lock().expect("render statistics");
+        (
+            stats.triangles,
+            stats.materials,
+            stats.map_metadata["textures"]["unique_base_textures"]
+                .as_u64()
+                .unwrap_or(0),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -591,18 +601,5 @@ mod tests {
             assert!(!console.is_loading());
             assert_eq!(console.mode(), hl2_ui::console::Mode::Gameplay);
         }
-    }
-}
-
-impl Status {
-    pub fn geometry_statistics(&self) -> (usize, usize, u64) {
-        let stats = self.0.lock().expect("render statistics");
-        (
-            stats.triangles,
-            stats.materials,
-            stats.map_metadata["textures"]["unique_base_textures"]
-                .as_u64()
-                .unwrap_or(0),
-        )
     }
 }

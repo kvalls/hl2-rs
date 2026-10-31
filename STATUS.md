@@ -1,32 +1,28 @@
 # STATUS
 
-## Plugin extraction handoff — incomplete (2026-10-31)
+## Plugin extraction: source checks pass, packaged behavior not tested (2026-10-31)
 
-Branch `orbitalman/plugin-support`, base `66c4a73`. Large uncommitted extraction;
-new packages and moved files must be preserved. The application now composes the
-two plugins through injected contracts. Both core manifests are free of concrete
-plugin dependencies, and the latest source search found no concrete plugin imports
-in either core source tree. The broad runtime callback interface still needs review.
+Branch `orbitalman/plugin-support`, base `66c4a73`, checkpoint commits only, not pushed and
+not merged. The application composes `hl2-advanced-options` and `hl2-debug` through injected
+contracts; core names no concrete plugin, and the architecture check enforces that. Guide:
+docs/plugins.md.
 
-Verified: `cargo check --locked -p hl2-app --offline` passes for the default combined
-production build. An earlier focused command-injection test passed; it must be rerun
-after the subsequent UI changes. Latest core test compilation fails with 90 errors
-and 32 warnings, including stale developer-state tests and missing frame-policy
-initializers. Architecture validation last failed and its dependency rules still
-need inversion. Current whitespace checks fail. Full matrix, strict Clippy, Windows,
-packaged behavior and valid before/after performance remain unverified.
+Verified on macOS: workspace unit tests (`cargo test --workspace --locked --offline`), strict
+Clippy, fmt, the architecture check, `scripts/checks/check_plugin_selection.py` (core-only,
+each plugin, both: `cargo check` and dependency trees) and `scripts/checks/check_windows.sh`.
 
-Known audit items: startup callbacks precede debug-state installation; replay
-fixtures still use the previous developer-overlay schema; plugin localization
-insertion may override installed tokens; shader packaging is unconditional; the
-embedded advanced-options tuning JSON is ignored by the current whitelist.
+**Not tested:** packaged replays and UI captures (the owner excluded UI tests from this
+session), ordinary play, each selection at runtime, Windows at runtime, and frame time before
+and after. Earlier blur baselines stay rejected, so no timing claim exists for this work. The
+replay fixture for F1 was migrated but has not been run. Owned-install `#[ignore]` tests were
+not run.
 
-Prior GPU baseline attempts are rejected (sandbox GPU unavailable, then concurrent
-compilation/memory pressure). Existing packaged executable predates the extraction.
-No task commit or push has been made. The owner paused implementation and requested
-a handoff to Claude Opus 5.5; the detailed local prompt is in ignored
-`artifacts/claude-plugin-refactor-handoff.md`. Future weapon/NPC plugins discussed
-in chat are hypothetical architecture scenarios, not implementation scope.
+Known gaps: the runtime contract is still broad and `VideoPolicy` is a single slot (see
+docs/plugins.md); plugin dependency validation is not implemented; developer text in the F4
+panel and overlays still has English literals; running from `cargo run` without packaging has
+no `weapon_blur.wgsl` in the asset root.
+
+Future weapon and NPC plugins remain hypothetical design scenarios, not implementation scope.
 
 ## Ultra optimization review (2026-10-30)
 

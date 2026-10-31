@@ -98,8 +98,6 @@ pub fn menu_stack_rows() -> f32 {
     data().menu_stack_rows as f32
 }
 
-/// Seconds before an unconfirmed video change reverts.
-
 /// Duration of UI focus and window fade animations in seconds.
 pub fn ui_fade_duration() -> f32 {
     data().ui_fade_duration
@@ -119,10 +117,6 @@ pub fn backdrop_alpha() -> f32 {
 pub fn gameplay_dim_alpha() -> f32 {
     data().gameplay_dim_alpha
 }
-
-/// Smallest and largest explicit vertical field of view (degrees).
-
-/// Smallest and largest viewmodel field of view (degrees).
 
 /// Width / height the HUD is laid out in on a wider screen, or `None` for Fit Display.
 pub fn hud_aspect_ratio(aspect: crate::config::HudAspect) -> Option<f32> {

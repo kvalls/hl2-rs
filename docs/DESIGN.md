@@ -24,6 +24,9 @@ the dependency boundary and validate core-only, each plugin alone and both.
 The existing extraction is work in progress until all five steps pass. Preserve
 settings, input ordering, lifecycle behavior and the previous validation scope.
 
+Status: steps 1-5 are implemented at source level; see docs/plugins.md for the
+contracts and their known gaps, and STATUS.md for what is not tested.
+
 ### Extension contract guardrails (owner review, 2026-10-31)
 
 Application composition owns plugin selection and build features. Core exposes
