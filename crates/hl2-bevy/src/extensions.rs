@@ -75,6 +75,7 @@ pub trait RuntimeExtension: Send + Sync + 'static {
     }
     fn framing(
         &self,
+        _profiles: &dyn hl2_ui::extensions::FramingProfiles,
         _weapon: &str,
         _aspect: f32,
     ) -> Option<modkit_core::viewmodel::ViewmodelFraming> {

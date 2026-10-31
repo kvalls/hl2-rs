@@ -56,6 +56,10 @@ pub trait VideoExtension: std::fmt::Debug + Send + Sync {
     fn blur_status(&self) -> Option<&'static str> {
         None
     }
+    /// The viewmodel framing profiles this policy offers.
+    fn framing_profiles(&self) -> &'static dyn super::FramingProfiles {
+        &super::framing::RetailFraming
+    }
     /// Sliders and their value labels this policy adds to the settings dialogs.
     fn custom_values(&self) -> &'static [CustomValue] {
         &[]

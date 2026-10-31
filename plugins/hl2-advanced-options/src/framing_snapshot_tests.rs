@@ -1,5 +1,5 @@
 use super::{
-    compact_viewmodel_json, tuning_json_with_viewmodel_profiles, ViewmodelFraming, ViewmodelProfile,
+    ViewmodelFraming, ViewmodelProfile, compact_viewmodel_json, tuning_json_with_viewmodel_profiles,
 };
 use std::collections::BTreeMap;
 

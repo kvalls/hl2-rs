@@ -7,7 +7,8 @@ use bevy::prelude::{ButtonInput, KeyCode};
 pub(super) fn select_viewmodel_debug_target(
     debug: &mut crate::viewmodel::ViewmodelDebug,
     weapon: &str,
-    profile: hl2_ui::tuning::ViewmodelProfile,
+    profile: &'static str,
+    profiles: &dyn hl2_ui::extensions::FramingProfiles,
 ) {
     if debug.weapon == weapon && debug.profile == Some(profile) {
         return;
@@ -23,17 +24,18 @@ pub(super) fn select_viewmodel_debug_target(
         .edits
         .get(&(weapon.to_owned(), profile))
         .copied()
-        .unwrap_or_else(|| hl2_ui::tuning::viewmodel_profile_framing(weapon, profile));
+        .unwrap_or_else(|| profiles.endpoint(weapon, profile));
 }
 
 fn commit_viewmodel_debug_edit(
     debug: &mut crate::viewmodel::ViewmodelDebug,
     weapon: String,
-    profile: hl2_ui::tuning::ViewmodelProfile,
+    profile: &'static str,
+    profiles: &dyn hl2_ui::extensions::FramingProfiles,
     ui: Option<&mut hl2_bevy::ui_host::Console>,
 ) {
     debug.edits.insert((weapon, profile), debug.framing);
-    match hl2_ui::tuning::tuning_json_with_viewmodel_profiles(&debug.edits) {
+    match profiles.snapshot(&debug.edits) {
         Ok(json) => {
             if let Some(ui) = ui {
                 ui.source.log_snapshot(json);
@@ -85,8 +87,9 @@ pub(super) fn process_debug_tuning_keys(
             repeats.vm = KeyAdjustRepeat::default();
             return;
         };
-        let profile = hl2_ui::tuning::viewmodel_profile(input.aspect);
-        select_viewmodel_debug_target(&mut state.viewmodel_debug, &weapon, profile);
+        let profiles = sim.video_policy.0.framing_profiles();
+        let profile = profiles.profile_at(input.aspect);
+        select_viewmodel_debug_target(&mut state.viewmodel_debug, &weapon, profile, profiles);
         let adjusting = !sim.paused() && !sim.transition;
         let changed = if std::mem::take(&mut state.viewmodel_debug.reset_pending) {
             reset_viewmodel_debug_weapon(&mut state.viewmodel_debug)
@@ -105,6 +108,7 @@ pub(super) fn process_debug_tuning_keys(
                 &mut state.viewmodel_debug,
                 weapon,
                 profile,
+                profiles,
                 ui.as_deref_mut(),
             );
         }
@@ -184,12 +188,9 @@ fn process_background_debug_keys(
         *opacity_repeat = KeyAdjustRepeat::default();
     }
     if let Some(ui) = ui {
-        let is_flexible = ui.source.config.video.frame_follows_window();
-        let label = crate::bevy::host::background::aspect_label(input.aspect, is_flexible);
         crate::bevy::host::background::aspect_changed(
             &mut state.background_debug,
             input.aspect,
-            label,
             &mut ui.source,
         );
     }

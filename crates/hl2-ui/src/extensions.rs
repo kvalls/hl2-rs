@@ -5,8 +5,10 @@ use crate::console::{
 };
 use std::sync::Arc;
 mod confirmation;
+mod framing;
 mod video;
 pub use confirmation::{Confirmation, ConfirmationHandler};
+pub use framing::{FramingEdits, FramingProfiles, ViewmodelFraming, STANDARD_PROFILE};
 pub use video::{VideoExtension, VideoPolicy, RETAIL_VIEWMODEL_FOV};
 
 #[derive(Clone, Debug, Default)]

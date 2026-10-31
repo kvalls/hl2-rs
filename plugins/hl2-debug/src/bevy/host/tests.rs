@@ -12,7 +12,31 @@ use hl2_bevy::extensions::{Context, RuntimeExtension};
 use hl2_bevy::simulation::Simulation;
 use hl2_bevy::ui_host::Console;
 use hl2_ui::console::Mode;
-use modkit_core::viewmodel::{ViewmodelFraming, ViewmodelProfile};
+use hl2_ui::extensions::{FramingProfiles, STANDARD_PROFILE};
+use modkit_core::viewmodel::ViewmodelFraming;
+
+/// Stands in for any contributor: hl2-debug only ever sees its profile ids.
+#[derive(Debug)]
+struct TestProfiles;
+impl FramingProfiles for TestProfiles {
+    fn profile_at(&self, aspect: f32) -> &'static str {
+        if aspect < 1. {
+            "narrow"
+        } else {
+            STANDARD_PROFILE
+        }
+    }
+    fn endpoint(&self, weapon: &str, profile: &str) -> ViewmodelFraming {
+        if profile == "narrow" {
+            ViewmodelFraming {
+                fov_offset: 0.,
+                offset: [weapon.len() as f32, 0., 0.],
+            }
+        } else {
+            ViewmodelFraming::ZERO
+        }
+    }
+}
 
 const ASPECT: f32 = 16. / 9.;
 
@@ -82,7 +106,12 @@ fn held_keys(codes: &[KeyCode]) -> ButtonInput<KeyCode> {
 /// What the tuning step does the frame after `viewmodel_debug_mode 1`.
 fn enable_viewmodel_debug(debug: &mut ViewmodelDebug, weapon: &str, aspect: f32) {
     debug.enabled = true;
-    select_viewmodel_debug_target(debug, weapon, hl2_ui::tuning::viewmodel_profile(aspect));
+    select_viewmodel_debug_target(
+        debug,
+        weapon,
+        TestProfiles.profile_at(aspect),
+        &TestProfiles,
+    );
 }
 
 #[test]
@@ -91,10 +120,10 @@ fn tweak_mode_loads_the_selected_direct_profile() {
     enable_viewmodel_debug(&mut debug, "weapon_physcannon", 9. / 16.);
     assert!(debug.enabled);
     assert_eq!(debug.weapon, "weapon_physcannon");
-    assert_eq!(debug.profile, Some(ViewmodelProfile::Portrait));
+    assert_eq!(debug.profile, Some("narrow"));
     assert_eq!(
         debug.framing,
-        hl2_ui::tuning::viewmodel_profile_framing("weapon_physcannon", ViewmodelProfile::Portrait)
+        TestProfiles.endpoint("weapon_physcannon", "narrow")
     );
 
     debug = ViewmodelDebug::default();
@@ -107,17 +136,22 @@ fn viewmodel_debug_keeps_separate_weapon_and_aspect_edits_until_reset() {
     let mut debug = ViewmodelDebug::default();
     enable_viewmodel_debug(&mut debug, "weapon_physcannon", 9. / 16.);
     debug.framing.fov_offset = 1.25;
-    select_viewmodel_debug_target(&mut debug, "weapon_pistol", ViewmodelProfile::Portrait);
+    select_viewmodel_debug_target(&mut debug, "weapon_pistol", "narrow", &TestProfiles);
     assert_eq!(
         debug.framing,
-        hl2_ui::tuning::viewmodel_profile_framing("weapon_pistol", ViewmodelProfile::Portrait)
+        TestProfiles.endpoint("weapon_pistol", "narrow")
     );
     debug.framing.offset[2] = -2.75;
-    select_viewmodel_debug_target(&mut debug, "weapon_physcannon", ViewmodelProfile::Portrait);
+    select_viewmodel_debug_target(&mut debug, "weapon_physcannon", "narrow", &TestProfiles);
     assert_eq!(debug.framing.fov_offset, 1.25);
-    select_viewmodel_debug_target(&mut debug, "weapon_physcannon", ViewmodelProfile::Standard);
+    select_viewmodel_debug_target(
+        &mut debug,
+        "weapon_physcannon",
+        STANDARD_PROFILE,
+        &TestProfiles,
+    );
     assert_eq!(debug.framing, ViewmodelFraming::default());
-    select_viewmodel_debug_target(&mut debug, "weapon_pistol", ViewmodelProfile::Portrait);
+    select_viewmodel_debug_target(&mut debug, "weapon_pistol", "narrow", &TestProfiles);
     assert_eq!(debug.framing.offset[2], -2.75);
 
     debug = ViewmodelDebug::default();
@@ -227,7 +261,7 @@ fn reset_zeroes_the_selected_weapon_profile_to_zero_offsets() {
     debug.framing.fov_offset = 1.5;
     debug.framing.offset = [2.0, -3.0, -4.0];
     debug.edits.insert(
-        ("weapon_pistol".into(), ViewmodelProfile::Portrait),
+        ("weapon_pistol".into(), "narrow"),
         ViewmodelFraming {
             fov_offset: 8.0,
             offset: [0.0, 0.0, -9.0],
@@ -240,9 +274,9 @@ fn reset_zeroes_the_selected_weapon_profile_to_zero_offsets() {
         debug.framing,
     );
     assert!(!reset_viewmodel_debug_weapon(&mut debug));
-    select_viewmodel_debug_target(&mut debug, "weapon_pistol", ViewmodelProfile::Portrait);
+    select_viewmodel_debug_target(&mut debug, "weapon_pistol", "narrow", &TestProfiles);
     assert_eq!(debug.framing.fov_offset, 8.0);
-    select_viewmodel_debug_target(&mut debug, "weapon_physcannon", ViewmodelProfile::Portrait);
+    select_viewmodel_debug_target(&mut debug, "weapon_physcannon", "narrow", &TestProfiles);
     assert_eq!(debug.framing, ViewmodelFraming::ZERO);
 }
 
@@ -488,7 +522,6 @@ fn forced_resize_uses_the_normal_projection_baseline() {
     crate::bevy::host::background::aspect_changed(
         &mut state.background_debug,
         32. / 9.,
-        "32:9",
         &mut ui.source,
     );
     let expected = hl2_bevy::camera::background_fov(32. / 9., true).to_degrees();
@@ -551,4 +584,27 @@ fn unknown_script_events_are_not_claimed() {
     assert!(state.dev_overlay);
     assert!(!state.script(&mut sim, &serde_json::json!({"dev_overlay": true})));
     assert!(!state.script(&mut sim, &serde_json::json!({"developer_overlay": "yes"})));
+}
+
+#[test]
+fn tuning_uses_the_profiles_the_selected_policy_offers() {
+    let mut state = State::default();
+    let value = ViewmodelFraming {
+        fov_offset: 2.,
+        offset: [0.; 3],
+    };
+    state.viewmodel_debug.enabled = true;
+    state.viewmodel_debug.weapon = "weapon_rpg".to_owned();
+    state.viewmodel_debug.profile = Some(STANDARD_PROFILE);
+    state.viewmodel_debug.framing = value;
+    let retail: &dyn FramingProfiles = hl2_ui::extensions::VideoPolicy::default()
+        .0
+        .framing_profiles();
+    assert_eq!(state.framing(retail, "weapon_rpg", 9. / 16.), Some(value));
+    assert_eq!(state.framing(retail, "weapon_pistol", 9. / 16.), None);
+    assert_eq!(
+        state.framing(&TestProfiles, "weapon_rpg", 9. / 16.),
+        None,
+        "another profile"
+    );
 }

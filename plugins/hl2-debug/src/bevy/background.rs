@@ -4,33 +4,6 @@ use bevy::prelude::KeyCode;
 pub const BACKGROUND_ADJUST_KEYS: &[KeyCode] = &[KeyCode::ArrowDown, KeyCode::ArrowUp];
 pub const BACKGROUND_OPACITY_KEYS: &[KeyCode] = &[KeyCode::Comma, KeyCode::Period];
 
-/// Derives a readable aspect ratio label (e.g. "16:9", "4:3", "Fit Display").
-pub fn aspect_label(aspect: f32, flexible: bool) -> &'static str {
-    if flexible {
-        "Fit Display"
-    } else if (aspect - 16. / 9.).abs() < 0.05 {
-        "16:9"
-    } else if (aspect - 16. / 10.).abs() < 0.05 {
-        "16:10"
-    } else if (aspect - 4. / 3.).abs() < 0.05 {
-        "4:3"
-    } else if (aspect - 5. / 4.).abs() < 0.05 {
-        "5:4"
-    } else if (aspect - 21. / 9.).abs() < 0.1 {
-        "21:9"
-    } else if (aspect - 32. / 9.).abs() < 0.1 {
-        "32:9"
-    } else if (aspect - 1.).abs() < 0.05 {
-        "1:1"
-    } else if (aspect - 3. / 4.).abs() < 0.05 {
-        "3:4"
-    } else if (aspect - 9. / 16.).abs() < 0.05 {
-        "9:16"
-    } else {
-        "Custom"
-    }
-}
-
 /// Runtime background layout visual analysis state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BackgroundDebug {

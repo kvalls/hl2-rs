@@ -63,6 +63,9 @@ impl VideoExtension for AdvancedPolicy {
     fn blur_status(&self) -> Option<&'static str> {
         Some("#HL2RS_StatusMotionBlur")
     }
+    fn framing_profiles(&self) -> &'static dyn hl2_ui::extensions::FramingProfiles {
+        &crate::framing::AdvancedFraming
+    }
     fn custom_values(&self) -> &'static [CustomValue] {
         &crate::settings::SLIDERS
     }

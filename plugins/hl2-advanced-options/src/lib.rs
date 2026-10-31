@@ -3,6 +3,7 @@
 pub mod bevy;
 pub mod display;
 pub mod flexible_frame;
+pub mod framing;
 pub mod localize;
 pub mod motion_blur;
 pub mod settings;

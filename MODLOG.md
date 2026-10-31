@@ -8,9 +8,11 @@
 
 **Tested how / Result:** See the checkpoint commit; unit tests, Clippy, selections and Windows Clippy on macOS.
 
-**Still broken or not tested:** Packaged runs, UI (the moved sliders have never been drawn) and frame time are **not tested**. Viewmodel framing profiles remain in core as an open exception.
+Framing profiles and their data moved to the plugin behind `FramingProfiles` at the owner's request, replacing a proposed adapter crate. A core-only build now keeps the retail view at portrait and ultrawide shapes. `hl2-debug` names aspect choices through the selected policy, using installed tokens.
 
-**Next:** Owner decision on framing profiles; packaged replays and timing.
+**Still broken or not tested:** Packaged runs, UI (the moved sliders have never been drawn) and frame time are **not tested**.
+
+**Next:** Packaged replays and timing.
 
 ## 2026-10-31 Plugin extraction recovery
 

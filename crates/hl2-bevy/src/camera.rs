@@ -172,41 +172,6 @@ mod tests {
             "near plane beyond any viewmodel even when portrait fov_offset > 0"
         );
     }
-
-    #[test]
-    fn viewmodel_framing_keeps_physcannon_and_rpg_in_frame_across_portrait_and_ultrawide() {
-        let project = |p: [f32; 3], weapon: &str, aspect: f32| {
-            let framing = hl2_ui::tuning::viewmodel_framing(weapon, aspect);
-            let (fov_v, _) = viewmodel_projection(54., framing.fov_offset, 1000., aspect);
-            let x = (p[0] + framing.offset[0]).max(0.1);
-            let y = p[1] + framing.offset[1];
-            let z = p[2] + framing.offset[2];
-            let tan_v = (fov_v * 0.5).tan();
-            let tan_h = aspect * tan_v;
-            ((-y / x) / tan_h, (z / x) / tan_v)
-        };
-        // Gravity Gun left arm stump (X=24.5, Y=2.4, Z=-21.4) stays below the bottom screen edge
-        // (ndc_y < -1.0) on 9:16 portrait just like on 16:9.
-        let (_, stump_16_9) = project([24.5, 2.4, -21.4], "weapon_physcannon", 16. / 9.);
-        let (_, stump_9_16) = project([24.5, 2.4, -21.4], "weapon_physcannon", 9. / 16.);
-        assert!(stump_16_9 < -1.0 && stump_9_16 < -1.0);
-
-        // Rocket Launcher mid-tube reaches into a 9:16 frame; the rear cutoff stays outside the
-        // right edge up to 64:27. At 32:9 the owner-tuned offset pulls the cutoff to the edge, so
-        // it only has to stay near it.
-        let (mid_9_16, _) = project([30.0, -14.0, -8.0], "weapon_rpg", 9. / 16.);
-        assert!(mid_9_16 < 0.7, "{mid_9_16}");
-        for aspect in [16. / 9., 64. / 27.] {
-            let (rear_x, _) = project([16.1, -14.0, -5.0], "weapon_rpg", aspect);
-            assert!(rear_x > 1.0, "RPG rear cutoff hidden at {aspect}: {rear_x}");
-        }
-        let (rear_32_9, _) = project([16.1, -14.0, -5.0], "weapon_rpg", 32. / 9.);
-        assert!(
-            rear_32_9 > 0.9,
-            "RPG rear cutoff far inside at 32:9: {rear_32_9}"
-        );
-    }
-
     #[test]
     fn menu_backgrounds_crop_sides_when_narrow_and_top_and_bottom_when_ultrawide() {
         use crate::video::vertical_fov_for;

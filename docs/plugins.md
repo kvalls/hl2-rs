@@ -24,6 +24,7 @@ Ordinary motion blur, flight, spawning, camera behavior and simulation mechanism
 | --- | --- | --- |
 | `hl2_ui::extensions::Extensions` | per application instance | Console commands (a duplicate name is an error), layout addenda, localization placeholders, default bindings, after-apply handlers |
 | `hl2_ui::extensions::VideoExtension` | through `VideoPolicy` | Frame and window sizing, projection, aspect and mode lists, blur selection and sliders (`CustomValue`), aspect choices (`AspectChoice`) |
+| `hl2_ui::extensions::FramingProfiles` | `VideoExtension::framing_profiles` | Viewmodel framing profile ids and values; without one, every aspect keeps the retail view |
 | `hl2_ui::config::StoredExtensions` | `video.extensions`, `video.advanced.extensions` | Plugin settings saved beside core fields; unknown keys survive, so old files keep their format |
 | `hl2_bevy::extensions::RuntimeExtension` | `Application::runtime` | Input, UI, presentation, loading, map and config lifecycle, replay events, reports |
 | `Application::install` | `fn(&mut App)` | Bevy systems, render nodes and resources |
@@ -41,7 +42,6 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 - There is no declared-dependency or capability validation between plugins, because the two current plugins are independent.
 - `cargo run` without packaging has no `weapon_blur.wgsl` in its asset root, so run the packaged build for Advanced or Ultra blur.
 - Plugin developer text in the F4 panel and debug overlays still has English literals.
-- Viewmodel framing keeps `Portrait` and `Ultrawide` profiles and their data in core, because both plugins would need them and they may not depend on each other. **Open exception for the owner.**
 - The window-following frame, the projection parameter and the background-selection services stay in core as generic mechanisms.
 - `modkit_core::ModPlugin` is an older, unused simulation contract, not this mechanism.
 

@@ -23,7 +23,8 @@ opening it right after a load can briefly show the default listing.
 Not audited: Escape ordering, F4 input capture and secondary-weapon preservation. The string
 audit does not scan `plugins/`. The `startup` hook and load-failure path have no lifecycle test.
 
-Plugin remnants (settings fields, aspect variants, FOV sliders, blur tiers, placeholder tokens) moved out of core behind generic contracts. Viewmodel framing profiles remain in core as an open exception.
+Plugin remnants (settings fields, aspect variants, FOV sliders, blur tiers, placeholder tokens) moved out of core behind generic contracts.
+Portrait and ultrawide viewmodel framing now belongs to `hl2-advanced-options` behind `FramingProfiles`, so a build without it keeps the retail view at those shapes and `hl2-debug` tunes only the standard profile there.
 
 Known gaps: the runtime contract is still broad, and `framing` and `projection` take the first
 answer instead of an explicit selection (see docs/plugins.md); plugin dependency validation is not implemented; developer text in the F4

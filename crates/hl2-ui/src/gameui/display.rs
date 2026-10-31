@@ -14,11 +14,9 @@
 //! resolutions larger than the desktop in windowed mode).
 //!
 //! The aspect buckets follow the retail Video page grouping ("Normal (4:3)" also takes 5:4;
-//! ratios within 0.05 of 1.6 are 16:10; the rest up to 2.1 is 16:9) and add HL2RS choices for
-//! other displays: 21:9 (2560x1080, 3440x1440, ...) below 3.0 and 32:9 above, and, narrower than
-//! 4:3, square 1:1 (0.875..1.125) and portrait 3:4, 10:16 and 9:16 (rotated monitors, phones).
-//! The installed GameUI has none of these choices, so their labels are temporary
-//! [`placeholders`]. Portrait modes count against [`min_size`] with their sides swapped. The bounds are in the data file too ([`AspectRatio::of`]). When the host
+//! ratios within 0.05 of 1.6 are 16:10; the rest is 16:9). A video policy may add its own choices
+//! ([`AspectChoice`]). Modes count against [`min_size`] in either orientation. The bounds are in
+//! the data file too ([`AspectRatio::of`]). When the host
 //! reports no usable mode, the current window size is offered so the list is never empty.
 
 use std::{collections::BTreeMap, sync::LazyLock};
@@ -74,7 +72,7 @@ pub fn min_size() -> Resolution {
     Resolution::new(width, height)
 }
 
-/// Common 4:3, 5:4, 16:9, 16:10 and ultrawide (21:9, 32:9) resolutions offered on every display
+/// Common 4:3, 5:4, 16:9 and 16:10 resolutions offered on every display
 /// that is large enough, in no particular order.
 pub fn standard_modes() -> &'static [Resolution] {
     static MODES: LazyLock<Vec<Resolution>> = LazyLock::new(|| {
@@ -198,8 +196,6 @@ impl Resolution {
         format!("{} x {}", self.width, self.height)
     }
 
-    /// Returns the active resolution without letterbox or pillarbox black stripes when flexible
-    /// aspect ratio is enabled (clamped to the supported 9:16..=32:9 range).
     /// Whether this resolution is at least `min` in either orientation (a portrait mode is
     /// measured with its sides swapped).
     pub fn at_least(self, min: Resolution) -> bool {

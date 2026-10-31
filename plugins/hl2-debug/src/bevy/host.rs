@@ -185,6 +185,7 @@ impl RuntimeExtension for State {
     }
     fn framing(
         &self,
+        profiles: &dyn hl2_ui::extensions::FramingProfiles,
         weapon: &str,
         aspect: f32,
     ) -> Option<modkit_core::viewmodel::ViewmodelFraming> {
@@ -192,18 +193,15 @@ impl RuntimeExtension for State {
         if !debug.enabled {
             return None;
         }
-        let profile = hl2_ui::tuning::viewmodel_profile(aspect);
+        let profile = profiles.profile_at(aspect);
         let value = debug
             .edits
-            .iter()
-            .find(|((name, edited), _)| name == weapon && *edited == profile)
-            .map(|(_, framing)| *framing)
+            .get(&(weapon.to_owned(), profile))
+            .copied()
             .or_else(|| {
                 (debug.weapon == weapon && debug.profile == Some(profile)).then_some(debug.framing)
             })?;
-        Some(hl2_ui::tuning::viewmodel_framing_with_profile(
-            weapon, aspect, profile, value,
-        ))
+        Some(profiles.blended(weapon, aspect, Some((profile, value))))
     }
     fn projection(&self, sim: &hl2_bevy::simulation::Simulation, aspect: f32) -> Option<f32> {
         self.background_debug.enabled.then(|| {

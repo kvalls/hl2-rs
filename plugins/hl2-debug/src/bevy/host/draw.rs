@@ -95,7 +95,7 @@ fn draw_debug_overlays(
     {
         let value = state.viewmodel_debug.framing;
         let lines = vec![
-            format!("aspect_ratio: {}", profile.as_str()),
+            format!("aspect_ratio: {}", profile),
             format!("weapon: {}", state.viewmodel_debug.weapon),
             format!("fov_offset: {:.2}    [ ]", value.fov_offset),
             format!("offset.x: {:.2}    ,/.", value.offset[0]),

@@ -179,15 +179,16 @@ impl Simulation {
         self.zoom_fov.unwrap_or(player_fov)
     }
     /// The current viewmodel framing, including the selected direct profile while viewmodel tweak mode is on.
-    pub fn viewmodel_framing(&self, weapon: &str, aspect: f32) -> hl2_ui::tuning::ViewmodelFraming {
-        if let Some(framing) = self
-            .extensions
+    pub fn viewmodel_framing(
+        &self,
+        weapon: &str,
+        aspect: f32,
+    ) -> hl2_ui::extensions::ViewmodelFraming {
+        let profiles = self.video_policy.0.framing_profiles();
+        self.extensions
             .iter()
-            .find_map(|extension| extension.framing(weapon, aspect))
-        {
-            return framing;
-        }
-        hl2_ui::tuning::viewmodel_framing(weapon, aspect)
+            .find_map(|extension| extension.framing(profiles, weapon, aspect))
+            .unwrap_or_else(|| profiles.blended(weapon, aspect, None))
     }
     /// Whether the view is the player's own (no point_viewcontrol camera).
     pub fn player_view(&self) -> bool {
