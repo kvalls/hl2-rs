@@ -9,21 +9,76 @@ pub fn clamp_supported_aspect(value: f32) -> f32 {
     value.clamp(MIN_ASPECT, MAX_ASPECT)
 }
 
-use hl2_ui::gameui::display::{AspectRatio, DisplayModes, Resolution};
+use hl2_ui::gameui::display::{AspectChoice, AspectRatio, DisplayModes, Resolution};
 use serde::Deserialize;
 use std::{collections::BTreeMap, sync::LazyLock};
+pub const FIT_DISPLAY: AspectRatio = AspectRatio::Custom(&AspectChoice {
+    id: "flexible",
+    token: "#GameUI_HUDAspectRatio_FitDisplay",
+    ratio: (16, 9),
+    follows_window: true,
+});
+pub const ULTRAWIDE_21X9: AspectRatio = AspectRatio::Custom(&AspectChoice {
+    id: "ultrawide21x9",
+    token: "#HL2RS_AspectUltrawide21x9",
+    ratio: (64, 27),
+    follows_window: false,
+});
+pub const ULTRAWIDE_32X9: AspectRatio = AspectRatio::Custom(&AspectChoice {
+    id: "ultrawide32x9",
+    token: "#HL2RS_AspectUltrawide32x9",
+    ratio: (32, 9),
+    follows_window: false,
+});
+pub const SQUARE_1X1: AspectRatio = AspectRatio::Custom(&AspectChoice {
+    id: "square1x1",
+    token: "#HL2RS_AspectSquare1x1",
+    ratio: (1, 1),
+    follows_window: false,
+});
+pub const PORTRAIT_3X4: AspectRatio = AspectRatio::Custom(&AspectChoice {
+    id: "portrait3x4",
+    token: "#HL2RS_AspectPortrait3x4",
+    ratio: (3, 4),
+    follows_window: false,
+});
+pub const PORTRAIT_10X16: AspectRatio = AspectRatio::Custom(&AspectChoice {
+    id: "portrait10x16",
+    token: "#HL2RS_AspectPortrait10x16",
+    ratio: (10, 16),
+    follows_window: false,
+});
+pub const PORTRAIT_9X16: AspectRatio = AspectRatio::Custom(&AspectChoice {
+    id: "portrait9x16",
+    token: "#HL2RS_AspectPortrait9x16",
+    ratio: (9, 16),
+    follows_window: false,
+});
 pub const ASPECTS: &[AspectRatio] = &[
-    AspectRatio::Flexible,
+    FIT_DISPLAY,
     AspectRatio::Normal,
     AspectRatio::Wide16x9,
     AspectRatio::Wide16x10,
-    AspectRatio::Ultrawide21x9,
-    AspectRatio::Ultrawide32x9,
-    AspectRatio::Square1x1,
-    AspectRatio::Portrait3x4,
-    AspectRatio::Portrait10x16,
-    AspectRatio::Portrait9x16,
+    ULTRAWIDE_21X9,
+    ULTRAWIDE_32X9,
+    SQUARE_1X1,
+    PORTRAIT_3X4,
+    PORTRAIT_10X16,
+    PORTRAIT_9X16,
 ];
+/// The choice an authored `modes.json` id names.
+fn choice(id: &str) -> AspectRatio {
+    match id {
+        "normal" => AspectRatio::Normal,
+        "wide16x10" => AspectRatio::Wide16x10,
+        "wide16x9" => AspectRatio::Wide16x9,
+        other => ASPECTS
+            .iter()
+            .copied()
+            .find(|aspect| matches!(aspect, AspectRatio::Custom(c) if c.id == other))
+            .expect("authored aspect id"),
+    }
+}
 #[derive(Deserialize)]
 struct Data {
     min_size: (u32, u32),
@@ -33,7 +88,7 @@ struct Data {
 }
 #[derive(Deserialize)]
 struct Entry {
-    aspect: AspectRatio,
+    aspect: String,
     ratio: (u32, u32),
     below: Option<f32>,
     tolerance: Option<f32>,
@@ -54,7 +109,7 @@ pub fn aspect_of(width: u32, height: u32) -> AspectRatio {
                 .filter(|e| e.tolerance.is_none())
                 .find(|e| e.below.is_none_or(|b| ratio < b))
         })
-        .map_or(AspectRatio::Wide16x9, |e| e.aspect)
+        .map_or(AspectRatio::Wide16x9, |e| choice(&e.aspect))
 }
 pub fn choices(modes: &DisplayModes, windowed: bool) -> Vec<Resolution> {
     let monitor = modes.desktop;

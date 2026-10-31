@@ -3,6 +3,7 @@ use hl2_ui::{
     config::{AdvancedVideoSettings, VideoSettings},
     extensions::{Extensions, VideoExtension, VideoPolicy},
     gameui::display::{AspectRatio, DisplayModes, Resolution},
+    gameui::settings::CustomValue,
 };
 #[derive(Debug)]
 pub struct AdvancedPolicy;
@@ -44,27 +45,32 @@ impl VideoExtension for AdvancedPolicy {
         crate::fov::vertical_fov(view, default, aspect, vertical)
     }
 
-    fn flexible(&self, video: &VideoSettings) -> bool {
-        video.flexible_aspect
+    fn follows_window(&self, video: &VideoSettings) -> bool {
+        crate::settings::fit_display(video)
     }
-    fn vertical_fov(&self, video: &VideoSettings) -> f32 {
-        video.vertical_fov
+    fn projection_parameter(&self, video: &VideoSettings) -> f32 {
+        crate::settings::vertical_fov(video)
     }
     fn viewmodel_fov(&self, video: &VideoSettings) -> f32 {
-        video.viewmodel_fov
+        crate::settings::viewmodel_fov(video)
     }
-    fn vertical_range(&self) -> (f32, f32) {
-        crate::fov::vertical_fov_range()
+    fn retail_camera_blur(&self, video: &AdvancedVideoSettings) -> bool {
+        crate::motion_blur::selected(video).retail_camera()
     }
-    fn viewmodel_range(&self) -> (f32, f32) {
-        crate::fov::viewmodel_fov_range()
+    fn selected_blur(&self, video: &AdvancedVideoSettings) -> usize {
+        crate::motion_blur::selected(video) as usize
     }
-    fn blur_mode(&self, video: &AdvancedVideoSettings) -> modkit_core::video::MotionBlurMode {
-        crate::motion_blur::mode(
-            video.motion_blur,
-            video.motion_blur_viewmodel,
-            video.motion_blur_world,
-        )
+    fn blur_status(&self) -> Option<&'static str> {
+        Some("#HL2RS_StatusMotionBlur")
+    }
+    fn custom_values(&self) -> &'static [CustomValue] {
+        &crate::settings::SLIDERS
+    }
+    fn stored_aspect(&self, video: &VideoSettings) -> Option<AspectRatio> {
+        crate::settings::fit_display(video).then_some(crate::display::FIT_DISPLAY)
+    }
+    fn store_aspect(&self, video: &mut VideoSettings, aspect: AspectRatio) {
+        crate::settings::set_fit_display(video, aspect.follows_window());
     }
     fn blur_tokens(&self) -> &'static [&'static str] {
         crate::BLUR_TOKENS
@@ -72,8 +78,7 @@ impl VideoExtension for AdvancedPolicy {
     fn select_blur(&self, video: &mut AdvancedVideoSettings, index: usize) {
         if index < crate::BLUR_TOKENS.len() {
             video.motion_blur = index != 0;
-            video.motion_blur_viewmodel = index >= 2;
-            video.motion_blur_world = index == 3;
+            crate::settings::set_blur_tier(video, index >= 2, index == 3);
         }
     }
     fn aspects(&self) -> &'static [AspectRatio] {

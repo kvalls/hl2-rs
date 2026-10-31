@@ -1,5 +1,5 @@
 //! A bounded standalone console. Commands without a Rust implementation report an error.
-pub(crate) mod background_debug;
+pub(crate) mod background_select;
 mod chapter_dialog;
 pub mod commands;
 pub mod complete;
@@ -595,7 +595,7 @@ fn vector(args: &[String]) -> Option<glam::Vec3> {
         .then(|| glam::Vec3::new(values[0], values[1], values.get(2).copied().unwrap_or(0.)))
 }
 #[cfg(test)]
-mod background_debug_tests;
+mod background_select_tests;
 #[cfg(test)]
 mod tests;
 

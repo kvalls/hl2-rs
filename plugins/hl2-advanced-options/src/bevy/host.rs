@@ -36,7 +36,7 @@ fn snapshot(
     >,
 ) {
     let enabled = sim.is_some_and(|s| !s.paused() && !s.background_level);
-    let mode = ui.map(|u| u.source.config.video.advanced.motion_blur_mode());
+    let mode = ui.map(|u| crate::motion_blur::selected(&u.source.config.video.advanced));
     let Some(game) = game else {
         frame.viewmodel = false;
         frame.world = false;

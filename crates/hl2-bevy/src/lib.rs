@@ -78,7 +78,7 @@ struct Options {
     /// `--borderless`. Unattended runs without a flag start windowed.
     display_mode: hl2_ui::config::DisplayMode,
     /// Video > Aspect Ratio "Fit Display": the game frame follows the window's aspect ratio.
-    flexible_aspect: bool,
+    follows_window: bool,
     fly: bool,
     movement_script: Option<PathBuf>,
     /// Master volume, like Source's `volume` convar (0..1).
@@ -279,7 +279,7 @@ fn setup(
         &mut present_materials,
         video::FrameRequest {
             resolution: UVec2::new(options.width, options.height),
-            flexible: options.flexible_aspect,
+            follows_window: options.follows_window,
             windowed: options.display_mode.effective() == hl2_ui::config::DisplayMode::Windowed,
             policy: options.config.video.policy.clone(),
         },

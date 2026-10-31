@@ -105,23 +105,23 @@ fn fov_cvars_query_set_and_clamp() {
 
     assert_eq!(console.cvar_value("vertical_fov").as_deref(), Some("0"));
     console.submit("vertical_fov 60");
-    assert_eq!(console.config.video.vertical_fov, 60.0);
+    assert_eq!(crate::settings::vertical_fov(&console.config.video), 60.0);
     assert_eq!(console.cvar_value("vertical_fov").as_deref(), Some("60"));
     console.submit("vertical_fov 0");
-    assert_eq!(console.config.video.vertical_fov, 0.0);
+    assert_eq!(crate::settings::vertical_fov(&console.config.video), 0.0);
     console.submit("vertical_fov 150");
-    assert_eq!(console.config.video.vertical_fov, 100.0);
+    assert_eq!(crate::settings::vertical_fov(&console.config.video), 100.0);
     console.submit("vertical_fov 9");
-    assert_eq!(console.config.video.vertical_fov, 40.0);
+    assert_eq!(crate::settings::vertical_fov(&console.config.video), 40.0);
 
     assert_eq!(console.cvar_value("viewmodel_fov").as_deref(), Some("54"));
     console.submit("viewmodel_fov 65");
-    assert_eq!(console.config.video.viewmodel_fov, 65.0);
+    assert_eq!(crate::settings::viewmodel_fov(&console.config.video), 65.0);
     assert_eq!(console.cvar_value("viewmodel_fov").as_deref(), Some("65"));
     console.submit("viewmodel_fov 20");
-    assert_eq!(console.config.video.viewmodel_fov, 40.0);
+    assert_eq!(crate::settings::viewmodel_fov(&console.config.video), 40.0);
     console.submit("viewmodel_fov 120");
-    assert_eq!(console.config.video.viewmodel_fov, 80.0);
+    assert_eq!(crate::settings::viewmodel_fov(&console.config.video), 80.0);
 }
 
 #[test]
@@ -139,22 +139,26 @@ fn motion_blur_has_distinct_retail_advanced_and_ultra_tiers() {
         ]
     );
     choice.select(&mut a, 2);
-    assert!(a.motion_blur && a.motion_blur_viewmodel);
+    assert!(a.motion_blur && crate::settings::blur_viewmodel(&a));
     assert_eq!(choice.selected(&a), 2);
-    assert!(!a.motion_blur_world);
-    assert!(a.motion_blur_mode().viewmodel());
-    assert!(a.motion_blur_mode().retail_camera());
-    assert!(!a.motion_blur_mode().world());
+    assert!(!crate::settings::blur_world(&a));
+    assert!(crate::motion_blur::selected(&a).viewmodel());
+    assert!(crate::motion_blur::selected(&a).retail_camera());
+    assert!(!crate::motion_blur::selected(&a).world());
     choice.select(&mut a, 3);
     assert_eq!(choice.selected(&a), 3);
-    assert!(a.motion_blur_mode().viewmodel() && a.motion_blur_mode().world());
-    assert!(!a.motion_blur_mode().retail_camera());
+    assert!(
+        crate::motion_blur::selected(&a).viewmodel() && crate::motion_blur::selected(&a).world()
+    );
+    assert!(!crate::motion_blur::selected(&a).retail_camera());
     choice.select(&mut a, 4);
     assert_eq!(choice.selected(&a), 3);
     choice.select(&mut a, 1);
-    assert!(a.motion_blur && !a.motion_blur_viewmodel);
+    assert!(a.motion_blur && !crate::settings::blur_viewmodel(&a));
     choice.select(&mut a, 0);
-    assert!(!a.motion_blur && !a.motion_blur_viewmodel && !a.motion_blur_world);
+    assert!(
+        !a.motion_blur && !crate::settings::blur_viewmodel(&a) && !crate::settings::blur_world(&a)
+    );
 }
 
 #[test]
@@ -179,7 +183,7 @@ fn advanced_tiers_round_trip_through_saved_settings() {
         AdvancedChoice::MotionBlur.selected(&legacy.video.advanced),
         2
     );
-    assert!(!legacy.video.advanced.motion_blur_world);
+    assert!(!crate::settings::blur_world(&legacy.video.advanced));
     let mut ultra = restored.clone();
     AdvancedChoice::MotionBlur.select(&mut ultra.video.advanced, 3);
     let restored_ultra = reload(&ultra);
@@ -231,13 +235,13 @@ fn flexible_aspect_disables_resolution_and_shows_fit_display() {
             .unwrap()
     };
     assert_eq!(
-        index_of(AspectRatio::Flexible),
+        index_of(crate::display::FIT_DISPLAY),
         0,
         "Fit Display is in the first place"
     );
-    Choice::Aspect.select(&env, &mut draft, index_of(AspectRatio::Flexible));
-    assert_eq!(draft.aspect, AspectRatio::Flexible);
-    assert!(draft.config.video.flexible_aspect);
+    Choice::Aspect.select(&env, &mut draft, index_of(crate::display::FIT_DISPLAY));
+    assert_eq!(draft.aspect, crate::display::FIT_DISPLAY);
+    assert!(crate::settings::fit_display(&draft.config.video));
     assert_eq!(
         (draft.config.video.width, draft.config.video.height),
         (1600, 900)
@@ -270,7 +274,7 @@ fn flexible_aspect_disables_resolution_and_shows_fit_display() {
 
     Choice::Aspect.select(&env, &mut draft, index_of(AspectRatio::Wide16x9));
     assert_eq!(draft.aspect, AspectRatio::Wide16x9);
-    assert!(!draft.config.video.flexible_aspect);
+    assert!(!crate::settings::fit_display(&draft.config.video));
     assert!(enabled(res_binding, true, &draft, &draft.config));
     assert_eq!(
         Choice::Resolution.items(&env, &draft),
@@ -284,17 +288,18 @@ fn every_plugin_placeholder_has_text_and_an_hl2rs_token() {
         assert!(key.starts_with("HL2RS_"), "{key}");
         assert!(!text.is_empty(), "{key}");
     }
-    use hl2_ui::gameui::localize::placeholders as tokens;
     for token in [
-        tokens::ASPECT_ULTRAWIDE_21X9,
-        tokens::ASPECT_ULTRAWIDE_32X9,
-        tokens::ASPECT_SQUARE_1X1,
-        tokens::ASPECT_PORTRAIT_3X4,
-        tokens::ASPECT_PORTRAIT_10X16,
-        tokens::ASPECT_PORTRAIT_9X16,
-        tokens::KEEP_VIDEO_SETTINGS,
-        tokens::VERTICAL_FOV,
-        tokens::VIEWMODEL_FOV,
+        "#HL2RS_AspectUltrawide21x9",
+        "#HL2RS_AspectUltrawide32x9",
+        "#HL2RS_AspectSquare1x1",
+        "#HL2RS_AspectPortrait3x4",
+        "#HL2RS_AspectPortrait10x16",
+        "#HL2RS_AspectPortrait9x16",
+        "#HL2RS_KeepVideoSettings",
+        "#HL2RS_VerticalFov",
+        "#HL2RS_ViewmodelFov",
+        "#HL2RS_MotionBlurUltra",
+        "#HL2RS_StatusMotionBlur",
     ] {
         let key = token.trim_start_matches('#');
         assert!(
@@ -352,4 +357,40 @@ fn malformed_fov_cvars_change_nothing() {
         console.submit(command);
         assert_eq!(console.config, before, "{command}");
     }
+}
+
+#[test]
+fn old_save_files_keep_their_values_and_format() {
+    let bytes = br#"{"video":{"flexible_aspect":true,"vertical_fov":90.0,"viewmodel_fov":70.0,
+        "advanced":{"motion_blur":true,"motion_blur_viewmodel":true,"motion_blur_world":true}}}"#;
+    let config = with_policy(Config::from_json(bytes).unwrap());
+    assert!(crate::settings::fit_display(&config.video));
+    assert!(config.video.frame_follows_window());
+    assert_eq!(config.video.projection_parameter(), 90.);
+    assert_eq!(config.video.effective_viewmodel_fov(), 70.);
+    assert_eq!(
+        crate::motion_blur::selected(&config.video.advanced),
+        crate::motion_blur::MotionBlurMode::Ultra
+    );
+    assert!(!config.video.advanced.retail_camera_blur());
+    assert_eq!(
+        Draft::new(config.clone()).aspect,
+        crate::display::FIT_DISPLAY
+    );
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["video"]["flexible_aspect"], true);
+    assert_eq!(saved["video"]["vertical_fov"], 90.0);
+    assert_eq!(saved["video"]["advanced"]["motion_blur_world"], true);
+}
+
+#[test]
+fn the_motion_blur_cvar_returns_to_the_retail_tiers() {
+    let mut console = console();
+    console.set_mode(Mode::Console);
+    crate::settings::set_blur_tier(&mut console.config.video.advanced, true, true);
+    console.submit("mat_motion_blur_enabled 1");
+    assert_eq!(
+        crate::motion_blur::selected(&console.config.video.advanced),
+        crate::motion_blur::MotionBlurMode::Enabled
+    );
 }

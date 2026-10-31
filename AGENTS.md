@@ -49,12 +49,14 @@ Where code goes:
 - Depend only downward: modkit-core <- source-assets <- source-ui; modkit-core, source-assets <- hl2-simulation; source-ui, hl2-simulation <- hl2-ui <- hl2-bevy. Bevy only in hl2-bevy and optional plugin Bevy adapters; rfd only in hl2-bevy; rapier3d, symphonia and hound only in hl2-simulation. A new crate, a new edge between crates or a new engine dependency needs the owner.
 - modkit-core, hl2-simulation and source-ui never touch the file system: bytes come through source-assets' `Vfs` or from the host. source-ui takes HL2's text, settings and looks through traits or values.
 
-Plugins:
-- Keep contracts small and typed; prefer components, events and namespaced registries over whole-world callbacks; plugin state is instance-owned, with no mutable globals or leaked registration state.
-- Declare plugin dependencies through public contracts; keep them acyclic and validate missing capabilities and registration conflicts before gameplay, with explicit override order.
-- Contributors coexist by ID; select them explicitly, never through last-registration wins or one shared hook slot.
-- Selection/build features belong to the application; omitted plugins add no UI, commands, systems, assets or frame work; preserve dormant saved preferences.
-- Validate core-only, each-plugin and combined builds plus replacement without core edits; hypothetical future plugins do not authorize implementation.
+Plugins (checks only see crate names; these rules are on you):
+- Core test, for every line added to core: would it still make sense if this plugin had never been written? If not, it belongs in the plugin. No plugin settings, enum variants, control names, tokens, assets, debug state or tests in core; renaming a leak does not fix it.
+- A plugin needing core support gets a generic contract, proven in core by a test with a fake contributor. Adding or replacing a plugin edits only the plugin and the application.
+- Before finishing plugin work, read `git diff -- crates/`, apply the core test to each hunk, report exceptions.
+- Plugin state is instance-owned, no mutable globals. Plugin dependencies use public contracts, stay acyclic and are validated before gameplay.
+- Contributors coexist by ID and are selected explicitly; a conflict is an error, never last-registration wins.
+- Features belong to the application; omitted plugins add no UI, commands, systems, assets or frame work; saved preferences survive.
+- Validate core-only, each-plugin and combined builds; hypothetical future plugins do not authorize implementation.
 
 Keep it small:
 - Functions up to 100 lines; a file's production code up to 1,000 lines, its tests up to 2,000. When you touch code already over a limit, do not make it longer: first move what you add (or a piece of what is there) into a new function or module.
@@ -101,8 +103,7 @@ Read docs/gameui.md section 0 before UI work; in one line each:
 - Owned Steam Half-Life 2 app220, tested build19307283/patch9912070; other versions **not tested**. Default installation: C:/Program Files (x86)/Steam/steamapps/common/Half-Life 2; discover another library or use HL2_ROOT.
 - Rust1.99.0 stable MSVC, Visual Studio C++ tools/Windows SDK. Bevy0.19.1/wgpu and direct Rapier0.26.1. Switching to Avian was not requested; comparative physics performance is not tested.
 - Loader: none. Game owning the player: not applicable; Rust simulation owns state and the installation supplies content.
-- Agent: Claude Code desktop (2026-10-06/07 sessions, Claude Opus 5.5); earlier runs used Codex Desktop with GPT-6.1 Extra High/Normal Speed. Select new-chat settings explicitly.
-- Active checkout: workspace outputs/hl2-rs-bevy on main. Sibling outputs/hl2-rs is a detached historical checkout of the former Macroquad main (b4b1731).
+- Agent: Claude Code desktop (2026-10-06/07 sessions, Claude Opus 5.5).
 
 ## Runtime invariants to preserve
 

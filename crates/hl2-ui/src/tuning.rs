@@ -192,15 +192,6 @@ pub fn aspect_factors(aspect: f32) -> (f32, f32) {
 
 /// Aspect-adaptive additive world 4:3 base FOV offset (degrees) at `aspect` (`width / height`).
 ///
-/// Inside `narrowest_design_aspect()..=widest_design_aspect()` (`5:4..=16:9`) this is `0.0` so
-/// standard retail aspects are untouched. Below `5:4` it blends toward
-/// `world_fov_offset.portrait` at `9:16` (reducing vertical fish-eye distortion); above `16:9`
-/// toward `world_fov_offset.ultrawide` at `32:9` (reducing peripheral horizontal stretching),
-/// with the strengths of [`aspect_factors`].
-pub fn world_fov_offset(_aspect: f32) -> f32 {
-    0.
-}
-
 /// Aspect-adaptive viewmodel framing (`fov_offset` and Source `[forward, left, up]` offset) for
 /// `weapon` at `aspect` (`width / height`).
 ///
@@ -421,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn viewmodel_debug_profiles_and_snapshot_round_trip() {
+    fn viewmodel_edit_profiles_and_snapshot_round_trip() {
         let normal = viewmodel_profile(4. / 3.);
         let portrait = viewmodel_profile(9. / 16.);
         let ultrawide = viewmodel_profile(32. / 9.);
@@ -573,23 +564,5 @@ mod tests {
         assert_eq!(aspect_factors(0.4), (1., 0.), "saturated below 9:16");
         assert_eq!(aspect_factors(max), (0., 1.));
         assert_eq!(aspect_factors(6.), (0., 1.), "saturated above 32:9");
-
-        // Monotonic and without jumps across every aspect a flexible frame can take.
-        let mut previous = world_fov_offset(min);
-        let steps = 2000;
-        for i in 1..=steps {
-            let aspect = min + (max - min) * i as f32 / steps as f32;
-            let offset = world_fov_offset(aspect);
-            assert!(
-                (offset - previous).abs() < 0.1,
-                "{aspect}: {previous} -> {offset}"
-            );
-            previous = offset;
-        }
-        // Zero slope where the tuning leaves the retail plateau.
-        let edge = widest_design_aspect();
-        assert!(world_fov_offset(edge + 0.01).abs() < 0.01);
-        let edge = narrowest_design_aspect();
-        assert!(world_fov_offset(edge - 0.01).abs() < 0.02);
     }
 }

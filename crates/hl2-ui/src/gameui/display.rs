@@ -25,8 +25,6 @@ use std::{collections::BTreeMap, sync::LazyLock};
 
 use serde::{Deserialize, Serialize};
 
-use super::localize::placeholders;
-
 /// The display-mode data embedded from `assets/display/modes.json`.
 #[derive(Debug, Deserialize)]
 struct ModeData {
@@ -113,27 +111,27 @@ pub enum AspectRatio {
     Wide16x9,
     /// `#GameUI_AspectWide16x10`.
     Wide16x10,
-    /// 21:9 displays; placeholder label [`placeholders::ASPECT_ULTRAWIDE_21X9`].
-    Ultrawide21x9,
-    /// 32:9 displays; placeholder label [`placeholders::ASPECT_ULTRAWIDE_32X9`].
-    Ultrawide32x9,
-    /// Square displays; placeholder label [`placeholders::ASPECT_SQUARE_1X1`].
-    Square1x1,
-    /// 3:4 portrait displays; placeholder label [`placeholders::ASPECT_PORTRAIT_3X4`].
-    Portrait3x4,
-    /// 10:16 portrait displays; placeholder label [`placeholders::ASPECT_PORTRAIT_10X16`].
-    Portrait10x16,
-    /// 9:16 portrait displays; placeholder label [`placeholders::ASPECT_PORTRAIT_9X16`].
-    Portrait9x16,
-    /// The frame takes the aspect ratio of the window or display, letterboxed or pillarboxed
-    /// only beyond the supported `9:16..=32:9` range ([`crate::tuning::clamp_supported_aspect`]);
-    /// the resolution sets the frame's detail (its short side). Labelled with the installed
-    /// `#GameUI_HUDAspectRatio_FitDisplay` ("Fit Display"). Not a bucket: no resolution falls in
-    /// it, so it is stored as [`crate::config::VideoSettings::flexible_aspect`].
-    Flexible,
+    /// A choice a video policy adds.
+    #[serde(skip)]
+    Custom(&'static AspectChoice),
+}
+
+/// An aspect choice contributed by a video policy.
+#[derive(Debug, PartialEq, Eq)]
+pub struct AspectChoice {
+    pub id: &'static str,
+    pub token: &'static str,
+    pub ratio: (u32, u32),
+    /// The frame takes the window's shape and the resolution only sets its detail, so no
+    /// resolution belongs to this choice.
+    pub follows_window: bool,
 }
 
 impl AspectRatio {
+    pub fn follows_window(self) -> bool {
+        matches!(self, Self::Custom(choice) if choice.follows_window)
+    }
+
     pub const ALL: [Self; 3] = [Self::Normal, Self::Wide16x9, Self::Wide16x10];
     pub const FIXED: [Self; 3] = Self::ALL;
 
@@ -154,13 +152,13 @@ impl AspectRatio {
             .map_or_else(Self::default, |e| e.aspect)
     }
 
-    /// The exact width:height ratio of this choice, from the mode data. [`Self::Flexible`] has
-    /// none and reports the default bucket's ratio.
+    /// The exact width:height ratio of this choice; a window-following one reports the default
+    /// bucket's.
     pub fn exact_ratio(self) -> (u32, u32) {
-        let aspect = if self == Self::Flexible {
-            Self::default()
-        } else {
-            self
+        let aspect = match self {
+            Self::Custom(choice) if !choice.follows_window => return choice.ratio,
+            Self::Custom(_) => Self::default(),
+            retail => retail,
         };
         data()
             .aspect_ratios
@@ -175,13 +173,7 @@ impl AspectRatio {
             Self::Normal => "#GameUI_AspectNormal",
             Self::Wide16x9 => "#GameUI_AspectWide16x9",
             Self::Wide16x10 => "#GameUI_AspectWide16x10",
-            Self::Ultrawide21x9 => placeholders::ASPECT_ULTRAWIDE_21X9,
-            Self::Ultrawide32x9 => placeholders::ASPECT_ULTRAWIDE_32X9,
-            Self::Square1x1 => placeholders::ASPECT_SQUARE_1X1,
-            Self::Portrait3x4 => placeholders::ASPECT_PORTRAIT_3X4,
-            Self::Portrait10x16 => placeholders::ASPECT_PORTRAIT_10X16,
-            Self::Portrait9x16 => placeholders::ASPECT_PORTRAIT_9X16,
-            Self::Flexible => "#GameUI_HUDAspectRatio_FitDisplay",
+            Self::Custom(choice) => choice.token,
         }
     }
 }
@@ -343,10 +335,10 @@ impl DisplayModes {
     }
 }
 
-/// Modes of one aspect bucket, keeping the largest-first order. [`AspectRatio::Flexible`] takes
+/// Modes of one aspect bucket, keeping the largest-first order. A window-following choice takes
 /// every mode: there the resolution only sets the frame's detail.
 pub fn modes_for(modes: &[Resolution], aspect: AspectRatio) -> Vec<Resolution> {
-    if aspect == AspectRatio::Flexible {
+    if aspect.follows_window() {
         return modes.to_vec();
     }
     modes

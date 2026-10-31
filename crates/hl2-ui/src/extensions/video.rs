@@ -2,8 +2,8 @@
 use crate::{
     config::{AdvancedVideoSettings, VideoSettings},
     gameui::display::{AspectRatio, DisplayModes, Resolution},
+    gameui::settings::CustomValue,
 };
-use modkit_core::video::MotionBlurMode;
 use std::sync::{Arc, LazyLock};
 
 pub trait VideoExtension: std::fmt::Debug + Send + Sync {
@@ -11,7 +11,7 @@ pub trait VideoExtension: std::fmt::Debug + Send + Sync {
         &self,
         configured: glam::UVec2,
         _window: glam::UVec2,
-        _flexible: bool,
+        _follows_window: bool,
     ) -> glam::UVec2 {
         configured.max(glam::UVec2::ONE)
     }
@@ -20,7 +20,7 @@ pub trait VideoExtension: std::fmt::Debug + Send + Sync {
         target: glam::UVec2,
         window: glam::UVec2,
         scale: f32,
-        _flexible: bool,
+        _follows_window: bool,
     ) -> source_ui::viewport::ViewportBounds {
         source_ui::viewport::ViewportBounds::compute(target, window, scale)
     }
@@ -28,35 +28,44 @@ pub trait VideoExtension: std::fmt::Debug + Send + Sync {
         &self,
         resolution: glam::UVec2,
         room: Option<glam::Vec2>,
-        _flexible: bool,
+        _follows_window: bool,
     ) -> glam::Vec2 {
         source_ui::viewport::windowed_size(resolution, room)
     }
     fn projection(&self, view: f32, _default: f32, aspect: f32, _vertical: f32) -> f32 {
         2. * ((view.to_radians() / 2.).tan() / aspect.min(4. / 3.)).atan()
     }
-    fn flexible(&self, _video: &VideoSettings) -> bool {
+    fn follows_window(&self, _video: &VideoSettings) -> bool {
         false
     }
-    fn vertical_fov(&self, _video: &VideoSettings) -> f32 {
+    /// A value the policy reads once per config change and receives back in `projection`.
+    fn projection_parameter(&self, _video: &VideoSettings) -> f32 {
         0.
     }
     fn viewmodel_fov(&self, _video: &VideoSettings) -> f32 {
         hl2_simulation::viewmodel_effects::VIEWMODEL_FOV
     }
-    fn vertical_range(&self) -> (f32, f32) {
-        (0., 0.)
+    fn retail_camera_blur(&self, video: &AdvancedVideoSettings) -> bool {
+        video.motion_blur
     }
-    fn viewmodel_range(&self) -> (f32, f32) {
-        (54., 54.)
+    /// The selected row of the motion blur combo.
+    fn selected_blur(&self, video: &AdvancedVideoSettings) -> usize {
+        usize::from(video.motion_blur)
     }
-    fn blur_mode(&self, video: &AdvancedVideoSettings) -> MotionBlurMode {
-        if video.motion_blur {
-            MotionBlurMode::Enabled
-        } else {
-            MotionBlurMode::Disabled
-        }
+    /// A development status token for the motion blur combo.
+    fn blur_status(&self) -> Option<&'static str> {
+        None
     }
+    /// Sliders and their value labels this policy adds to the settings dialogs.
+    fn custom_values(&self) -> &'static [CustomValue] {
+        &[]
+    }
+    /// The aspect choice stored outside width and height, if one is selected.
+    fn stored_aspect(&self, _video: &VideoSettings) -> Option<AspectRatio> {
+        None
+    }
+    /// Records an aspect choice that width and height cannot express.
+    fn store_aspect(&self, _video: &mut VideoSettings, _aspect: AspectRatio) {}
     fn blur_tokens(&self) -> &'static [&'static str] {
         &["#gameui_disabled", "#gameui_enabled"]
     }
@@ -78,6 +87,9 @@ pub trait VideoExtension: std::fmt::Debug + Send + Sync {
         resolution
     }
 }
+/// The viewmodel field of view without a policy that changes it.
+pub const RETAIL_VIEWMODEL_FOV: f32 = hl2_simulation::viewmodel_effects::VIEWMODEL_FOV;
+
 #[derive(Debug)]
 struct Retail;
 impl VideoExtension for Retail {}
@@ -100,7 +112,7 @@ impl VideoPolicy {
         Self(Arc::new(policy))
     }
     pub fn resolution_choices(&self, modes: &[Resolution], aspect: AspectRatio) -> Vec<Resolution> {
-        if aspect == AspectRatio::Flexible {
+        if aspect.follows_window() {
             return modes.to_vec();
         }
         let bucket: Vec<_> = modes

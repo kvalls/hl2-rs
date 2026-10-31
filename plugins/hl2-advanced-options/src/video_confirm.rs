@@ -86,23 +86,27 @@ impl VideoMode {
             width: video.width,
             height: video.height,
             display_mode: video.display_mode,
-            flexible_aspect: video.flexible_aspect,
+            flexible_aspect: crate::settings::fit_display(video),
         }
     }
     pub fn restore(self, video: &mut VideoSettings) {
         video.width = self.width;
         video.height = self.height;
         video.display_mode = self.display_mode;
-        video.flexible_aspect = self.flexible_aspect;
+        crate::settings::set_fit_display(video, self.flexible_aspect);
     }
 }
 impl AspectMode for VideoSettings {
     fn aspect_id(&self) -> u8 {
-        if self.effective_flexible_aspect() {
-            hl2_ui::gameui::display::AspectRatio::Flexible as u8
+        let aspect = if crate::settings::fit_display(self) {
+            crate::display::FIT_DISPLAY
         } else {
-            self.policy.0.aspect_of(self.width, self.height) as u8
-        }
+            self.policy.0.aspect_of(self.width, self.height)
+        };
+        crate::display::ASPECTS
+            .iter()
+            .position(|choice| *choice == aspect)
+            .map_or(u8::MAX, |index| index as u8)
     }
 }
 impl ConfirmationHandler for VideoConfirm<VideoMode> {

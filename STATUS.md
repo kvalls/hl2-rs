@@ -23,6 +23,8 @@ opening it right after a load can briefly show the default listing.
 Not audited: Escape ordering, F4 input capture and secondary-weapon preservation. The string
 audit does not scan `plugins/`. The `startup` hook and load-failure path have no lifecycle test.
 
+Plugin remnants (settings fields, aspect variants, FOV sliders, blur tiers, placeholder tokens) moved out of core behind generic contracts. Viewmodel framing profiles remain in core as an open exception.
+
 Known gaps: the runtime contract is still broad, and `framing` and `projection` take the first
 answer instead of an explicit selection (see docs/plugins.md); plugin dependency validation is not implemented; developer text in the F4
 panel and overlays still has English literals; running from `cargo run` without packaging has

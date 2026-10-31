@@ -1,6 +1,6 @@
-pub use modkit_core::video::MotionBlurMode;
 impl super::AdvancedVideoSettings {
-    pub fn motion_blur_mode(&self) -> MotionBlurMode {
-        self.policy.0.blur_mode(self)
+    /// Whether the retail camera blur pass runs under the selected video policy.
+    pub fn retail_camera_blur(&self) -> bool {
+        self.policy.0.retail_camera_blur(self)
     }
 }

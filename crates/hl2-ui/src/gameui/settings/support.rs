@@ -78,7 +78,6 @@ pub fn development(binding: Binding) -> Option<&'static str> {
         Binding::Slider(Value::JoystickScale) | Binding::Choice(Choice::WeaponSelection) => {
             text::STATUS_GAMEPAD
         }
-        Binding::Choice(Choice::Advanced(AdvancedChoice::MotionBlur)) => text::STATUS_MOTION_BLUR,
         Binding::Choice(Choice::Advanced(AdvancedChoice::ShaderDetail)) => text::STATUS_SHADERS,
         Binding::Choice(Choice::Advanced(AdvancedChoice::WaterDetail)) => text::STATUS_WATER,
         Binding::Choice(Choice::Advanced(AdvancedChoice::Multicore)) => text::STATUS_MULTICORE,

@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-10-31 Plugin remnants removed from core
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** The owner found `hl2-ui` knew the optional FOV sliders. Audit: both the remnants predated the guardrails and the guardrails only covered crate names. Core gained `StoredExtensions`, `CustomValue` and `AspectChoice`; plugin settings, sliders, aspect variants, blur tiers and tokens moved to `hl2-advanced-options`. Saved files keep their format. Tried a per-plugin regex denylist and rejected it with the owner: false positives on retail math and comments, blind to new names. AGENTS now has strict plugin rules instead; the exact crate-name check stays.
+
+**Tested how / Result:** See the checkpoint commit; unit tests, Clippy, selections and Windows Clippy on macOS.
+
+**Still broken or not tested:** Packaged runs, UI (the moved sliders have never been drawn) and frame time are **not tested**. Viewmodel framing profiles remain in core as an open exception.
+
+**Next:** Owner decision on framing profiles; packaged replays and timing.
+
 ## 2026-10-31 Plugin extraction recovery
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents edited code.

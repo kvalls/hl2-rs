@@ -12,7 +12,7 @@ pub enum Request {
 pub trait Host: Context {
     fn effect(request: Request) -> Self::Effect;
     fn log(&mut self, message: impl Into<String>);
-    fn can_enable_background_debug(&self) -> bool;
+    fn has_background_context(&self) -> bool;
     fn background_mode(&self) -> bool;
     fn set_background_mode(&mut self, on: bool);
     fn background_opacity(&self) -> u8;
@@ -105,7 +105,7 @@ fn background_debug_mode<C: Host>(
         return Err(spec.usage());
     };
     if on {
-        if !console.can_enable_background_debug() {
+        if !console.has_background_context() {
             console.log("background_debug_mode needs a background map or loading blur; start or return to the main menu.");
             return Ok(None);
         }
@@ -173,8 +173,8 @@ impl Host for hl2_ui::console::Console {
     fn log(&mut self, message: impl Into<String>) {
         self.log(message);
     }
-    fn can_enable_background_debug(&self) -> bool {
-        self.can_enable_background_debug()
+    fn has_background_context(&self) -> bool {
+        self.has_background_context()
     }
     fn background_mode(&self) -> bool {
         self.presentation.capture_menu_navigation

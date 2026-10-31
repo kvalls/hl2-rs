@@ -750,8 +750,6 @@ mod tests {
             "m_customaccel_exponent" => "1.2",
             "sk_autoaim_scale1" | "m_autoaim_scale" => "1.5",
             "fov" | "fov_desired" => "100",
-            "vertical_fov" => "60",
-            "viewmodel_fov" => "70",
             "con_filter_text" => "bridge",
             "background_map" => "background02",
             other => panic!("{other}: no golden value"),

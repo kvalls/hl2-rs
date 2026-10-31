@@ -6,7 +6,6 @@ pub mod decals;
 pub mod lighting;
 pub mod movement;
 pub mod studio_decals;
-pub mod video;
 pub mod viewmodel;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

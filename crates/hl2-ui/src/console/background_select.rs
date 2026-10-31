@@ -1,10 +1,10 @@
-//! Console commands and state for background visual debug mode.
+//! Choosing and inspecting the menu background map.
 
 use super::{Console, Effect};
 
 impl Console {
     /// Whether background debug mode can currently be enabled (background map or blur present).
-    pub fn can_enable_background_debug(&self) -> bool {
+    pub fn has_background_context(&self) -> bool {
         self.background_level()
             || self.is_background_loading()
             || self

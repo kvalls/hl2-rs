@@ -44,9 +44,11 @@ pub(super) fn mat_motion_blur_enabled_value(console: &Console) -> Option<String>
 }
 
 pub(super) fn set_mat_motion_blur_enabled(console: &mut Console, arg: &str) -> Result<(), Invalid> {
-    console.config.video.advanced.motion_blur = flag(arg)?;
-    console.config.video.advanced.motion_blur_viewmodel = false;
-    console.config.video.advanced.motion_blur_world = false;
+    let index = usize::from(flag(arg)?);
+    let policy = console.config.video.advanced.policy.clone();
+    policy
+        .0
+        .select_blur(&mut console.config.video.advanced, index);
     Ok(())
 }
 

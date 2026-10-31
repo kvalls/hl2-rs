@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn without_a_contributor_every_event_is_rejected() {
         let mut sim = simulation();
-        sim.script_extension(&serde_json::json!({"developer_overlay": true}));
+        sim.script_extension(&serde_json::json!({"unclaimed": true}));
         assert_eq!(sim.extension_rejected.len(), 1);
     }
 }

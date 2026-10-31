@@ -6,7 +6,7 @@ HL2-RS plugins are ordinary source-built Rust crates selected when the executabl
 
 Dependencies point one way: application (`apps/hl2rs`, package `hl2-app`) -> plugins (`plugins/*`) -> core (`crates/*`).
 
-- Core never depends on, imports, feature-gates or registers a concrete plugin. `scripts/checks/architecture.py` enforces this for core manifests and sources.
+- Core never depends on, imports, feature-gates or registers a concrete plugin; `scripts/checks/architecture.py` enforces those names. It cannot detect feature knowledge under other names, so AGENTS.md's plugin rules and review of `git diff -- crates/` cover that.
 - The application owns the features `advanced-options` and `debug-tools`, both on by default, and injects what they select in `apps/hl2rs/src/main.rs` and `plugins.rs`.
 - A plugin's portable code stays free of Bevy. Its optional `bevy` feature holds the host adapter, which may use the public `hl2-bevy` API.
 - `hl2-simulation` stays independent of any engine.
@@ -23,7 +23,8 @@ Ordinary motion blur, flight, spawning, camera behavior and simulation mechanism
 | Contract | Location | Contributes |
 | --- | --- | --- |
 | `hl2_ui::extensions::Extensions` | per application instance | Console commands (a duplicate name is an error), layout addenda, localization placeholders, default bindings, after-apply handlers |
-| `hl2_ui::extensions::VideoExtension` | through `VideoPolicy` | Frame and window sizing, projection, aspect and mode lists, blur tiers, FOV ranges |
+| `hl2_ui::extensions::VideoExtension` | through `VideoPolicy` | Frame and window sizing, projection, aspect and mode lists, blur selection and sliders (`CustomValue`), aspect choices (`AspectChoice`) |
+| `hl2_ui::config::StoredExtensions` | `video.extensions`, `video.advanced.extensions` | Plugin settings saved beside core fields; unknown keys survive, so old files keep their format |
 | `hl2_bevy::extensions::RuntimeExtension` | `Application::runtime` | Input, UI, presentation, loading, map and config lifecycle, replay events, reports |
 | `Application::install` | `fn(&mut App)` | Bevy systems, render nodes and resources |
 
@@ -40,7 +41,8 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 - There is no declared-dependency or capability validation between plugins, because the two current plugins are independent.
 - `cargo run` without packaging has no `weapon_blur.wgsl` in its asset root, so run the packaged build for Advanced or Ultra blur.
 - Plugin developer text in the F4 panel and debug overlays still has English literals.
-- Core `hl2-ui` still declares plugin-specific settings: `Value::VerticalFov` and `Value::ViewmodelFov`, their slider bindings, and the extra aspect variants. A new plugin cannot add a slider of its own without a core edit.
+- Viewmodel framing keeps `Portrait` and `Ultrawide` profiles and their data in core, because both plugins would need them and they may not depend on each other. **Open exception for the owner.**
+- The window-following frame, the projection parameter and the background-selection services stay in core as generic mechanisms.
 - `modkit_core::ModPlugin` is an older, unused simulation contract, not this mechanism.
 
 ## Workflows

@@ -7,7 +7,7 @@ use std::sync::Arc;
 mod confirmation;
 mod video;
 pub use confirmation::{Confirmation, ConfirmationHandler};
-pub use video::{VideoExtension, VideoPolicy};
+pub use video::{VideoExtension, VideoPolicy, RETAIL_VIEWMODEL_FOV};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presentation {

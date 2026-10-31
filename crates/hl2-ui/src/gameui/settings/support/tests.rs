@@ -121,13 +121,3 @@ fn unfinished_features_have_specific_localizable_status() {
         assert_ne!(localization.text(token), token);
     }
 }
-
-#[test]
-fn motion_blur_reports_the_experimental_ultra_tier() {
-    assert_eq!(
-        development(Binding::Choice(Choice::Advanced(
-            AdvancedChoice::MotionBlur
-        ))),
-        Some(crate::gameui::localize::placeholders::STATUS_MOTION_BLUR)
-    );
-}

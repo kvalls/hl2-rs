@@ -93,8 +93,8 @@ pub struct Simulation {
     /// Vertical field of view (degrees) of the world and viewmodel cameras, kept by
     /// `camera::present_player_view` (reports show what the cameras use).
     pub camera_fov: Option<[f32; 2]>,
-    /// `video.vertical_fov` (0 = automatic) and `video.viewmodel_fov` of the applied settings.
-    pub vertical_fov: f32,
+    /// The video policy's projection parameter and viewmodel field of view for this config.
+    pub projection_parameter: f32,
     pub video_policy: hl2_ui::extensions::VideoPolicy,
     pub viewmodel_fov: f32,
     /// Saved menu artwork policy, applied independently of background debug mode.
@@ -147,7 +147,7 @@ impl Simulation {
             applied_detail: None,
             frame_size: None,
             camera_fov: None,
-            vertical_fov: 0.,
+            projection_parameter: 0.,
             video_policy: Default::default(),
             background_force_default_blur: false,
             viewmodel_fov: hl2_simulation::viewmodel_effects::VIEWMODEL_FOV,
@@ -225,12 +225,12 @@ impl Simulation {
     ) {
         self.video_policy = options.config.video.policy.clone();
         self.fov = options.config.video.fov;
-        self.vertical_fov = options.config.video.effective_vertical_fov();
+        self.projection_parameter = options.config.video.projection_parameter();
         self.background_force_default_blur = options.config.video.background_force_default_blur;
         self.viewmodel_fov = options.config.video.effective_viewmodel_fov();
         self.applied_window = Some(
             WindowSettings::new(options.width, options.height, options.display_mode)
-                .with_flexible_aspect(options.flexible_aspect),
+                .with_follows_window(options.follows_window),
         );
         self.run_after_script = options.capture_live;
         self.loading = true;
@@ -459,7 +459,7 @@ impl Simulation {
     ) {
         self.video_policy = cfg.video.policy.clone();
         self.fov = cfg.video.fov;
-        self.vertical_fov = cfg.video.effective_vertical_fov();
+        self.projection_parameter = cfg.video.projection_parameter();
         self.background_force_default_blur = cfg.video.background_force_default_blur;
         self.viewmodel_fov = cfg.video.effective_viewmodel_fov();
         let target = WindowSettings::of(&cfg.video);
@@ -820,7 +820,7 @@ pub struct WindowSettings {
     pub height: u32,
     pub display_mode: hl2_ui::config::DisplayMode,
     /// The game frame follows the window's aspect ratio (Video > Aspect Ratio "Fit Display").
-    pub flexible_aspect: bool,
+    pub follows_window: bool,
 }
 
 impl WindowSettings {
@@ -829,21 +829,21 @@ impl WindowSettings {
             width,
             height,
             display_mode: display_mode.effective(),
-            flexible_aspect: false,
+            follows_window: false,
         }
     }
 
-    /// These settings with a flexible-aspect frame or not.
-    pub fn with_flexible_aspect(self, flexible_aspect: bool) -> Self {
+    /// These settings with a follows_window-aspect frame or not.
+    pub fn with_follows_window(self, follows_window: bool) -> Self {
         Self {
-            flexible_aspect,
+            follows_window,
             ..self
         }
     }
 
     pub fn of(video: &hl2_ui::config::VideoSettings) -> Self {
         Self::new(video.width, video.height, video.display_mode)
-            .with_flexible_aspect(video.effective_flexible_aspect())
+            .with_follows_window(video.frame_follows_window())
     }
 }
 

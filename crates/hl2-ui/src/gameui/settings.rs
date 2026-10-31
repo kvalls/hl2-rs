@@ -21,8 +21,7 @@ use crate::config::{
 use source_ui::widgets::SliderRange;
 
 /// The options being edited: the draft configuration plus the Video page's aspect filter, which
-/// is page state rather than a stored setting (retail derives it from the resolution), except
-/// for the flexible choice, stored as [`crate::config::VideoSettings::flexible_aspect`].
+/// The draft's Aspect Ratio choice: a policy may store one that width and height cannot express.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Draft {
     pub config: Config,
@@ -31,15 +30,10 @@ pub struct Draft {
 
 impl Draft {
     pub fn new(config: Config) -> Self {
-        let aspect = if config.video.effective_flexible_aspect() {
-            AspectRatio::Flexible
-        } else {
-            config
-                .video
-                .policy
-                .0
-                .aspect_of(config.video.width, config.video.height)
-        };
+        let policy = &config.video.policy.0;
+        let aspect = policy
+            .stored_aspect(&config.video)
+            .unwrap_or_else(|| policy.aspect_of(config.video.width, config.video.height));
         Self { config, aspect }
     }
 }
@@ -135,14 +129,63 @@ pub enum Value {
     Gamma,
     /// `fov_desired` (Video > Advanced).
     Fov,
-    /// Vertical field of view (Video > Advanced); the slider's low end is automatic.
-    VerticalFov,
-    /// `viewmodel_fov` (Video > Advanced).
-    ViewmodelFov,
     /// `sc_sensitivity_scale` (Gamepad).
     JoystickScale,
     /// `sc_autoaim_scale` (Gamepad).
     GamepadAimAssistScale,
+    /// A slider a video policy adds.
+    Custom(&'static CustomValue),
+}
+
+/// A slider contributed by a video policy, found by the `.res` names its layout gives.
+pub struct CustomValue {
+    pub id: &'static str,
+    pub panel: Panel,
+    pub slider: &'static str,
+    pub value_label: &'static str,
+    pub range: fn(&Config) -> SliderRange,
+    pub get: fn(&Config) -> f32,
+    pub set: fn(&mut Config, f32),
+    /// Text replacing the plain number, if any.
+    pub label: fn(f32, &Localization) -> Option<String>,
+}
+
+impl PartialEq for CustomValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl Eq for CustomValue {}
+impl std::fmt::Debug for CustomValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.id)
+    }
+}
+
+/// Copies a panel's contributed values when its dialog applies them.
+pub fn copy_custom_values(panel: Panel, from: &Config, to: &mut Config) {
+    for value in from.video.policy.0.custom_values() {
+        if value.panel == panel {
+            (value.set)(to, (value.get)(from));
+        }
+    }
+}
+
+/// The binding of a policy's slider or value label, by panel and `.res` field name.
+pub fn custom_binding(config: &Config, panel: Panel, name: &str) -> Option<Binding> {
+    let values = config.video.policy.0.custom_values();
+    values
+        .iter()
+        .filter(|value| value.panel == panel)
+        .find_map(|value| {
+            if value.slider.eq_ignore_ascii_case(name) {
+                Some(Binding::Slider(Value::Custom(value)))
+            } else if value.value_label.eq_ignore_ascii_case(name) {
+                Some(Binding::ValueLabel(Value::Custom(value)))
+            } else {
+                None
+            }
+        })
 }
 
 impl Value {
@@ -159,35 +202,25 @@ impl Value {
             }
             Self::Gamma => SliderRange::new(1.6, 2.6),
             Self::Fov => SliderRange::new(75., 110.),
-            // The low end of the vertical slider is automatic (0), then the explicit range.
-            Self::VerticalFov => SliderRange::new(0., 0.),
-            Self::ViewmodelFov => {
-                let (min, max) = (54., 54.);
-                SliderRange::new(min, max)
-            }
+            Self::Custom(_) => SliderRange::new(0., 0.),
         }
     }
 
-    /// The text of a value label: the number, or the installed "Auto" for an automatic vertical
-    /// field of view.
+    /// The text of a value label: the number, unless a contributed slider words it.
     pub fn label(self, c: &Config, loc: &Localization) -> String {
         let value = self.get(c);
-        if self == Self::VerticalFov && value == 0. {
-            loc.text("#Spec_Auto")
-        } else {
-            format!("{value:.0}")
-        }
+        let custom = match self {
+            Self::Custom(custom) => (custom.label)(value, loc),
+            _ => None,
+        };
+        custom.unwrap_or_else(|| format!("{value:.0}"))
     }
 
     /// The range of a slider bound to this value: the layout's own range when it gives one.
     pub fn slider_range(self, layout: Option<(f32, f32)>, config: &Config) -> SliderRange {
         layout.map_or_else(
             || match self {
-                Self::VerticalFov => SliderRange::new(0., config.video.policy.0.vertical_range().1),
-                Self::ViewmodelFov => {
-                    let (min, max) = config.video.policy.0.viewmodel_range();
-                    SliderRange::new(min, max)
-                }
+                Self::Custom(custom) => (custom.range)(config),
                 _ => self.range(),
             },
             |(min, max)| SliderRange::new(min, max),
@@ -203,8 +236,7 @@ impl Value {
             Self::AimAssistScale => c.mouse.aim_assist_scale,
             Self::Gamma => c.video.gamma,
             Self::Fov => c.video.fov,
-            Self::VerticalFov => c.video.vertical_fov,
-            Self::ViewmodelFov => c.video.viewmodel_fov,
+            Self::Custom(custom) => (custom.get)(c),
             Self::JoystickScale => c.gamepad.sensitivity_scale,
             Self::GamepadAimAssistScale => c.gamepad.aim_assist_scale,
         }
@@ -216,17 +248,12 @@ impl Value {
         if !value.is_finite() {
             return;
         }
+        if let Self::Custom(custom) = self {
+            (custom.set)(c, value);
+            return;
+        }
         let value = match self {
             Self::Sensitivity => value.clamp(0.1, 20.),
-            // Below the smallest explicit field of view the slider means automatic.
-            Self::VerticalFov => {
-                let (min, max) = c.video.policy.0.vertical_range();
-                if value < min * 0.5 {
-                    0.
-                } else {
-                    value.clamp(min, max)
-                }
-            }
             _ => self.slider_range(None, c).clamp(value),
         };
         *match self {
@@ -237,10 +264,9 @@ impl Value {
             Self::AimAssistScale => &mut c.mouse.aim_assist_scale,
             Self::Gamma => &mut c.video.gamma,
             Self::Fov => &mut c.video.fov,
-            Self::VerticalFov => &mut c.video.vertical_fov,
-            Self::ViewmodelFov => &mut c.video.viewmodel_fov,
             Self::JoystickScale => &mut c.gamepad.sensitivity_scale,
             Self::GamepadAimAssistScale => &mut c.gamepad.aim_assist_scale,
+            Self::Custom(_) => return,
         } = value;
     }
 }
@@ -348,7 +374,7 @@ impl AdvancedChoice {
             Self::ShadowDetail => listed_index(a.shadow_detail),
             Self::Antialiasing => listed_index(a.antialiasing),
             Self::Filtering => listed_index(a.filtering),
-            Self::MotionBlur => a.motion_blur_mode() as usize,
+            Self::MotionBlur => a.policy.0.selected_blur(a),
             flag => usize::from(flag.flag(a).unwrap_or(false)),
         }
     }
@@ -465,7 +491,7 @@ impl Choice {
                 .map(|l| loc.text(&language_token(l)))
                 .collect(),
             Self::Resolution => {
-                if draft.aspect == AspectRatio::Flexible {
+                if draft.aspect.follows_window() {
                     let current = env.modes.current.unwrap_or_else(|| {
                         Resolution::new(draft.config.video.width, draft.config.video.height)
                     });
@@ -522,7 +548,7 @@ impl Choice {
                 .iter()
                 .position(|l| l.eq_ignore_ascii_case(&c.audio.language)),
             Self::Resolution => {
-                if draft.aspect == AspectRatio::Flexible {
+                if draft.aspect.follows_window() {
                     Some(0)
                 } else {
                     draft
@@ -545,7 +571,7 @@ impl Choice {
             Some(i) => items[i].clone(),
             None => match self {
                 Self::Resolution => {
-                    if draft.aspect == AspectRatio::Flexible {
+                    if draft.aspect.follows_window() {
                         items.first().cloned().unwrap_or_default()
                     } else {
                         Resolution::new(draft.config.video.width, draft.config.video.height).label()
@@ -617,7 +643,7 @@ impl Choice {
                 }
             }
             Self::Resolution => {
-                if draft.aspect == AspectRatio::Flexible {
+                if draft.aspect.follows_window() {
                     return;
                 }
                 if let Some(r) = c
@@ -667,8 +693,9 @@ fn select_aspect(env: &Env, draft: &mut Draft, index: usize, resolutions: &[Reso
         return;
     }
     draft.aspect = aspect;
-    c.video.flexible_aspect = aspect == AspectRatio::Flexible;
-    if aspect == AspectRatio::Flexible {
+    let policy = c.video.policy.clone();
+    policy.0.store_aspect(&mut c.video, aspect);
+    if aspect.follows_window() {
         let current = env
             .modes
             .current
@@ -854,10 +881,6 @@ pub fn binding(panel: Panel, name: &str) -> Option<Binding> {
         (Panel::KeyboardAdvanced, "consolecheck") => Toggle(self::Toggle::DeveloperConsole),
         (Panel::VideoAdvanced, "fovslider") => Slider(Value::Fov),
         (Panel::VideoAdvanced, "fovvaluelabel") => ValueLabel(Value::Fov),
-        (Panel::VideoAdvanced, "verticalfovslider") => Slider(Value::VerticalFov),
-        (Panel::VideoAdvanced, "verticalfovvaluelabel") => ValueLabel(Value::VerticalFov),
-        (Panel::VideoAdvanced, "viewmodelfovslider") => Slider(Value::ViewmodelFov),
-        (Panel::VideoAdvanced, "viewmodelfovvaluelabel") => ValueLabel(Value::ViewmodelFov),
         (Panel::VideoAdvanced, "hdcontentbutton") => Command(self::Command::HDContent),
         (Panel::VideoAdvanced, name) => Choice(self::Choice::Advanced(advanced_choice(name)?)),
         (Panel::Gamma, "okbutton") => Command(self::Command::SubOk),
@@ -909,7 +932,7 @@ pub fn force_visible(panel: Panel, name: &str) -> bool {
 
 /// Dynamic enabled state on top of the layout's own `enabled` flag.
 ///
-/// * Resolution is disabled when the aspect ratio is [`AspectRatio::Flexible`];
+/// * a window-following aspect choice disables Resolution.
 /// * acceleration amount follows its check box;
 /// * Aim-Assist Sensitivity is enabled only while aim assist is on (the layout disables it);
 /// * the brightness button is enabled in every display mode: retail enables it in full screen
@@ -924,7 +947,7 @@ pub fn enabled(
 ) -> bool {
     match binding {
         Some(Binding::Choice(Choice::Resolution)) => {
-            layout_enabled && draft.aspect != AspectRatio::Flexible
+            layout_enabled && !draft.aspect.follows_window()
         }
         Some(Binding::Slider(Value::AccelExponent) | Binding::Entry(Value::AccelExponent)) => {
             layout_enabled && draft.config.mouse.acceleration
@@ -1178,7 +1201,64 @@ mod tests {
         assert!(force_visible(Panel::Video, "HDR Label"));
         let resolution = Some(Binding::Choice(Choice::Resolution));
         assert!(enabled(resolution, true, &draft, &applied));
-        draft.aspect = AspectRatio::Flexible;
+        draft.aspect = AspectRatio::Custom(&FOLLOWS);
         assert!(!enabled(resolution, true, &draft, &applied));
+    }
+
+    const FOLLOWS: crate::gameui::display::AspectChoice = crate::gameui::display::AspectChoice {
+        id: "test_follows",
+        token: "#Test",
+        ratio: (16, 9),
+        follows_window: true,
+    };
+
+    /// An independent contributor: core learns its slider and setting only through the contract.
+    #[derive(Debug)]
+    struct SliderPolicy;
+    static TEST_SLIDER: [CustomValue; 1] = [CustomValue {
+        id: "test_value",
+        panel: Panel::VideoAdvanced,
+        slider: "TestSlider",
+        value_label: "TestValueLabel",
+        range: |_| SliderRange::new(1., 9.),
+        get: |c| c.video.extensions.f32("test_value").unwrap_or(1.),
+        set: |c, value| {
+            c.video
+                .extensions
+                .set_f32("test_value", value.clamp(1., 9.))
+        },
+        label: |value, _| (value == 1.).then(|| "lowest".to_owned()),
+    }];
+    impl crate::extensions::VideoExtension for SliderPolicy {
+        fn custom_values(&self) -> &'static [CustomValue] {
+            &TEST_SLIDER
+        }
+    }
+
+    #[test]
+    fn a_contributed_slider_binds_stores_and_saves_without_core_edits() {
+        let mut config = Config::default();
+        assert_eq!(
+            custom_binding(&config, Panel::VideoAdvanced, "testslider"),
+            None
+        );
+        config.video.policy = crate::extensions::VideoPolicy::new(SliderPolicy);
+        let value = Value::Custom(&TEST_SLIDER[0]);
+        assert_eq!(
+            custom_binding(&config, Panel::VideoAdvanced, "testslider"),
+            Some(Binding::Slider(value))
+        );
+        assert_eq!(
+            custom_binding(&config, Panel::VideoAdvanced, "TestValueLabel"),
+            Some(Binding::ValueLabel(value))
+        );
+        assert_eq!(custom_binding(&config, Panel::Mouse, "TestSlider"), None);
+        assert_eq!(value.slider_range(None, &config), SliderRange::new(1., 9.));
+        assert_eq!(value.label(&config, &Localization::default()), "lowest");
+        value.set(&mut config, 50.);
+        assert_eq!(value.get(&config), 9.);
+        assert_eq!(value.label(&config, &Localization::default()), "9");
+        let saved = Config::from_json(&serde_json::to_vec(&config).unwrap()).unwrap();
+        assert_eq!(saved.video.extensions.f32("test_value"), Some(9.));
     }
 }

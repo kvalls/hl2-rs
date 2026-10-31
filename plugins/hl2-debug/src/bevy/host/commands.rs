@@ -53,9 +53,8 @@ impl State {
                     ui.source.presentation.capture_menu_navigation = false;
                     ui.source.log("background_debug_mode 0");
                 } else {
-                    let can_enable = sim.background_level
-                        || sim.loading
-                        || ui.source.can_enable_background_debug();
+                    let can_enable =
+                        sim.background_level || sim.loading || ui.source.has_background_context();
                     if !can_enable {
                         ui.source.log(
                             "background_debug_mode needs a background map or loading blur; start or return to the main menu.",

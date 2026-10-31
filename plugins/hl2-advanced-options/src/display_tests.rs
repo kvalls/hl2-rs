@@ -43,19 +43,23 @@ fn aspect_buckets_match_the_video_page_grouping() {
     assert_eq!(aspect_of(1920, 1080), AspectRatio::Wide16x9);
     assert_eq!(aspect_of(2160, 1080), AspectRatio::Wide16x9, "2:1");
     for (w, h) in [(2560, 1080), (3440, 1440), (3840, 1600), (5120, 2160)] {
-        assert_eq!(aspect_of(w, h), AspectRatio::Ultrawide21x9, "{w}x{h}");
+        assert_eq!(aspect_of(w, h), crate::display::ULTRAWIDE_21X9, "{w}x{h}");
     }
-    assert_eq!(aspect_of(3840, 1080), AspectRatio::Ultrawide32x9);
-    assert_eq!(aspect_of(1080, 1080), AspectRatio::Square1x1);
-    assert_eq!(aspect_of(768, 1024), AspectRatio::Portrait3x4);
-    assert_eq!(aspect_of(1080, 1350), AspectRatio::Portrait3x4, "4:5");
-    assert_eq!(aspect_of(1200, 1920), AspectRatio::Portrait10x16);
-    assert_eq!(aspect_of(1080, 1920), AspectRatio::Portrait9x16);
-    assert_eq!(aspect_of(1170, 2532), AspectRatio::Portrait9x16, "phone");
-    assert_eq!(aspect_of(5120, 1440), AspectRatio::Ultrawide32x9);
+    assert_eq!(aspect_of(3840, 1080), crate::display::ULTRAWIDE_32X9);
+    assert_eq!(aspect_of(1080, 1080), crate::display::SQUARE_1X1);
+    assert_eq!(aspect_of(768, 1024), crate::display::PORTRAIT_3X4);
+    assert_eq!(aspect_of(1080, 1350), crate::display::PORTRAIT_3X4, "4:5");
+    assert_eq!(aspect_of(1200, 1920), crate::display::PORTRAIT_10X16);
+    assert_eq!(aspect_of(1080, 1920), crate::display::PORTRAIT_9X16);
+    assert_eq!(
+        aspect_of(1170, 2532),
+        crate::display::PORTRAIT_9X16,
+        "phone"
+    );
+    assert_eq!(aspect_of(5120, 1440), crate::display::ULTRAWIDE_32X9);
     assert_eq!(
         aspect_of(10, 0),
-        AspectRatio::Ultrawide32x9,
+        crate::display::ULTRAWIDE_32X9,
         "zero height is safe"
     );
 }
@@ -63,7 +67,7 @@ fn aspect_buckets_match_the_video_page_grouping() {
 #[test]
 fn ultrawide_panels_get_their_own_aspect_choices() {
     let modes = usable_modes([r(3440, 1440)], Some(r(3440, 1440)), r(1920, 1080));
-    let wide = resolution_choices(&modes, AspectRatio::Ultrawide21x9);
+    let wide = resolution_choices(&modes, crate::display::ULTRAWIDE_21X9);
     assert_eq!(wide[0], r(3440, 1440));
     assert!(wide.contains(&r(2560, 1080)));
     assert!(!modes.contains(&r(5120, 1440)), "larger than the panel");
@@ -73,7 +77,7 @@ fn ultrawide_panels_get_their_own_aspect_choices() {
         "16:9 no longer lists ultrawide modes"
     );
     let super_wide = usable_modes([], Some(r(5120, 1440)), r(1920, 1080));
-    let thirty_two = resolution_choices(&super_wide, AspectRatio::Ultrawide32x9);
+    let thirty_two = resolution_choices(&super_wide, crate::display::ULTRAWIDE_32X9);
     assert_eq!(thirty_two, [r(5120, 1440), r(3840, 1080)]);
     assert_eq!(
         resolution_choices(&super_wide, AspectRatio::Normal)[0],
@@ -95,8 +99,8 @@ fn an_8k_panel_offers_every_aspect_up_to_its_size() {
     assert_eq!(top(AspectRatio::Normal), r(5760, 4320));
     assert_eq!(top(AspectRatio::Wide16x9), r(7680, 4320));
     assert_eq!(top(AspectRatio::Wide16x10), r(6912, 4320));
-    assert_eq!(top(AspectRatio::Ultrawide21x9), r(7680, 3240));
-    assert_eq!(top(AspectRatio::Ultrawide32x9), r(7680, 2160));
+    assert_eq!(top(crate::display::ULTRAWIDE_21X9), r(7680, 3240));
+    assert_eq!(top(crate::display::ULTRAWIDE_32X9), r(7680, 2160));
     let all = choices(&modes, false);
     assert!(all.contains(&r(5120, 2880)) && all.contains(&r(640, 480)));
     assert_eq!(
@@ -111,10 +115,10 @@ fn a_rotated_monitor_offers_portrait_and_landscape_modes() {
     let panel = r(1080, 1920);
     let modes = usable_modes([panel], Some(panel), r(1080, 1920));
     let top = |aspect| resolution_choices(&modes, aspect)[0];
-    assert_eq!(top(AspectRatio::Portrait9x16), r(1080, 1920));
-    assert_eq!(top(AspectRatio::Portrait10x16), r(1050, 1680));
-    assert_eq!(top(AspectRatio::Portrait3x4), r(1080, 1440));
-    assert_eq!(top(AspectRatio::Square1x1), r(1080, 1080));
+    assert_eq!(top(crate::display::PORTRAIT_9X16), r(1080, 1920));
+    assert_eq!(top(crate::display::PORTRAIT_10X16), r(1050, 1680));
+    assert_eq!(top(crate::display::PORTRAIT_3X4), r(1080, 1440));
+    assert_eq!(top(crate::display::SQUARE_1X1), r(1080, 1080));
     assert_eq!(top(AspectRatio::Normal), r(1056, 792), "landscape fits too");
     assert!(
         modes
@@ -135,17 +139,24 @@ fn a_rotated_monitor_offers_portrait_and_landscape_modes() {
 #[test]
 fn the_flexible_choice_lists_every_mode_and_keeps_the_resolution() {
     let modes = [r(1920, 1080), r(1680, 1050), r(1024, 768), r(1080, 1920)];
-    assert_eq!(resolution_choices(&modes, AspectRatio::Flexible), modes);
     assert_eq!(
-        choose_after_aspect_change(&modes, AspectRatio::Flexible, r(1024, 768)),
+        resolution_choices(&modes, crate::display::FIT_DISPLAY),
+        modes
+    );
+    assert_eq!(
+        choose_after_aspect_change(&modes, crate::display::FIT_DISPLAY, r(1024, 768)),
         Some(r(1024, 768))
     );
-    assert_eq!(ASPECTS.first(), Some(&AspectRatio::Flexible));
+    assert_eq!(ASPECTS.first(), Some(&crate::display::FIT_DISPLAY));
     assert_eq!(
         ASPECTS[1..],
         ASPECTS[1..],
         "the fixed choices keep their combo positions"
     );
-    assert!(!ASPECTS[1..].contains(&AspectRatio::Flexible));
-    assert!(ASPECTS[1..].iter().all(|&a| a != AspectRatio::Flexible));
+    assert!(!ASPECTS[1..].contains(&crate::display::FIT_DISPLAY));
+    assert!(
+        ASPECTS[1..]
+            .iter()
+            .all(|&a| a != crate::display::FIT_DISPLAY)
+    );
 }

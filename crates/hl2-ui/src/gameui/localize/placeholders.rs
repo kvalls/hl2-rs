@@ -1,7 +1,7 @@
 //! **Temporary** English placeholders for UI text that only HL2RS shows.
 //!
-//! Some HL2RS features have no token in the installed game's localization files (the ultrawide
-//! aspect choices, the console's history search prompt). Until HL2RS has its own localization
+//! Some HL2RS features have no token in the installed game's localization files (the console's
+//! history search prompt). Until HL2RS has its own localization
 //! resources, each such string gets an `HL2RS_`-prefixed token constant here and an English
 //! placeholder in [`PLACEHOLDER_STRINGS`]. Code always refers to the token constant, never to the
 //! text, so nothing changes at the call sites when the placeholders go away.
@@ -16,25 +16,6 @@
 //! Today [`super::Localization::lookup`] checks loaded resources first, then this table, then
 //! [`super::FALLBACK_STRINGS`], so a loaded resource that defines one of these tokens already wins.
 
-/// Aspect Ratio choice for 21:9 displays (the installed GameUI has no such choice).
-pub const ASPECT_ULTRAWIDE_21X9: &str = "#HL2RS_AspectUltrawide21x9";
-/// Aspect Ratio choice for 32:9 displays (the installed GameUI has no such choice).
-pub const ASPECT_ULTRAWIDE_32X9: &str = "#HL2RS_AspectUltrawide32x9";
-/// Aspect Ratio choice for square displays (no installed choice).
-pub const ASPECT_SQUARE_1X1: &str = "#HL2RS_AspectSquare1x1";
-/// Aspect Ratio choice for 3:4 portrait displays (no installed choice).
-pub const ASPECT_PORTRAIT_3X4: &str = "#HL2RS_AspectPortrait3x4";
-/// Aspect Ratio choice for 10:16 portrait displays (no installed choice).
-pub const ASPECT_PORTRAIT_10X16: &str = "#HL2RS_AspectPortrait10x16";
-/// Aspect Ratio choice for 9:16 portrait displays (no installed choice).
-pub const ASPECT_PORTRAIT_9X16: &str = "#HL2RS_AspectPortrait9x16";
-/// Question of the keep-or-revert box after an aspect ratio change (no installed token; the
-/// title, buttons and countdown are installed tokens).
-pub const KEEP_VIDEO_SETTINGS: &str = "#HL2RS_KeepVideoSettings";
-/// Label of the Video > Advanced vertical field of view slider (no installed token).
-pub const VERTICAL_FOV: &str = "#HL2RS_VerticalFov";
-/// Label of the Video > Advanced viewmodel field of view slider (no installed token).
-pub const VIEWMODEL_FOV: &str = "#HL2RS_ViewmodelFov";
 /// Ctrl+R history search prompt in the console (no installed token).
 pub const CONSOLE_REVERSE_SEARCH: &str = "#HL2RS_Console_ReverseSearch";
 
@@ -46,8 +27,6 @@ pub const STATUS_SPEAKERS: &str = "#HL2RS_StatusSpeakers";
 pub const STATUS_SOUND_QUALITY: &str = "#HL2RS_StatusSoundQuality";
 pub const STATUS_LANGUAGE: &str = "#HL2RS_StatusLanguage";
 pub const STATUS_GAMEPAD: &str = "#HL2RS_StatusGamepad";
-pub const MOTION_BLUR_ULTRA: &str = "#HL2RS_MotionBlurUltra";
-pub const STATUS_MOTION_BLUR: &str = "#HL2RS_StatusMotionBlur";
 pub const STATUS_SHADERS: &str = "#HL2RS_StatusShaders";
 pub const STATUS_WATER: &str = "#HL2RS_StatusWater";
 pub const STATUS_MULTICORE: &str = "#HL2RS_StatusMulticore";
@@ -72,7 +51,6 @@ pub const PLACEHOLDER_STRINGS: &[(&str, &str)] = &[
     ("HL2RS_StatusAero", "Not implemented: this setting does not change Windows desktop effects."),
     ("HL2RS_StatusSteamInput", "Not implemented: opening Steam Input configuration from this button is not connected yet."),
     ("HL2RS_StatusUnimplemented", "Not implemented: this control has no effect yet."),
-    // Worded like the installed "Widescreen 16:9" / "Widescreen 16:10" choices.
     ("HL2RS_Console_ReverseSearch", "reverse-i-search"),
 ];
 

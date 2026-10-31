@@ -14,8 +14,8 @@ impl Console {
         self.print(Level::Normal, text);
     }
 
-    /// Updates the most recent live viewmodel tuning snapshot instead of growing scrollback.
-    pub fn log_viewmodel_tuning(&mut self, text: impl Into<String>) {
+    /// Updates the most recent live snapshot instead of growing scrollback.
+    pub fn log_snapshot(&mut self, text: impl Into<String>) {
         self.shell.panel.replace_snapshot(&self.canvas, text);
     }
 

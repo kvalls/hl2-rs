@@ -22,6 +22,10 @@ use bevy::window::{
 };
 
 pub mod display;
+mod fov;
+#[cfg(test)]
+pub(crate) use fov::vertical_fov_4_3;
+pub(crate) use fov::{vertical_fov_for, vertical_fov_with};
 mod msaa;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
 pub mod mode {
@@ -92,13 +96,13 @@ const SUSPEND_FRAMES: u32 = 4;
 pub struct GameFrame {
     pub policy: hl2_ui::extensions::VideoPolicy,
     pub image: Handle<Image>,
-    /// Frame size in pixels: the configured video resolution, or for a flexible frame the size
+    /// Frame size in pixels: the configured video resolution, or for a follows_window frame the size
     /// the injected video policy derives from it and the window.
     pub resolution: UVec2,
     /// Configured video resolution, in frame pixels (also the requested windowed size).
     pub configured: UVec2,
     /// The frame follows the window's aspect ratio (Video > Aspect Ratio "Fit Display").
-    pub flexible: bool,
+    pub follows_window: bool,
     /// Remaining frames to size a windowed-mode window to `configured`.
     pub pending_window: Option<u32>,
     /// Remaining frames of suspended rendering while the frame is resized.
@@ -108,7 +112,7 @@ pub struct GameFrame {
 }
 
 impl GameFrame {
-    /// The frame size for `window`: the configured resolution, or for a flexible frame the
+    /// The frame size for `window`: the configured resolution, or for a follows_window frame the
     /// window-shaped size of the same detail. A window with no area (minimized) keeps the
     /// current size.
     pub fn size_for(&self, window: &Window) -> UVec2 {
@@ -122,7 +126,7 @@ impl GameFrame {
         let size = self.policy.0.frame_size(
             glam::UVec2::new(self.configured.x, self.configured.y),
             window,
-            self.flexible,
+            self.follows_window,
         );
         UVec2::new(size.x, size.y)
     }
@@ -207,7 +211,7 @@ pub fn frame_image(resolution: UVec2) -> Image {
 }
 
 /// Creates the game frame and its presentation. `windowed` sizes the window to the frame
-/// (clamped to the monitor) once the monitor is known; `flexible` makes the frame follow the
+/// (clamped to the monitor) once the monitor is known; `follows_window` makes the frame follow the
 /// window's aspect ratio from the first presented frame on.
 pub(crate) fn install_frame(
     commands: &mut Commands,
@@ -218,7 +222,7 @@ pub(crate) fn install_frame(
 ) {
     let FrameRequest {
         resolution,
-        flexible,
+        follows_window,
         windowed,
         policy,
     } = request;
@@ -229,7 +233,7 @@ pub(crate) fn install_frame(
         image: image.clone(),
         resolution,
         configured: resolution,
-        flexible,
+        follows_window,
         pending_window: windowed.then_some(WINDOW_RESIZE_FRAMES),
         suspended: 0,
         recenter: windowed,
@@ -265,7 +269,7 @@ pub(crate) fn install_frame(
 /// The startup frame `install_frame` creates.
 pub(crate) struct FrameRequest {
     pub resolution: UVec2,
-    pub flexible: bool,
+    pub follows_window: bool,
     pub windowed: bool,
     pub policy: hl2_ui::extensions::VideoPolicy,
 }
@@ -338,21 +342,27 @@ impl VideoViewport {
         Self::compute_with_mode(target_w, target_h, window, false)
     }
 
-    /// [`Self::compute`] for a fixed or flexible frame
+    /// [`Self::compute`] for a fixed or follows_window frame
     /// ([`source_ui::viewport::ViewportBounds::compute_with_mode`]).
     pub fn compute_with_mode(
         target_w: u32,
         target_h: u32,
         window: &Window,
-        flexible: bool,
+        follows_window: bool,
     ) -> Self {
-        Self::compute_with_policy(target_w, target_h, window, flexible, &Default::default())
+        Self::compute_with_policy(
+            target_w,
+            target_h,
+            window,
+            follows_window,
+            &Default::default(),
+        )
     }
     pub fn compute_with_policy(
         target_w: u32,
         target_h: u32,
         window: &Window,
-        flexible: bool,
+        follows_window: bool,
         policy: &hl2_ui::extensions::VideoPolicy,
     ) -> Self {
         let win_w = window.resolution.physical_width().max(1);
@@ -363,7 +373,7 @@ impl VideoViewport {
             glam::UVec2::new(target_w, target_h),
             glam::UVec2::new(win_w, win_h),
             scale,
-            flexible,
+            follows_window,
         );
 
         Self {
@@ -438,7 +448,7 @@ fn apply_video_config_to_window(
     }
     if let Some(frame) = frame {
         let configured = UVec2::new(cfg.width, cfg.height).max(UVec2::ONE);
-        let configured = if cfg.effective_flexible_aspect() {
+        let configured = if cfg.frame_follows_window() {
             let native = cfg
                 .policy
                 .0
@@ -455,7 +465,7 @@ fn apply_video_config_to_window(
         };
         frame.policy = cfg.policy.clone();
         frame.configured = configured;
-        frame.flexible = cfg.effective_flexible_aspect();
+        frame.follows_window = cfg.frame_follows_window();
         frame.resolution = frame.size_for(window);
         frame.pending_window =
             (target_mode == WindowMode::Windowed).then_some(WINDOW_RESIZE_FRAMES);
@@ -593,21 +603,21 @@ pub fn window_resize(
 
 /// [`window_resize`] with the monitor's usable [`DesktopArea`] when it is known (macOS): the
 /// client size then fits that area exactly instead of the monitor minus [`WINDOW_MARGIN`].
-/// A `flexible` frame fits each side on its own ([`hl2_ui::flexible_frame::flexible_windowed_size`])
+/// A `follows_window` frame fits each side on its own ([`hl2_ui::flexible_frame::flexible_windowed_size`])
 /// instead of shrinking the requested shape uniformly.
 pub fn window_resize_in(
     window: &Window,
     monitor: Option<&Monitor>,
     resolution: UVec2,
     area: Option<&DesktopArea>,
-    flexible: bool,
+    follows_window: bool,
 ) -> WindowResize {
     window_resize_with_policy(
         window,
         monitor,
         resolution,
         area,
-        flexible,
+        follows_window,
         &Default::default(),
     )
 }
@@ -616,7 +626,7 @@ pub fn window_resize_with_policy(
     monitor: Option<&Monitor>,
     resolution: UVec2,
     area: Option<&DesktopArea>,
-    flexible: bool,
+    follows_window: bool,
     policy: &hl2_ui::extensions::VideoPolicy,
 ) -> WindowResize {
     if window.mode != WindowMode::Windowed {
@@ -630,7 +640,7 @@ pub fn window_resize_with_policy(
     let sized = |room: Option<Vec2>| {
         let resolution = glam::UVec2::new(resolution.x, resolution.y);
         let room = room.map(|room| glam::Vec2::new(room.x, room.y));
-        let size = policy.0.window_size(resolution, room, flexible);
+        let size = policy.0.window_size(resolution, room, follows_window);
         Vec2::new(size.x, size.y)
     };
     let available = metrics.map(|m| Vec2::new(m.physical_width as f32, m.physical_height as f32));
@@ -689,7 +699,7 @@ pub(crate) fn resize_window(
         monitor,
         frame.configured,
         area,
-        frame.flexible,
+        frame.follows_window,
         &frame.policy,
     );
     debug!(
@@ -881,7 +891,7 @@ type FrameCameras<'w, 's> = Query<
 >;
 
 /// Routes every game camera into the game frame and places the presented frame in the window.
-/// A flexible frame takes the window's current shape here first, so live window resizes (and
+/// A follows_window frame takes the window's current shape here first, so live window resizes (and
 /// display changes) reshape it; [`suspend_for_resize`] then resizes the image safely.
 pub(crate) fn present_frame(
     frame: Option<ResMut<GameFrame>>,
@@ -896,11 +906,11 @@ pub(crate) fn present_frame(
     let Ok(window) = windows.single() else {
         return;
     };
-    if frame.flexible {
+    if frame.follows_window {
         let size = frame.size_for(window);
         if frame.resolution != size {
             debug!(
-                "[video] flexible frame {} -> {size} for window {}x{} px",
+                "[video] follows_window frame {} -> {size} for window {}x{} px",
                 frame.resolution,
                 window.resolution.physical_width(),
                 window.resolution.physical_height()
@@ -921,7 +931,7 @@ pub(crate) fn present_frame(
         frame.resolution.x,
         frame.resolution.y,
         window,
-        frame.flexible,
+        frame.follows_window,
         &frame.policy,
     );
     if *video_viewport != computed {
@@ -1042,37 +1052,6 @@ pub(crate) fn record_frame_size(
     }
 }
 
-/// Source's field of view is horizontal at 4:3. Wider screens keep the vertical view of 4:3 and
-/// show more at the sides (as in retail); screens narrower than 4:3 (square, portrait) keep the
-/// 4:3 horizontal view and show more above and below, so the view and the viewmodel are never
-/// cropped at the sides. Returns Bevy's vertical field of view (radians) for `aspect`
-/// (width / height) of the game frame.
-pub(crate) fn vertical_fov_for(degrees: f32, aspect: f32) -> f32 {
-    2. * ((degrees.to_radians() / 2.).tan() / aspect.min(4. / 3.)).atan()
-}
-
-/// [`vertical_fov_for`] with an explicit vertical field of view or automatic aspect tuning:
-/// when `vertical > 0.`, `vertical` degrees replace the derived one for the player's default
-/// field of view; when `vertical <= 0.` (automatic), [`hl2_ui::tuning::world_fov_offset`]
-/// adjusts `default_degrees` outside `5:4..=16:9` so portrait frames avoid vertical fish-eye
-/// and ultrawide frames avoid peripheral horizontal stretching. Weapon zoom or camera field of
-/// view `view_degrees` scales the tangent in proportion.
-pub(crate) fn vertical_fov_with(
-    view_degrees: f32,
-    default_degrees: f32,
-    aspect: f32,
-    vertical: f32,
-) -> f32 {
-    let _ = (default_degrees, vertical);
-    vertical_fov_for(view_degrees, aspect)
-}
-
-/// [`vertical_fov_for`] on a 4:3 frame.
-#[cfg(test)]
-pub(crate) fn vertical_fov(degrees: f32) -> f32 {
-    vertical_fov_for(degrees, 4. / 3.)
-}
-
 /// Width / height of the game frame (4:3 before the frame exists).
 pub(crate) fn frame_aspect(frame: Option<&GameFrame>) -> f32 {
     frame.map_or(4. / 3., |f| {
@@ -1142,7 +1121,7 @@ mod tests {
             image: Handle::default(),
             resolution,
             configured: resolution,
-            flexible: false,
+            follows_window: false,
             pending_window: None,
             suspended: 0,
             recenter: false,
@@ -1185,7 +1164,7 @@ mod tests {
 
     #[test]
     fn an_injected_policy_sizes_the_frame_from_the_physical_window() {
-        // A flexible policy must not retain 480 lines just because that was the previously
+        // A follows_window policy must not retain 480 lines just because that was the previously
         // selected fixed mode. On high-DPI panels `Window` reports physical pixels, which are
         // also the game frame's resolution.
         #[derive(Debug)]
@@ -1194,8 +1173,8 @@ mod tests {
             fn frame_size(&self, _: glam::UVec2, window: glam::UVec2, _: bool) -> glam::UVec2 {
                 window
             }
-            fn flexible(&self, video: &hl2_ui::config::VideoSettings) -> bool {
-                video.flexible_aspect
+            fn follows_window(&self, _: &hl2_ui::config::VideoSettings) -> bool {
+                true
             }
         }
         let mut window = window(
@@ -1207,7 +1186,6 @@ mod tests {
         let cfg = hl2_ui::config::VideoSettings {
             width: 640,
             height: 480,
-            flexible_aspect: true,
             display_mode: hl2_ui::config::DisplayMode::NoBorder,
             policy: hl2_ui::extensions::VideoPolicy::new(FillWindow),
             ..Default::default()
@@ -1540,7 +1518,7 @@ mod tests {
             image: image.clone(),
             resolution: UVec2::new(1280, 720),
             configured: UVec2::new(1280, 720),
-            flexible: false,
+            follows_window: false,
             pending_window: None,
             suspended: 0,
             recenter: false,

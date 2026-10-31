@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn viewmodel_is_hidden_past_its_fov() {
         let (fov, near) = viewmodel_projection(54., 0., 1000., 4. / 3.);
-        assert_eq!((fov, near), (crate::video::vertical_fov(54.), 0.1));
+        assert_eq!((fov, near), (crate::video::vertical_fov_4_3(54.), 0.1));
         let (_, near) = viewmodel_projection(0., 20., 1000., 9. / 16.);
         assert_eq!(
             near, 500.,
@@ -215,7 +215,7 @@ mod tests {
         for aspect in [4. / 3., 16. / 10., 16. / 9.] {
             assert!(
                 (world_fov(75., 75., aspect, 90., true) - v_4_3).abs() < 1e-6,
-                "{aspect}: 4:3..=16:9 menu backgrounds keep the 4:3 vertical view and ignore vertical_fov"
+                "{aspect}: 4:3..=16:9 menu backgrounds keep the 4:3 vertical view and ignore the projection parameter"
             );
         }
         for aspect in [1., 9. / 16.] {
@@ -251,8 +251,8 @@ mod tests {
 
     #[test]
     fn narrow_frames_keep_the_four_by_three_horizontal_view() {
-        use crate::video::{vertical_fov, vertical_fov_for};
-        let landscape = vertical_fov(75.);
+        use crate::video::{vertical_fov_4_3, vertical_fov_for};
+        let landscape = vertical_fov_4_3(75.);
         for aspect in [4. / 3., 16. / 9., 16. / 10., 64. / 27., 32. / 9.] {
             assert_eq!(
                 vertical_fov_for(75., aspect),

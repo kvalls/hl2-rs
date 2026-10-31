@@ -160,30 +160,49 @@ fn injected_sliders_use_plugin_ranges() {
     // value in the tuned range.
     let (vertical_min, vertical_max) = crate::fov::vertical_fov_range();
     let mut v = console().config;
-    assert_eq!(Value::VerticalFov.get(&v), 0., "automatic by default");
-    Value::VerticalFov.set(&mut v, vertical_min - 1.);
     assert_eq!(
-        v.video.vertical_fov, vertical_min,
+        Value::Custom(&crate::settings::SLIDERS[0]).get(&v),
+        0.,
+        "automatic by default"
+    );
+    Value::Custom(&crate::settings::SLIDERS[0]).set(&mut v, vertical_min - 1.);
+    assert_eq!(
+        crate::settings::vertical_fov(&v.video),
+        vertical_min,
         "just below the range clamps up"
     );
-    Value::VerticalFov.set(&mut v, vertical_min * 0.4);
-    assert_eq!(v.video.vertical_fov, 0., "the low end is automatic");
-    Value::VerticalFov.set(&mut v, 999.);
-    assert_eq!(v.video.vertical_fov, vertical_max);
+    Value::Custom(&crate::settings::SLIDERS[0]).set(&mut v, vertical_min * 0.4);
+    assert_eq!(
+        crate::settings::vertical_fov(&v.video),
+        0.,
+        "the low end is automatic"
+    );
+    Value::Custom(&crate::settings::SLIDERS[0]).set(&mut v, 999.);
+    assert_eq!(crate::settings::vertical_fov(&v.video), vertical_max);
     let mut loc = Localization::default();
     loc.insert("#Spec_Auto", "Auto");
-    Value::VerticalFov.set(&mut v, 0.);
-    assert_eq!(Value::VerticalFov.label(&v, &loc), "Auto");
-    Value::VerticalFov.set(&mut v, 90.);
-    assert_eq!(Value::VerticalFov.label(&v, &loc), "90");
+    Value::Custom(&crate::settings::SLIDERS[0]).set(&mut v, 0.);
+    assert_eq!(
+        Value::Custom(&crate::settings::SLIDERS[0]).label(&v, &loc),
+        "Auto"
+    );
+    Value::Custom(&crate::settings::SLIDERS[0]).set(&mut v, 90.);
+    assert_eq!(
+        Value::Custom(&crate::settings::SLIDERS[0]).label(&v, &loc),
+        "90"
+    );
     assert_eq!(Value::Fov.label(&v, &loc), "75");
     // The viewmodel field of view keeps to its tuned range.
     let (view_min, view_max) = crate::fov::viewmodel_fov_range();
-    assert_eq!(Value::ViewmodelFov.get(&v), 54., "retail default");
-    Value::ViewmodelFov.set(&mut v, 1.);
-    assert_eq!(v.video.viewmodel_fov, view_min);
-    Value::ViewmodelFov.set(&mut v, 500.);
-    assert_eq!(v.video.viewmodel_fov, view_max);
+    assert_eq!(
+        Value::Custom(&crate::settings::SLIDERS[1]).get(&v),
+        54.,
+        "retail default"
+    );
+    Value::Custom(&crate::settings::SLIDERS[1]).set(&mut v, 1.);
+    assert_eq!(crate::settings::viewmodel_fov(&v.video), view_min);
+    Value::Custom(&crate::settings::SLIDERS[1]).set(&mut v, 500.);
+    assert_eq!(crate::settings::viewmodel_fov(&v.video), view_max);
 }
 
 #[test]

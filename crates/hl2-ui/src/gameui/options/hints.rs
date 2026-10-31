@@ -102,8 +102,17 @@ impl OptionsDialog {
         let text = self
             .tip_for_control(panel, &widget.control.name)
             .unwrap_or_default();
-        let development = support::related_binding(panel, widget.control)
+        let related = support::related_binding(panel, widget.control);
+        let development = related
             .and_then(support::development)
+            .or_else(|| {
+                let motion_blur = super::Binding::Choice(super::settings::Choice::Advanced(
+                    super::settings::AdvancedChoice::MotionBlur,
+                ));
+                (related == Some(motion_blur))
+                    .then(|| self.draft.config.video.policy.0.blur_status())
+                    .flatten()
+            })
             .map(|token| self.res.localization.text(token));
         if text.is_empty() && development.is_none() {
             self.active_tooltip = None;

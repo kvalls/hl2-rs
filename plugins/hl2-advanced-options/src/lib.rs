@@ -5,6 +5,7 @@ pub mod display;
 pub mod flexible_frame;
 pub mod localize;
 pub mod motion_blur;
+pub mod settings;
 pub const LAYOUT_ADDENDA: &[(&str, &str)] = &[(
     "optionssubvideoadvanceddlg",
     include_str!(concat!(

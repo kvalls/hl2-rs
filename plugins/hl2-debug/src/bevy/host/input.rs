@@ -36,7 +36,7 @@ fn commit_viewmodel_debug_edit(
     match hl2_ui::tuning::tuning_json_with_viewmodel_profiles(&debug.edits) {
         Ok(json) => {
             if let Some(ui) = ui {
-                ui.source.log_viewmodel_tuning(json);
+                ui.source.log_snapshot(json);
             } else {
                 bevy::log::info!(target: "hl2_bevy::viewmodel_debug", "{json}");
             }
@@ -69,7 +69,7 @@ pub(super) fn process_debug_tuning_keys(
         && !sim.loading()
         && ui
             .as_ref()
-            .is_some_and(|u| !u.source.can_enable_background_debug());
+            .is_some_and(|u| !u.source.has_background_context());
     if in_gameplay {
         if state.background_debug.enabled {
             state.background_debug.fov = None;
@@ -184,7 +184,7 @@ fn process_background_debug_keys(
         *opacity_repeat = KeyAdjustRepeat::default();
     }
     if let Some(ui) = ui {
-        let is_flexible = ui.source.config.video.flexible_aspect;
+        let is_flexible = ui.source.config.video.frame_follows_window();
         let label = crate::bevy::host::background::aspect_label(input.aspect, is_flexible);
         crate::bevy::host::background::aspect_changed(
             &mut state.background_debug,

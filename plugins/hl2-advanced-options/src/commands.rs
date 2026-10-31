@@ -21,21 +21,28 @@ pub const SPECS: [Spec; 2] = [
     ),
 ];
 fn vertical(console: &Console) -> Option<String> {
-    Some(format!("{:.0}", console.config.video.vertical_fov))
+    Some(format!(
+        "{:.0}",
+        crate::settings::vertical_fov(&console.config.video)
+    ))
 }
 fn viewmodel(console: &Console) -> Option<String> {
-    Some(format!("{:.0}", console.config.video.viewmodel_fov))
+    Some(format!(
+        "{:.0}",
+        crate::settings::viewmodel_fov(&console.config.video)
+    ))
 }
 fn set_vertical(console: &mut Console, value: &str) -> Result<(), Invalid> {
     let value = parse::<f32>(value)?;
     if !value.is_finite() {
         return Err(Invalid::Usage);
     }
-    console.config.video.vertical_fov = if value <= 0. {
+    let degrees = if value <= 0. {
         0.
     } else {
         value.clamp(40., 100.)
     };
+    crate::settings::set_vertical_fov(&mut console.config.video, degrees);
     Ok(())
 }
 fn set_viewmodel(console: &mut Console, value: &str) -> Result<(), Invalid> {
@@ -43,6 +50,6 @@ fn set_viewmodel(console: &mut Console, value: &str) -> Result<(), Invalid> {
     if !value.is_finite() {
         return Err(Invalid::Usage);
     }
-    console.config.video.viewmodel_fov = value.clamp(40., 80.);
+    crate::settings::set_viewmodel_fov(&mut console.config.video, value.clamp(40., 80.));
     Ok(())
 }

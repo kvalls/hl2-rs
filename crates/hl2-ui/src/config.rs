@@ -6,7 +6,6 @@
 //! [`VideoSettings::display_mode`] in [`Config::migrate`].
 
 mod motion_blur;
-pub use motion_blur::MotionBlurMode;
 use serde::{Deserialize, Serialize};
 use source_ui::placement::DialogPlacement;
 use std::collections::BTreeMap;
@@ -204,6 +203,31 @@ impl Filtering {
     }
 }
 
+/// Plugin-owned settings saved beside the core fields. Unknown keys survive load and save, so a
+/// preference stays dormant in a build without its plugin and old files keep their format.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct StoredExtensions(std::collections::BTreeMap<String, serde_json::Value>);
+
+impl StoredExtensions {
+    pub fn f32(&self, key: &str) -> Option<f32> {
+        self.0
+            .get(key)
+            .and_then(serde_json::Value::as_f64)
+            .map(|value| value as f32)
+            .filter(|value| value.is_finite())
+    }
+    pub fn bool(&self, key: &str) -> Option<bool> {
+        self.0.get(key).and_then(serde_json::Value::as_bool)
+    }
+    pub fn set_f32(&mut self, key: &str, value: f32) {
+        self.0.insert(key.to_owned(), serde_json::json!(value));
+    }
+    pub fn set_bool(&mut self, key: &str, value: bool) {
+        self.0.insert(key.to_owned(), serde_json::json!(value));
+    }
+}
+
 /// Video > Advanced. Detail levels (`model_detail`, `texture_detail`), `antialiasing`, `filtering`, and `vsync` affect rendering.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -223,22 +247,22 @@ pub struct AdvancedVideoSettings {
     pub vsync: bool,
     /// `mat_motion_blur_enabled`.
     pub motion_blur: bool,
-    /// Opt-in animation blur; false preserves retail camera-only blur and old saves.
-    pub motion_blur_viewmodel: bool,
-    /// Ultra-only camera/world and independent projectile reconstruction.
-    pub motion_blur_world: bool,
     /// `mat_queue_mode` (-1 multicore, 0 single).
     pub multicore: bool,
     /// Classic Effects (`r_classic_fire` / `r_classic_blood`).
     pub classic_effects: bool,
     /// Windows Aero extensions (`mat_disable_d3d9ex` 0); the layout shows it on Windows only.
     pub d3d9ex: bool,
+    /// Values stored by plugins, kept whether or not those plugins are in this build.
+    #[serde(flatten)]
+    pub extensions: StoredExtensions,
 }
 
 impl Default for AdvancedVideoSettings {
     fn default() -> Self {
         Self {
             policy: Default::default(),
+            extensions: Default::default(),
             model_detail: ModelDetail::High,
             texture_detail: TextureDetail::High,
             shader_detail: ShaderDetail::High,
@@ -249,8 +273,6 @@ impl Default for AdvancedVideoSettings {
             filtering: Filtering::Trilinear,
             vsync: true,
             motion_blur: true,
-            motion_blur_viewmodel: false,
-            motion_blur_world: false,
             multicore: true,
             classic_effects: false,
             d3d9ex: true,
@@ -266,19 +288,9 @@ pub struct VideoSettings {
     pub width: u32,
     pub height: u32,
     pub display_mode: DisplayMode,
-    /// Video > Aspect Ratio "Fit Display": the game frame takes the window's or display's
-    /// aspect ratio (within `9:16..=32:9`) and `width`/`height` only set its detail and the
-    /// requested windowed size.
-    pub flexible_aspect: bool,
     /// Force standard pre-blurred background artwork even on wide frames.
     pub background_force_default_blur: bool,
     pub fov: f32,
-    /// Vertical field of view in degrees (Video > Advanced); 0 is automatic: derived from
-    /// `fov` and the screen's aspect ratio. An explicit value replaces the derived one and scales
-    /// with weapon zoom.
-    pub vertical_fov: f32,
-    /// `viewmodel_fov`: the viewmodel's horizontal 4:3 field of view in degrees.
-    pub viewmodel_fov: f32,
     pub hdr: HdrMode,
     /// Set once the old default `hdr: none` has been replaced (see [`crate::hdr::migrate_default`]).
     pub hdr_migrated: Option<bool>,
@@ -290,17 +302,22 @@ pub struct VideoSettings {
     /// Legacy flag from older files; read once by [`Config::migrate`], never written.
     #[serde(skip_serializing)]
     pub borderless: Option<bool>,
+    /// Values stored by plugins, kept whether or not those plugins are in this build.
+    #[serde(flatten)]
+    pub extensions: StoredExtensions,
 }
 
 /// What a loaded map is built from: a change of any reloads the map.
 pub type LoadDetail = (ModelDetail, TextureDetail, bool);
 
 impl VideoSettings {
-    pub fn effective_flexible_aspect(&self) -> bool {
-        self.policy.0.flexible(self)
+    /// Whether the selected video policy makes the frame follow the window's shape.
+    pub fn frame_follows_window(&self) -> bool {
+        self.policy.0.follows_window(self)
     }
-    pub fn effective_vertical_fov(&self) -> f32 {
-        self.policy.0.vertical_fov(self)
+    /// The selected video policy's opaque input to its own `projection`.
+    pub fn projection_parameter(&self) -> f32 {
+        self.policy.0.projection_parameter(self)
     }
     pub fn effective_viewmodel_fov(&self) -> f32 {
         self.policy.0.viewmodel_fov(self)
@@ -324,14 +341,12 @@ impl Default for VideoSettings {
     fn default() -> Self {
         Self {
             policy: Default::default(),
+            extensions: Default::default(),
             width: 1280,
             height: 720,
             display_mode: DisplayMode::Fullscreen,
-            flexible_aspect: false,
             background_force_default_blur: false,
             fov: 75.0,
-            vertical_fov: 0.0,
-            viewmodel_fov: hl2_simulation::viewmodel_effects::VIEWMODEL_FOV,
             hdr: HdrMode::Full,
             hdr_migrated: None,
             hud_aspect: HudAspect::Fit,
@@ -750,12 +765,6 @@ impl Config {
             defaults.gamepad.aim_assist_scale,
         );
         clamp(&mut self.video.fov, 50., 120., defaults.video.fov);
-        if !self.video.vertical_fov.is_finite() {
-            self.video.vertical_fov = 0.;
-        }
-        if !self.video.viewmodel_fov.is_finite() {
-            self.video.viewmodel_fov = defaults.video.viewmodel_fov;
-        }
         self.gameplay.skill = self.gameplay.skill.clamp(1, 3);
         if let Some(map) = self.gameplay.background_map.take() {
             let clean = map

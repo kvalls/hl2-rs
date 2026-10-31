@@ -202,8 +202,7 @@ impl Sub {
             Self::VideoAdvanced => {
                 to.video.advanced = from.video.advanced.clone();
                 to.video.fov = from.video.fov;
-                to.video.vertical_fov = from.video.vertical_fov;
-                to.video.viewmodel_fov = from.video.viewmodel_fov;
+                settings::copy_custom_values(Panel::VideoAdvanced, from, to);
             }
             Self::Gamma | Self::AudioCredits | Self::VideoCredits => return false,
         }
@@ -497,7 +496,8 @@ fn layout_widgets<'a>(
         .map(|(control, in_footer)| {
             let (x, y, w, h) = control.rect((area.w, area.h));
             let y = if in_footer { y + shift } else { y };
-            let binding = control_binding(panel, control);
+            let binding = control_binding(panel, control)
+                .or_else(|| settings::custom_binding(&draft.config, panel, &control.name));
             Widget {
                 control,
                 rect: Rect::new(area.x + x, area.y + y, w, h),
@@ -589,12 +589,12 @@ impl OptionsDialog {
     /// Resolutions offered on the Video page (from the host's monitor query).
     pub fn set_display_modes(&mut self, modes: DisplayModes) {
         self.modes = modes;
-        if self.draft.aspect == crate::gameui::display::AspectRatio::Flexible {
+        if self.draft.aspect.follows_window() {
             if let Some(current) = self.modes.current.or(self.modes.desktop) {
                 let res = self.draft.config.video.policy.0.presented(current);
                 self.draft.config.video.width = res.width;
                 self.draft.config.video.height = res.height;
-                if self.applied.video.effective_flexible_aspect() {
+                if self.applied.video.frame_follows_window() {
                     self.applied.video.width = res.width;
                     self.applied.video.height = res.height;
                 }

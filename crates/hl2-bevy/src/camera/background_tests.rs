@@ -1,4 +1,4 @@
-//! Projection regressions for authored menu artwork and flexible internal frames.
+//! Projection regressions for authored menu artwork and follows_window internal frames.
 use super::world_fov;
 use bevy::prelude::{Handle, UVec2, Window};
 
@@ -64,7 +64,7 @@ fn fit_display_uses_internal_frame_aspect_through_resize() {
         image: Handle::default(),
         resolution: UVec2::new(1024, 768),
         configured: UVec2::new(1024, 768),
-        flexible: true,
+        follows_window: true,
         pending_window: None,
         suspended: 0,
         recenter: false,
@@ -125,7 +125,7 @@ fn config_toggle_updates_background_camera_and_preserves_gameplay() {
         sim.background_level = false;
         assert_eq!(
             sim.world_camera_fov(90., aspect),
-            world_fov(90., sim.fov, aspect, sim.vertical_fov, false)
+            world_fov(90., sim.fov, aspect, sim.projection_parameter, false)
         );
         sim.background_level = true;
     }

@@ -24,6 +24,7 @@
 	{
 		"ControlName"		"Label"
 		"fieldName"		"VerticalFovValueLabel"
+		"associate"		"VerticalFovSlider"
 		"xpos"		"276"
 		"ypos"		"302"
 		"wide"		"32"
@@ -63,6 +64,7 @@
 	{
 		"ControlName"		"Label"
 		"fieldName"		"ViewmodelFovValueLabel"
+		"associate"		"ViewmodelFovSlider"
 		"xpos"		"430"
 		"ypos"		"302"
 		"wide"		"32"
