@@ -245,6 +245,24 @@ impl Devices<'_> {
     }
 }
 
+/// Both attacks reach the weapon unless an extension claimed them.
+fn route_attacks(
+    game: &mut crate::gameplay::Gameplay,
+    devices: &Devices,
+    cfg: Option<&Config>,
+    claimed: bool,
+) {
+    game.buttons(
+        devices.pressed("+attack", cfg) && !claimed,
+        devices.pressed("+attack2", cfg) && !claimed,
+    );
+}
+
+/// A claimed pointer leaves the view still, unless the right button holds it for looking.
+fn mouse_look_allowed(claimed: bool, buttons: &ButtonInput<MouseButton>) -> bool {
+    !claimed || buttons.pressed(MouseButton::Right)
+}
+
 fn held_devices<'a>(
     keys: &'a ButtonInput<KeyCode>,
     buttons: &'a ButtonInput<MouseButton>,
@@ -321,10 +339,7 @@ pub(crate) fn controls(
         sim.jump_suppressed = false;
     }
     if let Some(game) = game.as_deref_mut() {
-        game.buttons(
-            devices.pressed("+attack", cfg) && !overlay_open,
-            devices.pressed("+attack2", cfg) && !overlay_open,
-        );
+        route_attacks(game, &devices, cfg, overlay_open);
     }
     sim.input = Input::default();
     if sim.paused() || sim.transition || (cursor.grab_mode == CursorGrabMode::None && !overlay_open)
@@ -359,7 +374,7 @@ pub(crate) fn controls(
     if typing {
         return;
     }
-    if !overlay_open || buttons.pressed(MouseButton::Right) {
+    if mouse_look_allowed(overlay_open, &buttons) {
         let settings = cfg.map_or(&DEFAULTS.mouse, |c| &c.mouse);
         let [dx, dy] = mouse_filter.apply([mouse.delta.x, mouse.delta.y], settings);
         let radians = hl2_ui::input::MOUSE_DEGREES_PER_COUNT.to_radians();
@@ -386,6 +401,69 @@ pub(crate) fn controls(
 mod tests {
     use super::*;
     use source_ui::keys::NAMED_KEYS;
+
+    /// Claims the attacks through the contract, as any contributor would.
+    struct ClaimAttacks(bool);
+    impl crate::extensions::RuntimeExtension for ClaimAttacks {
+        fn input(
+            &mut self,
+            context: &mut crate::extensions::Context<'_>,
+            _input: &crate::extensions::Input<'_>,
+        ) {
+            context.simulation.input_claims.attacks |= self.0;
+        }
+    }
+
+    fn secondary_after_input(claim: bool) -> bool {
+        let keys = ButtonInput::<KeyCode>::default();
+        let mut buttons = ButtonInput::<MouseButton>::default();
+        buttons.press(MouseButton::Right);
+        let mut game = crate::gameplay::Gameplay::synthetic(modkit_core::World::default());
+        let mut sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        sim.extensions.push(Box::new(ClaimAttacks(claim)));
+        sim.extensions_input(
+            None,
+            None,
+            &crate::extensions::Input {
+                keys: &keys,
+                buttons: &buttons,
+                focused: true,
+                cursor_grabbed: true,
+                aspect: 16. / 9.,
+                time: None,
+            },
+        );
+        let devices = Devices {
+            keys: &keys,
+            buttons: &buttons,
+            wheel: 0.,
+        };
+        route_attacks(&mut game, &devices, None, sim.input_claims.attacks);
+        game.queued_secondary
+    }
+
+    #[test]
+    fn secondary_attack_reaches_the_weapon_unless_claimed_and_returns_afterwards() {
+        assert!(secondary_after_input(false), "no claim");
+        assert!(!secondary_after_input(true), "claimed");
+        assert!(secondary_after_input(false), "claim released");
+    }
+
+    #[test]
+    fn a_claimed_pointer_only_looks_while_the_right_button_is_held() {
+        let mut buttons = ButtonInput::<MouseButton>::default();
+        assert!(mouse_look_allowed(false, &buttons));
+        assert!(!mouse_look_allowed(true, &buttons));
+        buttons.press(MouseButton::Right);
+        assert!(mouse_look_allowed(true, &buttons));
+    }
 
     #[test]
     fn every_name_the_options_page_can_store_parses() {

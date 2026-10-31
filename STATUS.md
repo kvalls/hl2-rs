@@ -20,7 +20,7 @@ not run.
 No replay opens the Props tab, so the off-thread listing's timing affects no current check;
 opening it right after a load can briefly show the default listing.
 
-Not audited: Escape ordering, F4 input capture and secondary-weapon preservation. The string
+Input audit against the base revision: Escape order, F4 capture and secondary attacks match by code comparison and have unit tests; they have not been run in the game. The string
 audit does not scan `plugins/`. The `startup` hook and load-failure path have no lifecycle test.
 
 Plugin remnants (settings fields, aspect variants, FOV sliders, blur tiers, placeholder tokens) moved out of core behind generic contracts.

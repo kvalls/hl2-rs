@@ -608,3 +608,49 @@ fn tuning_uses_the_profiles_the_selected_policy_offers() {
         "another profile"
     );
 }
+
+#[test]
+fn escape_cancels_selection_then_typing_then_the_panel_before_pause() {
+    let mut state = State::default();
+    assert!(
+        !state.panel_takes_escape(false, false),
+        "closed: reaches pause"
+    );
+    state.overlay.open = true;
+    state.overlay.typing = true;
+    assert!(
+        !state.panel_takes_escape(false, true),
+        "a selection goes first"
+    );
+    assert!(state.overlay.typing && state.overlay.open);
+    assert!(
+        !state.panel_takes_escape(true, false),
+        "paused: the menu has it"
+    );
+    assert!(state.overlay.typing && state.overlay.open);
+    assert!(state.panel_takes_escape(false, false), "typing first");
+    assert!(!state.overlay.typing && state.overlay.open);
+    assert!(state.panel_takes_escape(false, false), "then the panel");
+    assert!(!state.overlay.open);
+    assert!(!state.panel_takes_escape(false, false), "then pause");
+}
+
+#[test]
+fn the_panel_claims_input_only_while_open_with_a_loaded_game() {
+    let mut state = State::default();
+    let claims = state.panel_claims(true);
+    assert!(
+        !claims.attacks && !claims.keyboard && !claims.pointer,
+        "closed"
+    );
+    state.overlay.open = true;
+    let claims = state.panel_claims(true);
+    assert!(claims.attacks && claims.pointer && !claims.keyboard, "open");
+    state.overlay.typing = true;
+    assert!(state.panel_claims(true).keyboard, "typing");
+    let claims = state.panel_claims(false);
+    assert!(
+        !claims.attacks && !claims.keyboard && !claims.pointer,
+        "no game"
+    );
+}

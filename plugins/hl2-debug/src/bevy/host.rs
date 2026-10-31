@@ -40,6 +40,15 @@ impl State {
             && !self.overlay.typing
             && (input.cursor_grabbed || self.overlay.open)
     }
+    /// What the F4 panel takes from gameplay input while a game is loaded.
+    fn panel_claims(&self, has_game: bool) -> hl2_bevy::extensions::InputClaims {
+        hl2_bevy::extensions::InputClaims {
+            attacks: has_game && self.overlay.open,
+            keyboard: has_game && self.overlay.typing,
+            pointer: has_game && self.overlay.open,
+            escape: false,
+        }
+    }
     fn adopt_finished_props(&mut self) {
         if let Some(folders) = self.props.as_ref().and_then(|props| props.get()) {
             self.overlay.set_props(folders.clone());
@@ -68,9 +77,10 @@ impl RuntimeExtension for State {
             &mut repeats,
         );
         self.repeats = repeats;
-        sim.input_claims.attacks |= self.overlay.open;
-        sim.input_claims.keyboard |= self.overlay.typing;
-        sim.input_claims.pointer |= self.overlay.open;
+        let claims = self.panel_claims(context.gameplay.is_some());
+        sim.input_claims.attacks |= claims.attacks;
+        sim.input_claims.keyboard |= claims.keyboard;
+        sim.input_claims.pointer |= claims.pointer;
         if !self.shortcuts_allowed(sim, input) {
             return;
         }

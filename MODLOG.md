@@ -14,6 +14,8 @@ Framing profiles and their data moved to the plugin behind `FramingProfiles` at 
 
 The owner moved the plugin rules to docs/plugins.md "Rules", added an interaction check between plugins and a report line; AGENTS keeps the direction, the core test and the pointer. Documentation only for this change.
 
+Input audit: Escape order, F4 capture and secondary attacks match the base revision by code comparison. One difference fixed: the panel again claims no input without a loaded game. Regression tests added for all three.
+
 **Next:** Packaged replays and timing.
 
 ## 2026-10-31 Plugin extraction recovery

@@ -5,13 +5,21 @@ use hl2_bevy::extensions::{Context, UiInput};
 impl State {
     pub(super) fn before_ui(&mut self, context: &mut Context<'_>, input: &UiInput<'_>) {
         self.overlay.rows_visible = self.rows;
-        if input.keys.just_pressed(KeyCode::Escape)
-            && !context.simulation.paused
-            && !input.selection_cancelled
-        {
-            context.simulation.input_claims.escape |= self.overlay.escape();
+        // The panel belongs to a loaded game: without one it neither takes Escape nor the pointer.
+        if context.gameplay.is_none() {
+            return;
+        }
+        if input.keys.just_pressed(KeyCode::Escape) {
+            let paused = context.simulation.paused;
+            context.simulation.input_claims.escape |=
+                self.panel_takes_escape(paused, input.selection_cancelled);
         }
         context.simulation.input_claims.pointer |= self.overlay.open;
+    }
+    /// Escape cancels a weapon selection first, then this panel's typing, then the panel; only
+    /// after that does it reach the pause menu.
+    pub(super) fn panel_takes_escape(&mut self, paused: bool, selection_cancelled: bool) -> bool {
+        !paused && !selection_cancelled && self.overlay.escape()
     }
     pub(super) fn after_ui(&mut self, context: &mut Context<'_>, input: &UiInput<'_>) {
         let sim = &mut *context.simulation;
@@ -77,7 +85,7 @@ impl State {
             let pointer = window
                 .cursor_position()
                 .filter(|_| overlay_open && cursor.grab_mode == CursorGrabMode::None);
-            if let (Some(pointer), Some(_)) = (pointer, Some(())) {
+            if let Some(pointer) = pointer {
                 if buttons.just_pressed(MouseButton::Left)
                     && let Some(target) = crate::spawn_panel::hit(&self.hits, pointer.x, pointer.y)
                 {
