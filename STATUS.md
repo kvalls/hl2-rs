@@ -11,11 +11,9 @@ Verified on macOS: workspace unit tests (`cargo test --workspace --locked --offl
 Clippy, fmt, the architecture check, `scripts/checks/check_plugin_selection.py` (core-only,
 each plugin, both: `cargo check` and dependency trees) and `scripts/checks/check_windows.sh`.
 
-**Not tested:** packaged replays and UI captures (the owner excluded UI tests from this
-session), ordinary play, each selection at runtime, Windows at runtime, and frame time before
-and after. Earlier blur baselines stay rejected, so no timing claim exists for this work. The
-replay fixture for F1 was migrated but has not been run. Owned-install `#[ignore]` tests were
-not run.
+Packaged replays, default build with both plugins, macOS, in the background: the full suite ran 107 checks with 101 passing. The six failures also failed identically on the pre-extraction revision: five fixtures clicked just past the Video tab or dragged an unfocused dialog, which needs a focusing click since click-to-focus landed, and one check expected five F1 lines where the overlay has six. After those fixes and a corrected F1 label, the six pass; the full suite was not rerun afterwards. Video > Advanced was captured with both moved sliders drawn in their earlier positions.
+
+**Not tested:** core-only and single-plugin builds at runtime, windowed checks, ordinary play, Windows at runtime, and frame time before and after. Earlier blur baselines stay rejected, so no timing claim exists for this work. Owned-install `#[ignore]` tests were not run.
 
 No replay opens the Props tab, so the off-thread listing's timing affects no current check;
 opening it right after a load can briefly show the default listing.

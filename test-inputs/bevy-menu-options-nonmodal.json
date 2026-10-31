@@ -125,6 +125,37 @@
     "label": "menu-beside-clicked"
   },
   {
+    "tick": 170,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            420,
+            184
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 171,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            420,
+            184
+          ],
+          "released": true
+        }
+      }
+    ]
+  },
+  {
     "tick": 200,
     "ui": [
       {

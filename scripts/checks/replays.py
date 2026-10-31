@@ -760,7 +760,7 @@ def check_dev_overlay():
     run = game("dev_overlay", "--map", "d1_trainstation_02", "--width", "1280", "--height", "720",
                "--movement-script", "test-inputs/bevy-dev-overlay.json")
     overlay = run.report["render"]["presentation"]["hud"]["developer_overlay"]
-    holds("visible with five lines", overlay["visible"] and len(overlay["lines"]) == 5)
+    holds("visible with six lines", overlay["visible"] and len(overlay["lines"]) == 6)
     holds("frame statistics", overlay["fps"] > 0 and overlay["frame_ms"] > 0)
     holds("renderer statistics", any("triangles" in x and "textures" in x for x in overlay["lines"]))
 

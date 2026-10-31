@@ -85,7 +85,7 @@
         "action": "input",
         "input": {
           "pointer": [
-            702,
+            664,
             215
           ]
         }
@@ -99,7 +99,7 @@
         "action": "input",
         "input": {
           "pointer": [
-            702,
+            664,
             215
           ],
           "click": true,
@@ -115,7 +115,7 @@
         "action": "input",
         "input": {
           "pointer": [
-            702,
+            664,
             215
           ],
           "released": true
