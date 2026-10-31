@@ -394,9 +394,10 @@ impl Inventory {
         forward: Vec3,
     ) {
         let time = scene.time;
-        let Some(grab) = GrabController::attach(physics, id, forward, false, None) else {
+        let Some(mut grab) = GrabController::attach(physics, id, forward, false, None) else {
             return;
         };
+        grab.carry_angles = crate::grab::CarryAngles::for_entity(world, id);
         self.physcannon.held = Some(id);
         self.physcannon.grab = Some(grab);
         scene.prop_physgun_pickup(world, id, crate::entities::PhysGunPickup::Cannon);
@@ -483,7 +484,21 @@ impl Inventory {
                 return;
             }
             let mass = self.physcannon.grab.as_ref().map_or(1., |g| g.saved_mass);
-            let spin = Vec3::new(self.random(), self.random(), self.random()) * 600.;
+            // PhysGunLaunchAngularImpulse: none for spin_zaxis props, whose
+            // OnPhysGunDrop(LAUNCHED_BY_CANNON) adds a 5000 deg/s spin about their
+            // local z and zeroes their angular drag.
+            let spin_z = world
+                .model_instances
+                .iter()
+                .find(|i| i.entity == Some(id))
+                .and_then(|i| world.model_prop_data.get(&i.asset_key()))
+                .is_some_and(|d| d.spin_z)
+                && world.entities[id].class().starts_with("prop_physics");
+            let spin = if spin_z {
+                Vec3::new(0., 0., 5000.)
+            } else {
+                Vec3::new(self.random(), self.random(), self.random()) * 600.
+            };
             self.detach(physics, scene, weapon, world, false, true);
             if let Some(body) = physics
                 .dynamic
@@ -502,6 +517,11 @@ impl Inventory {
                 body.set_angvel(*body.angvel() + vector![w.x, w.y, w.z], true);
             }
             physics.launched.insert(id);
+            if spin_z {
+                if let Some(&handle) = physics.dynamic.get(&id) {
+                    physics.angular_drag_disabled.insert(handle);
+                }
+            }
             self.physcannon.next_primary = time + 0.5;
             self.physcannon.next_secondary = time + 0.5;
             self.physcannon.launches.push(held_center);

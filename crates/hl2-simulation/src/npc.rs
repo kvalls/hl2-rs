@@ -485,16 +485,18 @@ fn validate_forward_track(track: &RootMotion) -> Result<(), GoalBlockReason> {
     for record in &track.records {
         let amount = (record.v0 + record.v1) * 0.5;
         // The classic zombie's walks drift sideways by ~1e-4 of their direction (0.01
-        // units a cycle) and the torso's crawl by 0.2 degrees (0.13 of 37.4 units); the
-        // motor moves along the path at the ground speed, so such drift is ignored and
-        // the track moves along +X.
+        // units a cycle), the torso's crawl by 0.2 degrees (0.13 of 37.4 units) and the
+        // burning walk (firewalk) by 0.67 degrees (0.41 of 34.7 units, 0.0024 short of
+        // its mean speed along X); the motor moves
+        // along the path at the ground speed, so such drift is ignored and the track
+        // moves along +X.
         let drift = record.cumulative_position - Vec3::X * (previous + amount);
-        if record.direction.distance(Vec3::X) > 0.01
+        if record.direction.distance(Vec3::X) > 0.015
             || record.end_yaw_degrees.abs() > 0.0001
             || record.v0 <= 0.
             || record.v1 <= 0.
-            || drift.x.abs() > 0.001
-            || drift.truncate().length() > 0.05f32.max(0.005 * amount)
+            || drift.x.abs() > 0.001f32.max(1e-4 * amount)
+            || drift.truncate().length() > 0.05f32.max(0.015 * amount)
             || drift.z.abs() > 0.001
         {
             return Err(error());
@@ -597,7 +599,12 @@ pub struct Controller {
     /// Graph links an NPC failed to move along (bits_LINK_STALE_SUGGESTED) and when
     /// they may be rechecked (m_timeStaleExpires).
     stale: BTreeMap<usize, f64>,
+    /// CAI_Node m_flNextUseTime: cover nodes FindCoverNode handed out, locked for a
+    /// second on the movement clock (IsLocked).
+    node_locks: BTreeMap<usize, f64>,
 }
+/// FindCoverNode's pNode->Lock(1.0).
+const COVER_NODE_LOCK: f64 = 1.;
 /// CAI_Navigator::MarkCurWaypointFailedLink: a failed link stays unusable this long.
 const STALE_LINK_TIME: f64 = 4.;
 /// IsLinkStillStale: a recheck that still fails keeps the link stale this long.
@@ -649,6 +656,7 @@ impl Controller {
             stats: PathStats::default(),
             clock: 0.,
             stale: BTreeMap::new(),
+            node_locks: BTreeMap::new(),
         }
     }
     /// register_actor for an actor that only AI goals (GoalKey::scene == AI_SCENE) move.
@@ -750,7 +758,7 @@ impl Controller {
     /// squared distance to the threat (keeps cover searches from running toward the
     /// threat). Node locks, hint cover activities and climb nodes are not modeled.
     pub fn find_cover_node(
-        &self,
+        &mut self,
         near: Vec3,
         threat: Vec3,
         min: f32,
@@ -766,10 +774,14 @@ impl Controller {
         let mut visited = vec![false; count];
         visited[start] = true;
         let mut open = vec![(start, 0f32)];
+        let now = self.clock;
+        self.node_locks.retain(|_, until| *until > now);
         while let Some(node) = pop_nearest(&mut open) {
             let feet = positions[node].expect("usable");
             let distance = feet.distance_squared(near);
             if distance >= min_sq && distance < max_sq && is_cover(feet) {
+                // Don't let anyone else use this node for a while.
+                self.node_locks.insert(node, now + COVER_NODE_LOCK);
                 return Some(feet);
             }
             for &next in &adjacent[node] {
@@ -778,7 +790,8 @@ impl Controller {
                 }
                 let p = positions[next].expect("usable");
                 let d = p.distance_squared(near);
-                if d < p.distance_squared(threat) * 1.5 {
+                // Nodes that aren't ready to use yet are not expanded.
+                if d < p.distance_squared(threat) * 1.5 && !self.node_locks.contains_key(&next) {
                     open.push((next, d));
                 }
                 visited[next] = true;
@@ -2368,11 +2381,20 @@ mod tests {
         // Synthetic chain of nodes along +X; node 0 under the NPC.
         let points: Vec<Vec3> = (0..6).map(|i| Vec3::new(i as f32 * 100., 0., 0.)).collect();
         let edges: Vec<(usize, usize)> = (0..5).map(|i| (i, i + 1)).collect();
-        let controller = Controller::new(Some(graph(&points, &edges)), NavRestrictions::default());
+        let mut controller =
+            Controller::new(Some(graph(&points, &edges)), NavRestrictions::default());
         // Threat far behind (-X): every node is "cover" past x 250; the nearest wins.
         let threat = Vec3::new(-1000., 0., 0.);
         let cover = controller.find_cover_node(Vec3::ZERO, threat, 0., 1024., |p| p.x > 250.);
         assert_eq!(cover, Some(Vec3::new(300., 0., 0.)));
+        // FindCoverNode locks the node for a second; a locked node is not expanded
+        // either, so on this chain nothing past it is reachable until it unlocks.
+        let cover = controller.find_cover_node(Vec3::ZERO, threat, 0., 1024., |p| p.x > 250.);
+        assert_eq!(cover, None);
+        controller.clock += 1.01;
+        let cover = controller.find_cover_node(Vec3::ZERO, threat, 0., 1024., |p| p.x > 250.);
+        assert_eq!(cover, Some(Vec3::new(300., 0., 0.)));
+        controller.clock += 1.01;
         // A threat ahead (+X 450): nodes nearer to it than 1/1.5 of their distance to us
         // are not expanded, so the search cannot run through the threat.
         let ahead = Vec3::new(450., 0., 0.);

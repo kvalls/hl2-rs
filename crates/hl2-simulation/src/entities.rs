@@ -369,6 +369,9 @@ pub struct Scene {
     /// Explosive props broken this tick (CBreakableProp::Break -> ExplosionCreate):
     /// world-space center, integer magnitude and radius, PropaneTank.Burst, attacker.
     pub prop_explosions: Vec<(Vec3, f32, f32, bool, crate::projectiles::Attacker)>,
+    /// PROPINTER_PHYSGUN_BREAK_EXPLODE breaks this tick: the break origin, m_explodeRadius
+    /// and the attacker whose damage filter the ignition passes (`ignite_near`).
+    pub prop_ignitions: Vec<(Vec3, f32, crate::projectiles::Attacker)>,
     /// env_physexplosion entities whose Explode input arrived (phys_explosion).
     pub phys_explosions: Vec<usize>,
     /// env_physimpact entities whose Impact input arrived (phys_explosion).
@@ -474,7 +477,104 @@ pub struct Scene {
     /// When the sequence the AI started last ends, per actor.
     ai_sequence_end: BTreeMap<usize, f64>,
 }
+/// AllowedToIgnite: the NPC classes CBaseAnimating::Ignite sets on fire when no level
+/// designer asked (CNPC_BaseZombie, CNPC_CombineS, CBaseHeadcrab, CNPC_MetroPolice).
+pub fn allowed_to_ignite(class: &str) -> bool {
+    crate::ai::zombie::is_zombie_class(class)
+        || matches!(
+            class,
+            "npc_combine_s"
+                | "npc_metropolice"
+                | "npc_headcrab"
+                | "npc_headcrab_fast"
+                | "npc_headcrab_black"
+                | "npc_headcrab_poison"
+        )
+}
 impl Scene {
+    /// CBaseAnimating::Ignite on a live NPC for `lifetime` seconds: once (already burning
+    /// does nothing), only AllowedToIgnite classes unless a level designer asked
+    /// (`designer`: the Ignite inputs); CNPC_BaseZombie::Ignite caps its health to about
+    /// ten seconds of burning (FLAME_DIRECT_DAMAGE_PER_SEC x (ZOMBIE_BURN_TIME +- noise)).
+    /// True when it starts burning. The AI notices the new flame on its next tick.
+    pub fn ignite_npc(&mut self, world: &World, id: usize, lifetime: f32, designer: bool) -> bool {
+        let Some(entity) = world.entities.get(id) else {
+            return false;
+        };
+        let class = entity.class();
+        if (!designer && !allowed_to_ignite(class)) || self.states.get(id).is_none_or(|s| s.killed)
+        {
+            return false;
+        }
+        let origin = self.states[id].origin;
+        let now = self.time;
+        let center = origin + Vec3::Z * crate::ai_hull::center_height(class);
+        // m_flSize: the average of the x and y extents.
+        let size = crate::ai_hull::class_hull(class).map_or(16., |h| {
+            let b = h.bounds();
+            (b.maxs.x - b.mins.x + b.maxs.y - b.mins.y) * 0.5
+        });
+        let flammable = crate::fire::Interactions {
+            flammable: true,
+            ..Default::default()
+        };
+        if !self
+            .fires
+            .ignite(id, flammable, lifetime, size, center, now)
+        {
+            return false;
+        }
+        if crate::ai::zombie::is_zombie_class(class) {
+            let health = self.skill.npc_entity_health(entity).unwrap_or(50.);
+            let roll = crate::fire::roll_public(id, now);
+            let state = &mut self.states[id];
+            if state.value <= 0. {
+                state.value = health;
+            }
+            state.value = state.value.min(5. * (10. + 4. * roll - 2.));
+        }
+        true
+    }
+    /// CBreakableProp::Break for PROPINTER_PHYSGUN_BREAK_EXPLODE, after its explosion:
+    /// every live NPC whose bounds touch the `radius` sphere around `origin`
+    /// (CEntitySphereQuery) and whose damage filter takes the attacker's damage gets
+    /// Ignite(30) (not by a designer: AllowedToIgnite classes only; the player and
+    /// citizens never burn this way).
+    pub fn ignite_near(
+        &mut self,
+        world: &World,
+        origin: Vec3,
+        radius: f32,
+        attacker: crate::projectiles::Attacker,
+    ) -> Vec<usize> {
+        let mut ignited = Vec::new();
+        if radius <= 0. {
+            return ignited;
+        }
+        for (id, entity) in world.entities.iter().enumerate() {
+            let class = entity.class();
+            if !class.starts_with("npc_")
+                || self.states.get(id).is_none_or(|s| s.killed)
+                || self.fires.burning(id)
+            {
+                continue;
+            }
+            let at = self.states[id].origin;
+            let hull = crate::ai_hull::class_hull(class)
+                .unwrap_or(crate::ai_hull::HullType::Human)
+                .bounds();
+            let nearest = origin.clamp(at + hull.mins, at + hull.maxs);
+            if nearest.distance_squared(origin) > radius * radius
+                || crate::gameplay::damage_refused(world, self, id, attacker)
+            {
+                continue;
+            }
+            if self.ignite_npc(world, id, 30., false) {
+                ignited.push(id);
+            }
+        }
+        ignited
+    }
     /// The spawn state of one entity (map load and runtime spawns share this).
     fn initial_state(world: &World, e: &Entity, diagnostics: &mut Diagnostics) -> State {
         let base_rotation =
@@ -658,6 +758,7 @@ impl Scene {
             fires: Default::default(),
             prop_breaks: Vec::new(),
             prop_explosions: Vec::new(),
+            prop_ignitions: Vec::new(),
             phys_explosions: Vec::new(),
             phys_impacts: Vec::new(),
             thrown_hits: Vec::new(),
@@ -2829,9 +2930,13 @@ impl Scene {
             } else {
                 30.
             };
+            if class.starts_with("npc_") {
+                self.ignite_npc(world, id, lifetime, true);
+                return;
+            }
             let origin = self.states.get(id).map_or(Vec3::ZERO, |s| s.origin);
             let now = self.time;
-            if self.fires.ignite(
+            self.fires.ignite(
                 id,
                 crate::fire::Interactions {
                     flammable: true,
@@ -2841,17 +2946,7 @@ impl Scene {
                 16.,
                 origin + Vec3::Z * 36.,
                 now,
-            ) && crate::ai::zombie::is_zombie_class(class)
-            {
-                let health = self.skill.npc_entity_health(e).unwrap_or(50.);
-                let roll = crate::fire::roll_public(id, now);
-                if let Some(state) = self.states.get_mut(id) {
-                    if state.value <= 0. {
-                        state.value = health;
-                    }
-                    state.value = state.value.min(5. * (10. + 4. * roll - 2.));
-                }
-            }
+            );
             return;
         }
         match input.as_str() {

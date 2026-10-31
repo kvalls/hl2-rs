@@ -307,6 +307,9 @@ const FUNC_BREAKABLE_DAMAGE: modkit_core::PropData = modkit_core::PropData {
     explosive_resist: false,
     ignite_halfhealth: false,
     break_explode: false,
+    spin_z: false,
+    world_stick: false,
+    carry_angles: None,
 };
 /// GetBreakableDamage (props.cpp) for a breakable with prop data (CBreakableProp,
 /// modifiers default 1): bullets x dmg.bullets (buckshot twice that), clubs x dmg.club,
@@ -1646,16 +1649,48 @@ impl Inventory {
                         {
                             let time = scene.time;
                             let roll = |salt| crate::fire::roll(id, time, salt);
-                            let (split, headless) = crate::ai::zombie::split(
-                                kind,
-                                entity.class() != "npc_zombie",
-                                false,
-                                damage.kind,
-                                amount,
-                                max,
-                                state.value,
-                                roll(31) < 1. / 3.,
-                            );
+                            // IsChopped -> DieChopped (Ravenholm's blades): the slicer
+                            // sound, half the time a live crab, legs and a torso.
+                            let sliced = kind == crate::ai::zombie::Kind::Classic
+                                && entity.class() == "npc_zombie"
+                                && crate::ai::zombie::is_chopped(
+                                    damage.kind,
+                                    amount,
+                                    max,
+                                    state.value,
+                                );
+                            if sliced {
+                                let force = damage.direction
+                                    * (damage.amount * 300.).min(30000.)
+                                    * (0.85 + 0.3 * roll(11));
+                                let rolls = [roll(41), roll(42), roll(43), roll(44), roll(45)];
+                                scene.zombie_chops += 1;
+                                scene.sounds.push(crate::sounds::SoundRequest {
+                                    origin: Some(state.origin + Vec3::Z * 36.),
+                                    .."E3_Phystown.Slicer".into()
+                                });
+                                scene.crab_releases.push(crate::ai::zombie::CrabRelease {
+                                    entity: id,
+                                    crab_force: force * 0.005,
+                                    chopped: Some(crate::ai::zombie::chopped_forces(force, rolls)),
+                                    live: roll(46) < 0.5,
+                                    sliced: true,
+                                });
+                            }
+                            let (split, headless) = if sliced {
+                                (crate::ai::zombie::Split::None, false)
+                            } else {
+                                crate::ai::zombie::split(
+                                    kind,
+                                    entity.class() != "npc_zombie",
+                                    false,
+                                    damage.kind,
+                                    amount,
+                                    max,
+                                    state.value,
+                                    roll(31) < 1. / 3.,
+                                )
+                            };
                             // CalculateExplosiveDamageForce: the info's damage force.
                             let force = damage.direction
                                 * (damage.amount * 300.).min(30000.)
@@ -1684,6 +1719,7 @@ impl Inventory {
                                     chopped: (split == crate::ai::zombie::Split::Chopped)
                                         .then(|| crate::ai::zombie::chopped_forces(force, rolls)),
                                     live: false,
+                                    sliced: false,
                                 });
                             }
                         }
@@ -1767,12 +1803,22 @@ impl Inventory {
                                 .and_then(|d| d.explosive_radius)
                                 .unwrap_or_else(|| key("ExplodeRadius"));
                             let burst = own.is_some_and(|d| d.break_explode);
+                            let scale = entity
+                                .get("modelscale")
+                                .and_then(|v| v.trim().parse::<f32>().ok())
+                                .filter(|v| *v > 0.)
+                                .unwrap_or(1.);
+                            if burst {
+                                // "Find and ignite all NPC's within the radius" around the
+                                // break origin, after the explosion (the host runs it once
+                                // the blast damage is applied).
+                                scene.prop_ignitions.push((
+                                    scene.states[id].origin,
+                                    (explode_radius * scale).trunc(),
+                                    attacker,
+                                ));
+                            }
                             if explode_damage > 0. || explode_radius > 0. {
-                                let scale = entity
-                                    .get("modelscale")
-                                    .and_then(|v| v.trim().parse::<f32>().ok())
-                                    .filter(|v| *v > 0.)
-                                    .unwrap_or(1.);
                                 let magnitude = (explode_damage * scale).trunc();
                                 let radius = (explode_radius * scale).trunc();
                                 let radius = if radius > 0. {
@@ -2413,6 +2459,7 @@ pub fn apply_hit(
                     crab_force: direction * force * 0.25,
                     chopped: None,
                     live: release == crate::ai::zombie::BulletRelease::Immediate,
+                    sliced: false,
                 });
             }
         }
@@ -3218,6 +3265,45 @@ mod tests {
         assert_eq!((magnitude, radius), (100., 250.));
         // The shooter is the explosion's attacker (m_hLastAttacker).
         assert_eq!(attacker, Attacker::Player);
+    }
+    #[test]
+    fn a_gas_can_burst_ignites_only_npcs_allowed_to_burn_within_its_radius() {
+        // CBreakableProp::Break (explode_fire): Ignite(30) on the combat characters within
+        // m_explodeRadius that pass the damage filter; AllowedToIgnite classes only.
+        let npc = |class: &str, origin: &str| modkit_core::Entity {
+            properties: [("classname", class), ("origin", origin)]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let world = World {
+            entities: vec![
+                npc("npc_zombie", "50 0 0"),
+                npc("npc_metropolice", "0 60 0"),
+                npc("npc_citizen", "-40 0 0"),
+                npc("npc_headcrab_black", "0 -30 0"),
+                // 120 units away: its hull's nearest point is 107 from the burst.
+                npc("npc_zombie", "120 0 0"),
+            ],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        scene.states[0].value = 50.;
+        let ignited = scene.ignite_near(&world, Vec3::ZERO, 100., Attacker::Player);
+        assert_eq!(ignited, [0, 1, 3]);
+        assert!(scene.fires.burning(0) && !scene.fires.burning(2) && !scene.fires.burning(4));
+        assert_eq!(scene.fires.flames[&0].until, 30.);
+        // CNPC_BaseZombie::Ignite: health capped to about ten seconds of burning.
+        assert!(scene.states[0].value <= 60. && scene.states[0].value >= 40.);
+        // Already burning: once; a zero radius ignites nothing.
+        assert!(scene
+            .ignite_near(&world, Vec3::ZERO, 100., Attacker::Player)
+            .is_empty());
+        assert!(scene
+            .ignite_near(&world, Vec3::new(120., 0., 0.), 0., Attacker::Player)
+            .is_empty());
+        // A designer's Ignite input burns any NPC.
+        assert!(scene.ignite_npc(&world, 2, 30., true));
     }
     #[test]
     fn breakable_damage_applies_prop_data_modifiers() {

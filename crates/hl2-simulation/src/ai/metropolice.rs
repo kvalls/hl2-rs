@@ -25,6 +25,7 @@ pub const SF_METROPOLICE_ALLOWED_TO_RESPOND: u32 = 0x0100_0000;
 pub const COND_METROPOLICE_PLAYER_TOO_CLOSE: Cond = Cond(LAST_SHARED_CONDITION + 2);
 pub const COND_METROPOLICE_CHANGE_BATON_STATE: Cond = Cond(LAST_SHARED_CONDITION + 3);
 pub const COND_METROPOLICE_PHYSOBJECT_ASSAULT: Cond = Cond(LAST_SHARED_CONDITION + 4);
+pub const COND_METROPOLICE_ON_FIRE: Cond = Cond(LAST_SHARED_CONDITION + 5);
 /// AE_METROPOLICE_* animation event names and the weapon melee hit (npcevent.h).
 pub const AE_SHOVE: &str = "AE_METROPOLICE_SHOVE";
 pub const AE_BATON_ON: &str = "AE_METROPOLICE_BATON_ON";
@@ -33,6 +34,11 @@ pub const EVENT_WEAPON_MELEE_HIT: i32 = 3001;
 
 /// The class schedules used here, in the SDK text format (npc_metropolice.cpp).
 const SCHEDULES: &[(&str, &str)] = &[
+    (
+        "SCHED_METROPOLICE_BURNING_STAND",
+        "Tasks TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE_ON_FIRE TASK_WAIT 1.5 \
+         TASK_METROPOLICE_DIE_INSTANTLY DMG_BURN TASK_WAIT 1.0 Interrupts",
+    ),
     (
         "SCHED_METROPOLICE_SHOVE",
         "Tasks TASK_STOP_MOVING 0 TASK_FACE_PLAYER 0.1 TASK_METROPOLICE_ACTIVATE_BATON 1 \
@@ -139,6 +145,9 @@ pub enum CopRequest {
         maxs: Vec3,
         damage: f32,
     },
+    /// TASK_METROPOLICE_DIE_INSTANTLY: TakeDamage of all its health with this damage
+    /// type from itself (force 0.1, 0.1, 0.1).
+    DieInstantly(u32),
     /// CNPC_Combine COMBINE_AE_KICK: CheckTraceHullAttack(70, -(16,16,18), (16,16,18))
     /// from the body center along the facing; the runtime applies sk_combine_s_kick.
     Kick { start: Vec3, forward: Vec3 },
@@ -231,6 +240,11 @@ pub struct Metropolice {
     pub now: f64,
     #[serde(skip)]
     pub scripted: bool,
+    /// IsOnFire and IsMoving, set by the runtime each think.
+    #[serde(skip)]
+    pub on_fire: bool,
+    #[serde(skip)]
+    pub moving: bool,
 }
 impl Metropolice {
     pub fn new(spawnflags: u32, has_baton: bool) -> Self {
@@ -268,6 +282,11 @@ impl Metropolice {
     }
     /// GatherConditions + PrescheduleThink (player proximity, look target, baton).
     pub fn gather_conditions(&mut self, npc: &mut AiNpc, ctx: &Context) {
+        if self.on_fire {
+            npc.conditions.set(COND_METROPOLICE_ON_FIRE);
+        } else {
+            npc.conditions.clear(COND_METROPOLICE_ON_FIRE);
+        }
         if std::mem::take(&mut self.physobject_assault) {
             npc.conditions.set(COND_METROPOLICE_PHYSOBJECT_ASSAULT);
         }
@@ -557,6 +576,11 @@ impl Metropolice {
     fn select_inner(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
         self.running_behavior = false;
         self.running_actbusy = false;
+        if npc.conditions.has(COND_METROPOLICE_ON_FIRE) {
+            self.requests
+                .push(CopRequest::Sentence("METROPOLICE_ON_FIRE"));
+            return "SCHED_METROPOLICE_BURNING_STAND".into();
+        }
         if npc.conditions.has(COND_METROPOLICE_PHYSOBJECT_ASSAULT) {
             npc.conditions.clear(COND_METROPOLICE_PHYSOBJECT_ASSAULT);
             if !self.player_is_criminal() {
@@ -795,6 +819,9 @@ impl Behavior for Metropolice {
         ) {
             c.set(COND_METROPOLICE_CHANGE_BATON_STATE);
         }
+        if current != "SCHED_METROPOLICE_BURNING_STAND" && !self.moving {
+            c.set(COND_METROPOLICE_ON_FIRE);
+        }
         if self.running_behavior {
             if let Some(policing) = &self.policing {
                 c = c.union(policing.custom_interrupts(npc));
@@ -878,6 +905,11 @@ impl Behavior for Metropolice {
                 TaskStatus::Complete
             }
             "TASK_METROPOLICE_RESET_LEDGE_CHECK_TIME" => TaskStatus::Complete,
+            "TASK_METROPOLICE_DIE_INSTANTLY" => {
+                self.requests
+                    .push(CopRequest::DieInstantly(crate::player_damage::DMG_BURN));
+                TaskStatus::Complete
+            }
             // NPC_TranslateActivity: the shove becomes a baton strike after the last
             // warning.
             "TASK_PLAY_SEQUENCE" if matches!(arg, TaskArg::Activity(a) if a == "ACT_PUSH_PLAYER") =>
@@ -1020,6 +1052,31 @@ mod tests {
         assert!(c.should_activate_baton);
         assert!(m.activities.iter().any(|a| a == "ACT_ACTIVATE_BATON"));
         assert!(m.activities.iter().any(|a| a == "ACT_MELEE_ATTACK1"));
+    }
+
+    #[test]
+    fn a_burning_cop_stands_on_fire_then_dies_of_burns() {
+        // SelectSchedule: COND_METROPOLICE_ON_FIRE first (METROPOLICE_ON_FIRE), then
+        // SCHED_METROPOLICE_BURNING_STAND: ACT_IDLE_ON_FIRE, 1.5 s, DIE_INSTANTLY.
+        let (mut c, mut npc, s) = cop(0);
+        c.player = None;
+        c.on_fire = true;
+        let mut m = FakeMotor::default();
+        think(&mut c, &mut npc, &s, &mut m, 0.);
+        assert_eq!(
+            npc.schedule.as_deref(),
+            Some("SCHED_METROPOLICE_BURNING_STAND")
+        );
+        assert!(c
+            .requests
+            .contains(&CopRequest::Sentence("METROPOLICE_ON_FIRE")));
+        assert!(m.activities.iter().any(|a| a == "ACT_IDLE_ON_FIRE"));
+        for i in 1..=20 {
+            think(&mut c, &mut npc, &s, &mut m, f64::from(i) * 0.1);
+        }
+        assert!(c
+            .requests
+            .contains(&CopRequest::DieInstantly(crate::player_damage::DMG_BURN)));
     }
 
     #[test]

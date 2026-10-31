@@ -1627,6 +1627,21 @@ pub fn resolve_prop_data(
         data.explosive_resist |= interaction("fire_interactions", "explosive_resist", "yes");
         data.ignite_halfhealth |= interaction("fire_interactions", "ignite", "halfhealth");
         data.break_explode |= interaction("physgun_interactions", "onbreak", "explode_fire");
+        data.spin_z |= interaction("physgun_interactions", "onlaunch", "spin_zaxis");
+        data.world_stick |= interaction("physgun_interactions", "onworldimpact", "stick");
+        // GetPropDataAngles: UTIL_StringToVector of the key's text.
+        if let Some(angles) = interactions
+            .iter()
+            .find(|e| e.key.eq_ignore_ascii_case("physgun_interactions"))
+            .and_then(|e| e.get("preferred_carryangles"))
+            .and_then(|e| e.text())
+        {
+            let mut v = [0f32; 3];
+            for (slot, word) in v.iter_mut().zip(angles.split_whitespace()) {
+                *slot = word.parse().unwrap_or(0.);
+            }
+            data.carry_angles = Some(v);
+        }
         let text = |key: &str| {
             block
                 .children()
@@ -2268,6 +2283,15 @@ mod owned_prop_data {
             ),
             (Some(1.), Some(50.), true, true)
         );
+        // The sawblades: onlaunch spin_zaxis (FVPHYSICS_DMG_SLICE, carried level).
+        // The harpoon holds level (preferred_carryangles "0 0 0").
+        assert!(data("models/props_junk/sawblade001a.mdl").spin_z);
+        assert!(data("models/props_junk/sawblade001a.mdl").world_stick);
+        assert_eq!(
+            data("models/props_junk/harpoon002a.mdl").carry_angles,
+            Some([0., 0., 0.])
+        );
+        assert!(!gas.spin_z);
         assert_eq!((pallet.breakable_count, pallet.breakable_skin), (6, 0));
         assert_eq!(pallet.damage_table, None);
         // Cardboard.small: bullets 0.5, no chunk set.

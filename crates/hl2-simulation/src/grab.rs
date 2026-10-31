@@ -96,6 +96,49 @@ pub fn align(rotation: Quat, cosine: f32) -> Quat {
     Quat::from_mat3(&matrix).normalize()
 }
 
+/// A QAngle (pitch, yaw, roll in degrees) as a rotation (AngleMatrix: yaw about z,
+/// then pitch about y with positive pitch down, then roll about x).
+pub fn source_angles(angles: [f32; 3]) -> Quat {
+    let [p, y, r] = angles.map(f32::to_radians);
+    Quat::from_rotation_z(y) * Quat::from_rotation_y(p) * Quat::from_rotation_x(r)
+}
+/// A carried prop's fixed orientation: Pickup_GetPreferredCarryAngles (a spin_zaxis
+/// prop: CPhysicsProp m_preferredCarryAngles (-5, 0, 0) in the player's entity frame,
+/// pitch and yaw) or CGrabController's m_vecPreferredCarryAngles (the model's
+/// physgun_interactions preferred_carryangles in ComputePlayerMatrix's frame, pitch 0;
+/// applied last, so it wins).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub enum CarryAngles {
+    Eye(Quat),
+    Level(Quat),
+}
+impl CarryAngles {
+    pub fn for_entity(world: &modkit_core::World, entity: usize) -> Option<Self> {
+        if !world
+            .entities
+            .get(entity)
+            .is_some_and(|e| e.class().starts_with("prop_physics"))
+        {
+            return None;
+        }
+        let data = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(entity))
+            .and_then(|i| world.model_prop_data.get(&i.asset_key()))?;
+        if let Some(angles) = data.carry_angles {
+            return Some(Self::Level(source_angles(angles)));
+        }
+        data.spin_z.then(|| Self::Eye(source_angles([-5., 0., 0.])))
+    }
+    fn target(self, forward: Vec3) -> Quat {
+        match self {
+            Self::Eye(q) => eye_rotation(forward, false) * q,
+            Self::Level(q) => eye_rotation(forward, true) * q,
+        }
+    }
+}
+
 /// CGrabController state for one attached prop.
 #[derive(Clone, Debug, Serialize)]
 pub struct GrabController {
@@ -115,6 +158,8 @@ pub struct GrabController {
     error_time: f32,
     pub target: Vec3,
     target_rotation: Quat,
+    /// The prop's preferred carry angles, which replace the kept player-space rotation.
+    pub carry_angles: Option<CarryAngles>,
 }
 impl GrabController {
     /// AttachEntity: no gravity (shadow control), rotational damping 10, the player-space
@@ -170,6 +215,7 @@ impl GrabController {
             error_time: -1.,
             target,
             target_rotation: current,
+            carry_angles: None,
         };
         body.set_gravity_scale(0., true);
         body.set_angular_damping(HELD_ROT_DAMPING);
@@ -267,7 +313,10 @@ impl GrabController {
             end = nearest + delta.normalize_or(aim) * radius;
         }
         self.target = end;
-        self.target_rotation = eye_rotation(forward, self.ignore_pitch) * self.relative;
+        self.target_rotation = match self.carry_angles {
+            Some(preferred) => preferred.target(forward),
+            None => eye_rotation(forward, self.ignore_pitch) * self.relative,
+        };
         let dt = 0.015;
         let mut v = (self.target - position) / dt;
         if v.length() > HOLD_MAX_SPEED {
@@ -291,6 +340,25 @@ impl GrabController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_spinning_blade_is_held_level_with_the_view_tilted_five_degrees_up() {
+        let level = CarryAngles::Eye(source_angles([-5., 0., 0.]));
+        // Looking along +y: the blade's z axis stays near up, tilted back 5 degrees, and
+        // its x axis points where the player looks.
+        let held = level.target(Vec3::Y);
+        assert!((held * Vec3::X).angle_between(Vec3::new(0., 1., 0.)) < 5.1f32.to_radians());
+        assert!((held * Vec3::Z).angle_between(Vec3::Z) < 5.1f32.to_radians());
+        assert!((held * Vec3::X).z > 0., "pitch -5 is up");
+        // Looking 45 degrees down tilts it with the view (the player's entity angles
+        // carry the pitch); the level frame does not.
+        let down = Vec3::new(1., 0., -1.).normalize();
+        assert!(
+            ((level.target(down) * Vec3::Z).angle_between(Vec3::Z) - 40f32.to_radians()).abs()
+                < 1e-3
+        );
+        let flat = CarryAngles::Level(Quat::IDENTITY).target(down);
+        assert!((flat * Vec3::Z).angle_between(Vec3::Z) < 1e-4);
+    }
     #[test]
     fn alignment_snaps_axes_within_thirty_degrees_and_keeps_others() {
         let near = Quat::from_rotation_z(20f32.to_radians());

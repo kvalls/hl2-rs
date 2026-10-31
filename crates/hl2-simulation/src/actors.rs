@@ -102,8 +102,17 @@ fn locomotion_variants(
         if let (Some(walk), Some(run)) = (walk.clone(), pick(weapon, "ACT_RUN").or(walk)) {
             choices.push((weapon.to_owned(), walk, run));
         }
-        // CBlackHeadcrab's panic scurry (ACT_BLACKHEADCRAB_RUN_PANIC) for both styles.
+        // CBlackHeadcrab's panic scurry (ACT_BLACKHEADCRAB_RUN_PANIC) and the burning
+        // zombie's walk (CNPC_BaseZombie::NPC_TranslateActivity: ACT_WALK and
+        // ACT_RUN_ON_FIRE -> ACT_WALK_ON_FIRE) for both styles.
         if weapon.is_empty() {
+            if let Some(fire) = pick("", crate::ai::zombie::WALK_ON_FIRE) {
+                choices.push((
+                    crate::ai::zombie::WALK_ON_FIRE.to_owned(),
+                    fire.clone(),
+                    fire,
+                ));
+            }
             if let Some(panic) = pick("", crate::ai::headcrab::RUN_PANIC) {
                 choices.push((
                     crate::ai::headcrab::RUN_PANIC.to_owned(),
@@ -474,5 +483,25 @@ mod tests {
         // ACT_RUN to ACT_WALK), on "walk" despite its 1e-4 sideways drift.
         let zombie = "models/zombie/classic.mdl";
         assert_eq!(names(zombie, ""), ("walk".into(), "walk".into()));
+        // Burning (ACT_WALK_ON_FIRE): firewalk for both.
+        let zombie_rig = source_assets::animation::load(
+            &vfs,
+            zombie,
+            &source_assets::models::NPC_BASE_AI_ACTIVITIES
+                .iter()
+                .chain(source_assets::models::ZOMBIE_AI_ACTIVITIES)
+                .map(|a| a.to_lowercase())
+                .collect(),
+        )
+        .unwrap();
+        let variants = locomotion_variants(&vfs, zombie, &zombie_rig).unwrap();
+        let fire = &variants[crate::ai::zombie::WALK_ON_FIRE];
+        assert_eq!(
+            (
+                fire.sequence_name(MoveStyle::Walk),
+                fire.sequence_name(MoveStyle::Run)
+            ),
+            ("firewalk".into(), "firewalk".into())
+        );
     }
 }

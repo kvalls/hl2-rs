@@ -448,7 +448,8 @@ pub struct AiActor {
     /// SetOwnerEntity: the thrower whose box the falling NPC does not hit (a poison
     /// zombie's thrown crab) until it lands.
     pub fall_owner: Option<usize>,
-    /// The controller plays the black crab's panic locomotion (Scurry).
+    /// The controller plays a locomotion variant: the black crab's panic Scurry or a
+    /// burning zombie's walk.
     pub panic_locomotion: bool,
 }
 #[derive(Clone, Debug, Default, Serialize)]
@@ -3233,6 +3234,9 @@ impl AiRuntime {
                 cop.scripted = false;
                 cop.precriminal = precriminal;
                 cop.now = now;
+                cop.on_fire = scene.fires.burning(id);
+                cop.moving = actor.npc.activity.starts_with("ACT_WALK")
+                    || actor.npc.activity.starts_with("ACT_RUN");
                 cop.player = (!player.noclip && !player.dead).then(|| PlayerView {
                     feet: player.feet,
                     center: player.center(),
@@ -4226,6 +4230,15 @@ impl AiRuntime {
             }
         }
         if let AiClass::Zombie(z) = &mut actor.class {
+            // m_iMoanSound = g_numZombies at Spawn: map zombies spawn in entity order.
+            if z.moan_index.is_none() {
+                z.moan_index = Some(
+                    world.entities[..id.min(world.entities.len())]
+                        .iter()
+                        .filter(|e| zombie::is_zombie_class(e.class()))
+                        .count(),
+                );
+            }
             z.moan(now, actor.npc.state == NpcState::Combat);
         }
         if let AiClass::Zombie(z) = &mut actor.class {
@@ -4319,7 +4332,27 @@ impl AiRuntime {
                 }
             }
         }
-        let on_fire = matches!(&actor.class, AiClass::Zombie(_)) && scene.fires.burning(id);
+        let on_fire = matches!(&actor.class, AiClass::Zombie(_) | AiClass::Metropolice(_))
+            && scene.fires.burning(id);
+        // CNPC_BaseZombie::Ignite / CZombie::Ignite and CZombie::Extinguish, for every
+        // ignition path (burn damage, blasts, gas cans, inputs): the burning moan, and the
+        // walk/run/idle switched to its _ON_FIRE activity at once.
+        let mut ignited = false;
+        if let AiClass::Zombie(z) = &mut actor.class {
+            if on_fire != actor.panic_locomotion {
+                actor.panic_locomotion = on_fire;
+                controller.set_locomotion(id, if on_fire { zombie::WALK_ON_FIRE } else { "" });
+            }
+            if on_fire != z.burning {
+                z.burning = on_fire;
+                if on_fire {
+                    z.ignited();
+                    ignited = true;
+                } else if !scene.states[id].killed {
+                    z.extinguished(now);
+                }
+            }
+        }
         // CBlackHeadcrab::NPC_TranslateActivity: ACT_RUN/ACT_WALK scurry while panicking or
         // burning (the controller's locomotion variant).
         if let AiClass::Headcrab(h) = &actor.class {
@@ -4350,6 +4383,15 @@ impl AiRuntime {
             weapon_activity: None,
             blocked_moves: &mut self.diagnostics.blocked_moves,
         };
+        if ignited
+            && matches!(
+                actor.npc.activity.as_str(),
+                "ACT_WALK" | "ACT_RUN" | "ACT_IDLE"
+            )
+        {
+            let activity = actor.npc.activity.clone();
+            schedule::Motor::set_activity(&mut motor, &activity);
+        }
         actor.npc.maintain(
             &self.schedules,
             actor.class.behavior_mut(),
@@ -4772,11 +4814,16 @@ impl AiRuntime {
                 if std::mem::replace(&mut actor.death_spoken, true) {
                     return;
                 }
-                // StopLoopingSounds: the breathing patches go with the body.
+                // StopLoopingSounds: the breathing and moan patches go with the body.
                 z.stop_breathing();
+                z.stop_moan();
                 kind.cue("Zombie.Die")
             } else {
-                if now < actor.next_pain_sound || state.value <= 0. {
+                // CZombie::PainSound: none while burning (the moan covers it).
+                if now < actor.next_pain_sound
+                    || state.value <= 0.
+                    || (kind == zombie::Kind::Classic && z.burning)
+                {
                     return;
                 }
                 actor.next_pain_sound = now + 1.;
@@ -4843,6 +4890,10 @@ impl AiRuntime {
             }
             actor.next_pain_sound = now + 1.;
             self.ally_say(id, "TLK_WOUND", world, scene, player);
+            return;
+        }
+        // CNPC_MetroPolice::PainSound / DeathSound: silent while burning.
+        if matches!(&actor.class, AiClass::Metropolice(_)) && scene.fires.burning(id) {
             return;
         }
         let speech = if state.killed {
@@ -4976,6 +5027,21 @@ impl AiRuntime {
                     });
                 }
                 CopRequest::CallForJustice => self.call_for_justice(id, world, scene, physics),
+                CopRequest::DieInstantly(kind) => {
+                    let health = match scene.states[id].value {
+                        v if v > 0. => v,
+                        _ => crate::gameplay::npc_spawn_health(scene, &world.entities[id]),
+                    };
+                    scene.entity_damage.push(crate::projectiles::Damage {
+                        target: crate::projectiles::DamageTarget::Entity(id),
+                        amount: health,
+                        kind,
+                        dissolve: false,
+                        direction: Vec3::splat(0.1).normalize(),
+                        origin,
+                        attacker: crate::projectiles::Attacker::Entity(id),
+                    });
+                }
                 CopRequest::AltFire(target) => {
                     // FireNPCSecondaryAttack: WeaponSound(WPN_DOUBLE) and a ball from
                     // Weapon_ShootPosition toward the elite's m_vecAltFireTarget.

@@ -1574,6 +1574,9 @@ impl WeaponHud {
             "weapon_crossbow",
             "weapon_rpg",
             "weapon_frag",
+            // Both use the Crosshairs font's "Q"; left out, they drew the white default.
+            "weapon_physcannon",
+            "weapon_bugbait",
         ] {
             if let Some(bytes) = vfs.read(&format!("scripts/{class}.txt"))? {
                 if let Some(weapon) = keyvalues::parse_resource(&bytes)?.first() {
@@ -2391,6 +2394,33 @@ mod tests {
                 }
                 assert_eq!(dots, [(-1, -8), (-11, 0), (-1, 0), (9, 0), (-1, 8)]);
             }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires an owned HL2 installation in HL2_ROOT"]
+    fn owned_gravity_gun_and_bugbait_draw_the_hud_colored_crosshair() {
+        let root = std::env::var_os("HL2_ROOT").expect("set HL2_ROOT to the owned installation");
+        let vfs = Vfs::mount(std::path::Path::new(&root)).unwrap();
+        let canvas = Canvas::default();
+        let hud = WeaponHud::load(&vfs, canvas.clone()).unwrap();
+        let mut inventory = Inventory::default();
+        canvas.resize(1280., 720.);
+        for weapon in ["weapon_physcannon", "weapon_bugbait"] {
+            assert_eq!(
+                hud.weapon_crosshairs.get(weapon).map(String::as_str),
+                Some("Q")
+            );
+            inventory.active = weapon.into();
+            hud.draw_crosshair(&inventory);
+            let quads = canvas.drain();
+            assert!(!quads.is_empty(), "{weapon}");
+            assert!(
+                quads
+                    .iter()
+                    .all(|q| q.color == hud.crosshair_color && q.color != WHITE),
+                "{weapon}: the yellow HUD color, not the default white sprite"
+            );
         }
     }
 

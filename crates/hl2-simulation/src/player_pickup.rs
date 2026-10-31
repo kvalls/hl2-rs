@@ -181,10 +181,11 @@ impl Inventory {
         if !self.can_holster() || self.physcannon.held.is_some() {
             return true;
         }
-        let Some(grab) = GrabController::attach(physics, id, forward, true, Some(DOT_30DEGREE))
+        let Some(mut grab) = GrabController::attach(physics, id, forward, true, Some(DOT_30DEGREE))
         else {
             return true;
         };
+        grab.carry_angles = crate::grab::CarryAngles::for_entity(world, id);
         self.holster_hooks(weapons, scene.time);
         // AttachEntity: the object's impact sound against the player as feedback
         // (PhysicsImpactSound volume 1, speed 64; the player material is "player").

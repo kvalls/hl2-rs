@@ -267,6 +267,15 @@ pub const POISON_SLOW_BREATH: &str = "NPC_PoisonZombie.Moan1";
 /// BREATH_VOL_MAX and ZOMBIE_ENEMY_BREATHE_DIST.
 pub const BREATH_VOL_MAX: f32 = 0.6;
 pub const ENEMY_BREATHE_DIST: f32 = 300.;
+/// The burning walk: the controller's locomotion variant while a zombie burns.
+pub const WALK_ON_FIRE: &str = "ACT_WALK_ON_FIRE";
+/// CZombie::pMoanSounds: m_pMoanSound's cue, GetMoanSound(m_iMoanSound) (spawn order).
+pub const MOAN_SOUNDS: [&str; 4] = [
+    "NPC_BaseZombie.Moan1",
+    "NPC_BaseZombie.Moan2",
+    "NPC_BaseZombie.Moan3",
+    "NPC_BaseZombie.Moan4",
+];
 pub const SOUNDS: &[&str] = &[
     "Zombie.FootstepLeft",
     "Zombie.FootstepRight",
@@ -291,6 +300,12 @@ pub const SOUNDS: &[&str] = &[
     "NPC_PoisonZombie.Throw",
     POISON_FAST_BREATH,
     POISON_SLOW_BREATH,
+    MOAN_SOUNDS[0],
+    MOAN_SOUNDS[1],
+    MOAN_SOUNDS[2],
+    MOAN_SOUNDS[3],
+    // IsChopped -> DieChopped.
+    "E3_Phystown.Slicer",
 ];
 /// CNPC_BaseZombie's schedules (SDK text, the non-episodic SCHED_ZOMBIE_CHASE_ENEMY;
 /// COND_ZOMBIE_CAN_SWAT_ATTACK, COND_ZOMBIE_RELEASECRAB and the obstruction condition
@@ -525,6 +540,21 @@ pub struct CrabRelease {
     /// RELEASE_IMMEDIATE: a live npc_headcrab instead of a ragdoll crab, and the body
     /// ragdolls without a force.
     pub live: bool,
+    /// DieChopped by a sharp physics object (IsChopped): no ragdoll crab; half the time
+    /// a live crab drops (`live`), else the torso keeps it.
+    #[serde(default)]
+    pub sliced: bool,
+}
+/// CNPC_BaseZombie::IsChopped: a lethal hit of more than half its max health with both
+/// DMG_SLASH and DMG_CRUSH (a sharp physics object), not DMG_REMOVENORAGDOLL.
+pub fn is_chopped(damage_type: u32, damage: f32, max_health: f32, health_after: f32) -> bool {
+    use crate::player_damage::{DMG_CRUSH, DMG_SLASH};
+    let threshold = (damage / max_health.max(1e-6)).min(1.);
+    health_after <= 0.
+        && threshold > 0.5
+        && damage_type & DMG_SLASH != 0
+        && damage_type & DMG_CRUSH != 0
+        && damage_type & DMG_REMOVENORAGDOLL == 0
 }
 /// ZOMBIE_BULLET_DAMAGE_SCALE: OnTakeDamage_Alive halves bullet damage that did not hit
 /// the head (buckshot and sniper rounds excepted).
@@ -603,6 +633,12 @@ pub struct Zombie {
     pub breathing: bool,
     pub near_enemy: bool,
     pub gagged: bool,
+    /// IsOnFire at the last think (the runtime calls `ignited` / `extinguished` on a
+    /// change), m_iMoanSound (g_numZombies at Spawn: the zombies before it, mod 4) and
+    /// m_pMoanSound once MoanSound created it.
+    pub burning: bool,
+    pub moan_index: Option<usize>,
+    pub moan_patch: Option<&'static str>,
     /// m_hPhysicsEnt and its WorldSpaceCenter (the runtime refreshes the center each think
     /// and drops the object when its body is gone).
     pub physics_ent: Option<(usize, Vec3)>,
@@ -646,6 +682,9 @@ impl Zombie {
             breathing: false,
             near_enemy: false,
             gagged,
+            burning: false,
+            moan_index: None,
+            moan_patch: None,
             physics_ent: None,
             next_swat: 0.,
             next_swat_scan: 0.,
@@ -894,8 +933,78 @@ impl Zombie {
             }
         }
     }
+    /// CZombie::Ignite (classic zombies and torsos; the poison zombie keeps its own
+    /// sounds): ungagged, MoanSound(envZombieMoanIgnited) on m_pMoanSound (created at
+    /// Play(1, m_flMoanPitch = zombie_basemin/max 100) on first use, CHAN_STATIC; half
+    /// the time IdleSound first): volume 1 over U(0.5, 1) s, held 30 s, then 0 over
+    /// U(0.5, 1) s; then pitch 120 over 1 s (zombie_changemin/max 0 make MoanSound's own
+    /// pitch change a no-op, and SoundChangeVolume(1, 1) one at volume 1).
+    pub fn ignited(&mut self) {
+        if self.kind != Kind::Classic {
+            return;
+        }
+        self.gagged = false;
+        let cue = MOAN_SOUNDS[self.moan_index.unwrap_or(0) % MOAN_SOUNDS.len()];
+        if self.moan_patch.is_none() {
+            self.moan_patch = Some(cue);
+            self.requests.push(CopRequest::Patch {
+                cue,
+                op: PatchOp::Play {
+                    volume: 1.,
+                    pitch: 100.,
+                },
+            });
+        }
+        if self.random() < 0.5 {
+            self.requests.push(CopRequest::Sound("Zombie.Idle"));
+        }
+        let (rise, fall) = (0.5 + 0.5 * self.random(), 0.5 + 0.5 * self.random());
+        self.requests.push(CopRequest::Patch {
+            cue,
+            op: PatchOp::Envelope {
+                points: [(1., rise), (1., 30.), (0., fall)],
+            },
+        });
+        self.requests.push(CopRequest::Patch {
+            cue,
+            op: PatchOp::Pitch {
+                pitch: 120.,
+                seconds: 1.,
+            },
+        });
+    }
+    /// CZombie::Extinguish: a zombie that stops burning alive quiets its moan (volume 0
+    /// and pitch 100 over 2 s) and idles again after U(2, 4) s.
+    pub fn extinguished(&mut self, now: f64) {
+        let Some(cue) = self.moan_patch else {
+            return;
+        };
+        for op in [
+            PatchOp::Volume {
+                volume: 0.,
+                seconds: 2.,
+            },
+            PatchOp::Pitch {
+                pitch: 100.,
+                seconds: 2.,
+            },
+        ] {
+            self.requests.push(CopRequest::Patch { cue, op });
+        }
+        self.next_moan = Some(now + 2. + 2. * f64::from(self.random()));
+    }
+    /// StopLoopingSounds (death): m_pMoanSound goes with the breathing patches.
+    pub fn stop_moan(&mut self) {
+        if let Some(cue) = self.moan_patch.take() {
+            self.requests.push(CopRequest::Patch {
+                cue,
+                op: PatchOp::Destroy,
+            });
+        }
+    }
     /// CZombie::PrescheduleThink's moan clock: IdleSound (Zombie.Idle; CanPlayMoanSound
-    /// is true for small groups unless gagged), then U(2, 5) s until the next.
+    /// is true for small groups unless gagged or burning: the burning moan plays at full
+    /// volume instead), then U(2, 5) s until the next.
     /// CNPC_PoisonZombie::IdleSound plays only outside combat.
     pub fn moan(&mut self, now: f64, combat: bool) {
         self.now = now;
@@ -904,7 +1013,7 @@ impl Zombie {
         if now <= next {
             return;
         }
-        if self.gagged || (combat && self.kind == Kind::Poison) {
+        if self.gagged || self.burning || (combat && self.kind == Kind::Poison) {
             self.next_moan = Some(now + 1. + f64::from(self.random()));
             return;
         }
@@ -1838,5 +1947,65 @@ mod tests {
             .all(|r| matches!(r, CopRequest::Sound("NPC_PoisonZombie.Idle"))));
         assert!(!poison.requests.is_empty());
         assert_eq!(Kind::Poison.claw_reach(), 70.);
+    }
+    #[test]
+    fn a_burning_classic_zombie_moans_at_pitch_120_until_it_dies_or_the_fire_ends() {
+        let mut z = Zombie::new(Kind::Classic, true, 5);
+        z.moan_index = Some(6);
+        z.ignited();
+        assert!(!z.gagged, "CZombie::Ignite removes SF_NPC_GAG");
+        let patches: Vec<_> = z
+            .requests
+            .iter()
+            .filter_map(|r| match r {
+                CopRequest::Patch { cue, op } => Some((*cue, *op)),
+                _ => None,
+            })
+            .collect();
+        assert!(patches
+            .iter()
+            .all(|(cue, _)| *cue == "NPC_BaseZombie.Moan3"));
+        assert_eq!(
+            patches[0].1,
+            PatchOp::Play {
+                volume: 1.,
+                pitch: 100.
+            }
+        );
+        let PatchOp::Envelope { points } = patches[1].1 else {
+            panic!("{patches:?}");
+        };
+        assert!((0.5..=1.).contains(&points[0].1) && points[1] == (1., 30.) && points[2].0 == 0.);
+        assert_eq!(
+            patches[2].1,
+            PatchOp::Pitch {
+                pitch: 120.,
+                seconds: 1.
+            }
+        );
+        // No idle moans while burning; the fire going out quiets the patch.
+        z.requests.clear();
+        z.burning = true;
+        for t in 0..100 {
+            z.moan(f64::from(t) * 0.1, true);
+        }
+        assert!(z.requests.is_empty());
+        z.burning = false;
+        z.extinguished(10.);
+        assert_eq!(z.requests.len(), 2);
+        assert!(z.next_moan.is_some_and(|t| (12. ..=14.).contains(&t)));
+        z.requests.clear();
+        z.stop_moan();
+        assert!(matches!(
+            z.requests[..],
+            [CopRequest::Patch {
+                op: PatchOp::Destroy,
+                ..
+            }]
+        ));
+        // The poison zombie has no burning moan.
+        let mut poison = Zombie::new(Kind::Poison, false, 5);
+        poison.ignited();
+        assert!(poison.requests.is_empty());
     }
 }

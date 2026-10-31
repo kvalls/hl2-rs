@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-10-31 session 40: owner playtest (fire, sawblades, nest crabs, crosshair) (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session40-20261031: gas-can/propane break ignition (Scene::ignite_near/ignite_npc, AllowedToIgnite); burning zombie moan, activity switch and firewalk locomotion; burning cop stand; slice impact damage, IsChopped -> DieChopped, spin launch and preferred carry angles for spin_zaxis props; launched blades stick in walls (HandleInteractionStick); HeadcrabFits against crabs ejected a moment ago (and head crab first); FindCoverNode's node lock; the gravity gun and bugbait crosshairs.
+- Why: owner playtest reports of 2026-10-31.
+- Tested how: unit tests (hl2-simulation 407), owned tests (crosshair, prop data, firewalk variant), packaged artifacts/s40 fixtures (gravgun-crosshair, gascan-ignite, gascan-burning, saw-launch, saw-chop, saw-hold, saw-wall, poison-blast, poison-kill), strict Clippy/fmt, regression artifacts/s40-regression (26/26, 17/17, 26/26).
+- Result: each reported behavior now follows the SDK in the packaged build; inertia units checked against the retail vphysics.dll (no inches^2 conversion found).
+- Still broken or not tested: native comparisons of all of these; NPC-NPC steering (CAI_PlaneSolver); Combine burning stand; owner playtest.
+- Next: STATUS "Current session 40".
+
 ## 2026-10-30 session 39: no idle restart when the AI takes over from a script (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

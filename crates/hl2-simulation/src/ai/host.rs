@@ -85,9 +85,14 @@ impl SceneMotor<'_> {
         } else {
             activity
         };
+        // CNPC_BaseZombie::NPC_TranslateActivity (zombies: walk-only) and
+        // CNPC_MetroPolice's ACT_RUN -> ACT_RUN_ON_FIRE.
         let on_fire = match activity {
-            "ACT_WALK" | "ACT_RUN_ON_FIRE" if self.on_fire => Some("ACT_WALK_ON_FIRE"),
-            "ACT_IDLE" if self.on_fire => Some("ACT_IDLE_ON_FIRE"),
+            "ACT_WALK" | "ACT_RUN_ON_FIRE" if self.on_fire && self.walk_only => {
+                Some("ACT_WALK_ON_FIRE")
+            }
+            "ACT_IDLE" if self.on_fire && self.walk_only => Some("ACT_IDLE_ON_FIRE"),
+            "ACT_RUN" if self.on_fire && !self.walk_only => Some("ACT_RUN_ON_FIRE"),
             _ => None,
         };
         let activity = on_fire

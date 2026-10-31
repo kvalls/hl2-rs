@@ -208,6 +208,19 @@ pub struct PropData {
     /// can's PropaneTank.Burst instead of the explosion sound).
     #[serde(default)]
     pub break_explode: bool,
+    /// physgun_interactions onlaunch spin_zaxis (PROPINTER_PHYSGUN_LAUNCH_SPIN_Z: the
+    /// sawblade): a slicing object (FVPHYSICS_DMG_SLICE), held at its preferred carry
+    /// angles, launched spinning about its z axis.
+    #[serde(default)]
+    pub spin_z: bool,
+    /// physgun_interactions onworldimpact stick (PROPINTER_PHYSGUN_WORLD_STICK): the
+    /// first world hit after a gravity gun launch can embed it (the sawblade).
+    #[serde(default)]
+    pub world_stick: bool,
+    /// The model's physgun_interactions preferred_carryangles (pitch yaw roll), read by
+    /// CPhysicsProp::GetPropDataAngles.
+    #[serde(default)]
+    pub carry_angles: Option<[f32; 3]>,
 }
 impl Default for PropData {
     fn default() -> Self {
@@ -226,6 +239,9 @@ impl Default for PropData {
             explosive_resist: false,
             ignite_halfhealth: false,
             break_explode: false,
+            spin_z: false,
+            world_stick: false,
+            carry_angles: None,
         }
     }
 }

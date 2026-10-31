@@ -455,6 +455,11 @@ pub struct PhysicsCollision {
     pub pre_velocities: [Vec3; 2],
     pub post_velocities: [Vec3; 2],
     pub masses: [f32; 2],
+    /// Each side's angular speed before the step (deg/s) and DotProductAbs(GetInertia,
+    /// local preAngularVelocity): the principal inertia (kg m^2: the retail
+    /// vphysics.dll applies no length conversion to it) times the local angular
+    /// velocity in deg/s; zero for non-dynamic sides.
+    pub angular: [(f32, f32); 2],
 }
 #[derive(Clone, Copy, Debug)]
 pub struct BodyState {
@@ -652,6 +657,8 @@ pub struct Physics {
     interactive_debris: std::collections::HashSet<RigidBodyHandle>,
     /// Bodies with drag disabled (EnableDrag(false): a held object's controlled body).
     pub drag_disabled: std::collections::HashSet<RigidBodyHandle>,
+    /// Bodies whose angular drag coefficient is 0 (a launched spin_zaxis prop).
+    pub angular_drag_disabled: std::collections::HashSet<RigidBodyHandle>,
     /// VPhysics constraints created at load, and those that could not be.
     pub constraints: usize,
     pub constraint_errors: Vec<String>,
@@ -684,6 +691,9 @@ pub struct Physics {
     /// Props launched by the gravity gun whose first collision has not happened yet
     /// (CPhysicsProp m_bFirstCollisionAfterLaunch).
     pub launched: std::collections::HashSet<usize>,
+    /// Props a launch stuck in the world (StickAtPosition: motion disabled, debris,
+    /// SF_PHYSPROP_ENABLE_ON_PHYSCANNON until a gravity gun or +USE pickup).
+    pub stuck: std::collections::HashSet<usize>,
     /// Props the player threw from a +USE carry (CPhysicsProp m_bThrownByPlayer): the
     /// next NPC they hit gets g_interactionHitByPlayerThrownPhysObj; cleared then or
     /// when the body sleeps.
@@ -724,7 +734,13 @@ fn drag_geometry(body: &RigidBody, colliders: &ColliderSet) -> Option<crate::dra
     crate::drag::DragGeometry::from_points(&points)
 }
 /// One drag-controller step on a body (retail 10012ec0 order: linear, then angular).
-fn apply_drag(body: &mut RigidBody, geometry: &crate::drag::DragGeometry, density: f32, dt: f32) {
+fn apply_drag(
+    body: &mut RigidBody,
+    geometry: &crate::drag::DragGeometry,
+    density: f32,
+    dt: f32,
+    angular: bool,
+) {
     use crate::drag::*;
     let props = body.mass_properties().local_mprops;
     let inertia = props.inv_principal_inertia_sqrt;
@@ -748,6 +764,9 @@ fn apply_drag(body: &mut RigidBody, geometry: &crate::drag::DragGeometry, densit
     );
     if factor < 0. {
         body.set_linvel(v + v * factor, false);
+    }
+    if !angular {
+        return;
     }
     let w = *body.angvel();
     let local = rotation.inverse_transform_vector(&w);
@@ -1658,7 +1677,8 @@ impl Physics {
                     drag_geometry(body, colliders)
                         .map(|g| stored.map_or(g, |fractions| g.with_fractions(fractions)))
                 }) {
-                    apply_drag(body, &geometry, self.air_density, dt);
+                    let angular = !self.angular_drag_disabled.contains(&handle);
+                    apply_drag(body, &geometry, self.air_density, dt, angular);
                 }
             }
             before.insert(
@@ -1799,7 +1819,24 @@ impl Physics {
                 })
             };
             let mass = |c: &Collider| dynamic(c).map_or(0., |b| b.mass());
+            let angular = |c: &Collider| {
+                let (Some(b), Some((_, w, _))) =
+                    (dynamic(c), c.parent().and_then(|h| before.get(&h)))
+                else {
+                    return (0., 0.);
+                };
+                let props = b.mass_properties().local_mprops;
+                let frame = b.rotation() * props.principal_inertia_local_frame;
+                let local = frame.inverse_transform_vector(w) * (180. / std::f32::consts::PI);
+                let s = props.inv_principal_inertia_sqrt;
+                let inertia = |k: f32| if k > 0. { 1. / (k * k) } else { 0. };
+                let momentum = (inertia(s.x) * local.x).abs()
+                    + (inertia(s.y) * local.y).abs()
+                    + (inertia(s.z) * local.z).abs();
+                (local.norm(), momentum)
+            };
             self.collisions.push(PhysicsCollision {
+                angular: [angular(c1), angular(c2)],
                 pre_velocities: [pre(c1), pre(c2)],
                 post_velocities: [post(c1), post(c2)],
                 masses: [mass(c1), mass(c2)],
@@ -2467,10 +2504,42 @@ impl Physics {
     }
     /// COLLISION_GROUP_DEBRIS -> COLLISION_GROUP_INTERACTIVE_DEBRIS when the player
     /// picks up, punts or holds the entity (other groups are left alone).
+    /// CBreakableProp::StickAtPosition: teleport to `position`, EnableMotion(false),
+    /// SF_PHYSPROP_ENABLE_ON_PHYSCANNON and COLLISION_GROUP_DEBRIS.
+    pub fn stick(&mut self, id: usize, position: Vec3) {
+        let Some(&handle) = self.dynamic.get(&id) else {
+            return;
+        };
+        let Some(body) = self.bodies.get_mut(handle) else {
+            return;
+        };
+        let mut pose = *body.position();
+        let p = position * SCALE;
+        pose.translation = vector![p.x, p.y, p.z].into();
+        body.set_body_type(RigidBodyType::Fixed, true);
+        body.set_position(pose, true);
+        body.set_linvel(vector![0., 0., 0.], false);
+        body.set_angvel(vector![0., 0., 0.], false);
+        for collider in body.colliders().to_vec() {
+            if let Some(c) = self.colliders.get_mut(collider) {
+                c.set_collision_groups(DEBRIS_GROUPS);
+            }
+        }
+        self.interactive_debris.remove(&handle);
+        self.stuck.insert(id);
+    }
+    /// Physgun_OnPhysGunPickup (gravity gun pickups and punts, +USE pickups): held
+    /// debris becomes interactive debris, and a stuck prop
+    /// (SF_PHYSPROP_ENABLE_ON_PHYSCANNON) moves again (EnableMotion).
     pub fn make_interactive_debris(&mut self, id: usize) {
         let Some(&handle) = self.dynamic.get(&id) else {
             return;
         };
+        if self.stuck.remove(&id) {
+            if let Some(body) = self.bodies.get_mut(handle) {
+                body.set_body_type(RigidBodyType::Dynamic, true);
+            }
+        }
         let Some(body) = self.bodies.get(handle) else {
             return;
         };

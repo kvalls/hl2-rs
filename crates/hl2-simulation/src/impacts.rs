@@ -416,6 +416,20 @@ impl Impacts {
             .map(|l| l.prop)
             .unwrap_or_else(|_| "default".into())
     }
+    /// The game material (surfacedata game.material) of one side of a collision.
+    pub fn collision_game_material(
+        &self,
+        collision: &crate::physics::PhysicsCollision,
+        side: usize,
+        world: &World,
+        physics: &Physics,
+        scene: &Scene,
+    ) -> char {
+        let prop = self.collision_surface(collision, side, world, physics, scene);
+        self.property(&prop, "gamematerial")
+            .and_then(|m| m.chars().next())
+            .unwrap_or('C')
+    }
     /// CBaseEntity::VPhysicsCollision -> PhysCollisionSound -> AddImpactSound ->
     /// PlayImpactSounds for this step's collision events. CWorld's VPhysicsCollision is
     /// empty, so only non-world sides sound; 'X' (nodraw/sky) materials are silent;

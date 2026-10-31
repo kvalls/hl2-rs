@@ -1,10 +1,10 @@
 //! Physics impact damage to NPCs: CBaseCombatCharacter::VPhysicsShadowCollision ->
 //! CalculatePhysicsImpactDamage (SDK physics_impact_damage.cpp) with the NPC table. The
 //! retail server.dll table (private physics-research-20261011, damage registry "npc")
-//! has the same entries and thresholds. Only the linear path is modeled: the angular
-//! (slice) path needs FVPHYSICS_DMG_SLICE props, and FVPHYSICS_HEAVY_OBJECT,
-//! FVPHYSICS_NO_IMPACT_DMG/NO_NPC_IMPACT_DMG, dissolve and floating NPCs are not set by
-//! anything here yet.
+//! has the same entries and thresholds. The angular (slice) path runs for
+//! FVPHYSICS_DMG_SLICE props (spin_zaxis prop data or Damagetype 1: the sawblade);
+//! FVPHYSICS_HEAVY_OBJECT, FVPHYSICS_NO_IMPACT_DMG/NO_NPC_IMPACT_DMG, dissolve and
+//! floating NPCs are not set by anything here yet.
 use crate::{
     entities::Scene,
     physics::PhysicsCollision,
@@ -21,7 +21,16 @@ const NPC_LINEAR: [(f32, f32); 5] = [
     (500. * 500., 100.),
     (1000. * 1000., 500.),
 ];
+/// npcAngularTable: (DotProductAbs(inertia, local deg/s) threshold, damage).
+const NPC_ANGULAR: [(f32, f32); 4] = [
+    (100. * 100., 10.),
+    (150. * 150., 25.),
+    (200. * 200., 50.),
+    (250. * 250., 500.),
+];
 const MIN_SPEED_SQR: f32 = 24. * 24.;
+/// 360 deg/s squared: the least spin that slices.
+const MIN_ROT_SPEED_SQR: f32 = 360. * 360.;
 const MIN_MASS: f32 = 2.;
 const SMALL_MASS_MAX: f32 = 5.;
 const SMALL_MASS_CAP: f32 = 5.;
@@ -53,25 +62,53 @@ fn read_table(table: &[(f32, f32)], energy: f32) -> f32 {
     }
 }
 
-/// The colliding object as the NPC's shadow sees it.
-#[derive(Clone, Copy, Debug)]
+/// The colliding object as the NPC's shadow sees it. `angular` (speed in deg/s,
+/// DotProductAbs(inertia, local angular velocity)) only for FVPHYSICS_DMG_SLICE objects.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Impactor {
     pub mass: f32,
     pub pre: Vec3,
     pub post: Vec3,
+    pub angular: Option<(f32, f32)>,
+}
+/// FVPHYSICS_DMG_SLICE: CPhysicsProp::Spawn sets it for m_damageType 1 (keyvalue
+/// Damagetype) and "fixes up noncompliant blades" with spin_zaxis prop data.
+pub fn slices(world: &World, entity: usize) -> bool {
+    let Some(e) = world.entities.get(entity) else {
+        return false;
+    };
+    if !e.class().starts_with("prop_physics") {
+        return false;
+    }
+    e.get("Damagetype").is_some_and(|v| v.trim() == "1")
+        || world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(entity))
+            .and_then(|i| world.model_prop_data.get(&i.asset_key()))
+            .is_some_and(|d| d.spin_z)
 }
 
-/// CalculatePhysicsImpactDamage (linear) for an NPC shadow of `npc_mass` (it does not
-/// lose speed itself) hit by `other`; allowStaticDamage false.
-pub fn npc_damage(npc_mass: f32, energy_scale: f32, other: Impactor) -> f32 {
+/// CalculatePhysicsImpactDamage for an NPC shadow of `npc_mass` (it does not lose
+/// speed itself) hit by `other`; allowStaticDamage false. Returns the damage and
+/// whether the spin added DMG_SLASH.
+pub fn npc_damage(npc_mass: f32, energy_scale: f32, other: Impactor) -> (f32, bool) {
     let speed_sqr = other.pre.length_squared();
+    let (angular_speed, momentum) = other.angular.unwrap_or_default();
+    let angular_sqr = angular_speed * angular_speed;
     if other.mass < MIN_MASS
         || (other.mass < SMALL_MASS_MAX && speed_sqr < SMALL_MASS_MIN_SPEED_SQR)
-        || speed_sqr < MIN_SPEED_SQR
+        || (speed_sqr < MIN_SPEED_SQR && angular_sqr < MIN_ROT_SPEED_SQR)
         || npc_mass <= 0.
     {
-        return 0.;
+        return (0., false);
     }
+    // Spin damage (never from slowly spinning objects).
+    let spin = if angular_sqr > MIN_ROT_SPEED_SQR {
+        read_table(&NPC_ANGULAR, momentum * energy_scale)
+    } else {
+        0.
+    };
     let delta = other.pre.length() - other.post.length();
     let mut energy = delta * delta * other.mass;
     if other.mass >= LARGE_MASS_MIN {
@@ -83,13 +120,14 @@ pub fn npc_damage(npc_mass: f32, energy_scale: f32, other: Impactor) -> f32 {
         }
     }
     energy *= energy_scale / npc_mass;
-    let damage = read_table(&NPC_LINEAR, energy);
+    let damage = spin + read_table(&NPC_LINEAR, energy);
     // Small dynamic objects never do more than the cap.
-    if other.mass < SMALL_MASS_MAX {
+    let damage = if other.mass < SMALL_MASS_MAX {
         damage.clamp(0., SMALL_MASS_CAP)
     } else {
         damage
-    }
+    };
+    (damage, spin > 0.)
 }
 
 /// Queue DMG_CRUSH damage for NPCs struck by moving physics objects (resolved collision
@@ -134,13 +172,15 @@ pub fn queue_npc_damage(
                 .and_then(|v| v.trim().parse::<f32>().ok())
                 .filter(|v| v.is_finite() && *v >= 0.)
                 .unwrap_or_else(|| energy_scale(entity));
-            let damage = npc_damage(
+            let slicer = event.entities[other].is_some_and(|id| slices(world, id));
+            let (damage, slash) = npc_damage(
                 *mass,
                 scale,
                 Impactor {
                     mass: event.masses[other],
                     pre: event.pre_velocities[other],
                     post: event.post_velocities[other],
+                    angular: slicer.then_some(event.angular[other]),
                 },
             );
             if damage > 0. {
@@ -155,7 +195,12 @@ pub fn queue_npc_damage(
                 scene.entity_damage.push(Damage {
                     target: DamageTarget::Entity(npc),
                     amount: damage,
-                    kind: crate::player_damage::DMG_CRUSH,
+                    kind: crate::player_damage::DMG_CRUSH
+                        | if slash {
+                            crate::player_damage::DMG_SLASH
+                        } else {
+                            0
+                        },
                     dissolve: false,
                     direction: event.pre_velocities[other].normalize_or_zero(),
                     origin: event.origins[other],
@@ -164,6 +209,66 @@ pub fn queue_npc_damage(
             }
         }
     }
+}
+
+/// The cue StickAtPosition plays (the host preloads it).
+pub const SOUNDS: &[&str] = &["Metal.SawbladeStick"];
+/// CPhysicsProp::VPhysicsCollision's first collision after a gravity gun launch ->
+/// HandleFirstCollisionInteractions -> HandleInteractionStick for onworldimpact stick
+/// props hitting the world: faster than 1000 u/s, the velocity within acos(0.3) of the
+/// surface normal pointing away from the prop, and not into metal, grate or 'X'
+/// (sky, nodraw) surfaces (`material`: the game material of a collision side). Returns
+/// each prop to stick and where: its origin pushed 8 units along its velocity
+/// (StickAtPosition runs after the simulation).
+pub fn world_sticks(
+    collisions: &[PhysicsCollision],
+    world: &World,
+    launched: &std::collections::HashSet<usize>,
+    material: impl Fn(&PhysicsCollision, usize) -> char,
+) -> Vec<(usize, Vec3)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut sticks = Vec::new();
+    for event in collisions {
+        for index in 0..2 {
+            let other = 1 - index;
+            let Some(id) = event.entities[index].filter(|id| launched.contains(id)) else {
+                continue;
+            };
+            // Only the first collision after the launch counts.
+            if !seen.insert(id) {
+                continue;
+            }
+            let sticky = world
+                .entities
+                .get(id)
+                .is_some_and(|e| e.class().starts_with("prop_physics"))
+                && world
+                    .model_instances
+                    .iter()
+                    .find(|i| i.entity == Some(id))
+                    .and_then(|i| world.model_prop_data.get(&i.asset_key()))
+                    .is_some_and(|d| d.world_stick);
+            // IsWorld: world geometry (no entity, not a free body).
+            if !sticky || event.entities[other].is_some() || event.masses[other] > 0. {
+                continue;
+            }
+            let velocity = event.pre_velocities[index];
+            let speed = velocity.length();
+            let away = if index == 0 {
+                event.normal
+            } else {
+                -event.normal
+            };
+            if speed <= 1000. || velocity.dot(away) / speed <= 0.3 {
+                continue;
+            }
+            if matches!(material(event, other), 'M' | 'G' | 'X') {
+                continue;
+            }
+            sticks.push((id, event.origins[index] + velocity / speed * 8.));
+        }
+    }
+    sticks
 }
 
 /// The impactdamagetable_t fields the prop path reads (allowStaticDamage true skips
@@ -333,11 +438,13 @@ pub fn queue_prop_damage(
                     mass: event.masses[index],
                     pre: event.pre_velocities[index],
                     post: event.post_velocities[index],
+                    angular: None,
                 },
                 Impactor {
                     mass: event.masses[other],
                     pre: event.pre_velocities[other],
                     post: event.post_velocities[other],
+                    angular: None,
                 },
             );
             if first_after_launch {
@@ -367,25 +474,26 @@ mod tests {
             mass,
             pre: Vec3::X * speed,
             post: Vec3::X * after,
+            angular: None,
         }
     }
     #[test]
     fn launched_barrel_kills_and_light_junk_is_capped() {
         // 30 kg at the gravity gun's 1500 u/s stopping on a 90 kg cop: 1500^2 x 30 / 90
         // = 750000 -> the 500^2 entry, 100 damage.
-        assert_eq!(npc_damage(90., 1., hit(30., 1500., 0.)), 100.);
+        assert_eq!(npc_damage(90., 1., hit(30., 1500., 0.)).0, 100.);
         // A 7 kg paint can: 175000 -> 50.
-        assert_eq!(npc_damage(90., 1., hit(7., 1500., 0.)), 50.);
+        assert_eq!(npc_damage(90., 1., hit(7., 1500., 0.)).0, 50.);
         // A 1 kg bottle is under the 2 kg minimum; a 3 kg object caps at 5.
-        assert_eq!(npc_damage(90., 1., hit(1., 1500., 0.)), 0.);
-        assert_eq!(npc_damage(90., 1., hit(3., 1500., 0.)), 5.);
+        assert_eq!(npc_damage(90., 1., hit(1., 1500., 0.)).0, 0.);
+        assert_eq!(npc_damage(90., 1., hit(3., 1500., 0.)).0, 5.);
         // Slow or glancing (no speed lost) contacts do nothing.
-        assert_eq!(npc_damage(90., 1., hit(30., 20., 0.)), 0.);
-        assert_eq!(npc_damage(90., 1., hit(30., 800., 800.)), 0.);
+        assert_eq!(npc_damage(90., 1., hit(30., 20., 0.)).0, 0.);
+        assert_eq!(npc_damage(90., 1., hit(30., 800., 800.)).0, 0.);
         // Large masses read 4x the energy.
-        assert_eq!(npc_damage(90., 1., hit(600., 120., 0.)), 100.);
+        assert_eq!(npc_damage(90., 1., hit(600., 120., 0.)).0, 100.);
         // physdamagescale 0 (the trainstation_02 plaza cops) takes no impact damage.
-        assert_eq!(npc_damage(90., 0., hit(30., 1500., 0.)), 0.);
+        assert_eq!(npc_damage(90., 0., hit(30., 1500., 0.)).0, 0.);
         let cop = modkit_core::Entity {
             properties: vec![("physdamagescale".into(), "0".into())],
         };
@@ -396,6 +504,95 @@ mod tests {
         );
     }
     #[test]
+    fn a_spinning_sawblade_slices_and_slow_spin_does_not() {
+        // The owned sawblade001a: 50 kg; a launched blade spins 5000 deg/s about z. A
+        // disk of radius 0.5 m has I_z = 0.5 x 50 x 0.25 = 6.25 kg m^2: 31250 -> 25.
+        let blade = |speed: f32, spin: f32, inertia: f32| Impactor {
+            mass: 50.,
+            pre: Vec3::X * speed,
+            post: Vec3::X * speed,
+            angular: Some((spin, spin * inertia)),
+        };
+        assert_eq!(npc_damage(90., 1., blade(800., 5000., 6.25)), (25., true));
+        // 40000 (200^2) -> 50: enough to chop a full-health classic zombie.
+        assert_eq!(npc_damage(90., 1., blade(800., 5000., 8.)), (50., true));
+        // Under 360 deg/s no spin damage; with no linear speed lost, nothing.
+        assert_eq!(npc_damage(90., 1., blade(800., 300., 8.)), (0., false));
+        // A spinning blade at rest still slices (the speed gate passes on the spin).
+        assert_eq!(npc_damage(90., 1., blade(0., 5000., 8.)), (50., true));
+        // Non-slicing objects never read the spin.
+        assert_eq!(
+            npc_damage(
+                90.,
+                1.,
+                Impactor {
+                    angular: None,
+                    ..blade(800., 5000., 8.)
+                }
+            ),
+            (0., false)
+        );
+    }
+    #[test]
+    fn a_launched_blade_sticks_in_concrete_head_on_but_not_in_metal_or_slow_or_glancing() {
+        let prop = modkit_core::Entity {
+            properties: vec![("classname".into(), "prop_physics".into())],
+        };
+        let mut world = World {
+            entities: vec![prop],
+            ..Default::default()
+        };
+        world.model_instances.push(modkit_core::ModelInstance {
+            background: false,
+            model: "models/props_junk/sawblade001a.mdl".into(),
+            origin: Vec3::ZERO,
+            angles: Vec3::ZERO,
+            skin: 0,
+            body: 0,
+            scale: 1.,
+            kind: "prop_physics".into(),
+            solid: true,
+            solid_mode: None,
+            entity: Some(0),
+        });
+        let key = world.model_instances[0].asset_key();
+        world.model_prop_data.insert(
+            key,
+            modkit_core::PropData {
+                world_stick: true,
+                ..Default::default()
+            },
+        );
+        let hit = |speed: f32, normal: Vec3| PhysicsCollision {
+            colliders: [rapier3d::prelude::ColliderHandle::invalid(); 2],
+            entities: [Some(0), None],
+            surfaceprops: [None, None],
+            position: Vec3::new(100., 0., 0.),
+            origins: [Vec3::new(90., 0., 0.), Vec3::new(100., 0., 0.)],
+            normal,
+            speed,
+            delta_time: f32::MAX,
+            pre_velocities: [Vec3::X * speed, Vec3::ZERO],
+            post_velocities: [Vec3::ZERO; 2],
+            masses: [50., 0.],
+            angular: [(0., 0.); 2],
+        };
+        let launched: std::collections::HashSet<usize> = [0].into();
+        let concrete = |_: &PhysicsCollision, _: usize| 'C';
+        assert_eq!(
+            world_sticks(&[hit(1500., Vec3::X)], &world, &launched, concrete),
+            [(0, Vec3::new(98., 0., 0.))]
+        );
+        // Metal, too slow, too glancing, or not launched: no stick.
+        let metal = |_: &PhysicsCollision, _: usize| 'M';
+        assert!(world_sticks(&[hit(1500., Vec3::X)], &world, &launched, metal).is_empty());
+        assert!(world_sticks(&[hit(900., Vec3::X)], &world, &launched, concrete).is_empty());
+        let glancing = Vec3::new(0.25, 1., 0.).normalize();
+        assert!(world_sticks(&[hit(1500., glancing)], &world, &launched, concrete).is_empty());
+        let none = std::collections::HashSet::new();
+        assert!(world_sticks(&[hit(1500., Vec3::X)], &world, &none, concrete).is_empty());
+    }
+    #[test]
     fn launched_crate_breaks_on_the_floor_only_with_the_launch_bonus() {
         let crate_ = modkit_core::Entity {
             properties: vec![("physdamagescale".into(), "0".into())],
@@ -403,11 +600,7 @@ mod tests {
         // physdamagescale 0 on a prop means the 0.1 default.
         assert_eq!(prop_energy_scale(&crate_, None), 0.1);
         assert_eq!(prop_energy_scale(&crate_, Some("1")), 1.);
-        let floor = Impactor {
-            mass: 0.,
-            pre: Vec3::ZERO,
-            post: Vec3::ZERO,
-        };
+        let floor = Impactor::default();
         // A 20 kg crate stopping from 500 u/s on the world: 500^2 x 0.1 = 25000 -> 5,
         // x10 after a gravity gun launch: 50 (wood_crate001a breaks at 30 health).
         let stop = hit(20., 500., 0.);
@@ -426,11 +619,7 @@ mod tests {
 
     #[test]
     fn glass_table_breaks_bottles_on_light_drops_and_keeps_its_row_order() {
-        let floor = Impactor {
-            mass: 0.,
-            pre: Vec3::ZERO,
-            post: Vec3::ZERO,
-        };
+        let floor = Impactor::default();
         // A 1 kg glass prop (energy scale 0.1) stopping from 100 u/s on the world:
         // 100^2 x 0.1 = 1000 -> the 625 row: 10 (a 10-health Glass.Small bottle breaks),
         // where the NPC table reads nothing.
