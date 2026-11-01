@@ -1,5 +1,5 @@
 //! Facial flexes on the bind positions of an actor's draws, before skinning (GPU and CPU paths).
-use super::{AnimatedMesh, FlexModels};
+use super::AnimatedMesh;
 use crate::source_to_bevy;
 use bevy::{
     asset::Assets,
@@ -8,6 +8,12 @@ use bevy::{
 };
 use source_assets::flexes::FaceModel;
 use std::collections::HashMap;
+
+/// Facial flex and eyeball data per model asset key (setup-loaded; no frame IO).
+#[derive(bevy::prelude::Resource, Default)]
+pub struct FlexModels(
+    pub std::collections::BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>,
+);
 
 /// One frame's descriptor weights per actor and model: all of an actor's surfaces share them.
 pub(super) type FlexWeights = HashMap<(usize, *const FaceModel), Vec<f32>>;

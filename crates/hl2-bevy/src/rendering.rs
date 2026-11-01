@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) mod drawing;
 mod face_flex;
+pub use face_flex::FlexModels;
 mod lighting;
 pub(crate) mod lod;
 mod map_draw;
@@ -31,7 +32,7 @@ mod placement;
 pub(crate) use placement::draw_hidden;
 mod runtime;
 use map_draw::{MapDrawContext, insert_map_draw_components};
-use material::{alpha_mode, base_image, cube_image_filtered, image_filtered};
+use material::{alpha_mode, cube_image_filtered, image_filtered, mip_image_filtered, unfilter};
 pub(crate) use material::{black_cube, fallback_images, image, make_material, sampler_descriptor};
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
@@ -405,9 +406,6 @@ pub(crate) fn copy_asset<A: Asset + Clone>(
     let copy = assets.get(handle)?.clone();
     Some(assets.add(copy))
 }
-/// Facial flex and eyeball data per model asset key (setup-loaded; no frame IO).
-#[derive(Resource, Default)]
-pub struct FlexModels(pub BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>);
 /// Conjugate rotation by the same basis change used for vertex positions.
 pub(crate) fn entity_transform(origin: glam::Vec3, rotation: glam::Quat) -> Transform {
     let basis = Mat3::from_cols(
@@ -790,7 +788,7 @@ pub fn spawn_map_filtered(
                     .map(|(i, chain)| {
                         texture_handles
                             .entry(format!("{path}#frame{i}#mips#srgb"))
-                            .or_insert_with(|| images.add(base_image(chain, filtering, nearest)))
+                            .or_insert_with(|| images.add(mip_image_filtered(chain, filtering)))
                             .clone()
                     })
                     .collect::<Vec<_>>()
@@ -840,6 +838,7 @@ pub fn spawn_map_filtered(
             Some((name.clone(), handle))
         })
         .collect();
+    unfilter(images, texture_handles.values(), nearest);
     let lightmaps: Vec<_> = world
         .lightmaps
         .iter()

@@ -4,7 +4,7 @@ use super::{MaterialData, ModelLighting, SourceMaterial};
 use bevy::pbr::MeshPipelineKey;
 use bevy::render::render_resource::Face;
 use bevy::{
-    asset::{Handle, RenderAssetUsages},
+    asset::{Assets, Handle, RenderAssetUsages},
     image::{Image, ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     material::AlphaMode,
     math::{Mat3, Vec3, Vec4},
@@ -112,20 +112,23 @@ pub(super) fn image_filtered(
     image
 }
 
-/// A base texture; a video policy's render budget can ask for it to be sampled without filtering.
-pub(super) fn base_image(
-    chain: &[source_assets::vtf::Image],
-    filtering: hl2_ui::config::Filtering,
+/// Samples these textures without filtering when a video policy's render budget asks.
+pub(super) fn unfilter<'a>(
+    images: &mut Assets<Image>,
+    handles: impl Iterator<Item = &'a Handle<Image>>,
     nearest: bool,
-) -> Image {
-    let mut image = mip_image_filtered(chain, filtering);
-    if let (true, ImageSampler::Descriptor(descriptor)) = (nearest, &mut image.sampler) {
-        descriptor.mag_filter = ImageFilterMode::Nearest;
-        descriptor.min_filter = ImageFilterMode::Nearest;
-        descriptor.mipmap_filter = ImageFilterMode::Nearest;
-        descriptor.anisotropy_clamp = 1;
+) {
+    for handle in handles.filter(|_| nearest) {
+        let Some(mut image) = images.get_mut(handle) else {
+            continue;
+        };
+        if let ImageSampler::Descriptor(descriptor) = &mut image.sampler {
+            descriptor.mag_filter = ImageFilterMode::Nearest;
+            descriptor.min_filter = ImageFilterMode::Nearest;
+            descriptor.mipmap_filter = ImageFilterMode::Nearest;
+            descriptor.anisotropy_clamp = 1;
+        }
     }
-    image
 }
 
 /// A repeating sRGB texture with its authored VTF mip chain (largest first), sampled
