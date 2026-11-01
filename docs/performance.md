@@ -40,6 +40,17 @@ Rejected for now: thin LTO with one codegen unit gives 3-5% (station02 4.76, 4.7
 implemented: no sky cameras, station02 5.66, 4.88, 4.73 -> 4.09, 4.02, 4.43 ms and coast01 4.53, 4.19, 4.74 -> 3.69, 3.73, 3.95 ms. That
 removes the sky, so it is not a Low change.
 
+Base commit against these changes, same session, three alternating rounds, median (range):
+
+| Tier, map | Before ms | After ms | Change |
+| --- | ---: | ---: | ---: |
+| Max, station02 | 12.14 (12.02-12.41) | 10.84 (10.25-10.99) | -11% |
+| Max, coast01 | 14.88 (14.32-15.51) | 13.80 (13.34-13.93) | -7% |
+| Low, station02 | 6.98 (6.93-7.13) | 5.24 (5.13-5.57) | -25% |
+| Low, coast01 | 6.61 (6.41-6.69) | 4.57 (4.53-4.67) | -31% |
+
+Max stays GPU-saturated (99-100% busy), and CPU time per frame including loading falls from about 28-32 ms to 22-26 ms.
+
 CPU stages at Low on coast01 after these changes: render graph 2.96 ms (per-camera encoding), fixed simulation 2.72 ms per tick (mostly
 Rapier), render prepare 1.24 ms, animation 0.58 ms (1.24-1.90 before). These are overlapping wall scopes with profiling fences, and the
 headless runs have no window present. Interactive frame time, Windows and power are **not tested**. Compare ratios, not absolutes.
