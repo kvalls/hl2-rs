@@ -8,7 +8,7 @@
 
 **Tested how / Result:** Plugin test for the combo rows and budget, architecture check, `scripts/checks/validate.sh`, packaged captures of the dialog and of coast01 with all items on. Plugin rules read: yes; exceptions: none.
 
-**Frame time:** All Low to all Potato, station02 5.22 -> 4.13 ms, coast01 4.52 -> 4.01 ms. Per-item table in docs/performance.md.
+**Frame time:** All Low to all Potato, station02 5.34 -> 4.45 ms, coast01 4.69 -> 4.03 ms. Per-item table in docs/performance.md.
 
 **Still broken or not tested:** Selecting items by hand in the dialog, interactive play, Windows and core-only builds beyond validation. Gameplay replays not run on this branch. No side-by-side capture against retail Low yet. Runtime-spawned models keep filtered textures. Shader, Water, Multicore and Classic Effects still do nothing at retail levels.
 

@@ -65,8 +65,11 @@ median, frame ms and peak RSS:
 | All five | | 4.13 | 4.01 | 2.74 / 2.49 |
 
 Only Shader moves frame time clearly; Model saves memory; Texture, Shadow and Filtering are within noise on frame time and set the look.
-These runs predate the fix that extends unfiltered sampling to world textures; a later all-five smoke run read 4.35 ms over 150 frames, which is
-too short to compare. Water Detail has no item because nothing renders it yet.
+Those runs predate the fix that extends unfiltered sampling to world textures. Measured again after it, three runs, median: all Low 5.34 and 4.69 ms,
+Filtering alone 5.27 and 4.73 ms, all five 4.45 and 4.03 ms (station02, coast01). Water Detail has no item because nothing renders it yet.
+
+At saved settings of 3456x2168, 4x AA, HDR Full, Ultra blur and Shadow High, with the flashlight on at a fixed station02 view, one run each: base 16.07 ms,
+these changes 13.31 ms. The two captures differ by a mean under 0.01 per channel and at most 3 of 255.
 
 CPU stages at Low on coast01 after these changes: render graph 2.96 ms (per-camera encoding), fixed simulation 2.72 ms per tick (mostly
 Rapier), render prepare 1.24 ms, animation 0.58 ms (1.24-1.90 before). These are overlapping wall scopes with profiling fences, and the
