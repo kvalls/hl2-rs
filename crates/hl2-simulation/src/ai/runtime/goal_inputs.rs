@@ -20,7 +20,7 @@ impl AiRuntime {
                 {
                     self.apply_relationship(world, scene, id, true);
                 }
-                if e.class() == "ai_goal_assault"
+                if matches!(e.class(), "ai_goal_assault" | "ai_goal_actbusy")
                     && e.get("StartActive").is_some_and(|v| v.trim() == "1")
                 {
                     scene

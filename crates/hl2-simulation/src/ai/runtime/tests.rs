@@ -1016,3 +1016,43 @@ fn soldier_and_rebel_spawns_fight_each_other_with_their_class_schedules() {
         .keys()
         .all(|k| !k.starts_with("schedule ")));
 }
+#[test]
+fn start_active_actbusy_goals_enable_their_actors_at_spawn() {
+    let world = World {
+        entities: vec![
+            entity(&[
+                ("classname", "npc_metropolice"),
+                ("targetname", "plaza_cop"),
+                ("origin", "0 0 0"),
+            ]),
+            entity(&[
+                ("classname", "npc_metropolice"),
+                ("targetname", "other_cop"),
+                ("origin", "300 0 0"),
+            ]),
+            entity(&[
+                ("classname", "ai_goal_actbusy"),
+                ("actor", "plaza_cop"),
+                ("StartActive", "1"),
+                ("busysearchrange", "9999"),
+            ]),
+        ],
+        ..Default::default()
+    };
+    let scene = Scene::new(&world);
+    let physics = Physics::new(&world);
+    let ai = AiRuntime::new(&world, None);
+    let mut r = Rig {
+        world,
+        scene,
+        physics,
+        controller: Controller::new(None, Default::default()),
+        ai,
+    };
+    r.ai.enabled = true;
+    run(&mut r, 1, player_at(-3000.));
+    let busy = |id: usize| &r.ai.actors[&id].class.cop().unwrap().actbusy;
+    assert!(busy(0).enabled);
+    assert_eq!((busy(0).goal, busy(0).search_range), (Some(2), 9999.));
+    assert!(!busy(1).enabled);
+}
