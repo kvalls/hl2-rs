@@ -1056,3 +1056,40 @@ fn start_active_actbusy_goals_enable_their_actors_at_spawn() {
     assert_eq!((busy(0).goal, busy(0).search_range), (Some(2), 9999.));
     assert!(!busy(1).enabled);
 }
+#[test]
+fn relationships_naming_the_player_class_reach_the_player() {
+    let relationship = |subject: &'static str, target: &'static str| {
+        entity(&[
+            ("classname", "ai_relationship"),
+            ("subject", subject),
+            ("target", target),
+            ("disposition", "4"),
+            ("StartActive", "1"),
+        ])
+    };
+    let world = World {
+        entities: vec![
+            entity(&[("classname", "npc_metropolice"), ("origin", "0 0 0")]),
+            entity(&[("classname", "npc_zombie"), ("origin", "300 0 0")]),
+            relationship("npc_metropolice", "player"),
+        ],
+        ..Default::default()
+    };
+    let scene = Scene::new(&world);
+    let physics = Physics::new(&world);
+    let ai = AiRuntime::new(&world, None);
+    let mut r = Rig {
+        world,
+        scene,
+        physics,
+        controller: Controller::new(None, Default::default()),
+        ai,
+    };
+    r.ai.enabled = true;
+    run(&mut r, 1, player_at(-3000.));
+    assert_eq!(
+        r.ai.relationship_overrides.get(&(0, PLAYER)),
+        Some(&Disposition::NU)
+    );
+    assert_eq!(r.ai.relationship_overrides.get(&(1, PLAYER)), None);
+}

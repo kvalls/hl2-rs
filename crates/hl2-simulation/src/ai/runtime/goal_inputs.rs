@@ -468,7 +468,7 @@ impl AiRuntime {
             if pattern == "!player" {
                 return vec![PLAYER];
             }
-            world
+            let mut matches: Vec<usize> = world
                 .entities
                 .iter()
                 .enumerate()
@@ -484,7 +484,12 @@ impl AiRuntime {
                                 .is_some_and(|s| s.origin.distance(at) <= radius))
                 })
                 .map(|(i, _)| i)
-                .collect()
+                .collect();
+            // ChangeRelationships searches the players too: ClassMatches on "player".
+            if crate::entities::glob(&pattern, "player") {
+                matches.push(PLAYER);
+            }
+            matches
         };
         let subjects = matching(e.get("subject").unwrap_or(""));
         let targets = matching(e.get("target").unwrap_or(""));
