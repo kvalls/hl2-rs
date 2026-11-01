@@ -362,10 +362,10 @@ pub fn present(
     // Background levels behind the main menu draw no HUD.
     if !ui.source.background_level() && !hud_hidden {
         game_hud::draw(&hud, &game, &ui);
+        draw_ai_disabled(&hud, &game, width, height);
     }
     hud.observe_frame(clock.elapsed_secs_f64(), performance.is_some());
     ui.source.draw(clock.elapsed_secs_f64());
-    draw_ai_disabled(&hud, &game, width, height);
     sim.with_extensions(|extension, simulation| {
         extension.present(
             &mut crate::extensions::Context {
@@ -464,7 +464,7 @@ fn quad_mesh(quad: &Quad, viewport: Vec2) -> Mesh {
 fn draw_ai_disabled(hud: &Hud, game: &crate::gameplay::Gameplay, width: f32, height: f32) {
     // CAI_BaseNPC::PreThink: "A.I. Disabled..." at (0.7, 0.65) while ai_disable is on
     // (HUD message font not reproduced: the developer font).
-    if !game.ai.enabled
+    if ai_disabled_message(&game.ai)
         && let Some(font) = &hud.diagnostic_font
     {
         font.text(
@@ -477,10 +477,22 @@ fn draw_ai_disabled(hud: &Hud, game: &crate::gameplay::Gameplay, width: f32, hei
     }
 }
 
+/// Source sends the message from an NPC's think, so a world without NPCs never shows it
+/// (the startup placeholder's AI is off only because no map has set it yet).
+fn ai_disabled_message(ai: &hl2_simulation::ai::runtime::AiRuntime) -> bool {
+    !ai.enabled && !ai.actors.is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use source_ui::canvas::{Color, Rect};
+    #[test]
+    fn a_world_without_npcs_shows_no_ai_disabled_message() {
+        let game = crate::gameplay::Gameplay::synthetic(modkit_core::World::default());
+        assert!(!game.ai.enabled);
+        assert!(!ai_disabled_message(&game.ai));
+    }
     #[test]
     fn frame_profile_excludes_warmup_and_keeps_tail_bounds() {
         let mut timing = FrameTiming::default();

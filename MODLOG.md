@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-01 No "A.I. Disabled..." message without NPCs
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner report: the message showed on the blur overlay of the first background load. The startup placeholder gameplay keeps `AiRuntime::new`'s `enabled: false`, and the label read only that flag. Source sends the message from an NPC's think (Source SDK `game/server/ai_basenpc.cpp`), so it now also needs AI actors, and it follows the HUD's hiding for background levels and GameUI.
+
+**Tested how / Result:** New unit test `a_world_without_npcs_shows_no_ai_disabled_message` passes; fmt and Clippy for hl2-bevy pass.
+
+**Still broken or not tested:** Not checked in a packaged run. Hiding the message under GameUI follows native pause captures of the HUD, not a capture of this message.
+
+**Next:** None.
+
 ## 2026-11-01 Documentation review for the plugins
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
