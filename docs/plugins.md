@@ -75,17 +75,21 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 
 **Change or fix a plugin.** Edit the owning plugin and put the test beside the code. Portable behavior is tested without Bevy; adapter tests need the plugin's `bevy` feature, for example `cargo test -p hl2-debug --features bevy`.
 
-**Enable or disable.** Choose at build time:
+**Enable or disable.** Choose with the launcher on macOS and Linux:
 
 ```bash
-scripts/build-bevy.sh --plugins none
+./launch-bevy.sh --plugins none
 ```
 
 ```bash
-scripts/build-bevy.sh --plugins advanced-options
+./launch-bevy.sh --plugins advanced-options
 ```
 
-The default is both. Windows uses `scripts/build-bevy.ps1 -Plugins <list>`. A plugin shader is packaged only when its plugin is selected.
+```bash
+./launch-bevy.sh --plugins advanced-options,debug-tools
+```
+
+It rebuilds only when the selection differs from the current build. Without `--plugins` the launcher keeps the last selection, including across automatic rebuilds; the first build has both. `bin/build-bevy-info.json` records it, and an unknown name is an error. `--no-build` refuses a selection the existing build does not have. `scripts/build-bevy.sh --plugins <list>` builds without launching. On Windows use `scripts/build-bevy.ps1 -Plugins <list>`, then `launch-bevy.cmd`, which has no `--plugins` option. A plugin shader is packaged only when its plugin is selected.
 
 **Replace a plugin.** Select another crate that provides the same contracts in the application's manifest and composition files. Core does not change. `crates/hl2-bevy/src/extensions.rs` tests an independent contributor this way.
 

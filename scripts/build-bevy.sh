@@ -26,6 +26,24 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Known names and one order, so the recorded selection compares equal however it was typed.
+PLUGINS="$(printf '%s' "$PLUGINS" | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd ',' -)"
+if [[ "$PLUGINS" != "none" ]]; then
+    for plugin in ${PLUGINS//,/ }; do
+        case "$plugin" in
+            advanced-options|debug-tools) ;;
+            *)
+                echo "Unknown plugin: $plugin (known: advanced-options, debug-tools, or none)" >&2
+                exit 1
+                ;;
+        esac
+    done
+fi
+if [[ -z "$PLUGINS" ]]; then
+    echo "--plugins needs a comma-separated list or none" >&2
+    exit 1
+fi
+
 if ! command -v cargo >/dev/null 2>&1; then
     echo "cargo not found. Install Rust using rustup first." >&2
     exit 1
@@ -159,6 +177,7 @@ cat <<EOF > "$TMP_METADATA"
   "sha256": "$EXE_SHA256",
   "git_branch": "$GIT_BRANCH",
   "git_commit": "$GIT_COMMIT",
+  "plugins": "$PLUGINS",
   "assets": $ASSETS_JSON
 }
 EOF

@@ -57,6 +57,7 @@ try {
         profile = $profileName
         executable = 'bin/hl2-bevy.exe'
         sha256 = (Get-FileHash -LiteralPath $packageExecutable -Algorithm SHA256).Hash
+        plugins = $Plugins
         assets = $shaderHashes
     } | ConvertTo-Json -Depth 4
     $metadataFile = Join-Path $packageRoot 'build-bevy-info.json'

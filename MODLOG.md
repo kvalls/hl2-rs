@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-01 Launcher plugin selection
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner request. `launch-bevy.sh --plugins <list>` selects plugins and rebuilds only when the selection differs; without it the last selection survives automatic rebuilds, which used to restore both plugins silently. Build metadata records the selection. The freshness check also watches `plugins/` and `apps/`, which it ignored. Removed an unused-mut warning from core-only builds.
+
+**Tested how / Result:** `scripts/checks/test_launch_plugins.py` drives the launcher with a stand-in build; real core-only and selection switches through the launcher on macOS.
+
+**Still broken or not tested:** `build-bevy.ps1` metadata change not run. The Windows launcher has no `--plugins` option.
+
+**Next:** Play the packaged build and list what breaks; then timing.
+
 ## 2026-11-01 Crosshair consistency and viewmodel reset key
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

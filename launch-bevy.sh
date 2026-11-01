@@ -39,6 +39,7 @@ Options:
       --no-focus                      Launch window without requesting input focus (for unattended test runs)
       --no-pvs                        Disable BSP potential visible set (PVS) occlusion culling
       --no-setup                      Fail with an error instead of opening setup if installation is missing
+      --plugins <list>                Build and run with these comma-separated plugins, or none (advanced-options, debug-tools; default: the last selection, at first both)
       --pitch <degrees>               Set initial camera pitch angle in degrees (requires --map)
       --position <x> <y> <z>          Set initial camera spawn coordinates (requires --map)
       --profile                       Record CPU stage execution timings in the run report
@@ -68,10 +69,29 @@ FORCE_REBUILD=0
 DEBUG_BUILD=0
 NO_BUILD=0
 NO_CLEAN=0
+PLUGINS=""
 GAME_ARGS=()
 
-for arg in "$@"; do
+# One order, so the same selection always compares equal.
+canonical_plugins() {
+    printf '%s' "$1" | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd ',' -
+}
+
+while [[ $# -gt 0 ]]; do
+    arg="$1"
+    shift
     case "$arg" in
+        --plugins)
+            if [[ $# -eq 0 ]]; then
+                echo "Error: --plugins needs a comma-separated list or none" >&2
+                exit 1
+            fi
+            PLUGINS="$(canonical_plugins "$1")"
+            shift
+            ;;
+        --plugins=*)
+            PLUGINS="$(canonical_plugins "${arg#--plugins=}")"
+            ;;
         --rebuild|--force-build)
             FORCE_REBUILD=1
             ;;
@@ -108,12 +128,21 @@ find "$PROJECT_ROOT/bin" -name ".DS_Store" -delete 2>/dev/null || true
 NEEDS_BUILD=0
 BUILD_REASON=""
 
+RECORDED_PLUGINS=""
+if [[ -f "$INFO_JSON" ]]; then
+    RECORDED_PLUGINS="$(grep -E '"plugins"' "$INFO_JSON" 2>/dev/null | head -n1 | sed -E 's/.*"plugins"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/' || true)"
+fi
+
 CURRENT_BRANCH="$(git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 CURRENT_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 
 if [[ "$NO_BUILD" -eq 1 ]]; then
     if [[ ! -x "$TARGET_BIN" ]]; then
         echo "Error: --no-build was specified, but executable does not exist: $TARGET_BIN" >&2
+        exit 1
+    fi
+    if [[ -n "$PLUGINS" && "$PLUGINS" != "$RECORDED_PLUGINS" ]]; then
+        echo "Error: --no-build with --plugins $PLUGINS, but the existing build has: ${RECORDED_PLUGINS:-unknown}" >&2
         exit 1
     fi
 elif [[ "$FORCE_REBUILD" -eq 1 ]]; then
@@ -129,9 +158,15 @@ elif [[ ! -f "$INFO_JSON" ]]; then
     NEEDS_BUILD=1
     BUILD_REASON="build metadata missing ($INFO_JSON)"
 else
+    # Check the plugin selection
+    if [[ -n "$PLUGINS" && "$PLUGINS" != "$RECORDED_PLUGINS" ]]; then
+        NEEDS_BUILD=1
+        BUILD_REASON="plugin selection changed (recorded: '${RECORDED_PLUGINS:-unknown}', desired: '$PLUGINS')"
+    fi
+
     # 1. Check profile mismatch (release vs debug)
     RECORDED_PROFILE="$(grep -E '"profile"' "$INFO_JSON" 2>/dev/null | head -n1 | sed -E 's/.*"profile"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/' || true)"
-    if [[ -n "$RECORDED_PROFILE" && "$RECORDED_PROFILE" != "$DESIRED_PROFILE" ]]; then
+    if [[ "$NEEDS_BUILD" -eq 0 && -n "$RECORDED_PROFILE" && "$RECORDED_PROFILE" != "$DESIRED_PROFILE" ]]; then
         NEEDS_BUILD=1
         BUILD_REASON="build profile changed (recorded: '$RECORDED_PROFILE', desired: '$DESIRED_PROFILE')"
     fi
@@ -162,7 +197,7 @@ else
 
     # 4. Check modified source files (newer than current binary)
     if [[ "$NEEDS_BUILD" -eq 0 ]]; then
-        NEWER_SOURCE="$(find "$PROJECT_ROOT/crates" "$PROJECT_ROOT/Cargo.toml" "$PROJECT_ROOT/Cargo.lock" -newer "$TARGET_BIN" -type f ! -name ".*" 2>/dev/null | head -n 1 || true)"
+        NEWER_SOURCE="$(find "$PROJECT_ROOT/crates" "$PROJECT_ROOT/plugins" "$PROJECT_ROOT/apps" "$PROJECT_ROOT/Cargo.toml" "$PROJECT_ROOT/Cargo.lock" -newer "$TARGET_BIN" -type f ! -name ".*" 2>/dev/null | head -n 1 || true)"
         if [[ -n "$NEWER_SOURCE" ]]; then
             NEEDS_BUILD=1
             BUILD_REASON="source file modified (${NEWER_SOURCE#$PROJECT_ROOT/})"
@@ -190,6 +225,11 @@ if [[ "$NEEDS_BUILD" -eq 1 ]]; then
     if [[ "$DEBUG_BUILD" -eq 1 ]]; then
         BUILD_ARGS+=("--debug")
     fi
+    # A rebuild keeps the selection the last build recorded.
+    BUILD_PLUGINS="${PLUGINS:-$RECORDED_PLUGINS}"
+    if [[ -n "$BUILD_PLUGINS" ]]; then
+        BUILD_ARGS+=("--plugins" "$BUILD_PLUGINS")
+    fi
     if [[ ${#BUILD_ARGS[@]} -gt 0 ]]; then
         "$PROJECT_ROOT/scripts/build-bevy.sh" "${BUILD_ARGS[@]}"
     else
@@ -197,6 +237,10 @@ if [[ "$NEEDS_BUILD" -eq 1 ]]; then
     fi
 else
     echo "==> Build is up to date (${DESIRED_PROFILE} on branch '$CURRENT_BRANCH', commit '${CURRENT_COMMIT:0:8}')."
+fi
+
+if [[ -f "$INFO_JSON" ]]; then
+    echo "==> Plugins: $(grep -E '"plugins"' "$INFO_JSON" 2>/dev/null | head -n1 | sed -E 's/.*"plugins"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/' || true)"
 fi
 
 if [[ ! -x "$TARGET_BIN" ]]; then

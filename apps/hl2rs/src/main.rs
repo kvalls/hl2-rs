@@ -1,6 +1,10 @@
 //! Selects application extensions and injects them into the reusable host.
 mod plugins;
 fn main() -> anyhow::Result<()> {
+    #[cfg_attr(
+        not(any(feature = "advanced-options", feature = "debug-tools")),
+        allow(unused_mut)
+    )]
     let mut application = hl2_bevy::extensions::Application {
         install: vec![plugins::install],
         ..Default::default()
