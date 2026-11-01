@@ -1,5 +1,6 @@
 //! Startup-only drawing selection; automatic direct mode is limited to measured hardware.
 use bevy::{
+    light::cluster::GlobalClusterSettings,
     prelude::{Camera3d, World},
     render::{renderer::RenderAdapterInfo, view::NoIndirectDrawing},
 };
@@ -45,6 +46,13 @@ pub(crate) fn configure(world: &mut World) {
         performance.set_camera_drawing(direct);
     }
     bevy::log::info!("camera indirect drawing disabled: {direct}");
+    // Few clustered lights exist (the flashlight), so assigning them on the CPU is far cheaper than
+    // GPU clustering's five passes and readback for every camera, each frame.
+    let gpu_clustering = std::env::var("HL2RS_GPU_CLUSTERING").is_ok_and(|value| value == "1");
+    if !gpu_clustering && let Some(mut settings) = world.get_resource_mut::<GlobalClusterSettings>()
+    {
+        settings.gpu_clustering = None;
+    }
 }
 
 #[cfg(test)]

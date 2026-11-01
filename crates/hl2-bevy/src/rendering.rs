@@ -18,6 +18,7 @@ use modkit_core::Surface;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) mod drawing;
+mod face_flex;
 mod lighting;
 pub(crate) mod lod;
 mod map_draw;
@@ -164,6 +165,47 @@ pub struct ModelLit {
     last: Option<(glam::Vec3, bool)>,
     /// Entity lights (muzzle elights) lit this draw last time: relight once they end.
     dynamic: bool,
+}
+/// The entity roots [`place_entities`] moves.
+type EntityPlacements<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static SourceEntity,
+        &'static mut Transform,
+        &'static mut Visibility,
+        Option<&'static NpcWeaponDraw>,
+    ),
+    Without<crate::gpu_skinning::Joint>,
+>;
+
+fn place_entities(
+    entities: &mut EntityPlacements,
+    game: &crate::gameplay::Gameplay,
+    sim: &crate::simulation::Simulation,
+) {
+    for (owner, mut transform, mut visibility, weapon) in entities {
+        let Some(state) = game.scene.states.get(owner.0) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let (origin, rotation) = sim
+            .physics
+            .entity_pose(owner.0)
+            .unwrap_or((state.origin, state.rotation));
+        let pose = entity_transform(origin, rotation);
+        if *transform != pose {
+            *transform = pose;
+        }
+        let visible = if draw_hidden(game, owner.0, weapon) {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        if *visibility != visible {
+            *visibility = visible;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -404,12 +446,6 @@ pub(crate) fn copy_asset<A: Asset + Clone>(
 /// Facial flex and eyeball data per model asset key (setup-loaded; no frame IO).
 #[derive(Resource, Default)]
 pub struct FlexModels(pub BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>);
-/// Descriptor weights quantized to 1/1024: deformation is rebuilt only when it changes.
-fn flex_signature(weights: &[f32]) -> u64 {
-    weights.iter().fold(0x9e37u64, |hash, w| {
-        (hash ^ (w * 1024.).round() as i64 as u64).wrapping_mul(0x100000001b3)
-    })
-}
 /// Conjugate rotation by the same basis change used for vertex positions.
 pub(crate) fn entity_transform(origin: glam::Vec3, rotation: glam::Quat) -> Transform {
     let basis = Mat3::from_cols(
@@ -451,15 +487,7 @@ pub(crate) fn draw_hidden(
 pub fn present_entities(
     game: Res<crate::gameplay::Gameplay>,
     sim: Res<crate::simulation::Simulation>,
-    mut entities: Query<
-        (
-            &SourceEntity,
-            &mut Transform,
-            &mut Visibility,
-            Option<&NpcWeaponDraw>,
-        ),
-        Without<crate::gpu_skinning::Joint>,
-    >,
+    mut entities: EntityPlacements,
     mut joints: Query<&mut Transform, (With<crate::gpu_skinning::Joint>, Without<SourceEntity>)>,
     mut animations: Query<(&mut AnimatedMesh, &Mesh3d, Option<&mut Aabb>)>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -468,30 +496,10 @@ pub fn present_entities(
     eyes: Option<Res<crate::eyes::Eyes>>,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "animation");
-    for (owner, mut transform, mut visibility, weapon) in &mut entities {
-        let Some(state) = game.scene.states.get(owner.0) else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        let (origin, rotation) = sim
-            .physics
-            .entity_pose(owner.0)
-            .unwrap_or((state.origin, state.rotation));
-        let pose = entity_transform(origin, rotation);
-        if *transform != pose {
-            *transform = pose;
-        }
-        let visible = if draw_hidden(&game, owner.0, weapon) {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
-        if *visibility != visible {
-            *visibility = visible;
-        }
-    }
+    place_entities(&mut entities, &game, &sim);
     let mut updated_joints = std::collections::BTreeSet::new();
     let mut poses: BTreeMap<(String, String, u32, u64), Vec<glam::Mat4>> = BTreeMap::new();
+    let mut flex_weights = face_flex::FlexWeights::new();
     for (mut animation, handle, aabb) in &mut animations {
         if animation.entity.is_some() && animation.weapon.is_some() {
             continue;
@@ -500,13 +508,16 @@ pub fn present_entities(
             continue;
         };
         // Facial flexes deform the bind positions before skinning (both GPU and CPU paths).
-        apply_facial_flexes(
+        face_flex::apply_facial_flexes(
             &mut animation,
             handle,
             &mut meshes,
-            &game,
-            flex_models.as_deref(),
-            eyes.as_deref(),
+            &face_flex::FaceInputs {
+                game: &game,
+                models: flex_models.as_deref(),
+                eyes: eyes.as_deref(),
+            },
+            &mut flex_weights,
         );
         let (clip, key) = if let Some(id) = animation.entity {
             let Some(state) = game.scene.states.get(id) else {
@@ -617,68 +628,6 @@ pub fn present_entities(
     }
 }
 
-fn apply_facial_flexes(
-    animation: &mut AnimatedMesh,
-    handle: &Mesh3d,
-    meshes: &mut Assets<Mesh>,
-    game: &crate::gameplay::Gameplay,
-    flex_models: Option<&FlexModels>,
-    eyes: Option<&crate::eyes::Eyes>,
-) {
-    let (Some(id), Some(model)) = (
-        animation.entity,
-        flex_models
-            .and_then(|f| f.0.get(&animation.key))
-            .filter(|_| !animation.flex.is_empty()),
-    ) else {
-        return;
-    };
-    let values = game.scene.actor_flex_values(id);
-    let weights = model.descriptor_weights(&values, |eye| {
-        eyes.and_then(|e| e.lid_bases.get(&(id, eye.surface)))
-            .copied()
-    });
-    let signature = flex_signature(&weights);
-    if signature == animation.flex_signature {
-        return;
-    }
-    let deltas = model.flex.vertex_deltas(&weights);
-    let scale = animation.scale;
-    let mut changed = Vec::new();
-    for (i, key) in animation
-        .flex
-        .iter()
-        .enumerate()
-        .filter_map(|(i, k)| k.as_ref().map(|k| (i, k)))
-    {
-        let target = animation.flex_base[i] + deltas.get(key).copied().unwrap_or(glam::Vec3::ZERO);
-        if animation.bind[i].0 != target {
-            animation.bind[i].0 = target;
-            changed.push(i);
-        }
-    }
-    animation.flex_signature = signature;
-    if changed.is_empty() {
-        return;
-    }
-    if animation.gpu.is_some() {
-        let mut mesh = meshes.get_mut(&handle.0);
-        let positions = mesh
-            .as_deref_mut()
-            .and_then(|m| m.attribute_mut(Mesh::ATTRIBUTE_POSITION));
-        if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) = positions {
-            for &i in &changed {
-                if let Some(p) = positions.get_mut(i) {
-                    *p = source_to_bevy(Vec3::from_array((animation.bind[i].0 * scale).to_array()))
-                        .to_array();
-                }
-            }
-        }
-    } else {
-        // Force the CPU skinning path to rebuild from the deformed bind.
-        animation.sampled = None;
-    }
-}
 /// C_ClientRagdoll::FadeOut: a retired ragdoll's model blends out (kRenderTransAlpha).
 pub fn present_ragdoll_fades(
     game: Res<crate::gameplay::Gameplay>,

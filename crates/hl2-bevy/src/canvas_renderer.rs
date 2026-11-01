@@ -152,7 +152,7 @@ pub struct Hud {
     textures: HashMap<usize, GpuTexture>,
     white: Option<(Handle<HudMaterial>, Handle<HudMaterial>)>,
     modulate: Option<Handle<HudMaterial>>,
-    pool: Vec<(Entity, Handle<Mesh>)>,
+    pool: Vec<(Entity, Handle<Mesh>, QuadGeometry)>,
     pub quads: usize,
     timing: FrameTiming,
     diagnostic_font: Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>>,
@@ -382,27 +382,58 @@ pub fn present(
         .extend(hud.source.drain_sounds().into_iter().map(Into::into));
     let quads = hud.source.canvas.drain();
     hud.quads = quads.len();
+    draw_quads(
+        &mut commands,
+        &mut hud,
+        &quads,
+        Vec2::new(width, height),
+        (&mut images, &mut materials, &mut meshes),
+        &mut draws,
+    );
+}
+/// Keeps one pooled draw per quad of this frame and hides the rest.
+fn draw_quads(
+    commands: &mut Commands,
+    hud: &mut Hud,
+    quads: &[Quad],
+    viewport: Vec2,
+    (images, materials, meshes): (
+        &mut Assets<Image>,
+        &mut Assets<HudMaterial>,
+        &mut Assets<Mesh>,
+    ),
+    draws: &mut DrawQuery,
+) {
     for (i, quad) in quads.iter().enumerate() {
-        let material = hud.material(quad, &mut images, &mut materials);
-        let mesh = quad_mesh(quad, Vec2::new(width, height));
-        if let Some((entity, handle)) = hud.pool.get(i) {
-            if let Some(mut old) = meshes.get_mut(handle) {
-                *old = mesh;
+        let material = hud.material(quad, images, materials);
+        let geometry = QuadGeometry::of(quad, viewport);
+        if let Some((entity, handle, drawn)) = hud.pool.get_mut(i) {
+            // A rewritten mesh is prepared and uploaded again, so only a changed quad is rewritten.
+            let changed = *drawn != geometry;
+            if changed {
+                *drawn = geometry;
+                if let Some(mut old) = meshes.get_mut(handle.id()) {
+                    *old = geometry.mesh();
+                }
             }
             if let Ok((mut old_material, mut transform, mut visibility, aabb)) =
                 draws.get_mut(*entity)
             {
-                old_material.0 = material;
-                transform.translation.z = i as f32 * 0.01;
-                *visibility = Visibility::Inherited;
-                if let (Some(mut aabb), Some(mesh)) = (aabb, meshes.get(handle))
+                old_material.set_if_neq(MeshMaterial2d(material));
+                let z = i as f32 * 0.01;
+                if transform.translation.z != z {
+                    transform.translation.z = z;
+                }
+                visibility.set_if_neq(Visibility::Inherited);
+                if changed
+                    && let (Some(mut aabb), Some(mesh)) = (aabb, meshes.get(handle.id()))
                     && let Some(bounds) = mesh.compute_aabb()
                 {
                     *aabb = bounds;
                 }
             }
         } else {
-            let mesh = meshes.add(mesh);
+            let mesh = meshes.add(geometry.mesh());
             let entity = commands
                 .spawn((
                     crate::campaign::MapOwned,
@@ -413,52 +444,66 @@ pub fn present(
                     RenderLayers::layer(2),
                 ))
                 .id();
-            hud.pool.push((entity, mesh));
+            hud.pool.push((entity, mesh, geometry));
         }
     }
-    for (entity, _) in hud.pool.iter().skip(quads.len()) {
+    for (entity, _, _) in hud.pool.iter().skip(quads.len()) {
         if let Ok((_, _, mut visibility, _)) = draws.get_mut(*entity) {
-            *visibility = Visibility::Hidden;
+            visibility.set_if_neq(Visibility::Hidden);
         }
     }
 }
-fn quad_mesh(quad: &Quad, viewport: Vec2) -> Mesh {
-    let r = quad.destination;
-    let corners = quad.vertices.map_or(
-        [
-            (r.x, r.y),
-            (r.x, r.y + r.h),
-            (r.x + r.w, r.y + r.h),
-            (r.x + r.w, r.y),
-        ],
-        |v| v.map(|(p, _)| (p.x, p.y)),
-    );
-    let positions = corners.map(|(x, y)| [x - viewport.x * 0.5, viewport.y * 0.5 - y, 0.]);
-    let colors = quad
-        .vertices
-        .map_or([quad.color.to_array(); 4], |v| v.map(|(_, c)| c.to_array()));
-    let (tw, th) = quad
-        .texture
-        .as_ref()
-        .map_or((1., 1.), |t| (t.width(), t.height()));
-    let s = quad.source;
-    let uvs = [
-        (s.x, s.y),
-        (s.x, s.y + s.h),
-        (s.x + s.w, s.y + s.h),
-        (s.x + s.w, s.y),
-    ]
-    .map(|(x, y)| [x / tw, y / th]);
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-    );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions.to_vec());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; 4]);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs.to_vec());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors.to_vec());
-    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
-    mesh
+/// The vertex data of one canvas quad.
+#[derive(Clone, Copy, PartialEq)]
+struct QuadGeometry {
+    positions: [[f32; 3]; 4],
+    colors: [[f32; 4]; 4],
+    uvs: [[f32; 2]; 4],
+}
+impl QuadGeometry {
+    fn of(quad: &Quad, viewport: Vec2) -> Self {
+        let r = quad.destination;
+        let corners = quad.vertices.map_or(
+            [
+                (r.x, r.y),
+                (r.x, r.y + r.h),
+                (r.x + r.w, r.y + r.h),
+                (r.x + r.w, r.y),
+            ],
+            |v| v.map(|(p, _)| (p.x, p.y)),
+        );
+        let (tw, th) = quad
+            .texture
+            .as_ref()
+            .map_or((1., 1.), |t| (t.width(), t.height()));
+        let s = quad.source;
+        Self {
+            positions: corners.map(|(x, y)| [x - viewport.x * 0.5, viewport.y * 0.5 - y, 0.]),
+            colors: quad
+                .vertices
+                .map_or([quad.color.to_array(); 4], |v| v.map(|(_, c)| c.to_array())),
+            uvs: [
+                (s.x, s.y),
+                (s.x, s.y + s.h),
+                (s.x + s.w, s.y + s.h),
+                (s.x + s.w, s.y),
+            ]
+            .map(|(x, y)| [x / tw, y / th]),
+        }
+    }
+
+    fn mesh(&self) -> Mesh {
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions.to_vec());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; 4]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs.to_vec());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors.to_vec());
+        mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+        mesh
+    }
 }
 
 fn draw_ai_disabled(hud: &Hud, game: &crate::gameplay::Gameplay, width: f32, height: f32) {
@@ -539,7 +584,7 @@ mod tests {
             modulate: false,
             vertices: None,
         };
-        let mesh = quad_mesh(&quad, Vec2::new(1920., 1080.));
+        let mesh = QuadGeometry::of(&quad, Vec2::new(1920., 1080.)).mesh();
         let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
@@ -574,7 +619,7 @@ mod tests {
             modulate: false,
             vertices: None,
         };
-        let mesh = quad_mesh(&quad, Vec2::new(1920., 1080.));
+        let mesh = QuadGeometry::of(&quad, Vec2::new(1920., 1080.)).mesh();
         let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
