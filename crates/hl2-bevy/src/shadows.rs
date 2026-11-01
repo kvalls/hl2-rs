@@ -253,10 +253,11 @@ pub(crate) fn update(
     shadows: Option<ResMut<MapShadows>>,
     (mut meshes, mut materials, mut images): ShadowAssets,
     mut draws: Draws,
-    (camera, entity_draws, performance): (
+    (camera, entity_draws, performance, frame): (
         CameraView,
         EntityDraws,
         Option<Res<crate::performance::Performance>>,
+        Option<Res<crate::video::GameFrame>>,
     ),
 ) {
     let Some(mut shadows) = shadows else {
@@ -271,6 +272,7 @@ pub(crate) fn update(
     shadows.find_casters(&game.world);
     shadows.textures.prepare(&mut materials, &mut images);
     let mode = match detail {
+        _ if frame.is_some_and(|f| f.budget.no_shadows) => Mode::Off,
         Some(ShadowDetail::Low) => Mode::Blob,
         Some(_) if !shadows.control.disabled => Mode::Texture,
         _ => Mode::Off,

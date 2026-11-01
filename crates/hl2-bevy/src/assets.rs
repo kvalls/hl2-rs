@@ -234,8 +234,8 @@ pub fn prepare_model_with_config(
     known: &std::collections::BTreeSet<String>,
     config: &hl2_ui::config::Config,
 ) -> Result<PreparedModel> {
-    let root_lod = config.video.advanced.model_detail.root_lod();
-    let picmip = config.video.advanced.texture_detail.picmip();
+    let root_lod = config.video.root_lod();
+    let picmip = config.video.picmip();
     let hdr = config.video.hdr.is_hdr();
     let mut world = World {
         entities: vec![modkit_core::Entity {

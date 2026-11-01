@@ -1,14 +1,15 @@
 //! Only the last active game camera copies the shared intermediate image into the game frame: each
 //! earlier camera's copy would be overwritten by the next one.
-use super::{GameFrame, PresentCamera};
+use super::{GameFrame, PresentCamera, apply_video_config_to_window};
+use bevy::asset::Assets;
 use bevy::image::{Image, ImageSampler, ImageSamplerDescriptor};
 use bevy::render::render_resource::TextureFormat;
+use bevy::window::{PrimaryWindow, Window};
 use bevy::{
     camera::{Camera, CameraOutputMode, ClearColorConfig, RenderTarget},
-    prelude::{Query, Res, UVec2, Without},
+    prelude::{Query, Res, ResMut, UVec2, With, Without},
     render::render_resource::BlendState,
 };
-use hl2_ui::extensions::RenderBudget;
 
 /// Every game camera, routed into the frame by `present_frame`.
 pub(crate) type FrameCameras<'w, 's> = Query<
@@ -25,22 +26,45 @@ pub(crate) type FrameCameras<'w, 's> = Query<
 pub fn frame_image(resolution: UVec2, nearest: bool) -> Image {
     let size = resolution.max(UVec2::ONE);
     let mut image = Image::new_target_texture(size.x, size.y, TextureFormat::Rgba8UnormSrgb, None);
-    image.sampler = ImageSampler::Descriptor(if nearest {
-        ImageSamplerDescriptor::nearest()
-    } else {
-        ImageSamplerDescriptor::linear()
-    });
+    image.sampler = frame_sampler(nearest);
     image
 }
 
-/// `size` within the budget's height, keeping its shape.
-pub(super) fn budgeted_size(size: UVec2, budget: RenderBudget) -> UVec2 {
-    match budget.max_frame_height {
-        Some(height) if size.y > height => {
-            let width = (size.x as f32 * height as f32 / size.y as f32).round() as u32;
-            UVec2::new(width.max(1), height.max(1))
-        }
-        _ => size,
+fn frame_sampler(nearest: bool) -> ImageSampler {
+    ImageSampler::Descriptor(if nearest {
+        ImageSamplerDescriptor::nearest()
+    } else {
+        ImageSamplerDescriptor::linear()
+    })
+}
+
+/// Rewrites the frame's sampler only when the budget changed it: a rewrite re-creates the image.
+pub(super) fn sync_frame_sampler(frame: &GameFrame, images: &mut Assets<Image>) {
+    let wanted = frame_sampler(frame.budget.nearest);
+    if images
+        .get(&frame.image)
+        .is_some_and(|image| image.sampler != wanted)
+        && let Some(mut image) = images.get_mut(&frame.image)
+    {
+        image.sampler = wanted;
+    }
+}
+
+pub(crate) fn apply_video_settings(
+    mut sim: ResMut<crate::simulation::Simulation>,
+    mut frame: Option<ResMut<GameFrame>>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(cfg) = sim.pending_video_config.take() else {
+        return;
+    };
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    apply_video_config_to_window(&mut window, &cfg, frame.as_deref_mut());
+    if let Some(frame) = frame {
+        sync_frame_sampler(&frame, &mut images);
     }
 }
 
@@ -86,26 +110,6 @@ pub(crate) fn skip_covered_outputs(mut cameras: FrameCameras, frame: Option<Res<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_budget_caps_the_frame_height_and_keeps_its_shape() {
-        let budget = RenderBudget {
-            max_frame_height: Some(480),
-            ..Default::default()
-        };
-        assert_eq!(
-            budgeted_size(UVec2::new(1920, 1080), budget),
-            UVec2::new(853, 480)
-        );
-        assert_eq!(
-            budgeted_size(UVec2::new(640, 360), budget),
-            UVec2::new(640, 360)
-        );
-        assert_eq!(
-            budgeted_size(UVec2::new(1920, 1080), RenderBudget::default()),
-            UVec2::new(1920, 1080)
-        );
-    }
 
     #[test]
     fn only_the_last_camera_writes_the_frame() {

@@ -35,7 +35,7 @@ pub(crate) fn install_loaded_map(
     assets: &mut StartupAssets,
     status: &Status,
     options: &crate::Options,
-    filtering: (hl2_ui::config::Filtering, bool),
+    filtering: hl2_ui::config::TextureSampling,
     target: Option<&bevy::asset::Handle<Image>>,
 ) {
     let (meshes, materials, images, sounds, effect_materials, inverse_binds) = assets;
@@ -67,7 +67,7 @@ pub(crate) fn install_map(
     (meshes, materials, images, sounds, effect_materials, inverse_binds): MapAssets,
     status: &Status,
     (cpu_skinning, no_pvs, world_partition): (bool, bool, bool),
-    (filtering, mute): ((hl2_ui::config::Filtering, bool), bool),
+    (filtering, mute): (hl2_ui::config::TextureSampling, bool),
     target: Option<&bevy::asset::Handle<Image>>,
 ) {
     {

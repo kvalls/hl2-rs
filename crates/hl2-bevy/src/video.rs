@@ -29,7 +29,7 @@ mod msaa;
 mod outputs;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
 pub use outputs::frame_image;
-pub(crate) use outputs::{FrameCameras, skip_covered_outputs};
+pub(crate) use outputs::{FrameCameras, apply_video_settings, skip_covered_outputs};
 pub mod mode {
     use super::*;
     use hl2_ui::config::DisplayMode;
@@ -132,7 +132,7 @@ impl GameFrame {
             window,
             self.follows_window,
         );
-        outputs::budgeted_size(UVec2::new(size.x, size.y), self.budget)
+        UVec2::new(size.x, size.y)
     }
 }
 
@@ -223,7 +223,7 @@ pub(crate) fn install_frame(
         policy,
         budget,
     } = request;
-    let resolution = outputs::budgeted_size(resolution.max(UVec2::ONE), budget);
+    let resolution = resolution.max(UVec2::ONE);
     let image = images.add(frame_image(resolution, budget.nearest));
     commands.insert_resource(GameFrame {
         policy,
@@ -425,7 +425,7 @@ impl VideoViewport {
 
 /// Applies applied video settings: the window mode at once, the game-frame resolution, and in
 /// windowed mode a window resize carried out by [`resize_window`].
-fn apply_video_config_to_window(
+pub(super) fn apply_video_config_to_window(
     window: &mut Window,
     cfg: &hl2_ui::config::VideoSettings,
     frame: Option<&mut GameFrame>,
@@ -560,20 +560,6 @@ pub(crate) fn sync_filtering(
     }
     *last_filtering = Some(current);
     apply_filtering_to_images(&mut images, current);
-}
-
-pub(crate) fn apply_video_settings(
-    mut sim: ResMut<crate::simulation::Simulation>,
-    mut frame: Option<ResMut<GameFrame>>,
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
-) {
-    let Some(cfg) = sim.pending_video_config.take() else {
-        return;
-    };
-    let Ok(mut window) = windows.single_mut() else {
-        return;
-    };
-    apply_video_config_to_window(&mut window, &cfg, frame.as_deref_mut());
 }
 
 /// What a pending windowed-mode resize should do this frame.

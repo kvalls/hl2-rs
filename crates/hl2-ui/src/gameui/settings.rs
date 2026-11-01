@@ -365,7 +365,26 @@ impl AdvancedChoice {
         }
     }
 
+    /// The selected row, counting an item the video policy lists below the lowest.
     pub fn selected(self, a: &AdvancedVideoSettings) -> usize {
+        let below = a.policy.0.below_lowest_token(self).is_some();
+        if below && a.policy.0.is_below_lowest(a, self) {
+            return 0;
+        }
+        self.own_selected(a) + usize::from(below)
+    }
+
+    /// Selects a row, counting an item the video policy lists below the lowest.
+    pub fn select(self, a: &mut AdvancedVideoSettings, index: usize) {
+        let policy = a.policy.clone();
+        if policy.0.below_lowest_token(self).is_none() {
+            return self.own_select(a, index);
+        }
+        policy.0.set_below_lowest(a, self, index == 0);
+        self.own_select(a, index.saturating_sub(1));
+    }
+
+    fn own_selected(self, a: &AdvancedVideoSettings) -> usize {
         match self {
             Self::ModelDetail => listed_index(a.model_detail),
             Self::TextureDetail => listed_index(a.texture_detail),
@@ -379,7 +398,7 @@ impl AdvancedChoice {
         }
     }
 
-    pub fn select(self, a: &mut AdvancedVideoSettings, index: usize) {
+    fn own_select(self, a: &mut AdvancedVideoSettings, index: usize) {
         match self {
             Self::ModelDetail => listed_pick(index, &mut a.model_detail),
             Self::TextureDetail => listed_pick(index, &mut a.texture_detail),
@@ -430,25 +449,27 @@ impl Choice {
         };
         match self {
             Self::Advanced(advanced) => {
+                let below = draft.config.video.policy.0.below_lowest_token(advanced);
                 let rec_idx = env
                     .recommendation
-                    .map(|r| r.recommended_advanced_index(advanced));
-                (if advanced == AdvancedChoice::MotionBlur {
-                    draft.config.video.policy.0.blur_tokens().to_vec()
-                } else {
-                    advanced.tokens_with_rec(env.recommendation)
-                })
-                .into_iter()
-                .enumerate()
-                .map(|(i, t)| {
-                    let text = loc.text(t);
-                    if rec_idx == Some(i) {
-                        format!("{text} *")
+                    .map(|r| r.recommended_advanced_index(advanced) + usize::from(below.is_some()));
+                below
+                    .into_iter()
+                    .chain(if advanced == AdvancedChoice::MotionBlur {
+                        draft.config.video.policy.0.blur_tokens().to_vec()
                     } else {
-                        text
-                    }
-                })
-                .collect()
+                        advanced.tokens_with_rec(env.recommendation)
+                    })
+                    .enumerate()
+                    .map(|(i, t)| {
+                        let text = loc.text(t);
+                        if rec_idx == Some(i) {
+                            format!("{text} *")
+                        } else {
+                            text
+                        }
+                    })
+                    .collect()
             }
             Self::GamepadAimAssist => tokens(&mut AimAssist::ALL.iter().map(|v| v.token())),
             Self::WeaponSelection => {

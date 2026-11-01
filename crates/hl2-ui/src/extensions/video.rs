@@ -2,7 +2,7 @@
 use crate::{
     config::{AdvancedVideoSettings, VideoSettings},
     gameui::display::{AspectRatio, DisplayModes, Resolution},
-    gameui::settings::CustomValue,
+    gameui::settings::{AdvancedChoice, CustomValue},
 };
 use std::sync::{Arc, LazyLock};
 
@@ -11,16 +11,35 @@ use std::sync::{Arc, LazyLock};
 pub struct RenderBudget {
     /// No sky cameras: this linear color fills what the world does not cover.
     pub flat_sky: Option<[f32; 3]>,
-    /// The game frame's height is capped at this, keeping its shape.
-    pub max_frame_height: Option<u32>,
-    /// The frame is presented, and base textures loaded from now on are sampled, without filtering.
+    /// The frame is presented, and base textures are sampled, without filtering.
     pub nearest: bool,
+    /// Materials load without environment maps.
+    pub plain_materials: bool,
+    /// No dynamic shadows of any kind.
+    pub no_shadows: bool,
+    /// Further texture mips skipped and model levels of detail dropped.
+    pub extra_picmip: i32,
+    pub extra_root_lod: usize,
 }
 
 pub trait VideoExtension: std::fmt::Debug + Send + Sync {
     /// Read when the video settings change; the host keeps the answer.
     fn render_budget(&self, _video: &VideoSettings) -> RenderBudget {
         RenderBudget::default()
+    }
+    /// An item this policy lists below a Video > Advanced combo's lowest.
+    fn below_lowest_token(&self, _choice: AdvancedChoice) -> Option<&'static str> {
+        None
+    }
+    fn is_below_lowest(&self, _video: &AdvancedVideoSettings, _choice: AdvancedChoice) -> bool {
+        false
+    }
+    fn set_below_lowest(
+        &self,
+        _video: &mut AdvancedVideoSettings,
+        _choice: AdvancedChoice,
+        _on: bool,
+    ) {
     }
     fn frame_size(
         &self,

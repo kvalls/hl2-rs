@@ -23,6 +23,26 @@ fn with_policy(mut config: Config) -> Config {
     config
 }
 
+#[test]
+fn potato_is_the_lowest_item_of_its_combos_and_costs_only_its_own_work() {
+    let mut console = console();
+    let video = &mut console.config.video.advanced;
+    let choice = AdvancedChoice::ShaderDetail;
+    assert_eq!(choice.selected(video), 2);
+    choice.select(video, 0);
+    assert_eq!(choice.selected(video), 0);
+    let budget = crate::settings::potato_budget(video);
+    assert!(budget.flat_sky.is_some() && budget.plain_materials && !budget.nearest);
+    // Retail's Low is the next row, and leaves Potato.
+    choice.select(video, 1);
+    assert_eq!(choice.selected(video), 1);
+    assert_eq!(video.shader_detail, hl2_ui::config::ShaderDetail::Low);
+    assert_eq!(crate::settings::potato_budget(video), Default::default());
+    // A combo without the item keeps its rows.
+    video.water_detail = hl2_ui::config::WaterDetail::All;
+    assert_eq!(AdvancedChoice::WaterDetail.selected(video), 2);
+}
+
 fn derived(view: f32, aspect: f32) -> f32 {
     2. * ((view.to_radians() / 2.).tan() / aspect.min(4. / 3.)).atan()
 }

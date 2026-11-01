@@ -2,10 +2,10 @@
 //! names so old files keep working and a build without the plugin preserves them.
 use hl2_ui::{
     config::{AdvancedVideoSettings, Config, VideoSettings},
-    extensions::RETAIL_VIEWMODEL_FOV,
+    extensions::{RETAIL_VIEWMODEL_FOV, RenderBudget},
     gameui::{
         localize::Localization,
-        settings::{CustomValue, Panel},
+        settings::{AdvancedChoice, CustomValue, Panel},
     },
 };
 use source_ui::widgets::SliderRange;
@@ -15,7 +15,6 @@ const VERTICAL_FOV: &str = "vertical_fov";
 const VIEWMODEL_FOV: &str = "viewmodel_fov";
 const BLUR_VIEWMODEL: &str = "motion_blur_viewmodel";
 const BLUR_WORLD: &str = "motion_blur_world";
-const POTATO: &str = "potato";
 
 /// Fit Display: the frame takes the window's shape within `9:16..=32:9`, and width and height
 /// only set its detail and the requested windowed size.
@@ -55,19 +54,42 @@ pub fn set_blur_tier(video: &mut AdvancedVideoSettings, viewmodel: bool, world: 
     video.extensions.set_bool(BLUR_WORLD, world);
 }
 
-/// What the lowest tier gives up: the sky, frame detail and texture filtering.
-pub const POTATO_BUDGET: hl2_ui::extensions::RenderBudget = hl2_ui::extensions::RenderBudget {
-    flat_sky: Some([0.45, 0.48, 0.5]),
-    max_frame_height: Some(480),
-    nearest: true,
-};
+/// The combos with a Potato item, below retail's lowest, and where each is saved.
+const POTATO: [(AdvancedChoice, &str); 5] = [
+    (AdvancedChoice::ModelDetail, "potato_model"),
+    (AdvancedChoice::TextureDetail, "potato_texture"),
+    (AdvancedChoice::ShaderDetail, "potato_shader"),
+    (AdvancedChoice::ShadowDetail, "potato_shadow"),
+    (AdvancedChoice::Filtering, "potato_filtering"),
+];
+const POTATO_SKY: [f32; 3] = [0.45, 0.48, 0.5];
 
-/// The tier below retail Low: a deliberately early-3D look for the least work.
-pub fn potato(video: &VideoSettings) -> bool {
-    video.extensions.bool(POTATO).unwrap_or(false)
+pub fn has_potato(choice: AdvancedChoice) -> bool {
+    POTATO.iter().any(|(c, _)| *c == choice)
 }
-pub fn set_potato(video: &mut VideoSettings, on: bool) {
-    video.extensions.set_bool(POTATO, on);
+pub fn potato(video: &AdvancedVideoSettings, choice: AdvancedChoice) -> bool {
+    POTATO
+        .iter()
+        .find(|(c, _)| *c == choice)
+        .and_then(|(_, key)| video.extensions.bool(key))
+        .unwrap_or(false)
+}
+pub fn set_potato(video: &mut AdvancedVideoSettings, choice: AdvancedChoice, on: bool) {
+    if let Some((_, key)) = POTATO.iter().find(|(c, _)| *c == choice) {
+        video.extensions.set_bool(key, on);
+    }
+}
+/// What the selected Potato items give up, each only its own option's work.
+pub fn potato_budget(video: &AdvancedVideoSettings) -> RenderBudget {
+    let shader = potato(video, AdvancedChoice::ShaderDetail);
+    RenderBudget {
+        flat_sky: shader.then_some(POTATO_SKY),
+        nearest: potato(video, AdvancedChoice::Filtering),
+        plain_materials: shader,
+        no_shadows: potato(video, AdvancedChoice::ShadowDetail),
+        extra_picmip: i32::from(potato(video, AdvancedChoice::TextureDetail)),
+        extra_root_lod: usize::from(potato(video, AdvancedChoice::ModelDetail)),
+    }
 }
 
 /// Below half the smallest explicit field of view the slider means automatic.
@@ -87,7 +109,7 @@ fn set_viewmodel_slider(config: &mut Config, value: f32) {
 }
 
 /// The Video > Advanced sliders of this plugin's layout addendum.
-pub static SLIDERS: [CustomValue; 3] = [
+pub static SLIDERS: [CustomValue; 2] = [
     CustomValue {
         id: VERTICAL_FOV,
         panel: Panel::VideoAdvanced,
@@ -111,21 +133,5 @@ pub static SLIDERS: [CustomValue; 3] = [
         get: |config| viewmodel_fov(&config.video),
         set: set_viewmodel_slider,
         label: |_, _| None,
-    },
-    CustomValue {
-        id: POTATO,
-        panel: Panel::VideoAdvanced,
-        slider: "PotatoSlider",
-        value_label: "PotatoValueLabel",
-        range: |_| SliderRange::new(0., 1.),
-        get: |config| f32::from(u8::from(potato(&config.video))),
-        set: |config, value| set_potato(&mut config.video, value >= 0.5),
-        label: |value, loc: &Localization| {
-            Some(loc.text(if value >= 0.5 {
-                "#gameui_enabled"
-            } else {
-                "#gameui_disabled"
-            }))
-        },
     },
 ];

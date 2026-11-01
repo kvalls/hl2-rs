@@ -308,7 +308,14 @@ pub struct VideoSettings {
 }
 
 /// What a loaded map is built from: a change of any reloads the map.
-pub type LoadDetail = (ModelDetail, TextureDetail, bool);
+/// What a map's textures load with.
+pub type TextureSampling = (Filtering, crate::extensions::RenderBudget);
+pub type LoadDetail = (
+    ModelDetail,
+    TextureDetail,
+    bool,
+    crate::extensions::RenderBudget,
+);
 
 impl VideoSettings {
     /// Whether the selected video policy makes the frame follow the window's shape.
@@ -333,8 +340,18 @@ impl VideoSettings {
     }
 
     /// What a map's textures load with: the filtering, and whether base textures skip it.
-    pub fn texture_sampling(&self) -> (Filtering, bool) {
-        (self.advanced.filtering, self.render_budget().nearest)
+    pub fn texture_sampling(&self) -> TextureSampling {
+        (self.advanced.filtering, self.render_budget())
+    }
+
+    /// The first model level of detail a map loads.
+    pub fn root_lod(&self) -> usize {
+        self.advanced.model_detail.root_lod() + self.render_budget().extra_root_lod
+    }
+
+    /// The texture mips a map skips.
+    pub fn picmip(&self) -> i32 {
+        self.advanced.texture_detail.picmip() + self.render_budget().extra_picmip
     }
 
     pub fn load_detail(&self) -> LoadDetail {
@@ -342,6 +359,7 @@ impl VideoSettings {
             self.advanced.model_detail,
             self.advanced.texture_detail,
             self.hdr.is_hdr(),
+            self.render_budget(),
         )
     }
 }

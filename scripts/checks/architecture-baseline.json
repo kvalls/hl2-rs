@@ -179,8 +179,8 @@
  "files": {
   "crates/hl2-bevy/src/effects.rs": 1085,
   "crates/hl2-bevy/src/gameplay.rs": 1632,
-  "crates/hl2-bevy/src/rendering.rs": 1443,
-  "crates/hl2-bevy/src/video.rs": 1041,
+  "crates/hl2-bevy/src/rendering.rs": 1435,
+  "crates/hl2-bevy/src/video.rs": 1027,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2611,
   "crates/hl2-simulation/src/ai/schedule.rs": 1132,
@@ -240,9 +240,6 @@
   ],
   "crates/hl2-bevy/src/rendering.rs::present_entities": [
    143
-  ],
-  "crates/hl2-bevy/src/rendering.rs::spawn_map_filtered": [
-   578
   ],
   "crates/hl2-bevy/src/runtime_props.rs::poll": [
    106

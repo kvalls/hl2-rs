@@ -3,17 +3,27 @@ use hl2_ui::{
     config::{AdvancedVideoSettings, VideoSettings},
     extensions::{Extensions, VideoExtension, VideoPolicy},
     gameui::display::{AspectRatio, DisplayModes, Resolution},
-    gameui::settings::CustomValue,
+    gameui::settings::{AdvancedChoice, CustomValue},
 };
 #[derive(Debug)]
 pub struct AdvancedPolicy;
 impl VideoExtension for AdvancedPolicy {
     fn render_budget(&self, video: &VideoSettings) -> hl2_ui::extensions::RenderBudget {
-        if crate::settings::potato(video) {
-            crate::settings::POTATO_BUDGET
-        } else {
-            Default::default()
-        }
+        crate::settings::potato_budget(&video.advanced)
+    }
+    fn below_lowest_token(&self, choice: AdvancedChoice) -> Option<&'static str> {
+        crate::settings::has_potato(choice).then_some("#HL2RS_Potato")
+    }
+    fn is_below_lowest(&self, video: &AdvancedVideoSettings, choice: AdvancedChoice) -> bool {
+        crate::settings::potato(video, choice)
+    }
+    fn set_below_lowest(
+        &self,
+        video: &mut AdvancedVideoSettings,
+        choice: AdvancedChoice,
+        on: bool,
+    ) {
+        crate::settings::set_potato(video, choice, on);
     }
     fn frame_size(
         &self,

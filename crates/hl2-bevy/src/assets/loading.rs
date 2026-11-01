@@ -90,8 +90,8 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     mode.cancel.check()?;
     let map = map.trim_end_matches(".bsp");
     let mut timing = Timings::new();
-    let root_lod = config.video.advanced.model_detail.root_lod();
-    let picmip = config.video.advanced.texture_detail.picmip();
+    let root_lod = config.video.root_lod();
+    let picmip = config.video.picmip();
     let hdr = config.video.hdr.is_hdr();
     let (vfs, bsp) = mount(root, game, map, hdr, progress, &mut timing)?;
     let vfs = Arc::new(vfs);
@@ -274,11 +274,7 @@ fn prepare_world(
         hl2_simulation::commentary::append_world_commentary(&mut world, vfs, map);
     }
     timing.mark("world");
-    let (model_report, weapon_models) = prepare_models(
-        &mut world,
-        vfs,
-        config.video.advanced.model_detail.root_lod(),
-    );
+    let (model_report, weapon_models) = prepare_models(&mut world, vfs, config.video.root_lod());
     mode.cancel.check()?;
     timing.mark("models");
     Ok(PreparedWorld {

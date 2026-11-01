@@ -14,6 +14,7 @@ use bevy::{
         AsBindGroup, Extent3d, PrimitiveTopology, ShaderType, TextureDimension, TextureFormat,
     },
 };
+use hl2_ui::extensions::RenderBudget;
 use modkit_core::Surface;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,6 +28,7 @@ pub use lighting::present_lighting;
 pub use material::MaterialKey;
 mod model_cache;
 mod placement;
+pub(crate) use placement::draw_hidden;
 mod runtime;
 use map_draw::{MapDrawContext, insert_map_draw_components};
 use material::{alpha_mode, base_image, cube_image_filtered, image_filtered};
@@ -423,26 +425,6 @@ pub(crate) fn entity_transform(origin: glam::Vec3, rotation: glam::Quat) -> Tran
 /// owner's active weapon.
 #[derive(Component)]
 pub struct NpcWeaponDraw(pub String);
-/// Whether an entity's draw is hidden this frame: its entity is hidden or killed, or it
-/// is an NPC weapon its owner does not hold now.
-pub(crate) fn draw_hidden(
-    game: &crate::gameplay::Gameplay,
-    id: usize,
-    weapon: Option<&NpcWeaponDraw>,
-) -> bool {
-    let Some(s) = game.scene.states.get(id) else {
-        return true;
-    };
-    // A ragdolled NPC stays drawn (its bone-merged weapon does not).
-    let ragdoll = game.scene.ragdoll_matrices.contains_key(&id);
-    (!s.visible || s.killed) && !(ragdoll && weapon.is_none())
-        || ragdoll && weapon.is_some()
-        || weapon.is_some_and(|w| {
-            game.ai
-                .weapon_world_model(id)
-                .is_none_or(|m| w.0.strip_suffix("#0") != Some(m.as_str()))
-        })
-}
 #[allow(clippy::too_many_arguments)]
 pub fn present_entities(
     game: Res<crate::gameplay::Gameplay>,
@@ -689,7 +671,7 @@ pub fn spawn_map(
         images,
         status,
         (camera_target, cpu_skinning, world_partition),
-        (hl2_ui::config::Filtering::Trilinear, false),
+        (hl2_ui::config::Filtering::Trilinear, Default::default()),
     );
 }
 
@@ -705,7 +687,14 @@ pub fn spawn_map_filtered(
     images: &mut Assets<Image>,
     status: &Status,
     (camera_target, cpu_skinning, world_partition): (&Handle<Image>, bool, bool),
-    (filtering, nearest): (hl2_ui::config::Filtering, bool),
+    (
+        filtering,
+        RenderBudget {
+            plain_materials,
+            nearest,
+            ..
+        },
+    ): hl2_ui::config::TextureSampling,
 ) {
     let world = &loaded.world;
     let (white, black_cube, flashlight, missing) =
@@ -1051,7 +1040,10 @@ pub fn spawn_map_filtered(
                     .extend(1.);
                 }
                 // World and brush surfaces only: model envmaps are not loaded yet.
-                if let Some(envmap) = envmaps.get(&name).filter(|_| !batch.model) {
+                if let Some(envmap) = envmaps
+                    .get(&name)
+                    .filter(|_| !batch.model && !plain_materials)
+                {
                     material.envmap = envmap.clone();
                     material.envmap_tint.w = 1.;
                     if let Some(mask) = envmap_masks.get(&name) {

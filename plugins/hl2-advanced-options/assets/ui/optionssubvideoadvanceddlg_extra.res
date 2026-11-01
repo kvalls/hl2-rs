@@ -86,44 +86,4 @@
 		"enabled"		"1"
 		"allowoutofrange"		"0"
 	}
-	"PotatoLabel"
-	{
-		"ControlName"		"Label"
-		"fieldName"		"PotatoLabel"
-		"associate"		"PotatoSlider"
-		"xpos"		"330"
-		"ypos"		"352"
-		"wide"		"70"
-		"tall"		"24"
-		"visible"		"1"
-		"enabled"		"1"
-		"labelText"		"#HL2RS_Potato"
-		"textAlignment"		"west"
-	}
-	"PotatoValueLabel"
-	{
-		"ControlName"		"Label"
-		"fieldName"		"PotatoValueLabel"
-		"associate"		"PotatoSlider"
-		"xpos"		"400"
-		"ypos"		"352"
-		"wide"		"62"
-		"tall"		"24"
-		"visible"		"1"
-		"enabled"		"1"
-		"labelText"		""
-		"textAlignment"		"east"
-	}
-	"PotatoSlider"
-	{
-		"ControlName"		"CCvarSlider"
-		"fieldName"		"PotatoSlider"
-		"xpos"		"330"
-		"ypos"		"372"
-		"wide"		"132"
-		"tall"		"30"
-		"visible"		"1"
-		"enabled"		"1"
-		"allowoutofrange"		"0"
-	}
 }
