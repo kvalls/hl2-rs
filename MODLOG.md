@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-01 Cheaper NPC hull traces
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner request: reduce the walking cost measured with the plaza citizens. Same results with less work: a hull trace runs its two Parry queries only when its first query finds a non-convex collider near the sweep, builds bounds only for actors the sweep can reach, and the tick's first `ground_move` skips the `fits` and `stand` traces `advance` has just run at that position. The trace moved to `physics_npc_trace.rs`.
+
+**Tested how / Result:** Two new unit tests. Gameplay replays 72 checks, 0 failed, with no recorded outcome changed (macOS only), so the NPC outcomes they assert did not change. Validation passes; after that run only the helper and tests moved between files, re-checked with simulation tests, strict Clippy and fmt.
+
+**Frame time:** `hl2/background01`, 9,000 frames, alternating runs, another game running on the machine. Before the citizens 18.60 / 18.56 ms; citizens without this change 24.12 / 24.48 ms (previous entry); citizens with it 20.72 / 19.40 ms. Added cost about 1.5 ms instead of about 6 ms. Run-to-run spread is about 1 ms, so this is not a clean benchmark.
+
+**Still broken or not tested:** A scene with many walking NPCs was not measured. Other limits as in the previous entry.
+
+**Next:** Owner review of the plaza by eye, then merge decision.
+
 ## 2026-11-01 Citizens walk through and leave the plaza
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

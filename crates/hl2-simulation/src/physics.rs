@@ -6,6 +6,8 @@ use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
+#[path = "physics_npc_trace.rs"]
+mod npc_trace;
 #[path = "player_convex.rs"]
 mod player_convex;
 #[derive(Clone, Copy, Debug, Default)]
@@ -3293,222 +3295,6 @@ impl Physics {
         })
     }
 }
-impl NpcCollisionWorld for Physics {
-    fn npc_trace_hull(&self, start: Vec3, end: Vec3, hull: Hull, query: Query<'_>) -> HullTrace {
-        if !start.is_finite()
-            || !end.is_finite()
-            || !hull.valid()
-            || !(start + hull.mins).is_finite()
-            || !(end + hull.maxs).is_finite()
-            || query
-                .transients
-                .iter()
-                .any(|actor| !actor.feet.is_finite() || !actor.hull.valid())
-        {
-            return HullTrace::invalid();
-        }
-        let entity_of = |collider: &Collider| {
-            usize::try_from(collider.user_data)
-                .ok()
-                .and_then(|id| id.checked_sub(1))
-        };
-        let accepts = |handle: ColliderHandle, collider: &Collider| {
-            let entity = entity_of(collider);
-            collider.is_enabled()
-                && !collider.is_sensor()
-                && !matches!(
-                    collider.collision_groups().memberships,
-                    PROJECTILE_GROUP | SHADOW_GROUP | HULL_GROUP | WEAPON_GROUP
-                )
-                && entity.is_none_or(|id| !query.excluded_entities.contains(&id))
-                // Explicit actor bounds supersede an NPC's render-mesh collider.
-                && !entity.is_some_and(|id| {
-                    self.npc_collider_contents.get(&handle) == Some(&CONTENTS_MONSTER)
-                        && query.transients.iter().any(|a| a.entity == Some(id))
-                })
-                && self
-                    .npc_collider_contents
-                    .get(&handle)
-                    .copied()
-                    .unwrap_or(1)
-                    & query.contents_mask
-                    != 0
-        };
-        let fallback = |handle: ColliderHandle, collider: &Collider| {
-            accepts(handle, collider)
-                && !self.world_brush_contents.contains_key(&handle)
-                && !player_convex::supported(collider)
-        };
-        let filter = QueryFilter::default()
-            .groups(QUERY_GROUPS)
-            .exclude_sensors()
-            .predicate(&fallback);
-        let mut result = HullTrace {
-            trace: trace_brushes(
-                &self.player_world_brushes,
-                start,
-                end,
-                hull.mins,
-                hull.maxs,
-                query.contents_mask,
-            ),
-            ..HullTrace::clear()
-        };
-        let mut merge = |hit: Trace, entity: Option<usize>, transient: bool| {
-            if hit.fraction < result.trace.fraction
-                || (hit.start_solid && !result.trace.start_solid)
-            {
-                result.entity = entity;
-                result.transient = transient;
-                result.trace.normal = hit.normal;
-            }
-            result.trace.fraction = result.trace.fraction.min(hit.fraction);
-            result.trace.start_solid |= hit.start_solid;
-            result.trace.all_solid |= hit.all_solid;
-        };
-        if query.contents_mask & CONTENTS_MONSTER != 0 {
-            for ActorHull {
-                entity,
-                feet,
-                hull: actor_hull,
-            } in query.transients
-            {
-                if entity.is_some_and(|id| query.excluded_entities.contains(&id)) {
-                    continue;
-                }
-                let min = *feet + actor_hull.mins;
-                let max = *feet + actor_hull.maxs;
-                let brush = Brush {
-                    contents: CONTENTS_MONSTER,
-                    planes: [
-                        (Vec3::X, max.x),
-                        (-Vec3::X, -min.x),
-                        (Vec3::Y, max.y),
-                        (-Vec3::Y, -min.y),
-                        (Vec3::Z, max.z),
-                        (-Vec3::Z, -min.z),
-                    ]
-                    .into_iter()
-                    .map(|(normal, distance)| modkit_core::Plane { normal, distance })
-                    .collect(),
-                };
-                merge(
-                    trace_brushes(
-                        std::slice::from_ref(&brush),
-                        start,
-                        end,
-                        hull.mins,
-                        hull.maxs,
-                        query.contents_mask,
-                    ),
-                    *entity,
-                    true,
-                );
-            }
-        }
-        let margin = Vec3::splat(0.03125);
-        let bounds = rapier3d::parry::bounding_volume::Aabb::new(
-            Point::from(vector(start.min(end) + hull.mins - margin)),
-            Point::from(vector(start.max(end) + hull.maxs + margin)),
-        );
-        let mut cache = self
-            .player_convex_cache
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.query
-            .colliders_with_aabb_intersecting_aabb(&bounds, |handle| {
-                let collider = &self.colliders[*handle];
-                if accepts(*handle, collider) && !self.world_brush_contents.contains_key(handle) {
-                    if let Some(brush) = cache.brush(*handle, collider) {
-                        merge(
-                            trace_brushes(
-                                std::slice::from_ref(brush),
-                                start,
-                                end,
-                                hull.mins,
-                                hull.maxs,
-                                1,
-                            ),
-                            entity_of(collider),
-                            false,
-                        );
-                    }
-                }
-                true
-            });
-        drop(cache);
-        let center = (hull.maxs + hull.mins) * 0.5;
-        let half = (hull.maxs - hull.mins) * 0.5;
-        let position = pose(start + center, Quat::IDENTITY);
-        let end_position = pose(end + center, Quat::IDENTITY);
-        let stationary = (end - start).length_squared() < 0.000001;
-        // Stand probes have zero-height contact hulls. Only the Parry fallback
-        // needs a tiny thickness; brush/convex planes keep the exact bounds.
-        let shape = Cuboid::new(vector(half.max(Vec3::splat(0.001))));
-        let overlap_shape = Cuboid::new(vector(
-            (half - Vec3::splat(0.015625)).max(Vec3::splat(0.001)),
-        ));
-        self.query.intersections_with_shape(
-            &self.bodies,
-            &self.colliders,
-            &position,
-            &overlap_shape,
-            filter,
-            |handle| {
-                let collider = &self.colliders[handle];
-                let all_solid = stationary
-                    || (collider.shape().is_convex()
-                        && rapier3d::parry::query::intersection_test(
-                            collider.position(),
-                            collider.shape(),
-                            &end_position,
-                            &overlap_shape,
-                        )
-                        .unwrap_or(false));
-                merge(
-                    Trace {
-                        fraction: if all_solid { 0. } else { 1. },
-                        normal: Vec3::ZERO,
-                        start_solid: true,
-                        all_solid,
-                    },
-                    entity_of(collider),
-                    false,
-                );
-                true
-            },
-        );
-        if !stationary && !result.trace.all_solid {
-            let options = ShapeCastOptions {
-                max_time_of_impact: 1.,
-                target_distance: 0.03125 * SCALE,
-                stop_at_penetration: false,
-                compute_impact_geometry_on_penetration: true,
-            };
-            if let Some((handle, hit)) = self.query.cast_shape(
-                &self.bodies,
-                &self.colliders,
-                &position,
-                &vector(end - start),
-                &shape,
-                options,
-                filter,
-            ) {
-                let fraction = hit.time_of_impact.clamp(0., 1.);
-                if fraction < result.trace.fraction {
-                    result.trace.fraction = fraction;
-                    result.trace.normal = Vec3::new(hit.normal1.x, hit.normal1.y, hit.normal1.z);
-                    result.entity = entity_of(&self.colliders[handle]);
-                    result.transient = false;
-                }
-            }
-        }
-        if result.trace.all_solid {
-            result.trace.fraction = 0.;
-        }
-        result
-    }
-}
 impl CollisionWorld for Physics {
     fn trace_hull(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3) -> Trace {
         let half = (maxs - mins) * 0.5;
@@ -4967,7 +4753,7 @@ mod tests {
         p.tick(0.015);
         assert!(p.ray(Vec3::new(-100., 0., 0.), Vec3::X, 200.).is_none());
     }
-    fn npc_config() -> crate::npc_probe::GroundConfig {
+    pub(super) fn npc_config() -> crate::npc_probe::GroundConfig {
         crate::npc_probe::GroundConfig {
             hull: Hull {
                 mins: Vec3::new(-13., -13., 0.),
@@ -5154,7 +4940,7 @@ mod tests {
         physics.remove_ragdoll(&handles);
         assert!(physics.world_sides.ragdoll_bodies.is_empty());
     }
-    fn npc_floor_world() -> World {
+    pub(super) fn npc_floor_world() -> World {
         World {
             brushes: vec![bounds_brush(
                 Vec3::new(-200., -200., -20.),
