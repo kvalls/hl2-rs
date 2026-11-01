@@ -35,8 +35,11 @@ Waste removed, no visual change intended, alternating runs before then after:
 | Flex and unchanged HUD meshes together | 5.49, 5.56 -> 4.96, 4.94 | 5.16, 5.04 -> 4.47, 4.42 |
 | Only the last camera copies to the frame | within noise | 4.61, 4.51 -> 4.34, 4.35 |
 
-Rejected for now: thin LTO with one codegen unit gives 3-5% (station02 4.76, 4.77, 5.41 -> 4.65, 4.55, 4.63 ms; coast01 4.38, 4.41, 4.23
--> 4.41, 4.11, 4.09 ms) for a 4.5-minute release build; not adopted pending an owner decision. Measured with a temporary switch, not
+Thin LTO with one codegen unit is the `dist` profile, selected by `--dist` and kept out of everyday builds. An early Low-only batch suggested 3-5% (station02 4.76, 4.77, 5.41 -> 4.65, 4.55, 4.63 ms; coast01 4.38, 4.41, 4.23
+-> 4.41, 4.11, 4.09 ms) for a 4.5-minute build. The later comparison on the final code, three alternating
+rounds, release then dist, shows less: Low station02 5.35, 4.82, 4.78 -> 4.70, 4.51, 4.71 ms and coast01 4.72, 4.45, 4.38 -> 4.43, 4.40, 4.06 ms; Max station02 11.03, 9.45, 9.38 -> 11.07,
+9.36, 9.40 ms and coast01 14.13, 12.16, 12.17 -> 12.14, 12.14, 12.26 ms (no gain, GPU-limited). CPU per frame including loading is about 4% lower. A clean dist build took 5m 13s. The first
+release run of each Max series is slower than the rest of its session, so compare within a table, not across them. Measured with a temporary switch, not
 implemented: no sky cameras, station02 5.66, 4.88, 4.73 -> 4.09, 4.02, 4.43 ms and coast01 4.53, 4.19, 4.74 -> 3.69, 3.73, 3.95 ms. That
 removes the sky, so it is not a Low change.
 

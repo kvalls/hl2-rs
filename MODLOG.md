@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-01 Dist build profile
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner request: an argument for slower, faster-running builds in the build and launch scripts, including Windows. Added the `dist` Cargo profile (thin LTO, one codegen unit), `--dist` in `scripts/build-bevy.sh` and `launch-bevy.sh`, `-Dist` in `scripts/build-bevy.ps1`, `--dist` in `launch-bevy.cmd` (builds, then runs without the argument; other launches take the old path), and target cleaning for its directory.
+
+**Tested how / Result:** Launcher unit tests with a stand-in build, shell syntax check, a real `./launch-bevy.sh --dist` build and run on macOS. `launch-bevy.cmd` and `build-bevy.ps1` were **not run**: no Windows machine or PowerShell here.
+
+**Frame time:** About 1-3% lower at Low and no gain at Max. Numbers in docs/performance.md.
+
+**Still broken or not tested:** Windows; replays on a dist build.
+
+**Next:** Try `launch-bevy.cmd --dist` on Windows.
+
 ## 2026-11-01 Potato items below retail Low
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

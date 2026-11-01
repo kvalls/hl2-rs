@@ -149,7 +149,7 @@ def _prune_stale(repo_root, target_dir, crates, keep_active_versions=2, dry_run=
     # 2. Prune stale deps artifacts (debug & release)
     file_pattern = re.compile(r"^(?:lib)?([a-zA-Z0-9_]+)-([0-9a-fA-F]{16})(?:\..*)?$")
 
-    for profile in ["debug", "release"]:
+    for profile in ["debug", "release", "dist"]:
         deps_dir = os.path.join(target_dir, profile, "deps")
         if not os.path.isdir(deps_dir):
             continue
@@ -177,7 +177,7 @@ def _prune_stale(repo_root, target_dir, crates, keep_active_versions=2, dry_run=
                 hash_stats.append((h, max_mt, tot_sz, flist))
             hash_stats.sort(key=lambda x: x[1], reverse=True)
 
-            keep_count = 1 if profile == "release" else keep_active_versions
+            keep_count = keep_active_versions if profile == "debug" else 1
             for h, max_mt, tot_sz, flist in hash_stats[keep_count:]:
                 for fpath, sz, mt in flist:
                     files_to_remove.append((fpath, sz, crate_name, profile))

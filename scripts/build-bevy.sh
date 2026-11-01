@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 DEBUG_BUILD=0
+DIST_BUILD=0
 # Application plugin features; "none" builds the core alone.
 PLUGINS="advanced-options,debug-tools"
 while [[ $# -gt 0 ]]; do
@@ -14,17 +15,26 @@ while [[ $# -gt 0 ]]; do
             DEBUG_BUILD=1
             shift
             ;;
+        --dist)
+            DIST_BUILD=1
+            shift
+            ;;
         --plugins)
             PLUGINS="${2:?--plugins needs a comma-separated list or none}"
             shift 2
             ;;
         *)
             echo "Unknown option: $1" >&2
-            echo "Usage: $0 [--debug] [--plugins advanced-options,debug-tools|none]" >&2
+            echo "Usage: $0 [--debug|--dist] [--plugins advanced-options,debug-tools|none]" >&2
             exit 1
             ;;
     esac
 done
+
+if [[ "$DEBUG_BUILD" -eq 1 && "$DIST_BUILD" -eq 1 ]]; then
+    echo "--debug and --dist cannot be used together" >&2
+    exit 1
+fi
 
 # Known names and one order, so the recorded selection compares equal however it was typed.
 PLUGINS="$(printf '%s' "$PLUGINS" | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd ',' -)"
@@ -66,6 +76,9 @@ if [[ "$PLUGINS" != "none" ]]; then
 fi
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
     PROFILE_NAME="debug"
+elif [[ "$DIST_BUILD" -eq 1 ]]; then
+    PROFILE_NAME="dist"
+    CARGO_ARGS+=("--profile" "dist")
 else
     CARGO_ARGS+=("--release")
 fi

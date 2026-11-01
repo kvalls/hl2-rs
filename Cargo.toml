@@ -17,6 +17,12 @@ hl2-simulation = { path = "crates/hl2-simulation" }
 hl2-ui = { path = "crates/hl2-ui", default-features = false }
 hl2-bevy = { path = "crates/hl2-bevy", default-features = false }
 
+[profile.dist]
+# Builds to play: inlines across Bevy, wgpu and the game. Helps while the CPU limits the frame, at much slower builds.
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+
 [profile.dev]
 opt-level = 1
 # Line tables keep panic backtraces readable while shrinking target/debug.

@@ -16,6 +16,7 @@ plugins="advanced-options,debug-tools"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --plugins) plugins="$2"; shift 2 ;;
+        --dist) profile=dist; shift ;;
         *) shift ;;
     esac
 done
@@ -23,7 +24,7 @@ echo "$plugins" >> "$root/builds.log"
 mkdir -p "$root/bin/bevy-assets"
 printf '#!/usr/bin/env bash\\necho "game $*"\\n' > "$root/bin/hl2-bevy"
 chmod +x "$root/bin/hl2-bevy"
-printf '{\\n  "profile": "release",\\n  "plugins": "%s"\\n}\\n' "$plugins" > "$root/bin/build-bevy-info.json"
+printf '{\\n  "profile": "%s",\\n  "plugins": "%s"\\n}\\n' "${profile:-release}" "$plugins" > "$root/bin/build-bevy-info.json"
 """
 
 
@@ -54,6 +55,19 @@ class LaunchPlugins(unittest.TestCase):
     def builds(self):
         log = self.root / "builds.log"
         return log.read_text().split() if log.exists() else []
+
+    def test_dist_builds_that_profile_and_does_not_reach_the_game(self):
+        output = self.launch("--dist", "--map", "x")
+        self.assertIn("game --map x", output)
+        self.assertIn('"profile": "dist"', (self.root / "bin/build-bevy-info.json").read_text())
+        self.launch("--dist")
+        self.assertEqual(len(self.builds()), 1)
+        self.launch("--no-build", "--dist")
+        self.launch("--debug", "--dist", ok=False)
+
+    def test_no_build_refuses_dist_when_the_build_is_not(self):
+        self.launch()
+        self.launch("--no-build", "--dist", ok=False)
 
     def test_the_first_build_has_both_plugins(self):
         self.launch()

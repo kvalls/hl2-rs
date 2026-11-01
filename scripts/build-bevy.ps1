@@ -1,5 +1,6 @@
-param([switch]$DebugBuild, [string]$Plugins = 'advanced-options,debug-tools')
+param([switch]$DebugBuild, [switch]$Dist, [string]$Plugins = 'advanced-options,debug-tools')
 $ErrorActionPreference = 'Stop'
+if ($DebugBuild -and $Dist) { throw '-DebugBuild and -Dist cannot be used together.' }
 $projectRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 Push-Location $projectRoot
 try {
@@ -11,10 +12,10 @@ try {
     if (!(Test-Path -LiteralPath $shaderSource -PathType Container)) { throw 'Bevy shader assets are missing from crates\hl2-bevy\assets.' }
     if (!(Get-ChildItem -LiteralPath $shaderSource -File -Recurse)) { throw 'Bevy shader assets are empty.' }
 
-    $profileName = if ($DebugBuild) { 'debug' } else { 'release' }
+    $profileName = if ($DebugBuild) { 'debug' } elseif ($Dist) { 'dist' } else { 'release' }
     $cargoArguments = @('build', '--locked', '-p', 'hl2-app', '--bin', 'hl2-bevy', '--no-default-features')
     if ($Plugins -ne 'none') { $cargoArguments += @('--features', $Plugins) }
-    if (!$DebugBuild) { $cargoArguments += '--release' }
+    if ($Dist) { $cargoArguments += @('--profile', 'dist') } elseif (!$DebugBuild) { $cargoArguments += '--release' }
     & $cargoBinary @cargoArguments
     if ($LASTEXITCODE -ne 0) { throw 'Cargo Bevy build failed.' }
 

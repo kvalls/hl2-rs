@@ -2,7 +2,7 @@
 
 ## Lower frame cost and Potato items: measured on macOS, not played (2026-11-01)
 
-Branch `orbitalman/performance`, based on `orbitalman/hl2-ui` at `56b97f2`, checkpoint commits, not pushed. Waste removal in core applies to every tier: CPU light clustering, facial flex weights per actor, unchanged HUD meshes kept, one camera copying to the frame. The advanced options plugin lists Potato below retail's lowest in five combos through `RenderBudget`. Numbers: docs/performance.md. Open: interactive play, Windows, gameplay replays and retail side-by-side captures are **not tested**; Shader Detail at retail levels, Water Detail, Multicore and Classic Effects have no effect on rendering; thin LTO awaits an owner decision.
+Branch `orbitalman/performance`, based on `orbitalman/hl2-ui` at `56b97f2`, checkpoint commits, not pushed. Waste removal in core applies to every tier: CPU light clustering, facial flex weights per actor, unchanged HUD meshes kept, one camera copying to the frame. The advanced options plugin lists Potato below retail's lowest in five combos through `RenderBudget`. Numbers: docs/performance.md. Open: interactive play, Windows, gameplay replays and retail side-by-side captures are **not tested**; Shader Detail at retail levels, Water Detail, Multicore and Classic Effects have no effect on rendering.
 
 ## Optional plugins: working on macOS, frame time not measured (2026-11-01)
 

@@ -21,6 +21,7 @@ Options:
       --capture-window                Capture the presented OS window buffer rather than the internal game viewport
       --cpu-skinning                  Use CPU vertex skinning instead of GPU compute skinning
   -d, --debug                         Build and run the debug profile instead of release
+      --dist                          Build and run the dist profile: much slower to build, a little less CPU work per frame
       --fake-monitor <spec>           Simulate a monitor with specified modes (e.g. 1920x1080,1280x720)
       --fly                           Start with flight/noclip mode enabled (requires --map)
       --frag-swept-box                Use swept-box physics query for frag grenade collision
@@ -67,6 +68,7 @@ done
 
 FORCE_REBUILD=0
 DEBUG_BUILD=0
+DIST_BUILD=0
 NO_BUILD=0
 NO_CLEAN=0
 PLUGINS=""
@@ -98,6 +100,9 @@ while [[ $# -gt 0 ]]; do
         --debug|-d)
             DEBUG_BUILD=1
             ;;
+        --dist)
+            DIST_BUILD=1
+            ;;
         --no-clean)
             NO_CLEAN=1
             ;;
@@ -110,6 +115,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ "$DEBUG_BUILD" -eq 1 && "$DIST_BUILD" -eq 1 ]]; then
+    echo "Error: --debug and --dist cannot be used together" >&2
+    exit 1
+fi
+
 TARGET_BIN="$PROJECT_ROOT/bin/hl2-bevy"
 INFO_JSON="$PROJECT_ROOT/bin/build-bevy-info.json"
 BEVY_ASSETS="$PROJECT_ROOT/bin/bevy-assets"
@@ -119,6 +129,8 @@ CLEANER_SCRIPT="$PROJECT_ROOT/scripts/clean-target.sh"
 DESIRED_PROFILE="release"
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
     DESIRED_PROFILE="debug"
+elif [[ "$DIST_BUILD" -eq 1 ]]; then
+    DESIRED_PROFILE="dist"
 fi
 
 # Clean remnants from old/aborted builds in bin/
@@ -143,6 +155,10 @@ if [[ "$NO_BUILD" -eq 1 ]]; then
     fi
     if [[ -n "$PLUGINS" && "$PLUGINS" != "$RECORDED_PLUGINS" ]]; then
         echo "Error: --no-build with --plugins $PLUGINS, but the existing build has: ${RECORDED_PLUGINS:-unknown}" >&2
+        exit 1
+    fi
+    if [[ "$DIST_BUILD" -eq 1 ]] && ! grep -Eq '"profile"[[:space:]]*:[[:space:]]*"dist"' "$INFO_JSON" 2>/dev/null; then
+        echo "Error: --no-build with --dist, but the existing build is not a dist build" >&2
         exit 1
     fi
 elif [[ "$FORCE_REBUILD" -eq 1 ]]; then
@@ -224,6 +240,8 @@ if [[ "$NEEDS_BUILD" -eq 1 ]]; then
     BUILD_ARGS=()
     if [[ "$DEBUG_BUILD" -eq 1 ]]; then
         BUILD_ARGS+=("--debug")
+    elif [[ "$DIST_BUILD" -eq 1 ]]; then
+        BUILD_ARGS+=("--dist")
     fi
     # A rebuild keeps the selection the last build recorded.
     BUILD_PLUGINS="${PLUGINS:-$RECORDED_PLUGINS}"
