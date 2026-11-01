@@ -67,7 +67,6 @@
   "4583d94788b8",
   "46a513be1637",
   "47163d1b36d3",
-  "4a3d67264474",
   "4b79d0c2102e",
   "4b968de7b6ef",
   "4c111500605a",
@@ -132,7 +131,6 @@
   "b0f5fce752af",
   "b1f6bf83d509",
   "b2794ce5c815",
-  "b2c3866220b9",
   "b37979a42461",
   "b37b712db267",
   "b49ec7f1774a",
@@ -184,7 +182,7 @@
   "crates/hl2-bevy/src/rendering.rs": 1534,
   "crates/hl2-bevy/src/video.rs": 1051,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
-  "crates/hl2-simulation/src/ai/runtime.rs": 2642,
+  "crates/hl2-simulation/src/ai/runtime.rs": 2611,
   "crates/hl2-simulation/src/ai/schedule.rs": 1132,
   "crates/hl2-simulation/src/entities/choreography.rs": 1229,
   "crates/hl2-simulation/src/gameplay.rs": 2909,
@@ -271,7 +269,7 @@
    103
   ],
   "crates/hl2-simulation/src/ai/humanoid.rs::start_task": [
-   108
+   104
   ],
   "crates/hl2-simulation/src/ai/metropolice.rs::select_inner": [
    139
@@ -280,7 +278,7 @@
    200
   ],
   "crates/hl2-simulation/src/ai/runtime.rs::think": [
-   1246
+   1214
   ],
   "crates/hl2-simulation/src/ai/runtime.rs::tick": [
    322
@@ -319,7 +317,7 @@
    376
   ],
   "crates/hl2-simulation/src/entities/io.rs::deliver": [
-   202
+   179
   ],
   "crates/hl2-simulation/src/explosion_particles.rs::draw": [
    120

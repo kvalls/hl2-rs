@@ -37,6 +37,7 @@ use modkit_core::World;
 use serde::Serialize;
 use source_assets::{keyvalues, vpk::Vfs};
 use std::collections::BTreeMap;
+mod actbusy_host;
 mod equipment;
 mod goal_inputs;
 mod requests;
@@ -565,7 +566,7 @@ pub struct AiRuntime {
     #[serde(serialize_with = "serialize_pairs")]
     pub relationship_overrides: BTreeMap<(usize, usize), Disposition>,
     #[serde(skip)]
-    applied_relationships: BTreeMap<usize, Vec<(usize, usize)>>,
+    applied_relationships: goal_inputs::AppliedRelationships,
     /// CAI_SquadManager: squads by name.
     pub squads: BTreeMap<String, super::squad::Squad>,
     /// scripts/actbusy.txt busy animations (activity entries).
@@ -931,7 +932,7 @@ impl AiRuntime {
             allegiances: BTreeMap::new(),
             npc_ids: None,
             relationship_overrides: BTreeMap::new(),
-            applied_relationships: BTreeMap::new(),
+            applied_relationships: Default::default(),
             squads: BTreeMap::new(),
             busy_anims,
             busy_hints,
@@ -2376,33 +2377,14 @@ impl AiRuntime {
         actor.next_think = now + THINK_INTERVAL;
         // CZombie::PrescheduleThink's idle moans.
         // CAI_ActBusyBehavior::FindActBusyHintNode for a behavior about to search.
-        if let AiClass::Metropolice(cop) = &mut actor.class {
-            cop.actbusy.candidate = None;
-            if cop.actbusy.wants_hint(now) {
-                let group = world
-                    .entities
-                    .get(id)
-                    .and_then(|e| e.get("hintgroup"))
-                    .unwrap_or("")
-                    .trim();
-                let state = match actor.npc.state {
-                    NpcState::Combat => 3,
-                    NpcState::Alert => 2,
-                    _ => 1,
-                };
-                let locks = &self.hint_locks;
-                cop.actbusy.candidate = super::actbusy::find_hint(
-                    &self.busy_hints,
-                    &self.busy_anims,
-                    group,
-                    origin,
-                    cop.actbusy.search_range,
-                    state,
-                    |hint| locks.get(&hint).is_some_and(|&holder| holder != id),
-                    cop.actbusy.use_nearest,
-                    hint_roll,
-                );
+        let npc_state = actor.npc.state;
+        if let Some(busy) = actor.class.actbusy_mut() {
+            actbusy_host::HintSearch {
+                hints: &self.busy_hints,
+                anims: &self.busy_anims,
+                locks: &self.hint_locks,
             }
+            .offer(busy, (world, id), (origin, now), npc_state, hint_roll);
         }
         if let AiClass::Zombie(z) = &mut actor.class {
             z.moan(now, actor.npc.state == NpcState::Combat);
@@ -2620,21 +2602,8 @@ impl AiRuntime {
                 scene.fire(goal, output, id);
             }
         }
-        // Actbusy hint locks (CAI_Hint::Lock/Unlock) and goal outputs.
-        if let Some(cop) = actor.class.cop_mut() {
-            for hint in cop.actbusy.released.drain(..) {
-                if self.hint_locks.get(&hint) == Some(&id) {
-                    self.hint_locks.remove(&hint);
-                }
-            }
-            if let Some(hint) = &cop.actbusy.hint {
-                self.hint_locks.insert(hint.entity, id);
-            }
-            if let Some(goal) = cop.actbusy.goal {
-                for output in std::mem::take(&mut cop.actbusy.outputs) {
-                    scene.fire(goal, output, id);
-                }
-            }
+        if let Some(busy) = actor.class.actbusy_mut() {
+            actbusy_host::settle(busy, id, &mut self.hint_locks, scene);
         }
         self.apply_requests(id, world, scene, physics, player);
     }

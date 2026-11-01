@@ -226,6 +226,7 @@ impl AiRuntime {
         self.npc_ids = None;
         match Self::actor_for(id, e, &self.weapon_defs) {
             Some(actor) => {
+                self.applied_relationships.stale = true;
                 self.actors.insert(id, actor);
                 true
             }

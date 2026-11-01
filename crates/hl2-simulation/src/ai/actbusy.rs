@@ -3,8 +3,10 @@
 //! HINT_WORLD_WORK_POSITION hint node of its hint group within the busy search range
 //! (random, or the nearest), walks there, faces along the hint, plays the hint's busy
 //! activity from scripts/actbusy.txt for U(min_time, max_time) seconds (forever without a
-//! max time) and then searches again. SDK behavior; entry/exit animations, sounds, see
-//! entities, queues, combat actbusies, leaving and teleports are not reconstructed.
+//! max time) and then searches again. A forced leave (ForceActBusyLeave) walks to a random
+//! HINT_NPC_EXIT_POINT and removes the NPC there. SDK behavior; entry/exit animations, sounds,
+//! see entities, queues, combat actbusies, teleports and the exit hint's hull-clear check are
+//! not reconstructed.
 use super::conditions::COND_PROVOKED;
 use super::schedule::{
     AiNpc, Behavior, Context, Goal, Motor, Schedule, Schedules, TaskArg, TaskStatus,
@@ -16,6 +18,10 @@ use serde::Serialize;
 pub const SEARCH_TIME: f64 = 10.;
 /// ai_hint.h HINT_WORLD_WORK_POSITION.
 pub const HINT_WORLD_WORK_POSITION: i32 = 12;
+/// ai_hint.h HINT_NPC_EXIT_POINT.
+pub const HINT_NPC_EXIT_POINT: i32 = 903;
+/// SelectScheduleForLeaving: an NPC this near its exit point is done.
+const EXIT_REACHED_DISTANCE: f32 = 64.;
 
 const SCHEDULES: &[(&str, &str)] = &[
     (
@@ -30,6 +36,11 @@ const SCHEDULES: &[(&str, &str)] = &[
         "Tasks TASK_ACTBUSY_PLAY_BUSY_ANIM 0 Interrupts COND_PROVOKED",
     ),
     (
+        "SCHED_ACTBUSY_LEAVE",
+        "Tasks TASK_SET_TOLERANCE_DISTANCE 4 TASK_ACTBUSY_GET_PATH_TO_ACTBUSY 0 \
+         TASK_ACTBUSY_WALK_PATH_TO_BUSY 0 TASK_WAIT_FOR_MOVEMENT 0 Interrupts COND_PROVOKED",
+    ),
+    (
         "SCHED_ACTBUSY_STOP_BUSYING",
         "Tasks TASK_ACTBUSY_VERIFY_EXIT 0 TASK_ACTBUSY_PLAY_EXIT 0 TASK_WAIT 0.1 Interrupts",
     ),
@@ -42,7 +53,7 @@ pub fn add_schedules(schedules: &mut Schedules) {
 }
 
 /// A busy animation from scripts/actbusy.txt (busyanim_t, activity form).
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct BusyAnim {
     pub name: String,
     pub activity: String,
@@ -97,6 +108,8 @@ pub struct BusyHint {
     pub origin: Vec3,
     pub yaw: f32,
     pub anim: BusyAnim,
+    /// A HINT_NPC_EXIT_POINT: no animation, never locked.
+    pub exit: bool,
 }
 
 /// CAI_ActBusyBehavior state.
@@ -126,6 +139,11 @@ pub struct ActBusy {
     pub outputs: Vec<&'static str>,
     /// The behavior selected the current schedule.
     pub running: bool,
+    /// m_bLeaving: ForceActBusyLeave.
+    pub leaving: bool,
+    /// The NPC reached its exit: the host removes it.
+    #[serde(skip)]
+    pub remove: bool,
 }
 impl ActBusy {
     /// Enable(goal, range, visible only).
@@ -137,6 +155,7 @@ impl ActBusy {
         self.enabled = true;
         self.busy = false;
         self.moving_to_busy = false;
+        self.leaving = false;
         self.next_search = now + SEARCH_TIME;
         self.end_busy_at = 0.;
         self.search_range = range;
@@ -157,6 +176,31 @@ impl ActBusy {
         self.use_nearest = nearest;
         npc.conditions.set(COND_PROVOKED);
     }
+    /// ForceActBusyLeave: find an exit node and leave. Enable(NULL) keeps any earlier goal.
+    pub fn force_leave(&mut self, range: f32, npc: &mut AiNpc, now: f64) {
+        self.enable(None, range, now);
+        self.forced = true;
+        self.leaving = true;
+        npc.conditions.set(COND_PROVOKED);
+    }
+    /// SelectScheduleForLeaving.
+    fn select_leaving(&mut self, origin: Vec3) -> &'static str {
+        if self.hint.as_ref().is_some_and(|h| !h.exit) {
+            self.release_hint();
+        }
+        if self.hint.is_none() {
+            self.hint = self.candidate.take();
+        }
+        let Some(exit) = &self.hint else {
+            return "SCHED_IDLE_STAND";
+        };
+        if exit.origin.distance(origin) < EXIT_REACHED_DISTANCE {
+            self.remove = true;
+            self.outputs.push("OnNPCLeft");
+            return "SCHED_IDLE_STAND";
+        }
+        "SCHED_ACTBUSY_LEAVE"
+    }
     /// Disable.
     pub fn disable(&mut self, npc: &mut AiNpc, now: f64) {
         if self.enabled {
@@ -174,6 +218,7 @@ impl ActBusy {
         self.forced = false;
         self.use_nearest = false;
         self.moving_to_busy = false;
+        self.leaving = false;
     }
     fn release_hint(&mut self) {
         if let Some(hint) = self.hint.take() {
@@ -203,6 +248,9 @@ impl ActBusy {
                 return Some("SCHED_ACTBUSY_STOP_BUSYING");
             }
             return None;
+        }
+        if self.leaving {
+            return Some(self.select_leaving(ctx.origin));
         }
         if !self.enabled {
             return Some("SCHED_ACTBUSY_STOP_BUSYING");
@@ -354,6 +402,37 @@ pub struct HintCandidate {
     pub min_state: i32,
     pub max_state: i32,
 }
+impl HintCandidate {
+    fn usable(&self, kind: i32, group: &str, state: i32) -> bool {
+        self.hint_type == kind
+            && !self.disabled
+            && self.group.eq_ignore_ascii_case(group)
+            && (self.min_state == 0 || state >= self.min_state)
+            && (self.max_state == 0 || state <= self.max_state)
+    }
+}
+/// SelectScheduleForLeaving's FindHintRandom: any enabled exit point of the NPC's hint
+/// group, at any range.
+pub fn find_exit_hint(
+    hints: &[HintCandidate],
+    group: &str,
+    state: i32,
+    random: f32,
+) -> Option<BusyHint> {
+    let exits: Vec<&HintCandidate> = hints
+        .iter()
+        .filter(|h| h.usable(HINT_NPC_EXIT_POINT, group, state))
+        .collect();
+    let index = (random * exits.len() as f32) as usize;
+    let pick = exits.get(index.min(exits.len().saturating_sub(1)))?;
+    Some(BusyHint {
+        entity: pick.entity,
+        origin: pick.origin,
+        yaw: pick.yaw,
+        anim: BusyAnim::default(),
+        exit: true,
+    })
+}
 #[allow(clippy::too_many_arguments)]
 pub fn find_hint(
     hints: &[HintCandidate],
@@ -369,12 +448,8 @@ pub fn find_hint(
     let valid: Vec<(&HintCandidate, &BusyAnim)> = hints
         .iter()
         .filter(|h| {
-            h.hint_type == HINT_WORLD_WORK_POSITION
-                && !h.disabled
-                && h.group.eq_ignore_ascii_case(group)
+            h.usable(HINT_WORLD_WORK_POSITION, group, state)
                 && h.origin.distance(origin) <= range
-                && (h.min_state == 0 || state >= h.min_state)
-                && (h.max_state == 0 || state <= h.max_state)
                 && !locked(h.entity)
         })
         .filter_map(|h| Some((h, find_busy_anim(anims, &h.activity)?)))
@@ -395,6 +470,7 @@ pub fn find_hint(
         origin: pick.0.origin,
         yaw: pick.0.yaw,
         anim: pick.1.clone(),
+        exit: false,
     })
 }
 
@@ -485,6 +561,49 @@ mod tests {
             0.
         )
         .is_none());
+    }
+
+    #[test]
+    fn a_forced_leave_walks_to_an_exit_point_and_asks_for_removal() {
+        let mut exits = hints();
+        exits[0].hint_type = HINT_NPC_EXIT_POINT;
+        exits[0].group = String::new();
+        exits[1].hint_type = HINT_NPC_EXIT_POINT;
+        exits[1].group = String::new();
+        exits[1].disabled = true;
+        let mut npc = AiNpc::new(0);
+        let mut a = ActBusy {
+            goal: Some(7),
+            ..Default::default()
+        };
+        a.force_leave(9999., &mut npc, 0.);
+        let at = |origin: Vec3| Context {
+            origin,
+            ..Default::default()
+        };
+        // Nowhere to go yet: it stands, and keeps asking.
+        assert_eq!(
+            a.select(&mut npc, &at(Vec3::ZERO), ""),
+            Some("SCHED_IDLE_STAND")
+        );
+        assert!(a.wants_hint(0.));
+        a.candidate = find_exit_hint(&exits, "", 1, 0.9);
+        let exit = a.candidate.clone().unwrap();
+        assert_eq!((exit.entity, exit.exit), (824, true));
+        assert_eq!(
+            a.select(&mut npc, &at(Vec3::ZERO), ""),
+            Some("SCHED_ACTBUSY_LEAVE")
+        );
+        assert!(!a.remove);
+        // Whatever the base schedule, it keeps walking until 64 units from the exit.
+        let near = exit.origin + Vec3::X * 63.;
+        assert_eq!(
+            a.select(&mut npc, &at(near), "SCHED_CHASE_ENEMY"),
+            Some("SCHED_IDLE_STAND")
+        );
+        assert!(a.remove);
+        assert_eq!(a.outputs, vec!["OnNPCLeft"]);
+        assert!(find_exit_hint(&exits, "other", 1, 0.).is_none());
     }
 
     #[test]

@@ -237,30 +237,7 @@ impl Scene {
             self.maker_inputs.push((id, input, p.parameter.clone()));
             return;
         }
-        if (class == "npc_metropolice"
-            && matches!(
-                input.as_str(),
-                "setpolicegoal" | "activatebaton" | "enablemanhacktoss" | "disablemanhacktoss"
-            ))
-            || (class == "ai_goal_police"
-                && matches!(input.as_str(), "enableknockout" | "disableknockout"))
-            || (class == "ai_goal_assault"
-                && matches!(
-                    input.as_str(),
-                    "activate" | "deactivate" | "beginassault" | "updateactors"
-                ))
-            || (class == "aiscripted_schedule"
-                && matches!(input.as_str(), "startschedule" | "stopschedule"))
-            || (class == "ai_goal_actbusy"
-                && matches!(
-                    input.as_str(),
-                    "activate" | "deactivate" | "forcenpctoactbusy" | "setbusysearchrange"
-                ))
-            || (matches!(class, "info_node_link" | "info_node_link_controller")
-                && matches!(input.as_str(), "turnon" | "turnoff"))
-            || (class == "ai_relationship"
-                && matches!(input.as_str(), "applyrelationship" | "revertrelationship"))
-        {
+        if is_ai_input(class, &input) {
             self.ai_inputs
                 .push((id, input, p.parameter.clone(), p.activator));
             return;
@@ -449,5 +426,33 @@ impl Scene {
         if self.unsupported.insert(key.clone()) {
             eprintln!("Unimplemented entity input: {key}");
         }
+    }
+}
+
+/// Whether an input belongs to the AI runtime (`Scene::ai_inputs`).
+fn is_ai_input(class: &str, input: &str) -> bool {
+    match class {
+        "npc_metropolice" => matches!(
+            input,
+            "setpolicegoal" | "activatebaton" | "enablemanhacktoss" | "disablemanhacktoss"
+        ),
+        "ai_goal_police" => matches!(input, "enableknockout" | "disableknockout"),
+        "ai_goal_assault" => matches!(
+            input,
+            "activate" | "deactivate" | "beginassault" | "updateactors"
+        ),
+        "aiscripted_schedule" => matches!(input, "startschedule" | "stopschedule"),
+        "ai_goal_actbusy" => matches!(
+            input,
+            "activate"
+                | "deactivate"
+                | "forcenpctoactbusy"
+                | "forcethisnpctoactbusy"
+                | "forcethisnpctoleave"
+                | "setbusysearchrange"
+        ),
+        "info_node_link" | "info_node_link_controller" => matches!(input, "turnon" | "turnoff"),
+        "ai_relationship" => matches!(input, "applyrelationship" | "revertrelationship"),
+        _ => false,
     }
 }

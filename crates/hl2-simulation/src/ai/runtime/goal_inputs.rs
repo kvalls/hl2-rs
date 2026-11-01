@@ -6,30 +6,52 @@ use crate::entities::Scene;
 use crate::npc::Controller;
 use glam::Vec3;
 use modkit_core::World;
+use std::collections::BTreeMap;
+
+/// The pairs each active ai_relationship applied.
+#[derive(Clone, Debug, Default)]
+pub(super) struct AppliedRelationships {
+    pairs: BTreeMap<usize, Vec<(usize, usize)>>,
+    /// An NPC spawned: CAI_Relationship::OnEntitySpawned reapplies them.
+    pub stale: bool,
+}
 
 impl AiRuntime {
+    /// CAI_GoalEntity::Activate at spawn for StartActive goals.
+    fn start_goals(&mut self, world: &World, scene: &mut Scene) {
+        if self.goals_started || self.actors.is_empty() {
+            return;
+        }
+        self.goals_started = true;
+        for (id, e) in world.entities.iter().enumerate() {
+            if e.get("StartActive").is_none_or(|v| v.trim() != "1") {
+                continue;
+            }
+            if e.class() == "ai_relationship" {
+                self.apply_relationship(world, scene, id, true);
+            }
+            if matches!(e.class(), "ai_goal_assault" | "ai_goal_actbusy") {
+                scene
+                    .ai_inputs
+                    .push((id, "activate".into(), String::new(), usize::MAX));
+            }
+        }
+    }
+    fn refresh_relationships(&mut self, world: &World, scene: &Scene) {
+        if std::mem::take(&mut self.applied_relationships.stale) {
+            let active: Vec<usize> = self.applied_relationships.pairs.keys().copied().collect();
+            for rel in active {
+                self.apply_relationship(world, scene, rel, true);
+            }
+        }
+    }
+
     /// SetPoliceGoal / ActivateBaton on cops and EnableKnockOut / DisableKnockOut on
     /// ai_goal_police (processed even while the AI is off, so map-spawn inputs stick).
     pub(super) fn inputs(&mut self, world: &World, scene: &mut Scene, controller: &mut Controller) {
-        if !self.goals_started && !self.actors.is_empty() {
-            // CAI_GoalEntity::Activate at spawn for StartActive goals.
-            self.goals_started = true;
-            for (id, e) in world.entities.iter().enumerate() {
-                if e.class() == "ai_relationship"
-                    && e.get("StartActive").is_some_and(|v| v.trim() == "1")
-                {
-                    self.apply_relationship(world, scene, id, true);
-                }
-                if matches!(e.class(), "ai_goal_assault" | "ai_goal_actbusy")
-                    && e.get("StartActive").is_some_and(|v| v.trim() == "1")
-                {
-                    scene
-                        .ai_inputs
-                        .push((id, "activate".into(), String::new(), usize::MAX));
-                }
-            }
-        }
-        for (target, input, parameter, _) in std::mem::take(&mut scene.ai_inputs) {
+        self.start_goals(world, scene);
+        self.refresh_relationships(world, scene);
+        for (target, input, parameter, activator) in std::mem::take(&mut scene.ai_inputs) {
             let class = world.entities.get(target).map_or("", |e| e.class());
             if class == "ai_goal_assault" {
                 self.assault_goal_input(world, scene, target, &input);
@@ -40,7 +62,14 @@ impl AiRuntime {
                 continue;
             }
             if class == "ai_goal_actbusy" {
-                self.actbusy_goal_input(world, scene, target, &input, &parameter);
+                if matches!(
+                    input.as_str(),
+                    "forcethisnpctoactbusy" | "forcethisnpctoleave"
+                ) {
+                    self.force_this_npc(world, scene.time, target, &input, (&parameter, activator));
+                } else {
+                    self.actbusy_goal_input(world, scene, target, &input, &parameter);
+                }
                 continue;
             }
             if class == "ai_relationship" {
@@ -103,10 +132,44 @@ impl AiRuntime {
         }
     }
 
+    /// ForceThisNPCToActBusy / ForceThisNPCToLeave: an EHANDLE input, the named entity or,
+    /// without a parameter, the firing output's value (OnSpawnNPC: the child, its activator).
+    fn force_this_npc(
+        &mut self,
+        world: &World,
+        now: f64,
+        goal: usize,
+        input: &str,
+        (parameter, activator): (&str, usize),
+    ) {
+        let name = parameter.trim().to_lowercase();
+        let target = if name.is_empty() {
+            Some(activator)
+        } else {
+            self.actors.keys().copied().find(|&id| {
+                world.entities.get(id).is_some_and(|e| {
+                    crate::entities::glob(&name, &e.get("targetname").unwrap_or("").to_lowercase())
+                })
+            })
+        };
+        let range = self.actbusy_ranges.get(&goal).copied().unwrap_or(2048.);
+        let Some(actor) = target.and_then(|id| self.actors.get_mut(&id)) else {
+            return;
+        };
+        let Some(busy) = actor.class.actbusy_mut() else {
+            return;
+        };
+        if input == "forcethisnpctoleave" {
+            busy.force_leave(range, &mut actor.npc, now);
+        } else {
+            busy.force(Some(goal), range, None, false, &mut actor.npc, now);
+        }
+    }
+
     /// ai_goal_actbusy inputs: Activate (EnableGoal on its actors), Deactivate,
     /// ForceNPCToActBusy ("<npc> [hint] [teleport] [nearest] [$activity] [max time]";
     /// a named hint, teleports and forced activities are not reconstructed) and
-    /// SetBusySearchRange. Only metrocops host the behavior so far.
+    /// SetBusySearchRange. Metrocops and player companions host the behavior so far.
     fn actbusy_goal_input(
         &mut self,
         world: &World,
@@ -123,15 +186,15 @@ impl AiRuntime {
                     let Some(actor) = self.actors.get_mut(&id) else {
                         continue;
                     };
-                    let AiClass::Metropolice(cop) = &mut actor.class else {
+                    let Some(busy) = actor.class.actbusy_mut() else {
                         continue;
                     };
                     if input == "activate" {
-                        if !cop.actbusy.enabled {
-                            cop.actbusy.enable(Some(goal), range, now);
+                        if !busy.enabled {
+                            busy.enable(Some(goal), range, now);
                         }
                     } else {
-                        cop.actbusy.disable(&mut actor.npc, now);
+                        busy.disable(&mut actor.npc, now);
                     }
                 }
             }
@@ -182,9 +245,8 @@ impl AiRuntime {
                         .or_default() += 1;
                     return;
                 };
-                if let AiClass::Metropolice(cop) = &mut actor.class {
-                    cop.actbusy
-                        .force(Some(goal), range, max_time, nearest, &mut actor.npc, now);
+                if let Some(busy) = actor.class.actbusy_mut() {
+                    busy.force(Some(goal), range, max_time, nearest, &mut actor.npc, now);
                 }
             }
             "setbusysearchrange" => {
@@ -439,7 +501,7 @@ impl AiRuntime {
     /// when set; disposition 1 hate, 2 fear, 3 like, 4 neutral; Reciprocal applies it both
     /// ways. Revert removes the pairs this entity applied. Rank (priority) is not modeled.
     fn apply_relationship(&mut self, world: &World, scene: &Scene, rel: usize, apply: bool) {
-        if let Some(pairs) = self.applied_relationships.remove(&rel) {
+        if let Some(pairs) = self.applied_relationships.pairs.remove(&rel) {
             for pair in pairs {
                 self.relationship_overrides.remove(&pair);
             }
@@ -509,7 +571,7 @@ impl AiRuntime {
         for &pair in &pairs {
             self.relationship_overrides.insert(pair, disposition);
         }
-        self.applied_relationships.insert(rel, pairs);
+        self.applied_relationships.pairs.insert(rel, pairs);
     }
 
     /// UnlockRallyPoint for an NPC.

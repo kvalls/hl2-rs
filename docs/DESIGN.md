@@ -1885,3 +1885,11 @@ Add rendering/input/held-release/success/failure regressions, adapt owned asynch
 and native-input tests, rebuild and capture the wait state plus restored browser,
 run strict cross-platform checks and packaged menu/chapter replays. Compare steady
 browser frame time and record the limits of static retail evidence.
+
+## ActBusy leave for player companions (2026-11-01, bounded plan)
+
+`hl2/background01` and the `d1_trainstation_02` plaza send spawned citizens to `ai_goal_actbusy`'s `ForceThisNPCToLeave`. Plan: host `ai::actbusy` on player companions as well as metrocops, per the SDK's `CNPC_PlayerCompanion::CreateBehaviors`; add `ForceThisNPCToActBusy`, `ForceThisNPCToLeave`, `SCHED_ACTBUSY_LEAVE` and exit hints (`HINT_NPC_EXIT_POINT`, never locked); remove an NPC within 64 units of its exit, so its maker sees it through DeathNotice and spawns the next. Host code lives in `ai/runtime/actbusy_host.rs`. Combine soldiers do not host the behavior yet; that changes the prison maps and needs its own comparison.
+
+Validation: unit tests, a packaged background run reporting citizens that spawn, walk and are removed, and the gameplay replays. Reversible by dropping the commit.
+
+Known cost: removed entities keep their slot (`Scene::spawn_entity` only appends), so an endless maker grows the entity list by one per spawn. Reusing dead copies is a separate step if the measured growth matters.

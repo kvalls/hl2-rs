@@ -1093,3 +1093,84 @@ fn relationships_naming_the_player_class_reach_the_player() {
     );
     assert_eq!(r.ai.relationship_overrides.get(&(1, PLAYER)), None);
 }
+#[test]
+fn a_citizen_forced_to_leave_by_a_spawn_output_walks_off_and_is_removed() {
+    let world = World {
+        entities: vec![
+            entity(&[
+                ("classname", "npc_citizen"),
+                ("targetname", "passerby"),
+                ("origin", "0 0 0"),
+            ]),
+            entity(&[
+                ("classname", "ai_goal_actbusy"),
+                ("targetname", "leave_goal"),
+                ("busysearchrange", "9999"),
+            ]),
+            entity(&[
+                ("classname", "info_node_hint"),
+                ("hinttype", "903"),
+                ("origin", "30 0 0"),
+            ]),
+        ],
+        ..Default::default()
+    };
+    let scene = Scene::new(&world);
+    let physics = Physics::new(&world);
+    let ai = AiRuntime::new(&world, None);
+    let mut r = Rig {
+        world,
+        scene,
+        physics,
+        controller: Controller::new(None, Default::default()),
+        ai,
+    };
+    r.ai.enabled = true;
+    // The output's value is the spawned child, also its activator; no parameter.
+    r.scene
+        .ai_inputs
+        .push((1, "forcethisnpctoleave".into(), String::new(), 0));
+    run(&mut r, 1, player_at(-3000.));
+    assert!(r.ai.actors[&0].class.humanoid().unwrap().actbusy.leaving);
+    // Within 64 units of the exit point: done at the next thinks, with no hint locked.
+    run(&mut r, 40, player_at(-3000.));
+    r.scene.tick(&r.world, Vec3::splat(9999.), 0.015);
+    assert!(r.scene.states[0].killed);
+    assert!(r.ai.hint_locks.is_empty());
+}
+#[test]
+fn active_relationships_cover_npcs_spawned_later() {
+    let world = World {
+        entities: vec![
+            entity(&[("classname", "npc_metropolice"), ("origin", "0 0 0")]),
+            entity(&[
+                ("classname", "ai_relationship"),
+                ("subject", "npc_metropolice"),
+                ("target", "npc_citizen"),
+                ("disposition", "4"),
+                ("StartActive", "1"),
+            ]),
+        ],
+        ..Default::default()
+    };
+    let scene = Scene::new(&world);
+    let physics = Physics::new(&world);
+    let ai = AiRuntime::new(&world, None);
+    let mut r = Rig {
+        world,
+        scene,
+        physics,
+        controller: Controller::new(None, Default::default()),
+        ai,
+    };
+    r.ai.enabled = true;
+    run(&mut r, 1, player_at(-3000.));
+    let citizen = entity(&[("classname", "npc_citizen"), ("origin", "300 0 0")]);
+    let id = r.scene.spawn_entity(&mut r.world, citizen.clone());
+    r.ai.add_actor(id, &citizen);
+    run(&mut r, 1, player_at(-3000.));
+    assert_eq!(
+        r.ai.relationship_overrides.get(&(0, id)),
+        Some(&Disposition::NU)
+    );
+}
