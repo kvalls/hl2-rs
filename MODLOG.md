@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-01 Faces stop at the Low root level
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner report: citizens' heads showed holes with all Potato items on. Model Potato loaded level 3, which is authored for faces seen from far away; up close it shows gaps through the cheek and eye sockets. A root level request now stops at level 2 for a model with eyes. Coarser levels still draw at a distance, and other models still go coarser.
+
+**Tested how / Result:** Owned-file test on a citizen model. Fixed-view captures: the cheek gap and broken eyes are gone. Rejected by hiding meshes and measuring: facial flexes, the mouth mesh, the body mesh, the eyeballs and the triangle-strip trim. The gap stays with each hidden, so it is in the head mesh.
+
+**Frame time:** Not measured again; Model Potato had shown no frame time gain.
+
+**Still broken or not tested:** A few bright specks remain on the chin at level 2, which retail Low also selects; not compared with retail and not fixed. The citizens in the owner's screenshot were not captured at that exact spot.
+
+**Next:** Owner check in play.
+
 ## 2026-11-01 Dist build profile
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

@@ -60,7 +60,7 @@ median, frame ms and peak RSS:
 | Potato item | Gives up | station02 ms | coast01 ms | RSS GB (station02 / coast01) |
 | --- | --- | ---: | ---: | ---: |
 | None (all Low) | | 5.22 | 4.52 | 3.20 / 2.86 |
-| Model | One further level of detail | 5.21 | 4.50 | 2.81 / 2.53 |
+| Model | One further level of detail, except models with faces | 5.21 | 4.50 | 2.81 / 2.53 |
 | Texture | One further mip | 5.07 | 4.72 | 3.17 / 2.85 |
 | Shader | Environment maps, sky cameras (flat sky) | 4.46 | 4.15 | 3.22 / 2.86 |
 | Shadow | All dynamic shadows | 5.01 | 4.58 | 3.20 / 2.89 |
@@ -69,7 +69,7 @@ median, frame ms and peak RSS:
 
 Only Shader moves frame time clearly; Model saves memory; Texture, Shadow and Filtering are within noise on frame time and set the look.
 Those runs predate the fix that extends unfiltered sampling to world textures. Measured again after it, three runs, median: all Low 5.34 and 4.69 ms,
-Filtering alone 5.27 and 4.73 ms, all five 4.45 and 4.03 ms (station02, coast01). Water Detail has no item because nothing renders it yet.
+Filtering alone 5.27 and 4.73 ms, all five 4.45 and 4.03 ms (station02, coast01). Water Detail has no item because nothing renders it yet. The Model row and all-five rows were measured before models with faces were held at the Low root level, so their memory saving is now smaller; not measured again.
 
 At saved settings of 3456x2168, 4x AA, HDR Full, Ultra blur and Shadow High, with the flashlight on at a fixed station02 view, one run each: base 16.07 ms,
 these changes 13.31 ms. The two captures differ by a mean under 0.01 per channel and at most 3 of 255.

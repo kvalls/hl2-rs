@@ -1815,6 +1815,24 @@ mod tests {
         assert_eq!(low.lower.len() + 2, levels.lower.len());
     }
     #[test]
+    #[ignore = "requires an installed owned HL2 copy"]
+    fn owned_faces_stop_at_the_low_root_level_and_other_models_go_coarser() {
+        let game = crate::install::discover().unwrap();
+        let vfs = Vfs::mount(&game).unwrap();
+        let triangles = |path, lod| -> usize {
+            let surfaces = read_model_lod(&vfs, path, 0, lod).unwrap();
+            surfaces.iter().map(|s| s.indices.len()).sum()
+        };
+        let citizen = "models/humans/group01/male_08.mdl";
+        assert_eq!(triangles(citizen, 3), triangles(citizen, 2));
+        assert!(triangles(citizen, 2) < triangles(citizen, 1));
+        let levels = read_model_levels(&vfs, citizen, 0, 0, 3).unwrap();
+        assert!(
+            !levels.lower.is_empty(),
+            "a far face still draws coarser levels"
+        );
+    }
+    #[test]
     fn root_lod_index_clamps_to_authored_lods_without_shadow_lod() {
         assert_eq!(root_lod_index(&[0.0, 20.0, 40.0], 1), 1);
         assert_eq!(root_lod_index(&[0.0, 20.0, 40.0], 5), 2);

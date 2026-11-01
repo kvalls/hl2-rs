@@ -62,7 +62,7 @@ pub fn read_model_variant(
 ) -> Result<Vec<Surface>> {
     let model = Parsed::read(vfs, path, body)?;
     let mut materials = BTreeMap::new();
-    model.surfaces(vfs, skin, root_lod, &mut materials)
+    model.surfaces(vfs, skin, model.root_level(root_lod), &mut materials)
 }
 
 /// The model's meshes for a skin and a body value at the root LOD and every coarser one.
@@ -74,6 +74,7 @@ pub fn read_model_levels(
     root_lod: usize,
 ) -> Result<ModelLevels> {
     let model = Parsed::read(vfs, path, body)?;
+    let root_lod = model.root_level(root_lod);
     let mut materials = BTreeMap::new();
     let root = model.surfaces(vfs, skin, root_lod, &mut materials)?;
     let switch_points = model.switch_points();
@@ -89,6 +90,10 @@ pub fn read_model_levels(
     Ok(ModelLevels { root, lower })
 }
 
+/// The coarsest root level of a model with a face: Model Detail Low. Coarser levels are authored for
+/// faces seen from far away; drawn up close they show gaps through the cheeks and eye sockets.
+const FACE_MAX_ROOT_LOD: usize = 2;
+
 /// The files of one model and the submodels a body value selects.
 struct Parsed {
     mdl: vmdl::Mdl,
@@ -100,6 +105,24 @@ struct Parsed {
 }
 
 impl Parsed {
+    /// The root level to load for a requested one.
+    fn root_level(&self, requested: usize) -> usize {
+        let eyes = self.vtx.body_parts.iter().any(|part| {
+            part.models.iter().any(|model| {
+                model.lods.first().is_some_and(|lod| {
+                    lod.meshes
+                        .iter()
+                        .any(|mesh| mesh.flags.contains(vmdl::vtx::MeshFlags::IS_EYES))
+                })
+            })
+        });
+        if eyes {
+            requested.min(FACE_MAX_ROOT_LOD)
+        } else {
+            requested
+        }
+    }
+
     fn read(vfs: &Vfs, path: &str, body: i32) -> Result<Self> {
         let stem = path.trim_end_matches(".mdl");
         let mdl_bytes = vfs.read(path)?.context("MDL missing")?;
