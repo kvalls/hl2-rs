@@ -1040,7 +1040,6 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::image::ImageSamplerDescriptor;
-    use bevy::render::render_resource::TextureFormat;
     use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
 
     #[test]
