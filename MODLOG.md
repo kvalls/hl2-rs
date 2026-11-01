@@ -6,11 +6,13 @@
 
 **Changed / Why:** Owner remarks. `hl2-debug`: 0 resets the current weapon's framing in viewmodel debug mode. HUD: the gravity gun, bugbait and Annabelle were missing from the crosshair loader and fell back to the no-weapon sprite, although their scripts name the same `Q` glyph. Without GDI the glyph was antialiased and drawn at half pixels, so its dots differed in strength; it now draws hard-edged at whole pixels with the middle dot on the view center.
 
-**Tested how / Result:** Workspace tests and strict Clippy; owned-install test (five mirrored dots, shared by pistol, SMG, RPG, gravity gun and bugbait, at 720p, 1080p and 1281x721). Packaged 1080p captures of the gravity gun and 357 show matching dots between the arcs.
+Native positions: the 1080p capture of the original game has weapon dots at (-11,0), (-1,0), (9,0), (-1,-8) and (-1,8) from the view center, wider than tall, which the owner confirmed against retail. The font outline alone spaced them 11 apart on center, so the tuning data scales columns and offsets the glyph.
 
-**Still broken or not tested:** The glyph's dots remain ±11 wide and ±8 tall here: the font's shape. Native GDI at 720p and 1080p measured ±10 and ±8, so a wider-than-tall reticle is retail behavior. Viewmodel reset key not pressed in the game. Windows path unchanged.
+**Tested how / Result:** Workspace tests and strict Clippy; owned-install test (those five exact dots, shared by pistol, SMG, RPG, gravity gun and bugbait, at 720p, 1080p and 1281x721). Packaged 1080p captures compared with the native capture.
 
-**Next:** Owner decision on the reticle's proportions.
+**Still broken or not tested:** Sizes above the measured ones have no native reference; the same scale and offset apply there. Viewmodel reset key not pressed in the game. Windows path unchanged.
+
+**Next:** Play the packaged build and list what breaks; then timing.
 
 ## 2026-10-31 Plugin remnants removed from core
 

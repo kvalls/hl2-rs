@@ -1887,7 +1887,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     #[ignore = "requires an owned Half-Life 2 installation"]
-    fn owned_weapon_crosshairs_are_crisp_centered_and_shared() {
+    fn owned_weapon_crosshairs_are_crisp_on_the_native_dots_and_shared() {
         let root = source_assets::install::discover().expect("installed game");
         let vfs = Vfs::mount(&root).unwrap();
         let canvas = Canvas::default();
@@ -1924,15 +1924,7 @@ mod tests {
                 dots
             };
             let dots = dots_of("weapon_pistol", &mut inventory);
-            assert_eq!(dots.len(), 5, "{dots:?}");
-            assert!(
-                dots.contains(&(0, 0)),
-                "the middle dot on the center: {dots:?}"
-            );
-            for &(x, y) in &dots {
-                assert!(dots.contains(&(-x, y)), "left-right mirror: {dots:?}");
-                assert!(dots.contains(&(x, -y)), "up-down mirror: {dots:?}");
-            }
+            assert_eq!(dots, [(-1, -8), (-11, 0), (-1, 0), (9, 0), (-1, 8)]);
             for weapon in [
                 "weapon_physcannon",
                 "weapon_bugbait",

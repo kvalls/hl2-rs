@@ -7,5 +7,6 @@
   "unfocused_alpha_factor": 0.3,
   "backdrop_alpha": 0.611765,
   "gameplay_dim_alpha": 0.3,
+  "weapon_crosshair": {"width_scale": [10, 11], "x_offset": -1},
   "hud_aspects": {"normal": [4, 3], "wide16x9": [16, 9], "wide16x10": [16, 10]}
 }

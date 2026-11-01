@@ -53,7 +53,7 @@ pub struct FontFace {
     freetype: Option<FreeTypeCell>,
 }
 type GlyphCache = Arc<MutexCell<HashMap<(char, u32, u16, u16), Glyph>>>;
-type MonochromeCache = Arc<MutexCell<HashMap<(char, u16), Option<Texture2D>>>>;
+type MonochromeCache = Arc<MutexCell<HashMap<(char, u16, u32), Option<Texture2D>>>>;
 #[derive(Clone)]
 struct Glyph {
     texture: Option<Texture2D>,
@@ -364,21 +364,27 @@ impl FontFace {
     /// Cached bitmap bounds relative to the character-cell origin, including font effects.
     /// Symbol HUDs can center their visible glyph rather than assuming text ascent symmetry.
     /// A glyph with hard edges for symbol fonts drawn without antialiasing: every texel is fully
-    /// on or off, point sampled, so it stays crisp at whole-pixel positions. Cached per size.
-    pub fn monochrome_glyph(&self, character: char, size: f32) -> Option<Texture2D> {
+    /// on or off, point sampled, so it stays crisp at whole-pixel positions. `width_scale` moves
+    /// texels toward the middle column, for a font engine whose hinting set narrower spacing.
+    /// Cached per size and scale.
+    pub fn monochrome_glyph(
+        &self,
+        character: char,
+        size: f32,
+        width_scale: f32,
+    ) -> Option<Texture2D> {
         let size = size.round().clamp(1., 1024.) as u16;
-        if let Some(texture) = self.monochrome.borrow().get(&(character, size)) {
+        let key = (character, size, width_scale.to_bits());
+        if let Some(texture) = self.monochrome.borrow().get(&key) {
             return texture.clone();
         }
         let texture = self.glyph(character, size, 0, 0).texture.map(|soft| {
-            let rgba = hard_edges(&soft.0.rgba);
+            let rgba = hard_edges(&soft.0.rgba, usize::from(soft.0.width), width_scale);
             let texture = Texture2D::from_rgba8(soft.0.width, soft.0.height, &rgba);
             texture.set_filter(FilterMode::Nearest);
             texture
         });
-        self.monochrome
-            .borrow_mut()
-            .insert((character, size), texture.clone());
+        self.monochrome.borrow_mut().insert(key, texture.clone());
         texture
     }
     pub fn glyph_bounds(&self, character: char, size: f32, effects: (u16, u16)) -> Rect {
@@ -611,16 +617,20 @@ fn gaussian_blur(bitmap: &[f32], width: usize, height: usize, radius: usize) -> 
     result
 }
 
-/// White texels, opaque where coverage reaches half and transparent elsewhere.
-fn hard_edges(rgba: &[u8]) -> Vec<u8> {
-    rgba.as_chunks::<4>()
-        .0
-        .iter()
-        .flat_map(|texel| {
-            let on = if texel[3] >= 128 { 255 } else { 0 };
-            [255, 255, 255, on]
-        })
-        .collect()
+/// White texels, opaque where coverage reaches half and transparent elsewhere, with columns
+/// scaled about the middle one.
+fn hard_edges(rgba: &[u8], width: usize, width_scale: f32) -> Vec<u8> {
+    let mut hard = [255, 255, 255, 0].repeat(rgba.len() / 4);
+    let middle = (width / 2) as f32;
+    for (i, texel) in rgba.as_chunks::<4>().0.iter().enumerate() {
+        if texel[3] >= 128 {
+            let (row, column) = (i / width, i % width);
+            let moved = middle + ((column as f32 - middle) * width_scale).round();
+            let column = (moved.max(0.) as usize).min(width - 1);
+            hard[(row * width + column) * 4 + 3] = 255;
+        }
+    }
+    hard
 }
 
 #[cfg(test)]
@@ -731,8 +741,23 @@ mod tests {
     fn hard_edges_turn_coverage_fully_on_or_off() {
         let soft = [9, 9, 9, 127, 9, 9, 9, 128, 9, 9, 9, 0, 9, 9, 9, 255];
         assert_eq!(
-            hard_edges(&soft),
+            hard_edges(&soft, 4, 1.),
             [255, 255, 255, 0, 255, 255, 255, 255, 255, 255, 255, 0, 255, 255, 255, 255]
+        );
+    }
+
+    #[test]
+    fn hard_edges_scale_columns_about_the_middle() {
+        let opaque = |columns: &[usize]| {
+            let mut rgba = [255, 255, 255, 0].repeat(23);
+            for column in columns {
+                rgba[column * 4 + 3] = 255;
+            }
+            rgba
+        };
+        assert_eq!(
+            hard_edges(&opaque(&[0, 11, 22]), 23, 10. / 11.),
+            opaque(&[1, 11, 21])
         );
     }
 

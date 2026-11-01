@@ -67,17 +67,18 @@ impl WeaponHud {
             self.canvas.additive(false);
             return;
         }
-        // Without GDI: the same hard-edged glyph at whole pixels, its middle on the view center.
+        // Without GDI: the same hard-edged glyph at whole pixels, on the native dot positions.
+        let (width_scale, x_offset) = crate::tuning::weapon_crosshair();
         if let Some(texture) = character.chars().next().and_then(|c| {
             self.crosshairs
                 .face
-                .monochrome_glyph(c, self.crosshairs.size())
+                .monochrome_glyph(c, self.crosshairs.size(), width_scale)
         }) {
             let size = texture.size();
             source_ui::canvas::draw_texture(
                 &self.canvas,
                 &texture,
-                (self.canvas.width() * 0.5 + 0.5).trunc() - (size.x * 0.5).trunc(),
+                (self.canvas.width() * 0.5 + 0.5).trunc() - (size.x * 0.5).trunc() + x_offset,
                 (self.canvas.height() * 0.5 + 0.5).trunc() - (size.y * 0.5).trunc(),
                 self.crosshair_color,
             );

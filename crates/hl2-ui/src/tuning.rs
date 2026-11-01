@@ -23,9 +23,19 @@ struct Tuning {
     backdrop_alpha: f32,
     /// Unverified fallback opacity for mid-gameplay pause menu dimming overlay.
     gameplay_dim_alpha: f32,
+    /// Where a font engine without GDI's hinting draws the weapon reticle.
+    weapon_crosshair: WeaponCrosshair,
     /// Width:height of each centered HUD aspect of Video > HUD Aspect Ratio
     /// ([`crate::proportional::hud_frame`]).
     hud_aspects: HudAspects,
+}
+
+/// Native 1080p dots sit 10 pixels to the sides and one pixel left of the view center; the font
+/// outline alone spaces them 11 apart on center.
+#[derive(Debug, Deserialize)]
+struct WeaponCrosshair {
+    width_scale: (u32, u32),
+    x_offset: f32,
 }
 
 /// The centered HUD aspects, width:height, named like [`crate::config::HudAspect`].
@@ -62,6 +72,16 @@ pub fn widest_design_aspect() -> f32 {
 /// Largest growth of the menu on wide screens.
 pub fn widescreen_menu_scale_max() -> f32 {
     data().widescreen_menu_scale_max
+}
+
+/// Column scale and horizontal offset of the weapon reticle without GDI.
+pub fn weapon_crosshair() -> (f32, f32) {
+    let crosshair = &data().weapon_crosshair;
+    let (numerator, denominator) = crosshair.width_scale;
+    (
+        numerator as f32 / denominator.max(1) as f32,
+        crosshair.x_offset,
+    )
 }
 
 /// Rows of the tallest menu.
