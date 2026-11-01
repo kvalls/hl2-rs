@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-01 Documentation review for the plugins
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner request. STATUS names the current branch and evidence. The feature guide points viewmodel tuning at the plugin's `tuning.json`, adds the `0` key and plugin ownership. README and AGENTS cover `--plugins` and the owner-confirmed crate edges. GameUI notes flag older sections and plugin placeholders. docs/plugins.md lists the remaining gaps and checks. docs/validation.md records the evidence.
+
+**Tested how / Result:** Architecture, isolation and whitespace checks. Documentation only; no gameplay rebuild.
+
+**Still broken or not tested:** As listed in STATUS. Older GameUI and validation sections stay as history.
+
+**Next:** Frame-time comparison.
+
 ## 2026-11-01 Launcher plugin selection
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

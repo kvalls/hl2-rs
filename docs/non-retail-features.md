@@ -4,6 +4,12 @@ HL2-RS adds the following controls and developer tools beyond retail Half-Life 2
 These are deliberate extensions, not claims of retail fidelity. This guide describes
 current behavior; implementation history is in [GameUI notes](gameui.md).
 
+They are optional source-built plugins, both on by default, and a build can leave
+either out ([plugins](plugins.md)). `hl2-advanced-options` owns motion blur tiers,
+aspect choices, the keep-or-revert dialog, the FOV sliders and portrait and ultrawide
+weapon framing. `hl2-debug` owns the debug modes below and the F1, F2, F3 and F4 keys.
+Saved values for an omitted plugin are kept and apply again when it returns.
+
 ## Advanced and Ultra motion blur
 
 Open **Options > Video > Advanced > Motion Blur**. The four choices are:
@@ -56,14 +62,16 @@ It is therefore not a confirmation for every resolution change. The dialog share
 
 Open **Options > Video > Advanced > Vertical FOV**. **Auto** derives the gameplay
 camera's vertical field of view from the normal FOV and aspect-dependent framing.
-An explicit value overrides that vertical angle, currently **40–120 degrees**.
+An explicit value overrides that vertical angle, currently **40–120 degrees** on the
+slider. The `vertical_fov` console command accepts 40–100.
 Weapon and scripted zoom still scale the view. Main-menu background projection
 ignores this gameplay setting. The value is saved with the video settings.
 
 ## Viewmodel FOV slider
 
 Open **Options > Video > Advanced > Viewmodel FOV**. This changes the weapon camera's
-base field of view: currently **30–110 degrees**, with a default of **54 degrees**.
+base field of view: currently **30–110 degrees** on the slider, with a default of
+**54 degrees**. The `viewmodel_fov` console command accepts 40–80.
 The angle is horizontal at the 4:3 reference aspect, not a vertical FOV. A larger
 value makes the weapon appear smaller and exposes more of the model. Zoom and
 per-weapon/aspect framing adjustments still apply. The value is saved with the
@@ -83,7 +91,7 @@ X/Y/Z offsets. It cannot start on a menu background or while a map is loading.
 | Up / Down | Increase / decrease Z, the upward offset. |
 | Shift | Use a 1.0 step instead of the default 0.1. |
 | Alt / Option | Use a 0.01 step. |
-| `viewmodel_tweak_reset` | Zero the current weapon/profile's FOV and position offsets. |
+| `0` or `viewmodel_tweak_reset` | Zero the current weapon/profile's FOV and position offsets. |
 | `viewmodel_debug_mode 0` | End the session and discard its temporary edits. |
 
 Adjustment keys repeat while held. Normal movement, aiming, firing, reloading and
@@ -95,8 +103,10 @@ menu ends it. F5 and F6 are not bound to this tool.
 Each adjustment removes the previous tuning snapshot and appends the latest complete
 tuning JSON at the end of the console log, after any intervening ordinary output. Zero FOV offsets and entirely zero offset arrays are omitted, including in
 untouched profiles. Zero components remain in nonzero arrays, for example
-`"standard": {"offset": [0.0, 0.0, 0.2]}`. The tool does not save its edits automatically: copy that JSON into the
-project's `crates/hl2-ui/assets/ui/tuning.json` to retain authored changes.
+`"standard": {"offset": [0.0, 0.0, 0.2]}`. The tool does not save its edits automatically: copy that JSON into
+`plugins/hl2-advanced-options/assets/ui/tuning.json` to retain authored changes. Without
+that plugin only a `standard` profile exists, the snapshot lists just the session's edits,
+and there is no framing data file to copy them into.
 
 ## Menu background debug mode
 

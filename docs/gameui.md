@@ -9,7 +9,9 @@ The [non-retail features guide](non-retail-features.md) documents the current
 Advanced/Ultra blur tiers, extra aspect ratios, 15-second aspect-change confirmation,
 vertical and viewmodel FOV sliders, viewmodel tweak controls and menu background
 debug controls. It is the user-facing reference; the sections below retain the
-implementation detail and historical validation.
+implementation detail and historical validation. Those features have since moved to
+optional plugins ([plugins](plugins.md)), so older sections may name core types and paths
+that now differ, such as `AspectRatio::Flexible` and `video.flexible_aspect`.
 
 ## 0. Conventions for UI, HUD and localization work
 
@@ -23,7 +25,7 @@ such a change.
 - **Resource Priority & In-Repo Text Rule (owner, 2026-10-22)**: Always prioritize game resources/assets over in-repo assets/constants. Do NOT add values into `crates/hl2-ui/src/gameui/localize.rs` if they can be retrieved straight from game resources/assets. Fallback strings in `FALLBACK_STRINGS` are permitted ONLY for the use case where the game launches and cannot find the in-game resources (such as setup/install dialogs to browse the game directory, or essential abort dialogs before resources are mounted). `gameui/localize` serves primarily as a source for text that has NO in-game resources (such as modded or expanded features).
 - Never introduce hardcoded English literals in UI or HUD drawing code.
 - The localization engine (token table, parser, escapes, key-name fallback) is `source_ui::localize::Localization`; hl2-ui's `gameui::localize::Localization` is that engine with HL2RS's in-repo text (`InRepoText`: the placeholders, then `FALLBACK_STRINGS`), so every GameUI table, including `Localization::default()`, falls back to them.
-- Text only HL2RS shows (no installed token, e.g. the ultrawide aspect choices) uses an `HL2RS_` token constant with a **temporary** English placeholder in `hl2-ui::gameui::localize::placeholders::PLACEHOLDER_STRINGS`. These are to move into HL2RS-owned, plugin-extensible localization resources (`hl2rs_<language>.txt`, game file format) once that layer exists; code references only the token constants.
+- Text only HL2RS shows (no installed token, e.g. the console's history search prompt) uses an `HL2RS_` token constant with a **temporary** English placeholder in `hl2-ui::gameui::localize::placeholders::PLACEHOLDER_STRINGS`; a plugin keeps its own placeholders and registers them, and installed tokens still win. These are to move into HL2RS-owned, plugin-extensible localization resources (`hl2rs_<language>.txt`, game file format) once that layer exists; code references only the token constants.
 - Before adding a placeholder, search the installed localization files (`gameui_english.txt`, `vgui_english.txt`, `valve_english.txt`, `merged_loc_all.txt`; UTF-16 ones through `iconv`) for a token that already says it, and reuse it.
 - UI scale goes through `proportional::design_height` (`proportional::dialog_scale`, `proportional::scale`): never scale UI by the raw canvas height, or square and portrait screens overflow.
 - Localization files in retail contain authentic escape sequences (`\n`, `\t`, `\"`, `\\`) across multiple tokens. Escape sequences MUST be handled strictly at the resource parser/insertion boundary (`Localization::add_resource` and `Localization::insert` in `source_ui::localize`). Never duplicate unescape logic at runtime lookup sites, and never dynamically unescape arbitrary non-token text.

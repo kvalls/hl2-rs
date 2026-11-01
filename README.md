@@ -131,7 +131,7 @@ cd hl2-rs
 ```
 
 `launch-bevy.sh` is an all-in-one launcher that manages builds automatically:
-- **Automatic build & freshness check**: It checks whether `bin/hl2-bevy` exists and is up to date with respect to source files (`crates/`), `Cargo.toml`, shader assets (`crates/hl2-bevy/assets`), git branch switches, and git commits.
+- **Automatic build & freshness check**: It checks whether `bin/hl2-bevy` exists and is up to date with respect to source files (`crates/`, `plugins/`, `apps/`), `Cargo.toml`, shader assets (`crates/hl2-bevy/assets`), git branch switches, and git commits.
 - **Automatic target cleanup**: Before a required build, the launcher prunes stale workspace artifacts while preserving third-party caches. It holds Cargo-compatible debug/release locks throughout cleanup, then releases them before building. Busy targets and unsupported/network filesystems skip pruning. Use `--no-clean` to disable cleanup; `--no-build` and up-to-date launches do not clean. Manual preview: `./scripts/clean-target.sh --stale --dry-run`.
 - **Direct launch**: If the build is already up to date, it launches immediately without rebuilding.
 
@@ -143,6 +143,7 @@ Convenience launcher scripts:
 Common `launch-bevy.sh` arguments:
 - `--rebuild` (or `--force-build`) — force a build before launching, even if build artifacts appear current.
 - `--debug` (or `-d`) — build and run the debug profile instead of release.
+- `--plugins <list>` — build and run with these comma-separated plugins (`advanced-options`, `debug-tools`) or `none`. Without it the last selection stays, also across automatic rebuilds; the first build has both.
 - `--no-build` — launch the existing executable directly without checking for updates, cleaning or compiling.
 - `--no-clean` — skip automatic stale-target cleanup when a build is needed.
 - Any game arguments (such as `--map d1_trainstation_01`, `--setup`, `--game <path>`, `--fullscreen`, `--windowed`) are forwarded directly to the game binary.
@@ -172,10 +173,11 @@ Steam libraries are discovered automatically; `HL2_ROOT` can override discovery.
 | Left / right click, R | Primary / implemented secondary attack, reload |
 | 1-6 / mouse wheel | Open/cycle owned weapons; either attack button confirms |
 | Q | Switch to the previous weapon |
-| F3 | Developer loadout: crowbar, pistol, .357, SMG1, AR2, shotgun, reserves and suit |
-| F1 | Toggle the development overlay; hidden by default |
+| F3 (`hl2-debug` plugin) | Developer loadout: crowbar, pistol, .357, SMG1, AR2, shotgun, reserves and suit |
+| F1 (`hl2-debug` plugin) | Toggle the development overlay; hidden by default |
 | G | Apply a test impulse to a nearby prop |
-| F2 | Toggle flight (Space/Ctrl rise/fall) |
+| F2 (`hl2-debug` plugin) | Toggle flight (Space/Ctrl rise/fall) |
+| F4 (`hl2-debug` plugin) | NPC and prop spawn panel |
 | F10 | Quit |
 
 The starting map normally has no player weapon. F3 is a test aid. It does not demonstrate campaign weapon acquisition. Some campaign scripts still block progression.
@@ -184,7 +186,8 @@ The pause menu has working Resume Game, Developer Console and Quit controls. The
 
 ## Non-retail features
 
-HL2-RS includes deliberate extensions beyond retail Half-Life 2. See the
+HL2-RS includes deliberate extensions beyond retail Half-Life 2, built as optional
+plugins that are on by default; see [plugins](docs/plugins.md). See the
 [non-retail features guide](docs/non-retail-features.md) for controls, saved versus
 temporary settings, and current limits.
 

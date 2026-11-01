@@ -30,7 +30,7 @@ Worked examples:
 
 Dependencies point one way: application (`apps/hl2rs`, package `hl2-app`) -> plugins (`plugins/*`) -> core (`crates/*`).
 
-- Core never depends on, imports, feature-gates or registers a concrete plugin; `scripts/checks/architecture.py` enforces those names. It cannot detect feature knowledge under other names, so AGENTS.md's plugin rules and review of `git diff -- crates/` cover that.
+- Core never depends on, imports, feature-gates or registers a concrete plugin; `scripts/checks/architecture.py` enforces those names. It cannot detect feature knowledge under other names, so the rules above and review of `git diff -- crates/` cover that.
 - The application owns the features `advanced-options` and `debug-tools`, both on by default, and injects what they select in `apps/hl2rs/src/main.rs` and `plugins.rs`.
 - A plugin's portable code stays free of Bevy. Its optional `bevy` feature holds the host adapter, which may use the public `hl2-bevy` API.
 - `hl2-simulation` stays independent of any engine.
@@ -65,13 +65,15 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 - One video policy can be selected; `Extensions::select_video` rejects a second. Selecting among several video contributors is not implemented, and `framing` and `projection` take the first contributor's answer.
 - There is no declared-dependency or capability validation between plugins, because the two current plugins are independent.
 - `cargo run` without packaging has no `weapon_blur.wgsl` in its asset root, so run the packaged build for Advanced or Ultra blur.
-- Plugin developer text in the F4 panel and debug overlays still has English literals.
-- The window-following frame, the projection parameter and the background-selection services stay in core as generic mechanisms.
+- Plugin developer text in the F4 panel and debug overlays still has English literals, and the string audit does not scan `plugins/`.
+- `spawn_usable_weapons` runs when a map is adopted and the Props listing starts then too, so opening the Props tab right after a load can briefly show the default listing. A generic prepare hook on the loading worker would fix both.
+- Packaged replays assume both plugins, so other selections have no replay coverage.
+- Not gaps: the window-following frame, the projection parameter and the background-selection services stay in core as generic mechanisms, because they pass the core test.
 - `modkit_core::ModPlugin` is an older, unused simulation contract, not this mechanism.
 
 ## Workflows
 
-**Add a plugin.** Create `plugins/<name>` with a portable `register(&mut Extensions)` and, if needed, a `bevy` feature with its runtime extension or `install` function. Add a workspace member and an entry in `LAYERS`. Add an optional dependency and feature to `apps/hl2rs/Cargo.toml`, and inject it in `main.rs` and `plugins.rs`. Add it to `scripts/checks/check_plugin_selection.py`. Extend the `.gitignore` whitelist narrowly for any new resource type. Core should not need an edit unless a contract is genuinely missing; change the contract generically in that case.
+**Add a plugin.** Create `plugins/<name>` with a portable `register(&mut Extensions)` and, if needed, a `bevy` feature with its runtime extension or `install` function. Add a workspace member and an entry in `LAYERS`. Add an optional dependency and feature to `apps/hl2rs/Cargo.toml`, and inject it in `main.rs` and `plugins.rs`. Add its feature to `scripts/checks/check_plugin_selection.py` and to the known names in `scripts/build-bevy.sh` and the launcher's help. Extend the `.gitignore` whitelist narrowly for any new resource type. Core should not need an edit unless a contract is genuinely missing; change the contract generically in that case.
 
 **Change or fix a plugin.** Edit the owning plugin and put the test beside the code. Portable behavior is tested without Bevy; adapter tests need the plugin's `bevy` feature, for example `cargo test -p hl2-debug --features bevy`.
 
@@ -95,4 +97,4 @@ It rebuilds only when the selection differs from the current build. Without `--p
 
 ## Checks
 
-`scripts/checks/check_plugin_selection.py` builds core-only, each plugin alone and both, and fails if an unselected plugin appears in a dependency tree. It runs in `scripts/checks/validate.sh`.
+`scripts/checks/check_plugin_selection.py` builds core-only, each plugin alone and both, and fails if an unselected plugin appears in a dependency tree. It runs in `scripts/checks/validate.sh`. It only compiles each selection, so it does not prove runtime behavior, and warnings do not fail it. `scripts/checks/test_launch_plugins.py` covers the launcher's selection with a stand-in build.

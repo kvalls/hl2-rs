@@ -1,5 +1,29 @@
 # Local validation — 2026-10-05
 
+## Optional plugins (2026-11-01)
+
+On macOS: `cargo test --workspace --locked --offline` (1,301 passed, 0 failed, 107 ignored
+at `ef5ec6d`), strict Clippy, fmt, `scripts/checks/architecture.py`,
+`scripts/checks/check_plugin_selection.py` (compile and dependency trees only) and
+`scripts/checks/check_windows.sh`. `scripts/checks/test_launch_plugins.py` covers the
+launcher's selection with a stand-in build.
+
+`python3 scripts/checks/replays.py`, default build, background: 107 checks, 101 passed at
+`f9886df`. The six failures failed identically on the pre-extraction revision `66c4a73`:
+fixtures clicking just past the Video tab or dragging an unfocused dialog, and an F1 line count.
+After fixing those, `ONLY='menu_options options video_8k resolution_stress dev_overlay
+options_status'` passes all six; the full suite was not rerun afterwards. A Video > Advanced
+capture shows the moved sliders in their earlier positions.
+
+Weapon crosshair: `cargo test -p hl2-ui --lib owned_weapon_crosshairs -- --ignored` checks
+the native dots (-11,0), (-1,0), (9,0), (-1,-8), (-1,8) for five weapons at 720p, 1080p and
+1281x721. A packaged 1080p gravity gun capture matches the native 1080p pistol capture
+recorded on 2026-10-05; the owner confirmed retail's reticle is not square.
+
+The owner launched core-only, debug-only and advanced-only packaged builds and reported them
+working; that is an ordinary launch, not a replay suite. **Not tested:** replays on those
+selections, windowed checks, Windows at runtime and frame time before and after.
+
 ## Blur presence and door stress (2026-10-30)
 
 `python3 scripts/checks/check_retail_blur.py` captures at a frame count while the camera sweeps around one
