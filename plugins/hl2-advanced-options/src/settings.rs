@@ -82,6 +82,12 @@ pub fn set_potato(video: &mut AdvancedVideoSettings, choice: AdvancedChoice, on:
         video.extensions.set_bool(key, on);
     }
 }
+/// Every combo at its lowest own row, with its Potato item on or off.
+pub fn set_all_potato(video: &mut AdvancedVideoSettings, on: bool) {
+    for (choice, _) in POTATO {
+        choice.select(video, usize::from(!on));
+    }
+}
 /// What the selected Potato items give up, each only its own option's work.
 pub fn potato_budget(video: &AdvancedVideoSettings) -> RenderBudget {
     let shader = potato(video, AdvancedChoice::ShaderDetail);

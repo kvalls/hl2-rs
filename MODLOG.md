@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-01 Settings changes apply at once
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner report: the sky stayed flat after leaving Potato, and shader changes applied inconsistently. The game frame took its render budget only when a window setting changed, so the sky, shadows and frame sampling kept the old one; it now takes it whenever settings apply. Separately, the load detail baseline was empty at launch, so the first Model, Texture or Shader change after starting did not reload until the next map (present before this work); it now starts from the launch settings. Added a `potato 0/1` console setting.
+
+**Tested how / Result:** Unit tests, `scripts/checks/validate.sh`, packaged runs on coast01 typing the change into a running game: Low to Potato, Potato to Low, Potato to Max. End states match a fresh launch in sky frames, triangles and decoded texture bytes, and captures differ from a fresh launch by 0.1% of pixels where compared; the Max capture was inspected by eye.
+
+**Frame time:** No hot path changed: the budget is compared only when settings apply.
+
+**Still broken or not tested:** The flows use console commands, which share the dialog's apply path; clicking through the dialog was not automated. Changing a detail option reloads the map, as Model and Texture Detail always did; that also restarts a map in play.
+
+**Next:** Owner check in play.
+
 ## 2026-11-01 Faces stop at the Low root level
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

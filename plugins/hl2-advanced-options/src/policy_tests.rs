@@ -43,6 +43,13 @@ fn potato_is_the_lowest_item_of_its_combos_and_costs_only_its_own_work() {
     assert_eq!(choice.selected(video), 1);
     assert_eq!(video.shader_detail, hl2_ui::config::ShaderDetail::Low);
     assert_eq!(crate::settings::potato_budget(video), Default::default());
+    // Every item together, and off again at Low.
+    crate::settings::set_all_potato(video, true);
+    assert!(crate::settings::potato_budget(video).nearest);
+    assert!(crate::settings::potato_budget(video).no_shadows);
+    crate::settings::set_all_potato(video, false);
+    assert_eq!(crate::settings::potato_budget(video), Default::default());
+    assert_eq!(video.texture_detail, hl2_ui::config::TextureDetail::Low);
     // A combo without the item keeps its rows.
     video.water_detail = hl2_ui::config::WaterDetail::All;
     assert_eq!(AdvancedChoice::WaterDetail.selected(video), 2);

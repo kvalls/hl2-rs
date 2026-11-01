@@ -82,6 +82,8 @@ pub struct Simulation {
     /// Runtime-only viewmodel tuning overlay and active direct-profile edit.
     /// Runtime background layout visual analysis overlay and FOV tuning.
     pub pending_video_config: Option<hl2_ui::config::VideoSettings>,
+    /// The render budget of the settings applied last, for the game frame to take.
+    pub pending_budget: Option<hl2_ui::extensions::RenderBudget>,
     /// Window settings last given to the window: startup values (after command-line overrides)
     /// or the last queued apply. `None` applies the next configuration unconditionally.
     pub applied_window: Option<WindowSettings>,
@@ -143,6 +145,7 @@ impl Simulation {
             finished: false,
             run_after_script: false,
             pending_video_config: None,
+            pending_budget: None,
             applied_window: None,
             applied_detail: None,
             frame_size: None,
@@ -229,6 +232,7 @@ impl Simulation {
         self.projection_parameter = options.config.video.projection_parameter();
         self.background_force_default_blur = options.config.video.background_force_default_blur;
         self.viewmodel_fov = options.config.video.effective_viewmodel_fov();
+        self.applied_detail = Some(options.config.video.load_detail());
         self.applied_window = Some(
             WindowSettings::new(options.width, options.height, options.display_mode)
                 .with_follows_window(options.follows_window),
@@ -468,6 +472,7 @@ impl Simulation {
             self.applied_window = Some(target);
             self.pending_video_config = Some(cfg.video.clone());
         }
+        self.pending_budget = Some(cfg.video.render_budget());
         let detail = cfg.video.load_detail();
         let detail_changed = self.applied_detail.is_some_and(|prev| prev != detail);
         self.applied_detail = Some(detail);
@@ -1385,6 +1390,8 @@ mod tests {
         let mut game = crate::gameplay::Gameplay::synthetic(world);
         let mut ui = crate::ui_host::Console::new(Default::default());
 
+        // Settings reach the render budget even when no window setting changes.
+        sim.pending_budget = None;
         // First apply initializes applied_detail without reload
         let mut cfg = ui.source.config.clone();
         sim.console_effects(
@@ -1394,6 +1401,7 @@ mod tests {
         );
         assert_eq!(ui.map_request, None);
         assert_eq!(sim.applied_detail, Some(cfg.video.load_detail()));
+        assert_eq!(sim.pending_budget, Some(cfg.video.render_budget()));
 
         // Change model detail -> triggers map reload
         cfg.video.advanced.model_detail = hl2_ui::config::ModelDetail::Low;

@@ -10,6 +10,7 @@ use bevy::{
     prelude::{Query, Res, ResMut, UVec2, With, Without},
     render::render_resource::BlendState,
 };
+use hl2_ui::extensions::RenderBudget;
 
 /// Every game camera, routed into the frame by `present_frame`.
 pub(crate) type FrameCameras<'w, 's> = Query<
@@ -56,6 +57,12 @@ pub(crate) fn apply_video_settings(
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<Image>>,
 ) {
+    // A budget changes without any window setting changing, so it does not wait for one.
+    if let (Some(budget), Some(frame)) = (sim.pending_budget.take(), frame.as_deref_mut())
+        && take_budget(frame, budget)
+    {
+        sync_frame_sampler(frame, &mut images);
+    }
     let Some(cfg) = sim.pending_video_config.take() else {
         return;
     };
@@ -63,9 +70,13 @@ pub(crate) fn apply_video_settings(
         return;
     };
     apply_video_config_to_window(&mut window, &cfg, frame.as_deref_mut());
-    if let Some(frame) = frame {
-        sync_frame_sampler(&frame, &mut images);
-    }
+}
+
+/// Whether the frame's budget changed.
+fn take_budget(frame: &mut GameFrame, budget: RenderBudget) -> bool {
+    let changed = frame.budget != budget;
+    frame.budget = budget;
+    changed
 }
 
 /// Whether a camera of `order` writes the frame when the active cameras end at `last`.

@@ -4,7 +4,7 @@ use hl2_ui::console::{
     commands::{Spec, setting},
 };
 use source_ui::console::command::{Arg, Invalid, parse};
-pub const SPECS: [Spec; 2] = [
+pub const SPECS: [Spec; 3] = [
     setting(
         "vertical_fov",
         "vertical_fov [degrees]: query or set vertical field of view (0 = automatic)",
@@ -19,7 +19,22 @@ pub const SPECS: [Spec; 2] = [
         viewmodel,
         set_viewmodel,
     ),
+    setting(
+        "potato",
+        "potato [0/1]: query or set every Potato item; off leaves the combos at Low",
+        &[Arg::Free],
+        potato,
+        set_potato,
+    ),
 ];
+fn potato(console: &Console) -> Option<String> {
+    let on = crate::settings::potato_budget(&console.config.video.advanced) != Default::default();
+    Some(u8::from(on).to_string())
+}
+fn set_potato(console: &mut Console, value: &str) -> Result<(), Invalid> {
+    crate::settings::set_all_potato(&mut console.config.video.advanced, parse::<u8>(value)? != 0);
+    Ok(())
+}
 fn vertical(console: &Console) -> Option<String> {
     Some(format!(
         "{:.0}",
