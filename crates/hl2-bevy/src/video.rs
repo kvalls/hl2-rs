@@ -27,7 +27,9 @@ mod fov;
 pub(crate) use fov::vertical_fov_4_3;
 pub(crate) use fov::{vertical_fov_for, vertical_fov_with};
 mod msaa;
+mod outputs;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
+pub(crate) use outputs::{FrameCameras, skip_covered_outputs};
 pub mod mode {
     use super::*;
     use hl2_ui::config::DisplayMode;
@@ -879,16 +881,6 @@ fn macos_desktop_area(
     };
     (area.visible.width() >= 1. && area.visible.height() >= 1.).then_some(area)
 }
-
-type FrameCameras<'w, 's> = Query<
-    'w,
-    's,
-    (&'static mut Camera, &'static mut RenderTarget),
-    (
-        Without<crate::monitors::MonitorCamera>,
-        Without<PresentCamera>,
-    ),
->;
 
 /// Routes every game camera into the game frame and places the presented frame in the window.
 /// A follows_window frame takes the window's current shape here first, so live window resizes (and

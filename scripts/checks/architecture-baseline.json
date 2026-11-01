@@ -180,7 +180,7 @@
   "crates/hl2-bevy/src/effects.rs": 1085,
   "crates/hl2-bevy/src/gameplay.rs": 1632,
   "crates/hl2-bevy/src/rendering.rs": 1483,
-  "crates/hl2-bevy/src/video.rs": 1051,
+  "crates/hl2-bevy/src/video.rs": 1043,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2611,
   "crates/hl2-simulation/src/ai/schedule.rs": 1132,

@@ -183,7 +183,8 @@ pub(super) fn add_presentation_systems(app: &mut App) {
             console_host::apply_cursor_hint,
         ),
     )
-    .add_systems(Last, monitor::monitor);
+    .add_systems(Last, monitor::monitor)
+    .add_systems(Last, video::skip_covered_outputs);
 }
 
 /// What the startup map reports; the worker replaces it after each map change.
