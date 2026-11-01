@@ -432,6 +432,15 @@ impl FontFace {
     pub fn width_cell(&self, value: &str, cell: f32) -> f32 {
         self.width_em(value, self.cell_em(cell))
     }
+    /// The whole-pixel EM cell draws rasterize at.
+    fn raster_em(&self, cell: f32) -> f32 {
+        self.cell_em(cell).round().clamp(1., 1024.)
+    }
+    /// Pixel width of `value` as [`Self::draw_cell`] draws it in a cell of `cell` pixels. The
+    /// whole-pixel EM makes this differ from a [`Self::width_cell`] measured at another scale.
+    pub fn drawn_width_cell(&self, value: &str, cell: f32) -> f32 {
+        self.width_em(value, self.raster_em(cell))
+    }
     /// Draws `value` with an outline/border along the letter edge path with its character cell's
     /// top-left corner at `top_left`. Glyphs are rasterized at a whole-pixel EM and snapped to
     /// whole pixels so 1:1 glyph bitmaps do not blur across subpixels.
@@ -443,7 +452,7 @@ impl FontFace {
         color: Color,
         outline: TextOutline,
     ) {
-        let raster = self.cell_em(cell).round().clamp(1., 1024.);
+        let raster = self.raster_em(cell);
         self.draw_baseline_outlined(
             value,
             (top_left + Vec2::new(0., self.ascent_at(raster))).round(),

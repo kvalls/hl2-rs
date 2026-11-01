@@ -3,7 +3,7 @@ use super::{
     confirm_frame, layout_widgets, main_frame, page_rect, sub_frame, OptionsDialog, Panel, Widget,
 };
 use crate::gameui::settings::support;
-use glam::Vec2;
+use glam::{vec2, Vec2};
 use source_ui::{
     canvas::{Color, Rect},
     input::Input,
@@ -19,6 +19,8 @@ pub struct ActiveTooltip {
     pub development: Option<String>,
     pub pointer: Vec2,
     target: (Panel, usize),
+    /// The dialog scale `prepared` was measured at; a window resize measures again.
+    scale: f32,
     prepared: PreparedTooltip,
 }
 
@@ -91,10 +93,12 @@ impl OptionsDialog {
             return;
         };
         let target = (panel, index);
+        let canvas = vec2(measure.canvas.width(), measure.canvas.height());
+        let scale = crate::proportional::dialog_scale(canvas);
         if let Some(active) = self
             .active_tooltip
             .as_mut()
-            .filter(|tip| tip.target == target)
+            .filter(|tip| tip.target == target && tip.scale == scale)
         {
             active.pointer = canvas_pointer;
             return;
@@ -118,7 +122,14 @@ impl OptionsDialog {
             self.active_tooltip = None;
             return;
         }
-        let prepared = measure.prepare_tooltip(&[
+        let at_draw_scale = Painter {
+            canvas: measure.canvas,
+            fonts: measure.fonts,
+            theme: measure.theme,
+            origin: Vec2::ZERO,
+            scale,
+        };
+        let prepared = at_draw_scale.prepare_tooltip(&[
             TooltipSection {
                 text: &text,
                 fill: measure.theme.tooltip_bg,
@@ -133,6 +144,7 @@ impl OptionsDialog {
             development,
             pointer: canvas_pointer,
             target,
+            scale,
             prepared,
         });
     }

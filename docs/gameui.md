@@ -1982,7 +1982,8 @@ Orange retail help text is preserved. A cyan report sits below it with a two-lay
 gap; without retail text only cyan is drawn. The whole stack clamps/flips together at screen
 edges while each panel retains its own measured width. source-ui owns the generic prepared
 coloured tooltip panels; hl2-ui supplies status and cyan fill (RGBA 110,220,255,240). Hover
-text/wrapping is reused while the control is unchanged. Disabled controls can explain their
+text/wrapping is reused while the control and dialog scale are unchanged; it is measured at
+the draw scale, whose whole-pixel font size sets the real text width. Disabled controls can explain their
 status; popup lists, confirmations, dragging, key capture and occluded windows suppress
 hints. Both main pages and subdialogs use the same path. Settings binding lookup now uses
 a bounded stack buffer rather than allocating for the new visibility queries.

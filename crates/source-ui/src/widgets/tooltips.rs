@@ -38,14 +38,28 @@ impl PreparedTooltip {
 }
 
 impl Painter<'_> {
-    /// Wrap/measure on hover changes, then reuse the result for subsequent frames.
+    /// Width in layout units of `text` as this painter's scale draws it, for a box that must fit
+    /// the glyphs exactly: [`Self::text_width`] does not follow the rasterized size.
+    pub fn drawn_text_width(&self, text: &str, bold: bool) -> f32 {
+        self.font(bold).map_or_else(
+            || self.text_width(text, bold),
+            |f| {
+                text.lines()
+                    .map(|l| f.drawn_width_cell(l, FONT_TALL * self.scale) / self.scale)
+                    .fold(0.0, f32::max)
+            },
+        )
+    }
+
+    /// Wrap/measure on hover changes, then reuse the result for subsequent frames. Measures at
+    /// this painter's scale, which must be the scale the tooltip is drawn at.
     pub fn prepare_tooltip(&self, sections: &[TooltipSection<'_>]) -> PreparedTooltip {
         let mut tooltip = PreparedTooltip::default();
         for section in sections.iter().filter(|s| !s.text.trim().is_empty()) {
-            let lines = wrap(section.text, 280., |s| self.text_width(s, false));
+            let lines = wrap(section.text, 280., |s| self.drawn_text_width(s, false));
             let width = lines
                 .iter()
-                .map(|s| self.text_width(s, false))
+                .map(|s| self.drawn_text_width(s, false))
                 .fold(0., f32::max);
             let height = lines.len() as f32 * FONT_TALL + PAD.y * 2.;
             if !tooltip.sections.is_empty() {

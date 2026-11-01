@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-01 Options tooltips: equal text padding
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner report: orange and cyan hints had no padding on the right. The panel width was measured at scale 1 and multiplied up, but text draws at a whole-pixel font size for the real scale, which came out wider. Hints now wrap and measure at the dialog scale they draw at (`Painter::drawn_text_width`), and measure again if that scale changes. Lines near the 280-unit wrap limit can break one word earlier than before.
+
+**Tested how / Result:** Unit test of both side paddings at eight scales with the embedded font; hint tests; `scripts/checks/validate.sh`. Packaged captures of the stacked Aim-Assist hint at 1920x1080 and 2000x1293 with the installed font, inspected by eye: the right gap now matches the left on both panels.
+
+**Frame time:** No hot path changed: measuring still happens once per hovered control, plus one float compare per input frame.
+
+**Still broken or not tested:** Other widgets that use `text_width` to fit text at scale were not reviewed. Resizing the window during a hover was not run.
+
+**Next:** Owner check in play.
+
 ## 2026-11-01 Settings changes apply at once
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
