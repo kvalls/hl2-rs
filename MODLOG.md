@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-01 Plaza metrocops work their hints on background01
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner request: menu backgrounds closer to retail in NPC activity, first `hl2/background01`. Two causes, neither specific to background levels. `ai_goal_actbusy` ignored `StartActive`, so both cops stood at spawn. `ai_relationship` dropped target `player` (only `!player` matched), so once a cop walked it hated the frozen menu player and hit it three times. Both are fixed in `ai/runtime/goal_inputs.rs`. Affected maps: StartActive actbusy with a metrocop actor (`background01`, `d1_trainstation_02`, `d1_canals_07`, other classes do not host the behavior yet); player-class relationships (`background01`, `d1_canals_01a`).
+
+**Tested how / Result:** Two new unit tests; `scripts/checks/validate.sh` passes; gameplay replays 72 checks, 0 failed (macOS only). Packaged background run, 3,000 frames, muted: before, both cops idle at spawn; after, each busy at a different `hintgroup_plaza_cops` hint, state Idle, 0 hits on the player. Frame time, mean, same run shape: before 18.09 ms (55.3 FPS), after 18.06 ms (55.4 FPS). No measurable cost, but another game was running on the machine, so this is not a clean benchmark.
+
+**Still broken or not tested:** Retail was not run for comparison: **not tested**. The walk itself is inferred from reported positions and hints plus single captures; not checked by eye. Citizens still stand where they spawn (`ForceThisNPCToLeave`, exit hints and removal missing). Pigeon `FlyAway`, scanner and camera AI, `func_smokevolume` and `point_spotlight` are unimplemented. An NPC spawned after a start-active actbusy goal activates is not enabled. The `d1_trainstation_02` and `d1_canals_01a` changes have no dedicated scene comparison.
+
+**Next:** Citizen leave behavior on actbusy, on the owner's decision.
+
 ## 2026-11-01 No "A.I. Disabled..." message without NPCs
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
