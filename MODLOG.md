@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-01 Citizens walk through and leave the plaza
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner request after the plaza cop fixes. Player companions host `ai::actbusy`; `ForceThisNPCToLeave`, `ForceThisNPCToActBusy`, `SCHED_ACTBUSY_LEAVE` and exit hints are implemented; an NPC within 64 units of its exit is removed and its maker spawns the next. Active `ai_relationship`s are reapplied when an NPC spawns (`CAI_Relationship::OnEntitySpawned`): without it the plaza cops attacked maker copies. Affects every map whose makers or goals use these, including the `d1_trainstation_02` plaza. Six recorded replay outcomes change, in `io` counters only.
+
+**Tested how / Result:** Unit tests (hl2-simulation 436 passed); `scripts/checks/validate.sh` passes. Gameplay replays: 66 of 72 passed; the other 6 differed only in `io` counters, were reviewed and recorded with `UPDATE_EXPECTED=1`, and pass on a rerun (macOS only). Packaged `hl2/background01`, 9,000 frames, muted: 14 citizens spawned, cops at or walking between their hints, 0 hits on the player, 0 NPC melee hits.
+
+**Frame time:** alternating runs, 9,000 frames, another game running on the machine. Before 18.26 / 18.32 ms (about 54.7 FPS); after 24.12 / 24.48 ms (about 41 FPS). Profile: fixed simulation step 1.90 ms to 4.98 ms per tick; rendering stages almost unchanged. CPU samples put about 44% of the simulation in `Controller::tick` -> `npc::advance` -> `ground_move`: every walking NPC runs at least eight hull traces per 15 ms tick. The cost is real and larger than the design should need; **not reduced yet**.
+
+**Still broken or not tested:** Retail was not run for comparison: **not tested**. Walking is inferred from positions plus single captures. Removed entities keep their slot, so the map's infinite maker grows the entity list by about 5 per minute; hours-long menu idling is **not tested**. Combine soldiers do not host actbusy. Exit hints skip the SDK's hull-clear check. `ai_speechfilter` and `filter_multi` are not implemented. The `cit_scan_id` gate scene was not checked.
+
+**Next:** Owner decision on reducing the walker's per-tick traces, shared by all NPCs.
+
 ## 2026-11-01 Plaza metrocops work their hints on background01
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
