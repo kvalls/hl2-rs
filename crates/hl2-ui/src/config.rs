@@ -359,7 +359,12 @@ impl VideoSettings {
             self.advanced.model_detail,
             self.advanced.texture_detail,
             self.hdr.is_hdr(),
-            self.render_budget(),
+            // The sky and shadows follow the budget live; only what loading reads reloads a map.
+            crate::extensions::RenderBudget {
+                flat_sky: None,
+                no_shadows: false,
+                ..self.render_budget()
+            },
         )
     }
 }

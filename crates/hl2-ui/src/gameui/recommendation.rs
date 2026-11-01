@@ -396,7 +396,7 @@ impl SystemRecommendation {
                     .position(|&aa| aa == self.video.antialiasing)
                     .unwrap_or(0)
             }
-            other => other.selected(&self.video),
+            other => other.own_selected(&self.video),
         }
     }
 

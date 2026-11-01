@@ -6,6 +6,8 @@
 //! `docs/gameui.md` section 3).
 
 #[cfg(test)]
+mod below_lowest_tests;
+#[cfg(test)]
 mod motion_blur_tests;
 pub mod support;
 
@@ -384,7 +386,13 @@ impl AdvancedChoice {
         self.own_select(a, index.saturating_sub(1));
     }
 
-    fn own_selected(self, a: &AdvancedVideoSettings) -> usize {
+    /// Whether the combo's own value is its lowest row.
+    pub fn selected_retail_lowest(self, a: &AdvancedVideoSettings) -> bool {
+        self.own_selected(a) == 0
+    }
+
+    /// The row among the combo's own items, ignoring any a video policy adds.
+    pub(crate) fn own_selected(self, a: &AdvancedVideoSettings) -> usize {
         match self {
             Self::ModelDetail => listed_index(a.model_detail),
             Self::TextureDetail => listed_index(a.texture_detail),

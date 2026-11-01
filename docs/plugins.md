@@ -37,7 +37,7 @@ Dependencies point one way: application (`apps/hl2rs`, package `hl2-app`) -> plu
 
 | Plugin | Owns |
 | --- | --- |
-| `hl2-advanced-options` | Advanced and Ultra motion blur, Fit Display and the extra aspect choices, the 15-second keep-or-revert dialog (on an aspect-choice change), vertical and viewmodel FOV |
+| `hl2-advanced-options` | Potato items below retail's lowest in Model, Texture, Shader, Shadow and Filtering; Advanced and Ultra motion blur, Fit Display and the extra aspect choices, the 15-second keep-or-revert dialog (on an aspect-choice change), vertical and viewmodel FOV |
 | `hl2-debug` | `viewmodel_debug_mode`, `background_debug_mode`, F1 statistics, F2 flight shortcut, F3 loadout shortcut, F4 NPC and prop panel, their tuning and presentation |
 
 Ordinary motion blur, flight, spawning, camera behavior and simulation mechanisms stay in core.
@@ -48,6 +48,7 @@ Ordinary motion blur, flight, spawning, camera behavior and simulation mechanism
 | --- | --- | --- |
 | `hl2_ui::extensions::Extensions` | per application instance | Console commands (a duplicate name is an error), layout addenda, localization placeholders, default bindings, after-apply handlers |
 | `hl2_ui::extensions::VideoExtension` | through `VideoPolicy` | Frame and window sizing, projection, aspect and mode lists, blur selection and sliders (`CustomValue`), aspect choices (`AspectChoice`) |
+| `hl2_ui::extensions::RenderBudget` | `VideoExtension::render_budget`, `below_lowest_token`, `is_below_lowest`, `set_below_lowest` | Work a policy gives up (flat sky, unfiltered sampling, plain materials, no shadows, further mips and levels of detail) and combo items below a Video > Advanced combo's lowest |
 | `hl2_ui::extensions::FramingProfiles` | `VideoExtension::framing_profiles` | Viewmodel framing profile ids and values; without one, every aspect keeps the retail view |
 | `hl2_ui::config::StoredExtensions` | `video.extensions`, `video.advanced.extensions` | Plugin settings saved beside core fields; unknown keys survive, so old files keep their format |
 | `hl2_bevy::extensions::RuntimeExtension` | `Application::runtime` | Input, UI, presentation, loading, map and config lifecycle, replay events, reports |

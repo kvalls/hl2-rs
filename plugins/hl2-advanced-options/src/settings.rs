@@ -67,12 +67,15 @@ const POTATO_SKY: [f32; 3] = [0.45, 0.48, 0.5];
 pub fn has_potato(choice: AdvancedChoice) -> bool {
     POTATO.iter().any(|(c, _)| *c == choice)
 }
+/// An item counts only while its combo's own value is the lowest: a cvar or an edited file that
+/// raises the value leaves Potato.
 pub fn potato(video: &AdvancedVideoSettings, choice: AdvancedChoice) -> bool {
-    POTATO
-        .iter()
-        .find(|(c, _)| *c == choice)
-        .and_then(|(_, key)| video.extensions.bool(key))
-        .unwrap_or(false)
+    choice.selected_retail_lowest(video)
+        && POTATO
+            .iter()
+            .find(|(c, _)| *c == choice)
+            .and_then(|(_, key)| video.extensions.bool(key))
+            .unwrap_or(false)
 }
 pub fn set_potato(video: &mut AdvancedVideoSettings, choice: AdvancedChoice, on: bool) {
     if let Some((_, key)) = POTATO.iter().find(|(c, _)| *c == choice) {

@@ -33,6 +33,11 @@ fn potato_is_the_lowest_item_of_its_combos_and_costs_only_its_own_work() {
     assert_eq!(choice.selected(video), 0);
     let budget = crate::settings::potato_budget(video);
     assert!(budget.flat_sky.is_some() && budget.plain_materials && !budget.nearest);
+    // Raising the value by other means, such as a cvar, leaves Potato.
+    video.shader_detail = hl2_ui::config::ShaderDetail::High;
+    assert_eq!(choice.selected(video), 2);
+    assert_eq!(crate::settings::potato_budget(video), Default::default());
+    video.shader_detail = hl2_ui::config::ShaderDetail::Low;
     // Retail's Low is the next row, and leaves Potato.
     choice.select(video, 1);
     assert_eq!(choice.selected(video), 1);
