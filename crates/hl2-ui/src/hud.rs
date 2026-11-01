@@ -1884,6 +1884,66 @@ mod tests {
         assert!(health[0] < 100. && ammo[0] + ammo[2] > 3340.);
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    #[ignore = "requires an owned Half-Life 2 installation"]
+    fn owned_weapon_crosshairs_are_crisp_centered_and_shared() {
+        let root = source_assets::install::discover().expect("installed game");
+        let vfs = Vfs::mount(&root).unwrap();
+        let canvas = Canvas::default();
+        let hud = WeaponHud::load(&vfs, canvas.clone()).unwrap();
+        let mut inventory = Inventory::default();
+        inventory.health = 100.;
+        for viewport in [vec2(1280., 720.), vec2(1920., 1080.), vec2(1281., 721.)] {
+            let center = vec2(
+                (viewport.x * 0.5 + 0.5).trunc(),
+                (viewport.y * 0.5 + 0.5).trunc(),
+            );
+            let dots_of = |weapon: &str, inventory: &mut Inventory| {
+                inventory.active = weapon.into();
+                canvas.resize(viewport.x, viewport.y);
+                hud.draw_crosshair(inventory);
+                let quads = canvas.drain();
+                assert_eq!(quads.len(), 1, "{weapon}");
+                let quad = &quads[0];
+                assert_eq!(quad.destination.x.fract(), 0., "{weapon}: whole pixels");
+                assert_eq!(quad.destination.y.fract(), 0., "{weapon}: whole pixels");
+                let texture = quad.texture.as_ref().unwrap();
+                assert_eq!(texture.filter(), FilterMode::Nearest, "{weapon}");
+                let width = usize::from(texture.0.width);
+                let mut dots = Vec::new();
+                for (i, pixel) in texture.0.rgba.as_chunks::<4>().0.iter().enumerate() {
+                    assert!(pixel[3] == 0 || pixel[3] == 255, "{weapon}: hard edges");
+                    if pixel[3] != 0 {
+                        dots.push((
+                            (quad.destination.x + (i % width) as f32 - center.x) as i32,
+                            (quad.destination.y + (i / width) as f32 - center.y) as i32,
+                        ));
+                    }
+                }
+                dots
+            };
+            let dots = dots_of("weapon_pistol", &mut inventory);
+            assert_eq!(dots.len(), 5, "{dots:?}");
+            assert!(
+                dots.contains(&(0, 0)),
+                "the middle dot on the center: {dots:?}"
+            );
+            for &(x, y) in &dots {
+                assert!(dots.contains(&(-x, y)), "left-right mirror: {dots:?}");
+                assert!(dots.contains(&(x, -y)), "up-down mirror: {dots:?}");
+            }
+            for weapon in [
+                "weapon_physcannon",
+                "weapon_bugbait",
+                "weapon_smg1",
+                "weapon_rpg",
+            ] {
+                assert_eq!(dots_of(weapon, &mut inventory), dots, "{weapon}");
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires an owned Half-Life 2 installation"]
     fn owned_canvas_crosshair_and_pending_selection_preserve_status() {

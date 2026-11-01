@@ -654,3 +654,19 @@ fn the_panel_claims_input_only_while_open_with_a_loaded_game() {
         "no game"
     );
 }
+
+#[test]
+fn zero_resets_the_viewmodel_framing_on_press_only() {
+    use crate::bevy::input::reset_key_pressed;
+    for key in [KeyCode::Digit0, KeyCode::Numpad0] {
+        let mut keys = ButtonInput::default();
+        assert!(!reset_key_pressed(&keys));
+        keys.press(key);
+        assert!(reset_key_pressed(&keys));
+        keys.clear_just_pressed(key);
+        assert!(!reset_key_pressed(&keys), "holding does not repeat");
+    }
+    let mut keys = ButtonInput::default();
+    keys.press(KeyCode::Digit1);
+    assert!(!reset_key_pressed(&keys));
+}

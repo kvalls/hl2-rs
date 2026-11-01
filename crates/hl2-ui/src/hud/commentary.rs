@@ -24,6 +24,9 @@ pub(super) fn load_weapon_icons(vfs: &Vfs) -> Result<WeaponIconMaps> {
     let mut weapon_crosshairs = BTreeMap::<String, String>::new();
     for class in [
         "weapon_crowbar",
+        "weapon_physcannon",
+        "weapon_bugbait",
+        "weapon_annabelle",
         "weapon_pistol",
         "weapon_357",
         "weapon_smg1",

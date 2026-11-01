@@ -91,7 +91,9 @@ pub(super) fn process_debug_tuning_keys(
         let profile = profiles.profile_at(input.aspect);
         select_viewmodel_debug_target(&mut state.viewmodel_debug, &weapon, profile, profiles);
         let adjusting = !sim.paused() && !sim.transition;
-        let changed = if std::mem::take(&mut state.viewmodel_debug.reset_pending) {
+        let reset = std::mem::take(&mut state.viewmodel_debug.reset_pending)
+            || (adjusting && crate::bevy::input::reset_key_pressed(input.keys));
+        let changed = if reset {
             reset_viewmodel_debug_weapon(&mut state.viewmodel_debug)
         } else if adjusting {
             let fired = repeats

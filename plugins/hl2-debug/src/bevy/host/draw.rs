@@ -101,7 +101,7 @@ fn draw_debug_overlays(
             format!("offset.x: {:.2}    ,/.", value.offset[0]),
             format!("offset.y: {:.2}    L/R", value.offset[1]),
             format!("offset.z: {:.2}    U/D", value.offset[2]),
-            "Shift = 1.0  Alt = 0.01    hold to repeat    viewmodel_tweak_reset".to_owned(),
+            "Shift = 1.0  Alt = 0.01    hold to repeat    0: reset".to_owned(),
         ];
         stack_top = painter.draw_viewmodel_debug(&lines, stack_top) + OVERLAY_GAP;
     }

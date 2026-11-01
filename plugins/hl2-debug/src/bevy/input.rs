@@ -57,6 +57,11 @@ impl KeyAdjustRepeat {
     }
 }
 
+/// The key that zeroes the current weapon's framing.
+pub fn reset_key_pressed(keys: &ButtonInput<KeyCode>) -> bool {
+    keys.any_just_pressed([KeyCode::Digit0, KeyCode::Numpad0])
+}
+
 /// Zero FOV and position offsets for the selected weapon's current aspect profile.
 pub fn reset_viewmodel_debug_weapon(debug: &mut crate::viewmodel::ViewmodelDebug) -> bool {
     if debug.framing == ViewmodelFraming::ZERO {

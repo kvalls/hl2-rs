@@ -67,21 +67,21 @@ impl WeaponHud {
             self.canvas.additive(false);
             return;
         }
-        let Some(character_glyph) = character.chars().next() else {
-            self.canvas.additive(false);
-            return;
-        };
-        let bounds = self.crosshairs.face.glyph_bounds(
-            character_glyph,
-            self.crosshairs.size(),
-            self.crosshairs.effects(),
-        );
-        self.crosshairs.draw(
-            character,
-            self.canvas.width() * 0.5 - bounds.center().x,
-            self.canvas.height() * 0.5 - bounds.center().y,
-            self.crosshair_color,
-        );
+        // Without GDI: the same hard-edged glyph at whole pixels, its middle on the view center.
+        if let Some(texture) = character.chars().next().and_then(|c| {
+            self.crosshairs
+                .face
+                .monochrome_glyph(c, self.crosshairs.size())
+        }) {
+            let size = texture.size();
+            source_ui::canvas::draw_texture(
+                &self.canvas,
+                &texture,
+                (self.canvas.width() * 0.5 + 0.5).trunc() - (size.x * 0.5).trunc(),
+                (self.canvas.height() * 0.5 + 0.5).trunc() - (size.y * 0.5).trunc(),
+                self.crosshair_color,
+            );
+        }
         self.canvas.additive(false);
     }
 }

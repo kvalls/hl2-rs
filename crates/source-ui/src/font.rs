@@ -47,11 +47,13 @@ pub struct FontFace {
     pub canvas: Canvas,
     font: Arc<fontdue::Font>,
     glyphs: GlyphCache,
+    monochrome: MonochromeCache,
     cell_height: f32,
     ascent: f32,
     freetype: Option<FreeTypeCell>,
 }
 type GlyphCache = Arc<MutexCell<HashMap<(char, u32, u16, u16), Glyph>>>;
+type MonochromeCache = Arc<MutexCell<HashMap<(char, u16), Option<Texture2D>>>>;
 #[derive(Clone)]
 struct Glyph {
     texture: Option<Texture2D>,
@@ -272,6 +274,7 @@ impl FontFace {
             canvas,
             font: Arc::new(font),
             glyphs: Arc::new(MutexCell::new(HashMap::new())),
+            monochrome: Arc::new(MutexCell::new(HashMap::new())),
             cell_height: cell_height.max(0.01),
             ascent,
             freetype: (baseline == CellBaseline::FreeType)
@@ -360,6 +363,24 @@ impl FontFace {
     }
     /// Cached bitmap bounds relative to the character-cell origin, including font effects.
     /// Symbol HUDs can center their visible glyph rather than assuming text ascent symmetry.
+    /// A glyph with hard edges for symbol fonts drawn without antialiasing: every texel is fully
+    /// on or off, point sampled, so it stays crisp at whole-pixel positions. Cached per size.
+    pub fn monochrome_glyph(&self, character: char, size: f32) -> Option<Texture2D> {
+        let size = size.round().clamp(1., 1024.) as u16;
+        if let Some(texture) = self.monochrome.borrow().get(&(character, size)) {
+            return texture.clone();
+        }
+        let texture = self.glyph(character, size, 0, 0).texture.map(|soft| {
+            let rgba = hard_edges(&soft.0.rgba);
+            let texture = Texture2D::from_rgba8(soft.0.width, soft.0.height, &rgba);
+            texture.set_filter(FilterMode::Nearest);
+            texture
+        });
+        self.monochrome
+            .borrow_mut()
+            .insert((character, size), texture.clone());
+        texture
+    }
     pub fn glyph_bounds(&self, character: char, size: f32, effects: (u16, u16)) -> Rect {
         let glyph = self.glyph(
             character,
@@ -590,6 +611,18 @@ fn gaussian_blur(bitmap: &[f32], width: usize, height: usize, radius: usize) -> 
     result
 }
 
+/// White texels, opaque where coverage reaches half and transparent elsewhere.
+fn hard_edges(rgba: &[u8]) -> Vec<u8> {
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|texel| {
+            let on = if texel[3] >= 128 { 255 } else { 0 };
+            [255, 255, 255, on]
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -692,6 +725,15 @@ mod tests {
         }
         // Outside the table the Windows metrics scale: 30 -> floor(31.6) = 31 px, ascent 28.
         assert_eq!(cell.size_for(30.), (31., 28.));
+    }
+
+    #[test]
+    fn hard_edges_turn_coverage_fully_on_or_off() {
+        let soft = [9, 9, 9, 127, 9, 9, 9, 128, 9, 9, 9, 0, 9, 9, 9, 255];
+        assert_eq!(
+            hard_edges(&soft),
+            [255, 255, 255, 0, 255, 255, 255, 255, 255, 255, 255, 0, 255, 255, 255, 255]
+        );
     }
 
     #[test]
