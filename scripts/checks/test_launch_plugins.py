@@ -27,6 +27,7 @@ printf '{\\n  "profile": "release",\\n  "plugins": "%s"\\n}\\n' "$plugins" > "$r
 """
 
 
+@unittest.skipIf(os.name == "nt", "launch-bevy.sh is the macOS and Linux launcher")
 class LaunchPlugins(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
