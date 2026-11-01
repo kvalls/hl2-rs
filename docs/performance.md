@@ -51,6 +51,23 @@ Base commit against these changes, same session, three alternating rounds, media
 
 Max stays GPU-saturated (99-100% busy), and CPU time per frame including loading falls from about 28-32 ms to 22-26 ms.
 
+The advanced options plugin lists a Potato item below retail's lowest in five combos. Each was measured alone from all-Low, three runs,
+median, frame ms and peak RSS:
+
+| Potato item | Gives up | station02 ms | coast01 ms | RSS GB (station02 / coast01) |
+| --- | --- | ---: | ---: | ---: |
+| None (all Low) | | 5.22 | 4.52 | 3.20 / 2.86 |
+| Model | One further level of detail | 5.21 | 4.50 | 2.81 / 2.53 |
+| Texture | One further mip | 5.07 | 4.72 | 3.17 / 2.85 |
+| Shader | Environment maps, sky cameras (flat sky) | 4.46 | 4.15 | 3.22 / 2.86 |
+| Shadow | All dynamic shadows | 5.01 | 4.58 | 3.20 / 2.89 |
+| Filtering | Texture and frame filtering | 5.28 | 4.74 | 3.22 / 2.89 |
+| All five | | 4.13 | 4.01 | 2.74 / 2.49 |
+
+Only Shader moves frame time clearly; Model saves memory; Texture, Shadow and Filtering are within noise on frame time and set the look.
+These runs predate the fix that extends unfiltered sampling to world textures; a later all-five smoke run read 4.35 ms over 150 frames, which is
+too short to compare. Water Detail has no item because nothing renders it yet.
+
 CPU stages at Low on coast01 after these changes: render graph 2.96 ms (per-camera encoding), fixed simulation 2.72 ms per tick (mostly
 Rapier), render prepare 1.24 ms, animation 0.58 ms (1.24-1.90 before). These are overlapping wall scopes with profiling fences, and the
 headless runs have no window present. Interactive frame time, Windows and power are **not tested**. Compare ratios, not absolutes.
