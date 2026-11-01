@@ -1,5 +1,49 @@
 # Performance measurements - 2026-10-05
 
+## Low settings: what bounds the frame (2026-11-01)
+
+Apple M1 Pro/Metal, packaged, headless, uncapped, `--profile`, spawn views, 1,500 frames, muted. Low is every Video > Advanced
+option at its lowest, HDR None, no AA, bilinear, 1280x720. One option at a time was set back to maximum from Low (three runs each, median):
+
+| Variant | station02 frame ms | coast01 frame ms | Sampled GPU busy % |
+| --- | ---: | ---: | ---: |
+| All Max, 3456x2168, 4x AA, HDR Full | 11.78 | 15.63 | 99-100 |
+| All Low | 7.16 | 6.44 | 69-71 |
+| 640x360 | 7.06 | 6.47 | 69-71 |
+| 1920x1080 | 7.12 | 6.56 | 72-74 |
+| 3456x2168 | 7.28 | 6.57 | 73-77 |
+| 4x AA | 7.31 | 6.88 | 58-74 |
+| HDR Full | 7.01 | 6.60 | 51-72 |
+| Texture Very High | 7.05 | 6.45 | 58-77 |
+| Model High | 6.81 | 6.61 | 49-72 |
+| Shadow High | 6.69 | 6.58 | 49-58 |
+| 16x anisotropic | 6.70 | 6.60 | 48-64 |
+| Motion blur | 7.00 | 7.27 | 54-73 |
+| Color correction | 6.68 | 6.54 | 48-70 |
+
+At Low the frame is CPU-bound: uncapped frame time ignores a GPU-side option until the GPU becomes the slower side, and only the
+combined Max reaches that. Captures confirm 640x360 and 3456x2168 frames are really that size. GPU busy is a noisy system-wide driver
+counter sampled once a second, and it drifted during the batch, so it is not a pass timing; Metal pass timers in the report read 0 here.
+Texture and Model detail do save memory: peak RSS 3.26 GB at Low, 4.36 and 4.70 GB with them raised on station02.
+
+Waste removed, no visual change intended, alternating runs before then after:
+
+| Change | station02 ms | coast01 ms |
+| --- | ---: | ---: |
+| CPU light clustering instead of GPU | 8.16, 7.23 -> 6.12, 6.10 | 6.52, 6.73 -> 5.49, 5.46 |
+| Facial flex weights per actor | 5.82, 6.17 -> 5.43, 5.16 | 5.40, 5.38 -> 5.08, 4.98 |
+| Flex and unchanged HUD meshes together | 5.49, 5.56 -> 4.96, 4.94 | 5.16, 5.04 -> 4.47, 4.42 |
+| Only the last camera copies to the frame | within noise | 4.61, 4.51 -> 4.34, 4.35 |
+
+Rejected for now: thin LTO with one codegen unit gives 3-5% (station02 4.76, 4.77, 5.41 -> 4.65, 4.55, 4.63 ms; coast01 4.38, 4.41, 4.23
+-> 4.41, 4.11, 4.09 ms) for a 4.5-minute release build; not adopted pending an owner decision. Measured with a temporary switch, not
+implemented: no sky cameras, station02 5.66, 4.88, 4.73 -> 4.09, 4.02, 4.43 ms and coast01 4.53, 4.19, 4.74 -> 3.69, 3.73, 3.95 ms. That
+removes the sky, so it is not a Low change.
+
+CPU stages at Low on coast01 after these changes: render graph 2.96 ms (per-camera encoding), fixed simulation 2.72 ms per tick (mostly
+Rapier), render prepare 1.24 ms, animation 0.58 ms (1.24-1.90 before). These are overlapping wall scopes with profiling fences, and the
+headless runs have no window present. Interactive frame time, Windows and power are **not tested**. Compare ratios, not absolutes.
+
 ## Ultra softening and brightness experiment (2026-10-30)
 
 Apple M1 Pro/Metal, 3456x2168, 4x MSAA, HDR None. Three alternating triples,

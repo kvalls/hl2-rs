@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-01 Low settings: waste removal and measurements
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Owner request: the lowest settings should reduce frame time as far as possible. Measurement showed Low is CPU-bound and that no option reached the largest costs. Selected Bevy's CPU light clustering (`HL2RS_GPU_CLUSTERING=1` restores GPU clustering), computed facial flex weights once per actor and frame without lowercasing names each time, stopped rewriting unchanged HUD meshes, and made only the last active camera copy to the game frame.
+
+**Tested how / Result:** Packaged headless alternating runs and captures on macOS: flashlight beam at a fixed view matches between clustering paths; coast01 captures at no AA and 4x AA differ only in animation phase. `scripts/checks/validate.sh` run once at the end of this work; gameplay replays not run for this checkpoint.
+
+**Frame time:** Low at 1280x720, station02 7.16 -> about 4.8 ms and coast01 6.44 -> about 4.35 ms, uncapped and profiled. Tables in docs/performance.md.
+
+**Still broken or not tested:** Shader Detail, Water Detail, Multicore and Classic Effects still do nothing in the renderer. Interactive play, Windows and power not tested. A level below retail Low is proposed, not built.
+
+**Next:** Owner decisions on thin LTO and the below-Low tier.
+
 ## 2026-11-01 Cheaper NPC hull traces
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
