@@ -171,6 +171,25 @@ pressure; no valid before/after frame-time comparison yet. Ordinary play not tes
 **Next:** Finish dependency inversion and plugin-owned runtime state, then validate
 all four plugin configurations and packaged captures before committing the work.
 
+## 2026-10-31: merge main research into the UI branch
+
+**Agent/model:** Codex desktop, GPT-6 family; exact model identifier unavailable. No subagents.
+
+**Changed / Why:** Merged main at 304abfd into orbitalman/hl2-ui. Four documentation
+conflicts were concurrent section additions: retained both histories in MODLOG, STATUS,
+design and validation. Research documentation merged automatically. Reworded incoming
+machine-specific verification instructions and checkpoint paths as self-contained
+research descriptions. No runtime or dependency changes.
+
+**Tested how / Result:** Architecture guardrails, whitespace/conflict-marker checks,
+source whitelist checks and preservation of both parents' documentation additions pass.
+
+**Still broken or not tested:** No gameplay rebuild, replay or native research rerun;
+this documentation merge does not validate the recorded experiments anew. Live issue/PR
+inspection unavailable because the GitHub CLI is absent; repository Claims were reviewed.
+
+**Next:** Continue UI work with main's research findings and limitations retained.
+
 ## 2026-10-30 Ultra review: rocket coverage and payload correction
 
 **Agent/model:** Codex desktop; exact model identifier unavailable. No subagents.
@@ -1101,6 +1120,25 @@ Fit Display internal-size/aspect transitions are tested. Evidence: artifacts/bac
 Windows runtime and every installed background artwork NOT TESTED. Existing aspect rules
 are preserved; this is not a new projection/cropping policy or exhaustive campaign audit.
 **Next:** Owner confirmation; stop at this verified checkpoint with 99% weekly usage reported.
+## 2026-10-29: fresh loaded gesture tags, duration and bounded timing correlations
+
+**Agent/model:** Codex desktop, GPT-6 family; exact model identifier unavailable. Material subagents audit_capture (CG fixture/CH replay), audit_static (CF remap/CI correlations), research_flex_route (CD filter/CJ duration). Claude owns Rust implementation.
+
+**Changed / Why:** Bound the retail tag-remap and duration route, collected one fresh owned opening/endline window with stronger clock/source/code provenance, and explained the conditional server facial-input boundary. All native evidence/tools stay private; only reviewed documentation is published.
+
+**Tested how / Result:** CG actual-source fixture passes17 controls. CH replays130,523 reads/18,090,096 bytes,2,728 accepted of2,948 acquisitions,102 repeated gesture-source graphs and15 actual-capture corruption/race controls. CI independently replays145 loaded-tag snapshots;142 active layer associations include one zero-weight head-back row. CD/CF/CJ exact-body/PE/controls/seals pass. Final CK static probe preflight passes12 anchors/four edges/three controls, identifying argument stack slots reused for floats; no hook was installed or tested. Native/driver exit0, sources/modules/checked settings unchanged. Selected train screenshot visually reviewed. No Rust edit/build.
+
+**Still broken or not tested / Next:** Current, shifted and previous sampled clocks fail complete cycle agreement; the access-time hypothesis still differs by about0.0213 cycle. Observations before/after active association are not registration causality. Loaded sequence flags/activity, runtime server filter/track flags, final bones/face/gaze, full AV/transfer, ordinary campaign completion and Rust parity remain untested. Rejected type/flag/duration navigation and earlier correlation reports remain retained. Next observe actual selected callback/remap/setter inputs and outputs with a bounded paired recorder; first_map_finished:false.
+
+## 2026-10-29: audit unpublished retail layer, source and flex evidence
+
+**Agent/model:** Codex desktop, GPT-6 family; exact model identifier unavailable. Current material subagents: audit_static and audit_capture. Inherited BX/BY/BZ evidence records retail_overlay_layout, retail_animation_sources and retail_flex_fields, also GPT-6 family with exact identifiers unavailable. Claude's Rust implementation is separate.
+
+**Changed / Why:** Audited and sealed unpublished private layer/source/flex evidence before repeating native work. Added independent source-header/full-animation-descriptor checks, an explicit JSON-domain replay comparison and bounded authored-gesture correspondence. Reviewed and adopted the inherited research plan; recorded a new capture plan for remaining provenance/timing gaps. Only reviewed documentation enters Git.
+
+**Tested how / Result:** BX/BY/BZ static verifiers, controls and seals pass; independent CB finds 38 unique exact bodies and primary ancestry. CC source checks pass four header identities/17 exact descriptors/eight corruption controls. Normalized replay passes 4,512 samples/4,190 accepted/175,325 reads/27,095,808 bytes. CE verifies 191 gesture-layer matches plus two deferred records. CA/CB/CC seals pass63/2/6 files. Native screenshot visually reviewed; inherited owned game exited0/settings unchanged. No Rust edit/build.
+
+**Still broken or not tested / Next:** Original CA verifier's integer-key/JSON-key failure remains preserved. Scene clock is single-read; source graph precedes the series; local collector hashes at launch are absent. Three matched head-back samples have zero weight. Stored flex inputs/layer/source correspondence do not prove callback causality, final geometry, audiovisual fidelity, campaign completion or Rust parity. Next collect a fresh guarded window with loaded gesture tags and stronger source/clock provenance; first_map_finished:false.
 
 ## 2026-10-28 session 35: ragdolls rest, so post-death hits push again; merge to main prepared
 

@@ -1,5 +1,25 @@
 # Sources and native research
 
+## Loaded gesture tags, duration and server flex filtering (2026-10-29)
+
+Private CK statically binds stored-float probe sites and the processor's reused stack slots with12 PE anchors/four call edges/three corruption controls. It adds no new decompiler body or runtime evidence. Original info/scene identities must survive separately from the stack slots later reused for scene time/duration; instruction-hook semantics remain fixture-unverified.
+
+CF binds retail normalized event progress through two loaded absolute-tag lists: playback percentages select an interval and original percentages supply the mapped cycle, with linear endpoint flags or a normalized-X Catmull-Rom branch. CJ follows an actual captured event vtable pointer into the identity-matching PE, resolving slot0 to finite end-minus-start or zero for the end sentinel -1. The caller stores the duration as float32 before division. The live vtable slot/getter invocation and full native floating-point control remain unobserved.
+
+Fresh CG/CH supplies stronger source-state evidence than CA: hashes of local collector code before launch/after cleanup, choreography/tag rereads and repeated selected source graphs within the native tick bracket. All102 accepted graphs bind direct root and cached male_gestures identity; selected 100-byte animation descriptors agree with owned metadata. Among145 loaded-tag observations, names/percentages agree with the authored arrays, while loop/end linear bits change before/after active layer association. That association is not callback causality; high flag bits remain uninterpreted. Ordinary pose, ANI decoding and blend evaluation remain untested.
+
+CI retains unsuccessful timing hypotheses against142 matched layers. Sampled current scene time, a declared one-tick offset and previous observed time each leave substantial differences. The separate access-time hypothesis has worst absolute error about0.0213 cycle. Native setters statically update the layer access timestamp, but other accessors can also touch it; this correlation does not certify callback timing. No extra time shift is chosen to manufacture agreement.
+
+CD proves retail FLEXANIMATION type10 and conditional server-only track filtering. Its exact name classifier admits four of the11 authored tracks, matching local head input indices44/45/46/51; the other seven do not classify as server-side. The live filter byte/loaded track flags, actual write execution and client facial consumption remain unobserved. Do not infer missing facial animation from unchanged server facial storage. Private roots CD/CF/CG/CH/CI/CJ retain proofs, failed diagnostics and controls; first_map_finished:false, Rust parity untested.
+
+## Overlay, animation-source and facial-input audit (2026-10-29)
+
+Private BX/BY/BZ bind the citizen's primary CBaseAnimatingOverlay/CBaseFlex ancestry, named overlay layout, gesture index/sequence routing, virtual animation lookup and named flex storage. Independent CB verifies 38 unique exact retail bodies across the three roots, preserving the shared-constructor overlap. The source metadata remains distinct from blend evaluation and final bones.
+
+CA's retained passive run is revalidated by CC: 4,190 accepted samples out of 4,512, with every retained raw read replayed. Loaded source checks use checksum/name identity and independently ordered model metadata; 17 selected animation descriptors match all 100 owned bytes. Whole loaded headers and sequence descriptors differ from owned files at explicitly retained offsets. Root loaded48/owned44 is not proof of a converter invocation.
+
+Three head-gesture intervals yield 191 matching event-record/layer-index/owner/sequence observations; two earlier records retain deferred index -2. Matching is not callback causality or nonzero visual contribution. Four named head-input storage slots change; local inputs do not establish final head/face/eye motion. Original CA report equality fails because JSON stringifies integer dictionary keys; CC's explicit JSON-domain comparison passes without changing CA. Single-read choreography time, earlier source graph and absent local code hashes at launch limit stronger claims. Private roots: actor-layer-passive-20261028ca, actor-static-audit-20261029cb, actor-layer-audit-20261029cc and actor-layer-integration-20261029ce. No Rust or ordinary campaign completion claim.
+
 ## Retail virtual sequence source witnesses (2026-10-28)
 
 Exact retail bodies and independent PE bytes bind the selected citizen's base-animation header wrapper, virtual group/local-index lookup and cached-header descriptor access. A separate owned-file replay covers the root model and four includes, with1416 candidate entries and one retained duplicate-label decision. This offline replay remains a reference until corroborated by actual loaded state.

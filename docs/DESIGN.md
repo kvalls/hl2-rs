@@ -184,6 +184,25 @@ The older a7f071e3/be113848 paths also consume player FOV; history does not esta
 Display as the cause. Add geometry tests against the artwork crop, setting independence,
 Fit Display's actual internal resolution, and first-view/fixed-tick stability. Verify and
 commit this bounded correction without unrelated projection refactoring.
+## Loaded gesture timing findings and next boundary (2026-10-29)
+
+CK preflight identifies explicit stored-float probe sites and argument-slot reuse in the exact processor. Original info/scene stack slots become scene-time/duration floats before the remap call. Preserve original identity separately; do not interpret those later slots as pointers or an integer return-value handle as floating-point result evidence. Disposable-fixture proof of instruction-hook context, relocation and reentrancy remains required before HL2 instrumentation.
+
+The fresh guarded capture now retains loaded tag names/percentages/linear flags, scene-clock rereads and repeated gesture source witnesses. Interpret stored cycles using the actual tag state: native setup can change linear flags, and simple event progress is not the complete mapping. The exact duration getter returns end-minus-start except its -1 end sentinel; the caller rounds that result into float32 before division. These findings guide a future implementation, but this research changes no Rust code.
+
+All tested sampled-clock hypotheses still disagree with some recorded cycles, even after accounting for the layer access timestamp. Next use a finite, fixture-validated paired recorder on the selected gesture callback/remap/cycle setter to retain actual inputs, outputs and nesting. Reuse exact event/actor/module admission, bounded file-backed storage, explicit footer/cleanup and negative controls. Do not substitute another fitted time shift or expand into final-pose/next-map claims. Keep the conditional server flex filter separate from client facial evaluation; unchanged server face slots are not an absence-of-animation result.
+
+## Research audit and next capture: loaded gesture timing (2026-10-29)
+
+Audit the unpublished BX/BY/BZ/CA follow-up before repeating native work. Preserve CA's report-key comparison failure; compare its replayed result in the JSON wire domain in a separate audit root. Bind loaded header identity and full selected animation descriptors against owned bytes. Keep its single-read scene clock, earlier source-graph snapshot and missing local code hashes at launch explicit.
+
+For the next bounded fresh opening/endline capture, pin local collector sources before launch and check them after cleanup. Reread the choreography clock range, retain loaded gesture tag arrays and repeat the needed animation-source witnesses during selected gesture samples within the same native tick bracket. Use owned-process/window/input guards, finite raw-storage bounds and actual-source corruption controls. Loaded tags may be altered by native setup, so authored tag arrays alone cannot certify playback-cycle remapping. Field correspondence remains separate from callback causality, final pose, ordinary campaign completion and Rust parity.
+
+## Research plan: passive overlay, animation-source and flex state (2026-10-28)
+
+Continue past the sequence-map milestone toward the owner's five-hour usage checkpoint. Independently bind retail overlay record/vector fields, virtual-to-local animation source access, and named flex fields with exact bodies and PE bytes. Admit actual descriptors and primary ancestry before collecting a fresh natural opening/endline window. Use a content-independent reader with bounded raw file storage, explicit completion/cleanup, generation/vector rechecks and tick-race exclusions; validate its actual source against fixtures whose metadata ordering differs from virtual group order.
+
+Join recorded base and overlay values to loaded source/header witnesses and authored event intervals without treating correlation as callback causality. Flex weights remain separate from evaluated facial geometry; layer sequence/cycle/weight remains separate from final skeletal pose. Preserve failure diagnostics and stop an approach after two unsuccessful real attempts. Commit reviewed documentation at verified milestones, then continue independent native questions until near98% of the five-hour limit or an owner stop/blocker.
 
 ## Research plan: retail virtual sequence source mapping (2026-10-28)
 

@@ -3,7 +3,7 @@
 ## Optional plugins: working on macOS, frame time not measured (2026-11-01)
 
 Branch `orbitalman/plugin-support-recovery` (`orbitalman/plugin-support` is behind it), base
-`66c4a73`, checkpoint commits, not pushed and not merged. The application composes
+`66c4a73`, checkpoint commits, not pushed and not merged into `main`; it has `orbitalman/hl2-ui` merged in at `c2474e2`. The application composes
 `hl2-advanced-options` and `hl2-debug` through injected contracts; core names no concrete
 plugin, and the architecture check enforces that name rule. Select with
 `./launch-bevy.sh --plugins <list>`. Guide and rules: docs/plugins.md. Evidence:
@@ -35,6 +35,13 @@ panel and overlays still has English literals; running from `cargo run` without 
 no `weapon_blur.wgsl` in the asset root.
 
 Future weapon and NPC plugins remain hypothetical design scenarios, not implementation scope.
+
+## Main research integration (2026-10-31)
+
+Merged main at 304abfd into orbitalman/hl2-ui. Both branches' documentation is retained;
+four concurrent-addition conflicts resolved without runtime changes. Architecture,
+whitespace, conflict-marker, whitelist and parent-content preservation checks pass.
+Gameplay and native experiments were not rerun for this documentation-only merge.
 
 ## Ultra optimization review (2026-10-30)
 
@@ -364,6 +371,23 @@ Full validation (1,190 Rust / 100 ignored, 27 Python), Windows-target checks and
 groups pass. At 4:3/16:9, changing gameplay FOV/vertical overrides changes only 521/9 pixels
 in animated details. Evidence: artifacts/background-projection. Interactive window resizing,
 native parity, Windows runtime and every background artwork NOT TESTED.
+## Fresh loaded gesture tags and source-state capture (2026-10-29)
+
+Final CK static preflight binds12 instruction anchors/four direct edges and rejects three corrupted anchors. The processor overwrites original argument stack slots with float32 scene time/duration; preserve entry identities or retained registers before probing later sites. Instruction-hook context/relocation still requires fixture validation. No callback execution or timing resolution is claimed.
+
+Fresh owned native CG closes0 with collector sources pinned before launch and unchanged after cleanup, final module identity checked and six installed settings unchanged. CH replays all 130,523 reads/18,090,096 bytes in three chunks: 2,948 acquisitions, 2,728 accepted, 220 explicit race exclusions, native time5.82..102.0. Choreography bytes and loaded tags are reread; 102 accepted gesture-source graphs are collected inside the native tick bracket. Selected animation descriptors match all100 owned bytes. Sequence flags/activity words remain raw and unadmitted; a rejected verifier assumption about their flags is retained.
+
+The three authored head-gesture intervals have145 loaded-tag observations and142 active layer matches (827:93,823:49; one head-back row has zero weight). Tag names/percentages match the authored arrays in this window; loop/end linear bits change between observations before and after active layer association. CF binds the retail playback-to-original remap; CJ resolves the captured event vtable pointer through the matching PE to its duration getter, including the caller's float32 denominator store. These are source-state and static dataflow witnesses, not a runtime callback trace.
+
+Current-clock, one-tick-offset and previous-sample calculations do not match all stored cycles. A separate setter-access-time hypothesis reduces the largest discrepancy but still leaves about0.0213 cycle error; sampled layer access lags reach0.090004 seconds. Preserve those mismatches rather than claim timing parity or force a universal time shift. CD separately binds conditional server filtering for four authored head tracks; unchanged server facial slots cannot adjudicate client facial animation. No Rust edits/builds; first_map_finished:false. Next narrow target: observe the selected callback's actual clock/remap inputs and cycle-setter output using a bounded paired recorder, retaining source identities and acquisition limits. Precise recorder checkpoints remain private.
+
+## Audited overlay, source and facial-input evidence (2026-10-29)
+
+The unpublished BX/BY/BZ research and CA passive run are now independently audited. Retail bytes bind the selected citizen's 76-byte overlay records, gesture scene-info/layer-index relationship, virtual animation-source lookup and 54 named model-local flex controllers within 96 allocated storage slots. The three static roots contain 38 unique exact bodies; their shared constructor must not be counted twice.
+
+CA retains 4,512 samples, 4,190 accepted after explicit race exclusions, and 175,325 reads/27,095,808 raw bytes. A separate CC audit admits four loaded header identities and 17 complete animation descriptors against owned content. It repairs the original verifier's final Python integer-key versus JSON string-key comparison by normalizing only the report's JSON domain; the original failing verifier is preserved. Three authored head-gesture intervals have 191 matching scene-info/layer observations and two deferred-index observations. Three matched head-back observations have zero weight. This is field correspondence, not callback execution or visible contribution.
+
+CA's scene clock has no explicit reread, source graph precedes its time series, and local collector hashes were not recorded at launch. Replay validates retained source against raw reads; it does not attest code at launch. Four changing local flex inputs are head_rightleft, head_updown, head_tilt and head_forwardback; facial geometry and general authored-track execution remain untested. The screenshot visibly shows the selected train scene, with asynchronous command latency and no pose-parity claim. CA/CB/CC are sealed privately. A new capture plan addresses these gaps before stronger timing/source claims. No Rust edits/builds; first_map_finished:false.
 
 ## Retail virtual sequence mapping and fresh raw graph (2026-10-28)
 
