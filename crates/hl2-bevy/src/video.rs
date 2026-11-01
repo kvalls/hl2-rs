@@ -14,9 +14,8 @@
 
 use bevy::camera::{RenderTarget, Viewport, visibility::RenderLayers};
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
-use bevy::image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+use bevy::image::{ImageFilterMode, ImageSampler};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
 use bevy::window::{
     Monitor, MonitorSelection, PrimaryMonitor, PrimaryWindow, Window, WindowMode, WindowPosition,
 };
@@ -29,6 +28,7 @@ pub(crate) use fov::{vertical_fov_for, vertical_fov_with};
 mod msaa;
 mod outputs;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
+pub use outputs::frame_image;
 pub(crate) use outputs::{FrameCameras, skip_covered_outputs};
 pub mod mode {
     use super::*;
@@ -111,6 +111,8 @@ pub struct GameFrame {
     pub suspended: u32,
     /// Place the window in the [`DesktopArea`] once a windowed resize is done (macOS).
     pub recenter: bool,
+    /// The video policy's answer for the applied settings.
+    pub budget: hl2_ui::extensions::RenderBudget,
 }
 
 impl GameFrame {
@@ -130,7 +132,7 @@ impl GameFrame {
             window,
             self.follows_window,
         );
-        UVec2::new(size.x, size.y)
+        outputs::budgeted_size(UVec2::new(size.x, size.y), self.budget)
     }
 }
 
@@ -204,14 +206,6 @@ impl bevy::sprite_render::Material2d for PresentMaterial {
 #[derive(Component)]
 pub struct SuspendedCamera(bool);
 
-/// A render-target image for the game frame, linearly filtered when scaled.
-pub fn frame_image(resolution: UVec2) -> Image {
-    let size = resolution.max(UVec2::ONE);
-    let mut image = Image::new_target_texture(size.x, size.y, TextureFormat::Rgba8UnormSrgb, None);
-    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
-    image
-}
-
 /// Creates the game frame and its presentation. `windowed` sizes the window to the frame
 /// (clamped to the monitor) once the monitor is known; `follows_window` makes the frame follow the
 /// window's aspect ratio from the first presented frame on.
@@ -227,9 +221,10 @@ pub(crate) fn install_frame(
         follows_window,
         windowed,
         policy,
+        budget,
     } = request;
-    let resolution = resolution.max(UVec2::ONE);
-    let image = images.add(frame_image(resolution));
+    let resolution = outputs::budgeted_size(resolution.max(UVec2::ONE), budget);
+    let image = images.add(frame_image(resolution, budget.nearest));
     commands.insert_resource(GameFrame {
         policy,
         image: image.clone(),
@@ -239,6 +234,7 @@ pub(crate) fn install_frame(
         pending_window: windowed.then_some(WINDOW_RESIZE_FRAMES),
         suspended: 0,
         recenter: windowed,
+        budget,
     });
     commands.spawn((
         PresentCamera,
@@ -274,6 +270,7 @@ pub(crate) struct FrameRequest {
     pub follows_window: bool,
     pub windowed: bool,
     pub policy: hl2_ui::extensions::VideoPolicy,
+    pub budget: hl2_ui::extensions::RenderBudget,
 }
 
 pub(crate) fn update_present_gamma(
@@ -466,6 +463,7 @@ fn apply_video_config_to_window(
             configured
         };
         frame.policy = cfg.policy.clone();
+        frame.budget = cfg.render_budget();
         frame.configured = configured;
         frame.follows_window = cfg.frame_follows_window();
         frame.resolution = frame.size_for(window);
@@ -1015,7 +1013,7 @@ pub(crate) fn suspend_for_resize(
         // A new image rather than the old one resized in place: the present material's bind
         // group keeps the texture it was built with, so the window would go on showing the old
         // frame. `present_frame` routes the cameras to the new image.
-        let image = images.add(frame_image(frame.resolution));
+        let image = images.add(frame_image(frame.resolution, frame.budget.nearest));
         let old = std::mem::replace(&mut frame.image, image.clone());
         for handle in &quads {
             if let Some(mut material) = materials.get_mut(&handle.0) {
@@ -1055,6 +1053,8 @@ pub(crate) fn frame_aspect(frame: Option<&GameFrame>) -> f32 {
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+    use bevy::image::ImageSamplerDescriptor;
+    use bevy::render::render_resource::TextureFormat;
     use bevy::window::{PrimaryWindow, WindowMode, WindowResolution};
 
     #[test]
@@ -1117,6 +1117,7 @@ mod tests {
             pending_window: None,
             suspended: 0,
             recenter: false,
+            budget: Default::default(),
             policy: Default::default(),
         }
     }
@@ -1505,7 +1506,7 @@ mod tests {
         let image = app
             .world_mut()
             .resource_mut::<Assets<Image>>()
-            .add(frame_image(UVec2::new(640, 480)));
+            .add(frame_image(UVec2::new(640, 480), false));
         app.insert_resource(GameFrame {
             image: image.clone(),
             resolution: UVec2::new(1280, 720),
@@ -1514,6 +1515,7 @@ mod tests {
             pending_window: None,
             suspended: 0,
             recenter: false,
+            budget: Default::default(),
             policy: Default::default(),
         });
         // Full screen on a Retina panel.

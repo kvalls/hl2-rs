@@ -68,6 +68,7 @@ fn fit_display_uses_internal_frame_aspect_through_resize() {
         pending_window: None,
         suspended: 0,
         recenter: false,
+        budget: Default::default(),
         policy: Default::default(),
     };
     for (w, h) in [(1920, 1080), (1080, 1920), (5120, 1440), (1600, 1200)] {

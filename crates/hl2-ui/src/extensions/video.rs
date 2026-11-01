@@ -6,7 +6,22 @@ use crate::{
 };
 use std::sync::{Arc, LazyLock};
 
+/// Work a video policy gives up beyond the settings' own levels. The default gives up nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RenderBudget {
+    /// No sky cameras: this linear color fills what the world does not cover.
+    pub flat_sky: Option<[f32; 3]>,
+    /// The game frame's height is capped at this, keeping its shape.
+    pub max_frame_height: Option<u32>,
+    /// The frame is presented, and base textures loaded from now on are sampled, without filtering.
+    pub nearest: bool,
+}
+
 pub trait VideoExtension: std::fmt::Debug + Send + Sync {
+    /// Read when the video settings change; the host keeps the answer.
+    fn render_budget(&self, _video: &VideoSettings) -> RenderBudget {
+        RenderBudget::default()
+    }
     fn frame_size(
         &self,
         configured: glam::UVec2,

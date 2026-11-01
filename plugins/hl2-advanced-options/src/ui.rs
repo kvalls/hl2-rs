@@ -8,6 +8,13 @@ use hl2_ui::{
 #[derive(Debug)]
 pub struct AdvancedPolicy;
 impl VideoExtension for AdvancedPolicy {
+    fn render_budget(&self, video: &VideoSettings) -> hl2_ui::extensions::RenderBudget {
+        if crate::settings::potato(video) {
+            crate::settings::POTATO_BUDGET
+        } else {
+            Default::default()
+        }
+    }
     fn frame_size(
         &self,
         configured: glam::UVec2,

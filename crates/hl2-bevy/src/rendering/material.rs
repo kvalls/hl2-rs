@@ -112,6 +112,22 @@ pub(super) fn image_filtered(
     image
 }
 
+/// A base texture; a video policy's render budget can ask for it to be sampled without filtering.
+pub(super) fn base_image(
+    chain: &[source_assets::vtf::Image],
+    filtering: hl2_ui::config::Filtering,
+    nearest: bool,
+) -> Image {
+    let mut image = mip_image_filtered(chain, filtering);
+    if let (true, ImageSampler::Descriptor(descriptor)) = (nearest, &mut image.sampler) {
+        descriptor.mag_filter = ImageFilterMode::Nearest;
+        descriptor.min_filter = ImageFilterMode::Nearest;
+        descriptor.mipmap_filter = ImageFilterMode::Nearest;
+        descriptor.anisotropy_clamp = 1;
+    }
+    image
+}
+
 /// A repeating sRGB texture with its authored VTF mip chain (largest first), sampled
 /// according to the configured filtering mode.
 pub(super) fn mip_image_filtered(

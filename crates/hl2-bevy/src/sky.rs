@@ -186,9 +186,12 @@ pub fn present(
             SkyVisibility::default()
         }
     };
-    let visible_2d = sky.visible.background_visible() && !sky.faces.is_null();
-    let visible_3d = sky.visible.sky_3d && sky.background.is_some();
-    world_camera.clear_color = if visible_2d || visible_3d {
+    let flat = frame.as_ref().and_then(|f| f.budget.flat_sky);
+    let visible_2d = flat.is_none() && sky.visible.background_visible() && !sky.faces.is_null();
+    let visible_3d = flat.is_none() && sky.visible.sky_3d && sky.background.is_some();
+    world_camera.clear_color = if let Some([r, g, b]) = flat {
+        ClearColorConfig::Custom(Color::linear_rgb(r, g, b))
+    } else if visible_2d || visible_3d {
         ClearColorConfig::None
     } else {
         ClearColorConfig::Default

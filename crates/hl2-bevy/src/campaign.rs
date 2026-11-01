@@ -217,7 +217,7 @@ pub fn poll(
         &mut assets,
         &status,
         &options,
-        ui.source.config.video.advanced.filtering,
+        ui.source.config.video.texture_sampling(),
         frame.as_ref().map(|f| &f.image),
     );
     campaign.metadata["loading_ms"]["install_ms"] =

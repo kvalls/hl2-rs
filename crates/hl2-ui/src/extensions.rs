@@ -9,7 +9,7 @@ mod framing;
 mod video;
 pub use confirmation::{Confirmation, ConfirmationHandler};
 pub use framing::{FramingEdits, FramingProfiles, ViewmodelFraming, STANDARD_PROFILE};
-pub use video::{VideoExtension, VideoPolicy, RETAIL_VIEWMODEL_FOV};
+pub use video::{RenderBudget, VideoExtension, VideoPolicy, RETAIL_VIEWMODEL_FOV};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presentation {

@@ -328,6 +328,15 @@ impl VideoSettings {
         widescreen && !self.background_force_default_blur
     }
 
+    pub fn render_budget(&self) -> crate::extensions::RenderBudget {
+        self.policy.0.render_budget(self)
+    }
+
+    /// What a map's textures load with: the filtering, and whether base textures skip it.
+    pub fn texture_sampling(&self) -> (Filtering, bool) {
+        (self.advanced.filtering, self.render_budget().nearest)
+    }
+
     pub fn load_detail(&self) -> LoadDetail {
         (
             self.advanced.model_detail,

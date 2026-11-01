@@ -26,9 +26,10 @@ mod material;
 pub use lighting::present_lighting;
 pub use material::MaterialKey;
 mod model_cache;
+mod placement;
 mod runtime;
 use map_draw::{MapDrawContext, insert_map_draw_components};
-use material::{alpha_mode, cube_image_filtered, image_filtered, mip_image_filtered};
+use material::{alpha_mode, base_image, cube_image_filtered, image_filtered};
 pub(crate) use material::{black_cube, fallback_images, image, make_material, sampler_descriptor};
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
@@ -165,47 +166,6 @@ pub struct ModelLit {
     last: Option<(glam::Vec3, bool)>,
     /// Entity lights (muzzle elights) lit this draw last time: relight once they end.
     dynamic: bool,
-}
-/// The entity roots [`place_entities`] moves.
-type EntityPlacements<'w, 's> = Query<
-    'w,
-    's,
-    (
-        &'static SourceEntity,
-        &'static mut Transform,
-        &'static mut Visibility,
-        Option<&'static NpcWeaponDraw>,
-    ),
-    Without<crate::gpu_skinning::Joint>,
->;
-
-fn place_entities(
-    entities: &mut EntityPlacements,
-    game: &crate::gameplay::Gameplay,
-    sim: &crate::simulation::Simulation,
-) {
-    for (owner, mut transform, mut visibility, weapon) in entities {
-        let Some(state) = game.scene.states.get(owner.0) else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        let (origin, rotation) = sim
-            .physics
-            .entity_pose(owner.0)
-            .unwrap_or((state.origin, state.rotation));
-        let pose = entity_transform(origin, rotation);
-        if *transform != pose {
-            *transform = pose;
-        }
-        let visible = if draw_hidden(game, owner.0, weapon) {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
-        if *visibility != visible {
-            *visibility = visible;
-        }
-    }
 }
 
 #[derive(Default)]
@@ -487,7 +447,7 @@ pub(crate) fn draw_hidden(
 pub fn present_entities(
     game: Res<crate::gameplay::Gameplay>,
     sim: Res<crate::simulation::Simulation>,
-    mut entities: EntityPlacements,
+    mut entities: placement::EntityPlacements,
     mut joints: Query<&mut Transform, (With<crate::gpu_skinning::Joint>, Without<SourceEntity>)>,
     mut animations: Query<(&mut AnimatedMesh, &Mesh3d, Option<&mut Aabb>)>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -496,7 +456,7 @@ pub fn present_entities(
     eyes: Option<Res<crate::eyes::Eyes>>,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "animation");
-    place_entities(&mut entities, &game, &sim);
+    placement::place_entities(&mut entities, &game, &sim);
     let mut updated_joints = std::collections::BTreeSet::new();
     let mut poses: BTreeMap<(String, String, u32, u64), Vec<glam::Mat4>> = BTreeMap::new();
     let mut flex_weights = face_flex::FlexWeights::new();
@@ -729,7 +689,7 @@ pub fn spawn_map(
         images,
         status,
         (camera_target, cpu_skinning, world_partition),
-        hl2_ui::config::Filtering::Trilinear,
+        (hl2_ui::config::Filtering::Trilinear, false),
     );
 }
 
@@ -745,7 +705,7 @@ pub fn spawn_map_filtered(
     images: &mut Assets<Image>,
     status: &Status,
     (camera_target, cpu_skinning, world_partition): (&Handle<Image>, bool, bool),
-    filtering: hl2_ui::config::Filtering,
+    (filtering, nearest): (hl2_ui::config::Filtering, bool),
 ) {
     let world = &loaded.world;
     let (white, black_cube, flashlight, missing) =
@@ -841,7 +801,7 @@ pub fn spawn_map_filtered(
                     .map(|(i, chain)| {
                         texture_handles
                             .entry(format!("{path}#frame{i}#mips#srgb"))
-                            .or_insert_with(|| images.add(mip_image_filtered(chain, filtering)))
+                            .or_insert_with(|| images.add(base_image(chain, filtering, nearest)))
                             .clone()
                     })
                     .collect::<Vec<_>>()

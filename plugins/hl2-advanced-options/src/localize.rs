@@ -1,6 +1,7 @@
 //! Plugin-owned placeholders; installed localization always takes precedence.
 pub const PLACEHOLDER_STRINGS: &[(&str, &str)] = &[
     ("HL2RS_MotionBlurUltra", "Ultra"),
+    ("HL2RS_Potato", "Potato"),
     (
         "HL2RS_StatusMotionBlur",
         "Advanced adds viewmodel animation blur. Ultra also reconstructs world/camera and projectile motion; GPU performance tuning is in progress.",

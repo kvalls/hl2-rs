@@ -268,7 +268,7 @@ fn setup(
         &mut assets,
         &status,
         &options,
-        options.config.video.advanced.filtering,
+        options.config.video.texture_sampling(),
         None,
     );
     commands.insert_resource(init_console_ui(ui, adapter.as_deref(), &target, &options));
@@ -282,6 +282,7 @@ fn setup(
             follows_window: options.follows_window,
             windowed: options.display_mode.effective() == hl2_ui::config::DisplayMode::Windowed,
             policy: options.config.video.policy.clone(),
+            budget: options.config.video.render_budget(),
         },
     );
     startup_cameras::spawn(&mut commands, adapter.as_deref(), &options, position, yaw);
