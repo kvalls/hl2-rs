@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Independent stopped-entry context pairs (2026-11-02 ER/ES)
+
+A Windows hardware execution breakpoint on the authored EP executable captures1,440 entries before its first observer instruction. All288 top caller pairs and1,154 retained observer pairs agree for integer/flag and235 selected x87/SSE bytes; nested helpers supply independently distinct FP contexts. RF-only normalization is explicit, raw contexts/stack reads and20 corruption controls retained. The initial unhandled WOW64 single-step attempt remains rejected. Requested resume records and an unretained remote PE check still need stronger provenance before game use. No timing/native actor/ABI/campaign/Rust claim follows, and no game or Valve DLL ran.
+
+## Authored entry-state observation (2026-11-02 EP/EQ)
+
+An authored136-byte x86 observer saves flags/registers and aligned FXSAVE state before its helper. Finite caller trials retain exact supplied integer/flag and235 selected x87/SSE bytes after deliberately destructive helpers, with nested calls, three disjoint thread contexts and bounded overflow. The independent caller snapshots distinguish incoming state from helper state; no retail callback or ABI is inferred. PE/instruction and raw-capture corruption checks pass. Original compiler failure and final tuple-versus-JSON report-check rejection remain retained; a separate offline audit normalizes only final metadata equality and passes without a native rerun. Reserved image bytes remain raw but excluded; AVX, arbitrary exception paths, timing and actual native actor state are unproven. No game/Valve DLL/Rust ran; first_map_finished:false.
+
 ## Acos representations and caller controls (2026-10-29 EL–EN)
 
 EO separately binds the exact initializer first-three-instruction/six-byte boundary and continuation with four corruption controls. This does not implement or validate a detour, observer, FPU transparency, concurrency or actual actor capture; a disposable observer fixture remains the next bounded step.

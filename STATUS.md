@@ -1,5 +1,17 @@
 # STATUS
 
+## Independent debug-stop entry contexts (2026-11-02 ER/ES)
+
+ER is rejected: an unhandled WOW64 single-step status ended the owned fixture before any entry capture. Its logs and cleanup remain sealed. ES handles the SDK event codes; debugger40728 and authored child40284 exit0 with unchanged pins. All1,440 stopped contexts/resume requests/stack reads are retained. All288 top entries match independent caller integer/flag and235-byte x87/SSE images;1,154 retained observer pairs and1,152 nested-helper contexts agree. Twenty corruptions reject; ES28-file/five-binding seal passes. RF alone is normalized for comparisons; raw contexts remain.
+
+Remote PE bytes were checked but not retained; requested resume state is not a second OS context read. Strengthen both in the next fixture before native use. Whole-process0.1453008s is not an overhead/native-performance claim. No software patch/injected callback/game/Valve DLL/Rust ran; actual retail actor/entry/campaign and Rust parity untested, first_map_finished:false. Readonly ER `rejection.py`, `seal.py verify`; ES `verify.py`, `seal.py verify`. Continue toward98% usage.
+
+## Authored entry observer and separate report audit (2026-11-02 EP/EQ)
+
+EP's authored x86 process41204 exits0 with unchanged launch pins. All288 caller GPR/ESP/EFLAGS and235-byte selected x87/SSE image comparisons pass after destructive helpers;193 retained top entries match caller snapshots and961 nested records retain the altered helper context. Three disjoint thread contexts retain1,154 records/1,440 helpers and286 intentional drops with intact guards and closed spawned-thread handles. Separate136-byte PE/instruction admission rejects18 code corruptions; capture replay rejects22 corruptions.
+
+The original read-only verifier fails only its final Python-tuple versus JSON-array report equality. Its sealed source/report and rejected compiler declaration remain unchanged. EQ separately reproduces the rejection and passes the identical raw checks with only final metadata equality normalized in memory; no native rerun. Readonly EP `admit.py`, EP `seal.py verify`; EQ `audit.py`, `seal.py verify`. EP `verify.py` remains failing and is not claimed passing. Timing, arbitrary exceptions/AVX/shared-context concurrency, actual retail entry/actor and Rust parity remain untested; first_map_finished:false. Next test Windows debug-stop context capture on the authored executable before choosing a game observer. No native HL2/Valve DLL or Rust ran. Continue toward98% usage.
+
 ## Acos precision, caller controls and dispatch gate (2026-10-29 EL–EN)
 
 EO admits only the initializer entry boundary: three exact instructions/six bytes, continuation client10097bd6 and four rejected corruptions/cuts. A five-byte cut intersects the third instruction. Four private files sealed. No detour/observer/trampoline/FP transparency or native capture was implemented/tested; the next step is a disposable observer fixture before any game hook.

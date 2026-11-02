@@ -1,5 +1,13 @@
 # Design
 
+## Research plan: independent Windows entry-context capture (2026-11-02 ER)
+
+After the bounded EP observer and separate EQ report audit, test a hardware execution breakpoint on the same authored x86 executable in a new private output root. Launch only that owned child under the Windows debug API; retain raw WOW64 contexts and source memory reads while debug events suspend execution, admit each thread's debug-register setup, and compare stopped entry GPR/ESP/EFLAGS and x87/SSE images against the child's independent caller/observer records. Retain resume-state writes, module/PE identity, failures, bounded completion and process/handle cleanup. A debugger stop changes scheduling; measure that perturbation separately and do not infer native timing. Do not initialize a Valve DLL or capture a game until this mechanism is independently admitted.
+
+## Research plan: bounded entry-state observer fixture (2026-11-02 EP)
+
+Resume EO with an authored x86 process before any native detour. Capture entry EFLAGS/GPR/ESP and aligned FXSAVE state before a helper runs; deliberately alter helper FP/SSE state, restore the saved image and registers, and compare independent caller-side snapshots. Exercise finite control words, x87 stack contents, eight XMM registers, direction/arithmetic flags, nested calls, disjoint thread contexts and bounded recorder overflow. Pin source/build/executable, retain raw images/records/footer/cleanup and deliberate corruption controls. Reserved image bytes are not architectural state; report the compared field ranges explicitly. CPU feature admission and successful user-mode execution are separate from unobservable privileged OS controls. This fixture does not establish arbitrary exception safety, concurrent patching, native initializer ABI, extended AVX state, game actor inputs or Rust parity. No Rust/game action is part of EP.
+
 ## Research plan: exact acos dispatch predicate (2026-10-29 EN)
 
 EO now admits only the exact six-byte initializer entry boundary/continuation and rejects four invalid cuts/corruptions. Before a future native hook, build a disposable fixture that verifies entry GPR/ESP/EFLAGS and x87/SSE preservation before any callback, alignment, source identity, disjoint bounded recorder memory, reentrancy/thread isolation, overflow/drop/footer behavior and perturbation. Entry admission alone does not establish safe patching, observer transparency or actual actor data. Repeat current ownership before any owned launch.

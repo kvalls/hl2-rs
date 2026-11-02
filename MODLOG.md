@@ -1,5 +1,25 @@
 # MODLOG
 
+## 2026-11-02: independent authored debug-stop contexts (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
+- Changed: private ER rejected debugger attempt and ES corrected WOW64 event dispatch; research documentation only.
+- Why: observe entry FP/register state before any injected helper or authored observer instruction.
+- Tested how: debugger40728/child40284 exit0,1,440 hardware stops,288 independent caller pairs,1,154 observer pairs,1,152 nested-helper contexts,source pins/raw stack reads/footer/cleanup and20 corruptions. ER's unhandled0x4000001e exit remains rejected.
+- Result: authored stopped-entry snapshots agree after RF-only comparison normalization. ER20-file/four-binding and ES28-file/five-binding seals pass.
+- Still broken or not tested: remote PE bytes not retained and resume records are requested writes rather than independent OS rereads; actual retail entry/actor,timing,AVX,arbitrary exceptions,campaign and Rust parity untested. No game/Valve DLL/Rust ran.
+- Next: retain exact loaded code/header reads and reread resumed OS contexts in a new fixture before native use.
+
+## 2026-11-02: authored entry observer and metadata audit (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
+- Changed: private EP authored x86 observer and EQ separate offline audit; reviewed research documentation only.
+- Why: EO's entry-byte boundary did not establish entry FP/register preservation before a callback.
+- Tested how: process41204 exit0;288 caller trials,1,154 retained records/286 intentional drops across three contexts; PE/dumpbin instruction admission,18 code and22 capture corruptions; source pins/guards/footer/cleanup. Separate EQ audit reproduces the original report-equality failure and normalizes only that metadata comparison without native rerun.
+- Result: finite supplied GPR/ESP/EFLAGS/x87/SSE preservation and bounded nested/disjoint-thread recording pass. EP27-file/two-binding seal; EQ audit retained separately.
+- Still broken or not tested: original EP readonly verifier remains failing on tuple/JSON-array equality; original compiler-declaration rejection retained. Timing, arbitrary exceptions/AVX/shared-context concurrency, retail detour/entry/actor/rendering/campaign and Rust parity untested; first_map_finished:false. No Rust/game/DLL initialization.
+- Next: independently test Windows debug-stop entry capture on the disposable authored executable; continue toward98% five-hour usage.
+
 ## 2026-10-31 session 40: burning Combine soldiers (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

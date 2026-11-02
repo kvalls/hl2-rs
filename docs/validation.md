@@ -1,5 +1,15 @@
 # Local validation — 2026-10-05
 
+## Independent hardware-breakpoint fixture (2026-11-02 ER/ES)
+
+ER records an unhandled WOW64 single-step0x4000001e and zero admitted entries; its20-file/four-binding seal preserves rejection/cleanup. ES explicitly handles the SDK WOW64 statuses. Debugger40728/child40284 both exit0/source pins unchanged;1,440 stopped716-byte contexts/requested resume contexts/paired20-byte stack reads,288 top caller pairs,1,154 observer pairs,1,152 nested helper images and288 caller restorations pass. Four debug thread-creation events contain three observer-entering contexts. Twenty corruption controls and28-file/five-binding seal pass. Readonly ES `verify.py`, `seal.py verify`; ER `rejection.py`, `seal.py verify`, all via `C:/Python310/python.exe -B`. Remote PE bytes were not retained; resume records are requested writes, not fresh OS reads. The0.1453008s whole-process interval is not an overhead estimate. No game/DLL/Rust or retail actor/parity test; first_map_finished:false.
+
+## Authored observer checkpoint (2026-11-02 EP/EQ)
+
+Private `pose-observer-fixture-20261102ep`: process41204 exit0/source pins unchanged;288 caller pre/post GPR/ESP/EFLAGS and235 selected FXSAVE-byte comparisons,288 seed/entry pairs,193 retained top-entry pairs and961 nested records pass. Three distinct worker IDs/disjoint buffers,1,440 helpers/1,154 retained records/286 intentional drops,lower/upper/unused guards,footer and two closed spawned-thread handles checked. Eighteen PE/instruction and22 capture corruptions reject. Twenty-seven files/two external bindings sealed.
+
+Original EP `verify.py` recomputes all checks but rejects its final tuple-versus-JSON-array metadata comparison. It remains unchanged/failing. `pose-observer-audit-20261102eq/audit.py` reproduces that failure and passes with only final equality normalized in memory; no native rerun. Use `C:/Python310/python.exe -B` with EP `admit.py`, EP `seal.py verify`, EQ `audit.py`, EQ `seal.py verify`. Do not rerun frozen producers. Compiler-forward-declaration rejection retained separately. Not tested: timing/perturbation, arbitrary exceptions/AVX/shared-context concurrency, retail patching/entry/actor/rendering/campaign or Rust parity. first_map_finished:false.
+
 ## Acos wider returns and finite caller controls (2026-10-29 EL–EN)
 
 EO: exact client10097bd0 identity/source body/PE prefix558bec83ec14, three instructions/six bytes, continuation10097bd6, four rejected cuts/corruptions; four files/four external bindings sealed. Read-only `C:/Python310/python.exe -B` checks in private `pose-observer-preflight-20261029eo/{entry_admission.py,seal.py verify}`. No observer/trampoline/FP-state transparency or native capture tested; never rerun create.
