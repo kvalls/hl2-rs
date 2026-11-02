@@ -1,5 +1,13 @@
 # Design
 
+## Research plan: loaded-header and owned-member correspondence (2026-11-02 FN)
+
+Re-read only the owned models/gman_high.mdl candidate through the pinned stock reader, preserving member/archive/CRC/hash provenance and selected raw ranges. Independently compare its408-byte header and ordered70-bone flag words with FM's rechecked loaded bytes, retaining every difference and separating same-name/checksum/partial-byte correspondence from proof of loading or conversion. Do not infer loaded bone names/order, source default words, actor/frame identity or pose outputs from matching header fields. No native launch or Rust action.
+
+## Research plan: bounded loaded model-header observation (2026-11-02 FL/FM)
+
+Extend only the owned debugger with a separate ordered read/error journal for the initializer's first argument: 48 wrapper bytes, 408 header bytes, bounded one-to-256 bone flags and symmetric rechecks. Preserve every requested/actual read size/error, snapshot generation, pointers and rejection reason; never dereference target pointers in the observer itself. First test valid authored StudioHdr-like objects and deliberately invalid header pointers on a disposable unload/reload fixture, retaining full caller/FP/entry/cleanup checks. Only after admission may a fresh guarded native run bind raw loaded header/name/checksum/bone-count/flags to entry masks/FP state. Header strings/checksums remain loaded-object evidence, not a proven asset conversion, actor association, frame identity or completed pose. No Rust action.
+
 ## Research plan: owned child-record delta composition (2026-11-02 FH)
 
 Join DL's admitted selected DELTA decoder outputs to CR/EJ's exact sequence/animation/weight identities and FE's corresponding owned default bone words by an explicitly authored name correspondence. Feed each selected record state into a one-bone conditional full-blend fixture using actual descriptor flags, explicit masks/weights and both base models; preserve absent full-model/virtual/cache/frame association. Admit derived scale/index ranges before execution, extend only authored loader count/flag gates, and compare independently recomputed/prepared/native server/client words plus code/RO/context/FP/stack/guard/cleanup. Deduplicate the DELTA base-independent source pairs rather than count them twice. This is per-record local composition, not an actor gesture, assembled full skeleton or campaign/Rust parity.

@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-02: actual initializer/model entry and owned delta composition (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
+- Changed: private FH owned-record/default delta composition; FJ actual native entry capture; FL bounded model reader fixture; FM loaded header/flag capture; FN owned-candidate correspondence. Reviewed research docs only.
+- Why: replace unknown initializer caller controls with exact entry evidence and bind loaded model inputs while keeping actor/pose claims separate.
+- Tested how: FH two clean38,076-case native-buffer runs/533,064 words each/eight controls per module; FJ128 actual entries/15 controls; FL32 authored entries/29 accepted and3 NOACCESS snapshots/ten controls; FM32 actual entries/192 symmetric model reads/11 controls; FN one owned-member reread/three controls. Source/code/generation/FP/read/guard/cleanup and seals pass.
+- Result: all160 actual initializer entries retain CW027f/SW4037/MXCSR1fbf/empty stack. FM loaded gman_high header has70 bones and a stable flag vector; candidate header402/408 bytes and all70 ordered flags agree, with all differences retained. DELTA module results match exactly under the stated local contract.
+- Closeout: FO independently verifies 24 roots/1,354 local entries/128 bindings, then binds the separately sealed FP candidate-domain audit. FP's 490 words are finite normal/positive zero, all quaternion norms nonzero; seven corruptions pass. Original offline Fraction argument error/source retained. Final observation at 19:27:26 UTC has no named game processes and an unconfined cursor, without control actions. Combined research set: 25 roots/1,360 entries/130 bindings, excluding FO's own seal.
+- Still broken or not tested: no actor/frame association, actual loaded default-source/output pose, conversion trace, complete skeleton/rendering/campaign or Rust parity; first_map_finished:false. Opening screenshots are title-card context only. Fontconfig error and all rejected offline/preparation drafts retained. No Rust edit/build/test.
+- Next: exact loaded direct bone-record/source/output witnesses and separate hierarchy evidence; private research handoff records the frozen roots and read-only commands. Stop near 98% of the five-hour usage meter.
+
 ## 2026-11-02 session 41: npc_headcrab_fast leaps (step 1); cycle-0 NPC events fire (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

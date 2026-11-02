@@ -1,5 +1,15 @@
 # Sources and native research
 
+## Candidate default-vector domain and integrity closeout (2026-11-02 FO/FP)
+
+The owned G-Man candidate's 490 direct position/quaternion words contain only finite normals and two positive zeros. Its 70 quaternion norms are nonzero but not exactly unit length; no normalization is applied by the audit. Corresponding observed mask predicates select 67 or 70 candidate indices, with 0x400 excluding indices 7/12/17. These are candidate words and conditional selections, not observed loaded source/output arrays. Seven corruptions pass; the rejected offline Fraction argument draft remains private. FO independently rechecks every file/inventory/binding in 24 earlier roots, then binds FP's separate seal: 25 research roots, 1,360 local manifest entries and 130 external bindings. Passing integrity checks preserve each root's original admission/rejection boundary.
+
+## Actual initializer entry and loaded-header association (2026-11-02 FJ–FN)
+
+Hardware-debugged owned openings now retain160 actual client initializer entries with CW027f/SW4037/MXCSR1fbf and empty x87 stacks. A separately fixture-admitted reader binds32 entries to rechecked wrapper/header/bone-flag bytes: loaded gman_high.mdl/version48/checksum45534fe3/70 bones, direct-default predicate and entry masks selecting67 or70 flags. The owned version44 candidate agrees in402/408 header bytes and all70 ordered flag words. Differences remain explicit; neither name/checksum nor partial byte agreement proves conversion/loading or complete asset identity. Screenshots identify only the opening title card. Actor/frame/default-source/output pose, natural timing and campaign/Rust parity remain open.
+
+Separately,6,346 admitted DELTA record states compose with corresponding owned default bones in38,076 authored one-bone cases per module under actual sequence flags. Both modules agree with prepared/reference outputs on533,064 words and raw FP/context pairs. This is conditional local composition, not a continuous native decoder-to-blend chain or assembled actor skeleton. Initial preparation/verification failures remain alongside passing audits; no rejected image ran or native rerun repaired an offline check.
+
 ## Conditional owned-default blend (2026-11-02 FG)
 
 Both exact native full-blend bundles agree with the independent reference on60 supplied nondelta cases using owned default vectors and a deduplicated selected weight table. All23,940 numerical words/raw FP pairs/normalized contexts match; full-effective-weight vectors retain supplied raw child values.604 selected inputs derive near-same paths, so this probe adds no fast acos/scale coverage. Actual source descriptor flags remain recorded but were not applied; it is not a gesture, cache or virtual-map observation. A failed corruption label targeted C0 rather than TOP; its source/receipt remain and only the offline mutation mask changed. No native rerun or Rust/game action.
