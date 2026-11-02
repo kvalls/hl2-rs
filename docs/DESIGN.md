@@ -1,5 +1,17 @@
 # Design
 
+## Research plan: owned child-record delta composition (2026-11-02 FH)
+
+Join DL's admitted selected DELTA decoder outputs to CR/EJ's exact sequence/animation/weight identities and FE's corresponding owned default bone words by an explicitly authored name correspondence. Feed each selected record state into a one-bone conditional full-blend fixture using actual descriptor flags, explicit masks/weights and both base models; preserve absent full-model/virtual/cache/frame association. Admit derived scale/index ranges before execution, extend only authored loader count/flag gates, and compare independently recomputed/prepared/native server/client words plus code/RO/context/FP/stack/guard/cleanup. Deduplicate the DELTA base-independent source pairs rather than count them twice. This is per-record local composition, not an actor gesture, assembled full skeleton or campaign/Rust parity.
+
+## Research plan: conditional blend with owned defaults (2026-11-02 FG)
+
+Reuse only the sealed EI authored loader and admitted server/client fast bundles in fresh output roots. Build finite nondelta cases from FE's exact owned effective defaults and EJ's four selected weight tables, with explicit masks, incoming weights and both authored source directions. Reorder by diagnostic bone-name correspondence only as an authored input choice; do not call it a loaded virtual map or actual gesture pose. Independently admit all derived finite dot/index domains, prepare outputs through the canonical source-pinned reference and compare native modules/raw FP/code/RO/context/stack/guards/cleanup. Preserve any disagreement rather than assume prior synthetic cases cover these slightly nonunit inputs. No game/DLL initialization or Rust action.
+
+## Research plan: effective owned default-word domain (2026-11-02 FE)
+
+Revalidate EJ's two exact owned members with its read-only verifier, then independently reconstruct only the initializer-consumed positions/quaternions from retained source ranges and direct/alternate offsets. Classify their raw float32 domains, retain exact rational quaternion norms, and compare embedded-record versus effective-array diagnostic name joins separately. Require range/word/route/name corruption controls. A diagnostic name join, finite default domain or matching consumed words does not establish loaded conversion, actual virtual bone mapping, runtime masks, actor pose or rendering parity. No native launch or Rust action.
+
 ## Research plan: initializer capacity and unmasked exceptions (2026-11-02 FD)
 
 FC verifies zero/seven live x87 slots with masked exceptions. In a separate authored fixture, supply a full eight-slot stack and selectively unmask invalid/denormal exceptions for direct/alternate and selected/unselected paths. Retain OS exception records/contexts, partial output words, stack/control/status and independent final original-state restore snapshots; preserve faults as outcomes. Use integer-only capture of the supplied exception context and restore safe state before reporting. Compare explicit scenarios rather than infer arbitrary ABI/unwind safety. No game/user process or Rust action; actual caller stack/CW remains unobserved.

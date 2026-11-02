@@ -1,5 +1,25 @@
 # MODLOG
 
+## 2026-11-02: conditional owned-default blend (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
+- Changed: private FG owned-default nondelta probe using admitted EI bundles/loader and canonical reference; research docs only.
+- Why: test the slightly nonunit owned values rather than assume prior authored bases cover them.
+- Tested how: server31740/client47592 exit0;60 cases/23,940 words/60 FP pairs/120 normalized context records;code/RO/relocation/source/context/stack/guard/tail/cleanup and eight controls per module;300-file/five-binding seal.
+- Result: prepared/reference/native and module pairs agree;604 selected slots derive near-same paths, and302 full-weight vectors retain exact supplied child words. Four source weight aliases deduplicate to one table.
+- Still broken or not tested: actual delta flags were deliberately not applied in this nondelta probe; source alias metadata is not actor/cache/virtual-map evidence. No new acos/scale coverage, native timing, full skeleton, campaign or Rust parity. Original mislabeled C0/TOP corruption preserved/corrected offline; no native rerun.
+- Next: conditional per-record delta composition with actual child flags and matching owned defaults; continue toward98% usage.
+
+## 2026-11-02: initializer faults and owned numeric domains (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
+- Changed: private FD full-stack/SEH fixture, FE independent effective-default range audit and FF observation-only ownership recheck; reviewed research docs only.
+- Why: bound exceptional copy behavior without extrapolating it to the actual owned default pair or unknown caller state.
+- Tested how: FD process44828 exit0,12 scenarios/three OS fault frames, exact FLD/FSTP/prologue anchors,235-byte immediate restore comparison and15 controls; FE rereads through EJ's verifier, reconstructs784 words/exact rational quaternion norms and rejects8 corruptions. FD/FE seals23/four files, five/four bindings.
+- Result: direct full-stack and unmasked paths have explicit failure/partial-state boundaries; all selected owned defaults are normal/positive zero, and their raw quaternions are close to but not exactly unit norm. Embedded/effective defaults match within each model; diagnostic cross-model differences remain.
+- Still broken or not tested: actual caller FP/stack, native actor/output pose, arbitrary exception/unwind behavior, campaign and Rust parity. FF at18:24:48UTC finds no named games but preexisting cursor confinement, left unchanged. No new native game/DLL/Rust execution in FD/FE/FF.
+- Next: next independent owned-pose or exact caller-consumer question; retain the deferred native lane and continue toward98% usage.
+
 ## 2026-11-02: generation guard and exceptional-word initializer (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.

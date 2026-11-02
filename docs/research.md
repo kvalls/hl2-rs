@@ -1,5 +1,15 @@
 # Sources and native research
 
+## Conditional owned-default blend (2026-11-02 FG)
+
+Both exact native full-blend bundles agree with the independent reference on60 supplied nondelta cases using owned default vectors and a deduplicated selected weight table. All23,940 numerical words/raw FP pairs/normalized contexts match; full-effective-weight vectors retain supplied raw child values.604 selected inputs derive near-same paths, so this probe adds no fast acos/scale coverage. Actual source descriptor flags remain recorded but were not applied; it is not a gesture, cache or virtual-map observation. A failed corruption label targeted C0 rather than TOP; its source/receipt remain and only the offline mutation mask changed. No native rerun or Rust/game action.
+
+## Exceptional copy limits versus owned defaults (2026-11-02 FD/FE)
+
+Twelve authored initializer scenarios expose full-stack/masked output changes and three unmasked OS faults, with saved faultPC and x87 producer separately bound to exact store/load instructions. OS exception labels do not replace raw x87 cause/status. Immediate original-state restore snapshots agree across235 selected x87/SSE bytes; reserved image differences remain retained. This establishes a finite boundary, not arbitrary unwind/ABI behavior.
+
+The two selected owned models contain784 effective default words, all normal or positive zero. The exceptional source values used in FC/FD do not occur in this pair. Independent retained-range reconstruction confirms embedded/effective vectors agree within each model; the name-based cross-model diagnostic still has four position/seven quaternion matches. Exact rational norms show the raw quaternion defaults are nonzero and slightly nonunit; initializer copying does not itself renormalize them. Loaded conversion, virtual mapping, real actor/caller state and rendering/Rust parity remain separate.
+
 ## Module generations and exceptional defaults (2026-11-02 EY–FC)
 
 The first current-session native attempt rejects a repeated client-module load before any entry; both owned processes close and selected installed settings remain unchanged. A separate authored unload/reload fixture now binds generation-specific files/code/contexts even when Windows reuses the address. A subsequent fresh prelaunch guard finds an existing rewrite and confinement, so no second native process launches. These failures/deferrals remain separate from admitted entry evidence.
