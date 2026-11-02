@@ -1,5 +1,17 @@
 # Design
 
+## Research plan: bounded native initializer entry (2026-11-02 EY/EZ)
+
+Generalize the admitted module observer only for the authored entry and exact client initializer: explicit RVA/code extent/command line, byte-identical expected module file before arming, bounded capture/disarm and retained OS state/read provenance. Run that adapter against the authored DLL first, including a mismatched expected-file rejection. Only after admission, repeat process/cursor/foreground guards immediately before an owned native launch using a fresh private write mount. Capture initializer entry CW/MXCSR, stack argument pointers/mask and exact loaded code; retain settings/source/cleanup and a visual context witness. Entry observations do not establish caller ABI in general, actor association, completed initialization/output pose, natural timing, campaign completion or Rust parity. Stop for unexpected ownership/state failures and continue independent static research if launch cannot be admitted.
+
+## Research plan: module-load and capture-cap fixture (2026-11-02 EW)
+
+Before a retail launch, move the admitted authored observer into an owned x86 DLL and load it through an authored host. Extend the debugger to bind the exact module path/file bytes/load base/code at LOAD_DLL, arm only after that admission, and disarm every live thread at an explicit global capture cap. Preserve entry/raw reads/actual resume contexts and verify the full host workload still completes after capture stops. Test finite invalid module/cap/source controls independently. This adds neither native actor association nor timing parity; any later native run needs a fresh process/cursor/foreground guard and private game-write mount.
+
+## Research plan: paired authored observer perturbation (2026-11-02 EV)
+
+Use the identical sealed EP workload/executable in fresh private run directories, alternating eight ordinary and eight ET-debugged executions in an ABBA schedule. Pin executable/debugger/verifier sources before execution, record whole-process wall intervals with exit/cleanup, independently recheck the raw caller/observer/FP/guard/footer results for every run, and retain all samples rather than selecting the fastest. Compare paired differences and distribution summaries only for this disposable workload. Startup, file output and debugger read/stop overhead are included; this is not a target-call latency measurement or native HL2/FPS evidence. Native entry capture still requires fresh ownership and exact module/source admission.
+
 ## Research plan: independent Windows entry-context capture (2026-11-02 ER)
 
 After the bounded EP observer and separate EQ report audit, test a hardware execution breakpoint on the same authored x86 executable in a new private output root. Launch only that owned child under the Windows debug API; retain raw WOW64 contexts and source memory reads while debug events suspend execution, admit each thread's debug-register setup, and compare stopped entry GPR/ESP/EFLAGS and x87/SSE images against the child's independent caller/observer records. Retain resume-state writes, module/PE identity, failures, bounded completion and process/handle cleanup. A debugger stop changes scheduling; measure that perturbation separately and do not infer native timing. Do not initialize a Valve DLL or capture a game until this mechanism is independently admitted.

@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Observer source admission and perturbation (2026-11-02 ET–EX)
+
+Loaded observer code now matches pinned PE bytes through ordered raw reads, and actual post-request OS context rereads agree with explicit debug/flag differences retained. The initial disk-header equality rejection is preserved; only the independently parsed ImageBase field is admitted as different. Sixteen paired authored runs preserve all caller states while showing substantial whole-process overhead, so debug-stop evidence cannot establish natural native timing. An authored DLL fixture adds exact loaded path/file/code binding and a 128-entry cap; the full workload completes after disarming. Wrong module and zero cap reject in real disposable runs. No native game/actor/Rust or general timing/parity claim follows.
+
 ## Independent stopped-entry context pairs (2026-11-02 ER/ES)
 
 A Windows hardware execution breakpoint on the authored EP executable captures1,440 entries before its first observer instruction. All288 top caller pairs and1,154 retained observer pairs agree for integer/flag and235 selected x87/SSE bytes; nested helpers supply independently distinct FP contexts. RF-only normalization is explicit, raw contexts/stack reads and20 corruption controls retained. The initial unhandled WOW64 single-step attempt remains rejected. Requested resume records and an unretained remote PE check still need stronger provenance before game use. No timing/native actor/ABI/campaign/Rust claim follows, and no game or Valve DLL ran.

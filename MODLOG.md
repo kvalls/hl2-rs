@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-02: loaded bytes, perturbation and module cap (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
+- Changed: private ET loaded-byte/OS-reread admission, EV paired timing, EW module-load/cap fixture and EX deliberate rejection runs; research documentation only.
+- Why: distinguish requested resume data from OS readback, measure perturbation and bound future entry captures before native use.
+- Tested how: ET 1,440 actual rereads/2,882 memory reads and 17 new corruptions; EV 16 clean runs/4,608 caller trials/11,520 stops; EW 128-stop cap, exact DLL file/path/code, full host completion and 12 corruptions; EX wrong-path and zero-cap expected rejections. Seals pass 32/239/43/23 files.
+- Result: bounded authored state observation passes; measured whole-process perturbation is substantial (ordinary/debugged medians 21.54/273.92 ms), explicitly separate from native timing. Cap stops further breakpoints while the host continues.
+- Still broken or not tested: original header-equality and export-link rejections retained; actual retail entry/actor/AVX/arbitrary exceptions/campaign and Rust parity untested. No game/Valve DLL/Rust ran.
+- Next: fixture-test generalized native adapter with exact module-byte admission, then repeat ownership immediately before any bounded native capture; continue toward98% usage.
+
 ## 2026-11-02: independent authored debug-stop contexts (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.

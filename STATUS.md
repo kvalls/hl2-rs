@@ -1,5 +1,11 @@
 # STATUS
 
+## Loaded-byte admission, perturbation and capture cap (2026-11-02 ET–EX)
+
+ET retains 2,882 ordered memory reads and 1,440 actual OS resume-context rereads; all earlier entry/caller comparisons pass. Every 136-byte observer read matches its pinned PE. The loaded header differs only in its explicit ImageBase field; original disk-header equality rejection remains. OS readback preserves integer/FP data with an explicit DR6/flags relation; caller PUSHFD still preserves original flags. ET's 32-file/six-binding seal passes.
+
+EV's eight ordinary/eight debugged identical workloads all exit0 with 4,608 caller trials and 11,520 stops verified. Whole-process medians: 21.54235 ms ordinary, 273.91955 ms debugged; eight adjacent pairs add median 222.2628 ms. All samples/outliers retained; this is fixture perturbation including startup/IO, not per-call or HL2 performance. EW binds an authored DLL's exact path/full file/loaded code, captures 128 entries then disarms all live armed threads; the full host still passes 288 caller trials/1,440 helper calls. Twelve replay corruptions and EX's actual wrong-module/zero-cap controls reject as expected. EV/EW/EX seals cover 239/43/23 files. No game/Valve DLL/Rust ran; native actor/timing/campaign/Rust parity untested, first_map_finished:false. Next admit the generalized bounded observer on a fixture before a freshly guarded native entry capture. Continue toward98% usage.
+
 ## Independent debug-stop entry contexts (2026-11-02 ER/ES)
 
 ER is rejected: an unhandled WOW64 single-step status ended the owned fixture before any entry capture. Its logs and cleanup remain sealed. ES handles the SDK event codes; debugger40728 and authored child40284 exit0 with unchanged pins. All1,440 stopped contexts/resume requests/stack reads are retained. All288 top entries match independent caller integer/flag and235-byte x87/SSE images;1,154 retained observer pairs and1,152 nested-helper contexts agree. Twenty corruptions reject; ES28-file/five-binding seal passes. RF alone is normalized for comparisons; raw contexts remain.
