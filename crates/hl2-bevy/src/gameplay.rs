@@ -198,6 +198,9 @@ pub struct Gameplay {
     pub drawn_bodies: std::collections::BTreeMap<usize, i32>,
     pub body_swaps: u32,
     pub body_swap_failures: Vec<String>,
+    /// Diagnostics: the first collision of each gravity gun launch (time, prop, other
+    /// side, speed, dot with the away normal, game material, stuck), newest last.
+    pub launch_impacts: Vec<serde_json::Value>,
     /// prop_physics_create requests (model, eye, aim) for the host's model loader.
     pub prop_requests: Vec<(String, Vec3, Vec3)>,
     /// Runtime entities whose model draws the host builds next frame (dropped weapons).
@@ -449,6 +452,7 @@ impl Gameplay {
             drawn_bodies: Default::default(),
             body_swaps: 0,
             body_swap_failures: Vec::new(),
+            launch_impacts: Vec::new(),
             prop_requests: Vec::new(),
             model_draws: Vec::new(),
         }
@@ -505,6 +509,7 @@ impl Gameplay {
             drawn_bodies: Default::default(),
             body_swaps: 0,
             body_swap_failures: Vec::new(),
+            launch_impacts: Vec::new(),
             prop_requests: Vec::new(),
             model_draws: Vec::new(),
             player_damage,
@@ -2184,8 +2189,41 @@ impl Gameplay {
                     .collision_game_material(event, side, &self.world, physics, &self.scene)
             },
         );
-        for (id, position) in sticks {
-            physics.stick(id, position);
+        let mut seen = std::collections::HashSet::new();
+        for event in &physics.resolved_collisions {
+            for side in 0..2 {
+                let Some(id) = event.entities[side].filter(|id| physics.launched.contains(id))
+                else {
+                    continue;
+                };
+                if !seen.insert(id) {
+                    continue;
+                }
+                let velocity = event.pre_velocities[side];
+                let away = if side == 0 {
+                    event.normal
+                } else {
+                    -event.normal
+                };
+                let material = self.impacts.collision_game_material(
+                    event,
+                    1 - side,
+                    &self.world,
+                    physics,
+                    &self.scene,
+                );
+                self.launch_impacts.push(serde_json::json!({
+                    "time": self.scene.time, "entity": id, "other": event.entities[1 - side],
+                    "other_mass": event.masses[1 - side], "speed": velocity.length(),
+                    "dot": velocity.normalize_or_zero().dot(away), "material": material.to_string(),
+                    "origin": event.origins[side].to_array(), "contact": event.position.to_array(),
+                    "normal": event.normal.to_array(),
+                    "stuck": sticks.iter().any(|(s, _, _)| *s == id),
+                }));
+            }
+        }
+        for (id, position, save) in sticks {
+            physics.stick(id, position, save);
             self.scene
                 .sounds
                 .push(hl2_simulation::sounds::SoundRequest {
@@ -2347,7 +2385,7 @@ impl Gameplay {
         serde_json::json!({"time":self.scene.time,"inventory":self.inventory,"carrying":self.inventory.carrying(),"player_damage":self.player_damage,"viewmodel":{"animation":self.inventory.animation,"at":self.inventory.animation_at,"frag":self.inventory.frag},"suit":self.suit,"globals":self.scene.globals,"pending":self.selection.pending,"gesture_compose_errors":compose_errors,
             "entities":entities,"io":self.scene.diagnostics,"choreography":self.scene.choreography_states(&self.world),
             "animations":self.scene.animation_states(&self.world),"look_targets":self.scene.look_targets.report(),"random_look_targets":self.scene.look_targets.random_report(),"heads":self.scene.heads.iter().map(|(id,h)| (id.to_string(), h.goal.to_array())).collect::<std::collections::BTreeMap<_,_>>(),"gesture_layers":self.scene.gestures.report(),"sequence_fades":self.scene.sequence_transitions.iter().filter(|(_,t)| !t.fades.is_empty()).map(|(id,t)| (id.to_string(), &t.fades)).collect::<std::collections::BTreeMap<_,_>>(),"monitors":self.scene.monitors,"npc_goals":self.npcs.snapshots(),"npc_paths":self.npcs.path_stats(),
-            "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"zombies":zombies,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"bodies":{"current":self.scene.bodies.iter().map(|(id, b)| (id.to_string(), *b)).collect::<std::collections::BTreeMap<_,_>>(),"swaps":self.body_swaps,"failures":self.body_swap_failures},"spawn_overlay":self.spawn_overlay,"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
+            "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"zombies":zombies,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"bodies":{"current":self.scene.bodies.iter().map(|(id, b)| (id.to_string(), *b)).collect::<std::collections::BTreeMap<_,_>>(),"swaps":self.body_swaps,"failures":self.body_swap_failures},"spawn_overlay":self.spawn_overlay,"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"launch_impacts":self.launch_impacts,"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
             "unplayed_sounds":self.unplayed_sounds,"queued_sounds":self.sound_requests.len(),"recent_sound_cues":self.sound_cues})
     }
 }

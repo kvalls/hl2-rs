@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-02 session 41: wall stick is native; impact order and EnableMotion position (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session41-20261102: `physics::impact_order` (a step's new contacts hardest first), `Physics::stuck` keeps the enable-motion position and `make_interactive_debris` restores it when a stuck prop is freed, `world_sticks` returns it; host report `launch_impacts`; fixtures artifacts/s41.
+- Why: session 40's open native wall-stick difference.
+- Tested how: native oracle recordings (private record_sawwall2.py, two walls), retail server.dll HandleInteractionStick constants, hl2-simulation 410, packaged saw-wall x3 and saw-wall-held, strict Clippy/fmt, regression artifacts/s41-regression (26/26, 17/17, 26/26).
+- Result: native sticks like ours (the oracle's held attack refired and freed the blade); our stick no longer depends on Rapier's pair order, and a freed blade leaves the wall.
+- Still broken or not tested: the freed blade's rebound speed vs native; harpoon impaling.
+- Next: STATUS "Current session 41".
+
 ## 2026-11-02: loaded bytes, perturbation and module cap (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.

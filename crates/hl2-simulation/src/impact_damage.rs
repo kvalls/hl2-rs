@@ -218,14 +218,15 @@ pub const SOUNDS: &[&str] = &["Metal.SawbladeStick"];
 /// props hitting the world: faster than 1000 u/s, the velocity within acos(0.3) of the
 /// surface normal pointing away from the prop, and not into metal, grate or 'X'
 /// (sky, nodraw) surfaces (`material`: the game material of a collision side). Returns
-/// each prop to stick and where: its origin pushed 8 units along its velocity
-/// (StickAtPosition runs after the simulation).
+/// each prop to stick, where (its origin pushed 8 units along its velocity;
+/// StickAtPosition runs after the simulation) and its origin before the embed (the
+/// enable-motion position). Retail server.dll FUN_10222920 has the same thresholds.
 pub fn world_sticks(
     collisions: &[PhysicsCollision],
     world: &World,
     launched: &std::collections::HashSet<usize>,
     material: impl Fn(&PhysicsCollision, usize) -> char,
-) -> Vec<(usize, Vec3)> {
+) -> Vec<(usize, Vec3, Vec3)> {
     let mut seen = std::collections::HashSet::new();
     let mut sticks = Vec::new();
     for event in collisions {
@@ -265,7 +266,8 @@ pub fn world_sticks(
             if matches!(material(event, other), 'M' | 'G' | 'X') {
                 continue;
             }
-            sticks.push((id, event.origins[index] + velocity / speed * 8.));
+            let origin = event.origins[index];
+            sticks.push((id, origin + velocity / speed * 8., origin));
         }
     }
     sticks
@@ -581,7 +583,7 @@ mod tests {
         let concrete = |_: &PhysicsCollision, _: usize| 'C';
         assert_eq!(
             world_sticks(&[hit(1500., Vec3::X)], &world, &launched, concrete),
-            [(0, Vec3::new(98., 0., 0.))]
+            [(0, Vec3::new(98., 0., 0.), Vec3::new(90., 0., 0.))]
         );
         // Metal, too slow, too glancing, or not launched: no stick.
         let metal = |_: &PhysicsCollision, _: usize| 'M';

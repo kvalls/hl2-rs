@@ -461,6 +461,16 @@ pub struct PhysicsCollision {
     /// velocity in deg/s; zero for non-dynamic sides.
     pub angular: [(f32, f32); 2],
 }
+/// IVP reports a step's impacts in time order, so a fast prop's first collision is the
+/// face it meets head-on. Rapier finds them together, one event per collider pair, in a
+/// pair order that changes between runs (a launched sawblade meeting a pillar made of
+/// two stacked brushes logged either the face, dot 1.0, or the lower brush's top edge,
+/// dot 0.1). Hardest impacts first (collisionSpeed, stable) stands in for the time
+/// order, so first-collision rules (HandleInteractionStick, the launch damage bonus) see
+/// the head-on impact.
+pub fn impact_order(collisions: &mut [PhysicsCollision]) {
+    collisions.sort_by(|a, b| b.speed.total_cmp(&a.speed));
+}
 #[derive(Clone, Copy, Debug)]
 pub struct BodyState {
     pub position: Vec3,
@@ -692,8 +702,9 @@ pub struct Physics {
     /// (CPhysicsProp m_bFirstCollisionAfterLaunch).
     pub launched: std::collections::HashSet<usize>,
     /// Props a launch stuck in the world (StickAtPosition: motion disabled, debris,
-    /// SF_PHYSPROP_ENABLE_ON_PHYSCANNON until a gravity gun or +USE pickup).
-    pub stuck: std::collections::HashSet<usize>,
+    /// SF_PHYSPROP_ENABLE_ON_PHYSCANNON until a gravity gun or +USE pickup) and the
+    /// position they return to when freed (SetEnableMotionPosition: before the embed).
+    pub stuck: HashMap<usize, Vec3>,
     /// Props the player threw from a +USE carry (CPhysicsProp m_bThrownByPlayer): the
     /// next NPC they hit gets g_interactionHitByPlayerThrownPhysObj; cleared then or
     /// when the body sleeps.
@@ -1860,6 +1871,7 @@ impl Physics {
                 .retain(|(a, b), _| colliders.contains(*a) && colliders.contains(*b));
         }
         self.touching = touching;
+        impact_order(&mut self.collisions);
     }
     /// A free VPhysics body (thrown frag) from an authored solid: the .phy pieces in
     /// model space (a box of `half_extents` without them), the solid's mass, inertia
@@ -2505,8 +2517,9 @@ impl Physics {
     /// COLLISION_GROUP_DEBRIS -> COLLISION_GROUP_INTERACTIVE_DEBRIS when the player
     /// picks up, punts or holds the entity (other groups are left alone).
     /// CBreakableProp::StickAtPosition: teleport to `position`, EnableMotion(false),
-    /// SF_PHYSPROP_ENABLE_ON_PHYSCANNON and COLLISION_GROUP_DEBRIS.
-    pub fn stick(&mut self, id: usize, position: Vec3) {
+    /// SF_PHYSPROP_ENABLE_ON_PHYSCANNON and COLLISION_GROUP_DEBRIS; `save` is the
+    /// position before the embed, where EnableMotion puts it back.
+    pub fn stick(&mut self, id: usize, position: Vec3, save: Vec3) {
         let Some(&handle) = self.dynamic.get(&id) else {
             return;
         };
@@ -2526,18 +2539,23 @@ impl Physics {
             }
         }
         self.interactive_debris.remove(&handle);
-        self.stuck.insert(id);
+        self.stuck.insert(id, save);
     }
     /// Physgun_OnPhysGunPickup (gravity gun pickups and punts, +USE pickups): held
     /// debris becomes interactive debris, and a stuck prop
-    /// (SF_PHYSPROP_ENABLE_ON_PHYSCANNON) moves again (EnableMotion).
+    /// (SF_PHYSPROP_ENABLE_ON_PHYSCANNON) moves again (CPhysicsProp::EnableMotion: back
+    /// at its enable-motion position, out of the wall, before motion resumes).
     pub fn make_interactive_debris(&mut self, id: usize) {
         let Some(&handle) = self.dynamic.get(&id) else {
             return;
         };
-        if self.stuck.remove(&id) {
+        if let Some(save) = self.stuck.remove(&id) {
             if let Some(body) = self.bodies.get_mut(handle) {
+                let mut pose = *body.position();
+                let p = save * SCALE;
+                pose.translation = vector![p.x, p.y, p.z].into();
                 body.set_body_type(RigidBodyType::Dynamic, true);
+                body.set_position(pose, true);
             }
         }
         let Some(body) = self.bodies.get(handle) else {
@@ -4357,6 +4375,55 @@ mod tests {
         assert!(shot.is_some());
         let pick = physics.pick_ray(Vec3::new(0., 200., 40.), Vec3::X, 200.);
         assert_eq!(pick.map(|h| h.entity), Some(0));
+    }
+    #[test]
+    fn hardest_impacts_come_first_and_a_freed_stuck_prop_leaves_the_wall() {
+        let event = |speed: f32| PhysicsCollision {
+            colliders: [ColliderHandle::invalid(); 2],
+            entities: [Some(0), None],
+            surfaceprops: [None, None],
+            position: Vec3::ZERO,
+            origins: [Vec3::ZERO; 2],
+            normal: Vec3::X,
+            speed,
+            delta_time: f32::MAX,
+            pre_velocities: [Vec3::ZERO; 2],
+            post_velocities: [Vec3::ZERO; 2],
+            masses: [1., 0.],
+            angular: [(0., 0.); 2],
+        };
+        // The edge contact Rapier happened to list first (146 u/s along its normal)
+        // goes after the head-on one (1475 u/s); equal speeds keep their order.
+        let mut events = vec![event(146.), event(1475.), event(146.)];
+        events[2].position = Vec3::Z;
+        impact_order(&mut events);
+        let order: Vec<_> = events.iter().map(|e| (e.speed, e.position.z)).collect();
+        assert_eq!(order, [(1475., 0.), (146., 0.), (146., 1.)]);
+
+        let mut world = native_prop_world();
+        world.model_instances[0].kind = "prop_physics".into();
+        world.model_instances[0].entity = Some(0);
+        world.entities.push(modkit_core::Entity {
+            properties: vec![("classname".into(), "prop_physics".into())],
+        });
+        let mut physics = Physics::new(&world);
+        let groups = |physics: &Physics| {
+            let body = &physics.bodies[physics.dynamic[&0]];
+            physics.colliders[body.colliders()[0]].collision_groups()
+        };
+        physics.stick(0, Vec3::new(8., 0., 40.), Vec3::new(0., 0., 40.));
+        assert_eq!(groups(&physics), DEBRIS_GROUPS);
+        let body = &physics.bodies[physics.dynamic[&0]];
+        assert!(body.is_fixed());
+        assert!((body.translation().x / SCALE - 8.).abs() < 1e-3);
+        // A punt or pickup frees it (EnableMotion) back at the position it hit the wall
+        // from, as interactive debris (OnPhysGunPickup for world-stick props).
+        physics.make_interactive_debris(0);
+        let body = &physics.bodies[physics.dynamic[&0]];
+        assert!(body.is_dynamic());
+        assert!(body.translation().x.abs() < 1e-3);
+        assert!(physics.is_interactive_debris(0));
+        assert!(physics.stuck.is_empty());
     }
     #[test]
     fn picked_up_debris_hits_npcs_until_it_sleeps() {
