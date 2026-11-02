@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-02 session 41: npc_headcrab_fast leaps (step 1); cycle-0 NPC events fire (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session41-20261102: ai::headcrab fast kind (sounds, yaw speeds, selection, SCHED_FAST_HEADCRAB_RANGE_ATTACK1, patrol idle, facing in flight), the ground-crab lists; `runtime::event_window_start` (cycle-0 events of a sequence the AI just started); owned headcrab.mdl test; fixtures artifacts/s41 fast-crab-room, classic-crab-room.
+- Why: next NPC in campaign order (Ravenholm); the fast crab's leap event sits at cycle 0 and never fired.
+- Tested how: hl2-simulation 413, owned model test, packaged d1_town_02 runs, strict Clippy/fmt, regression artifacts/s41c-regression.
+- Result: fast crabs leap and bite (first bite 0.75 s); cycle-0 events now fire once for AI-started sequences.
+- Still broken or not tested: the fast crab's stop-and-go run mode, its sight limit, native A/B.
+- Next: STATUS "Current session 41".
+
 ## 2026-11-02 session 41: burning walk/moan native A/B; fire deaths stop the moan (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.

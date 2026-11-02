@@ -1,7 +1,8 @@
 //! npc_headcrab (CBaseHeadcrab + CHeadcrab, SDK npc_headcrab.cpp): the classic crab's leap
 //! attack (RangeAttack1Conditions, SCHED_HEADCRAB_RANGE_ATTACK1, the JUMP_TELEGRAPH and
-//! JUMPATTACK events, JumpAttack, LeapTouch), its sounds and turn rates. Not modeled yet: the
-//! fast and black crabs, burrowing, ceiling hanging, canisters, drowning, hopping off NPCs,
+//! JUMPATTACK events, JumpAttack, LeapTouch), its sounds and turn rates; CBlackHeadcrab and
+//! CFastHeadcrab (sounds, turn rates, selection, its leap schedule; the fast crab's
+//! stop-and-go run mode and sight limit are not modeled yet). Not modeled yet: burrowing, ceiling hanging, canisters, drowning, hopping off NPCs,
 //! harassing hops, barnacles, bites on NPCs (the leap's touch tests the player only).
 use super::assault::Assault;
 use super::conditions::*;
@@ -50,6 +51,12 @@ pub const SOUNDS: &[&str] = &[
     "NPC_BlackHeadcrab.Alert",
     "NPC_BlackHeadcrab.Footstep",
     "NPC_BlackHeadcrab.FootstepWalk",
+    "NPC_FastHeadcrab.Idle",
+    "NPC_FastHeadcrab.Alert",
+    "NPC_FastHeadcrab.Pain",
+    "NPC_FastHeadcrab.Die",
+    "NPC_FastHeadcrab.Bite",
+    "NPC_FastHeadcrab.Attack",
 ];
 
 /// CBaseHeadcrab::JumpAttack's velocity toward `target` (not a random hop): the arc's
@@ -129,6 +136,13 @@ pub fn jump_flinch(forward: Option<Vec3>, rolls: [f32; 3]) -> Vec3 {
     };
     direction * (40. + 40. * rolls[2])
 }
+/// CFastHeadcrab::MaxYawSpeed: 150 running or walking, else 120.
+pub fn fast_max_yaw_speed(activity: &str) -> f32 {
+    match activity {
+        "ACT_RUN" | "ACT_WALK" => 150.,
+        _ => 120.,
+    }
+}
 /// CHeadcrab::MaxYawSpeed; CBlackHeadcrab::MaxYawSpeed (`black`: 10 moving, else 30).
 pub fn max_yaw_speed(activity: &str, black: bool) -> f32 {
     match (activity, black) {
@@ -156,6 +170,12 @@ const SCHEDULES: &[(&str, &str)] = &[
          TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_FACE_IDEAL 0 TASK_WAIT_RANDOM 0.5 Interrupts \
          COND_ENEMY_OCCLUDED COND_NO_PRIMARY_AMMO",
     ),
+    // CFastHeadcrab's leap: the classic schedule without interrupts.
+    (
+        "SCHED_FAST_HEADCRAB_RANGE_ATTACK1",
+        "Tasks TASK_STOP_MOVING 0 TASK_FACE_ENEMY 0 TASK_RANGE_ATTACK1 0 \
+         TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_FACE_IDEAL 0 TASK_WAIT_RANDOM 0.5 Interrupts",
+    ),
     // The black crab lurks where it hid until something shows up.
     (
         "SCHED_HEADCRAB_AMBUSH",
@@ -173,7 +193,7 @@ pub fn add_schedules(schedules: &mut Schedules) {
 pub fn is_headcrab_class(class: &str) -> bool {
     matches!(
         class,
-        "npc_headcrab" | "npc_headcrab_black" | "npc_headcrab_poison"
+        "npc_headcrab" | "npc_headcrab_fast" | "npc_headcrab_black" | "npc_headcrab_poison"
     )
 }
 /// An npc_headcrab under the AI.
@@ -213,16 +233,29 @@ pub struct Headcrab {
     pub next_hop: f64,
     /// EjectTouch is set (an EvacuateNest crab panics when it lands).
     pub eject_touch: bool,
+    /// CFastHeadcrab (npc_headcrab_fast, models/headcrab.mdl).
+    pub fast: bool,
 }
 impl Headcrab {
     pub fn for_class(class: &str) -> Self {
         Self {
             black: matches!(class, "npc_headcrab_black" | "npc_headcrab_poison"),
+            fast: class == "npc_headcrab_fast",
             ..Self::new()
         }
     }
     /// The class's sound for a cue (Telegraph, Attack, Bite, Pain, Die).
     pub fn sound(&self, cue: &str) -> &'static str {
+        if self.fast {
+            return match cue {
+                "Attack" => "NPC_FastHeadcrab.Attack",
+                "Bite" => "NPC_FastHeadcrab.Bite",
+                "Pain" => "NPC_FastHeadcrab.Pain",
+                "Telegraph" | "Alert" => "NPC_FastHeadcrab.Alert",
+                "Idle" => "NPC_FastHeadcrab.Idle",
+                _ => "NPC_FastHeadcrab.Die",
+            };
+        }
         match (self.black, cue) {
             (true, "Telegraph") => "NPC_BlackHeadcrab.Telegraph",
             (true, "Attack") => "NPC_BlackHeadcrab.Attack",
@@ -239,6 +272,14 @@ impl Headcrab {
             (false, "Bite") => "NPC_HeadCrab.Bite",
             (false, "Pain") => "NPC_HeadCrab.Pain",
             (false, _) => "NPC_HeadCrab.Die",
+        }
+    }
+    /// MaxYawSpeed by class.
+    pub fn max_yaw_speed(&self, activity: &str) -> f32 {
+        if self.fast {
+            fast_max_yaw_speed(activity)
+        } else {
+            max_yaw_speed(activity, self.black)
         }
     }
     /// CBlackHeadcrab::Panic: hide for `duration` seconds.
@@ -265,6 +306,7 @@ impl Headcrab {
             panic_stop: 0.,
             next_hop: 0.,
             eject_touch: false,
+            fast: false,
         }
     }
 }
@@ -280,6 +322,11 @@ impl Behavior for Headcrab {
     /// flinches (a hop) at most every U(1, 3) s; a panicking crab takes cover and, once in
     /// cover, stops panicking and lurks (SCHED_HEADCRAB_AMBUSH).
     fn select_schedule(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        // CFastHeadcrab::SelectSchedule: leap whenever it can (SQUAD_SLOT_ATTACK1..2 are
+        // taken as free: no strategy slots yet; no ceiling crabs).
+        if self.fast && npc.conditions.has(COND_CAN_RANGE_ATTACK1) {
+            return "SCHED_RANGE_ATTACK1".into();
+        }
         if self.black {
             let damaged =
                 npc.conditions.has(COND_LIGHT_DAMAGE) || npc.conditions.has(COND_HEAVY_DAMAGE);
@@ -319,6 +366,15 @@ impl Behavior for Headcrab {
             self.panic = false;
             return "SCHED_CHASE_ENEMY".into();
         }
+        // CFastHeadcrab::TranslateSchedule: it patrols instead of standing idle (the chase
+        // needs a free SQUAD_SLOT_ENGAGE1..4: taken as free).
+        if self.fast {
+            match name {
+                "SCHED_IDLE_STAND" => return "SCHED_PATROL_WALK".into(),
+                "SCHED_RANGE_ATTACK1" => return "SCHED_FAST_HEADCRAB_RANGE_ATTACK1".into(),
+                _ => {}
+            }
+        }
         match name {
             "SCHED_RANGE_ATTACK1" => "SCHED_HEADCRAB_RANGE_ATTACK1",
             "SCHED_FAIL_TAKE_COVER" => "SCHED_ALERT_FACE",
@@ -352,6 +408,12 @@ impl Behavior for Headcrab {
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
         (task == "TASK_RANGE_ATTACK1").then(|| {
+            // CFastHeadcrab::RunTask: it keeps turning toward the enemy in flight.
+            if self.fast {
+                if let Some((_, enemy)) = ctx.enemy {
+                    motor.face(super::schedule::Goal::Position(enemy));
+                }
+            }
             if !motor.activity_finished() {
                 return TaskStatus::Running;
             }
@@ -371,6 +433,40 @@ impl Behavior for Headcrab {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fast_crabs_leap_when_they_can_patrol_when_idle_and_turn_fast() {
+        let mut crab = Headcrab::for_class("npc_headcrab_fast");
+        assert!(crab.fast && !crab.black);
+        assert!(is_headcrab_class("npc_headcrab_fast"));
+        let mut npc = AiNpc::new(1);
+        npc.state = super::super::state::NpcState::Combat;
+        let ctx = Context::default();
+        npc.conditions.set(COND_CAN_RANGE_ATTACK1);
+        assert_eq!(crab.select_schedule(&mut npc, &ctx), "SCHED_RANGE_ATTACK1");
+        assert_eq!(
+            crab.translate_schedule("SCHED_RANGE_ATTACK1", &npc, &ctx),
+            "SCHED_FAST_HEADCRAB_RANGE_ATTACK1"
+        );
+        assert_eq!(
+            crab.translate_schedule("SCHED_IDLE_STAND", &npc, &ctx),
+            "SCHED_PATROL_WALK"
+        );
+        assert_eq!(crab.max_yaw_speed("ACT_RUN"), 150.);
+        assert_eq!(crab.max_yaw_speed("ACT_IDLE"), 120.);
+        assert_eq!(crab.sound("Bite"), "NPC_FastHeadcrab.Bite");
+        assert_eq!(crab.sound("Die"), "NPC_FastHeadcrab.Die");
+        // Its leap schedule has no interrupts.
+        let mut schedules = Schedules::default();
+        add_schedules(&mut schedules);
+        let leap = &schedules.0["SCHED_FAST_HEADCRAB_RANGE_ATTACK1"];
+        assert!(leap.interrupts.names().is_empty());
+        // The classic crab still translates to its own schedule and stands idle.
+        let mut classic = Headcrab::for_class("npc_headcrab");
+        assert_eq!(
+            classic.translate_schedule("SCHED_IDLE_STAND", &npc, &ctx),
+            "SCHED_IDLE_STAND"
+        );
+    }
     #[test]
     fn black_crabs_flinch_hop_panic_hide_and_lurk() {
         let mut crab = Headcrab::for_class("npc_headcrab_poison");
@@ -621,5 +717,31 @@ mod tests {
         assert!(events.iter().any(|(n, _)| n == AE_JUMP_TELEGRAPH));
         assert!(events.iter().any(|(n, _)| n == AE_JUMPATTACK));
         assert!(rig.lookup_sequence("ACT_RUN", None, |_| 0).is_some());
+    }
+    #[test]
+    #[ignore = "requires owned installed HL2"]
+    fn owned_fast_headcrab_model_has_its_run_idle_and_leap() {
+        // CFastHeadcrab::Spawn: models/headcrab.mdl.
+        let vfs =
+            source_assets::vpk::Vfs::mount(&source_assets::install::discover().unwrap()).unwrap();
+        let path = "models/headcrab.mdl";
+        let names = source_assets::animation::sequence_names(&vfs, path).unwrap();
+        let rig =
+            source_assets::animation::load(&vfs, path, &names.iter().cloned().collect()).unwrap();
+        let leap = rig
+            .lookup_sequence("ACT_RANGE_ATTACK1", None, |_| 0)
+            .unwrap();
+        let events: Vec<_> = rig.clips[leap]
+            .events
+            .iter()
+            .map(|e| (e.name.to_uppercase(), e.cycle))
+            .collect();
+        let eye = source_assets::models::read_eye_position(&vfs, path).unwrap();
+        let run = rig.lookup_sequence("ACT_RUN", None, |_| 0);
+        let idle = rig.lookup_sequence("ACT_IDLE", None, |_| 0);
+        println!("fast {names:?} leap {leap} {events:?} run {run:?} idle {idle:?} eye {eye:?}");
+        assert!(events.iter().any(|(n, _)| n == AE_JUMPATTACK));
+        assert!(rig.lookup_sequence("ACT_RUN", None, |_| 0).is_some());
+        assert!(rig.lookup_sequence("ACT_IDLE", None, |_| 0).is_some());
     }
 }

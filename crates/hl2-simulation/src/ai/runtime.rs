@@ -34,6 +34,23 @@ use std::collections::BTreeMap;
 
 /// NPCThink's default interval.
 pub const THINK_INTERVAL: f64 = 0.1;
+/// Where an actor's event window starts. Scene::ai_events is open at its start, but
+/// GetAnimationEvent fires events at cycle >= flStart, so a cycle-0 event fires on a
+/// sequence's first frame: a sequence the last gather did not see that started at or after
+/// `since` (the AI started it in its think right after that gather) gets its start inside
+/// the window (the fast headcrab's leap is AE_HEADCRAB_JUMPATTACK at cycle 0). A
+/// sequence the last gather already saw keeps the open window (no replay).
+pub fn event_window_start(
+    since: f64,
+    seen: Option<&(String, f64)>,
+    current: &(String, f64),
+) -> f64 {
+    if seen != Some(current) && current.1 >= since {
+        current.1 - 1e-9
+    } else {
+        since
+    }
+}
 /// SOUND_* interests of npc_metropolice (GetSoundInterests; PLAYER_VEHICLE has no
 /// CSoundEnt type here).
 const METROPOLICE_SOUNDS: u32 = senses::sound::WORLD
@@ -394,6 +411,9 @@ pub struct AiActor {
     goal: Option<GoalKey>,
     /// Animation events up to this time were handled.
     events_until: f64,
+    /// The (sequence, start time) the last event gather saw (`event_window_start`).
+    #[serde(skip)]
+    events_sequence: Option<(String, f64)>,
     /// The ACT_IDLE -> ACT_IDLE_ANGRY translation input at the last think.
     idle_angry: bool,
     /// The last think interval: the weapon's m_flAnimTime - m_flPrevAnimTime, which
@@ -1755,6 +1775,7 @@ impl AiRuntime {
             damaged_by_player: false,
             goal: None,
             events_until: 0.,
+            events_sequence: None,
             idle_angry: false,
             think_dt: THINK_INTERVAL as f32,
             move_shoot: Default::default(),
@@ -2394,8 +2415,18 @@ impl AiRuntime {
             }
             let think_at = self.actors[&id].next_think;
             // Animation events of the AI's sequence since the last tick.
-            let since = self.actors[&id].events_until.min(now);
-            self.actors.get_mut(&id).expect("actor").events_until = now;
+            let current = (
+                scene.states[id].animation.clone(),
+                scene.states[id].animation_started,
+            );
+            let actor = self.actors.get_mut(&id).expect("actor");
+            let since = event_window_start(
+                actor.events_until.min(now),
+                actor.events_sequence.as_ref(),
+                &current,
+            );
+            actor.events_until = now;
+            actor.events_sequence = Some(current);
             let mut events = scene.ai_events(world, id, since, now);
             // Move and shoot: the restarted ACT_GESTURE_RANGE_ATTACK1's fire event.
             let queued = std::mem::take(&mut self.actors.get_mut(&id).expect("actor").move_fire);
@@ -4294,7 +4325,7 @@ impl AiRuntime {
                 weapon_drawn && h.idle_angry(actor.npc.state, now),
             ),
             AiClass::Zombie(z) => (zombie::max_yaw_speed(&actor.npc.activity, z.torso), false),
-            AiClass::Headcrab(h) => (headcrab::max_yaw_speed(&actor.npc.activity, h.black), false),
+            AiClass::Headcrab(h) => (h.max_yaw_speed(&actor.npc.activity), false),
         };
         if let AiClass::Headcrab(crab) = &mut actor.class {
             crab.sees_enemy = actor.npc.conditions.has(COND_SEE_ENEMY);
@@ -5703,6 +5734,20 @@ fn eye_z(world: &World, id: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_sequence_started_after_the_last_gather_fires_its_cycle_zero_events() {
+        let attack = ("attack".to_owned(), 2.0);
+        // The AI started it at 2.0, right after the gather at 2.0: the window opens at the start.
+        let seen = ("run1".to_owned(), 1.0);
+        assert!(event_window_start(2.0, Some(&seen), &attack) < 2.0);
+        // The next gather saw it already: no replay.
+        assert_eq!(event_window_start(2.1, Some(&attack), &attack), 2.1);
+        // A script started it before the gather that saw it: open window as before.
+        assert_eq!(event_window_start(2.0, Some(&attack), &attack), 2.0);
+        // Older sequences never reopen.
+        let old = ("idle01".to_owned(), 1.5);
+        assert_eq!(event_window_start(2.0, None, &old), 2.0);
+    }
     use modkit_core::Entity;
 
     fn entity(pairs: &[(&str, &str)]) -> Entity {
