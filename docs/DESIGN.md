@@ -1,5 +1,9 @@
 # Design
 
+## Research plan: candidate parent topology and mask closure (2026-11-02 FQ)
+
+Audit only FN's hash-bound owned 70-bone record range: signed parent indices at record+4, single-root/acyclic reachability and whether the two observed flag masks select a subset closed under candidate parent ancestry. Preserve record indices, every ancestor chain and any omitted parent without inventing loaded bone names or hierarchy. Test invalid parent/root/cycle/flag cases independently. This prepares later hierarchy witnesses; it does not observe a loaded skeleton or compose poses. No native launch or Rust action.
+
 ## Research plan: loaded-header and owned-member correspondence (2026-11-02 FN)
 
 Re-read only the owned models/gman_high.mdl candidate through the pinned stock reader, preserving member/archive/CRC/hash provenance and selected raw ranges. Independently compare its408-byte header and ordered70-bone flag words with FM's rechecked loaded bytes, retaining every difference and separating same-name/checksum/partial-byte correspondence from proof of loading or conversion. Do not infer loaded bone names/order, source default words, actor/frame identity or pose outputs from matching header fields. No native launch or Rust action.

@@ -1,5 +1,11 @@
 # STATUS
 
+## Candidate parent topology (2026-11-02 FQ)
+
+FQ independently audits FN's owned 70-bone parent indices: one root at index 0, maximum depth 11, all 69 nonroot parents precede their children, no cycles, and both candidate mask selections include every selected bone's ancestors. Six corruptions pass; four-file/two-binding seal passes. This is a subsequent separate candidate audit; FO's frozen 25-root scope remains unchanged. Loaded bone order/hierarchy and transformed pose are unobserved. No native launch or Rust action.
+
+The FH numerical results below use explicitly forced-fast math globals, fixture CW 0x027f and initial MXCSR 0x1f80. FJ/FM's later observed sticky state was not replayed into FH, and actual fast-dispatch globals were not read. Matching entry control words alone does not establish the full native blend environment.
+
 ## Research closeout and candidate default domain (2026-11-02 FO/FP)
 
 FO independently checks 24 explicit research roots: 1,354 local manifest entries, 128 external bindings and 1,421 unique files totaling 227,175,845 bytes. Every SHA256, recorded size, complete file inventory, binding and seal receipt passes; no collector or native producer was rerun. Integrity does not admit rejected captures. The three earlier observation-only guards now have separate seals without changing their original records. Final observation at 19:27:26 UTC finds no named game processes and an unconfined cursor; it performs no game/input/cursor control.

@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Candidate parent ancestry (2026-11-02 FQ)
+
+The owned candidate has one root at index 0, maximum parent depth 11 and 69 parent-before-child edges. Both flag-mask selections contain every selected index's candidate ancestors. Six corruptions pass. Loaded hierarchy/order and composed poses remain unobserved. Separately, FH's exact local comparisons use forced-fast globals, fixture CW 0x027f and initial MXCSR 0x1f80; they do not replay FJ/FM's later sticky entry state or observe actual dispatch globals.
+
 ## Candidate default-vector domain and integrity closeout (2026-11-02 FO/FP)
 
 The owned G-Man candidate's 490 direct position/quaternion words contain only finite normals and two positive zeros. Its 70 quaternion norms are nonzero but not exactly unit length; no normalization is applied by the audit. Corresponding observed mask predicates select 67 or 70 candidate indices, with 0x400 excluding indices 7/12/17. These are candidate words and conditional selections, not observed loaded source/output arrays. Seven corruptions pass; the rejected offline Fraction argument draft remains private. FO independently rechecks every file/inventory/binding in 24 earlier roots, then binds FP's separate seal: 25 research roots, 1,360 local manifest entries and 130 external bindings. Passing integrity checks preserve each root's original admission/rejection boundary.

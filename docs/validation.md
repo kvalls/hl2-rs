@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Candidate topology and math-context scope (2026-11-02 FQ)
+
+FQ `analyze.py` and `seal.py verify`, through `C:/Python310/python.exe -B`, pass 70 candidate parent records, root 0, depth 11, 69 parent-before-child edges, two ancestry-closed selections and six corruptions; four files/two bindings. This later audit is outside FO's frozen scope. No loaded hierarchy or native run. FH's receipt explicitly records forced-fast globals, CW 639 (0x027f), initial MXCSR 8064 (0x1f80), output MXCSR 8064/8096; it is not a replay of FJ/FM's observed sticky entry state or actual dispatch globals.
+
 ## Research closeout checks (2026-11-02 FO/FP)
 
 Read-only `C:/Python310/python.exe -B` commands: FO `audit.py` passes 24 roots/1,354 local entries/128 external bindings/1,421 unique files/227,175,845 bytes; FP `analyze.py` passes 490 words and seven corruptions, then FP and FO `seal.py verify` pass. FP has six files/two bindings; FO has seven files/50 bindings to the 25 research manifests/receipts. Combined research entries total 1,360 local/130 external, excluding FO itself. Original rejected drafts remain sealed. Final FO `ownership-guard.json` is a single observation at 19:27:26 UTC: no named games, cursor equals virtual desktop, no native launch or input/process/cursor control. Do not rerun frozen `guard.py`, `create`, prepare, build or run producers. No Rust/gameplay tests were run by Codex for these documentation/research-only changes.

@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-02: candidate parent topology and math-context boundary (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable; no subagents.
+- Changed/why: private FQ candidate parent/ancestry audit prepares a later loaded-hierarchy comparison; clarified FH's forced-fast globals and fixture FP state separately from later actual entry samples.
+- Tested how/result: FQ read-only analyze.py and seal.py verify pass: 70 bones, root 0, depth 11, 69 parent-before-child edges, both masks closed under candidate ancestry; six corruptions; four files/two bindings. Document/whitelist checks only; no Rust edit/build/test or new native launch.
+- Still unobserved/next: loaded hierarchy/poses and full actual blend environment. Fixture-admit bounded loaded direct records and closed output witnesses; actual entry sticky status/dispatch globals remain separate from FH's supplied math contract.
+
 ## 2026-11-02: actual initializer/model entry and owned delta composition (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
