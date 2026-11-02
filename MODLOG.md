@@ -7,7 +7,7 @@
 - Why: next NPC in campaign order (Ravenholm); the fast crab's leap event sits at cycle 0 and never fired.
 - Tested how: hl2-simulation 413, owned model test, packaged d1_town_02 runs, strict Clippy/fmt, regression artifacts/s41c-regression.
 - Result: fast crabs leap and bite (first bite 0.75 s); cycle-0 events now fire once for AI-started sequences.
-- Still broken or not tested: the fast crab's stop-and-go run mode, its sight limit, native A/B.
+- Still broken or not tested: the fast crab's stop-and-go run mode, native A/B (its sight limit followed in a later commit).
 - Next: STATUS "Current session 41".
 
 ## 2026-11-02 session 41: burning walk/moan native A/B; fire deaths stop the moan (Claude Code desktop, claude-opus-5-5)

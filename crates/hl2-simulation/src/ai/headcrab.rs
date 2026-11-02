@@ -1,8 +1,8 @@
 //! npc_headcrab (CBaseHeadcrab + CHeadcrab, SDK npc_headcrab.cpp): the classic crab's leap
 //! attack (RangeAttack1Conditions, SCHED_HEADCRAB_RANGE_ATTACK1, the JUMP_TELEGRAPH and
 //! JUMPATTACK events, JumpAttack, LeapTouch), its sounds and turn rates; CBlackHeadcrab and
-//! CFastHeadcrab (sounds, turn rates, selection, its leap schedule; the fast crab's
-//! stop-and-go run mode and sight limit are not modeled yet). Not modeled yet: burrowing, ceiling hanging, canisters, drowning, hopping off NPCs,
+//! CFastHeadcrab (sounds, turn rates, selection, its leap schedule, its sight limit; the
+//! fast crab's stop-and-go run mode is not modeled yet). Not modeled yet: burrowing, ceiling hanging, canisters, drowning, hopping off NPCs,
 //! harassing hops, barnacles, bites on NPCs (the leap's touch tests the player only).
 use super::assault::Assault;
 use super::conditions::*;
@@ -142,6 +142,11 @@ pub fn fast_max_yaw_speed(activity: &str) -> f32 {
         "ACT_RUN" | "ACT_WALK" => 150.,
         _ => 120.,
     }
+}
+/// CFastHeadcrab::QuerySeeEntity (not on a ceiling): outside combat it does not see
+/// anything whose origin is 150 or more units above or below its own.
+pub fn fast_sees_height(combat: bool, own_z: f32, other_z: f32) -> bool {
+    combat || (other_z - own_z).abs() < 150.
 }
 /// CHeadcrab::MaxYawSpeed; CBlackHeadcrab::MaxYawSpeed (`black`: 10 moving, else 30).
 pub fn max_yaw_speed(activity: &str, black: bool) -> f32 {
@@ -451,6 +456,9 @@ mod tests {
             crab.translate_schedule("SCHED_IDLE_STAND", &npc, &ctx),
             "SCHED_PATROL_WALK"
         );
+        assert!(fast_sees_height(false, 0., 149.));
+        assert!(!fast_sees_height(false, 0., -150.));
+        assert!(fast_sees_height(true, 0., 400.));
         assert_eq!(crab.max_yaw_speed("ACT_RUN"), 150.);
         assert_eq!(crab.max_yaw_speed("ACT_IDLE"), 120.);
         assert_eq!(crab.sound("Bite"), "NPC_FastHeadcrab.Bite");

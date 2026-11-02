@@ -3110,8 +3110,19 @@ impl AiRuntime {
         let my_class = classify(class_name, precriminal);
         let field_of_view = self.actors[&id].class.field_of_view();
         let sound_interests = self.actors[&id].class.sound_interests();
+        // CFastHeadcrab::QuerySeeEntity: outside combat, nothing 150+ units above or below.
+        let fast_combat = match &self.actors[&id].class {
+            AiClass::Headcrab(h) if h.fast => {
+                Some(self.actors[&id].npc.state == super::state::NpcState::Combat)
+            }
+            _ => None,
+        };
+        let sees_height = |z: f32| {
+            fast_combat.is_none_or(|combat| headcrab::fast_sees_height(combat, origin.z, z))
+        };
         let player_visible = !player.noclip
             && !player.dead
+            && sees_height(player.feet.z)
             && senses::in_view_cone(
                 &Viewer {
                     entity: id,
@@ -3158,6 +3169,7 @@ impl AiRuntime {
                 other != id
                     && !state.killed
                     && state.visible
+                    && sees_height(state.origin.z)
                     && center.distance(eye) <= senses::LOOK_DISTANCE
                     && self.npc_disposition(world, id, other, precriminal) == Disposition::HT
                     && senses::in_view_cone(&viewer, center)
