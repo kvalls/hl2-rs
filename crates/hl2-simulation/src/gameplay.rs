@@ -1652,6 +1652,19 @@ impl Inventory {
                             }
                         }
                         state.value -= amount;
+                        // CAI_BaseNPC::OnTakeDamage_Alive's PainSound and Event_Killed's
+                        // DeathSound for every damage kind (flames, blasts, impacts); the AI
+                        // tick's pain_or_death_sound also stops a dying zombie's moan and
+                        // breathing patches. COND_LIGHT/HEAVY_DAMAGE and the attacker's
+                        // memory only come from an FL_NPC or FL_CLIENT attacker (an
+                        // entityflame is its own attacker): no damage amount otherwise.
+                        if npc {
+                            scene.npc_damage.push((
+                                id,
+                                matches!(damage.attacker, crate::projectiles::Attacker::Player),
+                                if by_character { amount } else { 0. },
+                            ));
+                        }
                         // The rest of OnTakeDamage_Alive: a lethal blast releases the crab
                         // (headless, not modeled yet), then ShouldBecomeTorso / BecomeTorso.
                         if let Some(kind) = zombie
@@ -3313,6 +3326,40 @@ mod tests {
             );
         }
         assert_eq!(scene.render_colors[&0], [47, 48, 40]);
+    }
+    #[test]
+    fn flames_and_blasts_reach_the_npcs_pain_sounds_but_only_characters_hurt_its_ai() {
+        // OnTakeDamage_Alive: PainSound for any damage; COND_LIGHT/HEAVY_DAMAGE and the
+        // attacker's memory only for an FL_NPC/FL_CLIENT attacker (a flame is its own).
+        use crate::projectiles::{Damage, DamageTarget};
+        let world = World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![("classname".into(), "npc_metropolice".into())],
+            }],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        scene.states[0].value = 40.;
+        let mut physics = Physics::new(&world);
+        let hit = |amount: f32, kind: u32, attacker: Attacker| Damage {
+            target: DamageTarget::Entity(0),
+            amount,
+            kind,
+            dissolve: false,
+            direction: Vec3::ZERO,
+            origin: Vec3::ZERO,
+            attacker,
+        };
+        let flame = hit(1., crate::player_damage::DMG_BURN, Attacker::None);
+        let blast = hit(25., crate::player_damage::DMG_BLAST, Attacker::Player);
+        Inventory::default().apply_projectile_damage(
+            vec![flame, blast],
+            &world,
+            &mut scene,
+            &mut physics,
+        );
+        assert_eq!(scene.npc_damage, [(0, false, 0.), (0, true, 25.)]);
+        assert_eq!(scene.states[0].value, 14.);
     }
     #[test]
     fn a_gas_can_burst_ignites_only_npcs_allowed_to_burn_within_its_radius() {

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-02 session 41: burning walk/moan native A/B; fire deaths stop the moan (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
+- Changed: wip/session41-20261102: the generic entity damage path (flames, blasts, impacts) reports NPC hits to the AI (`scene.npc_damage`) for pain/death sounds and StopLoopingSounds; damage conditions only for player/NPC attackers; fixture artifacts/s41 burn-walk-town2.
+- Why: session 40 next step (native A/B of the burning walk and moan); the A/B found the moan playing on after a fire death.
+- Tested how: native oracle on d1_town_02 (private record_burnwalk_town2.py, video + per-process audio), our packaged run with per-process audio, spectrum pitch comparison, hl2-simulation 411, strict Clippy/fmt, regression artifacts/s41b-regression.
+- Result: the burning walk, burn time and moan pitch match native within the SDK's randomness; fire deaths now stop the moan and play Zombie.Die.
+- Still broken or not tested: burning ragdolls (native corpses keep burning and sounding ~6 s).
+- Next: STATUS "Current session 41".
+
 ## 2026-11-02: conditional owned-default blend (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
