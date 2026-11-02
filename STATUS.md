@@ -1,5 +1,19 @@
 # STATUS
 
+## Initializer exceptional-word copies (2026-11-02 FC)
+
+FC's authored process16672 exits0/source pins unchanged while executing only the exact call-free 401-byte client initializer. Minimal direct/alternate scaffolds, selected/unselected masks, 15 uniform position patterns, 12 masked precision/rounding words and zero/seven live x87 slots pass 1,440 calls/10,080 output words/5,040 live-stack words. Direct positions quiet the four supplied signaling NaNs in 96 selected calls (288 words), with invalid status; two supplied subnormals retain bits with denormal status in 48 calls. Alternate positions preserve signaling-NaN bits; selected quaternion words retain their bits in both routes. Seventeen corruptions and the 21-file/five-binding seal pass. This is conditional authored input evidence, not actual model defaults/actor pose. Final original-FX restoration lacks an independent exit snapshot; unmasked/full-stack exceptions and Rust parity remain untested. Readonly FC `verify.py`, `seal.py verify`; first_map_finished:false. Continue toward98% usage.
+
+## Native retry deferred by fresh ownership guard (2026-11-02 FB)
+
+FA's authored unload/reload fixture passes two explicit module generations, 128 second-generation entries, 262 reads, 43 top caller/85 nested pairs and 11 corruptions; its 41-file/six-binding seal passes. At18:07:45UTC, FB's fresh prelaunch guard finds existing hl2-bevy40584 and cursor clip[0,0,1920,1080] rather than the full virtual desktop. No native/debugger process or command was launched; no process/cursor was controlled. This is a timestamped ownership deferral, not a second failed native capture. Preserve FB and continue independent bounded offline research. Next: exact initializer direct x87 versus alternate SSE copies for nonfinite/subnormal words under explicit masked control words. Actual native CW/actor/pose/campaign and Rust parity remain unproven; first_map_finished:false.
+
+## Rejected first native entry attempt (2026-11-02 EZ)
+
+The generalized EY adapter passes its authored DLL and expected-file mismatch control. EZ then launches one freshly guarded private-mount native process41680 under debugger34184. The installed client hash matches the frozen exact body. A repeated target-module load triggers the adapter's duplicate-module guard before any entry is captured; no native FP/argument/pose claim is admitted. Both owned processes are closed after debugger teardown, source pins and selected installed cfg hashes are unchanged, and cursor clipping remains the full desktop. Window guard touched only the owned game window. This is a rejected startup/lifecycle experiment, not a successful capture or natural game exit.
+
+Preserve all EZ outputs. Before a second native attempt, add retained target load/unload identities, generation-bound files/code/context records and explicit disarming on unload, then validate unload/reload on an authored fixture. Do not repeat the unchanged native launcher. No Rust change/test; first_map_finished:false.
+
 ## Loaded-byte admission, perturbation and capture cap (2026-11-02 ET–EX)
 
 ET retains 2,882 ordered memory reads and 1,440 actual OS resume-context rereads; all earlier entry/caller comparisons pass. Every 136-byte observer read matches its pinned PE. The loaded header differs only in its explicit ImageBase field; original disk-header equality rejection remains. OS readback preserves integer/FP data with an explicit DR6/flags relation; caller PUSHFD still preserves original flags. ET's 32-file/six-binding seal passes.

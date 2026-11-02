@@ -1,5 +1,17 @@
 # Design
 
+## Research plan: initializer capacity and unmasked exceptions (2026-11-02 FD)
+
+FC verifies zero/seven live x87 slots with masked exceptions. In a separate authored fixture, supply a full eight-slot stack and selectively unmask invalid/denormal exceptions for direct/alternate and selected/unselected paths. Retain OS exception records/contexts, partial output words, stack/control/status and independent final original-state restore snapshots; preserve faults as outcomes. Use integer-only capture of the supplied exception context and restore safe state before reporting. Compare explicit scenarios rather than infer arbitrary ABI/unwind safety. No game/user process or Rust action; actual caller stack/CW remains unobserved.
+
+## Research plan: initializer exceptional-word copies (2026-11-02 FC)
+
+While native launch is deferred by current ownership, execute only DU's exact call-free 401-byte initializer in a new authored x86 fixture. Supply minimal direct/alternate model scaffolds, explicit selected/unselected masks, finite/zero/subnormal/infinity/quiet/signaling-NaN float32 words, nearest/directed rounding and 24/53/64-bit masked x87 precision, plus empty/seven-live-slot x87 stacks. Compare raw output words, live stack/control/status/MXCSR, guards, stack balance and code/source pins against an independent bit-level copy/quieting model. Retain any disagreement; do not assume x87 FLD/FSTP has MOVSS bit-copy semantics. Unmasked exceptions, full-stack faults, arbitrary NaN payload coverage, actual owned defaults/actor outputs, native timing and Rust parity remain outside this finite contract.
+
+## Research plan: module generations before native retry (2026-11-02 FA)
+
+EZ rejects a repeated native target-module load before any entry. Do not infer which unload belongs to that target from incomplete logs. Extend the authored debugger to retain each target load path/file/base and every unload base, disarm on target unload, and bind entry/read records to explicit load generations. Test an authored load/unload/reload host before any second native run; preserve the first rejected attempt and require fresh ownership again. Active duplicate loads without an admitted unload remain rejected. The global capture cap must survive generations, and successful state observation still does not establish normal timing or completed native output.
+
 ## Research plan: bounded native initializer entry (2026-11-02 EY/EZ)
 
 Generalize the admitted module observer only for the authored entry and exact client initializer: explicit RVA/code extent/command line, byte-identical expected module file before arming, bounded capture/disarm and retained OS state/read provenance. Run that adapter against the authored DLL first, including a mismatched expected-file rejection. Only after admission, repeat process/cursor/foreground guards immediately before an owned native launch using a fresh private write mount. Capture initializer entry CW/MXCSR, stack argument pointers/mask and exact loaded code; retain settings/source/cleanup and a visual context witness. Entry observations do not establish caller ABI in general, actor association, completed initialization/output pose, natural timing, campaign completion or Rust parity. Stop for unexpected ownership/state failures and continue independent static research if launch cannot be admitted.

@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Module generations and exceptional defaults (2026-11-02 EY–FC)
+
+The first current-session native attempt rejects a repeated client-module load before any entry; both owned processes close and selected installed settings remain unchanged. A separate authored unload/reload fixture now binds generation-specific files/code/contexts even when Windows reuses the address. A subsequent fresh prelaunch guard finds an existing rewrite and confinement, so no second native process launches. These failures/deferrals remain separate from admitted entry evidence.
+
+An independent exact-initializer fixture supplies 15 float32 position patterns under 12 masked precision/rounding words and two available-stack contexts. Direct x87 positions quiet signaling NaNs/set invalid status and retain supplied subnormal bits/set denormal status; alternate copies preserve those signaling words without those x87 effects. Selected quaternion words remain exact in both routes. All 1,440 finite-context calls and corruption controls pass. Supplied scaffolds are not actual loaded models/actor poses; arbitrary payloads, unmasked/full-stack exceptions, native caller CW and campaign/Rust parity remain open.
+
 ## Observer source admission and perturbation (2026-11-02 ET–EX)
 
 Loaded observer code now matches pinned PE bytes through ordered raw reads, and actual post-request OS context rereads agree with explicit debug/flag differences retained. The initial disk-header equality rejection is preserved; only the independently parsed ImageBase field is admitted as different. Sixteen paired authored runs preserve all caller states while showing substantial whole-process overhead, so debug-stop evidence cannot establish natural native timing. An authored DLL fixture adds exact loaded path/file/code binding and a 128-entry cap; the full workload completes after disarming. Wrong module and zero cap reject in real disposable runs. No native game/actor/Rust or general timing/parity claim follows.

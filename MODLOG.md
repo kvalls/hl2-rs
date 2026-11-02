@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-02: generation guard and exceptional-word initializer (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. No subagents.
+- Changed: private EY adapter admission, rejected EZ native startup, FA generation fixture, FB prelaunch deferral and FC exceptional-word initializer fixture; reviewed research docs only.
+- Why: preserve target-module generations before another native attempt and resolve an independent x87 versus SSE copy boundary while ownership is unavailable.
+- Tested how: EY authored positive/mismatched-module runs; EZ's zero-entry duplicate-load rejection with both owned processes closed/settings unchanged; FA two generations/128 second-generation stops/11 controls; FB guard launches nothing; FC 1,440 calls/10,080 words/17 controls. Seals pass 41/25/41/8/21 files respectively.
+- Result: generation-bound authored capture passes; direct positions quiet supplied signaling NaNs and report invalid status, whereas alternate copies preserve bits. Supplied direct subnormals set denormal status without changing output bits. FC controls/live-stack/source/code/guard checks pass.
+- Still broken or not tested: actual native entry CW/arguments/actor/pose remain unobserved; FB's18:07:45UTC guard found an existing rewrite/cursor confinement, left untouched. FC does not prove arbitrary payloads, unmasked/full-stack exceptions or independent final original-FX restoration. Campaign/Rust parity untested; first_map_finished:false. No Rust changes/builds.
+- Next: bounded initializer exception/full-stack boundaries and selected owned-default domains; repeat native ownership only after independent work.
+
 ## 2026-11-02 session 41: wall stick is native; impact order and EnableMotion position (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; no subagents.
