@@ -143,6 +143,82 @@ pub fn fast_max_yaw_speed(activity: &str) -> f32 {
         _ => 120.,
     }
 }
+/// CFastHeadcrab::PrescheduleThink's run mode (HEADCRAB_RUNMODE_*), one step per think
+/// while a navigation goal is active: start a run at playback rate 0.5, +0.1 per think
+/// to 1.0, full speed for U(0.1, 1) s, -0.1 per think back to 0.5, then stand in ACT_IDLE
+/// for U(0.2, 0.5) s and run again. The ground speed is the run's times `rate`. Not wired
+/// to the movement controller yet (DESIGN 14o session 41 fast headcrab plan, step 3).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub enum RunMode {
+    Idle,
+    Accelerate,
+    FullSpeed { until: f64 },
+    Decelerate,
+    Pause { until: f64 },
+}
+/// HEADCRAB_RUN_MINSPEED / HEADCRAB_RUN_MAXSPEED / HEADCRAB_ACCELERATION.
+pub const RUN_MIN_RATE: f32 = 0.5;
+pub const RUN_MAX_RATE: f32 = 1.0;
+pub const RUN_ACCELERATION: f32 = 0.1;
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct RunState {
+    pub mode: RunMode,
+    /// m_flPlaybackRate.
+    pub rate: f32,
+}
+impl Default for RunState {
+    fn default() -> Self {
+        Self {
+            mode: RunMode::Idle,
+            rate: 1.,
+        }
+    }
+}
+impl RunState {
+    /// One think with a navigation goal (`running`: the activity is ACT_RUN; `roll` is a
+    /// U(0, 1) draw for the timers). Returns true while it should stand in ACT_IDLE.
+    pub fn think(&mut self, now: f64, running: bool, roll: f32) -> bool {
+        match self.mode {
+            RunMode::Idle => {
+                if running {
+                    self.mode = RunMode::Accelerate;
+                    self.rate = RUN_MIN_RATE;
+                }
+            }
+            RunMode::FullSpeed { until } => {
+                if now > until {
+                    self.mode = RunMode::Decelerate;
+                }
+            }
+            RunMode::Accelerate => {
+                if self.rate < RUN_MAX_RATE {
+                    self.rate += RUN_ACCELERATION;
+                }
+                if self.rate >= RUN_MAX_RATE - 1e-4 {
+                    self.rate = RUN_MAX_RATE;
+                    self.mode = RunMode::FullSpeed {
+                        until: now + 0.1 + 0.9 * f64::from(roll),
+                    };
+                }
+            }
+            RunMode::Decelerate => {
+                self.rate -= RUN_ACCELERATION;
+                if self.rate <= RUN_MIN_RATE + 1e-4 {
+                    self.rate = RUN_MIN_RATE;
+                    self.mode = RunMode::Pause {
+                        until: now + 0.2 + 0.3 * f64::from(roll),
+                    };
+                }
+            }
+            RunMode::Pause { until } => {
+                if now > until {
+                    self.mode = RunMode::Idle;
+                }
+            }
+        }
+        matches!(self.mode, RunMode::Pause { .. })
+    }
+}
 /// CFastHeadcrab::QuerySeeEntity (not on a ceiling): outside combat it does not see
 /// anything whose origin is 150 or more units above or below its own.
 pub fn fast_sees_height(combat: bool, own_z: f32, other_z: f32) -> bool {
@@ -438,6 +514,41 @@ impl Behavior for Headcrab {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fast_crab_runs_stop_and_go() {
+        let mut run = RunState::default();
+        // Not running yet: nothing changes.
+        assert!(!run.think(0., false, 0.5));
+        assert_eq!(run.mode, RunMode::Idle);
+        // A run starts at half rate and gains 0.1 per think.
+        run.think(0., true, 0.5);
+        assert_eq!((run.mode, run.rate), (RunMode::Accelerate, 0.5));
+        let mut t = 0.;
+        while run.mode == RunMode::Accelerate {
+            t += 0.1;
+            run.think(t, true, 0.5);
+        }
+        // Five thinks to full rate, which holds U(0.1, 1) s (0.55 for a 0.5 draw).
+        assert!((t - 0.5).abs() < 1e-9);
+        assert_eq!(run.rate, 1.);
+        let RunMode::FullSpeed { until } = run.mode else {
+            panic!("{:?}", run.mode);
+        };
+        assert!((until - 1.05).abs() < 1e-9);
+        // Then back down to half rate and a pause of U(0.2, 0.5) s in ACT_IDLE.
+        t = 1.1;
+        run.think(t, true, 0.5);
+        assert_eq!(run.mode, RunMode::Decelerate);
+        let mut paused = false;
+        while !paused {
+            t += 0.1;
+            paused = run.think(t, true, 0.5);
+        }
+        assert_eq!(run.rate, 0.5);
+        assert!(run.think(t + 0.3, true, 0.5));
+        assert!(!run.think(t + 0.4, true, 0.5));
+        assert_eq!(run.mode, RunMode::Idle);
+    }
     #[test]
     fn fast_crabs_leap_when_they_can_patrol_when_idle_and_turn_fast() {
         let mut crab = Headcrab::for_class("npc_headcrab_fast");
