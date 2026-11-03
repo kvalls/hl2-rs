@@ -122,6 +122,11 @@
     "actions": [
       {
         "action": "send",
+        "target": "viewcontrol_black",
+        "input": "Disable"
+      },
+      {
+        "action": "send",
         "target": "security_*",
         "input": "Cancel"
       }
