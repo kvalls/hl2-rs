@@ -1,5 +1,11 @@
 # STATUS
 
+## Nested context observer admitted in authored fixtures (2026-11-03 GX–GZ)
+
+GX independently binds the exact caller33 window/prologue/context constructor and derives1104h frame geometry, with32 retained native anchors and25static/shape controls. GY's separate reader passes91cases/618reads/41corruptions, including56API controls, five actual inaccessible-read cases, seven symmetric mutations andraw IEEE diagnostics. GZ caps1/12/36 all exit0:49samples/686nested reads/196parent-side reads/588model reads/49caller-FP pairs;30additional identity/phase controls pass. All fixture frame/context/pose/object words match andcap/generation/cleanup checks pass.
+
+GZ uses an authored prologue/constructor stub around the exact initializer/wrapper/caller fragments; it does not execute the full retail caller or allocator. Independent review admits the20-field stopped-identity join andnested interval. Native frame/context/object/loaded outer caller33 bytes remain unobserved at this checkpoint. No Rust action or actor/cache/final-pose/campaign/parity claim.
+
 ## Native outer caller observed (2026-11-03 GT–GW)
 
 After the supplemental active-exception/generation audit, fresh ownership clears and debugger3068/native57392 both exit0.32 stable fixed-RET samples retain128 symmetric stack36/loaded-wrapper28 reads;15659 selected output words match current defaults. Full code/module/path/generation/context/cap/cleanup checks pass.43 cap members resolve as1self-disarm,11exits,31separate retirements;55retirement triples. Screenshot remains title-card context only; startup Fontconfig error is retained. Checked settings and source pins match.

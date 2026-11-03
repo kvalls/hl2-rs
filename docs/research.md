@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Nested context contract and authored observation (2026-11-03 GX–GZ)
+
+Static instructions and32retained saved-frame anchors derive B=innerESP+1104h. The next frame contains a pointer to an allocated16-byte context, rather than inline context fields. The context binds the current model-wrapper, mask, poseparameters at B-74h andzero callback at this initialization boundary. Separate authored reader/integration fixtures admit symmetric nested frame/context/poseparameter andbounded raw object-field reads, plus a33-byte caller setup/CALL window. Raw time/cycle/pose values are not domain-filtered or equated to earlier/future consumption. The fixed geometry scaffold andconstructor stub are authored; only specified code fragments are exact. Stopped object/type candidates still require separate entity-handle/serial-generation, actor/scene andcache/publication evidence.
+
 ## Actual outer caller boundary (2026-11-03 GT–GW)
 
 The new native capture reads the previously missing outer return and exact loaded28-byte wrapper separately from the frozen legacy journals.32samples bind to clientRVAa9c5b, CALL100a9c56 and exact immutable caller100a9b80. The caller's ordered behavior corresponds to SDK StandardBlendingRules by inference: defaults precede base accumulation, transitions and layers. Outer caller bytes remain a static PE binding. EDI is a repeated raw object candidate; ESI/current quaternion and EBX/current model-wrapper agree in the stopped contexts, without establishing actor or entity lifetime. The saved outer EBP value now supports a precise next nested-frame plan. Native unselected preimages, later consumption/blend/cache publication, final transformed/rendered pose and campaign/Rust parity remain unobserved. Checked ownership/settings/pins/cleanup pass; image only shows the opening title card and the startup Fontconfig error remains.

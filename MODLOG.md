@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: nested context fixture admission (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family subagent independently authored the private GXstatic-contract audit and reviewed GY/GZ read-only.
+- Changed/why: derive a bounded nested caller-frame/context/poseparameter/object witness and read loaded caller33 bytes separately, preserving existing journals and observation boundaries.
+- Tested how/result: GX32anchors/25controls; GY91cases/618reads/56API controls/five actual read faults/seven mutations/41corruptions; GZ cap1/12/36 all exit0,49samples/686nested reads/196parent-side reads/588model reads/49caller-FP pairs/30additional controls. All fixture words andcode/module/lifetime/cap/cleanup relations pass; raw time/cycle/pose words are preserved.
+- Still broken or not tested: actual native nested context/object contents, entity identity/generation/cache, full pose/campaign/Rust parity. Authored constructor/prologue are distinct from the exact code fragments; full retail caller/allocator execution is not claimed. No Rust action.
+- Next: one separately guarded native nested observation using the admitted collector.
+
 ## 2026-11-03: native outer caller and loaded-wrapper witness (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent found active-event/generation verifier guards and independently checked caller/frame limits.
