@@ -11,6 +11,9 @@ use rapier3d::prelude::RigidBodyHandle;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod friction;
+use friction::AnimatedFriction;
+
 /// g_ragdoll_maxcount (client): older ragdolls are removed beyond this count.
 pub const MAX_RAGDOLLS: usize = 8;
 /// C_ClientRagdoll::ImpactTrace impulse scales (retail client.dll FUN_100a5510: 4000 for
@@ -69,6 +72,49 @@ pub struct Ragdoll {
 }
 
 /// CRagdoll's m_vecLastOrigin and m_flLastOriginChangeTime.
+/// Each bone's matrix relative to its parent's (`root` for the bones without one).
+fn local_matrices(
+    parents: &[Option<usize>],
+    matrices: &[Mat4],
+    root: impl Fn(usize) -> Mat4,
+) -> Vec<Mat4> {
+    parents
+        .iter()
+        .enumerate()
+        .map(|(i, parent)| match parent {
+            Some(p) => matrices[*p].inverse() * matrices[i],
+            None => root(i),
+        })
+        .collect()
+}
+
+impl Ragdoll {
+    /// A new ragdoll at rest: no pins, no fade, settling from `born`.
+    fn fresh(
+        model: &Arc<RagdollModel>,
+        bodies: Vec<RigidBodyHandle>,
+        (parents, locals): (Vec<Option<usize>>, Vec<Mat4>),
+        rig: &modkit_core::animation::Rig,
+        scale: f32,
+        (serial, born): (u64, f64),
+    ) -> Self {
+        Self {
+            model: model.clone(),
+            bodies,
+            parents,
+            locals,
+            inverse_binds: rig.bones.iter().map(|b| b.inverse_bind).collect(),
+            scale,
+            serial,
+            born,
+            pins: Vec::new(),
+            fade: None,
+            friction: AnimatedFriction::default(),
+            settle: Settle::new(born),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Settle {
     origin: Option<Vec3>,
@@ -96,86 +142,6 @@ impl Settle {
             return false;
         }
         now - self.changed >= SLEEP_AFTER_TIME
-    }
-}
-
-/// m_iFrictionAnimState (RAGDOLL_FRICTION_NONE, _IN, _HOLD, _OUT, _OFF).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-enum FrictionState {
-    #[default]
-    None,
-    In,
-    Hold,
-    Out,
-    Off,
-}
-
-/// C_ClientRagdoll's animated joint friction: every client think while it runs sets
-/// SetAngularMotor(0, m_iCurrentFriction) on all ragdoll constraints.
-#[derive(Clone, Copy, Debug, Default)]
-struct AnimatedFriction {
-    state: FrictionState,
-    /// m_flFrictionTime and m_flFrictionModTime.
-    until: f64,
-    span: f32,
-    /// m_iCurrentFriction (an int, 0 until the first think).
-    current: i32,
-}
-
-impl AnimatedFriction {
-    /// One HandleAnimatedFriction: the friction to apply to the joints, None once off.
-    /// `params` is the model's animatedfriction (min, max, time in, time out, hold).
-    fn think(&mut self, params: Option<[f32; 5]>, now: f64) -> Option<i32> {
-        if self.state == FrictionState::Off {
-            return None;
-        }
-        let [min, max, time_in, time_out, hold] = params.unwrap_or_default();
-        // iMin/iMaxAnimatedFriction are atoi'd.
-        let (min, max) = (min.trunc(), max.trunc());
-        let remap = |value: f32, a: f32, b: f32| -> i32 {
-            // RemapValClamped, truncated into m_iCurrentFriction.
-            if a == b {
-                return if value >= b { max as i32 } else { min as i32 };
-            }
-            (min + (max - min) * ((value - a) / (b - a)).clamp(0., 1.)) as i32
-        };
-        match self.state {
-            FrictionState::None => {
-                if min != 0. || max != 0. {
-                    self.state = FrictionState::In;
-                    self.span = time_in;
-                    self.until = now + f64::from(time_in);
-                    self.current = min as i32;
-                } else {
-                    self.state = FrictionState::Off;
-                }
-            }
-            FrictionState::In => {
-                let left = (self.until - now) as f32;
-                self.current = remap(left, self.span, 0.);
-                if left <= 0. {
-                    self.span = hold;
-                    self.until = now + f64::from(hold);
-                    self.state = FrictionState::Hold;
-                }
-            }
-            FrictionState::Hold => {
-                if self.until < now {
-                    self.span = time_out;
-                    self.until = now + f64::from(time_out);
-                    self.state = FrictionState::Out;
-                }
-            }
-            FrictionState::Out => {
-                let left = (self.until - now) as f32;
-                self.current = remap(left, 0., self.span);
-                if left <= 0. {
-                    self.state = FrictionState::Off;
-                }
-            }
-            FrictionState::Off => {}
-        }
-        Some(self.current)
     }
 }
 
@@ -356,14 +322,7 @@ impl Ragdolls {
             self.death_poses += 1;
         }
         let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
-        let locals = parents
-            .iter()
-            .enumerate()
-            .map(|(i, parent)| match parent {
-                Some(p) => matrices[*p].inverse() * matrices[i],
-                None => matrices[i],
-            })
-            .collect();
+        let locals = local_matrices(&parents, &matrices, |i| matrices[i]);
         if source != id {
             // The drawing entity takes the corpse's frame; it is done like a corpse.
             let (origin, rotation) = (scene.states[source].origin, scene.states[source].rotation);
@@ -376,20 +335,14 @@ impl Ragdolls {
         scene.ragdoll_matrices.insert(id, skin);
         self.active.insert(
             id,
-            Ragdoll {
-                model: model.clone(),
+            Ragdoll::fresh(
+                model,
                 bodies,
-                parents,
-                locals,
-                inverse_binds: rig.bones.iter().map(|b| b.inverse_bind).collect(),
-                scale: instance.scale,
-                serial: self.serial,
-                born: scene.time,
-                pins: Vec::new(),
-                fade: None,
-                friction: AnimatedFriction::default(),
-                settle: Settle::new(scene.time),
-            },
+                (parents, locals),
+                rig,
+                instance.scale,
+                (self.serial, scene.time),
+            ),
         );
         self.spawned += 1;
     }
@@ -453,14 +406,7 @@ impl Ragdolls {
         }
         physics.ragdoll_nudge(&bodies, 0, force);
         let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
-        let locals = parents
-            .iter()
-            .enumerate()
-            .map(|(i, parent)| match parent {
-                Some(p) => matrices[*p].inverse() * matrices[i],
-                None => matrices[i],
-            })
-            .collect();
+        let locals = local_matrices(&parents, &matrices, |i| matrices[i]);
         // The server entity is done (like a corpse's): only the client ragdoll draws.
         let state = &mut scene.states[id];
         state.killed = true;
@@ -468,20 +414,14 @@ impl Ragdolls {
         scene.ragdoll_matrices.insert(id, skin);
         self.active.insert(
             id,
-            Ragdoll {
-                model: model.clone(),
+            Ragdoll::fresh(
+                model,
                 bodies,
-                parents,
-                locals,
-                inverse_binds: rig.bones.iter().map(|b| b.inverse_bind).collect(),
-                scale: instance.scale,
-                serial: self.serial,
-                born: scene.time,
-                pins: Vec::new(),
-                fade: None,
-                friction: AnimatedFriction::default(),
-                settle: Settle::new(scene.time),
-            },
+                (parents, locals),
+                rig,
+                instance.scale,
+                (self.serial, scene.time),
+            ),
         );
         self.spawned += 1;
         true
@@ -581,30 +521,17 @@ impl Ragdolls {
                 poses[0].0,
             )
             .inverse();
-            let locals = parents
-                .iter()
-                .enumerate()
-                .map(|(i, parent)| match parent {
-                    Some(p) => unposed[*p].inverse() * unposed[i],
-                    None => unrotated * bones[i],
-                })
-                .collect();
+            let locals = local_matrices(&parents, &unposed, |i| unrotated * bones[i]);
             self.props.insert(
                 id,
-                Ragdoll {
-                    model: model.clone(),
+                Ragdoll::fresh(
+                    model,
                     bodies,
-                    parents,
-                    locals,
-                    inverse_binds: rig.bones.iter().map(|b| b.inverse_bind).collect(),
-                    scale: instance.scale,
-                    serial: self.serial,
-                    born: scene.time,
-                    pins: Vec::new(),
-                    fade: None,
-                    friction: AnimatedFriction::default(),
-                    settle: Settle::new(scene.time),
-                },
+                    (parents, locals),
+                    rig,
+                    instance.scale,
+                    (self.serial, scene.time),
+                ),
             );
         }
     }
