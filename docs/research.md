@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Fixed direct-RET observer admission (2026-11-03 GA–GG)
+
+Exact static epilogue analysis admits a single direct-RET site with the original return address/four arguments still at entry-relative ESP. GB's global cap-disarm method fails two partial-cap controls and is stopped; its retained raw contexts show disarmed bookkeeping while OS debug registers remain active, without proving Windows delivery ordering. A different per-thread cap protocol passes cap1/12/36, explicit drain/exit/retirement accounting and caller FP comparisons. Separate bounds/alias/error/mutation and foreign-idle-thread retirement fixtures pass; original verifier assumptions and a caught TID comparison hole remain alongside corrected independent audits.
+
+A generic adapter now replays four actual authored capture roots;311850 abstract schedule/cap replays check the protocol only. The proposed native output run is deferred by preexisting rewrite processes, with no launch/control. Native selected poststate, unselected preimages/store history, uninterrupted entry history and actor/pose fidelity remain separate and unobserved. Any later caller binding combines actual return arguments with exact static PE call bytes; runtime caller code bytes are not separately read. No Rust parity claim.
+
 ## Conditional replay of actual entry FP state (2026-11-03 FX/FZ)
 
 FZ supplies retained loaded records and all32 observed initializer FP images/masks to the isolated exact initializer, with32 zero-mask controls. Every immediate235-byte meaningful FP seed matches, including observed sticky status/MXCSR. All31360 selected/untouched output words agree with an independent finite copy model; stack, guards, source/RO/code and immediate original-FP restoration pass. This is a conditional result on observed inputs, not native returned output or actor/pose fidelity.

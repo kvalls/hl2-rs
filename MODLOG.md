@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: per-thread exit-site recorder admission (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent independently audited failed stop contexts, cap protocol, reader and verifier identities; no Rust delegation.
+- Changed/why: GA–GG develop a different fixed-RET/per-thread cap recorder after stopping FX and GB at their two rejected controls. Raw failed stops motivate the changed cap protocol without inventing an OS cause. Added reader failure/alias/mutation and foreign-idle retirement fixtures plus generic adapter/protocol audit.
+- Tested how/result: GC cap1/12/36 exit0,49 samples/588 reads/49 caller-FP pairs/20 corrected identity controls. GD37cases/228reads/17controls; GE705 idle-FP bytes/seven controls; GGfour actual fixture replays and311850 abstract schedules. Original verifier assumptions/TID hole/rejected captures retained. GF native launch deferred at15:15UTC by two existing rewrite processes; no control/launch.
+- Still broken or not tested: actual native completed outputs, native unselected preimages/store history, arbitrary active-call unload safety, actor/frame/composed/rendered pose, ordinary campaign and Rust parity; first_map_finished:false. No Rust edit/build/test.
+- Next: fresh ownership check before any native fixed-RET poststate capture; preserve all stopped producers and source-only publication. Continue toward98% usage.
+
 ## 2026-11-03: conditional observed-FP replay; paired observer stopped (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent reviewed pairing design/controls; no Rust implementation delegation.

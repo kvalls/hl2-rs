@@ -1,5 +1,17 @@
 # STATUS
 
+## Per-thread fixed-site cap admission and native deferral (2026-11-03 GC–GG)
+
+GC changes the stopped GB cap mechanism: only the currently stopped thread self-disarms; frozen thread lifetimes/generations drain at their own stop or resolve by observed exit/separate retirement. Three authored runs exit0 at caps1/12/36:49 samples/588 reads/49 caller-FP pairs,15680 selected words/8330 fixture unselected words; terminal partitions and module/code/stack/FP readbacks pass. Independent review caught a missing sampled-stop TID comparison; original report/source retained, superseding identity audit adds TID/lifetime/generation checks and20 corruptions. DEBUG-only versus CONTROL-write EFLAGS relations remain explicit.
+
+GD self-process46140 passes37 reader cases/228 reads:70/1/256 bones,13 alias/pointer rejects,three actual output read failures,twelve forced API failures,six source/output mutations and17 corruptions. GE debugger53208/host39844 separately covers three foreign idle threads across generation1 unload:four retirements/705 independent unchanged idle-FP bytes; generation2 cap12/two drains/six retirement contexts/seven corruptions. It does not establish arbitrary active-call unload safety. GG independently replays four actual fixture captures with a generic adapter and checks311850 authored schedule/cap combinations; model behavior is not Windows delivery/timing proof.
+
+At15:15:57UTC, GF's fresh ownership guard finds preexisting hl2-bevy39680/52652 and launches no debugger/game. Both processes/cursor remain untouched. This is a timestamped deferral, not an actual failed native attempt; do not reuse it as a current guard. Actual native completed output remains unobserved. No Rust action or first-map/parity completion; original16 authored gaps/four missing scene procedures remain open.
+
+## Fixed-site global-disarm controls rejected (2026-11-03 GB)
+
+GB's full36-call, three-thread fixed direct-RET fixture exits0 (debugger45520/host42660), with all36 stopped contexts retained. Both partial-cap controls reject after their caps: debugger2836/host25728 and debugger43704/host16240; owned hosts close. **Stop this global-disarm fixed-site producer after two unsuccessful partial-cap controls; no native output attempt.** Unlike FX, GB retains full raw failed-stop OS contexts/code before validation, allowing an independent read-only diagnosis. Any new cap protocol must follow that evidence and be validated separately; do not rerun GB with relaxed guards. FX remains stopped. No Rust action or first-map/parity completion.
+
 ## Observed-source/FP conditional initialization replay (2026-11-03 FZ)
 
 After stopping FX, authored process28488 executes only the exact401-byte initializer on FV's loaded direct records and32 actual entry FP images/masks, plus32 zero-mask controls. All64 supplied235-byte meaningful seed images match immediate capture, including sticky CW027f/SW4037/MXCSR1fbf/empty stack.31360 output words pass (15659 selected/15701 untouched),4096 guards,8192 SSE bytes, stack/RO/code/model and final original-state235-byte restoration pass. The last loaded finite position independently predicts the raw empty ST7 slot; tags stay empty.23 corruptions reject. This is conditional replay in a rebased consumed-range scaffold, not actual native returned outputs or a full loaded asset. FX remains stopped; no Rust action or campaign/parity completion.
