@@ -1,5 +1,6 @@
-param([switch]$DebugBuild)
+param([switch]$DebugBuild, [switch]$Dist, [string]$Plugins = 'advanced-options,debug-tools')
 $ErrorActionPreference = 'Stop'
+if ($DebugBuild -and $Dist) { throw '-DebugBuild and -Dist cannot be used together.' }
 $projectRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 Push-Location $projectRoot
 try {
@@ -11,9 +12,10 @@ try {
     if (!(Test-Path -LiteralPath $shaderSource -PathType Container)) { throw 'Bevy shader assets are missing from crates\hl2-bevy\assets.' }
     if (!(Get-ChildItem -LiteralPath $shaderSource -File -Recurse)) { throw 'Bevy shader assets are empty.' }
 
-    $profileName = if ($DebugBuild) { 'debug' } else { 'release' }
-    $cargoArguments = @('build', '--locked', '-p', 'hl2-bevy', '--bin', 'hl2-bevy')
-    if (!$DebugBuild) { $cargoArguments += '--release' }
+    $profileName = if ($DebugBuild) { 'debug' } elseif ($Dist) { 'dist' } else { 'release' }
+    $cargoArguments = @('build', '--locked', '-p', 'hl2-app', '--bin', 'hl2-bevy', '--no-default-features')
+    if ($Plugins -ne 'none') { $cargoArguments += @('--features', $Plugins) }
+    if ($Dist) { $cargoArguments += @('--profile', 'dist') } elseif (!$DebugBuild) { $cargoArguments += '--release' }
     & $cargoBinary @cargoArguments
     if ($LASTEXITCODE -ne 0) { throw 'Cargo Bevy build failed.' }
 
@@ -41,6 +43,7 @@ try {
     # Only replace this verified generated directory, so removed shaders cannot linger.
     if (Test-Path -LiteralPath $shaderDestination) { Remove-Item -LiteralPath $shaderDestination -Recurse -Force }
     Copy-Item -LiteralPath $shaderSource -Destination $shaderDestination -Recurse -Force
+    if (",$Plugins," -like '*,advanced-options,*') { Copy-Item -LiteralPath (Join-Path $projectRoot 'plugins\hl2-advanced-options\assets\shaders\weapon_blur.wgsl') -Destination (Join-Path $shaderDestination 'shaders\weapon_blur.wgsl') -Force }
     $packageExecutable = Join-Path $packageRoot 'hl2-bevy.exe'
     Copy-Item -LiteralPath $sourceExecutable -Destination $packageExecutable -Force
 
@@ -55,6 +58,7 @@ try {
         profile = $profileName
         executable = 'bin/hl2-bevy.exe'
         sha256 = (Get-FileHash -LiteralPath $packageExecutable -Algorithm SHA256).Hash
+        plugins = $Plugins
         assets = $shaderHashes
     } | ConvertTo-Json -Depth 4
     $metadataFile = Join-Path $packageRoot 'build-bevy-info.json'

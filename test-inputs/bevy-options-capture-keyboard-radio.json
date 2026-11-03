@@ -1,0 +1,119 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 21,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 22,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 23,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 24,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 25,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "enter"
+     ]
+    }
+   }
+  ],
+  "label": "open-options"
+ },
+ {
+  "tick": 60,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-tab-strip"
+ },
+ {
+  "tick": 90,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-skill-radio"
+ },
+ {
+  "tick": 200,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

@@ -6,8 +6,9 @@
 use crate::{
     assets::PreparedModel,
     gameplay::Gameplay,
-    movement::Simulation,
     rendering::{ModelCache, SourceMaterial},
+    simulation::Simulation,
+    ui_host::Console,
 };
 use bevy::prelude::*;
 use hl2_simulation::npc_probe::{Hull, NpcCollisionWorld, Query};
@@ -30,6 +31,10 @@ struct Job {
     result: Slot,
 }
 impl RuntimeProps {
+    /// The map's mounted content.
+    pub fn vfs(&self) -> &Arc<source_assets::vpk::Vfs> {
+        &self.vfs
+    }
     pub fn new(vfs: Arc<source_assets::vpk::Vfs>) -> Self {
         Self {
             vfs,
@@ -55,7 +60,7 @@ pub fn poll(
     mut game: ResMut<Gameplay>,
     mut sim: ResMut<Simulation>,
     mut cache: ResMut<ModelCache>,
-    mut console: ResMut<crate::console::Console>,
+    mut console: ResMut<Console>,
     mut effects: ResMut<crate::effects::Effects>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<SourceMaterial>>,

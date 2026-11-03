@@ -310,10 +310,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_phoneme_settings_parse() {
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         for name in ["phonemes", "phonemes_weak", "phonemes_strong"] {
             let data = vfs
                 .read(&format!("expressions/{name}.vfe"))

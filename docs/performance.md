@@ -1,5 +1,956 @@
 # Performance measurements - 2026-10-05
 
+## Low settings: what bounds the frame (2026-11-01)
+
+Apple M1 Pro/Metal, packaged, headless, uncapped, `--profile`, spawn views, 1,500 frames, muted. Low is every Video > Advanced
+option at its lowest, HDR None, no AA, bilinear, 1280x720. One option at a time was set back to maximum from Low (three runs each, median):
+
+| Variant | station02 frame ms | coast01 frame ms | Sampled GPU busy % |
+| --- | ---: | ---: | ---: |
+| All Max, 3456x2168, 4x AA, HDR Full | 11.78 | 15.63 | 99-100 |
+| All Low | 7.16 | 6.44 | 69-71 |
+| 640x360 | 7.06 | 6.47 | 69-71 |
+| 1920x1080 | 7.12 | 6.56 | 72-74 |
+| 3456x2168 | 7.28 | 6.57 | 73-77 |
+| 4x AA | 7.31 | 6.88 | 58-74 |
+| HDR Full | 7.01 | 6.60 | 51-72 |
+| Texture Very High | 7.05 | 6.45 | 58-77 |
+| Model High | 6.81 | 6.61 | 49-72 |
+| Shadow High | 6.69 | 6.58 | 49-58 |
+| 16x anisotropic | 6.70 | 6.60 | 48-64 |
+| Motion blur | 7.00 | 7.27 | 54-73 |
+| Color correction | 6.68 | 6.54 | 48-70 |
+
+At Low the frame is CPU-bound: uncapped frame time ignores a GPU-side option until the GPU becomes the slower side, and only the
+combined Max reaches that. Captures confirm 640x360 and 3456x2168 frames are really that size. GPU busy is a noisy system-wide driver
+counter sampled once a second, and it drifted during the batch, so it is not a pass timing; Metal pass timers in the report read 0 here.
+Texture and Model detail do save memory: peak RSS 3.26 GB at Low, 4.36 and 4.70 GB with them raised on station02.
+
+Waste removed, no visual change intended, alternating runs before then after:
+
+| Change | station02 ms | coast01 ms |
+| --- | ---: | ---: |
+| CPU light clustering instead of GPU | 8.16, 7.23 -> 6.12, 6.10 | 6.52, 6.73 -> 5.49, 5.46 |
+| Facial flex weights per actor | 5.82, 6.17 -> 5.43, 5.16 | 5.40, 5.38 -> 5.08, 4.98 |
+| Flex and unchanged HUD meshes together | 5.49, 5.56 -> 4.96, 4.94 | 5.16, 5.04 -> 4.47, 4.42 |
+| Only the last camera copies to the frame | within noise | 4.61, 4.51 -> 4.34, 4.35 |
+
+Thin LTO with one codegen unit is the `dist` profile, selected by `--dist` and kept out of everyday builds. An early Low-only batch suggested 3-5% (station02 4.76, 4.77, 5.41 -> 4.65, 4.55, 4.63 ms; coast01 4.38, 4.41, 4.23
+-> 4.41, 4.11, 4.09 ms) for a 4.5-minute build. The later comparison on the final code, three alternating
+rounds, release then dist, shows less: Low station02 5.35, 4.82, 4.78 -> 4.70, 4.51, 4.71 ms and coast01 4.72, 4.45, 4.38 -> 4.43, 4.40, 4.06 ms; Max station02 11.03, 9.45, 9.38 -> 11.07,
+9.36, 9.40 ms and coast01 14.13, 12.16, 12.17 -> 12.14, 12.14, 12.26 ms (no gain, GPU-limited). CPU per frame including loading is about 4% lower. A clean dist build took 5m 13s. The first
+release run of each Max series is slower than the rest of its session, so compare within a table, not across them. Measured with a temporary switch, not
+implemented: no sky cameras, station02 5.66, 4.88, 4.73 -> 4.09, 4.02, 4.43 ms and coast01 4.53, 4.19, 4.74 -> 3.69, 3.73, 3.95 ms. That
+removes the sky, so it is not a Low change.
+
+Base commit against these changes, same session, three alternating rounds, median (range):
+
+| Tier, map | Before ms | After ms | Change |
+| --- | ---: | ---: | ---: |
+| Max, station02 | 12.14 (12.02-12.41) | 10.84 (10.25-10.99) | -11% |
+| Max, coast01 | 14.88 (14.32-15.51) | 13.80 (13.34-13.93) | -7% |
+| Low, station02 | 6.98 (6.93-7.13) | 5.24 (5.13-5.57) | -25% |
+| Low, coast01 | 6.61 (6.41-6.69) | 4.57 (4.53-4.67) | -31% |
+
+Max stays GPU-saturated (99-100% busy), and CPU time per frame including loading falls from about 28-32 ms to 22-26 ms.
+
+The advanced options plugin lists a Potato item below retail's lowest in five combos. Each was measured alone from all-Low, three runs,
+median, frame ms and peak RSS:
+
+| Potato item | Gives up | station02 ms | coast01 ms | RSS GB (station02 / coast01) |
+| --- | --- | ---: | ---: | ---: |
+| None (all Low) | | 5.22 | 4.52 | 3.20 / 2.86 |
+| Model | One further level of detail, except models with faces | 5.21 | 4.50 | 2.81 / 2.53 |
+| Texture | One further mip | 5.07 | 4.72 | 3.17 / 2.85 |
+| Shader | Environment maps, sky cameras (flat sky) | 4.46 | 4.15 | 3.22 / 2.86 |
+| Shadow | All dynamic shadows | 5.01 | 4.58 | 3.20 / 2.89 |
+| Filtering | Texture and frame filtering | 5.28 | 4.74 | 3.22 / 2.89 |
+| All five | | 4.13 | 4.01 | 2.74 / 2.49 |
+
+Only Shader moves frame time clearly; Model saves memory; Texture, Shadow and Filtering are within noise on frame time and set the look.
+Those runs predate the fix that extends unfiltered sampling to world textures. Measured again after it, three runs, median: all Low 5.34 and 4.69 ms,
+Filtering alone 5.27 and 4.73 ms, all five 4.45 and 4.03 ms (station02, coast01). Water Detail has no item because nothing renders it yet. The Model row and all-five rows were measured before models with faces were held at the Low root level, so their memory saving is now smaller; not measured again.
+
+At saved settings of 3456x2168, 4x AA, HDR Full, Ultra blur and Shadow High, with the flashlight on at a fixed station02 view, one run each: base 16.07 ms,
+these changes 13.31 ms. The two captures differ by a mean under 0.01 per channel and at most 3 of 255.
+
+CPU stages at Low on coast01 after these changes: render graph 2.96 ms (per-camera encoding), fixed simulation 2.72 ms per tick (mostly
+Rapier), render prepare 1.24 ms, animation 0.58 ms (1.24-1.90 before). These are overlapping wall scopes with profiling fences, and the
+headless runs have no window present. Interactive frame time, Windows and power are **not tested**. Compare ratios, not absolutes.
+
+## Ultra softening and brightness experiment (2026-10-30)
+
+Apple M1 Pro/Metal, 3456x2168, 4x MSAA, HDR None. Three alternating triples,
+reversed middle order; three priming runs retained separately. Original Ultra,
+half-strength RG16F candidate and brightness-adaptive prototype respectively:
+
+| Variant | Raw mean frame times (ms) | Median (ms) |
+| --- | --- | --- |
+| baseline | 16.808, 17.183, 16.529 | 16.808 |
+| candidate | 16.665, 16.568, 16.661 | 16.661 |
+| adaptive | 16.592, 16.636, 16.666 | 16.636 |
+
+All pairs fail environment qualification due to memory pressure; one original/adaptive
+pair also has baseline CPU/GPU drift. No speedup or energy saving is established.
+GPU occupancy is 98.25-98.94%, host CPU busy 27.87-37.33%, and available-memory
+estimates 3.14-3.43 GiB. Game CPU use is about 193-199% of one core. These are
+system-wide occupancy proxies and observational associations, not isolated pass timers.
+Dedicated VRAM and watts remain unavailable on unified memory. Full raw telemetry,
+CPU/GPU work per frame, timestamp-aligned within-run Pearson correlations, priming,
+paired ratios and rejected flags: artifacts/ultra-soft-efficient/timing.
+
+RG16F retains XY half-float precision and reduces the two cameras' reduction payload
+by 3,863,808 bytes at this resolution. It does not halve total GPU memory. Among 50
+reference/candidate captures, 19 PNGs are byte-identical; projectile frames diverge
+substantially, so these uncontrolled scene differences do not establish pixel equivalence.
+Camera/lamp/projectile captures render without errors and preserve reported poses.
+The brightness prototype gives vertical fluorescent trails more coverage; still images
+do not establish reduced perceived afterimages. Keep it experimental pending controlled
+GPU reduction readback equivalence, clean idle/turn/swing comparisons and display testing.
+
+
+## Background/shared map loading: parallel preparation and content reuse (2026-10-30)
+
+The serial timing baseline is `2bf2290`; the first complete pipeline checkpoint is
+`8261813`. Compare retained packaged executables, not ordinary terminal wall time:
+`render.map_metadata.loading_ms.request_to_installed_ms` measures request-to-host
+installation CPU time, including worker polling, view/physics handoff and host
+installation. It excludes completion of deferred GPU work. It is not a first-window
+or GPU-present timestamp. Background visual readiness now precedes audio readiness;
+authored clocks wait for audio while the menu is usable. Gameplay waits for all
+sound/speech metadata.
+
+The change removes throwaway startup gameplay/audio precache and hidden F4 spawn
+preparation from backgrounds, overlaps materials with HUD/face/sky/flashlight work,
+uses bounded wave/VOX decoders, and shares immutable audio across map loads. Gameplay
+retains its full spawn templates and resource set. No render pass or frame-system
+file read is added. Normal inactive polling is an optional resource check; caches
+are accessed during loading and diagnostic snapshots, not playback decoding.
+
+### Initial complete-pipeline comparison
+
+Apple M1 Pro, 10 logical CPUs, 16 GiB unified memory, Metal, owned default-detail
+content, HDR/AA off, 1024x768, muted isolated processes. Three pairs per scene,
+ordered baseline/current, current/baseline, baseline/current; no concurrent builds
+or other game processes reported. Each process starts with empty application
+caches. OS file caches were not purged. Each run renders 240 profiled frames;
+frame comparison uses the 120 measured frames after warm-up, with world_running
+and complete audio verified. Resource sampling runs at 0.5 seconds with a discarded
+primer. Retained executable SHA prefixes: baseline `fa0cd3483912`, first pipeline
+`424ab1ca2d5b`. Raw reports, package copies, environment samples and paired summaries
+remain in ignored artifacts/loading-performance.
+
+| Scene | Baseline installed CPU ms (raw) | Pipeline ms (raw) | Median before → after | Paired after/before |
+| --- | --- | --- | --- | --- |
+| Base background01 | 2805.6, 2526.5, 2509.3 | 391.5, 375.0, 370.2 | 2526.5 → 375.0 | .140, .148, .148 |
+| Episode Two background | 2644.1, 2500.1, 2483.5 | 287.3, 320.4, 295.4 | 2500.1 → 295.4 | .109, .128, .119 |
+| d1_trainstation_02 | 3442.9, 3283.0, 3269.3 | 2141.3, 2186.4, 2123.1 | 3283.0 → 2141.3 | .622, .666, .649 |
+
+The initial median reductions are 85%, 88% and 35%. Background worker medians fall
+from 2119/2103 ms to 312/267 ms; host installation from 321/315 to 47/24 ms.
+Gameplay worker time falls from 2766 to 1646 ms; installation remains substantial
+(415→398 ms). This is a shared improvement, without omitting gameplay resources.
+
+| Scene | Mean-frame ms median before → after | Per-run frame ranges, before / after |
+| --- | --- | --- |
+| Base background | 15.622 → 14.987 | 15.578–15.861 / 14.840–15.077 |
+| Episode Two | 14.044 → 13.390 | 13.828–14.050 / 13.255–13.508 |
+| Gameplay | 6.945 → 6.917 | 6.935–6.963 / 6.915–6.919 |
+
+These short runs show no added steady frame cost; they do not establish sustained
+FPS. Whole-process wall time also falls, but includes the rendered frames, GPU
+initialization, capture/report work and shutdown, so it is not reported as load time.
+
+The background active CPU/GPU occupancy medians are about 25.2/27.5% before versus
+25.0/29.5% after for base HL2, and 26.4/40.3% versus 23.8/42.8% for Episode Two.
+GPU percentages are occupancy proxies, not FLOPS or isolated pass cost. Dedicated
+VRAM is unavailable on this unified-memory host. Sampled peak game RSS ranges are
+1469–3856 versus 1349–1383 MiB (base background), 1330–3023 versus 1107–1116 MiB
+(Episode Two), and 1325–1802 versus 1527–2201 MiB (gameplay). These are sampled
+process peaks, not total CPU/GPU allocation accounting. Gameplay runs report memory
+pressure level 2 and insufficient aligned CPU/GPU samples in their short measured
+windows; backgrounds report level 1. Quiet-preflight and thermal-limit evidence is
+incomplete. Do not interpret the small gameplay frame difference as causal or use
+these samples as a hardware-independent guarantee.
+
+### Final visual-first launch order
+
+The remaining serial edge was resource kickoff: audio metadata planning (17–43 ms)
+ran before HUD/sky preparation started. Launch the independent visual worker first,
+then plan/start audio, checking parent cancellation again before spawning more work.
+This leaves resource adoption, decode concurrency and gameplay completeness unchanged.
+The owned cancellation test additionally checks that the old map-owned entity is gone.
+
+Repeated all three alternating pairs per scene with the same retained baseline,
+a separate final package and artifacts/loading-performance-final. Final executable
+SHA prefix `d2475f02abd8`. CPU/GPU warm-up conditions and caveats above still apply.
+All 18 final reports have complete audio, world_running=true and advancing scene
+clocks. The final round reports memory pressure level 1, but gameplay's short aligned
+CPU/GPU windows remain insufficient. Different memory pressure between rounds means
+the rounds themselves are not a controlled isolated launch-order experiment.
+
+| Scene | Baseline raw installed CPU ms | Final raw ms | Median before → final | Paired final/baseline |
+| --- | --- | --- | --- | --- |
+| Base background01 | 2625.5, 2517.3, 2517.6 | 368.8, 368.7, 375.1 | 2517.6 → 368.8 | .140, .146, .149 |
+| Episode Two | 2508.4, 2467.1, 2510.1 | 263.8, 278.9, 269.9 | 2508.4 → 269.9 | .105, .113, .108 |
+| Gameplay station02 | 3382.2, 3234.4, 3271.7 | 2160.8, 2182.9, 2141.0 | 3271.7 → 2160.8 | .639, .675, .654 |
+
+Background medians improve about 85%/89%, gameplay about 34%, relative to the serial
+baseline. Visual-auxiliary waiting is now 0.006–0.011 ms in these runs; its work
+finishes during planning/material preparation. The prior Episode Two worker had
+about 38 ms of auxiliary waiting in the recorded first pair. This establishes the
+removed dependency; it does not isolate an overall speedup due solely to kickoff order.
+
+Final mean-frame medians before→after: base 15.939→15.261 ms, Episode Two
+13.965→13.689 ms, gameplay 6.945→7.005 ms. Gameplay's +0.060 ms lies within overlapping
+run ranges (baseline 6.911–7.100, current 6.965–7.385); Episode Two also has an
+isolated higher current run. Short, insufficiently aligned resource windows and
+ordinary scene/host variation do not establish a causal frame regression or a
+sustained frame guarantee. The loading improvement is much larger and consistent
+across the separated per-run load ranges. No new recurring decode or render pass
+was introduced. Remaining gameplay model preparation and host installation are
+still visible costs; they were not replaced with feature/quality reductions.
+
+Reproduce the separate final round with:
+
+```sh
+LOADING_BASELINE=artifacts/loading-performance/baseline-game LOADING_OUTPUT=artifacts/loading-performance-final python3 scripts/checks/check_loading_performance.py
+```
+
+### Reuse, cancellation and rejected trials
+
+The 192 MiB wave/256 MiB VOX LRU limits account retained encoded identities and
+decoded payloads; allocator/container overhead and other live resources are extra.
+Decoded samples share Arc storage with current playback, so cache retention is not
+a second decoded copy. Fresh cue libraries, entity bindings, RNG and soundscape
+playback state remain per map. Exact resolved bytes plus loop/distance policy
+protect game, loose-file and embedded-pak overrides.
+
+A live four-background sequence (HL2→Episode One→HL2→Lost Coast) records 1,214 wave
+hits, 1,441 VOX hits and no evictions, retaining about 317 MiB of accounted content.
+A background→gameplay transition reuses 482 VOX words and 488 waves, retains all
+785 gameplay waves and has no evictions. Its exploratory audio preparation is
+214 ms; this run verifies reuse behavior and was not a controlled paired benchmark.
+Five additional VOX entries across expansions are valid distinct content. A warm
+test's initial assumption of completely identical word content failed; the recorded
+counters and an independent fixture with alternate wave bytes verify correct
+separation instead of masking those differences.
+
+An initial 32 MiB VOX cache evicted 390 of 482 entries, defeating useful reuse.
+Its package/report is retained as a rejected sizing trial; the final measured base
+word working set is about 148 MiB including identities. The first paired harness
+stopped before launch on a null CPU sample; the shared telemetry checker now treats
+unavailable counters as unknown and has a regression test. Both rejected logs remain
+in artifacts alongside accepted results.
+
+Owned headless tests hold old late audio, start background/gameplay replacements,
+verify cooperative cancellation before the new worker completes, check old scene
+removal and real replacement installation. Unit tests verify owner tokens across
+world copies, cancellation before adoption, channel/panic failures, ordered events,
+budgeted eviction and exact content matches. A rapid return to a background whose
+late audio was cancelled requires fresh loading, preventing permanent silent reuse.
+
+Sky preparation was only 13–17 ms in the serial pilot and now overlaps materials.
+Persistent CPU/GPU sky caching is not implemented; isolated sky upload benefit is
+unmeasured. Final captures retain the pre-existing Lost Coast unsupported water
+fallback, verified against the retained baseline. Native image/audio parity, audible
+ordinary play, Windows GPU runtime and lower-core runtime are not tested.
+
+Reproduce after retaining the instrumented prior package and building current:
+
+```sh
+LOADING_BASELINE=artifacts/loading-performance/baseline-game python3 scripts/checks/check_loading_performance.py
+```
+
+The harness defaults to three alternating pairs. LOADING_OUTPUT can select another
+ignored artifact folder without overwriting a retained comparison. LOADING_RUNS
+supports 1–9; source/package hashes, raw observations and environment flags are kept.
+
+## SMG opacity repair: bounded timing smoke (2026-10-29)
+
+The weapon gather retains opaque coverage when rejecting another weapon surface's motion,
+using the current surface color for that rejected contribution. It adds arithmetic inside
+existing taps; it adds no pass, attachment, texture fetch, tap count, worker or off-mode work.
+
+Three alternating old/new packaged SMG runs at 1024x768, 4x AA, HDR None, Advanced,
+uncapped headless Metal, after 120 warmup frames:
+
+| Pair | Before mean ms | After mean ms | Before p95 upper bound ms | After p95 upper bound ms |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 8.839 | 8.966 | 12 | 12 |
+| 2 | 10.571 | 9.815 | 24 | 18 |
+| 3 | 10.788 | 9.480 | 27 | 12 |
+
+Median means: 10.571 -> 9.480 ms. These are exploratory smoke measurements: compilation
+was active during part of the batch, workloads are short, and resource/thermal controls
+were not collected. They do not establish a speedup or sustained FPS guarantee. No
+consistent extra frame-time cost is observed. Raw per-frame-window reports and the
+rejected original shader control are retained in ignored artifacts.
+
+
+## Final tier interpretation and native idle checkpoint (2026-10-27)
+
+The owner split legacy Advanced into Advanced (retail camera + strong weapon animation)
+and Ultra (adds dense world/camera and projectiles). Historical full-reconstruction series
+labelled Advanced therefore describe today's Ultra. No existing save is promoted to Ultra.
+
+| Current tier | Native idle median ms | FPS | p95 upper bound ms |
+| --- | ---: | ---: | ---: |
+| Enabled | 10.74 | 93.1 | 12 |
+| Advanced | 12.86 | 77.8 | 14 |
+| Ultra path measured before label split | 16.31 | 61.3 | 18 |
+
+3456x2168, 4x AA, HDR None, uncapped completion-bounded headless M1 Pro/Metal. Three
+alternating pairs per dataset, separately retained declared priming. Advanced's time guards
+pass but two pairs flag pressure; Ultra's strict guards fail. These are provisional/cross-
+batch observations, not interactive FPS guarantees or an isolated world-pass GPU timer.
+Artifacts: advanced-only-native, region-native-still, tier-activation. Weapon raw reduction
+processes about 24% of full texels in the idle probe; projection costs about 0.002 ms/call.
+
+Supported direct drawing is automatic only on the measured M1 Pro/Metal adapter, with a
+startup override. Other hardware defaults are unchanged. It cuts render buffer-write CPU
+cost from several ms to about 0.02 ms. At 720p the earlier Ultra path improves about 58 to
+110 FPS; CPU work/frame falls about 34% across batches. No watt/energy claim is made.
+Both cooperative kernels retain correct GPU results but no Metal speedup; their code,
+GPU comparator and timing are archived. Keep fragment reduction. Future work needs final
+Ultra probes and matched-resource turns/swings; 120 FPS/native Ultra is not established.
+
+## Uncapped main-depth baseline (2026-10-27)
+
+The background profiler now runs with zero application-loop interval, keeping the two-GPU-
+marker bound. Every run checks its reported interval, completed GPU work and script completion.
+Ordinary replays retain their pacing; interactive FPS is not tested by these runs.
+
+| Workload | Enabled median frame ms / FPS | Advanced median frame ms / FPS | Median p95 ms Enabled / Advanced |
+| --- | ---: | ---: | ---: |
+| Native 3456x2168, 4x AA, idle | 14.27 / 70.1 | 19.17 / 52.2 | 15 / 23 |
+| Native, turning | 15.03 / 66.5 | 20.58 / 48.6 | 18 / 25 |
+| Native, swinging | 14.28 / 70.0 | 21.49 / 46.5 | 15 / 30 |
+| 1280x720, no AA, idle | 12.62 / 79.3 | 17.31 / 57.8 | 14 / 19 |
+| 1920x1080, no AA, idle | 12.78 / 78.2 | 17.42 / 57.4 | 14 / 19 |
+
+Thirty packaged runs total: three alternating pairs per row, middle order reversed. All native
+turn pairs and all 720p pairs are resource-comparable. Native idle/swing and 1080p have some
+memory-baseline/pressure flags, retained in their raw results. Every row fails the unchanged
+performance budget; no optimisation is qualified. Native differs in AA and aspect ratio, so
+these rows cannot isolate resolution bandwidth. The matching-aspect no-AA rows indicate a
+substantial fixed cost. Earlier paced observations cannot be used as uncapped throughput.
+
+In representative native/720p runs, render-phase buffer writes are 2.3-2.4 ms Enabled and
+4.5-4.7 ms Advanced. These are CPU wall stage scopes, not direct GPU timers; scopes overlap.
+Animation is about 2.5-2.7 ms per call, fixed simulation about 2.7-2.9 ms per call. These values
+motivate testing supported direct drawing before adding more filter complexity. CPU work/frame
+is tracked separately from maximum FPS; GPU busy-time/frame remains a system-wide proxy.
+Power watts and joules/frame are null: local powermetrics requires privileged access, and
+utilisation cannot establish energy. Future energy tests require matched FPS and power/thermal
+conditions. Data: artifacts/blur-performance-regression/uncapped-main-depth-native,
+uncapped-main-depth-720p-noaa and uncapped-main-depth-1080p-noaa. No interactive, Windows-runtime,
+120 FPS or energy-efficiency success is claimed.
+
+
+## Background frame pacing prevents an uncapped FPS claim (2026-10-27)
+
+Source inspection finds main.rs configures every --background loop, including --profile,
+with a 1/60 s ScheduleRunnerPlugin interval. GPU completion pacing does not remove that
+application-loop interval. Existing measurements include this pacing: they show observed
+regressions/resource use, but cannot establish maximum low-settings throughput or predict
+120 FPS. No new uncapped or interactive run has verified the underlying work budget.
+Before further optimisation qualification, provide an uncapped profiling-only loop, retain
+ordinary replay pacing and the fixed two-marker GPU bound, then repeat matched measurements.
+Earlier data stays archived with this interpretation; no frame-budget result is silently
+rewritten as an uncapped GPU measurement.
+
+
+## Main-depth follow-up: incomplete timing (2026-10-27)
+
+Sampling main depth after drawing avoids its separate multisampled prepass export/copy.
+Packaged world and weapon probes pass, but cost remains unqualified. A first native batch
+overlaps another packaged replay and is interrupted, retaining its data. A second completes
+three idle pairs: Enabled mean-frame median 19.43 ms (19.39-19.45), Advanced 20.26 ms
+(20.11-20.30), median p95 24/24 ms. Both timing budgets pass. Two pairs are resource-comparable;
+one has a material baseline-memory shift. The guard then detects a competing compiler and
+stops before Advanced turns. No turning/swing qualification or direct-colour-versus-depth
+speedup is established. Artifacts main-depth-repeated and main-depth-isolated remain separate,
+including preflight evidence. Further timing requires an exclusive window; thresholds stand.
+
+## Repeated direct-source experiment (2026-10-27; rejected for qualification)
+
+Completed 18 packaged runs: three alternating Enabled/Advanced pairs for idle, continuous
+turns and crowbar swings, reversing the middle pair. Apple M1 Pro / Metal, 16 GiB unified
+memory, 3456x2168, 4x MSAA, HDR None, VSync off, completion-paced headless --profile.
+The candidate reads resolved colour inputs directly and removes two native foreground
+images/copies; weapon filtering math is retained. It is archived separately and unqualified.
+
+| Scene | Enabled median mean (range), ms | Advanced median mean (range), ms | Median p95 Enabled / Advanced, ms | Resource comparability |
+| --- | ---: | ---: | ---: | --- |
+| Idle | 19.46 (18.27-23.61) | 30.76 (20.56-44.72) | 24 / 106 | All pairs flagged; builds and memory pressure |
+| Turns | 18.01 (18.01-18.82) | 22.24 (22.06-22.37) | 23 / 27 | All pairs flagged; pressure/pageouts or baseline mismatch |
+| Swing | 18.26 (18.23-18.30) | 23.60 (23.53-23.79) | 22 / 33 | Three comparable pairs; no quality flags |
+
+The comparable swing pairs consistently fail the unchanged mean and p95 budgets. Their
+Advanced/Enabled mean-frame ratios are 1.294, 1.303 and 1.286. Average host CPU busy is
+43.2-45.7% Advanced versus 44.4-46.1% Enabled; GPU busy is 98.7-99.0% versus 73.8-74.5%.
+Minimum available-memory estimates are 3.48-3.62 GiB versus 3.92-4.04 GiB, without measured
+pressure/pageouts. This supports a GPU throughput bottleneck in this workload; precise
+per-pass cost and causality remain unmeasured. It does not excuse the failed budget.
+
+Swing output is 315-318 versus 409-411 Mpixel/s, or 22.0-22.1 versus 28.3-28.7 frames per
+consumed game CPU-second. The system GPU-busy-time proxy is 319-322 versus 551-555 Mpixel/s
+of GPU-busy time; it is not isolated GPU efficiency or available FLOPS. Dedicated VRAM and
+GPU clocks remain unavailable. The loaded idle runs show positive CPU/frame-time associations
+(r=0.60-0.75) and lower GPU occupancy during stalls; these small adjacent-window samples are
+descriptive, not causal. All raw iterations, resource windows, correlations and ratios are
+retained in artifacts/blur-performance-regression/direct-sources-repeated. No runs were
+removed from the medians. No comparison here establishes interactive FPS or a copy-removal
+speedup against the previous candidate. Visual qualification is recorded separately.
+
+## Completion pacing changes measurement interpretation (2026-10-27)
+
+Offscreen tests now keep at most two pending GPU completion markers during --profile.
+The completion-paced swing reports about 2.23 GiB driver-managed memory, against 4.40 GiB
+in the earlier unpaced resolved-world case; pressure flags disappear. This supports queue
+growth as a contributor to memory pressure. The 23.14/25.44 ms frame figures are exploratory
+and do not isolate pacing overhead or a rendering speedup. Interactive mode retains its
+existing surface presentation and installs no new limiter.
+
+Pre-pacing headless FPS is CPU-produced-frame cadence, not independent proof of completed
+GPU throughput. New qualification requires observed completions and a maximum of two
+pending markers, alongside the existing resource and frame-time checks. The baseline GPU
+primer is excluded; stable moderate host inputs are compared instead of presuming full
+idleness. Failed earlier flags/results remain in ignored evidence. Rendering candidates
+are still unqualified; exact GPU-pass durations and isolated marker overhead are untested.
+
+## Resource/output correlation batch (2026-10-27; not qualified)
+
+Apple M1 Pro / Metal, 10 logical CPUs, 16 GiB unified memory, 3456x2168 / 4x MSAA. Driver
+GPU utilisation is system-wide occupancy, not an isolated shader timer or available FLOPS.
+All numbers below are observational. All pairs are rejected for optimisation qualification.
+
+| Scene | Retail / experimental Advanced frame ms | Advanced / retail cost | Retail / Advanced GPU busy | Retail / Advanced min available memory |
+| --- | ---: | ---: | ---: | ---: |
+| Idle | 18.22 / 22.96 | 1.260 | 68.5 / 96.9% | 4.51 / 2.03 GiB |
+| Turns | 18.25 / 27.97 | 1.533 | 81.9 / 94.9% | 4.50 / 1.96 GiB |
+| Swing | 19.61 / 27.58 | 1.407 | 70.1 / 96.4% | 3.42 / 1.72 GiB |
+
+Advanced runs show VM pressure/pageouts, and the swing pair includes competing build work.
+In the idle pair, driver-reported in-use system memory averages about 1.69/4.45 GiB; these
+are aggregate driver counters, not per-game VRAM or the renderer's exact allocation size.
+Idle Advanced's available-memory/frame-time association has r=-0.85 over 15 windows. This
+small autocorrelated sample does not establish cause: the renderer also changes resource
+use itself. A later retail run records 21.29 ms / p95 49 ms with CPU busy 65.0% and competing
+builds, compared with 18.22 ms / p95 22 ms / CPU busy 30.9% in the first run.
+
+Sampler accounting observes 1.366 CPU-seconds across 17 active samples over a 16.758-second
+retail window. This includes child commands and is not an isolated FPS-overhead measurement.
+Raw samples, aligned windows, correlations and input/output ratios are retained in ignored
+artifacts/blur-performance-regression/environment-loaded and environment-observer. Ratios
+include pixels per second, frames per consumed game CPU-second and explicitly labelled
+system GPU busy-time throughput proxies. Dedicated VRAM and precise GPU durations remain
+unavailable; no causal normalisation is used to loosen the performance guard.
+
+## Native-resolution Advanced regression: investigation open (2026-10-27)
+
+The owner's 3456x2168 / 4x MSAA case supersedes the earlier 1024x768/no-AA qualification
+below. Copied f7369cd packages reproduce 40.45 ms idle / 110.94 ms turning. Direct a8a050b
+crowbar fixtures give 19.23 ms idle / 19.05 ms turning / 21.01 ms swinging. These earlier
+fixtures are investigation evidence; they are not accepted timings for a final fix.
+
+The native owned guard now records mean, p95/p99 upper bounds and maximum after 120 warm-up
+frames, and includes the crowbar. Its thresholds are unchanged while investigating. A
+quarter camera filter plus native object gather improves some scenes but still fails the
+swing budget; no rendering optimisation is qualified or committed yet. Extra full-size
+resolved-motion caches and an auxiliary single-sample camera fail the idle budget.
+
+GPU durations returned by the encoder-boundary Metal timestamp probe are all zero, so
+individual pass GPU times remain unavailable. Report CPU encoding and end-to-end frame
+timing separately. Profile-only histogram collection adds one bounded update per measured
+frame with no allocation; isolated overhead is not tested and no ordinary-play speedup is
+claimed. See docs/validation.md for the opt-in guard and artifact evidence.
+
+## Advanced world/projectile reconstruction (2026-10-27)
+
+Packaged Metal / Apple M1 Pro, hl2/d1_trainstation_02, 1024x768, HDR None, MSAA off,
+VSync off, muted background. Baseline a8a050b and final implementation use identical
+900-tick fixtures: fixed plaza view, or repeated yaw sweeps of +/-70 degrees. Three
+alternating pairs per scene, reversed order in the middle pair. All 12 scripts finish;
+555-572 frames are measured after 120 warm-up frames over 10.900-11.076 seconds each.
+No overlapping builds, game captures or image analysis in this final batch.
+
+| View | Prior Advanced mean | Current Advanced mean | Prior range | Current range |
+| --- | ---: | ---: | ---: | ---: |
+| Still | 19.694 ms | 19.638 ms | 19.639-19.758 ms | 19.570-19.680 ms |
+| Repeated turns | 19.510 ms | 19.258 ms | 19.465-19.550 ms | 19.225-19.309 ms |
+
+No frame-time regression in this scene; the observed reductions do not establish a general
+speedup, native equivalence or FPS guarantee. The new world prepass can also reduce main-pass
+overdraw, so scene totals are not an isolated blur GPU cost. GPU timestamps are unavailable.
+CPU encoding spans for still/turn (ms): prepass 0.17848/0.20674, 4x reduction
+0.000501/0.000416, 32-pixel reduction 0.000330/0.000336, dilation 0.000377/0.000302,
+world composite 0.000386/0.000350. These exclude GPU execution and color-copy cost.
+
+Advanced adds world motion/depth prepasses and shares three reduced motion passes plus a
+composite with the weapon backend. The world owns one full-size color copy and three small
+fields (1/4, 1/32, 1/32 resolution); it skips the weapon background snapshot. Textures,
+bind groups and pipelines are reused; there is no steady-frame allocation or asset access.
+Camera-only regions avoid dynamic-object gathers; static regions return immediately.
+World gathers use dense odd 17-257 taps, 1.25-frame exposure and 12% UV reach. Disabled/retail
+Enabled do not add world prepass/reconstruction work; weapon taps remain 17-97.
+
+The exploratory timing-summary.json batch overlapped architecture/fmt work and predates the
+sky/history fixes; it is rejected for final timing claims. Accepted evidence:
+artifacts/advanced-world-blur/benchmark-final.py, timing-final-summary.json,
+timing-final-aggregate.json and final-*.json/log. Windows/Linux runtime and other scenes,
+resolutions, frame rates or particle-heavy cases are not tested.
+
+
+## Advanced surface-motion fix (2026-10-27)
+
+Packaged Metal / Apple M1 Pro, 1024x768, HDR None, MSAA off, VSync off, muted background
+hl2/d1_trainstation_02. Identical executable with original/fixed shader; fixed camera,
+pistol/SMG/crowbar firing and switches, 1,100-tick fixture, 2,000-frame cap. Three isolated
+runs per version, alternating and reversing the middle pair. Each measures 766-777 frames
+after 120 warm-up frames over 13.959-14.157 seconds; all scripts finish.
+
+| Shader | Mean frame | Range |
+| --- | ---: | ---: |
+| Original | 18.215 ms | 18.206-18.223 ms |
+| Fixed | 18.213 ms | 18.181-18.238 ms |
+
+Difference -0.002 ms, with overlapping ranges. No regression measured in this scene; this
+is not a general speedup or FPS guarantee. CPU encoding spans (original/fixed ms): 4x
+reduction 0.000676/0.000692, 32-pixel reduction 0.000332/0.000342, dilation
+0.000369/0.000378, reconstruction 0.000265/0.000289. These measure encoding, not GPU execution;
+GPU timestamps are unavailable. No extra passes, textures, buffers or off-mode work.
+Gathers now use odd 17-97 taps instead of 16-96 so a center tap exists. Slow covered pixels
+no longer inherit unrelated long rays, and onset blends over 1-3 pixels. Exposure/reach
+remain 1.25 frames/12%. Evidence: artifacts/advanced-blur-flicker/timing-summary.json and
+performance-summary.json, scripts and per-run logs/reports. Timing runs were separate from captures, image analysis and builds; no overlapping
+capture/build timing round is included.
+
+## Retail quick-info size and horizontal centering (2026-10-27)
+
+Before/after/after/before packaged runs on Metal / Apple M1 Pro, default settings,
+1280x720 d1_trainstation_02 HUD fixture, background/muted, profiling enabled.
+No concurrent builds, replays or image analysis; only brief documentation writes.
+120 warm-up frames, 148-151 measured frames per run. Mean frame times:
+18.9647 ms before (range 18.6965-19.2329), 19.0175 ms after (18.7215-19.3136).
+HUD CPU means: 0.08457 -> 0.07553 ms. The ranges overlap; +0.0528 ms overall
+cannot establish a causal regression, and the lower HUD mean is not a speed claim.
+
+The change preserves quad counts and arc spacing. Glyph bounds stay cached; no
+new render pass, per-frame allocation or file access is introduced. Font-profile
+selection parses the already-read scheme once more during load, never in a frame
+system. Reproduce with artifacts/quickinfo-horizontal/benchmark.py; paired reports,
+packages and timing-summary.json are retained. This bounded replay does not establish
+sustained FPS or exact native renderer performance.
+
+## Quick-info symbol placement (2026-10-27)
+
+Metal / Apple M1 Pro, packaged before/after builds, default settings, 1280x720,
+controlled d1_trainstation_02 HUD replay, profiling enabled, background and muted.
+The final reverse-order pair measured 18.65495 ms/frame before and 18.66357 ms/frame
+after (+0.00862 ms); HUD CPU means were 0.07757 and 0.07479 ms. Each run used
+120 warm-up frames and 152/154 measured frames. This short pair does not establish
+a speedup or isolate a causal cost; no material regression is evident in this sample.
+
+An earlier pair overlapped documentation/architecture checks and is retained in
+the aggregate report, excluded from the comparison above. The change queries
+cached glyph geometry, adds no render pass or frame file access and does not
+change glyph sizes or counts. Exact native rasterization and sustained FPS
+are not established. Reproduce using artifacts/quickinfo-layout/benchmark.py;
+individual reports, timing-summary.json and prior/final package copies are retained.
+
+## Background-loading wait policy (2026-10-27)
+
+Packages 6019af3 (prior) and fa4a000 (wait gate), Metal on Apple M1 Pro, default
+settings, 1024x768 hl2/background01 with chapter browser open. Three isolated pairs
+ordered prior/current, current/prior, prior/current. No concurrent builds, replays,
+windowed test or image analysis. The benchmark waits for all validation processes
+to finish. Same perf-browser.json fixture, host tick 1100, 2000-frame safety cap,
+120 warm-up frames, 751–759 measured frames/run (about 14 seconds after warm-up).
+All six runs complete in NewGame; the current package reports menu.visible=true.
+
+| Package | Mean frame | Run range | HUD/UI CPU mean |
+| --- | ---: | ---: | ---: |
+| Prior | 18.693 ms | 18.672–18.709 ms | 0.1550 ms |
+| Wait gate | 18.743 ms | 18.705–18.773 ms | 0.1581 ms |
+
+The ranges overlap slightly. The +0.051 ms frame / +0.0031 ms HUD means do not
+isolate a causal cost or establish a speedup. The gate adds simple state checks,
+no render pass, allocation or asset access. During the wait, it omits menu/title
+and window painting. This is a steady-state cost check; worker-load input latency,
+wait-state GPU cost and final physics/GPU installation stalls are not measured.
+The policy makes users wait instead of claiming responsive controls under load.
+
+Reproduce with artifacts/chapter-loading-gate/benchmark.py; retained package metadata,
+individual timing reports/logs, timing-summary.json and timing-aggregate.json identify
+all samples. The prior copy is the retained 6019af3 package. Other native platforms,
+retail frame/input latency and sustained FPS guarantees remain not tested.
+
+## Chapter/loading bug fixes (2026-10-27)
+
+Prior package `7171e3f`, fixed production source/package `6019af3`, Metal on Apple
+M1 Pro, 1024x768 default settings, live hl2/background01 with the browser open.
+Three alternating pairs (prior/current, current/prior, prior/current), no concurrent
+builds, replays or image analysis. Use the same perf-browser.json fixture as the
+chapter benchmark: finish host tick 1100, 2000-frame safety cap, profiling enabled,
+120 warm-up frames. All six scripts finish with NewGame mode and 728–757 measured
+frames per run (about 14 seconds after warm-up).
+
+| Package | Mean frame | Run range | HUD/UI CPU mean |
+| --- | ---: | ---: | ---: |
+| Prior | 18.947 ms | 18.692–19.404 ms | 0.1670 ms |
+| Fixed | 18.878 ms | 18.698–19.079 ms | 0.1615 ms |
+
+Ranges overlap; the 0.069 ms difference does not establish a speedup. No steady
+browser-frame regression is measured in this scene. No new render pass is added.
+The runtime loader no longer reconstructs an unused GameUI: chapter thumbnails,
+menu resources and fonts stay owned by the existing console. That avoids redundant
+worker work, but this steady-state benchmark does not isolate loading latency,
+input latency, GPU time or peak installation stalls. Physics construction and GPU
+resource installation still run on the main thread and can hitch. Zero-hitch
+loading and sustained FPS guarantees remain not tested.
+
+Reproduction and evidence: artifacts/chapter-bugs/finish_validation.py waits for
+packaged checks/build completion, repeats the affected committed-package replays,
+then runs the six isolated processes against retained package copies. It resets
+only each copy's own config. timing-summary.json, timing-aggregate.json, individual
+timing reports/logs, package-hashes.json and prior/current copies are retained there.
+
+## Chapter browser (2026-10-27)
+
+Packaged Metal on Apple M1 Pro, 1024x768, default settings, live hl2/background01.
+Prior package: d7dbc5b; final source package: 7171e3f. Three runs per build/state,
+ordered prior idle/current idle/current browser, reversed for the middle round.
+No concurrent builds, replays or image analysis. Each scripted run finishes at
+host tick 1100 with a 2000-frame safety cap, profiling enabled and no capture.
+All reports confirm completion, the intended UI mode and at least 684 measured
+frames after 120 warm-up frames (ranges 684–761; roughly 14 measured seconds).
+
+| Package/state | Mean frame | HUD/UI CPU mean |
+| --- | ---: | ---: |
+| Prior, browser closed | 20.187 ms | 0.2786 ms |
+| New, browser closed | 20.138 ms | 0.2748 ms |
+| New, browser open | 18.703 ms | 0.1562 ms |
+
+Closed-browser frame ranges overlap: prior 20.011–20.429 ms, new
+19.912–20.486 ms. No closed-browser regression is measured in this scene; the
+0.048 ms difference does not establish a speedup. Open-browser frames range
+18.671–18.757 ms. Opening the window also fades the underlying menu and suppresses
+its outlines, so this is a different UI workload, not an isolated widget cost or
+proof that extra UI makes every scene faster. HUD CPU includes the whole HUD/UI
+scope; its profiler warm-up/history window differs from the frame benchmark.
+GPU-only widget time and sustained FPS guarantees are not established.
+
+The browser adds no render pass. Cards, textures, layout values and ellipsized
+labels are prepared once; input/drawing do no asset reads or card-list allocation.
+Closed windows do no card rendering. The toolkit extraction also avoids cloning
+an extra decoded-thumbnail catalog while preparing textures.
+
+Reproduce from the matching package copies with:
+
+```sh
+python3 artifacts/chapter-menu/benchmark.py
+```
+
+The script runs muted/background copies with their own default config, alternates
+all nine runs, and asserts completion/mode/sample count. Scripts perf-idle.json
+and perf-browser.json, timing-summary.json, timing-aggregate-toolkit.json and all
+nine reports/logs are retained in artifacts/chapter-menu. The earlier pre-toolkit
+measurements are retained in before-toolkit and excluded from this table. Native
+visual comparison and Windows/Linux runtime remain not tested.
+
+
+## Stronger Advanced weapon silhouette blur (2026-10-26)
+
+Packaged Metal / Apple M1 Pro, 1024x768, HDR None, MSAA off, VSync off, muted background
+`hl2/d1_trainstation_02`. Baseline cbe521b and current package, fixed player view, repeated
+crowbar swings every 40 ticks, 900-tick fixture and 2,000-frame cap. Three isolated runs
+per build/mode, reversed order for the middle round. Accepted runs measure 552-559 frames
+after 120 warm-up frames over 10.922-11.052 seconds; all scripts complete.
+
+| Mode | Prior mean frame | Current mean frame | Prior range | Current range |
+| --- | ---: | ---: | ---: | ---: |
+| Enabled (retail) | 19.770 ms | 19.797 ms | 19.721-19.808 ms | 19.736-19.882 ms |
+| Advanced | 19.744 ms | 19.751 ms | 19.691-19.786 ms | 19.729-19.791 ms |
+
+Advanced differs by +0.008 ms; the unchanged retail control differs by +0.027 ms. Ranges
+overlap and these scene totals do not isolate GPU cost or establish an FPS guarantee.
+CPU encoding spans average 0.000554 ms (4x reduction), 0.000347 ms (32-pixel tile reduction),
+0.000249 ms (tile dilation), and 0.000320 ms (reconstruction). They exclude colour copies
+and the prepass; GPU timestamps are unavailable. These are command encoding timings, not
+GPU execution times.
+
+Compared with the old filter, Advanced adds one pre-weapon colour snapshot, depth coverage,
+and three small motion-field passes. Two full-size colour textures and 1/4 plus two 1/32
+resolution motion textures are cached. Tile dilation avoids a full-resolution neighbourhood
+search. The adaptive gather runs 16-96 samples only in moving neighbourhoods; stationary
+hand detail returns unchanged. No new resources/passes are owned by Disabled/retail Enabled
+or absent visible GPU-skinned weapon views. No steady-frame CPU allocation, file access or
+vertex-history copies are introduced. Warm-up frames skip snapshots/reconstruction.
+
+The initial third round overlapped CPU image analysis and is retained as rejected-overlap-*
+reports/logs. All four third-round runs were replaced, with no concurrent builds, replays
+or image analysis. Accepted aggregate contains the original first two rounds and isolated
+third-round replacements only. Evidence: artifacts/viewmodel-blur-strength/benchmark.py,
+benchmark-third-round.py, timing-summary.json, timing-aggregate.json and individual logs.
+
+## Motion blur Advanced / weapon animation (2026-10-26)
+
+Packaged Metal, Apple M1 Pro, 1024x768, HDR None, MSAA off, VSync off, muted background
+`hl2/d1_trainstation_02`. Fixed player view, crowbar attacks every 40 ticks from tick 100,
+900-tick script, 2,000-frame safety cap. Preserved parent package: 553ad19; current package:
+this checkpoint atop that parent. Three runs per build/mode, reversed order for the middle
+round; no concurrent build/replay during timing. All scripts finish, measuring 595-609
+frames after 120 warm-up frames, 11.035-11.228 measured seconds each.
+
+| Mode | Prior mean frame | Current mean frame | Prior range | Current range |
+| --- | ---: | ---: | ---: | ---: |
+| Disabled | 18.444 ms | 18.509 ms | 18.386-18.526 ms | 18.428-18.590 ms |
+| Enabled (retail) | 18.403 ms | 18.430 ms | 18.391-18.411 ms | 18.402-18.456 ms |
+| Advanced | unavailable | 18.481 ms | unavailable | 18.408-18.546 ms |
+
+Advanced averages +0.051 ms versus current Enabled, +0.078 ms versus prior Enabled.
+Ranges overlap; the Disabled difference is itself +0.066 ms, so these scene means do not
+isolate GPU cost or establish an FPS guarantee. The new reconstruction draw's recorded
+CPU encoding span averages 0.000588 ms; it excludes the frame copy and prepass. GPU
+timestamp values are unavailable in these reports, so the CPU span is not a GPU timing.
+
+Advanced adds the weapon-only motion-vector prepass, one cached full-size frame copy,
+and a seven-tap half-frame reconstruction (moving pixels only, capped at 4% UV distance).
+No weapon prepass, scratch, bind group or draw exists in Disabled or retail Enabled, or
+without a visible GPU-skinned weapon. No asset reads, CPU skinning or vertex-history
+allocation are introduced per frame. History strings change only on weapon/time resets;
+buffers/bind groups are cached. Nine material uniform buffers become one shared buffer,
+which also avoids Metal's vertex-binding limit with previous-pose skinning.
+
+Evidence: artifacts/viewmodel-motion-blur/benchmark.py, benchmark.input.json,
+timing-summary.json, timing-aggregate.json and all fifteen timing reports/logs. Runtime
+shader diagnostic/capture checks and Windows/Linux limitations: docs/validation.md.
+
+## Options platform filtering and development hints (2026-10-26)
+
+Packaged Metal, Apple M1 Pro, 1024x768, default settings, live `hl2/background01` menu,
+Mouse tab. Baseline is `2ca7c3d`; new package is this Options checkpoint atop it. Three
+runs per build/state, alternating with reversed order for the middle pair, with no concurrent
+builds or replays. Pointer idle outside the dialog versus hovering Aim-Assist: prior orange
+help alone, new orange help plus cyan status. Platform-hidden controls also change the UI
+workload. These numbers do not isolate a single cause or establish an FPS guarantee.
+
+| State | Prior mean frame | New mean frame | Prior HUD CPU | New HUD CPU |
+| --- | ---: | ---: | ---: | ---: |
+| Idle | 25.145 ms | 22.351 ms | 0.3783 ms | 0.3300 ms |
+| Hint hover | 25.496 ms | 25.032 ms | 0.3988 ms | 0.3919 ms |
+
+Frame ranges: idle prior 24.007-27.250 / new 22.083-22.515 ms; hover prior 25.232-25.805 /
+new 24.950-25.119 ms. No frame regression was measured in this scene. The first idle baseline
+is noticeably slower; the lower new means do not prove a general speedup. The HUD column
+is the existing `cpu_stages.hud` mean, including the whole HUD/UI preparation; its profiler
+warm-up/history window differs from the frame benchmark. It is not an isolated hint CPU slice.
+
+Scripts finish at tick 900 idle / 1,500 hover with a 2,000-frame safety cap. All accepted
+reports confirm completion, Mouse tab and at least 300 measured frames after 120 warm-up
+frames: idle 341-466 (9.29-10.49 measured seconds), hover 725-768 (18.29-19.29 seconds).
+The first hover control still used the shorter 900-tick script while the hover window was
+being extended. Its report/log is retained as `rejected-short-hover.*`; a matching 1,500-tick
+control replaces it in the accepted aggregate. No short control is mixed into the hover mean.
+
+No new render pass or asset-loading path. Development text and wrapping are prepared on
+hover changes and reused while hovering the same control. Typed status lookup is constant
+policy; platform filtering and settings binding normalization add no heap allocation.
+Markers add one small quad per unfinished control, only while Options is drawn.
+
+Evidence: `artifacts/options-status/timing-summary.json`, `timing-aggregate.json`, each
+`timing-*.json`/log and retained package metadata. Reproduce with
+`python3 artifacts/options-status/benchmark.py` (own package copies, muted, default settings).
+Windows/Linux runtime and different UI sizes/scenes are **not tested**.
+
+## Flashlight lifecycle (2026-10-26)
+
+Packaged Metal, Apple M1 Pro, canal fixture view, 1920x1080, HDR None, Medium shadows.
+Control is the lamp-fixed package (`70732bc` behavior); new package includes the reviewed
+availability/lifetime implementation. Three runs per build per off/on state, alternating
+and reversing order for the middle pair. No concurrent builds/replays. Tick 900 with a
+2,000-frame safety cap; every report confirms script completion and the expected light
+state. After 120 warm-up frames, runs measure 549-559 frames over about 10.88-11.09 seconds.
+
+| State | Prior mean frame | New mean frame | Prior range | New range |
+| --- | ---: | ---: | ---: | ---: |
+| Off | 19.891 ms | 19.875 ms | 19.823-19.946 ms | 19.802-19.915 ms |
+| On | 19.861 ms | 19.920 ms | 19.828-19.893 ms | 19.810-19.990 ms |
+
+Ranges overlap; these results do not isolate a speedup or establish an FPS guarantee.
+No new render pass/light, frame asset access or normal-frame allocation is introduced.
+Permission requests allocate only when authored inputs arrive; their vector is retained.
+The old per-frame game-name String allocation is removed. This measures total frame time,
+not a separately instrumented controller CPU slice. Evidence: `artifacts/lighting-bugs/
+lifecycle-timing-summary.json`, `lifecycle-aggregate.json`, per-run reports/logs and
+`lifecycle-timings.py`. The script checks at least 300 measured frames and expected light
+state. Reproduce from the retained packages with `python3 artifacts/lighting-bugs/lifecycle-timings.py`.
+
+## Fluorescent self-illumination (2026-10-26)
+
+Packaged Metal, Apple M1 Pro, 1920x1080 HDR None, canal fixture camera recorded in
+`test-inputs/bevy-canals-lamp.json`. Prior package `e3713d0`, corrected shader atop
+`02e6546`. Three alternating runs per package, no concurrent builds/replays; tick 900,
+2,000-frame safety cap, completed scripts. Each measured 561-607 frames after 120 warm-up
+frames (11.10-11.21 seconds). Prior/new means: **18.875/18.921 ms** (+0.045 ms).
+Pairs: 18.420/18.473, 18.485/18.511, 19.721/19.778 ms. The third pair slowed in both
+packages; this does not isolate GPU shader cost or establish an FPS guarantee.
+
+No CPU loop, allocation, file read, light or render pass was added. The change preserves
+unlit emissive albedo before baked modulation and uses it only in the selfillum branch.
+Evidence: `artifacts/lighting-bugs/lamp-summary.json`, each package's `*-timing-*.json`
+and logs. Reproduce each package three alternating times with `--background --no-setup
+--mute --map d1_canals_01 --width 1920 --height 1080 --frames 2000 --movement-script
+artifacts/lighting-bugs/lamp-benchmark.json --report artifacts/lighting-bugs/reproduce.json`.
+
+## Flashlight on the weapon (2026-10-25)
+
+Packaged Metal, Apple M1 Pro, `d1_trainstation_02`, 1920x1080, HDR Full, Medium shadows.
+Clear close-wall view: eye -4324 -224 64, yaw 180, pitch 0; pistol selected at tick 20.
+Baseline: `cdaf4be`; new package: this continuation atop it. Three alternating runs per
+build/state, with rotated order, no concurrent builds or other agent replays. Scripts end
+at tick 900 (13.5 simulated seconds), with a 2,000-frame safety cap. Each report confirms
+completion and at least 300 measured frames. Actual reports contain 559-574 measured
+frames after 120 warm-up frames (679-694 total), about 10.9-11.1 measured seconds per run.
+
+| State | Prior mean frame | New mean frame | Prior model-light CPU | New model-light CPU |
+| --- | ---: | ---: | ---: | ---: |
+| Flashlight off | 19.484 ms | 19.490 ms | 0.02638 ms | 0.02710 ms |
+| Flashlight on | 19.525 ms | 19.328 ms | 0.02726 ms | 0.02864 ms |
+
+Frame ranges: off prior 19.463-19.497 / new 19.388-19.576 ms; on prior 19.491-19.575 /
+new 19.190-19.435 ms. No frame regression was measured in this view. The lower new on
+mean does not isolate a speedup or GPU cost. Model-light presentation adds about
+0.0007 ms off and 0.0014 ms on. No extra light, render pass or shadow map was added;
+the beam matrix is computed once per frame when lit, and changed uniforms are published
+only to viewmodel materials. Off/dark returns disabled data without projection work.
+No frame allocations, asset reads or font work were added. These results do not establish
+a general FPS guarantee, costs for every weapon/view, or native timing parity.
+
+Evidence: `artifacts/flashlight-viewmodel/timing-summary.json`,
+`perf-{baseline,current}-{off,on}-{1,2,3}.json` and their logs; `benchmark.py` records the
+rotated launch order and fails below 300 measured frames. Reproduce one launch from the
+retained copy and its timing script (reset the copy's saved settings to the values above):
+
+```sh
+artifacts/flashlight-viewmodel/current/hl2-bevy --background --no-setup --mute --map d1_trainstation_02 --width 1920 --height 1080 --frames 2000 --profile --movement-script artifacts/flashlight-viewmodel/perf-on.json --report artifacts/flashlight-viewmodel/reproduce.json
+```
+
+Repeat off/on three times per package using `perf-off.json` for off. Capture fixtures pause
+at tick 120 and are not timing substitutes. Earlier High and power-HUD descriptions below
+have been corrected: their 600-frame cap was not reached because the script ended sooner.
+Their numbers remain recorded with the actual short-window limitation.
+
+## High flashlight depth shadows (2026-10-25)
+
+Packaged Metal on Apple M1 Pro, `d1_trainstation_02`, 1920x1080, HDR Full,
+a 600-frame safety cap, profiling on. Prior package: `f0d6945` (High still had no flashlight depth
+map); new package: this continuation's constant-tap filter. Three runs per state,
+without concurrent builds/replays. Cameras: plaza eye -3104 -2018 200, yaw 12, pitch -10;
+citizen queue eye -4040 -2460 136, yaw 90, pitch -8. The queue capture visibly contains
+three ordinary citizen NPCs. Scripts grant the suit/toggle the light at tick 1, finish
+at tick 240 and end the launch early. These runs do not reach 600 frames.
+
+| View and state | Mean frame | Median | Run range |
+| --- | ---: | ---: | ---: |
+| Plaza, prior High (no depth) | 20.044 ms | 19.943 ms | 19.066-21.124 ms |
+| Plaza, new Medium | 20.600 ms | 20.758 ms | 20.274-20.768 ms |
+| Plaza, new High | 21.979 ms | 22.052 ms | 21.377-22.507 ms |
+| Three citizens, prior High (no depth) | 17.525 ms | 17.456 ms | 17.070-18.049 ms |
+| Three citizens, new Medium | 17.576 ms | 17.266 ms | 17.135-18.326 ms |
+| Three citizens, new High | 21.359 ms | 20.205 ms | 19.821-24.050 ms |
+
+Correction recorded in the viewmodel continuation: these are short script-limited windows,
+not 600-frame measurements. The nine `opt-plaza-*` reports contain 126-179 total frames
+and only 6-59 measured frames after the 120-frame warm-up. Retain the numbers as observed,
+noisy evidence; they need longer runs before precise cost attribution.
+
+High minus Medium adds about 1.38 ms in the plaza and 3.78 ms mean in the citizen
+view (2.94 ms by medians). The citizen High result includes a 24.05 ms outlier. These
+are total frame costs of the requested depth pass and filter, not isolated GPU timings
+or FPS guarantees. The plaza's shared lit path is 0.56 ms above the prior mean, within
+the prior run range; that difference has not been isolated. In the citizen view the
+Medium/prior means differ by 0.05 ms.
+
+A later paired flashlight-off plaza set has prior/new medians 19.422/19.286 ms,
+means 21.171/19.310 ms and ranges 19.289-24.803 / 19.185-19.458 ms. The prior set has a
+large outlier; it does not demonstrate a speedup. No off regression was measured in these
+runs. Off, Low/Medium and zero-brightness battery flicker create no depth pass. The final
+battery-flicker guard was added after these timed runs; its normal lit-beam path is
+unchanged and the packaged image checks were repeated afterward.
+
+Cost controls: only High/lit enables the 1024-square map; cookie-zero, far-faded and
+back-facing fragments skip its eight comparison samples. Existing Bevy visibility,
+GPU skinning and opaque draws are reused; alpha-tested casters sample alpha in the
+custom depth fragment. Inspection established that Bevy already omits the opaque fragment
+stage, so a redundant override was removed. Moving the Poisson table to shader constants
+preserved decoded capture pixels (fence identical, actor max one level); no measurable
+speedup is claimed. A single depth-only control (maps rendered, filter bypassed) was too
+noisy to isolate filter cost. Render-graph wall times include waits; GPU timestamps were
+unavailable, so those times are not attributed to the shadow pass. Further batching or
+filter tradeoffs need new evidence and fidelity review; no extra batching mode was enabled.
+
+Evidence in `artifacts/flashlight-shadows`: `timing-summary.json`,
+`perf-baseline-plaza-high-*`, `opt-plaza-{medium,high}-*`,
+`final-crowd-{baseline-high,optimized-medium,optimized-high}-*`,
+`final-plaza-{baseline,optimized}-off-*` reports and logs. Earlier `citizens`-named runs
+showed mostly cops/benches; they are retained as a supplemental view, excluded from the
+citizen table. Initial mismatched-resolution/HDR captures and two wall-facing fence views
+are rejected, as recorded in STATUS and validation. No native timing comparison or
+Windows runtime measurement was performed.
+
+Reproduce a timed High run from the disposable package and its retained timing script:
+
+```sh
+artifacts/flashlight-shadows/optimized/hl2-bevy --background --no-setup --mute --map d1_trainstation_02 --width 1920 --height 1080 --frames 600 --profile --movement-script artifacts/flashlight-shadows/perf-crowd-high.json --report artifacts/flashlight-shadows/reproduce.json
+```
+
+Reset the copy's saved video settings to 1920x1080, HDR Full before each run; repeat
+High/Medium three times using `perf-crowd-medium.json` for Medium. Use
+`perf-plaza-{high,medium,off}.json` for the plaza. Public capture fixtures pause at tick
+120 and are not timing substitutes. The optimized copy retains the timed package; the
+final package adds only the zero-brightness gate described above.
+
+## Flashlight power HUD (2026-10-25)
+
+Packaged Metal, Apple M1 Pro, `d1_trainstation_02` spawn corridor, eye -4304 -224 64,
+yaw -90, pitch -10, 1920x1080, a 600-frame safety cap, profiling on. Three alternating flashlight-off
+and flashlight-on runs of each build, without a build or another replay running alongside.
+Baseline package: `822e5f8`; new package: power HUD changes atop that revision. Copies use
+the same saved settings; timing scripts give the suit and toggle the flashlight at tick 1,
+then finish at tick 240, which ends the launch before its frame cap.
+
+| State | Prior mean frame | New mean frame | Prior HUD CPU | New HUD CPU |
+| --- | ---: | ---: | ---: | ---: |
+| Off / fully recharged | 18.330 ms | 18.243 ms | 0.0365 ms | 0.0390 ms |
+| On / auxiliary panel visible | 18.509 ms | 18.672 ms | 0.0383 ms | 0.0566 ms |
+
+These power-HUD runs contain 182-189 total frames and 62-69 measured frames after warm-up;
+the earlier 600-frame wording described a cap that was not reached.
+
+The active HUD adds about 0.018 ms CPU to the prior on case, emitting 55 HUD quads instead
+of 20. Off emits the same 20 quads. New on runs are 19.147, 18.470 and 18.399 ms, versus
+18.536, 18.544 and 18.446 ms before. Frame time is noisy; the mean increase does not isolate
+the GPU cost of this small panel or establish an FPS guarantee. No render pass was added.
+Labels/icons are prepared on the map worker; drawing uses retained glyph quads.
+
+Evidence: `artifacts/power-hud/timing-summary.json`, `base_bounded_{off,on}_{1,2,3}.json`,
+`current_{off,on}_{1,2,3}.json` and their logs. With the completed 240-tick evidence script,
+run the packaged copy as follows (substitute `off` for the other state):
+
+```sh
+artifacts/power-hud/current/hl2-bevy --background --no-setup --mute --map d1_trainstation_02 --width 1920 --height 1080 --frames 600 --profile --movement-script artifacts/power-hud/bounded_script_on.json --report artifacts/power-hud/reproduce.json
+```
+
+Those scripts preserve the camera above and exit when the script finishes, without pausing. Repeat off/on three
+times per build. The replay fixtures also validate the HUD but pause for their final capture,
+so they are not substitutes for the timing scripts.
+Rejected sandbox launches could not access Metal. The first GPU launch rejected a 900-tick
+script before completion at 600 frames; none of those rejected runs enter the table.
+
+
 2026-10-08 owner-report milestone: prepared frame textures are shared and frame updates perform no asset I/O. Encoded/decoded budgets are bounded. Performance impact and FPS on the new material path are **not tested**; capture bursts verify visibility stability, not throughput. Existing measurements below retain their original scope.
 
 Performance is a current limitation, not a completed migration milestone. The user reported about22 FPS versus about60 in the retained build. A local packaged station02 spawn run reproduced about30 FPS at1920x1080 on the RTX3070/Vulkan adapter. The hosts use different texture mip limits (Bevy2048, retained512); neither a matched native benchmark nor144 FPS is established.

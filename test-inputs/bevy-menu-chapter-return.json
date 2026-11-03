@@ -1,0 +1,15 @@
+[
+  {"tick": 100, "ui": [{"action": "command", "command": "map d2_coast_01"}], "label": "map-coast"},
+  {"tick": 1400, "ui": [{"action": "escape"}], "label": "pause"},
+  {"tick": 1402, "ui": [{"action": "input", "input": {"keys": ["up"]}}]},
+  {"tick": 1403, "ui": [{"action": "input", "input": {"keys": ["up"]}}]},
+  {"tick": 1404, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "return-to-main-menu"},
+  {"tick": 1410, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "confirm"},
+  {"tick": 2100, "ui": [{"action": "command", "command": "map d3_c17_10a"}], "label": "map-c17"},
+  {"tick": 3400, "ui": [{"action": "escape"}], "label": "pause"},
+  {"tick": 3402, "ui": [{"action": "input", "input": {"keys": ["up"]}}]},
+  {"tick": 3403, "ui": [{"action": "input", "input": {"keys": ["up"]}}]},
+  {"tick": 3404, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "return-to-main-menu"},
+  {"tick": 3410, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "confirm"},
+  {"tick": 4100, "ui": [{"action": "command", "command": "background_map"}], "label": "settle"}
+]

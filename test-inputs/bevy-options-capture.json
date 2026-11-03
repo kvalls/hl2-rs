@@ -1,0 +1,155 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 21,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 22,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 23,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 24,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 25,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "enter"
+     ]
+    }
+   }
+  ],
+  "label": "open-options"
+ },
+ {
+  "tick": 60,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      389,
+      215
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 61,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      389,
+      215
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "keyboard-tab"
+ },
+ {
+  "tick": 90,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      464,
+      537
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 91,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      464,
+      537
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "keyboard-advanced"
+ },
+ {
+  "tick": 200,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

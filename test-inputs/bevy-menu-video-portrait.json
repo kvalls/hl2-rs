@@ -1,0 +1,225 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 21,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 22,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 23,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 24,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 25,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "enter"
+     ]
+    }
+   }
+  ],
+  "label": "open-options"
+ },
+ {
+  "tick": 60,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-tab-strip"
+ },
+ {
+  "tick": 70,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 71,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 72,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 73,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 74,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 90,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 91,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 92,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-aspect"
+ },
+ {
+  "tick": 100,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ],
+     "alt": true
+    }
+   }
+  ],
+  "label": "aspect-open"
+ },
+ {
+  "tick": 200,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

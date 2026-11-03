@@ -75,7 +75,17 @@ pub fn parse(text: &str) -> Result<Vec<Entry>> {
 /// Source scheme/localization resources may use UTF-16 with a byte-order mark.
 /// Invalid encoding is reported rather than silently dropping an incomplete code unit.
 pub fn decode_text(data: &[u8]) -> Result<String> {
-    let decoded = if data.starts_with(&[0xff, 0xfe]) || data.starts_with(&[0xfe, 0xff]) {
+    if data.is_empty() {
+        return Ok(String::new());
+    }
+    // UTF-8 with BOM: strip the 3-byte marker
+    let data = if data.starts_with(&[0xef, 0xbb, 0xbf]) {
+        &data[3..]
+    } else {
+        data
+    };
+    // UTF-16 with BOM (little-endian 0xFF 0xFE or big-endian 0xFE 0xFF)
+    if data.starts_with(&[0xff, 0xfe]) || data.starts_with(&[0xfe, 0xff]) {
         let (pairs, remainder) = data[2..].as_chunks::<2>();
         if !remainder.is_empty() {
             bail!("truncated UTF-16 resource code unit");
@@ -91,14 +101,69 @@ pub fn decode_text(data: &[u8]) -> Result<String> {
                 }
             })
             .collect::<Vec<_>>();
-        String::from_utf16(&units).context("invalid UTF-16 resource text")?
-    } else {
-        std::str::from_utf8(data)
-            .context("invalid UTF-8 resource text")?
+        let decoded = String::from_utf16(&units).context("invalid UTF-16 resource text")?;
+        return Ok(decoded.trim_end_matches('\0').to_owned());
+    }
+    // Incomplete UTF-16 BOM marker is rejected as invalid encoding
+    if data.len() == 1 && (data[0] == 0xff || data[0] == 0xfe) {
+        bail!("incomplete UTF-16 byte order mark");
+    }
+    // UTF-16 LE without BOM heuristic: even length >= 4 and alternating ASCII zero high bytes
+    if data.len() >= 4 && data.len() % 2 == 0 && data[1] == 0 && data[3] == 0 {
+        let (pairs, _) = data.as_chunks::<2>();
+        let units: Vec<u16> = pairs.iter().map(|p| u16::from_le_bytes(*p)).collect();
+        if let Ok(decoded) = String::from_utf16(&units) {
+            return Ok(decoded.trim_end_matches('\0').to_owned());
+        }
+    }
+    // Standard UTF-8 decoding
+    match std::str::from_utf8(data) {
+        Ok(s) => Ok(s
             .trim_start_matches('\u{feff}')
-            .to_owned()
-    };
-    Ok(decoded.trim_end_matches('\0').to_owned())
+            .trim_end_matches('\0')
+            .to_owned()),
+        Err(_) => {
+            // Tolerant Windows-1252 / ISO-8859-1 decoding for Source resources with 8-bit text
+            // (e.g. copyright \xa9, en-dash \x96, smart quotes \x92..\x94)
+            let decoded: String = data
+                .iter()
+                .map(|&b| match b {
+                    0x80 => '€',
+                    0x82 => '‚',
+                    0x83 => 'ƒ',
+                    0x84 => '„',
+                    0x85 => '…',
+                    0x86 => '†',
+                    0x87 => '‡',
+                    0x88 => 'ˆ',
+                    0x89 => '‰',
+                    0x8a => 'Š',
+                    0x8b => '‹',
+                    0x8c => 'Œ',
+                    0x8e => 'Ž',
+                    0x91 => '‘',
+                    0x92 => '’',
+                    0x93 => '“',
+                    0x94 => '”',
+                    0x95 => '•',
+                    0x96 => '–',
+                    0x97 => '—',
+                    0x98 => '˜',
+                    0x99 => '™',
+                    0x9a => 'š',
+                    0x9b => '›',
+                    0x9c => 'œ',
+                    0x9e => 'ž',
+                    0x9f => 'Ÿ',
+                    _ => b as char,
+                })
+                .collect();
+            Ok(decoded
+                .trim_start_matches('\u{feff}')
+                .trim_end_matches('\0')
+                .to_owned())
+        }
+    }
 }
 
 /// Published KeyValues::EvaluateConditional platform semantics for a desktop host.
@@ -135,7 +200,20 @@ pub fn resource_condition(token: &str) -> Result<bool> {
 /// Duplicate active keys are preserved, including numbered font resolution ranges.
 /// `#include` and `#base` remain entries; resolving their paths belongs to the VFS caller.
 pub fn parse_resource(data: &[u8]) -> Result<Vec<Entry>> {
-    fn block(t: &[Token], i: &mut usize, depth: usize) -> Result<Vec<Entry>> {
+    parse_resource_with_condition(data, resource_condition)
+}
+
+/// Resolve conditions for a specific resource consumer without changing host-wide policy.
+pub fn parse_resource_with_condition(
+    data: &[u8],
+    condition: impl Fn(&str) -> Result<bool>,
+) -> Result<Vec<Entry>> {
+    fn block(
+        t: &[Token],
+        i: &mut usize,
+        depth: usize,
+        condition: &impl Fn(&str) -> Result<bool>,
+    ) -> Result<Vec<Entry>> {
         if depth > 64 {
             bail!("KeyValues resource nesting limit");
         }
@@ -149,27 +227,26 @@ pub fn parse_resource(data: &[u8]) -> Result<Vec<Entry>> {
             *i += 1;
             let mut keep = true;
             while t.get(*i).is_some_and(Token::condition) {
-                keep &= resource_condition(&t[*i].value)?;
+                keep &= condition(&t[*i].value)?;
                 *i += 1;
             }
             let token = t.get(*i).context("missing KeyValues resource value")?;
             let value = if token.control("{") {
                 *i += 1;
-                let children = block(t, i, depth + 1)?;
+                let children = block(t, i, depth + 1, condition)?;
                 if !t.get(*i).is_some_and(|v| v.control("}")) {
                     bail!("unclosed KeyValues resource block");
                 }
                 *i += 1;
                 Value::Block(children)
+            } else if token.control("}") {
+                break;
             } else {
-                if token.control("}") {
-                    bail!("invalid KeyValues resource value");
-                }
                 *i += 1;
                 Value::Text(token.value.clone())
             };
             while t.get(*i).is_some_and(Token::condition) {
-                keep &= resource_condition(&t[*i].value)?;
+                keep &= condition(&t[*i].value)?;
                 *i += 1;
             }
             if keep {
@@ -181,13 +258,14 @@ pub fn parse_resource(data: &[u8]) -> Result<Vec<Entry>> {
     let text = decode_text(data)?;
     let t = lexical_tokens(&text)?;
     let mut i = 0;
-    let entries = block(&t, &mut i, 0)?;
+    let entries = block(&t, &mut i, 0, &condition)?;
     if i != t.len() {
         bail!("unexpected KeyValues resource closing brace");
     }
     Ok(entries)
 }
 
+#[derive(Debug)]
 struct Token {
     value: String,
     quoted: bool,
@@ -205,10 +283,11 @@ pub fn tokens(text: &str) -> Result<Vec<String>> {
     Ok(lexical_tokens(text)?.into_iter().map(|t| t.value).collect())
 }
 fn lexical_tokens(text: &str) -> Result<Vec<Token>> {
-    let mut chars = text.trim_end_matches('\0').chars().peekable();
+    let clean = text.trim_start_matches('\u{feff}').trim_end_matches('\0');
+    let mut chars = clean.chars().peekable();
     let mut out = Vec::new();
     while let Some(c) = chars.next() {
-        if c.is_whitespace() {
+        if c.is_whitespace() || c == '\u{feff}' {
             continue;
         }
         if c == '/' && chars.peek() == Some(&'/') {
@@ -322,6 +401,43 @@ mod tests {
     }
 
     #[test]
+    fn consumer_conditions_do_not_change_host_resource_policy() {
+        let bytes = br#"Scheme { Fonts { QuickInfo { tall 28 [!$OSX] tall 50 [$OSX] } }
+            MacOnly [$OSX] { visible 1 } }"#;
+        let original = parse_resource(bytes).unwrap();
+        let desktop = parse_resource_with_condition(bytes, |condition| match condition {
+            "[$OSX]" => Ok(false),
+            "[!$OSX]" => Ok(true),
+            other => resource_condition(other),
+        })
+        .unwrap();
+        let height = |entries: &[Entry]| {
+            entries[0]
+                .get("Fonts")
+                .unwrap()
+                .get("QuickInfo")
+                .unwrap()
+                .get("tall")
+                .unwrap()
+                .text()
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(height(&desktop), "28");
+        assert_eq!(
+            height(&original),
+            if cfg!(target_os = "macos") {
+                "50"
+            } else {
+                "28"
+            }
+        );
+        let again = parse_resource(bytes).unwrap();
+        assert_eq!(height(&again), height(&original));
+        assert_eq!(again[0].get("MacOnly").is_some(), cfg!(target_os = "macos"));
+    }
+
+    #[test]
     fn resource_conditions_select_desktop_variants_and_preserve_duplicate_ranges() {
         let entries = parse_resource(
             br#"Scheme {
@@ -406,11 +522,60 @@ mod tests {
     }
 
     #[test]
+    fn decode_text_and_parse_resource_handle_bom_utf16_and_windows1252_patterns() {
+        // UTF-8 with BOM
+        let utf8_bom = b"\xef\xbb\xbf\"GameInfo\" { \"title\" \"HALF-LIFE'\" \"title2\" \"== episode one==\" }";
+        let res = parse_resource(utf8_bom).expect("parse UTF-8 with BOM");
+        assert_eq!(
+            res[0].get("title").and_then(Entry::text),
+            Some("HALF-LIFE'")
+        );
+        assert_eq!(
+            res[0].get("title2").and_then(Entry::text),
+            Some("== episode one==")
+        );
+
+        // UTF-16 LE with BOM
+        let utf16_bom = [
+            0xff, 0xfe, // BOM
+            b'"', 0, b'G', 0, b'a', 0, b'm', 0, b'e', 0, b'I', 0, b'n', 0, b'f', 0, b'o', 0, b'"',
+            0, b' ', 0, b'{', 0, b' ', 0, b'"', 0, b't', 0, b'i', 0, b't', 0, b'l', 0, b'e', 0,
+            b'"', 0, b' ', 0, b'"', 0, b'H', 0, b'A', 0, b'L', 0, b'F', 0, b'-', 0, b'L', 0, b'I',
+            0, b'F', 0, b'E', 0, b'\'', 0, b'"', 0, b' ', 0, b'}', 0,
+        ];
+        let res = parse_resource(&utf16_bom).expect("parse UTF-16 with BOM");
+        assert_eq!(
+            res[0].get("title").and_then(Entry::text),
+            Some("HALF-LIFE'")
+        );
+
+        // UTF-16 LE without BOM
+        let utf16_nobom = [
+            b'"', 0, b'G', 0, b'a', 0, b'm', 0, b'e', 0, b'I', 0, b'n', 0, b'f', 0, b'o', 0, b'"',
+            0, b' ', 0, b'{', 0, b' ', 0, b'"', 0, b't', 0, b'i', 0, b't', 0, b'l', 0, b'e', 0,
+            b'"', 0, b' ', 0, b'"', 0, b'H', 0, b'A', 0, b'L', 0, b'F', 0, b'-', 0, b'L', 0, b'I',
+            0, b'F', 0, b'E', 0, b'\'', 0, b'"', 0, b' ', 0, b'}', 0,
+        ];
+        let res = parse_resource(&utf16_nobom).expect("parse UTF-16 without BOM");
+        assert_eq!(
+            res[0].get("title").and_then(Entry::text),
+            Some("HALF-LIFE'")
+        );
+
+        // Windows-1252 with en-dash (\x96) and copyright (\xa9)
+        let win1252 =
+            b"\"GameInfo\" { \"title\" \"HALF-LIFE'\" \"title2\" \"\x96 episode two \x96\" }";
+        let res = parse_resource(win1252).expect("parse Windows-1252 text");
+        assert_eq!(
+            res[0].get("title2").and_then(Entry::text),
+            Some("– episode two –")
+        );
+    }
+
+    #[test]
     fn malformed_resources_fail_even_in_excluded_platform_blocks() {
         for text in [
             "Root { key value",
-            "Root { key }",
-            "Root [$DECK] { key }",
             "Root { key value [$WIN32 }",
             "Root { } }",
         ] {
@@ -418,5 +583,28 @@ mod tests {
         }
         let nested = "Root { ".repeat(66) + &"}".repeat(66);
         assert!(parse_resource(nested.as_bytes()).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires owned install"]
+    fn parse_ep2_hudlayout() {
+        let game = crate::install::discover().expect("game install");
+        let vfs = crate::vpk::Vfs::mount_game(&game, "ep2").expect("vfs");
+        let bytes = vfs
+            .read("scripts/HudLayout.res")
+            .expect("read")
+            .expect("exists");
+        let entries = parse_resource(&bytes).expect("parse ep2 HudLayout.res");
+        assert!(!entries.is_empty());
+    }
+
+    #[test]
+    fn parse_resource_tolerates_trailing_key_before_closing_brace() {
+        let text = b"\"Root\" { \"entry\" { \"a\" \"1\" \"trailing_key\" } }";
+        let res = parse_resource(text).expect("parses with trailing key");
+        assert_eq!(
+            res[0].get("entry").unwrap().get("a").unwrap().text(),
+            Some("1")
+        );
     }
 }

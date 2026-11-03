@@ -9,7 +9,10 @@
 //! Out of scope: pistol/SMG combat, stitching, manhacks, arrests, fire, airboats, squads.
 //! SDK behavior, retail not compared.
 use super::assault::Assault;
-use super::conditions::*;
+use super::conditions::{
+    Cond, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1, COND_HEAR_DANGER,
+    COND_HEAR_PHYSICS_DANGER, COND_NO_PRIMARY_AMMO, LAST_SHARED_CONDITION,
+};
 use super::police::Policing;
 use super::schedule::{
     default_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg,

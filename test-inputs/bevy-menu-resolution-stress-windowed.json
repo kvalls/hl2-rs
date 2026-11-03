@@ -1,0 +1,134 @@
+[
+ {
+  "tick": 40,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 1920 1080 1"
+   }
+  ]
+ },
+ {
+  "tick": 140,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo hd"
+   }
+  ],
+  "label": "hd"
+ },
+ {
+  "tick": 150,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 320 240 1"
+   }
+  ]
+ },
+ {
+  "tick": 250,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo smallest"
+   }
+  ],
+  "label": "smallest"
+ },
+ {
+  "tick": 260,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 2560 1440 1"
+   }
+  ]
+ },
+ {
+  "tick": 261,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 640 480 1"
+   }
+  ]
+ },
+ {
+  "tick": 262,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 3440 1440 1"
+   }
+  ]
+ },
+ {
+  "tick": 263,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 1280 720 1"
+   }
+  ]
+ },
+ {
+  "tick": 380,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo rapid"
+   }
+  ],
+  "label": "rapid"
+ },
+ {
+  "tick": 390,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 8192 8192 1"
+   }
+  ]
+ },
+ {
+  "tick": 500,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo largest"
+   }
+  ],
+  "label": "largest"
+ },
+ {
+  "tick": 510,
+  "ui": [
+   {
+    "action": "command",
+    "command": "mat_setvideomode 1024 768 1"
+   }
+  ]
+ },
+ {
+  "tick": 620,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo final"
+   }
+  ],
+  "label": "final"
+ },
+ {
+  "tick": 640,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

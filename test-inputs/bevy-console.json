@@ -78,6 +78,15 @@
     "tick": 16
   },
   {
+    "tick": 17,
+    "ui": [
+      {
+        "action": "escape"
+      }
+    ],
+    "label": "resumed-from-pause"
+  },
+  {
     "tick": 20,
     "actions": [
       {

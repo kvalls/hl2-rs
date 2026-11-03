@@ -1,7 +1,7 @@
 [
   {
     "tick": 1,
-    "dev_overlay": true,
+    "extension": { "developer_overlay": true },
     "label": "developer-on"
   },
   {

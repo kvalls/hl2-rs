@@ -1,0 +1,141 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "toggle_console"
+   }
+  ],
+  "label": "open-console"
+ },
+ {
+  "tick": 25,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "text": "help"
+    }
+   }
+  ]
+ },
+ {
+  "tick": 30,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      995,
+      662
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 31,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      900,
+      600
+     ],
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 32,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      795,
+      562
+     ],
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 33,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      795,
+      562
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "console-resized"
+ },
+ {
+  "tick": 40,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      587,
+      112
+     ],
+     "click": true,
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 41,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      387,
+      212
+     ],
+     "held": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 42,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "pointer": [
+      387,
+      212
+     ],
+     "released": true
+    }
+   }
+  ],
+  "label": "console-moved"
+ },
+ {
+  "tick": 200,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

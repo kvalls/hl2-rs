@@ -1,0 +1,10 @@
+[
+ {"tick": 100, "ui": [{"action": "command", "command": "mat_setvideomode 1280 720 1"}], "label": "resolution"},
+ {"tick": 400, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+ {"tick": 401, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+ {"tick": 402, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+ {"tick": 403, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+ {"tick": 404, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+ {"tick": 405, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "open-options"},
+ {"tick": 500, "ui": [{"action": "command", "command": "echo settled"}], "label": "settle"}
+]

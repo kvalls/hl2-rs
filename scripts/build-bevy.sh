@@ -6,19 +6,53 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 DEBUG_BUILD=0
+DIST_BUILD=0
+# Application plugin features; "none" builds the core alone.
+PLUGINS="advanced-options,debug-tools"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --debug|-d|-DebugBuild)
             DEBUG_BUILD=1
             shift
             ;;
+        --dist)
+            DIST_BUILD=1
+            shift
+            ;;
+        --plugins)
+            PLUGINS="${2:?--plugins needs a comma-separated list or none}"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1" >&2
-            echo "Usage: $0 [--debug]" >&2
+            echo "Usage: $0 [--debug|--dist] [--plugins advanced-options,debug-tools|none]" >&2
             exit 1
             ;;
     esac
 done
+
+if [[ "$DEBUG_BUILD" -eq 1 && "$DIST_BUILD" -eq 1 ]]; then
+    echo "--debug and --dist cannot be used together" >&2
+    exit 1
+fi
+
+# Known names and one order, so the recorded selection compares equal however it was typed.
+PLUGINS="$(printf '%s' "$PLUGINS" | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd ',' -)"
+if [[ "$PLUGINS" != "none" ]]; then
+    for plugin in ${PLUGINS//,/ }; do
+        case "$plugin" in
+            advanced-options|debug-tools) ;;
+            *)
+                echo "Unknown plugin: $plugin (known: advanced-options, debug-tools, or none)" >&2
+                exit 1
+                ;;
+        esac
+    done
+fi
+if [[ -z "$PLUGINS" ]]; then
+    echo "--plugins needs a comma-separated list or none" >&2
+    exit 1
+fi
 
 if ! command -v cargo >/dev/null 2>&1; then
     echo "cargo not found. Install Rust using rustup first." >&2
@@ -36,9 +70,15 @@ if [[ -z "$(find "$SHADER_SOURCE" -type f ! -name ".*" 2>/dev/null)" ]]; then
 fi
 
 PROFILE_NAME="release"
-CARGO_ARGS=("build" "--locked" "-p" "hl2-bevy" "--bin" "hl2-bevy")
+CARGO_ARGS=("build" "--locked" "-p" "hl2-app" "--bin" "hl2-bevy" "--no-default-features")
+if [[ "$PLUGINS" != "none" ]]; then
+    CARGO_ARGS+=("--features" "$PLUGINS")
+fi
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
     PROFILE_NAME="debug"
+elif [[ "$DIST_BUILD" -eq 1 ]]; then
+    PROFILE_NAME="dist"
+    CARGO_ARGS+=("--profile" "dist")
 else
     CARGO_ARGS+=("--release")
 fi
@@ -88,10 +128,16 @@ if [[ -d "$SHADER_DEST" ]]; then
     rm -rf "$SHADER_DEST"
 fi
 cp -R "$SHADER_SOURCE" "$SHADER_DEST"
+if [[ ",$PLUGINS," == *",advanced-options,"* ]]; then
+    cp "$PROJECT_ROOT/plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl" "$SHADER_DEST/shaders/weapon_blur.wgsl"
+fi
 find "$SHADER_DEST" -name ".DS_Store" -delete 2>/dev/null || true
 
 PACKAGE_EXECUTABLE="$PACKAGE_ROOT/hl2-bevy"
-cp -f "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
+# Replace the file instead of overwriting it in place: macOS kills new launches of an executable
+# whose signed pages were rewritten (exit 137), e.g. while a previous build is still running.
+rm -f "$PACKAGE_EXECUTABLE"
+cp "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
 chmod +x "$PACKAGE_EXECUTABLE"
 
 compute_sha256() {
@@ -107,6 +153,8 @@ compute_sha256() {
 
 EXE_SHA256=$(compute_sha256 "$PACKAGE_EXECUTABLE")
 BUILT_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+GIT_BRANCH="$(git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 
 # Build shader asset array in JSON
 ASSETS_JSON="["
@@ -119,7 +167,14 @@ while IFS= read -r SHADER_FILE; do
             ASSETS_JSON+=","
         fi
         FIRST=0
-        ASSETS_JSON+=$'\n    {\n      "path": "'"$REL_PATH"'",\n      "sha256": "'"$FILE_SHA"'"\n    }'
+        ASSETS_JSON+=$(cat <<ITEM_EOF
+
+    {
+      "path": "$REL_PATH",
+      "sha256": "$FILE_SHA"
+    }
+ITEM_EOF
+)
     fi
 done < <(find "$SHADER_DEST" -type f ! -name ".*" | sort)
 ASSETS_JSON+=$'\n  ]'
@@ -133,6 +188,9 @@ cat <<EOF > "$TMP_METADATA"
   "profile": "$PROFILE_NAME",
   "executable": "bin/hl2-bevy",
   "sha256": "$EXE_SHA256",
+  "git_branch": "$GIT_BRANCH",
+  "git_commit": "$GIT_COMMIT",
+  "plugins": "$PLUGINS",
   "assets": $ASSETS_JSON
 }
 EOF

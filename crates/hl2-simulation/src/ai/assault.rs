@@ -7,7 +7,13 @@
 //! d1_canals_01 barrelpush cop (DESIGN 14a). Not modeled: rally sequences, force
 //! crouch, urgent/strict movement styles, hint-group navigation, sentences, the
 //! multiple-assault-point hull test, squads.
-use super::conditions::*;
+use super::conditions::{
+    Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_MELEE_ATTACK2, COND_CAN_RANGE_ATTACK1,
+    COND_CAN_RANGE_ATTACK2, COND_ENEMY_OCCLUDED, COND_HEAR_BULLET_IMPACT, COND_HEAR_COMBAT,
+    COND_HEAR_DANGER, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOW_PRIMARY_AMMO, COND_NEW_ENEMY,
+    COND_NOT_FACING_ATTACK, COND_NO_PRIMARY_AMMO, COND_PLAYER_PUSHING, COND_PROVOKED,
+    COND_SEE_ENEMY, COND_TOO_CLOSE_TO_ATTACK,
+};
 use super::schedule::{AiNpc, Context, Goal, Motor, Schedule, Schedules, TaskArg, TaskStatus};
 use glam::Vec3;
 use serde::Serialize;

@@ -24,8 +24,8 @@ fn short3(d: &[u8], o: usize) -> Result<Vec3> {
     ))
 }
 
-pub fn read(lumps: &[Vec<u8>], versions: &[u32]) -> Result<LightingData> {
-    read_with(lumps, versions, crate::lighting::use_hdr(lumps))
+pub fn read(lumps: &[Vec<u8>], versions: &[u32], hdr: bool) -> Result<LightingData> {
+    read_with(lumps, versions, crate::lighting::choose_hdr(lumps, hdr))
 }
 /// Read the HDR (`hdr`) or LDR copy of the ambient samples and world lights.
 pub fn read_with(lumps: &[Vec<u8>], versions: &[u32], hdr: bool) -> Result<LightingData> {
@@ -214,10 +214,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_security_map_has_leaf_ambient_and_world_lights() {
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         for map in ["d1_trainstation_01", "d1_trainstation_02"] {
             let bytes = vfs.read(&format!("maps/{map}.bsp")).unwrap().unwrap();
             let bsp = crate::bsp::Bsp::parse(&bytes).unwrap();

@@ -1296,6 +1296,7 @@ fn advance<W: NpcCollisionWorld>(
         .duration()
         .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
     let mut remaining = dt;
+    let mut start_validated = true;
     // Budget is ours, not an engine constant; failing never releases SECTION.
     for _ in 0..32 {
         if remaining <= 0. {
@@ -1330,32 +1331,25 @@ fn advance<W: NpcCollisionWorld>(
         let (amount, consumed) = if full <= distance {
             (full, remaining)
         } else {
-            // Preserve an accelerated authored curve when a waypoint splits a tick.
-            let (mut low, mut high) = (0., remaining);
-            for _ in 0..24 {
-                let mid = (low + high) * 0.5;
-                let moved = track
-                    .movement(from, (goal.animation_time + mid) / duration)
-                    .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?
-                    .position
-                    .x
-                    * actor.scale;
-                if moved < distance {
-                    low = mid;
-                } else {
-                    high = mid;
-                }
-            }
-            (distance, high)
+            let forward = |time: f32| {
+                track
+                    .movement(from, (goal.animation_time + time) / duration)
+                    .map(|motion| motion.position.x * actor.scale)
+                    .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))
+            };
+            (
+                distance,
+                npc_probe::time_to_cover(distance, remaining, forward)?,
+            )
         };
         let direction = delta / distance;
-        let movement = npc_probe::ground_move(
-            world,
-            goal.feet,
-            goal.feet + direction * amount,
-            actor.ground,
-            query,
-        );
+        let desired = goal.feet + direction * amount;
+        // This tick's first step starts where `fits` and `stand` just passed.
+        let movement = if std::mem::take(&mut start_validated) {
+            npc_probe::ground_move_from_valid(world, goal.feet, desired, actor.ground, query)
+        } else {
+            npc_probe::ground_move(world, goal.feet, desired, actor.ground, query)
+        };
         let actual = (movement.end - goal.feet).truncate().length();
         goal.feet = movement.end;
         goal.contact_normal = movement.normal;

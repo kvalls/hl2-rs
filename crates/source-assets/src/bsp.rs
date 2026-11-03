@@ -16,6 +16,8 @@ pub struct Bsp {
     pub static_props: Vec<modkit_core::ModelInstance>,
     lightmaps: Vec<modkit_core::Lightmap>,
     face_lighting: Vec<Option<crate::lighting::FaceLight>>,
+    /// Whether the HDR lighting copies are wanted (see [`crate::lighting::choose_hdr`]).
+    hdr: bool,
 }
 
 /// Independent sky eligibility bits in the camera's containing BSP leaf.
@@ -30,8 +32,74 @@ impl SkyVisibility {
         self.sky_3d || self.sky_2d
     }
 }
+/// A lump as stored: raw, or LZMA-compressed (`LZMA` header).
+fn decode_lump(raw: &[u8], i: usize) -> Result<Vec<u8>> {
+    if !raw.starts_with(b"LZMA") {
+        return Ok(raw.to_vec());
+    }
+    let expected = u32le(raw, 4)? as usize;
+    let compressed = u32le(raw, 8)? as usize;
+    if expected > 128 * 1024 * 1024 {
+        bail!("BSP lump {i} exceeds 128 MiB limit");
+    }
+    let mut stream = bytes(raw, 12, 5)?.to_vec();
+    stream.extend_from_slice(&(expected as u64).to_le_bytes());
+    stream.extend_from_slice(bytes(raw, 17, compressed)?);
+    let mut output = Vec::new();
+    lzma_rs::lzma_decompress_with_options(
+        &mut Cursor::new(stream),
+        &mut output,
+        &lzma_rs::decompress::Options {
+            memlimit: Some(128 * 1024 * 1024),
+            ..Default::default()
+        },
+    )
+    .with_context(|| format!("LZMA lump {i}"))?;
+    if output.len() != expected {
+        bail!("BSP lump {i} decompressed size mismatch");
+    }
+    Ok(output)
+}
+
+/// The entities of a BSP file, reading only its header and entity lump (lump 0), not the map.
+pub fn read_entities(path: &std::path::Path) -> Result<Vec<modkit_core::Entity>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).with_context(|| path.display().to_string())?;
+    let mut header = [0u8; 24];
+    file.read_exact(&mut header)?;
+    if &header[..4] != b"VBSP" {
+        bail!("not a Valve BSP: {}", path.display());
+    }
+    let (offset, len) = (u32le(&header, 8)? as u64, u32le(&header, 12)? as usize);
+    if len > 64 * 1024 * 1024 {
+        bail!("BSP entity lump too large: {}", path.display());
+    }
+    let mut raw = vec![0; len];
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(&mut raw)?;
+    keyvalues::entities(&decode_lump(&raw, 0)?)
+}
+
 impl Bsp {
+    /// Creates an empty BSP with 64 empty lumps and version 20, representing no geometry.
+    pub fn empty() -> Self {
+        Self {
+            lightmaps: Vec::new(),
+            face_lighting: Vec::new(),
+            static_props: Vec::new(),
+            version: 20,
+            revision: 0,
+            lumps: vec![Vec::new(); 64],
+            lump_versions: vec![0; 64],
+            hdr: true,
+        }
+    }
     pub fn parse(data: &[u8]) -> Result<Self> {
+        Self::parse_with(data, true)
+    }
+    /// Parses a map for an HDR (`hdr`) or an LDR frame: the lightmaps, faces, ambient samples and
+    /// world lights come from the matching lump copies.
+    pub fn parse_with(data: &[u8], hdr: bool) -> Result<Self> {
         if bytes(data, 0, 4)? != b"VBSP" {
             bail!("not a Valve BSP");
         }
@@ -47,36 +115,9 @@ impl Bsp {
             let offset = u32le(data, o)? as usize;
             let len = u32le(data, o + 4)? as usize;
             lump_versions.push(u32le(data, o + 8)?);
-            let raw = bytes(data, offset, len)?;
-            let decoded = if raw.starts_with(b"LZMA") {
-                let expected = u32le(raw, 4)? as usize;
-                let compressed = u32le(raw, 8)? as usize;
-                if expected > 128 * 1024 * 1024 {
-                    bail!("BSP lump {i} exceeds 128 MiB limit");
-                }
-                let mut stream = bytes(raw, 12, 5)?.to_vec();
-                stream.extend_from_slice(&(expected as u64).to_le_bytes());
-                stream.extend_from_slice(bytes(raw, 17, compressed)?);
-                let mut output = Vec::new();
-                lzma_rs::lzma_decompress_with_options(
-                    &mut Cursor::new(stream),
-                    &mut output,
-                    &lzma_rs::decompress::Options {
-                        memlimit: Some(128 * 1024 * 1024),
-                        ..Default::default()
-                    },
-                )
-                .with_context(|| format!("LZMA lump {i}"))?;
-                if output.len() != expected {
-                    bail!("BSP lump {i} decompressed size mismatch");
-                }
-                output
-            } else {
-                raw.to_vec()
-            };
-            lumps.push(decoded);
+            lumps.push(decode_lump(bytes(data, offset, len)?, i)?);
         }
-        let (lightmaps, face_lighting) = crate::lighting::build(&lumps)?;
+        let (lightmaps, face_lighting) = crate::lighting::build(&lumps, hdr)?;
         Ok(Self {
             lightmaps,
             face_lighting,
@@ -85,6 +126,7 @@ impl Bsp {
             revision: u32le(data, 1032)?,
             lumps,
             lump_versions,
+            hdr,
         })
     }
     pub fn lump(&self, id: usize) -> &[u8] {
@@ -92,7 +134,7 @@ impl Bsp {
     }
     /// Leaf ambient samples, world lights and the leaf tree for model lighting.
     pub fn model_lighting(&self) -> Result<modkit_core::lighting::LightingData> {
-        let mut data = crate::model_lighting::read(&self.lumps, &self.lump_versions)?;
+        let mut data = crate::model_lighting::read(&self.lumps, &self.lump_versions, self.hdr)?;
         data.dynamic_minlight = self.dynamic_minlight();
         Ok(data)
     }
@@ -227,7 +269,7 @@ impl Bsp {
         let model = models.get(model_index).context("BSP missing model")?;
         let first = i32le(model, 40)?;
         let count = i32le(model, 44)?;
-        let use_hdr = crate::lighting::use_hdr(&self.lumps);
+        let use_hdr = crate::lighting::choose_hdr(&self.lumps, self.hdr);
         let faces = records(self.lump(if use_hdr { 58 } else { 7 }), 56)?.collect::<Vec<_>>();
         let lighting = self.lump(if use_hdr { 53 } else { 8 });
         let disps = records(self.lump(26), 176)?.collect::<Vec<_>>();
@@ -284,20 +326,15 @@ impl Bsp {
                 continue;
             }
             let td = texdata[index(i32le(info, 68)?, texdata.len())?];
-            let name_id = i32le(td, 12)?;
-            let offset = u32le(table, index(name_id, table.len() / 4)? * 4)? as usize;
-            let tail = strings
-                .get(offset..)
-                .context("texture string outside lump")?;
-            let end = tail
-                .iter()
-                .position(|b| *b == 0)
-                .context("unterminated texture string")?;
-            let material = std::str::from_utf8(&tail[..end])?.to_lowercase();
+            let material = texinfo_material(&texinfo, &texdata, strings, table, ti)?;
             // Compile tools are invisible, except toolsblack (an UnlitGeneric black texture),
             // e.g. the frame around trainstation_02's Combine slate.
             if material.starts_with("tools/") && !material.starts_with("tools/toolsblack") {
                 continue;
+            }
+            // SURF_NOSHADOWS (vbsp sets it on water): no projected shadow lands here.
+            if flags & 0x1000 != 0 && !world.no_shadow_materials.contains(&material) {
+                world.no_shadow_materials.insert(material.clone());
             }
             let width = i32le(td, 16)?.max(1) as f32;
             let height = i32le(td, 20)?.max(1) as f32;
@@ -750,6 +787,7 @@ mod tests {
             static_props: Vec::new(),
             lightmaps: Vec::new(),
             face_lighting: Vec::new(),
+            hdr: true,
         }
     }
     #[test]
@@ -811,10 +849,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_trainstation_brush_normals_face_the_rendered_side() {
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();
         let world = Bsp::parse(&bytes)
             .unwrap()
@@ -841,10 +876,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_trainstation_overlays_become_lightmapped_fragments() {
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();
         let bsp = Bsp::parse(&bytes).unwrap();
         let world = bsp.world("d1_trainstation_02").unwrap();
@@ -863,5 +895,12 @@ mod tests {
             "{} overlay surfaces, {triangles} triangles, materials {materials:?}",
             world.overlays.len()
         );
+    }
+    #[test]
+    fn empty_bsp_has_empty_lumps() {
+        let bsp = Bsp::empty();
+        assert_eq!(bsp.version, 20);
+        assert_eq!(bsp.lumps.len(), 64);
+        assert!(bsp.lumps.iter().all(|l| l.is_empty()));
     }
 }

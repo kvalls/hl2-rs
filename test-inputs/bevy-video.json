@@ -1,0 +1,40 @@
+[
+  {
+    "tick": 1,
+    "ui": [
+      {
+        "action": "command",
+        "command": "playvideo_exitcommand valve echo test_exit_command_fired"
+      }
+    ],
+    "label": "video-active"
+  },
+  {
+    "tick": 5,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "space"
+          ]
+        }
+      }
+    ],
+    "label": "video-skipped"
+  },
+  {
+    "tick": 10,
+    "ui": [
+      {
+        "action": "command",
+        "command": "playvideo_exitcommand missing_test_vid echo test_missing_exit_fired"
+      }
+    ],
+    "label": "video-fallback"
+  },
+  {
+    "tick": 15,
+    "label": "finished"
+  }
+]

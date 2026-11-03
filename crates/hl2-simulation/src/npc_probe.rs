@@ -196,6 +196,25 @@ pub fn fits<W: NpcCollisionWorld>(world: &W, feet: Vec3, hull: Hull, query: Quer
             .start_solid
 }
 
+/// Preserves an accelerated authored curve when a waypoint splits a tick: the time within
+/// `remaining` whose forward motion reaches `distance`.
+pub fn time_to_cover<E>(
+    distance: f32,
+    remaining: f32,
+    forward: impl Fn(f32) -> Result<f32, E>,
+) -> Result<f32, E> {
+    let (mut low, mut high) = (0., remaining);
+    for _ in 0..24 {
+        let mid = (low + high) * 0.5;
+        if forward(mid)? < distance {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    Ok(high)
+}
+
 fn failure(end: Vec3, reason: BlockReason, hit: HullTrace) -> GroundMove {
     GroundMove {
         end,
@@ -225,6 +244,21 @@ pub fn ground_move<W: NpcCollisionWorld>(
     }
     if !stand(world, start, config, query) {
         return failure(start, BlockReason::UnsupportedGround, HullTrace::clear());
+    }
+    ground_move_from_valid(world, start, desired_end, config, query)
+}
+
+/// `ground_move` for a caller that just proved `start` passes `fits` and `stand` this tick:
+/// those same traces would give the same answers.
+pub fn ground_move_from_valid<W: NpcCollisionWorld>(
+    world: &W,
+    start: Vec3,
+    desired_end: Vec3,
+    config: GroundConfig,
+    query: Query<'_>,
+) -> GroundMove {
+    if !desired_end.is_finite() {
+        return failure(start, BlockReason::InvalidInput, HullTrace::invalid());
     }
     let delta = (desired_end - start) * Vec3::new(1., 1., 0.);
     let distance = delta.length();

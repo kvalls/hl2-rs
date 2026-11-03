@@ -43,6 +43,8 @@ pub struct Tonemap {
     pub readbacks: u64,
     /// SDK GetBloomAmount state (starts at 1 each level).
     pub bloom: f32,
+    /// `mat_hdr_level` of the applied settings: below Full the frame takes no automatic exposure.
+    pub level: hl2_ui::config::HdrMode,
     /// Pre-bloom frame written by the bloom pass (the SDK histogram runs before bloom).
     presample: Option<Handle<Image>>,
 }
@@ -57,10 +59,14 @@ impl Tonemap {
             map: String::new(),
             readbacks: 0,
             bloom: 1.,
+            level: hl2_ui::config::HdrMode::Full,
             presample: None,
         }
     }
     pub fn scale(&self) -> f32 {
+        if !self.level.is_hdr() {
+            return 1.;
+        }
         self.forced.unwrap_or(self.exposure.current)
     }
     pub fn report(&self) -> serde_json::Value {
@@ -77,12 +83,19 @@ pub fn ev100(scale: f32) -> f32 {
 pub fn update(
     mut commands: Commands,
     mut state: ResMut<Tonemap>,
-    (game, sim): (Res<Gameplay>, Res<crate::movement::Simulation>),
+    (game, sim, ui): (
+        Res<Gameplay>,
+        Res<crate::simulation::Simulation>,
+        Option<Res<crate::ui_host::Console>>,
+    ),
     time: Res<Time<Real>>,
     mut images: ResMut<Assets<Image>>,
     mut cameras: Query<&mut Exposure, With<ToneMapped>>,
     mut blooms: Query<&mut crate::bloom::SourceBloom>,
 ) {
+    if let Some(ui) = ui.as_deref() {
+        state.level = ui.source.config.video.hdr;
+    }
     state.frames += 1;
     let presample = state
         .presample
@@ -111,9 +124,10 @@ pub fn update(
         *state.histogram.lock().expect("tonemap histogram") = None;
     }
     // A paused game freezes everything, exposure and bloom adaptation included (owner
-    // observation of native HL2, 2026-10-08); the last exposure stays on the cameras.
-    let paused = sim.paused();
-    if state.forced.is_none() && !paused {
+    // observation of native HL2, 2026-10-08); the last exposure stays on the cameras. A menu
+    // background level keeps running.
+    let paused = !sim.world_running();
+    if state.forced.is_none() && state.level.is_hdr() && !paused {
         let request = state.frames.is_multiple_of(INTERVAL) && {
             let mut pending = state.pending.lock().expect("tonemap pending");
             !std::mem::replace(&mut *pending, true)
@@ -145,7 +159,7 @@ pub fn update(
         state.bloom = tonemap::ease_bloom(state.bloom, game.scene.tonemap.bloom);
     }
     for mut bloom in &mut blooms {
-        bloom.amount = state.bloom;
+        bloom.amount = state.bloom * state.level.bloom_factor();
         if bloom.presample.as_ref() != Some(&presample) {
             bloom.presample = Some(presample.clone());
         }
@@ -193,6 +207,18 @@ fn histogram_of(data: &[u8]) -> Option<[u32; BINS]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn an_ldr_frame_has_no_exposure_and_scaled_bloom() {
+        use hl2_ui::config::HdrMode;
+        let mut state = Tonemap::new(Some(2.));
+        state.exposure.current = 0.5;
+        assert_eq!(state.scale(), 2., "HDR follows the forced scale");
+        for level in [HdrMode::None, HdrMode::Bloom] {
+            state.level = level;
+            assert_eq!(state.scale(), 1., "{level:?}");
+        }
+    }
+
     #[test]
     fn ev100_round_trips_bevy_exposure() {
         for scale in [0.5f32, 1., 1.35, 2.] {

@@ -13,6 +13,7 @@ pub mod ai;
 pub mod ai_hull;
 pub mod citizens;
 pub mod entities;
+pub mod flashlight;
 pub mod footsteps;
 pub mod gameplay;
 pub mod gibs;
@@ -42,6 +43,8 @@ pub mod weapon_physcannon;
 pub mod weapon_rpg;
 
 pub mod campaign;
+pub mod captions;
+pub mod commentary;
 pub mod explosion_particles;
 pub mod impacts;
 pub mod pcf_runtime;
@@ -51,5 +54,9 @@ pub mod attention;
 pub mod gestures;
 pub mod lipsync;
 
+pub mod color_correction;
 pub mod monitors;
+pub mod motion_blur;
+pub mod shadows;
 pub mod tonemap;
+pub mod view_control;
