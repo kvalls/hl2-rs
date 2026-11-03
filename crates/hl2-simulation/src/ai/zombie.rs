@@ -6,7 +6,10 @@
 //! zombie's headcrab throws, breathing loops and idle cadence (its idles use the classic
 //! moan clock outside combat).
 use super::assault::Assault;
-use super::conditions::*;
+use super::conditions::{
+    Cond, COND_CAN_MELEE_ATTACK1, COND_ENEMY_DEAD, COND_ENEMY_UNREACHABLE, COND_LOST_ENEMY,
+    COND_NOT_FACING_ATTACK, COND_TOO_FAR_TO_ATTACK,
+};
 use super::metropolice::CopRequest;
 use super::schedule::{
     default_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg,

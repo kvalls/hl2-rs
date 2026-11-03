@@ -8,8 +8,15 @@
 //! kick, crouching, readiness, the follow/lead/actbusy/standoff/functank behaviors,
 //! speech (response rules, COMBINE_* sentences), medic heals, mortars and the RPG
 //! schedules. SDK behavior; retail not compared.
+mod behaviors;
+
 use super::assault::Assault;
-use super::conditions::*;
+use super::conditions::{
+    Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1, COND_ENEMY_DEAD,
+    COND_ENEMY_OCCLUDED, COND_HEAR_DANGER, COND_HEAR_MOVE_AWAY, COND_HEAR_PHYSICS_DANGER,
+    COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOW_PRIMARY_AMMO, COND_NO_PRIMARY_AMMO,
+    COND_SEE_ENEMY, COND_TOO_FAR_TO_ATTACK,
+};
 use super::metropolice::CopRequest;
 use super::schedule::{
     base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg, TaskStatus,
@@ -243,6 +250,10 @@ pub struct Humanoid {
     pub script_goal: Option<(Vec3, bool)>,
     /// The assault behavior selected the current schedule.
     pub running_assault: bool,
+    /// CAI_ActBusyBehavior (CNPC_PlayerCompanion::CreateBehaviors).
+    pub actbusy: super::actbusy::ActBusy,
+    /// The actbusy behavior selected the current schedule.
+    pub running_actbusy: bool,
     /// The time of this think (custom interrupts read it).
     #[serde(skip)]
     pub now: f64,
@@ -328,6 +339,8 @@ impl Humanoid {
             kind,
             requests: Vec::new(),
             assault: None,
+            actbusy: Default::default(),
+            running_actbusy: false,
             script_goal: None,
             running_assault: false,
             now: 0.,
@@ -439,6 +452,7 @@ impl Humanoid {
         }
     }
     fn select(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        self.running_actbusy = false;
         let was_assault = std::mem::take(&mut self.running_assault);
         if was_assault {
             if let Some(assault) = &mut self.assault {
@@ -456,21 +470,6 @@ impl Humanoid {
         }
         schedule
     }
-    /// BehaviorSelectSchedule: the assault behavior when it can select (its base
-    /// selection is CAI_BaseNPC's).
-    fn behavior_select(&mut self, npc: &mut AiNpc, ctx: &Context) -> Option<String> {
-        let assault = self.assault.as_mut()?;
-        if !assault.can_select(npc, ctx) {
-            return None;
-        }
-        self.running_assault = true;
-        Some(
-            assault
-                .select(npc, ctx)
-                .map(String::from)
-                .unwrap_or_else(|| base_select_schedule(npc, ctx, self.armed)),
-        )
-    }
     /// CNPC_PlayerCompanion::SelectSchedule (CNPC_Citizen adds nothing reachable here:
     /// no trains, heals, item retrieval, inspections or patrols).
     fn select_companion(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
@@ -483,6 +482,13 @@ impl Humanoid {
         }
         // SelectSchedulePriorityAction: player pushing (COND_PLAYER_PUSHING) is not
         // gathered yet.
+        if self.actbusy.can_select(npc, ctx.now) {
+            let base = base_select_schedule(npc, ctx, self.armed);
+            if let Some(schedule) = self.actbusy.select(npc, ctx, &base) {
+                self.running_actbusy = true;
+                return schedule.into();
+            }
+        }
         if let Some(schedule) = self.behavior_select(npc, ctx) {
             return schedule;
         }
@@ -791,12 +797,8 @@ impl Behavior for Humanoid {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
-        if self.running_assault {
-            if let Some(assault) = &mut self.assault {
-                if let Some(status) = assault.start_task(npc, task, arg, ctx, motor) {
-                    return Some(status);
-                }
-            }
+        if let Some(status) = self.behavior_task(false, npc, task, arg, ctx, motor) {
+            return Some(status);
         }
         Some(match task {
             // Squad-only (m_flNextAttack with more than two squad members) / crouch state /
@@ -899,12 +901,8 @@ impl Behavior for Humanoid {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
-        if self.running_assault {
-            if let Some(assault) = &mut self.assault {
-                if let Some(status) = assault.run_task(npc, task, arg, ctx, motor) {
-                    return Some(status);
-                }
-            }
+        if let Some(status) = self.behavior_task(true, npc, task, arg, ctx, motor) {
+            return Some(status);
         }
         if task == "TASK_CIT_RPG_AUGER" {
             return Some(self.rpg_auger(ctx));
@@ -971,6 +969,7 @@ impl Behavior for Humanoid {
 mod tests {
     use super::super::schedule::tests::FakeMotor;
     use super::*;
+    use crate::ai::conditions::Cond;
     use crate::npc_weapons::{builtin, RegulatorRule, ShotRegulator};
 
     fn setup(kind: Kind) -> (Humanoid, AiNpc, Schedules) {

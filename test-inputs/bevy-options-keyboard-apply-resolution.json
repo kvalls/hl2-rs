@@ -1,0 +1,242 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 21,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 22,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 23,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 24,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 25,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "enter"
+     ]
+    }
+   }
+  ],
+  "label": "open-options"
+ },
+ {
+  "tick": 60,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-tab-strip"
+ },
+ {
+  "tick": 70,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 71,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 72,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 73,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 74,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 90,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-resolution"
+ },
+ {
+  "tick": 92,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ],
+  "label": "next-resolution"
+ },
+ {
+  "tick": 94,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ],
+     "shift": true
+    }
+   }
+  ],
+  "label": "back-to-tab-strip"
+ },
+ {
+  "tick": 96,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ],
+     "shift": true
+    }
+   }
+  ],
+  "label": "focus-apply"
+ },
+ {
+  "tick": 98,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "space"
+     ]
+    }
+   }
+  ],
+  "label": "applied"
+ },
+ {
+  "tick": 300,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

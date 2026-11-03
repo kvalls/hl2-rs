@@ -158,6 +158,15 @@ impl Default for PlayerDamage {
 impl PlayerDamage {
     /// skill.cfg's sk_dmg_take_scale<skill>, else the CHalfLife2 ConVar default.
     pub fn with_skill(skill: u32, config: Option<&str>) -> Self {
+        Self {
+            take_scale: Self::take_scale_for(skill, config),
+            ..Self::default()
+        }
+    }
+    /// sk_dmg_take_scale<skill> from skill.cfg text, else the CHalfLife2 ConVar default.
+    /// CGameRules::Think re-reads `skill` every frame, so hosts re-evaluate this whenever the
+    /// skill setting changes.
+    pub fn take_scale_for(skill: u32, config: Option<&str>) -> f32 {
         let name = format!("sk_dmg_take_scale{skill}");
         let configured = config.and_then(|text| {
             text.lines().find_map(|line| {
@@ -173,12 +182,9 @@ impl PlayerDamage {
             3 => 1.5,
             _ => 1.,
         };
-        Self {
-            take_scale: configured
-                .filter(|v| v.is_finite() && *v >= 0.)
-                .unwrap_or(default),
-            ..Self::default()
-        }
+        configured
+            .filter(|v| v.is_finite() && *v >= 0.)
+            .unwrap_or(default)
     }
     fn random_int(&mut self, low: i32, high: i32) -> i32 {
         self.rng ^= self.rng << 13;

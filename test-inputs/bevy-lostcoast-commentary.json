@@ -1,0 +1,57 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      1291.29,
+      2388.78,
+      -10.45
+    ],
+    "yaw": 0.0,
+    "pitch": 0.0
+  },
+  {
+    "tick": 5,
+    "label": "hovered-node-1"
+  },
+  {
+    "tick": 10,
+    "actions": [
+      {
+        "action": "use"
+      }
+    ]
+  },
+  {
+    "tick": 20,
+    "label": "started-node-1"
+  },
+  {
+    "tick": 30,
+    "actions": [
+      {
+        "action": "use"
+      }
+    ]
+  },
+  {
+    "tick": 40,
+    "label": "stopped-node-1"
+  },
+  {
+    "tick": 50,
+    "secondary": true
+  },
+  {
+    "tick": 60,
+    "label": "teleported-node-1"
+  },
+  {
+    "tick": 70,
+    "secondary": true
+  },
+  {
+    "tick": 80,
+    "label": "teleported-node-2"
+  }
+]

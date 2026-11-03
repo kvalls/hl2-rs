@@ -4,7 +4,14 @@
 //! completion/failure, fail schedules, SelectSchedule/TranslateSchedule through a class
 //! trait) and the generic tasks. Movement, facing and activities go through `Motor`,
 //! which the host implements over npc.rs. SDK behavior, retail not compared.
-use super::conditions::*;
+use super::conditions::{
+    Cond, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_MELEE_ATTACK2, COND_CAN_RANGE_ATTACK1,
+    COND_CAN_RANGE_ATTACK2, COND_ENEMY_DEAD, COND_ENEMY_OCCLUDED, COND_HEAR_BULLET_IMPACT,
+    COND_HEAR_COMBAT, COND_HEAR_DANGER, COND_HEAR_PLAYER, COND_HEAR_WORLD, COND_IN_PVS,
+    COND_LOW_PRIMARY_AMMO, COND_NEW_ENEMY, COND_NOT_FACING_ATTACK, COND_NO_PRIMARY_AMMO,
+    COND_SCHEDULE_DONE, COND_SEE_ENEMY, COND_TASK_FAILED, COND_TOO_CLOSE_TO_ATTACK,
+    COND_WEAPON_BLOCKED_BY_FRIEND, COND_WEAPON_PLAYER_IN_SPREAD, COND_WEAPON_SIGHT_OCCLUDED,
+};
 use super::state::NpcState;
 use glam::Vec3;
 use serde::Serialize;
@@ -1126,6 +1133,7 @@ impl MaxComplete for TaskStatus {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::ai::conditions::COND_PROVOKED;
 
     #[derive(Default)]
     pub struct FakeMotor {

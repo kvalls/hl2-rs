@@ -623,9 +623,28 @@ pub struct Sequence {
     pub weight: i32,
     #[serde(default)]
     pub order: u32,
+    /// The sequence's bounding box (`mstudioseqdesc_t` bbmin, bbmax), model space.
+    #[serde(default)]
+    pub bounds: (Vec3, Vec3),
+}
+impl Sequence {
+    /// A sequence without bounds.
+    pub fn new(name: &str, activity: &str, weight: i32, order: u32) -> Self {
+        Self {
+            name: name.into(),
+            activity: activity.into(),
+            weight,
+            order,
+            bounds: Default::default(),
+        }
+    }
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Rig {
+    /// The model's view box (`view_bbmin`/`view_bbmax`), or its hull when that is empty: with
+    /// the current sequence's box, `C_BaseAnimating::GetRenderBounds`.
+    #[serde(default)]
+    pub view_bounds: (Vec3, Vec3),
     pub bones: Vec<Bone>,
     pub clips: BTreeMap<String, Clip>,
     #[serde(default)]
@@ -910,24 +929,9 @@ mod tests {
     fn sequence_lookup_preserves_labels_weight_intervals_and_negative_current() {
         let mut rig = Rig {
             sequences: vec![
-                Sequence {
-                    name: "idle_a".into(),
-                    activity: "ACT_IDLE".into(),
-                    weight: 2,
-                    order: 0,
-                },
-                Sequence {
-                    name: "idle_b".into(),
-                    activity: "ACT_IDLE".into(),
-                    weight: -1,
-                    order: 1,
-                },
-                Sequence {
-                    name: "act_idle".into(),
-                    activity: "ACT_OTHER".into(),
-                    weight: 1,
-                    order: 2,
-                },
+                Sequence::new("idle_a", "ACT_IDLE", 2, 0),
+                Sequence::new("idle_b", "ACT_IDLE", -1, 1),
+                Sequence::new("act_idle", "ACT_OTHER", 1, 2),
             ],
             ..Default::default()
         };
@@ -971,18 +975,8 @@ mod tests {
         assert!(rig
             .lookup_sequence("ACT_IDLE", None, |_| panic!("overflow rejected"))
             .is_none());
-        let first = Sequence {
-            name: "first".into(),
-            activity: "ACT_NEW".into(),
-            weight: 1,
-            order: 3,
-        };
-        let last = Sequence {
-            name: "last".into(),
-            activity: "ACT_NEW".into(),
-            weight: 1,
-            order: 8,
-        };
+        let first = Sequence::new("first", "ACT_NEW", 1, 3);
+        let last = Sequence::new("last", "ACT_NEW", 1, 8);
         rig.merge_sequence_metadata([last.clone()]);
         rig.merge_sequence_metadata([last, first]);
         assert_eq!(

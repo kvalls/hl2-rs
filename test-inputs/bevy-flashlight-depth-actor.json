@@ -1,0 +1,45 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      -4304,
+      -224,
+      64
+    ],
+    "yaw": -90,
+    "pitch": -10,
+    "ui": [
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "command",
+        "command": "sv_cheats 1; impulse 101; impulse 100"
+      },
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "escape"
+      }
+    ],
+    "actions": [
+      {
+        "action": "actor_pose",
+        "target": "terminal_side_cop",
+        "origin": [
+          -4304,
+          -360,
+          0
+        ],
+        "yaw": 90
+      }
+    ]
+  },
+  {
+    "tick": 120,
+    "paused": true,
+    "label": "flashlight-depth-actor"
+  }
+]

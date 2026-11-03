@@ -161,98 +161,136 @@ impl Vpk {
     }
 }
 
-/// Base VPKs in hl2/gameinfo.txt SearchPaths order.
-const GAMEINFO_ARCHIVES: [&str; 6] = [
-    "hl2_sound_vo_english_dir.vpk",
-    "hl2_pak_dir.vpk",
-    "hl2_textures_dir.vpk",
-    "hl2_sound_misc_dir.vpk",
-    "hl2_misc_dir.vpk",
-    "platform_misc_dir.vpk",
-];
+/// One entry of a game's search path: a loose folder or a VPK.
+enum Layer {
+    Dir(PathBuf),
+    Pak(Vpk),
+}
 
 pub struct Vfs {
-    roots: Vec<PathBuf>,
-    archives: Vec<Vpk>,
+    root: PathBuf,
+    layers: Vec<Layer>,
     embedded: BTreeMap<String, Vec<u8>>,
     pub warnings: Vec<String>,
-    custom_roots: Vec<PathBuf>,
-    custom_archives: Vec<Vpk>,
 }
-impl Vfs {
-    pub fn mount(game: &Path) -> Result<Self> {
-        let roots = vec![game.join("hl2"), game.join("platform")];
-        let mut archives = Vec::new();
-        let mut warnings = Vec::new();
-        let mut custom_roots = Vec::new();
-        let mut custom_archives = Vec::new();
-        let custom = game.join("hl2/custom");
-        if custom.is_dir() {
-            let mut paths = std::fs::read_dir(custom)?
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .collect::<Vec<_>>();
-            paths.sort();
-            for path in paths {
-                if path.is_dir() {
-                    custom_roots.push(path);
-                } else if path.extension().is_some_and(|e| e == "vpk")
-                    && path.file_name().is_some_and(|n| {
-                        !n.to_string_lossy()
-                            .trim_end_matches("_dir.vpk")
-                            .rsplit('_')
-                            .next()
-                            .is_some_and(|n| n.len() == 3 && n.chars().all(|c| c.is_ascii_digit()))
-                    })
-                {
-                    match Vpk::open(&path) {
-                        Ok(v) => custom_archives.push(v),
-                        Err(e) => warnings.push(format!("{}: {e}", path.display())),
-                    }
-                }
-            }
-        }
-        for root in &roots {
-            if !root.is_dir() {
-                continue;
-            }
-            let mut paths = std::fs::read_dir(root)?
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| {
-                    p.file_name().is_some_and(|n| {
-                        let n = n.to_string_lossy().to_ascii_lowercase();
-                        n.ends_with("_dir.vpk") && n != "hl2_lv_dir.vpk"
+
+/// The search path a game declares in `<game>/gameinfo.txt` (`GameInfo/FileSystem/SearchPaths`),
+/// in order, as paths under the installation `root`. Only `game`, `mod` and `platform` entries
+/// are content; `gamebin`, the low-violence `game_lv` and `root_mod` are not. `|gameinfo_path|`
+/// is the game's own folder and `|all_source_engine_paths|` the installation. A game without a
+/// readable search path gets its own folder, then `hl2`, then `platform`.
+pub fn search_paths(root: &Path, game: &str) -> Vec<PathBuf> {
+    let declared = std::fs::read(root.join(game).join("gameinfo.txt"))
+        .ok()
+        .and_then(|bytes| keyvalues::parse_resource(&bytes).ok())
+        .map(|roots| {
+            roots
+                .iter()
+                .flat_map(|info| info.children())
+                .filter(|e| e.key.eq_ignore_ascii_case("FileSystem"))
+                .flat_map(|fs| fs.children())
+                .filter(|e| e.key.eq_ignore_ascii_case("SearchPaths"))
+                .flat_map(|paths| paths.children())
+                .filter(|e| {
+                    e.key.split('+').any(|id| {
+                        ["game", "mod", "platform"]
+                            .iter()
+                            .any(|content| id.eq_ignore_ascii_case(content))
                     })
                 })
+                .filter_map(|e| e.text())
+                .map(|value| {
+                    let value = value.trim();
+                    if let Some(rest) = value.strip_prefix("|gameinfo_path|") {
+                        root.join(game).join(rest)
+                    } else {
+                        root.join(value.trim_start_matches("|all_source_engine_paths|"))
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|paths| !paths.is_empty());
+    declared.unwrap_or_else(|| {
+        [game, crate::install::BASE_GAME, "platform"]
+            .iter()
+            .map(|folder| root.join(folder))
+            .collect()
+    })
+}
+
+/// A numbered VPK data file (`*_000.vpk`), opened through its `*_dir.vpk`.
+fn vpk_data_file(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.rsplit_once('_'))
+        .is_some_and(|(_, n)| n.len() == 3 && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+impl Vfs {
+    /// Mounts the base Half-Life 2 search path of the installation.
+    pub fn mount(root: &Path) -> Result<Self> {
+        Self::mount_game(root, crate::install::BASE_GAME)
+    }
+
+    /// Mounts the search path of the game installed in folder `game` of the installation
+    /// (`hl2`, `episodic`, `ep2`, `lostcoast`), as its `gameinfo.txt` declares it
+    /// (see [`search_paths`]). Episode Two, for example, searches its own VPKs, then Episode
+    /// One's and Half-Life 2's, then the loose `ep2`, `episodic` and `hl2` folders.
+    pub fn mount_game(root: &Path, game: &str) -> Result<Self> {
+        let mut vfs = Self {
+            root: root.to_path_buf(),
+            layers: Vec::new(),
+            embedded: BTreeMap::new(),
+            warnings: Vec::new(),
+        };
+        let mut mounted = std::collections::BTreeSet::new();
+        for path in search_paths(root, game) {
+            vfs.add(path, &mut mounted)?;
+        }
+        Ok(vfs)
+    }
+
+    /// Adds one search path entry: `<folder>/*` mounts the folder's subfolders and VPKs in
+    /// name order, `<name>.vpk` its `<name>_dir.vpk`, anything else a loose folder. Entries
+    /// that are not installed (another language's voice pack) are skipped, repeats too.
+    fn add(
+        &mut self,
+        path: PathBuf,
+        mounted: &mut std::collections::BTreeSet<PathBuf>,
+    ) -> Result<()> {
+        if path.file_name().is_some_and(|n| n == "*") {
+            let Some(folder) = path.parent().filter(|f| f.is_dir()) else {
+                return Ok(());
+            };
+            let mut entries = std::fs::read_dir(folder)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.is_dir() || p.extension().is_some_and(|e| e == "vpk"))
+                .filter(|p| !vpk_data_file(p))
                 .collect::<Vec<_>>();
-            // hl2/gameinfo.txt SearchPaths order (hl2_lv.vpk is low-violence only);
-            // archives it does not name follow alphabetically.
-            paths.sort_by_key(|p| {
-                let name = p
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_ascii_lowercase())
-                    .unwrap_or_default();
-                let rank = GAMEINFO_ARCHIVES
-                    .iter()
-                    .position(|a| *a == name)
-                    .unwrap_or(GAMEINFO_ARCHIVES.len());
-                (rank, name)
-            });
-            for p in paths {
-                match Vpk::open(&p) {
-                    Ok(v) => archives.push(v),
-                    Err(e) => warnings.push(format!("{}: {e}", p.display())),
+            entries.sort();
+            for entry in entries {
+                self.add(entry, mounted)?;
+            }
+        } else if path.extension().is_some_and(|e| e == "vpk") {
+            let dir = path.with_file_name(format!(
+                "{}_dir.vpk",
+                path.file_stem().unwrap_or_default().to_string_lossy()
+            ));
+            let Some(file) = [dir, path].into_iter().find(|p| p.is_file()) else {
+                return Ok(());
+            };
+            if mounted.insert(file.clone()) {
+                match Vpk::open(&file) {
+                    Ok(vpk) => self.layers.push(Layer::Pak(vpk)),
+                    Err(e) => self.warnings.push(format!("{}: {e}", file.display())),
                 }
             }
+        } else if path.is_dir() && mounted.insert(path.clone()) {
+            self.layers.push(Layer::Dir(path));
         }
-        Ok(Self {
-            custom_roots,
-            custom_archives,
-            roots,
-            archives,
-            embedded: BTreeMap::new(),
-            warnings,
-        })
+        Ok(())
     }
+
     pub fn mount_pak(&mut self, data: &[u8]) -> Result<()> {
         if data.is_empty() {
             return Ok(());
@@ -279,40 +317,86 @@ impl Vfs {
         Ok(())
     }
     pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        self.read_layer_file(name, None)
+    }
+
+    /// Read a MOD-owned file, excluding inherited games and map-embedded resources.
+    pub fn read_game_file(&self, game: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        self.read_layer_file(name, Some(&self.root.join(game)))
+    }
+
+    fn content_layers<'a>(
+        &'a self,
+        own_folder: Option<&'a Path>,
+    ) -> impl Iterator<Item = &'a Layer> {
+        self.layers.iter().filter(move |layer| {
+            let path = match layer {
+                Layer::Dir(path) => path,
+                Layer::Pak(vpk) => &vpk.path,
+            };
+            own_folder.is_none_or(|folder| path.starts_with(folder))
+        })
+    }
+
+    fn read_layer_file(&self, name: &str, own_folder: Option<&Path>) -> Result<Option<Vec<u8>>> {
         let name = normalize(name)?;
-        if let Some(d) = self.embedded.get(&name) {
+        if let Some(d) = self.embedded.get(&name).filter(|_| own_folder.is_none()) {
             return Ok(Some(d.clone()));
         }
-        for root in &self.custom_roots {
-            let p = root.join(&name);
-            if p.is_file() {
-                return Ok(Some(std::fs::read(p)?));
-            }
-        }
-        for archive in &self.custom_archives {
-            if let Some(d) = archive.read(&name)? {
-                return Ok(Some(d));
-            }
-        }
-        // gameinfo.txt searches the VPKs before loose folders; the installation ships
-        // zero-byte loose placeholders (models/weapons/v_crossbow.mdl, v_bugbait.mdl, ...)
-        // that must not shadow the archived files.
-        for archive in &self.archives {
-            if let Some(d) = archive.read(&name)? {
-                return Ok(Some(d));
-            }
-        }
-        for root in &self.roots {
-            let p = root.join(&name);
-            if p.is_file() {
-                return Ok(Some(std::fs::read(p)?));
+        for layer in self.content_layers(own_folder) {
+            match layer {
+                Layer::Dir(folder) => {
+                    let p = folder.join(&name);
+                    if p.is_file() {
+                        return Ok(Some(std::fs::read(p)?));
+                    }
+                }
+                Layer::Pak(vpk) => {
+                    if let Some(d) = vpk.read(&name)? {
+                        return Ok(Some(d));
+                    }
+                }
             }
         }
         Ok(None)
     }
+    /// Every copy of `name` on the search path, in search order (a map's embedded file first),
+    /// for resources that each search path contributes, such as caption dictionaries.
+    pub fn read_all(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        let name = normalize(name)?;
+        let mut copies = Vec::new();
+        if let Some(d) = self.embedded.get(&name) {
+            copies.push(d.clone());
+        }
+        for layer in &self.layers {
+            match layer {
+                Layer::Dir(folder) => {
+                    let p = folder.join(&name);
+                    if p.is_file() {
+                        copies.push(std::fs::read(p)?);
+                    }
+                }
+                Layer::Pak(vpk) => {
+                    if let Some(d) = vpk.read(&name)? {
+                        copies.push(d);
+                    }
+                }
+            }
+        }
+        Ok(copies)
+    }
+    /// The installation root passed to [`Vfs::mount_game`].
+    pub fn game_root(&self) -> Option<&Path> {
+        Some(&self.root)
+    }
+    fn archives(&self) -> impl Iterator<Item = &Vpk> {
+        self.layers.iter().filter_map(|layer| match layer {
+            Layer::Pak(vpk) => Some(vpk),
+            Layer::Dir(_) => None,
+        })
+    }
     pub fn archive_counts(&self) -> Vec<(String, usize)> {
-        self.archives
-            .iter()
+        self.archives()
             .map(|v| {
                 (
                     v.path.file_name().unwrap().to_string_lossy().to_string(),
@@ -353,36 +437,56 @@ impl Vfs {
     /// ending in `suffix`: map pak, custom folders/VPKs, base VPKs and loose folders.
     /// Zero-byte loose placeholders are skipped (they never shadow archived files).
     pub fn list_files(&self, prefix: &str, suffix: &str) -> BTreeSet<String> {
+        self.list_layer_files(prefix, suffix, None)
+    }
+
+    /// Files belonging to one game's own mounted folders/custom packs/archives (MOD),
+    /// excluding inherited games and map-embedded content. Used for chapter discovery.
+    pub fn list_game_files(&self, game: &str, prefix: &str, suffix: &str) -> BTreeSet<String> {
+        self.list_layer_files(prefix, suffix, Some(&self.root.join(game)))
+    }
+
+    fn list_layer_files(
+        &self,
+        prefix: &str,
+        suffix: &str,
+        own_folder: Option<&Path>,
+    ) -> BTreeSet<String> {
         let wanted = |p: &str| p.starts_with(prefix) && p.ends_with(suffix);
         let mut found: BTreeSet<String> = self
             .embedded
             .keys()
-            .chain(
-                self.custom_archives
-                    .iter()
-                    .chain(&self.archives)
-                    .flat_map(|a| a.entries.keys()),
-            )
-            .filter(|p| wanted(p))
+            .filter(|p| own_folder.is_none() && wanted(p))
             .cloned()
             .collect();
-        for root in self.custom_roots.iter().chain(&self.roots) {
-            let mut stack = vec![root.join(prefix)];
-            while let Some(dir) = stack.pop() {
-                let Ok(read) = std::fs::read_dir(&dir) else {
-                    continue;
-                };
-                for entry in read.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        stack.push(path);
-                    } else if entry.metadata().is_ok_and(|m| m.len() > 0) {
-                        let name = path
-                            .strip_prefix(root)
-                            .ok()
-                            .and_then(|p| normalize(&p.to_string_lossy()).ok());
-                        if let Some(name) = name.filter(|n| wanted(n)) {
-                            found.insert(name);
+        for layer in self.content_layers(own_folder) {
+            match layer {
+                Layer::Pak(vpk) => {
+                    for entry in vpk.entries.keys() {
+                        if wanted(entry) {
+                            found.insert(entry.clone());
+                        }
+                    }
+                }
+                Layer::Dir(folder) => {
+                    let mut stack = vec![folder.join(prefix)];
+                    while let Some(dir) = stack.pop() {
+                        let Ok(read) = std::fs::read_dir(&dir) else {
+                            continue;
+                        };
+                        for entry in read.flatten() {
+                            let path = entry.path();
+                            if path.is_dir() {
+                                stack.push(path);
+                            } else if entry.metadata().is_ok_and(|m| m.len() > 0) {
+                                let name = path
+                                    .strip_prefix(folder)
+                                    .ok()
+                                    .and_then(|p| normalize(&p.to_string_lossy()).ok());
+                                if let Some(name) = name.filter(|n| wanted(n)) {
+                                    found.insert(name);
+                                }
+                            }
                         }
                     }
                 }
@@ -412,9 +516,7 @@ impl Vfs {
     pub fn resolve_material_name(&self, name: &str) -> Option<String> {
         let suffix = format!("/{}.vmt", name.to_lowercase());
         let mut found = self
-            .custom_archives
-            .iter()
-            .chain(&self.archives)
+            .archives()
             .flat_map(|a| a.entries.keys())
             .filter(|p| p.starts_with("materials/") && p.ends_with(&suffix));
         let first = found.next()?;
@@ -466,5 +568,211 @@ mod tests {
         std::fs::write(&p, b"bad").unwrap();
         assert!(Vpk::open(&p).is_err());
         std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn chapter_discovery_lists_only_the_games_own_nonempty_files() {
+        let root = std::env::temp_dir().join(format!("hl2-rs-own-chapters-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for folder in ["ep2/cfg", "ep2/custom/test/cfg", "hl2/cfg"] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        for (file, contents) in [
+            ("ep2/cfg/chapter1.cfg", "map own"),
+            ("ep2/cfg/chapter2.cfg", ""),
+            ("ep2/custom/test/cfg/chapter9a.cfg", "map custom"),
+            ("hl2/cfg/chapter14.cfg", "map inherited"),
+            ("hl2/cfg/chapter1.cfg", "map wrong"),
+        ] {
+            std::fs::write(root.join(file), contents).unwrap();
+        }
+        let archive = |game: &str, name: &str| {
+            Layer::Pak(Vpk {
+                path: root.join(game).join("test_dir.vpk"),
+                version: 2,
+                data_start: 0,
+                entries: [(
+                    name.to_owned(),
+                    Entry {
+                        crc: 0,
+                        archive: 0x7fff,
+                        offset: 0,
+                        size: 1,
+                        preload: Vec::new(),
+                    },
+                )]
+                .into(),
+            })
+        };
+        let vfs = Vfs {
+            root: root.clone(),
+            layers: vec![
+                Layer::Dir(root.join("ep2/custom/test")),
+                Layer::Dir(root.join("ep2")),
+                Layer::Dir(root.join("hl2")),
+                archive("ep2", "cfg/chapter3.cfg"),
+                archive("hl2", "cfg/chapter15.cfg"),
+            ],
+            embedded: [
+                ("cfg/chapter16.cfg".into(), vec![1]),
+                ("cfg/chapter1.cfg".into(), b"map embedded".to_vec()),
+            ]
+            .into(),
+            warnings: Vec::new(),
+        };
+        assert_eq!(
+            vfs.list_game_files("ep2", "cfg/", ".cfg"),
+            ["cfg/chapter1.cfg", "cfg/chapter3.cfg", "cfg/chapter9a.cfg"]
+                .map(String::from)
+                .into()
+        );
+        assert_eq!(
+            vfs.read("cfg/chapter1.cfg").unwrap().unwrap(),
+            b"map embedded"
+        );
+        assert_eq!(
+            vfs.read_game_file("ep2", "cfg/chapter1.cfg")
+                .unwrap()
+                .unwrap(),
+            b"map own"
+        );
+        assert!(vfs
+            .read_game_file("ep2", "cfg/chapter14.cfg")
+            .unwrap()
+            .is_none());
+        assert!(vfs
+            .read_game_file("ep2", "cfg/chapter16.cfg")
+            .unwrap()
+            .is_none());
+        assert!(vfs.list_files("cfg/", ".cfg").contains("cfg/chapter16.cfg"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn games_mount_the_search_paths_their_gameinfo_declares() {
+        let root = std::env::temp_dir().join(format!("hl2-rs-gameinfo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for folder in ["hl2", "episodic", "ep2/custom/mymod", "platform"] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        std::fs::write(
+            root.join("ep2/gameinfo.txt"),
+            r#""GameInfo" { FileSystem { SearchPaths {
+                game+mod    ep2/custom/*
+                game_lv     hl2/hl2_lv.vpk
+                game+mod    ep2/ep2_pak.vpk
+                mod+mod_write+default_write_path |gameinfo_path|.
+                game+game_write ep2
+                gamebin     episodic/bin
+                game        |all_source_engine_paths|episodic
+                game        |all_source_engine_paths|hl2
+                platform    |all_source_engine_paths|platform
+            } } }"#,
+        )
+        .unwrap();
+        let declared = search_paths(&root, "ep2");
+        let rel = |p: &PathBuf| {
+            p.strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
+        assert_eq!(
+            declared.iter().map(rel).collect::<Vec<_>>(),
+            [
+                "ep2/custom/*",
+                "ep2/ep2_pak.vpk",
+                "ep2",
+                "ep2",
+                "episodic",
+                "hl2",
+                "platform"
+            ]
+        );
+        // Loose files follow the declared order; the missing VPK and the repeated `ep2` folder
+        // are skipped, the custom folder comes first.
+        std::fs::write(root.join("episodic/a.txt"), "episodic").unwrap();
+        std::fs::write(root.join("hl2/a.txt"), "hl2").unwrap();
+        std::fs::write(root.join("hl2/b.txt"), "hl2").unwrap();
+        std::fs::write(root.join("ep2/b.txt"), "ep2").unwrap();
+        std::fs::write(root.join("ep2/custom/mymod/b.txt"), "custom").unwrap();
+        let vfs = Vfs::mount_game(&root, "ep2").unwrap();
+        let read = |name| String::from_utf8(vfs.read(name).unwrap().unwrap()).unwrap();
+        assert_eq!(read("a.txt"), "episodic");
+        assert_eq!(read("b.txt"), "custom");
+        assert_eq!(vfs.game_root(), Some(root.as_path()));
+        // A game without a search path falls back to its folder, then hl2 and platform.
+        let episodic = Vfs::mount_game(&root, "episodic").unwrap();
+        assert_eq!(
+            episodic.read("a.txt").unwrap().as_deref(),
+            Some(&b"episodic"[..])
+        );
+        assert_eq!(
+            episodic.read("b.txt").unwrap().as_deref(),
+            Some(&b"hl2"[..])
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires an owned Half-Life 2 installation"]
+    fn owned_install_games_mount_vpks_before_loose_folders() {
+        let root = crate::install::discover().expect("owned install");
+        let rel = |p: &PathBuf| {
+            p.strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
+        let order = search_paths(&root, "ep2")
+            .iter()
+            .map(rel)
+            .collect::<Vec<_>>();
+        let at = |path: &str| {
+            order
+                .iter()
+                .position(|p| p == path)
+                .unwrap_or_else(|| panic!("{path} not in {order:?}"))
+        };
+        assert!(at("ep2/ep2_pak.vpk") < at("episodic/ep1_pak.vpk"));
+        assert!(at("episodic/ep1_pak.vpk") < at("hl2/hl2_pak.vpk"));
+        assert!(at("platform/platform_misc.vpk") < at("ep2"));
+        assert!(at("ep2") < at("episodic") && at("episodic") < at("hl2"));
+        assert!(!order
+            .iter()
+            .any(|p| p.ends_with("bin") || p.ends_with("hl2_lv.vpk")));
+        let lostcoast = search_paths(&root, "lostcoast")
+            .iter()
+            .map(rel)
+            .collect::<Vec<_>>();
+        assert!(
+            !lostcoast.iter().any(|p| p.starts_with("episodic")),
+            "{lostcoast:?}"
+        );
+        for (game, map) in [
+            ("hl2", "maps/background01.bsp"),
+            ("episodic", "maps/ep1_citadel_00.bsp"),
+            ("ep2", "maps/ep2_outland_01.bsp"),
+            ("ep2", "maps/ep1_citadel_00.bsp"),
+            ("lostcoast", "maps/d2_lostcoast.bsp"),
+        ] {
+            let vfs = Vfs::mount_game(&root, game).unwrap();
+            assert!(vfs.read(map).unwrap().is_some(), "{game}: {map}");
+        }
+        let lostcoast = Vfs::mount_game(&root, "lostcoast").unwrap();
+        assert!(lostcoast.read("maps/ep1_citadel_00.bsp").unwrap().is_none());
+        // The installation ships zero-byte loose placeholders for some weapon models; the
+        // archived models searched first must win over them.
+        let hl2 = Vfs::mount(&root).unwrap();
+        for model in [
+            "models/weapons/v_crossbow.mdl",
+            "models/weapons/v_bugbait.mdl",
+        ] {
+            let bytes = hl2.read(model).unwrap().unwrap_or_default();
+            assert!(
+                !bytes.is_empty(),
+                "{model} resolved to an empty placeholder"
+            );
+        }
     }
 }

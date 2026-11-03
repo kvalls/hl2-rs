@@ -1,0 +1,319 @@
+[
+  {
+    "tick": 20,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 21,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 22,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 23,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 24,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 25,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "open-options"
+  },
+  {
+    "tick": 60,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 61,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 62,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 63,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 64,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 65,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ],
+    "label": "video-tab"
+  },
+  {
+    "tick": 90,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            633,
+            444
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 91,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            633,
+            444
+          ],
+          "released": true
+        }
+      }
+    ],
+    "label": "video-advanced"
+  },
+  {
+    "tick": 120,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            310,
+            453
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 121,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            310,
+            453
+          ],
+          "released": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 130,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 131,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 150,
+    "label": "advanced-selected"
+  },
+  {
+    "tick": 160,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            600,
+            570
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 161,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            600,
+            570
+          ],
+          "released": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 180,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            724,
+            570
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 181,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            724,
+            570
+          ],
+          "released": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 220,
+    "label": "advanced-applied"
+  }
+]

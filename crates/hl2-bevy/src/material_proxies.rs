@@ -1,5 +1,5 @@
 //! Prepared brush material resources; frame updates perform no asset I/O.
-use crate::{gameplay::Gameplay, movement::Simulation, rendering::SourceMaterial};
+use crate::{gameplay::Gameplay, rendering::SourceMaterial, simulation::Simulation};
 use bevy::prelude::*;
 
 #[derive(Component)]
@@ -21,10 +21,10 @@ pub fn present(
     let player_center = eye - glam::Vec3::Z * sim.player.eye_height
         + glam::Vec3::Z * if sim.player.crouched { 18. } else { 36. };
     for (draw, handle) in &draws {
-        let center = draw.entity.map_or(draw.center, |id| {
-            let state = &game.scene.states[id];
-            state.origin + state.rotation * draw.center
-        });
+        let center = draw
+            .entity
+            .and_then(|id| game.scene.states.get(id))
+            .map_or(draw.center, |s| s.origin + s.rotation * draw.center);
         let frames = draw.frames.sample(
             center.distance(player_center),
             [draw.base.len(), draw.second.len()],
@@ -46,4 +46,31 @@ pub fn present(
             m.secondary_uv = secondary_uv;
         }
     }
+}
+
+/// Each two-texture draw's frames and texture transform (run reports).
+pub fn report<'a>(
+    draws: impl Iterator<
+        Item = (
+            &'a bevy::ecs::name::Name,
+            &'a TwoTextureDraw,
+            &'a bevy::pbr::MeshMaterial3d<crate::rendering::SourceMaterial>,
+        ),
+    >,
+    materials: &bevy::asset::Assets<crate::rendering::SourceMaterial>,
+    time: f64,
+) -> serde_json::Value {
+    let entries: Vec<_> = draws
+        .filter_map(|(name, draw, handle)| {
+            let material = materials.get(&handle.0)?;
+            Some(
+                serde_json::json!({"name":name.as_str(),"entity":draw.entity,
+                "base_frames":draw.base.len(),"second_frames":draw.second.len(),
+                "base_frame":draw.base.iter().position(|h|h==&material.base),
+                "second_frame":draw.second.iter().position(|h|h==&material.iris),
+                "secondary_uv":material.secondary_uv.to_cols_array(),"time":time}),
+            )
+        })
+        .collect();
+    serde_json::json!(entries)
 }

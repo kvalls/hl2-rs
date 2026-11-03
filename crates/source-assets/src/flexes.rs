@@ -10,6 +10,8 @@ use glam::Vec3;
 pub struct FlexController {
     pub kind: String,
     pub name: String,
+    /// `name` in lowercase, the form scene values use (looked up for every controller, each frame).
+    pub key: String,
     pub min: f32,
     pub max: f32,
 }
@@ -77,6 +79,16 @@ impl FaceModel {
     }
 }
 const FLEXES_CONVERTED: u32 = 0x4000;
+fn read_controller(data: &[u8], at: usize) -> Result<FlexController> {
+    let name = string(data, relative(data, at, at + 4)?)?;
+    Ok(FlexController {
+        kind: string(data, relative(data, at, at)?)?,
+        key: name.to_lowercase(),
+        name,
+        min: f32le(data, at + 12)?,
+        max: f32le(data, at + 16)?,
+    })
+}
 fn count(data: &[u8], at: usize, limit: usize) -> Result<usize> {
     let n = usize::try_from(i32le(data, at)?)?;
     if n > limit {
@@ -121,12 +133,7 @@ pub fn read_flexes(data: &[u8]) -> Result<FlexModel> {
     bytes(data, base, n * 20)?;
     for i in 0..n {
         let at = base + i * 20;
-        model.controllers.push(FlexController {
-            kind: string(data, relative(data, at, at)?)?,
-            name: string(data, relative(data, at, at + 4)?)?,
-            min: f32le(data, at + 12)?,
-            max: f32le(data, at + 16)?,
-        });
+        model.controllers.push(read_controller(data, at)?);
     }
     let n = count(data, 276, 4096)?;
     let base = usize::try_from(i32le(data, 280)?)?;
@@ -253,7 +260,7 @@ impl FlexModel {
         let src: Vec<f32> = self
             .controllers
             .iter()
-            .map(|c| values.get(&c.name.to_lowercase()).copied().unwrap_or(0.))
+            .map(|c| values.get(&c.key).copied().unwrap_or(0.))
             .collect();
         let mut weights = self.run_rules(&src);
         for (eye, basis) in eyes {
@@ -469,12 +476,14 @@ mod tests {
                 FlexController {
                     kind: "default".into(),
                     name: "c0".into(),
+                    key: "c0".into(),
                     min: 0.,
                     max: 1.,
                 },
                 FlexController {
                     kind: "default".into(),
                     name: "c1".into(),
+                    key: "c1".into(),
                     min: -1.,
                     max: 1.,
                 },
@@ -517,10 +526,7 @@ mod tests {
     #[test]
     #[ignore = "requires owned HL2 installation"]
     fn owned_barney_and_kleiner_flexes_parse_and_evaluate() {
-        let vfs = crate::vpk::Vfs::mount(std::path::Path::new(
-            &std::env::var("HL2_ROOT").expect("set HL2_ROOT"),
-        ))
-        .unwrap();
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         for path in ["models/barney.mdl", "models/kleiner.mdl"] {
             let data = vfs.read(path).unwrap().unwrap();
             let flexes = read_flexes(&data).unwrap();

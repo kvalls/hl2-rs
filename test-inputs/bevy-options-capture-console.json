@@ -1,0 +1,33 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "toggle_console"
+   }
+  ],
+  "label": "open-console"
+ },
+ {
+  "tick": 30,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "text": "map d1"
+    }
+   }
+  ],
+  "label": "type-map"
+ },
+ {
+  "tick": 200,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settled"
+   }
+  ],
+  "label": "settle"
+ }
+]

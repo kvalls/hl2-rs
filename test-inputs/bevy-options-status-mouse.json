@@ -1,0 +1,235 @@
+[
+  {
+    "tick": 20,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 21,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 22,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 23,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 24,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 25,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "options-open"
+  },
+  {
+    "tick": 60,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "tab"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 70,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 71,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "right"
+          ]
+        }
+      }
+    ],
+    "label": "mouse-tab"
+  },
+  {
+    "tick": 90,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            420
+          ]
+        }
+      }
+    ],
+    "label": "stacked"
+  },
+  {
+    "tick": 110,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            255
+          ]
+        }
+      }
+    ],
+    "label": "retail-only"
+  },
+  {
+    "tick": 130,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            420
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 140,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            420
+          ],
+          "click": true,
+          "held": true
+        }
+      }
+    ],
+    "label": "pressed-dismissed"
+  },
+  {
+    "tick": 141,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            420
+          ],
+          "released": true
+        }
+      }
+    ]
+  },
+  {
+    "tick": 145,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            420
+          ]
+        }
+      }
+    ],
+    "label": "popup-occluded"
+  },
+  {
+    "tick": 150,
+    "ui": [
+      {
+        "action": "escape"
+      }
+    ]
+  },
+  {
+    "tick": 200,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "pointer": [
+            300,
+            420
+          ]
+        }
+      }
+    ],
+    "label": "status-final"
+  }
+]

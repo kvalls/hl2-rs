@@ -1,0 +1,163 @@
+[
+  {
+    "tick": 20,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 22,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 24,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 26,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 28,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 30,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 32,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 70,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 72,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ],
+    "label": "chapters-open"
+  },
+  {
+    "tick": 105,
+    "label": "first-browser"
+  },
+  {
+    "tick": 110,
+    "ui": [
+      {
+        "action": "escape"
+      }
+    ],
+    "label": "cancelled"
+  },
+  {
+    "tick": 112,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "down"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 114,
+    "ui": [
+      {
+        "action": "input",
+        "input": {
+          "keys": [
+            "enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "tick": 150,
+    "label": "browser-settled"
+  }
+]

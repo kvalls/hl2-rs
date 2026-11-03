@@ -33,7 +33,7 @@ pub(crate) fn center(physics: &Physics, id: usize) -> Option<Vec3> {
     let c = body.center_of_mass();
     Some(Vec3::new(c.x, c.y, c.z) / SCALE)
 }
-pub(crate) fn rotation(physics: &Physics, id: usize) -> Option<Quat> {
+fn rotation(physics: &Physics, id: usize) -> Option<Quat> {
     let body = physics.bodies.get(*physics.dynamic.get(&id)?)?;
     let q = body.rotation();
     Some(Quat::from_xyzw(q.i, q.j, q.k, q.w))
@@ -61,7 +61,7 @@ pub(crate) fn half_extents(physics: &Physics, id: usize) -> Vec3 {
 }
 /// The eye frame (yaw, then pitch); `ignore_pitch` drops the pitch like
 /// TransformAnglesFromPlayerSpace with m_bIgnoreRelativePitch.
-pub(crate) fn eye_rotation(forward: Vec3, ignore_pitch: bool) -> Quat {
+fn eye_rotation(forward: Vec3, ignore_pitch: bool) -> Quat {
     let yaw = forward.y.atan2(forward.x);
     if ignore_pitch {
         return Quat::from_rotation_z(yaw);

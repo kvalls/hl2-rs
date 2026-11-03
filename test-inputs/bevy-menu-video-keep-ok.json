@@ -1,0 +1,352 @@
+[
+ {
+  "tick": 20,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 21,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 22,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 23,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 24,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "down"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 25,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "enter"
+     ]
+    }
+   }
+  ],
+  "label": "open-options"
+ },
+ {
+  "tick": 60,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-tab-strip"
+ },
+ {
+  "tick": 70,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 71,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 72,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 73,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 74,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "right"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 90,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 91,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 92,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-aspect"
+ },
+ {
+  "tick": 94,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "up"
+     ]
+    }
+   }
+  ],
+  "label": "picked-normal"
+ },
+ {
+  "tick": 96,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ],
+     "shift": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 97,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ],
+     "shift": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 98,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ],
+     "shift": true
+    }
+   }
+  ]
+ },
+ {
+  "tick": 99,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ],
+     "shift": true
+    }
+   }
+  ],
+  "label": "focus-apply"
+ },
+ {
+  "tick": 100,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "space"
+     ]
+    }
+   }
+  ],
+  "label": "applied"
+ },
+ {
+  "tick": 130,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo asked"
+   }
+  ],
+  "label": "asked"
+ },
+ {
+  "tick": 140,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "tab"
+     ]
+    }
+   }
+  ],
+  "label": "focus-ok"
+ },
+ {
+  "tick": 142,
+  "ui": [
+   {
+    "action": "input",
+    "input": {
+     "keys": [
+      "enter"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "tick": 160,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo kept"
+   }
+  ],
+  "label": "kept"
+ },
+ {
+  "tick": 1500,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo still-kept"
+   }
+  ],
+  "label": "still-kept"
+ },
+ {
+  "tick": 1520,
+  "ui": [
+   {
+    "action": "command",
+    "command": "echo settle"
+   }
+  ],
+  "label": "settle"
+ }
+]

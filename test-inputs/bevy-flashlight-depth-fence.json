@@ -1,0 +1,33 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      -4304,
+      -200,
+      48
+    ],
+    "yaw": 0,
+    "pitch": -8,
+    "ui": [
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "command",
+        "command": "sv_cheats 1; impulse 101; impulse 100"
+      },
+      {
+        "action": "toggle_console"
+      },
+      {
+        "action": "escape"
+      }
+    ]
+  },
+  {
+    "tick": 120,
+    "paused": true,
+    "label": "flashlight-depth-fence"
+  }
+]

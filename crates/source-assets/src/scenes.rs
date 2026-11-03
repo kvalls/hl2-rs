@@ -587,7 +587,7 @@ impl Cache {
             if copied_strings > MAX_CACHE {
                 bail!("decoded scene cache string budget exceeded");
             }
-            strings.push(std::str::from_utf8(&tail[..length])?.into());
+            strings.push(String::from_utf8_lossy(&tail[..length]).into_owned());
         }
         let table = bytes(&data, directory, count * 16)?;
         let after_table = directory + table.len();
@@ -1225,6 +1225,36 @@ mod tests {
         let mut bad = cache(&original);
         bad[16..20].copy_from_slice(&0u32.to_le_bytes());
         assert!(Cache::parse(bad).is_err());
+    }
+    #[test]
+    fn scene_cache_tolerates_non_utf8_strings() {
+        let original = binary();
+        let mut b = b"VSIF".to_vec();
+        // counts: version 2, entries 1, string_count 1, directory 37, string 0 offset 24
+        for v in [2u32, 1, 1, 37, 24] {
+            b.extend(v.to_le_bytes());
+        }
+        // Non-UTF-8 sequence at index 10: 10 ASCII bytes followed by 0xFF, 0xFE, and NUL (13 bytes total)
+        b.extend(b"0123456789\xFF\xFE\0");
+        // directory table at 37: 16 bytes -> 37 + 16 = 53
+        for v in [
+            Cache::filename_crc("scenes/test.vcd").unwrap(),
+            61,
+            original.len() as u32,
+            53,
+        ] {
+            b.extend(v.to_le_bytes());
+        }
+        // summary at 53: 8 bytes (duration 2000, 0 sounds) -> 53 + 8 = 61
+        b.extend(2000u32.to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        // payload at 61
+        b.extend(&original);
+
+        let cache = Cache::parse(b).expect("tolerant non-utf8 string parsing");
+        assert_eq!(cache.string_count(), 1);
+        assert_eq!(cache.strings[0], "0123456789\u{FFFD}\u{FFFD}");
+        assert!(cache.scene("scenes/test.vcd").unwrap().is_some());
     }
 }
 #[cfg(test)]

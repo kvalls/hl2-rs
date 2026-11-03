@@ -1,0 +1,17 @@
+[
+  {"tick": 20, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 21, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 22, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "enter-episode-one"},
+  {"tick": 600, "ui": [{"action": "escape"}], "label": "back"},
+  {"tick": 610, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 611, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "enter-hl2"},
+  {"tick": 1200, "ui": [{"action": "escape"}], "label": "back-to-main"},
+  {"tick": 1210, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 1211, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 1212, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 1213, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 1214, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "enter-extras"},
+  {"tick": 1220, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
+  {"tick": 1221, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "enter-lost-coast"},
+  {"tick": 1900, "ui": [{"action": "command", "command": "background_map"}], "label": "settle"}
+]

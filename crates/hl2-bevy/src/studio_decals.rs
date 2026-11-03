@@ -35,6 +35,11 @@ pub struct StudioDecals {
     last: Option<(String, usize, [f32; 4])>,
 }
 impl StudioDecals {
+    /// A new map was installed: its draws were despawned with the old map (`MapOwned`), and
+    /// entity indices now name the new map's entities, so the per-entity lists start empty.
+    pub fn new_map(&mut self) {
+        self.by_entity.clear();
+    }
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"built": self.built, "empty": self.empty,
             "live": self.by_entity.values().map(Vec::len).sum::<usize>(), "last": self.last})
@@ -257,4 +262,26 @@ fn skin_vertices(
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_map_forgets_the_old_maps_decals() {
+        let mut decals = StudioDecals::default();
+        decals
+            .by_entity
+            .insert(7, vec![(1, vec![Entity::PLACEHOLDER])]);
+        decals.built = 1;
+        assert_eq!(decals.report()["live"], 1);
+        decals.new_map();
+        assert_eq!(
+            decals.report()["live"],
+            0,
+            "stale draws are never evicted again"
+        );
+        assert_eq!(decals.built, 1, "diagnostic counters keep counting");
+    }
 }

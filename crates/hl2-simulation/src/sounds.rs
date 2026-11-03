@@ -5,7 +5,9 @@ use source_assets::{
     sounds::{ActorGender, ActorRegistry, Wave},
     vpk::Vfs,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[cfg(test)]
+use std::collections::BTreeSet;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, ErrorKind};
 use symphonia::core::{
     audio::SampleBuffer, codecs::DecoderOptions, errors::Error as DecodeError,
@@ -158,7 +160,7 @@ fn ms_adpcm_header(data: &[u8]) -> Result<Option<MsAdpcmHeader>> {
     Ok(None)
 }
 
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct AudioSummary {
     codec: String,
     channels: u16,
@@ -337,6 +339,8 @@ pub struct SoundRequest {
     pub volume: Option<f32>,
     /// World position for distance gain with the script soundlevel; None is unspatialized.
     pub origin: Option<glam::Vec3>,
+    /// UI sounds bypass simulation pausing so menu events play while paused.
+    pub ui: bool,
     /// The emitting entity/handle, for StopSound and sound patches (see emitters below).
     pub emitter: Option<u64>,
     /// CBaseEntity::StopSound(name) on `emitter`: stop that emitter's playing sounds of
@@ -344,6 +348,9 @@ pub struct SoundRequest {
     pub stop: bool,
     /// CSoundEnvelopeController operation on the (emitter, name) patch.
     pub patch: Option<PatchOp>,
+    /// EmitSound_t m_bEmitCloseCaption: caption the sound script name for the wave's length.
+    /// Scene speech captions its own token instead.
+    pub caption: bool,
 }
 
 /// CSoundEnvelopeController (SDK soundenvelope.cpp) operations on one looping patch.
@@ -450,6 +457,13 @@ pub fn weapon_emitter(class: &str) -> u64 {
 }
 
 impl SoundRequest {
+    /// A UI cue (menus, dialogs): plays while the simulation is paused.
+    pub fn ui(name: impl Into<String>) -> Self {
+        Self {
+            ui: true,
+            ..Self::from(name.into())
+        }
+    }
     /// StopSound(name) on an emitter.
     pub fn stop(name: &str, emitter: u64) -> Self {
         Self {
@@ -476,9 +490,11 @@ impl From<String> for SoundRequest {
             ambient: None,
             volume: None,
             origin: None,
+            ui: false,
             emitter: None,
             stop: false,
             patch: None,
+            caption: true,
         }
     }
 }
@@ -564,7 +580,7 @@ pub fn distance_variant_mono(stereo: &[f32], distmix: f32) -> Vec<f32> {
         .collect()
 }
 
-fn raw_wave(name: &str) -> bool {
+pub fn raw_wave(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.contains(".wav") || lower.contains(".mp3")
 }
@@ -682,21 +698,9 @@ fn script_params(entry: &source_assets::keyvalues::Entry) -> ScriptParams {
     params
 }
 
-pub struct Library {
-    names: BTreeMap<String, Vec<Wave>>,
-    /// Playback paths of waves marked CHAR_DISTVARIANT ('^').
-    distance_variants: BTreeSet<String>,
-    params: BTreeMap<String, ScriptParams>,
-    actors: ActorRegistry,
-    available: HashMap<String, Vec<bool>>,
-    rng: u64,
-    /// Separate stream for volume/pitch draws so wave selection is unchanged.
-    param_rng: u64,
-    pub variants_played: BTreeMap<String, usize>,
-    pub decoded: BTreeMap<String, AudioSummary>,
-    pub errors: BTreeMap<String, String>,
-    pub played: usize,
-}
+mod library_state;
+pub use library_state::Library;
+
 impl Library {
     /// Precache every registered variant, including unresolved actor genders.
     /// Runtime emission still uses alternatives/resolve's exact actor policy.
@@ -820,6 +824,15 @@ impl Library {
             .copied()
             .unwrap_or_default()
     }
+    /// The CloseCaption gender suffix of a speaking actor's model (`male` / `female`).
+    pub fn caption_gender(&self, actor: Option<&SoundActor>) -> Option<&'static str> {
+        match self.actors.gender(actor.map(|a| a.model.as_str())) {
+            Ok(ActorGender::Male) => Some("male"),
+            Ok(ActorGender::Female) => Some("female"),
+            _ => None,
+        }
+    }
+
     fn actor_gender(&self, request: &SoundRequest) -> Result<ActorGender> {
         self.actors
             .gender(request.actor.as_ref().map(|actor| actor.model.as_str()))
@@ -845,8 +858,22 @@ impl Library {
     }
 
     pub fn resolve(&mut self, request: &SoundRequest) -> Result<String> {
+        Ok(self.resolve_wave(request)?.path)
+    }
+
+    /// Like [`Library::resolve`], also reporting the wave's leading sound characters.
+    pub fn resolve_wave(&mut self, request: &SoundRequest) -> Result<ResolvedWave> {
+        let raw = self.resolve_raw(request)?;
+        Ok(ResolvedWave {
+            path: playback_path(&raw),
+            dry_mix: dry_mix(&raw),
+        })
+    }
+
+    /// The selected wave as written (sound characters kept).
+    fn resolve_raw(&mut self, request: &SoundRequest) -> Result<String> {
         if raw_wave(&request.name) {
-            return Ok(playback_path(&request.name));
+            return Ok(request.name.clone());
         }
         let key = request.name.to_ascii_lowercase();
         if let Some(waves) = self.names.get(&key) {
@@ -872,11 +899,35 @@ impl Library {
             self.rng ^= self.rng << 17;
             let choice = eligible[self.rng as usize % eligible.len()];
             available[choice] = false;
-            Ok(playback_path(&waves[choice].path))
+            Ok(waves[choice].path.clone())
         } else {
-            Ok(self.alternatives(request)?.remove(0))
+            bail!("sound script absent: {}", request.name);
         }
     }
+}
+
+/// A selected wave: its playback path and whether it carries the `#` sound character.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedWave {
+    pub path: String,
+    /// `#` (SDK `CHAR_DRYMIX`) among the leading sound characters. The retail engine marks such
+    /// channels and scales those that also have soundlevel 0 (no distance attenuation) by
+    /// `snd_musicvolume`; see [`is_music`].
+    pub dry_mix: bool,
+}
+
+/// Whether `#` (`CHAR_DRYMIX`) appears among a wave name's leading sound characters, the
+/// characters Source skips before the file name (`*?!#@><^)}`).
+pub fn dry_mix(wave: &str) -> bool {
+    wave.chars()
+        .take_while(|c| ['*', '?', '!', '#', '>', '<', '^', '@', ')', '}'].contains(c))
+        .any(|c| c == '#')
+}
+
+/// Retail music detection: a dry-mix (`#`) wave played at soundlevel 0 is a music channel and
+/// is scaled by `snd_musicvolume` (the Audio page's music volume).
+pub fn is_music(dry_mix: bool, soundlevel: f32) -> bool {
+    dry_mix && soundlevel <= 0.
 }
 
 /// Source distance gain (retail engine `GetDistGainFromSoundLevel`, engine.dll 10216bd0 and
@@ -1608,6 +1659,24 @@ mod tests {
     #[test]
     fn encoded_audio_limit_is_enforced_before_probing() {
         assert!(playback_bytes("large.wav", vec![0; MAX_ENCODED_AUDIO + 1]).is_err());
+    }
+
+    #[test]
+    fn dry_mix_character_marks_music_only_at_soundlevel_zero() {
+        // The installed level_sounds_music.txt spells music waves "*#music/HL2_song0.mp3".
+        assert!(dry_mix("*#music/HL2_song0.mp3"));
+        assert!(dry_mix("#music/stingers/x.wav"));
+        assert!(!dry_mix("*music/HL2_song0.mp3"));
+        assert!(
+            !dry_mix("music/#odd.wav"),
+            "only leading sound characters count"
+        );
+        assert!(is_music(true, 0.));
+        assert!(
+            !is_music(true, 75.),
+            "attenuated dry-mix sounds are not music"
+        );
+        assert!(!is_music(false, 0.));
     }
 
     #[test]
