@@ -409,10 +409,6 @@ impl Ragdolls {
         physics.ragdoll_nudge(&bodies, 0, force);
         let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
         let locals = local_matrices(&parents, &matrices, |i| matrices[i]);
-        // The server entity is done (like a corpse's): only the client ragdoll draws.
-        let state = &mut scene.states[id];
-        state.killed = true;
-        state.visible = false;
         let ragdoll = Ragdoll::fresh(
             model,
             bodies,
@@ -421,6 +417,10 @@ impl Ragdolls {
             instance.scale,
             (self.serial, scene.time),
         );
+        // The server entity is done (like a corpse's): only the client ragdoll draws.
+        let state = &mut scene.states[id];
+        state.killed = true;
+        state.visible = false;
         self.activate(scene, id, skin, ragdoll);
         true
     }
