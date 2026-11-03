@@ -981,6 +981,35 @@ impl Controller {
             })
             .collect()
     }
+    /// A move request's admission: valid numbers for this actor, no scene owning it and no
+    /// other unfinished goal of the actor.
+    fn admit(
+        &self,
+        key: GoalKey,
+        pose: &ActorPose,
+        request: &MoveRequest,
+    ) -> Result<(), GoalBlockReason> {
+        if pose.entity != key.actor
+            || !pose.feet.is_finite()
+            || !pose.yaw_degrees.is_finite()
+            || !request.target_feet.is_finite()
+            || !request.event_distance.is_finite()
+            || request.event_distance < 0.
+        {
+            return Err(GoalBlockReason::InvalidInput);
+        }
+        if pose.scripted_by.is_some() {
+            return Err(GoalBlockReason::ScriptOwned);
+        }
+        if self.goals.iter().any(|(other, g)| {
+            other.actor == key.actor
+                && *other != key
+                && !matches!(g.state, GoalState::Arrived | GoalState::Canceled)
+        }) {
+            return Err(GoalBlockReason::ActorBusy);
+        }
+        Ok(())
+    }
     pub fn request<W: NpcCollisionWorld>(
         &mut self,
         key: GoalKey,
@@ -1005,25 +1034,7 @@ impl Controller {
             paused: false,
         };
         let prepared = (|| {
-            if pose.entity != key.actor
-                || !pose.feet.is_finite()
-                || !pose.yaw_degrees.is_finite()
-                || !goal.request.target_feet.is_finite()
-                || !goal.request.event_distance.is_finite()
-                || goal.request.event_distance < 0.
-            {
-                return Err(GoalBlockReason::InvalidInput);
-            }
-            if pose.scripted_by.is_some() {
-                return Err(GoalBlockReason::ScriptOwned);
-            }
-            if self.goals.iter().any(|(other, g)| {
-                other.actor == key.actor
-                    && *other != key
-                    && !matches!(g.state, GoalState::Arrived | GoalState::Canceled)
-            }) {
-                return Err(GoalBlockReason::ActorBusy);
-            }
+            self.admit(key, &pose, &goal.request)?;
             let actor = self
                 .actors
                 .get(&key.actor)
