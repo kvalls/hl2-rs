@@ -10,12 +10,11 @@
 use super::assault;
 use super::conditions::{
     clear_range_complaints, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1,
-    COND_CAN_RANGE_ATTACK2, COND_ENEMY_DEAD, COND_ENEMY_OCCLUDED, COND_ENEMY_UNREACHABLE,
-    COND_ENEMY_WENT_NULL, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOST_ENEMY,
-    COND_LOW_PRIMARY_AMMO, COND_NEW_ENEMY, COND_NONE, COND_NOT_FACING_ATTACK, COND_NO_PRIMARY_AMMO,
-    COND_NO_SECONDARY_AMMO, COND_PROVOKED, COND_SEE_ENEMY, COND_SEE_FEAR, COND_SEE_HATE,
-    COND_SEE_PLAYER, COND_TOO_CLOSE_TO_ATTACK, COND_TOO_FAR_TO_ATTACK, COND_WEAPON_HAS_LOS,
-    COND_WEAPON_SIGHT_OCCLUDED,
+    COND_ENEMY_DEAD, COND_ENEMY_OCCLUDED, COND_ENEMY_UNREACHABLE, COND_ENEMY_WENT_NULL,
+    COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOST_ENEMY, COND_LOW_PRIMARY_AMMO, COND_NEW_ENEMY,
+    COND_NONE, COND_NOT_FACING_ATTACK, COND_NO_PRIMARY_AMMO, COND_NO_SECONDARY_AMMO, COND_PROVOKED,
+    COND_SEE_ENEMY, COND_SEE_FEAR, COND_SEE_HATE, COND_SEE_PLAYER, COND_TOO_CLOSE_TO_ATTACK,
+    COND_TOO_FAR_TO_ATTACK, COND_WEAPON_HAS_LOS, COND_WEAPON_SIGHT_OCCLUDED,
 };
 use super::headcrab::{self, Headcrab};
 use super::host::{yaw_of, PhysicsSight, SceneMotor};
@@ -46,6 +45,7 @@ mod goal_inputs;
 mod requests;
 mod speech;
 mod squads;
+mod zombies;
 
 /// NPCThink's default interval.
 pub const THINK_INTERVAL: f64 = 0.1;
@@ -1239,54 +1239,10 @@ impl AiRuntime {
                         if let Some(cop) = class.cop_mut() {
                             cop.anim_event(&name, event, &ctx, knock_out);
                         } else if let AiClass::Zombie(z) = class {
-                            // CNPC_BaseZombie::HandleAnimEvent: claws and class sounds.
+                            // CNPC_BaseZombie::HandleAnimEvent and the classes' overrides.
                             let rolls = ((uniform() + 1.) * 0.5, (uniform() + 1.) * 0.5);
-                            // CNPC_PoisonZombie::HandleAnimEvent: the crab throw.
-                            if name.eq_ignore_ascii_case(zombie::AE_POISON_PICKUP_CRAB) {
-                                z.pick_up_crab();
-                            } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_WARN_SOUND)
-                            {
-                                z.requests
-                                    .push(CopRequest::Sound("NPC_PoisonZombie.ThrowWarn"));
-                                z.breathe_off_short();
-                            } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_SOUND) {
-                                z.requests.push(CopRequest::Sound("NPC_PoisonZombie.Throw"));
-                                z.breathe_off_short();
-                            } else if name.eq_ignore_ascii_case(zombie::AE_POISON_THROW_CRAB) {
-                                if z.holding_crab {
-                                    z.throw_held_crab(ctx.now, ctx.enemy_eye);
-                                }
-                            } else if name.eq_ignore_ascii_case(zombie::AE_SWATITEM) {
-                                // Send the object toward the enemy's center, forget it and
-                                // scan again no sooner than ZOMBIE_SWAT_DELAY.
-                                if let (Some((entity, center)), Some(target)) =
-                                    (z.physics_ent.take(), swat_target)
-                                {
-                                    let (velocity, angular) =
-                                        zombie::swat_velocity(center, target, rolls);
-                                    z.requests.push(CopRequest::Swat {
-                                        entity,
-                                        velocity,
-                                        angular,
-                                    });
-                                    z.next_swat_scan = ctx.now + zombie::SWAT_DELAY;
-                                }
-                            } else if let Some((punch, impulse)) =
-                                zombie::claw_punch(&name, ctx.yaw, rolls)
-                            {
-                                let yaw = ctx.yaw.to_radians();
-                                z.requests.push(CopRequest::Claw {
-                                    start: ctx.origin + Vec3::Z * center_z(world, id),
-                                    forward: Vec3::new(yaw.cos(), yaw.sin(), 0.),
-                                    punch,
-                                    impulse,
-                                    reach: z.kind.claw_reach(),
-                                    bite: name.eq_ignore_ascii_case("AE_ZOMBIE_POISON_SPIT"),
-                                });
-                            } else if let Some(sound) = zombie::event_sound(&name) {
-                                let cue = z.kind.cue(sound);
-                                z.requests.push(CopRequest::Sound(cue));
-                            }
+                            let center = ctx.origin + Vec3::Z * center_z(world, id);
+                            z.anim_event(&name, &ctx, center, swat_target, rolls);
                         } else if let AiClass::Headcrab(h) = class {
                             // CBaseHeadcrab::HandleAnimEvent: the telegraph commits to the
                             // enemy's eyes; the jump leaps at them (or hops without an enemy).
@@ -2047,11 +2003,6 @@ impl AiRuntime {
             .class
             .humanoid()
             .is_some_and(|h| h.kind == humanoid::Kind::Combine);
-        // bits_CAP_INNATE_MELEE_ATTACK1: zombie claws.
-        let claws = match &actor.class {
-            AiClass::Zombie(z) => Some(z.kind.claw_reach()),
-            _ => None,
-        };
         if let Some(enemy) = actor.npc.enemy {
             if previous_enemy != Some(enemy) {
                 actor.npc.conditions.set(COND_NEW_ENEMY);
@@ -2189,128 +2140,29 @@ impl AiRuntime {
                         actor.npc.conditions.set(COND_CAN_MELEE_ATTACK1);
                     }
                 }
-                // CBaseHeadcrab::RangeAttack1Conditions (EnemyDistance between the centers,
-                // less the height the two boxes can overlap).
-                if let AiClass::Headcrab(crab) = &mut actor.class {
-                    // An enemy whose eyes are more than 36 above my origin needs headroom:
-                    // the crab's hull from 1 unit up, 8 units toward those eyes, meeting
-                    // anything but the enemy (the world included: a step's face) is
-                    // COND_TOO_CLOSE_TO_ATTACK, so the crab closes in instead of leaping.
-                    let high_blocked = t_eye.z - 36. > origin.z && {
-                        use crate::npc_probe::NpcCollisionWorld;
-                        let hull = world
-                            .entities
-                            .get(id)
-                            .and_then(|e| crate::ai_hull::class_hull(e.class()))
-                            .unwrap_or(crate::ai_hull::HullType::Tiny)
-                            .bounds();
-                        let end = origin + (t_eye - origin).normalize_or_zero() * 8.;
-                        let excluded = [id];
-                        let hit = physics.npc_trace_hull(
-                            origin + Vec3::Z,
-                            end,
-                            hull,
-                            crate::npc_probe::Query {
-                                excluded_entities: &excluded,
-                                ..Default::default()
-                            },
-                        );
-                        (hit.trace.fraction < 1. || hit.trace.start_solid)
-                            && hit.entity != Some(enemy)
-                    };
-                    let enemy_height = 72.;
-                    let mut delta = t_center - center;
-                    let overlap = (enemy_height + 24.) * 0.5;
-                    delta.z = if delta.z > overlap {
-                        delta.z - overlap
-                    } else if delta.z < -overlap {
-                        delta.z + overlap
-                    } else {
-                        0.
-                    };
-                    let forward = facing.truncate().normalize_or_zero();
-                    let dot = (t_feet - origin)
-                        .truncate()
-                        .normalize_or_zero()
-                        .dot(forward);
-                    let check = headcrab::LeapCheck {
-                        ready: now >= crab.next_attack,
-                        on_ground: actor.fall.is_none(),
-                        dot,
-                        distance: delta.length(),
-                        clear: sight.visible(eye, t_eye, &[id, enemy]),
-                        high_blocked,
-                    };
-                    let condition = headcrab::range_condition(check);
-                    crab.last_check =
-                        Some((check.distance, check.dot, condition.map(|c| c.0 as i32)));
-                    if let Some(c) = condition {
-                        actor.npc.conditions.set(c);
-                    }
-                }
-                // CNPC_BaseZombie::MeleeAttack1Conditions: within the claw reach (origin
-                // to origin), facing within 0.7, and the cube hull swept along the facing
-                // meets the enemy (an NPC or breakable in the way is not modeled).
-                if let Some(reach) = claws {
-                    let to = t_feet - origin;
-                    let forward = facing.truncate().normalize_or_zero().extend(0.);
-                    let dot = to.truncate().normalize_or_zero().dot(forward.truncate());
-                    let start = center;
-                    let end = start + forward * reach;
-                    let half = if enemy == PLAYER { 16. } else { 13. };
-                    let cube = Vec3::splat(
-                        world
-                            .entities
-                            .get(id)
-                            .and_then(|e| crate::ai_hull::class_hull(e.class()))
-                            .map_or(13., |h| h.bounds().maxs.x),
-                    );
-                    let reaches = super::metropolice::segment_hits_box(
-                        start,
-                        end,
-                        t_feet + Vec3::new(-half, -half, 0.) - cube,
-                        t_feet + Vec3::new(half, half, 72.) + cube,
-                    );
-                    let distance = to.length() * zombie::CLAW_REACH / reach;
-                    actor
-                        .npc
-                        .conditions
-                        .set(zombie::melee_condition(distance, dot, reaches));
-                }
-                // CNPC_PoisonZombie::RangeAttack1/2Conditions (EnemyDistance between the
-                // centers less the boxes' height overlap; a CAN condition needs the line
-                // from the eyes, GatherAttackConditions' weapon LOS).
-                let poison = match &mut actor.class {
-                    AiClass::Zombie(z) if z.kind == zombie::Kind::Poison && !z.torso => Some(z),
-                    _ => None,
+                let moving = actor
+                    .goal
+                    .and_then(|key| controller.status(key))
+                    .is_some_and(|s| {
+                        matches!(
+                            s,
+                            crate::npc::GoalState::Moving | crate::npc::GoalState::Blocked(_)
+                        )
+                    });
+                let view = zombies::AttackView {
+                    id,
+                    enemy,
+                    now,
+                    origin,
+                    center,
+                    eye,
+                    facing,
+                    t_feet,
+                    t_center,
+                    t_eye,
+                    moving,
                 };
-                if let Some(z) = poison {
-                    if z.nest.is_none() {
-                        z.nest = Some(std::array::from_fn(|i| {
-                            scene.bodygroup(world, id, zombie::BODYGROUP_NEST_BASE + i) == Some(1)
-                        }));
-                    }
-                    let mut delta = t_center - center;
-                    let overlap = 72.;
-                    delta.z = if delta.z > overlap {
-                        delta.z - overlap
-                    } else if delta.z < -overlap {
-                        delta.z + overlap
-                    } else {
-                        0.
-                    };
-                    let dot = (t_feet - origin)
-                        .truncate()
-                        .normalize_or_zero()
-                        .dot(facing.truncate().normalize_or_zero());
-                    let los = sight.visible(eye, t_eye, &[id, enemy]);
-                    for condition in z.poison_range_conditions(now, delta.length(), dot) {
-                        let Some(c) = condition else { continue };
-                        if !matches!(c, COND_CAN_RANGE_ATTACK1 | COND_CAN_RANGE_ATTACK2) || los {
-                            actor.npc.conditions.set(c);
-                        }
-                    }
-                }
+                zombies::attack_conditions(actor, &view, world, scene, physics, &player);
                 // GatherAttackConditions: when any attack is possible the range complaints
                 // go (a poison zombie ready to throw at a player inside the throw's 250
                 // units backed away forever instead of leaping a crab or clawing).
@@ -2792,18 +2644,7 @@ impl AiRuntime {
             }
             .offer(busy, (world, id), (origin, now), npc_state, hint_roll);
         }
-        if let AiClass::Zombie(z) = &mut actor.class {
-            // m_iMoanSound = g_numZombies at Spawn: map zombies spawn in entity order.
-            if z.moan_index.is_none() {
-                z.moan_index = Some(
-                    world.entities[..id.min(world.entities.len())]
-                        .iter()
-                        .filter(|e| zombie::is_zombie_class(e.class()))
-                        .count(),
-                );
-            }
-            z.moan(now, actor.npc.state == NpcState::Combat);
-        }
+        zombies::think_sounds(actor, id, world, scene, &player, now);
         if let AiClass::Zombie(z) = &mut actor.class {
             if z.kind == zombie::Kind::Poison {
                 let max_health = scene
@@ -2848,7 +2689,7 @@ impl AiRuntime {
                 h.kind.max_yaw_speed(&actor.npc.activity),
                 weapon_drawn && h.idle_angry(actor.npc.state, now),
             ),
-            AiClass::Zombie(z) => (zombie::max_yaw_speed(&actor.npc.activity, z.torso), false),
+            AiClass::Zombie(z) => (z.yaw_speed(&actor.npc.activity), false),
             AiClass::Headcrab(h) => (h.max_yaw_speed(&actor.npc.activity), false),
         };
         if let AiClass::Headcrab(crab) = &mut actor.class {
@@ -2970,7 +2811,7 @@ impl AiRuntime {
             idle_angry,
             weapon: actor.weapon.as_ref().map(|w| w.class.clone()),
             combine: matches!(&actor.class, AiClass::Humanoid(h) if h.kind == humanoid::Kind::Combine),
-            walk_only: matches!(&actor.class, AiClass::Zombie(_)),
+            walk_only: matches!(&actor.class, AiClass::Zombie(z) if z.kind != zombie::Kind::Fast),
             on_fire,
             weapon_activity: None,
             blocked_moves: &mut self.diagnostics.blocked_moves,

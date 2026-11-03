@@ -20,6 +20,8 @@ use super::state::NpcState;
 use crate::sounds::PatchOp;
 use glam::Vec3;
 use serde::Serialize;
+mod events;
+pub use events::headcrab_of;
 pub mod fast;
 mod poison;
 mod swat;
@@ -70,6 +72,8 @@ pub enum Kind {
     Classic,
     /// npc_poisonzombie (CNPC_PoisonZombie): melee only here.
     Poison,
+    /// npc_fastzombie (CFastZombie, `fast`).
+    Fast,
 }
 impl Kind {
     /// CanSwatPhysicsObjects for the classes here. CNPC_PoisonZombie inherits true, but
@@ -83,14 +87,16 @@ impl Kind {
             // npc_zombie_torso is CZombie placed with m_fIsTorso.
             "npc_zombie" | "npc_zombie_torso" => Some(Self::Classic),
             "npc_poisonzombie" => Some(Self::Poison),
+            "npc_fastzombie" | "npc_fastzombie_torso" => Some(Self::Fast),
             _ => None,
         }
     }
-    /// GetClawAttackRange (CNPC_PoisonZombie: 70).
+    /// GetClawAttackRange (CNPC_PoisonZombie: 70, CFastZombie: 50).
     pub fn claw_reach(self) -> f32 {
         match self {
             Self::Classic => CLAW_REACH,
             Self::Poison => 70.,
+            Self::Fast => fast::CLAW_REACH,
         }
     }
     /// The class's own cue for a CZombie cue name (CNPC_PoisonZombie's overrides).
@@ -105,6 +111,7 @@ impl Kind {
             (Self::Poison, "Zombie.Pain") => "NPC_PoisonZombie.Pain",
             (Self::Poison, "Zombie.Die") => "NPC_PoisonZombie.Die",
             (Self::Poison, c) => c,
+            (Self::Fast, c) => fast::cue(c),
         }
     }
 }
@@ -246,6 +253,7 @@ pub fn add_schedules(schedules: &mut Schedules) {
         let schedule = Schedule::parse(name, text).expect("zombie schedule");
         schedules.0.insert((*name).into(), schedule);
     }
+    fast::add_schedules(schedules);
 }
 
 /// CNPC_BaseZombie::MaxYawSpeed (torsos turn at 60; no move_yaw pose blend).
@@ -514,6 +522,8 @@ pub struct Zombie {
     pub holding_crab: bool,
     /// Crabs thrown or leapt off (diagnostics).
     pub crabs_thrown: u32,
+    /// CFastZombie's own state (unused by the other kinds).
+    pub fast: fast::FastState,
     seed: u64,
 }
 impl Zombie {
@@ -545,6 +555,7 @@ impl Zombie {
             throw_crab: 0,
             holding_crab: false,
             crabs_thrown: 0,
+            fast: fast::FastState::default(),
             seed: seed | 1,
         }
     }
@@ -668,6 +679,12 @@ impl Zombie {
 }
 impl Behavior for Zombie {
     fn select_schedule(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        if let Some(s) = (self.kind == Kind::Fast)
+            .then(|| self.fast_select(npc, ctx))
+            .flatten()
+        {
+            return s;
+        }
         let c = &npc.conditions;
         match npc.state {
             NpcState::Combat if c.has(COND_LOST_ENEMY) || c.has(COND_ENEMY_UNREACHABLE) => {
@@ -693,6 +710,12 @@ impl Behavior for Zombie {
         default_select_schedule(npc, ctx)
     }
     fn translate_schedule(&mut self, name: &str, npc: &AiNpc, ctx: &Context) -> String {
+        if let Some(s) = (self.kind == Kind::Fast)
+            .then(|| self.fast_translate(name, ctx))
+            .flatten()
+        {
+            return s.into();
+        }
         // CNPC_PoisonZombie::TranslateSchedule.
         if self.kind == Kind::Poison {
             let unreachable = npc
@@ -738,6 +761,12 @@ impl Behavior for Zombie {
     /// CZombie::SelectFailSchedule (door bashing not modeled), then
     /// CNPC_BaseZombie::SelectFailSchedule, then the base m_failSchedule.
     fn select_fail_schedule(&mut self, npc: &AiNpc, failed: &str) -> String {
+        if let Some(s) = (self.kind == Kind::Fast)
+            .then(|| self.fast_fail(self.now))
+            .flatten()
+        {
+            return s;
+        }
         let path_failure = npc
             .last_failed_task
             .as_deref()
@@ -801,6 +830,11 @@ impl Behavior for Zombie {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
+        if self.kind == Kind::Fast {
+            if let Some(status) = self.fast_start_task(npc, task, arg, ctx, motor) {
+                return Some(status);
+            }
+        }
         Some(match task {
             // Non-episodic: complete at once.
             "TASK_ZOMBIE_WAIT_POST_MELEE" => TaskStatus::Complete,
@@ -856,14 +890,16 @@ impl Behavior for Zombie {
                 _ => TaskStatus::Failed,
             },
             // The threat sequence, turning to the enemy while it plays.
-            "TASK_PLAY_PRIVATE_SEQUENCE_FACE_ENEMY" => match arg {
-                TaskArg::Activity(activity) => {
-                    npc.activity = activity.clone();
-                    motor.set_activity(activity);
-                    TaskStatus::Running
+            "TASK_PLAY_PRIVATE_SEQUENCE_FACE_ENEMY" | "TASK_PLAY_SEQUENCE_FACE_ENEMY" => {
+                match arg {
+                    TaskArg::Activity(activity) => {
+                        npc.activity = activity.clone();
+                        motor.set_activity(activity);
+                        TaskStatus::Running
+                    }
+                    _ => TaskStatus::Failed,
                 }
-                _ => TaskStatus::Failed,
-            },
+            }
             // CAI_BaseNPC TASK_SOUND_WAKE -> CZombie::AlertSound.
             "TASK_SOUND_WAKE" => {
                 self.requests
@@ -894,8 +930,14 @@ impl Behavior for Zombie {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
+        if let Some(s) = (self.kind == Kind::Fast)
+            .then(|| self.fast_run_task(task, ctx))
+            .flatten()
+        {
+            return Some(s);
+        }
         match task {
-            "TASK_PLAY_PRIVATE_SEQUENCE_FACE_ENEMY" => {
+            "TASK_PLAY_PRIVATE_SEQUENCE_FACE_ENEMY" | "TASK_PLAY_SEQUENCE_FACE_ENEMY" => {
                 if let Some((_, enemy)) = ctx.enemy {
                     motor.face(super::schedule::Goal::Position(enemy));
                 }

@@ -206,6 +206,10 @@ impl AiRuntime {
                     }
                 }
             }
+            if fraction < 1. || landed {
+                let center = scene.states[id].origin + Vec3::Z * center_z(world, id);
+                super::zombies::leap_touch(&mut actor.class, &mut velocity, center, scene, id);
+            }
             actor.fall = (!landed).then_some((velocity, now));
             // CBlackHeadcrab::EjectTouch: on the ground, Panic(U(2, 8)).
             if let AiClass::Headcrab(crab) = &mut actor.class {
@@ -215,17 +219,13 @@ impl AiRuntime {
             }
             if actor.fall.is_none() {
                 actor.fall_owner = None;
-                let landings = &mut self.diagnostics.fall_landings;
-                if landings.len() >= 16 {
-                    landings.remove(0);
-                }
-                landings.push((
+                let landing = (
                     id,
                     scene.states[id].origin.z,
                     hit.entity,
                     hit.trace.start_solid,
-                    fraction,
-                ));
+                );
+                super::zombies::record_landing(&mut self.diagnostics, landing, fraction);
             }
         }
         // LeapTouch on an NPC: a hated one (that takes damage) in the step bites

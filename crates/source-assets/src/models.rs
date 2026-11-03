@@ -936,20 +936,11 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
             if instance.kind.starts_with("npc_") {
                 wanted.extend(NPC_BASE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
             }
-            if matches!(instance.kind.as_str(), "npc_zombie" | "npc_zombie_torso") {
-                wanted.extend(ZOMBIE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
-            }
-            // CBlackHeadcrab::NPC_TranslateActivity's panic scurry.
-            if matches!(
-                instance.kind.as_str(),
-                "npc_headcrab_black" | "npc_headcrab_poison"
-            ) {
-                wanted.insert("act_blackheadcrab_run_panic".into());
-            }
-            // SCHED_ZOMBIE_POISON_RANGE_ATTACK2's threat sequence.
-            if instance.kind == "npc_poisonzombie" {
-                wanted.insert("act_zombie_poison_threat".into());
-            }
+            wanted.extend(
+                class_ai_activities(&instance.kind)
+                    .iter()
+                    .map(|a| a.to_lowercase()),
+            );
             // A raggib ragdolls from its sequence 0 (cycle 0).
             if instance.kind == "raggib" {
                 if let Ok(Some(first)) = crate::animation::first_sequence_name(vfs, &instance.model)
@@ -1289,6 +1280,24 @@ pub const ZOMBIE_AI_ACTIVITIES: &[&str] = &[
     "ACT_ZOMBIE_TANTRUM",
     "ACT_ZOMBIE_WALLPOUND",
 ];
+/// The activities a class's own AI sets beyond the shared ones: the swatting zombies',
+/// CBlackHeadcrab::NPC_TranslateActivity's panic scurry, SCHED_ZOMBIE_POISON_RANGE_ATTACK2's
+/// threat and CFastZombie's leap, landings, frenzy and big slash.
+pub fn class_ai_activities(class: &str) -> &'static [&'static str] {
+    match class {
+        "npc_zombie" | "npc_zombie_torso" => ZOMBIE_AI_ACTIVITIES,
+        "npc_headcrab_black" | "npc_headcrab_poison" => &["ACT_BLACKHEADCRAB_RUN_PANIC"],
+        "npc_poisonzombie" => &["ACT_ZOMBIE_POISON_THREAT"],
+        "npc_fastzombie" => &[
+            "ACT_FASTZOMBIE_LEAP_STRIKE",
+            "ACT_FASTZOMBIE_LAND_RIGHT",
+            "ACT_FASTZOMBIE_LAND_LEFT",
+            "ACT_FASTZOMBIE_FRENZY",
+            "ACT_FASTZOMBIE_BIG_SLASH",
+        ],
+        _ => &[],
+    }
+}
 /// Activities the humanoid AI classes (npc_citizen, npc_barney, npc_alyx, npc_combine_s;
 /// hl2-simulation ai::humanoid and the base schedules) set, and every acttable result of
 /// the weapons they carry (SMG1, AR2, shotgun, pistol, RPG, Alyx gun, crowbar; a test in

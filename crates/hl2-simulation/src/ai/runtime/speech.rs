@@ -297,9 +297,8 @@ impl AiRuntime {
                 if std::mem::replace(&mut actor.death_spoken, true) {
                     return;
                 }
-                // StopLoopingSounds: the breathing and moan patches go with the body.
-                z.stop_breathing();
-                z.stop_moan();
+                // StopLoopingSounds: the class's patches go with the body.
+                z.stop_looping_sounds();
                 kind.cue("Zombie.Die")
             } else {
                 // CZombie::PainSound: none while burning (the moan covers it).
@@ -310,10 +309,8 @@ impl AiRuntime {
                     return;
                 }
                 actor.next_pain_sound = now + 1.;
-                // CNPC_PoisonZombie::PainSound: BreatheOffShort first.
-                if kind == zombie::Kind::Poison {
-                    z.breathe_off_short();
-                }
+                // The poison zombie's breath drops out; the fast zombie's gurgle swells.
+                z.pain_patches();
                 kind.cue("Zombie.Pain")
             };
             let origin = state.origin;
@@ -329,10 +326,13 @@ impl AiRuntime {
                     });
                 }
             }
-            scene.sounds.push(crate::sounds::SoundRequest {
-                origin: Some(origin + Vec3::Z * 64.),
-                ..cue.into()
-            });
+            // The fast zombie's PainSound is only the patches above.
+            if !cue.is_empty() {
+                scene.sounds.push(crate::sounds::SoundRequest {
+                    origin: Some(origin + Vec3::Z * 64.),
+                    ..cue.into()
+                });
+            }
             return;
         }
         // CAI_PlayerAlly::PainSound speaks TLK_WOUND; the companions' DeathSound emits

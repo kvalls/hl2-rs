@@ -314,6 +314,8 @@ pub const GIB_MODELS: &[&str] = &[
     "models/headcrabclassic.mdl",
     // CNPC_PoisonZombie::GetHeadcrabModel (its head crab's RELEASE_RAGDOLL).
     "models/headcrabblack.mdl",
+    // CFastZombie::GetHeadcrabModel.
+    "models/headcrab.mdl",
 ];
 pub fn gib_label(model: &str) -> String {
     format!("raggib {model}")

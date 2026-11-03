@@ -965,13 +965,10 @@ impl Gameplay {
         // below while another handle lives makes Arc::make_mut copy the whole map (the
         // frame hitch of every crab release before session 38).
         let world = &*self.world;
-        // GetHeadcrabModel / GetHeadcrabClassname: the poison zombie's black crab.
-        let poison = world.entities[npc].class() == "npc_poisonzombie";
-        let (crab_model, crab_class) = if poison {
-            ("models/headcrabblack.mdl", "npc_headcrab_poison")
-        } else {
-            ("models/headcrabclassic.mdl", "npc_headcrab")
-        };
+        let (crab_model, crab_class) =
+            hl2_simulation::ai::zombie::headcrab_of(world.entities[npc].class());
+        // The poison and fast zombies turn their own crab off and ragdoll themselves.
+        let own_body = crab_class != "npc_headcrab";
         let root = hl2_simulation::ai::spawn::templates(
             world,
             &hl2_simulation::ai::spawn::gib_label(crab_model),
@@ -1074,7 +1071,7 @@ impl Gameplay {
             self.scene.npc_death_forces.insert(npc, (Vec3::ZERO, None));
             self.crab_releases.push((npc, false));
             // fRemoveHead on the zombie itself (runtime bodygroups); its ragdoll follows.
-            if poison {
+            if own_body {
                 self.scene.set_bodygroup(&self.world, npc, 1, 0);
                 return false;
             }
@@ -1104,8 +1101,8 @@ impl Gameplay {
                 physics,
             );
         }
-        if poison {
-            // The headless poison zombie ragdolls itself with its death force.
+        if own_body {
+            // The headless zombie ragdolls itself with its death force.
             self.scene.set_bodygroup(&self.world, npc, 1, 0);
             self.crab_releases.push((npc, false));
             return false;

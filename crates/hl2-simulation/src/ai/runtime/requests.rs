@@ -37,6 +37,48 @@ impl AiRuntime {
     }
 
     /// Carry out the cop's requests (sentences, look targets, outputs, sounds, hits).
+    /// SCHED_ZOMBIE_ATTACKITEM: a claw that missed strikes m_hPhysicsEnt (TakeDamage with a
+    /// 120 push toward it, then m_flNextSwat = now + U(2, 4)). True when it hit.
+    fn strike_attack_item(
+        &mut self,
+        id: usize,
+        origin: Vec3,
+        damage: f32,
+        world: &World,
+        scene: &mut Scene,
+        physics: &Physics,
+    ) -> bool {
+        let attack_item =
+            self.actors[&id].npc.schedule.as_deref() == Some("SCHED_ZOMBIE_ATTACKITEM");
+        let roll = self.random();
+        let AiClass::Zombie(z) = &mut self.actors.get_mut(&id).expect("actor").class else {
+            return false;
+        };
+        let Some((object, center)) = attack_item.then(|| z.physics_ent.take()).flatten() else {
+            return false;
+        };
+        let me = origin + Vec3::Z * center_z(world, id);
+        let direction = (center - me).normalize_or_zero();
+        scene.entity_damage.push(crate::projectiles::Damage {
+            target: crate::projectiles::DamageTarget::Entity(object),
+            amount: damage,
+            kind: crate::player_damage::DMG_SLASH,
+            dissolve: false,
+            direction,
+            origin: center,
+            attacker: crate::projectiles::Attacker::Entity(id),
+        });
+        if let Some((mass, _, _)) = physics.entity_rest_state(object) {
+            self.prop_swats.push((
+                object,
+                direction * zombie::ATTACKITEM_FORCE / mass.max(1.),
+                Vec3::ZERO,
+            ));
+        }
+        z.next_swat = scene.time + 2. + 2. * f64::from(roll);
+        self.diagnostics.obstructor_swats += 1;
+        true
+    }
     pub(super) fn apply_requests(
         &mut self,
         id: usize,
@@ -193,6 +235,7 @@ impl AiRuntime {
                     impulse,
                     reach,
                     bite,
+                    damage,
                 } => {
                     let enemy = self.actors[&id].npc.enemy;
                     let enemy_center = enemy.map(|e| {
@@ -220,11 +263,11 @@ impl AiRuntime {
                         .and_then(|e| crate::ai_hull::class_hull(e.class()))
                         .map_or(13., |h| h.bounds().maxs.x);
                     let (mins, maxs) = (-Vec3::splat(cube), Vec3::splat(cube));
-                    let damage = if bite {
+                    let damage = damage.unwrap_or(if bite {
                         self.zombie_poison_spit_damage
                     } else {
                         self.zombie_slash_damage
-                    };
+                    });
                     let player_hit = enemy == Some(PLAYER)
                         && crate::ai::metropolice::segment_hits_box(
                             start,
@@ -257,49 +300,20 @@ impl AiRuntime {
                         });
                         true
                     } else {
-                        // SCHED_ZOMBIE_ATTACKITEM: a miss strikes m_hPhysicsEnt (TakeDamage
-                        // with a 120 push toward it, then m_flNextSwat = now + U(2, 4)).
-                        let attack_item = self.actors[&id].npc.schedule.as_deref()
-                            == Some("SCHED_ZOMBIE_ATTACKITEM");
-                        let roll = self.random();
-                        match &mut self.actors.get_mut(&id).expect("actor").class {
-                            AiClass::Zombie(z) if attack_item => match z.physics_ent.take() {
-                                Some((object, center)) => {
-                                    let me = origin + Vec3::Z * center_z(world, id);
-                                    let direction = (center - me).normalize_or_zero();
-                                    scene.entity_damage.push(crate::projectiles::Damage {
-                                        target: crate::projectiles::DamageTarget::Entity(object),
-                                        amount: damage,
-                                        kind: crate::player_damage::DMG_SLASH,
-                                        dissolve: false,
-                                        direction,
-                                        origin: center,
-                                        attacker: crate::projectiles::Attacker::Entity(id),
-                                    });
-                                    if let Some((mass, _, _)) = physics.entity_rest_state(object) {
-                                        self.prop_swats.push((
-                                            object,
-                                            direction * zombie::ATTACKITEM_FORCE / mass.max(1.),
-                                            Vec3::ZERO,
-                                        ));
-                                    }
-                                    z.next_swat = scene.time + 2. + 2. * f64::from(roll);
-                                    self.diagnostics.obstructor_swats += 1;
-                                    true
-                                }
-                                None => false,
-                            },
-                            _ => false,
-                        }
+                        self.strike_attack_item(id, origin, damage, world, scene, physics)
+                    };
+                    let cue = if hit {
+                        "Zombie.AttackHit"
+                    } else {
+                        "Zombie.AttackMiss"
+                    };
+                    let cue = match &self.actors[&id].class {
+                        AiClass::Zombie(z) => z.kind.cue(cue),
+                        _ => cue,
                     };
                     scene.sounds.push(crate::sounds::SoundRequest {
                         origin: Some(origin + Vec3::Z * 36.),
-                        ..String::from(if hit {
-                            "Zombie.AttackHit"
-                        } else {
-                            "Zombie.AttackMiss"
-                        })
-                        .into()
+                        ..String::from(cue).into()
                     });
                 }
                 CopRequest::SetBodygroup { group, value } => {

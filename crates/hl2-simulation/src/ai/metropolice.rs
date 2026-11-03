@@ -168,6 +168,8 @@ pub enum CopRequest {
         reach: f32,
         /// The poison zombie's bite (sk_zombie_poison_dmg_spit).
         bite: bool,
+        /// A class's own damage (CFastZombie's 3 and 5); else sk_zombie_dmg_one_slash.
+        damage: Option<f32>,
     },
     /// CNPC_Combine COMBINE_AE_ALTFIRE (elites): a combine ball toward this point.
     AltFire(Vec3),
