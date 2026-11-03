@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Integrated current-count observer (2026-11-03 HH)
+
+Caps1/12/36:debugger26872/54416/29420 andhosts50100/51096/54980 exit0.49samples/196count reads/686nested reads/196parent-side reads/588model reads/49caller-FP pairs and23new controls pass. Full36 covers local1/virtual2/virtual24 routes. Same stopped identity, model-wrapper prefix, code/file/path/two-generation/cap/cleanup checks pass. Independent review finds no material issue. HH is checked separately from the frozen HF35-root inventory. Native nested/current count/getter history andRust parity **not tested**; no additional native launch orgameplay rebuild.
+
 ## Current-count reader and expanded integrity closeout (2026-11-03 HD–HF)
 
 HD read-only audit/manifest:82bounded static candidates/18corruptions pass; actual loaded vptr/dispatch unobserved. HE process57856 exits0:35cases/92reads/32corruptions,16API controls/three actual inaccessible reads/two symmetric mutations; virtual precedence/null zero/endpoints andraw out-of-nominal diagnostics pass. HE stop/cap/FP integration is **not tested**. HF independent streaming inventory/hash/receipt check passes35roots/1735local entries/418external occurrences/1832unique files/594502952bytes plus selected refreshed-reference bindings; it reruns no producer anddoes not promote rejected captures. Documentation-only publication uses whitespace/selected-file/ignore checks; Rust/gameplay tests are **not run** for this research closeout.

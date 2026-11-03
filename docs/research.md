@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Current-count observer integrated (2026-11-03 HH)
+
+The current-count reader is now admitted inside the authored nested observer with shared stopped identity andindependent model-prefix agreement.49samples cover full/partial caps, current local/virtual count routes andunchanged caller FP. This closes the integration prerequisite only. Actual native nested/current count, earlier getter consumption, loaded vptr/dispatch, actor/entity/cache ownership andcomplete pose/campaign/Rust parity remain unobserved. No further native attempt follows the owner-game deferral in this window.
+
 ## Current-count admission, static type candidates and evidence seal (2026-11-03 HD–HF)
 
 A bounded static lookup records82 file-backed vtable/RTTI candidates for slot274h targeting the exact pose copier. Raw class names, hierarchy/PMD fields, locations andrelocation provenance remain static candidates; none identifies the unobserved native object vptr oractual dispatch. A separate authored reader admits the current count's wrapper/virtual/local/null routing, API BOOL/count/error, widened ranges andsymmetric rechecks. It retains negative/above24 values as raw diagnostics. Integration andactual native count/getter history remain open. The expanded35-root integrity check preserves all prior scopes andthe zero-spawn owner-game deferral. No original first-map gap is closed andno Rust parity claim is made.

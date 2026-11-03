@@ -1,5 +1,9 @@
 # STATUS
 
+## Current-count observer integration (2026-11-03 HH)
+
+HH completes the authored integration after the frozen HF35-root cutoff. Cap1/12/36 debugger26872/54416/29420 andhosts50100/51096/54980 exit0:49samples/196count reads/686nested reads/196parent-side reads/588model reads/49caller-FP pairs;23new identity/model-wrapper/phase controls pass. Full36 covers local1/virtual2/virtual24 counts. Independent review confirms the same stopped identity andmodel-prefix joins. HH is sealed separately; HF's earlier inventory remains unchanged. No further native attempt. Next prepare a new nested/current-count native root only after a fresh ownership guard clears; current count still does not prove earlier getter consumption. Actor/cache/final-pose/campaign/Rust parity remain open, with no Rust action.
+
 ## Research closeout: current-count admission and integrity (2026-11-03 HD–HF)
 
 HD records82 bounded static vtable/RTTI candidates for getter slot274h, with18corruptions; no loaded object vptr orselected dispatch is observed. HE process57856 exits0:35current-count reader cases/92reads/32corruptions pass, including16API controls/three actual read faults/two mutations andraw out-of-range count diagnostics. Independent review finds no material C/Python disagreement. HE remains standalone; stop/cap/FP integration andnative count/history are unproven.

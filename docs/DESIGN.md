@@ -1,5 +1,9 @@
 # Design
 
+## Current-count integration disposition (2026-11-03 HH)
+
+HH admits the integration described below through authored full/partial-cap andFP controls. Count identity uses the same active stopped event/lifetime/generation andnested sidecar, with both wrapper words joined to each independent current model-wrapper read. The remaining bounded action is a fresh-root native observation after ownership clears, preserving current-count versus earlier-getter history andstatic type-candidate versus entity identity. HF's earlier cutoff stays frozen; HH has a separate seal.
+
 ## Next bounded research integration (2026-11-03 HE)
 
 HE admits only the standalone symmetric current-count reader. Integrate its separate journal within the existing nested interval; derive all identity fields from the same active exception/lifetime/generation, compare its wrapper8 with the independently read current model-wrapper prefix, andexercise full/partial caps plus unchanged caller FP. Preserve raw signed count andnominal-domain diagnostics; a coherent out-of-range count is not retroactively a corrupted capture. A later native root needs fresh ownership admission. Match any subsequently observed vptr to HDstatic candidates only after module/generation normalization, preserving type-candidate versus entity-handle/serial/actor identity. No virtual-function invocation orclaim of earlier getter consumption is authorized by those reads alone.

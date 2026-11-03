@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: integrated current-count observer (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family subagent independently reviewed identity/phase/model-wrapper joins.
+- Changed/why: finish HE's authored integration within the nested interval andbind its count to the independently read model-wrapper prefix.
+- Tested how/result: caps1/12/36 all exit0;49samples/196count reads/686nested reads/196parent-side reads/588model reads/49caller-FP pairs/23new controls. Full36 covers local1/virtual2/virtual24 routes; code/module/lifetime/cap/cleanup checks pass. HH separately sealed after HF's frozen35-root cutoff.
+- Still broken or not tested: actual native nested/current count/getter history, loaded vptr/dispatch/entity lifetime/cache, complete pose/campaign/Rust parity. No new native run orRust action; owner game untouched.
+- Next: fresh-root native nested/current-count observation when ownership admission clears; preserve raw-count/tail/history distinctions.
+
 ## 2026-11-03: static dispatch candidates, count reader and integrity seal (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family subagent authored HD's bounded static RTTI/slot audit andindependently reviewed HE; no Rust delegation.
