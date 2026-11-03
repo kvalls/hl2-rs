@@ -60,7 +60,6 @@ pub fn despawn_killed_runtime_draws(
 /// body differs from the one it is drawn with gets its draws (and GPU skeleton) rebuilt
 /// from the preloaded variant. Entities with eye or bone-merged weapon draws, which
 /// build_model_draws does not make, are refused and reported.
-#[allow(clippy::too_many_arguments)]
 pub fn swap_runtime_bodies(
     mut commands: Commands,
     mut game: ResMut<crate::gameplay::Gameplay>,

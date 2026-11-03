@@ -1254,7 +1254,8 @@ impl Inventory {
                     });
                 }
                 if let Some(hit) = hit {
-                    self.pellet_hit(world, scene, physics, w, &mut pending, hit, aim, melee, eye);
+                    let shot = (hit, aim, melee, eye);
+                    self.pellet_hit(world, scene, physics, w, &mut pending, shot);
                 }
             }
             self.hit_batch(world, scene, physics, w, pending, melee, eye);
@@ -1328,7 +1329,8 @@ impl Inventory {
             });
             if let Some(hit) = hit {
                 // The multidamage of the primary attack above.
-                self.pellet_hit(world, scene, physics, w, &mut pending, hit, aim, false, eye);
+                let shot = (hit, aim, false, eye);
+                self.pellet_hit(world, scene, physics, w, &mut pending, shot);
             }
         }
         self.hit_batch(world, scene, physics, w, pending, false, eye);
@@ -1697,10 +1699,7 @@ impl Inventory {
                                     kind,
                                     entity.class() != "npc_zombie",
                                     false,
-                                    damage.kind,
-                                    amount,
-                                    max,
-                                    state.value,
+                                    (damage.kind, amount, max, state.value),
                                     roll(31) < 1. / 3.,
                                 )
                             };
@@ -1900,7 +1899,7 @@ impl Inventory {
     /// m_takedamage, so a hit on the world (CWorld, static props) is applied on its own and
     /// leaves the target's pending pellets together; another target applies them first
     /// (AddMultiDamage -> ApplyMultiDamage).
-    #[allow(clippy::too_many_arguments)]
+    /// `shot` is (the trace hit, the aim direction, a melee swing, the eye).
     fn pellet_hit(
         &mut self,
         world: &World,
@@ -1908,11 +1907,9 @@ impl Inventory {
         physics: &mut Physics,
         weapon: &Weapon,
         pending: &mut Vec<(crate::physics::RayHit, Vec3)>,
-        hit: crate::physics::RayHit,
-        aim: Vec3,
-        melee: bool,
-        eye: Vec3,
+        shot: (crate::physics::RayHit, Vec3, bool, Vec3),
     ) {
+        let (hit, aim, melee, eye) = shot;
         if hit.entity == usize::MAX {
             self.hit(world, scene, physics, weapon, hit, aim, melee, eye);
             return;
@@ -3913,10 +3910,7 @@ mod tests {
                 &mut physics,
                 &weapon,
                 &mut pending,
-                hit,
-                Vec3::X,
-                false,
-                Vec3::ZERO,
+                (hit, Vec3::X, false, Vec3::ZERO),
             );
             assert!(
                 !scene.states[0].killed,

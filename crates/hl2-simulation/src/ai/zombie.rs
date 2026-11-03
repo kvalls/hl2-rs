@@ -337,17 +337,15 @@ pub enum Split {
 /// splits a slumped zombie; `roll3`: RandomInt(1, 3) == 1). The poison zombie overrides
 /// ShouldBecomeTorso to false. Returns the split and whether a lethal blast released the
 /// headcrab as a ragdoll (headless).
-#[allow(clippy::too_many_arguments)]
+/// `hit` is (damage type, damage, max health, health after the damage).
 pub fn split(
     kind: Kind,
     torso: bool,
     slumped: bool,
-    damage_type: u32,
-    damage: f32,
-    max_health: f32,
-    health_after: f32,
+    hit: (u32, f32, f32, f32),
     roll3: bool,
 ) -> (Split, bool) {
+    let (damage_type, damage, max_health, health_after) = hit;
     use crate::player_damage::DMG_BLAST;
     let threshold = (damage / max_health.max(1e-6)).min(1.);
     // ShouldReleaseHeadcrab (health <= 0): a blast kill releases a ragdoll crab.
@@ -1361,43 +1359,43 @@ mod tests {
         let c = Kind::Classic;
         // A full 50 HP zombie: 25-49 blast damage leaves a live torso.
         assert_eq!(
-            split(c, false, false, DMG_BLAST, 25., 50., 25., false),
+            split(c, false, false, (DMG_BLAST, 25., 50., 25.), false),
             (Split::Torso { dies: false }, false)
         );
         assert_eq!(
-            split(c, false, false, DMG_BLAST, 49., 50., 1., true),
+            split(c, false, false, (DMG_BLAST, 49., 50., 1.), true),
             (Split::Torso { dies: false }, false)
         );
         // Under half of max health: no split.
         assert_eq!(
-            split(c, false, false, DMG_BLAST, 24., 50., 26., true).0,
+            split(c, false, false, (DMG_BLAST, 24., 50., 26.), true).0,
             Split::None
         );
         // A lethal blast releases the crab (headless): chopped one time in three.
         assert_eq!(
-            split(c, false, false, DMG_BLAST, 50., 50., 0., true),
+            split(c, false, false, (DMG_BLAST, 50., 50., 0.), true),
             (Split::Chopped, true)
         );
         assert_eq!(
-            split(c, false, false, DMG_BLAST, 30., 50., -5., false),
+            split(c, false, false, (DMG_BLAST, 30., 50., -5.), false),
             (Split::None, true)
         );
         // Threshold 1 with health left (health above max): a torso that dies at once.
         assert_eq!(
-            split(c, false, false, DMG_BLAST, 60., 50., 10., false).0,
+            split(c, false, false, (DMG_BLAST, 60., 50., 10.), false).0,
             Split::Torso { dies: true }
         );
         // Bullets, torsos, slumped zombies, REMOVENORAGDOLL and poison zombies never split.
         assert_eq!(
-            split(c, false, false, DMG_BULLET, 30., 50., 20., true).0,
+            split(c, false, false, (DMG_BULLET, 30., 50., 20.), true).0,
             Split::None
         );
         assert_eq!(
-            split(c, true, false, DMG_BLAST, 30., 50., 20., true).0,
+            split(c, true, false, (DMG_BLAST, 30., 50., 20.), true).0,
             Split::None
         );
         assert_eq!(
-            split(c, false, true, DMG_BLAST, 30., 50., 20., true).0,
+            split(c, false, true, (DMG_BLAST, 30., 50., 20.), true).0,
             Split::None
         );
         assert_eq!(
@@ -1405,16 +1403,20 @@ mod tests {
                 c,
                 false,
                 false,
-                DMG_BLAST | DMG_REMOVENORAGDOLL,
-                30.,
-                50.,
-                20.,
+                (DMG_BLAST | DMG_REMOVENORAGDOLL, 30., 50., 20.),
                 true
             ),
             (Split::None, false)
         );
         assert_eq!(
-            split(Kind::Poison, false, false, DMG_BLAST, 100., 175., 75., true).0,
+            split(
+                Kind::Poison,
+                false,
+                false,
+                (DMG_BLAST, 100., 175., 75.),
+                true
+            )
+            .0,
             Split::None
         );
         assert_eq!(max_yaw_speed("ACT_WALK", true), 60.);

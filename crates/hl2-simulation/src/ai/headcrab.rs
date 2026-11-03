@@ -5,7 +5,10 @@
 //! fast crab's stop-and-go run mode is not modeled yet). Not modeled yet: burrowing, ceiling hanging, canisters, drowning, hopping off NPCs,
 //! harassing hops, barnacles, bites on NPCs (the leap's touch tests the player only).
 use super::assault::Assault;
-use super::conditions::*;
+use super::conditions::{
+    Cond, Conditions, COND_CAN_RANGE_ATTACK1, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE,
+    COND_NOT_FACING_ATTACK, COND_SEE_ENEMY, COND_TOO_CLOSE_TO_ATTACK, COND_TOO_FAR_TO_ATTACK,
+};
 use super::metropolice::CopRequest;
 use super::schedule::{
     base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg,
@@ -533,6 +536,7 @@ impl Behavior for Headcrab {
 
 #[cfg(test)]
 mod tests {
+    use super::super::conditions::COND_ENEMY_OCCLUDED;
     use super::*;
     #[test]
     fn fast_crab_runs_stop_and_go() {
