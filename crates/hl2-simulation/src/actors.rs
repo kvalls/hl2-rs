@@ -151,26 +151,32 @@ fn locomotion_variants(
         .filter(|(_, locomotion)| locomotion.complete())
         .collect())
 }
+/// The map's node graph (maps/graphs/<map>.ain), None (with a world warning) when it is
+/// missing or does not parse.
+fn load_graph(
+    world: &mut World,
+    vfs: &Vfs,
+    map: &str,
+    revision: u32,
+) -> Option<source_assets::navigation::Graph> {
+    let parsed = vfs
+        .read(&format!("maps/graphs/{map}.ain"))
+        .and_then(|data| {
+            data.map(|d| source_assets::navigation::Graph::parse(&d, revision))
+                .transpose()
+        });
+    parsed.unwrap_or_else(|error| {
+        world.warnings.push(format!("NPC graph: {error:#}"));
+        None
+    })
+}
 pub fn prepare_npcs(
     world: &mut World,
     vfs: &Vfs,
     map: &str,
     revision: u32,
 ) -> crate::npc::Controller {
-    let graph = match vfs.read(&format!("maps/graphs/{map}.ain")) {
-        Ok(Some(data)) => match source_assets::navigation::Graph::parse(&data, revision) {
-            Ok(graph) => Some(graph),
-            Err(error) => {
-                world.warnings.push(format!("NPC graph: {error:#}"));
-                None
-            }
-        },
-        Ok(None) => None,
-        Err(error) => {
-            world.warnings.push(format!("NPC graph: {error:#}"));
-            None
-        }
-    };
+    let graph = load_graph(world, vfs, map, revision);
     let restrictions = graph
         .as_ref()
         .map(|g| crate::npc::NavRestrictions::from_world(world, g))
