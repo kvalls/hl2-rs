@@ -1755,6 +1755,14 @@ impl Physics {
         self.changed_entity_colliders.clear();
         self.settle_interactive_debris();
     }
+    /// Forget the pair times of colliders that no longer exist (past 4096 pairs).
+    fn forget_pair_times(&mut self) {
+        if self.pair_times.len() > 4096 {
+            let colliders = &self.colliders;
+            self.pair_times
+                .retain(|(a, b), _| colliders.contains(*a) && colliders.contains(*b));
+        }
+    }
     /// New contacts of this step as VPhysics collision events: the pre-step relative
     /// speed along the contact normal (collisionSpeed) and the time since the pair last
     /// touched (deltaCollisionTime). Resting contacts that persist raise no event.
@@ -1794,13 +1802,8 @@ impl Physics {
             };
             let relative = velocity(c1) - velocity(c2);
             let speed = relative.dot(&normal).abs() / SCALE;
-            if before
-                .get(&c1.parent().unwrap_or(RigidBodyHandle::invalid()))
-                .is_none()
-                && before
-                    .get(&c2.parent().unwrap_or(RigidBodyHandle::invalid()))
-                    .is_none()
-            {
+            let stepped = |c: &Collider| c.parent().is_some_and(|b| before.contains_key(&b));
+            if !stepped(c1) && !stepped(c2) {
                 continue;
             }
             let last = self.pair_times.insert(key, self.time);
@@ -1832,21 +1835,10 @@ impl Physics {
                 })
             };
             let mass = |c: &Collider| dynamic(c).map_or(0., |b| b.mass());
-            let angular = |c: &Collider| {
-                let (Some(b), Some((_, w, _))) =
-                    (dynamic(c), c.parent().and_then(|h| before.get(&h)))
-                else {
-                    return (0., 0.);
-                };
-                let props = b.mass_properties().local_mprops;
-                let frame = b.rotation() * props.principal_inertia_local_frame;
-                let local = frame.inverse_transform_vector(w) * (180. / std::f32::consts::PI);
-                let s = props.inv_principal_inertia_sqrt;
-                let inertia = |k: f32| if k > 0. { 1. / (k * k) } else { 0. };
-                let momentum = (inertia(s.x) * local.x).abs()
-                    + (inertia(s.y) * local.y).abs()
-                    + (inertia(s.z) * local.z).abs();
-                (local.norm(), momentum)
+            let angular = |c: &Collider| match (dynamic(c), c.parent().and_then(|h| before.get(&h)))
+            {
+                (Some(b), Some((_, w, _))) => angular_motion(b, w),
+                _ => (0., 0.),
             };
             self.collisions.push(PhysicsCollision {
                 angular: [angular(c1), angular(c2)],
@@ -1866,12 +1858,7 @@ impl Physics {
                 delta_time: last.map_or(f32::MAX, |t| (self.time - t) as f32),
             });
         }
-        // Forget pair times of colliders that no longer exist.
-        if self.pair_times.len() > 4096 {
-            let colliders = &self.colliders;
-            self.pair_times
-                .retain(|(a, b), _| colliders.contains(*a) && colliders.contains(*b));
-        }
+        self.forget_pair_times();
         self.touching = touching;
         impact_order(&mut self.collisions);
     }
@@ -3538,6 +3525,20 @@ impl CollisionWorld for Physics {
         }
         result
     }
+}
+
+/// A body's angular speed (degrees per second, in its principal frame) for an angular
+/// velocity `w`, and the summed |I_k w_k| over its principal axes.
+fn angular_motion(body: &RigidBody, w: &Vector<Real>) -> (f32, f32) {
+    let props = body.mass_properties().local_mprops;
+    let frame = body.rotation() * props.principal_inertia_local_frame;
+    let local = frame.inverse_transform_vector(w) * (180. / std::f32::consts::PI);
+    let s = props.inv_principal_inertia_sqrt;
+    let inertia = |k: f32| if k > 0. { 1. / (k * k) } else { 0. };
+    let momentum = (inertia(s.x) * local.x).abs()
+        + (inertia(s.y) * local.y).abs()
+        + (inertia(s.z) * local.z).abs();
+    (local.norm(), momentum)
 }
 
 #[cfg(test)]
