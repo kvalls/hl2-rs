@@ -3074,6 +3074,16 @@ impl Physics {
                 && !self.world_sides.clip_brushes.contains(&handle)
                 && !excluded.contains(&(collider.user_data as usize).wrapping_sub(1))
         };
+        self.cast_shot(origin, direction, distance, &predicate)
+    }
+    /// One ray cast (QUERY_GROUPS) under `predicate`, as a RayHit with its hitgroup and bone.
+    fn cast_shot(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        distance: f32,
+        predicate: &dyn Fn(ColliderHandle, &Collider) -> bool,
+    ) -> Option<RayHit> {
         let ray = Ray::new(
             Point::from(vector(origin)),
             vector![direction.x, direction.y, direction.z],
@@ -3113,26 +3123,7 @@ impl Physics {
                     .get(&handle)
                     .is_none_or(|contents| contents & MASK_SHOT != 0)
         };
-        let ray = Ray::new(
-            Point::from(vector(origin)),
-            vector![direction.x, direction.y, direction.z],
-        );
-        let (h, hit) = self.query.cast_ray_and_get_normal(
-            &self.bodies,
-            &self.colliders,
-            &ray,
-            distance * SCALE,
-            true,
-            groups_filter(QUERY_GROUPS).predicate(&predicate),
-        )?;
-        let id = self.colliders[h].user_data as usize;
-        Some(RayHit {
-            entity: id.wrapping_sub(1),
-            position: origin + direction * (hit.time_of_impact / SCALE),
-            normal: Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z),
-            hitgroup: self.hitgroup(h),
-            bone: self.hitbox_bone(h),
-        })
+        self.cast_shot(origin, direction, distance, &predicate)
     }
     /// Ground trace under the player (MASK_PLAYERSOLID: clip brushes count).
     pub fn ground_ray(&self, origin: Vec3, direction: Vec3, distance: f32) -> Option<RayHit> {

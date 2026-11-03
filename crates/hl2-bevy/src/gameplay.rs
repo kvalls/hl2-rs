@@ -713,19 +713,22 @@ impl Gameplay {
     /// npc_headcrab_poison from its pool template at the zombie's EyePosition with its
     /// angles, SF_NPC_FALL_TO_GROUND (and SF_NPC_FADE_CORPSE when the zombie has it), set
     /// on fire for 100 s when the zombie burns, then thrown at the enemy's eyes.
+    /// GetHeadcrabClassname's npc_headcrab_poison pool template (the same CBlackHeadcrab
+    /// as npc_headcrab_black, whose template stands in when the map has none).
+    fn black_crab_template(&self) -> Option<usize> {
+        ["npc_headcrab_poison", "npc_headcrab_black"]
+            .iter()
+            .find_map(|class| {
+                hl2_simulation::ai::spawn::templates(&self.world, class)
+                    .first()
+                    .copied()
+            })
+    }
     fn throw_crabs(&mut self, physics: &mut Physics) {
         for (zombie, eye, yaw, target) in std::mem::take(&mut self.ai.crab_throws) {
             // GetHeadcrabClassname: npc_headcrab_poison (the same CBlackHeadcrab as
             // npc_headcrab_black, whose pool template stands in when the map has none).
-            let Some(&template) = ["npc_headcrab_poison", "npc_headcrab_black"]
-                .iter()
-                .find_map(|class| {
-                    hl2_simulation::ai::spawn::templates(&self.world, class)
-                        .first()
-                        .copied()
-                })
-                .as_ref()
-            else {
+            let Some(template) = self.black_crab_template() else {
                 self.zombie_split_failures
                     .push(format!("{zombie}: no black headcrab template"));
                 continue;
@@ -831,15 +834,7 @@ impl Gameplay {
                     continue;
                 }
             }
-            let Some(&template) = ["npc_headcrab_poison", "npc_headcrab_black"]
-                .iter()
-                .find_map(|class| {
-                    hl2_simulation::ai::spawn::templates(&self.world, class)
-                        .first()
-                        .copied()
-                })
-                .as_ref()
-            else {
+            let Some(template) = self.black_crab_template() else {
                 continue;
             };
             let flags = hl2_simulation::npc_makers::SF_NPC_FALL_TO_GROUND;
