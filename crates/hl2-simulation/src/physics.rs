@@ -2034,6 +2034,30 @@ impl Physics {
         // (physics-research-20261013b/drag-axes) remains open.
         body
     }
+    /// CRagdollCollisionRules: every pair, or only the listed pairs without self
+    /// collisions; joined pairs are excluded by their joints.
+    fn ragdoll_collision_rules(
+        &mut self,
+        model: &modkit_core::RagdollModel,
+        handles: &[RigidBodyHandle],
+    ) {
+        for i in 0..handles.len() {
+            for j in i + 1..handles.len() {
+                let listed = model
+                    .collision_pairs
+                    .iter()
+                    .any(|&(a, b)| (a, b) == (i, j) || (a, b) == (j, i));
+                if model.self_collisions || listed {
+                    self.world_sides
+                        .ragdoll_pairs
+                        .insert((handles[i], handles[j]));
+                    self.world_sides
+                        .ragdoll_pairs
+                        .insert((handles[j], handles[i]));
+                }
+            }
+        }
+    }
     /// RagdollCreate: one body per ragdoll solid at its bone's world pose (`poses`, one
     /// per body: RagdollAddSolid's SetPositionMatrix(pCurrentBones)), the authored mass,
     /// damping and IVP inertia, joined by ragdoll constraints (child limits about the
@@ -2123,24 +2147,7 @@ impl Physics {
         if handles.len() != model.bodies.len() {
             return handles;
         }
-        // CRagdollCollisionRules: every pair, or only the listed pairs without self
-        // collisions; joined pairs are excluded by their joints.
-        for i in 0..handles.len() {
-            for j in i + 1..handles.len() {
-                let listed = model
-                    .collision_pairs
-                    .iter()
-                    .any(|&(a, b)| (a, b) == (i, j) || (a, b) == (j, i));
-                if model.self_collisions || listed {
-                    self.world_sides
-                        .ragdoll_pairs
-                        .insert((handles[i], handles[j]));
-                    self.world_sides
-                        .ragdoll_pairs
-                        .insert((handles[j], handles[i]));
-                }
-            }
-        }
+        self.ragdoll_collision_rules(model, &handles);
         for joint in &model.joints {
             let (translation, rotation) = joint.child_in_parent;
             let limit = |axis: usize| {
