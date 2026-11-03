@@ -8,10 +8,8 @@
 //! moan clock outside combat).
 use super::assault::Assault;
 use super::conditions::{
-    Cond, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1, COND_CAN_RANGE_ATTACK2,
-    COND_ENEMY_DEAD, COND_ENEMY_OCCLUDED, COND_ENEMY_UNREACHABLE, COND_LOST_ENEMY, COND_NEW_ENEMY,
-    COND_NOT_FACING_ATTACK, COND_SEE_ENEMY, COND_TOO_CLOSE_TO_ATTACK, COND_TOO_FAR_TO_ATTACK,
-    LAST_SHARED_CONDITION,
+    Cond, Conditions, COND_CAN_MELEE_ATTACK1, COND_ENEMY_DEAD, COND_ENEMY_UNREACHABLE,
+    COND_LOST_ENEMY, COND_NOT_FACING_ATTACK, COND_TOO_FAR_TO_ATTACK, LAST_SHARED_CONDITION,
 };
 use super::metropolice::CopRequest;
 use super::schedule::{
@@ -22,6 +20,20 @@ use super::state::NpcState;
 use crate::sounds::PatchOp;
 use glam::Vec3;
 use serde::Serialize;
+pub mod fast;
+mod poison;
+mod swat;
+pub use poison::{
+    poison_range_condition, AE_POISON_PICKUP_CRAB, AE_POISON_THROW_CRAB, AE_POISON_THROW_SOUND,
+    AE_POISON_THROW_WARN_SOUND, BODYGROUP_NEST_BASE, BODYGROUP_THROW, BREATH_VOL_MAX,
+    ENEMY_BREATHE_DIST, HC_LEAP_CONE, HC_LEAP_RANGE, POISON_FAST_BREATH, POISON_SLOW_BREATH,
+    THROW_CONE, THROW_DELAY, THROW_FIRST_DELAY, THROW_RANGE,
+};
+pub use swat::{
+    dist_approx_2d, find_nearest_physics_object, swat_activity, swat_search_box, swat_velocity,
+    SwatCandidate, AE_SWATITEM, ATTACKITEM_FORCE, ATTACKITEM_MAX_MASS, FARTHEST_PHYSICS_OBJECT,
+    MAX_PHYSOBJ_MASS, PHYSOBJ_SWATDIST, PLAYER_MAX_SWAT_DIST, SWAT_DELAY, SWAT_SCAN_INTERVAL,
+};
 
 /// ZOMBIE_MELEE_REACH (GetClawAttackRange).
 pub const CLAW_REACH: f32 = 55.;
@@ -33,63 +45,6 @@ pub const COND_BLOCKED_BY_DOOR: Cond = Cond(LAST_SHARED_CONDITION + 3);
 pub const COND_DOOR_OPENED: Cond = Cond(LAST_SHARED_CONDITION + 4);
 /// m_NextTimeToStartDoorBash's interval (CSimTimer 3.0).
 pub const DOOR_BASH_INTERVAL: f64 = 3.;
-/// ZOMBIE_MAX_PHYSOBJ_MASS: the heaviest object a zombie swats (kg).
-pub const MAX_PHYSOBJ_MASS: f32 = 60.;
-/// ZOMBIE_PHYSOBJ_SWATDIST: swat from this close (UTIL_DistApprox2D to the object center).
-pub const PHYSOBJ_SWATDIST: f32 = 80.;
-/// ZOMBIE_PLAYER_MAX_SWAT_DIST: no swats while the enemy is farther than this.
-pub const PLAYER_MAX_SWAT_DIST: f32 = 1000.;
-/// ZOMBIE_FARTHEST_PHYSICS_OBJECT (40 feet); the search box is half of it at most.
-pub const FARTHEST_PHYSICS_OBJECT: f32 = 480.;
-/// ZOMBIE_SWAT_DELAY: no new object scan this long after a swat.
-pub const SWAT_DELAY: f64 = 5.;
-/// CNPC_BaseZombie::SelectFailSchedule swats an obstructor lighter than this (kg).
-pub const ATTACKITEM_MAX_MASS: f32 = 100.;
-/// ClawAttack's push on the swatted obstructor (5 x 24, the damage force).
-pub const ATTACKITEM_FORCE: f32 = 120.;
-/// CNPC_PoisonZombie (npc_PoisonZombie.cpp): the throw (range attack 2) and the
-/// headcrab leap off its back (range attack 1) ranges and cones, the first throw after a
-/// new enemy and the time between throws (RandomInt seconds).
-pub const THROW_RANGE: (f32, f32) = (250., 800.);
-pub const THROW_CONE: f32 = 0.6;
-pub const HC_LEAP_RANGE: (f32, f32) = (12., 256.);
-pub const HC_LEAP_CONE: f32 = 0.6;
-pub const THROW_FIRST_DELAY: (i32, i32) = (1, 2);
-pub const THROW_DELAY: (i32, i32) = (4, 10);
-/// ZOMBIE_BODYGROUP_NEST_BASE (three nest crabs from here) and ZOMBIE_BODYGROUP_THROW.
-pub const BODYGROUP_NEST_BASE: usize = 2;
-pub const BODYGROUP_THROW: usize = 5;
-pub const AE_POISON_PICKUP_CRAB: &str = "AE_ZOMBIE_POISON_PICKUP_CRAB";
-pub const AE_POISON_THROW_WARN_SOUND: &str = "AE_ZOMBIE_POISON_THROW_WARN_SOUND";
-pub const AE_POISON_THROW_SOUND: &str = "AE_ZOMBIE_POISON_THROW_SOUND";
-pub const AE_POISON_THROW_CRAB: &str = "AE_ZOMBIE_POISON_THROW_CRAB";
-/// CNPC_PoisonZombie::RangeAttack1Conditions (`leap`: the crab leap off its back) or
-/// RangeAttack2Conditions (the throw): nothing without crabs or before the next throw
-/// time, then the range, then the cone.
-pub fn poison_range_condition(
-    leap: bool,
-    crabs: usize,
-    ready: bool,
-    distance: f32,
-    dot: f32,
-) -> Option<Cond> {
-    let ((min, max), cone, can) = if leap {
-        (HC_LEAP_RANGE, HC_LEAP_CONE, COND_CAN_RANGE_ATTACK1)
-    } else {
-        (THROW_RANGE, THROW_CONE, COND_CAN_RANGE_ATTACK2)
-    };
-    if crabs == 0 || !ready {
-        None
-    } else if distance < min {
-        Some(COND_TOO_CLOSE_TO_ATTACK)
-    } else if distance > max {
-        Some(COND_TOO_FAR_TO_ATTACK)
-    } else if dot < cone {
-        Some(COND_NOT_FACING_ATTACK)
-    } else {
-        Some(can)
-    }
-}
 /// IsPathTaskFailure: the failed task built or followed a route (FAIL_NO_ROUTE..ILLEGAL).
 pub fn path_task(task: &str) -> bool {
     matches!(
@@ -106,114 +61,6 @@ pub fn path_task(task: &str) -> bool {
             | "TASK_RUN_PATH"
             | "TASK_WALK_PATH"
             | "TASK_WAIT_FOR_MOVEMENT"
-    )
-}
-/// GatherConditions rescans this often while it has no object.
-pub const SWAT_SCAN_INTERVAL: f64 = 2.;
-pub const AE_SWATITEM: &str = "AE_ZOMBIE_SWATITEM";
-/// A VPhysics object near a zombie (CZombieSwatEntitiesEnum already required a body <= the
-/// mass limit, asleep and moveable).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SwatCandidate {
-    pub entity: usize,
-    /// WorldSpaceCenter.
-    pub center: Vec3,
-    /// BoundingRadius: half the diagonal of its collision bounds.
-    pub radius: f32,
-    /// The top of its first solid's world AABB (CollideGetAABB).
-    pub top: f32,
-    /// FVisible from the zombie's eyes.
-    pub visible: bool,
-    /// physics_prop_ragdoll / prop_ragdoll (never swatted).
-    pub ragdoll: bool,
-}
-/// UTIL_DistApprox2D: |dx| + |dy|.
-pub fn dist_approx_2d(a: Vec3, b: Vec3) -> f32 {
-    (a.x - b.x).abs() + (a.y - b.y).abs()
-}
-/// The search box half extents around the zombie (UTIL_EntitiesInBox in FindNearestPhysicsObject).
-pub fn swat_search_box(origin: Vec3, enemy: Vec3, hull_height: f32) -> Option<Vec3> {
-    let dist = (enemy - origin).length();
-    (dist <= PLAYER_MAX_SWAT_DIST).then(|| {
-        let near = dist.min(FARTHEST_PHYSICS_OBJECT * 0.5);
-        Vec3::new(near, near, hull_height * 2.)
-    })
-}
-/// CNPC_BaseZombie::FindNearestPhysicsObject's choice among the objects in the box: nearest
-/// (UTIL_DistApprox2D) below min(enemy distance, 240), toward the enemy (2D dot >= 0.8), nearer
-/// the zombie than the enemy, reaching above the knees, center below the eyes, visible, not a
-/// ragdoll (HL2 is not hl2_episodic: the enemy need not see it).
-pub fn find_nearest_physics_object(
-    origin: Vec3,
-    enemy: Vec3,
-    knees_z: f32,
-    eye_z: f32,
-    candidates: &[SwatCandidate],
-) -> Option<usize> {
-    let to_enemy = enemy - origin;
-    let dist = to_enemy.length();
-    if dist > PLAYER_MAX_SWAT_DIST {
-        return None;
-    }
-    let dir_enemy = (to_enemy / dist.max(1e-6)).truncate().extend(0.);
-    let mut nearest = dist.min(FARTHEST_PHYSICS_OBJECT * 0.5);
-    let mut best = None;
-    for c in candidates {
-        let d = dist_approx_2d(origin, c.center);
-        if d >= nearest {
-            continue;
-        }
-        let dir_object = (c.center - origin)
-            .normalize_or_zero()
-            .truncate()
-            .extend(0.);
-        if dir_enemy.dot(dir_object) < 0.8 {
-            continue;
-        }
-        if d >= dist_approx_2d(c.center, enemy) {
-            continue;
-        }
-        if c.center.z + c.radius < knees_z || c.center.z > eye_z || c.top < knees_z {
-            continue;
-        }
-        if !c.visible || c.ragdoll {
-            continue;
-        }
-        best = Some(c.entity);
-        nearest = d;
-    }
-    best
-}
-/// CNPC_BaseZombie::GetSwatActivity: the arm on the object's side of the facing (yaw in
-/// degrees), MID when its center is above the zombie's center, else LOW.
-pub fn swat_activity(
-    yaw: f32,
-    origin: Vec3,
-    object_origin: Vec3,
-    center_z: f32,
-    object_center_z: f32,
-) -> &'static str {
-    let y = yaw.to_radians();
-    let right = Vec3::new(y.sin(), -y.cos(), 0.);
-    let to = (object_origin - origin)
-        .normalize_or_zero()
-        .truncate()
-        .extend(0.);
-    let mid = center_z - object_center_z < 0.;
-    match (right.dot(to) >= 0., mid) {
-        (true, true) => "ACT_ZOM_SWATRIGHTMID",
-        (true, false) => "ACT_ZOM_SWATRIGHTLOW",
-        (false, true) => "ACT_ZOM_SWATLEFTMID",
-        (false, false) => "ACT_ZOM_SWATLEFTLOW",
-    }
-}
-/// AE_ZOMBIE_SWATITEM's AddVelocity: 800 in/s from the object center toward the enemy center
-/// plus 200 up, and the local angular velocity (deg/s) from two rolls in [0, 1).
-pub fn swat_velocity(object_center: Vec3, enemy_center: Vec3, rolls: (f32, f32)) -> (Vec3, Vec3) {
-    let v = (enemy_center - object_center).normalize_or_zero() * 800. + Vec3::Z * 200.;
-    (
-        v,
-        Vec3::new(-180. + 360. * rolls.0, 20., -360. + 720. * rolls.1),
     )
 }
 /// The zombie classes under this AI.
@@ -264,14 +111,6 @@ impl Kind {
 /// m_flFieldOfView (CZombie::Spawn).
 pub const FIELD_OF_VIEW: f32 = 0.2;
 
-/// Every sound cue this class emits (the host preloads them; a cue that is not
-/// preloaded is dropped).
-/// CNPC_PoisonZombie's breathing loops: m_pFastBreathSound and m_pSlowBreathSound.
-pub const POISON_FAST_BREATH: &str = "NPC_PoisonZombie.FastBreath";
-pub const POISON_SLOW_BREATH: &str = "NPC_PoisonZombie.Moan1";
-/// BREATH_VOL_MAX and ZOMBIE_ENEMY_BREATHE_DIST.
-pub const BREATH_VOL_MAX: f32 = 0.6;
-pub const ENEMY_BREATHE_DIST: f32 = 300.;
 /// The burning walk: the controller's locomotion variant while a zombie burns.
 pub const WALK_ON_FIRE: &str = "ACT_WALK_ON_FIRE";
 /// CZombie::pMoanSounds: m_pMoanSound's cue, GetMoanSound(m_iMoanSound) (spawn order).
@@ -281,6 +120,8 @@ pub const MOAN_SOUNDS: [&str; 4] = [
     "NPC_BaseZombie.Moan3",
     "NPC_BaseZombie.Moan4",
 ];
+/// Every sound cue this class emits (the host preloads them; a cue that is not
+/// preloaded is dropped).
 pub const SOUNDS: &[&str] = &[
     "Zombie.FootstepLeft",
     "Zombie.FootstepRight",
@@ -715,124 +556,6 @@ impl Zombie {
             "ACT_ZOMBIE_WALLPOUND"
         }
     }
-    /// m_nCrabCount: the nest crabs left.
-    pub fn crab_count(&self) -> usize {
-        self.nest.map_or(0, |n| n.iter().filter(|c| **c).count())
-    }
-    /// RandomThrowCrab: a random nest crab that is still there.
-    fn random_throw_crab(&mut self) -> usize {
-        let nest = self.nest.unwrap_or_default();
-        if !nest.contains(&true) {
-            return 0;
-        }
-        loop {
-            let crab = ((self.random() * 3.) as usize).min(2);
-            if nest[crab] {
-                return crab;
-            }
-        }
-    }
-    /// The two range conditions of a think; a CAN condition picks the crab to throw.
-    pub fn poison_range_conditions(
-        &mut self,
-        now: f64,
-        distance: f32,
-        dot: f32,
-    ) -> [Option<Cond>; 2] {
-        let ready = now >= self.next_crab_throw;
-        let crabs = self.crab_count();
-        let conditions =
-            [true, false].map(|leap| poison_range_condition(leap, crabs, ready, distance, dot));
-        if conditions
-            .iter()
-            .any(|c| matches!(*c, Some(COND_CAN_RANGE_ATTACK1 | COND_CAN_RANGE_ATTACK2)))
-        {
-            self.throw_crab = self.random_throw_crab();
-        }
-        conditions
-    }
-    /// CNPC_PoisonZombie::PrescheduleThink's first throw 1-2 s after a new enemy, and
-    /// OnTakeDamage_Alive's throw at once after a hit of 20% of max health or more.
-    pub fn poison_think(&mut self, now: f64, new_enemy: bool, damage_fraction: f32) {
-        if new_enemy {
-            let (min, max) = THROW_FIRST_DELAY;
-            self.next_crab_throw = now + self.random_int(min, max);
-        }
-        if damage_fraction >= 0.2 {
-            self.next_crab_throw = now;
-        }
-    }
-    /// AE_ZOMBIE_POISON_PICKUP_CRAB: EnableCrab(m_nThrowCrab, false) and the crab in hand.
-    pub fn pick_up_crab(&mut self) {
-        let crab = self.throw_crab.min(2);
-        if let Some(nest) = &mut self.nest {
-            nest[crab] = false;
-        }
-        self.holding_crab = true;
-        self.requests.push(CopRequest::SetBodygroup {
-            group: BODYGROUP_NEST_BASE + crab,
-            value: 0,
-        });
-        self.requests.push(CopRequest::SetBodygroup {
-            group: BODYGROUP_THROW,
-            value: 1,
-        });
-    }
-    /// AE_ZOMBIE_POISON_THROW_CRAB: the hand empties, a black crab is thrown at the
-    /// enemy's eyes and the next throw waits RandomInt(4, 10) s.
-    pub fn throw_held_crab(&mut self, now: f64, target: Option<Vec3>) {
-        self.holding_crab = false;
-        self.requests.push(CopRequest::SetBodygroup {
-            group: BODYGROUP_THROW,
-            value: 0,
-        });
-        self.requests.push(CopRequest::ThrowCrab { target });
-        self.crabs_thrown += 1;
-        let (min, max) = THROW_DELAY;
-        self.next_crab_throw = now + self.random_int(min, max);
-    }
-    /// RandomInt(min, max) seconds.
-    fn random_int(&mut self, min: i32, max: i32) -> f64 {
-        let span = (max - min + 1) as f32;
-        f64::from(min + ((self.random() * span) as i32).min(max - min))
-    }
-    /// CAI_BaseNPC::SelectCombatSchedule as CNPC_PoisonZombie gets it (innate melee and,
-    /// while it has crabs, innate range attacks): back away when a throw is too close,
-    /// leap, throw, claw, face, else shamble on.
-    fn poison_combat_schedule(&self, npc: &AiNpc, ctx: &Context) -> &'static str {
-        let c = &npc.conditions;
-        let range = self.crab_count() > 0 || self.holding_crab;
-        if c.has(COND_NEW_ENEMY)
-            && npc
-                .enemy
-                .and_then(|e| npc.enemies.find(Some(e)))
-                .is_some_and(|m| ctx.now - m.time_first_seen < 2.)
-        {
-            "SCHED_WAKE_ANGRY"
-        } else if !c.has(COND_SEE_ENEMY) {
-            if !c.has(COND_ENEMY_OCCLUDED) {
-                "SCHED_COMBAT_FACE"
-            } else if range {
-                "SCHED_ESTABLISH_LINE_OF_FIRE"
-            } else {
-                "SCHED_CHASE_ENEMY"
-            }
-        } else if c.has(COND_TOO_CLOSE_TO_ATTACK) {
-            "SCHED_BACK_AWAY_FROM_ENEMY"
-        } else if c.has(COND_CAN_RANGE_ATTACK1) {
-            "SCHED_RANGE_ATTACK1"
-        } else if c.has(COND_CAN_RANGE_ATTACK2) {
-            "SCHED_RANGE_ATTACK2"
-        } else if c.has(COND_CAN_MELEE_ATTACK1) {
-            "SCHED_MELEE_ATTACK1"
-        } else if c.has(COND_NOT_FACING_ATTACK) {
-            "SCHED_COMBAT_FACE"
-        } else if c.has(COND_TOO_FAR_TO_ATTACK) && range {
-            "SCHED_MOVE_TO_WEAPON_RANGE"
-        } else {
-            "SCHED_CHASE_ENEMY"
-        }
-    }
     /// GatherConditions scans for swats only in combat and not as a torso.
     pub fn swats(&self) -> bool {
         self.kind.swats() && !self.torso
@@ -849,94 +572,6 @@ impl Zombie {
         self.seed ^= self.seed >> 7;
         self.seed ^= self.seed << 17;
         (self.seed >> 40) as f32 / (1u64 << 24) as f32
-    }
-    /// CNPC_PoisonZombie's breathing (Spawn and PrescheduleThink): FastBreath (ATTN_IDLE)
-    /// silent and Moan1 at BREATH_VOL_MAX; an enemy within 300 units ramps the fast
-    /// breath up over U(1, 2) s (pitch 100-120 over U(1, 2) s) and the slow one out. The
-    /// SDK's far branch also ramps the fast breath to BREATH_VOL_MAX (over U(2, 4) s), so
-    /// once near it keeps breathing fast; ported as written.
-    pub fn breathe(&mut self, enemy_distance: Option<f32>) {
-        if !self.breathing {
-            self.breathing = true;
-            self.requests.push(CopRequest::Patch {
-                cue: POISON_FAST_BREATH,
-                op: PatchOp::Play {
-                    volume: 0.,
-                    pitch: 100.,
-                },
-            });
-            self.requests.push(CopRequest::Patch {
-                cue: POISON_SLOW_BREATH,
-                op: PatchOp::Play {
-                    volume: BREATH_VOL_MAX,
-                    pitch: 100.,
-                },
-            });
-        }
-        let near = enemy_distance.is_some_and(|d| d < ENEMY_BREATHE_DIST);
-        if near == self.near_enemy {
-            return;
-        }
-        self.near_enemy = near;
-        let seconds = if near {
-            1. + self.random()
-        } else {
-            2. + 2. * self.random()
-        };
-        self.requests.push(CopRequest::Patch {
-            cue: POISON_FAST_BREATH,
-            op: PatchOp::Volume {
-                volume: BREATH_VOL_MAX,
-                seconds,
-            },
-        });
-        if near {
-            let pitch = 100. + (self.random() * 21.).floor().min(20.);
-            let pitch_seconds = 1. + self.random();
-            self.requests.push(CopRequest::Patch {
-                cue: POISON_FAST_BREATH,
-                op: PatchOp::Pitch {
-                    pitch,
-                    seconds: pitch_seconds,
-                },
-            });
-        }
-        self.requests.push(CopRequest::Patch {
-            cue: POISON_SLOW_BREATH,
-            op: PatchOp::Volume {
-                volume: 0.,
-                seconds,
-            },
-        });
-    }
-    /// CNPC_PoisonZombie::BreatheOffShort before a vocal sound: the current breath drops
-    /// out for two seconds (envPoisonZombieBreatheVolumeOffShort).
-    pub fn breathe_off_short(&mut self) {
-        if !self.breathing {
-            return;
-        }
-        let cue = if self.near_enemy {
-            POISON_FAST_BREATH
-        } else {
-            POISON_SLOW_BREATH
-        };
-        self.requests.push(CopRequest::Patch {
-            cue,
-            op: PatchOp::Envelope {
-                points: [(0., 0.1), (0., 2.), (BREATH_VOL_MAX, 1.)],
-            },
-        });
-    }
-    /// StopLoopingSounds (death): both breathing patches go.
-    pub fn stop_breathing(&mut self) {
-        if std::mem::take(&mut self.breathing) {
-            for cue in [POISON_FAST_BREATH, POISON_SLOW_BREATH] {
-                self.requests.push(CopRequest::Patch {
-                    cue,
-                    op: PatchOp::Destroy,
-                });
-            }
-        }
     }
     /// CZombie::Ignite (classic zombies and torsos; the poison zombie keeps its own
     /// sounds): ungagged, MoanSound(envZombieMoanIgnited) on m_pMoanSound (created at
@@ -1299,6 +934,9 @@ impl Behavior for Zombie {
 
 #[cfg(test)]
 mod tests {
+    use super::super::conditions::{
+        COND_CAN_RANGE_ATTACK1, COND_CAN_RANGE_ATTACK2, COND_SEE_ENEMY, COND_TOO_CLOSE_TO_ATTACK,
+    };
     use super::*;
     #[test]
     fn claw_conditions_need_reach_facing_and_a_hit() {

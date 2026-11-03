@@ -286,12 +286,7 @@ pub fn default_select_schedule(npc: &AiNpc, ctx: &Context) -> String {
             }
         }
         NpcState::Combat => {
-            if c.has(COND_NEW_ENEMY)
-                && npc
-                    .enemy
-                    .and_then(|e| npc.enemies.find(Some(e)))
-                    .is_some_and(|m| ctx.now - m.time_first_seen < 2.)
-            {
+            if npc.wakes_angry(ctx.now) {
                 "SCHED_WAKE_ANGRY"
             } else if !c.has(COND_SEE_ENEMY) {
                 if !c.has(COND_ENEMY_OCCLUDED) {

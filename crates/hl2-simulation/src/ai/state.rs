@@ -23,6 +23,16 @@ pub enum NpcState {
 }
 /// TIME_CARE_ABOUT_DAMAGE.
 pub const TIME_CARE_ABOUT_DAMAGE: f64 = 3.;
+impl super::schedule::AiNpc {
+    /// SelectCombatSchedule's first choice: a new enemy first seen under 2 s ago.
+    pub fn wakes_angry(&self, now: f64) -> bool {
+        self.conditions.has(COND_NEW_ENEMY)
+            && self
+                .enemy
+                .and_then(|e| self.enemies.find(Some(e)))
+                .is_some_and(|m| now - m.time_first_seen < 2.)
+    }
+}
 
 /// What SelectIdealState looks at.
 pub struct StateInputs {
