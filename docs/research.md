@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Current-count admission, static type candidates and evidence seal (2026-11-03 HD–HF)
+
+A bounded static lookup records82 file-backed vtable/RTTI candidates for slot274h targeting the exact pose copier. Raw class names, hierarchy/PMD fields, locations andrelocation provenance remain static candidates; none identifies the unobserved native object vptr oractual dispatch. A separate authored reader admits the current count's wrapper/virtual/local/null routing, API BOOL/count/error, widened ranges andsymmetric rechecks. It retains negative/above24 values as raw diagnostics. Integration andactual native count/getter history remain open. The expanded35-root integrity check preserves all prior scopes andthe zero-spawn owner-game deferral. No original first-map gap is closed andno Rust parity claim is made.
+
 ## Poseparameter count, untouched tail and x87 copy (2026-11-03 HA–HC)
 
 The next native nested observation is deferred by a fresh ownership/cursor guard before process creation. Offline exact-body/byte evidence identifies count101ba580 andcopy100a46d0: a virtual model selects its count at+50h; otherwise the root header supplies its local count ornull yields0. All32 retained GU wrappers have a nonnull virtual-model pointer, whose count word is unobserved. The four owned model candidates have local pose counts1/9/1/2 with shared names; summing them would not establish the loaded virtual count.

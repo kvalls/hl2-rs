@@ -1,5 +1,9 @@
 # Design
 
+## Next bounded research integration (2026-11-03 HE)
+
+HE admits only the standalone symmetric current-count reader. Integrate its separate journal within the existing nested interval; derive all identity fields from the same active exception/lifetime/generation, compare its wrapper8 with the independently read current model-wrapper prefix, andexercise full/partial caps plus unchanged caller FP. Preserve raw signed count andnominal-domain diagnostics; a coherent out-of-range count is not retroactively a corrupted capture. A later native root needs fresh ownership admission. Match any subsequently observed vptr to HDstatic candidates only after module/generation normalization, preserving type-candidate versus entity-handle/serial/actor identity. No virtual-function invocation orclaim of earlier getter consumption is authorized by those reads alone.
+
 ## Research refinement: raw pose span and current count (2026-11-03 HB/HC)
 
 Treat the planned96-byte pose span as raw stack words. Exact retail copy100a46d0 writes only a dynamically counted prefix, uses x87 FLD/FSTP, supplies no24 clamp anddoes not clear the tail. A nonnull virtual-model pointer selects the count at virtual+50h rather than the local-header count. Separately fixture-admit symmetric wrapper8/current-count4 reads with full pointer/branch/BOOL/error/identity controls before interpreting a current prefix. Preserve unused/raw words andunusual IEEE domains. Even a current count at the later initializer RET does not establish the count orvalues consumed by an earlier getter; that history needs its own witness. Keep isolated safe oversized-count/precision experiments separate from native state.

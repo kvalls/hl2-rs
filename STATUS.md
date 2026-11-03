@@ -1,5 +1,11 @@
 # STATUS
 
+## Research closeout: current-count admission and integrity (2026-11-03 HD–HF)
+
+HD records82 bounded static vtable/RTTI candidates for getter slot274h, with18corruptions; no loaded object vptr orselected dispatch is observed. HE process57856 exits0:35current-count reader cases/92reads/32corruptions pass, including16API controls/three actual read faults/two mutations andraw out-of-range count diagnostics. Independent review finds no material C/Python disagreement. HE remains standalone; stop/cap/FP integration andnative count/history are unproven.
+
+HF independently checks35 frozen roots (21prior/14current),1735local entries/418external bindings/1832unique files/594502952bytes plus reference refresh. Rejected/deferred results retain their boundaries. Latest private handoff: work/publishing/research-followup-continuation-20261103hg.md. Next integrate HE with the admitted nested observer, then use a new native root only after a fresh ownership guard clears. No Rust action, original gap closure, actor/cache/final pose/campaign completion orparity claim.
+
 ## Nested native deferral and poseparameter prefix boundary (2026-11-03 HA–HC)
 
 At20:03:30UTC, HA's fresh guard finds a preexisting foreground game holding the cursor andrefuses before any debugger/game spawn. No owner game/control/cursor state is changed; actual native attempts0. Nested frame/context/object andloaded caller33 remain unobserved. Continue offline rather than reusing that guard or rerunning the frozen root.

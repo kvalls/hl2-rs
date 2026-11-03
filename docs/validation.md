@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Current-count reader and expanded integrity closeout (2026-11-03 HD–HF)
+
+HD read-only audit/manifest:82bounded static candidates/18corruptions pass; actual loaded vptr/dispatch unobserved. HE process57856 exits0:35cases/92reads/32corruptions,16API controls/three actual inaccessible reads/two symmetric mutations; virtual precedence/null zero/endpoints andraw out-of-nominal diagnostics pass. HE stop/cap/FP integration is **not tested**. HF independent streaming inventory/hash/receipt check passes35roots/1735local entries/418external occurrences/1832unique files/594502952bytes plus selected refreshed-reference bindings; it reruns no producer anddoes not promote rejected captures. Documentation-only publication uses whitespace/selected-file/ignore checks; Rust/gameplay tests are **not run** for this research closeout.
+
 ## Deferred native nested run and exact pose-copy fixture (2026-11-03 HA–HC)
 
 HA deferral/manifest checks pass:20:03:30UTC preexisting foreground game/cursor clip, no debugger/game spawn, actual attempts0. HB exact static27/64-byte functions/full module/index/body identities,16corruptions/eight loop-shape assertions andfour owned descriptor sets pass; loaded virtual count remains unknown. HC process57420 exits0:45cases withCW007f/027f/037f andnull/direct/virtual counts;498copied/942untouched words,72signaling-NaN quietings, masked exception bits/CW/MXCSR/XMM, source/code/stack/guards andimmediate235-byte original-FP restoration pass;28corruptions reject. Safe oversized counts25/32 are conditional authored controls. The initial build/prelaunch syntax failure is retained; no executable ran then. Actual native nested bytes/getter input/count/history, actor/cache/final pose/campaign/Rust parity **not tested**.
