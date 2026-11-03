@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-03 session 42 (recorded by session 43): headcrab leap gate and back-away (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5 (session 42 wrote the code and commit messages; session 43, same application and model, wrote this entry because session 42 ran out of usage before its handoff). No subagents.
+
+**Changed / Why:** The doorway leap difference of session 42's native A/B (native fast crabs pass d1_town_02's doorway at x -996, ours leapt into its 8-unit step). 4ee508e: CBaseHeadcrab::RangeAttack1Conditions' high-enemy hull check (eyes more than 36 units above the crab's origin: a hull trace from 1 unit up, 8 units toward them, that meets anything but the enemy is COND_TOO_CLOSE_TO_ATTACK). 5800c10: TASK_FIND_BACKAWAY_FROM_SAVEPOSITION had no handler, so every SCHED_BACK_AWAY_FROM_ENEMY failed and SelectFailSchedule leapt again; `npc::Controller::find_backaway` (npc/backaway.rs) ports CAI_TacticalServices::FindBackAwayPos (FindVectorGoal 120 units away with deflection, FindBackAwayNode, then hull width x 4) and the task sets a run goal there; shared by every class that backs away.
+
+**Tested how / Result:** Unit tests (open floor, wall behind with deflection, boxed in); packaged far-spawn crab fixtures artifacts/s42 fast-crab-far6/8/13 (leap, bite, back away, leap again). On the final build: regression s42b-regression 26/26, 17/17, 26/26; PR #4 gameplay replays 72 of 72 (s42-replays-gameplay-c.log).
+
+**Still broken or not tested:** native A/B of the doorway after the fix; owned tests on the merged build had 5 unclassified failures (STATUS session 42); the architecture check still fails on sessions 35-42 code.
+
+**Next:** session 43: classify the owned failures, architecture debt, npc_fastzombie.
+
 ## 2026-11-03: research integrity seal and caller-frame plan (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent checked wrapper arithmetic and claim limits.
