@@ -9,6 +9,7 @@ use modkit_core::{animation::RootMotion, World};
 use serde::Serialize;
 use source_assets::{models::MotionSequence, navigation::Graph, vpk::Vfs};
 use std::collections::{BTreeMap, BTreeSet};
+mod backaway;
 
 /// GoalKey::scene reserved for AI navigation goals (step 14); scenes use entity ids.
 pub const AI_SCENE: usize = usize::MAX - 1;
@@ -1806,7 +1807,7 @@ mod tests {
     use modkit_core::{animation::MovementRecord, Brush, Entity, Plane};
     use source_assets::navigation::{Link, Node};
 
-    fn cube(min: Vec3, max: Vec3) -> Brush {
+    pub(super) fn cube(min: Vec3, max: Vec3) -> Brush {
         Brush {
             contents: 1,
             planes: vec![
@@ -1837,7 +1838,7 @@ mod tests {
             ],
         }
     }
-    fn world(obstacles: Vec<Brush>) -> World {
+    pub(super) fn world(obstacles: Vec<Brush>) -> World {
         let mut brushes = vec![cube(
             Vec3::new(-1000., -1000., -50.),
             Vec3::new(1000., 1000., 0.),
@@ -1896,7 +1897,7 @@ mod tests {
             force_short: false,
         }
     }
-    fn make_controller(graph: Option<Graph>) -> Controller {
+    pub(super) fn make_controller(graph: Option<Graph>) -> Controller {
         let mut controller = Controller::new(graph, NavRestrictions::default());
         controller
             .register_actor(7, 1., normal_human(1., 18., 1.).unwrap(), locomotion())

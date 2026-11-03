@@ -167,6 +167,10 @@ pub trait Motor {
     fn find_los(&mut self, _threat: Vec3, _threat_eye: Vec3, _min: f32, _max: f32) -> Option<Vec3> {
         None
     }
+    /// CAI_TacticalServices::FindBackAwayPos(threat): where to back away to.
+    fn find_backaway(&mut self, _threat: Vec3) -> Option<Vec3> {
+        None
+    }
 }
 
 /// Per-think facts the class and the generic tasks read.
@@ -533,6 +537,18 @@ impl AiNpc {
             TaskStatus::Failed
         }
     }
+    /// TASK_FIND_BACKAWAY_FROM_SAVEPOSITION: FindBackAwayPos(m_vSavePosition) and a run goal
+    /// there; no enemy (FAIL_NO_ENEMY), no place (FAIL_NO_BACKAWAY_NODE) or no route
+    /// (FAIL_NO_ROUTE) fails the task.
+    fn find_backaway(&mut self, ctx: &Context, motor: &mut dyn Motor) -> TaskStatus {
+        let (Some(_), Some(threat)) = (ctx.enemy, self.save_position) else {
+            return TaskStatus::Failed;
+        };
+        match motor.find_backaway(threat) {
+            Some(goal) if motor.path_to(goal, true) => TaskStatus::Complete,
+            _ => TaskStatus::Failed,
+        }
+    }
     /// TASK_GET_PATH_TO_ENEMY_LKP: the same to the enemy's last known position.
     fn path_to_enemy_lkp(&mut self, ctx: &Context, motor: &mut dyn Motor) -> TaskStatus {
         let Some((enemy, position)) = ctx.enemy else {
@@ -891,6 +907,7 @@ impl AiNpc {
                 self.last_position = None;
                 Complete
             }
+            "TASK_FIND_BACKAWAY_FROM_SAVEPOSITION" => self.find_backaway(ctx, motor),
             "TASK_STORE_ENEMY_POSITION_IN_SAVEPOSITION" => {
                 // GetEnemy()->GetAbsOrigin(), not the LKP.
                 self.save_position = ctx.enemy.map(|e| e.1);

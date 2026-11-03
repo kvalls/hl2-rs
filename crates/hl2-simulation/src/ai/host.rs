@@ -237,6 +237,22 @@ impl Motor for SceneMotor<'_> {
                 sight.visible(feet + Vec3::Z * GUN_HEIGHT, threat_eye, &[me])
             })
     }
+    /// FindBackAwayPos from the NPC's feet, its own body excluded.
+    fn find_backaway(&mut self, threat: Vec3) -> Option<Vec3> {
+        let me = self.entity;
+        let feet = self.scene.states[me].origin;
+        let excluded = [me];
+        self.controller.find_backaway(
+            self.physics,
+            me,
+            feet,
+            threat,
+            crate::npc_probe::Query {
+                excluded_entities: &excluded,
+                ..Default::default()
+            },
+        )
+    }
     fn movement(&self) -> MoveStatus {
         let Some(key) = *self.goal else {
             return MoveStatus::Idle;
