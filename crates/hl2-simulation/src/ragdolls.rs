@@ -424,11 +424,8 @@ impl Ragdolls {
         self.activate(scene, id, skin, ragdoll);
         true
     }
-    /// CRagdollProp::Spawn for the map's prop_ragdolls once their entities exist (at map
-    /// spawn, or at a point_template's ForceSpawn): SetupBones at the entity's angles
-    /// (sequence 0 when its clip is loaded, else the bind pose), RagdollCreate, angleOverride,
-    /// RagdollActivate (asleep with SF_RAGDOLLPROP_STARTASLEEP), then SetAbsAngles(vec3_angle).
-    pub fn spawn_props(&mut self, world: &World, scene: &mut Scene, physics: &mut Physics) {
+    /// The waiting map prop_ragdolls whose entities exist now, taken off the wait list.
+    fn props_ready(&mut self, world: &World, scene: &Scene) -> Vec<usize> {
         let waiting = self.props_waiting.get_or_insert_with(|| {
             world
                 .model_instances
@@ -437,16 +434,20 @@ impl Ragdolls {
                 .filter_map(|i| i.entity)
                 .collect()
         });
-        if waiting.is_empty() {
-            return;
-        }
         let ready: Vec<usize> = waiting
             .iter()
             .copied()
             .filter(|id| scene.states.get(*id).is_some_and(|s| !s.killed))
             .collect();
         waiting.retain(|id| !ready.contains(id));
-        for id in ready {
+        ready
+    }
+    /// CRagdollProp::Spawn for the map's prop_ragdolls once their entities exist (at map
+    /// spawn, or at a point_template's ForceSpawn): SetupBones at the entity's angles
+    /// (sequence 0 when its clip is loaded, else the bind pose), RagdollCreate, angleOverride,
+    /// RagdollActivate (asleep with SF_RAGDOLLPROP_STARTASLEEP), then SetAbsAngles(vec3_angle).
+    pub fn spawn_props(&mut self, world: &World, scene: &mut Scene, physics: &mut Physics) {
+        for id in self.props_ready(world, scene) {
             let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
                 continue;
             };
