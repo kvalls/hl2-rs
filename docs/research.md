@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Conditional replay of actual entry FP state (2026-11-03 FX/FZ)
+
+FZ supplies retained loaded records and all32 observed initializer FP images/masks to the isolated exact initializer, with32 zero-mask controls. Every immediate235-byte meaningful FP seed matches, including observed sticky status/MXCSR. All31360 selected/untouched output words agree with an independent finite copy model; stack, guards, source/RO/code and immediate original-FP restoration pass. This is a conditional result on observed inputs, not native returned output or actor/pose fidelity.
+
+FX's broader paired-hardware controls both rejected at the orphan-return guard; that mechanism is stopped after two real unsuccessful attempts. Only its deliberately held three-pending-call mask0 drain control is admitted, with no selected output slots. Full failed-stop context was not retained, so precise cause is unproven. All failures/raw inputs remain. No native output or Rust parity claim is taken from FX.
+
 ## Loaded default words and parent values (2026-11-03 FR–FW)
 
 A fixture-admitted direct reader now observes32 native initializer entries with symmetric wrapper/header/flags/full70-record reads. All15120 loaded record bytes match the retained owned candidate, including490 default words and70 parent fields; the loaded parent graph derives root0/depth11 and two ancestry-closed mask subsets. This advances the prior candidate-only boundary to actual loaded source data. Output pointers are retained and their observed ranges disjoint; output contents/stores and entry/return pairing remain unobserved. Partial-range identity is not an observed conversion/loading trace, complete asset identity, actor/frame association or composed/rendered pose.

@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: conditional observed-FP replay; paired observer stopped (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent reviewed pairing design/controls; no Rust implementation delegation.
+- Changed/why: FX explored hardware entry/return pairing; two broader controls reject and the mechanism is stopped. FZ uses isolated-buffer execution to replay loaded defaults with actual retained FP images, including sticky state.
+- Tested how/result: only FX held cap3/mask0 admits3 pairs/15 corruptions; mixed24/cap1 failures retained, no selected slots/native output admitted. FZ process28488 exit0,64 exact235-byte seed comparisons/31360 output words/4096 guards/8192 SSE bytes/immediate235-byte original-state restoration;23 corruptions pass. Sources/RO/code/ESP/cleanup pass.
+- Still broken or not tested: native returned outputs, failed-stop full context/cause, actor/frame/full asset/conversion/composed/rendered pose, ordinary campaign and Rust parity. No Rust edit/build/test; first_map_finished:false.
+- Next: validate a different bounded observation mechanism before any native output attempt; never repeat FX's stopped paired-hardware approach. Continue toward98% usage.
+
 ## 2026-11-03 session 42: PR #4 merged into main; main merged into the session 35-41 line (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

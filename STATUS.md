@@ -1,5 +1,13 @@
 # STATUS
 
+## Observed-source/FP conditional initialization replay (2026-11-03 FZ)
+
+After stopping FX, authored process28488 executes only the exact401-byte initializer on FV's loaded direct records and32 actual entry FP images/masks, plus32 zero-mask controls. All64 supplied235-byte meaningful seed images match immediate capture, including sticky CW027f/SW4037/MXCSR1fbf/empty stack.31360 output words pass (15659 selected/15701 untouched),4096 guards,8192 SSE bytes, stack/RO/code/model and final original-state235-byte restoration pass. The last loaded finite position independently predicts the raw empty ST7 slot; tags stay empty.23 corruptions reject. This is conditional replay in a rebased consumed-range scaffold, not actual native returned outputs or a full loaded asset. FX remains stopped; no Rust action or campaign/parity completion.
+
+## Paired hardware observer stopped after two rejected controls (2026-11-03 FX)
+
+FX's deliberately held three-thread/cap3 fixture closes all three returns and exits0 (debugger47628/host46712); it is only a pending-drain control with mask0. Subsequent mixed24 and cap1 controls both reject at the observer's orphan-return guard (debugger27916/host49312 and debugger53032/host51984); both owned hosts are closed and raw failures/input revisions retained. **Stop this paired-hardware approach after these two real unsuccessful controls.** No native output run or output-store/pose claim is admitted. The failed stop's full OS context was not retained before rejection, so its precise cause is unproven; do not guess or rerun with relaxed acceptance. Next use a materially different evidence path: independently audit the captured entry/source contract and validate a deterministic pairing/event-state model before deciding whether a new observer mechanism is warranted. No Rust action; first_map_finished:false.
+
 ## Actual loaded direct defaults and parent fields (2026-11-03 FR–FW)
 
 FR's authored debugger45904/host42840 passes32 entry captures/90 model reads, three accepted70-bone snapshots and13 corruptions; full288-trial caller/FP/cleanup checks pass. FS's separate self-process harness51004 passes32 boundary/mutation/failure cases/135 reads, including actual256-bone buffers, all eight authored API failure positions, four between-pass mutations, seven range endpoints and20 corruptions. It independently replays FR and supports rejected-read shapes without rewriting FR's original conservative parser.
