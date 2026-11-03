@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: research integrity seal and caller-frame plan (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent checked wrapper arithmetic and claim limits.
+- Changed/why: GM seals the expanded evidence set; GN makes the next caller-association step precise without another near-cutoff native experiment.
+- Tested how/result: 20 core roots/1,059 entries/233 bindings/1,124 unique files pass; the separately checked GN contract brings combined scope to 21 roots/1,063 entries/239 bindings. Exact wrapper, 32 existing native frame anchors and four corruptions pass; outer return is ESP+24.
+- Still broken or not tested: the planned 36-byte sidecar, native outer caller/actor identity, final pose, full first-map AV/transfer and Rust parity. No original gap is closed; no Rust action.
+- Next: use the private GP continuation and fixture-admit the sidecar before another guarded native run. Preserve stopped FX/GB, all failures and the current completion boundary.
+
 ## 2026-11-03: actual native default-output poststate (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent independently reviewed native claim boundaries and verifier integrity; no Rust delegation.

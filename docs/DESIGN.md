@@ -1,5 +1,9 @@
 # Design
 
+## Next bounded research step: outer caller sidecar (2026-11-03 GN)
+
+Preserve the admitted 20-byte stack format. Independently validate a symmetric, bounded 36-byte sidecar at the same fixed RET, retaining read errors and PID/thread lifetime/generation/ESP identity and requiring its first 20 bytes to match the legacy sample. The exact wrapper puts its saved outer return at ESP+24, not ESP+20; the latter is saved EBP and matches all 32 current frame anchors. Bind an observed outer return to exact module/hash/call bytes before retrieving the caller on demand. Existing actor/tool labels are selected static candidates, not exhaustive coverage or live actor identity. This sidecar is planned, not implemented or tested.
+
 ## Research disposition: default initialization versus final pose (2026-11-03 GJ–GL)
 
 The fixed-RET capture now observes selected native output/default correspondence with fixture-admitted per-thread cap handling. Preserve the boundary: unselected slots have unknown preimages; initialized defaults do not identify actor/frame ownership, cache publication, virtual-model merge or later gesture/layer/root/flex composition. Use the raw selected words as a narrow oracle, including slightly nonunit defaults, without inferring a later normalization policy. The next bounded design should bind one actor/model generation and a later cache/blend boundary with independently admitted observation; it must not reuse stopped FX dynamic pairing or GB global cap disarm. The original16-record first-map ledger,including its four missing exact procedures,remains unchanged.

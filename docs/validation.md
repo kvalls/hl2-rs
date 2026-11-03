@@ -1,5 +1,18 @@
 # Local validation — 2026-10-05
 
+## Final integrity and next-frame contract (2026-11-03 GM/GN)
+
+GM `audit.py` and `seal.py verify` pass the expanded 20-root inventory plus the separately checked GN contract (combined 21 roots/1,063 local entries/239 external bindings). GN `audit.py` and `seal.py verify` pass exact wrapper bytes, 32 existing EBP/ESP anchors, three selected static call sites and four corruptions. Outer-return memory is not captured; no new native run is implied. From the checkout, focused read-only reproduction commands include:
+
+```powershell
+& C:/Python310/python.exe -B ../../work/hl2-decompiled/pose-native-fixed-exit-20261103gj/verify.py
+& C:/Python310/python.exe -B ../../work/hl2-decompiled/pose-native-poststate-audit-20261103gk/verify_controls.py
+& C:/Python310/python.exe -B ../../work/hl2-decompiled/firstmap-completion-ledger-20261103gl/audit.py
+& C:/Python310/python.exe -B ../../work/hl2-decompiled/research-final-audit-20261103gm/seal.py verify
+```
+
+All should report passing within their stated evidence boundaries. No Rust test/build or gameplay rebuild is required for these documentation changes.
+
 ## Native fixed-RET poststate and independent audit (2026-11-03 GJ–GL)
 
 GJ `verify.py`, `review_stderr.py`, `visual.py`, `seal.py verify`:debugger42560/native51156 exit0,32 stable snapshots/384 reads/15659 selected words/zero selected mismatch;43-member terminal partition/56 retirement triples/full code-file-path-generation-stack/context/source/settings/owned cleanup pass. FP samples are at RET; image is title-card context only. GK `domain.py`, `verify_controls.py`, `seal.py verify`:independent raw reconstruction,2237 nonunit selected quaternions,three unselected slots,32 empty-tag ST7 residue matches; eight corrupted-copy rejects/three preserved diagnostics,original bytes unchanged. Do not rerun create-once GK controls.py. GL `audit.py`/`seal.py verify`:canonical16 records include four missing exact procedures; zero closures. GI `audit.py`/`seal.py verify` covers its earlier16-root cutoff only (975 entries/158 bindings/1014 unique files). Use `C:/Python310/python.exe -B`; no Rust rebuild. Native preimages/store trace/actor/frame/full pose,campaign/AV/transfer andRust parity **not tested**.

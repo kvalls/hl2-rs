@@ -1,5 +1,11 @@
 # STATUS
 
+## Research seal and next caller boundary (2026-11-03 GM/GN)
+
+GM independently verifies 20 core roots: 1,059 local entries, 233 external bindings, and 1,124 unique files totaling 115,953,529 bytes. GN is subsequently checked and bound separately, giving 21 roots/1,063 entries/239 external binding occurrences without rewriting the earlier cutoff. Integrity checks preserve each admitted, rejected, or deferred result.
+
+GN derives a precise next step from the exact wrapper and 32 retained native frame anchors: at the inner RET, wrapper EBP is ESP+20, the unread outer return is at ESP+24, and outer position/quaternion arguments are at ESP+28/+32. The current 20-byte reads do not contain that memory. Fixture-admit a separate 36-byte sidecar before native use; three static caller candidates are not exhaustive or actor identity. Private continuation: work/publishing/research-followup-continuation-20261103gp.md. First-map completion and Rust parity remain unverified.
+
 ## Actual native selected initializer poststate (2026-11-03 GJ–GL)
 
 After GF/GH ownership deferrals, a fresh guard clears. GJ debugger42560/native51156 both exit0:32 stable fixed direct-RET snapshots/384 symmetric reads and15659 selected output words exactly match current loaded source words. Every actual return value binds to clientRVA97d85 plus static PE caller bytes; runtime caller bytes are not separately read. Full401-byte callee code/module-file/path/two-generation/stack/context proofs pass. Cap membership43 resolves as one self-disarm,10 observed exits and32 separate generation retirements;56 retirement triples/32 raw stops/no drain stops. Selected settings/source pins match,owned processes close,cursor unconfined. All32 RET-site FP images show CW027f/SW4037/MXCSR1fbf/empty tag; they are not paired entry samples. Parent-inspected screenshot is only the opening title card; startup Fontconfig error remains.
