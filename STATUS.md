@@ -1,5 +1,15 @@
 # STATUS
 
+## Actual loaded direct defaults and parent fields (2026-11-03 FR–FW)
+
+FR's authored debugger45904/host42840 passes32 entry captures/90 model reads, three accepted70-bone snapshots and13 corruptions; full288-trial caller/FP/cleanup checks pass. FS's separate self-process harness51004 passes32 boundary/mutation/failure cases/135 reads, including actual256-bone buffers, all eight authored API failure positions, four between-pass mutations, seven range endpoints and20 corruptions. It independently replays FR and supports rejected-read shapes without rewriting FR's original conservative parser.
+
+FT's first native direct-record attempt is **rejected**: debugger45148/native36136 reaches cap32 but the45-second total deadline expires during teardown after screenshot/quit/target unload. Debugger50/native51 exit, incomplete buffered contexts65536/69376 and empty stack file are retained. Selected settings/source pins match and owned processes close. Original incorrect complete-buffer verification and copied success-stderr assumptions remain explicit failures. FU separately validates a90-second maximum and entry/cap QPC markers on an authored full288-trial fixture before retry.
+
+FV debugger39076/native43524 both exit0. All32 actual entry snapshots/256 symmetric model reads bind one loaded gman_high.mdl/version48/70-bone direct record range,490 source words per snapshot and valid disjoint output-argument intervals. No output bytes were read. Entry CW027f/SW4037/MXCSR1fbf, empty x87, masks400once/60031times;14 corruptions pass. Parent-inspected screenshot is the opening title card only; startup Fontconfig error remains. FW independently validates all15120 loaded record bytes against the owned candidate:490 default words,70 parent fields and70 embedded flags agree; wrapper flags match separately. Loaded parents derive root0/depth11/69 parent-before-child edges and two ancestry-closed selections; six corruptions plus candidate-disagreement diagnostic pass.
+
+The earlier handoff's b2ddc6f1… is the decompiler-text hash; actual401 executable bytes hash1612f3fd…. No conversion trace/full asset identity, actor/frame association, completed initializer output, composed hierarchy/rendered pose, ordinary campaign completion or Rust parity; first_map_finished:false. No Rust edit/build/test. Next independently admit same-thread/generation entry/return pairing and output pre/post/source rechecks before another native output claim. Original16 authored gaps/four missing scene procedures remain open.
+
 ## Candidate parent topology (2026-11-02 FQ)
 
 FQ independently audits FN's owned 70-bone parent indices: one root at index 0, maximum depth 11, all 69 nonroot parents precede their children, no cycles, and both candidate mask selections include every selected bone's ancestors. Six corruptions pass; four-file/two-binding seal passes. This is a subsequent separate candidate audit; FO's frozen 25-root scope remains unchanged. Loaded bone order/hierarchy and transformed pose are unobserved. No native launch or Rust action.

@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: actual loaded bone-default sources (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. One materially involved same-family subagent independently reviewed the static contract and reader boundaries; no implementation delegation.
+- Changed/why: private FR–FW admit bounded direct records and advance candidate-only defaults/parents to actual loaded source bytes; distinguish executable-byte and decompiler-text hashes.
+- Tested how/result: FR32 debug entries/full288-trial fixture; FS32 boundary/mutation cases/20 corruptions; FU bounded lifecycle fixture; FV32 actual entries/256 symmetric reads/14 corruptions, owned native/debugger exit0/settings/pins/cleanup pass; FW15120/15120 record bytes,490/490 words and70/70 parent fields match owned candidate. Loaded graph root0/depth11; original FT deadline/incomplete buffers and offline failures retained as rejected. Screenshot shows title card only.
+- Still broken or not tested: output bytes/stores/paired returns, actor/frame/conversion trace/full asset identity, composed/rendered pose, ordinary campaign and Rust parity; first_map_finished:false. No Rust edit/build/test.
+- Next: authored closed entry/return capture with stable source/output identities and independent selected/untouched-slot checks, then a fresh guarded native output witness. Continue toward98% usage.
+
 ## 2026-11-02: candidate parent topology and math-context boundary (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable; no subagents.

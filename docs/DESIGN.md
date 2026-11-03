@@ -1,5 +1,9 @@
 # Design
 
+## Research plan: loaded direct defaults and paired initialization witnesses (2026-11-03 FR)
+
+Extend the separately admitted FL external reader in a fresh private root to retain bounded direct bone records, source words and the initializer's output-array arguments. Check signed offsets/counts and widened address arithmetic before every read; preserve requested/actual byte counts, errors, generation/thread identity and symmetric wrapper/header/flags/record rechecks. First exercise authored 70-bone objects, invalid and partial reads, invalid extents, alternate-header rejection, mutation controls, unload/reload and capture-cap cleanup. An entry snapshot establishes source/argument data only. Any later output claim requires a separately admitted same-thread, same-generation entry/return pair and stable source/output identities, plus independent selected-store/untouched-slot comparisons. Only after fixture admission may a fresh ownership guard permit an owned native capture. Keep loaded data, owned-candidate correspondence, actor/frame association, hierarchy and rendered pose as separate evidence boundaries; no Rust implementation or parity claim.
+
 ## Research plan: candidate parent topology and mask closure (2026-11-02 FQ)
 
 Audit only FN's hash-bound owned 70-bone record range: signed parent indices at record+4, single-root/acyclic reachability and whether the two observed flag masks select a subset closed under candidate parent ancestry. Preserve record indices, every ancestor chain and any omitted parent without inventing loaded bone names or hierarchy. Test invalid parent/root/cycle/flag cases independently. This prepares later hierarchy witnesses; it does not observe a loaded skeleton or compose poses. No native launch or Rust action.
