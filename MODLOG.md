@@ -60,6 +60,8 @@
 
 **Next:** native A/B of the fast zombie, then step 2 (climbing, navigation jumps).
 
+**Later the same session (2f45c06 .. dee4e4b):** architecture debt of sessions 35-42 while the owner played (no game processes): duplicated blocks removed (melee swing, ragdoll construction, PropData::DEFAULT, assault interrupts, hull fit, shot ray cast, black crab template), argument allowances replaced by tuples, a glob import named, VOX and animated friction in their own modules, three long functions split, the gameplay/physics tests moved into tests.rs files split by concern: 91 -> 46 failures, none new. Tested by workspace strict Clippy and unit tests only; the packaged regression ran on 1696602 (26/26, 17/17, 26/26), not after these refactors; PR #4's replays were stopped unfinished (JOBS=2 used too much memory while the owner played; rerun with one job).
+
 ## 2026-11-03 session 42 (recorded by session 43): headcrab leap gate and back-away (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5 (session 42 wrote the code and commit messages; session 43, same application and model, wrote this entry because session 42 ran out of usage before its handoff). No subagents.
