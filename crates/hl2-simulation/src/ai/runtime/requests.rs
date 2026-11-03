@@ -11,6 +11,18 @@ use crate::physics::Physics;
 use glam::Vec3;
 use modkit_core::World;
 
+/// One melee swing: the swept box, its damage, view punch and velocity push.
+struct Swing {
+    start: Vec3,
+    end: Vec3,
+    mins: Vec3,
+    maxs: Vec3,
+    forward: Vec3,
+    damage: f32,
+    punch: Vec3,
+    impulse: Vec3,
+}
+
 impl AiRuntime {
     /// Would a stunstick hit knock the player out (the cop's policing goal)?
     pub(super) fn knock_out_player(
@@ -77,6 +89,48 @@ impl AiRuntime {
         }
         z.next_swat = scene.time + 2. + 2. * f64::from(roll);
         self.diagnostics.obstructor_swats += 1;
+        true
+    }
+    /// CheckTraceHullAttack for a claw or kick: the box swept from `start` to `end` meets
+    /// the hated player (damage, view punch and push) or the first NPC it may hurt.
+    fn swing(
+        &mut self,
+        id: usize,
+        swing: &Swing,
+        world: &World,
+        scene: &Scene,
+        player: PlayerState,
+    ) -> bool {
+        let (start, end, mins, maxs) = (swing.start, swing.end, swing.mins, swing.maxs);
+        let player_hit = self.actors[&id].npc.enemy == Some(PLAYER)
+            && crate::ai::metropolice::segment_hits_box(
+                start,
+                end,
+                player.feet + Vec3::new(-16., -16., 0.) - maxs,
+                player.feet + Vec3::new(16., 16., 72.) - mins,
+            );
+        if player_hit {
+            self.player_hits.push(PlayerHit {
+                attacker: id,
+                damage: swing.damage,
+                punch: swing.punch,
+                impulse: swing.impulse,
+                fade: None,
+            });
+            self.diagnostics.player_hits += 1;
+            return true;
+        }
+        let Some(victim) = self.melee_victim(id, world, scene, start, end, mins, maxs) else {
+            return false;
+        };
+        self.diagnostics.npc_melee_hits += 1;
+        self.melee_hits.push(MeleeHit {
+            attacker: id,
+            victim,
+            damage: swing.damage,
+            position: scene.states[victim].origin + Vec3::Z * center_z(world, victim),
+            direction: swing.forward,
+        });
         true
     }
     pub(super) fn apply_requests(
@@ -268,40 +322,18 @@ impl AiRuntime {
                     } else {
                         self.zombie_slash_damage
                     });
-                    let player_hit = enemy == Some(PLAYER)
-                        && crate::ai::metropolice::segment_hits_box(
-                            start,
-                            end,
-                            player.feet + Vec3::new(-16., -16., 0.) - maxs,
-                            player.feet + Vec3::new(16., 16., 72.) - mins,
-                        );
-                    let hit = if player_hit {
-                        self.player_hits.push(PlayerHit {
-                            attacker: id,
-                            damage,
-                            punch,
-                            impulse,
-                            fade: None,
-                        });
-                        self.diagnostics.player_hits += 1;
-                        true
-                    } else if let Some(victim) =
-                        self.melee_victim(id, world, scene, start, end, mins, maxs)
-                    {
-                        self.diagnostics.npc_melee_hits += 1;
-                        let center =
-                            scene.states[victim].origin + Vec3::Z * center_z(world, victim);
-                        self.melee_hits.push(MeleeHit {
-                            attacker: id,
-                            victim,
-                            damage,
-                            position: center,
-                            direction: forward,
-                        });
-                        true
-                    } else {
-                        self.strike_attack_item(id, origin, damage, world, scene, physics)
+                    let swing = Swing {
+                        start,
+                        end,
+                        mins,
+                        maxs,
+                        forward,
+                        damage,
+                        punch,
+                        impulse,
                     };
+                    let hit = self.swing(id, &swing, world, scene, player)
+                        || self.strike_attack_item(id, origin, damage, world, scene, physics);
                     let cue = if hit {
                         "Zombie.AttackHit"
                     } else {
@@ -340,41 +372,18 @@ impl AiRuntime {
                     } else {
                         self.combine_kick_damage
                     };
-                    let player_hit = self.actors[&id].npc.enemy == Some(PLAYER)
-                        && crate::ai::metropolice::segment_hits_box(
-                            start,
-                            end,
-                            player.feet + Vec3::new(-16., -16., 0.) - maxs,
-                            player.feet + Vec3::new(16., 16., 72.) - mins,
-                        );
-                    let hit = if player_hit {
-                        // ViewPunch(-12, -7, 0) and forward * 100 + up * 50.
-                        self.player_hits.push(PlayerHit {
-                            attacker: id,
-                            damage,
-                            punch: Vec3::new(-12., -7., 0.),
-                            impulse: forward * 100. + Vec3::Z * 50.,
-                            fade: None,
-                        });
-                        self.diagnostics.player_hits += 1;
-                        true
-                    } else if let Some(victim) =
-                        self.melee_victim(id, world, scene, start, end, mins, maxs)
-                    {
-                        self.diagnostics.npc_melee_hits += 1;
-                        let center =
-                            scene.states[victim].origin + Vec3::Z * center_z(world, victim);
-                        self.melee_hits.push(MeleeHit {
-                            attacker: id,
-                            victim,
-                            damage,
-                            position: center,
-                            direction: forward,
-                        });
-                        true
-                    } else {
-                        false
+                    // ViewPunch(-12, -7, 0) and forward * 100 + up * 50.
+                    let swing = Swing {
+                        start,
+                        end,
+                        mins,
+                        maxs,
+                        forward,
+                        damage,
+                        punch: Vec3::new(-12., -7., 0.),
+                        impulse: forward * 100. + Vec3::Z * 50.,
                     };
+                    let hit = self.swing(id, &swing, world, scene, player);
                     if hit {
                         scene.sounds.push(crate::sounds::SoundRequest {
                             origin: Some(origin + Vec3::Z * 36.),
