@@ -555,6 +555,10 @@ struct Actor {
     aiming: bool,
     /// bits_CAP_DOORS_GROUP: route doors are opened for this actor (zombies have none).
     opens_doors: bool,
+    /// m_flPlaybackRate of the move: the run's distance and its animation time both scale.
+    playback_rate: f32,
+    /// The sequence held in place while the AI pauses a move (the goal stays active).
+    pause_sequence: Option<String>,
 }
 struct Goal {
     request: MoveRequest,
@@ -571,6 +575,8 @@ struct Goal {
     simplify_in: f32,
     /// The path was simplified once (bFirstForPath forces the first attempt).
     simplified: bool,
+    /// Held by the actor's pause; animation_time counts the pause meanwhile.
+    paused: bool,
 }
 #[derive(Clone, Debug, Default)]
 struct Route {
@@ -690,6 +696,16 @@ impl Controller {
             actor.aiming = aiming && actor.locomotion.has_aim();
         }
     }
+    /// The AI's playback rate for the actor's moves (CFastHeadcrab::PrescheduleThink's run
+    /// mode) and an optional sequence to hold in place: a paused goal stays active, does
+    /// not move and reports that sequence; resuming restarts the move's cycle
+    /// (SetActivity(ACT_RUN)).
+    pub fn set_playback(&mut self, entity: usize, rate: f32, pause: Option<String>) {
+        if let Some(actor) = self.actors.get_mut(&entity) {
+            actor.playback_rate = if rate.is_finite() { rate.max(0.) } else { 1. };
+            actor.pause_sequence = pause;
+        }
+    }
     /// The model has both aiming locomotions for the current weapon.
     pub fn has_move_aim(&self, entity: usize) -> bool {
         self.actors
@@ -704,6 +720,8 @@ impl Controller {
             return false;
         };
         actor.aiming = false;
+        actor.playback_rate = 1.;
+        actor.pause_sequence = None;
         self.actors.insert(entity, actor);
         if self.headcrabs.contains(&template) {
             self.headcrabs.insert(entity);
@@ -914,6 +932,8 @@ impl Controller {
                 view_offset: None,
                 aiming: false,
                 opens_doors: true,
+                playback_rate: 1.,
+                pause_sequence: None,
             },
         );
         Ok(())
@@ -981,6 +1001,7 @@ impl Controller {
             contact_normal: Vec3::ZERO,
             simplify_in: 0.,
             simplified: false,
+            paused: false,
         };
         let prepared = (|| {
             if pose.entity != key.actor
@@ -1181,6 +1202,9 @@ impl Controller {
                     goal.next = 0;
                     goal.state = GoalState::Moving;
                 }
+                if hold_pause(goal, actor, dt) {
+                    return Ok(());
+                }
                 let excluded = excluded_for(key.actor);
                 let query = Query {
                     excluded_entities: &excluded,
@@ -1214,11 +1238,27 @@ impl Controller {
             let name = self
                 .actors
                 .get(&key.actor)
-                .map(|a| a.locomotion.played_name(goal.request.style, a.aiming));
+                .map(|a| match &a.pause_sequence {
+                    Some(pause) if goal.paused => pause.clone(),
+                    _ => a.locomotion.played_name(goal.request.style, a.aiming),
+                });
             updates.push(update(*key, goal, &self.doors, name));
         }
         updates
     }
+}
+/// A moving goal held by its actor's pause: no movement, the pause's own clock in
+/// animation_time. Leaving the pause restarts the move's cycle. True while held.
+fn hold_pause(goal: &mut Goal, actor: &Actor, dt: f32) -> bool {
+    let pause = actor.pause_sequence.is_some() && goal.state.is_moving();
+    if pause != goal.paused {
+        goal.paused = pause;
+        goal.animation_time = 0.;
+    }
+    if pause {
+        goal.animation_time += dt;
+    }
+    pause
 }
 fn update(key: GoalKey, goal: &Goal, doors: &BTreeSet<usize>, name: Option<String>) -> MoveUpdate {
     // Navigators open a route door ahead of contact: request it while walking the door
@@ -1295,7 +1335,8 @@ fn advance<W: NpcCollisionWorld>(
     let duration = track
         .duration()
         .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
-    let mut remaining = dt;
+    // The playback rate scales the run's distance and its cycle together.
+    let mut remaining = dt * actor.playback_rate;
     let mut start_validated = true;
     // Budget is ours, not an engine constant; failing never releases SECTION.
     for _ in 0..32 {
@@ -1896,6 +1937,7 @@ mod tests {
             contact_normal: Vec3::ZERO,
             simplify_in: 0.,
             simplified: false,
+            paused: false,
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.
@@ -2055,6 +2097,47 @@ mod tests {
         assert!(canceled.last().unwrap().sequence.is_none());
         assert_eq!(feet, before.feet);
         assert!(!controller.status(key(1)).unwrap().is_arrived());
+    }
+    #[test]
+    fn playback_rate_scales_the_move_and_a_pause_holds_the_goal() {
+        let physics = Physics::new(&world(vec![]));
+        let distance = |rate: f32| {
+            let mut controller = make_controller(None);
+            controller.set_playback(7, rate, None);
+            let mut feet = Vec3::ZERO;
+            controller.request(key(1), request(Vec3::X * 400.), pose(feet), &physics, &[]);
+            let updates = tick(&mut controller, &physics, &mut feet, 0.5, false);
+            (feet.x, updates.last().unwrap().animation_time)
+        };
+        let (full, full_time) = distance(1.);
+        let (half, half_time) = distance(0.5);
+        assert!(
+            full > 0. && (half - full * 0.5).abs() < 0.01,
+            "{full} {half}"
+        );
+        assert!((half_time - full_time * 0.5).abs() < 1e-4);
+        // A pause keeps the goal active and in place, playing its own sequence and clock.
+        let mut controller = make_controller(None);
+        let mut feet = Vec3::ZERO;
+        controller.request(key(1), request(Vec3::X * 400.), pose(feet), &physics, &[]);
+        tick(&mut controller, &physics, &mut feet, 0.25, false);
+        let moved = feet;
+        controller.set_playback(7, 1., Some("idle01".into()));
+        for _ in 0..3 {
+            let held = tick(&mut controller, &physics, &mut feet, 0.1, false);
+            let held = held.last().unwrap();
+            assert_eq!(held.state, GoalState::Moving);
+            assert_eq!(held.sequence.as_deref(), Some("idle01"));
+        }
+        assert_eq!(feet, moved);
+        assert!((controller.snapshots()[0].animation_time - 0.3).abs() < 1e-4);
+        // Resuming restarts the move's cycle (SetActivity(ACT_RUN)) and moves again.
+        controller.set_playback(7, 1., None);
+        let resumed = tick(&mut controller, &physics, &mut feet, 0.1, false);
+        let resumed = resumed.last().unwrap();
+        assert_ne!(resumed.sequence.as_deref(), Some("idle01"));
+        assert!((resumed.animation_time - 0.1).abs() < 1e-4);
+        assert!(feet.x > moved.x);
     }
     #[test]
     fn headcrabs_move_through_each_other() {

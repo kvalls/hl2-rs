@@ -60,27 +60,34 @@ impl Scene {
     /// SelectWeightedSequence(activity, current) and a switch only to another sequence
     /// (true). The same pick, an unknown activity or a missing rig keep the sequence.
     pub fn ai_reselect_activity(&mut self, world: &World, id: usize, activity: &str) -> bool {
-        let Some(rig) = world
-            .model_instances
-            .iter()
-            .find(|i| i.entity == Some(id))
-            .and_then(|i| world.rigs.get(&i.asset_key()))
-        else {
-            return false;
-        };
         let current = self.states[id].animation.clone();
-        let random = &mut self.random;
-        let picked = rig.lookup_sequence(activity, Some(&current), |upper| {
-            *random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
-            (*random >> 32) as u32 % upper
-        });
-        match picked {
+        match self.select_weighted_sequence(world, id, activity) {
             Some(picked) if !picked.eq_ignore_ascii_case(&current) => {
-                let picked = picked.to_owned();
                 self.ai_set_activity(world, id, &picked)
             }
             _ => false,
         }
+    }
+    /// SelectWeightedSequence(activity, current sequence) on the actor's loaded rig, with
+    /// the scene's random stream; None for an unknown activity or a missing rig.
+    pub fn select_weighted_sequence(
+        &mut self,
+        world: &World,
+        id: usize,
+        activity: &str,
+    ) -> Option<String> {
+        let rig = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))
+            .and_then(|i| world.rigs.get(&i.asset_key()))?;
+        let current = self.states.get(id)?.animation.clone();
+        let random = &mut self.random;
+        rig.lookup_sequence(activity, Some(&current), |upper| {
+            *random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (*random >> 32) as u32 % upper
+        })
+        .map(str::to_owned)
     }
 
     /// Animation events (name, id) of the actor's current sequence whose time falls in

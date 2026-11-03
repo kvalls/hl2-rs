@@ -1596,6 +1596,12 @@ impl AiRuntime {
         let speech_rolls = [self.random(), self.random(), self.random(), self.random()];
         // FindHint's bits_HINT_NODE_RANDOM pick.
         let hint_roll = self.random();
+        // CFastHeadcrab's run timers (only fast crabs draw: other actors' streams stay put).
+        let run_roll = if matches!(&self.actors[&id].class, AiClass::Headcrab(h) if h.fast) {
+            self.random()
+        } else {
+            0.
+        };
         // The active gun's firing data and clip (GatherAttackConditions, CheckAmmo).
         let gun = self.actors[&id].weapon.as_ref().and_then(|w| {
             self.weapon_def(&w.class)
@@ -2896,6 +2902,33 @@ impl AiRuntime {
                     actor.panic_locomotion = panic;
                     controller.set_locomotion(id, if panic { headcrab::RUN_PANIC } else { "" });
                 }
+            }
+        }
+        // CFastHeadcrab::PrescheduleThink: the stop-and-go run while a navigation goal is
+        // active; the controller scales the run by the rate and holds the pause's idle.
+        if let AiClass::Headcrab(h) = &mut actor.class {
+            if h.fast {
+                let active = actor
+                    .goal
+                    .and_then(|key| controller.status(key))
+                    .is_some_and(|s| {
+                        matches!(
+                            s,
+                            crate::npc::GoalState::Moving | crate::npc::GoalState::Blocked(_)
+                        )
+                    });
+                if active && !scene.states[id].killed {
+                    let paused = h.run.think(now, actor.npc.activity == "ACT_RUN", run_roll);
+                    if !paused {
+                        h.pause_sequence = None;
+                    } else if h.pause_sequence.is_none() {
+                        h.pause_sequence = scene.select_weighted_sequence(world, id, "ACT_IDLE");
+                    }
+                } else {
+                    h.run.no_goal(now);
+                    h.pause_sequence = None;
+                }
+                controller.set_playback(id, h.run.rate, h.pause_sequence.clone());
             }
         }
         let mut motor = SceneMotor {

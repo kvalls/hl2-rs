@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-03 session 42: fast headcrab stop-and-go run; station fixtures release the intro camera (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Session plan step 2 (DESIGN 14o session 42 fast headcrab step 3). `npc::Controller::set_playback`: a per-actor playback rate (a move consumes dt x rate, so the run's distance and cycle scale together; route simplification keeps real time) and a pause sequence (the goal stays active and in place, reports that sequence on its own clock, and restarts the move's cycle when the pause ends). The fast crab's think drives `headcrab::RunState` while its AI goal is moving or blocked and picks the pause's ACT_IDLE sequence once (`Scene::select_weighted_sequence`, now shared with `ai_reselect_activity`); only fast crabs draw the extra random, so other actors' random streams are unchanged. `RunState` follows ResetSequenceInfo: SetActivity at both ends of the pause, and any other sequence between goals, restore rate 1. Merge follow-up (461ee76): d1_trainstation_01's logic_auto enables viewcontrol_black OnNewGame and point_viewcontrol now works, so the attention and Kleiner-monitor fixtures, which skip the intro, captured the black intro camera; they release it at tick 3.
+
+**Tested how / Result:** Unit tests (controller rate and pause; the run cycle with both rate resets; an interrupted acceleration resumes at full speed); strict Clippy and fmt clean. Packaged d1_town_02 approaches (the crab created down the start corridor 347, 569 and 761 units away): rate 0.5 to 1.0 in 0.1 steps per think with the step length growing with it, full speed for U(0.1, 1) s, deceleration, a 0.3 s pause in idle02 without movement, re-acceleration; leaps at 1.05, 2.62 and 3.82 s. Native retail, same corridor, aim and 569-unit spawn, sampled with the game's own screenshots under host_timescale 0.25 (about 0.3 s of game time apart): the first leap 2.7-2.9 s after notarget is lifted, ours 2.35 s after the spawn, against about 1.3-1.5 s for a constant full-speed run. Packaged regression on the final build: movement 26/26, weapons 17/17, attention 26/26 (24/26 before the fixture fix: the black intro camera); finals against session 41 differ where PR #4 changed the frame (the plaza cop now at his actbusy hint, d1_trainstation_01 color correction, HUD rows). PR #4's gameplay replays on the final build: 71 of 72 (below).
+
+**Still broken or not tested:** Single native pauses are not resolved (sampling too coarse). Native leaps pass the doorway at x -996 and reach the player; ours hit its frame. `monitors-kleiner-scene` replay: gibs removed 8 on the final build (three runs) against the recorded 7 (two runs on earlier builds); our gibs fade only out of the player's view cone and one bottle chunk rests near its edge; not investigated, expectation not re-recorded. A screen-recording attempt of the native run captured another window covering the oracle and was deleted with everything derived from it.
+
+**Next:** the doorway leap difference (where the leap starts relative to the jamb), then npc_fastzombie.
+
 ## 2026-11-03: per-thread exit-site recorder admission (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent independently audited failed stop contexts, cap protocol, reader and verifier identities; no Rust delegation.
