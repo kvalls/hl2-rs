@@ -48,6 +48,18 @@
 - Still broken or not tested: native outer caller, actor/cache/frame ownership, complete composed/rendered pose, campaign completion and Rust parity. No Rust action.
 - Next: independent integrated-contract review, fresh ownership guard, then one bounded native observation if admitted.
 
+## 2026-11-03 session 43: npc_fastzombie step 1; zombie AI split by concern (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Session plan (the prompt reconstructed after session 42 ran out of usage): classify the merged build's owned-test failures, then npc_fastzombie. Owned tests: three fail on main too (PR #4 area), two pass alone (load-dependent). 47138c9 splits ai/zombie.rs (over the 1,000-line limit) into swat and poison child modules. 1696602 adds CFastZombie (ai/zombie/fast.rs): its conditions, leap (LeapAttack through the shared step fall, LeapAttackTouch's claw), melee schedule with frenzy and big slash, unstick jump, sounds and patches; fast zombies become registered ground movers that run, release npc_headcrab_fast and load their class activities (models::class_ai_activities). The zombie events, attack conditions and per-think sounds moved out of AiRuntime::tick/think so the architecture check shrinks (91 -> 87 failures, none new).
+
+**Tested how / Result:** Unit tests (hl2-simulation 487, source-assets 115), strict Clippy and fmt; owned test of models/zombie/fast.mdl; packaged d1_town_02 approaches artifacts/s43 fastzombie-near13/far6 (DESIGN 14o session 43 result: chase, scream, leap at 278-282 units, landing, claws 3 x 4 per melee, frenzy, big slash, 100 -> 58 health in 8 s). Regression and replays: below when recorded.
+
+**Still broken or not tested:** native A/B; climbing and navigation jumps; frenzy playback rate; headshot release of a fast zombie; the architecture check still fails on older session code (87 entries). The Codex agent's commit 2145338 also carried this session's first DESIGN plan lines (it commits whole doc files in this checkout).
+
+**Next:** native A/B of the fast zombie, then step 2 (climbing, navigation jumps).
+
 ## 2026-11-03 session 42 (recorded by session 43): headcrab leap gate and back-away (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5 (session 42 wrote the code and commit messages; session 43, same application and model, wrote this entry because session 42 ran out of usage before its handoff). No subagents.
