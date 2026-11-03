@@ -1626,48 +1626,52 @@ impl Physics {
         self.tick_inner(dt);
         self.last_step_ms = started.elapsed().as_secs_f64() * 1000.;
     }
+    /// Props authored interpenetrating a static entity (the teeter-totter seat in its
+    /// prop_dynamic base) keep continuous collision: Rapier's penetration recovery ejects
+    /// them hundreds of units once CCD is off. Found once, after the first step's
+    /// contacts; props pressed into geometry later (a pallet on a cop hull, props sunk
+    /// into terrain) stay gated.
+    fn ungate_spawn_embedded(&mut self) {
+        if self.spawn_embedded_checked || self.time <= 0. {
+            return;
+        }
+        self.spawn_embedded_checked = true;
+        let static_entity = |c: &Collider| {
+            c.parent().is_none()
+                && c.user_data != 0
+                && c.collision_groups().memberships != HULL_GROUP
+        };
+        for pair in self.narrow.contact_pairs() {
+            if !pair.has_any_active_contact
+                || !pair
+                    .manifolds
+                    .iter()
+                    .any(|m| m.points.iter().any(|p| p.dist < -EMBEDDED_DEPTH * SCALE))
+            {
+                continue;
+            }
+            let (Some(c1), Some(c2)) = (
+                self.colliders.get(pair.collider1),
+                self.colliders.get(pair.collider2),
+            ) else {
+                continue;
+            };
+            for (body, other) in [(c1, c2), (c2, c1)] {
+                if let (Some(parent), true) = (body.parent(), static_entity(other)) {
+                    self.ccd_gated.remove(&parent);
+                    if let Some(b) = self.bodies.get_mut(parent) {
+                        b.enable_ccd(true);
+                    }
+                }
+            }
+        }
+    }
     fn tick_inner(&mut self, dt: f32) {
         self.player_convex_cache
             .get_mut()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .retain(&self.colliders);
-        // Props authored interpenetrating a static entity (the teeter-totter seat in its
-        // prop_dynamic base) keep continuous collision: Rapier's penetration recovery
-        // ejects them hundreds of units once CCD is off. Found once, after the first
-        // step's contacts; props pressed into geometry later (a pallet on a cop hull,
-        // props sunk into terrain) stay gated.
-        if !self.spawn_embedded_checked && self.time > 0. {
-            self.spawn_embedded_checked = true;
-            let static_entity = |c: &Collider| {
-                c.parent().is_none()
-                    && c.user_data != 0
-                    && c.collision_groups().memberships != HULL_GROUP
-            };
-            for pair in self.narrow.contact_pairs() {
-                if !pair.has_any_active_contact
-                    || !pair
-                        .manifolds
-                        .iter()
-                        .any(|m| m.points.iter().any(|p| p.dist < -EMBEDDED_DEPTH * SCALE))
-                {
-                    continue;
-                }
-                let (Some(c1), Some(c2)) = (
-                    self.colliders.get(pair.collider1),
-                    self.colliders.get(pair.collider2),
-                ) else {
-                    continue;
-                };
-                for (body, other) in [(c1, c2), (c2, c1)] {
-                    if let (Some(parent), true) = (body.parent(), static_entity(other)) {
-                        self.ccd_gated.remove(&parent);
-                        if let Some(b) = self.bodies.get_mut(parent) {
-                            b.enable_ccd(true);
-                        }
-                    }
-                }
-            }
-        }
+        self.ungate_spawn_embedded();
         // VPhysics drag controller (drag.rs: retail per-object bases, native air density).
         let mut before = HashMap::new();
         for (handle, body) in self.bodies.iter_mut() {
