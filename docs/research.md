@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Loaded default words and parent values (2026-11-03 FR–FW)
+
+A fixture-admitted direct reader now observes32 native initializer entries with symmetric wrapper/header/flags/full70-record reads. All15120 loaded record bytes match the retained owned candidate, including490 default words and70 parent fields; the loaded parent graph derives root0/depth11 and two ancestry-closed mask subsets. This advances the prior candidate-only boundary to actual loaded source data. Output pointers are retained and their observed ranges disjoint; output contents/stores and entry/return pairing remain unobserved. Partial-range identity is not an observed conversion/loading trace, complete asset identity, actor/frame association or composed/rendered pose.
+
+The first native run remains rejected for45-second teardown deadline and incomplete buffered files. A separate authored lifecycle fixture validates90-second bounds/QPC diagnostics before the successful retry. Authored boundary tests cover256-bone buffers, all eight forced read-failure positions and four source-region mutations; forced API errors are authored controls. Startup Fontconfig stderr and all rejected preparation/verifier drafts remain private. Hash labels now distinguish decompiler text b2ddc6f1… from401 raw executable bytes1612f3fd…. No Rust action, campaign completion or parity claim.
+
 ## Candidate parent ancestry (2026-11-02 FQ)
 
 The owned candidate has one root at index 0, maximum parent depth 11 and 69 parent-before-child edges. Both flag-mask selections contain every selected index's candidate ancestors. Six corruptions pass. Loaded hierarchy/order and composed poses remain unobserved. Separately, FH's exact local comparisons use forced-fast globals, fixture CW 0x027f and initial MXCSR 0x1f80; they do not replay FJ/FM's later sticky entry state or observe actual dispatch globals.

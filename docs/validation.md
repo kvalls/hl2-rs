@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Loaded direct-source admission (2026-11-03 FR–FW)
+
+Private FR `verify.py`/`seal.py verify`:32 entries/90 reads/three stable70-bone snapshots/13 corruptions, full288-trial host. FS same commands:32 cases/135 reads, accepted1/70/256/70/70 bone counts, four source mutations/eight forced API failures/seven range endpoints/20 corruptions plus FR replay. FT `rejection.py`/`seal.py verify` passes the **rejected** native deadline/incomplete-buffer result; FT's copied success verifier/stderr checker are not passing commands. FU `verify.py`/`seal.py verify`:32 entries/full288-trial host/32 entry QPC and one cap QPC marker/90-second maximum. FV `verify.py`, `qpc_audit.py`, `review_stderr.py`, `visual.py`, `seal.py verify`:debugger39076/native43524 exit0,32 actual stable direct-source snapshots/256 reads/490 words each/14 corruptions; source/settings/owned cleanup pass. FW `analyze.py`/`seal.py verify`:all15120 loaded record bytes/490 defaults/70 parent fields match candidate, loaded root0/depth11, six corruptions and diagnostic candidate mismatch. Run through `C:/Python310/python.exe -B`; no gameplay rebuild. Output stores/paired returns, actor/frame/conversion/composed pose, ordinary campaign and Rust parity **not tested**.
+
 ## Candidate topology and math-context scope (2026-11-02 FQ)
 
 FQ `analyze.py` and `seal.py verify`, through `C:/Python310/python.exe -B`, pass 70 candidate parent records, root 0, depth 11, 69 parent-before-child edges, two ancestry-closed selections and six corruptions; four files/two bindings. This later audit is outside FO's frozen scope. No loaded hierarchy or native run. FH's receipt explicitly records forced-fast globals, CW 639 (0x027f), initial MXCSR 8064 (0x1f80), output MXCSR 8064/8096; it is not a replay of FJ/FM's observed sticky entry state or actual dispatch globals.
