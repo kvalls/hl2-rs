@@ -293,23 +293,10 @@ pub fn bullet_impulse(ammo_type: &str) -> f32 {
 /// CBreakable's modifiers: func_breakdmg_bullet 0.5, func_breakdmg_club 1.5,
 /// func_breakdmg_explosive 1.25 (props.cpp convar defaults).
 const FUNC_BREAKABLE_DAMAGE: modkit_core::PropData = modkit_core::PropData {
-    health: 0.,
     dmg_bullets: 0.5,
     dmg_club: 1.5,
     dmg_explosive: 1.25,
-    damage_table: None,
-    breakable_model: None,
-    breakable_count: 0,
-    breakable_skin: 0,
-    explosive_damage: None,
-    explosive_radius: None,
-    flammable: false,
-    explosive_resist: false,
-    ignite_halfhealth: false,
-    break_explode: false,
-    spin_z: false,
-    world_stick: false,
-    carry_angles: None,
+    ..modkit_core::PropData::DEFAULT
 };
 /// GetBreakableDamage (props.cpp) for a breakable with prop data (CBreakableProp,
 /// modifiers default 1): bullets x dmg.bullets (buckshot twice that), clubs x dmg.club,

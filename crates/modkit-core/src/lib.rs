@@ -237,27 +237,31 @@ pub struct PropData {
     #[serde(default)]
     pub carry_angles: Option<[f32; 3]>,
 }
+impl PropData {
+    /// Prop data with the default modifiers (CBreakableProp's 1.0) and nothing else.
+    pub const DEFAULT: Self = Self {
+        health: 0.,
+        dmg_bullets: 1.,
+        dmg_club: 1.,
+        dmg_explosive: 1.,
+        damage_table: None,
+        breakable_model: None,
+        breakable_count: 0,
+        breakable_skin: 0,
+        explosive_damage: None,
+        explosive_radius: None,
+        flammable: false,
+        explosive_resist: false,
+        ignite_halfhealth: false,
+        break_explode: false,
+        spin_z: false,
+        world_stick: false,
+        carry_angles: None,
+    };
+}
 impl Default for PropData {
     fn default() -> Self {
-        Self {
-            health: 0.,
-            dmg_bullets: 1.,
-            dmg_club: 1.,
-            dmg_explosive: 1.,
-            damage_table: None,
-            breakable_model: None,
-            breakable_count: 0,
-            breakable_skin: 0,
-            explosive_damage: None,
-            explosive_radius: None,
-            flammable: false,
-            explosive_resist: false,
-            ignite_halfhealth: false,
-            break_explode: false,
-            spin_z: false,
-            world_stick: false,
-            carry_angles: None,
-        }
+        Self::DEFAULT
     }
 }
 /// One gib of a breakable model: a .phy `break` block (CBreakParser defaults: health 1,

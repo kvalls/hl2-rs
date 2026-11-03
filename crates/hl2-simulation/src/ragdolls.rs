@@ -185,6 +185,12 @@ pub struct Ragdolls {
 }
 
 impl Ragdolls {
+    /// A new client ragdoll draws from `skin` and joins the LRU.
+    fn activate(&mut self, scene: &mut Scene, id: usize, skin: Vec<Mat4>, ragdoll: Ragdoll) {
+        scene.ragdoll_matrices.insert(id, skin);
+        self.active.insert(id, ragdoll);
+        self.spawned += 1;
+    }
     /// The root motion part of RagdollApplyAnimationAsVelocity: each NPC's origin change
     /// over the last tick, for the ragdolls of NPCs that die on the next one.
     pub fn track(&mut self, world: &World, scene: &Scene) {
@@ -332,19 +338,15 @@ impl Ragdolls {
             state.killed = true;
             state.visible = false;
         }
-        scene.ragdoll_matrices.insert(id, skin);
-        self.active.insert(
-            id,
-            Ragdoll::fresh(
-                model,
-                bodies,
-                (parents, locals),
-                rig,
-                instance.scale,
-                (self.serial, scene.time),
-            ),
+        let ragdoll = Ragdoll::fresh(
+            model,
+            bodies,
+            (parents, locals),
+            rig,
+            instance.scale,
+            (self.serial, scene.time),
         );
-        self.spawned += 1;
+        self.activate(scene, id, skin, ragdoll);
     }
     /// CRagGib::Spawn -> BecomeRagdollOnClient(force) for a runtime raggib entity (the
     /// zombie's legs after BecomeTorso): a client ragdoll (LRU, fade) posed by the model's
@@ -411,19 +413,15 @@ impl Ragdolls {
         let state = &mut scene.states[id];
         state.killed = true;
         state.visible = false;
-        scene.ragdoll_matrices.insert(id, skin);
-        self.active.insert(
-            id,
-            Ragdoll::fresh(
-                model,
-                bodies,
-                (parents, locals),
-                rig,
-                instance.scale,
-                (self.serial, scene.time),
-            ),
+        let ragdoll = Ragdoll::fresh(
+            model,
+            bodies,
+            (parents, locals),
+            rig,
+            instance.scale,
+            (self.serial, scene.time),
         );
-        self.spawned += 1;
+        self.activate(scene, id, skin, ragdoll);
         true
     }
     /// CRagdollProp::Spawn for the map's prop_ragdolls once their entities exist (at map
