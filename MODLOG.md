@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: ownership deferral and poseparameter copy contract (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family subagent authored HB's static/owned-candidate audit and independently reviewed HC.
+- Changed/why: retain HA's zero-spawn ownership deferral, then determine how much of the planned96-byte pose span can be interpreted. Recover only the exact count/copy functions andcompare relevant owned model descriptors.
+- Tested how/result: HA refusal at20:03:30UTC preserves the preexisting game/cursor. HB exact27/64-byte functions,16corruptions/eight bounded loop assertions andfour owned candidate descriptor sets pass. Active virtual count remains unobserved. HC process57420 exits0:45cases/498copied/942untouched words/72signaling-NaN quietings/28corruptions/235-byte original-FP restoration pass. Source/code/stack/guards preserved; rejected build/prelaunch retained.
+- Still broken or not tested: native nested frame/object/current count/getter history, useful pose prefix versus untouched tail, actor/entity generation/cache, full pose/campaign/Rust parity. Isolated oversized counts are safe authored controls, not admitted native states. No Rust action.
+- Next: preserve raw span semantics andfixture-admit a separate current count witness; retry native only from a new root after a fresh guard clears.
+
 ## 2026-11-03: nested context fixture admission (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family subagent independently authored the private GXstatic-contract audit and reviewed GY/GZ read-only.

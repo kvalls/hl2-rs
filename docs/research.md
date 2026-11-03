@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Poseparameter count, untouched tail and x87 copy (2026-11-03 HA–HC)
+
+The next native nested observation is deferred by a fresh ownership/cursor guard before process creation. Offline exact-body/byte evidence identifies count101ba580 andcopy100a46d0: a virtual model selects its count at+50h; otherwise the root header supplies its local count ornull yields0. All32 retained GU wrappers have a nonnull virtual-model pointer, whose count word is unobserved. The four owned model candidates have local pose counts1/9/1/2 with shared names; summing them would not establish the loaded virtual count.
+
+The copier reads actor+61ch through x87 andchecks the count again after each word. It supplies neither a24 clamp nor tail clearing. A separate isolated45case run confirms prefix stores, untouched sentinels andsignaling-NaN quieting under supplied masked precision controls. A captured96-byte span must therefore remain raw; unused tail words are not automatically pose values or bugs. Current later count/value observations would still not establish earlier getter consumption orfuture accumulation. No actual getter/count/object/actor orparity claim follows.
+
 ## Nested context contract and authored observation (2026-11-03 GX–GZ)
 
 Static instructions and32retained saved-frame anchors derive B=innerESP+1104h. The next frame contains a pointer to an allocated16-byte context, rather than inline context fields. The context binds the current model-wrapper, mask, poseparameters at B-74h andzero callback at this initialization boundary. Separate authored reader/integration fixtures admit symmetric nested frame/context/poseparameter andbounded raw object-field reads, plus a33-byte caller setup/CALL window. Raw time/cycle/pose values are not domain-filtered or equated to earlier/future consumption. The fixed geometry scaffold andconstructor stub are authored; only specified code fragments are exact. Stopped object/type candidates still require separate entity-handle/serial-generation, actor/scene andcache/publication evidence.

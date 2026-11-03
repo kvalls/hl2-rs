@@ -1,5 +1,9 @@
 # Design
 
+## Research refinement: raw pose span and current count (2026-11-03 HB/HC)
+
+Treat the planned96-byte pose span as raw stack words. Exact retail copy100a46d0 writes only a dynamically counted prefix, uses x87 FLD/FSTP, supplies no24 clamp anddoes not clear the tail. A nonnull virtual-model pointer selects the count at virtual+50h rather than the local-header count. Separately fixture-admit symmetric wrapper8/current-count4 reads with full pointer/branch/BOOL/error/identity controls before interpreting a current prefix. Preserve unused/raw words andunusual IEEE domains. Even a current count at the later initializer RET does not establish the count orvalues consumed by an earlier getter; that history needs its own witness. Keep isolated safe oversized-count/precision experiments separate from native state.
+
 ## Research plan: nested caller frame and current context (2026-11-03 GX)
 
 Within the admitted stack36/wrapper28 interval, separately fixture-admit symmetric outer-frame28, dereferenced context16 and poseparameter96 reads. Use the saved outer EBP value B, preserve its distinction from the slot address, and check the exact caller relation B=innerESP+1104h. Frame position/quaternion/mask must match existing arguments; context words must bind model-wrapper/mask/poseparameters at B-74h/current zero callback. Add bounded raw EDI prefix12, sequence/unknown/cycle span12 and IK-pointer4 witnesses, plus a separate33-byte loaded caller setup/CALL window. Retain raw time/cycle/poseparameter words without normalization, domain filtering or assumed equality to an earlier local cycle. Require independent address/dereference/API/identity/mutation controls and multithreaded cap/FP/lifecycle admission before native use. Object/type candidates do not establish entity handle/serial generation, actor/scene name or cache/rendered-pose ownership. Preserve all prior roots and failures.

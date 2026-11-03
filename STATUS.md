@@ -1,5 +1,11 @@
 # STATUS
 
+## Nested native deferral and poseparameter prefix boundary (2026-11-03 HA–HC)
+
+At20:03:30UTC, HA's fresh guard finds a preexisting foreground game holding the cursor andrefuses before any debugger/game spawn. No owner game/control/cursor state is changed; actual native attempts0. Nested frame/context/object andloaded caller33 remain unobserved. Continue offline rather than reusing that guard or rerunning the frozen root.
+
+HB authenticates exact pose-count101ba580 andcopy100a46d0. All32 earlier GU wrappers have a nonnull virtual-model pointer, so loaded local-header pose count1 does not supply the active count at virtual+50h; that word was not captured. The copy uses x87, dynamically rechecks count anddoes not clamp24 orclear the unused destination tail. HC's isolated45case fixture passes498copied/942untouched words,72signaling-NaN quietings and235-byte original-FP restoration under three supplied masked precision controls;28corruptions reject. No actual getter input/count or24meaningful poseparameter claim, actor identity, final pose/campaign/Rust parity. No Rust action.
+
 ## Nested context observer admitted in authored fixtures (2026-11-03 GX–GZ)
 
 GX independently binds the exact caller33 window/prologue/context constructor and derives1104h frame geometry, with32 retained native anchors and25static/shape controls. GY's separate reader passes91cases/618reads/41corruptions, including56API controls, five actual inaccessible-read cases, seven symmetric mutations andraw IEEE diagnostics. GZ caps1/12/36 all exit0:49samples/686nested reads/196parent-side reads/588model reads/49caller-FP pairs;30additional identity/phase controls pass. All fixture frame/context/pose/object words match andcap/generation/cleanup checks pass.
