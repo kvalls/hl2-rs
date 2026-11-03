@@ -1592,33 +1592,16 @@ fn plan<W: NpcCollisionWorld>(
         .ok_or(GoalBlockReason::MissingViewOffset)?;
     let starts = candidates(world, graph, restrictions, actor, start, view, query);
     let ends = candidates(world, graph, restrictions, actor, end, view, query);
+    let feet_of = |n| node_feet(graph, n, restrictions, actor.hull).unwrap();
     let start_node = starts
         .into_iter()
         .take(4)
-        .find(|n| {
-            connector(
-                world,
-                actor,
-                start,
-                node_feet(graph, *n, restrictions, actor.hull).unwrap(),
-                0.1,
-                query,
-            )
-        })
+        .find(|n| connector(world, actor, start, feet_of(*n), 0.1, query))
         .ok_or(GoalBlockReason::NoRoute)?;
     let end_node = ends
         .into_iter()
         .take(4)
-        .find(|n| {
-            connector(
-                world,
-                actor,
-                node_feet(graph, *n, restrictions, actor.hull).unwrap(),
-                end,
-                tolerance,
-                query,
-            )
-        })
+        .find(|n| connector(world, actor, feet_of(*n), end, tolerance, query))
         .ok_or(GoalBlockReason::NoRoute)?;
     // CAI_Pathfinder::IsLinkUsable: graph data only (flags, accepted move types and
     // unusable nodes, in `search`); a stale-suggested link is unusable until it expires,
@@ -1651,10 +1634,7 @@ fn plan<W: NpcCollisionWorld>(
             }
         },
     )?;
-    let mut feet: Vec<_> = nodes
-        .iter()
-        .map(|n| node_feet(graph, *n, restrictions, actor.hull).unwrap())
-        .collect();
+    let mut feet: Vec<_> = nodes.iter().map(|n| feet_of(*n)).collect();
     feet.push(end);
     // Doors along the route are probed as the actor reaches each segment (probe_doors).
     let mut door_known = vec![false; feet.len()];
