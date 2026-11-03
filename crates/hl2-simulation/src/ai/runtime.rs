@@ -2190,9 +2190,34 @@ impl AiRuntime {
                     }
                 }
                 // CBaseHeadcrab::RangeAttack1Conditions (EnemyDistance between the centers,
-                // less the height the two boxes can overlap; the high-enemy hull check is
-                // not modeled).
+                // less the height the two boxes can overlap).
                 if let AiClass::Headcrab(crab) = &mut actor.class {
+                    // An enemy whose eyes are more than 36 above my origin needs headroom:
+                    // the crab's hull from 1 unit up, 8 units toward those eyes, meeting
+                    // anything but the enemy (the world included: a step's face) is
+                    // COND_TOO_CLOSE_TO_ATTACK, so the crab closes in instead of leaping.
+                    let high_blocked = t_eye.z - 36. > origin.z && {
+                        use crate::npc_probe::NpcCollisionWorld;
+                        let hull = world
+                            .entities
+                            .get(id)
+                            .and_then(|e| crate::ai_hull::class_hull(e.class()))
+                            .unwrap_or(crate::ai_hull::HullType::Tiny)
+                            .bounds();
+                        let end = origin + (t_eye - origin).normalize_or_zero() * 8.;
+                        let excluded = [id];
+                        let hit = physics.npc_trace_hull(
+                            origin + Vec3::Z,
+                            end,
+                            hull,
+                            crate::npc_probe::Query {
+                                excluded_entities: &excluded,
+                                ..Default::default()
+                            },
+                        );
+                        (hit.trace.fraction < 1. || hit.trace.start_solid)
+                            && hit.entity != Some(enemy)
+                    };
                     let enemy_height = 72.;
                     let mut delta = t_center - center;
                     let overlap = (enemy_height + 24.) * 0.5;
@@ -2214,7 +2239,7 @@ impl AiRuntime {
                         dot,
                         distance: delta.length(),
                         clear: sight.visible(eye, t_eye, &[id, enemy]),
-                        high_blocked: false,
+                        high_blocked,
                     };
                     let condition = headcrab::range_condition(check);
                     crab.last_check =
