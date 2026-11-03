@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Actual outer caller boundary (2026-11-03 GT–GW)
+
+The new native capture reads the previously missing outer return and exact loaded28-byte wrapper separately from the frozen legacy journals.32samples bind to clientRVAa9c5b, CALL100a9c56 and exact immutable caller100a9b80. The caller's ordered behavior corresponds to SDK StandardBlendingRules by inference: defaults precede base accumulation, transitions and layers. Outer caller bytes remain a static PE binding. EDI is a repeated raw object candidate; ESI/current quaternion and EBX/current model-wrapper agree in the stopped contexts, without establishing actor or entity lifetime. The saved outer EBP value now supports a precise next nested-frame plan. Native unselected preimages, later consumption/blend/cache publication, final transformed/rendered pose and campaign/Rust parity remain unobserved. Checked ownership/settings/pins/cleanup pass; image only shows the opening title card and the startup Fontconfig error remains.
+
 ## Caller sidecar admission and current references (2026-11-03 GR/GS)
 
 The new sidecar independently retains two36-byte stack images surrounding two28-byte loaded-wrapper images and the current model/result snapshot. Every read carries API BOOL, counts/error and capture/stop/PID/TID/lifetime/generation/base/PC/stack identity. Authored reader and multithreaded full/partial-cap controls pass with legacy journals and caller FP preserved. Saved EBP contents and unknown outer returns remain raw evidence; the observed EBP relation identifies a slot address. Initializer defaults and a caller site still do not establish actor/cache ownership or a final pose. The first integrated host construction failed before any RET and is retained separately from corrected successes. Native use has not yet occurred.

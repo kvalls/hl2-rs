@@ -1,5 +1,11 @@
 # STATUS
 
+## Native outer caller observed (2026-11-03 GT–GW)
+
+After the supplemental active-exception/generation audit, fresh ownership clears and debugger3068/native57392 both exit0.32 stable fixed-RET samples retain128 symmetric stack36/loaded-wrapper28 reads;15659 selected output words match current defaults. Full code/module/path/generation/context/cap/cleanup checks pass.43 cap members resolve as1self-disarm,11exits,31separate retirements;55retirement triples. Screenshot remains title-card context only; startup Fontconfig error is retained. Checked settings and source pins match.
+
+All32 actual outer returns bind to clientRVAa9c5b and exact static caller100a9b80 via CALL100a9c56. The loaded wrapper is separately read; outer caller code remains static-only. SDK StandardBlendingRules correspondence is inferred. ESI equals quaternion and EBX equals model-wrapper in32 contexts; EDI is one raw object candidate, with no object/entity identity observed. Saved outer EBP is innerESP+1104h in these samples.19 native transcript corruptions reject andtwo coherent raw diagnostics remain admitted. No Rust action, original gap closure, final pose, campaign completion or parity.
+
 ## Caller sidecar fixture admission and reference refresh (2026-11-03 GR/GS)
 
 GR's authored reader passes33 cases/116 reads and26 transcript corruptions, retaining API BOOL separately from byte count/error. GS's corrected cap1/12/36 runs all exit0:49 fixed-RET samples,196 symmetric stack36/wrapper28 reads,588 model/result reads and49 unchanged caller-FP comparisons. Full code/file/path/two-generation/lifetime/cap partitions pass;24 additional identity/order controls reject. Legacy capture formats remain unchanged. The initial host call contract crashes before any RET sample and stays rejected with its pinned source archive; corrected ECX indirection is validated separately. No native outer return is observed yet.

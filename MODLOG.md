@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: native outer caller and loaded-wrapper witness (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent found active-event/generation verifier guards and independently checked caller/frame limits.
+- Changed/why: GT separately rechecks frozen fixtures with six event-schedule controls, then GU observes the actual outer return and loaded wrapper. GV retrieves only the exact observed caller from the immutable index; GW independently checks native transcript integrity.
+- Tested how/result: debugger3068/native57392 exit0;32stable snapshots/128sidecar reads/15659selected words/zero mismatch; full code/file/path/two-generation/context and43-member terminal partition pass.32outer returns bind to RVAa9c5b and static CALL100a9c56; EDI remains an object candidate.19corruptions reject/two coherent diagnostics preserve uncertainty. Checked settings/pins and owned cleanup pass; title-card image inspected, Fontconfig error retained.
+- Still broken or not tested: loaded outer caller code, caller context/object contents and entity generation, later blend/cache/publication, full pose/campaign/Rust parity. No Rust action or original gap closure.
+- Next: fixture-admit nested outer-frame/context/poseparameter and bounded object witnesses before another native use.
+
 ## 2026-11-03: caller sidecar fixtures and reference refresh (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent reviewed stack arithmetic, reader controls and live-versus-reference contracts.
