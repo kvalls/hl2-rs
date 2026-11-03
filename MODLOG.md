@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: actual native default-output poststate (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent independently reviewed native claim boundaries and verifier integrity; no Rust delegation.
+- Changed/why: GJ closes the selected initializer poststate observation gap after guarded deferrals; GK independently checks raw domains/corruptions,GL clarifies first-map completion andGI preserves its earlier integrity cutoff.
+- Tested how/result: owned debugger42560/native51156 exit0,32 stable snapshots/384 reads/15659 selected words/zero mismatch;43 cap members/56 retirement triples/code-file-path-generation-stack/context/settings/pins/cleanup pass. GK2237 nonunit selected quaternion vectors,eight corrupted-copy rejects/three preserved diagnostics. Original native capture unchanged; title-card image only andFontconfig error retained.
+- Still broken or not tested: unselected native preimages/store trace,actor/frame/cache/virtual mapping/composed/rendered pose,ordinary campaign/AV/camera/transfer andRust parity. GL's16 records include four missing exact procedures; zero closures. No Rust edit/build/test; first_map_finished:false.
+- Next: bounded actor/cache/blend association with new evidence admission; keep stopped FX/GB and all earlier failures frozen. Save the precise handoff andstop near98% usage.
+
 ## 2026-11-03 session 42: fast headcrab stop-and-go run; station fixtures release the intro camera (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

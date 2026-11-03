@@ -1,5 +1,9 @@
 # Design
 
+## Research disposition: default initialization versus final pose (2026-11-03 GJ–GL)
+
+The fixed-RET capture now observes selected native output/default correspondence with fixture-admitted per-thread cap handling. Preserve the boundary: unselected slots have unknown preimages; initialized defaults do not identify actor/frame ownership, cache publication, virtual-model merge or later gesture/layer/root/flex composition. Use the raw selected words as a narrow oracle, including slightly nonunit defaults, without inferring a later normalization policy. The next bounded design should bind one actor/model generation and a later cache/blend boundary with independently admitted observation; it must not reuse stopped FX dynamic pairing or GB global cap disarm. The original16-record first-map ledger,including its four missing exact procedures,remains unchanged.
+
 ## Research plan: per-thread cap drain (2026-11-03 GC)
 
 GB's raw failed stops show actual debug registers still active despite disarmed bookkeeping after its global cap write; do not infer undocumented OS delivery details. Keep GB and FX stopped. In a fresh fixed-site producer, freeze cap membership by thread lifetime/generation, self-disarm the currently stopped thread, and leave other members unchanged until their own exact-site stop or explicit exit/retirement. Drain stops acquire no output samples and each member can drain only once. Record every stopped/requested/actual context; never arm new threads after cap. Separately journal module-unload retirement and verify zero debug registers instead of claiming it is a self-disarm. Require terminal membership accounting, bounded stops/deadline, multi-thread cap1/cap12/full36 checks, read/identity/FP/output and corruption controls before native use.

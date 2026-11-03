@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Actual selected default-output poststate (2026-11-03 GJ–GL)
+
+One fresh owned native opening now observes32 stable direct-RET snapshots with15659 selected output words equal to current loaded defaults. Callee/module/generation/argument/FP/cap-member/cleanup checks pass. This is actual selected poststate, advancing beyond the prior conditional replay; it does not establish native preimages, individual stores or uninterrupted entry history. The caller binding uses actual return arguments plus exact static PE bytes, not separately read runtime caller bytes.
+
+Independent reconstruction retains2237 slightly nonunit raw quaternion vectors andthree unselected slots with raw words differing from defaults, including words classifying as float32 subnormals. Unknown preimages prevent interpreting those slots as generated poses or missed stores. Coherent replay diagnostics keep semantic disagreement separate from capture integrity. Model/header/source identity and default poststate still do not identify an actor/frame or final composed/rendered pose. The original16-record ledger includes four missing exact procedures; no original record is closed. Full first-map AV/animation/camera/transfer andRust parity remain unverified.
+
 ## Fixed direct-RET observer admission (2026-11-03 GA–GG)
 
 Exact static epilogue analysis admits a single direct-RET site with the original return address/four arguments still at entry-relative ESP. GB's global cap-disarm method fails two partial-cap controls and is stopped; its retained raw contexts show disarmed bookkeeping while OS debug registers remain active, without proving Windows delivery ordering. A different per-thread cap protocol passes cap1/12/36, explicit drain/exit/retirement accounting and caller FP comparisons. Separate bounds/alias/error/mutation and foreign-idle-thread retirement fixtures pass; original verifier assumptions and a caught TID comparison hole remain alongside corrected independent audits.
