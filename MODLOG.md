@@ -6,7 +6,7 @@
 - Changed/why: prepare a truthful current-count/type lookup route for a future nested capture andseal the expanded evidence set before handoff.
 - Tested how/result: HD82static candidates/18corruptions; HE process57856 exits0,35cases/92reads/32corruptions with16API controls/three actual read faults/two mutations. Rawnegative/above24 counts remain diagnostics. HF35roots/1735local entries/418bindings/1832unique files/594502952bytes pass inventory/hash/receipt checks; reference refresh checked. Documentation/whitelist checks only, no gameplay rebuild.
 - Still broken or not tested: loaded vptr/selected dispatch/entity generation, integrated/current native count andearlier getter consumption, complete pose/campaign/Rust parity. HA's owner-game deferral remains0actual native attempts. Concurrent implementation changes preserved.
-- Next: private HGhandoff; integrate current-count reader before a fresh guarded native nested attempt. Preserve all rejected artifacts andraw tail semantics.
+- Next: integrate current-count reader before a fresh guarded native nested attempt. Preserve all rejected artifacts andraw tail semantics; precise private checkpoint retained separately.
 
 ## 2026-11-03: ownership deferral and poseparameter copy contract (Codex desktop, GPT-6 family)
 
