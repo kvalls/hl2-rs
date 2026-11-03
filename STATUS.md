@@ -1,5 +1,11 @@
 # STATUS
 
+## Caller sidecar fixture admission and reference refresh (2026-11-03 GR/GS)
+
+GR's authored reader passes33 cases/116 reads and26 transcript corruptions, retaining API BOOL separately from byte count/error. GS's corrected cap1/12/36 runs all exit0:49 fixed-RET samples,196 symmetric stack36/wrapper28 reads,588 model/result reads and49 unchanged caller-FP comparisons. Full code/file/path/two-generation/lifetime/cap partitions pass;24 additional identity/order controls reject. Legacy capture formats remain unchanged. The initial host call contract crashes before any RET sample and stays rejected with its pinned source archive; corrected ECX indirection is validated separately. No native outer return is observed yet.
+
+REA's published release remains6.8.0, matching the live229-tool server/skill49. A fresh upstream source reference has skill59 and contracts absent from that release; it is retained separately without replacing the live tools or configuration. Source SDK HEAD matches the retained reference. No Rust edit/build/test, first-map completion or parity claim. Next independently review the integrated joins, then use a fresh ownership guard for one bounded native caller capture.
+
 ## Research seal and next caller boundary (2026-11-03 GM/GN)
 
 GM independently verifies 20 core roots: 1,059 local entries, 233 external bindings, and 1,124 unique files totaling 115,953,529 bytes. GN is subsequently checked and bound separately, giving 21 roots/1,063 entries/239 external binding occurrences without rewriting the earlier cutoff. Integrity checks preserve each admitted, rejected, or deferred result.

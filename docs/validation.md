@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Outer caller reader and exact-wrapper fixture (2026-11-03 GR/GS)
+
+GR independent replay:33cases/116reads/26corrupted transcripts pass, including all four read sites, false BOOL with full count/error0, actual inaccessible/partial reads, pair mutations, range/frame/argument/code/prefix rejection and coherent unknown-return/saved-EBP diagnostics. GS corrected cap1/12/36:debuggers39816/41616/50996 and authored hosts52036/30484/46168 all exit0;49samples/196sidecar reads/588model reads/49caller-FP pairs/24additional controls pass. Selected15680words match and8330fixture unselected words preserve sentinels. Full callee/module/path/two-generation and per-thread cap partitions pass; observed drain counts1/2/0 are not fixed expectations. Rejected initial debugger53060/host55024 exits53/access-violation before any RET; its pinned inputs and zero-sample journals remain. Build warnings are retained. Read-only verifier, rejection and manifest checks pass; native outer caller and Rust parity **not tested**. These are private research checks; documentation-only publication needs no gameplay rebuild.
+
 ## Final integrity and next-frame contract (2026-11-03 GM/GN)
 
 GM `audit.py` and `seal.py verify` pass the expanded 20-root inventory plus the separately checked GN contract (combined 21 roots/1,063 local entries/239 external bindings). GN `audit.py` and `seal.py verify` pass exact wrapper bytes, 32 existing EBP/ESP anchors, three selected static call sites and four corruptions. Outer-return memory is not captured; no new native run is implied. From the checkout, focused read-only reproduction commands include:

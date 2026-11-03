@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-03: caller sidecar fixtures and reference refresh (Codex desktop, GPT-6 family)
+
+- Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family read-only subagent reviewed stack arithmetic, reader controls and live-versus-reference contracts.
+- Changed/why: admit separate symmetric36-byte stack/28-byte loaded-wrapper witnesses while preserving frozen journals; retain API success independently of counts/errors and join samples to actual stop/lifetime/generation identity. Refresh relevant references against current upstream revisions.
+- Tested how/result: GR33cases/116reads/26corruptions; corrected GS caps1/12/36 all exit0,49samples/196sidecar reads/588model reads/49caller-FP pairs and24additional corruptions pass. The first GS host contract failed before a RET sample; rejection/source archive remains. Released REA6.8.0/live229tools/skill49 align; newer source skill59 remains reference-only. Source SDK reference already current.
+- Still broken or not tested: native outer caller, actor/cache/frame ownership, complete composed/rendered pose, campaign completion and Rust parity. No Rust action.
+- Next: independent integrated-contract review, fresh ownership guard, then one bounded native observation if admitted.
+
 ## 2026-11-03 session 42 (recorded by session 43): headcrab leap gate and back-away (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5 (session 42 wrote the code and commit messages; session 43, same application and model, wrote this entry because session 42 ran out of usage before its handoff). No subagents.

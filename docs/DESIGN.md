@@ -1,5 +1,9 @@
 # Design
 
+## Research plan: symmetric outer-frame and wrapper-code witnesses (2026-11-03 GR)
+
+Keep the frozen initializer capture formats and stopped FX/GB approaches unchanged. In a fresh private fixture, add a separate bounded journal for two 36-byte caller-stack reads enclosing two 28-byte loaded-wrapper reads at the fixed direct RET. Retain API success independently of requested/actual counts and error, plus capture/stop/PID/thread lifetime/module generation/base/EIP/ESP identity. Require both stack images to agree with the legacy prefix, EBP to equal ESP+20, the outer output arguments to match the inner arguments, and both wrapper images to match the exact admitted bytes. Preserve the saved EBP value and unknown outer returns without inventing caller or actor identity. First admit range, API-failure, mutation, identity and transcript controls in an authored reader; then validate actual multithreaded full/partial-cap wrapper calls and unchanged FP/lifecycle behavior. A native attempt requires those admissions and a fresh ownership guard. This research changes no Rust behavior and proves no final pose or campaign parity.
+
 ## Next bounded research step: outer caller sidecar (2026-11-03 GN)
 
 Preserve the admitted 20-byte stack format. Independently validate a symmetric, bounded 36-byte sidecar at the same fixed RET, retaining read errors and PID/thread lifetime/generation/ESP identity and requiring its first 20 bytes to match the legacy sample. The exact wrapper puts its saved outer return at ESP+24. ESP+20 is the address of its saved EBP slot, and the observed wrapper EBP equals that address in all 32 contexts; the slot's saved value was not read. Bind an observed outer return to exact module/hash/call bytes before retrieving the caller on demand. Existing actor/tool labels are selected static candidates, not exhaustive coverage or live actor identity. This sidecar is planned, not implemented or tested.

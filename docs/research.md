@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Caller sidecar admission and current references (2026-11-03 GR/GS)
+
+The new sidecar independently retains two36-byte stack images surrounding two28-byte loaded-wrapper images and the current model/result snapshot. Every read carries API BOOL, counts/error and capture/stop/PID/TID/lifetime/generation/base/PC/stack identity. Authored reader and multithreaded full/partial-cap controls pass with legacy journals and caller FP preserved. Saved EBP contents and unknown outer returns remain raw evidence; the observed EBP relation identifies a slot address. Initializer defaults and a caller site still do not establish actor/cache ownership or a final pose. The first integrated host construction failed before any RET and is retained separately from corrected successes. Native use has not yet occurred.
+
+Current registry release6.8.0 matches the live229-tool server/skill49. A fresh [REA source snapshot](https://github.com/morluto/rea/commit/c3647ade1e557c4179a8b825a37e0c2193cd2526) has skill59 with contracts absent from that release, so it is a separate reference; no automatic tool/configuration replacement. [Source SDK HEAD](https://github.com/ValveSoftware/source-sdk-2013/commit/be57e3d01ac7d7aa6a2cacbfef187c0b46616db0) matches the retained snapshot. No broad corpus rediscovery or Rust action.
+
 ## Actual selected default-output poststate (2026-11-03 GJ–GL)
 
 One fresh owned native opening now observes32 stable direct-RET snapshots with15659 selected output words equal to current loaded defaults. Callee/module/generation/argument/FP/cap-member/cleanup checks pass. This is actual selected poststate, advancing beyond the prior conditional replay; it does not establish native preimages, individual stores or uninterrupted entry history. The caller binding uses actual return arguments plus exact static PE bytes, not separately read runtime caller bytes.
