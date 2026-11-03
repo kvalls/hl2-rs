@@ -926,7 +926,7 @@ impl Behavior for Zombie {
         &mut self,
         npc: &mut AiNpc,
         task: &str,
-        _arg: &TaskArg,
+        _: &TaskArg,
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {

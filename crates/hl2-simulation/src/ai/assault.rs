@@ -600,6 +600,18 @@ impl Assault {
     }
 }
 
+/// The assault behavior's interrupts while it runs (none otherwise).
+pub fn running_interrupts(
+    running: bool,
+    assault: &Option<Assault>,
+    npc: &super::schedule::AiNpc,
+    now: f64,
+) -> super::conditions::Conditions {
+    match assault {
+        Some(a) if running => a.custom_interrupts(npc, now),
+        _ => Default::default(),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::super::schedule::tests::FakeMotor;

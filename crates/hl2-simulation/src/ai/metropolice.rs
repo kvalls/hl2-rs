@@ -827,14 +827,16 @@ impl Behavior for Metropolice {
         if current != "SCHED_METROPOLICE_BURNING_STAND" && !self.moving {
             c.set(COND_METROPOLICE_ON_FIRE);
         }
+        let assault = &self.assault;
+        c = c.union(super::assault::running_interrupts(
+            self.running_assault,
+            assault,
+            npc,
+            self.now,
+        ));
         if self.running_behavior {
             if let Some(policing) = &self.policing {
                 c = c.union(policing.custom_interrupts(npc));
-            }
-        }
-        if self.running_assault {
-            if let Some(assault) = &self.assault {
-                c = c.union(assault.custom_interrupts(npc, self.now));
             }
         }
         c

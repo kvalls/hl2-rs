@@ -66,20 +66,9 @@ impl AiRuntime {
                     player_box.feet + player_box.hull.mins,
                     player_box.feet + player_box.hull.maxs,
                 );
-                if let Some(out) = push_out_of_box(origin, hull, lo, hi, |p| {
-                    !physics
-                        .npc_trace_hull(
-                            p,
-                            p,
-                            hull,
-                            crate::npc_probe::Query {
-                                excluded_entities: &[id],
-                                ..Default::default()
-                            },
-                        )
-                        .trace
-                        .start_solid
-                }) {
+                if let Some(out) =
+                    push_out_of_box(origin, hull, lo, hi, |p| hull_fits(physics, p, hull, id))
+                {
                     origin = out;
                     self.diagnostics.player_box_pushouts += 1;
                 } else if overlaps(origin + hull.mins, origin + hull.maxs, lo, hi) {
@@ -149,20 +138,7 @@ impl AiRuntime {
                 let lo = player_box.feet + player_box.hull.mins;
                 let mut hi = player_box.feet + player_box.hull.maxs;
                 hi.z = hi.z.max(position.z + hull.maxs.z + 1.);
-                let clear = |p: Vec3| {
-                    !physics
-                        .npc_trace_hull(
-                            p,
-                            p,
-                            hull,
-                            crate::npc_probe::Query {
-                                excluded_entities: &[id],
-                                ..Default::default()
-                            },
-                        )
-                        .trace
-                        .start_solid
-                };
+                let clear = |p: Vec3| hull_fits(physics, p, hull, id);
                 if let Some(off) = push_out_of_box(position, hull, lo, hi, clear) {
                     scene.states[id].origin = off;
                     velocity.x = 0.;
@@ -435,4 +411,14 @@ impl AiRuntime {
         self.npc_ids = None;
         true
     }
+}
+
+/// The NPC's hull fits at `p` (no solid but itself there).
+fn hull_fits(physics: &Physics, p: Vec3, hull: crate::npc_probe::Hull, id: usize) -> bool {
+    use crate::npc_probe::NpcCollisionWorld;
+    let query = crate::npc_probe::Query {
+        excluded_entities: &[id],
+        ..Default::default()
+    };
+    !physics.npc_trace_hull(p, p, hull, query).trace.start_solid
 }

@@ -801,12 +801,12 @@ impl Behavior for Humanoid {
         {
             c.set(COND_COMBINE_ON_FIRE);
         }
-        if self.running_assault {
-            if let Some(assault) = &self.assault {
-                c = c.union(assault.custom_interrupts(npc, self.now));
-            }
-        }
-        c
+        c.union(super::assault::running_interrupts(
+            self.running_assault,
+            &self.assault,
+            npc,
+            self.now,
+        ))
     }
     fn start_task(
         &mut self,
