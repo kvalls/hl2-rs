@@ -440,17 +440,8 @@ pub(crate) fn bolt_tick(
         // CalculateMeleeDamageForce(0.7): damage x ImpulseScale(75, 4) x 0.7 kg in/s, also
         // the death force of an NPC the bolt kills (on the struck solid).
         physics.impulse(hit.entity, direction, bolt.damage * 300. * 0.7 / 39.37);
-        if world
-            .entities
-            .get(hit.entity)
-            .is_some_and(|e| e.class().starts_with("npc_"))
-        {
-            scene.npc_force_points.insert(hit.entity, contact.position);
-            scene.npc_hit_forces.insert(
-                hit.entity,
-                (direction * bolt.damage * 300. * 0.7, contact.position),
-            );
-        }
+        let force = direction * bolt.damage * 300. * 0.7;
+        note_npc_force(world, scene, hit.entity, (force, contact.position));
         sound(scene, "Weapon_Crossbow.BoltHitBody", bolt.position);
         // The bolt that went through pins the ragdoll to the wall behind (the host's
         // BoltImpact effect: `ragdolls::Impact::Bolt`). UTIL_TraceLine(MASK_BLOCKLOS):
@@ -501,6 +492,18 @@ pub(crate) fn bolt_tick(
     BoltOutcome {
         impact: Some(contact),
         ..Default::default()
+    }
+}
+
+/// An NPC's death force and its point (the struck solid's), for a hit that may kill it.
+fn note_npc_force(world: &World, scene: &mut Scene, entity: usize, (force, at): (Vec3, Vec3)) {
+    if world
+        .entities
+        .get(entity)
+        .is_some_and(|e| e.class().starts_with("npc_"))
+    {
+        scene.npc_force_points.insert(entity, at);
+        scene.npc_hit_forces.insert(entity, (force, at));
     }
 }
 
