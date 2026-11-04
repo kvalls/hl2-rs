@@ -8,7 +8,9 @@
 
 **Tested how / Result:** hl2-simulation 498 unit tests, source-assets 115, strict Clippy, fmt; hl2-bevy 160 of 162 under --release (the other two rest on debug assertions and pass in a debug build). Packaged regression on 1c64581 and on 023b17c: 26/26, 17/17, 26/26. Replays on 1c64581: 70 of 72 (two flaky, STATUS session 44). Packaged d1_town_02 fixtures artifacts/s44 fz-ladder and fz-drop: DESIGN 14o session 44 result. Frame time: no render pass added; the controller adds one pass over the active goals per tick (no allocation while nothing climbs or jumps); not measured separately.
 
-**Still broken or not tested:** native A/B of steps 1 and 2; ClimbTouch, the climbing unstick jump, climbing down and a mid-climb cancel packaged; the gameplay/zombies.rs split packaged; the cause of pallet-launched-into-wall's flakiness. The architecture check still fails (35 entries).
+**Later the same session:** native numeric sampling of the fast zombie (oracle console, DESIGN 14o session 44) showed the leap reaching the player where ours fell short; the chase goal was overwriting the fall. `AiNpc::maintain` now clears the goal on a schedule change (CAI_BaseNPC::SetSchedule), a shared change for every NPC. Tested: 499 unit tests (new: a_new_schedule_drops_the_old_move_before_its_first_task), regression 26/26, 17/17, 26/26, replays 72 of 72, images reviewed.
+
+**Still broken or not tested:** native A/B at the far spawn; the unstick jump after a leap; ClimbTouch, the climbing unstick jump, climbing down and a mid-climb cancel packaged; the gameplay/zombies.rs split packaged; the cause of pallet-launched-into-wall's flakiness. The architecture check still fails (35 entries).
 
 **Next:** native A/B of the fast zombie, then the rest of the architecture list.
 
