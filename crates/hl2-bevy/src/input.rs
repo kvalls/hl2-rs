@@ -263,6 +263,11 @@ fn mouse_look_allowed(claimed: bool, buttons: &ButtonInput<MouseButton>) -> bool
     !claimed || buttons.pressed(MouseButton::Right)
 }
 
+/// A claimed pointer keeps the wheel for what claimed it: no binding (`invprev`, `invnext`) fires.
+fn free_wheel(claimed: bool, delta: f32) -> f32 {
+    if claimed { 0. } else { delta }
+}
+
 fn held_devices<'a>(
     keys: &'a ButtonInput<KeyCode>,
     buttons: &'a ButtonInput<MouseButton>,
@@ -333,7 +338,10 @@ pub(crate) fn controls(
     let devices = Devices {
         keys: &keys,
         buttons: &buttons,
-        wheel: scroll.as_deref().map_or(0., |scroll| scroll.delta.y),
+        wheel: free_wheel(
+            overlay_open,
+            scroll.as_deref().map_or(0., |scroll| scroll.delta.y),
+        ),
     };
     if !devices.pressed("+jump", cfg) {
         sim.jump_suppressed = false;
@@ -500,6 +508,19 @@ mod tests {
         for (action, name) in &DEFAULTS.keys {
             assert!(parse_binding(name).is_some(), "{action} -> {name}");
         }
+    }
+
+    #[test]
+    fn a_claimed_pointer_keeps_the_wheel_from_the_weapon_bindings() {
+        let keys = ButtonInput::<KeyCode>::default();
+        let buttons = ButtonInput::<MouseButton>::default();
+        let wheel_up = |claimed| Devices {
+            keys: &keys,
+            buttons: &buttons,
+            wheel: free_wheel(claimed, 1.),
+        };
+        assert!(wheel_up(false).just_pressed("invprev", None));
+        assert!(!wheel_up(true).just_pressed("invprev", None));
     }
 
     #[test]

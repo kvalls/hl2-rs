@@ -52,17 +52,7 @@ impl State {
                     .spawn_log
                     .last()
                     .and_then(|entry| entry["message"].as_str());
-                let hits = font.draw(&hud.source.canvas, panel, message, stack_top);
-                // The panel can cover the screen center: mark where spawns aim (ours).
-                let (x, y) = ((width / 2.).round(), (height / 2.).round());
-                let canvas = &hud.source.canvas;
-                let dark = source_ui::canvas::Color::new(0., 0., 0., 0.8);
-                canvas.rectangle(x - 8., y - 2., 17., 5., dark);
-                canvas.rectangle(x - 2., y - 8., 5., 17., dark);
-                let mark = source_ui::canvas::Color::from_rgba(255, 238, 160, 255);
-                canvas.rectangle(x - 7., y - 1., 15., 3., mark);
-                canvas.rectangle(x - 1., y - 7., 3., 15., mark);
-                hits
+                font.draw(&hud.source.canvas, panel, message, stack_top)
             } else {
                 vec![]
             };
