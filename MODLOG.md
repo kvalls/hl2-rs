@@ -10,9 +10,11 @@
 
 **Later the same session:** native numeric sampling of the fast zombie (oracle console, DESIGN 14o session 44) showed the leap reaching the player where ours fell short; the chase goal was overwriting the fall. `AiNpc::maintain` now clears the goal on a schedule change (CAI_BaseNPC::SetSchedule), a shared change for every NPC. Tested: 499 unit tests (new: a_new_schedule_drops_the_old_move_before_its_first_task), regression 26/26, 17/17, 26/26, replays 72 of 72, images reviewed.
 
-**Still broken or not tested:** native A/B at the far spawn; the unstick jump after a leap; ClimbTouch, the climbing unstick jump, climbing down and a mid-climb cancel packaged; the gameplay/zombies.rs split packaged; the cause of pallet-launched-into-wall's flakiness. The architecture check still fails (35 entries).
+**Later still:** SCHED_FASTZOMBIE_LAND_WAIT (ours) stops a chase planned in mid-air from failing and forgetting the enemy. Architecture debt 41 -> 13 failures in small commits, each with workspace or crate tests and strict Clippy; the owned prop data and sound tests ran after those moves. Packaged validation repeated as the refactors landed: 2c1965b, 6fa19ee and 6294831 all regression 26/26, 17/17, 26/26 and replays 72 of 72; owned tests on 2c1965b: the 3 known failures plus one load-dependent test that passes alone.
 
-**Next:** native A/B of the fast zombie, then the rest of the architecture list.
+**Still broken or not tested:** after the leap native dealt no further damage in three oracle runs, ours claws on (open, needs the owner or a native position source); the far spawn has no native data; ClimbTouch, the climbing unstick jump, climbing down and a mid-climb cancel packaged; the gameplay/zombies.rs split packaged; the cause of pallet-launched-into-wall's flakiness. The architecture check still fails (35 entries).
+
+**Next:** the owner's answer on the post-leap difference, a playtest of the shared ClearGoal change, then the 13 remaining architecture entries.
 
 ## 2026-11-03: integrated current-count observer (Codex desktop, GPT-6 family)
 
