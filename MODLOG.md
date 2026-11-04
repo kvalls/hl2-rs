@@ -12,7 +12,7 @@
 
 **Rejected on the way:** blaming a low ceiling; a missing rig or registration error for the zombies (no warning existed: they never reached registration).
 
-**Still broken or not tested:** an ordinary play-through of Ravenholm (seven-map smoke run and the d1_town_03 rooftop fight pass); metal sparks and dirt dust packaged; impacts against native.
+**Still broken or not tested:** an ordinary play-through of Ravenholm (seven-map smoke run and the d1_town_03 rooftop fight pass); dirt dust packaged; impacts against native.
 
 **Next:** owner retest, above all Ravenholm; the remaining leftovers.
 
