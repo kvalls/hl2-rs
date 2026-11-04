@@ -1,5 +1,11 @@
 # STATUS
 
+## Getter history and virtual map fixture progress (2026-11-04 JE–JK)
+
+JE's two trap-flag debugger attempts rejected and remain frozen. The second reached the expected getter-entry exception address, then failed the context gate before the failing register image was retained. JG instead retargets one hardware execution slot. All eight traced and eight untraced authored cases exit 0. The replay verifies 215 stops, 66 signed count returns and 60 completed stores, with 25 corruptions rejected. Independent review confirms 223 debug-register-only context applications. The first JG rejection retains the exact WOW64 reserved-bit readback difference. The 25-word fixture retires observation before the last load and completes the write.
+
+JF's exact static merge rule predicts 11 global pose entries from four owned model files. JH admits the standalone symmetric VM pair and group-remap reader. JJ integrates it with 49 authored stops and 811 VM reads. A fresh JK guard found an existing game process and deferred before spawn. The live VM map and group headers, actual earlier getter history and downstream consumption, actor, final pose, first-map completion and Rust parity remain open.
+
 ## Retail caller context and current poseparameter count (2026-11-04 JA–JD)
 
 One guarded Windows retail startup admitted 32 initializer return stops. Debugger 50388 and game 50640 exited 0. The 448 nested reads, 128 count reads and 128 parent sidecar reads bind the live caller window, frame, accumulator context, raw pose span and object fields to the same stopped thread and module generation. The loaded `gman_high.mdl` header reports 70 bones, one local poseparameter and three direct includes. The active virtual route reports 11 in every stop. All 15,659 selected current output words match the loaded defaults. The screenshot shows the title card and the startup Fontconfig error is retained.

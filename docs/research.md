@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Owned virtual-pose mapping and raw live witnesses (2026-11-04)
+
+The pinned retail datacache path appends or aliases each model group's local descriptors against the prior groups. JF independently predicts 11 canonical pairs from four owned model files with local counts 1, 9, 1 and 2. Reordering groups or omitting one duplicate-only include can preserve the count. The first `move_yaw` descriptor retains its flags and loop fields in the candidate, while matching later descriptors contribute the endpoint merge. Both gesture descriptors preserve their authored reversed endpoints. Candidate ordering and names remain separate from the live count.
+
+The current-map reader bounds the VM pair and group vectors, group handle word and each local-to-global remap. It re-reads the same addresses in reverse. A stable raw handle, pair or index records a current value. Loaded studio-header and descriptor association require their own witness. The integration is fixture-admitted and the native attempt deferred before spawn.
+
 ## Current poseparameter state and earlier getter boundary (2026-11-04)
 
 JA's 32 guarded Windows startup samples observe the same active virtual-model count of 11 at the initializer return. The current loaded header for `gman_high.mdl` has one local poseparameter and three direct includes. JB independently recovers both count words, the wrapper prefix, frame, context and full 96-byte stack span from the stopped reads. The first 11 words have 352 positive-normal float32 encodings and 31 distinct tuples. The trailing 13 words have 22 distinct raw tuples, including encodings that would represent subnormals or signed zeros under float32 interpretation. The later count labels a measured span. It cannot establish the earlier getter's writes or which words downstream code used.

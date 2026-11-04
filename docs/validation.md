@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Getter and virtual-map fixtures (2026-11-04)
+
+JE's first attempt rejected the WOW64 single-step exception variant. Its second attempt recorded the expected getter-entry address before the step-context gate rejected. The failing context was absent from that transcript. JG's different one-slot observer retains a first reserved-EFlags readback rejection. The corrected route admits 215 hardware stops and 286 reads across eight cases, with 66 count returns, 60 stores, identical authored FP images against untraced runs and 25 corruption controls. The separate JI review confirms the stopped thread and phase geometry. Native multi-thread and module-generation integration **not tested**.
+
+JH independently passes 75 transport cases and 506 real Windows reads, including actual inaccessible reads, injected API outcomes, symmetric mutations and 24 rejection controls. JJ's integrated caps 1, 12 and 36 all exit 0. The 49 stopped identities join 811 VM reads and 196 separate count reads. There are 34 stable maps including two raw diagnostic samples, 12 no-VM skips and three bounded count refusals. All 49 caller-FP pairs pass. JK deferred before launch because a preexisting game process was present.
+
 ## Native nested and current-count evidence (2026-11-04)
 
 One Windows retail attempt admitted 32 stopped records after fresh process and cursor checks. Both owned processes exited 0. Two module generations, exact loaded code and path, active exception and thread lifetime, cap retirement and selected settings/source pins passed. At the cap, 43 members resolve to one self-disarm, 10 observed exits and 32 generation retirements. The 57 retirement-context comparisons pass. No drain stop was needed. The current FP observations all show x87 control word `0x027f`, status `0x4037`, empty tag and MXCSR `0x1fbf` at the return site.

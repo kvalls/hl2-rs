@@ -1,5 +1,11 @@
 # Design
 
+## Getter and VM reader integration boundaries (2026-11-04)
+
+Stop the rejected per-thread trap-flag approach. The authored one-slot hardware route independently validates the active exception, dispatch return, each count and store boundary, and retirement for one selected fixture thread. Before retail use, validate module identity and generation, debug-register ownership, peer and recycled thread events, invalid or alternate target admission, exact loaded bytes at the active boundary and cleanup across multiple lifetimes. Track a bounded chain of selected addresses and preserve a partial outcome at the observer cap.
+
+The VM map sidecar is admitted inside the existing stopped count and model interval. Its pair count must match the separately read current count. It preserves raw mapping diagnostics and may refuse unsafe ranges without invalidating the independently admitted count. Any future retail capture requires fresh ownership. Resolve group headers and descriptors with a separate passive witness before attributing raw maps to named loaded descriptors.
+
 ## Earlier getter history witness (2026-11-04)
 
 The later initializer return yields a stable current count of 11 on the virtual route in the captured startup. Establish the earlier writer separately. Start with an authored x86 caller that reproduces the retail call and stack geometry. Use one hardware breakpoint at the indirect call and request per-thread instruction stepping after validating the active event. Bind the executed target to the slot read, actual call return, outer frame, object, wrapper, thread lifetime and module generation. Preserve the original flag contract and retire the observer state on bounded or alternate paths.

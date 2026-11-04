@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-04 research checkpoint JE–JK
+
+**Agent/model** Codex desktop, GPT-6 family. The exact identifier was unavailable. Two same-family subagents authored or independently reviewed static merge, VM transport and getter evidence.
+
+**Changed and why** Tested two distinct authored debugger mechanisms for the earlier pose getter and checked which virtual-model structure could independently distinguish a count match from a mapping match.
+
+**Tested and result** JE's two trap-flag runs rejected before a valid getter history. JG's corrected one-slot observer passes eight traced and eight untraced Windows runs, with identical fixture FP images, 215 stops and 25 rejection controls. Independent JI review confirms the active stop and full register geometry. JF audits six static merge windows and four owned file candidates. JH passes 75 cases and 506 real memory reads. JJ passes 49 stopped contexts, 811 VM reads, unchanged caller FP and 29 rejection controls. The JK guard records zero actual native attempts.
+
+**Still open** Native per-thread debugger ownership and activation across module generations, live group mapping and descriptor identity, actual getter output and indexed consumer, actor/cache/final pose and campaign completion. Rust build, tests and parity **not tested**. macOS and Linux **not tested** for this investigation.
+
+**Next** Admit multiple thread lifetimes and cap retirement for the getter observer. Use a new native VM-map root after fresh ownership clears. Keep header and descriptor identity separate from raw handle and map values.
+
 ## 2026-11-04 research checkpoint JA–JD
 
 **Agent/model** Codex desktop, GPT-6 family. The exact identifier was unavailable. Two same-family subagents authored the static getter path and object-prefix audits.
