@@ -6,6 +6,7 @@ mod crosshair;
 mod font;
 mod power;
 mod quick_info;
+mod vitals;
 use font::HudFont;
 use quick_info::QuickInfoHud;
 
@@ -732,37 +733,7 @@ impl NumericHudEffects {
             };
             self.start(event, time, rules, events, settings);
         }
-        let health = (inv.health as i32).max(0);
-        if health != self.health {
-            if health >= 20 {
-                self.start("HealthIncreasedAbove20", time, rules, events, settings);
-            } else if health > 0 {
-                self.start("HealthIncreasedBelow20", time, rules, events, settings);
-                self.start("HealthLow", time, rules, events, settings);
-            }
-            // CHudHealth starts nothing at zero; HudPlayerDeath comes from the
-            // damage indicator's message handler.
-            self.health = health;
-        }
-        let armor = inv.armor as i32;
-        if armor != self.armor {
-            if armor == 0 {
-                self.start("SuitPowerZero", time, rules, events, settings);
-            } else if armor < self.armor {
-                self.start("SuitDamageTaken", time, rules, events, settings);
-                if armor < 20 {
-                    self.start("SuitArmorLow", time, rules, events, settings);
-                }
-            } else {
-                let event = if self.armor == -1 || self.armor == 0 || armor >= 20 {
-                    "SuitPowerIncreasedAbove20"
-                } else {
-                    "SuitPowerIncreasedBelow20"
-                };
-                self.start(event, time, rules, events, settings);
-            }
-            self.armor = armor;
-        }
+        self.observe_vitals(inv, time, rules, events, settings);
         if let Some(weapon) = weapons
             .get(&inv.active)
             .filter(|w| !w.ammo_type.is_empty() && !w.ammo_type.eq_ignore_ascii_case("none"))
