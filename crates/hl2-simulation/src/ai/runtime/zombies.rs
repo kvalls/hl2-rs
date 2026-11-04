@@ -27,6 +27,14 @@ pub(super) struct AttackView {
     pub t_eye: Vec3,
     /// IsMoving: the NPC's navigation goal is active.
     pub moving: bool,
+    /// The enemy's FInViewCone(me); None without an enemy.
+    pub enemy_sees_me: Option<bool>,
+}
+/// IsMoving: `actor`'s navigation goal is active.
+pub(super) fn goal_active(actor: &AiActor, controller: &crate::npc::Controller) -> bool {
+    use crate::npc::GoalState::{Blocked, Moving};
+    let status = actor.goal.and_then(|key| controller.status(key));
+    status.is_some_and(|s| matches!(s, Moving | Blocked(_)))
 }
 impl AttackView {
     /// CAI_BaseNPC::EnemyDistance: center to center less the height the two boxes can
@@ -67,13 +75,12 @@ pub(super) fn attack_conditions(
     world: &World,
     scene: &Scene,
     physics: &Physics,
-    player: &PlayerState,
 ) {
     let sight = PhysicsSight { physics, world };
     crab_leap(actor, v, world, physics, &sight);
     claws(actor, v, world);
     poison_ranges(actor, v, world, scene, &sight);
-    fast_leap(actor, v, physics, player);
+    fast_leap(actor, v, physics);
 }
 
 /// CBaseHeadcrab::RangeAttack1Conditions (EnemyDistance between the centers, less the
@@ -185,9 +192,9 @@ fn poison_ranges(
     }
 }
 
-/// CFastZombie::RangeAttack1Conditions: the leap (an NPC enemy's own view cone is not
-/// modeled: it always counts as seeing the zombie).
-fn fast_leap(actor: &mut AiActor, v: &AttackView, physics: &Physics, player: &PlayerState) {
+/// CFastZombie::RangeAttack1Conditions: the leap. Its "unless he's facing me" test casts any
+/// enemy to CBasePlayer, so it holds for an NPC enemy's view cone too.
+fn fast_leap(actor: &mut AiActor, v: &AttackView, physics: &Physics) {
     let on_ground = actor.on_ground();
     let z = match &mut actor.class {
         AiClass::Zombie(z) if z.kind == zombie::Kind::Fast && !z.torso => z,
@@ -199,13 +206,7 @@ fn fast_leap(actor: &mut AiActor, v: &AttackView, physics: &Physics, player: &Pl
             .conditions
             .set(zombie::COND_FASTZOMBIE_CLIMB_TOUCH);
     }
-    let seen = v.enemy != PLAYER
-        || zombie::fast::in_view_cone(
-            player.eye(),
-            player.facing,
-            v.center,
-            zombie::fast::PLAYER_VIEW_CONE,
-        );
+    let seen = v.enemy_sees_me.unwrap_or(false);
     // A 32-unit cube from my center halfway to the enemy's center (MASK_NPCSOLID).
     let clear = || {
         let half = crate::npc_probe::Hull {

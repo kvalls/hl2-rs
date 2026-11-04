@@ -242,10 +242,10 @@ pub fn ground_move<W: NpcCollisionWorld>(
     if initial.trace.start_solid {
         return failure(start, BlockReason::StartSolid, initial);
     }
-    if !stand(world, start, config, query) {
-        return failure(start, BlockReason::UnsupportedGround, HullTrace::clear());
-    }
-    ground_move_from_valid(world, start, desired_end, config, query)
+    // STEP_ON_INVALID_GROUND: a start hanging over an edge "toughs it out", or an NPC blown into
+    // an invalid spot could never walk off it. Its next move, from valid ground, is strict again.
+    let shaky = !stand(world, start, config, query);
+    ground_steps(world, start, desired_end, config, query, shaky)
 }
 
 /// `ground_move` for a caller that just proved `start` passes `fits` and `stand` this tick:
@@ -256,6 +256,18 @@ pub fn ground_move_from_valid<W: NpcCollisionWorld>(
     desired_end: Vec3,
     config: GroundConfig,
     query: Query<'_>,
+) -> GroundMove {
+    ground_steps(world, start, desired_end, config, query, false)
+}
+
+/// GroundMoveLimit's steps; `shaky` skips the stand test of each one.
+fn ground_steps<W: NpcCollisionWorld>(
+    world: &W,
+    start: Vec3,
+    desired_end: Vec3,
+    config: GroundConfig,
+    query: Query<'_>,
+    shaky: bool,
 ) -> GroundMove {
     if !desired_end.is_finite() {
         return failure(start, BlockReason::InvalidInput, HullTrace::invalid());
@@ -314,7 +326,7 @@ pub fn ground_move_from_valid<W: NpcCollisionWorld>(
             return failure(end, BlockReason::NoGround, floor);
         }
         let landed = horizontal_end.lerp(down_target, floor.trace.fraction);
-        if !stand(world, landed, config, query) {
+        if !shaky && !stand(world, landed, config, query) {
             return failure(end, BlockReason::UnsupportedGround, floor);
         }
         let candidate = landed + Vec3::Z * MOVE_HEIGHT_EPSILON;

@@ -594,6 +594,8 @@ struct Goal {
     paused: bool,
     /// A jump or climb in progress.
     link: links::GoalLink,
+    /// This tick's start hangs over an edge (STEP_ON_INVALID_GROUND).
+    shaky: bool,
 }
 impl Goal {
     fn destination(&self) -> Destination {
@@ -1084,6 +1086,7 @@ impl Controller {
             simplified: false,
             paused: false,
             link: Default::default(),
+            shaky: false,
         };
         let prepared = (|| {
             self.admit(key, &pose, &goal.request)?;
@@ -1105,7 +1108,7 @@ impl Controller {
                 excluded_entities: &ignored,
                 ..query
             };
-            embedded::stand(world, key, pose.feet, actor.ground, query, &mut self.drops)?;
+            embedded::stand(world, key, pose.feet, actor, query, &mut self.drops)?;
             if pose.feet.distance(goal.request.target_feet) <= goal.tolerance {
                 goal.state = GoalState::Arrived;
             } else {
@@ -1230,7 +1233,8 @@ impl Controller {
                     excluded_entities: &ignored,
                     ..query
                 };
-                embedded::stand(world, *key, goal.feet, actor.ground, query, &mut self.drops)?;
+                let shaky = embedded::stand(world, *key, goal.feet, actor, query, &mut self.drops)?;
+                goal.shaky = shaky;
                 let moved = advance(world, actor, *key, goal, track, query, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
@@ -1371,7 +1375,7 @@ fn advance<W: NpcCollisionWorld>(
         .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
     // The playback rate scales the run's distance and its cycle together.
     let mut remaining = dt * actor.playback_rate;
-    let mut start_validated = true;
+    let mut start_validated = !goal.shaky;
     // Budget is ours, not an engine constant; failing never releases SECTION.
     for _ in 0..32 {
         if remaining <= 0. || links::at_link(goal) {
@@ -1600,6 +1604,7 @@ mod tests {
             simplified: false,
             paused: false,
             link: Default::default(),
+            shaky: false,
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.

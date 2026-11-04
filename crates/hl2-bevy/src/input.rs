@@ -338,10 +338,7 @@ pub(crate) fn controls(
     let devices = Devices {
         keys: &keys,
         buttons: &buttons,
-        wheel: free_wheel(
-            overlay_open,
-            scroll.as_deref().map_or(0., |scroll| scroll.delta.y),
-        ),
+        wheel: free_wheel(overlay_open, scroll.as_deref().map_or(0., |s| s.delta.y)),
     };
     if !devices.pressed("+jump", cfg) {
         sim.jump_suppressed = false;

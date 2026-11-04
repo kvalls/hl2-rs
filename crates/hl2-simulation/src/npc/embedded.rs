@@ -1,8 +1,8 @@
 //! CAI_MoveProbe::GroundMoveLimit's bTryNavIgnore: an actor a mover starts embedded in (two fast
 //! zombies landing together, two spawned on one spot) does not block its moves, or neither could
 //! ever walk out of the other.
-use super::{GoalBlockReason, GoalKey, AI_SCENE};
-use crate::npc_probe::{self, GroundConfig, Hull, NpcCollisionWorld, Query};
+use super::{Actor, GoalBlockReason, GoalKey, AI_SCENE};
+use crate::npc_probe::{self, Hull, NpcCollisionWorld, Query};
 use glam::Vec3;
 use std::borrow::Cow;
 
@@ -43,23 +43,32 @@ pub(super) fn ignored<'a, W: NpcCollisionWorld>(
     })
 }
 
-/// CheckStandPosition at the start of a move. An AI mover with nothing under it falls, as any
-/// MOVETYPE_STEP entity off the ground does (created in the air, or what held it up walked away);
-/// a scene's mover stays where its script put it.
+/// CheckStandPosition at the start of a move: Ok(true) when the start is shaky (hanging over an
+/// edge, with a floor in reach), which the move tolerates. An AI mover with nothing under it
+/// falls, as any MOVETYPE_STEP entity off the ground does (created in the air, or what held it up
+/// walked away); a scene's mover stays where its script put it.
 pub(super) fn stand<W: NpcCollisionWorld>(
     world: &W,
     key: GoalKey,
     feet: Vec3,
-    ground: GroundConfig,
+    actor: &Actor,
     query: Query<'_>,
     drops: &mut Vec<usize>,
-) -> Result<(), GoalBlockReason> {
+) -> Result<bool, GoalBlockReason> {
+    let ground = actor.ground;
     if npc_probe::stand(world, feet, ground, query) {
-        return Ok(());
+        return Ok(false);
     }
     let below = feet - Vec3::Z * ground.step_height * ground.step_down_multiplier;
-    let floor = world.npc_trace_hull(feet, below, ground.hull, query);
-    if key.scene == AI_SCENE && floor.trace.fraction >= 1. {
+    if world
+        .npc_trace_hull(feet, below, ground.hull, query)
+        .trace
+        .fraction
+        < 1.
+    {
+        return Ok(true);
+    }
+    if key.scene == AI_SCENE {
         drops.push(key.actor);
     }
     Err(cannot_stand())
@@ -75,10 +84,10 @@ pub(super) fn cannot_stand() -> GoalBlockReason {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{key, locomotion, make_controller, pose, request, world};
+    use super::super::tests::{cube, key, locomotion, make_controller, pose, request, world};
     use super::super::{normal_human, GoalState, AI_SCENE};
     use super::ignored;
-    use crate::npc_probe::{ActorHull, Query};
+    use crate::npc_probe::{ground_move, ActorHull, Query};
     use crate::physics::Physics;
     use glam::Vec3;
 
@@ -145,6 +154,55 @@ mod tests {
         };
         assert_eq!(drops(AI_SCENE), [7]);
         assert!(drops(1).is_empty());
+    }
+
+    /// A floor ending at x = 0 above a pit.
+    fn ledge() -> Physics {
+        Physics::new(&modkit_core::World {
+            brushes: vec![
+                cube(Vec3::new(-1000., -1000., -50.), Vec3::new(0., 1000., 0.)),
+                cube(
+                    Vec3::new(-1000., -1000., -900.),
+                    Vec3::new(1000., 1000., -800.),
+                ),
+            ],
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn a_start_hanging_over_an_edge_walks_back_and_valid_ground_stays_strict() {
+        let physics = ledge();
+        let ground = normal_human(1., 18., 1.).unwrap();
+        let edge = Vec3::X * 8.;
+        assert!(!crate::npc_probe::stand(
+            &physics,
+            edge,
+            ground,
+            Query::default()
+        ));
+        let back = ground_move(&physics, edge, Vec3::X * -40., ground, Query::default());
+        assert!(back.completed, "{back:?}");
+        let out = ground_move(&physics, Vec3::X * -40., edge, ground, Query::default());
+        assert!(
+            !out.completed,
+            "valid ground may not walk onto the edge: {out:?}"
+        );
+
+        let mut controller = make_controller(None);
+        let mut feet = edge;
+        let status =
+            controller.request(key(1), request(Vec3::X * -200.), pose(feet), &physics, &[]);
+        assert!(!matches!(status, GoalState::Blocked(_)), "{status:?}");
+        for _ in 0..10 {
+            if let Some(last) = controller
+                .tick(&physics, &[pose(feet)], &[], 0.1, false)
+                .last()
+            {
+                feet = last.feet;
+            }
+        }
+        assert!(feet.x < -20., "it walked off the edge: {feet:?}");
     }
 
     #[test]

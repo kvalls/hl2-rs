@@ -23,6 +23,17 @@ struct Swing {
     impulse: Vec3,
 }
 
+/// `CopRequest::Claw`'s swing.
+struct Claw {
+    start: Vec3,
+    forward: Vec3,
+    punch: Vec3,
+    impulse: Vec3,
+    reach: f32,
+    bite: bool,
+    damage: Option<f32>,
+}
+
 impl AiRuntime {
     /// Would a stunstick hit knock the player out (the cop's policing goal)?
     pub(super) fn knock_out_player(
@@ -132,6 +143,83 @@ impl AiRuntime {
             direction: swing.forward,
         });
         true
+    }
+    /// A zombie's ClawAttack: the swing, then its hit or miss sound.
+    fn claw(
+        &mut self,
+        id: usize,
+        claw: Claw,
+        world: &World,
+        scene: &mut Scene,
+        physics: &Physics,
+        player: PlayerState,
+    ) {
+        let Claw {
+            start,
+            forward,
+            punch,
+            impulse,
+            reach,
+            bite,
+            damage,
+        } = claw;
+        let origin = scene.states[id].origin;
+        let enemy = self.actors[&id].npc.enemy;
+        let enemy_center = enemy.map(|e| {
+            if e == PLAYER {
+                player.center()
+            } else {
+                scene.states[e].origin + Vec3::Z * center_z(world, e)
+            }
+        });
+        // ClawAttack: no swing through a wall between the zombie and its
+        // enemy (an 8-unit hull to the enemy's center, MASK_SOLID_BRUSHONLY:
+        // world brushes and static props, not physics props).
+        if enemy_center.is_some_and(|c| {
+            physics
+                .filtered_ray(start, c, &|entity| entity == usize::MAX)
+                .is_some()
+        }) {
+            return;
+        }
+        let end = start + forward * reach;
+        // The hull made a cube (the x extents).
+        let cube = world
+            .entities
+            .get(id)
+            .and_then(|e| crate::ai_hull::class_hull(e.class()))
+            .map_or(13., |h| h.bounds().maxs.x);
+        let (mins, maxs) = (-Vec3::splat(cube), Vec3::splat(cube));
+        let damage = damage.unwrap_or(if bite {
+            self.zombie_poison_spit_damage
+        } else {
+            self.zombie_slash_damage
+        });
+        let swing = Swing {
+            start,
+            end,
+            mins,
+            maxs,
+            forward,
+            damage,
+            punch,
+            impulse,
+        };
+        let hit = self.swing(id, &swing, world, scene, player)
+            || self.strike_attack_item(id, origin, damage, world, scene, physics);
+        let cue = if hit {
+            "Zombie.AttackHit"
+        } else {
+            "Zombie.AttackMiss"
+        };
+        let cue = match &self.actors[&id].class {
+            AiClass::Zombie(z) => z.kind.cue(cue),
+            _ => cue,
+        };
+        scene.sounds.push(crate::sounds::SoundRequest {
+            origin: Some(origin + Vec3::Z * 36.),
+            ..String::from(cue).into()
+        });
     }
     pub(super) fn apply_requests(
         &mut self,
@@ -291,62 +379,16 @@ impl AiRuntime {
                     bite,
                     damage,
                 } => {
-                    let enemy = self.actors[&id].npc.enemy;
-                    let enemy_center = enemy.map(|e| {
-                        if e == PLAYER {
-                            player.center()
-                        } else {
-                            scene.states[e].origin + Vec3::Z * center_z(world, e)
-                        }
-                    });
-                    // ClawAttack: no swing through a wall between the zombie and its
-                    // enemy (an 8-unit hull to the enemy's center, MASK_SOLID_BRUSHONLY:
-                    // world brushes and static props, not physics props).
-                    if enemy_center.is_some_and(|c| {
-                        physics
-                            .filtered_ray(start, c, &|entity| entity == usize::MAX)
-                            .is_some()
-                    }) {
-                        continue;
-                    }
-                    let end = start + forward * reach;
-                    // The hull made a cube (the x extents).
-                    let cube = world
-                        .entities
-                        .get(id)
-                        .and_then(|e| crate::ai_hull::class_hull(e.class()))
-                        .map_or(13., |h| h.bounds().maxs.x);
-                    let (mins, maxs) = (-Vec3::splat(cube), Vec3::splat(cube));
-                    let damage = damage.unwrap_or(if bite {
-                        self.zombie_poison_spit_damage
-                    } else {
-                        self.zombie_slash_damage
-                    });
-                    let swing = Swing {
+                    let claw = Claw {
                         start,
-                        end,
-                        mins,
-                        maxs,
                         forward,
-                        damage,
                         punch,
                         impulse,
+                        reach,
+                        bite,
+                        damage,
                     };
-                    let hit = self.swing(id, &swing, world, scene, player)
-                        || self.strike_attack_item(id, origin, damage, world, scene, physics);
-                    let cue = if hit {
-                        "Zombie.AttackHit"
-                    } else {
-                        "Zombie.AttackMiss"
-                    };
-                    let cue = match &self.actors[&id].class {
-                        AiClass::Zombie(z) => z.kind.cue(cue),
-                        _ => cue,
-                    };
-                    scene.sounds.push(crate::sounds::SoundRequest {
-                        origin: Some(origin + Vec3::Z * 36.),
-                        ..String::from(cue).into()
-                    });
+                    self.claw(id, claw, world, scene, physics, player);
                 }
                 CopRequest::SetBodygroup { group, value } => {
                     scene.set_bodygroup(world, id, group, value);

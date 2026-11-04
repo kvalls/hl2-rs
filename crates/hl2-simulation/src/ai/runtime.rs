@@ -36,15 +36,18 @@ use crate::{
 use glam::Vec3;
 use modkit_core::World;
 use serde::Serialize;
-use source_assets::{keyvalues, vpk::Vfs};
+use source_assets::vpk::Vfs;
 use std::collections::BTreeMap;
 mod actbusy_host;
 mod crabs;
 mod equipment;
+mod events;
+mod gather;
 mod goal_inputs;
 mod navlinks;
 use navlinks::overlaps;
 mod requests;
+mod setup;
 mod speech;
 mod squads;
 mod zombies;
@@ -839,108 +842,10 @@ impl AiRuntime {
             .and_then(|vfs| vfs.read("scripts/actbusy.txt").ok().flatten())
             .map(|text| super::actbusy::parse_busy_anims(&String::from_utf8_lossy(&text)))
             .unwrap_or_default();
-        let busy_hints = world
-            .entities
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| e.class() == "info_node_hint")
-            .map(|(id, e)| {
-                let int = |k: &str| e.get(k).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
-                super::actbusy::HintCandidate {
-                    entity: id,
-                    origin: e.origin(),
-                    yaw: yaw_keyvalue(e),
-                    hint_type: int("hinttype"),
-                    group: e.get("Group").unwrap_or("").trim().to_owned(),
-                    activity: e.get("hintactivity").unwrap_or("").trim().to_owned(),
-                    disabled: int("StartHintDisabled") != 0,
-                    min_state: int("MinimumState"),
-                    max_state: int("MaximumState"),
-                }
-            })
-            .collect();
-        let actbusy_ranges = world
-            .entities
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| e.class() == "ai_goal_actbusy")
-            .map(|(id, e)| {
-                (
-                    id,
-                    e.get("busysearchrange")
-                        .and_then(|v| v.trim().parse().ok())
-                        .unwrap_or(2048.),
-                )
-            })
-            .collect();
-        let mut stunstick_sounds = (None, None);
-        let mut stunstick_damage = None;
-        let mut combine_kick_damage = 0.;
-        let mut combine_guard_kick_damage = 0.;
-        let mut zombie_slash_damage = 0.;
-        let mut zombie_poison_spit_damage = 0.;
-        let mut headcrab_melee_damage = 0.;
-        if let Some(vfs) = vfs {
-            if let Ok(Some(skill)) = vfs.read("cfg/skill.cfg") {
-                if let Ok(tokens) = keyvalues::tokens(&String::from_utf8_lossy(&skill)) {
-                    if let Some(value) = tokens
-                        .windows(2)
-                        .find(|p| p[0].eq_ignore_ascii_case("sk_npc_dmg_stunstick"))
-                        .and_then(|p| p[1].parse::<f32>().ok())
-                    {
-                        super::metropolice::STUNSTICK_DAMAGE.with(|d| d.set(value));
-                        stunstick_damage = Some(value);
-                    }
-                    if let Some(value) = tokens
-                        .windows(2)
-                        .find(|p| p[0].eq_ignore_ascii_case("sk_combine_s_kick"))
-                        .and_then(|p| p[1].parse::<f32>().ok())
-                    {
-                        combine_kick_damage = value;
-                    }
-                    if let Some(value) = tokens
-                        .windows(2)
-                        .find(|p| p[0].eq_ignore_ascii_case("sk_combine_guard_kick"))
-                        .and_then(|p| p[1].parse::<f32>().ok())
-                    {
-                        combine_guard_kick_damage = value;
-                    }
-                    if let Some(value) = tokens
-                        .windows(2)
-                        .find(|p| p[0].eq_ignore_ascii_case("sk_zombie_dmg_one_slash"))
-                        .and_then(|p| p[1].parse::<f32>().ok())
-                    {
-                        zombie_slash_damage = value;
-                    }
-                    if let Some(value) = tokens
-                        .windows(2)
-                        .find(|p| p[0].eq_ignore_ascii_case("sk_zombie_poison_dmg_spit"))
-                        .and_then(|p| p[1].parse::<f32>().ok())
-                    {
-                        zombie_poison_spit_damage = value;
-                    }
-                    if let Some(value) = tokens
-                        .windows(2)
-                        .find(|p| p[0].eq_ignore_ascii_case("sk_headcrab_melee_dmg"))
-                        .and_then(|p| p[1].parse::<f32>().ok())
-                    {
-                        headcrab_melee_damage = value;
-                    }
-                }
-            }
-            if let Ok(Some(script)) = vfs.read("scripts/weapon_stunstick.txt") {
-                if let Ok(entries) = keyvalues::parse(&String::from_utf8_lossy(&script)) {
-                    let sounds = entries.first().and_then(|r| r.get("SoundData"));
-                    let get = |key: &str| {
-                        sounds
-                            .and_then(|s| s.get(key))
-                            .and_then(|e| e.text())
-                            .map(str::to_owned)
-                    };
-                    stunstick_sounds = (get("melee_hit"), get("melee_miss"));
-                }
-            }
-        }
+        let busy_hints = setup::busy_hints(world);
+        let actbusy_ranges = setup::actbusy_ranges(world);
+        let skill = vfs.map(setup::skill_damage).unwrap_or_default();
+        let stunstick_sounds = vfs.map(setup::stunstick_sounds).unwrap_or_default();
         let weapon_defs = vfs
             .and_then(|vfs| npc_weapons::definitions(vfs).ok())
             .unwrap_or_default();
@@ -960,30 +865,7 @@ impl AiRuntime {
                 held_weapons.insert(id, weapon);
             }
             if e.class() == "ai_goal_police" {
-                {
-                    let angles = e
-                        .get("angles")
-                        .and_then(modkit_core::parse_vec3)
-                        .unwrap_or(Vec3::ZERO);
-                    goals.insert(
-                        id,
-                        PoliceGoal {
-                            entity: id,
-                            origin: e.origin(),
-                            yaw: angles.y,
-                            radius: e
-                                .get("PoliceRadius")
-                                .and_then(|v| v.parse().ok())
-                                .unwrap_or(0.),
-                            target: None,
-                            spawnflags: e
-                                .get("spawnflags")
-                                .and_then(|v| v.parse().ok())
-                                .unwrap_or(0),
-                            override_knockout: false,
-                        },
-                    );
-                }
+                goals.insert(id, setup::police_goal(id, e));
             }
         }
         Self {
@@ -1018,12 +900,12 @@ impl AiRuntime {
             goals,
             serial: 0,
             stunstick_sounds,
-            stunstick_damage,
-            combine_kick_damage,
-            combine_guard_kick_damage,
-            zombie_slash_damage,
-            zombie_poison_spit_damage,
-            headcrab_melee_damage,
+            stunstick_damage: skill.stunstick,
+            combine_kick_damage: skill.combine_kick,
+            combine_guard_kick_damage: skill.combine_guard_kick,
+            zombie_slash_damage: skill.zombie_slash,
+            zombie_poison_spit_damage: skill.zombie_poison_spit,
+            headcrab_melee_damage: skill.headcrab_melee,
             poison_bites: Vec::new(),
             crab_throws: Vec::new(),
             weapon_defs,
@@ -1134,24 +1016,7 @@ impl AiRuntime {
             }
             // NPC_STATE_SCRIPT: scripts own the actor; the AI yields.
             if scene.ai_scripted(id) {
-                let actor = self.actors.get_mut(&id).expect("actor");
-                if actor.npc.state != NpcState::Script {
-                    actor.npc.state = NpcState::Script;
-                    actor.npc.schedule = None;
-                }
-                if let Some(key) = actor.goal.take() {
-                    controller.cancel(key);
-                    controller.forget(key);
-                    scene.ai_forget_move(key);
-                }
-                if let Some(cop) = actor.class.cop_mut() {
-                    cop.scripted = true;
-                }
-                // The script's sequence sets m_Activity: when the AI takes over, its
-                // TASK_SET_ACTIVITY of that same activity keeps the sequence running.
-                if let Some(activity) = scene.sequence_activity(world, id) {
-                    actor.npc.activity = activity;
-                }
+                self.yield_to_script(id, world, scene, controller);
                 self.diagnostics.scripted_skips += 1;
                 continue;
             }
@@ -1170,36 +1035,7 @@ impl AiRuntime {
             actor.events_until = now;
             actor.events_sequence = Some(current);
             let mut events = scene.ai_events(world, id, since, now);
-            // Move and shoot: the restarted ACT_GESTURE_RANGE_ATTACK1's fire event.
-            let queued = std::mem::take(&mut self.actors.get_mut(&id).expect("actor").move_fire);
-            if queued > 0 {
-                if let Some(event) = self.actors[&id]
-                    .weapon
-                    .as_ref()
-                    .and_then(|w| self.weapon_def(&w.class))
-                    .and_then(|d| d.fire)
-                    .map(|f| f.event)
-                {
-                    events.extend((0..queued).map(|_| (String::new(), event)));
-                }
-            }
-            // Operator_FrameUpdate: the weapon world model's events go to its operator.
-            if let Some(weapon) = self.actors.get_mut(&id).and_then(|a| a.weapon.as_mut()) {
-                if let Some(rig) = self
-                    .weapon_defs
-                    .get(&weapon.class)
-                    .and_then(|d| world.rigs.get(&npc_weapons::rig_key(&d.world_model)))
-                {
-                    for (name, event, options) in weapon.due_events(rig, now) {
-                        // AE_NPC_MUZZLEFLASH is a client event (DispatchMuzzleEffect).
-                        if name.eq_ignore_ascii_case("AE_NPC_MUZZLEFLASH") {
-                            self.muzzle_flashes.push((id, options));
-                        } else {
-                            events.push((name, event));
-                        }
-                    }
-                }
-            }
+            self.weapon_events(id, world, now, &mut events);
             if !events.is_empty() {
                 let knock_out = self.knock_out_player(id, world, scene, physics, player);
                 let ctx = self.context(id, world, scene, player, now, 0.);
@@ -1405,41 +1241,8 @@ impl AiRuntime {
                     }
                 }
                 self.random = self.random.wrapping_add(0x9e37_79b9_7f4a_7c15) | 1;
-                // WeaponSound(SINGLE_NPC / RELOAD_NPC) at the operator; a machine gun's
-                // later realtime sounds wait in `delayed_sounds`.
-                if fired && shot_sound_times.is_empty() {
-                    shot_sound_times.push(now);
-                }
-                let origin = scene.states[id].origin + Vec3::Z * 55.;
-                for (times, key) in [
-                    (shot_sound_times, "single_shot_npc"),
-                    (if reloaded { vec![now] } else { Vec::new() }, "reload_npc"),
-                ] {
-                    let Some(cue) = def.as_ref().and_then(|d| d.sounds.get(key)) else {
-                        continue;
-                    };
-                    for at in times {
-                        let mut requests = vec![crate::sounds::SoundRequest {
-                            origin: Some(origin),
-                            ..cue.clone().into()
-                        }];
-                        // SINGLE_NPC plays on CHAN_WEAPON of the operator: a new shot
-                        // sound replaces the previous one (native recording: run levels
-                        // match a single attack, not stacked tails).
-                        if key == "single_shot_npc" {
-                            let emitter = crate::sounds::entity_emitter(id);
-                            requests[0].emitter = Some(emitter);
-                            requests.insert(0, crate::sounds::SoundRequest::stop(cue, emitter));
-                        }
-                        for request in requests {
-                            if at <= now + 1e-9 {
-                                scene.sounds.push(request);
-                            } else {
-                                self.delayed_sounds.push((at, request));
-                            }
-                        }
-                    }
-                }
+                let shots = (fired, shot_sound_times, reloaded);
+                self.weapon_sounds(id, def.as_ref(), shots, scene, now);
                 self.apply_requests(id, world, scene, physics, player);
             }
             if now + 1e-9 < think_at {
@@ -2142,15 +1945,7 @@ impl AiRuntime {
                         actor.npc.conditions.set(COND_CAN_MELEE_ATTACK1);
                     }
                 }
-                let moving = actor
-                    .goal
-                    .and_then(|key| controller.status(key))
-                    .is_some_and(|s| {
-                        matches!(
-                            s,
-                            crate::npc::GoalState::Moving | crate::npc::GoalState::Blocked(_)
-                        )
-                    });
+                let moving = zombies::goal_active(actor, controller);
                 let view = zombies::AttackView {
                     id,
                     enemy,
@@ -2163,8 +1958,9 @@ impl AiRuntime {
                     t_center,
                     t_eye,
                     moving,
+                    enemy_sees_me: ctx.enemy_sees_me,
                 };
-                zombies::attack_conditions(actor, &view, world, scene, physics, &player);
+                zombies::attack_conditions(actor, &view, world, scene, physics);
                 // GatherAttackConditions: when any attack is possible the range complaints
                 // go (a poison zombie ready to throw at a player inside the throw's 250
                 // units backed away forever instead of leaping a crab or clawing).
@@ -2198,192 +1994,22 @@ impl AiRuntime {
                 }
             }
         }
-        // CZombie::GatherConditions: the blocking door opened (or is opening): COND_DOOR_OPENED
-        // and forget it; still closed: COND_BLOCKED_BY_DOOR.
-        if let AiClass::Zombie(z) = &mut actor.class {
-            actor.npc.conditions.clear(zombie::COND_BLOCKED_BY_DOOR);
-            actor.npc.conditions.clear(zombie::COND_DOOR_OPENED);
-            if let Some((door, _)) = z.blocking_door {
-                if scene.states.get(door).is_some_and(|s| s.door_closed()) {
-                    actor.npc.conditions.set(zombie::COND_BLOCKED_BY_DOOR);
-                } else {
-                    actor.npc.conditions.set(zombie::COND_DOOR_OPENED);
-                    z.blocking_door = None;
-                }
-            }
-        }
-        // CNPC_BaseZombie::GatherConditions: in combat, every 2 s while it has no object,
-        // FindNearestPhysicsObject; COND_ZOMBIE_CAN_SWAT_ATTACK while it has one, m_flNextSwat
-        // has passed and it sees the enemy. The object's center follows its body.
-        if let AiClass::Zombie(z) = &mut actor.class {
-            z.physics_ent = z.physics_ent.and_then(|(object, _)| {
-                physics
-                    .entity_body(object)
-                    .and_then(|body| physics.bounds_center(body))
-                    .map(|center| (object, center))
-            });
-            let enemy_feet = actor.npc.enemy.map(|e| {
-                if e == PLAYER {
-                    player.feet
-                } else {
-                    scene.states[e].origin
-                }
-            });
-            if let (NpcState::Combat, Some(enemy_feet), true) =
-                (actor.npc.state, enemy_feet, z.swats())
-            {
-                if now >= z.next_swat_scan && z.physics_ent.is_none() {
-                    // The human hull: 72 units tall, knees at a quarter of it.
-                    if let Some(half) = zombie::swat_search_box(origin, enemy_feet, 72.) {
-                        let candidates =
-                            swat_candidates(physics, world, &sight, id, origin, eye, half);
-                        z.physics_ent = zombie::find_nearest_physics_object(
-                            origin,
-                            enemy_feet,
-                            origin.z + 18.,
-                            eye.z,
-                            &candidates,
-                        )
-                        .and_then(|object| {
-                            candidates
-                                .iter()
-                                .find(|c| c.entity == object)
-                                .map(|c| (object, c.center))
-                        });
-                    }
-                    z.next_swat_scan = now + zombie::SWAT_SCAN_INTERVAL;
-                }
-            }
-            if z.physics_ent.is_some()
-                && now >= z.next_swat
-                && actor.npc.conditions.has(COND_SEE_ENEMY)
-            {
-                actor
-                    .npc
-                    .conditions
-                    .set(zombie::COND_ZOMBIE_CAN_SWAT_ATTACK);
-            } else {
-                actor
-                    .npc
-                    .conditions
-                    .clear(zombie::COND_ZOMBIE_CAN_SWAT_ATTACK);
-            }
-        }
-        // CNPC_Combine grenades without a squad: CanGrenadeEnemy(false) (the flush, at the
-        // last seen position) and CanGrenadeEnemy() (the last known position, e.g. the 20%
-        // grenade before reloading) -> CanThrowGrenade -> CheckCanThrowGrenade (VecCheckThrow
-        // at 650 in view and visible, else a high VecCheckToss with 64 units of headroom).
-        // Probed here without side effects; the class applies them when it asks. Squad
-        // slots and the 4-unit hull of the throw traces are not modeled.
-        let moving = scene.states[id].is_moving();
-        let enemy_now = actor.npc.enemy.map(|e| {
-            if e == PLAYER {
-                player.feet
-            } else {
-                scene.states[e].origin
-            }
-        });
-        let seen_enemy = actor.npc.conditions.has(COND_SEE_ENEMY);
-        let memory = actor
-            .npc
-            .enemy
-            .and_then(|e| actor.npc.enemies.find(Some(e)))
-            .map(|m| (m.time_last_seen, m.last_seen_position, m.last_known));
-        if let AiClass::Humanoid(h) = &mut actor.class {
-            // CWeaponRPG state the citizen's RPG schedules read (m_hMissile).
-            let rpg = actor.weapon.as_ref().filter(|w| w.class == "weapon_rpg");
-            h.rpg = rpg.is_some();
-            h.missile_out = rpg.is_some_and(|w| w.missile_out);
-            h.shoot_position = origin + Vec3::Z * 55.;
-            // The previous think's CanGrenadeEnemy outcomes.
-            for outcome in h.grenade_outcomes.drain(..) {
-                *self
-                    .diagnostics
-                    .grenade_checks
-                    .entry(outcome.into())
-                    .or_default() += 1;
-            }
-            h.throw_probes = Default::default();
-            h.flush_window = false;
-            // CanAltFireEnemy(true)'s trace: the enemy (the player or a player ally) at its
-            // last known position plus 0.75 of its view offset, a 24-unit hull from the
-            // shoot position along MASK_SHOT; valid when it travels >= 65% and > 128 units.
-            h.alt_fire_probe = None;
-            if h.elite {
-                let ally = |e: usize| {
-                    e == PLAYER
-                        || world.entities.get(e).is_some_and(|ent| {
-                            matches!(
-                                classify(ent.class(), precriminal),
-                                Class::PlayerAlly | Class::PlayerAllyVital
-                            )
-                        })
-                };
-                if let (Some(enemy), Some((_, _, last_known))) = (actor.npc.enemy, memory) {
-                    if ally(enemy) {
-                        let target = last_known + Vec3::Z * 64. * 0.75;
-                        let start = origin + Vec3::Z * 55.;
-                        let length = start.distance(target);
-                        let travelled = physics
-                            .projectile_sweep(
-                                start,
-                                target,
-                                crate::physics::ProjectileHull::Box(Vec3::splat(12.)),
-                                &[id],
-                            )
-                            .map_or(length, |hit| hit.position.distance(start));
-                        if length > 0. && travelled / length >= 0.65 && travelled > 128. {
-                            h.alt_fire_probe = Some(target);
-                        }
-                    }
-                }
-            }
-            if let (true, Some((last_time, last_seen, last_known))) =
-                (h.kind == humanoid::Kind::Combine && h.grenades > 0, memory)
-            {
-                h.flush_window = !seen_enemy
-                    && now - last_time <= 3.
-                    && enemy_now.is_some_and(|p| p.distance(last_seen) <= 256.);
-                let probe = |target: Vec3| {
-                    if !(128. ..=1024.).contains(&target.distance(origin)) {
-                        return humanoid::ThrowProbe::OutOfRange;
-                    }
-                    if moving {
-                        return humanoid::ThrowProbe::Moving;
-                    }
-                    let in_view =
-                        senses::in_view_cone(&viewer, target) && sight.visible(eye, target, &[id]);
-                    let bits = ((now * 1000.) as u64) ^ (id as u64).wrapping_mul(0x9e37_79b9);
-                    let jitter = [0u64, 1, 2, 3].map(|i| {
-                        (bits
-                            .wrapping_mul(6_364_136_223_846_793_005)
-                            .wrapping_add(i.wrapping_mul(1_442_695_040_888_963_407))
-                            >> 40) as f32
-                            / (1u64 << 24) as f32
-                    });
-                    let toss = if in_view {
-                        vec_check_throw(physics, id, eye, target, 650.)
-                    } else if physics
-                        .projectile_ray(eye, eye + Vec3::Z * 64., &[id])
-                        .is_none()
-                    {
-                        vec_check_toss(physics, id, eye, target, facing, jitter)
-                    } else {
-                        None
-                    };
-                    match toss {
-                        Some(velocity) => humanoid::ThrowProbe::Ready { velocity, in_view },
-                        None => humanoid::ThrowProbe::Blocked { in_view },
-                    }
-                };
-                if now >= h.next_grenade_check {
-                    if h.flush_window {
-                        h.throw_probes.last_seen = Some(probe(last_seen));
-                    }
-                    h.throw_probes.last_known = Some(probe(last_known));
-                }
-            }
-        }
+        let around = gather::ThinkView {
+            id,
+            now,
+            origin,
+            eye,
+            facing,
+            world,
+            scene,
+            physics,
+            sight: &sight,
+            viewer: &viewer,
+            player,
+            precriminal,
+        };
+        gather::zombie_conditions(actor, &around);
+        gather::humanoid_probes(actor, &around, &mut self.diagnostics);
         // Speech (CAI_BaseNPC sound hooks; queued like the class's own sentences).
         {
             let mut lines: Vec<&'static str> = Vec::new();
@@ -2799,6 +2425,8 @@ impl AiRuntime {
                 controller.set_playback(id, h.run.rate, h.pause_sequence.clone());
             }
         }
+        // The motor holds the goal while `actor` goes on to the move and shoot stage.
+        let mut move_goal = actor.goal.take();
         let mut motor = SceneMotor {
             entity: id,
             world,
@@ -2806,7 +2434,7 @@ impl AiRuntime {
             controller,
             physics,
             transients,
-            goal: &mut actor.goal,
+            goal: &mut move_goal,
             serial: &mut self.serial,
             dt: if dt > 0. { dt } else { THINK_INTERVAL as f32 },
             yaw_speed,
@@ -2845,123 +2473,8 @@ impl AiRuntime {
                 .requests_mut()
                 .push(CopRequest::Concept("TLK_HIDEANDRELOAD"));
         }
-        // StartTaskOverlay / RunTaskOverlay: move and shoot (bits_CAP_MOVE_SHOOT: the
-        // soldier, the companions and non-efficient cops).
-        {
-            let schedule = actor.npc.schedule.clone();
-            let task_name = schedule.as_deref().and_then(|s| {
-                self.schedules
-                    .0
-                    .get(s)
-                    .and_then(|sc| sc.tasks.get(actor.npc.task))
-                    .map(|(t, _)| t.clone())
-            });
-            let combine =
-                matches!(&actor.class, AiClass::Humanoid(h) if h.kind == humanoid::Kind::Combine);
-            // CNPC_Combine::ShouldMoveAndShoot: not while fleeing a danger sound.
-            let allowed = !(combine
-                && matches!(
-                    schedule.as_deref(),
-                    Some(
-                        "SCHED_TAKE_COVER_FROM_BEST_SOUND"
-                            | "SCHED_COMBINE_TAKE_COVER_FROM_BEST_SOUND"
-                            | "SCHED_COMBINE_RUN_AWAY_FROM_BEST_SOUND"
-                    )
-                ));
-            let ranged = actor
-                .weapon
-                .as_ref()
-                .and_then(|w| {
-                    self.weapon_defs
-                        .get(&w.class)
-                        .cloned()
-                        .or_else(|| npc_weapons::builtin(&w.class))
-                })
-                .and_then(|d| d.fire)
-                .filter(|_| {
-                    actor
-                        .weapon
-                        .as_ref()
-                        .is_some_and(|w| w.class != "weapon_rpg")
-                });
-            if combine && actor.move_regulator.is_none() {
-                if let Some(spec) = ranged.as_ref() {
-                    actor.move_regulator = Some(npc_weapons::ShotRegulator::for_weapon(
-                        spec,
-                        npc_weapons::RegulatorRule::Weapon,
-                        now,
-                        0x9e37_79b9_7f4a_7c15 ^ id as u64,
-                    ));
-                }
-            }
-            // m_flStopMoveShootTime: hiding to reload (or empty) stops aiming at the enemy
-            // after U(0.4, 0.6) s for 5 s, so the soldier faces the way it runs.
-            if combine {
-                let reloading = schedule.as_deref() == Some("SCHED_COMBINE_HIDE_AND_RELOAD")
-                    || actor.npc.conditions.has(COND_NO_PRIMARY_AMMO);
-                if !reloading {
-                    actor.stop_move_shoot = None;
-                } else if actor.stop_move_shoot.is_none() {
-                    actor.stop_move_shoot = Some(now + 0.4 + 0.2 * f64::from(ctx.random));
-                }
-                if actor.stop_move_shoot.is_some_and(|t| now >= t) {
-                    actor
-                        .move_shoot
-                        .suspend(5., actor.move_regulator.as_mut(), now);
-                    actor.stop_move_shoot = Some(f64::INFINITY);
-                }
-            }
-            let regulator = if combine {
-                actor.move_regulator.as_mut()
-            } else {
-                actor.npc.shot_regulator.as_mut()
-            };
-            let moving = motor.goal.is_some() && motor.scene.states[id].is_moving();
-            let has_aim = motor.controller.has_move_aim(id);
-            let out = actor.move_shoot.think(
-                schedule
-                    .as_deref()
-                    .zip(task_name.as_deref())
-                    .map(|(s, t)| (s, t, actor.npc.task)),
-                allowed,
-                (
-                    actor.npc.state == NpcState::Script,
-                    ranged.is_some(),
-                    has_aim,
-                ),
-                moving,
-                actor.npc.conditions,
-                actor.npc.enemy.is_some(),
-                regulator,
-                now,
-            );
-            if let Some(aim) = out.aim {
-                motor.controller.set_move_aim(id, aim);
-            }
-            if out.shoot {
-                // OnRangeAttack1: OnFiredWeapon (and the class's attack time).
-                let distance = ctx.enemy.map(|(_, p)| p.distance(origin));
-                let regulator = if combine {
-                    actor.move_regulator.as_mut()
-                } else {
-                    actor.npc.shot_regulator.as_mut()
-                };
-                if let Some(r) = regulator {
-                    r.on_range_attack1(now, distance);
-                }
-                if let AiClass::Humanoid(h) = &mut actor.class {
-                    h.last_attack = now;
-                }
-                actor.move_fire += 1;
-            }
-            let lkp = ctx.enemy_lkp.or(ctx.enemy.map(|(_, p)| p));
-            motor.scene.states[id].ai_move_facing = match (out.face_enemy, lkp) {
-                (true, Some(point)) => Some((point, now + 0.8)),
-                _ => motor.scene.states[id]
-                    .ai_move_facing
-                    .filter(|(_, until)| now < *until),
-            };
-        }
+        let (defs, schedules) = (&self.weapon_defs, &self.schedules);
+        gather::move_and_shoot(actor, &mut motor, schedules, defs, &ctx, id);
         // The idle activity is translated again when the angry-idle inputs change
         // (MaintainActivity re-translates the ideal ACT_IDLE).
         if idle_angry != actor.idle_angry {
@@ -2982,6 +2495,7 @@ impl AiRuntime {
                 weapon.set_activity(rig, &activity, duration, now);
             }
         }
+        actor.goal = move_goal;
         self.diagnostics.thinks += 1;
         // Assault point outputs (OnArrival, OnAssaultClear; activator = this NPC).
         let mut unlock = false;

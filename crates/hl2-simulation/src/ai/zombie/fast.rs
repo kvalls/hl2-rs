@@ -23,8 +23,6 @@ pub const LEAP_RANGE: (f32, f32) = (200., 300.);
 /// RangeAttack1Conditions' facing cone and LeapAttack's speed clamp.
 pub const LEAP_CONE: f32 = 0.8;
 pub const LEAP_SPEED_CLAMP: f32 = 1000.;
-/// CBasePlayer::m_flFieldOfView: the player must see the zombie for it to leap.
-pub const PLAYER_VIEW_CONE: f32 = 0.766;
 /// GetClawAttackRange, the claws' damage (AE_ZOMBIE_ATTACK_RIGHT/LEFT) and the leap's.
 pub const CLAW_REACH: f32 = 50.;
 pub const CLAW_DAMAGE: f32 = 3.;
@@ -232,11 +230,6 @@ pub fn range_condition(c: LeapCheck) -> Option<Cond> {
     } else {
         Some(COND_CAN_RANGE_ATTACK1)
     }
-}
-/// CBaseCombatCharacter::FInViewCone(spot) for a viewer's eyes and view direction (2D).
-pub fn in_view_cone(eye: Vec3, facing: Vec3, spot: Vec3, field_of_view: f32) -> bool {
-    let los = (spot - eye).truncate().normalize_or_zero();
-    los.dot(facing.truncate().normalize_or_zero()) > field_of_view
 }
 /// CFastZombie::LeapAttack's velocity from the origin (already 1 unit up) to the enemy's
 /// center: the apex height clamped to 16..120, its time of flight for the sideways speed,
@@ -677,20 +670,18 @@ mod tests {
         ] {
             assert_eq!(range_condition(no), None, "{no:?}");
         }
-        // The player must look toward it (0.766 = 40 degrees, 2D).
-        let eye = Vec3::new(0., 0., 64.);
-        assert!(in_view_cone(
-            eye,
-            Vec3::X,
-            Vec3::new(100., 80., 0.),
-            PLAYER_VIEW_CONE
-        ));
-        assert!(!in_view_cone(
-            eye,
-            Vec3::X,
-            Vec3::new(100., 90., 0.),
-            PLAYER_VIEW_CONE
-        ));
+        // The enemy must look toward it (the player's 0.766 = 40 degrees, 2D).
+        let viewer = crate::ai::senses::Viewer {
+            entity: 0,
+            class: crate::ai::relationships::Class::Player,
+            eye: Vec3::new(0., 0., 64.),
+            facing: Vec3::X,
+            field_of_view: 0.766,
+            look_distance: f32::MAX,
+        };
+        use crate::ai::senses::in_view_cone;
+        assert!(in_view_cone(&viewer, Vec3::new(100., 80., 0.)));
+        assert!(!in_view_cone(&viewer, Vec3::new(100., 90., 0.)));
         // Claws: only on the ground once ready, and without the base's complaints.
         assert_eq!(
             melee_condition(COND_CAN_MELEE_ATTACK1, true, true),

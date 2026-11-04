@@ -4,6 +4,7 @@
 //! completion/failure, fail schedules, SelectSchedule/TranslateSchedule through a class
 //! trait) and the generic tasks. Movement, facing and activities go through `Motor`,
 //! which the host implements over npc.rs. SDK behavior, retail not compared.
+mod paths;
 mod select;
 use super::conditions::{
     Cond, Conditions, COND_CAN_RANGE_ATTACK1, COND_IN_PVS, COND_SCHEDULE_DONE, COND_TASK_FAILED,
@@ -791,61 +792,13 @@ impl AiNpc {
                 _ => Failed,
             },
             "TASK_GET_PATH_TO_ENEMY_LOS" | "TASK_GET_PATH_TO_ENEMY_LKP_LOS" => {
-                // FindLos from the enemy's origin (LKP for the _LKP_ task) and eye, within
-                // the weapon's range (2000 without one) capped by m_flDistTooFar; the
-                // lateral LOS probe is not modeled.
-                let Some((_, origin)) = ctx.enemy else {
-                    return Failed;
-                };
-                let (min, max) = ctx.weapon_range.or(ctx.innate_range).unwrap_or((0., 2000.));
-                let max = max.min(if ctx.dist_too_far > 0. {
-                    ctx.dist_too_far
-                } else {
-                    1024.
-                });
-                let threat = if task == "TASK_GET_PATH_TO_ENEMY_LOS" {
-                    origin
-                } else {
-                    ctx.enemy_lkp.unwrap_or(origin)
-                };
-                let eye = threat + (ctx.enemy_eye.unwrap_or(origin + Vec3::Z * 64.) - origin);
-                match motor.find_los(threat, eye, min, max) {
-                    Some(goal) if motor.path_to(goal, true) => Complete,
-                    _ => Failed,
-                }
+                paths::enemy_los(task, ctx, motor)
             }
             "TASK_GET_PATH_TO_ENEMY_LKP" => self.path_to_enemy_lkp(ctx, motor),
             "TASK_FIND_COVER_FROM_ENEMY" | "TASK_FIND_COVER_FROM_ORIGIN" => {
-                // FindCoverFromEnemy -> FindCoverPos(enemy origin, enemy eye, 0,
-                // CoverRadius 1024) (self when there is no enemy; FROM_ORIGIN: from the
-                // NPC's own origin and eye). FindLateralCover is not modeled.
-                let (threat, eye) = match (task, ctx.enemy) {
-                    ("TASK_FIND_COVER_FROM_ENEMY", Some((_, p))) => {
-                        (p, ctx.enemy_eye.unwrap_or(p + Vec3::Z * 64.))
-                    }
-                    _ => (ctx.origin, ctx.origin + Vec3::Z * 64.),
-                };
-                match motor.find_cover(threat, eye, 0., 1024.) {
-                    Some(goal) if motor.path_to(goal, true) => {
-                        // m_flMoveWaitFinished = now + flTaskData.
-                        Complete
-                    }
-                    _ => Failed,
-                }
+                paths::cover(task, ctx, motor)
             }
-            "TASK_FIND_COVER_FROM_BEST_SOUND" => {
-                // FindCoverPos(sound react origin, same, MIN(volume, 120), 1024).
-                match ctx.best_sound {
-                    Some(sound) => {
-                        let min = ctx.best_sound_volume.min(120.);
-                        match motor.find_cover(sound, sound, min, 1024.) {
-                            Some(goal) if motor.path_to(goal, true) => Complete,
-                            _ => Failed,
-                        }
-                    }
-                    None => Failed,
-                }
-            }
+            "TASK_FIND_COVER_FROM_BEST_SOUND" => paths::cover_from_sound(ctx, motor),
             "TASK_RUN_PATH_TIMED" => {
                 self.activity = "ACT_RUN".into();
                 motor.set_activity("ACT_RUN");

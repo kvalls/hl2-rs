@@ -643,37 +643,9 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
     append_models_lod(world, vfs, 0)
 }
 
-pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> ModelReport {
-    let mut physics_report = (0usize, Vec::new());
-    let prop_data = vfs
-        .read("scripts/propdata.txt")
-        .ok()
-        .flatten()
-        .and_then(|data| crate::keyvalues::parse(&String::from_utf8_lossy(&data)).ok())
-        .unwrap_or_default();
-    world.breakable_chunks = breakable_chunks(&prop_data);
-    match crate::surfaceprops::read(vfs) {
-        Ok(table) => world.surface_materials = table,
-        Err(error) => physics_report
-            .1
-            .push(format!("surfaceproperties: {error:#}")),
-    }
-    // VBSP gives each world collision triangle its brush side's $surfaceprop
-    // (ivp.cpp ConvertWorldBrushesToPhysCollide); resolve each side material once.
-    let side_materials: std::collections::BTreeSet<String> = world
-        .brush_side_materials
-        .iter()
-        .flatten()
-        .filter(|m| !m.is_empty())
-        .cloned()
-        .collect();
-    for material in side_materials {
-        if let Ok(Some(prop)) = vfs.material_value(&material, "$surfaceprop") {
-            world
-                .material_surfaceprops
-                .insert(material, prop.trim().to_lowercase());
-        }
-    }
+/// The model instances of the map's point entities: their own model, a weapon script's, an
+/// item's or the class's default.
+fn append_entity_models(world: &mut World, vfs: &Vfs) {
     for (entity_id, entity) in world.entities.iter().enumerate() {
         if !entity.class().starts_with("npc_")
             && !entity.class().starts_with("weapon_")
@@ -752,6 +724,40 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
             });
         }
     }
+}
+
+pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> ModelReport {
+    let mut physics_report = (0usize, Vec::new());
+    let prop_data = vfs
+        .read("scripts/propdata.txt")
+        .ok()
+        .flatten()
+        .and_then(|data| crate::keyvalues::parse(&String::from_utf8_lossy(&data)).ok())
+        .unwrap_or_default();
+    world.breakable_chunks = breakable_chunks(&prop_data);
+    match crate::surfaceprops::read(vfs) {
+        Ok(table) => world.surface_materials = table,
+        Err(error) => physics_report
+            .1
+            .push(format!("surfaceproperties: {error:#}")),
+    }
+    // VBSP gives each world collision triangle its brush side's $surfaceprop
+    // (ivp.cpp ConvertWorldBrushesToPhysCollide); resolve each side material once.
+    let side_materials: std::collections::BTreeSet<String> = world
+        .brush_side_materials
+        .iter()
+        .flatten()
+        .filter(|m| !m.is_empty())
+        .cloned()
+        .collect();
+    for material in side_materials {
+        if let Ok(Some(prop)) = vfs.material_value(&material, "$surfaceprop") {
+            world
+                .material_surfaceprops
+                .insert(material, prop.trim().to_lowercase());
+        }
+    }
+    append_entity_models(world, vfs);
     let mut cache: BTreeMap<(String, usize, i32), Option<ModelLevels>> = BTreeMap::new();
     let mut report = ModelReport::default();
     let mut collision_attempted = BTreeSet::new();
