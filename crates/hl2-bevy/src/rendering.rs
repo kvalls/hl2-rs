@@ -18,7 +18,9 @@ use hl2_ui::extensions::RenderBudget;
 use modkit_core::Surface;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod cpu_skin;
 pub(crate) mod drawing;
+use cpu_skin::skin_on_cpu;
 mod face_flex;
 pub use face_flex::FlexModels;
 mod lighting;
@@ -539,31 +541,7 @@ pub fn present_entities(
             continue;
         }
         if let Some(mut mesh) = meshes.get_mut(&handle.0) {
-            let positions: Vec<_> = animation
-                .bind
-                .iter()
-                .map(|(bind, weights)| {
-                    let p = weights
-                        .as_ref()
-                        .map_or(*bind, |w| modkit_core::animation::skin(*bind, w, matrices));
-                    source_to_bevy(Vec3::from_array((p * animation.scale).to_array())).to_array()
-                })
-                .collect();
-            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-            if animation.normals.len() == animation.bind.len() {
-                let normals: Vec<_> = animation
-                    .bind
-                    .iter()
-                    .zip(&animation.normals)
-                    .map(|((_, weights), normal)| {
-                        let n = weights.as_ref().map_or(*normal, |w| {
-                            skin_normal(*normal, w, matrices).normalize_or_zero()
-                        });
-                        source_to_bevy(Vec3::from_array(n.to_array())).to_array()
-                    })
-                    .collect();
-                mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-            }
+            skin_on_cpu(&mut mesh, &animation, matrices);
             if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.compute_aabb()) {
                 *aabb = bounds;
             }
@@ -625,24 +603,6 @@ pub fn present_render_colors(
             m.tint = tint;
         }
     }
-}
-/// Rotate a bind normal by the weighted bone matrices (CPU skinning path).
-fn skin_normal(
-    normal: glam::Vec3,
-    weights: &modkit_core::animation::Weights,
-    matrices: &[glam::Mat4],
-) -> glam::Vec3 {
-    let mut out = glam::Vec3::ZERO;
-    let mut total = 0.;
-    for (&bone, &weight) in weights.bones.iter().zip(&weights.weights) {
-        if weight > 0.
-            && let Some(m) = matrices.get(usize::from(bone))
-        {
-            out += m.transform_vector3(normal) * weight;
-            total += weight;
-        }
-    }
-    if total > 0. { out } else { normal }
 }
 #[derive(Component)]
 pub struct WeaponMesh(pub String);
@@ -1352,30 +1312,8 @@ pub(crate) fn build_model_draws(
     for (name, mut batch) in batches {
         let fallback = MaterialData::default();
         let definition = cache.definitions.get(&name).unwrap_or(&fallback);
-        let base = definition
-            .base_path
-            .as_ref()
-            .and_then(|p| cache.textures.get(p))
-            .unwrap_or(&cache.missing)
-            .clone();
-        let iris = definition
-            .iris_path
-            .as_ref()
-            .and_then(|p| cache.textures.get(p))
-            .cloned();
         let lit = batch.model && !definition.unlit && !definition.camera;
-        let mut material = make_material(
-            definition,
-            base,
-            cache.white.clone(),
-            iris,
-            (&cache.white, &cache.black_cube, &cache.flashlight),
-        );
-        material.tint *= modulation;
-        if lit {
-            material.lighting = ModelLighting::fallback(definition.half_lambert);
-        }
-        let material = materials.add(material);
+        let material = materials.add(runtime::draw_material(cache, definition, lit, modulation));
         let triangles = batch.indices.len() / 3;
         let mut animation = batch.skin.iter().any(|(_, w)| w.is_some()).then(|| {
             let model = (instance.asset_key(), instance.scale);

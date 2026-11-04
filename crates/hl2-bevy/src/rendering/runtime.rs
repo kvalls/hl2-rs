@@ -321,3 +321,35 @@ pub fn spawn_runtime_draws(
         }
     }
 }
+/// The material of one runtime model draw: the definition's textures, the entity's render
+/// color, and fallback model lighting until the first light sample.
+pub(super) fn draw_material(
+    cache: &super::ModelCache,
+    definition: &super::MaterialData,
+    lit: bool,
+    modulation: bevy::math::Vec4,
+) -> super::SourceMaterial {
+    let base = definition
+        .base_path
+        .as_ref()
+        .and_then(|p| cache.textures.get(p))
+        .unwrap_or(&cache.missing)
+        .clone();
+    let iris = definition
+        .iris_path
+        .as_ref()
+        .and_then(|p| cache.textures.get(p))
+        .cloned();
+    let mut material = super::make_material(
+        definition,
+        base,
+        cache.white.clone(),
+        iris,
+        (&cache.white, &cache.black_cube, &cache.flashlight),
+    );
+    material.tint *= modulation;
+    if lit {
+        material.lighting = super::ModelLighting::fallback(definition.half_lambert);
+    }
+    material
+}
