@@ -9,6 +9,7 @@ pub mod model_lighting;
 pub mod models;
 pub mod monitor_material;
 pub mod navigation;
+pub mod npc_models;
 pub mod overlays;
 pub mod pcf;
 pub mod phy;

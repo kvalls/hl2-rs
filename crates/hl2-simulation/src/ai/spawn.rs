@@ -196,51 +196,7 @@ pub const POOL_PER_CLASS: usize = 3;
 pub const POOL_KEY: &str = "hl2rs_spawn_pool";
 /// Where pooled entities wait (far below any HL2 map).
 pub const POOL_ORIGIN: Vec3 = Vec3::new(0., 0., -15000.);
-/// The model each class's Spawn/Precache sets when the map gives none (SDK 2013
-/// hl2/npc_*.cpp; citizens pick from groups at random in the SDK, one is used here).
-pub fn default_model(class: &str) -> Option<&'static str> {
-    Some(match class {
-        "npc_metropolice" => "models/police.mdl",
-        "npc_combine_s" | "npc_sniper" => "models/combine_soldier.mdl",
-        "npc_citizen" => "models/humans/group01/male_07.mdl",
-        "npc_barney" => "models/barney.mdl",
-        "npc_alyx" => "models/alyx.mdl",
-        "npc_vortigaunt" => "models/vortigaunt.mdl",
-        "npc_dog" => "models/dog.mdl",
-        "npc_kleiner" => "models/kleiner.mdl",
-        "npc_eli" => "models/eli.mdl",
-        "npc_mossman" => "models/mossman.mdl",
-        "npc_breen" => "models/breen.mdl",
-        "npc_gman" => "models/gman.mdl",
-        "npc_monk" => "models/monk.mdl",
-        "npc_zombie" => "models/zombie/classic.mdl",
-        "npc_zombie_torso" => "models/zombie/classic_torso.mdl",
-        "npc_fastzombie" => "models/zombie/fast.mdl",
-        "npc_poisonzombie" => "models/zombie/poison.mdl",
-        "npc_headcrab" => "models/headcrabclassic.mdl",
-        "npc_headcrab_fast" => "models/headcrab.mdl",
-        "npc_headcrab_black" | "npc_headcrab_poison" => "models/headcrabblack.mdl",
-        "npc_barnacle" => "models/barnacle.mdl",
-        "npc_antlion" => "models/antlion.mdl",
-        "npc_antlionguard" => "models/antlion_guard.mdl",
-        "npc_ichthyosaur" => "models/ichthyosaur.mdl",
-        "npc_crow" => "models/crow.mdl",
-        "npc_pigeon" => "models/pigeon.mdl",
-        "npc_seagull" => "models/seagull.mdl",
-        "npc_stalker" => "models/stalker.mdl",
-        "npc_manhack" => "models/manhack.mdl",
-        "npc_cscanner" | "npc_clawscanner" => "models/combine_scanner.mdl",
-        "npc_rollermine" => "models/roller.mdl",
-        "npc_turret_floor" => "models/combine_turrets/floor_turret.mdl",
-        "npc_turret_ceiling" => "models/combine_turrets/ceiling_turret.mdl",
-        "npc_combine_camera" => "models/combine_camera/combine_camera.mdl",
-        "npc_strider" => "models/combine_strider.mdl",
-        "npc_combinegunship" => "models/gunship.mdl",
-        "npc_helicopter" => "models/combine_helicopter.mdl",
-        "npc_combinedropship" => "models/combine_dropship.mdl",
-        _ => return None,
-    })
-}
+pub use source_assets::npc_models::default_model;
 /// Pooled slots per class: one for the very large models (load time), else
 /// POOL_PER_CLASS.
 pub fn pool_count(class: &str) -> usize {
