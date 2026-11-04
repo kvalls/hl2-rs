@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Retail virtual pose map and descriptor boundary (2026-11-04)
+
+All 32 accepted retail stops show canonical pairs `(0,0)`, `(1,1)` through `(1,8)`, then `(3,0)` and `(3,1)`. The four local-to-global vectors are `[0]`, `[0,1,2,3,4,5,6,7,8]`, `[0]` and `[9,10]`. This matches the owned candidate structure, including the two duplicate aliases into global slot zero. The raw group-handle words are present. The loaded descriptor names and their exact ranges and loop fields remain unresolved.
+
+The exact client group-header helper tests a saved wrapper epoch against a live counter before using the cached header-pointer vector. Stale or absent slots can take mutation and fallback paths. The datacache resolution also traverses a separate generation-checked resource handle before reaching data. The capture sampled wrapper metadata without reading its epoch or vector targets. Observing existing slots under a validated live epoch gives a smaller next witness than invoking a cache accessor.
+
 ## Owned virtual-pose mapping and raw live witnesses (2026-11-04)
 
 The pinned retail datacache path appends or aliases each model group's local descriptors against the prior groups. JF independently predicts 11 canonical pairs from four owned model files with local counts 1, 9, 1 and 2. Reordering groups or omitting one duplicate-only include can preserve the count. The first `move_yaw` descriptor retains its flags and loop fields in the candidate, while matching later descriptors contribute the endpoint merge. Both gesture descriptors preserve their authored reversed endpoints. Candidate ordering and names remain separate from the live count.

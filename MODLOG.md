@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-04 research closeout JL–JO
+
+**Agent/model** Codex desktop, GPT-6 family. The exact identifier was unavailable. Same-family subagents independently traced the group-header cache route and replayed the native map.
+
+**Changed and why** Used the fixture-admitted VM map observer in one fresh guarded retail capture to test the candidate numeric mapping. Separately tested a scheduled unarmed peer on the same getter and scoped a passive route to loaded group descriptors.
+
+**Tested and result** Windows debugger and retail game both exited 0 after 32 stops. All 896 VM reads admit 32 equal maps and match the owned predicted pairs and remaps. Separate raw replay verifies all 32 stopped identities and rejects 26 corrupted copies. The peer fixture passes 77 selected stops, 86 reads, 24 selected stores and 24 unarmed peer writes. Two raw peer contexts show no armed debug register. Ten corruptions reject. Cross-run entry XMM6 and XMM7 differ in the peer test. Each run preserves its own XMM values and saved/restored state. Static cache-route evidence covers 20 byte windows and 21 pass14 bodies, with 78 corruption controls.
+
+**Still open** Live descriptor identity, actual native earlier getter or consumer, actor/cache ownership, final pose and campaign completion. Rust build, tests and parity **not tested**. macOS and Linux **not tested** for this investigation.
+
+**Next** Fixture-admit the passive group-header reader using existing pointer slots and an equal live epoch. Separately finish native getter ownership and generation admission.
+
 ## 2026-11-04 research checkpoint JE–JK
 
 **Agent/model** Codex desktop, GPT-6 family. The exact identifier was unavailable. Two same-family subagents authored or independently reviewed static merge, VM transport and getter evidence.

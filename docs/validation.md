@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Retail VM map and peer schedule evidence (2026-11-04)
+
+The second guarded retail run binds 896 VM reads, 128 independent count reads, 448 nested reads and 128 parent sidecar reads to 32 current initializer-return contexts. It passes the loaded module/path/two-generation and caller-window proofs. The 44 cap members partition into one self-disarm, 10 observed exits and 33 generation retirements. The 57 retirement triples pass and no drain stop occurs. Both processes exit 0 and the selected installed settings and source pins agree. The screenshot matches the earlier title card and the startup Fontconfig error remains in stderr.
+
+Independent replay joins all 20 stopped identity fields and confirms 32 exact pair/remap comparisons against the owned candidate. It rejects 26 mutations. The peer fixture separately passes its selected thread and unarmed peer schedule with 10 corruption controls. The peer test uses a debugger-authored suspend/resume schedule and preserves each run's own FP state. Native getter history, campaign completion and Rust parity **not tested**.
+
 ## Getter and virtual-map fixtures (2026-11-04)
 
 JE's first attempt rejected the WOW64 single-step exception variant. Its second attempt recorded the expected getter-entry address before the step-context gate rejected. The failing context was absent from that transcript. JG's different one-slot observer retains a first reserved-EFlags readback rejection. The corrected route admits 215 hardware stops and 286 reads across eight cases, with 66 count returns, 60 stores, identical authored FP images against untraced runs and 25 corruption controls. The separate JI review confirms the stopped thread and phase geometry. Native multi-thread and module-generation integration **not tested**.

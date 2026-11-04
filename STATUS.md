@@ -1,5 +1,11 @@
 # STATUS
 
+## Native virtual pose map observed (2026-11-04 JL–JO)
+
+After the earlier deferral, a new ownership guard cleared. Debugger 30164 and game 58256 exited 0. All 32 initializer-return samples admit the virtual count of 11, the same 11 ordered canonical pairs and all four group remap vectors. The 896 VM reads match the owned candidate structure in every sample. Independent replay rejects 26 transcript corruptions. The title-card screenshot and retained startup Fontconfig error delimit visual evidence.
+
+The raw group handles and wrapper cache metadata are current observations. Loaded group headers and descriptor bytes, earlier getter history and downstream consumption, actor/entity association, final pose, campaign completion and Rust parity remain open. The next passive descriptor check must first verify the live cache epoch and existing pointer slots. The separate peer fixture admits one deliberately scheduled overlap, while native getter lifetime and generation integration remain pending.
+
 ## Getter history and virtual map fixture progress (2026-11-04 JE–JK)
 
 JE's two trap-flag debugger attempts rejected and remain frozen. The second reached the expected getter-entry exception address, then failed the context gate before the failing register image was retained. JG instead retargets one hardware execution slot. All eight traced and eight untraced authored cases exit 0. The replay verifies 215 stops, 66 signed count returns and 60 completed stores, with 25 corruptions rejected. Independent review confirms 223 debug-register-only context applications. The first JG rejection retains the exact WOW64 reserved-bit readback difference. The 25-word fixture retires observation before the last load and completes the write.

@@ -1,5 +1,13 @@
 # Design
 
+## Passive loaded descriptor witness (2026-11-04)
+
+Current native pair/remap equality is established for 32 stops. Read the wrapper and its existing group-header vector only after the cache epoch saved in the wrapper agrees with the independently read live epoch. Re-read both symmetrically within the admitted stop. Preserve stale, absent, null, locked and out-of-range cases as separate outcomes. Bound group count, header ranges, local descriptor table and relative strings before reading. Match descriptor names and raw words against owned candidates only after verifying the loaded pointers and their headers. Exercise epoch and pointer changes plus read failures in a fixture before another native capture.
+
+The static cache chain distinguishes the 16-bit model dictionary handle from the 32-bit resource handle and the header pointer. Cache accessor calls can touch, frame-lock, load, or fall back, so the passive reader must avoid invoking them. A future observation of the engine's ordinary group-header return needs an independently admitted same-call stack, group and loaded code witness.
+
+The separate peer fixture deliberately suspends the selected fixture thread while an unarmed peer executes the same mapped getter. This proves one scheduled overlap. Broader thread lifetimes, module generations and debug-register ownership need separate admission before native getter observation.
+
 ## Getter and VM reader integration boundaries (2026-11-04)
 
 Stop the rejected per-thread trap-flag approach. The authored one-slot hardware route independently validates the active exception, dispatch return, each count and store boundary, and retirement for one selected fixture thread. Before retail use, validate module identity and generation, debug-register ownership, peer and recycled thread events, invalid or alternate target admission, exact loaded bytes at the active boundary and cleanup across multiple lifetimes. Track a bounded chain of selected addresses and preserve a partial outcome at the observer cap.
