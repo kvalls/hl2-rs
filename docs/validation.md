@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Passive group header slot fixture (2026-11-04)
+
+The Windows x64 self-process uses x86-range authored addresses. All 17 cases and 44 real reads pass, including three actual inaccessible pages and three mutations between forward and reverse reads. The replay rejects six corrupted addresses. Native cache slot or header reads **not tested**.
+
 ## Retail VM map and peer schedule evidence (2026-11-04)
 
 The second guarded retail run binds 896 VM reads, 128 independent count reads, 448 nested reads and 128 parent sidecar reads to 32 current initializer-return contexts. It passes the loaded module/path/two-generation and caller-window proofs. The 44 cap members partition into one self-disarm, 10 observed exits and 33 generation retirements. The 57 retirement triples pass and no drain stop occurs. Both processes exit 0 and the selected installed settings and source pins agree. The screenshot matches the earlier title card and the startup Fontconfig error remains in stderr.

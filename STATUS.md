@@ -1,5 +1,9 @@
 # STATUS
 
+## Passive cache slot eligibility fixture (2026-11-04 JQ)
+
+A Windows self-process fixture passes 17 cases and 44 real memory reads for existing cache slots. It separates locked, stale, null, out-of-range and inaccessible states, and rejects three reverse mutations. Six replay corruptions reject. The arena uses x86-range addresses in an x64 fixture host. Next admit bounded group-header, descriptor and name ranges before native integration.
+
 ## Native virtual pose map observed (2026-11-04 JL–JO)
 
 After the earlier deferral, a new ownership guard cleared. Debugger 30164 and game 58256 exited 0. All 32 initializer-return samples admit the virtual count of 11, the same 11 ordered canonical pairs and all four group remap vectors. The 896 VM reads match the owned candidate structure in every sample. Independent replay rejects 26 transcript corruptions. The title-card screenshot and retained startup Fontconfig error delimit visual evidence.

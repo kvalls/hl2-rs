@@ -1,5 +1,9 @@
 # Design
 
+## Existing header slot eligibility (2026-11-04 JQ)
+
+The standalone fixture admits only pointer slot eligibility. It requires the independently supplied wrapper root and VM, neutral mutex words, bounded vector count and equal saved/live epochs. Re-read the pointer vector, epoch and wrapper in reverse at the same addresses. Retain null slots as unavailable. Before integrating with the stopped observer, fixture-admit bounded header, descriptor and name reads, and bind the VM/group identity and complete outcome to the actual active event.
+
 ## Passive loaded descriptor witness (2026-11-04)
 
 Current native pair/remap equality is established for 32 stops. Read the wrapper and its existing group-header vector only after the cache epoch saved in the wrapper agrees with the independently read live epoch. Re-read both symmetrically within the admitted stop. Preserve stale, absent, null, locked and out-of-range cases as separate outcomes. Bound group count, header ranges, local descriptor table and relative strings before reading. Match descriptor names and raw words against owned candidates only after verifying the loaded pointers and their headers. Exercise epoch and pointer changes plus read failures in a fixture before another native capture.
