@@ -85,7 +85,7 @@ fn crab_leap(
     physics: &Physics,
     sight: &PhysicsSight,
 ) {
-    let on_ground = actor.fall.is_none();
+    let on_ground = actor.on_ground();
     let AiClass::Headcrab(crab) = &mut actor.class else {
         return;
     };
@@ -128,7 +128,7 @@ fn crab_leap(
 /// breakable in the way is not modeled); CFastZombie's only on the ground once
 /// m_flNextMeleeAttack has passed.
 fn claws(actor: &mut AiActor, v: &AttackView, world: &World) {
-    let on_ground = actor.fall.is_none();
+    let on_ground = actor.on_ground();
     let AiClass::Zombie(z) = &mut actor.class else {
         return;
     };
@@ -188,11 +188,17 @@ fn poison_ranges(
 /// CFastZombie::RangeAttack1Conditions: the leap (an NPC enemy's own view cone is not
 /// modeled: it always counts as seeing the zombie).
 fn fast_leap(actor: &mut AiActor, v: &AttackView, physics: &Physics, player: &PlayerState) {
-    let on_ground = actor.fall.is_none();
+    let on_ground = actor.on_ground();
     let z = match &mut actor.class {
         AiClass::Zombie(z) if z.kind == zombie::Kind::Fast && !z.torso => z,
         _ => return,
     };
+    if std::mem::take(&mut z.fast.climb_touch) {
+        actor
+            .npc
+            .conditions
+            .set(zombie::COND_FASTZOMBIE_CLIMB_TOUCH);
+    }
     let seen = v.enemy != PLAYER
         || zombie::fast::in_view_cone(
             player.eye(),

@@ -52,6 +52,8 @@ impl Zombie {
                 });
                 self.next_swat_scan = ctx.now + SWAT_DELAY;
             }
+        } else if self.kind == Kind::Fast && fast::AE_CLIMB.iter().any(|e| is(e)) {
+            self.fast_climb_step(rolls.0);
         } else if self.kind == Kind::Fast && is(fast::AE_LEAP) {
             self.fast_leap(ctx.now, ctx.origin, enemy_center);
         } else if self.kind == Kind::Fast && is("AE_FASTZOMBIE_GALLOP_LEFT") {

@@ -10,6 +10,15 @@ use serde::Serialize;
 use source_assets::{models::MotionSequence, navigation::Graph, vpk::Vfs};
 use std::collections::{BTreeMap, BTreeSet};
 mod backaway;
+mod graph;
+pub mod links;
+#[cfg(test)]
+use graph::search;
+use graph::{
+    ground_link, nearest_usable, node_feet, pop_nearest, probe_doors, route_link, Destination,
+    Planner, UsableGraph,
+};
+pub use links::MoveCaps;
 
 /// GoalKey::scene reserved for AI navigation goals (step 14); scenes use entity ids.
 pub const AI_SCENE: usize = usize::MAX - 1;
@@ -126,6 +135,8 @@ pub struct GoalSnapshot {
     /// Unknown motor ETA must never satisfy a scene's readiness test.
     pub motor_eta: Option<f32>,
     pub contact_normal: Vec3,
+    /// "jump", "climb" or empty.
+    pub traversal: &'static str,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -266,8 +277,8 @@ fn simplify_path_forward<W: NpcCollisionWorld>(
     const INCREMENT: f32 = 3. * 12.;
     const MAX_SAMPLES: usize = 4;
     let feet = goal.feet;
-    let points = &goal.route.feet;
     let next = goal.next;
+    let points = &goal.route.feet[..links::ground_end(&goal.route, next)];
     // The goal waypoint is not reducible.
     if next + 1 >= points.len() {
         return;
@@ -560,6 +571,8 @@ struct Actor {
     playback_rate: f32,
     /// The sequence held in place while the AI pauses a move (the goal stays active).
     pause_sequence: Option<String>,
+    /// Jump and climb links (ground only by default).
+    caps: MoveCaps,
 }
 struct Goal {
     request: MoveRequest,
@@ -578,6 +591,29 @@ struct Goal {
     simplified: bool,
     /// Held by the actor's pause; animation_time counts the pause meanwhile.
     paused: bool,
+    /// A jump or climb in progress.
+    link: links::GoalLink,
+}
+impl Goal {
+    fn destination(&self) -> Destination {
+        Destination {
+            feet: self.request.target_feet,
+            tolerance: self.tolerance,
+        }
+    }
+}
+/// The controller's planner (a macro: `tick` plans while it holds `goals` borrowed).
+macro_rules! planner {
+    ($controller:expr) => {
+        Planner {
+            graph: $controller.graph.as_ref(),
+            restrictions: &$controller.restrictions,
+            doors: &$controller.doors,
+            stale: &mut $controller.stale,
+            now: $controller.clock,
+            stats: &mut $controller.stats,
+        }
+    };
 }
 #[derive(Clone, Debug, Default)]
 struct Route {
@@ -588,6 +624,8 @@ struct Route {
     /// `doors[i]` was probed (segments are probed when the actor reaches them; missing
     /// entries count as probed).
     door_known: Vec<bool>,
+    /// How each waypoint is reached (missing entries walk).
+    navs: Vec<links::Nav>,
 }
 pub struct Controller {
     graph: Option<Graph>,
@@ -609,6 +647,9 @@ pub struct Controller {
     /// CAI_Node m_flNextUseTime: cover nodes FindCoverNode handed out, locked for a
     /// second on the movement clock (IsLocked).
     node_locks: BTreeMap<usize, f64>,
+    /// `take_launches` and `take_drops`.
+    launches: Vec<(usize, Vec3)>,
+    drops: Vec<usize>,
 }
 /// FindCoverNode's pNode->Lock(1.0).
 const COVER_NODE_LOCK: f64 = 1.;
@@ -623,6 +664,10 @@ pub struct PathStats {
     pub failures: u64,
     pub link_probes: u64,
     pub micros: u64,
+    /// Navigation jumps started, jumps the probe refused and climbs started.
+    pub jumps: u64,
+    pub jump_failures: u64,
+    pub climbs: u64,
 }
 impl Controller {
     pub fn path_stats(&self) -> PathStats {
@@ -664,6 +709,8 @@ impl Controller {
             clock: 0.,
             stale: BTreeMap::new(),
             node_locks: BTreeMap::new(),
+            launches: Vec::new(),
+            drops: Vec::new(),
         }
     }
     /// register_actor for an actor that only AI goals (GoalKey::scene == AI_SCENE) move.
@@ -894,6 +941,10 @@ impl Controller {
             if goal.state != GoalState::Canceled {
                 goal.state = GoalState::Canceled;
                 self.pending.push(update(key, goal, &self.doors, None));
+                if goal.link.label() == "climb" {
+                    goal.link.traversal = links::Traversal::None;
+                    self.drops.push(key.actor);
+                }
             }
         }
     }
@@ -935,6 +986,7 @@ impl Controller {
                 opens_doors: true,
                 playback_rate: 1.,
                 pause_sequence: None,
+                caps: MoveCaps::default(),
             },
         );
         Ok(())
@@ -972,9 +1024,14 @@ impl Controller {
                 sequence: goal.state.is_moving().then(|| {
                     self.actors.get(&key.actor).map_or_else(
                         || goal.request.style.sequence().to_owned(),
-                        |a| a.locomotion.played_name(goal.request.style, a.aiming),
+                        |a| {
+                            links::played(goal, a).unwrap_or_else(|| {
+                                a.locomotion.played_name(goal.request.style, a.aiming)
+                            })
+                        },
                     )
                 }),
+                traversal: goal.link.label(),
                 animation_time: goal.animation_time,
                 motor_eta: None,
                 contact_normal: goal.contact_normal,
@@ -1018,6 +1075,10 @@ impl Controller {
         world: &W,
         transients: &[ActorHull],
     ) -> GoalState {
+        if let Some(goal) = self.goals.get_mut(&key).filter(|g| g.link.traversing()) {
+            goal.link.held = Some(request);
+            return goal.state.clone();
+        }
         let mut goal = Goal {
             request,
             tolerance: 0.1,
@@ -1032,6 +1093,7 @@ impl Controller {
             simplify_in: 0.,
             simplified: false,
             paused: false,
+            link: Default::default(),
         };
         let prepared = (|| {
             self.admit(key, &pose, &goal.request)?;
@@ -1040,13 +1102,7 @@ impl Controller {
                 .get(&key.actor)
                 .ok_or(GoalBlockReason::MissingActor)?;
             actor.locomotion.track(goal.request.style)?;
-            goal.tolerance = if goal.request.force_short {
-                0.1
-            } else {
-                (actor.ground.hull.maxs.x - actor.ground.hull.mins.x) * 0.5
-            }
-            .max(goal.request.event_distance)
-            .max(0.1);
+            goal.tolerance = goal_tolerance(actor, &goal.request);
             let excluded = self.excluded_for(key.actor);
             let query = Query {
                 excluded_entities: &excluded,
@@ -1064,31 +1120,8 @@ impl Controller {
             if pose.feet.distance(goal.request.target_feet) <= goal.tolerance {
                 goal.state = GoalState::Arrived;
             } else {
-                let started = std::time::Instant::now();
-                let mut probes = 0;
-                let route = plan(
-                    world,
-                    self.graph.as_ref(),
-                    &self.restrictions,
-                    &self.doors,
-                    actor,
-                    pose.feet,
-                    Destination {
-                        feet: goal.request.target_feet,
-                        tolerance: goal.tolerance,
-                    },
-                    key.actor,
-                    Stale {
-                        links: &mut self.stale,
-                        now: self.clock,
-                    },
-                    &mut probes,
-                );
-                self.stats.plans += 1;
-                self.stats.failures += u64::from(route.is_err());
-                self.stats.link_probes += probes;
-                self.stats.micros += started.elapsed().as_micros() as u64;
-                goal.route = route?;
+                goal.route =
+                    planner!(self).route(world, actor, key.actor, pose.feet, goal.destination())?;
                 probe_doors(world, actor, key.actor, &mut goal, &self.doors);
             }
             Ok(())
@@ -1180,42 +1213,22 @@ impl Controller {
                     .get(&key.actor)
                     .ok_or(GoalBlockReason::MissingActor)?;
                 let track = actor.locomotion.track(goal.request.style)?;
-                if matches!(goal.state, GoalState::Blocked(_)) {
+                let replan = std::mem::take(&mut goal.link.replan);
+                if replan || matches!(goal.state, GoalState::Blocked(_)) {
                     goal.retry_time += dt;
-                    if goal.retry_time < 1.5 {
+                    if !replan && goal.retry_time < 1.5 {
                         return Ok(());
                     }
                     goal.retry_time = 0.;
-                    let started = std::time::Instant::now();
-                    let mut probes = 0;
-                    let route = plan(
+                    goal.route = planner!(self).route(
                         world,
-                        self.graph.as_ref(),
-                        &self.restrictions,
-                        &self.doors,
                         actor,
-                        goal.feet,
-                        Destination {
-                            feet: goal.request.target_feet,
-                            tolerance: goal.tolerance,
-                        },
                         key.actor,
-                        Stale {
-                            links: &mut self.stale,
-                            now: self.clock,
-                        },
-                        &mut probes,
-                    );
-                    self.stats.plans += 1;
-                    self.stats.failures += u64::from(route.is_err());
-                    self.stats.link_probes += probes;
-                    self.stats.micros += started.elapsed().as_micros() as u64;
-                    goal.route = route?;
+                        goal.feet,
+                        goal.destination(),
+                    )?;
                     goal.next = 0;
                     goal.state = GoalState::Moving;
-                }
-                if hold_pause(goal, actor, dt) {
-                    return Ok(());
                 }
                 let excluded = excluded_for(key.actor);
                 let query = Query {
@@ -1223,6 +1236,12 @@ impl Controller {
                     transients,
                     ..Default::default()
                 };
+                if links::traverse(world, actor, goal, query, dt, &mut self.stats)? {
+                    return Ok(());
+                }
+                if hold_pause(goal, actor, dt) {
+                    return Ok(());
+                }
                 let moved = advance(world, actor, *key, goal, track, query, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
@@ -1252,12 +1271,21 @@ impl Controller {
                 .get(&key.actor)
                 .map(|a| match &a.pause_sequence {
                     Some(pause) if goal.paused => pause.clone(),
-                    _ => a.locomotion.played_name(goal.request.style, a.aiming),
+                    _ => links::played(goal, a)
+                        .unwrap_or_else(|| a.locomotion.played_name(goal.request.style, a.aiming)),
                 });
             updates.push(update(*key, goal, &self.doors, name));
+            self.launches
+                .extend(goal.link.launch.take().map(|v| (key.actor, v)));
         }
         updates
     }
+}
+/// The distance that counts as arrived: half the hull's width, or the request's own.
+fn goal_tolerance(actor: &Actor, request: &MoveRequest) -> f32 {
+    let half_width = (actor.ground.hull.maxs.x - actor.ground.hull.mins.x) * 0.5;
+    let base = if request.force_short { 0.1 } else { half_width };
+    base.max(request.event_distance).max(0.1)
 }
 /// A moving goal held by its actor's pause: no movement, the pause's own clock in
 /// animation_time. Leaving the pause restarts the move's cycle. True while held.
@@ -1352,7 +1380,7 @@ fn advance<W: NpcCollisionWorld>(
     let mut start_validated = true;
     // Budget is ours, not an engine constant; failing never releases SECTION.
     for _ in 0..32 {
-        if remaining <= 0. {
+        if remaining <= 0. || links::at_link(goal) {
             return Ok(());
         }
         let target = *goal
@@ -1438,359 +1466,6 @@ fn advance<W: NpcCollisionWorld>(
     Err(GoalBlockReason::SearchBudget)
 }
 
-/// Usable node feet and each node's usable neighbors.
-type UsableGraph = (Vec<Option<Vec3>>, Vec<Vec<usize>>);
-/// NearestNodeToPoint over the usable nodes.
-fn nearest_usable(positions: &[Option<Vec3>], point: Vec3) -> Option<usize> {
-    positions
-        .iter()
-        .enumerate()
-        .filter_map(|(n, p)| p.map(|p| (n, p.distance_squared(point))))
-        .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
-        .map(|(n, _)| n)
-}
-/// CNodeList::ElementAtHead + RemoveAtHead: the open node with the least key.
-fn pop_nearest(open: &mut Vec<(usize, f32)>) -> Option<usize> {
-    let best = (0..open.len()).min_by(|&a, &b| open[a].1.total_cmp(&open[b].1))?;
-    Some(open.swap_remove(best).0)
-}
-/// CAI_Node::GetPosition(hull): the node origin raised by the hull's offset.
-fn node_feet(
-    graph: &Graph,
-    node: usize,
-    restrictions: &NavRestrictions,
-    hull: HullType,
-) -> Option<Vec3> {
-    let value = graph.nodes.get(node)?;
-    if value.node_type != 2 || value.info != 0 || restrictions.unusable_nodes.contains(&node) {
-        return None;
-    }
-    let feet = value.origin + Vec3::Z * *value.hull_z_offsets.get(hull.index())?;
-    feet.is_finite().then_some(feet)
-}
-/// The link's accepted move types for the hull include bits_CAP_MOVE_GROUND.
-fn ground_link(link: &source_assets::navigation::Link, hull: HullType) -> bool {
-    link.accepted_move_types
-        .get(hull.index())
-        .is_some_and(|types| types & 1 != 0)
-}
-fn connector<W: NpcCollisionWorld>(
-    world: &W,
-    actor: &Actor,
-    start: Vec3,
-    end: Vec3,
-    tolerance: f32,
-    query: Query<'_>,
-) -> bool {
-    if !npc_probe::fits(world, end, actor.ground.hull, query)
-        || !npc_probe::stand(world, end, actor.ground, query)
-    {
-        return false;
-    }
-    let moved = npc_probe::ground_move(world, start, end, actor.ground, query);
-    moved.completed && moved.end.distance(end) <= tolerance
-}
-fn candidates<W: NpcCollisionWorld>(
-    world: &W,
-    graph: &Graph,
-    restrictions: &NavRestrictions,
-    actor: &Actor,
-    point: Vec3,
-    view: Vec3,
-    query: Query<'_>,
-) -> Vec<usize> {
-    let mut nearest: Vec<_> = (0..graph.nodes.len())
-        .filter_map(|index| {
-            let feet = node_feet(graph, index, restrictions, actor.hull)?;
-            ((graph.nodes[index].origin - point)
-                .abs()
-                .cmple(Vec3::splat(720.))
-                .all())
-            .then_some((index, feet.distance_squared(point)))
-        })
-        .collect();
-    nearest.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
-    nearest
-        .into_iter()
-        .take(10)
-        .filter_map(|(index, _)| {
-            let feet = node_feet(graph, index, restrictions, actor.hull)?;
-            let visible = world
-                .npc_trace_hull(
-                    feet + view,
-                    point + Vec3::Z,
-                    Hull {
-                        mins: Vec3::ZERO,
-                        maxs: Vec3::ZERO,
-                    },
-                    query,
-                )
-                .clear_path();
-            (visible
-                && npc_probe::fits(world, feet, actor.ground.hull, query)
-                && npc_probe::stand(world, feet, actor.ground, query))
-            .then_some(index)
-        })
-        .collect()
-}
-struct Destination {
-    feet: Vec3,
-    tolerance: f32,
-}
-/// A graph link whose only obstruction is a door: NPCs open doors along routes.
-fn door_link<W: NpcCollisionWorld>(
-    world: &W,
-    actor: &Actor,
-    from: Vec3,
-    to: Vec3,
-    query: Query<'_>,
-    doors: &BTreeSet<usize>,
-) -> bool {
-    if doors.is_empty()
-        || !npc_probe::fits(world, to, actor.ground.hull, query)
-        || !npc_probe::stand(world, to, actor.ground, query)
-    {
-        return false;
-    }
-    let moved = npc_probe::ground_move(world, from, to, actor.ground, query);
-    !moved.completed && moved.blocker.is_some_and(|b| doors.contains(&b))
-}
-#[allow(clippy::too_many_arguments)]
-fn plan<W: NpcCollisionWorld>(
-    world: &W,
-    graph: Option<&Graph>,
-    restrictions: &NavRestrictions,
-    doors: &BTreeSet<usize>,
-    actor: &Actor,
-    start: Vec3,
-    destination: Destination,
-    entity: usize,
-    stale: Stale<'_>,
-    probes: &mut u64,
-) -> Result<Route, GoalBlockReason> {
-    let Destination {
-        feet: end,
-        tolerance,
-    } = destination;
-    let excluded = [entity];
-    let query = Query {
-        contents_mask: npc_probe::NPC_BRUSH_ONLY_MASK,
-        excluded_entities: &excluded,
-        ..Default::default()
-    };
-    if connector(world, actor, start, end, tolerance, query) {
-        return Ok(Route {
-            nodes: Vec::new(),
-            feet: vec![end],
-            doors: vec![None],
-            door_known: vec![true],
-        });
-    }
-    let graph = graph.ok_or(GoalBlockReason::MissingGraph)?;
-    let view = actor
-        .view_offset
-        .ok_or(GoalBlockReason::MissingViewOffset)?;
-    let starts = candidates(world, graph, restrictions, actor, start, view, query);
-    let ends = candidates(world, graph, restrictions, actor, end, view, query);
-    let feet_of = |n| node_feet(graph, n, restrictions, actor.hull).unwrap();
-    let start_node = starts
-        .into_iter()
-        .take(4)
-        .find(|n| connector(world, actor, start, feet_of(*n), 0.1, query))
-        .ok_or(GoalBlockReason::NoRoute)?;
-    let end_node = ends
-        .into_iter()
-        .take(4)
-        .find(|n| connector(world, actor, feet_of(*n), end, tolerance, query))
-        .ok_or(GoalBlockReason::NoRoute)?;
-    // CAI_Pathfinder::IsLinkUsable: graph data only (flags, accepted move types and
-    // unusable nodes, in `search`); a stale-suggested link is unusable until it expires,
-    // then IsLinkStillStale rechecks it once per plan (CheckStaleRoute: the local move).
-    let Stale { links, now } = stale;
-    let mut rechecked = false;
-    let nodes = search(
-        graph,
-        restrictions,
-        actor.hull,
-        start_node,
-        end_node,
-        |link, from, to| {
-            let Some(&expires) = links.get(&link) else {
-                return Some(from.distance(to));
-            };
-            if now < expires || rechecked {
-                return None;
-            }
-            rechecked = true;
-            *probes += 1;
-            if connector(world, actor, from, to, 0.1, query)
-                || door_link(world, actor, from, to, query, doors)
-            {
-                links.remove(&link);
-                Some(from.distance(to))
-            } else {
-                links.insert(link, now + STALE_RECHECK_TIME);
-                None
-            }
-        },
-    )?;
-    let mut feet: Vec<_> = nodes.iter().map(|n| feet_of(*n)).collect();
-    feet.push(end);
-    // Doors along the route are probed as the actor reaches each segment (probe_doors).
-    let mut door_known = vec![false; feet.len()];
-    door_known[0] = true;
-    Ok(Route {
-        nodes,
-        doors: vec![None; feet.len()],
-        feet,
-        door_known,
-    })
-}
-/// The stale-suggested links and the movement clock, for one plan.
-struct Stale<'a> {
-    links: &'a mut BTreeMap<usize, f64>,
-    now: f64,
-}
-/// The graph link of the route segment that ends at `feet[next]` (node to node).
-fn route_link(graph: &Graph, route: &Route, next: usize) -> Option<usize> {
-    let (&a, &b) = (
-        route.nodes.get(next.checked_sub(1)?)?,
-        route.nodes.get(next)?,
-    );
-    graph.links.iter().position(|l| {
-        (l.source == a && l.destination == b) || (l.source == b && l.destination == a)
-    })
-}
-/// The doors of the current and next route segments (the navigator opens a route door
-/// ahead of contact): one local move per segment, when the actor reaches it.
-fn probe_doors<W: NpcCollisionWorld>(
-    world: &W,
-    actor: &Actor,
-    entity: usize,
-    goal: &mut Goal,
-    door_set: &BTreeSet<usize>,
-) {
-    if door_set.is_empty() {
-        return;
-    }
-    let excluded = [entity];
-    let query = Query {
-        contents_mask: npc_probe::NPC_BRUSH_ONLY_MASK,
-        excluded_entities: &excluded,
-        ..Default::default()
-    };
-    for index in [goal.next, goal.next + 1] {
-        if index == 0 || goal.route.door_known.get(index) != Some(&false) {
-            continue;
-        }
-        goal.route.door_known[index] = true;
-        let (from, to) = (goal.route.feet[index - 1], goal.route.feet[index]);
-        let moved = npc_probe::ground_move(world, from, to, actor.ground, query);
-        goal.route.doors[index] = moved
-            .blocker
-            .filter(|b| !moved.completed && door_set.contains(b));
-    }
-}
-fn search(
-    graph: &Graph,
-    restrictions: &NavRestrictions,
-    hull: HullType,
-    start: usize,
-    end: usize,
-    mut cost: impl FnMut(usize, Vec3, Vec3) -> Option<f32>,
-) -> Result<Vec<usize>, GoalBlockReason> {
-    let count = graph.nodes.len();
-    if count == 0
-        || count > 1500
-        || graph.links.len() > 1_000_000
-        || node_feet(graph, start, restrictions, hull).is_none()
-        || node_feet(graph, end, restrictions, hull).is_none()
-    {
-        return Err(GoalBlockReason::InvalidGraph);
-    }
-    let positions: Vec<_> = (0..count)
-        .map(|n| node_feet(graph, n, restrictions, hull))
-        .collect();
-    let mut adjacent = vec![Vec::new(); count];
-    for (index, link) in graph.links.iter().enumerate() {
-        if link.source >= count || link.destination >= count {
-            return Err(GoalBlockReason::InvalidGraph);
-        }
-        if ground_link(link, hull)
-            && !restrictions.unusable_links.contains(&index)
-            && !restrictions.off_links.contains(&index)
-            && positions[link.source].is_some()
-            && positions[link.destination].is_some()
-        {
-            adjacent[link.source].push((link.destination, index));
-            adjacent[link.destination].push((link.source, index));
-        }
-    }
-    let goal = positions[end].unwrap();
-    let mut g = vec![f32::MAX; count];
-    let mut f = vec![f32::MAX; count];
-    let mut parent = vec![None; count];
-    let mut seen = vec![false; count];
-    let mut open = vec![false; count];
-    g[start] = 0.;
-    f[start] = positions[start].unwrap().distance(goal) * 0.1;
-    seen[start] = true;
-    open[start] = true;
-    for _ in 0..count.saturating_mul(count) {
-        let mut selected = None;
-        let mut lowest = f32::MAX;
-        for index in 0..count {
-            if open[index] && f[index] < lowest {
-                selected = Some(index);
-                lowest = f[index];
-            }
-        }
-        let current = selected.ok_or(GoalBlockReason::NoRoute)?;
-        open[current] = false;
-        if current == end {
-            let mut path = vec![end];
-            while *path.last().unwrap() != start {
-                if path.len() > count {
-                    return Err(GoalBlockReason::InvalidGraph);
-                }
-                path.push(parent[*path.last().unwrap()].ok_or(GoalBlockReason::InvalidGraph)?);
-            }
-            path.reverse();
-            return Ok(path);
-        }
-        for &(neighbor, link) in &adjacent[current] {
-            let Some(edge) = cost(
-                link,
-                positions[current].unwrap(),
-                positions[neighbor].unwrap(),
-            ) else {
-                continue;
-            };
-            if !edge.is_finite() || edge < 0. {
-                return Err(GoalBlockReason::InvalidGraph);
-            }
-            if edge == f32::MAX {
-                continue;
-            }
-            let next = g[current] + edge;
-            if !next.is_finite() {
-                return Err(GoalBlockReason::InvalidGraph);
-            }
-            if !seen[neighbor] || next < g[neighbor] {
-                parent[neighbor] = Some(current);
-                g[neighbor] = next;
-                f[neighbor] = next + positions[neighbor].unwrap().distance(goal);
-                if !f[neighbor].is_finite() {
-                    return Err(GoalBlockReason::InvalidGraph);
-                }
-                seen[neighbor] = true;
-                open[neighbor] = true;
-            }
-        }
-    }
-    Err(GoalBlockReason::SearchBudget)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1864,14 +1539,14 @@ mod tests {
             ..Default::default()
         }
     }
-    fn key(scene: usize) -> GoalKey {
+    pub(super) fn key(scene: usize) -> GoalKey {
         GoalKey {
             scene,
             event: 0,
             actor: 7,
         }
     }
-    fn pose(feet: Vec3) -> ActorPose {
+    pub(super) fn pose(feet: Vec3) -> ActorPose {
         ActorPose {
             entity: 7,
             feet,
@@ -1879,7 +1554,7 @@ mod tests {
             scripted_by: None,
         }
     }
-    fn request(target: Vec3) -> MoveRequest {
+    pub(super) fn request(target: Vec3) -> MoveRequest {
         MoveRequest {
             target_entity: 9,
             target_feet: target,
@@ -1930,6 +1605,7 @@ mod tests {
             simplify_in: 0.,
             simplified: false,
             paused: false,
+            link: Default::default(),
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.
@@ -2290,7 +1966,7 @@ mod tests {
         assert!(search(
             &invalid,
             &NavRestrictions::default(),
-            HullType::Human,
+            (HullType::Human, &MoveCaps::default()),
             0,
             3,
             |_, a, b| Some(a.distance(b))
@@ -2360,7 +2036,7 @@ mod tests {
             search(
                 &diamond,
                 &NavRestrictions::default(),
-                HullType::Human,
+                (HullType::Human, &MoveCaps::default()),
                 0,
                 3,
                 |_, a, b| Some(a.distance(b))
@@ -2385,7 +2061,7 @@ mod tests {
             search(
                 &reopen,
                 &NavRestrictions::default(),
-                HullType::Human,
+                (HullType::Human, &MoveCaps::default()),
                 0,
                 4,
                 |link, _, _| { Some(costs[link]) }
@@ -2397,7 +2073,7 @@ mod tests {
             search(
                 &reopen,
                 &NavRestrictions::default(),
-                HullType::Human,
+                (HullType::Human, &MoveCaps::default()),
                 0,
                 4,
                 |_, _, _| Some(f32::NAN)

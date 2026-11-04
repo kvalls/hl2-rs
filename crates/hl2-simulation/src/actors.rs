@@ -75,6 +75,25 @@ pub const AI_GROUND_HUMANS: [&str; 12] = [
 /// ACT_WALK/ACT_RUN when the model has the result (else the base activity), played as
 /// the first sequence with that activity. Variants missing a looping sequence are left
 /// out (e.g. the unarmed soldier, whose model has only rifle walks and runs).
+/// The jump and climb capabilities of a class, from the sequences of its rig.
+fn move_caps(
+    vfs: &Vfs,
+    model: &str,
+    class: &str,
+    rig: &modkit_core::animation::Rig,
+) -> Result<crate::npc::MoveCaps> {
+    if !crate::ai::zombie::is_fast_class(class) {
+        return Ok(Default::default());
+    }
+    let wanted = rig
+        .sequences
+        .iter()
+        .filter(|s| crate::npc::links::ACTIVITIES.contains(&s.activity.as_str()))
+        .map(|s| s.name.clone())
+        .collect();
+    let motion = source_assets::models::read_root_motion(vfs, model, &wanted)?;
+    Ok(crate::npc::MoveCaps::for_class(class, &motion))
+}
 fn locomotion_variants(
     vfs: &Vfs,
     model: &str,
@@ -232,6 +251,7 @@ pub fn prepare_npcs(
                     controller.set_opens_doors(actor, false);
                 }
                 controller.set_headcrab(actor, crate::ai::headcrab::is_headcrab_class(class));
+                controller.set_move_caps(actor, move_caps(vfs, &instance.model, class, rig)?);
                 wanted
             } else {
                 let motion = crate::npc::Locomotion::load(vfs, &instance.model)?;

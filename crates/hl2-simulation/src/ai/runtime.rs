@@ -42,6 +42,8 @@ mod actbusy_host;
 mod crabs;
 mod equipment;
 mod goal_inputs;
+mod navlinks;
+use navlinks::overlaps;
 mod requests;
 mod speech;
 mod squads;
@@ -1103,7 +1105,7 @@ impl AiRuntime {
             .extend(now_due.into_iter().map(|(_, request)| request));
         self.inputs(world, scene, controller);
         // PhysicsStep's gravity runs whether or not the NPC thinks (ai_disable).
-        self.step_falls(world, scene, physics, player);
+        self.step_falls_and_links(world, scene, controller, physics, player);
         if !self.enabled {
             if self.was_enabled {
                 self.was_enabled = false;
@@ -1496,7 +1498,7 @@ impl AiRuntime {
         let weapon_burst = fire.map(|f| (f.min_burst, f.max_burst, f.fire_rate));
         let is_cop = actor.class.cop().is_some();
         let cop_target = actor.class.cop().and_then(|c| c.target_entity);
-        let airborne = actor.fall.is_some();
+        let airborne = !actor.on_ground();
         let innate_range = matches!(actor.class, AiClass::Headcrab(_))
             .then_some((headcrab::MIN_JUMP_DIST, headcrab::MAX_JUMP_DIST));
         let random = self.random();
@@ -3046,10 +3048,6 @@ fn swat_candidates(
         .collect()
 }
 
-/// Strict box overlap (touching faces do not overlap).
-fn overlaps(lo: Vec3, hi: Vec3, box_lo: Vec3, box_hi: Vec3) -> bool {
-    lo.cmplt(box_hi).all() && hi.cmpgt(box_lo).all()
-}
 /// The nearest horizontal spot (DIST_EPSILON outside) where `hull` at `origin` no longer
 /// overlaps the box, shallowest side first, among those `clear` accepts; None when it does
 /// not overlap or no side is clear.

@@ -44,6 +44,8 @@ pub const COND_ZOMBIE_CAN_SWAT_ATTACK: Cond = Cond(LAST_SHARED_CONDITION);
 /// CZombie's class conditions after CNPC_BaseZombie's (CAN_SWAT_ATTACK, RELEASECRAB,
 /// LOCAL_MELEE_OBSTRUCTION).
 pub const COND_BLOCKED_BY_DOOR: Cond = Cond(LAST_SHARED_CONDITION + 3);
+/// CFastZombie's class condition (a kind of its own: it never meets the door conditions).
+pub const COND_FASTZOMBIE_CLIMB_TOUCH: Cond = Cond(LAST_SHARED_CONDITION + 3);
 pub const COND_DOOR_OPENED: Cond = Cond(LAST_SHARED_CONDITION + 4);
 /// m_NextTimeToStartDoorBash's interval (CSimTimer 3.0).
 pub const DOOR_BASH_INTERVAL: f64 = 3.;
@@ -458,6 +460,10 @@ pub fn event_sound(event: &str) -> Option<&'static str> {
 
 /// An npc_zombie under the AI.
 /// The CNPC_BaseZombie classes.
+/// npc_fastzombie: the class with navigation jumps and climbs.
+pub fn is_fast_class(class: &str) -> bool {
+    class == "npc_fastzombie"
+}
 pub fn is_zombie_class(class: &str) -> bool {
     matches!(
         class,
@@ -753,6 +759,9 @@ impl Behavior for Zombie {
                 | "SCHED_ZOMBIE_CHARGE_ENEMY",
             ) => interrupts.set(COND_DOOR_OPENED),
             _ => {}
+        }
+        if self.fast.climbing {
+            interrupts.set(COND_FASTZOMBIE_CLIMB_TOUCH);
         }
         interrupts
     }

@@ -1,7 +1,7 @@
 //! CFastZombie (npc_fastzombie; Source SDK 2013 game/server/hl2/npc_fastzombie.cpp) on
 //! top of the zombie AI (DESIGN 14o session 43 fast zombie plan): its leap and claw
-//! rules, schedules and tasks, and its two sound patches. Climbing, navigation jumps and
-//! the torso (no fast_torso.mdl in HL2) are not modeled.
+//! rules, schedules and tasks, its two sound patches and what it does around navigation
+//! climbs (npc::links moves it). The torso (no fast_torso.mdl in HL2) is not modeled.
 use super::super::conditions::{
     Cond, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1, COND_ENEMY_UNREACHABLE, COND_LOST_ENEMY,
     COND_NOT_FACING_ATTACK, COND_TOO_FAR_TO_ATTACK,
@@ -40,6 +40,7 @@ pub const SOUND_UPDATE_FREQ: f64 = 0.5;
 pub const MOAN: &str = "NPC_FastZombie.Moan1";
 pub const GURGLE: &str = "NPC_FastZombie.Gurgle";
 pub const AE_LEAP: &str = "AE_FASTZOMBIE_LEAP";
+pub const AE_CLIMB: [&str; 2] = ["AE_FASTZOMBIE_CLIMB_LEFT", "AE_FASTZOMBIE_CLIMB_RIGHT"];
 /// sv_gravity.
 const SV_GRAVITY: f32 = 600.;
 /// CFastZombie::Precache's cues.
@@ -68,6 +69,10 @@ const SCHEDULES: &[(&str, &str)] = &[
         "Tasks TASK_PLAY_SEQUENCE ACTIVITY:ACT_RANGE_ATTACK1 \
          TASK_SET_ACTIVITY ACTIVITY:ACT_FASTZOMBIE_LEAP_STRIKE TASK_RANGE_ATTACK1 0 \
          TASK_WAIT 0.1 TASK_FASTZOMBIE_LAND_RECOVER 0 TASK_FACE_ENEMY 0 Interrupts",
+    ),
+    (
+        "SCHED_FASTZOMBIE_CLIMBING_UNSTICK_JUMP",
+        "Tasks TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_FASTZOMBIE_UNSTICK_JUMP 0 Interrupts",
     ),
     (
         "SCHED_FASTZOMBIE_UNSTICK_JUMP",
@@ -111,6 +116,12 @@ pub struct FastState {
     /// Leaps and leap touches that clawed (diagnostics).
     pub leaps: u32,
     pub leap_claws: u32,
+    /// In a navigation climb, ClimbTouch set (SetTouch), the player touched it this climb
+    /// (COND_FASTZOMBIE_CLIMB_TOUCH) and m_iClimbCount.
+    pub climbing: bool,
+    pub climb_touch_armed: bool,
+    pub climb_touch: bool,
+    pub climb_count: u8,
 }
 impl Default for FastState {
     fn default() -> Self {
@@ -127,6 +138,10 @@ impl Default for FastState {
             last_state: NpcState::None,
             leaps: 0,
             leap_claws: 0,
+            climbing: false,
+            climb_touch_armed: false,
+            climb_touch: false,
+            climb_count: 0,
         }
     }
 }
@@ -376,6 +391,27 @@ impl Zombie {
             );
         }
     }
+    /// OnChangeActivity: a climb starting silences the moan and arms ClimbTouch, its end
+    /// brings the moan back and disarms it.
+    pub fn fast_climb_edge(&mut self, climbing: bool) {
+        self.fast.climbing = climbing;
+        self.fast.climb_touch_armed = climbing;
+        if self.moan_patch.is_some() {
+            let volume = if climbing { 0. } else { 1. };
+            let seconds = 0.2;
+            self.patch(MOAN, PatchOp::Volume { volume, seconds });
+        }
+    }
+    /// HandleAnimEvent's climb steps: every third one the gurgle layer rasps at a new pitch.
+    pub(super) fn fast_climb_step(&mut self, roll: f32) {
+        self.fast.climb_count = self.fast.climb_count.wrapping_add(1);
+        if self.fast.climb_count.is_multiple_of(3) {
+            let pitch = 100. + 50. * roll;
+            self.patch(GURGLE, PatchOp::Pitch { pitch, seconds: 0. });
+            let points = [(1., 0.1), (0., 0.2), (0., 0.)];
+            self.patch(GURGLE, PatchOp::Envelope { points });
+        }
+    }
     /// AE_FASTZOMBIE_LEAP: LeapAttack at the enemy's center (BeginAttackJump, the sound,
     /// the next leap in 2 s).
     pub fn fast_leap(&mut self, now: f64, origin: Vec3, enemy_center: Option<Vec3>) {
@@ -423,6 +459,9 @@ impl Zombie {
     pub(super) fn fast_select(&mut self, npc: &mut AiNpc, ctx: &Context) -> Option<String> {
         self.fast_schedule_change(ctx.now);
         let c = &npc.conditions;
+        if c.has(super::COND_FASTZOMBIE_CLIMB_TOUCH) {
+            return Some("SCHED_FASTZOMBIE_UNSTICK_JUMP".into());
+        }
         let lost = c.has(COND_LOST_ENEMY) || c.has(COND_ENEMY_UNREACHABLE);
         if !lost || !matches!(npc.state, NpcState::Combat | NpcState::Alert) {
             return None;
@@ -446,6 +485,9 @@ impl Zombie {
                 "SCHED_FASTZOMBIE_RANGE_ATTACK1"
             }
             "SCHED_MELEE_ATTACK1" => "SCHED_FASTZOMBIE_MELEE_ATTACK1",
+            "SCHED_FASTZOMBIE_UNSTICK_JUMP" if self.fast.climbing => {
+                "SCHED_FASTZOMBIE_CLIMBING_UNSTICK_JUMP"
+            }
             "SCHED_MOVE_TO_WEAPON_RANGE"
                 if ctx
                     .enemy
@@ -475,6 +517,15 @@ impl Zombie {
                 TaskStatus::Complete
             }
             "TASK_FASTZOMBIE_VERIFY_ATTACK" => TaskStatus::Failed,
+            // Backwards off the pipe (the activity is still the climb's at this point).
+            "TASK_FASTZOMBIE_UNSTICK_JUMP" if self.fast.climbing => {
+                self.fast.just_jumped = true;
+                let yaw = ctx.yaw.to_radians();
+                let forward = Vec3::new(yaw.cos(), yaw.sin(), 0.);
+                self.requests.push(CopRequest::Leap(forward * -200.));
+                self.fast.leap_time = ctx.now;
+                TaskStatus::Running
+            }
             // Toward the enemy at 300 and 200 up (on the ground until it lands).
             "TASK_FASTZOMBIE_UNSTICK_JUMP" => match ctx.enemy {
                 Some((_, enemy)) => {
