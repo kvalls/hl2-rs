@@ -70,6 +70,11 @@ const SCHEDULES: &[(&str, &str)] = &[
          TASK_SET_ACTIVITY ACTIVITY:ACT_FASTZOMBIE_LEAP_STRIKE TASK_RANGE_ATTACK1 0 \
          TASK_WAIT 0.1 TASK_FASTZOMBIE_LAND_RECOVER 0 TASK_FACE_ENEMY 0 Interrupts",
     ),
+    // Ours: Source's navigator plans from mid-air, the movement controller needs the ground.
+    (
+        "SCHED_FASTZOMBIE_LAND_WAIT",
+        "Tasks TASK_FASTZOMBIE_LAND_WAIT 0 Interrupts",
+    ),
     (
         "SCHED_FASTZOMBIE_CLIMBING_UNSTICK_JUMP",
         "Tasks TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_FASTZOMBIE_UNSTICK_JUMP 0 Interrupts",
@@ -462,6 +467,11 @@ impl Zombie {
         if c.has(super::COND_FASTZOMBIE_CLIMB_TOUCH) {
             return Some("SCHED_FASTZOMBIE_UNSTICK_JUMP".into());
         }
+        // Still falling after a leap: a chase planned now would fail and mark the enemy
+        // unreachable, which a path from the air does not do in Source.
+        if ctx.airborne {
+            return Some("SCHED_FASTZOMBIE_LAND_WAIT".into());
+        }
         let lost = c.has(COND_LOST_ENEMY) || c.has(COND_ENEMY_UNREACHABLE);
         if !lost || !matches!(npc.state, NpcState::Combat | NpcState::Alert) {
             return None;
@@ -517,6 +527,8 @@ impl Zombie {
                 TaskStatus::Complete
             }
             "TASK_FASTZOMBIE_VERIFY_ATTACK" => TaskStatus::Failed,
+            "TASK_FASTZOMBIE_LAND_WAIT" if ctx.airborne => TaskStatus::Running,
+            "TASK_FASTZOMBIE_LAND_WAIT" => TaskStatus::Complete,
             // Backwards off the pipe (the activity is still the climb's at this point).
             "TASK_FASTZOMBIE_UNSTICK_JUMP" if self.fast.climbing => {
                 self.fast.just_jumped = true;
@@ -592,6 +604,8 @@ impl Zombie {
         // The leap leaves the ground after this think's requests: give it a moment.
         let landed = !ctx.airborne && ctx.now >= self.fast.leap_time + 0.15;
         match task {
+            "TASK_FASTZOMBIE_LAND_WAIT" if ctx.airborne => Some(TaskStatus::Running),
+            "TASK_FASTZOMBIE_LAND_WAIT" => Some(TaskStatus::Complete),
             "TASK_FASTZOMBIE_UNSTICK_JUMP" => Some(if landed {
                 TaskStatus::Complete
             } else {
@@ -700,6 +714,31 @@ mod tests {
         let far = leap_velocity(Vec3::ZERO, Vec3::new(2000., 0., 0.), g);
         assert!((far.length() - LEAP_SPEED_CLAMP).abs() < 1e-2);
     }
+    #[test]
+    fn a_falling_fast_zombie_waits_for_the_ground_before_it_plans() {
+        let mut z = Zombie::new(super::super::Kind::Fast, false, 1);
+        let mut npc = AiNpc::new(1);
+        npc.state = NpcState::Combat;
+        let mut ctx = Context {
+            airborne: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            z.fast_select(&mut npc, &ctx).as_deref(),
+            Some("SCHED_FASTZOMBIE_LAND_WAIT")
+        );
+        assert!(matches!(
+            z.fast_run_task("TASK_FASTZOMBIE_LAND_WAIT", &ctx),
+            Some(TaskStatus::Running)
+        ));
+        ctx.airborne = false;
+        assert!(matches!(
+            z.fast_run_task("TASK_FASTZOMBIE_LAND_WAIT", &ctx),
+            Some(TaskStatus::Complete)
+        ));
+        assert_eq!(z.fast_select(&mut npc, &ctx), None);
+    }
+
     #[test]
     fn fast_zombie_moan_pitch_climbs_as_the_enemy_closes() {
         let mut factor = 1.;
