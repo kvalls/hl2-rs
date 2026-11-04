@@ -11,7 +11,11 @@ use rapier3d::prelude::RigidBodyHandle;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod death;
 mod friction;
+#[cfg(test)]
+use death::physics_bone;
+use death::{body_poses, corpse_takes_frame, force_body};
 use friction::AnimatedFriction;
 
 /// g_ragdoll_maxcount (client): older ragdolls are removed beyond this count.
@@ -260,15 +264,7 @@ impl Ragdolls {
             state.rotation,
             state.origin,
         );
-        let poses: Vec<(Vec3, Quat)> = model
-            .bodies
-            .iter()
-            .map(|b| {
-                let (_, rotation, translation) =
-                    (entity * matrices[b.bone]).to_scale_rotation_translation();
-                (translation, rotation.normalize())
-            })
-            .collect();
+        let poses = body_poses(model, entity, &matrices);
         // Root velocity over the last tick (a teleport or respawn is not motion).
         let velocity = self
             .last_origins
@@ -285,26 +281,10 @@ impl Ragdolls {
         }
         let death = scene.npc_death_forces.remove(&source);
         let hit_bone = scene.npc_force_bones.remove(&source);
+        let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
         if let Some((force, position)) = death {
-            // m_nForceBone = the trace's physicsbone: the solid that simulates the hit
-            // hitbox's bone (its own, else its nearest ancestor's). Without a hitbox, the
-            // solid nearest the force point, else the root.
-            let nearest = position.map_or(0, |position| {
-                poses
-                    .iter()
-                    .enumerate()
-                    .min_by(|a, b| {
-                        a.1 .0
-                            .distance_squared(position)
-                            .total_cmp(&b.1 .0.distance_squared(position))
-                    })
-                    .map_or(0, |(i, _)| i)
-            });
-            let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
             let solids: Vec<_> = model.bodies.iter().map(|b| b.bone).collect();
-            let force_body = hit_bone
-                .and_then(|bone| physics_bone(&parents, &solids, bone))
-                .unwrap_or(nearest);
+            let (force_body, nearest) = force_body(&poses, position, hit_bone, &parents, &solids);
             self.last_force_body = Some([force_body, nearest]);
             physics.ragdoll_nudge(&bodies, force_body, force);
         }
@@ -327,16 +307,9 @@ impl Ragdolls {
             }
             self.death_poses += 1;
         }
-        let parents: Vec<_> = rig.bones.iter().map(|b| b.parent).collect();
         let locals = local_matrices(&parents, &matrices, |i| matrices[i]);
         if source != id {
-            // The drawing entity takes the corpse's frame; it is done like a corpse.
-            let (origin, rotation) = (scene.states[source].origin, scene.states[source].rotation);
-            let state = &mut scene.states[id];
-            state.origin = origin;
-            state.rotation = rotation;
-            state.killed = true;
-            state.visible = false;
+            corpse_takes_frame(scene, source, id);
         }
         let ragdoll = Ragdoll::fresh(
             model,
@@ -971,13 +944,6 @@ fn angle_override(
         overridden += 1;
     }
     overridden
-}
-
-/// A studio bone's physicsbone: the index of the ragdoll solid that simulates it (the
-/// bone's own solid, else its nearest ancestor's).
-fn physics_bone(parents: &[Option<usize>], solids: &[usize], bone: usize) -> Option<usize> {
-    std::iter::successors(Some(bone), |b| parents.get(*b).copied().flatten())
-        .find_map(|b| solids.iter().position(|&solid| solid == b))
 }
 
 #[cfg(test)]
