@@ -12,7 +12,7 @@
 
 **Rejected on the way:** the first fix tested for NPCs through the transient list and missed pair-far (AI moves pass none). A low ceiling did not explain the mid-air zombies: the trace named the other zombie, and pair-cop's fall records showed each landing on the other.
 
-**Still broken or not tested:** the owner's failed leap near a metrocop is not reproduced. The leap's view cone for NPC enemies differs from the SDK (retail unverified). STEP_ON_INVALID_GROUND is missing. A console ent_create can leave an NPC inside the map. The F4 changes were not exercised in a packaged run.
+**Still broken or not tested:** the owner's failed leap near a metrocop is not reproduced after three fixtures (cop-close, cop-legs, cop-ahead: no zombie leapt at a cop); it may have been this freeze. The leap's view cone for NPC enemies differs from the SDK (retail unverified). STEP_ON_INVALID_GROUND is missing. A console ent_create can leave an NPC inside the map. The F4 changes were not exercised in a packaged run.
 
 **Next:** owner retest of the F4 panel and of fast zombies; a metrocop leap fixture; then session 44's list.
 
