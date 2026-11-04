@@ -1,5 +1,6 @@
+use super::super::graph::{route_feet, search};
 use super::super::tests::{cube, key, make_controller, pose, request, world};
-use super::super::{graph::search, GoalState, NavRestrictions};
+use super::super::{GoalState, NavRestrictions};
 use super::*;
 use crate::physics::Physics;
 use modkit_core::{animation::MovementRecord, World};
@@ -106,6 +107,25 @@ fn gap_world(height: f32) -> World {
         Vec3::new(-8., -1000., 0.),
         Vec3::new(8., 1000., height),
     )])
+}
+
+#[test]
+fn a_hull_stands_off_a_climb_node_by_its_dismount_side() {
+    // Yaw 90 faces +y; the human hull shifts 13 + 8 units.
+    let at = |info| node(Vec3::new(100., 200., 50.), 4, info);
+    let map = graph(vec![at(2), at(4), at(8), at(16)], vec![]);
+    let feet = |n| {
+        let restrictions = NavRestrictions::default();
+        route_feet(&map, n, &restrictions, HullType::Human, true).unwrap()
+    };
+    let near = |a: Vec3, x: f32, y: f32| (a - Vec3::new(x, y, 50.)).length() < 0.01;
+    assert!(near(feet(0), 100., 179.), "on the ladder: {:?}", feet(0));
+    assert!(near(feet(1), 100., 221.), "off forward: {:?}", feet(1));
+    assert!(near(feet(2), 58., 179.), "off left: {:?}", feet(2));
+    assert!(near(feet(3), 142., 179.), "off right: {:?}", feet(3));
+    // Not for movers that do not climb.
+    let restrictions = NavRestrictions::default();
+    assert!(route_feet(&map, 0, &restrictions, HullType::Human, false).is_none());
 }
 
 #[test]

@@ -4,13 +4,18 @@ use super::{Actor, Goal, GoalBlockReason, NavRestrictions, PathStats, Route, STA
 use crate::ai_hull::HullType;
 use crate::npc_probe::{self, Hull, NpcCollisionWorld, Query};
 use glam::Vec3;
-use source_assets::navigation::Graph;
+use source_assets::navigation::{Graph, Node};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Usable node feet and each node's usable neighbors.
 /// NODE_GROUND and NODE_CLIMB (ai_node.h).
 const NODE_GROUND: u8 = 2;
 const NODE_CLIMB: u8 = 4;
+/// NODE_CLIMB_OFFSET and the climb node info bits (ai_node.h).
+const NODE_CLIMB_OFFSET: f32 = 8.;
+const CLIMB_OFF_FORWARD: u16 = 1 << 2;
+const CLIMB_OFF_LEFT: u16 = 1 << 3;
+const CLIMB_OFF_RIGHT: u16 = 1 << 4;
 pub(super) type UsableGraph = (Vec<Option<Vec3>>, Vec<Vec<usize>>);
 /// NearestNodeToPoint over the usable nodes.
 pub(super) fn nearest_usable(positions: &[Option<Vec3>], point: Vec3) -> Option<usize> {
@@ -36,7 +41,7 @@ pub(super) fn node_feet(
     route_feet(graph, node, restrictions, hull, false)
 }
 /// `node_feet`, with a ladder's climb nodes (their info holds the climb bits) for climbers.
-fn route_feet(
+pub(super) fn route_feet(
     graph: &Graph,
     node: usize,
     restrictions: &NavRestrictions,
@@ -49,8 +54,34 @@ fn route_feet(
     if !(ground || climb) || restrictions.unusable_nodes.contains(&node) {
         return None;
     }
-    let feet = value.origin + Vec3::Z * *value.hull_z_offsets.get(hull.index())?;
+    let origin = if climb {
+        climb_origin(value, hull)
+    } else {
+        value.origin
+    };
+    let feet = origin + Vec3::Z * *value.hull_z_offsets.get(hull.index())?;
     feet.is_finite().then_some(feet)
+}
+/// Where a hull stands at a climb node: the node marks the ladder, so the hull stands back
+/// from it along the node's yaw by half its length and NODE_CLIMB_OFFSET, ahead of it for a
+/// forward dismount and two shifts to the side for a left or right one.
+fn climb_origin(node: &Node, hull: HullType) -> Vec3 {
+    let bounds = hull.bounds();
+    let shift = 0.5 * (bounds.maxs.x - bounds.mins.x) + NODE_CLIMB_OFFSET;
+    let yaw = node.yaw.to_radians();
+    let forward = Vec3::new(yaw.cos(), yaw.sin(), 0.);
+    let side = forward.cross(Vec3::Z);
+    node.origin
+        + shift
+            * if node.info & CLIMB_OFF_FORWARD != 0 {
+                forward
+            } else if node.info & CLIMB_OFF_LEFT != 0 {
+                -2. * side - forward
+            } else if node.info & CLIMB_OFF_RIGHT != 0 {
+                2. * side - forward
+            } else {
+                -forward
+            }
 }
 /// The link's accepted move types for the hull include bits_CAP_MOVE_GROUND.
 pub(super) fn ground_link(link: &source_assets::navigation::Link, hull: HullType) -> bool {
