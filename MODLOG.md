@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-04 research checkpoint JA–JD
+
+**Agent/model** Codex desktop, GPT-6 family. The exact identifier was unavailable. Two same-family subagents authored the static getter path and object-prefix audits.
+
+**Changed and why** Used the previously fixture-admitted observer for one guarded retail capture. Independently checked the current count and raw stack span, normalized the object prefix against static candidates, and mapped the earlier getter and a later conditional pose load to prepare a history witness.
+
+**Tested and result** Windows debugger and retail game exited 0 after 32 stops. All 32 live counts are virtual-route 11. The loaded 33-byte caller windows matched the pinned PE. Independent replay matched all 32 records. The launch verifier passed 49 fixture samples and 15 transcript controls. Both rejected preflight parser drafts remain recorded. The static getter audit covers 13 windows and 10 immutable bodies, with 62 static and 27 transcript corruption controls. The object-prefix audit passes 246 rebased candidate checks, 20 corruptions and eight coherent unknowns.
+
+**Still open** Earlier dispatch and copy history, live vtable-slot and RTTI bytes, entity lifetime and actor association, actual downstream axis load, cache, final pose and campaign completion. Rust build, tests and parity **not tested**. macOS and Linux **not tested** for this investigation.
+
+**Next** Fixture-admit a single-site dispatch anchor and per-thread instruction trace with exact call, return, count, destination store and flag ownership checks.
+
 ## 2026-11-04 session 44: fast zombie jumps and climbs; session 43's refactors checked packaged (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

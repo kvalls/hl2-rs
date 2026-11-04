@@ -1,5 +1,11 @@
 # STATUS
 
+## Retail caller context and current poseparameter count (2026-11-04 JA–JD)
+
+One guarded Windows retail startup admitted 32 initializer return stops. Debugger 50388 and game 50640 exited 0. The 448 nested reads, 128 count reads and 128 parent sidecar reads bind the live caller window, frame, accumulator context, raw pose span and object fields to the same stopped thread and module generation. The loaded `gman_high.mdl` header reports 70 bones, one local poseparameter and three direct includes. The active virtual route reports 11 in every stop. All 15,659 selected current output words match the loaded defaults. The screenshot shows the title card and the startup Fontconfig error is retained.
+
+The independent replay finds 31 distinct first-11-word tuples and 22 distinct trailing-13-word tuples. Static relocation and RTTI evidence matches the stopped object prefix to a `C_AI_BaseNPC` candidate with subobject offsets 0, 4 and 8. The earlier dispatch, count and copy history, loaded RTTI, entity handle and actor, later pose consumers, cache, final pose, first-map completion and Rust parity remain unproven. The next bounded step is an authored trace of the earlier getter at the authenticated callsite.
+
 ## Current-count observer integration (2026-11-03 HH)
 
 HH completes the authored integration after the frozen HF35-root cutoff. Cap1/12/36 debugger26872/54416/29420 andhosts50100/51096/54980 exit0:49samples/196count reads/686nested reads/196parent-side reads/588model reads/49caller-FP pairs;23new identity/model-wrapper/phase controls pass. Full36 covers local1/virtual2/virtual24 counts. Independent review confirms the same stopped identity andmodel-prefix joins. HH is sealed separately; HF's earlier inventory remains unchanged. No further native attempt. Next prepare a new nested/current-count native root only after a fresh ownership guard clears; current count still does not prove earlier getter consumption. Actor/cache/final-pose/campaign/Rust parity remain open, with no Rust action.

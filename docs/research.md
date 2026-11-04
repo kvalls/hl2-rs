@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Current poseparameter state and earlier getter boundary (2026-11-04)
+
+JA's 32 guarded Windows startup samples observe the same active virtual-model count of 11 at the initializer return. The current loaded header for `gman_high.mdl` has one local poseparameter and three direct includes. JB independently recovers both count words, the wrapper prefix, frame, context and full 96-byte stack span from the stopped reads. The first 11 words have 352 positive-normal float32 encodings and 31 distinct tuples. The trailing 13 words have 22 distinct raw tuples, including encodings that would represent subnormals or signed zeros under float32 interpretation. The later count labels a measured span. It cannot establish the earlier getter's writes or which words downstream code used.
+
+JD normalizes the three raw object prefix words against the same client generation. The primary word maps to client RVA `0x37119c`, a unique exact static `C_AI_BaseNPC` candidate. All three static locators share the type and hierarchy and give offsets 0, 4 and 8. The primary table's static slot at `0x371410` names the candidate getter. The loaded slot, RTTI and earlier dynamic dispatch were outside the recorded ranges. An object address and a static type candidate supply no entity handle, lifetime or named actor.
+
+JC binds the earlier indirect call at preferred address `0x100a9bdb`, its return at `0x100a9be1` and the candidate `0x100a46d0`. The first signed count is returned at `0x100a46e8`. The loop reloads it at `0x100a4705` after each x87 store. The bounded later base path may remap an axis and load one float32 word at `0x1009a9dc`. The no-index branch skips that load. These are exact static paths with authored shape controls. The dynamic earlier copy, any live axis load, full pose and actor/frame association remain open.
+
 ## Current-count observer integrated (2026-11-03 HH)
 
 The current-count reader is now admitted inside the authored nested observer with shared stopped identity andindependent model-prefix agreement.49samples cover full/partial caps, current local/virtual count routes andunchanged caller FP. This closes the integration prerequisite only. Actual native nested/current count, earlier getter consumption, loaded vptr/dispatch, actor/entity/cache ownership andcomplete pose/campaign/Rust parity remain unobserved. No further native attempt follows the owner-game deferral in this window.

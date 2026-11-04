@@ -1,5 +1,11 @@
 # Design
 
+## Earlier getter history witness (2026-11-04)
+
+The later initializer return yields a stable current count of 11 on the virtual route in the captured startup. Establish the earlier writer separately. Start with an authored x86 caller that reproduces the retail call and stack geometry. Use one hardware breakpoint at the indirect call and request per-thread instruction stepping after validating the active event. Bind the executed target to the slot read, actual call return, outer frame, object, wrapper, thread lifetime and module generation. Preserve the original flag contract and retire the observer state on bounded or alternate paths.
+
+At the candidate getter, witness each signed count return and the raw input before FLD and immediate output after FSTP. Keep the actual getter's dynamic count checks. Treat 24 words as an observer budget. If a 25th store is pending, leave the loop intact and classify the history as incomplete. Require a fixture with local and virtual count routes, alternate dispatch, signed exits, and a budget path before considering further retail use. Independently verify the sequence, stack, context, FP preservation and cleanup. Any later indexed load requires its own same-activation chain and no intervening writes may be inferred from equal endpoints.
+
 ## Current-count integration disposition (2026-11-03 HH)
 
 HH admits the integration described below through authored full/partial-cap andFP controls. Count identity uses the same active stopped event/lifetime/generation andnested sidecar, with both wrapper words joined to each independent current model-wrapper read. The remaining bounded action is a fresh-root native observation after ownership clears, preserving current-count versus earlier-getter history andstatic type-candidate versus entity identity. HF's earlier cutoff stays frozen; HH has a separate seal.

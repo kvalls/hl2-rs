@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Native nested and current-count evidence (2026-11-04)
+
+One Windows retail attempt admitted 32 stopped records after fresh process and cursor checks. Both owned processes exited 0. Two module generations, exact loaded code and path, active exception and thread lifetime, cap retirement and selected settings/source pins passed. At the cap, 43 members resolve to one self-disarm, 10 observed exits and 32 generation retirements. The 57 retirement-context comparisons pass. No drain stop was needed. The current FP observations all show x87 control word `0x027f`, status `0x4037`, empty tag and MXCSR `0x1fbf` at the return site.
+
+The count journal passed exact event-phase and independent model-prefix joins. An independent raw replay checked all 32 samples, rejected five altered records and admitted a symmetric trailing NaN diagnostic. Two preflight attempts initially failed because raw Windows line endings reached an older exact-line parser. Universal-newline input and the bounded replay now pass. The title-card screenshot supports startup context only. The native stderr contains the startup Fontconfig error. Campaign completion and Rust parity **not tested**.
+
 ## Integrated current-count observer (2026-11-03 HH)
 
 Caps1/12/36:debugger26872/54416/29420 andhosts50100/51096/54980 exit0.49samples/196count reads/686nested reads/196parent-side reads/588model reads/49caller-FP pairs and23new controls pass. Full36 covers local1/virtual2/virtual24 routes. Same stopped identity, model-wrapper prefix, code/file/path/two-generation/cap/cleanup checks pass. Independent review finds no material issue. HH is checked separately from the frozen HF35-root inventory. Native nested/current count/getter history andRust parity **not tested**; no additional native launch orgameplay rebuild.
