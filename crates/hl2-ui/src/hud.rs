@@ -6,9 +6,11 @@ mod crosshair;
 mod font;
 mod power;
 mod quick_info;
+mod rules;
 mod vitals;
 use font::HudFont;
 use quick_info::QuickInfoHud;
+use rules::{animations, event_rules};
 
 use anyhow::{Context, Result};
 use glam::{vec2, Vec2};
@@ -224,63 +226,6 @@ fn poison_lines(loc: &crate::gameui::localize::Localization) -> Vec<String> {
         .map_or_else(Vec::new, |value| {
             value.split('\n').map(str::to_owned).collect()
         })
-}
-fn animations(source: &str) -> Result<Vec<Animate>> {
-    let mut result = Vec::new();
-    for (event, tokens) in animation_lines(source)? {
-        if tokens.first().map(String::as_str) == Some("Animate") && tokens.len() >= 7 {
-            let Some(interpolation) = Interpolation::read(&tokens[4]) else {
-                // Pulse/Bias/Gain/Flicker take additional parameters and are not this subset.
-                continue;
-            };
-            let (Ok(delay), Ok(duration)) = (tokens[5].parse::<f64>(), tokens[6].parse::<f64>())
-            else {
-                continue;
-            };
-            if !delay.is_finite() || !duration.is_finite() || delay < 0. || duration < 0. {
-                continue;
-            }
-            result.push(Animate {
-                event,
-                panel: tokens[1].clone(),
-                property: tokens[2].clone(),
-                target: tokens[3].clone(),
-                delay,
-                duration,
-                interpolation,
-            });
-        }
-    }
-    Ok(result)
-}
-fn event_rules(source: &str) -> Result<Vec<EventRule>> {
-    Ok(animation_lines(source)?
-        .into_iter()
-        .filter_map(|(event, tokens)| {
-            if !matches!(
-                tokens.first().map(String::as_str),
-                Some("StopEvent" | "RunEvent" | "StopPanelAnimations" | "StopAnimation")
-            ) || tokens.len() < 3
-            {
-                return None;
-            }
-            let property = (tokens[0] == "StopAnimation")
-                .then(|| tokens.get(2).cloned())
-                .flatten();
-            let delay = tokens
-                .get(if property.is_some() { 3 } else { 2 })?
-                .parse::<f64>()
-                .ok()?;
-            (delay.is_finite() && delay >= 0.).then(|| EventRule {
-                event,
-                target: tokens[1].clone(),
-                delay,
-                run: tokens[0] == "RunEvent",
-                panel: tokens[0] == "StopPanelAnimations",
-                property,
-            })
-        })
-        .collect())
 }
 fn animation<'a>(
     rules: &'a [Animate],
