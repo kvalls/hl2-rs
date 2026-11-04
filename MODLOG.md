@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-04 session 44: fast zombie jumps and climbs; session 43's refactors checked packaged (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed / Why:** Session plan: validate session 43's unit-tested refactors, then npc_fastzombie step 2. fcef36a adds npc/links.rs (MoveCaps, link choice and costs, the jump arc search, the climb state machine), moves the search and door probes to npc/graph.rs and the AI activity lists to models/ai_activities.rs, and adds ai/runtime/navlinks.rs (launches into the shared step fall, landings, ClimbTouch, the moan). 023b17c adds CAI_Node::GetPosition's climb node shift, which was the real reason walks to a ladder failed. Then architecture debt: step_falls, spawn_as, split_zombies, release_crab.
+
+**Tested how / Result:** hl2-simulation 498 unit tests, source-assets 115, strict Clippy, fmt; hl2-bevy 160 of 162 under --release (the other two rest on debug assertions and pass in a debug build). Packaged regression on 1c64581 and on 023b17c: 26/26, 17/17, 26/26. Replays on 1c64581: 70 of 72 (two flaky, STATUS session 44). Packaged d1_town_02 fixtures artifacts/s44 fz-ladder and fz-drop: DESIGN 14o session 44 result. Frame time: no render pass added; the controller adds one pass over the active goals per tick (no allocation while nothing climbs or jumps); not measured separately.
+
+**Still broken or not tested:** native A/B of steps 1 and 2; ClimbTouch, the climbing unstick jump, climbing down and a mid-climb cancel packaged; the gameplay/zombies.rs split packaged; the cause of pallet-launched-into-wall's flakiness. The architecture check still fails (35 entries).
+
+**Next:** native A/B of the fast zombie, then the rest of the architecture list.
+
 ## 2026-11-03: integrated current-count observer (Codex desktop, GPT-6 family)
 
 - Agent/model: Codex desktop, GPT-6 family; exact identifier unavailable. Same-family subagent independently reviewed identity/phase/model-wrapper joins.
