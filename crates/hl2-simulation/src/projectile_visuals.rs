@@ -810,15 +810,11 @@ impl ProjectileVisuals {
                         128. / 255. * fade,
                     );
                 }
-                EffectKind::Sparks => {
-                    if self.sparks_seen.insert(effect.id) {
-                        self.spawn_sparks(position, time);
-                    }
+                EffectKind::Sparks if self.sparks_seen.insert(effect.id) => {
+                    self.spawn_sparks(position, time);
                 }
                 // Particles only (explosion_particles.rs).
-                EffectKind::GrenadeExplosion
-                | EffectKind::BallExplosion
-                | EffectKind::SporeExplosion => (),
+                _ => (),
             }
             self.effect_frames += 1;
         }

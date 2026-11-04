@@ -371,6 +371,8 @@ pub struct Scene {
     pub entity_damage: Vec<crate::projectiles::Damage>,
     /// Burning props (CEntityFlame).
     pub fires: crate::fire::Fires,
+    /// This tick's bullet impact effects, for the projectile effect list.
+    pub impact_effects: Vec<crate::projectiles::Effect>,
     /// Player-thrown or launched props that hit an NPC this tick (prop, NPC):
     /// g_interactionHitByPlayerThrownPhysObj for the AI.
     pub thrown_hits: Vec<(usize, usize)>,
@@ -660,6 +662,7 @@ impl Scene {
             globals: crate::globals::Globals::spawn(world),
             entity_damage: Vec::new(),
             fires: Default::default(),
+            impact_effects: Vec::new(),
             prop_breaks: Vec::new(),
             prop_explosions: Vec::new(),
             prop_ignitions: Vec::new(),

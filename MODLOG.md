@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-04 session 45c: map zombies and headcrabs set up, bullet impact effects, faster replays (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** source_assets::npc_models holds the one table of class models; map entities take it for the classes with AI, so placed zombies and headcrabs get model instances and movers. Bullet impacts: EffectKind Flecks, WoodFlecks, Dust, MetalSpark, emitted by explosion_particles/bullet.rs; Effect and EffectKind moved to projectiles/effects.rs.
+
+**Why:** a campaign fixture of d1_town_03's fast zombie pair failed every move with MissingActor; the impacts are the owner's request of 2026-10-29.
+
+**Tested how / Result:** see STATUS "Current session 45". d1_town_03 instances 377 to 394, MissingActor gone, zombies move and are drawn. Final build: s45d-regression 26/26, 17/17, 26/26; replays 72 of 72 in 486 s with JOBS=4; 1390 unit tests, strict Clippy, architecture exit 0. Frame time **not measured**: impacts cost only on a hit, bounded by MAX_PARTICLES; each map loads the zombie and headcrab models it places.
+
+**Rejected on the way:** blaming a low ceiling; a missing rig or registration error for the zombies (no warning existed: they never reached registration).
+
+**Still broken or not tested:** ordinary play through Ravenholm with live map zombies; metal sparks and dirt dust packaged; impacts against native.
+
+**Next:** owner retest, above all Ravenholm; the remaining leftovers.
+
 ## 2026-11-04 session 45b: architecture check to 0, invalid ground, leap view cone, burning corpses (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

@@ -133,6 +133,57 @@ pub struct Impacts {
     /// World decal -> its `$modelmaterial` (drawn on models instead).
     model_materials: HashMap<String, String>,
 }
+/// The display brightness of the baked light at `point` (1 on a map without light data): the
+/// lighting half of GetColorForSurface.
+fn surface_light(world: &World, point: GVec3) -> f32 {
+    let Some(lighting) = world.lighting.as_ref() else {
+        return 1.;
+    };
+    let Some(leaf) = lighting.leaf_at(point) else {
+        return 1.;
+    };
+    let cube = lighting.leaf_ambient(leaf, point);
+    let mean = cube.iter().copied().sum::<GVec3>() / 6.;
+    mean.max_element().max(0.).powf(1. / 2.2).clamp(0.05, 1.)
+}
+
+/// PerformCustomEffects' effect for a surface's game material, if it has one here (`magnitude`
+/// carries the light at the hit). Computer sparks and the antlion's impact are not modeled.
+fn impact_effect(
+    material: &str,
+    hit: &RayHit,
+    direction: GVec3,
+    (at, light): (f64, f32),
+) -> Option<crate::projectiles::Effect> {
+    use crate::projectiles::EffectKind::{Dust, Flecks, MetalSpark, WoodFlecks};
+    let kind = match material {
+        "C" | "T" => Flecks,
+        "W" => WoodFlecks,
+        "D" | "N" => Dust,
+        "M" | "V" => MetalSpark,
+        _ => return None,
+    };
+    let reflect = direction - hit.normal * direction.dot(hit.normal) * 2.;
+    Some(crate::projectiles::Effect {
+        id: 0,
+        magnitude: light,
+        kind,
+        position: hit.position
+            + if kind == MetalSpark {
+                hit.normal
+            } else {
+                GVec3::ZERO
+            },
+        normal: if kind == MetalSpark {
+            reflect
+        } else {
+            hit.normal
+        },
+        at,
+        radius: 0.,
+    })
+}
+
 impl Impacts {
     pub fn new(vfs: &Vfs, world: &World) -> Self {
         let mut properties = BTreeMap::new();
@@ -568,11 +619,16 @@ impl Impacts {
                 ..sound.into()
             });
         }
-        let family = match self
-            .property(&prop, "gamematerial")
-            .as_deref()
-            .unwrap_or("C")
-        {
+        let game_material = self.property(&prop, "gamematerial");
+        let game_material = game_material.as_deref().unwrap_or("C");
+        let at = (
+            scene.time,
+            surface_light(world, hit.position + hit.normal * 2.),
+        );
+        scene
+            .impact_effects
+            .extend(direction.and_then(|d| impact_effect(game_material, &hit, d, at)));
+        let family = match game_material {
             "M" | "V" | "G" => "metal",
             "W" => "wood",
             "Y" => "glass",

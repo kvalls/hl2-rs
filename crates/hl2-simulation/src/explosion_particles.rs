@@ -20,6 +20,10 @@ pub const MATERIALS: &[&str] = &[
     "sprites/lgtning",
     "effects/fleck_cement1",
     "effects/fleck_cement2",
+    "effects/fleck_wood1",
+    "effects/fleck_wood2",
+    "effects/blood",
+    "particle/particle_smokegrenade",
     "particle/fire",
 ];
 const MAX_PARTICLES: usize = 4096;
@@ -44,6 +48,8 @@ enum Motion {
     /// SporeEffect::UpdateVelocity: speed loses 64 u/s per second and the direction
     /// wanders by up to 0.5 per axis each update (seeded per particle).
     Spore(u64),
+    /// CDustParticle::UpdateVelocity: speed decays to 0.0001 in 0.5 s and stops at 32 u/s.
+    Dust,
     Trail {
         gravity: f32,
         drag: f32,
@@ -165,6 +171,16 @@ impl Particle {
                 self.velocity =
                     (self.velocity.normalize_or_zero() + wander).normalize_or_zero() * speed;
             }
+            Motion::Dust => {
+                let direction = self.velocity.normalize_or_zero();
+                let decayed = self.velocity * (0.0001_f32.ln() * dt / 0.5).exp();
+                self.velocity = if decayed.length() < 32. {
+                    direction * 32.
+                } else {
+                    decayed
+                };
+                self.position += self.velocity * dt;
+            }
             Motion::Trail {
                 gravity,
                 drag,
@@ -249,6 +265,10 @@ impl Particles {
                     }
                 }
                 EffectKind::SporeExplosion => self.spores(effect, &mut rng),
+                EffectKind::Flecks => self.debris_flecks(effect, false, &mut rng),
+                EffectKind::WoodFlecks => self.debris_flecks(effect, true, &mut rng),
+                EffectKind::Dust => self.dust_impact(effect, &mut rng),
+                EffectKind::MetalSpark => self.metal_spark(effect, &mut rng),
                 // Sprite-only (projectile_visuals) or not drawn yet.
                 EffectKind::BoltGlow | EffectKind::Sparks => {}
             }
@@ -688,6 +708,8 @@ pub fn force_direction(origin: Vec3, magnitude: f32, physics: &Physics) -> Vec3 
         direction.normalize_or_zero()
     }
 }
+
+mod bullet;
 
 #[cfg(test)]
 mod tests {

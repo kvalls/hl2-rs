@@ -158,10 +158,10 @@
   "crates/hl2-simulation/src/gameplay.rs": 2861,
   "crates/hl2-simulation/src/npc.rs": 1464,
   "crates/hl2-simulation/src/physics.rs": 3431,
-  "crates/hl2-simulation/src/projectiles.rs": 1286,
+  "crates/hl2-simulation/src/projectiles.rs": 1264,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1761,
-  "crates/source-assets/src/models.rs": 1339,
+  "crates/source-assets/src/models.rs": 1332,
   "crates/source-ui/src/widgets.rs": 2176
  },
  "functions": {
@@ -322,7 +322,7 @@
    242
   ],
   "crates/hl2-simulation/src/projectile_visuals.rs::frame": [
-   207
+   203
   ],
   "crates/hl2-simulation/src/projectiles.rs::grenade_explosion": [
    104

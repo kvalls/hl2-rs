@@ -5,6 +5,9 @@ use crate::{
     physics::{Physics, ProjectileHull},
 };
 use glam::Vec3;
+
+mod effects;
+pub use effects::{Effect, EffectKind};
 use modkit_core::World;
 use serde::Serialize;
 
@@ -143,41 +146,6 @@ impl Projectile {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub enum EffectKind {
-    GrenadeExplosion,
-    BallImpact,
-    BallExplosion,
-    /// The crossbow bolt's glow sprite, turned on where it stuck and faded over 3 s.
-    BoltGlow,
-    /// g_pEffects->Sparks where a bolt hit the world (host-drawn; not drawn yet).
-    Sparks,
-    /// The bug bait's SporeExplosion (env_sporeexplosion): emits for 5 s
-    /// (bugbait_distract_time) toward `normal`, its last particles live 2 s more.
-    SporeExplosion,
-}
-#[derive(Clone, Copy, Debug, Serialize)]
-pub struct Effect {
-    pub id: u64,
-    pub magnitude: f32,
-    pub kind: EffectKind,
-    pub position: Vec3,
-    pub normal: Vec3,
-    pub at: f64,
-    pub radius: f32,
-}
-impl Effect {
-    pub fn duration(&self) -> f64 {
-        match self.kind {
-            EffectKind::BallImpact => 4.,
-            EffectKind::GrenadeExplosion => 3.,
-            EffectKind::BallExplosion => 8.,
-            EffectKind::BoltGlow => crate::weapon_crossbow::STUCK_GLOW_TIME,
-            EffectKind::Sparks => 0.5,
-            EffectKind::SporeExplosion => f64::from(crate::weapon_bugbait::DISTRACT_TIME) + 2.,
-        }
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DamageTarget {
     Entity(usize),
@@ -249,6 +217,16 @@ pub struct Projectiles {
     next_effect_id: u64,
 }
 impl Projectiles {
+    /// Whether this tick runs; it takes the tick's bullet impact effects first.
+    fn start_tick(&mut self, scene: &mut Scene, dt: f32) -> bool {
+        let runs = dt.is_finite() && dt > 0.;
+        if runs {
+            for effect in std::mem::take(&mut scene.impact_effects) {
+                self.effect(effect);
+            }
+        }
+        runs
+    }
     fn effect(&mut self, mut effect: Effect) {
         self.next_effect_id += 1;
         effect.id = self.next_effect_id;
@@ -453,7 +431,7 @@ impl Projectiles {
         player_ducked: bool,
         dt: f32,
     ) -> Vec<Damage> {
-        if !dt.is_finite() || dt <= 0. {
+        if !self.start_tick(scene, dt) {
             return Vec::new();
         }
         self.effects
