@@ -14,6 +14,7 @@ mod io;
 mod movers;
 mod parenting;
 mod sequences;
+mod startup;
 mod triggers;
 
 /// Entity classes that move with VPhysics (MOVETYPE_VPHYSICS) for trigger touches.
@@ -888,36 +889,12 @@ impl Scene {
             .collect();
         scene.initialize_idle_activities(world);
         scene.spawn_combine_cameras(world);
-        // Metrocops without a DefaultAnim start on their (weapon-translated) idle activity,
-        // as do other weapon users given a weapon (a citizen's SMG1: ACT_IDLE_SMG1).
-        for id in 0..world.entities.len() {
-            let e = &world.entities[id];
-            if e.get("DefaultAnim").is_some() || !crate::npc_weapons::uses_weapons(e.class()) {
-                continue;
-            }
-            let weapon = e.get("additionalequipment").unwrap_or("");
-            if e.class() == "npc_metropolice" || !matches!(weapon.trim(), "" | "0") {
-                scene.animate_activity_if_present(world, id, weapon_idle_activity(weapon));
-            }
-        }
+        scene.start_weapon_idles(world);
         scene.hold_template_children(world);
         // MapEntity_ParseAllEntities removes SF_NPC_TEMPLATE NPCs (npc_template_maker).
         scene.makers = crate::npc_makers::NpcMakers::new(world, &mut scene.states);
         scene.setup_spawn_parents(world);
-        // CTimerEntity::Spawn -> Enable -> ResetTimer: random timers draw their first delay.
-        for (id, e) in world.entities.iter().enumerate() {
-            if e.class() == "logic_timer" && number(e, "UseRandomTime", 0.) != 0. {
-                scene.states[id].timer_at = scene.time + scene.timer_interval(e);
-            }
-        }
-        for id in 0..world.entities.len() {
-            if world.entities[id].class() == "logic_auto" {
-                scene.fire(id, "OnMapSpawn", usize::MAX);
-                if new_game {
-                    scene.fire(id, "OnNewGame", usize::MAX);
-                }
-            }
-        }
+        scene.start_logic(world, new_game);
         scene
     }
     /// CPointTemplate removes its Template01..16 entities at map spawn unless spawnflag 1
