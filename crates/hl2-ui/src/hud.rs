@@ -1136,35 +1136,8 @@ impl WeaponHud {
             MutexCell::new(NumericHudEffects::new(&settings).with_poison_text(poison_text));
         let (ammo_icons, secondary_ammo_icons, weapon_crosshairs) =
             commentary::load_weapon_icons(vfs)?;
-        let hud_textures = keyvalues::parse_resource(
-            &vfs.read("scripts/hud_textures.txt")?
-                .context("HUD textures missing")?,
-        )?;
-        let default_icon = hud_textures
-            .first()
-            .and_then(|root| root.get("TextureData"))
-            .and_then(|textures| textures.get("crosshair_default"))
-            .context("Default crosshair resource missing")?;
-        let default_file = default_icon
-            .get("file")
-            .and_then(Entry::text)
-            .context("Default crosshair material missing")?;
-        let default_crosshair = texture(vfs, default_file)?;
-        let default_base = vfs
-            .base_texture(default_file)?
-            .context("Default crosshair base texture missing")?;
-        let default_vtf = vfs
-            .read(&format!(
-                "materials/{}.vtf",
-                default_base
-                    .trim_start_matches("materials/")
-                    .trim_end_matches(".vtf")
-            ))?
-            .context("Default crosshair VTF missing")?;
-        default_crosshair.set_filter(sprite_filter(&default_vtf)?);
-        let default_crosshair_additive = vfs
-            .material_value(default_file, "$additive")?
-            .is_some_and(|value| value.parse::<i32>().is_ok_and(|value| value != 0));
+        let (default_crosshair, default_crosshair_rect, default_crosshair_additive) =
+            crosshair::load_default(vfs)?;
         let mut crosshair_color = color(
             scheme.get("Colors").unwrap_or(&settings),
             "Normal",
@@ -1242,12 +1215,7 @@ impl WeaponHud {
             secondary_ammo_icons,
             weapon_crosshairs,
             default_crosshair,
-            default_crosshair_rect: Rect::new(
-                number(default_icon, "x", 0.),
-                number(default_icon, "y", 48.),
-                number(default_icon, "width", 24.),
-                number(default_icon, "height", 24.),
-            ),
+            default_crosshair_rect,
             default_crosshair_additive,
             crosshair_color,
             quick_info,
