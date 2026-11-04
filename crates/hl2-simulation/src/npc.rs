@@ -1247,22 +1247,11 @@ impl Controller {
                 moved
             })();
             if let Err(reason) = outcome {
-                // MarkCurWaypointFailedLink: a move blocked on a graph link (not by a
-                // door, an NPC or the player, which hold and retry) marks the link stale.
-                if let GoalBlockReason::Collision { blocker, .. } = &reason {
-                    let actor_block = blocker.is_some_and(|b| {
-                        self.doors.contains(&b) || transients.iter().any(|t| t.entity == Some(b))
-                    });
-                    let first_block = !matches!(goal.state, GoalState::Blocked(_));
-                    if !actor_block && first_block {
-                        if let Some(link) = self
-                            .graph
-                            .as_ref()
-                            .and_then(|g| route_link(g, &goal.route, goal.next))
-                        {
-                            self.stale.insert(link, self.clock + STALE_LINK_TIME);
-                        }
-                    }
+                let actor_block = |b: usize| {
+                    self.doors.contains(&b) || transients.iter().any(|t| t.entity == Some(b))
+                };
+                if let Some(link) = failed_link(self.graph.as_ref(), goal, &reason, actor_block) {
+                    self.stale.insert(link, self.clock + STALE_LINK_TIME);
                 }
                 goal.state = GoalState::Blocked(reason);
             }
@@ -1280,6 +1269,22 @@ impl Controller {
         }
         updates
     }
+}
+/// MarkCurWaypointFailedLink: a move first blocked on a graph link marks the link stale, unless
+/// a door, an NPC or the player blocks it (those hold and retry).
+fn failed_link(
+    graph: Option<&Graph>,
+    goal: &Goal,
+    reason: &GoalBlockReason,
+    actor_block: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    let GoalBlockReason::Collision { blocker, .. } = reason else {
+        return None;
+    };
+    if blocker.is_some_and(actor_block) || matches!(goal.state, GoalState::Blocked(_)) {
+        return None;
+    }
+    route_link(graph?, &goal.route, goal.next)
 }
 /// The distance that counts as arrived: half the hull's width, or the request's own.
 fn goal_tolerance(actor: &Actor, request: &MoveRequest) -> f32 {

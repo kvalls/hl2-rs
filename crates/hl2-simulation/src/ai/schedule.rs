@@ -1081,20 +1081,8 @@ impl AiNpc {
         use TaskStatus::*;
         match task {
             // FL_ONGROUND.
-            "TASK_FALL_TO_GROUND" => {
-                if !ctx.airborne || ctx.now >= self.wait_until {
-                    Complete
-                } else {
-                    Running
-                }
-            }
-            "TASK_WAIT" | "TASK_WAIT_RANDOM" => {
-                if ctx.now >= self.wait_until {
-                    Complete
-                } else {
-                    Running
-                }
-            }
+            "TASK_FALL_TO_GROUND" => done_if(!ctx.airborne || ctx.now >= self.wait_until),
+            "TASK_WAIT" | "TASK_WAIT_RANDOM" => done_if(ctx.now >= self.wait_until),
             "TASK_RUN_PATH_TIMED" => {
                 if ctx.now >= self.wait_until
                     || matches!(motor.movement(), MoveStatus::Idle | MoveStatus::Arrived)
@@ -1108,11 +1096,7 @@ impl AiNpc {
                 if let Some((_, p)) = ctx.enemy {
                     motor.face(Goal::Position(p));
                 }
-                if ctx.now >= self.wait_until {
-                    Complete
-                } else {
-                    Running
-                }
+                done_if(ctx.now >= self.wait_until)
             }
             "TASK_WAIT_INDEFINITE" => Running,
             "TASK_STOP_MOVING" => {
@@ -1145,11 +1129,7 @@ impl AiNpc {
             }
             "TASK_TURN_LEFT" | "TASK_TURN_RIGHT" => {
                 let sign = if task == "TASK_TURN_LEFT" { 1. } else { -1. };
-                if motor.face(Goal::Yaw(sign * arg.number())) {
-                    Complete
-                } else {
-                    Running
-                }
+                done_if(motor.face(Goal::Yaw(sign * arg.number())))
             }
             "TASK_WAIT_FOR_MOVEMENT" if self.repath_to_enemy(ctx, motor) == Some(false) => Failed,
             "TASK_WAIT_FOR_MOVEMENT" => match motor.movement() {
@@ -1178,15 +1158,17 @@ impl AiNpc {
             }
             "TASK_PLAY_SEQUENCE" | "TASK_RANGE_ATTACK1" | "TASK_RANGE_ATTACK2"
             | "TASK_MELEE_ATTACK1" | "TASK_MELEE_ATTACK2" | "TASK_BIG_FLINCH"
-            | "TASK_SMALL_FLINCH" => {
-                if motor.activity_finished() {
-                    Complete
-                } else {
-                    Running
-                }
-            }
+            | "TASK_SMALL_FLINCH" => done_if(motor.activity_finished()),
             _ => Running,
         }
+    }
+}
+/// A task that waits for `finished`.
+fn done_if(finished: bool) -> TaskStatus {
+    if finished {
+        TaskStatus::Complete
+    } else {
+        TaskStatus::Running
     }
 }
 trait MaxComplete {
