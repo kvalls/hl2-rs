@@ -578,6 +578,15 @@ impl Metropolice {
         }
         schedule
     }
+    /// The baton turned on or off, unless that is what `current` already does.
+    fn baton_schedule(&self, current: &str) -> Option<&'static str> {
+        let schedule = match (self.should_activate_baton, self.baton_active) {
+            (true, false) => "SCHED_METROPOLICE_ACTIVATE_BATON",
+            (false, true) => "SCHED_METROPOLICE_DEACTIVATE_BATON",
+            _ => return None,
+        };
+        (self.has_baton && current != schedule).then_some(schedule)
+    }
     fn select_inner(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
         self.running_behavior = false;
         self.running_actbusy = false;
@@ -599,19 +608,8 @@ impl Metropolice {
             }
         }
         let current = npc.schedule.clone().unwrap_or_default();
-        if self.has_baton {
-            if self.should_activate_baton
-                && !self.baton_active
-                && current != "SCHED_METROPOLICE_ACTIVATE_BATON"
-            {
-                return "SCHED_METROPOLICE_ACTIVATE_BATON".into();
-            }
-            if !self.should_activate_baton
-                && self.baton_active
-                && current != "SCHED_METROPOLICE_DEACTIVATE_BATON"
-            {
-                return "SCHED_METROPOLICE_DEACTIVATE_BATON".into();
-            }
+        if let Some(schedule) = self.baton_schedule(&current) {
+            return schedule.into();
         }
         if !self.player_is_criminal() {
             if !self.scripted

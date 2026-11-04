@@ -10,6 +10,7 @@
 //! schedules. SDK behavior; retail not compared.
 mod behaviors;
 
+mod announce;
 use super::assault::Assault;
 use super::conditions::{
     Cond, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1, COND_ENEMY_DEAD,
@@ -884,27 +885,7 @@ impl Behavior for Humanoid {
             // then wait 2 s in ACT_IDLE; a grenade (2) always says COMBINE_THROW_GRENADE
             // (MEDIUM) and waits 2 s. Crouching (ACT_COWER) is not modeled.
             "TASK_ANNOUNCE_ATTACK" if self.kind == Kind::Combine => {
-                let grenade = matches!(arg, TaskArg::Number(n) if *n as i32 != 1);
-                let announce = grenade
-                    || (ctx
-                        .enemy
-                        .is_some_and(|(e, _)| e == super::metropolice::PLAYER)
-                        && ctx.enemy_sees_me == Some(false)
-                        && ctx.now - self.last_attack > 3.);
-                if !announce {
-                    return Some(TaskStatus::Complete);
-                }
-                if grenade {
-                    self.requests
-                        .push(CopRequest::Sentence("COMBINE_THROW_GRENADE"));
-                } else {
-                    self.last_attack = ctx.now;
-                    self.requests.push(CopRequest::Sentence("COMBINE_ANNOUNCE"));
-                }
-                self.announce_until = ctx.now + 2.;
-                npc.activity = "ACT_IDLE".into();
-                motor.set_activity("ACT_IDLE");
-                TaskStatus::Running
+                self.combine_announce(npc, arg, ctx, motor)
             }
             "TASK_CIT_RPG_AUGER" => {
                 let seconds = match arg {

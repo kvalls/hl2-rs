@@ -52,6 +52,35 @@ pub fn model_path(argument: &str) -> String {
         format!("models/{name}.mdl")
     }
 }
+/// A prop request's load: on a worker, unless a map prop_physics already brought the model in.
+fn start_job(
+    props: &RuntimeProps,
+    game: &Gameplay,
+    cache: &ModelCache,
+    (model, eye, forward): (String, glam::Vec3, glam::Vec3),
+) -> Job {
+    let slot: Slot = Arc::default();
+    if game.world.model_physics.contains_key(&format!("{model}#0")) {
+        *slot.lock().expect("prop slot") = Some(Err(String::new()));
+    } else {
+        let vfs = props.vfs.clone();
+        let known = cache.definitions.keys().cloned().collect();
+        let name = model.clone();
+        let out = slot.clone();
+        std::thread::spawn(move || {
+            let result = crate::assets::prepare_model(&vfs, &name, "prop_physics", &known)
+                .map_err(|e| format!("{e:#}"));
+            *out.lock().expect("prop slot") = Some(result);
+        });
+    }
+    Job {
+        model,
+        eye,
+        forward,
+        started: std::time::Instant::now(),
+        result: slot,
+    }
+}
 /// Queued requests start loading; finished loads are merged, placed and drawn.
 #[allow(clippy::too_many_arguments)]
 pub fn poll(
@@ -68,28 +97,8 @@ pub fn poll(
     mut inverse_binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 ) {
     for (model, eye, forward) in std::mem::take(&mut game.prop_requests) {
-        let slot: Slot = Arc::default();
-        if game.world.model_physics.contains_key(&format!("{model}#0")) {
-            // Already loaded (a map prop_physics uses it): no worker.
-            *slot.lock().expect("prop slot") = Some(Err(String::new()));
-        } else {
-            let vfs = props.vfs.clone();
-            let known = cache.definitions.keys().cloned().collect();
-            let name = model.clone();
-            let out = slot.clone();
-            std::thread::spawn(move || {
-                let result = crate::assets::prepare_model(&vfs, &name, "prop_physics", &known)
-                    .map_err(|e| format!("{e:#}"));
-                *out.lock().expect("prop slot") = Some(result);
-            });
-        }
-        props.jobs.push(Job {
-            model,
-            eye,
-            forward,
-            started: std::time::Instant::now(),
-            result: slot,
-        });
+        let job = start_job(&props, &game, &cache, (model, eye, forward));
+        props.jobs.push(job);
     }
     for id in std::mem::take(&mut game.model_draws) {
         let world = game.world.clone();
