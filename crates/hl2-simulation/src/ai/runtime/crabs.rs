@@ -69,7 +69,8 @@ fn off_his_head(
 /// colliders stay until the next collider pose stage (the zombie a torso replaces this tick,
 /// whose mesh collider the torso starts inside), and CHalfLife2::ShouldCollide:
 /// HL2COLLISION_GROUP_HEADCRAB never collides with itself (a poison zombie's nest crabs eject
-/// from overlapping spots).
+/// from overlapping spots). An NPC the faller starts embedded in does not hold it up either, or
+/// two NPCs created in the air inside each other would each "land" on the other.
 fn fall_trace(
     world: &World,
     scene: &Scene,
@@ -100,8 +101,17 @@ fn fall_trace(
                     .get(e)
                     .is_some_and(|x| headcrab::is_headcrab_class(x.class()))
     };
+    let is_npc = |e: usize| {
+        world
+            .entities
+            .get(e)
+            .is_some_and(|x| x.class().starts_with("npc_"))
+    };
     let mut hit = trace(&excluded);
-    while let Some(dead) = hit.entity.filter(|e| excluded.len() < 8 && passable(*e)) {
+    while let Some(dead) = hit
+        .entity
+        .filter(|e| excluded.len() < 8 && (passable(*e) || hit.trace.start_solid && is_npc(*e)))
+    {
         excluded.push(dead);
         hit = trace(&excluded);
     }

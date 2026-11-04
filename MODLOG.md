@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-04 session 45: owner playtest fixes: F4 wheel and mark, NPCs frozen together (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** hl2-bevy input.rs `free_wheel`: a claimed pointer keeps the wheel from every binding. hl2-debug draw.rs: the F4 center mark is gone. New npc/embedded.rs: moves ignore an NPC they start inside (GroundMoveLimit's bTryNavIgnore), asked of the controller because AI moves pass no transient list; `stand` drops an AI mover with no floor in reach into the step fall. ai/runtime/crabs.rs `fall_trace`: a fall passes an NPC it starts embedded in. One `excluded_for` replaces the method and the closure that duplicated it. A solid start's reason names what it is inside.
+
+**Why:** owner playtest. The wheel scrolled the F4 lists and the weapon selection at once; a thick cross sat on the crosshair; two fast zombies that landed together stood idle for good, gurgling, not moving, turning or attacking.
+
+**Tested how / Result:** unit tests 1385 passed, 0 failed (new: wheel claim, embedded walk-out, NPC outside the transient list, a start inside the player, fall against scene mover). Packaged artifacts/s45 fixtures before and after: pair-far, pair-near and pair-cop went from never moving to chase, leap and claws, 0 blocked moves in the first two; solo-far and pair-wide controls normal. s45-regression 26/26, 17/17, 26/26, images against s44g-regression max difference 6, none above level 5. Replays 71 of 72, the failure being the known monitors-kleiner-scene gib count (7 against 8; passed once and failed once alone). Strict Clippy and fmt clean; architecture 14 failures before and after, none new. Frame time **not measured**: same traces on a clear start, one per-tick clone fewer.
+
+**Rejected on the way:** the first fix tested for NPCs through the transient list and missed pair-far (AI moves pass none). A low ceiling did not explain the mid-air zombies: the trace named the other zombie, and pair-cop's fall records showed each landing on the other.
+
+**Still broken or not tested:** the owner's failed leap near a metrocop is not reproduced. The leap's view cone for NPC enemies differs from the SDK (retail unverified). STEP_ON_INVALID_GROUND is missing. A console ent_create can leave an NPC inside the map. The F4 changes were not exercised in a packaged run.
+
+**Next:** owner retest of the F4 panel and of fast zombies; a metrocop leap fixture; then session 44's list.
+
 ## 2026-11-04 session 44: fast zombie jumps and climbs; session 43's refactors checked packaged (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

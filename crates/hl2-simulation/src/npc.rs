@@ -10,6 +10,7 @@ use serde::Serialize;
 use source_assets::{models::MotionSequence, navigation::Graph, vpk::Vfs};
 use std::collections::{BTreeMap, BTreeSet};
 mod backaway;
+mod embedded;
 mod graph;
 pub mod links;
 #[cfg(test)]
@@ -916,17 +917,6 @@ impl Controller {
         }
     }
     /// The entities a mover's hull traces leave out: itself, and every crab for a crab.
-    fn excluded_for(&self, entity: usize) -> Vec<usize> {
-        if self.headcrabs.contains(&entity) {
-            let mut all: Vec<usize> = self.headcrabs.iter().copied().collect();
-            if !all.contains(&entity) {
-                all.push(entity);
-            }
-            all
-        } else {
-            vec![entity]
-        }
-    }
     pub fn set_opens_doors(&mut self, entity: usize, on: bool) {
         if let Some(actor) = self.actors.get_mut(&entity) {
             actor.opens_doors = on;
@@ -1103,20 +1093,19 @@ impl Controller {
                 .ok_or(GoalBlockReason::MissingActor)?;
             actor.locomotion.track(goal.request.style)?;
             goal.tolerance = goal_tolerance(actor, &goal.request);
-            let excluded = self.excluded_for(key.actor);
+            let excluded = excluded_for(&self.headcrabs, key.actor);
             let query = Query {
                 excluded_entities: &excluded,
                 transients,
                 ..Default::default()
             };
-            if !npc_probe::fits(world, pose.feet, actor.ground.hull, query)
-                || !npc_probe::stand(world, pose.feet, actor.ground, query)
-            {
-                return Err(GoalBlockReason::Collision {
-                    blocker: None,
-                    reason: "actor cannot stand".to_owned(),
-                });
-            }
+            let is_npc = |id| self.actors.contains_key(&id);
+            let ignored = embedded::ignored(world, pose.feet, actor.ground.hull, query, is_npc)?;
+            let query = Query {
+                excluded_entities: &ignored,
+                ..query
+            };
+            embedded::stand(world, key, pose.feet, actor.ground, query, &mut self.drops)?;
             if pose.feet.distance(goal.request.target_feet) <= goal.tolerance {
                 goal.state = GoalState::Arrived;
             } else {
@@ -1166,14 +1155,6 @@ impl Controller {
             self.clock += f64::from(dt);
         }
         let mut updates = std::mem::take(&mut self.pending);
-        let crabs: Vec<usize> = self.headcrabs.iter().copied().collect();
-        let excluded_for = |entity: usize| {
-            if crabs.contains(&entity) {
-                crabs.clone()
-            } else {
-                vec![entity]
-            }
-        };
         for (key, goal) in &mut self.goals {
             if matches!(goal.state, GoalState::Arrived | GoalState::Canceled) {
                 continue;
@@ -1230,7 +1211,7 @@ impl Controller {
                     goal.next = 0;
                     goal.state = GoalState::Moving;
                 }
-                let excluded = excluded_for(key.actor);
+                let excluded = excluded_for(&self.headcrabs, key.actor);
                 let query = Query {
                     excluded_entities: &excluded,
                     transients,
@@ -1242,6 +1223,14 @@ impl Controller {
                 if hold_pause(goal, actor, dt) {
                     return Ok(());
                 }
+                let is_npc = |id| self.actors.contains_key(&id);
+                let ignored =
+                    embedded::ignored(world, goal.feet, actor.ground.hull, query, is_npc)?;
+                let query = Query {
+                    excluded_entities: &ignored,
+                    ..query
+                };
+                embedded::stand(world, *key, goal.feet, actor.ground, query, &mut self.drops)?;
                 let moved = advance(world, actor, *key, goal, track, query, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
@@ -1338,6 +1327,14 @@ fn update(key: GoalKey, goal: &Goal, doors: &BTreeSet<usize>, name: Option<Strin
         contact_normal: goal.contact_normal,
     }
 }
+/// The mover itself, or every crab for a crab (HL2COLLISION_GROUP_HEADCRAB).
+fn excluded_for(crabs: &BTreeSet<usize>, entity: usize) -> Vec<usize> {
+    if crabs.contains(&entity) {
+        crabs.iter().copied().collect()
+    } else {
+        vec![entity]
+    }
+}
 fn advance<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
@@ -1348,14 +1345,6 @@ fn advance<W: NpcCollisionWorld>(
     query: Query<'_>,
     dt: f32,
 ) -> Result<(), GoalBlockReason> {
-    if !npc_probe::fits(world, goal.feet, actor.ground.hull, query)
-        || !npc_probe::stand(world, goal.feet, actor.ground, query)
-    {
-        return Err(GoalBlockReason::Collision {
-            blocker: None,
-            reason: "actor cannot stand".to_owned(),
-        });
-    }
     // SDK: the hull tolerance only decides whether to move; once moving, the navigator walks
     // until within SetArrivalDistance(event distance), measured horizontally.
     let arrival = goal.request.event_distance.max(0.1);
@@ -1535,7 +1524,7 @@ mod tests {
             }],
         }
     }
-    fn locomotion() -> Locomotion {
+    pub(super) fn locomotion() -> Locomotion {
         Locomotion {
             tracks: BTreeMap::from([
                 (MoveStyle::Walk, track(80., 80.)),
