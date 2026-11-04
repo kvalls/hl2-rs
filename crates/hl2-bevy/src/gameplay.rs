@@ -343,27 +343,40 @@ impl Gameplay {
         }
         let died = !player.dead && self.inventory.health <= 0.;
         if died {
-            player.dead = true;
-            player.crouched = false;
-            self.scene.player_dead = true;
-            // DeathSound: the accumulated damage bits decide the fall splat.
-            self.scene.sounds.push(
-                if self.player_damage.bits() & DMG_FALL != 0 {
-                    "Player.FallGib"
-                } else {
-                    "Player.Death"
-                }
-                .into(),
-            );
-            // DeathSound: UTIL_EmitGroupnameSuit(HEV_DEAD) at once; Event_Killed then
-            // clears the queued suit sentences.
-            self.suit.emit(suit, "#HEV_DEAD");
-            self.suit.clear();
-            // Event_Killed holsters the active weapon.
-            self.inventory.previous = std::mem::take(&mut self.inventory.active);
+            self.player_dies(player, suit);
         }
+        self.suit_speech(suit && !player.dead, now);
+        if let Some(message) = self.player_damage.client_message() {
+            self.damage_messages.push(message);
+        }
+        died
+    }
+    /// CBasePlayer::Event_Killed and DeathSound, the tick the health runs out.
+    fn player_dies(&mut self, player: &mut modkit_core::movement::Player, suit: bool) {
+        use hl2_simulation::player_damage::DMG_FALL;
+        player.dead = true;
+        player.crouched = false;
+        self.scene.player_dead = true;
+        // DeathSound: the accumulated damage bits decide the fall splat.
+        self.scene.sounds.push(
+            if self.player_damage.bits() & DMG_FALL != 0 {
+                "Player.FallGib"
+            } else {
+                "Player.Death"
+            }
+            .into(),
+        );
+        // DeathSound: UTIL_EmitGroupnameSuit(HEV_DEAD) at once; Event_Killed then
+        // clears the queued suit sentences.
+        self.suit.emit(suit, "#HEV_DEAD");
+        self.suit.clear();
+        // Event_Killed holsters the active weapon.
+        self.inventory.previous = std::mem::take(&mut self.inventory.active);
+    }
+    /// CheckSuitUpdate's speech for this tick.
+    fn suit_speech(&mut self, suit: bool, now: f64) {
         // CheckSuitUpdate (PostThink), then UpdateClientData after the damage.
-        self.suit.think(suit && !player.dead, now);
+        self.suit.think(suit, now);
         // UTIL_EmitSoundSuit: suitvolume 0.25 (SDK default, the owner's config.cfg).
         for sentence in std::mem::take(&mut self.suit.play) {
             let name = if let Some(group) = sentence.strip_prefix('#') {
@@ -378,10 +391,6 @@ impl Gameplay {
                     ..name.into()
                 });
         }
-        if let Some(message) = self.player_damage.client_message() {
-            self.damage_messages.push(message);
-        }
-        died
     }
     /// CategorizeGroundSurface for the next movement step: the surfaceprop of the
     /// face under the feet (the same lookup as the footsteps), or the defaults when
@@ -843,95 +852,95 @@ impl Gameplay {
         self.scene.npc_death_blasts.clear();
         self.scene.npc_hit_forces.clear();
         for npc in deaths {
-            let Some(class) = self.ai.weapon_class(npc) else {
-                continue;
-            };
-            let Some(model) = self.ai.weapon_model(&class) else {
-                continue;
-            };
-            let flags = self.world.entities[npc]
-                .get("spawnflags")
-                .and_then(|v| v.trim().parse::<u32>().ok())
-                .unwrap_or(0);
-            if flags & (1 << 13) != 0
-                || !self.world.model_physics.contains_key(&format!("{model}#0"))
-            {
-                continue;
-            }
-            let state = &self.scene.states[npc];
-            let body = state.rotation * Vec3::X;
-            let flat = Vec3::new(body.x, body.y, 0.).normalize_or(Vec3::X);
-            // Weapon_Drop teleports a bone-merged weapon to the owner's Weapon_bone pose
-            // (times its inverse root bone); without a rig, in front of the shoot position.
-            let (origin, angles) = self
-                .scene
-                .merged_model_frame(&self.world, npc, &format!("{model}#0"))
-                .map(|frame| {
-                    let (_, rotation, translation) = frame.to_scale_rotation_translation();
-                    let (yaw, pitch, roll) = rotation.to_euler(glam::EulerRot::ZYX);
-                    (
-                        translation,
-                        Vec3::new(pitch.to_degrees(), yaw.to_degrees(), roll.to_degrees()),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    let yaw = flat.y.atan2(flat.x).to_degrees();
-                    (
-                        state.origin + Vec3::Z * 55. + flat * 10.,
-                        Vec3::new(0., yaw, 0.),
-                    )
-                });
-            let clip = if class == "weapon_smg1" {
-                let health = hl2_simulation::gameplay::npc_spawn_health(
-                    &self.scene,
-                    &self.world.entities[npc],
-                );
-                let shot = self.scene.skill.get("sk_plr_dmg_smg1", 4.)
-                    * self.scene.skill.player_inflict_scale();
-                ((health / shot.max(0.01)) * 2.) as i32
-            } else {
-                self.weapons.get(&class).map_or(0, |w| w.default_clip)
-            };
-            let id = self.world.entities.len();
-            let entity = modkit_core::Entity {
-                properties: [
-                    ("classname", class.clone()),
-                    ("origin", format!("{} {} {}", origin.x, origin.y, origin.z)),
-                    ("angles", format!("{} {} {}", angles.x, angles.y, angles.z)),
-                    ("model", model.clone()),
-                    ("ammo", clip.to_string()),
-                ]
-                .into_iter()
-                .map(|(k, v)| (k.to_owned(), v))
-                .collect(),
-            };
-            let instance = modkit_core::ModelInstance {
-                background: false,
-                model: model.clone(),
-                origin,
-                angles,
-                skin: 0,
-                body: 0,
-                scale: 1.,
-                // A VPhysics object like a physics prop (its .phy and propdata).
-                kind: "prop_physics".into(),
-                solid: true,
-                solid_mode: None,
-                entity: Some(id),
-            };
-            let Ok(id) = self.insert_entity(entity, Some(instance), physics) else {
-                continue;
-            };
-            // FallInit: COLLISION_GROUP_WEAPON (the player and NPCs pass over it).
-            physics.set_weapon_group(id);
-            let speed = 64. + (npc.wrapping_mul(2_654_435_761) % 65) as f32;
-            if let Some(handle) = physics.entity_body(id) {
-                physics.set_body_velocity(handle, body * speed, Vec3::splat(200.));
-            }
-            self.model_draws.push(id);
-            self.spawn_log
-                .push(serde_json::json!({"weapon_drop":class,"npc":npc,"entity":id,"ammo":clip,"origin":origin.to_array(),"angles":angles.to_array(),"npc_origin":self.scene.states[npc].origin.to_array()}));
+            self.drop_weapon(npc, physics);
         }
+    }
+    /// One killed NPC's active weapon as a new VPhysics weapon entity.
+    fn drop_weapon(&mut self, npc: usize, physics: &mut Physics) {
+        let Some(class) = self.ai.weapon_class(npc) else {
+            return;
+        };
+        let Some(model) = self.ai.weapon_model(&class) else {
+            return;
+        };
+        let flags = self.world.entities[npc]
+            .get("spawnflags")
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .unwrap_or(0);
+        if flags & (1 << 13) != 0 || !self.world.model_physics.contains_key(&format!("{model}#0")) {
+            return;
+        }
+        let state = &self.scene.states[npc];
+        let body = state.rotation * Vec3::X;
+        let flat = Vec3::new(body.x, body.y, 0.).normalize_or(Vec3::X);
+        // Weapon_Drop teleports a bone-merged weapon to the owner's Weapon_bone pose
+        // (times its inverse root bone); without a rig, in front of the shoot position.
+        let (origin, angles) = self
+            .scene
+            .merged_model_frame(&self.world, npc, &format!("{model}#0"))
+            .map(|frame| {
+                let (_, rotation, translation) = frame.to_scale_rotation_translation();
+                let (yaw, pitch, roll) = rotation.to_euler(glam::EulerRot::ZYX);
+                (
+                    translation,
+                    Vec3::new(pitch.to_degrees(), yaw.to_degrees(), roll.to_degrees()),
+                )
+            })
+            .unwrap_or_else(|| {
+                let yaw = flat.y.atan2(flat.x).to_degrees();
+                (
+                    state.origin + Vec3::Z * 55. + flat * 10.,
+                    Vec3::new(0., yaw, 0.),
+                )
+            });
+        let clip = if class == "weapon_smg1" {
+            let health =
+                hl2_simulation::gameplay::npc_spawn_health(&self.scene, &self.world.entities[npc]);
+            let shot = self.scene.skill.get("sk_plr_dmg_smg1", 4.)
+                * self.scene.skill.player_inflict_scale();
+            ((health / shot.max(0.01)) * 2.) as i32
+        } else {
+            self.weapons.get(&class).map_or(0, |w| w.default_clip)
+        };
+        let id = self.world.entities.len();
+        let entity = modkit_core::Entity {
+            properties: [
+                ("classname", class.clone()),
+                ("origin", format!("{} {} {}", origin.x, origin.y, origin.z)),
+                ("angles", format!("{} {} {}", angles.x, angles.y, angles.z)),
+                ("model", model.clone()),
+                ("ammo", clip.to_string()),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect(),
+        };
+        let instance = modkit_core::ModelInstance {
+            background: false,
+            model: model.clone(),
+            origin,
+            angles,
+            skin: 0,
+            body: 0,
+            scale: 1.,
+            // A VPhysics object like a physics prop (its .phy and propdata).
+            kind: "prop_physics".into(),
+            solid: true,
+            solid_mode: None,
+            entity: Some(id),
+        };
+        let Ok(id) = self.insert_entity(entity, Some(instance), physics) else {
+            return;
+        };
+        // FallInit: COLLISION_GROUP_WEAPON (the player and NPCs pass over it).
+        physics.set_weapon_group(id);
+        let speed = 64. + (npc.wrapping_mul(2_654_435_761) % 65) as f32;
+        if let Some(handle) = physics.entity_body(id) {
+            physics.set_body_velocity(handle, body * speed, Vec3::splat(200.));
+        }
+        self.model_draws.push(id);
+        self.spawn_log
+            .push(serde_json::json!({"weapon_drop":class,"npc":npc,"entity":id,"ammo":clip,"origin":origin.to_array(),"angles":angles.to_array(),"npc_origin":self.scene.states[npc].origin.to_array()}));
     }
     /// Merge a late-loaded model's tables into the map's World (keys it lacks only).
     pub fn merge_model(&mut self, loaded: World) {
