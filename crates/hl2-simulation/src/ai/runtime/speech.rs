@@ -10,6 +10,102 @@ use crate::entities::Scene;
 use glam::Vec3;
 use modkit_core::World;
 
+/// CHeadcrab::PainSound and DeathSound.
+fn headcrab_pain(actor: &mut AiActor, scene: &mut Scene, id: usize) {
+    let now = scene.time;
+    let state = &scene.states[id];
+    let AiClass::Headcrab(crab) = &actor.class else {
+        return;
+    };
+    let cue = if state.killed {
+        if std::mem::replace(&mut actor.death_spoken, true) {
+            return;
+        }
+        crab.sound("Die")
+    } else {
+        if now < actor.next_pain_sound || state.value <= 0. {
+            return;
+        }
+        actor.next_pain_sound = now + 1.;
+        crab.sound("Pain")
+    };
+    let origin = state.origin;
+    scene.sounds.push(crate::sounds::SoundRequest {
+        origin: Some(origin + Vec3::Z * 12.),
+        ..cue.into()
+    });
+}
+/// CZombie and CNPC_PoisonZombie PainSound and DeathSound.
+fn zombie_pain(actor: &mut AiActor, scene: &mut Scene, id: usize) {
+    let now = scene.time;
+    let state = &scene.states[id];
+    let AiClass::Zombie(z) = &mut actor.class else {
+        return;
+    };
+    let kind = z.kind;
+    let cue = if state.killed {
+        if std::mem::replace(&mut actor.death_spoken, true) {
+            return;
+        }
+        // StopLoopingSounds: the class's patches go with the body.
+        z.stop_looping_sounds();
+        kind.cue("Zombie.Die")
+    } else {
+        // CZombie::PainSound: none while burning (the moan covers it).
+        if now < actor.next_pain_sound
+            || state.value <= 0.
+            || (kind == zombie::Kind::Classic && z.burning)
+        {
+            return;
+        }
+        actor.next_pain_sound = now + 1.;
+        // The poison zombie's breath drops out; the fast zombie's gurgle swells.
+        z.pain_patches();
+        kind.cue("Zombie.Pain")
+    };
+    let origin = state.origin;
+    for request in z.requests.drain(..) {
+        if let CopRequest::Patch { cue, op } = request {
+            scene.sounds.push(crate::sounds::SoundRequest {
+                origin: Some(origin + Vec3::Z * 64.),
+                ..crate::sounds::SoundRequest::patch(cue, crate::sounds::entity_emitter(id), op)
+            });
+        }
+    }
+    // The fast zombie's PainSound is only the patches above.
+    if !cue.is_empty() {
+        scene.sounds.push(crate::sounds::SoundRequest {
+            origin: Some(origin + Vec3::Z * 64.),
+            ..cue.into()
+        });
+    }
+}
+/// The companions' DeathSound (CNPC_Citizen, CNPC_Barney, CNPC_Alyx): EmitSound from the NPC,
+/// whose model GenderExpandString reads (the citizens' die waves are
+/// vo/npc/$gender01/pain*.wav; owner report: dying citizens moaned in the other gender's voice).
+fn companion_die(world: &World, scene: &mut Scene, id: usize) {
+    let e = &world.entities[id];
+    let die = match e.class() {
+        "npc_barney" => "npc_barney.die",
+        "npc_alyx" => "npc_alyx.die",
+        _ => "NPC_Citizen.Die",
+    };
+    let origin = scene.states[id].origin;
+    let model = world
+        .model_instances
+        .iter()
+        .find(|i| i.entity == Some(id))
+        .map_or("", |i| i.model.as_str());
+    scene.sounds.push(crate::sounds::SoundRequest {
+        origin: Some(origin + Vec3::Z * 64.),
+        actor: Some(crate::sounds::SoundActor {
+            name: e.get("targetname").unwrap_or("").into(),
+            model: model.to_owned(),
+            entity: Some(id),
+        }),
+        ..die.into()
+    });
+}
 impl AiRuntime {
     /// IdleSound's lines, and their effects when Speak succeeds.
     pub(super) fn speak_idle_lines(&mut self, world: &World, scene: &mut Scene) {
@@ -269,71 +365,11 @@ impl AiRuntime {
             return;
         };
         let state = &scene.states[id];
-        // CHeadcrab::PainSound / DeathSound.
-        if let AiClass::Headcrab(crab) = &actor.class {
-            let cue = if state.killed {
-                if std::mem::replace(&mut actor.death_spoken, true) {
-                    return;
-                }
-                crab.sound("Die")
-            } else {
-                if now < actor.next_pain_sound || state.value <= 0. {
-                    return;
-                }
-                actor.next_pain_sound = now + 1.;
-                crab.sound("Pain")
-            };
-            let origin = state.origin;
-            scene.sounds.push(crate::sounds::SoundRequest {
-                origin: Some(origin + Vec3::Z * 12.),
-                ..cue.into()
-            });
-            return;
+        if matches!(actor.class, AiClass::Headcrab(_)) {
+            return headcrab_pain(actor, scene, id);
         }
-        // CZombie / CNPC_PoisonZombie PainSound and DeathSound.
-        if let AiClass::Zombie(z) = &mut actor.class {
-            let kind = z.kind;
-            let cue = if state.killed {
-                if std::mem::replace(&mut actor.death_spoken, true) {
-                    return;
-                }
-                // StopLoopingSounds: the class's patches go with the body.
-                z.stop_looping_sounds();
-                kind.cue("Zombie.Die")
-            } else {
-                // CZombie::PainSound: none while burning (the moan covers it).
-                if now < actor.next_pain_sound
-                    || state.value <= 0.
-                    || (kind == zombie::Kind::Classic && z.burning)
-                {
-                    return;
-                }
-                actor.next_pain_sound = now + 1.;
-                // The poison zombie's breath drops out; the fast zombie's gurgle swells.
-                z.pain_patches();
-                kind.cue("Zombie.Pain")
-            };
-            let origin = state.origin;
-            for request in z.requests.drain(..) {
-                if let CopRequest::Patch { cue, op } = request {
-                    scene.sounds.push(crate::sounds::SoundRequest {
-                        origin: Some(origin + Vec3::Z * 64.),
-                        ..crate::sounds::SoundRequest::patch(
-                            cue,
-                            crate::sounds::entity_emitter(id),
-                            op,
-                        )
-                    });
-                }
-            }
-            // The fast zombie's PainSound is only the patches above.
-            if !cue.is_empty() {
-                scene.sounds.push(crate::sounds::SoundRequest {
-                    origin: Some(origin + Vec3::Z * 64.),
-                    ..cue.into()
-                });
-            }
-            return;
+        if matches!(actor.class, AiClass::Zombie(_)) {
+            return zombie_pain(actor, scene, id);
         }
         // CAI_PlayerAlly::PainSound speaks TLK_WOUND; the companions' DeathSound emits
         // their die sound (CNPC_Citizen/CNPC_Barney/CNPC_Alyx).
@@ -343,29 +379,7 @@ impl AiRuntime {
                 if std::mem::replace(&mut actor.death_spoken, true) {
                     return;
                 }
-                let die = match e.class() {
-                    "npc_barney" => "npc_barney.die",
-                    "npc_alyx" => "npc_alyx.die",
-                    _ => "NPC_Citizen.Die",
-                };
-                let origin = state.origin;
-                // EmitSound from the NPC: GenderExpandString reads its model (the
-                // citizens' die waves are vo/npc/$gender01/pain*.wav; owner report: dying
-                // citizens moaned in the other gender's voice).
-                let model = world
-                    .model_instances
-                    .iter()
-                    .find(|i| i.entity == Some(id))
-                    .map_or("", |i| i.model.as_str());
-                scene.sounds.push(crate::sounds::SoundRequest {
-                    origin: Some(origin + Vec3::Z * 64.),
-                    actor: Some(crate::sounds::SoundActor {
-                        name: e.get("targetname").unwrap_or("").into(),
-                        model: model.to_owned(),
-                        entity: Some(id),
-                    }),
-                    ..die.into()
-                });
+                companion_die(world, scene, id);
                 return;
             }
             if now < actor.next_pain_sound || state.value <= 0. {
