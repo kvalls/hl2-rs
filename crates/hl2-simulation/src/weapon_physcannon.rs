@@ -478,59 +478,7 @@ impl Inventory {
             return;
         }
         if let Some(id) = self.physcannon.held {
-            let held_center = center(physics, id).unwrap_or(eye);
-            if held_center.distance(feet + Vec3::Z * 36.) > TRACE_LENGTH {
-                self.dry_fire(scene, weapon, world, time);
-                return;
-            }
-            let mass = self.physcannon.grab.as_ref().map_or(1., |g| g.saved_mass);
-            // PhysGunLaunchAngularImpulse: none for spin_zaxis props, whose
-            // OnPhysGunDrop(LAUNCHED_BY_CANNON) adds a 5000 deg/s spin about their
-            // local z and zeroes their angular drag.
-            let spin_z = world
-                .model_instances
-                .iter()
-                .find(|i| i.entity == Some(id))
-                .and_then(|i| world.model_prop_data.get(&i.asset_key()))
-                .is_some_and(|d| d.spin_z)
-                && world.entities[id].class().starts_with("prop_physics");
-            let spin = if spin_z {
-                Vec3::new(0., 0., 5000.)
-            } else {
-                Vec3::new(self.random(), self.random(), self.random()) * 600.
-            };
-            self.detach(physics, scene, weapon, world, false, true);
-            if let Some(body) = physics
-                .dynamic
-                .get(&id)
-                .and_then(|h| physics.bodies.get_mut(*h))
-            {
-                // OnPhysGunDrop(LAUNCHED_BY_CANNON): m_bFirstCollisionAfterLaunch.
-                // ApplyVelocityBasedForce(LAUNCHED): AddVelocity(forward x force,
-                // Pickup_PhysGunLaunchAngularImpulse = RandomAngularImpulse(-600, 600)
-                // in the object's local axes, deg/s).
-                let v = forward * launch_speed(mass) * SCALE;
-                body.set_linvel(*body.linvel() + vector![v.x, v.y, v.z], true);
-                let q = body.rotation();
-                let rotation = glam::Quat::from_xyzw(q.i, q.j, q.k, q.w);
-                let w = rotation * (spin * (std::f32::consts::PI / 180.));
-                body.set_angvel(*body.angvel() + vector![w.x, w.y, w.z], true);
-            }
-            physics.launched.insert(id);
-            if spin_z {
-                if let Some(&handle) = physics.dynamic.get(&id) {
-                    physics.angular_drag_disabled.insert(handle);
-                }
-            }
-            self.physcannon.next_primary = time + 0.5;
-            self.physcannon.next_secondary = time + 0.5;
-            self.physcannon.launches.push(held_center);
-            self.physcannon.last_launch = Some((time, held_center));
-            self.physcannon.change_state = ElementChange::Closed;
-            self.physcannon.element_debounce = time + 0.1;
-            self.physcannon.check_suppress = time + 0.25;
-            self.primary_fire_effect(scene, weapon, world);
-            self.cannon_send(world, weapon, "ACT_VM_SECONDARYATTACK", time);
+            self.launch_held(id, weapon, world, scene, physics, (eye, forward, feet));
             return;
         }
         self.physcannon.next_primary = time + 0.5;
@@ -588,6 +536,71 @@ impl Inventory {
         self.physcannon.element_debounce = time + 0.5;
         self.physcannon.check_suppress = time + 0.25;
         self.physcannon.next_secondary = time + 0.5;
+    }
+    /// Primary fire with an object held: it leaves at the launch speed, spinning.
+    fn launch_held(
+        &mut self,
+        id: usize,
+        weapon: &Weapon,
+        world: &World,
+        scene: &mut Scene,
+        physics: &mut Physics,
+        (eye, forward, feet): (Vec3, Vec3, Vec3),
+    ) {
+        let time = scene.time;
+        let held_center = center(physics, id).unwrap_or(eye);
+        if held_center.distance(feet + Vec3::Z * 36.) > TRACE_LENGTH {
+            self.dry_fire(scene, weapon, world, time);
+            return;
+        }
+        let mass = self.physcannon.grab.as_ref().map_or(1., |g| g.saved_mass);
+        // PhysGunLaunchAngularImpulse: none for spin_zaxis props, whose
+        // OnPhysGunDrop(LAUNCHED_BY_CANNON) adds a 5000 deg/s spin about their
+        // local z and zeroes their angular drag.
+        let spin_z = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))
+            .and_then(|i| world.model_prop_data.get(&i.asset_key()))
+            .is_some_and(|d| d.spin_z)
+            && world.entities[id].class().starts_with("prop_physics");
+        let spin = if spin_z {
+            Vec3::new(0., 0., 5000.)
+        } else {
+            Vec3::new(self.random(), self.random(), self.random()) * 600.
+        };
+        self.detach(physics, scene, weapon, world, false, true);
+        if let Some(body) = physics
+            .dynamic
+            .get(&id)
+            .and_then(|h| physics.bodies.get_mut(*h))
+        {
+            // OnPhysGunDrop(LAUNCHED_BY_CANNON): m_bFirstCollisionAfterLaunch.
+            // ApplyVelocityBasedForce(LAUNCHED): AddVelocity(forward x force,
+            // Pickup_PhysGunLaunchAngularImpulse = RandomAngularImpulse(-600, 600)
+            // in the object's local axes, deg/s).
+            let v = forward * launch_speed(mass) * SCALE;
+            body.set_linvel(*body.linvel() + vector![v.x, v.y, v.z], true);
+            let q = body.rotation();
+            let rotation = glam::Quat::from_xyzw(q.i, q.j, q.k, q.w);
+            let w = rotation * (spin * (std::f32::consts::PI / 180.));
+            body.set_angvel(*body.angvel() + vector![w.x, w.y, w.z], true);
+        }
+        physics.launched.insert(id);
+        if spin_z {
+            if let Some(&handle) = physics.dynamic.get(&id) {
+                physics.angular_drag_disabled.insert(handle);
+            }
+        }
+        self.physcannon.next_primary = time + 0.5;
+        self.physcannon.next_secondary = time + 0.5;
+        self.physcannon.launches.push(held_center);
+        self.physcannon.last_launch = Some((time, held_center));
+        self.physcannon.change_state = ElementChange::Closed;
+        self.physcannon.element_debounce = time + 0.1;
+        self.physcannon.check_suppress = time + 0.25;
+        self.primary_fire_effect(scene, weapon, world);
+        self.cannon_send(world, weapon, "ACT_VM_SECONDARYATTACK", time);
     }
     fn dry_fire(&mut self, scene: &mut Scene, weapon: &Weapon, world: &World, time: f64) {
         self.cannon_send(world, weapon, "ACT_VM_PRIMARYATTACK", time);

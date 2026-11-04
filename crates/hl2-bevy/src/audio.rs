@@ -562,6 +562,22 @@ fn update_pause_state(audio: &mut Audio, paused: bool) {
     }
 }
 
+/// This tick's sound requests in the audio trace.
+fn trace_requests(
+    trace: Option<&mut AudioTrace>,
+    audio: &Audio,
+    game: &crate::gameplay::Gameplay,
+    paused: bool,
+) {
+    let Some(trace) = trace else {
+        return;
+    };
+    for request in &game.sound_requests {
+        trace.write(serde_json::json!({"event":"request","cue":request.name,"frame":audio.frame,"scene_time":game.scene.time,"paused":paused,
+                "ambient":request.ambient.map(|c| format!("{c:?}")),"stop":request.stop,
+                "actor_model":request.actor.as_ref().map(|a| a.model.as_str()),"entity":request.actor.as_ref().and_then(|a| a.entity)}));
+    }
+}
 pub fn queue(
     mut commands: Commands,
     mut audio: ResMut<Audio>,
@@ -619,13 +635,7 @@ pub fn queue(
         }
         update_player(entity, player, sink.as_deref_mut(), &mut audio, &mut ctx);
     }
-    for request in &game.sound_requests {
-        if let Some(trace) = trace.as_deref_mut() {
-            trace.write(serde_json::json!({"event":"request","cue":request.name,"frame":audio.frame,"scene_time":game.scene.time,"paused":paused,
-                "ambient":request.ambient.map(|c| format!("{c:?}")),"stop":request.stop,
-                "actor_model":request.actor.as_ref().map(|a| a.model.as_str()),"entity":request.actor.as_ref().and_then(|a| a.entity)}));
-        }
-    }
+    trace_requests(trace.as_deref_mut(), &audio, &game, paused);
     // CloseCaption messages: spawn-time ambient sounds, then scene speech.
     let mut captions = std::mem::take(&mut audio.captions);
     for caption in std::mem::take(&mut game.captions) {
