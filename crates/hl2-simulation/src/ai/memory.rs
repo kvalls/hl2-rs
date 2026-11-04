@@ -5,6 +5,10 @@ use glam::Vec3;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+/// ai_schedule.cpp memory names (bits_MEMORY_INCOVER, bits_MEMORY_FLINCHED).
+pub const MEMORY_INCOVER: &str = "INCOVER";
+pub const MEMORY_FLINCHED: &str = "FLINCHED";
+
 /// AI_FREE_KNOWLEDGE_DURATION / AI_DEF_ENEMY_DISCARD_TIME.
 pub const FREE_KNOWLEDGE_DURATION: f64 = 1.75;
 pub const ENEMY_DISCARD_TIME: f64 = 60.;

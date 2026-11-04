@@ -29,9 +29,7 @@ pub enum TaskArg {
     /// MEMORY:<name> (bits_MEMORY_INCOVER, FLINCHED, ...).
     Memory(String),
 }
-/// ai_schedule.cpp memory names (bits_MEMORY_INCOVER, bits_MEMORY_FLINCHED).
-pub const MEMORY_INCOVER: &str = "INCOVER";
-pub const MEMORY_FLINCHED: &str = "FLINCHED";
+pub use super::memory::{MEMORY_FLINCHED, MEMORY_INCOVER};
 impl TaskArg {
     pub fn parse(text: &str) -> Self {
         let (kind, value) = text.split_once(':').unwrap_or(("", text));
@@ -653,8 +651,7 @@ impl AiNpc {
         self.task = 0;
         self.task_started = false;
         self.fail_schedule = None;
-        // CAI_BaseNPC::SetSchedule: m_Conditions.ClearAll() except COND_IN_PVS (so a
-        // condition raised while selecting, e.g. a baton change, does not interrupt it).
+        // SetSchedule's m_Conditions.ClearAll(): one raised while selecting does not interrupt.
         let in_pvs = self.conditions.has(COND_IN_PVS);
         self.conditions = Conditions::default();
         if in_pvs {
@@ -723,6 +720,8 @@ impl AiNpc {
             };
             let status = if !self.task_started {
                 self.task_started = true;
+                // SetSchedule's GetNavigator()->ClearGoal(): a new schedule drops the old move.
+                let _ = self.task == 0 && motor.stop_moving();
                 self.start_task(behavior, &task, &arg, ctx, motor)
             } else {
                 self.run_task(behavior, &task, &arg, ctx, motor)
@@ -1211,6 +1210,8 @@ pub(crate) mod tests {
 
     #[derive(Default)]
     pub struct FakeMotor {
+        /// stop_moving calls.
+        pub stops: u32,
         pub activity: String,
         pub finished: bool,
         pub facing_ticks: u32,
@@ -1235,6 +1236,7 @@ pub(crate) mod tests {
             self.finished
         }
         fn stop_moving(&mut self) -> bool {
+            self.stops += 1;
             true
         }
         fn face(&mut self, _goal: Goal) -> bool {
@@ -1417,6 +1419,35 @@ pub(crate) mod tests {
         npc.maintain(&schedules, &mut base, &ctx, &mut motor);
         assert_eq!(npc.schedule.as_deref(), Some("SCHED_WAKE_ANGRY"));
         assert!(npc.schedule_changes >= 2);
+    }
+
+    #[test]
+    fn a_new_schedule_drops_the_old_move_before_its_first_task() {
+        let schedules = Schedules::default();
+        let mut npc = AiNpc::new(1);
+        let mut motor = FakeMotor::default();
+        let mut ctx = Context::default();
+        let mut base = Base;
+        npc.maintain(&schedules, &mut base, &ctx, &mut motor);
+        let settled = motor.stops;
+        assert!(settled >= 1, "the first schedule clears the goal too");
+        // Running the same schedule stops nothing.
+        for t in 1..5 {
+            ctx.now = f64::from(t) * 0.015;
+            npc.maintain(&schedules, &mut base, &ctx, &mut motor);
+        }
+        assert_eq!(motor.stops, settled);
+        // SCHED_WAKE_ANGRY has no TASK_STOP_MOVING of its own: SetSchedule's ClearGoal stops it.
+        npc.conditions.set(COND_NEW_ENEMY);
+        npc.state = NpcState::Combat;
+        npc.enemy = Some(7);
+        npc.enemies
+            .update(Some(7), Vec3::X * 100., 0., true, ctx.now);
+        ctx.enemy = Some((7, Vec3::X * 100.));
+        ctx.now += 0.015;
+        npc.maintain(&schedules, &mut base, &ctx, &mut motor);
+        assert_eq!(npc.schedule.as_deref(), Some("SCHED_WAKE_ANGRY"));
+        assert!(motor.stops > settled);
     }
 
     #[test]
