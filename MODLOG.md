@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-04 session 45b: architecture check to 0, invalid ground, leap view cone, burning corpses (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** the architecture check passes (13 failures to 0, baseline lowered): stages of AiRuntime new, think and tick, apply_requests, start_generic_task, apply_hit, apply_projectile_damage, append_models_lod, the host tick and physics rays moved to child modules. STEP_ON_INVALID_GROUND in npc_probe::ground_move and the controller's `shaky` start. The fast zombie's leap uses every enemy's view cone. Burning corpses: Fires::burn_corpse, Ragdolls::bounds, effects.rs. input.rs `controls` back to its baseline.
+
+**Why:** owner: 0 architecture failures is the aim; the rest are the session list and what the freeze investigation found.
+
+**Tested how / Result:** see STATUS "Current session 45". Regression on the refactor build (s45b-regression) 26/26, 17/17, 26/26; against s45-regression two images differ, on an NPC's lips (speech pose at that frame), reviewed by eye. Frame time **not measured**.
+
+**Rejected on the way:** a fixture aimed at the ledge spawned the zombie below it twice; a zombie facing +X did not see a player beside it (its narrow view cone, not a bug).
+
+**Still broken or not tested:** burning corpses checked packaged, not against native; STEP_ON_INVALID_GROUND has a unit test only. Climbing down the ladder is not exercised packaged. The owner's failed leap is not reproduced.
+
+**Next:** owner retest; native look of a burning corpse; Ravenholm fixtures; session 44's leftovers.
+
 ## 2026-11-04 session 45: owner playtest fixes: F4 wheel and mark, NPCs frozen together (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

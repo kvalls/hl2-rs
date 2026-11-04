@@ -562,6 +562,18 @@ impl Ragdolls {
         }
     }
     /// A fading ragdoll's render alpha (0-1), for the host's blend.
+    /// The world bounds of a client ragdoll's solids: their centers, padded by a limb's width.
+    pub fn bounds(&self, id: usize, physics: &Physics) -> Option<(Vec3, Vec3)> {
+        let bodies = &self.active.get(&id)?.bodies;
+        let centers = bodies
+            .iter()
+            .filter_map(|b| physics.ragdoll_body_center(*b));
+        let span = centers.fold(None, |span: Option<(Vec3, Vec3)>, (center, _)| {
+            let (min, max) = span.unwrap_or((center, center));
+            Some((min.min(center), max.max(center)))
+        })?;
+        Some((span.0 - Vec3::splat(8.), span.1 + Vec3::splat(8.)))
+    }
     pub fn fade_alpha(&self, id: usize) -> Option<f32> {
         self.active.get(&id)?.fade.map(|a| a / 255.)
     }

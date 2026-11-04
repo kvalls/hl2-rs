@@ -225,7 +225,17 @@ pub(super) fn bullet_kind(ammo_type: &str, melee: bool) -> u32 {
     }
 }
 
-/// A bullet kill's crab. `hit` is the damage and force, `how` whether it was melee and a headshot.
+/// A killed entity's flame ends; an NPC's passes to its corpse.
+pub(super) fn flame_out(scene: &mut Scene, id: usize, origin: Vec3, npc: bool) {
+    if npc {
+        let now = scene.time;
+        scene.fires.burn_corpse(id, origin, now);
+    }
+    scene.fires.extinguish(id, origin);
+}
+
+/// A bullet kill's flame and crab. The tuples are the damage and force, then whether it was
+/// melee and a headshot.
 pub(super) fn bullet_crab_release(
     scene: &mut Scene,
     e: &Entity,
@@ -233,6 +243,8 @@ pub(super) fn bullet_crab_release(
     (damage, force): (f32, Vec3),
     (melee, headshot): (bool, bool),
 ) {
+    let origin = scene.states[id].origin;
+    flame_out(scene, id, origin, true);
     // ShouldReleaseHeadcrab for a bullet kill of a classic or poison zombie (or a
     // torso): CNPC_BaseZombie's, with the class's GetHeadcrabClassname/Model.
     if !melee

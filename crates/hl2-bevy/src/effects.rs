@@ -769,27 +769,26 @@ pub fn present(
     // center and world bounds).
     {
         let eye = glam::Vec3::from_array(sim.eye().to_array());
-        let flames: Vec<(usize, hl2_simulation::pcf_runtime::ControlPoints)> = game
-            .scene
-            .fires
-            .flames
-            .keys()
-            .filter_map(|&id| {
-                let state = game.scene.states.get(id).filter(|s| !s.killed)?;
-                let (min, max) = sim.physics.entity_world_bounds(id).unwrap_or((
-                    state.origin - glam::Vec3::splat(16.),
-                    state.origin + glam::Vec3::splat(16.),
-                ));
-                Some((
-                    id,
-                    hl2_simulation::pcf_runtime::ControlPoints {
-                        origin: (min + max) * 0.5,
-                        model_min: min,
-                        model_max: max,
-                    },
-                ))
-            })
-            .collect();
+        let points =
+            |(min, max): (glam::Vec3, glam::Vec3)| hl2_simulation::pcf_runtime::ControlPoints {
+                origin: (min + max) * 0.5,
+                model_min: min,
+                model_max: max,
+            };
+        let fires = &game.scene.fires;
+        let bodies = fires.flames.keys().filter_map(|&id| {
+            let state = game.scene.states.get(id).filter(|s| !s.killed)?;
+            let bounds = sim.physics.entity_world_bounds(id).unwrap_or((
+                state.origin - glam::Vec3::splat(16.),
+                state.origin + glam::Vec3::splat(16.),
+            ));
+            Some((id, points(bounds)))
+        });
+        // The corpse keeps the NPC's id, so its flames carry on from the body.
+        let corpses = fires
+            .burning_corpses(game.scene.time)
+            .filter_map(|id| Some((id, points(game.ragdolls.bounds(id, &sim.physics)?))));
+        let flames: Vec<_> = bodies.chain(corpses).collect();
         effects
             .source
             .burning(&flames, eye, direction, game.scene.time, sim.paused());

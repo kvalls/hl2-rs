@@ -1668,7 +1668,7 @@ impl Inventory {
                     scene.fire(id, "OnDamaged", usize::MAX);
                     if dead {
                         let origin = scene.states[id].origin;
-                        scene.fires.extinguish(id, origin);
+                        hits::flame_out(scene, id, origin, npc);
                         self.kills += 1;
                         scene.fire(id, if npc { "OnDeath" } else { "OnBreak" }, usize::MAX);
                         if npc {

@@ -42,6 +42,9 @@ impl From<&modkit_core::PropData> for Interactions {
     }
 }
 
+/// FireEffect's SetNextClientThink: how long a corpse's client flame lasts.
+const CORPSE_FLAME_TIME: f64 = 7.;
+
 /// One CEntityFlame attached to an entity.
 #[derive(Clone, Debug, Serialize)]
 pub struct EntityFlame {
@@ -55,6 +58,8 @@ pub struct EntityFlame {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Fires {
     pub flames: BTreeMap<usize, EntityFlame>,
+    /// The client flames of burning corpses: when each ends (they burn nothing).
+    pub corpses: BTreeMap<usize, f64>,
     /// CNPC_BaseZombie m_flBurnDamage and m_flBurnDamageResetTime.
     pub burn_damage: BTreeMap<usize, (f32, f64)>,
     /// Ignitions and burn-outs (report only).
@@ -151,6 +156,26 @@ impl Fires {
             )
         });
         true
+    }
+    /// C_BaseAnimating::IgniteRagdoll: an NPC that dies burning leaves FireEffect's client flame
+    /// on its ragdoll, which plays General.BurningFlesh and ends after CORPSE_FLAME_TIME.
+    pub fn burn_corpse(&mut self, entity: usize, origin: Vec3, now: f64) {
+        if !self.burning(entity) {
+            return;
+        }
+        self.corpses.retain(|_, until| *until > now);
+        self.corpses.insert(entity, now + CORPSE_FLAME_TIME);
+        self.sounds.push(crate::sounds::SoundRequest {
+            origin: Some(origin),
+            .."General.BurningFlesh".into()
+        });
+    }
+    /// The corpses burning at `now`.
+    pub fn burning_corpses(&self, now: f64) -> impl Iterator<Item = usize> + '_ {
+        self.corpses
+            .iter()
+            .filter(move |(_, until)| **until > now)
+            .map(|(entity, _)| *entity)
     }
     /// The flame ends (burned out, or its entity broke or was removed): StopSound and
     /// "General.StopBurning".
@@ -420,5 +445,20 @@ mod tests {
         fires.think(0.7, |_| Some(Vec3::ZERO), &[], None);
         assert!(!fires.burning(1));
         assert_eq!(fires.extinguished, 1);
+    }
+
+    #[test]
+    fn a_burning_npc_leaves_a_seven_second_flame_on_its_corpse() {
+        let mut fires = Fires::default();
+        let flammable = Interactions {
+            flammable: true,
+            ..Default::default()
+        };
+        fires.burn_corpse(5, Vec3::ZERO, 10.);
+        assert_eq!(fires.burning_corpses(10.).count(), 0, "only a burning NPC");
+        assert!(fires.ignite(5, flammable, 100., 16., Vec3::ZERO, 10.));
+        fires.burn_corpse(5, Vec3::ZERO, 10.);
+        assert_eq!(fires.burning_corpses(16.9).collect::<Vec<_>>(), [5]);
+        assert_eq!(fires.burning_corpses(17.).count(), 0);
     }
 }
