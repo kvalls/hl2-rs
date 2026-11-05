@@ -1,5 +1,23 @@
 # MODLOG
 
+## 2026-11-05 session 46: main merged, npc_barnacle on its branch (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** main moved from f0c8934 to acf27b8: 151 commits, sessions 35 to 45, after a rule 10 pass over the lines they added. On `wip/session46-20261105`, not on main: npc_barnacle. ai/barnacle.rs holds the state machine, rope and tongue bones; ai/runtime/barnacles.rs turns the world into its facts and its commands into grabs, lifts and bites. Barnacles sit in their own table beside the schedule actors. New around them: `State.corpse`, `Scene.tongues`, `ai_hull::body_box`, `stays_where_placed`, `Player::carried`, `remove_killed` and `club_damage`. ai/runtime/toss.rs takes the throw checks out of runtime.rs; hl2-bevy gameplay/ai_results.rs takes `ai_player_state`, `take_actions` and `move_tongue_props` out of gameplay.rs.
+
+**Why:** owner 2026-11-05: no ordinary campaign play-through yet, since unfinished scripted scenes could hardlock it; finish the planned NPC behaviors and the remaining systems first, and merge the backlog if the architecture is right. The barnacle is the first unported class in campaign order (80 placed on 15 maps).
+
+**Tested how / Result:** see STATUS "Current session 46". On the final commit 4429b47: strict Clippy and fmt clean, architecture exit 0, 1410 unit tests passed and 2 failed (the two should_panic rendering tests that fail under --release only), package built. Regression 26/26, 17/17, 26/26 and replays 71 of 72 (`monitors-kleiner-scene`, the known gib count flake) come from an earlier mid-refactor build, not from 4429b47. Packaged barnacle fixtures on d1_canals_01a: player lifted and bitten, an NPC eaten, a prop tasted and spat, no grab beside the tongue. Frame time **not measured**. Native comparison **not done**.
+
+**Corrections:** the commit message of 8b85622 says the baseline was lowered while the architecture check still failed; 4429b47 is the commit that reaches exit 0. The session's closing report to the owner was wrong twice: it said the replays never ran and that the regression ran on the final commit. Stopping the first background validation left its child running, so two validations overlapped; STATUS has the sequence.
+
+**Rejected on the way:** the whole bind mesh as the barnacle's collider (the player stood inside it and was never moved); taking each 0.1 s tongue step at once (it threw the player upward at about 333 u/s); leaving spawnflags 4 in force (the new hull dropped every barnacle to the floor).
+
+**Still broken or not tested:** regression and replays on 4429b47. No replay covers barnacles. Shooting and crowbar kills ran packaged only before the last fixes, and the player was not lifted in those runs. lift-38 and npc-38 end with "movement script did not finish", cause not examined. The simplifications are listed in DESIGN 14o session 46.
+
+**Next:** before any merge of this branch, run the regression into a new folder and the replays on 4429b47.
+
 ## 2026-11-04 session 45c: map zombies and headcrabs set up, bullet impact effects, faster replays (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
