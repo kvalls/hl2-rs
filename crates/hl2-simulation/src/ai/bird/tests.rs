@@ -64,6 +64,21 @@ fn each_class_is_its_kind_and_others_are_not_birds() {
 }
 
 #[test]
+fn every_cue_a_bird_plays_is_preloaded() {
+    for kind in [Kind::Crow, Kind::Pigeon, Kind::Seagull] {
+        let cues = [
+            Some(kind.idle_sound()),
+            kind.alert_sound(),
+            kind.death_sound(),
+        ];
+        for cue in cues.into_iter().flatten() {
+            assert!(SOUNDS.contains(&cue), "{cue}");
+        }
+    }
+    assert!(SOUNDS.contains(&"NPC_Crow.Flap"));
+}
+
+#[test]
 fn the_schedules_parse() {
     let mut schedules = Schedules(Default::default());
     add_schedules(&mut schedules);

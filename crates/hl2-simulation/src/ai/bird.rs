@@ -55,6 +55,17 @@ const STUCK_CHECK: f64 = 1.;
 const STROLL: f32 = 48.;
 const EVADE: f32 = 32.;
 
+/// Every cue this class plays; a cue that is not preloaded is dropped.
+pub const SOUNDS: &[&str] = &[
+    "NPC_Crow.Idle",
+    "NPC_Crow.Alert",
+    "NPC_Crow.Flap",
+    "NPC_Crow.Die",
+    "NPC_Pigeon.Idle",
+    "NPC_Seagull.Idle",
+    "NPC_Seagull.Pain",
+];
+
 /// GatherEnemyConditions; COND_CROW_FORCED_FLY (the FlyAway input).
 pub const COND_ENEMY_TOO_CLOSE: Cond = Cond(LAST_SHARED_CONDITION + 1);
 pub const COND_ENEMY_WAY_TOO_CLOSE: Cond = Cond(LAST_SHARED_CONDITION + 2);

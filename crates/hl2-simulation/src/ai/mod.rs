@@ -13,6 +13,7 @@ pub mod efficiency;
 pub mod enemy_choice;
 pub mod headcrab;
 pub mod host;
+pub mod hover;
 pub mod humanoid;
 pub mod memory;
 pub mod metropolice;
