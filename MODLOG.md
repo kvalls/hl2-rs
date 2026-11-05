@@ -4,7 +4,7 @@
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
 
-**Changed:** npc_crow, npc_pigeon and npc_seagull: ai/bird.rs, ai/runtime/birds.rs, npc/air.rs (routes over the graph's fly links), their map models, flight activities, hull and sounds. Birds pass through the player, NPCs and each other. New `ai::roll`, shared with the barnacle. Moved without change of behavior: `impl AiClass` to ai/runtime/class.rs, the poison zombie's stage to zombies.rs, `Context` to ai/schedule/context.rs, the cover and line of fire searches to npc/tactical.rs. ai/hover.rs (hover arithmetic for npc_cscanner) is written and not yet in a commit that was tested.
+**Changed:** npc_crow, npc_pigeon and npc_seagull: ai/bird.rs, ai/runtime/birds.rs, npc/air.rs (routes over the graph's fly links), their map models, flight activities, hull and sounds. Birds pass through the player, NPCs and each other. New `ai::roll`, shared with the barnacle. Moved without change of behavior: `impl AiClass` to ai/runtime/class.rs, the poison zombie's stage to zombies.rs, `Context` to ai/schedule/context.rs, the cover and line of fire searches to npc/tactical.rs. ai/hover.rs (hover arithmetic for npc_cscanner) and ai/scanner.rs (what a scanner decides between) are committed with their unit tests; neither is wired into the runtime yet, so no packaged run exercises them.
 
 **Why:** owner 2026-11-05: finish the planned NPC behaviors first. Birds are next in campaign order (124 placed) and flight is needed by scanners and manhacks.
 
