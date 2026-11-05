@@ -212,6 +212,13 @@ impl Simulation {
     }
     /// The player takes no input: a menu background level, or a point_viewcontrol with
     /// `SF_CAMERA_PLAYER_TAKECONTROL`.
+    /// The player's own move, or the tongue that holds him.
+    fn move_player(&mut self, input: Input, game: Option<&crate::gameplay::Gameplay>) {
+        match game.and_then(|game| game.ai.barnacle_hold()) {
+            Some(by) => self.player.carried(by, &self.physics, TICK),
+            None => self.player.step(input, &self.physics, TICK),
+        }
+    }
     fn frozen(&self) -> bool {
         self.background_level || self.view_control.is_some_and(|v| v.freeze_player)
     }
@@ -683,10 +690,7 @@ impl Simulation {
                 } else {
                     self.input
                 };
-                match game.as_deref().and_then(|game| game.ai.barnacle_hold()) {
-                    Some(by) => self.player.carried(by, &self.physics, TICK),
-                    None => self.player.step(input, &self.physics, TICK),
-                }
+                self.move_player(input, game.as_deref());
                 self.eye = self.player.eye();
                 // The player's VPhysics shadow pushes and weighs down movable props.
                 let held = game.as_deref().and_then(|game| {

@@ -736,23 +736,6 @@ impl Gameplay {
         self.shot_effects
             .push((self.shot_serial, self.scene.time, effect));
     }
-    fn ai_player_state(
-        &self,
-        player: &Player,
-        fly: bool,
-        facing: glam::Vec3,
-    ) -> hl2_simulation::ai::runtime::PlayerState {
-        hl2_simulation::ai::runtime::PlayerState {
-            facing,
-            feet: player.feet,
-            velocity: player.velocity,
-            crouched: player.crouched,
-            on_ground: player.grounded,
-            dead: player.dead,
-            suit: self.inventory.suit,
-            noclip: fly,
-        }
-    }
     pub fn consume_attacks(&mut self) {
         self.primary_consumed = true;
         self.secondary_consumed = true;
@@ -790,7 +773,7 @@ impl Gameplay {
     ) {
         self.selection
             .tick(&self.inventory, &self.weapons, self.scene.time);
-        for action in std::mem::take(&mut self.actions) {
+        for action in self.take_actions() {
             let result = match action {
                 Action::Loadout => {
                     for name in self.weapons.keys() {
@@ -825,8 +808,6 @@ impl Gameplay {
                         .reload(&self.weapons, &mut self.scene, &self.world);
                     continue;
                 }
-                // CHL2_Player::PlayerRunCommand: no +USE on a barnacle.
-                Action::Use if self.ai.player_held() => continue,
                 Action::Use => {
                     // CPlayerPickupController first (drop while carrying, pick up a
                     // small prop), then the existing door/button use.
@@ -1137,12 +1118,6 @@ impl Gameplay {
         );
         self.scene.npc_knows_player = self.ai.npcs_knowing_player();
         self.throw_crabs(physics);
-        // Props on a barnacle's tongue follow its tip.
-        for (prop, velocity) in std::mem::take(&mut self.ai.prop_moves) {
-            if let Some(body) = physics.entity_body(prop) {
-                physics.set_body_velocity(body, velocity, Vec3::ZERO);
-            }
-        }
         // Zombie swats (AE_ZOMBIE_SWATITEM -> IPhysicsObject::AddVelocity).
         for (object, velocity, angular) in std::mem::take(&mut self.ai.prop_swats) {
             physics.add_entity_velocity(object, velocity, angular);

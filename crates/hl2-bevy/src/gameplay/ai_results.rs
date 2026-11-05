@@ -1,9 +1,44 @@
 //! What this tick's AI asked of the host: hits on the player, grenades, melee and combine balls.
 use super::Gameplay;
 use hl2_simulation::physics::Physics;
+use modkit_core::movement::Player;
 
 impl Gameplay {
+    pub(super) fn ai_player_state(
+        &self,
+        player: &Player,
+        fly: bool,
+        facing: glam::Vec3,
+    ) -> hl2_simulation::ai::runtime::PlayerState {
+        hl2_simulation::ai::runtime::PlayerState {
+            facing,
+            feet: player.feet,
+            velocity: player.velocity,
+            crouched: player.crouched,
+            on_ground: player.grounded,
+            dead: player.dead,
+            suit: self.inventory.suit,
+            noclip: fly,
+        }
+    }
+    /// This tick's actions. CHL2_Player::PlayerRunCommand: no +USE on a barnacle.
+    pub(super) fn take_actions(&mut self) -> Vec<super::Action> {
+        let mut actions = std::mem::take(&mut self.actions);
+        if self.ai.player_held() {
+            actions.retain(|action| !matches!(action, super::Action::Use));
+        }
+        actions
+    }
+    /// Props on a barnacle's tongue follow its tip.
+    fn move_tongue_props(&mut self, physics: &mut Physics) {
+        for (prop, velocity) in std::mem::take(&mut self.ai.prop_moves) {
+            if let Some(body) = physics.entity_body(prop) {
+                physics.set_body_velocity(body, velocity, glam::Vec3::ZERO);
+            }
+        }
+    }
     pub(super) fn apply_ai_results(&mut self, physics: &mut Physics) {
+        self.move_tongue_props(physics);
         for hit in std::mem::take(&mut self.ai.player_hits) {
             if hit.damage > 0. {
                 self.scene

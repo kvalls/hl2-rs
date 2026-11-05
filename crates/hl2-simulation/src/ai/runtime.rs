@@ -47,10 +47,12 @@ mod gather;
 mod goal_inputs;
 mod navlinks;
 use navlinks::overlaps;
+pub use toss::{vec_check_throw, vec_check_toss};
 mod requests;
 mod setup;
 mod speech;
 mod squads;
+mod toss;
 mod zombies;
 
 /// NPCThink's default interval.
@@ -220,80 +222,6 @@ pub fn is_elite_model(model: Option<&str>) -> bool {
         m.replace('\\', "/")
             .eq_ignore_ascii_case("models/combine_super_soldier.mdl")
     })
-}
-/// VecCheckThrow (h_ai.cpp): a throw at `speed` from `start` to `target` whose two
-/// halves (start -> apex, target -> apex) are clear; None when blocked.
-pub fn vec_check_throw(
-    physics: &Physics,
-    id: usize,
-    start: Vec3,
-    target: Vec3,
-    speed: f32,
-) -> Option<Vec3> {
-    let delta = target - start;
-    let time = delta.length() / speed;
-    if time <= 0. {
-        return None;
-    }
-    let mut velocity = delta / time;
-    velocity.z += GRAVITY * time * 0.5;
-    let mut apex = start + delta * 0.5;
-    apex.z += 0.5 * GRAVITY * (time * 0.5) * (time * 0.5);
-    (trace_clear(physics, start, apex, id) && trace_clear(physics, target, apex, id))
-        .then_some(velocity)
-}
-/// VecCheckToss (h_ai.cpp) with no height ratio limit, gravity 1 and the randomized
-/// target (`jitter`: four [0, 1) draws): the apex is the midpoint raised up to 300 units
-/// (15 under a ceiling); None when either half is blocked or the target is 500 above.
-pub fn vec_check_toss(
-    physics: &Physics,
-    id: usize,
-    start: Vec3,
-    target: Vec3,
-    forward: Vec3,
-    jitter: [f32; 4],
-) -> Option<Vec3> {
-    if target.z - start.z > 500. {
-        return None;
-    }
-    let right = forward.cross(Vec3::Z).normalize_or_zero();
-    let r = |u: f32, a: f32| -a + 2. * a * u;
-    let target = target
-        + right * (r(jitter[0], 8.) + r(jitter[1], 16.))
-        + forward * (r(jitter[2], 8.) + r(jitter[3], 16.));
-    let mid = start + (target - start) * 0.5;
-    let mid = match physics.projectile_ray(mid, mid + Vec3::Z * 300., &[id]) {
-        Some(hit) => hit.position - Vec3::Z * 15.,
-        None => mid + Vec3::Z * 300.,
-    };
-    if mid.z < start.z || mid.z < target.z {
-        return None;
-    }
-    let time1 = ((mid.z - start.z) / (0.5 * GRAVITY)).sqrt();
-    let time2 = ((mid.z - target.z) / (0.5 * GRAVITY)).sqrt();
-    if time1 < 0.1 {
-        return None;
-    }
-    let mut velocity = (target - start) / (time1 + time2);
-    velocity.z = GRAVITY * time1;
-    let mut apex = start + velocity * time1;
-    apex.z = mid.z;
-    (trace_clear(physics, start, apex, id) && trace_clear(physics, target, apex, id))
-        .then_some(velocity)
-}
-/// A throw trace's `fraction == 1`: Source ignores the solid a trace starts on or in
-/// (startsolid) and only fails on a surface it enters. The flush target is the enemy's
-/// last seen feet position, on the floor, where our ray reports a hit at its own start
-/// (before this, every packaged flush toss failed).
-fn trace_clear(physics: &Physics, from: Vec3, to: Vec3, id: usize) -> bool {
-    match physics.projectile_ray(from, to, &[id]) {
-        None => true,
-        Some(hit) if hit.position.distance(from) < 0.5 => {
-            let step = (to - from).normalize_or_zero();
-            physics.projectile_ray(from + step, to, &[id]).is_none()
-        }
-        Some(_) => false,
-    }
 }
 /// A melee swing that struck an NPC (CTraceFilterMelee: DMG_CLUB on a hated NPC); the
 /// host applies it through the shared hit path.
@@ -933,12 +861,7 @@ impl AiRuntime {
             grenade_tosses: Vec::new(),
             ball_launches: Vec::new(),
             prop_swats: Vec::new(),
-            barnacles: world
-                .entities
-                .iter()
-                .enumerate()
-                .filter_map(|(id, e)| Some((id, barnacles::BarnacleActor::for_entity(id, e)?)))
-                .collect(),
+            barnacles: barnacles::BarnacleActor::all(world),
             player_holder: None,
             player_hold: None,
             held_npcs: Default::default(),
@@ -984,6 +907,17 @@ impl AiRuntime {
     }
     /// One fixed tick of the NPC stage (before the movement controller tick).
     #[allow(clippy::too_many_arguments)]
+    /// OnTakeDamage_Alive: hits since the last tick, per victim.
+    fn take_damage_reports(&mut self, world: &World, scene: &mut Scene, player: PlayerState) {
+        for (victim, by_player, damage) in std::mem::take(&mut scene.npc_damage) {
+            if let Some(actor) = self.actors.get_mut(&victim) {
+                actor.damage_taken = actor.damage_taken.max(damage);
+                actor.damaged_by_player |= by_player;
+            }
+            self.barnacle_hurt(victim);
+            self.pain_or_death_sound(victim, world, scene, player);
+        }
+    }
     pub fn tick(
         &mut self,
         world: &World,
@@ -993,15 +927,7 @@ impl AiRuntime {
         transients: &[ActorHull],
         player: PlayerState,
     ) {
-        // OnTakeDamage_Alive: hits since the last tick, per victim.
-        for (victim, by_player, damage) in std::mem::take(&mut scene.npc_damage) {
-            if let Some(actor) = self.actors.get_mut(&victim) {
-                actor.damage_taken = actor.damage_taken.max(damage);
-                actor.damaged_by_player |= by_player;
-            }
-            self.barnacle_hurt(victim);
-            self.pain_or_death_sound(victim, world, scene, player);
-        }
+        self.take_damage_reports(world, scene, player);
         if let Some(value) = self.stunstick_damage {
             super::metropolice::STUNSTICK_DAMAGE.with(|d| d.set(value));
         }
@@ -1463,8 +1389,7 @@ impl AiRuntime {
                 };
                 let center = state.origin + Vec3::Z * 36.;
                 other != id
-                    && !state.killed
-                    && !state.corpse
+                    && !state.dead()
                     && state.visible
                     && sees_height(state.origin.z)
                     && center.distance(eye) <= senses::LOOK_DISTANCE

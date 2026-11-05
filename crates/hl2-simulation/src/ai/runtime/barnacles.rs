@@ -58,6 +58,13 @@ pub struct BarnacleActor {
 }
 
 impl BarnacleActor {
+    /// The map's barnacles.
+    pub fn all(world: &World) -> std::collections::BTreeMap<usize, Self> {
+        let entities = world.entities.iter().enumerate();
+        entities
+            .filter_map(|(id, e)| Some((id, Self::for_entity(id, e)?)))
+            .collect()
+    }
     pub fn for_entity(id: usize, e: &modkit_core::Entity) -> Option<Self> {
         if e.class() != "npc_barnacle" {
             return None;

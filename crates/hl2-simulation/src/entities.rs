@@ -242,6 +242,10 @@ impl State {
     pub fn door_closed(&self) -> bool {
         self.target <= 0.
     }
+    /// Out of play: removed, or a corpse still in the world.
+    pub fn dead(&self) -> bool {
+        self.killed || self.corpse
+    }
     /// The actor plays authored locomotion (IsMoving for look-target choice).
     pub fn is_moving(&self) -> bool {
         self.movement_animation.is_some()
