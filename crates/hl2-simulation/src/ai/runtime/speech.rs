@@ -35,6 +35,23 @@ fn headcrab_pain(actor: &mut AiActor, scene: &mut Scene, id: usize) {
         ..cue.into()
     });
 }
+/// A bird's DeathSound. With 1 health none lives to make a PainSound.
+fn bird_death(actor: &mut AiActor, scene: &mut Scene, id: usize) {
+    let AiClass::Bird(bird) = &actor.class else {
+        return;
+    };
+    let state = &scene.states[id];
+    if !state.killed || std::mem::replace(&mut actor.death_spoken, true) {
+        return;
+    }
+    if let Some(cue) = bird.kind.death_sound() {
+        let origin = state.origin;
+        scene.sounds.push(crate::sounds::SoundRequest {
+            origin: Some(origin + Vec3::Z * 6.),
+            ..cue.into()
+        });
+    }
+}
 /// CZombie and CNPC_PoisonZombie PainSound and DeathSound.
 fn zombie_pain(actor: &mut AiActor, scene: &mut Scene, id: usize) {
     let now = scene.time;
@@ -370,6 +387,9 @@ impl AiRuntime {
         }
         if matches!(actor.class, AiClass::Zombie(_)) {
             return zombie_pain(actor, scene, id);
+        }
+        if matches!(actor.class, AiClass::Bird(_)) {
+            return bird_death(actor, scene, id);
         }
         // CAI_PlayerAlly::PainSound speaks TLK_WOUND; the companions' DeathSound emits
         // their die sound (CNPC_Citizen/CNPC_Barney/CNPC_Alyx).

@@ -1,7 +1,7 @@
 //! Headcrabs and zombies in the AI think: GatherAttackConditions' class parts (the crab's
 //! leap, zombie claws, the poison zombie's crab throws, the fast zombie's leap) and the
 //! zombies' per-think sounds.
-use super::super::conditions::{COND_CAN_RANGE_ATTACK1, COND_CAN_RANGE_ATTACK2};
+use super::super::conditions::{COND_CAN_RANGE_ATTACK1, COND_CAN_RANGE_ATTACK2, COND_NEW_ENEMY};
 use super::super::host::PhysicsSight;
 use super::super::senses::SightWorld;
 use super::super::state::NpcState;
@@ -244,6 +244,42 @@ fn fast_leap(actor: &mut AiActor, v: &AttackView, physics: &Physics) {
         zombie::fast::range_condition(unblocked) == Some(COND_CAN_RANGE_ATTACK1) && clear();
     if let Some(c) = zombie::fast::range_condition(check) {
         actor.npc.conditions.set(c);
+    }
+}
+
+/// CNPC_PoisonZombie's per-think parts: its pain and crab throw timing, and its breathing.
+pub(super) fn poison_stage(
+    actor: &mut AiActor,
+    id: usize,
+    world: &World,
+    scene: &Scene,
+    player: &PlayerState,
+    now: f64,
+) {
+    let new_enemy = actor.npc.conditions.has(COND_NEW_ENEMY);
+    let largest_hit = std::mem::take(&mut actor.largest_hit);
+    let enemy = actor.npc.enemy;
+    let AiClass::Zombie(z) = &mut actor.class else {
+        return;
+    };
+    if z.kind == zombie::Kind::Poison {
+        let max_health = scene
+            .npc_max_health
+            .get(&id)
+            .copied()
+            .unwrap_or_else(|| crate::gameplay::npc_spawn_health(scene, &world.entities[id]))
+            .max(1.);
+        z.poison_think(now, new_enemy, largest_hit / max_health);
+        let origin = scene.states[id].origin;
+        let enemy_distance = enemy.and_then(|e| {
+            let position = if e == PLAYER {
+                Some(player.feet)
+            } else {
+                scene.states.get(e).map(|s| s.origin)
+            };
+            position.map(|p| (p - origin).length())
+        });
+        z.breathe(enemy_distance);
     }
 }
 

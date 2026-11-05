@@ -8,6 +8,7 @@
 //! throttling, no think staggering). Class layers: npc_metropolice and the humanoids
 //! (npc_citizen, npc_barney, npc_alyx, npc_combine_s); other classes have no AI yet.
 use super::assault;
+use super::bird::{self, Bird};
 use super::conditions::{
     clear_range_complaints, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1,
     COND_ENEMY_DEAD, COND_ENEMY_OCCLUDED, COND_ENEMY_UNREACHABLE, COND_ENEMY_WENT_NULL,
@@ -40,6 +41,8 @@ use source_assets::vpk::Vfs;
 use std::collections::BTreeMap;
 mod actbusy_host;
 mod barnacles;
+mod birds;
+mod class;
 mod crabs;
 mod equipment;
 mod events;
@@ -239,97 +242,7 @@ pub enum AiClass {
     Humanoid(Box<Humanoid>),
     Zombie(Box<Zombie>),
     Headcrab(Box<Headcrab>),
-}
-impl AiClass {
-    pub fn cop(&self) -> Option<&Metropolice> {
-        match self {
-            Self::Metropolice(cop) => Some(cop),
-            _ => None,
-        }
-    }
-    pub fn cop_mut(&mut self) -> Option<&mut Metropolice> {
-        match self {
-            Self::Metropolice(cop) => Some(cop),
-            _ => None,
-        }
-    }
-    pub fn humanoid(&self) -> Option<&Humanoid> {
-        match self {
-            Self::Humanoid(h) => Some(h),
-            _ => None,
-        }
-    }
-    /// The hosted CAI_AssaultBehavior.
-    pub fn assault(&self) -> Option<&assault::Assault> {
-        match self {
-            Self::Metropolice(cop) => cop.assault.as_ref(),
-            Self::Humanoid(h) => h.assault.as_ref(),
-            Self::Zombie(z) => z.assault.as_ref(),
-            Self::Headcrab(h) => h.assault.as_ref(),
-        }
-    }
-    pub fn assault_mut(&mut self) -> &mut Option<assault::Assault> {
-        match self {
-            Self::Metropolice(cop) => &mut cop.assault,
-            Self::Humanoid(h) => &mut h.assault,
-            Self::Zombie(z) => &mut z.assault,
-            Self::Headcrab(h) => &mut h.assault,
-        }
-    }
-    /// The aiscripted_schedule goal (position, run).
-    pub fn script_goal(&self) -> Option<(Vec3, bool)> {
-        match self {
-            Self::Metropolice(cop) => cop.script_goal,
-            Self::Humanoid(h) => h.script_goal,
-            Self::Zombie(z) => z.script_goal,
-            Self::Headcrab(h) => h.script_goal,
-        }
-    }
-    fn script_goal_mut(&mut self) -> &mut Option<(Vec3, bool)> {
-        match self {
-            Self::Metropolice(cop) => &mut cop.script_goal,
-            Self::Humanoid(h) => &mut h.script_goal,
-            Self::Zombie(z) => &mut z.script_goal,
-            Self::Headcrab(h) => &mut h.script_goal,
-        }
-    }
-    fn requests_mut(&mut self) -> &mut Vec<CopRequest> {
-        match self {
-            Self::Metropolice(cop) => &mut cop.requests,
-            Self::Humanoid(h) => &mut h.requests,
-            Self::Zombie(z) => &mut z.requests,
-            Self::Headcrab(h) => &mut h.requests,
-        }
-    }
-    fn behavior_mut(&mut self) -> &mut dyn Behavior {
-        match self {
-            Self::Metropolice(cop) => cop.as_mut(),
-            Self::Humanoid(h) => h.as_mut(),
-            Self::Zombie(z) => z.as_mut(),
-            Self::Headcrab(h) => h.as_mut(),
-        }
-    }
-    /// m_flFieldOfView.
-    fn field_of_view(&self) -> f32 {
-        match self {
-            Self::Metropolice(_) => METROPOLICE_FOV,
-            Self::Humanoid(h) => h.kind.field_of_view(),
-            Self::Zombie(_) => zombie::FIELD_OF_VIEW,
-            Self::Headcrab(_) => headcrab::FIELD_OF_VIEW,
-        }
-    }
-    /// GetSoundInterests.
-    fn sound_interests(&self) -> u32 {
-        match self {
-            Self::Metropolice(_) => METROPOLICE_SOUNDS,
-            Self::Humanoid(h) => h.kind.sound_interests(),
-            // CAI_BaseNPC::GetSoundInterests (SOUND_PLAYER_VEHICLE has no source here).
-            Self::Zombie(_) | Self::Headcrab(_) => {
-                use super::senses::sound;
-                sound::WORLD | sound::COMBAT | sound::PLAYER | sound::BULLET_IMPACT
-            }
-        }
-    }
+    Bird(Box<Bird>),
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct AiActor {
@@ -520,6 +433,9 @@ pub struct AiRuntime {
     pub prop_swats: Vec<(usize, Vec3, Vec3)>,
     /// Barnacles (`barnacles`), which sit beside the schedule actors.
     barnacles: BTreeMap<usize, barnacles::BarnacleActor>,
+    /// Where birds can fly.
+    #[serde(skip)]
+    bird_hints: std::sync::Arc<[bird::FlyHint]>,
     /// The barnacle holding the player, and how far it moved him this tick.
     player_holder: Option<usize>,
     player_hold: Option<Vec3>,
@@ -781,6 +697,7 @@ impl AiRuntime {
         humanoid::add_schedules(&mut schedules);
         zombie::add_schedules(&mut schedules);
         headcrab::add_schedules(&mut schedules);
+        bird::add_schedules(&mut schedules);
         super::actbusy::add_schedules(&mut schedules);
         let busy_anims = vfs
             .and_then(|vfs| vfs.read("scripts/actbusy.txt").ok().flatten())
@@ -862,6 +779,7 @@ impl AiRuntime {
             ball_launches: Vec::new(),
             prop_swats: Vec::new(),
             barnacles: barnacles::BarnacleActor::all(world),
+            bird_hints: birds::fly_hints(world),
             player_holder: None,
             player_hold: None,
             held_npcs: Default::default(),
@@ -1259,6 +1177,7 @@ impl AiRuntime {
         let airborne = !actor.on_ground();
         let innate_range = matches!(actor.class, AiClass::Headcrab(_))
             .then_some((headcrab::MIN_JUMP_DIST, headcrab::MAX_JUMP_DIST));
+        let fly_hints = matches!(actor.class, AiClass::Bird(_)).then(|| self.bird_hints.clone());
         let random = self.random();
         Context {
             now,
@@ -1284,6 +1203,7 @@ impl AiRuntime {
             enemy_sees_me: self.enemy_sees(id, scene, player),
             airborne,
             innate_range,
+            fly_hints,
         }
     }
     /// `enemy_sees_me` for the current enemy (see [`enemy_sees_me`]).
@@ -1537,7 +1457,7 @@ impl AiRuntime {
                 h.armed = actor.weapon.is_some();
                 precriminal_hate
             }
-            AiClass::Zombie(_) | AiClass::Headcrab(_) => precriminal_hate,
+            AiClass::Zombie(_) | AiClass::Headcrab(_) | AiClass::Bird(_) => precriminal_hate,
         };
         // A cop keeps the player as its enemy for the rest of a chase.
         let chasing = actor.class.cop().is_some_and(|cop| cop.chase_until > now);
@@ -2127,6 +2047,7 @@ impl AiRuntime {
                             IdleThen::CopAnswered,
                         ),
                     },
+                    AiClass::Bird(bird) => birds::idle_call(bird, scene, origin),
                     _ => {}
                 }
             }
@@ -2228,33 +2149,7 @@ impl AiRuntime {
             .offer(busy, (world, id), (origin, now), npc_state, hint_roll);
         }
         zombies::think_sounds(actor, id, world, scene, &player, now);
-        if let AiClass::Zombie(z) = &mut actor.class {
-            if z.kind == zombie::Kind::Poison {
-                let max_health = scene
-                    .npc_max_health
-                    .get(&id)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        crate::gameplay::npc_spawn_health(scene, &world.entities[id])
-                    })
-                    .max(1.);
-                z.poison_think(
-                    now,
-                    actor.npc.conditions.has(COND_NEW_ENEMY),
-                    std::mem::take(&mut actor.largest_hit) / max_health,
-                );
-                let origin = scene.states[id].origin;
-                let enemy_distance = actor.npc.enemy.and_then(|e| {
-                    let position = if e == PLAYER {
-                        Some(player.feet)
-                    } else {
-                        scene.states.get(e).map(|s| s.origin)
-                    };
-                    position.map(|p| (p - origin).length())
-                });
-                z.breathe(enemy_distance);
-            }
-        }
+        zombies::poison_stage(actor, id, world, scene, &player, now);
         // MaxYawSpeed and NPC_TranslateActivity's ACT_IDLE_ANGRY by class.
         let weapon_drawn = actor.weapon.is_some();
         let (yaw_speed, idle_angry) = match &actor.class {
@@ -2274,6 +2169,7 @@ impl AiRuntime {
             ),
             AiClass::Zombie(z) => (z.yaw_speed(&actor.npc.activity), false),
             AiClass::Headcrab(h) => (h.max_yaw_speed(&actor.npc.activity), false),
+            AiClass::Bird(_) => (bird::MAX_YAW_SPEED, false),
         };
         if let AiClass::Headcrab(crab) = &mut actor.class {
             crab.sees_enemy = actor.npc.conditions.has(COND_SEE_ENEMY);
@@ -2380,6 +2276,7 @@ impl AiRuntime {
                 controller.set_playback(id, h.run.rate, h.pause_sequence.clone());
             }
         }
+        birds::gather(actor, scene, &player);
         // The motor holds the goal while `actor` goes on to the move and shoot stage.
         let mut move_goal = actor.goal.take();
         let mut motor = SceneMotor {

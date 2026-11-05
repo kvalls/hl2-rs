@@ -6,6 +6,7 @@ pub mod actbusy;
 pub mod ally_speech;
 pub mod assault;
 pub mod barnacle;
+pub mod bird;
 pub mod conditions;
 pub mod default_schedules;
 pub mod efficiency;
@@ -26,3 +27,11 @@ pub mod squad;
 pub mod state;
 pub mod talker;
 pub mod zombie;
+
+/// The next number in [0, 1) of a class's own dice.
+pub(crate) fn roll(seed: &mut u64) -> f32 {
+    *seed ^= *seed << 13;
+    *seed ^= *seed >> 7;
+    *seed ^= *seed << 17;
+    (*seed >> 40) as f32 / (1u32 << 24) as f32
+}

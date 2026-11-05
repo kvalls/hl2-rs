@@ -58,12 +58,18 @@ pub const ZOMBIE_AI_ACTIVITIES: &[&str] = &[
 ];
 /// The activities a class's own AI sets beyond the shared ones: the swatting zombies',
 /// CBlackHeadcrab::NPC_TranslateActivity's panic scurry, SCHED_ZOMBIE_POISON_RANGE_ATTACK2's
-/// threat and CFastZombie's leap, landings, frenzy and big slash.
+/// threat, CFastZombie's leap, landings, frenzy and big slash, and the birds' flight.
 pub fn class_ai_activities(class: &str) -> &'static [&'static str] {
     match class {
         "npc_zombie" | "npc_zombie_torso" => ZOMBIE_AI_ACTIVITIES,
         "npc_headcrab_black" | "npc_headcrab_poison" => &["ACT_BLACKHEADCRAB_RUN_PANIC"],
         "npc_poisonzombie" => &["ACT_ZOMBIE_POISON_THREAT"],
+        "npc_crow" | "npc_pigeon" | "npc_seagull" => &[
+            "ACT_FLY",
+            "ACT_CROW_TAKEOFF",
+            "ACT_CROW_SOAR",
+            "ACT_CROW_LAND",
+        ],
         "npc_barnacle" => &[
             "ACT_BARNACLE_SLURP",
             "ACT_BARNACLE_BITE_HUMAN",

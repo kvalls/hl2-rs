@@ -57,7 +57,7 @@ fn flags(world: &World, id: usize) -> u32 {
 }
 
 /// SDK `VectorAngles`: (pitch, yaw) in degrees looking along `direction`.
-fn angles_toward(direction: Vec3) -> (f32, f32) {
+pub fn angles_toward(direction: Vec3) -> (f32, f32) {
     let yaw = direction.y.atan2(direction.x).to_degrees();
     let pitch = (-direction.z)
         .atan2(direction.truncate().length())

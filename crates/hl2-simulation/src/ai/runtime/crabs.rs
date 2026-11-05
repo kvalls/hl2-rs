@@ -137,7 +137,7 @@ fn crab_leap_touch(crab: &mut Headcrab, touched: bool, bites: bool) -> Option<bo
     Some(bites)
 }
 /// The faller's hull bounds.
-fn fall_hull(world: &World, id: usize) -> crate::npc_probe::Hull {
+pub(super) fn fall_hull(world: &World, id: usize) -> crate::npc_probe::Hull {
     world
         .entities
         .get(id)
@@ -146,7 +146,7 @@ fn fall_hull(world: &World, id: usize) -> crate::npc_probe::Hull {
         .bounds()
 }
 /// How much of the step the trace allows.
-fn step_fraction(hit: &crate::npc_probe::HullTrace) -> f32 {
+pub(super) fn step_fraction(hit: &crate::npc_probe::HullTrace) -> f32 {
     if hit.trace.start_solid {
         0.
     } else {

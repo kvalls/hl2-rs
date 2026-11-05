@@ -153,11 +153,11 @@
   "crates/hl2-bevy/src/rendering.rs": 1420,
   "crates/hl2-bevy/src/video.rs": 1027,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
-  "crates/hl2-simulation/src/ai/runtime.rs": 2559,
+  "crates/hl2-simulation/src/ai/runtime.rs": 2456,
   "crates/hl2-simulation/src/entities/choreography.rs": 1229,
   "crates/hl2-simulation/src/gameplay.rs": 2860,
   "crates/hl2-simulation/src/npc.rs": 1464,
-  "crates/hl2-simulation/src/physics.rs": 3428,
+  "crates/hl2-simulation/src/physics.rs": 3423,
   "crates/hl2-simulation/src/projectiles.rs": 1264,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1761,
@@ -226,7 +226,7 @@
    133
   ],
   "crates/hl2-simulation/src/ai/runtime.rs::think": [
-   1182
+   1159
   ],
   "crates/hl2-simulation/src/ai/runtime.rs::tick": [
    299
@@ -304,7 +304,7 @@
    173
   ],
   "crates/hl2-simulation/src/physics.rs::add_model_instance": [
-   246
+   241
   ],
   "crates/hl2-simulation/src/physics.rs::add_runtime_body": [
    107

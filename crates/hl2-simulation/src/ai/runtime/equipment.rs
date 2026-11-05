@@ -1,6 +1,7 @@
 //! Actors and their weapons: creating an actor for an entity, equipping it, shot regulators
 //! and weapon definitions.
 
+use super::super::bird::Kind;
 use super::{
     headcrab, humanoid, is_elite_model, zombie, AiActor, AiClass, AiNpc, AiRuntime, Headcrab,
     Humanoid, Metropolice, PlayerState, Zombie, COP_CHATTER_ASK_QUESTION, PLAYER, SF_NPC_GAG,
@@ -54,7 +55,9 @@ impl AiRuntime {
         let kind = humanoid::Kind::for_class(e.class());
         let zombie = zombie::Kind::for_class(e.class());
         let crab = headcrab::is_headcrab_class(e.class());
-        if e.class() != "npc_metropolice" && kind.is_none() && zombie.is_none() && !crab {
+        let bird = Kind::for_class(e.class());
+        let other = kind.is_none() && zombie.is_none() && !crab && bird.is_none();
+        if e.class() != "npc_metropolice" && other {
             return None;
         }
         let flags: u32 = e
@@ -69,6 +72,7 @@ impl AiRuntime {
         npc.shot_regulator = Self::regulator(e.class(), weapon.as_ref(), defs, id);
         let class = match kind {
             _ if crab => AiClass::Headcrab(Box::new(Headcrab::for_class(e.class()))),
+            _ if bird.is_some() => super::birds::class_for(e, bird.unwrap_or(Kind::Crow), id),
             _ if zombie.is_some() => {
                 let mut z = Zombie::new(
                     zombie.unwrap_or(zombie::Kind::Classic),
@@ -264,7 +268,7 @@ impl AiRuntime {
                         .is_some_and(|w| w.class == "weapon_stunstick");
                 }
                 AiClass::Humanoid(h) => h.armed = weapon.is_some(),
-                AiClass::Zombie(_) | AiClass::Headcrab(_) => {}
+                AiClass::Zombie(_) | AiClass::Headcrab(_) | AiClass::Bird(_) => {}
             }
             actor.weapon = weapon;
             actor.npc.shot_regulator = regulator;

@@ -17,10 +17,11 @@ use crate::physics::{npc_hull, Physics};
 
 /// SF_NPC_FALL_TO_GROUND (ai_basenpc.h).
 pub const SF_NPC_FALL_TO_GROUND: u32 = 1 << 2;
-/// Classes whose Spawn skips NPCInit, so nothing puts them on the ground: a barnacle hangs from
-/// its ceiling, whatever its spawnflags say.
-fn stays_where_placed(class: &str) -> bool {
-    class == "npc_barnacle"
+/// NPCs nothing puts on the ground: a barnacle's Spawn skips NPCInit, so it hangs from its ceiling
+/// whatever its spawnflags say, and a bird that starts in the air has FL_FLY.
+fn stays_where_placed(class: &str, flags: u32) -> bool {
+    use crate::ai::bird::{Kind, SF_FLYING};
+    class == "npc_barnacle" || Kind::for_class(class).is_some() && flags & SF_FLYING != 0
 }
 /// SF_NPC_TEMPLATE: removed at map spawn, used by an npc_template_maker.
 pub const SF_NPC_TEMPLATE: u32 = 1 << 11;
@@ -738,7 +739,7 @@ impl NpcMakers {
                 continue;
             }
             self.started.insert(id);
-            if stays_where_placed(e.class()) {
+            if stays_where_placed(e.class(), flags(e)) {
                 continue;
             }
             let Some((mins, maxs)) = npc_hull(e.class()) else {
@@ -823,6 +824,10 @@ impl NpcMakers {
             self.diagnostics.landed += 1;
         }
     }
+    /// A bird told to fly while still dropping at the start of the map.
+    pub fn stop_falling(&mut self, id: usize) {
+        self.falling.remove(&id);
+    }
     pub fn falling(&self, id: usize) -> bool {
         self.falling.contains_key(&id)
     }
@@ -888,8 +893,11 @@ fn player_visible(world: &World, physics: &Physics, v: Viewer, spot: Vec3) -> bo
 mod tests {
     #[test]
     fn a_barnacle_is_never_put_on_the_ground() {
-        assert!(stays_where_placed("npc_barnacle"));
-        assert!(!stays_where_placed("npc_zombie"));
+        assert!(stays_where_placed("npc_barnacle", 4));
+        assert!(!stays_where_placed("npc_zombie", 4));
+        assert!(stays_where_placed("npc_crow", 16));
+        assert!(!stays_where_placed("npc_crow", 4));
+        assert!(!stays_where_placed("npc_zombie", 16));
     }
 
     use super::*;

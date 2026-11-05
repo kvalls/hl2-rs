@@ -61,6 +61,10 @@ impl AiRuntime {
                 self.barnacle_input(target, &input, parameter.trim().parse().unwrap_or(0.));
                 continue;
             }
+            if crate::ai::bird::Kind::for_class(class).is_some() {
+                self.bird_input(target, &parameter);
+                continue;
+            }
             if class == "aiscripted_schedule" {
                 self.scripted_schedule_input(world, scene, target, &input);
                 continue;

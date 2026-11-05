@@ -200,6 +200,8 @@ pub struct Context {
     pub airborne: bool,
     /// bits_CAP_INNATE_RANGE_ATTACK1: InnateRange1MinRange / InnateRange1MaxRange.
     pub innate_range: Option<(f32, f32)>,
+    /// Where a bird can fly; None for other classes.
+    pub fly_hints: Option<std::sync::Arc<[super::bird::FlyHint]>>,
 }
 
 /// A class's schedule hooks (SelectSchedule, TranslateSchedule, StartTask/RunTask).

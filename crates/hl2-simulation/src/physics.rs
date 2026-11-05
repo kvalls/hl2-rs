@@ -1392,12 +1392,7 @@ impl Physics {
                     .translation(vector(instance.origin + (mins + maxs) * 0.5))
                     .friction(0.7)
                     .user_data(id as u128 + 1)
-                    .collision_groups(InteractionGroups::new(
-                        HULL_GROUP,
-                        Group::ALL
-                            .difference(PROJECTILE_GROUP)
-                            .difference(SHADOW_GROUP),
-                    )),
+                    .collision_groups(npc_trace::hull_groups(&instance.kind)),
             );
             self.npc_collider_contents.insert(hull, CONTENTS_MONSTER);
             if let Some(s) = &solid {

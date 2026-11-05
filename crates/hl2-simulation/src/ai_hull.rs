@@ -83,6 +83,8 @@ pub fn class_hull(class: &str) -> Option<HullType> {
         "npc_headcrab" | "npc_headcrab_fast" | "npc_headcrab_black" | "npc_headcrab_poison" => {
             Some(HullType::Tiny)
         }
+        // CNPC_Crow::Spawn.
+        "npc_crow" | "npc_pigeon" | "npc_seagull" => Some(HullType::Tiny),
         _ => None,
     }
 }
@@ -120,6 +122,7 @@ pub fn eye_height(class: &str) -> f32 {
         "npc_headcrab" | "npc_headcrab_fast" | "npc_headcrab_black" | "npc_headcrab_poison" => {
             crate::ai::headcrab::EYE_HEIGHT
         }
+        "npc_crow" | "npc_pigeon" | "npc_seagull" => crate::ai::bird::EYE_HEIGHT,
         _ => 64.,
     }
 }

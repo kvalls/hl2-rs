@@ -2,10 +2,23 @@
 //! several per tick, so a trace skips whatever its swept box proves it cannot hit.
 use super::{
     player_convex, pose, trace_brushes, vector, ActorHull, Brush, Collider, ColliderHandle, Cuboid,
-    Hull, HullTrace, NpcCollisionWorld, Physics, Point, Quat, Query, QueryFilter, ShapeCastOptions,
-    Trace, Vec3, CONTENTS_MONSTER, HULL_GROUP, PROJECTILE_GROUP, QUERY_GROUPS, RAGDOLL_GROUP,
-    SCALE, SHADOW_GROUP, WEAPON_GROUP,
+    Group, Hull, HullTrace, InteractionGroups, NpcCollisionWorld, Physics, Point, Quat, Query,
+    QueryFilter, ShapeCastOptions, Trace, Vec3, CONTENTS_MONSTER, HULL_GROUP, PROJECTILE_GROUP,
+    QUERY_GROUPS, RAGDOLL_GROUP, SCALE, SHADOW_GROUP, WEAPON_GROUP,
 };
+
+/// What an NPC's body box stops. A bird's stops nothing: HL2COLLISION_GROUP_CROW passes the player,
+/// NPCs and other birds, and bullets hit its hitboxes.
+pub(super) fn hull_groups(class: &str) -> InteractionGroups {
+    let stops = if crate::ai::bird::Kind::for_class(class).is_some() {
+        Group::NONE
+    } else {
+        Group::ALL
+            .difference(PROJECTILE_GROUP)
+            .difference(SHADOW_GROUP)
+    };
+    InteractionGroups::new(HULL_GROUP, stops)
+}
 
 /// Beyond the 1/32 unit trace distance and the Parry fallback's 0.001 minimum half extent.
 const SWEEP_MARGIN: f32 = 0.04;

@@ -200,10 +200,7 @@ impl Barnacle {
     }
     /// A number in [0, 1).
     pub fn roll(&mut self) -> f32 {
-        self.seed ^= self.seed << 13;
-        self.seed ^= self.seed >> 7;
-        self.seed ^= self.seed << 17;
-        (self.seed >> 40) as f32 / (1u32 << 24) as f32
+        super::roll(&mut self.seed)
     }
     /// The tongue's reach to a floor `distance` below the root.
     pub fn reach(&self, distance: f32) -> f32 {

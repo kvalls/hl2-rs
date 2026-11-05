@@ -692,7 +692,8 @@ const TABLE: &[(Class, Class, Disposition, i32)] = &[
     (EarthFauna, Scanner, HT, 0),
     (EarthFauna, Stalker, HT, 0),
     (EarthFauna, Vortigaunt, HT, 0),
-    (EarthFauna, Zombie, HT, 0),
+    // Birds are the only members, and each one's Spawn adds this: zombies smell good to them.
+    (EarthFauna, Zombie, NU, 0),
     (EarthFauna, Protosniper, HT, 0),
     (EarthFauna, EarthFauna, NU, 0),
     (EarthFauna, PlayerAlly, HT, 0),
