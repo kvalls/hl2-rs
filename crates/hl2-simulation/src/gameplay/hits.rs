@@ -225,6 +225,14 @@ pub(super) fn bullet_kind(ammo_type: &str, melee: bool) -> u32 {
     }
 }
 
+/// A club hit takes all of a barnacle's health.
+pub(super) fn club_damage(e: &Entity, melee: bool, health: f32, damage: f32) -> f32 {
+    if melee && e.class() == "npc_barnacle" {
+        health
+    } else {
+        damage
+    }
+}
 /// Takes a dead entity out of the world. A barnacle stays on its ceiling as a corpse and plays
 /// its own death.
 pub(super) fn remove_killed(scene: &mut Scene, e: &Entity, id: usize) {

@@ -87,6 +87,22 @@ pub fn class_hull(class: &str) -> Option<HullType> {
     }
 }
 
+/// The box an NPC's body collides with. A barnacle's hangs under its origin and has no hull type:
+/// without this its collider is the whole bind mesh, tongue and all, and anyone under it stands
+/// inside the body.
+pub fn body_box(class: &str) -> Option<(glam::Vec3, glam::Vec3)> {
+    if class == "npc_barnacle" {
+        return Some((
+            glam::Vec3::new(-16., -16., -40.),
+            glam::Vec3::new(16., 16., 0.),
+        ));
+    }
+    class_hull(class).map(|t| {
+        let hull = t.bounds();
+        (hull.mins, hull.maxs)
+    })
+}
+
 /// WorldSpaceCenter's height above the origin: the middle of the class hull (36 for the
 /// human hull and classes not reviewed yet).
 pub fn center_height(class: &str) -> f32 {

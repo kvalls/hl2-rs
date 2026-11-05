@@ -154,15 +154,7 @@ const PLAYER_GROUPS: InteractionGroups = InteractionGroups::new(
 );
 /// The SDK hull (mins, maxs) of npc_* classes (SetHullType), for those done so far.
 pub fn npc_hull(class: &str) -> Option<(Vec3, Vec3)> {
-    // Hangs under its origin. Without this its collider is the whole bind mesh, tongue and all,
-    // and anyone under it stands inside the body.
-    if class == "npc_barnacle" {
-        return Some((Vec3::new(-16., -16., -40.), Vec3::new(16., 16., 0.)));
-    }
-    crate::ai_hull::class_hull(class).map(|t| {
-        let hull = t.bounds();
-        (hull.mins, hull.maxs)
-    })
+    crate::ai_hull::body_box(class)
 }
 /// Traces with COLLISION_GROUP_NONE (FindUseEntity, the gravity gun's FindObject and
 /// punt): they also hit COLLISION_GROUP_WEAPON bodies such as a thrown frag.

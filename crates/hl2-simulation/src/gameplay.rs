@@ -2225,12 +2225,7 @@ pub fn apply_hit(
     } else {
         damage
     };
-    // A club hit takes all of a barnacle's health.
-    let damage = if melee && e.class() == "npc_barnacle" {
-        scene.states[id].value
-    } else {
-        damage
-    };
+    let damage = hits::club_damage(e, melee, scene.states[id].value, damage);
     // TakeDamage -> PassesDamageFilter: the shooter's friends keep their health (TraceAttack
     // already bled; the player's refusal fires OnDamagedByPlayer / OnDamagedByPlayerSquad).
     if refuse_damage(world, scene, id, attacker.attacker()) {
