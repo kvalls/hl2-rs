@@ -115,12 +115,12 @@ fn arrive(bird: &mut Bird, world: &World, scene: &mut Scene, id: usize) -> bool 
     false
 }
 
-/// What one bird's flight needs from the world.
-struct Air<'a> {
-    world: &'a World,
-    physics: &'a Physics,
-    hull: Hull,
-    id: usize,
+/// What one flight needs from the world.
+pub(super) struct Air<'a> {
+    pub world: &'a World,
+    pub physics: &'a Physics,
+    pub hull: Hull,
+    pub id: usize,
 }
 impl Air<'_> {
     /// One steer. False when the flight has ended here.
@@ -142,7 +142,7 @@ impl Air<'_> {
         }
         let reach = steer.direction * AIR_SPEED * interval;
         let probe = (origin, origin + reach);
-        let hit = flight_trace(self.world, self.physics, probe, self.hull, id);
+        let hit = self.trace(probe.0, probe.1);
         let direction = if hit.trace.fraction < 1. {
             bird::deflect(steer.direction, hit.trace.normal)
         } else {
@@ -166,21 +166,27 @@ impl Air<'_> {
         }
         true
     }
-    /// One tick along the velocity; what stops it takes that part of the speed away.
-    fn step(&self, bird: &mut Bird, scene: &mut Scene) {
+    /// A hull trace of this flight's body.
+    pub fn trace(&self, from: Vec3, to: Vec3) -> crate::npc_probe::HullTrace {
+        flight_trace(self.world, self.physics, (from, to), self.hull, self.id)
+    }
+    /// One tick along the velocity, which what stops the body takes that part of away. The
+    /// tick's length.
+    pub fn step(&self, velocity: &mut Vec3, last_step: &mut f64, scene: &mut Scene) -> f32 {
         let id = self.id;
         let now = scene.time;
-        let dt = (now - bird.last_step).clamp(0., 0.1) as f32;
-        bird.last_step = now;
+        let dt = (now - *last_step).clamp(0., 0.1) as f32;
+        *last_step = now;
         let origin = scene.states[id].origin;
-        let end = origin + bird.velocity * dt;
-        let hit = flight_trace(self.world, self.physics, (origin, end), self.hull, id);
+        let end = origin + *velocity * dt;
+        let hit = self.trace(origin, end);
         let fraction = step_fraction(&hit);
         scene.states[id].origin = origin + (end - origin) * fraction;
         if fraction < 1. {
             let normal = hit.trace.normal;
-            bird.velocity -= normal * bird.velocity.dot(normal).min(0.);
+            *velocity -= normal * velocity.dot(normal).min(0.);
         }
+        dt
     }
 }
 
@@ -279,7 +285,7 @@ impl AiRuntime {
                 }
             }
             if let AiClass::Bird(bird) = &mut actor.class {
-                air.step(bird, scene);
+                air.step(&mut bird.velocity, &mut bird.last_step, scene);
             }
         }
     }

@@ -23,6 +23,7 @@ use super::humanoid::{self, Humanoid};
 use super::metropolice::{CopRequest, Metropolice, PlayerView, PLAYER};
 use super::police::{PoliceGoal, Policing};
 use super::relationships::{classify, Class, Disposition, Relationships};
+use super::scanner::Scanner;
 use super::schedule::{self, AiNpc, Behavior, Context, Schedules};
 use super::senses::{self, SightWorld, SoundEnt, Viewer};
 use super::state::{select_ideal_state, NpcState, StateInputs};
@@ -52,6 +53,7 @@ mod navlinks;
 use navlinks::overlaps;
 pub use toss::{vec_check_throw, vec_check_toss};
 mod requests;
+mod scanners;
 mod setup;
 mod speech;
 mod squads;
@@ -243,6 +245,7 @@ pub enum AiClass {
     Zombie(Box<Zombie>),
     Headcrab(Box<Headcrab>),
     Bird(Box<Bird>),
+    Scanner(Box<Scanner>),
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct AiActor {
@@ -691,14 +694,7 @@ impl AiRuntime {
     /// The AI for the map's NPCs (metrocops) and ai_goal_police entities. `vfs` reads
     /// skill.cfg (sk_npc_dmg_stunstick) and the stunstick's sound script.
     pub fn new(world: &World, vfs: Option<&Vfs>) -> Self {
-        let mut schedules = Schedules::default();
-        super::police::add_schedules(&mut schedules);
-        super::metropolice::add_schedules(&mut schedules);
-        humanoid::add_schedules(&mut schedules);
-        zombie::add_schedules(&mut schedules);
-        headcrab::add_schedules(&mut schedules);
-        bird::add_schedules(&mut schedules);
-        super::actbusy::add_schedules(&mut schedules);
+        let schedules = setup::class_schedules();
         let busy_anims = vfs
             .and_then(|vfs| vfs.read("scripts/actbusy.txt").ok().flatten())
             .map(|text| super::actbusy::parse_busy_anims(&String::from_utf8_lossy(&text)))
@@ -1457,7 +1453,7 @@ impl AiRuntime {
                 h.armed = actor.weapon.is_some();
                 precriminal_hate
             }
-            AiClass::Zombie(_) | AiClass::Headcrab(_) | AiClass::Bird(_) => precriminal_hate,
+            _ => precriminal_hate,
         };
         // A cop keeps the player as its enemy for the rest of a chase.
         let chasing = actor.class.cop().is_some_and(|cop| cop.chase_until > now);
@@ -2169,7 +2165,7 @@ impl AiRuntime {
             ),
             AiClass::Zombie(z) => (z.yaw_speed(&actor.npc.activity), false),
             AiClass::Headcrab(h) => (h.max_yaw_speed(&actor.npc.activity), false),
-            AiClass::Bird(_) => (bird::MAX_YAW_SPEED, false),
+            AiClass::Bird(_) | AiClass::Scanner(_) => (bird::MAX_YAW_SPEED, false),
         };
         if let AiClass::Headcrab(crab) = &mut actor.class {
             crab.sees_enemy = actor.npc.conditions.has(COND_SEE_ENEMY);
@@ -2276,7 +2272,7 @@ impl AiRuntime {
                 controller.set_playback(id, h.run.rate, h.pause_sequence.clone());
             }
         }
-        birds::gather(actor, scene, &player);
+        scanners::gather_air(actor, scene, &player, id);
         // The motor holds the goal while `actor` goes on to the move and shoot stage.
         let mut move_goal = actor.goal.take();
         let mut motor = SceneMotor {

@@ -21,6 +21,10 @@ const SCANNER_UP: f32 = 400.;
 const SCANNER_DECAY: f32 = 0.15;
 /// The target counts as ahead past this cosine.
 const AHEAD: f32 = 0.25;
+/// With nothing to fly at, the share of its speed kept is this times the think's length.
+const COAST: f32 = 9.5;
+/// Running into something pushes it back along the surface's normal by this share of its speed.
+const BOUNCE: f32 = 0.5;
 
 /// A hovering NPC's motion.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
@@ -55,6 +59,28 @@ impl Hover {
             up: SCANNER_UP.min(reach),
             decay: SCANNER_DECAY,
         }
+    }
+    /// One think with nothing to fly at.
+    pub fn coast(&mut self, interval: f32) {
+        self.velocity *= (COAST * interval).min(1.);
+    }
+    /// Time-coherent noise, with `rates` a little different for every NPC.
+    pub fn add_noise(&mut self, rates: Vec3, scale: f32, now: f32) {
+        let wave = |rate: f32, curve: fn(f32) -> f32| curve(rate * now + rate);
+        self.velocity += scale
+            * Vec3::new(
+                wave(rates.x, f32::sin),
+                wave(rates.y, f32::cos),
+                -wave(rates.z, f32::cos),
+            );
+    }
+    /// LimitSpeed.
+    pub fn limit(&mut self, speed: f32) {
+        self.velocity = self.velocity.clamp_length_max(speed);
+    }
+    /// Off a surface it is about to hit.
+    pub fn bounce(&mut self, normal: Vec3) {
+        self.velocity += normal * BOUNCE * self.velocity.length();
     }
     /// `scanner_thrust` applied: one think of flying at `to_target`.
     pub fn fly_scanner(&mut self, to_target: Vec3, interval: f32) {
@@ -136,6 +162,52 @@ mod tests {
         let mut cross = Hover::default();
         cross.fly_scanner(Vec3::X * 1000., THINK);
         assert!(climb.velocity.z > cross.velocity.x);
+    }
+
+    #[test]
+    fn with_nothing_to_fly_at_it_slows_by_the_think() {
+        let mut hover = Hover {
+            velocity: Vec3::X * 100.,
+        };
+        hover.coast(THINK);
+        assert!((hover.velocity.x - 95.).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_long_think_never_speeds_a_coast_up() {
+        let mut hover = Hover {
+            velocity: Vec3::X * 100.,
+        };
+        hover.coast(1.);
+        assert_eq!(hover.velocity.x, 100.);
+    }
+
+    #[test]
+    fn noise_stays_within_its_scale_on_each_axis() {
+        let rates = Vec3::new(1.5, -1.5, 3.);
+        for tick in 0..100 {
+            let mut hover = Hover::default();
+            hover.add_noise(rates, 3., tick as f32 * 0.1);
+            assert!(hover.velocity.abs().max_element() <= 3.);
+        }
+    }
+
+    #[test]
+    fn speed_is_capped_along_its_direction() {
+        let mut hover = Hover {
+            velocity: Vec3::new(300., 400., 0.),
+        };
+        hover.limit(250.);
+        assert!((hover.velocity - Vec3::new(150., 200., 0.)).length() < 0.01);
+    }
+
+    #[test]
+    fn a_surface_pushes_it_back_by_half_its_speed() {
+        let mut hover = Hover {
+            velocity: Vec3::X * 100.,
+        };
+        hover.bounce(-Vec3::X);
+        assert_eq!(hover.velocity.x, 50.);
     }
 
     #[test]

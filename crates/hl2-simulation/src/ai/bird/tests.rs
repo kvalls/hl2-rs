@@ -3,11 +3,11 @@ use crate::ai::conditions::COND_HEAR_COMBAT;
 use crate::ai::schedule::MoveStatus;
 
 #[derive(Default)]
-struct FakeMotor {
+pub(crate) struct FakeMotor {
     activity: String,
     finished: bool,
     /// The legs of a route, when there is one.
-    legs: Option<Vec<Vec3>>,
+    pub legs: Option<Vec<Vec3>>,
 }
 impl Motor for FakeMotor {
     fn set_activity(&mut self, activity: &str) {
@@ -29,6 +29,9 @@ impl Motor for FakeMotor {
         MoveStatus::Idle
     }
     fn fly_route(&mut self, _goal: Vec3) -> Option<Vec<Vec3>> {
+        self.legs.clone()
+    }
+    fn fly_patrol(&mut self, _length: f32, _seed: &mut u64) -> Option<Vec<Vec3>> {
         self.legs.clone()
     }
 }

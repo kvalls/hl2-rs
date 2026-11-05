@@ -2,6 +2,7 @@
 //! and weapon definitions.
 
 use super::super::bird::Kind;
+use super::super::scanner::Scanner;
 use super::{
     headcrab, humanoid, is_elite_model, zombie, AiActor, AiClass, AiNpc, AiRuntime, Headcrab,
     Humanoid, Metropolice, PlayerState, Zombie, COP_CHATTER_ASK_QUESTION, PLAYER, SF_NPC_GAG,
@@ -56,7 +57,8 @@ impl AiRuntime {
         let zombie = zombie::Kind::for_class(e.class());
         let crab = headcrab::is_headcrab_class(e.class());
         let bird = Kind::for_class(e.class());
-        let other = kind.is_none() && zombie.is_none() && !crab && bird.is_none();
+        let scanner = e.class() == "npc_cscanner";
+        let other = kind.is_none() && zombie.is_none() && !crab && bird.is_none() && !scanner;
         if e.class() != "npc_metropolice" && other {
             return None;
         }
@@ -73,6 +75,10 @@ impl AiRuntime {
         let class = match kind {
             _ if crab => AiClass::Headcrab(Box::new(Headcrab::for_class(e.class()))),
             _ if bird.is_some() => super::birds::class_for(e, bird.unwrap_or(Kind::Crow), id),
+            _ if scanner => {
+                let seed = 0xbb67_ae85_84ca_a73b ^ id as u64;
+                AiClass::Scanner(Box::new(Scanner::new(flags & SF_NPC_GAG != 0, seed)))
+            }
             _ if zombie.is_some() => {
                 let mut z = Zombie::new(
                     zombie.unwrap_or(zombie::Kind::Classic),
@@ -268,7 +274,7 @@ impl AiRuntime {
                         .is_some_and(|w| w.class == "weapon_stunstick");
                 }
                 AiClass::Humanoid(h) => h.armed = weapon.is_some(),
-                AiClass::Zombie(_) | AiClass::Headcrab(_) | AiClass::Bird(_) => {}
+                _ => {}
             }
             actor.weapon = weapon;
             actor.npc.shot_regulator = regulator;

@@ -262,13 +262,18 @@ impl Motor for SceneMotor<'_> {
     /// From just off the ground, so that a bird standing on it can leave.
     fn fly_route(&mut self, goal: Vec3) -> Option<Vec<Vec3>> {
         let (world, physics, me) = (self.world, self.physics, self.entity);
-        let hull = HullType::Tiny.bounds();
+        let hull = flight_hull(world, me);
         let from = self.scene.states[me].origin + Vec3::Z * FLIGHT_START_LIFT;
-        let clear = |a: Vec3, b: Vec3| {
-            let hit = flight_trace(world, physics, (a, b), hull, me);
-            !hit.trace.start_solid && hit.trace.fraction >= 1.
-        };
-        self.controller.fly_route(HullType::Tiny, from, goal, clear)
+        let clear = |a, b| clear_flight(world, physics, (a, b), hull, me);
+        self.controller.fly_route(hull, from, goal, clear)
+    }
+    fn fly_patrol(&mut self, length: f32, seed: &mut u64) -> Option<Vec<Vec3>> {
+        let (world, physics, me) = (self.world, self.physics, self.entity);
+        let hull = flight_hull(world, me);
+        let from = self.scene.states[me].origin;
+        let clear = |a, b| clear_flight(world, physics, (a, b), hull, me);
+        let roll = || super::roll(seed);
+        self.controller.fly_patrol(hull, from, length, clear, roll)
     }
     fn movement(&self) -> MoveStatus {
         let Some(key) = *self.goal else {
@@ -281,6 +286,26 @@ impl Motor for SceneMotor<'_> {
             None => MoveStatus::Idle,
         }
     }
+}
+
+/// The hull an NPC flies with.
+fn flight_hull(world: &World, id: usize) -> HullType {
+    let class = world.entities.get(id).map(|e| e.class());
+    class
+        .and_then(crate::ai_hull::class_hull)
+        .unwrap_or(HullType::Tiny)
+}
+
+/// Whether a body can fly a straight leg.
+fn clear_flight(
+    world: &World,
+    physics: &Physics,
+    leg: (Vec3, Vec3),
+    hull: HullType,
+    id: usize,
+) -> bool {
+    let hit = flight_trace(world, physics, leg, hull.bounds(), id);
+    !hit.trace.start_solid && hit.trace.fraction >= 1.
 }
 
 /// A hull trace that only the world and props stop: birds pass through NPCs, each other and the

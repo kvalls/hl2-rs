@@ -1,49 +1,198 @@
-//! npc_cscanner (DESIGN 14o session 46, step 2): a hovering Combine scanner. This first step holds
-//! what it decides between: patrolling, flinching, and closing on an enemy from high up. Its
-//! flight is `ai::hover`; the spotlight, photographs and inspection are step 3, the death dive
-//! step 4, and until then a scanner with something to inspect patrols.
-use super::conditions::{COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOST_ENEMY};
+//! npc_cscanner (DESIGN 14o session 46, step 2): a hovering Combine scanner. This module holds what
+//! it decides between, its schedules and where it wants to be; `ai::hover` is its flight arithmetic
+//! and `runtime::scanners` gives it the world and carries the body. The spotlight, photographs and
+//! inspection are step 3 and the death dive step 4: until then a scanner with something to inspect
+//! patrols, and one with an enemy hovers near it without attacking.
+use super::assault::Assault;
+use super::conditions::{
+    Cond, Conditions, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOST_ENEMY, LAST_SHARED_CONDITION,
+};
 use super::hover::Hover;
-use super::schedule::{AiNpc, Context};
+use super::metropolice::CopRequest;
+use super::schedule::TaskStatus::{Complete, Failed, Running};
+use super::schedule::{
+    base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg, TaskStatus,
+};
+use super::senses::sound;
 use super::state::NpcState;
+use crate::sounds::PatchOp;
 use glam::Vec3;
+use modkit_core::animation::simple_spline;
 use serde::Serialize;
 
 /// m_flFieldOfView.
 pub const FIELD_OF_VIEW: f32 = 0.2;
 /// SetViewOffset's height.
 pub const EYE_HEIGHT: f32 = 10.;
+/// SCANNER_MAX_SPEED: LimitSpeed's cap, with or without an enemy.
+pub const MAX_SPEED: f32 = 250.;
+/// SCANNER_SPOTLIGHT_FLY_HEIGHT and SCANNER_NOSPOTLIGHT_FLY_HEIGHT, which are equal.
+pub const GROUND_CLEARANCE: f32 = 72.;
+/// AddNoiseToVelocity's scale, so that it never looks bolted in place.
+pub const NOISE: f32 = 3.;
 /// SCANNER_ATTACK_FAR_DIST: past this it stays high and approaches with its spotlight.
 const ATTACK_FAR: f32 = 300.;
-/// How long a patrol's random route can be.
-pub const PATROL_ROUTE: f32 = 2000.;
+/// SCANNER_ATTACK_NEAR_DIST: how high it attacks from, and with the far distance how far.
+const ATTACK_NEAR: f32 = 150.;
+/// SCANNER_SPOTLIGHT_NEAR_DIST, and GetGoalDistance's distance outside an attack.
+const SPOT_HEIGHT: f32 = 64.;
+const SPOT_RANGE: f32 = 128.;
+/// How close to a point along a route counts as there, and to its end by default.
+const LEG_TOLERANCE: f32 = 64.;
+const END_TOLERANCE: f32 = 32.;
+/// GetHeadTurnRate, degrees a second.
+const TURN_RATE: f32 = 350.;
+const ENEMY_TURN_RATE: f32 = 800.;
+/// The lean toward a target straight to one side at full speed, degrees.
+const LEAN: f32 = 120.;
 /// The share of its health below which an alert scanner hurt in the open takes cover.
 const COVER_HEALTH: f32 = 0.75;
-/// Out of ten: how often a hit in combat makes it flinch.
-const COMBAT_FLINCH: f32 = 0.4;
+/// How often a hit in combat makes it flinch: 4 of the 11 values of RandomInt(0, 10).
+const COMBAT_FLINCH: f32 = 4. / 11.;
+/// How often a think speaks: 1 of the 26 values of RandomInt(0, 25).
+const IDLE_CHANCE: f32 = 1. / 26.;
+/// A change of speed share smaller than this leaves the engine sound as it is.
+const ENGINE_STEP: f32 = 0.02;
 
-/// What a scanner does next. The names follow its schedules, which step 2 adds to the table.
+const ENGINE: &str = "NPC_CScanner.FlyLoop";
+const IDLE: &str = "NPC_CScanner.Idle";
+const COMBAT: &str = "NPC_CScanner.Combat";
+pub const PAIN: &str = "NPC_CScanner.Pain";
+pub const DIE: &str = "NPC_CScanner.Die";
+/// Every cue this class plays; a cue that is not preloaded is dropped.
+pub const SOUNDS: &[&str] = &[ENGINE, IDLE, COMBAT, PAIN, DIE];
+
+/// COND_SCANNER_FLY_CLEAR and COND_SCANNER_FLY_BLOCKED: the way to its enemy.
+pub const COND_FLY_CLEAR: Cond = Cond(LAST_SHARED_CONDITION + 1);
+pub const COND_FLY_BLOCKED: Cond = Cond(LAST_SHARED_CONDITION + 2);
+
+const PATROL: &str = "SCHED_CSCANNER_PATROL";
+const CHASE: &str = "SCHED_SCANNER_CHASE_ENEMY";
+const SPOTLIGHT_HOVER: &str = "SCHED_CSCANNER_SPOTLIGHT_HOVER";
+const ATTACK_HOVER: &str = "SCHED_SCANNER_ATTACK_HOVER";
+
+/// The schedules a scanner can reach, with the interrupts every NPC has; the class's own conditions
+/// are in `custom_interrupts`. The model has no ACT_WALK, so the spotlight hover idles.
+const SCHEDULES: &[(&str, &str)] = &[
+    (
+        PATROL,
+        "Tasks TASK_SCANNER_SET_FLY_PATROL 0 TASK_SET_TOLERANCE_DISTANCE 32 \
+         TASK_GET_PATH_TO_RANDOM_NODE 2000 TASK_RUN_PATH 0 TASK_WAIT_FOR_MOVEMENT 0 \
+         Interrupts COND_GIVE_WAY COND_NEW_ENEMY COND_SEE_ENEMY COND_SEE_FEAR COND_HEAR_COMBAT \
+         COND_HEAR_DANGER COND_HEAR_PLAYER COND_LIGHT_DAMAGE COND_HEAVY_DAMAGE COND_PROVOKED",
+    ),
+    (
+        CHASE,
+        "Tasks TASK_SCANNER_SET_FLY_CHASE 0 TASK_SET_FAIL_SCHEDULE SCHEDULE:SCHED_CSCANNER_PATROL \
+         TASK_SET_TOLERANCE_DISTANCE 120 TASK_GET_PATH_TO_ENEMY 0 TASK_RUN_PATH 0 \
+         TASK_WAIT_FOR_MOVEMENT 0 \
+         Interrupts COND_NEW_ENEMY COND_ENEMY_DEAD COND_LOST_ENEMY",
+    ),
+    (
+        SPOTLIGHT_HOVER,
+        "Tasks TASK_CSCANNER_SET_FLY_SPOT 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT 1 \
+         Interrupts COND_NEW_ENEMY",
+    ),
+    (
+        ATTACK_HOVER,
+        "Tasks TASK_SCANNER_SET_FLY_ATTACK 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT 0.1 \
+         Interrupts COND_TOO_FAR_TO_ATTACK COND_NEW_ENEMY",
+    ),
+];
+
+pub fn add_schedules(schedules: &mut Schedules) {
+    for (name, text) in SCHEDULES {
+        let schedule = Schedule::parse(name, text).expect("scanner schedule");
+        schedules.0.insert((*name).into(), schedule);
+    }
+}
+
+/// What a scanner does next. The names follow its schedules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum Plan {
     Script,
     Flinch,
     TakeCover,
     Patrol,
+    Chase,
     SpotlightHover,
     AttackHover,
+}
+
+/// m_nFlyMode, as far as the modes are modeled.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub enum Mode {
+    #[default]
+    Patrol,
+    Chase,
+    Spot,
+    Attack,
 }
 
 /// A scanner under the AI.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Scanner {
+    #[serde(skip)]
+    pub requests: Vec<CopRequest>,
+    pub assault: Option<Assault>,
+    pub script_goal: Option<(Vec3, bool)>,
     pub hover: Hover,
+    pub mode: Mode,
     /// m_flNextAttack.
     pub next_attack: f64,
-    /// m_bShouldInspect: the InputShouldInspect switch.
+    /// m_bShouldInspect, inverted: the InputShouldInspect switch.
     pub ignores_enemies: bool,
+    /// The points of its route still to reach, the next one first.
+    pub route: Vec<Vec3>,
+    /// How close the route's end must come.
+    pub tolerance: f32,
+    /// The enemy's last known position and its eyes, from this think's gather.
+    pub enemy_at: Option<Vec3>,
+    pub enemy_eye: Option<Vec3>,
+    /// IsEnemyPlayerInSuit.
+    pub enemy_in_suit: bool,
+    /// Whether the way to its enemy is blocked, from the last steer.
+    pub fly_blocked: Option<bool>,
+    /// The share of its health left, and the health that is all of it.
+    pub health: f32,
+    pub max_health: f32,
+    /// The noise's three rates (SetNoiseMod).
+    pub bob: Vec3,
+    /// The yaw it turns to and the lean it eases to; the lean it has.
+    pub look_yaw: Option<f32>,
+    pub lean: f32,
+    pub roll: f32,
+    pub next_steer: f64,
+    pub last_step: f64,
+    /// The engine sound runs, and the speed share it was last set for.
+    pub engine_on: bool,
+    engine_share: f32,
+    /// SF_NPC_GAG.
+    gagged: bool,
+    seed: u64,
 }
 impl Scanner {
-    /// The order of its choices. `health` is the share it has left, `roll` in [0, 1).
+    pub fn new(gagged: bool, seed: u64) -> Self {
+        let mut scanner = Self {
+            tolerance: END_TOLERANCE,
+            health: 1.,
+            gagged,
+            seed: seed | 1,
+            ..Default::default()
+        };
+        let across = |roll: f32| roll * 4. - 2.;
+        let x = across(scanner.roll());
+        let y = across(scanner.roll());
+        let z = 2. + 2. * scanner.roll();
+        let sign = if scanner.roll() < 0.5 { 1. } else { -1. };
+        scanner.bob = Vec3::new(x, y, z * sign);
+        scanner
+    }
+    fn roll(&mut self) -> f32 {
+        super::roll(&mut self.seed)
+    }
+    /// The order of its choices. `health` is the share it has left, `roll` in [0, 1). An alert
+    /// scanner in good health does not flinch: its model has no ACT_SMALL_FLINCH.
     pub fn plan(&self, npc: &AiNpc, ctx: &Context, health: f32, roll: f32) -> Plan {
         if npc.state == NpcState::Script {
             return Plan::Script;
@@ -53,7 +202,7 @@ impl Scanner {
             match npc.state {
                 NpcState::Idle => return Plan::Flinch,
                 NpcState::Alert if health < COVER_HEALTH => return Plan::TakeCover,
-                NpcState::Alert => return Plan::Flinch,
+                NpcState::Alert => {}
                 _ if roll < COMBAT_FLINCH => return Plan::Flinch,
                 _ => {}
             }
@@ -63,6 +212,9 @@ impl Scanner {
         };
         if npc.conditions.has(COND_LOST_ENEMY) {
             return Plan::Patrol;
+        }
+        if npc.conditions.has(COND_FLY_BLOCKED) {
+            return Plan::Chase;
         }
         if ctx.now < self.next_attack {
             return Plan::SpotlightHover;
@@ -74,109 +226,184 @@ impl Scanner {
             Plan::AttackHover
         }
     }
+    /// The point of its route to fly at, past those it has reached.
+    pub fn next_leg(&mut self, at: Vec3) -> Option<Vec3> {
+        while let Some(&point) = self.route.first() {
+            let last = self.route.len() == 1;
+            let tolerance = if last { self.tolerance } else { LEG_TOLERANCE };
+            if at.distance(point) > tolerance {
+                return Some(point);
+            }
+            self.route.remove(0);
+        }
+        None
+    }
+    /// Where it wants to hover in the mode it is in: above its enemy and short of it on the side
+    /// it comes from. A suit brings it closer, in height with the spotlight, in range to attack.
+    pub fn hover_point(&self, at: Vec3) -> Option<Vec3> {
+        let target = self.enemy_at?;
+        let suit = if self.enemy_in_suit { 0.5 } else { 1. };
+        let (range, height) = match self.mode {
+            Mode::Spot => (SPOT_RANGE, SPOT_HEIGHT * suit),
+            Mode::Attack => ((ATTACK_NEAR + ATTACK_FAR) * 0.5 * suit, ATTACK_NEAR),
+            Mode::Patrol | Mode::Chase => return None,
+        };
+        let across = (target - at).truncate().normalize_or_zero().extend(0.);
+        Some(target + Vec3::Z * height - across * range)
+    }
+    /// How fast the body turns, degrees a second.
+    pub fn turn_rate(&self) -> f32 {
+        if self.enemy_at.is_some() {
+            ENEMY_TURN_RATE
+        } else {
+            TURN_RATE
+        }
+    }
+    /// This think's chirp, if it makes one.
+    pub fn idle_cue(&mut self, combat: bool) -> Option<&'static str> {
+        if self.gagged || self.roll() >= IDLE_CHANCE {
+            return None;
+        }
+        Some(if combat { COMBAT } else { IDLE })
+    }
+    /// PlayFlySound: the engine starts once, then its pitch and volume follow the speed.
+    pub fn engine_sound(&mut self) {
+        let share = self.hover.velocity.length() / MAX_SPEED;
+        if !self.engine_on {
+            self.engine_on = true;
+            let op = PatchOp::Play {
+                volume: 0.,
+                pitch: 100.,
+            };
+            self.requests.push(CopRequest::Patch { cue: ENGINE, op });
+        } else if (share - self.engine_share).abs() < ENGINE_STEP {
+            return;
+        }
+        self.engine_share = share;
+        let seconds = 0.1;
+        let pitch = (80. + 20. * share).min(255.);
+        let volume = 0.25 + 0.75 * share;
+        for op in [
+            PatchOp::Pitch { pitch, seconds },
+            PatchOp::Volume { volume, seconds },
+        ] {
+            self.requests.push(CopRequest::Patch { cue: ENGINE, op });
+        }
+    }
+    /// The engine sound's end, for a host that stops it.
+    pub fn engine_cue() -> &'static str {
+        ENGINE
+    }
+    pub fn sound_interests(&self) -> u32 {
+        sound::WORLD | sound::COMBAT | sound::PLAYER | sound::DANGER
+    }
+    fn set_mode(&mut self, mode: Mode) -> TaskStatus {
+        self.mode = mode;
+        self.route.clear();
+        Complete
+    }
+    fn follow(&mut self, route: Option<Vec<Vec3>>) -> TaskStatus {
+        match route {
+            Some(route) => {
+                self.route = route;
+                Complete
+            }
+            None => Failed,
+        }
+    }
+    fn flight(&self) -> TaskStatus {
+        if self.route.is_empty() {
+            Complete
+        } else {
+            Running
+        }
+    }
+}
+
+/// How far the body leans toward what it flies at: the more to one side and the faster, the more.
+pub fn lean(right: Vec3, to_target: Vec3, speed: f32) -> f32 {
+    let share = simple_spline((speed / MAX_SPEED).clamp(0., 1.));
+    LEAN * right.dot(to_target.normalize_or_zero()) * share
+}
+
+impl Behavior for Scanner {
+    fn select_schedule(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        match self.plan(npc, ctx, self.health, ctx.random) {
+            Plan::Script => base_select_schedule(npc, ctx, false),
+            Plan::Flinch => "SCHED_SMALL_FLINCH".into(),
+            // SCHED_TAKE_COVER_FROM_ORIGIN looks for cover among nodes this flight has no search
+            // for yet: it flies off on patrol instead.
+            Plan::TakeCover | Plan::Patrol => PATROL.into(),
+            Plan::Chase => CHASE.into(),
+            Plan::SpotlightHover => SPOTLIGHT_HOVER.into(),
+            Plan::AttackHover => ATTACK_HOVER.into(),
+        }
+    }
+    fn translate_schedule(&mut self, name: &str, _npc: &AiNpc, _ctx: &Context) -> String {
+        match name {
+            "SCHED_IDLE_STAND" => PATROL.into(),
+            other => other.into(),
+        }
+    }
+    /// The class's conditions in the schedules that listen for them.
+    fn custom_interrupts(&self, npc: &AiNpc) -> Conditions {
+        match npc.schedule.as_deref() {
+            Some(SPOTLIGHT_HOVER | ATTACK_HOVER) => Conditions::of(&[COND_FLY_BLOCKED]),
+            Some(CHASE) => Conditions::of(&[COND_FLY_CLEAR]),
+            _ => Conditions::default(),
+        }
+    }
+    fn start_task(
+        &mut self,
+        npc: &mut AiNpc,
+        task: &str,
+        argument: &TaskArg,
+        ctx: &Context,
+        motor: &mut dyn Motor,
+    ) -> Option<TaskStatus> {
+        Some(match task {
+            "TASK_SCANNER_SET_FLY_PATROL" => self.set_mode(Mode::Patrol),
+            "TASK_SCANNER_SET_FLY_CHASE" => self.set_mode(Mode::Chase),
+            "TASK_SCANNER_SET_FLY_ATTACK" => self.set_mode(Mode::Attack),
+            "TASK_CSCANNER_SET_FLY_SPOT" => self.set_mode(Mode::Spot),
+            "TASK_SET_TOLERANCE_DISTANCE" => {
+                self.tolerance = argument.number();
+                Complete
+            }
+            "TASK_GET_PATH_TO_RANDOM_NODE" => {
+                let route = motor.fly_patrol(argument.number(), &mut self.seed);
+                self.follow(route)
+            }
+            "TASK_GET_PATH_TO_ENEMY" => {
+                let goal = ctx.enemy_lkp.or(ctx.enemy.map(|(_, at)| at));
+                self.follow(goal.and_then(|goal| motor.fly_route(goal)))
+            }
+            "TASK_RUN_PATH" => {
+                npc.activity = "ACT_RUN".into();
+                motor.set_activity("ACT_RUN");
+                Complete
+            }
+            "TASK_STOP_MOVING" => {
+                self.route.clear();
+                Complete
+            }
+            // The model has no flinch to play.
+            "TASK_SMALL_FLINCH" => Complete,
+            "TASK_WAIT_FOR_MOVEMENT" => self.flight(),
+            _ => return None,
+        })
+    }
+    fn run_task(
+        &mut self,
+        _: &mut AiNpc,
+        task: &str,
+        _: &TaskArg,
+        _: &Context,
+        _: &mut dyn Motor,
+    ) -> Option<TaskStatus> {
+        (task == "TASK_WAIT_FOR_MOVEMENT").then(|| self.flight())
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ai::conditions::{Cond, Conditions};
-
-    fn npc(state: NpcState, conditions: &[Cond]) -> AiNpc {
-        let mut npc = AiNpc::new(1);
-        npc.state = state;
-        npc.conditions = Conditions::of(conditions);
-        npc
-    }
-    fn hunting(distance: f32, now: f64) -> Context {
-        Context {
-            now,
-            enemy: Some((0, Vec3::X * distance)),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn alone_it_patrols() {
-        let scanner = Scanner::default();
-        let plan = scanner.plan(&npc(NpcState::Idle, &[]), &Context::default(), 1., 0.5);
-        assert_eq!(plan, Plan::Patrol);
-    }
-
-    #[test]
-    fn a_script_owns_it_before_anything_else() {
-        let scanner = Scanner::default();
-        let scripted = npc(NpcState::Script, &[COND_LIGHT_DAMAGE]);
-        let plan = scanner.plan(&scripted, &hunting(100., 1.), 1., 0.);
-        assert_eq!(plan, Plan::Script);
-    }
-
-    #[test]
-    fn a_hit_flinches_or_sends_it_to_cover_by_state_and_health() {
-        let s = Scanner::default();
-        let ctx = Context::default();
-        let hit = |state| npc(state, &[COND_LIGHT_DAMAGE]);
-        assert_eq!(s.plan(&hit(NpcState::Idle), &ctx, 0.1, 0.9), Plan::Flinch);
-        assert_eq!(s.plan(&hit(NpcState::Alert), &ctx, 0.9, 0.9), Plan::Flinch);
-        assert_eq!(
-            s.plan(&hit(NpcState::Alert), &ctx, 0.5, 0.9),
-            Plan::TakeCover
-        );
-        assert_eq!(s.plan(&hit(NpcState::Combat), &ctx, 1., 0.1), Plan::Flinch);
-        assert_eq!(s.plan(&hit(NpcState::Combat), &ctx, 1., 0.9), Plan::Patrol);
-    }
-
-    #[test]
-    fn it_stays_high_when_far_and_comes_down_when_near() {
-        let s = Scanner::default();
-        let combat = npc(NpcState::Combat, &[]);
-        assert_eq!(
-            s.plan(&combat, &hunting(500., 1.), 1., 0.5),
-            Plan::SpotlightHover
-        );
-        assert_eq!(
-            s.plan(&combat, &hunting(200., 1.), 1., 0.5),
-            Plan::AttackHover
-        );
-    }
-
-    #[test]
-    fn height_does_not_count_toward_the_attack_distance() {
-        let s = Scanner::default();
-        let combat = npc(NpcState::Combat, &[]);
-        let above = Context {
-            now: 1.,
-            enemy: Some((0, Vec3::new(100., 0., -900.))),
-            ..Default::default()
-        };
-        assert_eq!(s.plan(&combat, &above, 1., 0.5), Plan::AttackHover);
-    }
-
-    #[test]
-    fn between_attacks_it_only_hovers() {
-        let s = Scanner {
-            next_attack: 10.,
-            ..Default::default()
-        };
-        let combat = npc(NpcState::Combat, &[]);
-        assert_eq!(
-            s.plan(&combat, &hunting(100., 5.), 1., 0.5),
-            Plan::SpotlightHover
-        );
-    }
-
-    #[test]
-    fn a_lost_enemy_or_the_switch_sends_it_back_on_patrol() {
-        let s = Scanner::default();
-        let lost = npc(NpcState::Combat, &[COND_LOST_ENEMY]);
-        assert_eq!(s.plan(&lost, &hunting(100., 1.), 1., 0.5), Plan::Patrol);
-        let told = Scanner {
-            ignores_enemies: true,
-            ..Default::default()
-        };
-        let combat = npc(NpcState::Combat, &[]);
-        assert_eq!(
-            told.plan(&combat, &hunting(100., 1.), 1., 0.5),
-            Plan::Patrol
-        );
-    }
-}
+mod tests;

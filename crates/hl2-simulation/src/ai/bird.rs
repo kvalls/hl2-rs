@@ -575,4 +575,4 @@ impl Behavior for Bird {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

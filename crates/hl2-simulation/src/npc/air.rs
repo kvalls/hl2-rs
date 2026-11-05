@@ -13,6 +13,8 @@ use source_assets::navigation::Graph;
 const MOVE_FLY: u8 = 4;
 /// Nodes tried for the first and for the last leg, nearest first.
 const LEG_TRIES: usize = 12;
+/// The most nodes a wander goes through.
+const WANDER_NODES: usize = 20;
 
 /// The nodes a hull can fly between.
 #[derive(Clone, Debug, Default)]
@@ -67,6 +69,31 @@ impl AirGraph {
         nodes.retain(|(n, _)| clear(self.positions[*n]));
         nodes
     }
+    /// A wander from `start` along the links until it has flown `length`, reached
+    /// `WANDER_NODES` or found no node it has not been to.
+    fn wander(&self, start: usize, length: f32, roll: &mut impl FnMut() -> f32) -> Vec<Vec3> {
+        let mut seen = vec![false; self.positions.len()];
+        seen[start] = true;
+        let mut way = vec![self.positions[start]];
+        let (mut at, mut flown) = (start, 0.);
+        while flown < length && way.len() < WANDER_NODES {
+            let open: Vec<usize> = self.neighbors[at]
+                .iter()
+                .copied()
+                .filter(|&next| !seen[next])
+                .collect();
+            if open.is_empty() {
+                break;
+            }
+            let pick = (roll() * open.len() as f32) as usize;
+            let next = open[pick.min(open.len() - 1)];
+            flown += self.positions[at].distance(self.positions[next]);
+            seen[next] = true;
+            way.push(self.positions[next]);
+            at = next;
+        }
+        way
+    }
     /// The cheapest way from any start to any end, each with the cost of its leg.
     fn shortest(&self, starts: &[(usize, f32)], ends: &[(usize, f32)]) -> Option<Vec<Vec3>> {
         let mut cost = vec![f32::MAX; self.positions.len()];
@@ -114,17 +141,36 @@ impl Controller {
         if clear(from, to) {
             return Some(vec![to]);
         }
-        let key = hull.index();
-        if !self.air.contains_key(&key) {
-            let built = AirGraph::build(self.graph()?, hull);
-            self.air.insert(key, built);
-        }
-        let air = self.air.get(&key)?;
+        let air = self.air_graph(hull)?;
         let starts = air.legs(from, |node| clear(from, node));
         let ends = air.legs(to, |node| clear(node, to));
         let mut way = air.shortest(&starts, &ends)?;
         way.push(to);
         Some(way)
+    }
+    /// A patrol from `from`: into the network at the nearest node it can reach, then a wander
+    /// of about `length`. None: it cannot reach any.
+    pub fn fly_patrol(
+        &mut self,
+        hull: HullType,
+        from: Vec3,
+        length: f32,
+        clear: impl Fn(Vec3, Vec3) -> bool,
+        mut roll: impl FnMut() -> f32,
+    ) -> Option<Vec<Vec3>> {
+        let air = self.air_graph(hull)?;
+        let starts = air.legs(from, |node| clear(from, node));
+        let &(start, _) = starts.first()?;
+        Some(air.wander(start, length, &mut roll))
+    }
+    /// The air network of a hull, built the first time it is asked for.
+    fn air_graph(&mut self, hull: HullType) -> Option<&AirGraph> {
+        let key = hull.index();
+        if !self.air.contains_key(&key) {
+            let built = AirGraph::build(self.graph()?, hull);
+            self.air.insert(key, built);
+        }
+        self.air.get(&key)
     }
 }
 
@@ -236,6 +282,48 @@ mod tests {
         assert!(c
             .fly_route(HullType::Human, WEST, EAST, past_the_wall)
             .is_some());
+    }
+
+    fn line_of_nodes(count: usize) -> Controller {
+        let nodes = (0..count).map(|n| node(n as f32 * 100., 0.)).collect();
+        let links = (1..count).map(|n| link(n - 1, n, MOVE_FLY)).collect();
+        controller(nodes, links)
+    }
+
+    #[test]
+    fn a_patrol_stops_once_it_has_flown_its_length() {
+        let mut c = line_of_nodes(10);
+        let way = c.fly_patrol(HullType::Tiny, Vec3::ZERO, 250., |_, _| true, || 0.);
+        let xs: Vec<f32> = way.unwrap().iter().map(|p| p.x).collect();
+        assert_eq!(xs, [0., 100., 200., 300.]);
+    }
+
+    #[test]
+    fn a_patrol_ends_at_a_dead_end_and_never_turns_back() {
+        let mut c = line_of_nodes(3);
+        let way = c.fly_patrol(HullType::Tiny, Vec3::ZERO, 5000., |_, _| true, || 0.9);
+        assert_eq!(way.unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_patrol_goes_through_a_bounded_number_of_nodes() {
+        let mut c = line_of_nodes(40);
+        let way = c.fly_patrol(HullType::Tiny, Vec3::ZERO, 1e6, |_, _| true, || 0.);
+        assert_eq!(way.unwrap().len(), WANDER_NODES);
+    }
+
+    #[test]
+    fn a_patrol_that_cannot_reach_a_node_does_not_start() {
+        let mut c = line_of_nodes(3);
+        let way = c.fly_patrol(HullType::Tiny, Vec3::ZERO, 100., |_, _| false, || 0.);
+        assert_eq!(way, None);
+    }
+
+    #[test]
+    fn a_patrol_needs_a_graph() {
+        let mut c = Controller::new(None, NavRestrictions::default());
+        let way = c.fly_patrol(HullType::Tiny, Vec3::ZERO, 100., |_, _| true, || 0.);
+        assert_eq!(way, None);
     }
 
     #[test]

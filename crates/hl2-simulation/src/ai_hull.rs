@@ -85,6 +85,8 @@ pub fn class_hull(class: &str) -> Option<HullType> {
         }
         // CNPC_Crow::Spawn.
         "npc_crow" | "npc_pigeon" | "npc_seagull" => Some(HullType::Tiny),
+        // CNPC_BaseScanner::Spawn.
+        "npc_cscanner" => Some(HullType::TinyCentered),
         _ => None,
     }
 }
@@ -123,6 +125,7 @@ pub fn eye_height(class: &str) -> f32 {
             crate::ai::headcrab::EYE_HEIGHT
         }
         "npc_crow" | "npc_pigeon" | "npc_seagull" => crate::ai::bird::EYE_HEIGHT,
+        "npc_cscanner" => crate::ai::scanner::EYE_HEIGHT,
         _ => 64.,
     }
 }

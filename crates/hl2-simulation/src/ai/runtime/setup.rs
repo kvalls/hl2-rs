@@ -1,6 +1,7 @@
 //! What `AiRuntime::new` reads from the map and the game's scripts.
 use super::super::actbusy::HintCandidate;
 use super::super::police::PoliceGoal;
+use super::super::schedule::Schedules;
 use super::yaw_keyvalue;
 use glam::Vec3;
 use modkit_core::{Entity, World};
@@ -29,6 +30,21 @@ pub(super) fn busy_hints(world: &World) -> Vec<HintCandidate> {
             }
         })
         .collect()
+}
+
+/// Every class's schedules.
+pub(super) fn class_schedules() -> Schedules {
+    use crate::ai::{actbusy, bird, headcrab, humanoid, metropolice, police, scanner, zombie};
+    let mut schedules = Schedules::default();
+    police::add_schedules(&mut schedules);
+    metropolice::add_schedules(&mut schedules);
+    humanoid::add_schedules(&mut schedules);
+    zombie::add_schedules(&mut schedules);
+    headcrab::add_schedules(&mut schedules);
+    bird::add_schedules(&mut schedules);
+    scanner::add_schedules(&mut schedules);
+    actbusy::add_schedules(&mut schedules);
+    schedules
 }
 
 /// Each ai_goal_actbusy's search range.

@@ -1,6 +1,6 @@
 //! What each AI class answers for itself: its goals, requests, senses and schedule hooks.
 
-use super::super::bird;
+use super::super::{bird, scanner};
 use super::{
     assault, headcrab, zombie, AiClass, Behavior, CopRequest, Humanoid, Metropolice,
     METROPOLICE_FOV, METROPOLICE_SOUNDS,
@@ -34,6 +34,7 @@ impl AiClass {
             Self::Zombie(z) => z.assault.as_ref(),
             Self::Headcrab(h) => h.assault.as_ref(),
             Self::Bird(b) => b.assault.as_ref(),
+            Self::Scanner(s) => s.assault.as_ref(),
         }
     }
     pub fn assault_mut(&mut self) -> &mut Option<assault::Assault> {
@@ -43,6 +44,7 @@ impl AiClass {
             Self::Zombie(z) => &mut z.assault,
             Self::Headcrab(h) => &mut h.assault,
             Self::Bird(b) => &mut b.assault,
+            Self::Scanner(s) => &mut s.assault,
         }
     }
     /// The aiscripted_schedule goal (position, run).
@@ -53,6 +55,7 @@ impl AiClass {
             Self::Zombie(z) => z.script_goal,
             Self::Headcrab(h) => h.script_goal,
             Self::Bird(b) => b.script_goal,
+            Self::Scanner(s) => s.script_goal,
         }
     }
     pub(super) fn script_goal_mut(&mut self) -> &mut Option<(Vec3, bool)> {
@@ -62,6 +65,7 @@ impl AiClass {
             Self::Zombie(z) => &mut z.script_goal,
             Self::Headcrab(h) => &mut h.script_goal,
             Self::Bird(b) => &mut b.script_goal,
+            Self::Scanner(s) => &mut s.script_goal,
         }
     }
     pub(super) fn requests_mut(&mut self) -> &mut Vec<CopRequest> {
@@ -71,6 +75,7 @@ impl AiClass {
             Self::Zombie(z) => &mut z.requests,
             Self::Headcrab(h) => &mut h.requests,
             Self::Bird(b) => &mut b.requests,
+            Self::Scanner(s) => &mut s.requests,
         }
     }
     pub(super) fn behavior_mut(&mut self) -> &mut dyn Behavior {
@@ -80,6 +85,7 @@ impl AiClass {
             Self::Zombie(z) => z.as_mut(),
             Self::Headcrab(h) => h.as_mut(),
             Self::Bird(b) => b.as_mut(),
+            Self::Scanner(s) => s.as_mut(),
         }
     }
     /// m_flFieldOfView.
@@ -90,6 +96,7 @@ impl AiClass {
             Self::Zombie(_) => zombie::FIELD_OF_VIEW,
             Self::Headcrab(_) => headcrab::FIELD_OF_VIEW,
             Self::Bird(_) => bird::FIELD_OF_VIEW,
+            Self::Scanner(_) => scanner::FIELD_OF_VIEW,
         }
     }
     /// GetSoundInterests.
@@ -98,6 +105,7 @@ impl AiClass {
             Self::Metropolice(_) => METROPOLICE_SOUNDS,
             Self::Humanoid(h) => h.kind.sound_interests(),
             Self::Bird(b) => b.sound_interests(),
+            Self::Scanner(s) => s.sound_interests(),
             // CAI_BaseNPC::GetSoundInterests (SOUND_PLAYER_VEHICLE has no source here).
             Self::Zombie(_) | Self::Headcrab(_) => {
                 use super::senses::sound;

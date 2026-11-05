@@ -172,6 +172,10 @@ pub trait Motor {
     fn fly_route(&mut self, _goal: Vec3) -> Option<Vec<Vec3>> {
         None
     }
+    /// A wander in NAV_FLY of about `length`: its points, or None when it cannot start.
+    fn fly_patrol(&mut self, _length: f32, _seed: &mut u64) -> Option<Vec<Vec3>> {
+        None
+    }
 }
 
 /// A class's schedule hooks (SelectSchedule, TranslateSchedule, StartTask/RunTask).

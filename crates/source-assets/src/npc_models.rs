@@ -56,6 +56,7 @@ pub fn map_default_model(class: &str) -> Option<&'static str> {
             | "npc_citizen"
             | "npc_combine_camera"
             | "npc_barnacle"
+            | "npc_cscanner"
             | "npc_crow"
             | "npc_pigeon"
             | "npc_seagull"
@@ -132,6 +133,32 @@ mod tests {
             .unwrap();
         assert!(rig.bones.iter().any(|b| b.name == "Barnacle.base"));
         assert_eq!(rig.bones.len(), first + 8);
+    }
+
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; reads the scanner model"]
+    fn owned_scanner_sequences() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        let model = "models/combine_scanner.mdl";
+        let names = crate::animation::sequence_names(&vfs, model)
+            .unwrap()
+            .into_iter()
+            .collect();
+        let rig = crate::animation::load(&vfs, model, &names).unwrap();
+        for seq in &rig.sequences {
+            let clip = rig.clips.get(&seq.name);
+            println!(
+                "seq {} act {} w {} frames {} fps {} loop {}",
+                seq.name,
+                seq.activity,
+                seq.weight,
+                clip.map_or(0, |c| c.frames.len()),
+                clip.map_or(0., |c| c.fps),
+                clip.is_some_and(|c| c.looping),
+            );
+        }
+        assert!(rig.sequences.iter().any(|s| s.activity == "ACT_IDLE"));
     }
 
     #[test]
