@@ -21,6 +21,7 @@ pub mod moveshoot;
 pub mod police;
 pub mod relationships;
 pub mod runtime;
+pub mod scanner;
 pub mod schedule;
 pub mod senses;
 pub mod spawn;
