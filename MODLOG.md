@@ -1308,7 +1308,7 @@ Rust visibility compile failed, then corrected; evidence retained.
 
 **Why:** Owner's Windows playtest: corpses frozen in animation poses (found while reviewing the merge), menu text half the native size at 1080p, HUD digits ~12 px high, click sounds in the Options dialog.
 
-**Tested how:** PR tree: hl2-ui 325, source-ui 130, hl2-simulation 434, hl2-bevy 164 pass (the 2 known release-only should_panic image tests fail as on main), strict workspace Clippy and fmt clean. Packaged 1920x1080 captures: pause menu rows within 4 px of the owner's native capture, HUD digits equal main's, Options dialog A/B with and without the fixes. Private evidence work/hl2-decompiled/gameui-fonts-20261029.
+**Tested how:** PR tree: hl2-ui 325, source-ui 130, hl2-simulation 434, hl2-bevy 164 pass (the 2 known release-only should_panic image tests fail as on main), strict workspace Clippy and fmt clean. Packaged 1920x1080 captures: pause menu rows within 4 px of the owner's native capture, HUD digits equal main's, Options dialog A/B with and without the fixes. Evidence is in the private research notes
 
 **Result:** Pushed; PR comments explain the changes. The owner's test build is the scratchpad worktree pr4-9f3c4f4 (bin = 6685b91).
 
