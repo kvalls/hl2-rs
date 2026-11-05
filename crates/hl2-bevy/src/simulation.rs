@@ -683,7 +683,10 @@ impl Simulation {
                 } else {
                     self.input
                 };
-                self.player.step(input, &self.physics, TICK);
+                match game.as_deref().and_then(|game| game.ai.barnacle_hold()) {
+                    Some(by) => self.player.carried(by, &self.physics, TICK),
+                    None => self.player.step(input, &self.physics, TICK),
+                }
                 self.eye = self.player.eye();
                 // The player's VPhysics shadow pushes and weighs down movable props.
                 let held = game.as_deref().and_then(|game| {

@@ -55,6 +55,7 @@ pub fn map_default_model(class: &str) -> Option<&'static str> {
             | "npc_metropolice"
             | "npc_citizen"
             | "npc_combine_camera"
+            | "npc_barnacle"
             | "npc_zombie"
             | "npc_zombie_torso"
             | "npc_fastzombie"
@@ -99,7 +100,10 @@ mod tests {
             .collect();
         let rig = crate::animation::load(&vfs, "models/barnacle.mdl", &names).unwrap();
         for (i, b) in rig.bones.iter().enumerate() {
-            println!("bone {i} {} parent {:?} bind {:?}", b.name, b.parent, b.bind.position);
+            println!(
+                "bone {i} {} parent {:?} bind {:?}",
+                b.name, b.parent, b.bind.position
+            );
         }
         for seq in &rig.sequences {
             let name = &seq.name;
@@ -111,10 +115,18 @@ mod tests {
                 clip.map_or(0, |c| c.frames.len()),
                 clip.map_or(0., |c| c.fps),
                 clip.is_some_and(|c| c.looping),
-                clip.map(|c| c.events.iter().map(|e| (e.cycle, e.id, e.name.clone())).collect::<Vec<_>>())
+                clip.map(|c| c
+                    .events
+                    .iter()
+                    .map(|e| (e.cycle, e.id, e.name.clone()))
+                    .collect::<Vec<_>>())
             );
         }
-        let first = rig.bones.iter().position(|b| b.name == "Barnacle.tongue1").unwrap();
+        let first = rig
+            .bones
+            .iter()
+            .position(|b| b.name == "Barnacle.tongue1")
+            .unwrap();
         assert!(rig.bones.iter().any(|b| b.name == "Barnacle.base"));
         assert_eq!(rig.bones.len(), first + 8);
     }

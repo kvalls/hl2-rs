@@ -154,6 +154,11 @@ const PLAYER_GROUPS: InteractionGroups = InteractionGroups::new(
 );
 /// The SDK hull (mins, maxs) of npc_* classes (SetHullType), for those done so far.
 pub fn npc_hull(class: &str) -> Option<(Vec3, Vec3)> {
+    // Hangs under its origin. Without this its collider is the whole bind mesh, tongue and all,
+    // and anyone under it stands inside the body.
+    if class == "npc_barnacle" {
+        return Some((Vec3::new(-16., -16., -40.), Vec3::new(16., 16., 0.)));
+    }
     crate::ai_hull::class_hull(class).map(|t| {
         let hull = t.bounds();
         (hull.mins, hull.maxs)

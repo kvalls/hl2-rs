@@ -185,6 +185,26 @@ impl Player {
     pub fn eye(&self) -> Vec3 {
         self.feet + Vec3::Z * self.eye_height
     }
+    /// Moved by whatever holds the player (a barnacle's tongue): no walking, no gravity and no
+    /// landing, and a solid in the way stops him.
+    pub fn carried(&mut self, by: Vec3, world: &impl CollisionWorld, dt: f32) {
+        self.ticks += 1;
+        self.jumped = false;
+        self.landed = None;
+        self.step_height = 0.;
+        self.wish_velocity = Vec3::ZERO;
+        let mins = Vec3::new(-16., -16., 0.);
+        let maxs = Vec3::new(16., 16., if self.crouched { 36. } else { 72. });
+        let trace = world.trace_hull(self.feet, self.feet + by, mins, maxs);
+        let moved = if trace.start_solid {
+            Vec3::ZERO
+        } else {
+            by * trace.fraction
+        };
+        self.feet += moved;
+        self.velocity = moved / dt;
+        self.grounded = false;
+    }
     pub fn step(&mut self, mut input: Input, world: &impl CollisionWorld, dt: f32) {
         self.ticks += 1;
         if self.dead {
@@ -682,6 +702,37 @@ mod tests {
         let (trapped, velocity) = slide(&w, start, Vec3::X, 1., Vec3::ZERO, Vec3::ZERO, false);
         assert_eq!(trapped, start);
         assert_eq!(velocity, Vec3::ZERO);
+    }
+    #[test]
+    fn a_carried_player_rises_without_gravity_and_stops_at_a_ceiling() {
+        let mut w = floor();
+        w.brushes.push(solid_box(
+            Vec3::new(-40., -40., 100.),
+            Vec3::new(40., 40., 120.),
+        ));
+        let mut player = Player::new(Vec3::Z * 64.);
+        for _ in 0..4 {
+            player.step(Input::default(), &w, TICK);
+        }
+        let start = player.feet;
+        player.carried(Vec3::Z * 5., &w, TICK);
+        assert!(
+            player.feet.distance(start + Vec3::Z * 5.) < 1e-3,
+            "{}",
+            player.feet
+        );
+        assert!(!player.grounded);
+        assert!((player.velocity.z - 5. / TICK).abs() < 1e-2);
+        player.carried(Vec3::ZERO, &w, TICK);
+        assert!(
+            player.feet.distance(start + Vec3::Z * 5.) < 1e-3,
+            "no gravity"
+        );
+        for _ in 0..40 {
+            player.carried(Vec3::Z * 5., &w, TICK);
+        }
+        assert!(player.feet.z + 72. <= 100.01, "{}", player.feet);
+        assert!(player.feet.z + 72. > 99., "{}", player.feet);
     }
     #[test]
     fn check_stuck_nudges_a_hull_out_of_a_shallow_overlap_through_the_table() {

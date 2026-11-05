@@ -5,6 +5,7 @@
 pub mod actbusy;
 pub mod ally_speech;
 pub mod assault;
+pub mod barnacle;
 pub mod conditions;
 pub mod default_schedules;
 pub mod efficiency;

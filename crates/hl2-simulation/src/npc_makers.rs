@@ -17,6 +17,11 @@ use crate::physics::{npc_hull, Physics};
 
 /// SF_NPC_FALL_TO_GROUND (ai_basenpc.h).
 pub const SF_NPC_FALL_TO_GROUND: u32 = 1 << 2;
+/// Classes whose Spawn skips NPCInit, so nothing puts them on the ground: a barnacle hangs from
+/// its ceiling, whatever its spawnflags say.
+fn stays_where_placed(class: &str) -> bool {
+    class == "npc_barnacle"
+}
 /// SF_NPC_TEMPLATE: removed at map spawn, used by an npc_template_maker.
 pub const SF_NPC_TEMPLATE: u32 = 1 << 11;
 const SF_NPCMAKER_INF_CHILD: u32 = 32;
@@ -733,6 +738,9 @@ impl NpcMakers {
                 continue;
             }
             self.started.insert(id);
+            if stays_where_placed(e.class()) {
+                continue;
+            }
             let Some((mins, maxs)) = npc_hull(e.class()) else {
                 continue;
             };
@@ -878,6 +886,12 @@ fn player_visible(world: &World, physics: &Physics, v: Viewer, spot: Vec3) -> bo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_barnacle_is_never_put_on_the_ground() {
+        assert!(stays_where_placed("npc_barnacle"));
+        assert!(!stays_where_placed("npc_zombie"));
+    }
+
     use super::*;
     use modkit_core::{Brush, Plane};
 

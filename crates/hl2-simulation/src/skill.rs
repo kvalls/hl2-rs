@@ -90,6 +90,7 @@ impl Skill {
             "npc_headcrab" | "npc_headcrab_fast" => sk("sk_headcrab_health", 10.),
             "npc_headcrab_black" | "npc_headcrab_poison" => sk("sk_headcrab_poison_health", 35.),
             "npc_manhack" => sk("sk_manhack_health", 25.),
+            "npc_barnacle" => sk("sk_barnacle_health", 35.),
             "npc_cscanner" | "npc_clawscanner" => sk("sk_scanner_health", 30.),
             "npc_stalker" => sk("sk_stalker_health", 50.),
             "npc_antlion" => sk("sk_antlion_health", 30.),

@@ -431,6 +431,7 @@ fn is_ai_input(class: &str, input: &str) -> bool {
             "setpolicegoal" | "activatebaton" | "enablemanhacktoss" | "disablemanhacktoss"
         ),
         "ai_goal_police" => matches!(input, "enableknockout" | "disableknockout"),
+        "npc_barnacle" => matches!(input, "droptongue" | "setdroptonguespeed" | "letgo"),
         "ai_goal_assault" => matches!(
             input,
             "activate" | "deactivate" | "beginassault" | "updateactors"

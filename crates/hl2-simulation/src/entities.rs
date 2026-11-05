@@ -233,6 +233,9 @@ pub struct State {
     outputs: Vec<Output>,
     /// Movement hierarchy parent (CBaseEntity::SetParent), optionally an attachment.
     pub parent: Option<Parent>,
+    /// Dead but still in the world, playing its own death (a barnacle on its ceiling): drawn,
+    /// not solid and no target.
+    pub corpse: bool,
 }
 impl State {
     /// A door at or going to its closed position (TS_AT_BOTTOM / TS_GOING_DOWN).
@@ -247,7 +250,10 @@ impl State {
     /// attachment (helmets on NPCs) moves with its parent's hierarchy and must not block
     /// that parent; native traces skip hierarchy children of the moving entity.
     pub fn collides(&self) -> bool {
-        !self.killed && self.visible && self.parent.as_ref().is_none_or(|p| p.attachment.is_none())
+        !self.killed
+            && !self.corpse
+            && self.visible
+            && self.parent.as_ref().is_none_or(|p| p.attachment.is_none())
     }
 }
 /// A child follows its parent's origin/rotation, or one of its animated attachments,
@@ -492,6 +498,8 @@ pub struct Scene {
     pub physics_attackers: BTreeMap<usize, f64>,
     /// Ragdolled NPCs' bone matrices (model space), replacing their animation pose.
     pub ragdoll_matrices: BTreeMap<usize, Vec<glam::Mat4>>,
+    /// Barnacle ropes, written over the tongue bones in `actor_matrices`.
+    pub tongues: BTreeMap<usize, crate::ai::barnacle::TonguePose>,
     /// Advances every ragdoll update (render pose cache key).
     pub ragdoll_frame: u64,
     /// NPCs whose AI has the player as enemy or in enemy memory (CAI_BaseHumanoid
@@ -703,6 +711,7 @@ impl Scene {
             prop_attackers: BTreeMap::new(),
             physics_attackers: BTreeMap::new(),
             ragdoll_matrices: BTreeMap::new(),
+            tongues: BTreeMap::new(),
             ragdoll_frame: 0,
             npc_knows_player: Default::default(),
             ai_sequence_end: BTreeMap::new(),

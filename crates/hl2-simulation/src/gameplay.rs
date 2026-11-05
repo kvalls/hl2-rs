@@ -1702,8 +1702,7 @@ impl Inventory {
                         if !npc {
                             hits::record_prop_break(world, scene, physics, id);
                         }
-                        scene.states[id].killed = true;
-                        scene.states[id].visible = false;
+                        hits::remove_killed(scene, entity, id);
                         physics.set_entity(
                             id,
                             scene.states[id].origin,
@@ -2226,6 +2225,12 @@ pub fn apply_hit(
     } else {
         damage
     };
+    // A club hit takes all of a barnacle's health.
+    let damage = if melee && e.class() == "npc_barnacle" {
+        scene.states[id].value
+    } else {
+        damage
+    };
     // TakeDamage -> PassesDamageFilter: the shooter's friends keep their health (TraceAttack
     // already bled; the player's refusal fires OnDamagedByPlayer / OnDamagedByPlayerSquad).
     if refuse_damage(world, scene, id, attacker.attacker()) {
@@ -2249,8 +2254,7 @@ pub fn apply_hit(
             .npc_death_forces
             .insert(id, (direction * force, Some(hit.position)));
         hits::bullet_crab_release(scene, e, id, (damage, direction * force), (melee, headshot));
-        scene.states[id].killed = true;
-        scene.states[id].visible = false;
+        hits::remove_killed(scene, e, id);
         physics.set_entity(
             id,
             scene.states[id].origin,

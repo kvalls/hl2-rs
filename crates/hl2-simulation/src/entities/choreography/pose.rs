@@ -19,7 +19,8 @@ impl Scene {
         };
         let params = self.actor_pose_values(rig, id);
         let fades = self.sequence_fades(id);
-        self.gestures
+        let mut matrices = self
+            .gestures
             .compose_blended(
                 rig,
                 id,
@@ -28,7 +29,13 @@ impl Scene {
                 &params,
                 &fades,
             )
-            .0
+            .0;
+        if let Some(tongue) = self.tongues.get(&id) {
+            let to_model =
+                glam::Mat4::from_rotation_translation(state.rotation, state.origin).inverse();
+            crate::ai::barnacle::pose_tongue(rig, tongue, to_model, &mut matrices);
+        }
+        matrices
     }
     /// Previous base sequences to blend now, newest first: (sequence, time, weight).
     pub fn sequence_fades(&self, id: usize) -> Vec<(&str, f32, f32)> {
@@ -147,6 +154,9 @@ impl Scene {
             return self.ragdoll_frame | 1 << 63;
         }
         let mut hash = self.gestures.signature(id);
+        if let Some(tongue) = self.tongues.get(&id) {
+            hash ^= tongue.frame.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+        }
         let mix = |hash: u64, v: f32| {
             (hash ^ v.to_bits() as u64)
                 .wrapping_mul(0x100000001b3)

@@ -1836,3 +1836,10 @@ pub(super) fn npc_floor_world() -> World {
         ..Default::default()
     }
 }
+
+#[test]
+fn a_barnacle_body_is_a_small_box_under_its_origin_not_its_tongue() {
+    let (mins, maxs) = npc_hull("npc_barnacle").unwrap();
+    assert_eq!((mins.z, maxs.z), (-40., 0.));
+    assert_eq!((mins.x, maxs.x), (-16., 16.));
+}

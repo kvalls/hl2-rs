@@ -236,6 +236,10 @@ impl AiRuntime {
     /// rebuilt to include the new entity.
     pub fn add_actor(&mut self, id: usize, e: &modkit_core::Entity) -> bool {
         self.npc_ids = None;
+        if let Some(barnacle) = super::barnacles::BarnacleActor::for_entity(id, e) {
+            self.barnacles.insert(id, barnacle);
+            return true;
+        }
         match Self::actor_for(id, e, &self.weapon_defs) {
             Some(actor) => {
                 self.applied_relationships.stale = true;

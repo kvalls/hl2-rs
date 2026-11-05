@@ -64,6 +64,15 @@ pub fn class_ai_activities(class: &str) -> &'static [&'static str] {
         "npc_zombie" | "npc_zombie_torso" => ZOMBIE_AI_ACTIVITIES,
         "npc_headcrab_black" | "npc_headcrab_poison" => &["ACT_BLACKHEADCRAB_RUN_PANIC"],
         "npc_poisonzombie" => &["ACT_ZOMBIE_POISON_THREAT"],
+        "npc_barnacle" => &[
+            "ACT_BARNACLE_SLURP",
+            "ACT_BARNACLE_BITE_HUMAN",
+            "ACT_BARNACLE_BITE_PLAYER",
+            "ACT_BARNACLE_BITE_SMALL_THINGS",
+            "ACT_BARNACLE_CHEW_HUMAN",
+            "ACT_BARNACLE_CHEW_SMALL_THINGS",
+            "ACT_BARNACLE_TASTE_SPIT",
+        ],
         "npc_fastzombie" => &[
             "ACT_FASTZOMBIE_LEAP_STRIKE",
             "ACT_FASTZOMBIE_LAND_RIGHT",

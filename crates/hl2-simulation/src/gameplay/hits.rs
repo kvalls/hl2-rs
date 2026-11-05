@@ -225,6 +225,16 @@ pub(super) fn bullet_kind(ammo_type: &str, melee: bool) -> u32 {
     }
 }
 
+/// Takes a dead entity out of the world. A barnacle stays on its ceiling as a corpse and plays
+/// its own death.
+pub(super) fn remove_killed(scene: &mut Scene, e: &Entity, id: usize) {
+    if e.class() == "npc_barnacle" {
+        scene.states[id].corpse = true;
+    } else {
+        scene.states[id].killed = true;
+        scene.states[id].visible = false;
+    }
+}
 /// A killed entity's flame ends; an NPC's passes to its corpse.
 pub(super) fn flame_out(scene: &mut Scene, id: usize, origin: Vec3, npc: bool) {
     if npc {

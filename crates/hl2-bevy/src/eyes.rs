@@ -428,15 +428,26 @@ pub fn attention_pvs(
     }
     let mut visible = std::collections::BTreeSet::new();
     for (id, entity) in game.world.entities.iter().enumerate() {
-        if !hl2_simulation::attention::has_animated_face(entity.class()) {
+        let tongue = game.scene.tongues.get(&id);
+        if tongue.is_none() && !hl2_simulation::attention::has_animated_face(entity.class()) {
             continue;
         }
         let Some(state) = game.scene.states.get(id).filter(|s| !s.killed) else {
             continue;
         };
-        let head = state.origin + glam::Vec3::Z * 64.;
+        // A barnacle is near when the player can see any of its tongue.
+        let (low, high) = match tongue {
+            Some(tongue) => {
+                let side = glam::Vec3::new(16., 16., 0.);
+                (
+                    tongue.nodes[tongue.nodes.len() - 1] - side,
+                    state.origin + side,
+                )
+            }
+            None => (state.origin, state.origin + glam::Vec3::Z * 64.),
+        };
         for &eye in &eyes {
-            match sky.bounds_in_pvs(eye, state.origin, head) {
+            match sky.bounds_in_pvs(eye, low, high) {
                 Ok(true) => {
                     visible.insert(id);
                     break;

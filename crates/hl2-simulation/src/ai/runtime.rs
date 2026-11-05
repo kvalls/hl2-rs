@@ -39,6 +39,7 @@ use serde::Serialize;
 use source_assets::vpk::Vfs;
 use std::collections::BTreeMap;
 mod actbusy_host;
+mod barnacles;
 mod crabs;
 mod equipment;
 mod events;
@@ -495,6 +496,10 @@ pub struct AiActor {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Diagnostics {
     pub thinks: u64,
+    /// Barnacle tongues that took hold, bites at the mouth and prey let go.
+    pub barnacle_grabs: u32,
+    pub barnacle_bites: u32,
+    pub barnacle_releases: u32,
     /// NPC falls that ended (entity, z, what the trace hit, start solid, fraction); the
     /// last 16.
     pub fall_landings: Vec<(usize, f32, Option<usize>, bool, f32)>,
@@ -585,6 +590,17 @@ pub struct AiRuntime {
     /// Zombie swats this tick for the host's physics: (object entity, velocity in/s, local
     /// angular deg/s), IPhysicsObject::AddVelocity.
     pub prop_swats: Vec<(usize, Vec3, Vec3)>,
+    /// Barnacles (`barnacles`), which sit beside the schedule actors.
+    barnacles: BTreeMap<usize, barnacles::BarnacleActor>,
+    /// The barnacle holding the player, and how far it moved him this tick.
+    player_holder: Option<usize>,
+    player_hold: Option<Vec3>,
+    /// NPCs on a tongue: they do not think.
+    held_npcs: std::collections::BTreeSet<usize>,
+    /// NPCs bitten at the mouth, which leave no corpse.
+    eaten: std::collections::BTreeSet<usize>,
+    /// Props on a tongue this tick for the host: (prop, the velocity that keeps them on it).
+    pub prop_moves: Vec<(usize, Vec3)>,
     /// WeaponSound(SINGLE_NPC, soundtime) requests that start later (WeaponSoundRealtime
     /// schedules a machine gun's second sound ahead of the next think).
     #[serde(skip)]
@@ -917,6 +933,17 @@ impl AiRuntime {
             grenade_tosses: Vec::new(),
             ball_launches: Vec::new(),
             prop_swats: Vec::new(),
+            barnacles: world
+                .entities
+                .iter()
+                .enumerate()
+                .filter_map(|(id, e)| Some((id, barnacles::BarnacleActor::for_entity(id, e)?)))
+                .collect(),
+            player_holder: None,
+            player_hold: None,
+            held_npcs: Default::default(),
+            eaten: Default::default(),
+            prop_moves: Vec::new(),
             delayed_sounds: Vec::new(),
             diagnostics: Diagnostics::default(),
             random: 0x9e37_79b9_7f4a_7c15,
@@ -972,6 +999,7 @@ impl AiRuntime {
                 actor.damage_taken = actor.damage_taken.max(damage);
                 actor.damaged_by_player |= by_player;
             }
+            self.barnacle_hurt(victim);
             self.pain_or_death_sound(victim, world, scene, player);
         }
         if let Some(value) = self.stunstick_damage {
@@ -1008,10 +1036,11 @@ impl AiRuntime {
         self.sounds.purge(now);
         let precriminal = scene.globals.is_on("gordon_precriminal");
         self.update_squads(world, scene);
+        self.tick_barnacles(world, scene, controller, physics, player);
         let ids: Vec<usize> = self.actors.keys().copied().collect();
         for id in ids {
             let state = &scene.states[id];
-            if state.killed || !state.visible {
+            if state.killed || !state.visible || self.held_npcs.contains(&id) {
                 continue;
             }
             // NPC_STATE_SCRIPT: scripts own the actor; the AI yields.
@@ -1435,6 +1464,7 @@ impl AiRuntime {
                 let center = state.origin + Vec3::Z * 36.;
                 other != id
                     && !state.killed
+                    && !state.corpse
                     && state.visible
                     && sees_height(state.origin.z)
                     && center.distance(eye) <= senses::LOOK_DISTANCE

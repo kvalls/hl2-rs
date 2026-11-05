@@ -211,6 +211,7 @@ impl Scene {
             timer_at: number(e, "RefireTime", 1.).max(0.015) as f64,
             outputs,
             parent: None,
+            corpse: false,
         };
         s.origin = s.base_origin + s.translation * s.fraction;
         s.rotation = s.base_rotation * Quat::from_axis_angle(s.axis, s.angle * s.fraction);

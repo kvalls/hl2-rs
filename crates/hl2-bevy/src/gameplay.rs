@@ -651,7 +651,8 @@ impl Gameplay {
                 .find(|r| r.entity == npc)
                 .is_some_and(|release| self.release_crab(*release, physics));
             self.evacuate_nest(npc, physics);
-            if replaced {
+            let stays = self.scene.states[npc].corpse;
+            if replaced || stays || self.ai.take_eaten(npc) {
                 continue;
             }
             let world = self.world.clone();
@@ -824,6 +825,8 @@ impl Gameplay {
                         .reload(&self.weapons, &mut self.scene, &self.world);
                     continue;
                 }
+                // CHL2_Player::PlayerRunCommand: no +USE on a barnacle.
+                Action::Use if self.ai.player_held() => continue,
                 Action::Use => {
                     // CPlayerPickupController first (drop while carrying, pick up a
                     // small prop), then the existing door/button use.
@@ -1134,6 +1137,12 @@ impl Gameplay {
         );
         self.scene.npc_knows_player = self.ai.npcs_knowing_player();
         self.throw_crabs(physics);
+        // Props on a barnacle's tongue follow its tip.
+        for (prop, velocity) in std::mem::take(&mut self.ai.prop_moves) {
+            if let Some(body) = physics.entity_body(prop) {
+                physics.set_body_velocity(body, velocity, Vec3::ZERO);
+            }
+        }
         // Zombie swats (AE_ZOMBIE_SWATITEM -> IPhysicsObject::AddVelocity).
         for (object, velocity, angular) in std::mem::take(&mut self.ai.prop_swats) {
             physics.add_entity_velocity(object, velocity, angular);

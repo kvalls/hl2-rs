@@ -57,6 +57,10 @@ impl AiRuntime {
                 self.assault_goal_input(world, scene, target, &input);
                 continue;
             }
+            if class == "npc_barnacle" {
+                self.barnacle_input(target, &input, parameter.trim().parse().unwrap_or(0.));
+                continue;
+            }
             if class == "aiscripted_schedule" {
                 self.scripted_schedule_input(world, scene, target, &input);
                 continue;
