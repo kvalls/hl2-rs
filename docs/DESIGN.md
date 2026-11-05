@@ -1,5 +1,11 @@
 # Design
 
+## Passive-header continuation plan (2026-11-05 KF onward)
+
+Independently bind each header begin/end pair to the currently active stopped VM interval. The earlier verifier's globally ordered header list is insufficient: moving a complete pair to another capture interval can preserve that list. Preserve the original capture and verifier; add an independently validated strict phase witness with moved, missing, duplicated, foreign-event and wrong-outcome controls. Source placement and raw event admission remain separate evidence.
+
+Extend authored foreign-process coverage with explicit stale, locked, null, unsupported-version and read/bounds refusals while preserving the enclosing model/count snapshot, caller FP and cap/lifecycle proof. Group-zero root-direct reads must ignore irrelevant cache state. Review these admissions before preparing a new passive native root. A fresh ownership guard remains necessary for that run. Retain all unavailable outcomes and prohibit cache-helper invocation.
+
 ## Passive header integration disposition (2026-11-05 KC)
 
 Authored full and partial caps admit selected-group metadata within the current VM/count interval. Each header identity carries the same20 active stopped fields plus eight expected reader inputs, outcome and read count. Independent parsing joins full wrapper48 to model rereads and VM36/group handle2/map16 to the VM journal. Successful associations require the selected local index to fit the separately observed local descriptor count. Refusals remain outcomes rather than invented descriptor identities; integrated refusal-path behavior is not tested.
