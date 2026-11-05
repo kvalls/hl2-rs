@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Passive pose metadata geometry and transport (2026-11-05 KA/KB)
+
+Exact retail geometry confirms that a VM pair selecting group zero indexes the root directly, bypassing cache slot zero. Nonzero groups resolve a separate header before applying the local20-byte descriptor index. A descriptor's signed first word is relative to that descriptor. Negative deltas can be valid; a zero count does not consume its unused table offset.
+
+The standalone Windows reader validates IDST/version48, a0x134-byte prefix, signed logical length/count/table bounds and bounded NUL spans. Explicit budgets are64 MiB,64 poses,16 groups and128 name bytes; these may refuse valid larger inputs and are not retail limits. It preserves raw name bytes and flags/start/end/loop words, including empty/non-ASCII names and unusual IEEE values. Nonzero groups require neutral mutex words and equal saved/live epoch before reading an existing slot. Successful reads reverse the same original address plan. Equal endpoints do not establish lifetime or exclude ABA changes. Actual loaded descriptors and their global-index assignment require independent VM/group/current-model joins.
+
 ## Retail virtual pose map and descriptor boundary (2026-11-04)
 
 All 32 accepted retail stops show canonical pairs `(0,0)`, `(1,1)` through `(1,8)`, then `(3,0)` and `(3,1)`. The four local-to-global vectors are `[0]`, `[0,1,2,3,4,5,6,7,8]`, `[0]` and `[9,10]`. This matches the owned candidate structure, including the two duplicate aliases into global slot zero. The raw group-handle words are present. The loaded descriptor names and their exact ranges and loop fields remain unresolved.

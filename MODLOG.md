@@ -1,5 +1,9 @@
 # MODLOG
 
+## 2026-11-05 â€” Passive pose metadata reader (KA/KB)
+
+Agent/model: Codex desktop; primary gpt-6.1-sol identifier supplied during the session, with earlier primary and two materially involved subagents identified only as GPT-6 family. Changed: authenticated group-zero/direct-root and nonzero cached-header descriptor geometry; admitted a passive bounded v48 reader and independent replay. Why: live VM pair/remap structures did not identify loaded descriptor names. Tested how: Windows static/owned-file audits and an x86 authored RPM process; 152 cases,1555 reads,80 API controls, eight actual faults, nine mutations and36 transcript corruptions. Result: bounded standalone transport/eligibility passes. Initial compile rejection is retained. Still broken or not tested: active-stop/cap/FP integration, native loaded child headers, earlier getter, actor identity, final pose, campaign completion and Rust parity. macOS/Linux not tested. Next: same-stop integration and independent review before any fresh guarded native root.
+
 ## 2026-11-04 research closeout JL–JO
 
 **Agent/model** Codex desktop, GPT-6 family. The exact identifier was unavailable. Same-family subagents independently traced the group-header cache route and replayed the native map.

@@ -1,5 +1,11 @@
 # STATUS
 
+## Passive header reader admission (2026-11-05 KA/KB)
+
+KA authenticates 185 exact retail instruction bytes and 13 owned descriptors, rejecting 38 instruction corruptions and 20 bounds controls while retaining nine coherent diagnostics. Group zero uses the wrapper root directly. Nonzero groups use resolved cached headers. Signed name deltas are descriptor-relative; zero local count leaves the table offset unused. Owned root v44 and previously loaded root v48 remain separate observations.
+
+KB Windows x86 self-process56000 exits0:152 cases/1555 RPM calls,11 successful snapshots, eight actual inaccessible-page cases, nine reverse mutations and80 API-result controls. Independent Python replay rejects36 transcript corruptions. Corrected /W4 /WX build passes; the initial CRT deprecation build rejection is retained. Active-stop integration and native child-header/name observation remain pending. No Rust action; earlier getter history, actor identity, final pose, campaign completion and parity remain open.
+
 ## Passive cache slot eligibility fixture (2026-11-04 JQ)
 
 A Windows self-process fixture passes 17 cases and 44 real memory reads for existing cache slots. It separates locked, stale, null, out-of-range and inaccessible states, and rejects three reverse mutations. Six replay corruptions reject. The arena uses x86-range addresses in an x64 fixture host. Next admit bounded group-header, descriptor and name ranges before native integration.

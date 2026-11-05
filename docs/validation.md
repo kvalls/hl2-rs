@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## KA/KB passive header reader checks (2026-11-05)
+
+KA:185 authenticated static bytes,38 instruction corruptions,13 owned descriptors,20 bounds refusals and nine coherent diagnostics. KB: Windows x86 self-process56000 exits0 with152 cases/1555 RPM calls,11 accepted snapshots, eight actual inaccessible paths, nine reverse mutations,80 authored API controls and36 rejected transcript corruptions. API BOOL, actual byte count and error are checked independently. Zero-count unused offsets, negative names, last-byte NUL, unsupported v44 and raw unusual names/IEEE values are covered. Initial CRT deprecation compile rejection is retained; corrected /W4 /WX build passes before the sole producer run. Read-only replay and source/external-binding seals pass. Native capture, integrated cap/FP behavior, performance, macOS/Linux and Rust parity were not tested by these roots.
+
 ## Passive group header slot fixture (2026-11-04)
 
 The Windows x64 self-process uses x86-range authored addresses. All 17 cases and 44 real reads pass, including three actual inaccessible pages and three mutations between forward and reverse reads. The replay rejects six corrupted addresses. Native cache slot or header reads **not tested**.
