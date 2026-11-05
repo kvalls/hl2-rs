@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-05 session 46c: npc_cscanner in the runtime, main at 031aa58 (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** main fast-forwarded to 031aa58 after CI passed on Windows and macOS. On the branch: AiClass::Scanner with patrols over the air graph, path_corners, InspectTargetPhoto, InspectTargetSpotlight, SetFollowTarget, ClearFollowTarget, SetDistanceOverride, InputShouldInspect, enemy hover and its sounds; `Motor::fly_patrol`; flight routes use the class's hull; `AiRuntime::roll_for`; the class's schedules moved to `setup::class_schedules`.
+
+**Why:** owner 2026-11-05: finish the planned NPC behaviors. Scanners come next in campaign order, and the maps turned out to need them from chapter 1.
+
+**Tested how / Result:** see STATUS "Current session 46" for packaged runs and the replay finding. On d2be623: strict Clippy clean in the release profile, 1497 unit tests passed and 2 failed (the two --release should_panic rendering tests), s46f-regression 26/26, 17/17, 26/26. Replays on d2be623: 70 fixtures passed across two runs, one stopped when the owner started a game and finished with one job; `pallet-gibs-fade` failed once at four jobs (its kill landed by sample t32) and passed at one job; `parallel_jobs` and `coverage` did not run. ca8a331 then changed scanner hostility, so those results do not cover the final code: full validation of ca8a331 RESULT_PENDING.
+
+**Frame time:** **not measured**. A scanner costs up to four hull traces per think and one per tick.
+
+**Still broken or not tested:** see STATUS "Not done for scanners". Ordinary play of a scanner map **not tested**.
+
+**Next:** see the next-session prompt's steps in STATUS and DESIGN 14o: the spotlight, then the death dive.
+
 ## 2026-11-05 session 46b: birds, air routes, the barnacle's validation (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
