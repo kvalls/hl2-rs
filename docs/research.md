@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Authored stopped metadata and independent review (2026-11-05 KCâ€“KE)
+
+KC admits49 actual stopped fixture contexts/84 selected groups with1828 passive metadata reads and304 range-checked global/local descriptor associations. This uses authored headers around retained exact initializer/wrapper/caller fragments; it does not observe loaded native child models. Integrated outcomes are all stable. Refusal coverage remains KB standalone evidence. KD independently parses and recomputes all152 raw reader cases, with237 added corruption controls and no material C/Python disagreement. Its initial control draft expected a semantic instability result where strict trailing-row exhaustion rejected first; only the audit expectation changed. KE freezes six roots and verifies all local/external hashes without altering earlier inventories.
+
 ## Passive pose metadata geometry and transport (2026-11-05 KA/KB)
 
 Exact retail geometry confirms that a VM pair selecting group zero indexes the root directly, bypassing cache slot zero. Nonzero groups resolve a separate header before applying the local20-byte descriptor index. A descriptor's signed first word is relative to that descriptor. Negative deltas can be valid; a zero count does not consume its unused table offset.

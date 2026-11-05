@@ -1,5 +1,11 @@
 # Design
 
+## Passive header integration disposition (2026-11-05 KC)
+
+Authored full and partial caps admit selected-group metadata within the current VM/count interval. Each header identity carries the same20 active stopped fields plus eight expected reader inputs, outcome and read count. Independent parsing joins full wrapper48 to model rereads and VM36/group handle2/map16 to the VM journal. Successful associations require the selected local index to fit the separately observed local descriptor count. Refusals remain outcomes rather than invented descriptor identities; integrated refusal-path behavior is not tested.
+
+Before native use, independently review these joins and create a separate root with a fresh ownership guard and immutable input pins. Retain group-zero root-direct versus nonzero epoch-admitted cache routes. A successful native read would establish current stopped metadata only. Getter consumption history and actor/entity/rendered-pose association require separate witnesses.
+
 ## Passive pose-header integration plan (2026-11-05)
 
 Continue JQ with independently authenticated descriptor geometry and a bounded Windows reader. Keep virtual group zero on the direct-root route; read nonzero existing cache slots only after neutral mutex, bounded vector and equal saved/live epoch checks. Validate v48 header prefixes, signed logical lengths, counted descriptor tables and descriptor-relative NUL spans; preserve raw names and IEEE words. Observer budgets may refuse valid larger inputs.

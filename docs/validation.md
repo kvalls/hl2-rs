@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## KCâ€“KE stopped header and integrity validation (2026-11-05)
+
+KC debugger/host pairs34580/9796,61080/15488,40908/29580 exit0 at caps1/12/36.49 stopped contexts retain84 stable groups/1828 header reads/304 bounded associations and49 caller-FP comparisons. Same20-field identity, wrapper/model/VM/group joins, code/module generations, cap partition and cleanup checks pass;33 new corruption controls plus29 inherited VM controls reject. No integrated refusal cases ran. KD independently recomputes152 cases/1555 standalone reads and rejects237 controls. KE checks312 local entries/100 external-binding occurrences/394 unique files/451115671 bytes over six roots; replay and seals pass. No native game attempt, gameplay rebuild, performance test, macOS/Linux test or Rust-parity test occurred.
+
 ## KA/KB passive header reader checks (2026-11-05)
 
 KA:185 authenticated static bytes,38 instruction corruptions,13 owned descriptors,20 bounds refusals and nine coherent diagnostics. KB: Windows x86 self-process56000 exits0 with152 cases/1555 RPM calls,11 accepted snapshots, eight actual inaccessible paths, nine reverse mutations,80 authored API controls and36 rejected transcript corruptions. API BOOL, actual byte count and error are checked independently. Zero-count unused offsets, negative names, last-byte NUL, unsupported v44 and raw unusual names/IEEE values are covered. Initial CRT deprecation compile rejection is retained; corrected /W4 /WX build passes before the sole producer run. Read-only replay and source/external-binding seals pass. Native capture, integrated cap/FP behavior, performance, macOS/Linux and Rust parity were not tested by these roots.

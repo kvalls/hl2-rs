@@ -1,5 +1,11 @@
 # STATUS
 
+## Stopped header integration admitted in fixtures (2026-11-05 KCâ€“KE)
+
+KC caps1/12/36 debugger34580/61080/40908 and hosts9796/15488/29580 all exit0.49 stopped snapshots yield84 stable selected-group outcomes,1828 new RPM reads and304 bounded descriptor associations. Same20-field active identity, wrapper/model, VM/group bytes and selected local indices join; caller FP, module/code, cap and lifecycle checks pass.33 new and29 inherited corruption controls reject. Integrated refusal outcomes are not tested; standalone KB coverage stays separate.
+
+KD independently recomputes all152 KB cases/1555 reads and rejects237 additional corruptions; no material C/Python disagreement. Its rejected control-expectation draft remains retained. KE verifies six frozen roots:312 entries/100 external binding occurrences/394 unique files/451115671 bytes. No native attempt or Rust action. Next independently review KC before a new guarded native root; native loaded names, earlier getter, actor/final pose/campaign/parity remain open.
+
 ## Passive header reader admission (2026-11-05 KA/KB)
 
 KA authenticates 185 exact retail instruction bytes and 13 owned descriptors, rejecting 38 instruction corruptions and 20 bounds controls while retaining nine coherent diagnostics. Group zero uses the wrapper root directly. Nonzero groups use resolved cached headers. Signed name deltas are descriptor-relative; zero local count leaves the table offset unused. Owned root v44 and previously loaded root v48 remain separate observations.
