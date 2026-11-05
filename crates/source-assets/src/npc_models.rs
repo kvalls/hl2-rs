@@ -130,4 +130,42 @@ mod tests {
         assert!(rig.bones.iter().any(|b| b.name == "Barnacle.base"));
         assert_eq!(rig.bones.len(), first + 8);
     }
+
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; reads the bird models"]
+    fn owned_birds_have_their_flight_activities() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        for model in ["models/crow.mdl", "models/pigeon.mdl", "models/seagull.mdl"] {
+            let names = crate::animation::sequence_names(&vfs, model)
+                .unwrap()
+                .into_iter()
+                .collect();
+            let rig = crate::animation::load(&vfs, model, &names).unwrap();
+            println!("== {model}");
+            for seq in &rig.sequences {
+                let clip = rig.clips.get(&seq.name);
+                println!(
+                    "seq {} act {} w {} frames {} fps {} loop {} events {:?}",
+                    seq.name,
+                    seq.activity,
+                    seq.weight,
+                    clip.map_or(0, |c| c.frames.len()),
+                    clip.map_or(0., |c| c.fps),
+                    clip.is_some_and(|c| c.looping),
+                    clip.map(|c| c
+                        .events
+                        .iter()
+                        .map(|e| (e.cycle, e.id, e.name.clone()))
+                        .collect::<Vec<_>>())
+                );
+            }
+            for activity in ["ACT_IDLE", "ACT_WALK", "ACT_RUN", "ACT_FLY", "ACT_HOP"] {
+                assert!(
+                    rig.sequences.iter().any(|s| s.activity == activity),
+                    "{model} has no {activity}"
+                );
+            }
+        }
+    }
 }
