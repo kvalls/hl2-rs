@@ -87,4 +87,35 @@ mod tests {
             Some("models/combine_strider.mdl")
         );
     }
+
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; reads the barnacle model"]
+    fn owned_barnacle_has_its_tongue_bones_and_activities() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        let names = crate::animation::sequence_names(&vfs, "models/barnacle.mdl")
+            .unwrap()
+            .into_iter()
+            .collect();
+        let rig = crate::animation::load(&vfs, "models/barnacle.mdl", &names).unwrap();
+        for (i, b) in rig.bones.iter().enumerate() {
+            println!("bone {i} {} parent {:?} bind {:?}", b.name, b.parent, b.bind.position);
+        }
+        for seq in &rig.sequences {
+            let name = &seq.name;
+            let clip = rig.clips.get(name);
+            println!(
+                "seq {name} act {} w {} frames {} fps {} loop {} events {:?}",
+                seq.activity,
+                seq.weight,
+                clip.map_or(0, |c| c.frames.len()),
+                clip.map_or(0., |c| c.fps),
+                clip.is_some_and(|c| c.looping),
+                clip.map(|c| c.events.iter().map(|e| (e.cycle, e.id, e.name.clone())).collect::<Vec<_>>())
+            );
+        }
+        let first = rig.bones.iter().position(|b| b.name == "Barnacle.tongue1").unwrap();
+        assert!(rig.bones.iter().any(|b| b.name == "Barnacle.base"));
+        assert_eq!(rig.bones.len(), first + 8);
+    }
 }
