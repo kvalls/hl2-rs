@@ -6,6 +6,8 @@ use crate::ai::schedule::MoveStatus;
 struct FakeMotor {
     activity: String,
     finished: bool,
+    /// The legs of a route, when there is one.
+    legs: Option<Vec<Vec3>>,
 }
 impl Motor for FakeMotor {
     fn set_activity(&mut self, activity: &str) {
@@ -25,6 +27,9 @@ impl Motor for FakeMotor {
     }
     fn movement(&self) -> MoveStatus {
         MoveStatus::Idle
+    }
+    fn fly_route(&mut self, _goal: Vec3) -> Option<Vec<Vec3>> {
+        self.legs.clone()
     }
 }
 
@@ -175,12 +180,31 @@ fn a_hint_is_kept_across_flights() {
         start(&mut bird, &mut n, "TASK_FIND_HINTNODE", &ctx),
         Some(TaskStatus::Complete)
     );
-    assert_eq!(
-        start(&mut bird, &mut n, "TASK_GET_PATH_TO_HINTNODE", &ctx),
-        Some(TaskStatus::Complete)
-    );
-    assert_eq!(bird.waypoint.map(|w| w.position), Some(Vec3::X * 100.));
+    let mut motor = FakeMotor {
+        legs: Some(vec![Vec3::Y, Vec3::X * 100.]),
+        ..Default::default()
+    };
+    let task = "TASK_GET_PATH_TO_HINTNODE";
+    let route = bird.start_task(&mut n, task, &TaskArg::parse("0"), &ctx, &mut motor);
+    assert_eq!(route, Some(TaskStatus::Complete));
+    assert_eq!(bird.waypoint.map(|w| w.position), Some(Vec3::Y));
     assert!(!bird.flying, "a hint is reached by taking off");
+    assert!(!bird.last_leg());
+    assert!(bird.next_leg());
+    assert_eq!(bird.waypoint.map(|w| w.position), Some(Vec3::X * 100.));
+    assert!(bird.last_leg() && !bird.next_leg());
+}
+
+#[test]
+fn no_way_to_the_hint_keeps_it_on_the_ground_and_drops_the_hint() {
+    let mut bird = crow();
+    let mut n = npc(&[]);
+    bird.hint = Some(Vec3::X);
+    let task = "TASK_GET_PATH_TO_HINTNODE";
+    let status = start(&mut bird, &mut n, task, &at(1.));
+    assert_eq!(status, Some(TaskStatus::Failed));
+    assert_eq!(bird.hint, None);
+    assert!(bird.waypoint.is_none() && !bird.flying);
 }
 
 #[test]
@@ -397,9 +421,9 @@ fn a_bird_is_stuck_only_when_still_and_stopped_at_a_check() {
         !bird.stuck(spot, 3.9),
         "the first check waits three seconds"
     );
-    bird.velocity = Vec3::X;
+    bird.velocity = Vec3::X * 2.;
     assert!(!bird.stuck(spot, 4.), "still has speed");
-    bird.velocity = Vec3::ZERO;
+    bird.velocity = Vec3::X * 0.5;
     assert!(!bird.stuck(spot, 4.5), "not time yet");
     assert!(bird.stuck(spot, 5.));
     assert!(!bird.stuck(Vec3::Y, 5.), "it moved");

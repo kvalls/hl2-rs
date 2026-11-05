@@ -4,14 +4,14 @@
 //! ground costs nothing here.
 
 use super::super::bird::{self, Bird, FlyHint, Waypoint, AIR_SPEED, TAKEOFF_SPEED};
-use super::super::host::{yaw_of, PhysicsSight};
+use super::super::host::{flight_trace, yaw_of, PhysicsSight};
 use super::super::metropolice::{CopRequest, PLAYER};
 use super::super::senses::SightWorld;
 use super::crabs::{fall_hull, step_fraction};
 use super::{event_window_start, AiActor, AiClass, AiRuntime, PlayerState, THINK_INTERVAL};
 use crate::ai::conditions::COND_PROVOKED;
 use crate::entities::Scene;
-use crate::npc_probe::{Hull, HullTrace, NpcCollisionWorld, Query};
+use crate::npc_probe::Hull;
 use crate::physics::{angles, Physics};
 use crate::view_control::angles_toward;
 use glam::Vec3;
@@ -20,8 +20,6 @@ use std::sync::Arc;
 
 /// DMG_GENERIC, for a stuck bird's end.
 const DMG_GENERIC: u32 = 0;
-/// NPCs a flight's trace can pass through in one step.
-const MAX_PASSED: usize = 8;
 
 /// The map's hints birds fly to.
 pub(super) fn fly_hints(world: &World) -> Arc<[FlyHint]> {
@@ -47,43 +45,6 @@ fn named(world: &World, name: &str) -> Option<usize> {
         e.get("targetname")
             .is_some_and(|n| n.eq_ignore_ascii_case(name))
     })
-}
-
-/// A hull trace that only the world and props stop: birds pass through NPCs, each other and the
-/// player (HL2COLLISION_GROUP_CROW).
-fn flight_trace(
-    world: &World,
-    physics: &Physics,
-    (from, to): (Vec3, Vec3),
-    hull: Hull,
-    id: usize,
-) -> HullTrace {
-    let mut excluded = [id; MAX_PASSED];
-    let mut count = 1;
-    loop {
-        let hit = physics.npc_trace_hull(
-            from,
-            to,
-            hull,
-            Query {
-                excluded_entities: &excluded[..count],
-                ..Default::default()
-            },
-        );
-        let npc = hit.entity.filter(|&e| {
-            world
-                .entities
-                .get(e)
-                .is_some_and(|x| x.class().starts_with("npc_"))
-        });
-        match npc {
-            Some(e) if count < MAX_PASSED => {
-                excluded[count] = e;
-                count += 1;
-            }
-            _ => return hit,
-        }
-    }
 }
 
 /// The body's facing along a flight, with its bank.
@@ -133,8 +94,12 @@ fn next_corner(world: &World, waypoint: Option<Waypoint>) -> Option<usize> {
     named(world, world.entities[corner].get("target")?)
 }
 
-/// Passing a corner fires its OnPass and takes the next; true when there is nowhere further.
+/// A route's next leg, or a corner passed (firing its OnPass) and the next taken; true when there
+/// is nowhere further.
 fn arrive(bird: &mut Bird, world: &World, scene: &mut Scene, id: usize) -> bool {
+    if bird.next_leg() {
+        return false;
+    }
     let Some(next) = next_corner(world, bird.waypoint) else {
         return true;
     };
@@ -184,8 +149,9 @@ impl Air<'_> {
             steer.direction
         };
         bird.velocity = direction * AIR_SPEED;
-        let landing =
-            steer.distance < AIR_SPEED && next_corner(self.world, bird.waypoint).is_none();
+        let landing = steer.distance < AIR_SPEED
+            && bird.last_leg()
+            && next_corner(self.world, bird.waypoint).is_none();
         let activity = if landing {
             "ACT_CROW_LAND"
         } else {

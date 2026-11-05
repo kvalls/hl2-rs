@@ -3,13 +3,19 @@
 use super::schedule::{Goal, Motor, MoveStatus};
 use super::senses::SightWorld;
 use crate::{
+    ai_hull::HullType,
     entities::Scene,
     npc::{ActorPose, Controller, GoalKey, GoalState, MoveRequest, MoveStyle, AI_SCENE},
-    npc_probe::ActorHull,
+    npc_probe::{ActorHull, Hull, HullTrace, NpcCollisionWorld, Query},
     physics::Physics,
 };
 use glam::Vec3;
 use modkit_core::World;
+
+/// NPCs a flight's trace can pass through in one step.
+const MAX_PASSED: usize = 8;
+/// How far above its feet a route's first leg starts.
+const FLIGHT_START_LIFT: f32 = 2.;
 
 /// CAI_Motor over the shared controller for one NPC during one think.
 pub struct SceneMotor<'a> {
@@ -253,6 +259,17 @@ impl Motor for SceneMotor<'_> {
             },
         )
     }
+    /// From just off the ground, so that a bird standing on it can leave.
+    fn fly_route(&mut self, goal: Vec3) -> Option<Vec<Vec3>> {
+        let (world, physics, me) = (self.world, self.physics, self.entity);
+        let hull = HullType::Tiny.bounds();
+        let from = self.scene.states[me].origin + Vec3::Z * FLIGHT_START_LIFT;
+        let clear = |a: Vec3, b: Vec3| {
+            let hit = flight_trace(world, physics, (a, b), hull, me);
+            !hit.trace.start_solid && hit.trace.fraction >= 1.
+        };
+        self.controller.fly_route(HullType::Tiny, from, goal, clear)
+    }
     fn movement(&self) -> MoveStatus {
         let Some(key) = *self.goal else {
             return MoveStatus::Idle;
@@ -262,6 +279,43 @@ impl Motor for SceneMotor<'_> {
             Some(GoalState::Moving) => MoveStatus::Moving,
             Some(_) => MoveStatus::Failed,
             None => MoveStatus::Idle,
+        }
+    }
+}
+
+/// A hull trace that only the world and props stop: birds pass through NPCs, each other and the
+/// player (HL2COLLISION_GROUP_CROW).
+pub fn flight_trace(
+    world: &World,
+    physics: &Physics,
+    (from, to): (Vec3, Vec3),
+    hull: Hull,
+    id: usize,
+) -> HullTrace {
+    let mut excluded = [id; MAX_PASSED];
+    let mut count = 1;
+    loop {
+        let hit = physics.npc_trace_hull(
+            from,
+            to,
+            hull,
+            Query {
+                excluded_entities: &excluded[..count],
+                ..Default::default()
+            },
+        );
+        let npc = hit.entity.filter(|&e| {
+            world
+                .entities
+                .get(e)
+                .is_some_and(|x| x.class().starts_with("npc_"))
+        });
+        match npc {
+            Some(e) if count < MAX_PASSED => {
+                excluded[count] = e;
+                count += 1;
+            }
+            _ => return hit,
         }
     }
 }

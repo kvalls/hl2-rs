@@ -226,6 +226,8 @@ pub struct Bird {
     pub velocity: Vec3,
     /// Where the flight is heading; None on the ground or when it has arrived.
     pub waypoint: Option<Waypoint>,
+    /// The legs after that one, the next one last.
+    pub route: Vec<Vec3>,
     /// The hint it holds. It keeps it across flights, so a bird that reaches a hint in mid-air
     /// drops, takes off and comes back to the same one.
     pub hint: Option<Vec3>,
@@ -267,6 +269,7 @@ impl Bird {
             flying,
             velocity: Vec3::ZERO,
             waypoint: None,
+            route: Vec::new(),
             hint: None,
             goal_corner: None,
             fly_request: None,
@@ -292,12 +295,13 @@ impl Bird {
     pub fn roll(&mut self) -> f32 {
         super::roll(&mut self.seed)
     }
-    /// The check that ends a wedged bird: true when it has not moved and has no speed left.
+    /// The check that ends a wedged bird: true when it has not moved and has no speed left. A
+    /// scrape along a wall leaves a trace of speed, so neither has to be exactly nothing.
     pub fn stuck(&mut self, origin: Vec3, now: f64) -> bool {
         if now < self.next_stuck_check {
             return false;
         }
-        if origin == self.stuck_origin && self.velocity == Vec3::ZERO {
+        if origin.distance(self.stuck_origin) < 1. && self.velocity.length() < 1. {
             return true;
         }
         self.stuck_origin = origin;
@@ -321,6 +325,34 @@ impl Bird {
         if distance < TOO_CLOSE {
             conditions.set(COND_ENEMY_TOO_CLOSE);
         }
+    }
+    /// A route to fly, or a failed task and no hint when there is none: the bird stays down.
+    fn follow(&mut self, legs: Option<Vec<Vec3>>) -> TaskStatus {
+        let Some(mut legs) = legs else {
+            self.hint = None;
+            return Failed;
+        };
+        legs.reverse();
+        self.route = legs;
+        if self.next_leg() {
+            Complete
+        } else {
+            Failed
+        }
+    }
+    /// On to the route's next leg; false when it has none left.
+    pub fn next_leg(&mut self) -> bool {
+        let Some(position) = self.route.pop() else {
+            return false;
+        };
+        self.waypoint = Some(Waypoint {
+            position,
+            corner: None,
+        });
+        true
+    }
+    pub fn last_leg(&self) -> bool {
+        self.route.is_empty()
     }
     /// SetFlyingState(FlyState_Flying).
     pub fn start_flying(&mut self, origin: Vec3, now: f64) {
@@ -461,17 +493,13 @@ impl Behavior for Bird {
                 if let Some(corner) = self.goal_corner {
                     // A named path needs no takeoff: it is flying from here on.
                     self.start_flying(ctx.origin, ctx.now);
+                    self.route.clear();
                     self.waypoint = Some(corner);
                     self.hint = None;
                     Complete
-                } else if let Some(position) = self.hint {
-                    self.waypoint = Some(Waypoint {
-                        position,
-                        corner: None,
-                    });
-                    Complete
                 } else {
-                    Failed
+                    let legs = self.hint.and_then(|hint| motor.fly_route(hint));
+                    self.follow(legs)
                 }
             }
             "TASK_CROW_TAKEOFF" => {
@@ -505,6 +533,7 @@ impl Behavior for Bird {
             "TASK_CROW_FALL_TO_GROUND" => {
                 self.flying = false;
                 self.waypoint = None;
+                self.route.clear();
                 self.drop = true;
                 Running
             }
