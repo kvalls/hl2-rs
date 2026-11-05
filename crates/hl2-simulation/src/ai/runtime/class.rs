@@ -88,6 +88,11 @@ impl AiClass {
             Self::Scanner(s) => s.as_mut(),
         }
     }
+    /// IRelationType: a scanner leaves the player alone while he is precriminal, whatever the
+    /// class table says.
+    pub(super) fn spares_precriminal(&self) -> bool {
+        matches!(self, Self::Scanner(_))
+    }
     /// m_flFieldOfView.
     pub(super) fn field_of_view(&self) -> f32 {
         match self {

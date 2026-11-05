@@ -387,6 +387,50 @@ fn assault_goal_and_scripted_schedule_inputs_reach_the_cop() {
     assert!(!assault.active());
     assert!(r.ai.rally_locks.is_empty());
 }
+/// A scanner beside the player, with `gordon_precriminal` on or off.
+fn scanner_rig(precriminal: &str) -> Rig {
+    let world = World {
+        entities: vec![
+            entity(&[
+                ("classname", "npc_cscanner"),
+                ("targetname", "eye"),
+                ("origin", "100 0 64"),
+                ("angles", "0 180 0"),
+            ]),
+            entity(&[
+                ("classname", "env_global"),
+                ("globalstate", "gordon_precriminal"),
+                ("initialstate", precriminal),
+                ("spawnflags", "1"),
+            ]),
+        ],
+        ..Default::default()
+    };
+    let scene = Scene::new(&world);
+    let physics = Physics::new(&world);
+    let ai = AiRuntime::new(&world, None);
+    Rig {
+        world,
+        scene,
+        physics,
+        controller: Controller::new(None, Default::default()),
+        ai,
+    }
+}
+
+#[test]
+fn a_scanner_leaves_a_precriminal_player_alone_and_hunts_him_afterwards() {
+    let mut spared = scanner_rig("1");
+    spared.ai.enabled = true;
+    run(&mut spared, 40, player_at(0.));
+    assert!(spared.ai.diagnostics.thinks >= 2);
+    assert_eq!(spared.ai.actors[&0].npc.enemy, None);
+    let mut hunted = scanner_rig("0");
+    hunted.ai.enabled = true;
+    run(&mut hunted, 40, player_at(0.));
+    assert_eq!(hunted.ai.actors[&0].npc.enemy, Some(PLAYER));
+}
+
 #[test]
 fn friend_and_foe_cops_target_each_other_and_relationships_override_classes() {
     let world = World {

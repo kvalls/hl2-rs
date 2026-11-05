@@ -1453,7 +1453,7 @@ impl AiRuntime {
                 h.armed = actor.weapon.is_some();
                 precriminal_hate
             }
-            _ => precriminal_hate,
+            other => precriminal_hate && !(precriminal && other.spares_precriminal()),
         };
         // A cop keeps the player as its enemy for the rest of a chase.
         let chasing = actor.class.cop().is_some_and(|cop| cop.chase_until > now);
