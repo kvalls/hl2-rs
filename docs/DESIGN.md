@@ -1,5 +1,11 @@
 # Design
 
+## Passive pose-header integration plan (2026-11-05)
+
+Continue JQ with independently authenticated descriptor geometry and a bounded Windows reader. Keep virtual group zero on the direct-root route; read nonzero existing cache slots only after neutral mutex, bounded vector and equal saved/live epoch checks. Validate v48 header prefixes, signed logical lengths, counted descriptor tables and descriptor-relative NUL spans; preserve raw names and IEEE words. Observer budgets may refuse valid larger inputs.
+
+Admit actual inaccessible pages, changing memory, API BOOL/count/error controls and an independent replay before integration. Join every selected group to the same active stopped identity, current wrapper/model, VM fields and group records. Require full and partial caps, caller FP preservation, module generations and cleanup in authored fixtures. A subsequent native root requires independent review and a fresh ownership guard. Cached header snapshots establish current metadata only; earlier getter history, actor identity and composed/rendered pose remain separate questions.
+
 ## Existing header slot eligibility (2026-11-04 JQ)
 
 The standalone fixture admits only pointer slot eligibility. It requires the independently supplied wrapper root and VM, neutral mutex words, bounded vector count and equal saved/live epochs. Re-read the pointer vector, epoch and wrapper in reverse at the same addresses. Retain null slots as unavailable. Before integrating with the stopped observer, fixture-admit bounded header, descriptor and name reads, and bind the VM/group identity and complete outcome to the actual active event.
