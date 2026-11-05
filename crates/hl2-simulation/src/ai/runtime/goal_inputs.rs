@@ -61,6 +61,11 @@ impl AiRuntime {
                 self.barnacle_input(target, &input, parameter.trim().parse().unwrap_or(0.));
                 continue;
             }
+            if class == "npc_cscanner" {
+                let message = (input.as_str(), parameter.as_str(), activator);
+                self.scanner_input(world, scene.time, target, message);
+                continue;
+            }
             if crate::ai::bird::Kind::for_class(class).is_some() {
                 self.bird_input(target, &parameter);
                 continue;

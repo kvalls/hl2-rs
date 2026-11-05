@@ -1174,7 +1174,7 @@ impl AiRuntime {
         let innate_range = matches!(actor.class, AiClass::Headcrab(_))
             .then_some((headcrab::MIN_JUMP_DIST, headcrab::MAX_JUMP_DIST));
         let fly_hints = matches!(actor.class, AiClass::Bird(_)).then(|| self.bird_hints.clone());
-        let random = self.random();
+        let random = self.roll_for(id);
         Context {
             now,
             origin: scene.states[id].origin,
@@ -1225,9 +1225,9 @@ impl AiRuntime {
         let origin = ctx.origin;
         // Speech dice (ShouldPlayIdleSound RandomInt(0, 99), IdleSound's choices,
         // the lost-sound delay U(5, 15)).
-        let speech_rolls = [self.random(), self.random(), self.random(), self.random()];
+        let speech_rolls: [f32; 4] = std::array::from_fn(|_| self.roll_for(id));
         // FindHint's bits_HINT_NODE_RANDOM pick.
-        let hint_roll = self.random();
+        let hint_roll = self.roll_for(id);
         // CFastHeadcrab's run timers (only fast crabs draw: other actors' streams stay put).
         let run_roll = if matches!(&self.actors[&id].class, AiClass::Headcrab(h) if h.fast) {
             self.random()
@@ -2272,7 +2272,7 @@ impl AiRuntime {
                 controller.set_playback(id, h.run.rate, h.pause_sequence.clone());
             }
         }
-        scanners::gather_air(actor, scene, &player, id);
+        scanners::gather_air(actor, world, scene, &player, id);
         // The motor holds the goal while `actor` goes on to the move and shoot stage.
         let mut move_goal = actor.goal.take();
         let mut motor = SceneMotor {

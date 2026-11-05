@@ -181,9 +181,13 @@ fn it_hovers_short_of_its_enemy_and_above_it() {
         mode: Mode::Spot,
         ..Default::default()
     };
-    assert_eq!(s.hover_point(at), Some(Vec3::new(128., 0., 64.)));
+    assert_eq!(s.hover_point(at), Some(Vec3::new(160., 0., 64.)));
     s.mode = Mode::Attack;
     assert_eq!(s.hover_point(at), Some(Vec3::new(225., 0., 150.)));
+    s.mode = Mode::Photo;
+    assert_eq!(s.hover_point(at), Some(Vec3::new(96., 0., 32.)));
+    s.mode = Mode::Follow;
+    assert_eq!(s.hover_point(at), Some(Vec3::new(128., 0., 64.)));
     s.mode = Mode::Patrol;
     assert_eq!(s.hover_point(at), None);
 }
@@ -197,9 +201,218 @@ fn a_suit_brings_it_closer() {
         mode: Mode::Spot,
         ..Default::default()
     };
-    assert_eq!(s.hover_point(at), Some(Vec3::new(128., 0., 32.)));
+    assert_eq!(s.hover_point(at), Some(Vec3::new(80., 0., 32.)));
     s.mode = Mode::Attack;
     assert_eq!(s.hover_point(at), Some(Vec3::new(112.5, 0., 150.)));
+}
+
+#[test]
+fn a_distance_override_replaces_every_range() {
+    let at = Vec3::new(1000., 0., 0.);
+    let mut s = Scanner {
+        enemy_at: Some(Vec3::ZERO),
+        distance_override: 16.,
+        mode: Mode::Follow,
+        ..Default::default()
+    };
+    assert_eq!(s.hover_point(at), Some(Vec3::new(16., 0., 64.)));
+    s.mode = Mode::Attack;
+    assert_eq!(s.hover_point(at), Some(Vec3::new(16., 0., 150.)));
+}
+
+#[test]
+fn a_marked_direction_decides_the_side_it_hovers_on() {
+    let s = Scanner {
+        inspect_at: Some(Vec3::ZERO),
+        inspect_facing: Some(Vec3::Y),
+        mode: Mode::Follow,
+        ..Default::default()
+    };
+    let point = s.hover_point(Vec3::new(1000., 0., 0.));
+    assert_eq!(point, Some(Vec3::new(0., -128., 64.)));
+}
+
+#[test]
+fn what_it_inspects_comes_before_its_enemy_except_to_attack() {
+    let at = Vec3::new(1000., 0., 0.);
+    let mut s = Scanner {
+        inspect_at: Some(Vec3::Z * 64.),
+        enemy_at: Some(Vec3::ZERO),
+        mode: Mode::Spot,
+        ..Default::default()
+    };
+    assert_eq!(s.hover_point(at), Some(Vec3::new(160., 0., 128.)));
+    s.mode = Mode::Attack;
+    assert_eq!(s.hover_point(at), Some(Vec3::new(225., 0., 150.)));
+}
+
+#[test]
+fn being_told_to_inspect_drops_the_flight_and_raises_the_condition_once() {
+    let mut s = Scanner::new(false, 3);
+    s.route = vec![Vec3::X];
+    s.corner = Some(9);
+    s.inspect_target(PLAYER, Mode::Photo, 10.);
+    assert!(s.route.is_empty() && s.corner.is_none());
+    assert_eq!((s.inspect, s.inspect_end), (Some(PLAYER), 15.));
+    let mut seen = Conditions::default();
+    s.sense_inspection(&mut seen, false, 10.);
+    assert!(seen.has(COND_HAVE_TARGET));
+    let mut again = Conditions::default();
+    s.sense_inspection(&mut again, false, 10.1);
+    assert!(!again.has(COND_HAVE_TARGET));
+}
+
+#[test]
+fn a_photograph_not_yet_taken_keeps_the_inspection_going() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect_target(PLAYER, Mode::Photo, 0.);
+    let mut seen = Conditions::default();
+    s.sense_inspection(&mut seen, false, 100.);
+    assert_eq!(s.inspect_end, 105.);
+    assert!(!seen.has(COND_INSPECT_DONE));
+}
+
+#[test]
+fn an_inspection_ends_after_the_photograph_but_a_follow_does_not() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect_target(PLAYER, Mode::Photo, 0.);
+    s.photo_taken = true;
+    let mut seen = Conditions::default();
+    s.sense_inspection(&mut seen, false, 6.);
+    assert!(seen.has(COND_INSPECT_DONE));
+    assert_eq!(s.inspect, None);
+    s.inspect_target(PLAYER, Mode::Follow, 0.);
+    let mut seen = Conditions::default();
+    s.sense_inspection(&mut seen, false, 600.);
+    assert!(!seen.has(COND_INSPECT_DONE));
+    assert_eq!(s.inspect, Some(PLAYER));
+}
+
+#[test]
+fn with_an_enemy_no_inspection_runs_out() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect_target(PLAYER, Mode::Spot, 0.);
+    let mut seen = Conditions::default();
+    s.sense_inspection(&mut seen, true, 600.);
+    assert!(!seen.has(COND_INSPECT_DONE));
+}
+
+#[test]
+fn a_photograph_needs_range_a_slow_body_and_its_aim() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect_target(PLAYER, Mode::Photo, 0.);
+    let target = Vec3::X * 100.;
+    assert!(s.photo_placed(Vec3::ZERO, target, 0., 0.));
+    assert!(
+        !s.photo_placed(Vec3::ZERO, Vec3::X * 200., 0., 0.),
+        "too far"
+    );
+    assert!(
+        !s.photo_placed(Vec3::ZERO, Vec3::X * 64., 0., 0.),
+        "too near"
+    );
+    assert!(
+        !s.photo_placed(Vec3::ZERO, target, 10., 0.),
+        "off to one side"
+    );
+    s.hover.velocity = Vec3::X * 64.;
+    assert!(!s.photo_placed(Vec3::ZERO, target, 0., 0.), "too fast");
+}
+
+#[test]
+fn what_it_was_told_decides_what_it_does_without_an_enemy() {
+    let ctx = Context::default();
+    let idle = npc(NpcState::Idle, &[]);
+    let mut s = Scanner::new(false, 3);
+    s.corner = Some(4);
+    assert_eq!(s.plan(&idle, &ctx, 1., 0.5), Plan::Corners);
+    s.inspect_target(PLAYER, Mode::Photo, 0.);
+    assert_eq!(s.plan(&idle, &ctx, 1., 0.5), Plan::PhotographHover);
+    let ready = npc(NpcState::Idle, &[COND_CAN_PHOTOGRAPH]);
+    assert_eq!(s.plan(&ready, &ctx, 1., 0.5), Plan::Photograph);
+    let blocked = npc(NpcState::Idle, &[COND_FLY_BLOCKED]);
+    assert_eq!(s.plan(&blocked, &ctx, 1., 0.5), Plan::MoveToInspect);
+    s.inspect_target(PLAYER, Mode::Follow, 0.);
+    assert_eq!(s.plan(&idle, &ctx, 1., 0.5), Plan::FollowHover);
+    s.inspect_target(PLAYER, Mode::Spot, 0.);
+    assert_eq!(s.plan(&idle, &ctx, 1., 0.5), Plan::SpotlightHover);
+}
+
+#[test]
+fn a_photograph_flashes_once_then_waits_or_ends() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect_target(PLAYER, Mode::Photo, 0.);
+    let mut motor = FakeMotor::default();
+    let mut body = npc(NpcState::Idle, &[]);
+    let task = "TASK_CSCANNER_PHOTOGRAPH";
+    let arg = TaskArg::Number(0.);
+    let at = |now| Context {
+        now,
+        ..Default::default()
+    };
+    let first = s.start_task(&mut body, task, &arg, &at(1.), &mut motor);
+    assert_eq!(first, Some(Running));
+    assert!(s.photo_taken);
+    assert!(s
+        .requests
+        .contains(&CopRequest::Output("OnPhotographPlayer")));
+    assert!(s.requests.contains(&CopRequest::Sound(TAKE_PHOTO)));
+    let held = s.run_task(&mut body, task, &arg, &at(1.05), &mut motor);
+    assert_eq!(held, Some(Running));
+    s.inspect_end = 100.;
+    let pause = s.run_task(&mut body, task, &arg, &at(1.2), &mut motor);
+    assert_eq!(pause, Some(Running));
+    assert!((6.2..=11.2).contains(&s.photo_wait), "{}", s.photo_wait);
+    s.requests.clear();
+    let wait = s.photo_wait;
+    s.run_task(&mut body, task, &arg, &at(wait), &mut motor);
+    assert_eq!(
+        s.requests
+            .iter()
+            .filter(|r| matches!(r, CopRequest::Output(_)))
+            .count(),
+        1
+    );
+    s.inspect_end = 0.;
+    let end = s.run_task(&mut body, task, &arg, &at(wait + 1.), &mut motor);
+    assert_eq!(end, Some(Complete));
+    assert_eq!(s.inspect, None);
+}
+
+#[test]
+fn an_npc_in_a_photograph_fires_the_npc_output() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect_target(7, Mode::Photo, 0.);
+    let mut motor = FakeMotor::default();
+    assert_eq!(
+        start(&mut s, "TASK_CSCANNER_PHOTOGRAPH", 0., &mut motor),
+        Running
+    );
+    assert!(s.requests.contains(&CopRequest::Output("OnPhotographNPC")));
+}
+
+#[test]
+fn a_path_keeps_it_flying_until_the_last_corner_is_passed() {
+    let mut s = Scanner::new(false, 3);
+    s.corner = Some(4);
+    let mut motor = FakeMotor::default();
+    assert_eq!(
+        start(&mut s, "TASK_WAIT_FOR_MOVEMENT", 0., &mut motor),
+        Running
+    );
+    s.corner = None;
+    assert_eq!(
+        start(&mut s, "TASK_WAIT_FOR_MOVEMENT", 0., &mut motor),
+        Complete
+    );
+}
+
+#[test]
+fn clearing_a_follow_goes_back_on_patrol() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect_target(PLAYER, Mode::Follow, 0.);
+    s.clear_follow();
+    assert_eq!((s.inspect, s.mode), (None, Mode::Patrol));
 }
 
 #[test]
@@ -295,7 +508,7 @@ fn it_chirps_about_one_think_in_twenty_six_by_state() {
 
 #[test]
 fn every_cue_it_plays_is_preloaded() {
-    for cue in [ENGINE, IDLE, COMBAT, PAIN, DIE] {
+    for cue in [ENGINE, IDLE, COMBAT, PAIN, DIE, TAKE_PHOTO] {
         assert!(SOUNDS.contains(&cue), "{cue}");
     }
 }

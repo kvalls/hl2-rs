@@ -70,6 +70,7 @@ pub fn class_ai_activities(class: &str) -> &'static [&'static str] {
             "ACT_CROW_SOAR",
             "ACT_CROW_LAND",
         ],
+        "npc_cscanner" => &["ACT_SCANNER_FLARE_START", "ACT_SCANNER_FLARE_END"],
         "npc_barnacle" => &[
             "ACT_BARNACLE_SLURP",
             "ACT_BARNACLE_BITE_HUMAN",

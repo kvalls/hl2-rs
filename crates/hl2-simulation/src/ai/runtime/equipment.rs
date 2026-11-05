@@ -2,7 +2,6 @@
 //! and weapon definitions.
 
 use super::super::bird::Kind;
-use super::super::scanner::Scanner;
 use super::{
     headcrab, humanoid, is_elite_model, zombie, AiActor, AiClass, AiNpc, AiRuntime, Headcrab,
     Humanoid, Metropolice, PlayerState, Zombie, COP_CHATTER_ASK_QUESTION, PLAYER, SF_NPC_GAG,
@@ -75,10 +74,7 @@ impl AiRuntime {
         let class = match kind {
             _ if crab => AiClass::Headcrab(Box::new(Headcrab::for_class(e.class()))),
             _ if bird.is_some() => super::birds::class_for(e, bird.unwrap_or(Kind::Crow), id),
-            _ if scanner => {
-                let seed = 0xbb67_ae85_84ca_a73b ^ id as u64;
-                AiClass::Scanner(Box::new(Scanner::new(flags & SF_NPC_GAG != 0, seed)))
-            }
+            _ if scanner => super::scanners::class_for(e, flags & SF_NPC_GAG != 0, id),
             _ if zombie.is_some() => {
                 let mut z = Zombie::new(
                     zombie.unwrap_or(zombie::Kind::Classic),

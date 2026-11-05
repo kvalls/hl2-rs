@@ -40,7 +40,7 @@ pub(super) fn fly_hints(world: &World) -> Arc<[FlyHint]> {
 }
 
 /// The entity `name` refers to.
-fn named(world: &World, name: &str) -> Option<usize> {
+pub(super) fn named(world: &World, name: &str) -> Option<usize> {
     world.entities.iter().position(|e| {
         e.get("targetname")
             .is_some_and(|n| n.eq_ignore_ascii_case(name))

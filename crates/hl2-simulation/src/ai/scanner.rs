@@ -1,14 +1,14 @@
-//! npc_cscanner (DESIGN 14o session 46, step 2): a hovering Combine scanner. This module holds what
-//! it decides between, its schedules and where it wants to be; `ai::hover` is its flight arithmetic
-//! and `runtime::scanners` gives it the world and carries the body. The spotlight, photographs and
-//! inspection are step 3 and the death dive step 4: until then a scanner with something to inspect
-//! patrols, and one with an enemy hovers near it without attacking.
+//! npc_cscanner (DESIGN 14o session 46): a hovering Combine scanner. This module holds what it
+//! decides between, its schedules and where it wants to be; `ai::hover` is its flight arithmetic
+//! and `runtime::scanners` gives it the world and carries the body. It patrols, follows
+//! path_corners, photographs and follows what maps name, and hovers near an enemy. No light yet:
+//! neither the spotlight nor the flash of a photograph shows, and it never attacks.
 use super::assault::Assault;
 use super::conditions::{
     Cond, Conditions, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOST_ENEMY, LAST_SHARED_CONDITION,
 };
 use super::hover::Hover;
-use super::metropolice::CopRequest;
+use super::metropolice::{CopRequest, PLAYER};
 use super::schedule::TaskStatus::{Complete, Failed, Running};
 use super::schedule::{
     base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg, TaskStatus,
@@ -34,9 +34,25 @@ pub const NOISE: f32 = 3.;
 const ATTACK_FAR: f32 = 300.;
 /// SCANNER_ATTACK_NEAR_DIST: how high it attacks from, and with the far distance how far.
 const ATTACK_NEAR: f32 = 150.;
-/// SCANNER_SPOTLIGHT_NEAR_DIST, and GetGoalDistance's distance outside an attack.
+/// SCANNER_SPOTLIGHT_NEAR_DIST, how high it hovers with its light, and the middle of that
+/// distance and SCANNER_SPOTLIGHT_FAR_DIST, how far off.
 const SPOT_HEIGHT: f32 = 64.;
-const SPOT_RANGE: f32 = 128.;
+const SPOT_RANGE: f32 = 160.;
+/// SCANNER_FOLLOW_DIST.
+const FOLLOW_RANGE: f32 = 128.;
+/// How high it hovers for a photograph, and the range a photograph is taken in.
+const PHOTO_HEIGHT: f32 = 32.;
+const PHOTO_NEAR: f32 = 64.;
+const PHOTO_FAR: f32 = 128.;
+/// Faster than this it cannot take a photograph, and the aim it needs, degrees.
+const PHOTO_SPEED: f32 = 64.;
+const PHOTO_AIM: f32 = 4.;
+/// How long the flash lasts, and the pause before another photograph of the same target.
+const FLASH: f64 = 0.1;
+const NEXT_PHOTO: (f64, f64) = (5., 10.);
+/// SCANNER_CIT_INSPECT_LENGTH, and an enemy's inspection, which does not run out.
+const INSPECT_LENGTH: f64 = 5.;
+const ENEMY_INSPECT: f64 = 9999.;
 /// How close to a point along a route counts as there, and to its end by default.
 const LEG_TOLERANCE: f32 = 64.;
 const END_TOLERANCE: f32 = 32.;
@@ -59,25 +75,37 @@ const IDLE: &str = "NPC_CScanner.Idle";
 const COMBAT: &str = "NPC_CScanner.Combat";
 pub const PAIN: &str = "NPC_CScanner.Pain";
 pub const DIE: &str = "NPC_CScanner.Die";
+const TAKE_PHOTO: &str = "NPC_CScanner.TakePhoto";
 /// Every cue this class plays; a cue that is not preloaded is dropped.
-pub const SOUNDS: &[&str] = &[ENGINE, IDLE, COMBAT, PAIN, DIE];
+pub const SOUNDS: &[&str] = &[ENGINE, IDLE, COMBAT, PAIN, DIE, TAKE_PHOTO];
 
 /// COND_SCANNER_FLY_CLEAR and COND_SCANNER_FLY_BLOCKED: the way to its enemy.
 pub const COND_FLY_CLEAR: Cond = Cond(LAST_SHARED_CONDITION + 1);
 pub const COND_FLY_BLOCKED: Cond = Cond(LAST_SHARED_CONDITION + 2);
+/// COND_CSCANNER_HAVE_INSPECT_TARGET, COND_CSCANNER_INSPECT_DONE, COND_CSCANNER_CAN_PHOTOGRAPH.
+pub const COND_HAVE_TARGET: Cond = Cond(LAST_SHARED_CONDITION + 3);
+pub const COND_INSPECT_DONE: Cond = Cond(LAST_SHARED_CONDITION + 4);
+pub const COND_CAN_PHOTOGRAPH: Cond = Cond(LAST_SHARED_CONDITION + 5);
 
 const PATROL: &str = "SCHED_CSCANNER_PATROL";
 const CHASE: &str = "SCHED_SCANNER_CHASE_ENEMY";
 const SPOTLIGHT_HOVER: &str = "SCHED_CSCANNER_SPOTLIGHT_HOVER";
 const ATTACK_HOVER: &str = "SCHED_SCANNER_ATTACK_HOVER";
+const PHOTOGRAPH_HOVER: &str = "SCHED_CSCANNER_PHOTOGRAPH_HOVER";
+const PHOTOGRAPH: &str = "SCHED_CSCANNER_PHOTOGRAPH";
+const MOVE_TO_INSPECT: &str = "SCHED_CSCANNER_MOVE_TO_INSPECT";
+const FOLLOW_HOVER: &str = "SCHED_SCANNER_FOLLOW_HOVER";
+/// Along its path_corners; the SDK's NPCs walk them with SCHED_IDLE_WALK.
+const CORNERS: &str = "SCHED_SCANNER_CORNERS";
 
 /// The schedules a scanner can reach, with the interrupts every NPC has; the class's own conditions
 /// are in `custom_interrupts`. The model has no ACT_WALK, so the spotlight hover idles.
 const SCHEDULES: &[(&str, &str)] = &[
     (
         PATROL,
-        "Tasks TASK_SCANNER_SET_FLY_PATROL 0 TASK_SET_TOLERANCE_DISTANCE 32 \
-         TASK_GET_PATH_TO_RANDOM_NODE 2000 TASK_RUN_PATH 0 TASK_WAIT_FOR_MOVEMENT 0 \
+        "Tasks TASK_CSCANNER_CLEAR_INSPECT_TARGET 0 TASK_SCANNER_SET_FLY_PATROL 0 \
+         TASK_SET_TOLERANCE_DISTANCE 32 TASK_GET_PATH_TO_RANDOM_NODE 2000 TASK_RUN_PATH 0 \
+         TASK_WAIT_FOR_MOVEMENT 0 \
          Interrupts COND_GIVE_WAY COND_NEW_ENEMY COND_SEE_ENEMY COND_SEE_FEAR COND_HEAR_COMBAT \
          COND_HEAR_DANGER COND_HEAR_PLAYER COND_LIGHT_DAMAGE COND_HEAVY_DAMAGE COND_PROVOKED",
     ),
@@ -98,6 +126,31 @@ const SCHEDULES: &[(&str, &str)] = &[
         "Tasks TASK_SCANNER_SET_FLY_ATTACK 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT 0.1 \
          Interrupts COND_TOO_FAR_TO_ATTACK COND_NEW_ENEMY",
     ),
+    (
+        PHOTOGRAPH_HOVER,
+        "Tasks TASK_CSCANNER_SET_FLY_PHOTO 0 TASK_WAIT 2 Interrupts COND_NEW_ENEMY",
+    ),
+    (
+        PHOTOGRAPH,
+        "Tasks TASK_CSCANNER_SET_FLY_PHOTO 0 TASK_CSCANNER_PHOTOGRAPH 0 \
+         Interrupts COND_NEW_ENEMY COND_ENEMY_DEAD",
+    ),
+    (
+        MOVE_TO_INSPECT,
+        "Tasks TASK_SET_FAIL_SCHEDULE SCHEDULE:SCHED_CSCANNER_PATROL \
+         TASK_SET_TOLERANCE_DISTANCE 128 TASK_CSCANNER_GET_PATH_TO_INSPECT_TARGET 0 \
+         TASK_RUN_PATH 0 TASK_WAIT_FOR_MOVEMENT 0 Interrupts COND_NEW_ENEMY",
+    ),
+    (
+        FOLLOW_HOVER,
+        "Tasks TASK_STOP_MOVING 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT 0.1",
+    ),
+    (
+        CORNERS,
+        "Tasks TASK_RUN_PATH 0 TASK_WAIT_FOR_MOVEMENT 0 \
+         Interrupts COND_GIVE_WAY COND_NEW_ENEMY COND_SEE_ENEMY COND_SEE_FEAR COND_HEAR_COMBAT \
+         COND_HEAR_DANGER COND_HEAR_PLAYER COND_LIGHT_DAMAGE COND_HEAVY_DAMAGE COND_PROVOKED",
+    ),
 ];
 
 pub fn add_schedules(schedules: &mut Schedules) {
@@ -114,9 +167,14 @@ pub enum Plan {
     Flinch,
     TakeCover,
     Patrol,
+    Corners,
     Chase,
     SpotlightHover,
     AttackHover,
+    MoveToInspect,
+    PhotographHover,
+    Photograph,
+    FollowHover,
 }
 
 /// m_nFlyMode, as far as the modes are modeled.
@@ -127,6 +185,8 @@ pub enum Mode {
     Chase,
     Spot,
     Attack,
+    Photo,
+    Follow,
 }
 
 /// A scanner under the AI.
@@ -151,6 +211,26 @@ pub struct Scanner {
     pub enemy_eye: Option<Vec3>,
     /// IsEnemyPlayerInSuit.
     pub enemy_in_suit: bool,
+    /// What it inspects or follows (`PLAYER` for the player), its eyes from this think's gather,
+    /// and where that thing faces when it marks a direction to hover from.
+    pub inspect: Option<usize>,
+    pub inspect_at: Option<Vec3>,
+    pub inspect_facing: Option<Vec3>,
+    /// m_fInspectEndTime.
+    pub inspect_end: f64,
+    /// A target given since the last schedule choice.
+    pub new_target: bool,
+    /// m_bPhotoTaken; the flash is on, and when the next step of the photograph comes.
+    pub photo_taken: bool,
+    flash_on: bool,
+    photo_wait: f64,
+    /// Everything a photograph needs but the time, from the last steer.
+    pub can_photograph: bool,
+    /// m_flGoalOverrideDistance.
+    pub distance_override: f32,
+    /// The path_corner it is flying to, and that its `target` key has been read.
+    pub corner: Option<usize>,
+    pub path_read: bool,
     /// Whether the way to its enemy is blocked, from the last steer.
     pub fly_blocked: Option<bool>,
     /// The share of its health left, and the health that is all of it.
@@ -191,6 +271,62 @@ impl Scanner {
     fn roll(&mut self) -> f32 {
         super::roll(&mut self.seed)
     }
+    /// The next number of its own dice.
+    pub fn dice(&mut self) -> f32 {
+        self.roll()
+    }
+    /// Told to inspect or follow something: whatever it was flying to is dropped.
+    pub fn inspect_target(&mut self, subject: usize, mode: Mode, now: f64) {
+        self.inspect = Some(subject);
+        self.inspect_end = now + INSPECT_LENGTH;
+        self.mode = mode;
+        self.new_target = true;
+        self.photo_taken = self.photo_taken && mode != Mode::Photo;
+        self.drop_route();
+    }
+    /// InputClearFollowTarget.
+    pub fn clear_follow(&mut self) {
+        self.inspect = None;
+        self.mode = Mode::Patrol;
+    }
+    fn drop_route(&mut self) {
+        self.route.clear();
+        self.corner = None;
+    }
+    /// The inspection's part of GatherConditions; with an enemy none of it applies. The time
+    /// runs only once it is there: a photograph not yet taken or a route not finished keep it
+    /// full. A followed target has no end.
+    pub fn sense_inspection(&mut self, conditions: &mut Conditions, enemy: bool, now: f64) {
+        if std::mem::take(&mut self.new_target) {
+            conditions.set(COND_HAVE_TARGET);
+        }
+        if enemy {
+            return;
+        }
+        let waiting_for_photo = self.mode == Mode::Photo && !self.photo_taken;
+        let on_the_way = self.inspect.is_some() && !self.route.is_empty();
+        if waiting_for_photo || on_the_way {
+            self.inspect_end = now + INSPECT_LENGTH;
+        }
+        if self.inspect.is_some() && now > self.inspect_end && self.mode != Mode::Follow {
+            conditions.set(COND_INSPECT_DONE);
+            self.inspect = None;
+        }
+        if self.can_photograph {
+            conditions.set(COND_CAN_PHOTOGRAPH);
+        }
+    }
+    /// Whether it is placed for a photograph of what is at `target`: slow enough, in range across
+    /// and aimed. How far it is off to one side only counts one way, as in the SDK.
+    pub fn photo_placed(&self, at: Vec3, target: Vec3, yaw: f32, target_yaw: f32) -> bool {
+        let across = (target - at).truncate().length();
+        self.mode == Mode::Photo
+            && self.inspect.is_some()
+            && self.hover.velocity.length() < PHOTO_SPEED
+            && (PHOTO_NEAR..PHOTO_FAR).contains(&across)
+            && across > PHOTO_NEAR
+            && super::host::angle_diff(yaw, target_yaw) < PHOTO_AIM
+    }
     /// The order of its choices. `health` is the share it has left, `roll` in [0, 1). An alert
     /// scanner in good health does not flinch: its model has no ACT_SMALL_FLINCH.
     pub fn plan(&self, npc: &AiNpc, ctx: &Context, health: f32, roll: f32) -> Plan {
@@ -208,7 +344,7 @@ impl Scanner {
             }
         }
         let Some((_, enemy)) = ctx.enemy.filter(|_| !self.ignores_enemies) else {
-            return Plan::Patrol;
+            return self.plan_without_enemy(npc);
         };
         if npc.conditions.has(COND_LOST_ENEMY) {
             return Plan::Patrol;
@@ -226,6 +362,26 @@ impl Scanner {
             Plan::AttackHover
         }
     }
+    /// Something to inspect, a path, or a patrol.
+    fn plan_without_enemy(&self, npc: &AiNpc) -> Plan {
+        if self.inspect.is_none() {
+            return if self.corner.is_some() {
+                Plan::Corners
+            } else {
+                Plan::Patrol
+            };
+        }
+        if npc.conditions.has(COND_FLY_BLOCKED) {
+            return Plan::MoveToInspect;
+        }
+        match self.mode {
+            Mode::Spot => Plan::SpotlightHover,
+            Mode::Photo if npc.conditions.has(COND_CAN_PHOTOGRAPH) => Plan::Photograph,
+            Mode::Photo => Plan::PhotographHover,
+            Mode::Follow => Plan::FollowHover,
+            Mode::Patrol | Mode::Chase | Mode::Attack => Plan::Patrol,
+        }
+    }
     /// The point of its route to fly at, past those it has reached.
     pub fn next_leg(&mut self, at: Vec3) -> Option<Vec3> {
         while let Some(&point) = self.route.first() {
@@ -238,22 +394,33 @@ impl Scanner {
         }
         None
     }
-    /// Where it wants to hover in the mode it is in: above its enemy and short of it on the side
-    /// it comes from. A suit brings it closer, in height with the spotlight, in range to attack.
+    /// Where it wants to hover in the mode it is in: above what it is after and short of it on the
+    /// side it comes from, or on the side that thing marks. A suit brings it closer.
     pub fn hover_point(&self, at: Vec3) -> Option<Vec3> {
-        let target = self.enemy_at?;
         let suit = if self.enemy_in_suit { 0.5 } else { 1. };
         let (range, height) = match self.mode {
-            Mode::Spot => (SPOT_RANGE, SPOT_HEIGHT * suit),
+            Mode::Spot => (SPOT_RANGE * suit, SPOT_HEIGHT * suit),
+            Mode::Follow => (FOLLOW_RANGE, SPOT_HEIGHT * suit),
+            Mode::Photo => ((PHOTO_NEAR + PHOTO_FAR) * 0.5, PHOTO_HEIGHT),
             Mode::Attack => ((ATTACK_NEAR + ATTACK_FAR) * 0.5 * suit, ATTACK_NEAR),
             Mode::Patrol | Mode::Chase => return None,
         };
-        let across = (target - at).truncate().normalize_or_zero().extend(0.);
-        Some(target + Vec3::Z * height - across * range)
+        let target = match self.mode {
+            Mode::Attack => self.enemy_at,
+            _ => self.inspect_at.or(self.enemy_at),
+        }?;
+        let range = if self.distance_override != 0. {
+            self.distance_override
+        } else {
+            range
+        };
+        let toward = (target - at).truncate().normalize_or_zero().extend(0.);
+        let side = self.inspect_facing.unwrap_or(toward);
+        Some(target + Vec3::Z * height - side * range)
     }
     /// How fast the body turns, degrees a second.
     pub fn turn_rate(&self) -> f32 {
-        if self.enemy_at.is_some() {
+        if self.enemy_eye.is_some() {
             ENEMY_TURN_RATE
         } else {
             TURN_RATE
@@ -299,8 +466,45 @@ impl Scanner {
     }
     fn set_mode(&mut self, mode: Mode) -> TaskStatus {
         self.mode = mode;
-        self.route.clear();
+        self.drop_route();
         Complete
+    }
+    /// TakePhoto: the sound, the output and the eye opening. What the flash does to a player's
+    /// view and to the NPC it catches is not modeled yet.
+    fn take_photo(&mut self, npc: &mut AiNpc, motor: &mut dyn Motor) {
+        self.requests.push(CopRequest::Sound(TAKE_PHOTO));
+        let output = match self.inspect {
+            Some(PLAYER) => "OnPhotographPlayer",
+            _ => "OnPhotographNPC",
+        };
+        self.requests.push(CopRequest::Output(output));
+        npc.activity = "ACT_SCANNER_FLARE_START".into();
+        motor.set_activity("ACT_SCANNER_FLARE_START");
+        self.photo_taken = true;
+        self.flash_on = true;
+    }
+    /// A photograph's steps: the flash goes off, then another comes unless the time is up.
+    fn run_photograph(
+        &mut self,
+        npc: &mut AiNpc,
+        ctx: &Context,
+        motor: &mut dyn Motor,
+    ) -> TaskStatus {
+        if ctx.now < self.photo_wait {
+            return Running;
+        }
+        if !std::mem::take(&mut self.flash_on) {
+            self.take_photo(npc, motor);
+            self.photo_wait = ctx.now + FLASH;
+            return Running;
+        }
+        if ctx.now > self.inspect_end {
+            self.inspect = None;
+            return Complete;
+        }
+        let (least, most) = NEXT_PHOTO;
+        self.photo_wait = ctx.now + least + (most - least) * f64::from(self.roll());
+        Running
     }
     fn follow(&mut self, route: Option<Vec<Vec3>>) -> TaskStatus {
         match route {
@@ -312,7 +516,7 @@ impl Scanner {
         }
     }
     fn flight(&self) -> TaskStatus {
-        if self.route.is_empty() {
+        if self.route.is_empty() && self.corner.is_none() {
             Complete
         } else {
             Running
@@ -328,6 +532,16 @@ pub fn lean(right: Vec3, to_target: Vec3, speed: f32) -> f32 {
 
 impl Behavior for Scanner {
     fn select_schedule(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        if let Some((enemy, _)) = ctx.enemy.filter(|_| !self.ignores_enemies) {
+            self.inspect = Some(enemy);
+            self.inspect_end = ctx.now + ENEMY_INSPECT;
+        } else if self.inspect.is_some() && self.mode == Mode::Chase {
+            self.mode = if self.roll() < 0.5 {
+                Mode::Spot
+            } else {
+                Mode::Photo
+            };
+        }
         match self.plan(npc, ctx, self.health, ctx.random) {
             Plan::Script => base_select_schedule(npc, ctx, false),
             Plan::Flinch => "SCHED_SMALL_FLINCH".into(),
@@ -337,6 +551,11 @@ impl Behavior for Scanner {
             Plan::Chase => CHASE.into(),
             Plan::SpotlightHover => SPOTLIGHT_HOVER.into(),
             Plan::AttackHover => ATTACK_HOVER.into(),
+            Plan::Corners => CORNERS.into(),
+            Plan::MoveToInspect => MOVE_TO_INSPECT.into(),
+            Plan::PhotographHover => PHOTOGRAPH_HOVER.into(),
+            Plan::Photograph => PHOTOGRAPH.into(),
+            Plan::FollowHover => FOLLOW_HOVER.into(),
         }
     }
     fn translate_schedule(&mut self, name: &str, _npc: &AiNpc, _ctx: &Context) -> String {
@@ -348,8 +567,14 @@ impl Behavior for Scanner {
     /// The class's conditions in the schedules that listen for them.
     fn custom_interrupts(&self, npc: &AiNpc) -> Conditions {
         match npc.schedule.as_deref() {
-            Some(SPOTLIGHT_HOVER | ATTACK_HOVER) => Conditions::of(&[COND_FLY_BLOCKED]),
-            Some(CHASE) => Conditions::of(&[COND_FLY_CLEAR]),
+            Some(PATROL | CORNERS) => Conditions::of(&[COND_HAVE_TARGET]),
+            Some(ATTACK_HOVER | FOLLOW_HOVER) => Conditions::of(&[COND_FLY_BLOCKED]),
+            Some(SPOTLIGHT_HOVER) => Conditions::of(&[COND_FLY_BLOCKED, COND_INSPECT_DONE]),
+            Some(PHOTOGRAPH_HOVER) => {
+                Conditions::of(&[COND_FLY_BLOCKED, COND_INSPECT_DONE, COND_CAN_PHOTOGRAPH])
+            }
+            Some(PHOTOGRAPH) => Conditions::of(&[COND_INSPECT_DONE]),
+            Some(CHASE | MOVE_TO_INSPECT) => Conditions::of(&[COND_FLY_CLEAR]),
             _ => Conditions::default(),
         }
     }
@@ -366,6 +591,23 @@ impl Behavior for Scanner {
             "TASK_SCANNER_SET_FLY_CHASE" => self.set_mode(Mode::Chase),
             "TASK_SCANNER_SET_FLY_ATTACK" => self.set_mode(Mode::Attack),
             "TASK_CSCANNER_SET_FLY_SPOT" => self.set_mode(Mode::Spot),
+            "TASK_CSCANNER_SET_FLY_PHOTO" => {
+                self.photo_taken = false;
+                self.set_mode(Mode::Photo)
+            }
+            "TASK_CSCANNER_CLEAR_INSPECT_TARGET" => {
+                self.inspect = None;
+                Complete
+            }
+            "TASK_CSCANNER_PHOTOGRAPH" => {
+                self.take_photo(npc, motor);
+                self.photo_wait = ctx.now + FLASH;
+                Running
+            }
+            "TASK_CSCANNER_GET_PATH_TO_INSPECT_TARGET" => {
+                let route = self.inspect_at.and_then(|goal| motor.fly_route(goal));
+                self.follow(route)
+            }
             "TASK_SET_TOLERANCE_DISTANCE" => {
                 self.tolerance = argument.number();
                 Complete
@@ -384,7 +626,7 @@ impl Behavior for Scanner {
                 Complete
             }
             "TASK_STOP_MOVING" => {
-                self.route.clear();
+                self.drop_route();
                 Complete
             }
             // The model has no flinch to play.
@@ -395,13 +637,17 @@ impl Behavior for Scanner {
     }
     fn run_task(
         &mut self,
-        _: &mut AiNpc,
+        npc: &mut AiNpc,
         task: &str,
-        _: &TaskArg,
-        _: &Context,
-        _: &mut dyn Motor,
+        _value: &TaskArg,
+        ctx: &Context,
+        motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
-        (task == "TASK_WAIT_FOR_MOVEMENT").then(|| self.flight())
+        match task {
+            "TASK_WAIT_FOR_MOVEMENT" => Some(self.flight()),
+            "TASK_CSCANNER_PHOTOGRAPH" => Some(self.run_photograph(npc, ctx, motor)),
+            _ => None,
+        }
     }
 }
 
