@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-05 session 46b: birds, air routes, the barnacle's validation (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** npc_crow, npc_pigeon and npc_seagull: ai/bird.rs, ai/runtime/birds.rs, npc/air.rs (routes over the graph's fly links), their map models, flight activities, hull and sounds. Birds pass through the player, NPCs and each other. New `ai::roll`, shared with the barnacle. Moved without change of behavior: `impl AiClass` to ai/runtime/class.rs, the poison zombie's stage to zombies.rs, `Context` to ai/schedule/context.rs, the cover and line of fire searches to npc/tactical.rs. ai/hover.rs (hover arithmetic for npc_cscanner) is written and not yet in a commit that was tested.
+
+**Why:** owner 2026-11-05: finish the planned NPC behaviors first. Birds are next in campaign order (124 placed) and flight is needed by scanners and manhacks.
+
+**Tested how / Result:** see STATUS "Current session 46". Barnacle code: s46b-regression 26/26, 17/17, 26/26, replays 71 of 72 with one job (the owner was playing). Birds: packaged runs on d1_town_01 and d1_trainstation_02, read with numbers; 1442 unit tests passed and 2 failed (the two --release should_panic rendering tests), strict Clippy clean, architecture exit 0 with the baseline lowered. s46c-regression 26/26, 17/17, 26/26. Frame time **not measured**: a bird on the ground adds one NPC think, a flying one a hull trace per tick and one per steer.
+
+**Rejected on the way:** flying straight at a hint (five of six crows wedged against buildings). A diagnosis that was wrong: birds frozen near a hint looked stuck in solid and had been removed by the map's kill trigger; the summary script kept showing their last state.
+
+**Still broken or not tested:** native comparison of birds and of the plaza cops; two birds inside a kill trigger at once; a seagull packaged; see STATUS.
+
+**Next:** see STATUS "Current session 46".
+
 ## 2026-11-05 session 46: main merged, npc_barnacle on its branch (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
