@@ -1,6 +1,7 @@
 //! Shared projectile sprite geometry and owned-material explosion emitters.
 //! Native ambient lighting, pixel visibility and beam tessellation remain partial.
 use crate::ai::scanner::flash::{EyeFlare, EYE_SPRITE};
+use crate::ai::scanner::spotlight::{Beam, Halo, HALO_SPRITE};
 use crate::{
     explosion_particles::Particles,
     physics::Physics,
@@ -23,6 +24,9 @@ pub const SPRITES: &[&str] = &[
     // weapon_crossbow (bolt glow, charger, load blast).
     "sprites/light_glow02_noz",
     "sprites/blueflare1",
+    // npc_cscanner's spotlight beam.
+    "sprites/glow_test02",
+    "sprites/light_glow03",
     // weapon_rpg (RocketTrail puffs; the dot uses redglow1; RPG_BEAM_SPRITE).
     "particle/particle_smokegrenade",
     "effects/laser1_noz",
@@ -51,8 +55,9 @@ pub struct Quad {
     pub uv: [[f32; 2]; 4],
 }
 pub struct ProjectileVisuals {
-    /// Scanners' lit eyes this frame, from the host.
+    /// Scanners' lit eyes and spotlights this frame, from the host.
     pub eye_flares: Vec<EyeFlare>,
+    pub beams: Vec<Beam>,
     pub sprites: HashMap<String, Sprite>,
     pub quads: Vec<Quad>,
     previous: HashMap<u64, glam::Vec3>,
@@ -129,6 +134,8 @@ pub fn load_sprite_sized(vfs: &Vfs, material: &str, max_dimension: usize) -> Res
         kind: if matches!(
             material,
             "sprites/lgtning"
+                | "sprites/glow_test02"
+                | "sprites/light_glow03"
                 | "sprites/redglow1"
                 | "sprites/bluelaser1"
                 | "sprites/light_glow02_noz"
@@ -218,6 +225,7 @@ impl ProjectileVisuals {
             sprites: HashMap::new(),
             quads: Vec::new(),
             eye_flares: Vec::new(),
+            beams: Vec::new(),
             previous: HashMap::new(),
             rng: 0x953732fb,
             errors: BTreeMap::new(),
@@ -522,6 +530,36 @@ impl ProjectileVisuals {
         self.quads.extend(shots);
     }
 
+    /// What scanners draw: their lit eyes and their spotlights' beams.
+    fn scanner_quads(&mut self, axes: (Vec3, Vec3), view: Vec3, physics: &Physics) {
+        self.eye_quads(axes, view, physics);
+        let beams = self.beams.iter().flat_map(|beam| beam.quads(view));
+        self.quads.extend(beams);
+        let halos: Vec<_> = self
+            .beams
+            .iter()
+            .filter_map(|beam| beam.halo(view))
+            .collect();
+        for halo in halos {
+            self.halo_quad(halo, axes, view, physics);
+        }
+    }
+
+    /// A spotlight's halo: a kRenderGlow sprite, shown once a line from the view reaches it.
+    fn halo_quad(&mut self, halo: Halo, axes: (Vec3, Vec3), view: Vec3, physics: &Physics) {
+        if physics
+            .projectile_ray(view, halo.at, &[halo.entity])
+            .is_some()
+        {
+            return;
+        }
+        let before = self.quads.len();
+        self.quad(HALO_SPRITE, halo.at, axes, halo.size, 0., halo.brightness);
+        if let Some(quad) = self.quads.get_mut(before) {
+            quad.material.push_str(GLOW_SUFFIX);
+        }
+    }
+
     /// Scanners' lit eyes: kRenderGlow sprites, drawn without a depth test once a line from the
     /// view shows them. The SDK asks the renderer how much of the sprite shows; here it is all or
     /// nothing, and a body seen from behind hides its eye.
@@ -683,7 +721,7 @@ impl ProjectileVisuals {
         self.quads.clear();
         let axes = basis(direction);
         self.shot_quads(axes, eye, time);
-        self.eye_quads(axes, eye, physics);
+        self.scanner_quads(axes, eye, physics);
         self.previous
             .retain(|id, _| projectiles.active.iter().any(|p| p.id == *id));
         for ball in projectiles

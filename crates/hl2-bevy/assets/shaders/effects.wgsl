@@ -23,6 +23,11 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         if color.a < parameters.x { discard; }
         return vec4(srgb_to_linear(color.rgb) * mesh.color.rgb * view.exposure, color.a);
     }
+    // Dim beams (w = -1): sprites add in gamma space, so a dim color is a few levels on any
+    // background. Converting the product as below would leave a third of that.
+    if parameters.w < -0.5 {
+        return vec4(srgb_to_linear(color.rgb) * mesh.color.rgb * view.exposure, color.a);
+    }
     color *= mesh.color;
     if color.a < parameters.x { discard; }
     // Source sprite shaders end in FinalOutput TONEMAP_SCALE_LINEAR (camera exposure).

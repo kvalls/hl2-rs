@@ -22,6 +22,7 @@ use glam::Vec3;
 use modkit_core::animation::simple_spline;
 use pose::Pose;
 use serde::Serialize;
+use spotlight::Spotlight;
 
 /// m_flFieldOfView.
 pub const FIELD_OF_VIEW: f32 = 0.2;
@@ -268,6 +269,16 @@ pub struct Scanner {
     photo_wait: f64,
     /// What lights its eye now.
     pub eye: Option<Eye>,
+    /// Its spotlight when lit, m_fNextSpotlightTime, SpotlightDisabled and SpotlightLength.
+    pub spotlight: Option<Spotlight>,
+    pub next_spotlight: f64,
+    pub spotlight_disabled: bool,
+    pub spotlight_reach: f32,
+    /// Where the light sits on the body, from the last think that had a lit spotlight.
+    pub light_offset: Vec3,
+    /// It sees its enemy, and that enemy is the player.
+    pub sees_enemy: bool,
+    pub enemy_is_player: bool,
     /// Who a flash just reached, and where an attack's light goes, until the world has seen them.
     pub blinds: Option<usize>,
     pub light_at: Option<Vec3>,
@@ -315,6 +326,7 @@ impl Scanner {
         let mut scanner = Self {
             tolerance: END_TOLERANCE,
             health: 1.,
+            spotlight_reach: spotlight::DEFAULT_REACH,
             gagged,
             seed: seed | 1,
             ..Default::default()
@@ -608,6 +620,7 @@ impl Scanner {
         let delay = least + (most - least) * f64::from(self.roll());
         let share = if self.strider_scout { 0.5 } else { 1. };
         self.next_attack = ctx.now + delay * share;
+        self.next_spotlight = ctx.now + spotlight::OFF_AFTER_FLASH;
         Complete
     }
     /// A photograph's steps: the flash goes off, then another comes unless the time is up.
@@ -737,6 +750,7 @@ impl Behavior for Scanner {
             "TASK_CSCANNER_SET_FLY_SPOT" => self.set_mode(Mode::Spot),
             "TASK_CSCANNER_SET_FLY_PHOTO" => {
                 self.photo_taken = false;
+                self.next_spotlight = ctx.now + spotlight::OFF_FOR_PHOTO;
                 self.set_mode(Mode::Photo)
             }
             "TASK_CSCANNER_CLEAR_INSPECT_TARGET" => {
@@ -819,5 +833,6 @@ impl Behavior for Scanner {
 
 pub mod flash;
 pub mod pose;
+pub mod spotlight;
 #[cfg(test)]
 mod tests;

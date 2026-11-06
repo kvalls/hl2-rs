@@ -3,6 +3,7 @@ mod gibs;
 mod material;
 mod model_reading;
 mod shots;
+mod sprite_modes;
 use crate::{assets::LoadedMap, gameplay::Gameplay, rendering, simulation::Simulation};
 use bevy::{
     asset::RenderAssetUsages,
@@ -16,6 +17,7 @@ use hl2_simulation::{projectile_visuals::ProjectileVisuals, projectiles::Project
 pub(crate) use model_reading::read_effect_model_lod;
 use modkit_core::Surface;
 use source_assets::vpk::Vfs;
+use sprite_modes::{glows, shading};
 use std::collections::BTreeMap;
 
 const TRILINEAR: hl2_ui::config::Filtering = hl2_ui::config::Filtering::Trilinear;
@@ -238,7 +240,7 @@ pub fn install(
                     },
                     f32::from(sprite.kind == 0),
                     1.,
-                    0.,
+                    shading(name),
                 ),
                 kind: sprite.kind,
                 ignore_z: false,
@@ -683,12 +685,6 @@ impl Effects {
             .collect()
     }
 }
-/// The sprites drawn in kRenderGlow mode: the RPG laser dot and a scanner's eye.
-fn glows(name: &str) -> bool {
-    use hl2_simulation::{ai::scanner::flash::EYE_SPRITE, weapon_rpg::DOT_SPRITE};
-    name == DOT_SPRITE || name == EYE_SPRITE
-}
-
 pub fn present(
     mut commands: Commands,
     mut effects: ResMut<Effects>,

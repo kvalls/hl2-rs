@@ -351,24 +351,31 @@ pub struct PhysicsSight<'a> {
     pub physics: &'a Physics,
     pub world: &'a World,
 }
-impl SightWorld for PhysicsSight<'_> {
-    fn visible(&self, from: Vec3, to: Vec3, ignore: &[usize]) -> bool {
+impl PhysicsSight<'_> {
+    /// Where a line first meets something that stops sight; NPCs do not. After eight NPCs in a row
+    /// the last one counts.
+    pub fn first_solid(&self, from: Vec3, to: Vec3, ignore: &[usize]) -> Option<Vec3> {
         let mut excluded: Vec<usize> = ignore.to_vec();
+        let mut last = None;
         for _ in 0..8 {
-            let Some(hit) = self.physics.projectile_ray(from, to, &excluded) else {
-                return true;
-            };
+            let hit = self.physics.projectile_ray(from, to, &excluded)?;
             let npc = self
                 .world
                 .entities
                 .get(hit.entity)
                 .is_some_and(|e| e.class().starts_with("npc_"));
             if !npc {
-                return false;
+                return Some(hit.position);
             }
             excluded.push(hit.entity);
+            last = Some(hit.position);
         }
-        false
+        last
+    }
+}
+impl SightWorld for PhysicsSight<'_> {
+    fn visible(&self, from: Vec3, to: Vec3, ignore: &[usize]) -> bool {
+        self.first_solid(from, to, ignore).is_none()
     }
 }
 

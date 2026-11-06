@@ -2,11 +2,14 @@
 //! think and carries the body every tick, the part a physics motor does in the SDK. Bodies go
 //! through NPCs and the player here, as birds do: a scanner bumping into them is not modeled.
 
-use super::super::conditions::{clear_range_complaints, Conditions, COND_SEE_ENEMY};
+use super::super::conditions::{
+    clear_range_complaints, Conditions, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_SEE_ENEMY,
+};
 use super::super::host::PhysicsSight;
 use super::super::host::{clamp_yaw, yaw_of};
 use super::super::metropolice::{CopRequest, PLAYER};
 use super::super::scanner::flash::{self, EyeFlare};
+use super::super::scanner::spotlight::{self, Beam, Spotlight};
 use super::super::scanner::{self, Mode, Scanner, COND_FLY_BLOCKED, COND_FLY_CLEAR};
 use super::super::senses::SightWorld;
 use super::super::state::NpcState;
@@ -134,9 +137,89 @@ fn steer(s: &mut Scanner, air: &Air, scene: &mut Scene, state: NpcState) {
     let eyes = origin + Vec3::Z * scanner::EYE_HEIGHT;
     let alert = matches!(state, NpcState::Alert | NpcState::Combat);
     s.think_pose(body, eyes, alert, scene.time);
+    spotlight_think(s, air, scene);
     s.engine_sound();
     if let Some(cue) = s.idle_cue(state == NpcState::Combat) {
         s.requests.push(CopRequest::Sound(cue));
+    }
+}
+
+/// How far under a point the floor is looked for.
+const FLOOR_SEARCH: f32 = 2048.;
+
+/// The point under `point` on the floor, or the point itself over nothing.
+fn on_floor(sight: &PhysicsSight, id: usize, point: Vec3) -> Vec3 {
+    let below = point - Vec3::Z * FLOOR_SEARCH;
+    sight.first_solid(point, below, &[id]).unwrap_or(point)
+}
+
+/// What the beam looks for: a player's eyes when seen, else the floor at its enemy, what it
+/// inspects, or a sweep ahead of its flight.
+fn spotlight_target(s: &Scanner, sight: &PhysicsSight, id: usize, origin: Vec3, now: f32) -> Vec3 {
+    if s.sees_enemy && s.enemy_is_player {
+        if let Some(eyes) = s.enemy_eye {
+            return eyes;
+        }
+    }
+    if let Some(at) = s.enemy_at {
+        return on_floor(sight, id, at);
+    }
+    let sweep = || spotlight::sweep_target(origin, s.hover.velocity, s.bob, now);
+    s.inspect_at.unwrap_or_else(sweep)
+}
+
+/// The way a new beam starts: at the floor by what it is after, else straight down.
+fn first_direction(s: &Scanner, sight: &PhysicsSight, id: usize, origin: Vec3) -> Vec3 {
+    let after = s.enemy_at.or(s.inspect_at);
+    after.map_or(Vec3::NEG_Z, |at| {
+        (on_floor(sight, id, at) - origin).normalize_or(Vec3::NEG_Z)
+    })
+}
+
+/// Where a beam from `origin` lands; NPCs do not stop it.
+fn landing(sight: &PhysicsSight, id: usize, origin: Vec3, direction: Vec3, reach: f32) -> Vec3 {
+    let end = origin + direction * reach;
+    sight.first_solid(origin, end, &[id]).unwrap_or(end)
+}
+
+/// One think of the spotlight: lit when it may be, swung at what it wants and put out when that
+/// swings it behind the body. A mode without a light puts it out at once.
+fn spotlight_think(s: &mut Scanner, air: &Air, scene: &Scene) {
+    let (id, now) = (air.id, scene.time);
+    if s.spotlight_disabled || !matches!(s.mode, Mode::Spot | Mode::Patrol) {
+        s.spotlight = None;
+        return;
+    }
+    let sight = PhysicsSight {
+        physics: air.physics,
+        world: air.world,
+    };
+    let origin = scene.states[id].origin;
+    if s.spotlight.is_none() {
+        if now < s.next_spotlight {
+            return;
+        }
+        let direction = first_direction(s, &sight, id, origin);
+        let end = landing(&sight, id, origin, direction, spotlight::FIRST_TRACE);
+        s.spotlight = Some(Spotlight::new(direction, end, s.spotlight_reach));
+    }
+    let target = spotlight_target(s, &sight, id, origin, now as f32);
+    let Some(light) = s.spotlight.as_mut() else {
+        return;
+    };
+    light.swing(origin, target);
+    let lands = landing(&sight, id, origin, light.direction, light.trace_reach());
+    let forward = scene.states[id].rotation * Vec3::X;
+    if forward.dot(lands - origin) < 0. {
+        s.spotlight = None;
+        s.next_spotlight = now + spotlight::OFF_WHEN_BEHIND;
+        return;
+    }
+    light.land(origin, lands);
+    let frame = scene.attachment_frames(air.world, id, &[flash::EYE_ATTACHMENT]);
+    if let Some(frame) = frame.first().copied().flatten() {
+        let from_body = frame.w_axis.truncate() - origin;
+        s.light_offset = scene.states[id].rotation.inverse() * from_body;
     }
 }
 
@@ -300,6 +383,7 @@ impl AiRuntime {
             };
             if scene.states[id].corpse {
                 s.eye = None;
+                s.spotlight = None;
                 if die(s, &air, scene, player) {
                     strikes.push(id);
                 }
@@ -316,6 +400,9 @@ impl AiRuntime {
             }
             let dt = air.step(&mut s.hover.velocity, &mut s.last_step, scene);
             turn(s, scene, id, dt);
+            if let Some(light) = s.spotlight.as_mut() {
+                light.carry(dt);
+            }
             scene
                 .scanner_poses
                 .insert(id, s.pose_now(now, THINK_INTERVAL));
@@ -345,6 +432,17 @@ impl AiRuntime {
                 _ => None,
             });
         lights.collect()
+    }
+    /// The lit spotlights, from where their lights are this frame.
+    pub fn scanner_beams<'a>(&'a self, scene: &'a Scene) -> impl Iterator<Item = Beam> + 'a {
+        self.actors.iter().filter_map(|(&id, actor)| {
+            let AiClass::Scanner(s) = &actor.class else {
+                return None;
+            };
+            let state = &scene.states[id];
+            let start = state.origin + state.rotation * s.light_offset;
+            Some(s.spotlight.as_ref()?.beam(id, start))
+        })
     }
     /// The scanners with a lit eye, placed for this frame.
     pub fn scanner_eyes<'a>(
@@ -440,6 +538,13 @@ fn gather(actor: &mut AiActor, world: &World, scene: &Scene, player: &PlayerStat
         None => {}
     }
     s.sense_inspection(conditions, enemy.is_some(), scene.time);
+    s.sees_enemy = conditions.has(COND_SEE_ENEMY);
+    s.enemy_is_player = enemy == Some(PLAYER);
+    // Shot, it goes dark for a while.
+    if conditions.has(COND_LIGHT_DAMAGE) || conditions.has(COND_HEAVY_DAMAGE) {
+        s.spotlight = None;
+        s.next_spotlight = scene.time + spotlight::OFF_AFTER_HIT;
+    }
     if let Some(at) = enemy.and_then(|e| enemy_feet(scene, player, e)) {
         attack_conditions(conditions, scene, (id, at), s.next_attack);
     }
@@ -497,6 +602,10 @@ impl AiRuntime {
             "inspecttargetspotlight" => Mode::Spot,
             "setfollowtarget" => Mode::Follow,
             "clearfollowtarget" => return s.clear_follow(),
+            "disablespotlight" => {
+                s.spotlight_disabled = true;
+                return;
+            }
             "setdistanceoverride" => {
                 s.distance_override = parameter.trim().parse().unwrap_or(0.);
                 return;
@@ -520,6 +629,8 @@ impl AiRuntime {
 pub(super) fn class_for(e: &modkit_core::Entity, gagged: bool, id: usize) -> AiClass {
     let mut scanner = Scanner::new(gagged, 0xbb67_ae85_84ca_a73b ^ id as u64);
     scanner.ignores_enemies = e.get("ShouldInspect").map(str::trim) == Some("0");
+    scanner.spotlight_disabled = e.get("SpotlightDisabled").map(str::trim) == Some("1");
+    scanner.spotlight_reach = spotlight::reach_from(e.get("SpotlightLength"));
     let flags = e
         .get("spawnflags")
         .and_then(|f| f.trim().parse::<u32>().ok());

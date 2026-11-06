@@ -441,6 +441,7 @@ fn is_ai_input(class: &str, input: &str) -> bool {
                 | "clearfollowtarget"
                 | "setdistanceoverride"
                 | "inputshouldinspect"
+                | "disablespotlight"
         ),
         "ai_goal_assault" => matches!(
             input,
