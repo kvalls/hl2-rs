@@ -15,7 +15,9 @@ pub(super) fn shot_effects(game: &Gameplay, effects: &mut Effects) {
     let eyes = game.ai.scanner_eyes(&game.world, &game.scene);
     source.eye_flares.extend(eyes);
     source.beams.clear();
-    source.beams.extend(game.ai.scanner_beams(&game.scene));
+    let beams = game.ai.scanner_beams(&game.scene);
+    let seen = &game.scene.look_targets;
+    source.beams.extend(beams.filter(|b| seen.in_pvs(b.entity)));
     let mut random = || {
         *rng ^= *rng << 13;
         *rng ^= *rng >> 7;

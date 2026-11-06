@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-06 session 47: npc_cscanner's flash, faceplate and spotlight, main at 4c5ad9f (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** main fast-forwarded to 4c5ad9f after CI passed on Windows and macOS. In 4c5ad9f: the flash attack (ai/scanner/flash.rs, SCHED_CSCANNER_ATTACK_FLASH), the eye sprite and the flash's light, blinding by how directly the player looks, on photographs too; the faceplate, tail, dynamo and flaps (ai/scanner/pose.rs, `Scene::scanner_poses`). ShotEffect, shot_effects and entities.rs's yaw helpers moved to their own modules, since those files were at their limits. In 50eac31: the spotlight (ai/scanner/spotlight.rs), beam strip and halo, InputDisableSpotlight, `PhysicsSight::first_solid`, a shader mode for dim sprites, effects/sprite_modes.rs.
+
+**Why:** next steps of the session plan; the owner saw during the session that the animated faceplate was missing.
+
+**Tested how / Result:** see STATUS "Current session 47" for packaged runs, A/Bs and validation.
+
+**Frame time:** **not measured**. A lit spotlight costs up to three line traces and one attachment read per think, and 12 quads a frame.
+
+**Still broken or not tested:** see STATUS "Not done for scanners" and its two Open items, screen fades in linear light and dim sprites. No native comparison of any of this. Ordinary play of a scanner map **not tested**.
+
+**Next:** native side by side of the faceplate, spotlight and flash; then mines, inspection of citizens, npc_manhack.
+
 ## 2026-11-05 session 46c: npc_cscanner in the runtime, main at 031aa58 (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

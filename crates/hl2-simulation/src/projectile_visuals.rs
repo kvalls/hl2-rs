@@ -531,7 +531,13 @@ impl ProjectileVisuals {
     }
 
     /// What scanners draw: their lit eyes and their spotlights' beams.
-    fn scanner_quads(&mut self, axes: (Vec3, Vec3), view: Vec3, physics: &Physics) {
+    fn scanner_quads(
+        &mut self,
+        (axes, direction): ((Vec3, Vec3), Vec3),
+        view: Vec3,
+        physics: &Physics,
+    ) {
+        self.beams.retain(|beam| beam.ahead_of(view, direction));
         self.eye_quads(axes, view, physics);
         let beams = self.beams.iter().flat_map(|beam| beam.quads(view));
         self.quads.extend(beams);
@@ -721,7 +727,7 @@ impl ProjectileVisuals {
         self.quads.clear();
         let axes = basis(direction);
         self.shot_quads(axes, eye, time);
-        self.scanner_quads(axes, eye, physics);
+        self.scanner_quads((axes, direction), eye, physics);
         self.previous
             .retain(|id, _| projectiles.active.iter().any(|p| p.id == *id));
         for ball in projectiles

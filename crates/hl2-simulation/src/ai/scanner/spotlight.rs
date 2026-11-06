@@ -144,6 +144,10 @@ fn remap(value: f32, (from, to): (f32, f32), (low, high): (f32, f32)) -> f32 {
 }
 
 impl Beam {
+    /// Whether any of it lies ahead of a view at `eye` looking along `direction`.
+    pub fn ahead_of(&self, eye: Vec3, direction: Vec3) -> bool {
+        direction.dot(self.start - eye) > 0. || direction.dot(self.end - eye) > 0.
+    }
     /// How far `eye` is from the beam's line, which runs on past its end.
     fn distance_to_line(&self, eye: Vec3) -> f32 {
         let along = (self.end - self.start).normalize_or_zero();
@@ -371,6 +375,15 @@ mod tests {
     #[test]
     fn seen_straight_along_its_length_it_has_no_width_to_draw() {
         assert!(beam(400.).quads(Vec3::Z * 100.).is_empty());
+    }
+
+    #[test]
+    fn a_beam_wholly_behind_the_view_is_not_ahead_of_it() {
+        let side = Vec3::new(-300., 0., -200.);
+        assert!(beam(400.).ahead_of(side, Vec3::X));
+        assert!(!beam(400.).ahead_of(side, Vec3::NEG_X));
+        // One end in front is enough.
+        assert!(beam(400.).ahead_of(Vec3::Z * -200., Vec3::Z));
     }
 
     #[test]

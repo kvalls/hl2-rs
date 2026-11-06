@@ -1367,7 +1367,9 @@ def check_effect(name: str) -> Callable[[Run], None]:
             expect("SMG grenades left", g["inventory"]["reserve_ammo"]["SMG1_Grenade"], 2)
         elif name == "ball":
             # sprite_draws counts drawn quads, which also include particles (2 to 10 here).
-            holds("the paused ball draws its body and halo", p["sprite_draws"] >= 2 and p["pooled_quads"] == 10,
+            # pooled_quads is the most drawn at once: the ball's 10, or those and the 12 pieces of
+            # the plaza scanner's beam, which is in view for part of this run.
+            holds("the paused ball draws its body and halo", p["sprite_draws"] >= 2 and p["pooled_quads"] in (10, 22),
                   (p["sprite_draws"], p["pooled_quads"]))
             holds("the AR2 launches after the charge and spends one", g["projectiles"]["diagnostics"]["balls_spawned"] == 1
                   and g["inventory"]["reserve_ammo"]["AR2AltFire"] == 2)

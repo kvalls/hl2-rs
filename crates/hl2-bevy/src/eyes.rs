@@ -427,24 +427,29 @@ pub fn attention_pvs(
         eyes.push(camera.origin);
     }
     let mut visible = std::collections::BTreeSet::new();
+    let beams = game.ai.scanner_beams(&game.scene);
+    let beams: std::collections::BTreeMap<_, _> = beams.map(|b| (b.entity, b)).collect();
     for (id, entity) in game.world.entities.iter().enumerate() {
         let tongue = game.scene.tongues.get(&id);
-        if tongue.is_none() && !hl2_simulation::attention::has_animated_face(entity.class()) {
+        let beam = beams.get(&id);
+        let tracked = tongue.is_some() || beam.is_some();
+        if !tracked && !hl2_simulation::attention::has_animated_face(entity.class()) {
             continue;
         }
         let Some(state) = game.scene.states.get(id).filter(|s| !s.killed) else {
             continue;
         };
-        // A barnacle is near when the player can see any of its tongue.
-        let (low, high) = match tongue {
-            Some(tongue) => {
+        // A barnacle is near when the player can see any of its tongue, a scanner any of its beam.
+        let (low, high) = match (tongue, beam) {
+            (Some(tongue), _) => {
                 let side = glam::Vec3::new(16., 16., 0.);
                 (
                     tongue.nodes[tongue.nodes.len() - 1] - side,
                     state.origin + side,
                 )
             }
-            None => (state.origin, state.origin + glam::Vec3::Z * 64.),
+            (None, Some(beam)) => (beam.start.min(beam.end), beam.start.max(beam.end)),
+            (None, None) => (state.origin, state.origin + glam::Vec3::Z * 64.),
         };
         for &eye in &eyes {
             match sky.bounds_in_pvs(eye, low, high) {
