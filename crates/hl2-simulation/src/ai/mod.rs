@@ -15,6 +15,7 @@ pub mod headcrab;
 pub mod host;
 pub mod hover;
 pub mod humanoid;
+pub mod manhack;
 pub mod memory;
 pub mod metropolice;
 pub mod moveshoot;

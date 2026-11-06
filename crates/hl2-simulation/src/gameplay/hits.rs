@@ -236,7 +236,7 @@ pub(super) fn club_damage(e: &Entity, melee: bool, health: f32, damage: f32) -> 
 /// Takes a dead entity out of the world. A barnacle stays on its ceiling as a corpse and plays
 /// its own death, and a scanner's body stays until its dive or its gibs end it.
 pub(super) fn remove_killed(scene: &mut Scene, e: &Entity, id: usize) {
-    if matches!(e.class(), "npc_barnacle" | "npc_cscanner") {
+    if matches!(e.class(), "npc_barnacle" | "npc_cscanner" | "npc_manhack") {
         scene.states[id].corpse = true;
     } else {
         scene.states[id].killed = true;

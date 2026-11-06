@@ -300,13 +300,21 @@ fn stop_engine(s: &mut Scanner, scene: &mut Scene, id: usize) {
 fn gib(s: &mut Scanner, air: &Air, scene: &mut Scene) {
     let id = air.id;
     stop_engine(s, scene, id);
-    let (origin, rotation) = (scene.states[id].origin, scene.states[id].rotation);
+    let origin = scene.states[id].origin;
     scene.sounds.push(SoundRequest {
         origin: Some(origin),
         ..scanner::DIE.into()
     });
     let blast = (origin, 1., 2., false, Attacker::Entity(id));
     scene.prop_explosions.push(blast);
+    break_body(air, scene, s.hover.velocity);
+    scene.scanner_poses.remove(&id);
+}
+
+/// The end of a flying body: its pieces take its speed and it is gone.
+pub(super) fn break_body(air: &Air, scene: &mut Scene, velocity: Vec3) {
+    let id = air.id;
+    let (origin, rotation) = (scene.states[id].origin, scene.states[id].rotation);
     let instance = air.world.model_instances.iter();
     if let Some(instance) = instance.into_iter().find(|i| i.entity == Some(id)) {
         scene.prop_breaks.push(PropBreak {
@@ -314,7 +322,7 @@ fn gib(s: &mut Scanner, air: &Air, scene: &mut Scene) {
             model_key: instance.asset_key(),
             origin,
             rotation,
-            velocity: s.hover.velocity,
+            velocity,
             angular_velocity: Vec3::ZERO,
             center_of_mass: origin,
             skin: instance.skin as i32,
@@ -322,11 +330,10 @@ fn gib(s: &mut Scanner, air: &Air, scene: &mut Scene) {
     }
     scene.states[id].killed = true;
     scene.states[id].visible = false;
-    scene.scanner_poses.remove(&id);
 }
 
 /// Whether its body touches the player's.
-fn strikes_player(air: &Air, origin: Vec3, player: PlayerState) -> bool {
+pub(super) fn strikes_player(air: &Air, origin: Vec3, player: PlayerState) -> bool {
     fall_player_box(player).is_some_and(|actor| {
         let (lo, hi) = (origin + air.hull.mins, origin + air.hull.maxs);
         overlaps(

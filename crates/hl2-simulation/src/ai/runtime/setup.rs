@@ -43,6 +43,7 @@ pub(super) fn class_schedules() -> Schedules {
     headcrab::add_schedules(&mut schedules);
     bird::add_schedules(&mut schedules);
     scanner::add_schedules(&mut schedules);
+    super::super::manhack::add_schedules(&mut schedules);
     actbusy::add_schedules(&mut schedules);
     schedules
 }

@@ -8,7 +8,7 @@
 //! throttling, no think staggering). Class layers: npc_metropolice and the humanoids
 //! (npc_citizen, npc_barney, npc_alyx, npc_combine_s); other classes have no AI yet.
 use super::assault;
-use super::bird::{self, Bird};
+use super::bird;
 use super::conditions::{
     clear_range_complaints, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1,
     COND_ENEMY_DEAD, COND_ENEMY_OCCLUDED, COND_ENEMY_UNREACHABLE, COND_ENEMY_WENT_NULL,
@@ -23,7 +23,6 @@ use super::humanoid::{self, Humanoid};
 use super::metropolice::{CopRequest, Metropolice, PlayerView, PLAYER};
 use super::police::{PoliceGoal, Policing};
 use super::relationships::{classify, Class, Disposition, Relationships};
-use super::scanner::Scanner;
 use super::schedule::{self, AiNpc, Behavior, Context, Schedules};
 use super::senses::{self, SightWorld, SoundEnt, Viewer};
 use super::state::{select_ideal_state, NpcState, StateInputs};
@@ -49,6 +48,7 @@ mod equipment;
 mod events;
 mod gather;
 mod goal_inputs;
+mod manhacks;
 mod navlinks;
 use navlinks::overlaps;
 pub use toss::{vec_check_throw, vec_check_toss};
@@ -238,15 +238,7 @@ pub struct MeleeHit {
     pub position: Vec3,
     pub direction: Vec3,
 }
-#[derive(Clone, Debug, Serialize)]
-pub enum AiClass {
-    Metropolice(Box<Metropolice>),
-    Humanoid(Box<Humanoid>),
-    Zombie(Box<Zombie>),
-    Headcrab(Box<Headcrab>),
-    Bird(Box<Bird>),
-    Scanner(Box<Scanner>),
-}
+pub use class::AiClass;
 #[derive(Clone, Debug, Serialize)]
 pub struct AiActor {
     pub npc: AiNpc,
@@ -2165,7 +2157,7 @@ impl AiRuntime {
             ),
             AiClass::Zombie(z) => (z.yaw_speed(&actor.npc.activity), false),
             AiClass::Headcrab(h) => (h.max_yaw_speed(&actor.npc.activity), false),
-            AiClass::Bird(_) | AiClass::Scanner(_) => (bird::MAX_YAW_SPEED, false),
+            _ => (bird::MAX_YAW_SPEED, false),
         };
         if let AiClass::Headcrab(crab) = &mut actor.class {
             crab.sees_enemy = actor.npc.conditions.has(COND_SEE_ENEMY);

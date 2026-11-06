@@ -180,13 +180,23 @@ impl Air<'_> {
         let origin = scene.states[id].origin;
         let end = origin + *velocity * dt;
         let hit = self.trace(origin, end);
-        let fraction = step_fraction(&hit);
+        let fraction = flight_fraction(&hit);
         scene.states[id].origin = origin + (end - origin) * fraction;
         if fraction < 1. {
             let normal = hit.trace.normal;
             *velocity -= normal * velocity.dot(normal).min(0.);
         }
         dt
+    }
+}
+
+/// How much of a step a flying body takes. One that starts inside something moves freely: physics
+/// would push it out in the SDK, and stopping it there would hold it for good.
+fn flight_fraction(hit: &crate::npc_probe::HullTrace) -> f32 {
+    if hit.trace.start_solid {
+        1.
+    } else {
+        step_fraction(hit)
     }
 }
 
@@ -334,5 +344,22 @@ pub(super) fn gather(actor: &mut AiActor, scene: &Scene, player: &PlayerState) {
     if bird.forced_fly {
         actor.npc.conditions.set(bird::COND_FORCED_FLY);
         actor.npc.conditions.set(COND_PROVOKED);
+    }
+}
+
+#[cfg(test)]
+mod flight_tests {
+    use super::*;
+    use crate::npc_probe::HullTrace;
+
+    #[test]
+    fn a_body_in_the_open_stops_where_it_hits_and_one_inside_something_moves() {
+        let mut hit = HullTrace::clear();
+        assert_eq!(flight_fraction(&hit), 1.);
+        hit.trace.fraction = 0.25;
+        assert_eq!(flight_fraction(&hit), 0.25);
+        hit.trace.fraction = 0.;
+        hit.trace.start_solid = true;
+        assert_eq!(flight_fraction(&hit), 1.);
     }
 }

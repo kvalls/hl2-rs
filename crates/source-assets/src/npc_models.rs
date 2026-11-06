@@ -54,25 +54,38 @@ const SCANNER_GIBS: [&str; 4] = [
     "models/gibs/scanner_gib04.mdl",
     "models/gibs/scanner_gib05.mdl",
 ];
+/// The break list in models/manhack.phy.
+const MANHACK_GIBS: [&str; 6] = [
+    "models/gibs/manhack_gib01.mdl",
+    "models/gibs/manhack_gib02.mdl",
+    "models/gibs/manhack_gib03.mdl",
+    "models/gibs/manhack_gib04.mdl",
+    "models/gibs/manhack_gib05.mdl",
+    "models/gibs/manhack_gib06.mdl",
+];
 const SCANNER_GIB_SPEED: f32 = 375.;
 const SCANNER_GIB_LIFE: f32 = 25.;
 
 /// Gib lists of NPC classes that break apart in code, not from their model's .phy: the same
 /// table, so the gibs' physics and meshes are preloaded with the map.
 pub fn add_class_gibs(world: &mut modkit_core::World) {
-    let scanners: Vec<String> = world
-        .model_instances
-        .iter()
-        .filter(|instance| instance.kind == "npc_cscanner")
-        .map(|instance| instance.asset_key())
-        .collect();
-    for key in scanners {
-        world.model_breaks.entry(key).or_insert_with(scanner_gibs);
+    let keys = |world: &modkit_core::World, class: &str| -> Vec<String> {
+        let instances = world.model_instances.iter();
+        let of_class = instances.filter(|instance| instance.kind == class);
+        of_class.map(|instance| instance.asset_key()).collect()
+    };
+    for key in keys(world, "npc_cscanner") {
+        let gibs = class_gibs(&SCANNER_GIBS);
+        world.model_breaks.entry(key).or_insert(gibs);
+    }
+    for key in keys(world, "npc_manhack") {
+        let gibs = class_gibs(&MANHACK_GIBS);
+        world.model_breaks.entry(key).or_insert(gibs);
     }
 }
 
-fn scanner_gibs() -> Vec<modkit_core::BreakModel> {
-    SCANNER_GIBS
+fn class_gibs(models: &[&str]) -> Vec<modkit_core::BreakModel> {
+    models
         .iter()
         .map(|model| modkit_core::BreakModel {
             model: (*model).into(),
@@ -215,6 +228,29 @@ mod tests {
             let found = &rig.pose_parameters[index];
             assert_eq!((found.start, found.end), (start, end), "{parameter}");
         }
+    }
+
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; reads the manhack model"]
+    fn owned_manhack_flies_and_has_its_blades() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        let model = "models/manhack.mdl";
+        let names = crate::animation::sequence_names(&vfs, model)
+            .unwrap()
+            .into_iter()
+            .collect();
+        let rig = crate::animation::load(&vfs, model, &names).unwrap();
+        for seq in &rig.sequences {
+            println!("seq {} act {} w {}", seq.name, seq.activity, seq.weight);
+        }
+        println!("pose {:?}", rig.pose_parameters);
+        println!("autoplay {:?}", rig.autoplay);
+        println!(
+            "attachments {:?}",
+            rig.attachments.iter().map(|a| &a.name).collect::<Vec<_>>()
+        );
+        assert!(rig.sequences.iter().any(|s| s.activity == "ACT_FLY"));
     }
 
     #[test]

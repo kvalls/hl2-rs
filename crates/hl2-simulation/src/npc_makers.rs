@@ -21,7 +21,7 @@ pub const SF_NPC_FALL_TO_GROUND: u32 = 1 << 2;
 /// whatever its spawnflags say, and a scanner and a bird that starts in the air have FL_FLY.
 fn stays_where_placed(class: &str, flags: u32) -> bool {
     use crate::ai::bird::{Kind, SF_FLYING};
-    matches!(class, "npc_barnacle" | "npc_cscanner")
+    matches!(class, "npc_barnacle" | "npc_cscanner" | "npc_manhack")
         || Kind::for_class(class).is_some() && flags & SF_FLYING != 0
 }
 /// SF_NPC_TEMPLATE: removed at map spawn, used by an npc_template_maker.

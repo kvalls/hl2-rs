@@ -57,7 +57,9 @@ impl AiRuntime {
         let crab = headcrab::is_headcrab_class(e.class());
         let bird = Kind::for_class(e.class());
         let scanner = e.class() == "npc_cscanner";
-        let other = kind.is_none() && zombie.is_none() && !crab && bird.is_none() && !scanner;
+        let blade = e.class() == "npc_manhack";
+        let other =
+            kind.is_none() && zombie.is_none() && !crab && bird.is_none() && !scanner && !blade;
         if e.class() != "npc_metropolice" && other {
             return None;
         }
@@ -75,6 +77,7 @@ impl AiRuntime {
             _ if crab => AiClass::Headcrab(Box::new(Headcrab::for_class(e.class()))),
             _ if bird.is_some() => super::birds::class_for(e, bird.unwrap_or(Kind::Crow), id),
             _ if scanner => super::scanners::class_for(e, flags & SF_NPC_GAG != 0, id),
+            _ if blade => super::manhacks::class_for(flags & SF_NPC_GAG != 0, id),
             _ if zombie.is_some() => {
                 let mut z = Zombie::new(
                     zombie.unwrap_or(zombie::Kind::Classic),

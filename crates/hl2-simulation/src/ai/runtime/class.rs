@@ -1,11 +1,26 @@
 //! What each AI class answers for itself: its goals, requests, senses and schedule hooks.
 
-use super::super::{bird, scanner};
+use super::super::bird::{self, Bird};
+use super::super::manhack::{self, Manhack};
+use super::super::scanner::{self, Scanner};
 use super::{
-    assault, headcrab, zombie, AiClass, Behavior, CopRequest, Humanoid, Metropolice,
+    assault, headcrab, zombie, Behavior, CopRequest, Headcrab, Humanoid, Metropolice, Zombie,
     METROPOLICE_FOV, METROPOLICE_SOUNDS,
 };
 use glam::Vec3;
+use serde::Serialize;
+
+/// What an actor is, with what only that class keeps.
+#[derive(Clone, Debug, Serialize)]
+pub enum AiClass {
+    Metropolice(Box<Metropolice>),
+    Humanoid(Box<Humanoid>),
+    Zombie(Box<Zombie>),
+    Headcrab(Box<Headcrab>),
+    Bird(Box<Bird>),
+    Scanner(Box<Scanner>),
+    Manhack(Box<Manhack>),
+}
 
 impl AiClass {
     pub fn cop(&self) -> Option<&Metropolice> {
@@ -35,6 +50,7 @@ impl AiClass {
             Self::Headcrab(h) => h.assault.as_ref(),
             Self::Bird(b) => b.assault.as_ref(),
             Self::Scanner(s) => s.assault.as_ref(),
+            Self::Manhack(m) => m.assault.as_ref(),
         }
     }
     pub fn assault_mut(&mut self) -> &mut Option<assault::Assault> {
@@ -45,6 +61,7 @@ impl AiClass {
             Self::Headcrab(h) => &mut h.assault,
             Self::Bird(b) => &mut b.assault,
             Self::Scanner(s) => &mut s.assault,
+            Self::Manhack(m) => &mut m.assault,
         }
     }
     /// The aiscripted_schedule goal (position, run).
@@ -56,6 +73,7 @@ impl AiClass {
             Self::Headcrab(h) => h.script_goal,
             Self::Bird(b) => b.script_goal,
             Self::Scanner(s) => s.script_goal,
+            Self::Manhack(m) => m.script_goal,
         }
     }
     pub(super) fn script_goal_mut(&mut self) -> &mut Option<(Vec3, bool)> {
@@ -66,6 +84,7 @@ impl AiClass {
             Self::Headcrab(h) => &mut h.script_goal,
             Self::Bird(b) => &mut b.script_goal,
             Self::Scanner(s) => &mut s.script_goal,
+            Self::Manhack(m) => &mut m.script_goal,
         }
     }
     pub(super) fn requests_mut(&mut self) -> &mut Vec<CopRequest> {
@@ -76,6 +95,7 @@ impl AiClass {
             Self::Headcrab(h) => &mut h.requests,
             Self::Bird(b) => &mut b.requests,
             Self::Scanner(s) => &mut s.requests,
+            Self::Manhack(m) => &mut m.requests,
         }
     }
     pub(super) fn behavior_mut(&mut self) -> &mut dyn Behavior {
@@ -86,6 +106,7 @@ impl AiClass {
             Self::Headcrab(h) => h.as_mut(),
             Self::Bird(b) => b.as_mut(),
             Self::Scanner(s) => s.as_mut(),
+            Self::Manhack(m) => m.as_mut(),
         }
     }
     /// IRelationType: a scanner leaves the player alone while he is precriminal, whatever the
@@ -102,6 +123,7 @@ impl AiClass {
             Self::Headcrab(_) => headcrab::FIELD_OF_VIEW,
             Self::Bird(_) => bird::FIELD_OF_VIEW,
             Self::Scanner(_) => scanner::FIELD_OF_VIEW,
+            Self::Manhack(_) => manhack::FIELD_OF_VIEW,
         }
     }
     /// GetSoundInterests.
@@ -111,6 +133,7 @@ impl AiClass {
             Self::Humanoid(h) => h.kind.sound_interests(),
             Self::Bird(b) => b.sound_interests(),
             Self::Scanner(s) => s.sound_interests(),
+            Self::Manhack(m) => m.sound_interests(),
             // CAI_BaseNPC::GetSoundInterests (SOUND_PLAYER_VEHICLE has no source here).
             Self::Zombie(_) | Self::Headcrab(_) => {
                 use super::senses::sound;

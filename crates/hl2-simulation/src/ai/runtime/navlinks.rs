@@ -57,6 +57,9 @@ impl AiRuntime {
         self.climb_edges(scene, controller, player);
         self.fly_birds(world, scene, physics);
         self.fly_scanners(world, scene, physics, player);
+        if self.enabled {
+            self.fly_manhacks((world, physics), scene, player);
+        }
         self.step_falls(world, scene, physics, player);
         for id in controller.jumpers() {
             if self.actors.get(&id).is_none_or(|a| a.fall.is_none()) {
