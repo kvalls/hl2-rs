@@ -62,10 +62,12 @@ impl Envmaps<'_> {
             material.envmap = envmap.clone();
             material.envmap_tint.w = 1.;
         }
-        if own.is_some() || env_cubemap {
-            if let Some(mask) = self.masks.get(name) {
-                material.envmap_mask = mask.clone();
-            }
+        let mask = self
+            .masks
+            .get(name)
+            .filter(|_| own.is_some() || env_cubemap);
+        if let Some(mask) = mask {
+            material.envmap_mask = mask.clone();
         }
     }
 }

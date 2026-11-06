@@ -62,8 +62,10 @@ pub fn present_lighting(
         &InheritedVisibility,
     )>,
     mut materials: ResMut<Assets<SourceMaterial>>,
-    performance: Option<Res<crate::performance::Performance>>,
-    cubemaps: Option<Res<super::cubemaps::ModelCubemaps>>,
+    (performance, cubemaps): (
+        Option<Res<crate::performance::Performance>>,
+        Option<Res<super::cubemaps::ModelCubemaps>>,
+    ),
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "model lighting");
     let Some(data) = game.world.lighting.as_deref() else {
