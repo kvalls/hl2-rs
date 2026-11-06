@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Conditional replay agrees with sampled native FP state (2026-11-06 MJ)
+
+Under the independently extracted native getter-entry state, the exact retail getter/count/dispatch windows in an authored carrier reproduce the eleven finite normal source words. The meaningful 235-byte post-state matches both retained native post-store and caller-resume states. Relative to the seed, only retained empty ST7 payload bytes at offsets 149–153 change. The zero-count control preserves all meaningful bytes and untouched outputs. Raw FX512 images remain retained, with reserved bytes excluded under the established explicit ranges. This does not make the fixture a replay of the full retail caller or identify the actor.
+
+The separate static handoff review confirms a pointer publication boundary rather than a pose-array copy. Intervening virtual/optional logging calls and MOVSS prevent extending getter-only FP equality or no-write claims across that path. Relocation examples are static conditional transformations, not loaded observations. The native contiguous getter-to-context handoff and later accumulation remain open.
+
 ## Native getter samples admitted (2026-11-06 MG–MI)
 
 The first independently admitted selected retail history contains twelve actual signed count returns of 11 and eleven equal pre-FLD/post-FSTP float-word samples, then getter return and caller resume. The selector's eligibility snapshot remains separate from returned EAX. All 38 stopped FP images retain CW 027f, SW 4037, MXCSR 1fbf, empty tags and unchanged eight-XMM bytes. The final sampled output prefix agrees; tail endpoint equality does not exclude intervening writes.

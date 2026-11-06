@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: reproduce native getter inputs and bound next context handoff
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents.
+- Changed: separate conditional eleven-word/entry-FP fixture and zero-count control; exact static cycle/context handoff contract.
+- Why: test the observed getter words and FP state independently, then identify the next missing contiguous witness.
+- Tested how: one successful x86 process, two calls/50 output words/eight raw FP images; 32 corruption controls; 202 exact caller/constructor bytes and 202 byte controls.
+- Result: eleven native words and 235 meaningful native post-state bytes reproduced; zero-count outputs untouched; original FP restored immediately. Context helper forwards the array pointer, with two caller relocation fields and intervening MOVSS/calls explicitly recorded.
+- Still broken or not tested: native contiguous context handoff, later pose consumption, intervening-write exclusion, actor/rendered pose/campaign/Rust parity and other platforms. Failed padding build and unavailable-disassembler draft remain retained; neither executed a target.
+- Next: authored same-activation handoff protocol and relocation/failure admission, independent raw review, then a fresh guarded native attempt.
+
 ## 2026-11-06: admit first bounded retail getter history
 
 - Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents.

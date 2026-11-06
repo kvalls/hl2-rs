@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Conditional getter replay and handoff contract checks (2026-11-06 MJ–MK)
+
+Windows x86 fixture: one process exits 0 in 0.078 seconds; two calls, 50 output words, eight raw FP images. Eleven expected native words reproduce; zero count preserves all 25 sentinel words. Both seeds and immediate original-state restorations match 235 meaningful bytes, all eight XMM registers remain unchanged, and the positive post-state matches both extracted native post-store and caller-resume states. Thirty-two corruptions reject. Sealed carrier/input dependencies and source/executable pins agree before/after. No retail target rerun. The first strict build rejects implicit alignment padding; its source/log remain retained and explicit padding passes the strict build before execution.
+
+MK independently binds caller122/constructor80 with 202 byte-corruption controls and two HIGHLOW relocation fields. Three rebase examples remain conditional static evidence. A missing optional Python disassembler causes a preparation-only failure; the accepted route uses the already installed disassembler without installing dependencies. No current native observation spans getter return through context construction; other platforms, no-intervening-writes, named actor, rendered pose, ordinary campaign completion and Rust parity are not tested.
+
 ## Guarded native getter capture and independent review (2026-11-06 MG–MI)
 
 Windows 11: debugger and owned native process both exit 0 in 30.625 seconds. Fresh prelaunch admission precedes immediate clear guards. One selected activation yields 38 raw stops, 289 reads and 151 context triples over 46 thread lifetimes and two same-base module generations. Eleven raw word pairs match with twelve signed count returns of 11; final sampled 24-word prefix/tail endpoints agree. No new ownership is acquired after selection. Fifty-four idle retirements restore saved state; four armed thread exits end ownership without a restoration claim. Seven refusals preserve unchanged raw 716-byte context pairs.

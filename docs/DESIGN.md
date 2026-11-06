@@ -1,5 +1,11 @@
 # Design
 
+## Next bounded same-activation handoff protocol (2026-11-06 MK)
+
+Keep the selected PID/TID/lifetime/module-generation/object/frame/model-wrapper token through getter return, cycle load/store and context publication. The exact caller loads object+7c0h at RVA a9be9, stores XMM0's low word at frame-4 at a9bf1, calls the context constructor at a9c47 and resumes at a9c4c. The constructor receives the model wrapper, mask, frame-74h pose pointer and literal zero callback; ECX addresses the context-handle slot at frame+8. Its success publishes a 16-byte allocation; failure publishes null. The initializer wrapper is called later at a9c56. Pointer forwarding is distinct from pose-word consumption.
+
+Future loaded-code proof covers caller122 with HIGHLOW fields a9be2/a9c2e rebased to the actual module, plus constructor80. Preserve raw API results and symmetric frame/context/pose endpoint reads. Observe the actual post-load XMM0 and post-store stack word; legacy memory MOVSS clears XMM0's upper 96 bits, so whole-XMM equality across program execution is not the debugger-preservation rule. Optional logging performs x87 operations. Unknown calls, allocation failure, deadline and partial frontiers remain explicit outcomes. Endpoint agreement does not exclude intervening writes. First admit authored protocol/relocation/failure fixtures and independent raw replay; any retail execution requires a new root and fresh ownership/cursor guards.
+
 ## Conditional getter input replay plan (2026-11-06 MJ)
 
 MG–MI establish a bounded native getter history independently of earlier initializer captures. Reuse the sealed authored carrier's exact retail getter/count/dispatch windows in one separate x86 fixture. Supply only MI's extracted eleven source words and captured getter-entry 512-byte FP state. Validate masked FP controls before executing. Record before/after raw FP images and immediately restore the fixture's original state; include a zero-count case with untouched output. Keep output sentinels and stack equality checks.

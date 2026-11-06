@@ -1,5 +1,11 @@
 # STATUS
 
+## Native-input replay and next handoff boundary (2026-11-06 MJ–MK)
+
+One separate x86 fixture exits 0 with two conditional calls. The 11-count call reproduces all eleven native sampled words and all 235 meaningful FP bytes of both native post-store and caller-resume snapshots. The zero-count call leaves 25 output words and all 235 meaningful FP bytes unchanged. Both calls preserve eight XMM registers and immediately restore original FP state. All eight raw 512-byte images remain retained; reserved bytes are excluded from semantic equality. Thirty-two corruption controls reject. MJ seals 18 files/15 bindings. This is conditional fixture evidence, not a second native handoff observation.
+
+MK authenticates 202 exact caller/constructor bytes and rejects 202 byte mutations. The constructor publishes a newly allocated context containing the pose-array pointer; it does not copy pose words. Two caller HIGHLOW fields require rebasing in future loaded-code checks. MOVSS changes XMM0 before context construction, and an unknown virtual call plus optional diagnostic path intervene. Earlier nested-context captures and MG getter history remain separate activations. MK seals 9 files/13 bindings. Next: authored same-activation getter/cycle/context protocol with independent source/raw review before a fresh native launch. No Rust action or campaign/parity claim.
+
 ## First bounded native getter history (2026-11-06 MG–MI)
 
 A fresh guarded retail run exits cleanly after one selected getter activation: 38 stops, 289 actual reads, 151 context triples. Twelve actual signed EAX returns are 11; eleven sampled pre-FLD/post-FSTP word pairs match raw bits. The final sampled 24-word span retains that prefix and thirteen unchanged tail endpoints. Getter RET and caller resume are observed. This is separate from the earlier initializer and object/list/type captures: no same-process identity join, downstream consumer, intervening-write exclusion, final pose, campaign completion or Rust parity is established.
