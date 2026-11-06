@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Handoff provenance fixture remains offline (2026-11-06 MM–MN)
+
+Twenty-four authored examples cover twelve raw cycle patterns, partial frontiers, null allocation, unavailable/symmetrically changed reads and coherent endpoint changes. Fifty-four primary and twelve independent malformed controls reject. Independent review confirms six exact static phase sites and all 24 paired-read records. Four additional coherent changes remain diagnostics; opaque masks and coherent fictional TID renaming remain admissible authored examples. No actual RPM/debugger/OS-event/code proof is supplied, so no contiguous native handoff or pose-word consumption follows.
+
+The final inventory matches twenty selected frozen roots without rerunning producers or admitting rejected results. Original lexical evidence paths, checker corrections and prior ownership deferrals retain their scope. Native getter history, conditional FP replay, static context forwarding and offline provenance examples remain distinct evidence categories.
+
 ## Conditional replay agrees with sampled native FP state (2026-11-06 MJ)
 
 Under the independently extracted native getter-entry state, the exact retail getter/count/dispatch windows in an authored carrier reproduce the eleven finite normal source words. The meaningful 235-byte post-state matches both retained native post-store and caller-resume states. Relative to the seed, only retained empty ST7 payload bytes at offsets 149–153 change. The zero-count control preserves all meaningful bytes and untouched outputs. Raw FX512 images remain retained, with reserved bytes excluded under the established explicit ranges. This does not make the fixture a replay of the full retail caller or identify the actor.

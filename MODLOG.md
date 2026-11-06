@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: review offline handoff contract and close frozen inventory
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents.
+- Changed: offline six-phase same-activation handoff contract, independent schema/geometry review and final selected-root inventory.
+- Why: define the missing provenance/API/failure boundaries before implementing another hardware observer.
+- Tested how: 24 authored cases/54 primary rejections; twelve extra independent rejections/four retained coherent diagnostics; twenty-root inventory of 416 local files/792 external bindings.
+- Result: offline phase/read geometry admitted; changed endpoints, raw IEEE words, partial/null/unavailable outcomes stay explicit. All recorded hashes match. Research docs remain isolated from concurrent implementation work.
+- Still broken or not tested: actual handoff RPM/debugger/code/OS-event/context-write integration; native contiguous consumer history, intervening-write exclusion, actor/rendered pose/campaign/Rust parity. Frozen checker caveats remain documented.
+- Next: actual bounded reader/observer authored fixtures and independent raw-context review, then a new fresh-guarded native attempt. No Rust action.
+
 ## 2026-11-06: reproduce native getter inputs and bound next context handoff
 
 - Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents.

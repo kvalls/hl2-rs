@@ -1,5 +1,11 @@
 # STATUS
 
+## Offline handoff contract and integrity closeout (2026-11-06 MM–MO)
+
+The six-phase authored handoff protocol passes 24 cases and rejects 54 malformed records. Independent review checks all six phase sites and 24 read records, rejects twelve extra malformed cases and retains four coherent endpoint/argument/publication changes as diagnostics. Masks and cycle words remain raw; successful reads retain nonzero LastError separately from BOOL/count/data. Partial frontiers, null allocation and unavailable/changed reads remain explicit. A coherent renamed fictional thread is a new authored example, not native identity. This protocol has no actual RPM, debugger, OS-event/module proof or context-write integration; no new native handoff or consumer is admitted.
+
+Final selected-root inventory authenticates twenty frozen roots, 416 local entries, 792 external binding occurrences and 692 unique files totaling 84,472,952 bytes. It preserves rejected/corrected-checker boundaries and executes no target/producer/capture verifier. Two successful native captures belong to this continuation; no Rust changes/builds/tests. Next integrate the bounded handoff reader and observer into separate authored fixtures, independently review full raw contexts and relocation/code/lifetime/cap cleanup, then consider one new fresh-guarded retail capture. Do not run the offline contract as a native observer.
+
 ## Native-input replay and next handoff boundary (2026-11-06 MJ–MK)
 
 One separate x86 fixture exits 0 with two conditional calls. The 11-count call reproduces all eleven native sampled words and all 235 meaningful FP bytes of both native post-store and caller-resume snapshots. The zero-count call leaves 25 output words and all 235 meaningful FP bytes unchanged. Both calls preserve eight XMM registers and immediately restore original FP state. All eight raw 512-byte images remain retained; reserved bytes are excluded from semantic equality. Thirty-two corruption controls reject. MJ seals 18 files/15 bindings. This is conditional fixture evidence, not a second native handoff observation.

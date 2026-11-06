@@ -1,5 +1,11 @@
 # Design
 
+## Offline handoff contract limits (2026-11-06 MM–MN)
+
+Six authored stopped-record phases bind one opaque activation token, exact EIP/EBP/ESP/register geometry and derived paired-read addresses. Complete endpoint records retain changed source snapshots, pose values, constructor arguments, context fields and publication pointers as diagnostics; they never reconstruct a missing witness. Null allocation, partial frontiers and unavailable reads remain separate outcomes. The contract performs no arithmetic or normalization on cycle/pose words and does not infer 24 meaningful getter outputs from a 96-byte span.
+
+This is a schema/provenance fixture only. Before native use, implement an actual bounded reader with Win32 BOOL/count/error retention and integrate phases into the admitted selected hardware observer. Authenticate relocation-aware code, active OS exceptions, owned PID/TID/lifetime/generation and full non-debug context preservation at every debugger write. Preserve application changes to XMM0/FP across MOVSS/diagnostic paths, selected-only cap/cleanup and no new ownership after selection. Independently replay authored captures before any fresh retail guard. Coherent metadata in fictional records is not an OS identity proof.
+
 ## Next bounded same-activation handoff protocol (2026-11-06 MK)
 
 Keep the selected PID/TID/lifetime/module-generation/object/frame/model-wrapper token through getter return, cycle load/store and context publication. The exact caller loads object+7c0h at RVA a9be9, stores XMM0's low word at frame-4 at a9bf1, calls the context constructor at a9c47 and resumes at a9c4c. The constructor receives the model wrapper, mask, frame-74h pose pointer and literal zero callback; ECX addresses the context-handle slot at frame+8. Its success publishes a 16-byte allocation; failure publishes null. The initializer wrapper is called later at a9c56. Pointer forwarding is distinct from pose-word consumption.

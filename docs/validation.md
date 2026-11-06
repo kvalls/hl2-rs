@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Offline protocol and final frozen inventory checks (2026-11-06 MM–MO)
+
+MM: 24 authored cases, 54 malformed-record rejections. MN: independent six-phase/24-read geometry, twelve extra rejections, four retained changed-endpoint diagnostics and three additional positive authored examples; complete original suite replays read-only. Actual ReadProcessMemory, debug events, loaded code and hardware-context integration are not tested by this protocol. MM seals 4 files/5 bindings; MN 3/6.
+
+MO authenticates twenty selected frozen roots: 416 local entries, 792 external binding occurrences, 692 unique files and 84,472,952 bytes. All inventories, sizes and hashes match. It checks both native captures' debugger/child exit and closure fields without executing producers or capture verifiers. MC's aggregate correction, ME/MD comparison-only JSON adapters, MI's rejected armed-exit assumption and prior no-spawn deferrals remain explicit. Documentation-only publication uses an isolated index, exact five-document allowlist, whitespace/whitelist checks and remote-ref verification; no gameplay rebuild is required. No Rust parity or ordinary campaign completion is claimed.
+
 ## Conditional getter replay and handoff contract checks (2026-11-06 MJ–MK)
 
 Windows x86 fixture: one process exits 0 in 0.078 seconds; two calls, 50 output words, eight raw FP images. Eleven expected native words reproduce; zero count preserves all 25 sentinel words. Both seeds and immediate original-state restorations match 235 meaningful bytes, all eight XMM registers remain unchanged, and the positive post-state matches both extracted native post-store and caller-resume states. Thirty-two corruptions reject. Sealed carrier/input dependencies and source/executable pins agree before/after. No retail target rerun. The first strict build rejects implicit alignment padding; its source/log remain retained and explicit padding passes the strict build before execution.
