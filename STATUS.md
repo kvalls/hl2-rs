@@ -1,5 +1,11 @@
 # STATUS
 
+## Passive object-word observer admitted on authored fixtures (2026-11-06 KP–KR)
+
+KP's unchanged standalone reader passes 73 cases/281 actual memory-read calls: 16 success, four range refusals, 50 transport refusals and three changed rereads. Actual protected/unmapped pages, reverse mutations, API-result controls and 41 transcript corruptions are retained separately. KQ normal caps 1/12/36 all exit 0 with 49 stable stops/294 object reads; its separate 36-stop control build retains 27 stable/six actual NULL-handle API refusals/three local buffer changes across 198 reads. All 85 enclosing lifecycle/module/FP checks pass. The 24-word outcome binds the same 20 stopped fields and independently read nested prefixes; 42 controls and three coherent diagnostics pass. KR independently replays all 85 stops and adds ten corruptions/two raw-word diagnostics.
+
+Normal build has injection disabled. Control payload changes are local returned-buffer perturbations, not remote mutations or retail races; invalid-handle API failures are not remote-page faults. Range refusal is standalone-only. Actual imported and explicitly executed verifier sources/code inputs are directly bound. A new retail root is prepared for source review and fresh ownership guards; no new retail capture is admitted at this checkpoint. No loaded RTTI, current retail index/handle, named actor/entity lifetime, earlier getter history, final pose, campaign completion or Rust parity follows.
+
 ## Loaded pose metadata correspondence and relocation audit (2026-11-06 KI–KN)
 
 The completed KH native capture is independently replayed without another game launch: 32 initializer-RET stops, 128 header outcomes and 1,920 selected-header reads. Direct-root group 0 and existing-cache group 1 succeed in every sample; groups 2/3 retain explicit null-slot outcomes. KI compares all available metadata with four pinned owned candidates: 64 unique selected-field correspondences, 320 local descriptor observations and 288 canonical associations. Two of 11 canonical indices remain unavailable per sample. Root owned-v44/loaded-v48 correspondence is explicit; group 1 matches v48. No conversion operation or full loaded-file identity is observed.

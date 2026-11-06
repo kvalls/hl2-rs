@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Stopped object-word fixture checks (2026-11-06)
+
+Standalone KP: one authored x86 host exits0; 73 cases/281 actual RPM calls, 16 successes/four range/50 transport/three changed outcomes. Six protected-page and two unmapped faults, three reverse mutations, 42 forced API-refusal controls, six noncanonical TRUE successes and 41 corruptions pass. Strict standalone compile passes.
+
+KQ normal debug/host pairs50088/46772,52564/60948,61592/51792 exit0 at caps1/12/36, with49 stable stops/294 object reads. Separate fixture-control pair31580/53108 exits0 at cap36, with27 stable/six actual NULL-handle API refusals/three postcallback local changes across198 reads. All85 enclosing code/path/generation/lifecycle/output/nested/count/VM/header/caller-FP checks pass. Forty-two object controls cover24 identity/outcome words, ten transport-header words, phase relocation/omission, extra/truncated data and forbidden control mode; three coherent raw diagnostics are retained. KR independently replays85 stops/492 reads with ten more corruptions and two coherent diagnostics. Source closure explicitly includes dynamically loaded and executed prefixes/code inputs. KP18/KQ403/KR7 local seal entries and respective2/65/70 binding occurrences pass.
+
+Range refusals are standalone-only. Actual remote-page failures belong to KP; KQ's API controls intentionally substitute NULL at the Win32 call. Buffer-change controls affect only returned local bytes after successful RPM. No retail object word or Rust test/build is admitted by these authored fixtures; other platforms not tested.
+
 ## Passive metadata replay and comparison checks (2026-11-06)
 
 Windows Python research checks pass for the new KK/KM/KN reviews, completed KI comparison and KL static contract. No Rust test, build, packaged rewrite replay or new native game capture was performed. Other platforms are not tested.

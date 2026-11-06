@@ -1,5 +1,9 @@
 # Sources and native research
 
+## Passive raw object words: authored admission (2026-11-06)
+
+The admitted reader performs six symmetric reads around the three selected fields and calls no target function. Authored integrated observations preserve negative/sentinel raw index and handle values without inventing semantic validity or handle-bit decoding. A separate control build demonstrates actual invalid-HANDLE API refusal and local reverse-buffer disagreement while the enclosing nested/model snapshots remain valid. Those controls establish observer branches; they are not retail source-memory failures or races. The normal build and a future native root retain a separate admission boundary.
+
 ## Current loaded pose metadata and object-field boundary (2026-11-06)
 
 The earlier KH capture, now independently compared offline, retains 32 current initializer-return snapshots. Group 0 directly reads the root gman_high.mdl header and its move_yaw descriptor. Group 1 passively reads an existing Humans\male_shared.mdl cached header with nine local descriptors: move_yaw, aim_yaw, aim_pitch, body_yaw, spine_yaw, neck_trans, head_yaw, head_pitch and head_roll. The current canonical map uses root local 0 and group-1 locals 1–8. Group-1 local 0 is an alias candidate under the observed map; this is not an earlier getter-use observation. Null group-2/3 slots are unavailable, including the two canonical group-3 entries.

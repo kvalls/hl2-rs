@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-06: passive object-word reader and stopped observer fixtures
+
+**Agent/model:** Codex Desktop, GPT-6 family; exact model identifier unavailable. Material delegates: KP reader fixture, independent object-journal join author, KR source/raw replay review; same inherited model-family limit.
+
+**Changed / Why:** Added a separately validated passive reader and authored stopped-debugger integration for prefix12, index4 and raw handle4. Reader outcomes join the active stopped identity and both independent nested prefix rereads. Validated object events are removed only after their full raw phase check so the frozen VM verifier remains unchanged.
+
+**Tested how / Result:** Windows authored x86 hosts/x64 debugger. KP: 73 cases/281 actual reads, six protected-page and two unmapped failures, three reverse mutations, 42 API-refusal controls, six noncanonical TRUE successes and 41 transcript corruptions. KQ normal cap1/12/36 runs all exit0: 49 stable stops/294 reads. Separate control36 exits0: 198 reads/27 stable/six NULL-handle API failures/three local buffer changes. All85 enclosing lifecycle, module, output, nested/count/VM/header and caller-FP checks pass. Forty-two object corruptions reject; three coherent raw diagnostics remain accepted. KR independently recomputes85 stops/492 reads and adds ten corruptions/two diagnostics. KP/KQ/KR seals pass.
+
+**Failures / Still broken or not tested:** A postcapture verifier refactor first rejected an undefined local variable; original source is retained, corrected and replayed without another producer. Build warnings are inherited initializer parameters/text-section attributes and Worker alignment. Journal actual-count carrier is bounded to32 bits. Range refusal remains standalone-only. NULL-handle controls are actual API failures, not inaccessible target pages; perturbed buffers are observer-local postcallback data. Retail field values, loaded RTTI, entity-list/serial/lifetime, named actor, final pose and Rust parity remain unobserved. No Rust action or new retail run in this checkpoint; other platforms not tested.
+
+**Next:** Review the separately prepared injection-disabled retail producer's actual source origins, then use one fresh ownership/cursor guard and capped capture if the game is free.
+
 ## 2026-11-06: loaded pose metadata comparison and relocation-aware evidence review
 
 **Agent/model:** Codex Desktop, GPT-6 family; exact model identifier unavailable. Material delegated reviews: KK relocation/replay and KN independent comparison/source review; KL static object-field contract. Delegates inherit the same recorded model-family limit. Concurrent contributor implementation is separate.

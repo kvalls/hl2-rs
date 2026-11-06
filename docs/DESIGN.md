@@ -1,5 +1,11 @@
 # Design
 
+## Object-sidecar fixture disposition (2026-11-06 KP–KR)
+
+The standalone reader and stopped integration are admitted separately. KQ's normal and fixture-control builds share the unchanged reader; controls are compile-time only and absent from the normal build. Read outcomes retain raw BOOL/count/error, bounded payload length and complete stopped identity. A changed or refused snapshot never exposes complete target words. The initial transported prefix must match both nested prefix witnesses; stable reverse prefix must match too.
+
+OI phase admission runs on the original complete event stream before filtering exactly the three validated labels for the inherited VM parser. Missing, moved or foreign object events reject. Future native source admission records actual registered module origins plus unregistered importlib and executed source prefixes, not sys.modules alone. Stable index/handle words remain raw observations until an entity-list/lifetime contract is separately proved.
+
 ## Loaded metadata admission disposition (2026-11-06)
 
 The active-phase and root-prefix omissions in the frozen original KC verifier remain documented. KF's independent supplement and KG's foreign-process refusal integration admit those joins; KK separately replays their original callables after authenticating the one recorded junction and exact lexical module witnesses. A path-resolution failure does not justify generic path normalization or regenerated historical seals.
