@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06 evening: passive object research continuation plan
+
+- Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent admission and entity-list contract reviewers are materially involved.
+- Changed: bounded research plan following the frozen KS ownership deferral.
+- Why: obtain current stopped raw object words and derive the separate entity-list binding required for any identity claim.
+- Tested how: latest handoff and research documentation reviewed; live REA6.8.0/229tools/skill49 aligned; no active target or pending cleanup. Concurrent implementation checkout and index preserved.
+- Result: research plan recorded before fresh capture preparation.
+- Still broken or not tested: native object words and current entity-list binding remain unobserved; no Rust edit/build/test, campaign completion or parity claim.
+- Next: independent source admission, immediate fresh ownership guard, one cap32 passive capture if clear, then independent raw verification.
+
 ## 2026-11-06: native pre-spawn deferral and exact retail handle consumer
 
 **Agent/model:** Codex Desktop, GPT-6 family; exact identifier unavailable. Material delegates: KT prelaunch/KU deferral review, KW static consumer contract, independent consumer-byte check; same inherited model-family limit.

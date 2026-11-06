@@ -1,5 +1,13 @@
 # Design
 
+## Passive object continuation plan (2026-11-06 evening)
+
+Resume the frozen KS deferral using a separate capture root. Reuse the admitted normal KQ observer and unchanged KP reader; reproduce the reviewed source transforms and authenticate actual registered, unregistered and executed private-source edges before launch. An independent reviewer checks that admission separately. A fresh process/cursor guard immediately precedes any owned retail launch; defer if another game owns the desktop.
+
+At the exact client initializer return, cap observations at32. Join raw object prefix, signed index word and raw handle rereads to the same stopped thread/lifetime/module generation and independent nested prefix. Preserve transport refusal and changed outcomes. Independently replay raw records, active event phases, selected default comparisons, source pins, module/code proofs, settings and cleanup before admitting any retail result.
+
+Separately derive the exact current entity-list/interface pointer route from retail bytes. Fixture-admit bounded symmetric pointer/serial row reads before native integration. Use the retail maskfff/shift12 rather than cached SDK constants. Raw object index and masked handle entry are independent observations. Never call target lookup/cache helpers. Current raw words do not establish named actor identity, entity lifetime, earlier getter history, cache lifetime, composed/rendered pose, campaign completion or Rust parity. No Rust work is included.
+
 ## Handle-consumer continuation disposition (2026-11-06 KS–KW)
 
 The separately reviewed normal-build retail producer is deferred before spawn. At 13:49:30 UTC its fresh guard found a preexisting hl2-bevy process and refused before settings snapshots, launch pins, command construction or debugger/game spawn. Cursor was unconfined. All 180 prelaunch source bindings remain unchanged; independent KU control-flow and absent-artifact checks confirm zero actual native attempts and no retail object-word observation. The existing game and cursor received no control. This root is frozen; another capture requires a new root and fresh guard.
