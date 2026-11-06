@@ -2,9 +2,11 @@
 //! think and carries the body every tick, the part a physics motor does in the SDK. Bodies go
 //! through NPCs and the player here, as birds do: a scanner bumping into them is not modeled.
 
+use super::super::conditions::{clear_range_complaints, Conditions, COND_SEE_ENEMY};
 use super::super::host::PhysicsSight;
 use super::super::host::{clamp_yaw, yaw_of};
 use super::super::metropolice::{CopRequest, PLAYER};
+use super::super::scanner::flash::{self, EyeFlare};
 use super::super::scanner::{self, Mode, Scanner, COND_FLY_BLOCKED, COND_FLY_CLEAR};
 use super::super::senses::SightWorld;
 use super::super::state::NpcState;
@@ -14,12 +16,15 @@ use super::{overlaps, AiActor, AiClass, AiRuntime, PlayerHit, PlayerState, THINK
 use crate::entities::Scene;
 use crate::gibs::PropBreak;
 use crate::physics::{angles, Physics};
+use crate::player_damage::ScreenFade;
 use crate::projectiles::Attacker;
 use crate::sounds::{entity_emitter, PatchOp, SoundRequest};
 use crate::view_control::angles_toward;
 use glam::Vec3;
 use modkit_core::World;
 
+/// SF_CSCANNER_STRIDER_SCOUT.
+const STRIDER_SCOUT: u32 = 1 << 17;
 /// sk_scanner_dmg_dive where skill.cfg leaves it out.
 const DIVE_DAMAGE: f32 = 25.;
 /// Stopped this close to what it flies at, the way still counts as clear.
@@ -100,7 +105,7 @@ fn can_photograph(s: &Scanner, air: &Air, scene: &Scene) -> bool {
 }
 
 /// One think of flight: where it wants to be, the thrust that takes it there, and its sounds.
-fn steer(s: &mut Scanner, air: &Air, scene: &mut Scene, combat: bool) {
+fn steer(s: &mut Scanner, air: &Air, scene: &mut Scene, state: NpcState) {
     let origin = scene.states[air.id].origin;
     let interval = THINK_INTERVAL as f32;
     let after = s.inspect_at.or(s.enemy_at);
@@ -125,8 +130,12 @@ fn steer(s: &mut Scanner, air: &Air, scene: &mut Scene, combat: bool) {
     let right = scene.states[air.id].rotation * Vec3::NEG_Y;
     let speed = s.hover.velocity.length();
     s.lean = wanted.map_or(0., |point| scanner::lean(right, point - origin, speed));
+    let body = scene.states[air.id].rotation * Vec3::X;
+    let eyes = origin + Vec3::Z * scanner::EYE_HEIGHT;
+    let alert = matches!(state, NpcState::Alert | NpcState::Combat);
+    s.think_pose(body, eyes, alert, scene.time);
     s.engine_sound();
-    if let Some(cue) = s.idle_cue(combat) {
+    if let Some(cue) = s.idle_cue(state == NpcState::Combat) {
         s.requests.push(CopRequest::Sound(cue));
     }
 }
@@ -178,6 +187,7 @@ fn gib(s: &mut Scanner, air: &Air, scene: &mut Scene) {
     }
     scene.states[id].killed = true;
     scene.states[id].visible = false;
+    scene.scanner_poses.remove(&id);
 }
 
 /// Whether its body touches the player's.
@@ -191,6 +201,26 @@ fn strikes_player(air: &Air, origin: Vec3, player: PlayerState) -> bool {
             actor.feet + actor.hull.maxs,
         )
     })
+}
+
+/// A flash that reached the player, who looks at it with nothing in between: what it leaves on
+/// their view. Only what stops light stops it, so NPCs in the way do not.
+fn flash_on_player(
+    s: &mut Scanner,
+    air: &Air,
+    scene: &Scene,
+    player: PlayerState,
+) -> Option<ScreenFade> {
+    s.blinds.take().filter(|&subject| subject == PLAYER)?;
+    let origin = scene.states[air.id].origin;
+    let fade = flash::blinding(origin, player.eye(), player.facing)?;
+    let sight = PhysicsSight {
+        physics: air.physics,
+        world: air.world,
+    };
+    sight
+        .visible(origin, player.eye(), &[air.id])
+        .then_some(fade)
 }
 
 /// A dead scanner's tick: its dive, ended by the first thing it meets, or its end at once. True
@@ -215,6 +245,7 @@ fn die(s: &mut Scanner, air: &Air, scene: &mut Scene, player: PlayerState) -> bo
         s.hover
             .add_noise(s.bob, scanner::NOISE * scanner::DIVE_NOISE, now as f32);
         s.hover.limit(scanner::DIVE_SPEED);
+        s.dive_pose(now);
     }
     let dt = (now - s.last_step).clamp(0., 0.1) as f32;
     let hit = air.trace(origin, origin + s.hover.velocity * dt);
@@ -224,6 +255,9 @@ fn die(s: &mut Scanner, air: &Air, scene: &mut Scene, player: PlayerState) -> bo
         return struck;
     }
     let dt = air.step(&mut s.hover.velocity, &mut s.last_step, scene);
+    scene
+        .scanner_poses
+        .insert(id, s.pose_now(now, THINK_INTERVAL));
     s.roll += dive.spin * dt;
     scene.states[id].rotation = angles(Vec3::new(0., yaw_of(scene, id), s.roll));
     false
@@ -244,8 +278,9 @@ impl AiRuntime {
         let now = scene.time;
         let held = &self.held_npcs;
         let mut strikes = Vec::new();
+        let mut flashes = Vec::new();
         for (&id, actor) in self.actors.iter_mut() {
-            let combat = actor.npc.state == NpcState::Combat;
+            let state = actor.npc.state;
             let AiClass::Scanner(s) = &mut actor.class else {
                 continue;
             };
@@ -264,6 +299,7 @@ impl AiRuntime {
                 id,
             };
             if scene.states[id].corpse {
+                s.eye = None;
                 if die(s, &air, scene, player) {
                     strikes.push(id);
                 }
@@ -272,20 +308,65 @@ impl AiRuntime {
             start_path(s, world, id);
             if now >= s.next_steer {
                 s.next_steer = now + THINK_INTERVAL;
-                steer(s, &air, scene, combat);
+                steer(s, &air, scene, state);
+            }
+            if let Some(fade) = flash_on_player(s, &air, scene, player) {
+                s.blinded += 1;
+                flashes.push((id, fade));
             }
             let dt = air.step(&mut s.hover.velocity, &mut s.last_step, scene);
             turn(s, scene, id, dt);
+            scene
+                .scanner_poses
+                .insert(id, s.pose_now(now, THINK_INTERVAL));
         }
         let damage = scene.skill.get("sk_scanner_dmg_dive", DIVE_DAMAGE);
-        self.player_hits
-            .extend(strikes.into_iter().map(|attacker| PlayerHit {
-                attacker,
-                damage,
-                punch: Vec3::ZERO,
-                impulse: Vec3::ZERO,
-                fade: None,
-            }));
+        let hit = |attacker, damage, fade| PlayerHit {
+            attacker,
+            damage,
+            punch: Vec3::ZERO,
+            impulse: Vec3::ZERO,
+            fade,
+        };
+        let struck = strikes.into_iter().map(|id| hit(id, damage, None));
+        self.player_hits.extend(struck);
+        let blinded = flashes
+            .into_iter()
+            .map(|(id, fade)| hit(id, 0., Some(fade)));
+        self.player_hits.extend(blinded);
+    }
+    /// The lights of the flashes since the last call.
+    pub fn take_scanner_lights(&mut self) -> Vec<Vec3> {
+        let lights = self
+            .actors
+            .values_mut()
+            .filter_map(|actor| match &mut actor.class {
+                AiClass::Scanner(s) => s.light_at.take(),
+                _ => None,
+            });
+        lights.collect()
+    }
+    /// The scanners with a lit eye, placed for this frame.
+    pub fn scanner_eyes<'a>(
+        &'a self,
+        world: &'a World,
+        scene: &'a Scene,
+    ) -> impl Iterator<Item = EyeFlare> + 'a {
+        self.actors.iter().filter_map(|(&id, actor)| {
+            let AiClass::Scanner(s) = &actor.class else {
+                return None;
+            };
+            let eye = s.eye?;
+            let frame = scene.attachment_frames(world, id, &[flash::EYE_ATTACHMENT]);
+            let at = frame.first().copied().flatten()?.w_axis.truncate();
+            let forward = scene.states[id].rotation * Vec3::X;
+            Some(EyeFlare {
+                entity: id,
+                at,
+                forward,
+                eye,
+            })
+        })
     }
 }
 
@@ -308,6 +389,31 @@ fn marked_side(world: &World, scene: &Scene, subject: usize) -> Option<Vec3> {
     let class = world.entities.get(subject)?.class();
     matches!(class, "info_target" | "info_hint_air")
         .then(|| scene.states[subject].rotation * Vec3::X)
+}
+
+/// The attack conditions of a scanner that sees its enemy within range of being looked at.
+fn attack_conditions(
+    conditions: &mut Conditions,
+    scene: &Scene,
+    (id, enemy_at): (usize, Vec3),
+    next_attack: f64,
+) {
+    let state = &scene.states[id];
+    let to_enemy = enemy_at - state.origin;
+    let checked =
+        conditions.has(COND_SEE_ENEMY) && to_enemy.length() < flash::ATTACKS_CHECKED_WITHIN;
+    if checked && scene.time >= next_attack {
+        conditions.set(flash::attack_condition(to_enemy, state.rotation * Vec3::X));
+        clear_range_complaints(conditions);
+    }
+}
+
+/// Where its enemy stands.
+fn enemy_feet(scene: &Scene, player: &PlayerState, enemy: usize) -> Option<Vec3> {
+    if enemy == PLAYER {
+        return Some(player.feet);
+    }
+    Some(scene.states.get(enemy)?.origin)
 }
 
 /// A scanner's part of GatherConditions: its enemy, its health, what it inspects and the way.
@@ -334,6 +440,9 @@ fn gather(actor: &mut AiActor, world: &World, scene: &Scene, player: &PlayerStat
         None => {}
     }
     s.sense_inspection(conditions, enemy.is_some(), scene.time);
+    if let Some(at) = enemy.and_then(|e| enemy_feet(scene, player, e)) {
+        attack_conditions(conditions, scene, (id, at), s.next_attack);
+    }
 }
 
 /// What the classes in the air add to GatherConditions.
@@ -411,5 +520,9 @@ impl AiRuntime {
 pub(super) fn class_for(e: &modkit_core::Entity, gagged: bool, id: usize) -> AiClass {
     let mut scanner = Scanner::new(gagged, 0xbb67_ae85_84ca_a73b ^ id as u64);
     scanner.ignores_enemies = e.get("ShouldInspect").map(str::trim) == Some("0");
+    let flags = e
+        .get("spawnflags")
+        .and_then(|f| f.trim().parse::<u32>().ok());
+    scanner.strider_scout = flags.unwrap_or(0) & STRIDER_SCOUT != 0;
     AiClass::Scanner(Box::new(scanner))
 }

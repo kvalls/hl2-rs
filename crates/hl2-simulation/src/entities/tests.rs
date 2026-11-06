@@ -794,6 +794,39 @@ fn combine_cameras_deploy_retract_and_redeploy() {
     );
 }
 #[test]
+fn a_scanners_pose_reaches_its_parameters_and_the_pose_signature() {
+    use crate::ai::scanner::pose::Pose;
+    use modkit_core::animation::{PoseParameter, Rig};
+    let w = World {
+        entities: vec![entity("npc_cscanner", "s", &[])],
+        ..Default::default()
+    };
+    let rig = Rig {
+        pose_parameters: vec![PoseParameter {
+            name: "flex_horz".into(),
+            start: -20.,
+            end: 20.,
+            looping: 0.,
+        }],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    let rest = scene.pose_signature(0);
+    assert_eq!(scene.actor_pose_values(&rig, 0), [0.5]);
+    let turned = |face_yaw| Pose {
+        face_yaw,
+        ..Default::default()
+    };
+    scene.scanner_poses.insert(0, turned(10.));
+    assert_eq!(scene.actor_pose_values(&rig, 0), [0.75]);
+    let first = scene.pose_signature(0);
+    assert_ne!(first, rest);
+    // A cached pose would freeze the face: every change has to show in the key.
+    scene.scanner_poses.insert(0, turned(11.));
+    assert_ne!(scene.pose_signature(0), first);
+}
+
+#[test]
 fn head_and_body_flexes_offset_actor_pose_parameters() {
     use modkit_core::animation::{PoseParameter, Rig};
     let w = World {

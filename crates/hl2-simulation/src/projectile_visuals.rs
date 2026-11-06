@@ -1,5 +1,6 @@
 //! Shared projectile sprite geometry and owned-material explosion emitters.
 //! Native ambient lighting, pixel visibility and beam tessellation remain partial.
+use crate::ai::scanner::flash::{EyeFlare, EYE_SPRITE};
 use crate::{
     explosion_particles::Particles,
     physics::Physics,
@@ -50,6 +51,8 @@ pub struct Quad {
     pub uv: [[f32; 2]; 4],
 }
 pub struct ProjectileVisuals {
+    /// Scanners' lit eyes this frame, from the host.
+    pub eye_flares: Vec<EyeFlare>,
     pub sprites: HashMap<String, Sprite>,
     pub quads: Vec<Quad>,
     previous: HashMap<u64, glam::Vec3>,
@@ -214,6 +217,7 @@ impl ProjectileVisuals {
         Self {
             sprites: HashMap::new(),
             quads: Vec::new(),
+            eye_flares: Vec::new(),
             previous: HashMap::new(),
             rng: 0x953732fb,
             errors: BTreeMap::new(),
@@ -509,6 +513,40 @@ impl ProjectileVisuals {
         });
     }
 
+    /// NPC muzzle flashes and every tracer are world draws.
+    fn shot_quads(&mut self, axes: (Vec3, Vec3), eye: Vec3, time: f64) {
+        self.muzzle.retain(time);
+        let mut shots = self.muzzle.particle_quads(false, time, axes.0, axes.1, 1.);
+        shots.extend(self.muzzle.tracer_quads(time, eye));
+        shots.retain(|q| self.sprites.contains_key(&q.material));
+        self.quads.extend(shots);
+    }
+
+    /// Scanners' lit eyes: kRenderGlow sprites, drawn without a depth test once a line from the
+    /// view shows them. The SDK asks the renderer how much of the sprite shows; here it is all or
+    /// nothing, and a body seen from behind hides its eye.
+    fn eye_quads(&mut self, axes: (Vec3, Vec3), view: Vec3, physics: &Physics) {
+        let flares = std::mem::take(&mut self.eye_flares);
+        let width = self.sprites.get(EYE_SPRITE).map(|s| s.image.width as f32);
+        for flare in flares.iter().filter(|f| f.forward.dot(view - f.at) > 0.) {
+            if physics
+                .projectile_ray(view, flare.at, &[flare.entity])
+                .is_some()
+            {
+                continue;
+            }
+            let before = self.quads.len();
+            let size = width.unwrap_or(0.) * 0.5 * flare.eye.scale;
+            self.quad(EYE_SPRITE, flare.at, axes, size, 0., 1.);
+            if let Some(quad) = self.quads.get_mut(before) {
+                quad.material.push_str(GLOW_SUFFIX);
+                let [r, g, b] = flare.eye.color;
+                quad.color = [r, g, b, 255];
+            }
+        }
+        self.eye_flares = flares;
+    }
+
     /// C_RocketTrail::Update for ignited missiles: puffs every StartSize/2 units moved
     /// (at most 50 per frame), life 0.5 + [0.45, 0.55], size 8 -> 32 (x 0.75..1.25 and
     /// 1..1.25), alpha 0.2 (x 0.75..1.25) -> 0, gray 0.65 (x 0.75..1.25), drifting 2..16
@@ -644,12 +682,8 @@ impl ProjectileVisuals {
     ) {
         self.quads.clear();
         let axes = basis(direction);
-        // NPC muzzle flashes and every tracer are world draws.
-        self.muzzle.retain(time);
-        let mut shots = self.muzzle.particle_quads(false, time, axes.0, axes.1, 1.);
-        shots.extend(self.muzzle.tracer_quads(time, eye));
-        shots.retain(|q| self.sprites.contains_key(&q.material));
-        self.quads.extend(shots);
+        self.shot_quads(axes, eye, time);
+        self.eye_quads(axes, eye, physics);
         self.previous
             .retain(|id, _| projectiles.active.iter().any(|p| p.id == *id));
         for ball in projectiles

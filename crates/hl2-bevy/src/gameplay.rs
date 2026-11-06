@@ -3,6 +3,7 @@ mod ai_results;
 mod empty;
 mod npc_death;
 mod player_outcome;
+mod shot_effect;
 mod zombies;
 use anyhow::Result;
 use bevy::prelude::Resource;
@@ -21,22 +22,10 @@ use modkit_core::{
     movement::{Player, TICK},
 };
 use serde::Deserialize;
+pub use shot_effect::ShotEffect;
 use source_assets::vpk::Vfs;
 use std::{collections::BTreeMap, sync::Arc};
 
-/// A muzzle flash or tracer for the effects system (muzzle_effects.rs).
-#[derive(Clone, Debug)]
-pub enum ShotEffect {
-    NpcFlash(hl2_simulation::muzzle_effects::MuzzleKind, glam::Mat4),
-    /// A muzzle elight (operator id, origin, MuzzleFlash_Combine_NPC blue).
-    MuzzleLight(usize, glam::Vec3, bool),
-    /// Start, end, AR2Tracer.
-    NpcTracer(Vec3, Vec3, bool),
-    /// Start (ComputeTracerStartPosition), end, the view's right axis, AR2Tracer.
-    PlayerTracer(Vec3, Vec3, Vec3, bool),
-    /// AR2Impact origin and surface normal.
-    Ar2Impact(Vec3, Vec3),
-}
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {

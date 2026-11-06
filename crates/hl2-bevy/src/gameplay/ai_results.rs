@@ -39,6 +39,10 @@ impl Gameplay {
     }
     pub(super) fn apply_ai_results(&mut self, physics: &mut Physics) {
         self.move_tongue_props(physics);
+        for at in self.ai.take_scanner_lights() {
+            let light = hl2_simulation::ai::scanner::flash::light(at);
+            self.push_shot_effect(super::ShotEffect::Light(light));
+        }
         for hit in std::mem::take(&mut self.ai.player_hits) {
             if hit.damage > 0. {
                 self.scene

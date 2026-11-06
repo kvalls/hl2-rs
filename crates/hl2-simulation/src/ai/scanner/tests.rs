@@ -541,3 +541,175 @@ fn scanners_placed_apart_bob_differently() {
     assert_ne!(a.bob, b.bob);
     assert!((2. ..=4.).contains(&a.bob.z.abs()));
 }
+
+fn run(scanner: &mut Scanner, task: &str, ctx: &Context, motor: &mut FakeMotor) -> TaskStatus {
+    let mut body = npc(NpcState::Combat, &[]);
+    let argument = TaskArg::Number(0.);
+    scanner
+        .run_task(&mut body, task, &argument, ctx, motor)
+        .expect("a scanner task")
+}
+fn sounds(scanner: &mut Scanner, cue: &str) -> usize {
+    let requests = std::mem::take(&mut scanner.requests);
+    let same = |r: &&CopRequest| matches!(r, CopRequest::Sound(played) if *played == cue);
+    requests.iter().filter(same).count()
+}
+fn outputs(scanner: &Scanner) -> Vec<&'static str> {
+    let named = |r: &CopRequest| match r {
+        CopRequest::Output(name) => Some(*name),
+        _ => None,
+    };
+    scanner.requests.iter().filter_map(named).collect()
+}
+
+#[test]
+fn an_attack_comes_only_close_and_facing_across_the_ground() {
+    use crate::ai::conditions::{COND_NOT_FACING_ATTACK, COND_TOO_FAR_TO_ATTACK};
+    let attack = |to_enemy| flash::attack_condition(to_enemy, Vec3::X);
+    assert_eq!(attack(Vec3::X * 300.), COND_CAN_MELEE_ATTACK1);
+    // Height does not count: 500 straight down is still 100 across.
+    assert_eq!(attack(Vec3::new(100., 0., -500.)), COND_CAN_MELEE_ATTACK1);
+    assert_eq!(attack(Vec3::X * 351.), COND_TOO_FAR_TO_ATTACK);
+    assert_eq!(attack(Vec3::new(100., 200., 0.)), COND_NOT_FACING_ATTACK);
+}
+
+#[test]
+fn close_with_an_attack_due_it_tosses_a_coin_but_not_before_it_is_due() {
+    let s = Scanner::default();
+    let ready = npc(NpcState::Combat, &[COND_CAN_MELEE_ATTACK1]);
+    assert_eq!(s.plan(&ready, &hunting(100., 1.), 1., 0.9), Plan::Melee);
+    let waiting = Scanner {
+        next_attack: 5.,
+        ..Default::default()
+    };
+    let plan = waiting.plan(&ready, &hunting(100., 1.), 1., 0.9);
+    assert_eq!(plan, Plan::SpotlightHover);
+}
+
+#[test]
+fn the_coin_comes_up_flash_about_half_the_time() {
+    let mut s = Scanner::new(false, 7);
+    let mut body = npc(NpcState::Combat, &[COND_CAN_MELEE_ATTACK1]);
+    let ctx = hunting(100., 1.);
+    let picks: Vec<_> = (0..2000)
+        .map(|_| s.select_schedule(&mut body, &ctx))
+        .collect();
+    let flashes = picks.iter().filter(|p| p.as_str() == ATTACK).count();
+    assert!((800..1200).contains(&flashes), "{flashes} of 2000");
+    assert!(picks.iter().all(|p| p == ATTACK || p == CHASE));
+}
+
+#[test]
+fn the_warning_blinks_red_for_a_second_and_clicks_with_every_beat() {
+    let mut s = Scanner::new(false, 3);
+    let mut motor = FakeMotor::default();
+    let ctx = |now| Context {
+        now,
+        ..hunting(100., 0.)
+    };
+    let mut body = npc(NpcState::Combat, &[]);
+    let argument = TaskArg::Number(0.);
+    let task = "TASK_CSCANNER_ATTACK_PRE_FLASH";
+    let started = s.start_task(&mut body, task, &argument, &ctx(1.), &mut motor);
+    assert_eq!(started, Some(Running));
+    // Both beats of the first think: on and off again.
+    assert_eq!(s.eye, None);
+    assert_eq!(sounds(&mut s, TAKE_PHOTO), 2);
+    assert_eq!(run(&mut s, task, &ctx(1.1), &mut motor), Running);
+    assert_eq!(s.eye, Some(Eye::WARNING));
+    assert_eq!(run(&mut s, task, &ctx(1.2), &mut motor), Running);
+    assert_eq!(s.eye, None);
+    assert_eq!(run(&mut s, task, &ctx(2.), &mut motor), Complete);
+}
+
+#[test]
+fn the_flash_lights_the_enemy_then_blinds_and_sets_the_next_attack() {
+    let mut s = Scanner::new(false, 3);
+    let mut motor = FakeMotor::default();
+    let task = "TASK_CSCANNER_ATTACK_FLASH";
+    let at = |now| Context {
+        now,
+        enemy: Some((PLAYER, Vec3::X * 100.)),
+        enemy_lkp: Some(Vec3::X * 90.),
+        ..Default::default()
+    };
+    let mut body = npc(NpcState::Combat, &[]);
+    let argument = TaskArg::Number(0.);
+    let started = s.start_task(&mut body, task, &argument, &at(2.), &mut motor);
+    assert_eq!(started, Some(Running));
+    assert_eq!(s.eye, Some(Eye::ATTACK));
+    assert_eq!(s.light_at, Some(Vec3::X * 90.));
+    assert_eq!(outputs(&s), ["OnPhotographPlayer"]);
+    assert_eq!(sounds(&mut s, ATTACK_FLASH), 1);
+    assert_eq!(s.blinds, None);
+    assert_eq!(run(&mut s, task, &at(2.01), &mut motor), Running);
+    assert_eq!(s.blinds, None);
+    assert_eq!(run(&mut s, task, &at(2.1), &mut motor), Complete);
+    assert_eq!(s.blinds, Some(PLAYER));
+    assert_eq!(s.eye, None);
+    assert!((10.1..=14.1).contains(&s.next_attack), "{}", s.next_attack);
+}
+
+#[test]
+fn a_strider_scout_attacks_twice_as_often() {
+    let mut s = Scanner {
+        strider_scout: true,
+        ..Scanner::new(false, 3)
+    };
+    let mut motor = FakeMotor::default();
+    run(
+        &mut s,
+        "TASK_CSCANNER_ATTACK_FLASH",
+        &hunting(100., 0.),
+        &mut motor,
+    );
+    assert!((4.0..=6.0).contains(&s.next_attack), "{}", s.next_attack);
+}
+
+#[test]
+fn an_npc_flashed_fires_the_npc_output() {
+    let mut s = Scanner::new(false, 3);
+    let mut motor = FakeMotor::default();
+    let task = "TASK_CSCANNER_ATTACK_FLASH";
+    start(&mut s, task, 0., &mut motor);
+    assert_eq!(outputs(&s), ["OnPhotographNPC"]);
+    run(&mut s, task, &hunting(100., 2.), &mut motor);
+    assert_eq!(s.blinds, Some(0));
+}
+
+#[test]
+fn being_interrupted_leaves_no_eye_lit() {
+    let mut s = Scanner::new(false, 3);
+    s.eye = Some(Eye::WARNING);
+    let mut body = npc(NpcState::Idle, &[]);
+    s.select_schedule(&mut body, &Context::default());
+    assert_eq!(s.eye, None);
+}
+
+#[test]
+fn a_photograph_of_the_player_blinds_and_of_an_npc_does_not() {
+    let mut motor = FakeMotor::default();
+    for (subject, blinds) in [(PLAYER, Some(PLAYER)), (4, None)] {
+        let mut s = Scanner::new(false, 3);
+        s.inspect = Some(subject);
+        start(&mut s, "TASK_CSCANNER_PHOTOGRAPH", 0., &mut motor);
+        assert_eq!(s.blinds, blinds);
+        assert_eq!(s.eye, Some(Eye::PHOTO));
+    }
+}
+
+#[test]
+fn the_flash_is_as_white_as_the_player_looks_straight_at_it() {
+    let at = Vec3::X * 100.;
+    let alpha = |view: Vec3| flash::blinding(at, Vec3::ZERO, view.normalize()).map(|f| f.color[3]);
+    // 240 for a straight look, less a tenth for HDR.
+    assert_eq!(alpha(Vec3::X), Some(216));
+    let aside = alpha(Vec3::new(1., 1., 0.)).expect("45 degrees off is within the limit");
+    assert!((150..=155).contains(&aside), "{aside}");
+    // Past 60 degrees off nothing happens.
+    assert_eq!(alpha(Vec3::new(1., 2., 0.)), None);
+    assert_eq!(alpha(Vec3::NEG_X), None);
+    let fade = flash::blinding(at, Vec3::ZERO, Vec3::X).expect("a straight look");
+    assert_eq!((fade.duration, fade.hold), (3., 0.5));
+    assert_eq!(fade.flags, crate::player_damage::FFADE_IN);
+}

@@ -15,6 +15,8 @@ mod parenting;
 mod sequences;
 mod startup;
 mod triggers;
+mod turning;
+use turning::{angle_diff, clamp_yaw};
 
 /// Entity classes that move with VPhysics (MOVETYPE_VPHYSICS) for trigger touches.
 fn is_vphysics_class(class: &str) -> bool {
@@ -504,6 +506,8 @@ pub struct Scene {
     pub ragdoll_matrices: BTreeMap<usize, Vec<glam::Mat4>>,
     /// Barnacle ropes, written over the tongue bones in `actor_matrices`.
     pub tongues: BTreeMap<usize, crate::ai::barnacle::TonguePose>,
+    /// Scanners' faceplates, tails, dynamos and flaps, over the model's pose parameters.
+    pub scanner_poses: BTreeMap<usize, crate::ai::scanner::pose::Pose>,
     /// Advances every ragdoll update (render pose cache key).
     pub ragdoll_frame: u64,
     /// NPCs whose AI has the player as enemy or in enemy memory (CAI_BaseHumanoid
@@ -716,6 +720,7 @@ impl Scene {
             physics_attackers: BTreeMap::new(),
             ragdoll_matrices: BTreeMap::new(),
             tongues: BTreeMap::new(),
+            scanner_poses: BTreeMap::new(),
             ragdoll_frame: 0,
             npc_knows_player: Default::default(),
             ai_sequence_end: BTreeMap::new(),
@@ -959,21 +964,6 @@ impl Scene {
         }
         self.diagnostics.budget_exhaustions += 1;
     }
-}
-/// UTIL_AngleDiff: signed shortest difference `a - b` in degrees.
-fn angle_diff(a: f32, b: f32) -> f32 {
-    let mut d = (a - b) % 360.;
-    if d > 180. {
-        d -= 360.;
-    } else if d < -180. {
-        d += 360.;
-    }
-    d
-}
-/// AI_ClampYaw: move `current` toward `target` by at most `speed` degrees.
-fn clamp_yaw(speed: f32, current: f32, target: f32) -> f32 {
-    let step = angle_diff(target, current).clamp(-speed, speed);
-    (current + step).rem_euclid(360.)
 }
 pub(crate) fn glob(pattern: &str, value: &str) -> bool {
     if let Some((first, last)) = pattern.split_once('*') {

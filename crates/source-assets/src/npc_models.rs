@@ -200,6 +200,21 @@ mod tests {
             );
         }
         assert!(rig.sequences.iter().any(|s| s.activity == "ACT_IDLE"));
+        assert!(rig.attachment("light").is_some());
+        // The faceplate, tail, dynamo and flaps: autoplay layers each blended by a parameter.
+        for (sequence, parameter, start, end) in [
+            ("dynamo_turn", "dynamo_wheel", -180., 180.),
+            ("tail_control", "tail_control", -25., 80.),
+            ("alert_control", "alert_control", -1., 1.),
+            ("upndown", "flex_vert", -20., 20.),
+            ("rightnleft", "flex_horz", -20., 20.),
+        ] {
+            assert!(rig.autoplay.iter().any(|s| s == sequence), "{sequence}");
+            assert!(rig.clips[sequence].layer.blend.is_some(), "{sequence}");
+            let index = rig.pose_parameter(parameter).expect(parameter);
+            let found = &rig.pose_parameters[index];
+            assert_eq!((found.start, found.end), (start, end), "{parameter}");
+        }
     }
 
     #[test]

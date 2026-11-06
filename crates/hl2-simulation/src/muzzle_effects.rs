@@ -606,6 +606,16 @@ impl Elight {
 pub const MAX_ELIGHTS: usize = 64;
 /// LIGHT_INDEX_MUZZLEFLASH (dlight.h); keys add the entity index.
 pub const LIGHT_INDEX_MUZZLEFLASH: i64 = 0x100000;
+/// A light that goes off once (te->DynamicLight): its life in seconds, its radius lost per second.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlashLight {
+    pub origin: Vec3,
+    pub color: [u8; 3],
+    pub radius: f32,
+    pub decay: f32,
+    pub lifetime: f64,
+    pub exponent: i8,
+}
 #[derive(Clone, Debug)]
 pub struct Elights {
     pub slots: [Option<Elight>; MAX_ELIGHTS],
@@ -646,6 +656,16 @@ impl Elights {
             color: [0; 3],
             exponent: 0,
         })
+    }
+    /// A light of no entity, in the first free slot.
+    pub fn flash(&mut self, flash: FlashLight, now: f64) {
+        let light = self.alloc(0, now);
+        light.origin = flash.origin;
+        light.color = flash.color;
+        light.radius = flash.radius;
+        light.decay = flash.decay;
+        light.die = now + flash.lifetime;
+        light.exponent = flash.exponent;
     }
     /// C_BaseAnimating::ProcessMuzzleFlashEvent (attachment 1 of the flashing model):
     /// (255, 192, 64) exponent 5, radius RandomInt(32, 64) shrinking to 0 in 0.05 s.

@@ -2,11 +2,11 @@
 //! decides between, its schedules and where it wants to be; `ai::hover` is its flight arithmetic
 //! and `runtime::scanners` gives it the world and carries the body. It patrols, follows
 //! path_corners, photographs and follows what maps name, hovers near an enemy, and dies in a dive
-//! or a burst of gibs. No light yet: neither the spotlight nor the flash of a photograph shows,
-//! and it never attacks.
+//! or a burst of gibs. Its eye warns and flashes (`flash`); the spotlight is not modeled yet.
 use super::assault::Assault;
 use super::conditions::{
-    Cond, Conditions, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOST_ENEMY, LAST_SHARED_CONDITION,
+    Cond, Conditions, COND_CAN_MELEE_ATTACK1, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE,
+    COND_LOST_ENEMY, LAST_SHARED_CONDITION,
 };
 use super::hover::Hover;
 use super::metropolice::{CopRequest, PLAYER};
@@ -17,8 +17,10 @@ use super::schedule::{
 use super::senses::sound;
 use super::state::NpcState;
 use crate::sounds::PatchOp;
+use flash::Eye;
 use glam::Vec3;
 use modkit_core::animation::simple_spline;
+use pose::Pose;
 use serde::Serialize;
 
 /// m_flFieldOfView.
@@ -80,15 +82,28 @@ const DIVE_SPIN: (f32, f32) = (20., 420.);
 /// A change of speed share smaller than this leaves the engine sound as it is.
 const ENGINE_STEP: f32 = 0.02;
 
+/// The activity that opens its eye for a photograph.
+const FLARE: &str = "ACT_SCANNER_FLARE_START";
+
 const ENGINE: &str = "NPC_CScanner.FlyLoop";
 const IDLE: &str = "NPC_CScanner.Idle";
 const COMBAT: &str = "NPC_CScanner.Combat";
 pub const PAIN: &str = "NPC_CScanner.Pain";
 pub const DIE: &str = "NPC_CScanner.Die";
 const TAKE_PHOTO: &str = "NPC_CScanner.TakePhoto";
+const ATTACK_FLASH: &str = "NPC_CScanner.AttackFlash";
 pub const DIVE_BOMB: &str = "NPC_CScanner.DiveBomb";
 /// Every cue this class plays; a cue that is not preloaded is dropped.
-pub const SOUNDS: &[&str] = &[ENGINE, IDLE, COMBAT, PAIN, DIE, TAKE_PHOTO, DIVE_BOMB];
+pub const SOUNDS: &[&str] = &[
+    ENGINE,
+    IDLE,
+    COMBAT,
+    PAIN,
+    DIE,
+    TAKE_PHOTO,
+    ATTACK_FLASH,
+    DIVE_BOMB,
+];
 
 /// COND_SCANNER_FLY_CLEAR and COND_SCANNER_FLY_BLOCKED: the way to its enemy.
 pub const COND_FLY_CLEAR: Cond = Cond(LAST_SHARED_CONDITION + 1);
@@ -102,6 +117,7 @@ const PATROL: &str = "SCHED_CSCANNER_PATROL";
 const CHASE: &str = "SCHED_SCANNER_CHASE_ENEMY";
 const SPOTLIGHT_HOVER: &str = "SCHED_CSCANNER_SPOTLIGHT_HOVER";
 const ATTACK_HOVER: &str = "SCHED_SCANNER_ATTACK_HOVER";
+const ATTACK: &str = "SCHED_CSCANNER_ATTACK_FLASH";
 const PHOTOGRAPH_HOVER: &str = "SCHED_CSCANNER_PHOTOGRAPH_HOVER";
 const PHOTOGRAPH: &str = "SCHED_CSCANNER_PHOTOGRAPH";
 const MOVE_TO_INSPECT: &str = "SCHED_CSCANNER_MOVE_TO_INSPECT";
@@ -136,6 +152,12 @@ const SCHEDULES: &[(&str, &str)] = &[
         ATTACK_HOVER,
         "Tasks TASK_SCANNER_SET_FLY_ATTACK 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT 0.1 \
          Interrupts COND_TOO_FAR_TO_ATTACK COND_NEW_ENEMY",
+    ),
+    (
+        ATTACK,
+        "Tasks TASK_SCANNER_SET_FLY_ATTACK 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE \
+         TASK_CSCANNER_ATTACK_PRE_FLASH 0 TASK_CSCANNER_ATTACK_FLASH 0 TASK_WAIT 0.5 \
+         Interrupts COND_NEW_ENEMY COND_ENEMY_DEAD",
     ),
     (
         PHOTOGRAPH_HOVER,
@@ -182,6 +204,8 @@ pub enum Plan {
     Chase,
     SpotlightHover,
     AttackHover,
+    /// Close and facing its enemy with an attack due: the coin decides what comes of it.
+    Melee,
     MoveToInspect,
     PhotographHover,
     Photograph,
@@ -239,10 +263,18 @@ pub struct Scanner {
     pub inspect_end: f64,
     /// A target given since the last schedule choice.
     pub new_target: bool,
-    /// m_bPhotoTaken; the flash is on, and when the next step of the photograph comes.
+    /// m_bPhotoTaken, and when the next step of a photograph or an attack comes.
     pub photo_taken: bool,
-    flash_on: bool,
     photo_wait: f64,
+    /// What lights its eye now.
+    pub eye: Option<Eye>,
+    /// Who a flash just reached, and where an attack's light goes, until the world has seen them.
+    pub blinds: Option<usize>,
+    pub light_at: Option<Vec3>,
+    /// How many of its flashes whitened the player's view.
+    pub blinded: u32,
+    /// SF_CSCANNER_STRIDER_SCOUT: its attacks come twice as often.
+    pub strider_scout: bool,
     /// Everything a photograph needs but the time, from the last steer.
     pub can_photograph: bool,
     /// m_flGoalOverrideDistance.
@@ -260,6 +292,11 @@ pub struct Scanner {
     pub max_health: f32,
     /// The noise's three rates (SetNoiseMod).
     pub bob: Vec3,
+    /// Its pose from the last think, the one before it, and when the last think was.
+    pub pose: Pose,
+    #[serde(skip)]
+    pose_before: Pose,
+    pose_at: f64,
     /// The yaw it turns to and the lean it eases to; the lean it has.
     pub look_yaw: Option<f32>,
     pub lean: f32,
@@ -394,6 +431,9 @@ impl Scanner {
         if ctx.now < self.next_attack {
             return Plan::SpotlightHover;
         }
+        if npc.conditions.has(COND_CAN_MELEE_ATTACK1) {
+            return Plan::Melee;
+        }
         let across = ctx.enemy_lkp.unwrap_or(enemy) - ctx.origin;
         if Vec3::new(across.x, across.y, 0.).length() > ATTACK_FAR {
             Plan::SpotlightHover
@@ -457,6 +497,27 @@ impl Scanner {
         let side = self.inspect_facing.unwrap_or(toward);
         Some(target + Vec3::Z * height - side * range)
     }
+    /// A think's pose: what it watches from `eyes`, its climb and speed, and whether it is on
+    /// its guard, which opens its flaps.
+    pub fn think_pose(&mut self, body: Vec3, eyes: Vec3, alert: bool, now: f64) {
+        self.pose_before = self.pose;
+        self.pose_at = now;
+        let watched = self.inspect_at.or(self.enemy_eye);
+        self.pose.watch(body, watched.map(|at| at - eyes));
+        self.pose.fly(self.hover.velocity, Some(MAX_SPEED));
+        self.pose.alert = if alert { 1. } else { 0. };
+    }
+    /// A dive's pose: only the tail and the dynamo go on.
+    pub fn dive_pose(&mut self, now: f64) {
+        self.pose_before = self.pose;
+        self.pose_at = now;
+        self.pose.fly(self.hover.velocity, None);
+    }
+    /// Its pose at `now`, between the last two thinks.
+    pub fn pose_now(&self, now: f64, think: f64) -> Pose {
+        let share = ((now - self.pose_at) / think).clamp(0., 1.) as f32;
+        self.pose_before.between(&self.pose, share)
+    }
     /// How fast the body turns, degrees a second.
     pub fn turn_rate(&self) -> f32 {
         if self.enemy_eye.is_some() {
@@ -508,19 +569,46 @@ impl Scanner {
         self.drop_route();
         Complete
     }
-    /// TakePhoto: the sound, the output and the eye opening. What the flash does to a player's
-    /// view and to the NPC it catches is not modeled yet.
+    /// TakePhoto: the sound, the output, the eye opening and the flash on a player. What it does
+    /// to an NPC it catches is not modeled yet.
     fn take_photo(&mut self, npc: &mut AiNpc, motor: &mut dyn Motor) {
         self.requests.push(CopRequest::Sound(TAKE_PHOTO));
-        let output = match self.inspect {
-            Some(PLAYER) => "OnPhotographPlayer",
-            _ => "OnPhotographNPC",
-        };
-        self.requests.push(CopRequest::Output(output));
-        npc.activity = "ACT_SCANNER_FLARE_START".into();
-        motor.set_activity("ACT_SCANNER_FLARE_START");
+        self.requests
+            .push(CopRequest::Output(photo_output(self.inspect)));
+        self.blinds = self.inspect.filter(|&subject| subject == PLAYER);
+        npc.activity = FLARE.into();
+        motor.set_activity(FLARE);
         self.photo_taken = true;
-        self.flash_on = true;
+        self.eye = Some(Eye::PHOTO);
+    }
+    /// One beat of the red warning: the eye changes and the shutter clicks.
+    fn warn(&mut self) {
+        self.requests.push(CopRequest::Sound(TAKE_PHOTO));
+        self.eye = match self.eye {
+            Some(_) => None,
+            None => Some(Eye::WARNING),
+        };
+    }
+    /// The flash: its sound, the white eye, a light at its enemy and the output.
+    fn attack_flash(&mut self, ctx: &Context) {
+        self.requests.push(CopRequest::Sound(ATTACK_FLASH));
+        self.eye = Some(Eye::ATTACK);
+        if let Some((enemy, at)) = ctx.enemy {
+            self.light_at = ctx.enemy_lkp.or(Some(at));
+            self.requests
+                .push(CopRequest::Output(photo_output(Some(enemy))));
+        }
+        self.photo_wait = ctx.now + flash::BLIND_AFTER;
+    }
+    /// The flash reaches its enemy, the eye closes and the next attack is set.
+    fn end_flash(&mut self, ctx: &Context) -> TaskStatus {
+        self.blinds = ctx.enemy.map(|(enemy, _)| enemy);
+        self.eye = None;
+        let (least, most) = flash::ATTACK_DELAY;
+        let delay = least + (most - least) * f64::from(self.roll());
+        let share = if self.strider_scout { 0.5 } else { 1. };
+        self.next_attack = ctx.now + delay * share;
+        Complete
     }
     /// A photograph's steps: the flash goes off, then another comes unless the time is up.
     fn run_photograph(
@@ -529,10 +617,15 @@ impl Scanner {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> TaskStatus {
+        // PrescheduleThink: back to idling when the flare has played.
+        if npc.activity == FLARE && motor.activity_finished() {
+            npc.activity = "ACT_IDLE".into();
+            motor.set_activity("ACT_IDLE");
+        }
         if ctx.now < self.photo_wait {
             return Running;
         }
-        if !std::mem::take(&mut self.flash_on) {
+        if self.eye.take().is_none() {
             self.take_photo(npc, motor);
             self.photo_wait = ctx.now + FLASH;
             return Running;
@@ -563,6 +656,14 @@ impl Scanner {
     }
 }
 
+/// The output a photograph of `subject` fires.
+fn photo_output(subject: Option<usize>) -> &'static str {
+    match subject {
+        Some(PLAYER) => "OnPhotographPlayer",
+        _ => "OnPhotographNPC",
+    }
+}
+
 /// How far the body leans toward what it flies at: the more to one side and the faster, the more.
 pub fn lean(right: Vec3, to_target: Vec3, speed: f32) -> f32 {
     let share = simple_spline((speed / MAX_SPEED).clamp(0., 1.));
@@ -571,6 +672,8 @@ pub fn lean(right: Vec3, to_target: Vec3, speed: f32) -> f32 {
 
 impl Behavior for Scanner {
     fn select_schedule(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        // A schedule that ends or is interrupted leaves no eye lit.
+        self.eye = None;
         if let Some((enemy, _)) = ctx.enemy.filter(|_| !self.ignores_enemies) {
             self.inspect = Some(enemy);
             self.inspect_end = ctx.now + ENEMY_INSPECT;
@@ -590,6 +693,8 @@ impl Behavior for Scanner {
             Plan::Chase => CHASE.into(),
             Plan::SpotlightHover => SPOTLIGHT_HOVER.into(),
             Plan::AttackHover => ATTACK_HOVER.into(),
+            Plan::Melee if self.roll() < 0.5 => ATTACK.into(),
+            Plan::Melee => CHASE.into(),
             Plan::Corners => CORNERS.into(),
             Plan::MoveToInspect => MOVE_TO_INSPECT.into(),
             Plan::PhotographHover => PHOTOGRAPH_HOVER.into(),
@@ -643,6 +748,18 @@ impl Behavior for Scanner {
                 self.photo_wait = ctx.now + FLASH;
                 Running
             }
+            // A task also runs in the pass that starts it in the SDK, and only from the next
+            // think here: the first think has both beats.
+            "TASK_CSCANNER_ATTACK_PRE_FLASH" => {
+                self.warn();
+                self.warn();
+                self.photo_wait = ctx.now + flash::WARNING;
+                Running
+            }
+            "TASK_CSCANNER_ATTACK_FLASH" => {
+                self.attack_flash(ctx);
+                Running
+            }
             "TASK_CSCANNER_GET_PATH_TO_INSPECT_TARGET" => {
                 let route = self.inspect_at.and_then(|goal| motor.fly_route(goal));
                 self.follow(route)
@@ -685,10 +802,22 @@ impl Behavior for Scanner {
         match task {
             "TASK_WAIT_FOR_MOVEMENT" => Some(self.flight()),
             "TASK_CSCANNER_PHOTOGRAPH" => Some(self.run_photograph(npc, ctx, motor)),
+            "TASK_CSCANNER_ATTACK_PRE_FLASH" => {
+                self.warn();
+                Some(if ctx.now < self.photo_wait {
+                    Running
+                } else {
+                    Complete
+                })
+            }
+            "TASK_CSCANNER_ATTACK_FLASH" if ctx.now < self.photo_wait => Some(Running),
+            "TASK_CSCANNER_ATTACK_FLASH" => Some(self.end_flash(ctx)),
             _ => None,
         }
     }
 }
 
+pub mod flash;
+pub mod pose;
 #[cfg(test)]
 mod tests;

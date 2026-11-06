@@ -148,8 +148,8 @@
   "fed629d3999b"
  ],
  "files": {
-  "crates/hl2-bevy/src/effects.rs": 1084,
-  "crates/hl2-bevy/src/gameplay.rs": 1607,
+  "crates/hl2-bevy/src/effects.rs": 1036,
+  "crates/hl2-bevy/src/gameplay.rs": 1596,
   "crates/hl2-bevy/src/rendering.rs": 1420,
   "crates/hl2-bevy/src/video.rs": 1027,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
@@ -322,7 +322,7 @@
    242
   ],
   "crates/hl2-simulation/src/projectile_visuals.rs::frame": [
-   203
+   199
   ],
   "crates/hl2-simulation/src/projectiles.rs::grenade_explosion": [
    104

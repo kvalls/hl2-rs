@@ -2,6 +2,7 @@
 mod gibs;
 mod material;
 mod model_reading;
+mod shots;
 use crate::{assets::LoadedMap, gameplay::Gameplay, rendering, simulation::Simulation};
 use bevy::{
     asset::RenderAssetUsages,
@@ -243,8 +244,8 @@ pub fn install(
                 ignore_z: false,
             }),
         );
-        // The RPG laser dot draws in kRenderGlow mode (no depth test).
-        if name == hl2_simulation::weapon_rpg::DOT_SPRITE {
+        // These draw in kRenderGlow mode (no depth test).
+        if glows(name) {
             let glow = EffectMaterial {
                 ignore_z: true,
                 ..effects
@@ -682,59 +683,10 @@ impl Effects {
             .collect()
     }
 }
-fn shot_effects(game: &Gameplay, effects: &mut Effects) {
-    use crate::gameplay::ShotEffect;
-    use hl2_simulation::muzzle_effects as fx;
-    let Effects {
-        source,
-        rng,
-        shot_serial,
-        ..
-    } = effects;
-    let mut random = || {
-        *rng ^= *rng << 13;
-        *rng ^= *rng >> 7;
-        *rng ^= *rng << 17;
-        (*rng >> 40) as f32 / (1u32 << 24) as f32
-    };
-    for (serial, at, effect) in &game.shot_effects {
-        if *serial <= *shot_serial {
-            continue;
-        }
-        *shot_serial = *serial;
-        match effect {
-            ShotEffect::NpcFlash(kind, frame) => {
-                source.muzzle.flash(*kind, false, *frame, *at, &mut random)
-            }
-            ShotEffect::MuzzleLight(npc, origin, combine) => {
-                source
-                    .muzzle
-                    .elights
-                    .muzzle_flash(*npc, *origin, *combine, *at, &mut random)
-            }
-            ShotEffect::NpcTracer(start, end, ar2) => source.muzzle.tracer(if *ar2 {
-                fx::npc_ar2_tracer(*start, *end, *at, &mut random)
-            } else {
-                fx::npc_tracer(*start, *end, *at, &mut random)
-            }),
-            ShotEffect::PlayerTracer(start, end, right, ar2) => source.muzzle.tracer(if *ar2 {
-                fx::player_ar2_tracer(*start, *end, *right, *at, &mut random)
-            } else {
-                fx::player_tracer(*start, *end, *right, *at, &mut random)
-            }),
-            ShotEffect::Ar2Impact(origin, normal) => {
-                source
-                    .muzzle
-                    .surface_quads
-                    .push(fx::SurfaceQuad::ar2_impact(
-                        *origin,
-                        *normal,
-                        *at,
-                        &mut random,
-                    ))
-            }
-        }
-    }
+/// The sprites drawn in kRenderGlow mode: the RPG laser dot and a scanner's eye.
+fn glows(name: &str) -> bool {
+    use hl2_simulation::{ai::scanner::flash::EYE_SPRITE, weapon_rpg::DOT_SPRITE};
+    name == DOT_SPRITE || name == EYE_SPRITE
 }
 
 pub fn present(
@@ -756,7 +708,7 @@ pub fn present(
         .muzzle
         .elights
         .decay(game.scene.time, frametime);
-    shot_effects(&game, &mut effects);
+    shots::shot_effects(&game, &mut effects);
     effects.source.frame(
         &game.projectiles,
         glam::Vec3::from_array(sim.view_origin().to_array()),

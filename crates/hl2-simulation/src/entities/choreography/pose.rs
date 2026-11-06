@@ -145,6 +145,9 @@ impl Scene {
         if let (Some(m), Some(i)) = (move_yaw, rig.pose_parameter("move_yaw")) {
             params[i] = rig.pose_parameters[i].normalize(m.move_yaw);
         }
+        if let Some(pose) = self.scanner_poses.get(&id) {
+            pose.apply(rig, &mut params);
+        }
         params
     }
 
@@ -166,6 +169,9 @@ impl Scene {
             for v in head.goal.to_array() {
                 hash = mix(hash, v);
             }
+        }
+        if let Some(pose) = self.scanner_poses.get(&id) {
+            hash = pose.values().into_iter().fold(hash, mix);
         }
         for (_, time, weight) in self.sequence_fades(id) {
             hash = mix(mix(hash, time), weight);

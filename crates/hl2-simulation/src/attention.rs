@@ -640,7 +640,7 @@ pub struct Head {
     pub influence: f32,
 }
 /// SDK `UTIL_Approach(target, value, speed)`.
-fn approach(target: f32, value: f32, speed: f32) -> f32 {
+pub(crate) fn approach(target: f32, value: f32, speed: f32) -> f32 {
     let delta = target - value;
     if delta > speed {
         value + speed
