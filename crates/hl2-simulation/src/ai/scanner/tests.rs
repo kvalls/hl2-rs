@@ -713,3 +713,54 @@ fn the_flash_is_as_white_as_the_player_looks_straight_at_it() {
     assert_eq!((fade.duration, fade.hold), (3., 0.5));
     assert_eq!(fade.flags, crate::player_damage::FFADE_IN);
 }
+
+#[test]
+fn it_waits_ten_seconds_before_its_first_search() {
+    let mut s = Scanner::new(false, 3);
+    assert!(!s.search_due(5.));
+    assert!(!s.search_due(14.9));
+    assert!(s.search_due(15.1));
+}
+
+#[test]
+fn with_an_enemy_a_target_or_the_switch_off_it_does_not_search() {
+    let due = |s: &mut Scanner| {
+        s.next_search = Some(0.);
+        s.search_due(1.)
+    };
+    let mut s = Scanner::new(false, 3);
+    assert!(due(&mut s));
+    s.enemy_at = Some(Vec3::X);
+    assert!(!due(&mut s));
+    s.enemy_at = None;
+    s.inspect = Some(PLAYER);
+    assert!(!due(&mut s));
+    s.inspect = None;
+    s.ignores_enemies = true;
+    assert!(!due(&mut s));
+}
+
+#[test]
+fn most_inspections_are_photographs() {
+    let mut s = Scanner::new(false, 3);
+    let spots = (0..4000)
+        .filter(|_| {
+            s.found(PLAYER, 1.);
+            s.mode == Mode::Spot
+        })
+        .count();
+    assert!((800..1200).contains(&spots), "{spots} of 4000");
+    assert_eq!(s.inspect, Some(PLAYER));
+}
+
+#[test]
+fn after_an_inspection_it_waits_again_before_searching() {
+    let mut s = Scanner::new(false, 3);
+    s.inspect = Some(PLAYER);
+    s.mode = Mode::Spot;
+    s.inspect_end = 5.;
+    let mut conditions = Conditions::default();
+    s.sense_inspection(&mut conditions, false, 6.);
+    assert!(conditions.has(COND_INSPECT_DONE));
+    assert_eq!(s.next_search, Some(16.));
+}

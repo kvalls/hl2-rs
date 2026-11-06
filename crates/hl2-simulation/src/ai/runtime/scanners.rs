@@ -8,7 +8,9 @@ use super::super::conditions::{
 use super::super::host::PhysicsSight;
 use super::super::host::{clamp_yaw, yaw_of};
 use super::super::metropolice::{CopRequest, PLAYER};
+use super::super::relationships::{classify, Class};
 use super::super::scanner::flash::{self, EyeFlare};
+use super::super::scanner::inspect::{self, Candidate};
 use super::super::scanner::spotlight::{self, Beam, Spotlight};
 use super::super::scanner::{self, Mode, Scanner, COND_FLY_BLOCKED, COND_FLY_CLEAR};
 use super::super::senses::SightWorld;
@@ -105,6 +107,56 @@ fn can_photograph(s: &Scanner, air: &Air, scene: &Scene) -> bool {
     };
     s.photo_placed(origin, target, yaw_of(scene, air.id), aim)
         && sight.visible(origin, target, &[air.id, subject])
+}
+
+/// Who a scanner could inspect: the player, and citizens who are still passive.
+fn candidates(world: &World, scene: &Scene, ids: &[usize], player: PlayerState) -> Vec<Candidate> {
+    let precriminal = scene.globals.is_on("gordon_precriminal");
+    let mut found = Vec::new();
+    if !player.dead && !player.noclip {
+        found.push(Candidate {
+            subject: PLAYER,
+            feet: player.feet,
+            eyes: player.eye(),
+        });
+    }
+    let citizens = ids.iter().copied().filter(|&id| {
+        let class = world.entities[id].class();
+        let alive = !scene.states[id].killed && !scene.states[id].corpse;
+        alive && classify(class, precriminal) == Class::CitizenPassive
+    });
+    found.extend(citizens.map(|id| {
+        let feet = scene.states[id].origin;
+        Candidate {
+            subject: id,
+            feet,
+            eyes: feet + Vec3::Z * crate::ai_hull::eye_height(world.entities[id].class()),
+        }
+    }));
+    found
+}
+
+/// Looks for someone to inspect, as GatherConditions does when it has nothing to do.
+fn search(s: &mut Scanner, air: &Air, scene: &Scene, list: &[Candidate]) {
+    let (id, now) = (air.id, scene.time);
+    let origin = scene.states[id].origin;
+    let sight = PhysicsSight {
+        physics: air.physics,
+        world: air.world,
+    };
+    let wanted = |c: &&Candidate| {
+        if c.subject == PLAYER {
+            !s.never_players
+        } else {
+            !s.only_players
+        }
+    };
+    let list: Vec<_> = list.iter().filter(wanted).copied().collect();
+    let reach = inspect::search_from(origin, s.spotlight.as_ref().map(|light| light.end));
+    let sees = |c: &Candidate| sight.visible(origin, c.eyes, &[id, c.subject]);
+    if let Some(subject) = inspect::nearest(&list, origin, reach, sees) {
+        s.found(subject, now);
+    }
 }
 
 /// One think of flight: where it wants to be, the thrust that takes it there, and its sounds.
@@ -360,6 +412,8 @@ impl AiRuntime {
         }
         let now = scene.time;
         let held = &self.held_npcs;
+        let actors: Vec<usize> = self.actors.keys().copied().collect();
+        let mut people: Option<Vec<Candidate>> = None;
         let mut strikes = Vec::new();
         let mut flashes = Vec::new();
         for (&id, actor) in self.actors.iter_mut() {
@@ -393,6 +447,11 @@ impl AiRuntime {
             if now >= s.next_steer {
                 s.next_steer = now + THINK_INTERVAL;
                 steer(s, &air, scene, state);
+                if s.search_due(now) {
+                    let list =
+                        people.get_or_insert_with(|| candidates(world, scene, &actors, player));
+                    search(s, &air, scene, list);
+                }
             }
             if let Some(fade) = flash_on_player(s, &air, scene, player) {
                 s.blinded += 1;
@@ -630,6 +689,8 @@ pub(super) fn class_for(e: &modkit_core::Entity, gagged: bool, id: usize) -> AiC
     let mut scanner = Scanner::new(gagged, 0xbb67_ae85_84ca_a73b ^ id as u64);
     scanner.ignores_enemies = e.get("ShouldInspect").map(str::trim) == Some("0");
     scanner.spotlight_disabled = e.get("SpotlightDisabled").map(str::trim) == Some("1");
+    scanner.only_players = e.get("OnlyInspectPlayers").map(str::trim) == Some("1");
+    scanner.never_players = e.get("NeverInspectPlayers").map(str::trim) == Some("1");
     scanner.spotlight_reach = spotlight::reach_from(e.get("SpotlightLength"));
     let flags = e
         .get("spawnflags")

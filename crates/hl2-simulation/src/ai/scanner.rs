@@ -264,6 +264,10 @@ pub struct Scanner {
     pub inspect_end: f64,
     /// A target given since the last schedule choice.
     pub new_target: bool,
+    /// m_fCheckCitizenTime, set by its first think; OnlyInspectPlayers and NeverInspectPlayers.
+    pub next_search: Option<f64>,
+    pub only_players: bool,
+    pub never_players: bool,
     /// m_bPhotoTaken, and when the next step of a photograph or an attack comes.
     pub photo_taken: bool,
     photo_wait: f64,
@@ -355,6 +359,17 @@ impl Scanner {
         self.photo_taken = self.photo_taken && mode != Mode::Photo;
         self.drop_route();
     }
+    /// Whether it should look for someone now: nothing to do and its time has come.
+    pub fn search_due(&mut self, now: f64) -> bool {
+        let due = *self.next_search.get_or_insert(now + inspect::SEARCH_DELAY);
+        now > due && self.inspect.is_none() && self.enemy_at.is_none() && !self.ignores_enemies
+    }
+    /// It found someone: mostly a photograph, sometimes the spotlight.
+    pub fn found(&mut self, subject: usize, now: f64) {
+        let spot = self.roll() < inspect::SPOT_SHARE;
+        let mode = if spot { Mode::Spot } else { Mode::Photo };
+        self.inspect_target(subject, mode, now);
+    }
     /// InputClearFollowTarget.
     pub fn clear_follow(&mut self) {
         self.inspect = None;
@@ -399,6 +414,7 @@ impl Scanner {
         if self.inspect.is_some() && now > self.inspect_end && self.mode != Mode::Follow {
             conditions.set(COND_INSPECT_DONE);
             self.inspect = None;
+            self.next_search = Some(now + inspect::SEARCH_DELAY);
         }
         if self.can_photograph {
             conditions.set(COND_CAN_PHOTOGRAPH);
@@ -832,6 +848,7 @@ impl Behavior for Scanner {
 }
 
 pub mod flash;
+pub mod inspect;
 pub mod pose;
 pub mod spotlight;
 #[cfg(test)]
