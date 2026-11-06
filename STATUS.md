@@ -1,5 +1,13 @@
 # STATUS
 
+## Loaded pose metadata correspondence and relocation audit (2026-11-06 KI–KN)
+
+The completed KH native capture is independently replayed without another game launch: 32 initializer-RET stops, 128 header outcomes and 1,920 selected-header reads. Direct-root group 0 and existing-cache group 1 succeed in every sample; groups 2/3 retain explicit null-slot outcomes. KI compares all available metadata with four pinned owned candidates: 64 unique selected-field correspondences, 320 local descriptor observations and 288 canonical associations. Two of 11 canonical indices remain unavailable per sample. Root owned-v44/loaded-v48 correspondence is explicit; group 1 matches v48. No conversion operation or full loaded-file identity is observed.
+
+KK authenticates 628 frozen local entries and 187 external binding occurrences after a volume relocation. Original KF/KG entrypoints fail their lexical/resolved module-path equality; KH's seal entrypoint misclassifies seven unchanged local bindings as external. Separate narrow junction/same-file checks and exact original callable replays pass 98 authored stops. Original witnesses, manifests and failing entrypoints remain unchanged.
+
+KM finds 11 imported module paths directly pinned and two distinct older copies byte-identical to pinned copies. Complete prelaunch direct-path closure is not proven; the postcapture report now binds actual imports. KN independently reproduces the comparison and adds 18 controls. KL binds the retained prefix to three static C_AI_BaseNPC vtable candidates and exact raw handle/index field offsets; loaded RTTI and those field values remain unobserved. Next fixture-admit a passive same-stop reader. No Rust edit/build/test, actor/entity identity, cache lifetime, earlier getter history, final pose, campaign completion or parity claim; first_map_finished:false.
+
 ## Stopped header integration admitted in fixtures (2026-11-05 KCâ€“KE)
 
 KC caps1/12/36 debugger34580/61080/40908 and hosts9796/15488/29580 all exit0.49 stopped snapshots yield84 stable selected-group outcomes,1828 new RPM reads and304 bounded descriptor associations. Same20-field active identity, wrapper/model, VM/group bytes and selected local indices join; caller FP, module/code, cap and lifecycle checks pass.33 new and29 inherited corruption controls reject. Integrated refusal outcomes are not tested; standalone KB coverage stays separate.

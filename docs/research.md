@@ -1,5 +1,15 @@
 # Sources and native research
 
+## Current loaded pose metadata and object-field boundary (2026-11-06)
+
+The earlier KH capture, now independently compared offline, retains 32 current initializer-return snapshots. Group 0 directly reads the root gman_high.mdl header and its move_yaw descriptor. Group 1 passively reads an existing Humans\male_shared.mdl cached header with nine local descriptors: move_yaw, aim_yaw, aim_pitch, body_yaw, spine_yaw, neck_trans, head_yaw, head_pitch and head_roll. The current canonical map uses root local 0 and group-1 locals 1–8. Group-1 local 0 is an alias candidate under the observed map; this is not an earlier getter-use observation. Null group-2/3 slots are unavailable, including the two canonical group-3 entries.
+
+Across the four pinned owned candidates, every available group has exactly one selected-field correspondence: magic/checksum, all 64 header-name bytes, declared length, local pose count/table offset, complete local descriptor words and exact bounded raw names. The 32 root comparisons explicitly allow only owned v44 versus loaded v48; the other 32 matches are equal v48. This establishes bounded current metadata correspondence, not full loaded-file identity or execution of conversion.
+
+The retained symmetric object-prefix words also map relative to the admitted image to three static vtable/locator candidates whose raw class name is C_AI_BaseNPC. Exact retail setter/getter instructions locate a raw handle word at outer object+ach. An exact secondary-interface getter and caller adjustment locate a current index candidate at outer object+50h. SDK interface names are correspondence inferences; the loaded RTTI/slots and raw index/handle values have not been read. Do not decode handle bits or infer a named actor from the model/class. A future passive reader must retain raw values and the same stopped identity.
+
+Relocation and imported-source caveats are independent of these data boundaries. Historical path witnesses are preserved; two currently imported parser copies have pinned-byte equivalence without direct prelaunch path pins. No actor/entity lifetime, cache lifetime, earlier getter consumption, composed/rendered pose, campaign completion or Rust parity is established.
+
 ## Authored stopped metadata and independent review (2026-11-05 KCâ€“KE)
 
 KC admits49 actual stopped fixture contexts/84 selected groups with1828 passive metadata reads and304 range-checked global/local descriptor associations. This uses authored headers around retained exact initializer/wrapper/caller fragments; it does not observe loaded native child models. Integrated outcomes are all stable. Refusal coverage remains KB standalone evidence. KD independently parses and recomputes all152 raw reader cases, with237 added corruption controls and no material C/Python disagreement. Its initial control draft expected a semantic instability result where strict trailing-row exhaustion rejected first; only the audit expectation changed. KE freezes six roots and verifies all local/external hashes without altering earlier inventories.

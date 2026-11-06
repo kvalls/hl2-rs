@@ -1,5 +1,13 @@
 # Design
 
+## Loaded metadata admission disposition (2026-11-06)
+
+The active-phase and root-prefix omissions in the frozen original KC verifier remain documented. KF's independent supplement and KG's foreign-process refusal integration admit those joins; KK separately replays their original callables after authenticating the one recorded junction and exact lexical module witnesses. A path-resolution failure does not justify generic path normalization or regenerated historical seals.
+
+KH's unchanged raw verifier admits the current stopped headers, and KI/KN independently establish bounded correspondence for the two available groups. Candidate selection compares every available group with all four candidates; expected map order does not force a match. Preserve raw descriptor/name bytes, the narrow root-v44/loaded-v48 relation and unavailable groups.
+
+KM's source review is postcapture. Two actual imported paths were absent from direct launch pins even though their bytes equal pinned copies. Future producer admission must bind the actual resolved imported modules and their source bytes before ownership guards and launch. Current byte equivalence must not be presented as a retrospective direct-path receipt. Continue through the separate passive object-word plan; named actor identity still needs entity-list/lifetime and scene correspondence.
+
 ## Passive object-word sidecar plan (2026-11-06)
 
 The retained 12-byte object prefixes map, relative to the admitted client image, to three static vtable candidates whose locator records name C_AI_BaseNPC. This is static correspondence; the loaded locator/vtable bytes and entity identity remain unobserved. Exact setter/getter instructions locate a raw handle word at outer object+ach; an exact secondary-interface getter and caller adjustment locate a current index candidate at outer object+50h. Preserve these as raw words without serial/index bit decoding.
