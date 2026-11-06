@@ -83,6 +83,18 @@ fn bone_surface<'a>(hit: &RayHit, world: &'a World, physics: &Physics) -> Option
     Some(if name.is_empty() { "default" } else { name })
 }
 
+/// The surface of an NPC's model as a whole, for what touches its body and not one bone.
+pub(super) fn model_surface<'a>(id: usize, world: &'a World, physics: &Physics) -> Option<&'a str> {
+    let hit = RayHit {
+        entity: id,
+        position: Vec3::ZERO,
+        normal: Vec3::Z,
+        hitgroup: 0,
+        bone: None,
+    };
+    bone_surface(&hit, world, physics)
+}
+
 impl Impacts {
     /// A shot on an NPC: the surface's sound, its sparks or flecks, and its mark on the model.
     pub(super) fn add_on_npc(

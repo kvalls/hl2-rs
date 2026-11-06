@@ -230,6 +230,54 @@ mod tests {
         }
     }
 
+    /// The scanner's materials as the install has them.
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; prints the scanner's materials"]
+    fn owned_scanner_materials() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        let data = vfs.read("models/combine_scanner.mdl").unwrap().unwrap();
+        let text = String::from_utf8_lossy(&data);
+        for name in text.split(' ').filter(|s| s.len() > 3 && s.len() < 60) {
+            let lower = name.to_lowercase();
+            if lower.contains("scanner") && !lower.contains('.') {
+                let path = format!("materials/models/combine_scanner/{lower}.vmt");
+                if let Ok(Some(vmt)) = vfs.read(&path) {
+                    println!(
+                        "VMT {path}: {}",
+                        String::from_utf8_lossy(&vmt)
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    );
+                }
+            }
+        }
+    }
+
+    /// What the scanner's base texture holds in its alpha, which selects self-illumination.
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; prints the scanner texture's alpha"]
+    fn owned_scanner_texture_alpha() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        let data = vfs
+            .read("materials/models/combine_scanner/scanner_sheet.vtf")
+            .unwrap()
+            .unwrap();
+        let image = crate::vtf::decode(&data, 512).unwrap();
+        let alpha: Vec<u8> = image.rgba.chunks_exact(4).map(|p| p[3]).collect();
+        let lit = alpha.iter().filter(|a| **a > 16).count();
+        println!(
+            "TEX {}x{} translucent {} lit share {:.3} max {}",
+            image.width,
+            image.height,
+            image.translucent,
+            lit as f32 / alpha.len() as f32,
+            alpha.iter().max().unwrap(),
+        );
+    }
+
     /// The surface rows and decal translation a shot's effects depend on.
     #[test]
     #[ignore = "requires an installed owned HL2 copy; prints surface rows and decal groups"]

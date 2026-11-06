@@ -446,7 +446,7 @@ impl Impacts {
         }
     }
     /// The surfaceprop of one side of a collision: the authored body's own, else the
-    /// face under the contact (world, brush entities, unauthored props, NPC flesh).
+    /// face under the contact (world, brush entities, unauthored props), or an NPC's model.
     fn collision_surface(
         &self,
         collision: &crate::physics::PhysicsCollision,
@@ -463,7 +463,10 @@ impl Impacts {
             .and_then(|id| world.entities.get(id))
             .is_some_and(|e| e.class().starts_with("npc_"))
         {
-            return FLESH.into();
+            let id = entity.unwrap_or(usize::MAX);
+            return npc::model_surface(id, world, physics)
+                .unwrap_or(FLESH)
+                .into();
         }
         // The normal points from side 0 into side 1; step back out of this side.
         let outward = if side == 0 {
