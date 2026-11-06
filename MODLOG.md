@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: native pre-spawn deferral and exact retail handle consumer
+
+**Agent/model:** Codex Desktop, GPT-6 family; exact identifier unavailable. Material delegates: KT prelaunch/KU deferral review, KW static consumer contract, independent consumer-byte check; same inherited model-family limit.
+
+**Changed / Why:** Preserved the reviewed normal-build object-word producer as a fresh-guard deferral and continued offline. Exact consumer evidence prevents applying the cached SDK's differing handle constants to retail observations.
+
+**Tested how / Result:** KT verifies actual private imported/unregistered/executed source origins before ownership guard. At13:49:30UTC KS guard finds a preexisting rewrite game and refuses before any debugger/native spawn; all180 source bindings retain hashes. KU independently checks guard ordering, unchanged pins and absent capture artifacts. Actual native attempts0. KW binds51 exact retail bytes and static interface/locator evidence; independent byte review confirms maskfff/shift12, sentinel/serial branches and selected row-address algebra, separately from cached SDK maskffff/shift16. Authored integer controls are not native consumer execution.
+
+**Still broken or not tested / Next:** No retail index/handle or current loaded entity-list/interface pointer was observed. The historical guard is not reusable. Use a new root and fresh ownership guard for a bounded object-word capture, then separately admit a current list/row join. No game/cursor control, Rust edit/build/test, named actor, lifetime, final-pose, campaign-completion or parity claim. Other platforms not tested. Final private integrity and publication receipts retain exact admitted/deferred boundaries.
+
 ## 2026-11-06: passive object-word reader and stopped observer fixtures
 
 **Agent/model:** Codex Desktop, GPT-6 family; exact model identifier unavailable. Material delegates: KP reader fixture, independent object-journal join author, KR source/raw replay review; same inherited model-family limit.

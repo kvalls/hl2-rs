@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Retail capture deferral and exact handle-consumer boundary (2026-11-06 KS–KW)
+
+The separately reviewed normal-build retail producer is deferred before spawn. At 13:49:30 UTC its fresh guard found a preexisting hl2-bevy process and refused before settings snapshots, launch pins, command construction or debugger/game spawn. Cursor was unconfined. All 180 prelaunch source bindings remain unchanged; independent KU control-flow and absent-artifact checks confirm zero actual native attempts and no retail object-word observation. The existing game and cursor received no control. This root is frozen; another capture requires a new root and fresh guard.
+
+Offline KW binds the selected CClientEntityList consumer to 51 exact retail instruction bytes and static interface/locator evidence. It rejects raw handle ffffffff, uses entry mask fff and unsigned serial shift 12, compares the row serial, then returns the current raw row pointer or zero. The cached SDK constants instead use mask ffff and shift 16; preserve that difference. For the selected complete-list/interface displacement, row pointer and serial are at complete base+4+16*entry and base+8+16*entry. These are static relationships and authored arithmetic, not current loaded list/handle observations or lifetime proof.
+
+Next use a fresh-root passive object-word capture only after ownership clears. Any later entity-list join first needs a byte-bound current loaded list/interface pointer, module-generation and same-stop reader admission. Sentinel, serial mismatch, null pointer and pointer disagreement remain explicit outcomes. No target lookup/cache helper may fill a missing witness. Named actor/entity lifetime, earlier getter history, loaded RTTI, composed/rendered pose, ordinary campaign completion and Rust parity remain open; first_map_finished:false.
+
 ## Stopped object-word fixture checks (2026-11-06)
 
 Standalone KP: one authored x86 host exits0; 73 cases/281 actual RPM calls, 16 successes/four range/50 transport/three changed outcomes. Six protected-page and two unmapped faults, three reverse mutations, 42 forced API-refusal controls, six noncanonical TRUE successes and 41 corruptions pass. Strict standalone compile passes.
