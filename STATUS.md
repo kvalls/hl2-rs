@@ -1,5 +1,11 @@
 # STATUS
 
+## One selected getter/cap admitted (2026-11-06 ME–MF)
+
+Three authored traces exit0 with one CAPeach: normal47stops/631reads/59context triples; dormant controls46/609/58; budget85/1187/97. Total178stops/2427reads/214triples; selected calls retain46sampled stores/49actual signed returns. The selector's current count is kept separate from those returned values. Normal/control selected calls complete11stores; budget retires before word25and the host still writes all25. All1500final output words and240raw FP images match the unchanged untraced baseline.
+
+After selection no new arm/seed occurs. Eleven later-generation entries per run remain unarmed; existing peers self-retire at owned anchors. ME36corruptions and independent MF21controls reject. MEseals82files/88bindings; MF11/41. Frozen ME/MD replay entrypoints have integer-key JSON comparison bugs; separate exact comparison-only adapters normalize the recomputed JSON and pass both full suites without editing source/reports. Use MFaccepted replay, not the unchanged failing entrypoints. No producer rerun or native getter history. Next independently admit a separate retail adapter and fresh ownership guard.
+
 ## Loaded getter lifecycle fixture admission (2026-11-06 MA–MD)
 
 MA's private authored PEcarrier preserves106exact retail dispatch/getter/count bytes and passes106byte corruptions, complete text/permission/relocation checks and a warning-free final build. MB untraced host35792exits0:20worker records/two loads,500checked output words/144writes and20full FP restoration pairs.

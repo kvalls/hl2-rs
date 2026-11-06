@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Single-capture and cleanup checks (2026-11-06 ME–MF)
+
+Normal/controls/budget traces total178raw stops,2427actual reads and214context triples. Exactly three selected histories retain46sampled stores and49signed returns; selector/filter snapshots are not substituted for returned EAX. All60worker records preserve the1500final output words and240raw FP images from the untraced baseline. No new debug ownership is acquired after selection; all later-generation entries remain unarmed. One actual dormant-state control declines unchanged.
+
+ME36copied corruptions and MF21independent selected-context controls reject. MFstrictly replays the complete ME/MD suites through a comparison-only JSON normalization adapter; unchanged original entrypoints fail that representation comparison and remain preserved. No C target producer is rerun. Windows11 tested; other platforms, unstable selector inputs, enabled-comparator/TF conflicts, numeric TID reuse, active-call unload and native getter history not tested.
+
 ## Getter carrier and multithread lifecycle validation (2026-11-06 MA–MD)
 
 MA: exact106retail bytes,106single-byte controls, full authored text layout, RX/R/RW-NX/discardable section permissions, one data HIGHLOW and zero final compiler/linker warnings. Build failures and rejected audit drafts are preserved; no failed carrier build was executed. MB: one untraced20worker/two-generation host exits0,500output words checked and all20original FP states restored.

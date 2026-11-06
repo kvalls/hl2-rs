@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: admit single selected getter and plan separate native adapter
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used.
+- Changed: one selected activation/filter/cap protocol with normal/dormant/budget fixtures and independent source/context review; separate retail adapter plan.
+- Why: native research needs bounded observation without acquiring new thread ownership after selection.
+- Tested how: three successful authored runs,178stops/2427reads/214triples, exact1500output-word/240raw-FP-image baseline equality,36primary and21independent corruptions.
+- Result:46sampled stores/49actual signed returns; one CAPper run, normal11-store completion and retirement before25thstore while host completes25. No new arming after selection.
+- Still broken or not tested: native getter/downstream history, arbitrary dynamic/reentrant/unload cases, actor/final pose/campaign/Rust parity. Frozen ME/MD JSON-key comparison bugs are preserved and admitted separately through exact comparison-only adapters; no producer rerun.
+- Next: exact retail-only code/module adapter, source closure review and one fresh-guarded selected native capture if ownership clears.
+
 ## 2026-11-06: admit loaded getter lifecycle and plan one selected capture
 
 - Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used.

@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Selected getter evidence remains authored (2026-11-06 ME–MF)
+
+The first exact candidate with stable current virtual count11is selected, while actual EAX count returns remain independent evidence. Three authored runs cover normal completion, dormant-state refusal and24-store budget retirement before a25thwrite. Their178stops/214context triples preserve saved ownership and stop new arming after selection. Full output/FP baselines remain equal. No claim of retail getter execution is made yet.
+
+MFexplicitly preserves two checker issues: the former alternate is now refused because the selected protocol accepts only the exact getter; and frozen ME/MD direct report comparisons lack integer-key JSON normalization. A separate adapter changes exactly one comparison per checker, compares every recomputed field and passes full suites. Original source, reports and captures remain unchanged. These are offline admission issues, not failed/native captures or relaxed target evidence.
+
 ## Authored loaded getter history boundaries (2026-11-06 MA–MD)
 
 The exact retail getter/count/dispatch windows now execute in an authored PEcarrier with actual file/path/load generation evidence. Two same-base generations and22thread lifetimes per run are separately keyed. One execution slot moves through the actual indirect target entry, signed count returns, pre-FLD, post-FSTP, getter RET and caller resume; TF is never set and no target-memory write is used. Unknown targets are refused before arming their raw addresses.

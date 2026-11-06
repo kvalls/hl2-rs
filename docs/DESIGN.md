@@ -1,5 +1,15 @@
 # Design
 
+## Selected retail getter adapter plan (2026-11-06 MG)
+
+ME–MF independently admit one selected activation and partial-cap cleanup. Create a separate normal-build retail adapter rather than running the authored-carrier observer unchanged. Its loaded target is the exact owned client module/file/path with SizeOfImage598000. Retain only the exact106retail dispatch/getter/count bytes in runtime code proof; omit authored prelude/epilogue/alternate and carrier relocation checks. Bind all private source/build/static inputs before launch and independently review exact transforms.
+
+At the retail pre-CALL anchor, select the first exact getter candidate whose symmetrically observed existing virtual count is11. This is eligibility only; retain every actual signed EAX return, sampled pre-FLD word, post-FSTP word and final getter/caller return separately. Unknown target, ineligible count/model, preexisting debug state, stop budget and24-before25frontier remain explicit outcomes. Never invoke a target lookup/getter/cache helper to fill a missing witness.
+
+After selection acquire no new thread/module debug ownership. Already armed peers self-retire at their own stops, end by observed thread exit or restore saved state at separately captured idle module retirement. Bind full non-debug context preservation, current module generation/code and complete terminal partitions. Do not claim arbitrary active-call unload safety or numeric TID reuse from these fixtures.
+
+Use a new native root, immediate ownership/cursor guards and the existing owned-process/window/settings/source cleanup discipline. Target one selected activation, at most24sampled stores/100selected stops, bounded debugger/parent deadlines. A cap screenshot is context only. Independently replay raw capture, source imports and cleanup before admitting any native history. This does not identify a named actor, establish a later pose consumer, exclude intervening writes or prove final pose/campaign/Rust parity. No Rust work is included.
+
 ## One selected getter activation and cleanup plan (2026-11-06 ME)
 
 MA–MD admit exact getter fragments inside an authored loaded module, per-thread creation lifetimes, same-address module generations, active exception/frame/return joins and saved debug-state restoration. The accepted MC closure corrects its original aggregate arithmetic to940stops; original per-run records remain unchanged.
