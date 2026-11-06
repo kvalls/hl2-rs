@@ -88,7 +88,9 @@ pub struct StudioDecal {
     pub radius: f32,
     pub angle: f32,
 }
-/// Surface property of NPC hitboxes (HL2 humans and Combine use "flesh").
+mod npc;
+pub use npc::RICOCHET_SOUND;
+/// The surface of a model that names none; most HL2 humans and Combine name this one.
 const FLESH: &str = "flesh";
 /// TranslationData "F" -> Impact.Flesh (owned scripts/decals_subrect.txt).
 const FLESH_DECALS: [&str; 5] = [
@@ -241,7 +243,19 @@ impl Impacts {
                     .chain(&YELLOW_BLOOD_DECALS)
                     .map(|m| m.to_string()),
             )
-            .chain(FLESH_DECALS.map(String::from));
+            .chain(FLESH_DECALS.map(String::from))
+            .chain(
+                [
+                    npc::METAL_DECALS,
+                    npc::CONCRETE_DECALS,
+                    npc::ALIEN_DECALS,
+                    npc::ANTLION_DECALS,
+                    npc::BLOODY_DECALS,
+                ]
+                .into_iter()
+                .flatten()
+                .map(String::from),
+            );
         let mut materials: Vec<String> = materials.collect();
         for material in materials.clone() {
             if let Some(model) = vfs
@@ -273,6 +287,7 @@ impl Impacts {
             .values()
             .map(String::as_str)
             .chain([FLESH])
+            .chain(npc::SURFACES)
             .flat_map(|p| {
                 ["bulletimpact", "stepleft", "stepright"].map(|key| self.property(p, key))
             })
@@ -592,21 +607,12 @@ impl Impacts {
         physics: &Physics,
         scene: &mut Scene,
     ) {
-        // NPC hitboxes use the flesh surface: impact sound only, no decal here.
         if world
             .entities
             .get(hit.entity)
             .is_some_and(|e| e.class().starts_with("npc_"))
         {
-            if let Some(sound) = self.property(FLESH, "bulletimpact") {
-                scene.sounds.push(crate::sounds::SoundRequest {
-                    origin: Some(hit.position),
-                    ..sound.into()
-                });
-            }
-            // Impact.Flesh on the model (FX_ImpactTrace -> DecalShoot).
-            let decal = FLESH_DECALS[self.studio_created % FLESH_DECALS.len()];
-            self.add_studio_decal(&hit, decal, direction);
+            self.add_on_npc(&hit, direction, world, physics, scene);
             return;
         }
         let Some(prop) = self.hit_surfaceprop(&hit, world, physics, scene) else {

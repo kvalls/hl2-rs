@@ -339,6 +339,37 @@ fn what_it_was_told_decides_what_it_does_without_an_enemy() {
 }
 
 #[test]
+fn a_flare_closes_through_retract_then_idles_in_any_task() {
+    let mut s = Scanner::new(false, 3);
+    let mut motor = FakeMotor::default();
+    let mut body = npc(NpcState::Idle, &[]);
+    body.activity = FLARE.into();
+    let arg = TaskArg::Number(0.);
+    let ctx = Context::default();
+    // Still playing: nothing changes.
+    s.run_task(&mut body, "TASK_WAIT", &arg, &ctx, &mut motor);
+    assert_eq!(body.activity, FLARE);
+    motor.finished = true;
+    s.run_task(&mut body, "TASK_WAIT", &arg, &ctx, &mut motor);
+    assert_eq!(body.activity, RETRACT);
+    s.run_task(&mut body, "TASK_WAIT", &arg, &ctx, &mut motor);
+    assert_eq!(body.activity, "ACT_IDLE");
+    assert_eq!(motor.activity, "ACT_IDLE");
+}
+
+#[test]
+fn the_spotlight_hover_asks_for_a_walk_as_the_sdk_does() {
+    let (_, tasks) = SCHEDULES
+        .iter()
+        .find(|(name, _)| *name == SPOTLIGHT_HOVER)
+        .unwrap();
+    assert!(
+        tasks.contains("TASK_SET_ACTIVITY ACTIVITY:ACT_WALK"),
+        "{tasks}"
+    );
+}
+
+#[test]
 fn a_photograph_flashes_once_then_waits_or_ends() {
     let mut s = Scanner::new(false, 3);
     s.inspect_target(PLAYER, Mode::Photo, 0.);

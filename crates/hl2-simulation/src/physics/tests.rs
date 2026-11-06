@@ -94,6 +94,7 @@ fn door_world() -> World {
                 attachments: Vec::new(),
                 activities: Default::default(),
                 hitboxes: Vec::new(),
+                bone_surfaces: Vec::new(),
                 bones: vec![Bone {
                     name: "door".into(),
                     parent: None,

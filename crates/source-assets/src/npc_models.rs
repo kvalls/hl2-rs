@@ -230,6 +230,204 @@ mod tests {
         }
     }
 
+    /// The surface rows and decal translation a shot's effects depend on.
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; prints surface rows and decal groups"]
+    fn owned_surface_impact_rows() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        let text = vfs.read("scripts/decals_subrect.txt").unwrap().unwrap();
+        let text = String::from_utf8_lossy(&text);
+        let at = text.find("TranslationData").unwrap_or(0);
+        println!("{}", &text[at..(at + 900).min(text.len())]);
+        for group in [
+            "Impact.Metal",
+            "Impact.Flesh",
+            "Impact.Antlion",
+            "Impact.AlienFlesh",
+            "Impact.BloodyFlesh",
+        ] {
+            let heading = format!("\"{group}\"");
+            let Some(start) = text.rfind(&heading) else {
+                continue;
+            };
+            let end = text[start..].find('}').map_or(text.len(), |e| start + e);
+            println!(
+                "GROUP {}",
+                text[start..end]
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+        }
+        for file in [
+            "scripts/surfaceproperties.txt",
+            "scripts/surfaceproperties_hl2.txt",
+        ] {
+            let Ok(Some(data)) = vfs.read(file) else {
+                continue;
+            };
+            let data = String::from_utf8_lossy(&data);
+            for name in [
+                "metal",
+                "flesh",
+                "zombieflesh",
+                "alienflesh",
+                "antlion",
+                "strider",
+                "gunship",
+                "roller",
+                "no_decal",
+                "default",
+                "bloodyflesh",
+                "combine_metal",
+                "solidmetal",
+            ] {
+                if let Some(start) = data.find(&format!("\"{name}\"")) {
+                    let end = data[start..].find('}').map_or(data.len(), |e| start + e);
+                    println!(
+                        "{file} {}",
+                        data[start..end]
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    );
+                }
+            }
+        }
+    }
+
+    /// Every class's hitbox surfaces: a shot reports the bone's, so none may be assumed.
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; prints each NPC model's hitbox surfaces"]
+    fn owned_npc_hitbox_surfaces() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        for class in [
+            "npc_metropolice",
+            "npc_combine_s",
+            "npc_citizen",
+            "npc_barney",
+            "npc_alyx",
+            "npc_vortigaunt",
+            "npc_dog",
+            "npc_kleiner",
+            "npc_eli",
+            "npc_mossman",
+            "npc_breen",
+            "npc_gman",
+            "npc_monk",
+            "npc_zombie",
+            "npc_zombie_torso",
+            "npc_fastzombie",
+            "npc_poisonzombie",
+            "npc_headcrab",
+            "npc_headcrab_fast",
+            "npc_headcrab_black",
+            "npc_barnacle",
+            "npc_antlion",
+            "npc_antlionguard",
+            "npc_ichthyosaur",
+            "npc_crow",
+            "npc_pigeon",
+            "npc_seagull",
+            "npc_stalker",
+            "npc_manhack",
+            "npc_cscanner",
+            "npc_rollermine",
+            "npc_turret_floor",
+            "npc_turret_ceiling",
+            "npc_combine_camera",
+            "npc_strider",
+            "npc_combinegunship",
+            "npc_helicopter",
+            "npc_combinedropship",
+        ] {
+            let model = default_model(class).unwrap();
+            let Ok(Some(data)) = vfs.read(model) else {
+                println!("{class}: no {model}");
+                continue;
+            };
+            let surfaces = crate::animation::bone_surfaces(&data).unwrap();
+            let boxes = crate::animation::hitboxes(&data).unwrap();
+            let mut seen = std::collections::BTreeMap::<&str, usize>::new();
+            for hitbox in &boxes {
+                *seen.entry(surfaces[hitbox.bone].as_str()).or_default() += 1;
+            }
+            println!("{class}: {} boxes {seen:?}", boxes.len());
+        }
+    }
+
+    /// What each sequence of the scanner moves, and how far: evidence for the faceplate work.
+    #[test]
+    #[ignore = "requires an installed owned HL2 copy; prints the scanner's bone motion"]
+    fn owned_scanner_bone_motion() {
+        let game = crate::install::discover().unwrap();
+        let vfs = crate::vpk::Vfs::mount(&game).unwrap();
+        let model = "models/combine_scanner.mdl";
+        let names = crate::animation::sequence_names(&vfs, model)
+            .unwrap()
+            .into_iter()
+            .collect();
+        let rig = crate::animation::load(&vfs, model, &names).unwrap();
+        for (i, bone) in rig.bones.iter().enumerate() {
+            println!(
+                "bone {i} {} parent {:?} surface {}",
+                bone.name, bone.parent, rig.bone_surfaces[i]
+            );
+        }
+        println!("hitboxes {:?}", rig.hitboxes);
+        println!("pose {:?}", rig.pose_parameters);
+        println!("autoplay {:?}", rig.autoplay);
+        for seq in &rig.sequences {
+            let Some(clip) = rig.clips.get(&seq.name) else {
+                continue;
+            };
+            println!(
+                "== {} act {} flags {:#x} frames {} fade {} {} events {:?}",
+                seq.name,
+                seq.activity,
+                clip.layer.flags,
+                clip.frames.len(),
+                clip.layer.fade_in,
+                clip.layer.fade_out,
+                clip.events
+                    .iter()
+                    .map(|e| (e.cycle, e.id, e.name.clone()))
+                    .collect::<Vec<_>>(),
+            );
+            let mut grids = vec![("frames".to_string(), clip.frames.clone())];
+            if let Some(blend) = &clip.layer.blend {
+                println!("   blend {:?} groups {:?}", blend.axes, blend.groups);
+                for (n, anim) in blend.anims.iter().enumerate() {
+                    grids.push((format!("blend{n}"), anim.clone()));
+                }
+            }
+            for (name, frames) in grids {
+                for (b, bone) in rig.bones.iter().enumerate() {
+                    let base = if clip.layer.flags & 4 != 0 {
+                        modkit_core::animation::Pose {
+                            position: glam::Vec3::ZERO,
+                            rotation: glam::Quat::IDENTITY,
+                        }
+                    } else {
+                        bone.bind.clone()
+                    };
+                    let mut turn = 0f32;
+                    let mut slide = 0f32;
+                    for frame in &frames {
+                        let Some(pose) = frame.get(b) else { continue };
+                        turn = turn.max(pose.rotation.angle_between(base.rotation).to_degrees());
+                        slide = slide.max(pose.position.distance(base.position));
+                    }
+                    if turn > 0.5 || slide > 0.05 {
+                        println!("   {name} {} turn {turn:.1} slide {slide:.2}", bone.name);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires an installed owned HL2 copy; reads the manhack model"]
     fn owned_manhack_flies_and_has_its_blades() {

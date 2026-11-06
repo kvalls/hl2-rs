@@ -28,13 +28,18 @@ struct SourceBone {
     position_scale: Vec3,
     rotation_scale: Vec3,
 }
-fn bones(data: &[u8]) -> Result<Vec<SourceBone>> {
+/// The bone table: its size and where it starts.
+fn bone_table(data: &[u8]) -> Result<(usize, usize)> {
     let count = offset(data, 156)?;
     if count > 256 {
         bail!("MDL skeleton exceeds 256 bones");
     }
     let base = offset(data, 160)?;
     bytes(data, base, count * 216)?;
+    Ok((count, base))
+}
+fn bones(data: &[u8]) -> Result<Vec<SourceBone>> {
+    let (count, base) = bone_table(data)?;
     (0..count)
         .map(|id| {
             let at = base + id * 216;
@@ -315,7 +320,22 @@ pub fn load(vfs: &Vfs, path: &str, wanted: &BTreeSet<String>) -> Result<Rig> {
         Ok(hitboxes) => rig.hitboxes = hitboxes,
         Err(e) => rig.warnings.push(format!("{path}: hitboxes: {e:#}")),
     }
+    match bone_surfaces(&data) {
+        Ok(surfaces) => rig.bone_surfaces = surfaces,
+        Err(e) => rig.warnings.push(format!("{path}: bone surfaces: {e:#}")),
+    }
     Ok(rig)
+}
+/// Each bone's surfaceprop (mstudiobone_t surfacepropidx @176, from the bone), in bone order: what
+/// a trace against a hitbox on that bone reports as its surface.
+pub fn bone_surfaces(data: &[u8]) -> Result<Vec<String>> {
+    let (count, base) = bone_table(data)?;
+    (0..count)
+        .map(|id| {
+            let at = base + id * 216;
+            string(data, relative(data, at, at + 176)?)
+        })
+        .collect()
 }
 /// The studio header's view box (`view_bbmin`/`view_bbmax` @128/@140), or its hull
 /// (`hull_min`/`hull_max` @104/@116) when the view box is all zero.

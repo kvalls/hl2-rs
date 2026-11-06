@@ -291,8 +291,39 @@ pub(super) fn bullet_crab_release(
     }
 }
 
+/// The TraceAttack of the scanners, the manhack and the strider: a bullet glances off with sparks
+/// and a whine, over the surface's own impact. A strider's ricochet has conditions not modeled yet.
+fn ricochet(scene: &mut Scene, class: &str, hit: &crate::physics::RayHit, melee: bool) {
+    let armored = matches!(
+        class,
+        "npc_cscanner" | "npc_clawscanner" | "npc_manhack" | "npc_strider"
+    );
+    if melee || !armored {
+        return;
+    }
+    scene.impact_effects.push(crate::projectiles::Effect {
+        id: 0,
+        magnitude: 1.,
+        kind: crate::projectiles::EffectKind::MetalSpark,
+        position: hit.position,
+        normal: hit.normal,
+        at: scene.time,
+        radius: 0.,
+    });
+    scene.sounds.push(crate::sounds::SoundRequest {
+        origin: Some(hit.position),
+        ..crate::impacts::RICOCHET_SOUND.into()
+    });
+}
+
 /// TraceAttack's record of where an NPC was hit, for its death force and ragdoll.
-pub(super) fn record_hit_location(scene: &mut Scene, id: usize, hit: &crate::physics::RayHit) {
+pub(super) fn record_hit_location(
+    scene: &mut Scene,
+    (id, class): (usize, &str),
+    hit: &crate::physics::RayHit,
+    melee: bool,
+) {
+    ricochet(scene, class, hit, melee);
     scene.npc_force_points.insert(id, hit.position);
     scene.npc_hit_groups.insert(id, hit.hitgroup);
     match hit.bone {

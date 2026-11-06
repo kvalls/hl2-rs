@@ -269,6 +269,7 @@ impl Particles {
                 EffectKind::WoodFlecks => self.debris_flecks(effect, true, &mut rng),
                 EffectKind::Dust => self.dust_impact(effect, &mut rng),
                 EffectKind::MetalSpark => self.metal_spark(effect, &mut rng),
+                EffectKind::TrailSmoke => self.trail_smoke(effect, &mut rng),
                 // Sprite-only (projectile_visuals) or not drawn yet.
                 EffectKind::BoltGlow | EffectKind::Sparks => {}
             }

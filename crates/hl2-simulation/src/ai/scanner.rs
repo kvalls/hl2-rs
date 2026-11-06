@@ -85,6 +85,9 @@ const ENGINE_STEP: f32 = 0.02;
 
 /// The activity that opens its eye for a photograph.
 const FLARE: &str = "ACT_SCANNER_FLARE_START";
+/// What closes it again: the model's sequence graph goes from flare to idle through retract, which
+/// native plays after every flare (0.67 s, then 1 s).
+const RETRACT: &str = "ACT_SCANNER_FLARE_END";
 
 const ENGINE: &str = "NPC_CScanner.FlyLoop";
 const IDLE: &str = "NPC_CScanner.Idle";
@@ -96,6 +99,7 @@ const ATTACK_FLASH: &str = "NPC_CScanner.AttackFlash";
 pub const DIVE_BOMB: &str = "NPC_CScanner.DiveBomb";
 /// Every cue this class plays; a cue that is not preloaded is dropped.
 pub const SOUNDS: &[&str] = &[
+    crate::impacts::RICOCHET_SOUND,
     ENGINE,
     IDLE,
     COMBAT,
@@ -127,7 +131,8 @@ const FOLLOW_HOVER: &str = "SCHED_SCANNER_FOLLOW_HOVER";
 const CORNERS: &str = "SCHED_SCANNER_CORNERS";
 
 /// The schedules a scanner can reach, with the interrupts every NPC has; the class's own conditions
-/// are in `custom_interrupts`. The model has no ACT_WALK, so the spotlight hover idles.
+/// are in `custom_interrupts`. The spotlight hover's ACT_WALK is not in the model, which makes it
+/// ACT_RUN: native plays inspect1 and inspect2 through a hunt and idles only for the flash.
 const SCHEDULES: &[(&str, &str)] = &[
     (
         PATROL,
@@ -146,7 +151,7 @@ const SCHEDULES: &[(&str, &str)] = &[
     ),
     (
         SPOTLIGHT_HOVER,
-        "Tasks TASK_CSCANNER_SET_FLY_SPOT 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT 1 \
+        "Tasks TASK_CSCANNER_SET_FLY_SPOT 0 TASK_SET_ACTIVITY ACTIVITY:ACT_WALK TASK_WAIT 1 \
          Interrupts COND_NEW_ENEMY",
     ),
     (
@@ -296,6 +301,8 @@ pub struct Scanner {
     pub distance_override: f32,
     /// Its dive, and that its death has been looked at.
     pub dive: Option<Dive>,
+    /// Hurt enough to trail smoke, which then lasts as long as it does.
+    pub smoking: bool,
     pub death_seen: bool,
     /// The path_corner it is flying to, and that its `target` key has been read.
     pub corner: Option<usize>,
@@ -343,7 +350,7 @@ impl Scanner {
         scanner.bob = Vec3::new(x, y, z * sign);
         scanner
     }
-    fn roll(&mut self) -> f32 {
+    pub fn roll(&mut self) -> f32 {
         super::roll(&mut self.seed)
     }
     /// The next number of its own dice.
@@ -646,11 +653,6 @@ impl Scanner {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> TaskStatus {
-        // PrescheduleThink: back to idling when the flare has played.
-        if npc.activity == FLARE && motor.activity_finished() {
-            npc.activity = "ACT_IDLE".into();
-            motor.set_activity("ACT_IDLE");
-        }
         if ctx.now < self.photo_wait {
             return Running;
         }
@@ -666,6 +668,18 @@ impl Scanner {
         let (least, most) = NEXT_PHOTO;
         self.photo_wait = ctx.now + least + (most - least) * f64::from(self.roll());
         Running
+    }
+    /// PrescheduleThink's return to idling: a played flare closes through retract, then idles.
+    fn settle_flare(npc: &mut AiNpc, motor: &mut dyn Motor) {
+        let next = match npc.activity.as_str() {
+            FLARE => RETRACT,
+            RETRACT => "ACT_IDLE",
+            _ => return,
+        };
+        if motor.activity_finished() {
+            npc.activity = next.into();
+            motor.set_activity(next);
+        }
     }
     fn follow(&mut self, route: Option<Vec<Vec3>>) -> TaskStatus {
         match route {
@@ -829,6 +843,7 @@ impl Behavior for Scanner {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
+        Self::settle_flare(npc, motor);
         match task {
             "TASK_WAIT_FOR_MOVEMENT" => Some(self.flight()),
             "TASK_CSCANNER_PHOTOGRAPH" => Some(self.run_photograph(npc, ctx, motor)),
@@ -847,6 +862,7 @@ impl Behavior for Scanner {
     }
 }
 
+pub mod damage;
 pub mod flash;
 pub mod inspect;
 pub mod pose;

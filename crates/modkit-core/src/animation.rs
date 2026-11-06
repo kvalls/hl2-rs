@@ -666,6 +666,9 @@ pub struct Rig {
     /// Hitbox set 0 of the root model (bullet traces and hitgroups).
     #[serde(default)]
     pub hitboxes: Vec<Hitbox>,
+    /// Each bone's surfaceprop in bone order, as a trace against its hitbox reports it.
+    #[serde(default)]
+    pub bone_surfaces: Vec<String>,
 }
 impl Rig {
     pub fn attachment(&self, name: &str) -> Option<&Attachment> {

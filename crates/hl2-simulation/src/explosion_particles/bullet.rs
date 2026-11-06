@@ -5,6 +5,10 @@ use crate::projectiles::Effect;
 use glam::Vec3;
 
 const DUST: &str = "particle/particle_smokegrenade";
+const NOISE: &str = "particle/particle_noisesphere";
+/// StartSmokeTrail's spawn radius, and C_SmokeTrail's opacity.
+const TRAIL_RADIUS: f32 = 10.;
+const TRAIL_OPACITY: f32 = 0.5;
 const CHUNKS: &str = "effects/blood";
 const FLECK_ANGULAR_SPRAY: f32 = 0.6;
 const FLECK_MIN_SPEED: f32 = 64.;
@@ -209,6 +213,22 @@ impl Particles {
         flash.roll = rng.float(0., 360.);
         self.add(flash);
     }
+    /// One puff of the trail StartSmokeTrail sets up: a second's life, growing from 8 to 50 and
+    /// fading out, with the body's speed and a little of its own. C_SmokeTrail spawns ten a second,
+    /// one per think here.
+    pub(super) fn trail_smoke(&mut self, e: &Effect, rng: &mut Random) {
+        let material = if rng.unit() < 0.5 { DUST } else { NOISE };
+        let mut puff = Particle::new(Kind::Smoke, material, e, 1.);
+        puff.position += rng.vector(-TRAIL_RADIUS, TRAIL_RADIUS);
+        puff.velocity = e.normal + rng.vector(-1., 1.) * rng.float(15., 25.);
+        puff.sizes = [8., 50.];
+        puff.alpha = [TRAIL_OPACITY * rng.float(0.75, 1.25), 0.];
+        puff.color = Vec3::splat(0.5 + rng.float(-0.2, 0.2));
+        puff.roll = rng.float(0., 360.);
+        puff.roll_rate = rng.float(-1., 1.);
+        puff.near_clip = true;
+        self.add(puff);
+    }
 }
 
 #[cfg(test)]
@@ -226,6 +246,25 @@ mod tests {
             at: 0.,
             radius: 0.,
         }
+    }
+
+    #[test]
+    fn a_trail_puff_carries_the_bodys_speed_and_fades_as_it_grows() {
+        let mut particles = Particles::default();
+        particles.trail_smoke(
+            &effect(EffectKind::TrailSmoke, Vec3::X * 200.),
+            &mut Random(7),
+        );
+        let puff = &particles.particles[0];
+        assert_eq!(puff.kind, Kind::Smoke);
+        assert_eq!(puff.sizes, [8., 50.]);
+        assert_eq!(puff.alpha[1], 0.);
+        assert!(
+            (0.375..=0.625).contains(&puff.alpha[0]),
+            "{}",
+            puff.alpha[0]
+        );
+        assert!(puff.velocity.x > 170., "{}", puff.velocity.x);
     }
 
     #[test]

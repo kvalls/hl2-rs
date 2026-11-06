@@ -9,6 +9,7 @@ use super::super::host::PhysicsSight;
 use super::super::host::{clamp_yaw, yaw_of};
 use super::super::metropolice::{CopRequest, PLAYER};
 use super::super::relationships::{classify, Class};
+use super::super::scanner::damage;
 use super::super::scanner::flash::{self, EyeFlare};
 use super::super::scanner::inspect::{self, Candidate};
 use super::super::scanner::spotlight::{self, Beam, Spotlight};
@@ -23,6 +24,7 @@ use crate::gibs::PropBreak;
 use crate::physics::{angles, Physics};
 use crate::player_damage::ScreenFade;
 use crate::projectiles::Attacker;
+use crate::projectiles::EffectKind;
 use crate::sounds::{entity_emitter, PatchOp, SoundRequest};
 use crate::view_control::angles_toward;
 use glam::Vec3;
@@ -190,6 +192,7 @@ fn steer(s: &mut Scanner, air: &Air, scene: &mut Scene, state: NpcState) {
     let alert = matches!(state, NpcState::Alert | NpcState::Combat);
     s.think_pose(body, eyes, alert, scene.time);
     spotlight_think(s, air, scene);
+    trail_smoke(s, scene, air.id);
     s.engine_sound();
     if let Some(cue) = s.idle_cue(state == NpcState::Combat) {
         s.requests.push(CopRequest::Sound(cue));
@@ -295,12 +298,27 @@ fn stop_engine(s: &mut Scanner, scene: &mut Scene, id: usize) {
     }
 }
 
-/// Its end: the engine stops, a blast that hurts nothing covers it and its gibs fly. The sparks,
-/// the light and the chance of a battery are not modeled yet.
+/// One think's puff of its smoke trail, drifting with it.
+fn trail_smoke(s: &Scanner, scene: &mut Scene, id: usize) {
+    if s.smoking {
+        let (origin, velocity) = (scene.states[id].origin, s.hover.velocity);
+        let puff = damage::effect(EffectKind::TrailSmoke, origin, velocity, scene.time);
+        scene.impact_effects.push(puff);
+    }
+}
+
+/// Its end: the engine stops, sparks and a blast that hurts nothing cover it and its gibs fly. The
+/// light and the chance of a battery are not modeled yet.
 fn gib(s: &mut Scanner, air: &Air, scene: &mut Scene) {
     let id = air.id;
     stop_engine(s, scene, id);
     let origin = scene.states[id].origin;
+    for _ in 0..damage::GIB_SPARKS {
+        let reach = Vec3::new(s.roll(), s.roll(), s.roll());
+        let at = origin + (reach * 2. - Vec3::ONE) * damage::GIB_SPARK_REACH;
+        let spark = damage::effect(EffectKind::Sparks, at, Vec3::ZERO, scene.time);
+        scene.impact_effects.push(spark);
+    }
     scene.sounds.push(SoundRequest {
         origin: Some(origin),
         ..scanner::DIE.into()
@@ -388,6 +406,8 @@ fn die(s: &mut Scanner, air: &Air, scene: &mut Scene, player: PlayerState) -> bo
             .add_noise(s.bob, scanner::NOISE * scanner::DIVE_NOISE, now as f32);
         s.hover.limit(scanner::DIVE_SPEED);
         s.dive_pose(now);
+        s.smoking = true;
+        trail_smoke(s, scene, id);
     }
     let dt = (now - s.last_step).clamp(0., 0.1) as f32;
     let hit = air.trace(origin, origin + s.hover.velocity * dt);
@@ -595,6 +615,7 @@ fn gather(actor: &mut AiActor, world: &World, scene: &Scene, player: &PlayerStat
     s.inspect_facing = s.inspect.and_then(|e| marked_side(world, scene, e));
     s.enemy_in_suit = enemy == Some(PLAYER) && player.suit;
     let health = scene.states[id].value;
+    let before = s.health * s.max_health;
     s.max_health = s.max_health.max(health);
     s.health = health / s.max_health.max(1.);
     let conditions = &mut actor.npc.conditions;
@@ -606,10 +627,11 @@ fn gather(actor: &mut AiActor, world: &World, scene: &Scene, player: &PlayerStat
     s.sense_inspection(conditions, enemy.is_some(), scene.time);
     s.sees_enemy = conditions.has(COND_SEE_ENEMY);
     s.enemy_is_player = enemy == Some(PLAYER);
-    // Shot, it goes dark for a while.
+    // Shot, it goes dark for a while, and one already hurt starts to smoke.
     if conditions.has(COND_LIGHT_DAMAGE) || conditions.has(COND_HEAVY_DAMAGE) {
         s.spotlight = None;
         s.next_spotlight = scene.time + spotlight::OFF_AFTER_HIT;
+        s.smoking |= damage::starts_smoking(before, s.max_health);
     }
     if let Some(at) = enemy.and_then(|e| enemy_feet(scene, player, e)) {
         attack_conditions(conditions, scene, (id, at), s.next_attack);

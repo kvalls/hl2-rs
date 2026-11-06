@@ -132,3 +132,11 @@ impl Physics {
         })
     }
 }
+
+impl super::Physics {
+    /// The model key of an NPC whose traces use its studio hitboxes.
+    pub fn studio_model(&self, id: usize) -> Option<&str> {
+        let set = self.studio_hitboxes.get(&id)?;
+        Some(set.asset_key.as_str())
+    }
+}

@@ -2182,7 +2182,7 @@ pub fn apply_hit(
         }
         return false;
     }
-    hits::record_hit_location(scene, id, hit);
+    hits::record_hit_location(scene, (id, e.class()), hit, melee);
     // CHalfLife2::GetAmmoDamage: the player's shots on NPCs scale by skill
     // (AdjustPlayerDamageInflicted); CAI_BaseNPC::TraceAttack then scales by the
     // hitbox's hitgroup before blood and TraceBleed.

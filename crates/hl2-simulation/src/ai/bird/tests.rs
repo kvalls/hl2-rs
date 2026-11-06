@@ -4,8 +4,8 @@ use crate::ai::schedule::MoveStatus;
 
 #[derive(Default)]
 pub(crate) struct FakeMotor {
-    activity: String,
-    finished: bool,
+    pub activity: String,
+    pub finished: bool,
     /// The legs of a route, when there is one.
     pub legs: Option<Vec<Vec3>>,
 }

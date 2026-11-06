@@ -112,7 +112,22 @@ impl SceneMotor<'_> {
             .unwrap_or(activity);
         let translated = crate::npc_weapons::translate(weapon, activity)
             .filter(|t| self.scene.actor_has_activity(self.world, self.entity, t));
-        translated.unwrap_or(activity).to_owned()
+        self.walk_or_run(translated.unwrap_or(activity)).to_owned()
+    }
+    /// TranslateActivity's last resort: a model with no walk runs, and one with no run walks. A
+    /// scanner has only ACT_RUN, so its hover's ACT_WALK plays the inspect sequences.
+    fn walk_or_run<'a>(&self, activity: &'a str) -> &'a str {
+        let other = match activity {
+            "ACT_WALK" => "ACT_RUN",
+            "ACT_RUN" => "ACT_WALK",
+            _ => return activity,
+        };
+        let has = |name| self.scene.actor_has_activity(self.world, self.entity, name);
+        if !has(activity) && has(other) {
+            other
+        } else {
+            activity
+        }
     }
     /// Weapon_SetActivity(weapon activity, SequenceDuration) after a sequence change.
     fn weapon_follows(&mut self, activity: String) {
