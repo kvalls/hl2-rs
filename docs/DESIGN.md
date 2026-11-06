@@ -1,5 +1,13 @@
 # Design
 
+## Relocated evidence and metadata continuation plan (2026-11-06)
+
+Preserve the frozen header captures and source pins. Audit relocation-sensitive path checks independently: retain each original lexical path, require the explicitly recorded junction and same-file identity, and authenticate every manifest entry and external binding. A current seal-script path-classification failure is distinct from changed captured bytes; do not silently regenerate an earlier seal or claim that failing replay passed.
+
+Reconstruct the unfinished postcapture source review and compare only admitted loaded header fields, complete observed local descriptors and raw names with all four pinned owned candidates. Preserve direct-root versus existing-cache routes, unavailable groups, ambiguous candidates and the explicit owned-v44/loaded-v48 relation. The historical native capture must not be rerun to repair offline checks.
+
+After these admissions, derive a bounded passive object-identity sidecar from exact caller bytes and independently validated fixture geometry. New native work requires a separate root, fresh ownership guard and admission of its reader and stopped-event joins. Current metadata cannot establish earlier getter history, object/entity lifetime, composed or rendered pose, ordinary campaign completion or Rust parity. No Rust action is part of this plan.
+
 ## Passive-header continuation plan (2026-11-05 KF onward)
 
 Independently bind each header begin/end pair to the currently active stopped VM interval. The earlier verifier's globally ordered header list is insufficient: moving a complete pair to another capture interval can preserve that list. Preserve the original capture and verifier; add an independently validated strict phase witness with moved, missing, duplicated, foreign-event and wrong-outcome controls. Source placement and raw event admission remain separate evidence.
