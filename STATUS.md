@@ -1,5 +1,13 @@
 # STATUS
 
+## Loaded getter lifecycle fixture admission (2026-11-06 MA–MD)
+
+MA's private authored PEcarrier preserves106exact retail dispatch/getter/count bytes and passes106byte corruptions, complete text/permission/relocation checks and a warning-free final build. MB untraced host35792exits0:20worker records/two loads,500checked output words/144writes and20full FP restoration pairs.
+
+MC normal debugger39120/host10072 and controls43732/33452all exit0:508+432=940actual stops,12462reads,988context triples,38activations,262sampled stores and288signed count returns. All160raw FP images and500output words per run match the untraced baseline. Two dormantDR2threads decline unchanged, four unknown targets are never armed and four25-word paths continue after observer budget24. MD independently rederives940stops/988triples and rejects32additional corruptions; MC rejects96. MCseals58files/65bindings, MD3/24.
+
+Original MCverification incorrectly printed aggregate916despite correct508/432per-run results. Its accepted closure explicitly supersedes only that arithmetic with940; original report/source/captures are retained. CRLF control and carrier build drafts/failures remain recorded. No native getter history, numeric TID reuse, active-call unload safety or enabled-comparator/TF API control is established. No Rust action. Next admit a single selected activation and complete partial-capture cleanup before any retail adapter.
+
 ## Current object/model bounded correspondence (2026-11-06 LZ)
 
 All32admitted current object/root associations correspond to bounded owned gman_high.mdl metadata, with explicit owned-v44/loaded-v48 relation. All39available header groups match uniquely across four owned candidates:32root and seven Humans/male_shared groups.95local descriptor observations produce88canonical observed/264unavailable occurrences;89groups remain unavailable. Cached group1is available at captures2and27–32, so availability is not monotonic and no cache operation/lifetime is inferred. Nine extra correlation controls reject; five frozen seals and unchanged native verifier pass. LZseals3files/16bindings.

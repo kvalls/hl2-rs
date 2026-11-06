@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Getter carrier and multithread lifecycle validation (2026-11-06 MA–MD)
+
+MA: exact106retail bytes,106single-byte controls, full authored text layout, RX/R/RW-NX/discardable section permissions, one data HIGHLOW and zero final compiler/linker warnings. Build failures and rejected audit drafts are preserved; no failed carrier build was executed. MB: one untraced20worker/two-generation host exits0,500output words checked and all20original FP states restored.
+
+MC: two successful traced hosts,940stops/12462actual reads/988full context triples. Normal20activations/142stores/156signed returns and controls18activations/120stores/132returns. All160raw512-byte FP images match baseline; all40traced workers preserve their own originals. Terminal cases distinguish completed, alternate, budget, unsafe-target and idle-module retirement. Actual dormantDR2state remains unchanged on two refused lifetimes.96copied corruptions reject; reserved bit1 normalization remains a coherent diagnostic. Recorder files stay below16MiB without truncation.
+
+MD independently binds every active exception and context to creation/module intervals, saved ownership and exact code targets;32extra controls reject. Same numerical base does not substitute for generation. Original aggregate916is explicitly superseded by940, with no producer rerun. Windows11 x64 debugger/x86 host tested; other platforms, dynamic-count races, numeric TID reuse, enabled-comparator/TF conflicts, active-call unload and retail history not tested.
+
 ## Current model metadata comparison (2026-11-06 LZ)
 
 The admitted KI protocol rereads the four exact owned VPK regions in place and retains its22structural controls/19coherent diagnostics. LZ consumes frozen LW header/VM/object/list indices only after full native verification and five seal checks.39available groups yield39unique bounded matches, zero ambiguous/unmatched records;89unavailable groups stay unavailable. Pair/remap topology matches32/32; root44/loaded48 is explicit, not conversion execution or full-file identity. Nine current-object/root correlation controls reject. No native producer rerun, Rust build or ordinary campaign test.

@@ -1,5 +1,15 @@
 # Design
 
+## One selected getter activation and cleanup plan (2026-11-06 ME)
+
+MA–MD admit exact getter fragments inside an authored loaded module, per-thread creation lifetimes, same-address module generations, active exception/frame/return joins and saved debug-state restoration. The accepted MC closure corrects its original aggregate arithmetic to940stops; original per-run records remain unchanged.
+
+Next fixture-admit a single selected activation. At the pre-CALL anchor, symmetrically read the current wrapper and existing virtual count word. Eligibility requires the exact bounded candidate getter and an observed virtual count11. This is a selection predicate, not evidence of a later returned count: retain every actual signed return independently, including change, signed exit and the24-store budget. No getter/cache helper may be called by the observer.
+
+Select only the first eligible thread/lifetime/activation. Other already armed threads retire at their own stopped anchors; once selected, new threads and later module loads acquire no new debug controls. After the selected terminal, retain complete own-state cleanup through self-retirement, exit or separately recorded idle module retirement. Do not mutate foreign unowned contexts to enforce the cap. Preserve explicit unknown-target, ineligible, cap-skip, dependency and transport outcomes and all raw records.
+
+Exercise normal and dormant-state control builds against the same frozen multithread/two-generation host and untraced outputs/FP images. Independently review raw phases, selected filter/source/actual-count distinction, single-capture uniqueness, complete terminal partitions and source closure before retail preparation. A future native adapter needs exact retail module/header/code selection rather than authored carrier fragments, a new root and fresh immediate ownership/cursor guards. This does not establish a downstream consumer or absence of intervening writes.
+
 ## Getter-history lifecycle admission plan (2026-11-06 MA onward)
 
 The current stopped row/type/model relation is admitted separately. Earlier JG/JI/JM fixtures establish a one-slot getter chain and one scheduled unarmed peer; they do not establish real module identity/generation, general thread lifetimes or preservation of meaningful preexisting debug state. Do not use those fixtures for retail history without closing these boundaries.

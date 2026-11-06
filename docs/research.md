@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Authored loaded getter history boundaries (2026-11-06 MA–MD)
+
+The exact retail getter/count/dispatch windows now execute in an authored PEcarrier with actual file/path/load generation evidence. Two same-base generations and22thread lifetimes per run are separately keyed. One execution slot moves through the actual indirect target entry, signed count returns, pre-FLD, post-FSTP, getter RET and caller resume; TF is never set and no target-memory write is used. Unknown targets are refused before arming their raw addresses.
+
+Independent raw admission yields940stops/12462reads/988context triples,262sampled stores and288signed returns. Every requested/actual non-debug DWORD is preserved except the explicit WOW64 reserved EFlags bit1 relation. Two actual dormant comparators are refused unchanged; selected-module idle retirements restore saved debug state. Current fixtures have stable per-call counts, no numeric TID reuse and no active-call unload. Foreign-event/activation occurrences are668normal/324controls, not992unique OS events or proof excluding concurrent writes.
+
+This remains authored fragment execution, not full retail caller/history, entity/actor identity, a later pose load, final/rendered pose, campaign completion or Rust parity. The single selected activation and its cap cleanup remain separate work. Original916aggregate is retained and explicitly corrected by the accepted940closure.
+
 ## Current native object/list/type evidence (2026-11-06 LW–LY)
 
 One freshly guarded normal-build capture reaches32client initializer-return stops. Independent raw object and list interpreters plus the separate PE-based type interpreter reproduce192object/704list/640type reads. Current raw handle1b3301h selects entry301h and serial1b3h; the bounded row points to the independently observed object at every stop. The current three-prefix/COL/type-name/primary-slot/thunk bytes match C_AI_BaseNPC metadata. Returned hierarchy pointers are compared at bounded expected addresses and are not followed.

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: admit loaded getter lifecycle and plan one selected capture
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used.
+- Changed: authored PEcarrier, multithread/two-generation host, per-thread one-slot getter observer and independent raw/context review; planned bounded single-activation selection/cleanup.
+- Why: the earlier allocated-image fixture lacked actual module-generation and thread/debug-ownership evidence.
+- Tested how:106carrier byte controls; one untraced baseline; two traced runs;940raw stops,12462reads,988context triples,96primary and32independent corruption controls. All160raw FP images and final outputs match baseline.
+- Result:262sampled stores/288actual signed returns; two unchanged dormant-state refusals; unknown target and24-before25budget boundaries retained. Exact per-run counts correct an original916aggregate typo to940in the accepted closure.
+- Still broken or not tested: stable authored counts only; no numeric TID reuse, active-call unload, enabled-comparator/TF API conflict or native getter history. Build/CRLF/aggregate review failures retained. No Rust action, actor/final pose/campaign/parity claim.
+- Next: one eligible activation, no new arms after selection, independent partial-cap review, then a separately admitted retail adapter and fresh ownership guard.
+
 ## 2026-11-06: bind current model metadata and plan getter lifecycle fixtures
 
 - Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used.
