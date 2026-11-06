@@ -8,7 +8,7 @@
 
 **Why:** next steps of the session plan; the owner saw during the session that the animated faceplate was missing.
 
-**Tested how / Result:** see STATUS "Current session 47" for packaged runs, A/Bs and validation.
+**Tested how / Result:** see STATUS "Current session 47" for packaged runs, A/Bs and native runs. On ac0bf06: strict Clippy clean, 1567 unit tests passed and 2 failed (the two --release should_panic rendering tests), s47f-regression 26/26, 17/17, 26/26, replays 72 of 72 in 526 s with JOBS=3.
 
 **Frame time:** **not measured**. A lit spotlight costs up to three line traces and one attachment read per think, and 12 quads a frame.
 
