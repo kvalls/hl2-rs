@@ -12,9 +12,9 @@
 
 **Frame time:** **not measured**. A lit spotlight costs up to three line traces and one attachment read per think, and 12 quads a frame.
 
-**Still broken or not tested:** see STATUS "Not done for scanners" and its two Open items, screen fades in linear light and dim sprites. No native comparison of any of this. Ordinary play of a scanner map **not tested**.
+**Still broken or not tested:** see STATUS "Not done for scanners". Native comparison of shape, flash delay and fade curve done; native's full-white peak, the body's brightness and dim sprites are open. Ordinary play of a scanner map **not tested**.
 
-**Next:** native side by side of the faceplate, spotlight and flash; then mines, inspection of citizens, npc_manhack.
+**Next:** the open native items, then inspection of citizens, mines, npc_manhack.
 
 ## 2026-11-05 session 46c: npc_cscanner in the runtime, main at 031aa58 (Claude Code desktop, claude-opus-5-5)
 
