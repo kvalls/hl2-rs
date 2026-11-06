@@ -1,5 +1,11 @@
 # STATUS
 
+## Current object/model bounded correspondence (2026-11-06 LZ)
+
+All32admitted current object/root associations correspond to bounded owned gman_high.mdl metadata, with explicit owned-v44/loaded-v48 relation. All39available header groups match uniquely across four owned candidates:32root and seven Humans/male_shared groups.95local descriptor observations produce88canonical observed/264unavailable occurrences;89groups remain unavailable. Cached group1is available at captures2and27–32, so availability is not monotonic and no cache operation/lifetime is inferred. Nine extra correlation controls reject; five frozen seals and unchanged native verifier pass. LZseals3files/16bindings.
+
+The model name does not identify a named G-Man scene actor. Next fixture-admit actual loader/generation/thread ownership for the earlier getter-history chain; existing current endpoints do not prove earlier dispatch/copy. No Rust action or first-map/parity completion.
+
 ## Native stopped object/list/type correspondence (2026-11-06 LW–LY)
 
 After completed LQ review and separate LX prelaunch admission, fresh ownership guards clear. Debugger5108/native31388 exit0 after32fixed initializer-RET stops in43.078seconds. All32raw object observations match a bounded current entity-list row and loaded C_AI_BaseNPC metadata:192object/704list/640type reads. Raw index301h and handle1b3301h yield entry301h/serial1b3h; row pointer equals the observed object and serial matches at each stop. Raw index/entry equality is observed here, not assumed generally.

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: bind current model metadata and plan getter lifecycle fixtures
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used.
+- Changed: LZbounded owned model correspondence for current object/root observations; fixture-first getter lifecycle plan.
+- Why: model metadata can narrow current correspondence while earlier getter history remains a distinct missing witness.
+- Tested how: exact owned VPK-region rereads, unchanged admitted comparator/protocol, full native verifier/five seals and nine new correlation controls.
+- Result:32root gman_high matches with explicit44/48relation, seven cached male_shared matches;39unique bounded matches/89unavailable groups. No inferred named actor or cache operation.
+- Still broken or not tested: loader/thread/debug-register lifecycle for variable-site getter tracing, named scene actor/entity lifetime, downstream consumer/final pose/campaign/Rust parity.
+- Next: private authored PEcarrier, exact byte/permission/relocation checks, then bounded multithread/module-generation history fixtures and independent review.
+
 ## 2026-11-06: observe current native object/list/type relation
 
 - Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used in this continuation.

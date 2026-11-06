@@ -1,5 +1,17 @@
 # Design
 
+## Getter-history lifecycle admission plan (2026-11-06 MA onward)
+
+The current stopped row/type/model relation is admitted separately. Earlier JG/JI/JM fixtures establish a one-slot getter chain and one scheduled unarmed peer; they do not establish real module identity/generation, general thread lifetimes or preservation of meaningful preexisting debug state. Do not use those fixtures for retail history without closing these boundaries.
+
+First create an authored x86 PE DLL carrier containing the exact independently pinned dispatch/getter/count windows at their retail-relative addresses and clearly separate authored setup/epilogue/alternate code. Verify PE section permissions, relocation sites, entrypoint and every exact fragment before any fixture execution. This adds an actual loader/file/path/generation identity to the former private allocated image. Keep all bytes and tools private.
+
+Then admit one bounded activation with per-thread lifetime state, exact module load/unload evidence, symmetric source/code reads and complete pre/request/readback contexts. Claim a thread only with a clean debug-register state; preserve and explicitly decline meaningful dormant/enabled comparator state instead of overwriting it. Use one execution slot, never trap-flag stepping or process-memory writes. Bind each active first-chance stop to PID/TID/lifetime/generation, expected site, original frame/object/wrapper/return and a monotonically advancing activation.
+
+Exercise normal and signed/null/alternate/budget paths, multiple worker lifetimes, a foreign unarmed peer and at least two actual module generations. Preserve full FP/output comparisons with untraced authored baselines. At cap, retire the currently stopped thread directly; other armed threads self-retire at their own stops, exit or separately recorded generation retirement. Unknown target/code/context and deadline paths require explicit bounded refusal/cleanup outcomes. Do not claim arbitrary active-call unload safety from idle retirement tests.
+
+A separate raw/source review must precede any later retail preparation. A future retail run still requires its own new root and fresh immediate ownership/cursor guards. Observing a getter store is separate from proving a later pose consumer or absence of intervening writes. No Rust work is included.
+
 ## Native stopped identity disposition (2026-11-06 LW–LY)
 
 The passive fixed-return observer now admits current object prefix/index/handle, current complete-list/interface metadata, pointer/serial row and known-type metadata at one stopped20-key/module-generation identity. List status0 alone does not prove object equality; the raw equality word is checked separately. The native capture has32such equalities, while an independent coherent diagnostic preserves status0/equality0.

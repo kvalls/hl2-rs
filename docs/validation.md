@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Current model metadata comparison (2026-11-06 LZ)
+
+The admitted KI protocol rereads the four exact owned VPK regions in place and retains its22structural controls/19coherent diagnostics. LZ consumes frozen LW header/VM/object/list indices only after full native verification and five seal checks.39available groups yield39unique bounded matches, zero ambiguous/unmatched records;89unavailable groups stay unavailable. Pair/remap topology matches32/32; root44/loaded48 is explicit, not conversion execution or full-file identity. Nine current-object/root correlation controls reject. No native producer rerun, Rust build or ordinary campaign test.
+
 ## Combined native capture validation (2026-11-06 LW–LY)
 
 LX verifies200prelaunch source bindings/38private origins and independently executes the actual combined verifier joins on49normal authored stops:980type/990list/196count reads. Four foreign/unknown phase controls reject; the native OI gate additionally refuses the fixture injection stream. That adapter does not replace native module or cleanup proof.
