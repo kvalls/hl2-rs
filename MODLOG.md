@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06 evening: stopped list admission and bounded type correspondence
+
+- Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent integration, source/raw review and type-reader reviewers materially involved.
+- Changed: LG same-stop list sidecar, LK independent review, LH/LI static conversions, LM/LN standalone known-type reader and independent replay.
+- Why: bind current list data to the admitted stopped object/module context and prepare a separate loaded-type witness without inferring an actor from a raw model/type prefix.
+- Tested how: normalcaps1/12/36 plus separate OIcontrols36,85stops1540list RPM; full enclosing FP/lifecycle/module/code/count/VM/header checks;72integration controls and22extra independent controls. Type fixture209cases2458RPM, strict x86 build,40copied controls plus31independent controls. Exact static windows and private-source closures authenticated.
+- Result: authored stopped list integration admitted; standalone known-type reader admitted. No retail probe was launched after the foreground-game ownership refusal.
+- Still broken or not tested: native object/list/type association, entity lifetime/named actor, earlier getter/cache history, composed/rendered pose, campaign/Rust parity. Other platforms not tested. Rejected offline verifier drafts remain retained separately.
+- Next: bind the unchanged known-type reader to the same stopped object/module context in a new authored observer, then independently review before any later retail capture.
+
 ## 2026-11-06 evening: direct entity-list root and standalone passive reader
 
 - Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent entity-list, prelaunch/deferral and reader reviewers materially involved.

@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Authored stopped-list and known-type validation (2026-11-06 LG–LN)
+
+LG normal partial1/partial12/full36 and separate OIcontrols36 all exit0.85stops/1540LIreads; nine OI refusals correctly skip all list reads. Original lifecycle/cap/drain/retirement, loaded module/file/code, current output/count/VM/header and caller-FP checks pass.72new LI corruptions reject. LK independently agrees with all raw phases/identities/requests/results, adds22controls and demonstrates full module-proof rejection of a nongeometry header change that the size-only helper accepts. PE section flags are RW/nonexecuting; actual hardware page protection was not separately queried.
+
+LM strict MSVC /W4 /WX build and sole x86 host36044 pass209cases/2458actualRPM:21stable,6range,162API,10changed,10contract.20real fault stages and two exact-boundary unmapped requests;160callback API controls (140refused/20BOOL2),10reverse mutations and40copied corruptions. Original final image-extent control fails as documented; separate correction admits the valid extent diagnostic and rejects below-minimum extent without source/capture edits or producer rerun. LN's independent PE-based interpreter agrees all209cases and rejects31extra controls. Windows tested; other platforms not tested. No retail capture, gameplay build/replay, campaign completion or Rust parity test.
+
 ## Passive list reader validation (2026-11-06 LA–LE)
 
 Windows authored x86 self-process host36684 exits0 after237cases/3180actual ReadProcessMemory calls. Strict MSVC /W4 /WX build passes. Status distribution:31nonnull serial matches,4range,177transport,11changed,10contract,1sentinel,2serial mismatches and1equal-serial null.22stage-specific PAGE_NOACCESS faults plus the exact32bit-end unmapped request are actual OS reads.176callback API controls perform RPM first, then inject reported BOOL/count/error fields;154refuse and22BOOL2cases succeed.11reverse mutations change fixture memory.45copied journal/metadata corruptions reject, including coherent case-block relocation with repaired global ordinals. All launch pins remain unchanged; owned fixture closed; no game/cursor control. Other platforms not tested.

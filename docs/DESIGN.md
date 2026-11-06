@@ -1,5 +1,13 @@
 # Design
 
+## Known-type stopped integration plan (2026-11-06 LM–LN)
+
+LG admits the list reader using the complete current module-file/code proof together with loaded header size/generation and the successful object-sidecar raw handle. A SizeOfImage-only parser is not a replacement for the full module proof. Refused object observations produce explicit dependency refusal with zero list reads/words; sentinel list outcomes produce no route witness. Stable row equality is a bounded stopped relation, not lifetime or lookup history.
+
+LM separately admits ten symmetric known-type sources: current object prefix12; three locator cells; three COL20records with offsets0/4/8; exact type-name19; two primary conversion slots18h/1ch; identity thunk3. Returned metadata pointers are compared at derived bounded addresses and never followed. The hierarchy pointer does not establish a loaded hierarchy walk. Valid caller extent changes can leave all requests/results unchanged and are coherent inputs, not corruptions. A future observer must supply the actual admitted current module extent/generation.
+
+Next integrate the unchanged reader after the list interval and before VM evidence in a new authored fixture. Join current prefix to the independently observed object-sidecar and nested prefixes plus the same20 stopped identity fields/module generation. An object dependency refusal must not promote words. List sentinel/mismatch/null/disagreement do not by themselves invalidate an independent type witness. Strictly admit complete type phases before filtering only known labels for inherited parsers. Preserve full/partial caps, caller FP, module/code and cleanup checks; seed metadata/thunk as data without invoking them. Retail use needs another fresh-root source review and immediate ownership guard.
+
 ## Entity-list reader disposition and stopped integration plan (2026-11-06 LA–LE)
 
 The exact retail creator returns a direct static subobject: interface=modulebase+4bf344, complete=modulebase+4af330. Current pointer admission needs the separately observed creator immediate, primary/interface vptrs, both locator cells/COLs, exact type name, selected slot target and consumer51bytes. All read addresses derive from the admitted module base; target-returned pointers are compared rather than followed. Static initialized-layout correspondence remains separate from current initialized data.

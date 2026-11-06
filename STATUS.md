@@ -1,5 +1,11 @@
 # STATUS
 
+## Stopped list integration and known-type reader (2026-11-06 LF–LN)
+
+LG normalcaps1/12/36 and separate OIcontrols36 all exit0:85stops/1540list reads, with nine refused OI outcomes correctly skipping list reads. Normal49stops supply990reads; controls36 supply550. Every original caller-FP/lifecycle/module/code/count/VM/header check passes.72new integration corruptions reject; three coherent row diagnostics remain admitted. LK independently replays raw identities/phases/requests/results and demonstrates that the loaded-size helper must compose with the full module proof. Current retail list/object values remain unobserved after LC's frozen ownership deferral.
+
+LH/LI bind the selected candidate interface conversions statically; they do not observe a conversion. LM's standalone known-type reader host36044 exits0:209cases/2458actual reads,20real stage faults,10reverse changes,160callback API controls and40copied corruptions. Original pinned verifier's false valid-extent corruption expectation is retained; separate admission accepts coherent image_size+1 and rejects below-minimum extent without rerunning the producer. LN independently reproduces the raw cases and rejects31extra controls. No loaded retail type, named actor/entity lifetime, getter/cache history, final/rendered pose, campaign completion or Rust parity. No Rust action.
+
 ## Passive list reader admitted; retail ownership deferred (2026-11-06 LA–LE)
 
 Fresh LC source admission and independent LB review pass180bindings/18private origins. At20:01:09UTC the initial ownership guard finds preexisting foreground Deadlock16872 with a confined cursor and refuses before settings/pins/command/finalguard/spawn. LC is frozen; zero actual debugger/retail launches and no game/cursor control. Independent LD verifies the control-flow boundary, all source pins and absence of capture artifacts. Another retail attempt requires a new root and immediate fresh guard.

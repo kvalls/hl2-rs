@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Same-stop list and static conversion boundaries (2026-11-06 LG–LN)
+
+LG appends an authored RW/nonexecuting zero-fill section to the fixture DLL while preserving all original section bytes and exact initializer401. The host supplies list/RTTI/consumer data; copied creator/consumer bytes are never executed. Full36 selects33distinct nonsentinel entries and three sentinels. Every LI read joins through its capture record to the20-field stopped identity, successful OI handle and loaded module size/generation. Nine OI refusals in the separate control capture produce dependency refusal with zero list reads. These are authored foreign-process fixtures, not current retail list initialization or row membership.
+
+Static LH/LI show that the selected handle wrappers first dispatch lookupslot8, then null-check and dispatch networkable slot10h or entity slot18h. The retained candidate primary entity/base slots18h/1ch both target exact identity thunk10074960. Current loaded candidate slots/code and conversion execution remain unobserved. The indexed wrapper checks signed negative input but has no upper bound/serial check and cannot replace bounded handle reads. SDK method names remain inferred correspondence.
+
+LM's bounded type reader admits exact current-metadata consistency in authored fixtures only. A valid larger caller extent is a coherent input diagnostic, not an observed module header. The original false-corruption check remains rejected and pinned; a separate corrected admission preserves captures and source pins. No named actor, entity lifetime, getter/cache history, composed/rendered pose, campaign completion or Rust parity follows from these results.
+
 ## Direct entity-list root and bounded read contract (2026-11-06 LA–LE)
 
 Exact retail bytes and relocation sites establish interface I=M+4bf344 and complete instance B=M+4af330 for admitted client base M. The factory is a six-byte direct-address return, not a mutable pointer-slot load. Constructor writes and paired COLs independently agree on subobject displacement10014. Current initialized instance bytes remain unobserved; both instance addresses are in zero-filled writable data. The selected array has4096rows/16bytes, with pointer/serial8 at B+4+16*(handle&fff). Cached SDK handle constants remain inapplicable to this exact retail consumer.
