@@ -1,5 +1,15 @@
 # Design
 
+## Passive object-word sidecar plan (2026-11-06)
+
+The retained 12-byte object prefixes map, relative to the admitted client image, to three static vtable candidates whose locator records name C_AI_BaseNPC. This is static correspondence; the loaded locator/vtable bytes and entity identity remain unobserved. Exact setter/getter instructions locate a raw handle word at outer object+ach; an exact secondary-interface getter and caller adjustment locate a current index candidate at outer object+50h. Preserve these as raw words without serial/index bit decoding.
+
+First validate a standalone passive reader on an authored x86 fixture: read prefix12, index4 and handle4, then reread in reverse. Admit overflow/null refusals, actual inaccessible pages, each reverse mutation and independent API BOOL/byte-count/error controls. Raw signed or sentinel values remain diagnostics, not presumed actor identities.
+
+Then integrate that unchanged reader into a new authored x64 debugger/x86 fixture observer. Bind each outcome to the same 20 stopped identity fields, same active phase and independently admitted symmetric nested prefix. Exercise full and partial caps, three worker lifetimes, module generations, caller FP preservation and explicit refusal outcomes. Do not invoke any target function or cache helper. Stop after two unsuccessful real attempts at one approach and retain failures.
+
+A later retail run requires a separate root, reviewed source closure including actual imported module origins, a fresh ownership/cursor guard immediately before spawn, unchanged selected installation/source pins and owned-process cleanup. Target one bounded d1_trainstation_01 startup at the fixed initializer RET, capped at 32 samples and the admitted debugger deadline. Stable current raw words would still leave entity-list/generation binding, named actor/scene correspondence, earlier getter history, composed/rendered pose, campaign completion and Rust parity open.
+
 ## Relocated evidence and metadata continuation plan (2026-11-06)
 
 Preserve the frozen header captures and source pins. Audit relocation-sensitive path checks independently: retain each original lexical path, require the explicitly recorded junction and same-file identity, and authenticate every manifest entry and external binding. A current seal-script path-classification failure is distinct from changed captured bytes; do not silently regenerate an earlier seal or claim that failing replay passed.
