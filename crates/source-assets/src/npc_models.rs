@@ -238,7 +238,7 @@ mod tests {
         let vfs = crate::vpk::Vfs::mount(&game).unwrap();
         let data = vfs.read("models/combine_scanner.mdl").unwrap().unwrap();
         let text = String::from_utf8_lossy(&data);
-        for name in text.split(' ').filter(|s| s.len() > 3 && s.len() < 60) {
+        for name in text.split('\0').filter(|s| s.len() > 3 && s.len() < 60) {
             let lower = name.to_lowercase();
             if lower.contains("scanner") && !lower.contains('.') {
                 let path = format!("materials/models/combine_scanner/{lower}.vmt");
@@ -266,7 +266,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let image = crate::vtf::decode(&data, 512).unwrap();
-        let alpha: Vec<u8> = image.rgba.chunks_exact(4).map(|p| p[3]).collect();
+        let alpha: Vec<u8> = image.rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
         let lit = alpha.iter().filter(|a| **a > 16).count();
         println!(
             "TEX {}x{} translucent {} lit share {:.3} max {}",

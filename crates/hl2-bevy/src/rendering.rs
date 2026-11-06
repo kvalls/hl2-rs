@@ -1568,6 +1568,7 @@ mod tests {
                     attachments: Vec::new(),
                     activities: Default::default(),
                     hitboxes: Vec::new(),
+                    bone_surfaces: Vec::new(),
                     bones: vec![Bone {
                         name: "root".into(),
                         parent: None,

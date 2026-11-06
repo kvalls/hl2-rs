@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-06 session 48: npc_cscanner polish from a native comparison, NPC surfaces for every class (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** 9be0b34: the hover plays the inspect sequences through TranslateActivity's walk and run fallback, a flare closes through retract, every NPC hit reports the hit bone's surfaceprop (sound, sparks, decal group), scanners, manhacks and striders ricochet, a hurt scanner trails smoke, its end throws sparks. e37dd64: physics collisions report the model's surface too.
+
+**Why:** the owner's playtest: plate held back, no faceplate animation, flesh sounds, no sparks or smoke; asked for a long native comparison and for retail and installed files to be checked, not the SDK alone.
+
+**Tested how / Result:** see STATUS "Current session 48": 1802 native engine frames and sequence timelines, retail server functions, owned model and material dumps, packaged runs on d1_canals_02.
+
+**Frame time:** **not measured**. A smoking scanner adds one particle per think; a hit adds one lookup in a map and one in a rig.
+
+**Still broken or not tested:** model reflections (env_cubemap), so bodies are dark; native frames of a hit; the flash's flat 255; why native's first flash comes late.
+
+**Next:** env_cubemap for models per DESIGN, then npc_manhack steps 2 to 5.
+
 ## 2026-11-06 session 47: npc_cscanner's flash, faceplate, spotlight and inspection search, main at f55c705 (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
