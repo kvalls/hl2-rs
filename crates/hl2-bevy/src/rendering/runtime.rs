@@ -226,14 +226,12 @@ fn spawn_runtime_instance_draw(
         });
     }
     if let Some(lit) = parts.lit {
-        draw.insert(ModelLit {
-            entity: Some(id),
-            key: lit.key.clone(),
-            scale: lit.scale,
-            half_lambert: lit.half_lambert,
-            last: None,
-            dynamic: false,
-        });
+        draw.insert(ModelLit::new(
+            Some(id),
+            lit.key.clone(),
+            lit.scale,
+            lit.half_lambert,
+        ));
     }
     if let Some(animation) = parts.animation {
         if let Some(skeleton) = gpu {

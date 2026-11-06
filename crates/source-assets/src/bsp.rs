@@ -143,6 +143,18 @@ impl Bsp {
         data.dynamic_minlight = self.dynamic_minlight();
         Ok(data)
     }
+    /// LUMP_CUBEMAPS (42): where each sample was built, which also names its texture.
+    pub fn cubemap_origins(&self) -> Vec<[i32; 3]> {
+        let lump = self.lump(42);
+        let samples = lump.as_chunks::<16>().0.iter();
+        samples
+            .map(|s| {
+                std::array::from_fn(|i| {
+                    i32::from_le_bytes([s[i * 4], s[i * 4 + 1], s[i * 4 + 2], s[i * 4 + 3]])
+                })
+            })
+            .collect()
+    }
     /// LUMP_MAP_FLAGS (59) and the BSP version select the dynamic-light minlight floor.
     fn dynamic_minlight(&self) -> f32 {
         let flags = self

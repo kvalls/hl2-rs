@@ -19,11 +19,13 @@ use modkit_core::Surface;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod cpu_skin;
+pub(crate) mod cubemaps;
 pub(crate) mod drawing;
 use cpu_skin::skin_on_cpu;
 mod face_flex;
 pub use face_flex::FlexModels;
 mod lighting;
+use lighting::ModelLit;
 pub(crate) mod lod;
 mod map_draw;
 mod material;
@@ -162,17 +164,6 @@ impl ModelLighting {
     }
 }
 /// A model draw lit from its entity's (or the view's) illumination origin.
-#[derive(Component)]
-pub struct ModelLit {
-    entity: Option<usize>,
-    key: String,
-    scale: f32,
-    half_lambert: bool,
-    last: Option<(glam::Vec3, bool)>,
-    /// Entity lights (muzzle elights) lit this draw last time: relight once they end.
-    dynamic: bool,
-}
-
 #[derive(Default)]
 struct Batch {
     positions: Vec<[f32; 3]>,
@@ -986,6 +977,17 @@ pub fn spawn_map_filtered(
             chunks.into_iter().map(move |batch| (key.clone(), batch))
         })
         .collect::<Vec<_>>();
+    commands.insert_resource(cubemaps::upload(
+        &loaded.cubemaps,
+        images,
+        &mut texture_handles,
+        filtering,
+    ));
+    let reflections = cubemaps::Envmaps {
+        world: &envmaps,
+        masks: &envmap_masks,
+        plain: plain_materials,
+    };
     let mut material_handles = BTreeMap::new();
     let mut skeletons = BTreeMap::<Owner, crate::gpu_skinning::Skeleton>::new();
     for ((owner, name, lm, _), mut batch) in batches {
@@ -1035,17 +1037,12 @@ pub fn spawn_map_filtered(
                     }))
                     .extend(1.);
                 }
-                // World and brush surfaces only: model envmaps are not loaded yet.
-                if let Some(envmap) = envmaps
-                    .get(&name)
-                    .filter(|_| !batch.model && !plain_materials)
-                {
-                    material.envmap = envmap.clone();
-                    material.envmap_tint.w = 1.;
-                    if let Some(mask) = envmap_masks.get(&name) {
-                        material.envmap_mask = mask.clone();
-                    }
-                }
+                reflections.bind(
+                    &mut material,
+                    &name,
+                    batch.model,
+                    lit && definition.model_envmap,
+                );
                 if lit {
                     material.lighting = ModelLighting::fallback(definition.half_lambert);
                 }
@@ -1217,14 +1214,10 @@ pub fn spawn_map_filtered(
                 }
                 Owner::World | Owner::SkyWorld => unreachable!("lit draws are model owned"),
             };
-            draw.insert(ModelLit {
-                entity,
-                key,
-                scale,
-                half_lambert: definition.half_lambert,
-                last: None,
-                dynamic: false,
-            });
+            draw.insert(
+                ModelLit::new(entity, key, scale, definition.half_lambert)
+                    .reflecting(definition.model_envmap && !plain_materials),
+            );
         }
         if let Some(animation) = animation {
             if let Some(skeleton) = &animation.gpu {
@@ -1370,14 +1363,12 @@ pub(crate) fn build_model_draws(
             draw.insert(levels);
         }
         if lit {
-            draw.insert(ModelLit {
-                entity: Some(id),
-                key: instance.asset_key(),
-                scale: instance.scale,
-                half_lambert: definition.half_lambert,
-                last: None,
-                dynamic: false,
-            });
+            draw.insert(ModelLit::new(
+                Some(id),
+                instance.asset_key(),
+                instance.scale,
+                definition.half_lambert,
+            ));
         }
         if let Some(animation) = animation {
             if let Some(skeleton) = &animation.gpu {

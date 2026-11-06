@@ -128,6 +128,9 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     )?;
     mode.cancel.check()?;
     timing.mark("materials");
+    let (cubemaps, cubemap_errors) = super::cubemaps::load(&vfs, map, &bsp, (picmip, hdr));
+    texture_errors.extend(cubemap_errors);
+    timing.mark("cubemaps");
     progress.report(0.90, "LoadingProgress_SignonLocal");
     let super::loading_auxiliary::Auxiliary {
         hud,
@@ -165,6 +168,7 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
         bsp,
         world,
         materials,
+        cubemaps,
         texture_errors,
         models: serde_json::to_value(model_report)?,
         vfs,

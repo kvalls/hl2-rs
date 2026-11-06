@@ -1,4 +1,5 @@
 //! Read owned Source assets before constructing the Bevy app; no system performs file I/O.
+pub(crate) mod cubemaps;
 mod faces;
 pub(crate) mod loading;
 mod loading_auxiliary;
@@ -55,6 +56,8 @@ pub struct LoadedMap {
     pub bsp: Bsp,
     pub revision: u32,
     pub materials: BTreeMap<String, MaterialData>,
+    /// The map's cubemap samples, which models reflect.
+    pub cubemaps: Vec<cubemaps::Sample>,
     /// The flashlight's projected texture.
     pub flashlight_cookie: Option<Arc<Image>>,
     /// The world triangles projected shadows land on.
@@ -115,6 +118,8 @@ pub struct MaterialData {
     pub envmap_contrast: [f32; 3],
     pub envmap_saturation: [f32; 3],
     pub fresnel_reflection: f32,
+    /// `$envmap env_cubemap` on a VertexLitGeneric material: it reflects a sample near the model.
+    pub model_envmap: bool,
     /// $basealphaenvmapmask: the envmap is masked by 1 - base alpha.
     pub base_alpha_envmap_mask: bool,
     /// $envmapmask texture (RGB mask), or the $bumpmap: its normals perturb the reflection
@@ -158,6 +163,7 @@ impl Default for MaterialData {
             envmap_contrast: [0.; 3],
             envmap_saturation: [1.; 3],
             fresnel_reflection: 1.,
+            model_envmap: false,
             base_alpha_envmap_mask: false,
             envmap_mask: None,
             envmap_mask_path: None,
@@ -609,6 +615,15 @@ fn envmap_mask(definition: &Definition) -> Option<(&str, EnvmapMask)> {
     }
 }
 
+/// Whether a material reflects the cubemap sample near its model.
+fn reflects_sample(definition: &Definition) -> bool {
+    definition.shader.eq_ignore_ascii_case("vertexlitgeneric")
+        && definition
+            .properties
+            .get("$envmap")
+            .is_some_and(|name| name.eq_ignore_ascii_case("env_cubemap"))
+}
+
 /// The $envmap cubemap of a LightmappedGeneric material. `env_cubemap` (resolved by the
 /// engine at runtime for entities) is not supported yet; map compiles bake world faces into
 /// patch VMTs naming a sample. HDR mode loads the .hdr.vtf variant when present.
@@ -657,6 +672,58 @@ fn load_envmap(
     }
     *decoded_bytes = total;
     Ok(Some((path, cube)))
+}
+
+/// A material's reflection: its parameters, its cubemap when it names one, and its mask.
+fn reflection(
+    vfs: &Vfs,
+    definition: &Definition,
+    material: &mut MaterialData,
+    cache: &mut BTreeMap<String, Arc<Image>>,
+    decoded_bytes: &mut usize,
+    quality: (i32, bool),
+) -> Result<()> {
+    let envmap = envmap_parameters(definition, material)
+        .and_then(|()| load_envmap(vfs, definition, decoded_bytes, quality));
+    let from_sample = reflects_sample(definition);
+    let envmap = envmap.and_then(|cube| {
+        if cube.is_none() && !from_sample {
+            return Ok(None);
+        }
+        let mask = envmap_mask(definition)
+            .map(|(texture, kind)| -> Result<_> {
+                let path = asset_path(texture, ".vtf")?;
+                let image = cached_texture(cache, decoded_bytes, &path, quality.0, || {
+                    vfs.read(&path)?
+                        .with_context(|| format!("envmap mask absent: {path}"))
+                })?;
+                Ok((path, image, kind))
+            })
+            .transpose()?;
+        Ok(Some((cube, mask)))
+    });
+    match envmap {
+        Ok(Some((cube, mask))) => {
+            if let Some((path, cube)) = cube {
+                material.envmap_path = Some(path);
+                material.envmap = Some(Arc::new(cube));
+            }
+            material.model_envmap = from_sample;
+            if let Some((path, image, kind)) = mask {
+                material.envmap_mask_path = Some(path);
+                material.envmap_mask = Some(image);
+                material.envmap_mask_alpha = kind.alpha;
+                material.envmap_bump = kind.bump;
+            }
+            // SDK ShaderInit: an opaque base texture clears BASEALPHAENVMAPMASK.
+            if !material.base.as_ref().is_some_and(|base| base.translucent) {
+                material.base_alpha_envmap_mask = false;
+            }
+        }
+        Ok(None) => {}
+        Err(error) => return Err(error),
+    }
+    Ok(())
 }
 
 fn load_material(
@@ -827,42 +894,16 @@ fn load_material(
         Ok(tint) => material.self_illum = tint,
         Err(error) => errors.push(format!("{name}: selfillum: {error:#}")),
     }
-    let envmap = envmap_parameters(&definition, &mut material)
-        .and_then(|()| load_envmap(vfs, &definition, decoded_bytes, (picmip, hdr)));
-    let envmap = envmap.and_then(|cube| {
-        let Some(cube) = cube else {
-            return Ok(None);
-        };
-        let mask = envmap_mask(&definition)
-            .map(|(texture, kind)| -> Result<_> {
-                let path = asset_path(texture, ".vtf")?;
-                let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
-                    vfs.read(&path)?
-                        .with_context(|| format!("envmap mask absent: {path}"))
-                })?;
-                Ok((path, image, kind))
-            })
-            .transpose()?;
-        Ok(Some((cube, mask)))
-    });
-    match envmap {
-        Ok(Some(((path, cube), mask))) => {
-            material.envmap_path = Some(path);
-            material.envmap = Some(Arc::new(cube));
-            if let Some((path, image, kind)) = mask {
-                material.envmap_mask_path = Some(path);
-                material.envmap_mask = Some(image);
-                material.envmap_mask_alpha = kind.alpha;
-                material.envmap_bump = kind.bump;
-            }
-            // SDK ShaderInit: an opaque base texture clears BASEALPHAENVMAPMASK.
-            if !material.base.as_ref().is_some_and(|base| base.translucent) {
-                material.base_alpha_envmap_mask = false;
-            }
-        }
-        Ok(None) => {}
+    if let Err(error) = reflection(
+        vfs,
+        &definition,
+        &mut material,
+        cache,
+        decoded_bytes,
+        (picmip, hdr),
+    ) {
         // Without its mask an envmap would be far too strong, so it is dropped entirely.
-        Err(error) => errors.push(format!("{name}: envmap: {error:#}")),
+        errors.push(format!("{name}: envmap: {error:#}"));
     }
     if definition.shader.eq_ignore_ascii_case("eyes") || material.eye_fallback {
         let iris = (|| -> Result<(String, Arc<Image>)> {

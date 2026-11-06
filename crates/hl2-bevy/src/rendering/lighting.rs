@@ -1,15 +1,52 @@
 //! Model ambient/local light presentation and the viewmodel's draw-to-world lighting basis.
-use super::{ModelLighting, ModelLit, SourceMaterial};
+use super::{ModelLighting, SourceMaterial};
 use crate::source_to_bevy;
 use bevy::{
     asset::Assets,
     camera::visibility::InheritedVisibility,
-    ecs::system::{Query, Res, ResMut},
+    ecs::{
+        component::Component,
+        system::{Query, Res, ResMut},
+    },
     math::{Mat4, Vec3},
     pbr::MeshMaterial3d,
     transform::components::Transform,
 };
 use std::collections::BTreeMap;
+
+/// A model lit by its own light state.
+#[derive(Component)]
+pub struct ModelLit {
+    pub(super) entity: Option<usize>,
+    pub(super) key: String,
+    pub(super) scale: f32,
+    pub(super) half_lambert: bool,
+    last: Option<(glam::Vec3, bool)>,
+    /// Entity lights (muzzle elights) lit this draw last time: relight once they end.
+    dynamic: bool,
+    /// The cubemap sample it reflects, for a material that reflects one; usize::MAX before any.
+    cubemap: Option<usize>,
+}
+
+impl ModelLit {
+    pub(super) fn new(entity: Option<usize>, key: String, scale: f32, half_lambert: bool) -> Self {
+        Self {
+            entity,
+            key,
+            scale,
+            half_lambert,
+            last: None,
+            dynamic: false,
+            cubemap: None,
+        }
+    }
+    /// Its material reflects the cubemap sample near it. A model loaded late has no mask for it
+    /// yet, and without one a reflection is far too strong, so those do not reflect.
+    pub(super) fn reflecting(mut self, reflects: bool) -> Self {
+        self.cubemap = reflects.then_some(usize::MAX);
+        self
+    }
+}
 
 /// Recompute each lit model's light state when its illumination origin moves
 /// (retail light cache at origin + rotation * illumposition * scale), and every frame
@@ -26,6 +63,7 @@ pub fn present_lighting(
     )>,
     mut materials: ResMut<Assets<SourceMaterial>>,
     performance: Option<Res<crate::performance::Performance>>,
+    cubemaps: Option<Res<super::cubemaps::ModelCubemaps>>,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "model lighting");
     let Some(data) = game.world.lighting.as_deref() else {
@@ -96,6 +134,16 @@ pub fn present_lighting(
             }
             if lit.entity.is_none() && material.viewmodel_flashlight != beam {
                 material.viewmodel_flashlight = beam;
+            }
+            // Only a model that moved gets here, so one that stands still pays nothing.
+            let sample = lit.cubemap.and_then(|held| {
+                let (index, cube) = cubemaps.as_ref()?.pick(origin)?;
+                (index != held).then_some((index, cube))
+            });
+            if let Some((index, cube)) = sample {
+                material.envmap = cube;
+                material.envmap_tint.w = 1.;
+                lit.cubemap = Some(index);
             }
         }
         lit.last = Some((origin, lit.half_lambert));

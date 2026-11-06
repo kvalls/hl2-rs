@@ -105,6 +105,7 @@ pub(crate) fn load_stub(root: &std::path::Path, game: &str) -> Result<crate::ass
     Ok(crate::assets::LoadedMap {
         load_timings: Default::default(),
         game: game.to_owned(),
+        cubemaps: Vec::new(),
         world,
         gameplay,
         hud,
