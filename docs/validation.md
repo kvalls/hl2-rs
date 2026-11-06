@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Independent stopped-type replay (2026-11-06 LQ)
+
+The separate raw interpreter does not call the type parser/join under review. It validates the exact private retail PE, eleven HIGHLOW sites, forward/reverse request order and payloads, active TI phases, stopped20-field identity, loaded generation/extent, dependency refusal and promoted output words. It composes with the unchanged enclosing full module/FP/lifecycle verifier. Caps1/12/36 and controls36 total85stops/1520reads;84extra corruptions reject. All frozen LP/LM/LN local inventories and external bindings authenticate.
+
+Original LP verify, closure and seal checks pass. Review launched no process and modified no producer. Windows11 tested; other platforms not tested. A rejected PC ordinal draft is retained. Conditional outcome9 admission does not prove a complete coherent raw OI/nested capture; current retail RTTI, named actor/lifetime/history, final/rendered pose, campaign completion and Rust parity remain unobserved.
+
 ## Authored type observer validation (2026-11-06 LP)
 
 Normalcaps1/12/36 and separate OIcontrols36 exit0:85stops/1520typeRPM. Status partition70type matches/6intentional stable-prefix contracts/9object dependencies; all dependencies have zero reads and zero promoted type words. Normal49stops supply980reads, controls36 supply540. Type and list outcomes remain independently classified. Existing caller-FP, cap/drain/retirement, complete module/code/file, output/count/VM/header and list checks all pass. Fixture prefixes and metadata are authored; seeded identity bytes are never executed. Other platforms and retail loaded type/actor identity not tested. Independent review and final integrity receipts are recorded separately; no producer is rerun to repair offline controls.

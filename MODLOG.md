@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: complete type review and plan combined passive capture
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used in this continuation.
+- Changed: completed interrupted LQ independent postcapture review; recorded a bounded fresh-root combined object/list/type native plan.
+- Why: native use requires admitted raw/source joins and explicit refusal boundaries.
+- Tested how: independent PE-based raw replay85stops/1520reads,84additional copied corruptions, three authenticated sealed producer roots; original LP verifier/closure/seal all pass.
+- Result:70matches, six intentional stable contracts, nine object-dependency refusals; no type reads on dependencies. Rejected ordinal review draft preserved and corrected from exact producer semantics.
+- Still broken or not tested: retail object/list/type observations, actor/lifetime/history/final pose/campaign/Rust parity. Conditional reader0/outcome9 remains an adapter-only diagnostic.
+- Next: new normal-observer root, exact private-source closure review, fresh ownership/cursor guard and one bounded native capture if clear.
+
 ## 2026-11-06 evening: authored stopped type witness
 
 - Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent integration and source/raw reviewers materially involved.

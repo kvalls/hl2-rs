@@ -1,5 +1,15 @@
 # Design
 
+## Combined stopped object/list/type continuation plan (2026-11-06 LW)
+
+LQ completes the independent postcapture LP review before another native preparation. Preserve the frozen producer and rejected review draft. Separate full raw type-phase admission from the later inherited parsers; size-only module extraction remains dependent on full current module-file/code/generation proof.
+
+Prepare a new passive native root selecting the admitted normal LP observer, with fixture injection disabled. Join object prefix/index/handle, bounded entity-list rows and known-type metadata at the same stopped20-field identity. Strictly admit complete TI and LI phases before filtering their exact known labels for unchanged OI/count/VM/header checks. Preserve transport, changed, contract, sentinel, mismatch, null, pointer-disagreement, dependency and prefix-disagreement outcomes; a successful type witness does not depend on list success.
+
+Authenticate exact source transforms, actual registered/unregistered/executed private verifier origins, reader/build identities and static code inputs before launch. Independently review this closure. Only an immediate fresh ownership/cursor guard can authorize one cap32 fixed initializer-RET native capture. Defer before spawn if another game is present or the cursor is confined. Do not reuse frozen LC or its guard, invoke target factory/lookup/conversion/cache helpers, or control an owner game.
+
+After any capture, independently verify raw records, active phases, current module generation/code, caller FP, source/settings pins and owned cleanup. Current row/type correspondence does not establish lifetime, named actor/scene identity, prior getter/cache history, composed/rendered pose, campaign completion or Rust parity. No Rust implementation belongs to this plan.
+
 ## Authored stopped-type disposition (2026-11-06 LP)
 
 The type witness depends on successful object-sidecar evidence, not on the list lookup outcome. A list sentinel therefore does not suppress type reads. Type prefix must agree with both independently admitted object/nested prefix witnesses at the same stopped identity/module generation. OI refusal yields explicit dependency8 and zero type reads/derived words. Reader contract refusal remains separate from transport refusal and change.

@@ -1,5 +1,11 @@
 # STATUS
 
+## Type-observer independent review completed (2026-11-06 LQ)
+
+LQ independently replays all85 frozen LP stops/1520type reads against exact private retail PE metadata and eleven HIGHLOW sites:70matches, six intentional stable contracts and nine object-dependency refusals/zero type reads.84additional copied-record controls reject. Full inherited module/FP/lifecycle proof and all three LP verifier/closure/seal checks pass; three sealed producer roots authenticate. The conditional reader0/integrated9 case remains a supplied-OI adapter, not a full coherent raw OI capture.
+
+An initial offline draft confused PC_BEGIN's journal ordinal with generation; it failed before a report and is preserved. Corrected generation joins use current TARGET_LOAD and all20stopped identity fields. No producer/native launch or Rust action. Next prepare/review a fresh combined object/list/type native root and use an immediate ownership guard; frozen LC remains deferred.
+
 ## Authored stopped object-type witness (2026-11-06 LP)
 
 LP normalcaps1/12/36 and separate OIcontrols36 all exit0.85stops retain1520TIreads:70known-type matches,6intentional stable-prefix contract refusals and9object-dependency refusals with zero type reads. Normal49stops/980reads retain44matches/5contracts; controls36/540reads retain26matches/1contract/9dependencies. Current type observations remain independent of list sentinel/mismatch/null/disagreement. Every inherited list/FP/lifecycle/module/code/count/VM/header check passes. This is authored foreign-process evidence, not a retail actor/type observation.
