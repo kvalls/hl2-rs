@@ -1,10 +1,10 @@
 # MODLOG
 
-## 2026-11-06 session 47: npc_cscanner's flash, faceplate and spotlight, main at 4c5ad9f (Claude Code desktop, claude-opus-5-5)
+## 2026-11-06 session 47: npc_cscanner's flash, faceplate, spotlight and inspection search, main at f55c705 (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
 
-**Changed:** main fast-forwarded to 4c5ad9f after CI passed on Windows and macOS. In 4c5ad9f: the flash attack (ai/scanner/flash.rs, SCHED_CSCANNER_ATTACK_FLASH), the eye sprite and the flash's light, blinding by how directly the player looks, on photographs too; the faceplate, tail, dynamo and flaps (ai/scanner/pose.rs, `Scene::scanner_poses`). ShotEffect, shot_effects and entities.rs's yaw helpers moved to their own modules, since those files were at their limits. In 50eac31: the spotlight (ai/scanner/spotlight.rs), beam strip and halo, InputDisableSpotlight, `PhysicsSight::first_solid`, a shader mode for dim sprites, effects/sprite_modes.rs.
+**Changed:** main fast-forwarded to 4c5ad9f and to f55c705, each after CI passed on Windows and macOS. In 9bb0ac6, on the branch: the inspection search (ai/scanner/inspect.rs). In 4c5ad9f: the flash attack (ai/scanner/flash.rs, SCHED_CSCANNER_ATTACK_FLASH), the eye sprite and the flash's light, blinding by how directly the player looks, on photographs too; the faceplate, tail, dynamo and flaps (ai/scanner/pose.rs, `Scene::scanner_poses`). ShotEffect, shot_effects and entities.rs's yaw helpers moved to their own modules, since those files were at their limits. In 50eac31: the spotlight (ai/scanner/spotlight.rs), beam strip and halo, InputDisableSpotlight, `PhysicsSight::first_solid`, a shader mode for dim sprites, effects/sprite_modes.rs.
 
 **Why:** next steps of the session plan; the owner saw during the session that the animated faceplate was missing.
 
