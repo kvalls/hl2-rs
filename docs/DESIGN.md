@@ -1,5 +1,11 @@
 # Design
 
+## Authored stopped-type disposition (2026-11-06 LP)
+
+The type witness depends on successful object-sidecar evidence, not on the list lookup outcome. A list sentinel therefore does not suppress type reads. Type prefix must agree with both independently admitted object/nested prefix witnesses at the same stopped identity/module generation. OI refusal yields explicit dependency8 and zero type reads/derived words. Reader contract refusal remains separate from transport refusal and change.
+
+A successful raw reader followed by prefix-join disagreement uses outer outcome9 while retaining raw reader status0; the ten promoted type words are zeroed. Preserve both status layers in raw admission. This endpoint agreement does not prove conversion execution, intervening-write history, entity lifetime or a named actor. The current hierarchy pointer remains a pointer observation, not a hierarchy walk. A later retail run must retain the full module proof, source closure, active event phases and cleanup rather than substituting a size-only or static-type check.
+
 ## Known-type stopped integration plan (2026-11-06 LM–LN)
 
 LG admits the list reader using the complete current module-file/code proof together with loaded header size/generation and the successful object-sidecar raw handle. A SizeOfImage-only parser is not a replacement for the full module proof. Refused object observations produce explicit dependency refusal with zero list reads/words; sentinel list outcomes produce no route witness. Stable row equality is a bounded stopped relation, not lifetime or lookup history.

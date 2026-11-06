@@ -1,5 +1,9 @@
 # Local validation — 2026-10-05
 
+## Authored type observer validation (2026-11-06 LP)
+
+Normalcaps1/12/36 and separate OIcontrols36 exit0:85stops/1520typeRPM. Status partition70type matches/6intentional stable-prefix contracts/9object dependencies; all dependencies have zero reads and zero promoted type words. Normal49stops supply980reads, controls36 supply540. Type and list outcomes remain independently classified. Existing caller-FP, cap/drain/retirement, complete module/code/file, output/count/VM/header and list checks all pass. Fixture prefixes and metadata are authored; seeded identity bytes are never executed. Other platforms and retail loaded type/actor identity not tested. Independent review and final integrity receipts are recorded separately; no producer is rerun to repair offline controls.
+
 ## Authored stopped-list and known-type validation (2026-11-06 LG–LN)
 
 LG normal partial1/partial12/full36 and separate OIcontrols36 all exit0.85stops/1540LIreads; nine OI refusals correctly skip all list reads. Original lifecycle/cap/drain/retirement, loaded module/file/code, current output/count/VM/header and caller-FP checks pass.72new LI corruptions reject. LK independently agrees with all raw phases/identities/requests/results, adds22controls and demonstrates full module-proof rejection of a nongeometry header change that the size-only helper accepts. PE section flags are RW/nonexecuting; actual hardware page protection was not separately queried.

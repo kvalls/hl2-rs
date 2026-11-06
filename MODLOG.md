@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06 evening: authored stopped type witness
+
+- Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent integration and source/raw reviewers materially involved.
+- Changed: LP adds the unchanged known-type reader after the list interval, joining the successful object prefix and the existing20-field stopped/module identity. Type reads remain independent from list outcomes.
+- Why: distinguish actual bounded loaded-type consistency from static candidate-prefix correspondence before considering another retail observation.
+- Tested how: normalcaps1/12/36 plus separate OIcontrols36,85stops1520typeRPM;70matches/6stable-prefix contracts/9zero-read dependencies; all inherited list, FP, lifecycle, module, code, count, VM and header checks pass. Target metadata/identity thunk seeded as data and never invoked.
+- Result: bounded authored stopped-type mechanism passes. The integration preserves raw reader status separately from any later prefix-join refusal and does not promote refused words.
+- Still broken or not tested: current retail object/list/type association, actor/entity lifetime, getter/cache history, composed/rendered pose, ordinary campaign completion, Rust parity and other platforms.
+- Next: complete the independent raw/source review and integrity cutoff, then carry the reviewed normal observer into a separately admitted fresh native root with immediate ownership guards.
+
 ## 2026-11-06 evening: stopped list admission and bounded type correspondence
 
 - Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent integration, source/raw review and type-reader reviewers materially involved.

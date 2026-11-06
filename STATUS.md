@@ -1,5 +1,11 @@
 # STATUS
 
+## Authored stopped object-type witness (2026-11-06 LP)
+
+LP normalcaps1/12/36 and separate OIcontrols36 all exit0.85stops retain1520TIreads:70known-type matches,6intentional stable-prefix contract refusals and9object-dependency refusals with zero type reads. Normal49stops/980reads retain44matches/5contracts; controls36/540reads retain26matches/1contract/9dependencies. Current type observations remain independent of list sentinel/mismatch/null/disagreement. Every inherited list/FP/lifecycle/module/code/count/VM/header check passes. This is authored foreign-process evidence, not a retail actor/type observation.
+
+Another retail capture still needs a new root, complete actual-source admission, reviewed normal observer and immediate fresh ownership/cursor guards. Frozen LC remains a pre-spawn deferral on the owner's foreground game; no retail/debugger launch or owner game/cursor control occurred. Raw index/handle entry, row membership/type consistency and named actor/lifetime/history remain separate questions. No Rust action, ordinary campaign completion or parity claim.
+
 ## Stopped list integration and known-type reader (2026-11-06 LF–LN)
 
 LG normalcaps1/12/36 and separate OIcontrols36 all exit0:85stops/1540list reads, with nine refused OI outcomes correctly skipping list reads. Normal49stops supply990reads; controls36 supply550. Every original caller-FP/lifecycle/module/code/count/VM/header check passes.72new integration corruptions reject; three coherent row diagnostics remain admitted. LK independently replays raw identities/phases/requests/results and demonstrates that the loaded-size helper must compose with the full module proof. Current retail list/object values remain unobserved after LC's frozen ownership deferral.
