@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: observe current native object/list/type relation
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used in this continuation.
+- Changed: fresh passive combined capture and independent prelaunch/postcapture reviews; preserved all frozen predecessors.
+- Why: current stopped list/type correspondence was missing from prior raw object research.
+- Tested how:200source pins/38origins,49normal fixture AST replays, fresh ownership guards, one32stop native capture, full inherited proof and154independent raw corruption controls. Source/settings/cleanup checks pass.
+- Result:192object/704list/640type reads establish32bounded current row/object equalities and known-type metadata matches. Both owned processes exit0; no owner game/cursor control. Selected default comparison remains15,659matching words.
+- Still broken or not tested: title-card screenshot only; Fontconfig warning retained;89header outcomes unavailable. Named actor/lifetime/getter/cache/history/final pose/campaign/Rust parity remain unproven.
+- Next: bounded owned metadata comparison for this capture, then separately admitted getter-history observation.
+
 ## 2026-11-06: complete type review and plan combined passive capture
 
 - Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used in this continuation.

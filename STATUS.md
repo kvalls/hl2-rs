@@ -1,5 +1,13 @@
 # STATUS
 
+## Native stopped object/list/type correspondence (2026-11-06 LW–LY)
+
+After completed LQ review and separate LX prelaunch admission, fresh ownership guards clear. Debugger5108/native31388 exit0 after32fixed initializer-RET stops in43.078seconds. All32raw object observations match a bounded current entity-list row and loaded C_AI_BaseNPC metadata:192object/704list/640type reads. Raw index301h and handle1b3301h yield entry301h/serial1b3h; row pointer equals the observed object and serial matches at each stop. Raw index/entry equality is observed here, not assumed generally.
+
+Full current module/file/path/code/generation, stopped identity, caller FP, count/VM/header, cap/retirement, source/settings and owned cleanup checks pass.15,659selected output words match current defaults. Independent LY raw replay rejects154corruptions and retains two coherent diagnostics; LW seals80files/214bindings, LY4/24. Screenshot is only the opening title card; Fontconfig warning remains. Header availability is39successes/89unavailable, including32direct roots and seven cached group1headers.
+
+No observer-invoked lookup/conversion/cache helper, Rust work or owner-game control. Current stopped correspondence does not prove entity lifetime, named actor/scene, earlier getter/cache history, hierarchy contents, composed/rendered pose, campaign completion or Rust parity; first_map_finished:false. Next compare this capture's available model metadata with owned candidates, then bound a distinct getter-history witness.
+
 ## Type-observer independent review completed (2026-11-06 LQ)
 
 LQ independently replays all85 frozen LP stops/1520type reads against exact private retail PE metadata and eleven HIGHLOW sites:70matches, six intentional stable contracts and nine object-dependency refusals/zero type reads.84additional copied-record controls reject. Full inherited module/FP/lifecycle proof and all three LP verifier/closure/seal checks pass; three sealed producer roots authenticate. The conditional reader0/integrated9 case remains a supplied-OI adapter, not a full coherent raw OI capture.

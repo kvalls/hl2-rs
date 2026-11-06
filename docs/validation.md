@@ -1,5 +1,13 @@
 # Local validation — 2026-10-05
 
+## Combined native capture validation (2026-11-06 LW–LY)
+
+LX verifies200prelaunch source bindings/38private origins and independently executes the actual combined verifier joins on49normal authored stops:980type/990list/196count reads. Four foreign/unknown phase controls reject; the native OI gate additionally refuses the fixture injection stream. That adapter does not replace native module or cleanup proof.
+
+Fresh guards21:07:52.471189UTC and21:07:53.157638UTC clear. Native debugger5108/process31388 exit0 with32stable stops,43.078seconds, unchanged selected settings/source pins and unconfined cursor.43terminal members partition into1self-disarm/10exits/32generation retirements;56retirement contexts. All32FPimages retain CW027f/SW4037/MXCSR1fbf/empty tag.70source code/stack reads and both loaded module generations pass.15,659selected default words match; no complete pose claim.
+
+Independent LY replay authenticates the complete native seal and rederives32row/object/type relations;154corruptions reject. Header outcomes remain32root successes/seven group1successes/89unavailable,1220reads/88descriptor associations. Screenshot1280x720 shows the title card only; startup Fontconfig error retained. Windows11 tested; other platforms, ordinary campaign, actor lifetime/history and Rust parity not tested. No producer rerun was used to repair verification.
+
 ## Independent stopped-type replay (2026-11-06 LQ)
 
 The separate raw interpreter does not call the type parser/join under review. It validates the exact private retail PE, eleven HIGHLOW sites, forward/reverse request order and payloads, active TI phases, stopped20-field identity, loaded generation/extent, dependency refusal and promoted output words. It composes with the unchanged enclosing full module/FP/lifecycle verifier. Caps1/12/36 and controls36 total85stops/1520reads;84extra corruptions reject. All frozen LP/LM/LN local inventories and external bindings authenticate.

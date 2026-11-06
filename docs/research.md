@@ -1,5 +1,13 @@
 # Sources and native research
 
+## Current native object/list/type evidence (2026-11-06 LW–LY)
+
+One freshly guarded normal-build capture reaches32client initializer-return stops. Independent raw object and list interpreters plus the separate PE-based type interpreter reproduce192object/704list/640type reads. Current raw handle1b3301h selects entry301h and serial1b3h; the bounded row points to the independently observed object at every stop. The current three-prefix/COL/type-name/primary-slot/thunk bytes match C_AI_BaseNPC metadata. Returned hierarchy pointers are compared at bounded expected addresses and are not followed.
+
+LW's80local entries/214bindings and LY's separate4/24seal preserve source, raw records, screenshot and cleanup.154additional corruption controls reject. Coherent pointer disagreement remains a valid list diagnostic; full module proof rejects nongeometry header alteration accepted by size-only extraction. These controls are copied diagnostics, not actual native mutations.
+
+Actual current index equals masked entry in these samples; this is not a general index/handle identity rule. There is no named scene actor, entity lifetime, earlier getter/cache history, conversion execution, hierarchy walk, final/rendered pose, campaign completion or Rust parity claim. The screenshot is title-card context only and the startup Fontconfig error remains.
+
 ## Same-stop list and static conversion boundaries (2026-11-06 LG–LN)
 
 LG appends an authored RW/nonexecuting zero-fill section to the fixture DLL while preserving all original section bytes and exact initializer401. The host supplies list/RTTI/consumer data; copied creator/consumer bytes are never executed. Full36 selects33distinct nonsentinel entries and three sentinels. Every LI read joins through its capture record to the20-field stopped identity, successful OI handle and loaded module size/generation. Nine OI refusals in the separate control capture produce dependency refusal with zero list reads. These are authored foreign-process fixtures, not current retail list initialization or row membership.

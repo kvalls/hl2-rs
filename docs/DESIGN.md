@@ -1,5 +1,13 @@
 # Design
 
+## Native stopped identity disposition (2026-11-06 LW–LY)
+
+The passive fixed-return observer now admits current object prefix/index/handle, current complete-list/interface metadata, pointer/serial row and known-type metadata at one stopped20-key/module-generation identity. List status0 alone does not prove object equality; the raw equality word is checked separately. The native capture has32such equalities, while an independent coherent diagnostic preserves status0/equality0.
+
+Type matching is independent of list lookup outcome. Size-only loaded-header extraction must remain composed with the full native module-file/code/header proof: an independent nongeometry corruption passes extraction and fails that full proof. Keep the original complete TI/LI phase gates before exact-label filtering.
+
+Next consume only this admitted frozen capture for bounded owned header/descriptor correspondence and current object/model association. Preserve unavailable cached groups and the explicit root-v44/loaded-v48 relation. A later getter-history observer needs separately admitted variable-site debug-register ownership, per-activation/lifetime/module retirement, foreign-event handling and explicit unsafe-target refusal; current endpoint equality cannot supply that history. No target helper invocation or Rust implementation is included.
+
 ## Combined stopped object/list/type continuation plan (2026-11-06 LW)
 
 LQ completes the independent postcapture LP review before another native preparation. Preserve the frozen producer and rejected review draft. Separate full raw type-phase admission from the later inherited parsers; size-only module extraction remains dependent on full current module-file/code/generation proof.
