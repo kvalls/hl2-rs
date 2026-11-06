@@ -26,6 +26,13 @@ const COAST: f32 = 9.5;
 /// Running into something pushes it back along the surface's normal by this share of its speed.
 const BOUNCE: f32 = 0.5;
 
+/// A dead scanner's fall at its enemy.
+const DIVE_THRUST: Thrust = Thrust {
+    across: 1600.,
+    up: 1600.,
+    decay: 0.05,
+};
+
 /// A hovering NPC's motion.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub struct Hover {
@@ -66,13 +73,23 @@ impl Hover {
     }
     /// Time-coherent noise, with `rates` a little different for every NPC.
     pub fn add_noise(&mut self, rates: Vec3, scale: f32, now: f32) {
-        let wave = |rate: f32, curve: fn(f32) -> f32| curve(rate * now + rate);
+        let wave = |rate: f32, curve: fn(f32) -> f32| {
+            if rate == 0. {
+                0.
+            } else {
+                curve(rate * now + rate)
+            }
+        };
         self.velocity += scale
             * Vec3::new(
                 wave(rates.x, f32::sin),
                 wave(rates.y, f32::cos),
                 -wave(rates.z, f32::cos),
             );
+    }
+    /// One think of a dive along `direction`.
+    pub fn fly_dive(&mut self, direction: Vec3, interval: f32) {
+        self.push(direction, DIVE_THRUST, interval);
     }
     /// LimitSpeed.
     pub fn limit(&mut self, speed: f32) {
@@ -193,6 +210,13 @@ mod tests {
     }
 
     #[test]
+    fn a_rate_of_zero_adds_no_noise_on_that_axis() {
+        let mut hover = Hover::default();
+        hover.add_noise(Vec3::ZERO, 12., 5.);
+        assert_eq!(hover.velocity, Vec3::ZERO);
+    }
+
+    #[test]
     fn speed_is_capped_along_its_direction() {
         let mut hover = Hover {
             velocity: Vec3::new(300., 400., 0.),
@@ -208,6 +232,15 @@ mod tests {
         };
         hover.bounce(-Vec3::X);
         assert_eq!(hover.velocity.x, 50.);
+    }
+
+    #[test]
+    fn a_dive_gathers_speed_far_past_a_cruise() {
+        let mut hover = Hover::default();
+        for _ in 0..30 {
+            hover.fly_dive(-Vec3::Z, THINK);
+        }
+        assert!(hover.velocity.z < -400., "{}", hover.velocity.z);
     }
 
     #[test]

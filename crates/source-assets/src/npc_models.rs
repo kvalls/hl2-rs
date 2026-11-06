@@ -46,6 +46,47 @@ pub fn default_model(class: &str) -> Option<&'static str> {
     })
 }
 
+/// CNPC_CScanner::Gib's four models, and how they fly: the middle of CGib's 250 to 500 u/s, its
+/// 25 s life, as debris.
+const SCANNER_GIBS: [&str; 4] = [
+    "models/gibs/scanner_gib01.mdl",
+    "models/gibs/scanner_gib02.mdl",
+    "models/gibs/scanner_gib04.mdl",
+    "models/gibs/scanner_gib05.mdl",
+];
+const SCANNER_GIB_SPEED: f32 = 375.;
+const SCANNER_GIB_LIFE: f32 = 25.;
+
+/// Gib lists of NPC classes that break apart in code, not from their model's .phy: the same
+/// table, so the gibs' physics and meshes are preloaded with the map.
+pub fn add_class_gibs(world: &mut modkit_core::World) {
+    let scanners: Vec<String> = world
+        .model_instances
+        .iter()
+        .filter(|instance| instance.kind == "npc_cscanner")
+        .map(|instance| instance.asset_key())
+        .collect();
+    for key in scanners {
+        world.model_breaks.entry(key).or_insert_with(scanner_gibs);
+    }
+}
+
+fn scanner_gibs() -> Vec<modkit_core::BreakModel> {
+    SCANNER_GIBS
+        .iter()
+        .map(|model| modkit_core::BreakModel {
+            model: (*model).into(),
+            ragdoll: false,
+            offset: Default::default(),
+            health: 0.,
+            fade_time: SCANNER_GIB_LIFE,
+            debris: Some(true),
+            motion_disabled: false,
+            burst: Some(SCANNER_GIB_SPEED),
+        })
+        .collect()
+}
+
 /// The class model of a map entity without a `model` key. Only classes with AI here: the rest of
 /// `default_model` would stand on the map as statues.
 pub fn map_default_model(class: &str) -> Option<&'static str> {

@@ -52,21 +52,16 @@ fn bird_death(actor: &mut AiActor, scene: &mut Scene, id: usize) {
         });
     }
 }
-/// A scanner's PainSound and DeathSound.
-fn scanner_pain(actor: &mut AiActor, scene: &mut Scene, id: usize) {
+/// A scanner's PainSound. Its DeathSound comes with its end, which a dive puts off.
+fn scanner_pain(scene: &mut Scene, id: usize) {
     let state = &scene.states[id];
-    let cue = if !state.killed {
-        crate::ai::scanner::PAIN
-    } else if std::mem::replace(&mut actor.death_spoken, true) {
-        return;
-    } else {
-        crate::ai::scanner::DIE
-    };
-    let origin = Some(state.origin);
-    scene.sounds.push(crate::sounds::SoundRequest {
-        origin,
-        ..cue.into()
-    });
+    if !state.dead() {
+        let origin = Some(state.origin);
+        scene.sounds.push(crate::sounds::SoundRequest {
+            origin,
+            ..crate::ai::scanner::PAIN.into()
+        });
+    }
 }
 /// CZombie and CNPC_PoisonZombie PainSound and DeathSound.
 fn zombie_pain(actor: &mut AiActor, scene: &mut Scene, id: usize) {
@@ -408,7 +403,7 @@ impl AiRuntime {
             return bird_death(actor, scene, id);
         }
         if matches!(actor.class, AiClass::Scanner(_)) {
-            return scanner_pain(actor, scene, id);
+            return scanner_pain(scene, id);
         }
         // CAI_PlayerAlly::PainSound speaks TLK_WOUND; the companions' DeathSound emits
         // their die sound (CNPC_Citizen/CNPC_Barney/CNPC_Alyx).

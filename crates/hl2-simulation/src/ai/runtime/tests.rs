@@ -419,6 +419,40 @@ fn scanner_rig(precriminal: &str) -> Rig {
 }
 
 #[test]
+fn a_scanner_killed_low_goes_at_once_in_a_blast_and_its_death_cry() {
+    let mut r = scanner_rig("0");
+    r.ai.enabled = true;
+    r.scene.states[0].corpse = true;
+    run(&mut r, 2, player_at(0.));
+    assert!(r.scene.states[0].killed && !r.scene.states[0].visible);
+    assert_eq!(r.scene.prop_explosions.len(), 1);
+    let cry = crate::ai::scanner::DIE;
+    assert!(r.scene.sounds.iter().any(|sound| sound.name == cry));
+}
+
+#[test]
+fn a_diving_scanner_keeps_falling_then_strikes_the_player() {
+    let mut r = scanner_rig("0");
+    r.ai.enabled = true;
+    r.scene.states[0].origin = Vec3::new(300., 0., 400.);
+    let feet = player_at(0.);
+    run(&mut r, 8, feet);
+    // A dive holds its line and its noise can carry it past: this one flies the line itself.
+    if let Some(AiClass::Scanner(s)) = r.ai.actors.get_mut(&0).map(|a| &mut a.class) {
+        s.bob = Vec3::ZERO;
+        s.hover.velocity = Vec3::ZERO;
+    }
+    r.scene.states[0].corpse = true;
+    run(&mut r, 2, feet);
+    assert!(!r.scene.states[0].killed, "it is on its way down");
+    assert!(r.scene.states[0].origin.z < 400.);
+    run(&mut r, 400, feet);
+    assert!(r.scene.states[0].killed, "it arrived");
+    assert_eq!(r.ai.player_hits.len(), 1);
+    assert_eq!(r.ai.player_hits[0].damage, 25.);
+}
+
+#[test]
 fn a_scanner_leaves_a_precriminal_player_alone_and_hunts_him_afterwards() {
     let mut spared = scanner_rig("1");
     spared.ai.enabled = true;

@@ -9,15 +9,19 @@ use super::super::scanner::{self, Mode, Scanner, COND_FLY_BLOCKED, COND_FLY_CLEA
 use super::super::senses::SightWorld;
 use super::super::state::NpcState;
 use super::birds::{self, Air};
-use super::crabs::{fall_hull, step_fraction};
-use super::{AiActor, AiClass, AiRuntime, PlayerState, THINK_INTERVAL};
+use super::crabs::{fall_hull, fall_player_box, step_fraction};
+use super::{overlaps, AiActor, AiClass, AiRuntime, PlayerHit, PlayerState, THINK_INTERVAL};
 use crate::entities::Scene;
+use crate::gibs::PropBreak;
 use crate::physics::{angles, Physics};
+use crate::projectiles::Attacker;
 use crate::sounds::{entity_emitter, PatchOp, SoundRequest};
 use crate::view_control::angles_toward;
 use glam::Vec3;
 use modkit_core::World;
 
+/// sk_scanner_dmg_dive where skill.cfg leaves it out.
+const DIVE_DAMAGE: f32 = 25.;
 /// Stopped this close to what it flies at, the way still counts as clear.
 const CLEAR_WITHIN: f32 = 50.;
 /// The lift of being low: this much speed over the share of the clearance left, which stops
@@ -147,14 +151,99 @@ fn stop_engine(s: &mut Scanner, scene: &mut Scene, id: usize) {
     }
 }
 
+/// Its end: the engine stops, a blast that hurts nothing covers it and its gibs fly. The sparks,
+/// the light and the chance of a battery are not modeled yet.
+fn gib(s: &mut Scanner, air: &Air, scene: &mut Scene) {
+    let id = air.id;
+    stop_engine(s, scene, id);
+    let (origin, rotation) = (scene.states[id].origin, scene.states[id].rotation);
+    scene.sounds.push(SoundRequest {
+        origin: Some(origin),
+        ..scanner::DIE.into()
+    });
+    let blast = (origin, 1., 2., false, Attacker::Entity(id));
+    scene.prop_explosions.push(blast);
+    let instance = air.world.model_instances.iter();
+    if let Some(instance) = instance.into_iter().find(|i| i.entity == Some(id)) {
+        scene.prop_breaks.push(PropBreak {
+            entity: id,
+            model_key: instance.asset_key(),
+            origin,
+            rotation,
+            velocity: s.hover.velocity,
+            angular_velocity: Vec3::ZERO,
+            center_of_mass: origin,
+            skin: instance.skin as i32,
+        });
+    }
+    scene.states[id].killed = true;
+    scene.states[id].visible = false;
+}
+
+/// Whether its body touches the player's.
+fn strikes_player(air: &Air, origin: Vec3, player: PlayerState) -> bool {
+    fall_player_box(player).is_some_and(|actor| {
+        let (lo, hi) = (origin + air.hull.mins, origin + air.hull.maxs);
+        overlaps(
+            lo,
+            hi,
+            actor.feet + actor.hull.mins,
+            actor.feet + actor.hull.maxs,
+        )
+    })
+}
+
+/// A dead scanner's tick: its dive, ended by the first thing it meets, or its end at once. True
+/// when it struck the player. NPCs in its way are not struck yet: flights pass through them.
+fn die(s: &mut Scanner, air: &Air, scene: &mut Scene, player: PlayerState) -> bool {
+    let id = air.id;
+    let origin = scene.states[id].origin;
+    if !std::mem::replace(&mut s.death_seen, true) && s.start_dive(origin) {
+        scene.sounds.push(SoundRequest {
+            origin: Some(origin),
+            ..scanner::DIVE_BOMB.into()
+        });
+    }
+    let Some(dive) = s.dive else {
+        gib(s, air, scene);
+        return false;
+    };
+    let now = scene.time;
+    if now >= s.next_steer {
+        s.next_steer = now + THINK_INTERVAL;
+        s.hover.fly_dive(dive.direction, THINK_INTERVAL as f32);
+        s.hover
+            .add_noise(s.bob, scanner::NOISE * scanner::DIVE_NOISE, now as f32);
+        s.hover.limit(scanner::DIVE_SPEED);
+    }
+    let dt = (now - s.last_step).clamp(0., 0.1) as f32;
+    let hit = air.trace(origin, origin + s.hover.velocity * dt);
+    let struck = strikes_player(air, origin, player);
+    if hit.trace.fraction < 1. || struck {
+        gib(s, air, scene);
+        return struck;
+    }
+    let dt = air.step(&mut s.hover.velocity, &mut s.last_step, scene);
+    s.roll += dive.spin * dt;
+    scene.states[id].rotation = angles(Vec3::new(0., yaw_of(scene, id), s.roll));
+    false
+}
+
 impl AiRuntime {
     /// This tick's hovering: a steer once per think and each scanner's step.
-    pub(super) fn fly_scanners(&mut self, world: &World, scene: &mut Scene, physics: &Physics) {
+    pub(super) fn fly_scanners(
+        &mut self,
+        world: &World,
+        scene: &mut Scene,
+        physics: &Physics,
+        player: PlayerState,
+    ) {
         if !self.enabled {
             return;
         }
         let now = scene.time;
         let held = &self.held_npcs;
+        let mut strikes = Vec::new();
         for (&id, actor) in self.actors.iter_mut() {
             let combat = actor.npc.state == NpcState::Combat;
             let AiClass::Scanner(s) = &mut actor.class else {
@@ -174,6 +263,12 @@ impl AiRuntime {
                 hull: fall_hull(world, id),
                 id,
             };
+            if scene.states[id].corpse {
+                if die(s, &air, scene, player) {
+                    strikes.push(id);
+                }
+                continue;
+            }
             start_path(s, world, id);
             if now >= s.next_steer {
                 s.next_steer = now + THINK_INTERVAL;
@@ -182,6 +277,15 @@ impl AiRuntime {
             let dt = air.step(&mut s.hover.velocity, &mut s.last_step, scene);
             turn(s, scene, id, dt);
         }
+        let damage = scene.skill.get("sk_scanner_dmg_dive", DIVE_DAMAGE);
+        self.player_hits
+            .extend(strikes.into_iter().map(|attacker| PlayerHit {
+                attacker,
+                damage,
+                punch: Vec3::ZERO,
+                impulse: Vec3::ZERO,
+                fade: None,
+            }));
     }
 }
 

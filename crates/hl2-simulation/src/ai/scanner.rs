@@ -1,8 +1,9 @@
 //! npc_cscanner (DESIGN 14o session 46): a hovering Combine scanner. This module holds what it
 //! decides between, its schedules and where it wants to be; `ai::hover` is its flight arithmetic
 //! and `runtime::scanners` gives it the world and carries the body. It patrols, follows
-//! path_corners, photographs and follows what maps name, and hovers near an enemy. No light yet:
-//! neither the spotlight nor the flash of a photograph shows, and it never attacks.
+//! path_corners, photographs and follows what maps name, hovers near an enemy, and dies in a dive
+//! or a burst of gibs. No light yet: neither the spotlight nor the flash of a photograph shows,
+//! and it never attacks.
 use super::assault::Assault;
 use super::conditions::{
     Cond, Conditions, COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE, COND_LOST_ENEMY, LAST_SHARED_CONDITION,
@@ -67,6 +68,15 @@ const COVER_HEALTH: f32 = 0.75;
 const COMBAT_FLINCH: f32 = 4. / 11.;
 /// How often a think speaks: 1 of the 26 values of RandomInt(0, 25).
 const IDLE_CHANCE: f32 = 1. / 26.;
+/// Killed this high above its enemy and this far from it, it dives at it.
+const DIVE_HEIGHT: f32 = 120.;
+const DIVE_DISTANCE: f32 = 360.;
+/// SCANNER_MAX_DIVE_BOMB_SPEED, and the noise of a dive against a flight's.
+pub const DIVE_SPEED: f32 = 2500.;
+pub const DIVE_NOISE: f32 = 4.;
+/// The spin of a dive, degrees a second. The SDK's values are a torque on a physics body: these
+/// are that range read as a rate, not measured.
+const DIVE_SPIN: (f32, f32) = (20., 420.);
 /// A change of speed share smaller than this leaves the engine sound as it is.
 const ENGINE_STEP: f32 = 0.02;
 
@@ -76,8 +86,9 @@ const COMBAT: &str = "NPC_CScanner.Combat";
 pub const PAIN: &str = "NPC_CScanner.Pain";
 pub const DIE: &str = "NPC_CScanner.Die";
 const TAKE_PHOTO: &str = "NPC_CScanner.TakePhoto";
+pub const DIVE_BOMB: &str = "NPC_CScanner.DiveBomb";
 /// Every cue this class plays; a cue that is not preloaded is dropped.
-pub const SOUNDS: &[&str] = &[ENGINE, IDLE, COMBAT, PAIN, DIE, TAKE_PHOTO];
+pub const SOUNDS: &[&str] = &[ENGINE, IDLE, COMBAT, PAIN, DIE, TAKE_PHOTO, DIVE_BOMB];
 
 /// COND_SCANNER_FLY_CLEAR and COND_SCANNER_FLY_BLOCKED: the way to its enemy.
 pub const COND_FLY_CLEAR: Cond = Cond(LAST_SHARED_CONDITION + 1);
@@ -189,6 +200,14 @@ pub enum Mode {
     Follow,
 }
 
+/// A killed scanner's fall.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct Dive {
+    pub direction: Vec3,
+    /// Degrees a second around its length.
+    pub spin: f32,
+}
+
 /// A scanner under the AI.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Scanner {
@@ -228,6 +247,9 @@ pub struct Scanner {
     pub can_photograph: bool,
     /// m_flGoalOverrideDistance.
     pub distance_override: f32,
+    /// Its dive, and that its death has been looked at.
+    pub dive: Option<Dive>,
+    pub death_seen: bool,
     /// The path_corner it is flying to, and that its `target` key has been read.
     pub corner: Option<usize>,
     pub path_read: bool,
@@ -292,6 +314,23 @@ impl Scanner {
     fn drop_route(&mut self) {
         self.route.clear();
         self.corner = None;
+    }
+    /// Event_Killed: high above its enemy and far from it, it dives; true when it does.
+    pub fn start_dive(&mut self, at: Vec3) -> bool {
+        let Some(enemy) = self.enemy_at else {
+            return false;
+        };
+        let above = at - enemy;
+        if above.z <= DIVE_HEIGHT || above.length() <= DIVE_DISTANCE {
+            return false;
+        }
+        let (least, most) = DIVE_SPIN;
+        let sign = if self.roll() < 0.5 { 1. } else { -1. };
+        let spin = sign * (least + (most - least) * self.roll());
+        let direction = -above.normalize();
+        self.dive = Some(Dive { direction, spin });
+        self.drop_route();
+        true
     }
     /// The inspection's part of GatherConditions; with an enemy none of it applies. The time
     /// runs only once it is there: a photograph not yet taken or a route not finished keep it

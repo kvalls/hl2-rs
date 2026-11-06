@@ -416,6 +416,28 @@ fn clearing_a_follow_goes_back_on_patrol() {
 }
 
 #[test]
+fn killed_high_above_a_distant_enemy_it_dives_at_it() {
+    let mut s = Scanner::new(false, 3);
+    s.enemy_at = Some(Vec3::ZERO);
+    s.route = vec![Vec3::X];
+    assert!(s.start_dive(Vec3::new(300., 0., 400.)));
+    let dive = s.dive.expect("a dive");
+    assert!((dive.direction - Vec3::new(-0.6, 0., -0.8)).length() < 0.001);
+    assert!((20. ..=420.).contains(&dive.spin.abs()), "{}", dive.spin);
+    assert!(s.route.is_empty());
+}
+
+#[test]
+fn killed_low_near_or_with_no_enemy_it_does_not_dive() {
+    let mut s = Scanner::new(false, 3);
+    assert!(!s.start_dive(Vec3::Z * 1000.), "no enemy");
+    s.enemy_at = Some(Vec3::ZERO);
+    assert!(!s.start_dive(Vec3::new(1000., 0., 100.)), "too low");
+    assert!(!s.start_dive(Vec3::new(100., 0., 200.)), "too near");
+    assert_eq!(s.dive, None);
+}
+
+#[test]
 fn a_new_flight_mode_drops_the_route() {
     let mut s = Scanner::new(false, 3);
     s.route = vec![Vec3::X];
@@ -508,7 +530,7 @@ fn it_chirps_about_one_think_in_twenty_six_by_state() {
 
 #[test]
 fn every_cue_it_plays_is_preloaded() {
-    for cue in [ENGINE, IDLE, COMBAT, PAIN, DIE, TAKE_PHOTO] {
+    for cue in [ENGINE, IDLE, COMBAT, PAIN, DIE, TAKE_PHOTO, DIVE_BOMB] {
         assert!(SOUNDS.contains(&cue), "{cue}");
     }
 }

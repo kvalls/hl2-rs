@@ -18,7 +18,7 @@ type NpcTouch = (usize, Vec3, Vec3, Vec3, Vec3, bool, bool);
 
 /// PhysicsTryMove traces with the NPC's solid mask, which the player's box blocks (NPCs have
 /// colliders; the player has none, so it is a transient box here). A dead player is not solid.
-fn fall_player_box(player: PlayerState) -> Option<crate::npc_probe::ActorHull> {
+pub(super) fn fall_player_box(player: PlayerState) -> Option<crate::npc_probe::ActorHull> {
     (!player.noclip && !player.dead).then(|| crate::npc_probe::ActorHull {
         entity: None,
         feet: player.feet,

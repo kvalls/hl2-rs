@@ -598,6 +598,8 @@ fn parse_static(data: &[u8], version: u16) -> Result<Vec<ModelInstance>> {
     }
     Ok(props)
 }
+mod chunks;
+pub use chunks::used_chunk_models;
 mod ai_activities;
 mod geometry;
 mod prop_data;
@@ -1093,6 +1095,7 @@ pub fn read_illumination(
 /// are left out without a load warning: they are only needed when a prop breaks, where
 /// the spawn falls back to the render hull. Returns the models left out.
 pub fn append_break_physics(world: &mut World, vfs: &Vfs) -> Vec<String> {
+    crate::npc_models::add_class_gibs(world);
     let mut skipped = Vec::new();
     let models: std::collections::BTreeSet<String> = world
         .model_breaks
@@ -1110,28 +1113,6 @@ pub fn append_break_physics(world: &mut World, vfs: &Vfs) -> Vec<String> {
         }
     }
     skipped
-}
-/// Chunk models of the propdata chunk sets that breakable props without .phy gibs use
-/// (PropBreakableCreateAll's else-branch; ParsePropDataFile precaches every chunk model).
-pub fn used_chunk_models(world: &World) -> Vec<String> {
-    let mut models = Vec::new();
-    for (key, data) in &world.model_prop_data {
-        if data.health <= 0. || data.breakable_count <= 0 || world.model_breaks.contains_key(key) {
-            continue;
-        }
-        let Some(name) = &data.breakable_model else {
-            continue;
-        };
-        // GetRandomChunkModel: the first set whose name starts with the requested one.
-        if let Some((_, set)) = world
-            .breakable_chunks
-            .iter()
-            .find(|(set, _)| set.starts_with(name.as_str()))
-        {
-            models.extend(set.iter().cloned());
-        }
-    }
-    models
 }
 /// Adds a non-map model's .phy solid (and supported pieces) to the world under its
 /// skin-0 asset key, e.g. a thrown frag's w_grenade.phy. Returns the reason on failure.
