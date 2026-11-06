@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06 evening: direct entity-list root and standalone passive reader
+
+- Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent entity-list, prelaunch/deferral and reader reviewers materially involved.
+- Changed: LA static direct-instance contract; LB/LD independent source/deferral reviews; LC frozen ownership deferral; LE bounded11-source reader and independent journal replay.
+- Why: current raw object identity requires the exact loaded list route and separately admitted handle row, rather than SDK constants or type-name inference.
+- Tested how: private PE/pass14 byte checks,334byte controls/26HIGHLOW sites/12288authored address trials; strict Windows x86 fixture build,237cases/3180actualRPM;45transcript corruptions; complete source-pin and seal checks. No installed-content writes or target helper invocation.
+- Result: static interface/complete-root geometry and standalone reader admitted. Fresh retail guard refuses on the owner's foreground game before spawn; zero retail/debugger launches.
+- Still broken or not tested: current native object/list fields, stopped reader integration, entity lifetime/named actor, getter/cache history, composed/rendered pose, campaign and Rust parity. Other platforms not tested.
+- Next: independently review LE, then admit same-stop module/generation/object joins in a new authored observer before any later native capture.
+
 ## 2026-11-06 evening: passive object research continuation plan
 
 - Agent/model: Codex desktop, GPT-6 family; exact model identifier unavailable. Independent admission and entity-list contract reviewers are materially involved.

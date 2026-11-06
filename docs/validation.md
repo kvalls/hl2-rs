@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Passive list reader validation (2026-11-06 LA–LE)
+
+Windows authored x86 self-process host36684 exits0 after237cases/3180actual ReadProcessMemory calls. Strict MSVC /W4 /WX build passes. Status distribution:31nonnull serial matches,4range,177transport,11changed,10contract,1sentinel,2serial mismatches and1equal-serial null.22stage-specific PAGE_NOACCESS faults plus the exact32bit-end unmapped request are actual OS reads.176callback API controls perform RPM first, then inject reported BOOL/count/error fields;154refuse and22BOOL2cases succeed.11reverse mutations change fixture memory.45copied journal/metadata corruptions reject, including coherent case-block relocation with repaired global ordinals. All launch pins remain unchanged; owned fixture closed; no game/cursor control. Other platforms not tested.
+
+LA independently checks17exact windows/334bytes,334one-byte controls,26HIGHLOW sites,40authored endpoints,12288address trials and3range refusals. Authored arithmetic is not native execution or loader validation. LC is a pre-spawn ownership deferral, independently reviewed by LB/LD, not a failed retail read. Frozen LC has no capture/cleanup/success artifacts. No gameplay build/test/replay was run for this research documentation.
+
 ## Retail capture deferral and exact handle-consumer boundary (2026-11-06 KS–KW)
 
 The separately reviewed normal-build retail producer is deferred before spawn. At 13:49:30 UTC its fresh guard found a preexisting hl2-bevy process and refused before settings snapshots, launch pins, command construction or debugger/game spawn. Cursor was unconfined. All 180 prelaunch source bindings remain unchanged; independent KU control-flow and absent-artifact checks confirm zero actual native attempts and no retail object-word observation. The existing game and cursor received no control. This root is frozen; another capture requires a new root and fresh guard.

@@ -1,5 +1,11 @@
 # STATUS
 
+## Passive list reader admitted; retail ownership deferred (2026-11-06 LA–LE)
+
+Fresh LC source admission and independent LB review pass180bindings/18private origins. At20:01:09UTC the initial ownership guard finds preexisting foreground Deadlock16872 with a confined cursor and refuses before settings/pins/command/finalguard/spawn. LC is frozen; zero actual debugger/retail launches and no game/cursor control. Independent LD verifies the control-flow boundary, all source pins and absence of capture artifacts. Another retail attempt requires a new root and immediate fresh guard.
+
+LA binds the exact direct interface to loaded client base+4bf344 and complete list to base+4af330, with17byte windows/26relocations. The instance lies in zero-filled writable data: static creator/constructor bytes do not establish current initialization. LE's standalone authored x86 host36684 exits0:237cases/3180actual reads,22real stage faults,11reverse mutations,176callback API controls,22BOOL2successes,10stable contract controls and45copied transcript corruptions. Sentinel/mismatch/null/object disagreement remain distinct. Exact loaded consumer-byte/slot/locator/name consistency is part of the reader, but stopped-event/module-generation integration remains untested. No retail object/list or named actor observation, Rust action, campaign completion or parity claim.
+
 ## Retail capture deferral and exact handle-consumer boundary (2026-11-06 KS–KW)
 
 The separately reviewed normal-build retail producer is deferred before spawn. At 13:49:30 UTC its fresh guard found a preexisting hl2-bevy process and refused before settings snapshots, launch pins, command construction or debugger/game spawn. Cursor was unconfined. All 180 prelaunch source bindings remain unchanged; independent KU control-flow and absent-artifact checks confirm zero actual native attempts and no retail object-word observation. The existing game and cursor received no control. This root is frozen; another capture requires a new root and fresh guard.

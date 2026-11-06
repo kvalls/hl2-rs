@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Direct entity-list root and bounded read contract (2026-11-06 LA–LE)
+
+Exact retail bytes and relocation sites establish interface I=M+4bf344 and complete instance B=M+4af330 for admitted client base M. The factory is a six-byte direct-address return, not a mutable pointer-slot load. Constructor writes and paired COLs independently agree on subobject displacement10014. Current initialized instance bytes remain unobserved; both instance addresses are in zero-filled writable data. The selected array has4096rows/16bytes, with pointer/serial8 at B+4+16*(handle&fff). Cached SDK handle constants remain inapplicable to this exact retail consumer.
+
+LE's authored self-process result covers237cases/3180actual reads; it admits creator6, two current vptrs, two COL cells, two COL20records, type-name24, slot8target4, consumer51 and row8, then exact reverse rereads.22real stage faults,11reverse mutations,176injected callback API outcomes and45offline corruptions pass. Nonzero BOOL is not restricted to1. Stable mismatch/null/disagreement are explicit diagnostics. This reader has not yet run in the retail game or an integrated stopped event. LC's sole ownership check refused before spawn on the foreground owner game, and independent LD confirms no capture occurred.
+
 ## Retail capture deferral and exact handle-consumer boundary (2026-11-06 KS–KW)
 
 The separately reviewed normal-build retail producer is deferred before spawn. At 13:49:30 UTC its fresh guard found a preexisting hl2-bevy process and refused before settings snapshots, launch pins, command construction or debugger/game spawn. Cursor was unconfined. All 180 prelaunch source bindings remain unchanged; independent KU control-flow and absent-artifact checks confirm zero actual native attempts and no retail object-word observation. The existing game and cursor received no control. This root is frozen; another capture requires a new root and fresh guard.

@@ -1,5 +1,13 @@
 # Design
 
+## Entity-list reader disposition and stopped integration plan (2026-11-06 LA–LE)
+
+The exact retail creator returns a direct static subobject: interface=modulebase+4bf344, complete=modulebase+4af330. Current pointer admission needs the separately observed creator immediate, primary/interface vptrs, both locator cells/COLs, exact type name, selected slot target and consumer51bytes. All read addresses derive from the admitted module base; target-returned pointers are compared rather than followed. Static initialized-layout correspondence remains separate from current initialized data.
+
+LE requests11bounded sources forward and reverse. Raw handle ffffffff exits without a row or route witness; other handles use the retail maskfff/shift12. Stable serial mismatch precedes null; supplied-object equality is a separate raw diagnostic and does not override a mismatch. Refused/changed/invalid-contract results expose no complete target words. Contract validation follows symmetric reads, so a refused contract may still have performed bounded row reads. Module base/extent are caller inputs, not a module-generation proof.
+
+Next integrate the unchanged reader into a new authored stopped observer. Bind every outcome and raw request to the existing20-field stopped identity, admitted loaded-module generation/size, stable object-sidecar handle and raw object. Strictly admit its event interval before filtering only its known labels for inherited parsers. Validate normal full/partial caps, sentinel/mismatch/null/disagreement cases, raw transport failures, source closure and caller-FP/lifecycle cleanup. Seed fixture layout as data only; never invoke copied creator/consumer bytes. Retail use still requires a separate root, reviewed normal observer and immediate ownership guard.
+
 ## Passive object continuation plan (2026-11-06 evening)
 
 Resume the frozen KS deferral using a separate capture root. Reuse the admitted normal KQ observer and unchanged KP reader; reproduce the reviewed source transforms and authenticate actual registered, unregistered and executed private-source edges before launch. An independent reviewer checks that admission separately. A fresh process/cursor guard immediately precedes any owned retail launch; defer if another game owns the desktop.
