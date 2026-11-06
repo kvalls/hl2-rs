@@ -95,7 +95,7 @@ fn steer(
     let (id, now) = (air.id, scene.time);
     let origin = scene.states[id].origin;
     let interval = THINK_INTERVAL as f32;
-    if !std::mem::replace(&mut m.blade_out, true) {
+    if !m.blade_shut && !std::mem::replace(&mut m.blade_out, true) {
         scene.set_bodygroup(air.world, id, BLADE_GROUP, 1);
     }
     m.target = enemy.map(|e| e.eyes);
@@ -145,7 +145,16 @@ fn end(m: &mut Manhack, air: &Air, scene: &mut Scene) {
     break_body(air, scene, m.hover.velocity);
 }
 
+/// SF_NPC_WAIT_FOR_SCRIPT.
+const SF_NPC_WAIT_FOR_SCRIPT: u32 = 128;
+
 impl AiRuntime {
+    /// InputUnpack.
+    pub(super) fn unpack_manhack(&mut self, id: usize) {
+        if let Some(AiClass::Manhack(m)) = self.actors.get_mut(&id).map(|actor| &mut actor.class) {
+            m.wake();
+        }
+    }
     /// This tick's manhacks: a steer once per think and each one's step.
     pub(super) fn fly_manhacks(
         &mut self,
@@ -174,6 +183,10 @@ impl AiRuntime {
             };
             if scene.states[id].corpse {
                 end(m, &air, scene);
+                continue;
+            }
+            // OverrideMove: a packed manhack executes no move code.
+            if m.packed {
                 continue;
             }
             if now >= m.next_steer {
@@ -227,9 +240,11 @@ impl AiRuntime {
 }
 
 /// The class of a map's manhack.
-pub(super) fn class_for(gagged: bool, id: usize) -> AiClass {
-    AiClass::Manhack(Box::new(Manhack::new(
-        gagged,
-        0x3c6e_f372_fe94_f82b ^ id as u64,
-    )))
+pub(super) fn class_for(flags: u32, id: usize) -> AiClass {
+    let gagged = flags & super::SF_NPC_GAG != 0;
+    let mut manhack = Manhack::new(gagged, 0x3c6e_f372_fe94_f82b ^ id as u64);
+    if flags & manhack::SF_PACKED_UP != 0 {
+        manhack.pack(flags & SF_NPC_WAIT_FOR_SCRIPT != 0);
+    }
+    AiClass::Manhack(Box::new(manhack))
 }

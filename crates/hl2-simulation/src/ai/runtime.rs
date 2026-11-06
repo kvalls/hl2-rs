@@ -937,62 +937,15 @@ impl AiRuntime {
                         // Class animation events.
                         if let Some(cop) = class.cop_mut() {
                             cop.anim_event(&name, event, &ctx, knock_out);
+                        } else if let AiClass::Manhack(m) = class {
+                            m.anim_event(event, ctx.now);
                         } else if let AiClass::Zombie(z) = class {
                             // CNPC_BaseZombie::HandleAnimEvent and the classes' overrides.
                             let rolls = ((uniform() + 1.) * 0.5, (uniform() + 1.) * 0.5);
                             let center = ctx.origin + Vec3::Z * center_z(world, id);
                             z.anim_event(&name, &ctx, center, swat_target, rolls);
                         } else if let AiClass::Headcrab(h) = class {
-                            // CBaseHeadcrab::HandleAnimEvent: the telegraph commits to the
-                            // enemy's eyes; the jump leaps at them (or hops without an enemy).
-                            if name.eq_ignore_ascii_case(headcrab::AE_JUMP_TELEGRAPH) {
-                                h.requests.push(CopRequest::Sound(h.sound("Telegraph")));
-                                h.committed_jump = ctx.enemy_eye;
-                            } else if name.eq_ignore_ascii_case(headcrab::AE_FLINCH_HOP) && h.black
-                            {
-                                // CBlackHeadcrab: a spastic hop (forward while already
-                                // panicking, else random), then Panic(U(2, 5)).
-                                let rolls = [
-                                    (uniform() + 1.) * 0.5,
-                                    (uniform() + 1.) * 0.5,
-                                    (uniform() + 1.) * 0.5,
-                                ];
-                                let yaw = ctx.yaw.to_radians();
-                                let forward = h.panic.then(|| Vec3::new(yaw.cos(), yaw.sin(), 0.));
-                                h.requests
-                                    .push(CopRequest::Leap(headcrab::jump_flinch(forward, rolls)));
-                                let duration = 2. + 3. * f64::from((uniform() + 1.) * 0.5);
-                                h.start_panic(ctx.now, duration);
-                            } else if name.eq_ignore_ascii_case(headcrab::AE_POISON_FOOTSTEP)
-                                && h.black
-                            {
-                                let cue = if npc.activity == "ACT_WALK" {
-                                    "FootstepWalk"
-                                } else {
-                                    "Footstep"
-                                };
-                                h.requests.push(CopRequest::Sound(h.sound(cue)));
-                            } else if name.eq_ignore_ascii_case(headcrab::AE_POISON_THREAT_SOUND)
-                                && h.black
-                            {
-                                h.requests.push(CopRequest::Sound(h.sound("Threat")));
-                                h.requests.push(CopRequest::Sound(h.sound("Alert")));
-                            } else if name.eq_ignore_ascii_case(headcrab::AE_JUMPATTACK)
-                                && !h.mid_jump
-                            {
-                                let velocity = match h.committed_jump.take().or(ctx.enemy_eye) {
-                                    Some(target) => {
-                                        headcrab::jump_velocity(ctx.origin, target, 600., false)
-                                    }
-                                    None => headcrab::random_hop(ctx.yaw),
-                                };
-                                h.requests.push(CopRequest::Sound(h.sound("Attack")));
-                                h.requests.push(CopRequest::Leap(velocity));
-                                h.mid_jump = true;
-                                h.leap_touch = true;
-                                h.ignore_world_until =
-                                    ctx.now + headcrab::IGNORE_WORLD_COLLISION_TIME;
-                            }
+                            crabs::crab_anim_event(h, &name, &npc.activity, &ctx, &mut uniform);
                         } else if let AiClass::Humanoid(h) = class {
                             // CNPC_Combine::HandleAnimEvent COMBINE_AE_KICK (3); the other
                             // humanoid AE_* events are not modeled yet.

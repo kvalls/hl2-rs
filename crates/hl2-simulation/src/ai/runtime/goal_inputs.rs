@@ -70,6 +70,10 @@ impl AiRuntime {
                 self.bird_input(target, &parameter);
                 continue;
             }
+            if class == "npc_manhack" {
+                self.unpack_manhack(target);
+                continue;
+            }
             if class == "aiscripted_schedule" {
                 self.scripted_schedule_input(world, scene, target, &input);
                 continue;

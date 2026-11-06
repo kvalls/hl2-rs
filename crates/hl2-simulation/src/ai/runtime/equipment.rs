@@ -77,7 +77,7 @@ impl AiRuntime {
             _ if crab => AiClass::Headcrab(Box::new(Headcrab::for_class(e.class()))),
             _ if bird.is_some() => super::birds::class_for(e, bird.unwrap_or(Kind::Crow), id),
             _ if scanner => super::scanners::class_for(e, flags & SF_NPC_GAG != 0, id),
-            _ if blade => super::manhacks::class_for(flags & SF_NPC_GAG != 0, id),
+            _ if blade => super::manhacks::class_for(flags, id),
             _ if zombie.is_some() => {
                 let mut z = Zombie::new(
                     zombie.unwrap_or(zombie::Kind::Classic),

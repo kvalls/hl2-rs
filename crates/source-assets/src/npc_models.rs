@@ -111,6 +111,7 @@ pub fn map_default_model(class: &str) -> Option<&'static str> {
             | "npc_combine_camera"
             | "npc_barnacle"
             | "npc_cscanner"
+            | "npc_manhack"
             | "npc_crow"
             | "npc_pigeon"
             | "npc_seagull"
@@ -129,6 +130,11 @@ pub fn map_default_model(class: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_placed_manhack_gets_its_class_model() {
+        assert_eq!(map_default_model("npc_manhack"), Some("models/manhack.mdl"));
+    }
 
     #[test]
     fn map_zombies_and_headcrabs_get_their_class_model_and_statues_do_not() {
@@ -488,7 +494,20 @@ mod tests {
             .collect();
         let rig = crate::animation::load(&vfs, model, &names).unwrap();
         for seq in &rig.sequences {
-            println!("seq {} act {} w {}", seq.name, seq.activity, seq.weight);
+            let clip = rig.clips.get(&seq.name);
+            println!(
+                "seq {} act {} w {} frames {} fps {} events {:?}",
+                seq.name,
+                seq.activity,
+                seq.weight,
+                clip.map_or(0, |c| c.frames.len()),
+                clip.map_or(0., |c| c.fps),
+                clip.map(|c| c
+                    .events
+                    .iter()
+                    .map(|e| (e.cycle, e.id, e.name.clone()))
+                    .collect::<Vec<_>>()),
+            );
         }
         println!("pose {:?}", rig.pose_parameters);
         println!("autoplay {:?}", rig.autoplay);

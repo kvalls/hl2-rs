@@ -3,6 +3,7 @@
 //! at its enemy's eyes, bursts from close by, cuts what it touches and bounces off. Not yet: packed
 //! manhacks, swarming, the gravity gun, its sprites and panels, a crash in place of gibs, water.
 use super::assault::Assault;
+use super::conditions::{COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE};
 use super::hover::{Hover, Thrust};
 use super::metropolice::CopRequest;
 use super::schedule::TaskStatus::Running;
@@ -67,6 +68,18 @@ pub const SOUNDS: &[&str] = &[ENGINE_1, ENGINE_2, DIE, SLICE, GRIND];
 
 const ATTACK: &str = "SCHED_MANHACK_ATTACK_HOVER";
 const IDLE: &str = "SCHED_MANHACK_IDLE";
+const DEPLOY: &str = "SCHED_MANHACK_DEPLOY";
+/// A packed manhack waiting for a script: SCHED_WAIT_FOR_SCRIPT, which a hit or Unpack ends.
+const PACKED: &str = "SCHED_MANHACK_PACKED";
+
+/// SF_MANHACK_PACKED_UP.
+pub const SF_PACKED_UP: u32 = 1 << 16;
+/// The deploy sequence's events: the engine starts, the blade opens, and it is done.
+pub const AE_START_ENGINE: i32 = 50;
+pub const AE_DONE_UNPACKING: i32 = 51;
+pub const AE_OPEN_BLADE: i32 = 52;
+/// How long after unpacking its first burst can come.
+const UNPACKED_REST: f64 = 2.;
 
 /// Its schedules, with the interrupts every NPC has. Steering is the runtime's: a hover just runs.
 const SCHEDULES: &[(&str, &str)] = &[
@@ -79,6 +92,15 @@ const SCHEDULES: &[(&str, &str)] = &[
         IDLE,
         "Tasks TASK_SET_ACTIVITY ACTIVITY:ACT_FLY TASK_WAIT 1 \
          Interrupts COND_NEW_ENEMY COND_SEE_ENEMY COND_LIGHT_DAMAGE COND_HEAVY_DAMAGE",
+    ),
+    (
+        DEPLOY,
+        "Tasks TASK_PLAY_SEQUENCE ACTIVITY:ACT_MANHACK_UNPACK TASK_SET_ACTIVITY ACTIVITY:ACT_FLY",
+    ),
+    (
+        PACKED,
+        "Tasks TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE TASK_WAIT 1 \
+         Interrupts COND_LIGHT_DAMAGE COND_HEAVY_DAMAGE",
     ),
 ];
 
@@ -113,6 +135,14 @@ pub struct Manhack {
     pub blade_out: bool,
     pub engine_on: bool,
     engine_pitches: (f32, f32),
+    /// SF_MANHACK_PACKED_UP: it does not move until its deploy sequence starts the engine.
+    pub packed: bool,
+    /// Packed, it waits for a script: it stays shut until a hit or Unpack wakes it.
+    pub waits: bool,
+    /// Unpack came, or a hit.
+    pub woken: bool,
+    /// The deploy sequence has not opened the blade yet.
+    pub blade_shut: bool,
     /// SF_NPC_GAG: it flies without its engine sound.
     gagged: bool,
     seed: u64,
@@ -125,6 +155,29 @@ impl Manhack {
             gagged,
             seed: seed | 1,
             ..Default::default()
+        }
+    }
+    /// A manhack placed packed, shut until it deploys.
+    pub fn pack(&mut self, waits: bool) {
+        self.packed = true;
+        self.waits = waits;
+        self.blade_shut = true;
+    }
+    /// InputUnpack, or a hit: only a packed manhack has anything to wake.
+    pub fn wake(&mut self) {
+        self.woken = self.packed;
+    }
+    /// HandleAnimEvent: the deploy sequence starts the engine and opens the blade, and no burst
+    /// comes until it is done.
+    pub fn anim_event(&mut self, event: i32, now: f64) {
+        match event {
+            AE_START_ENGINE => {
+                self.packed = false;
+                self.next_burst = f64::MAX;
+            }
+            AE_OPEN_BLADE => self.blade_shut = false,
+            AE_DONE_UNPACKING => self.next_burst = now + UNPACKED_REST,
+            _ => {}
         }
     }
     /// The next number of its own dice.
@@ -271,6 +324,13 @@ impl Behavior for Manhack {
         if npc.state == NpcState::Script {
             return base_select_schedule(npc, ctx, false);
         }
+        if npc.conditions.has(COND_LIGHT_DAMAGE) || npc.conditions.has(COND_HEAVY_DAMAGE) {
+            self.wake();
+        }
+        if self.packed {
+            let held = self.waits && !self.woken;
+            return if held { PACKED } else { DEPLOY }.into();
+        }
         if ctx.enemy.is_some() { ATTACK } else { IDLE }.into()
     }
     fn translate_schedule(&mut self, name: &str, _npc: &AiNpc, _ctx: &Context) -> String {
@@ -304,6 +364,58 @@ impl Behavior for Manhack {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_packed_manhack_waiting_for_a_script_stays_shut_until_woken() {
+        let mut m = Manhack::new(false, 3);
+        m.pack(true);
+        let mut npc = AiNpc::new(1);
+        let ctx = Context::default();
+        assert_eq!(m.select_schedule(&mut npc, &ctx), PACKED);
+        m.wake();
+        assert_eq!(m.select_schedule(&mut npc, &ctx), DEPLOY);
+    }
+
+    #[test]
+    fn a_hit_wakes_a_packed_manhack() {
+        let mut m = Manhack::new(false, 3);
+        m.pack(true);
+        let mut npc = AiNpc::new(1);
+        npc.conditions.set(COND_LIGHT_DAMAGE);
+        assert_eq!(m.select_schedule(&mut npc, &Context::default()), DEPLOY);
+    }
+
+    #[test]
+    fn packed_with_no_script_to_wait_for_it_deploys_at_once() {
+        let mut m = Manhack::new(false, 3);
+        m.pack(false);
+        let mut npc = AiNpc::new(1);
+        assert_eq!(m.select_schedule(&mut npc, &Context::default()), DEPLOY);
+    }
+
+    #[test]
+    fn unpack_does_nothing_to_a_manhack_already_flying() {
+        let mut m = Manhack::new(false, 3);
+        m.wake();
+        assert!(!m.woken);
+        let mut npc = AiNpc::new(1);
+        assert_eq!(m.select_schedule(&mut npc, &Context::default()), IDLE);
+    }
+
+    #[test]
+    fn the_deploy_events_start_it_open_the_blade_and_hold_bursts_until_done() {
+        let mut m = Manhack::new(false, 3);
+        m.pack(false);
+        assert!(m.blade_shut);
+        m.anim_event(AE_START_ENGINE, 5.);
+        assert!(!m.packed);
+        assert_eq!(m.next_burst, f64::MAX);
+        m.anim_event(AE_OPEN_BLADE, 5.5);
+        assert!(!m.blade_shut);
+        assert_eq!(m.next_burst, f64::MAX);
+        m.anim_event(AE_DONE_UNPACKING, 6.);
+        assert_eq!(m.next_burst, 8.);
+    }
 
     fn at_speed(velocity: Vec3) -> Manhack {
         let mut m = Manhack::new(false, 3);
