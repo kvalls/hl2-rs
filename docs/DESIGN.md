@@ -1,5 +1,11 @@
 # Design
 
+## Conditional getter input replay plan (2026-11-06 MJ)
+
+MG–MI establish a bounded native getter history independently of earlier initializer captures. Reuse the sealed authored carrier's exact retail getter/count/dispatch windows in one separate x86 fixture. Supply only MI's extracted eleven source words and captured getter-entry 512-byte FP state. Validate masked FP controls before executing. Record before/after raw FP images and immediately restore the fixture's original state; include a zero-count case with untouched output. Keep output sentinels and stack equality checks.
+
+Compare all output words, all eight XMM registers, and the established 235 meaningful FXSAVE bytes for seed/restoration. Retain all 512 raw bytes and explicitly report reserved/address-field differences rather than silently normalizing them. Compare the conditional post-state with the independently extracted native post-store and caller-resume states, reporting any differences. Authenticate sealed carrier/input dependencies and executable/source pins before and after launch. This conditional fixture cannot identify the native actor, prove ordinary campaign behavior, establish a downstream initializer consumer or substitute for a new guarded native observation. Do not rerun the retail target for this fixture.
+
 ## Selected retail getter adapter plan (2026-11-06 MG)
 
 ME–MF independently admit one selected activation and partial-cap cleanup. Create a separate normal-build retail adapter rather than running the authored-carrier observer unchanged. Its loaded target is the exact owned client module/file/path with SizeOfImage598000. Retain only the exact106retail dispatch/getter/count bytes in runtime code proof; omit authored prelude/epilogue/alternate and carrier relocation checks. Bind all private source/build/static inputs before launch and independently review exact transforms.

@@ -1,5 +1,13 @@
 # STATUS
 
+## First bounded native getter history (2026-11-06 MG–MI)
+
+A fresh guarded retail run exits cleanly after one selected getter activation: 38 stops, 289 actual reads, 151 context triples. Twelve actual signed EAX returns are 11; eleven sampled pre-FLD/post-FSTP word pairs match raw bits. The final sampled 24-word span retains that prefix and thirteen unchanged tail endpoints. Getter RET and caller resume are observed. This is separate from the earlier initializer and object/list/type captures: no same-process identity join, downstream consumer, intervening-write exclusion, final pose, campaign completion or Rust parity is established.
+
+The exact normal retail adapter was independently admitted before its fresh ownership guard. All captured non-debug context regions remain preserved; 54 idle generation retirements and four armed thread exits are recorded separately. Seven unchanged raw ownership refusals have zero comparator addresses/control words and nonclean DR6; they do not identify another debugger. Two same-base module generations and 46 thread lifetimes do not demonstrate numeric TID reuse. Settings, source pins and cursor are unchanged. The context screenshot remains the title card; startup Fontconfig stderr is retained.
+
+MG seals 69 files/71 bindings, MH 3/28 and independent MI 11/26. MI independently decodes the selected history and rejects 47 additional corruptions. Its rejected first decoder assumed every armed thread survives to restoration; the accepted decoder explicitly accounts for the four actual exit events without modifying capture files. No new Rust code/build is included. Next: a conditional authored replay of these exact eleven source words and entry FP state, including a zero-count control, followed by a separately designed getter-to-consumer witness.
+
 ## One selected getter/cap admitted (2026-11-06 ME–MF)
 
 Three authored traces exit0 with one CAPeach: normal47stops/631reads/59context triples; dormant controls46/609/58; budget85/1187/97. Total178stops/2427reads/214triples; selected calls retain46sampled stores/49actual signed returns. The selector's current count is kept separate from those returned values. Normal/control selected calls complete11stores; budget retires before word25and the host still writes all25. All1500final output words and240raw FP images match the unchanged untraced baseline.

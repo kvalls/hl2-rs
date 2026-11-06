@@ -1,5 +1,11 @@
 # Local validation — 2026-10-05
 
+## Guarded native getter capture and independent review (2026-11-06 MG–MI)
+
+Windows 11: debugger and owned native process both exit 0 in 30.625 seconds. Fresh prelaunch admission precedes immediate clear guards. One selected activation yields 38 raw stops, 289 reads and 151 context triples over 46 thread lifetimes and two same-base module generations. Eleven raw word pairs match with twelve signed count returns of 11; final sampled 24-word prefix/tail endpoints agree. No new ownership is acquired after selection. Fifty-four idle retirements restore saved state; four armed thread exits end ownership without a restoration claim. Seven refusals preserve unchanged raw 716-byte context pairs.
+
+Primary verification, visual receipt and seals pass. Independent MI decoders agree and 47 additional copied corruptions reject; no target is rerun by review. Source/settings/cursor snapshots remain unchanged. The title-card image supplies context only; retained Fontconfig stderr is not hidden. Other platforms, enabled-comparator/TF conflicts, arbitrary active-call unload, numeric TID reuse, unstable native counts, downstream pose consumer, ordinary campaign completion and Rust parity are not tested.
+
 ## Single-capture and cleanup checks (2026-11-06 ME–MF)
 
 Normal/controls/budget traces total178raw stops,2427actual reads and214context triples. Exactly three selected histories retain46sampled stores and49signed returns; selector/filter snapshots are not substituted for returned EAX. All60worker records preserve the1500final output words and240raw FP images from the untraced baseline. No new debug ownership is acquired after selection; all later-generation entries remain unarmed. One actual dormant-state control declines unchanged.

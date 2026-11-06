@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-06: admit first bounded retail getter history
+
+- Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents.
+- Changed: exact retail-only selected getter observer, prelaunch source admission and independent raw context/semantics review; conditional input replay plan.
+- Why: replace inferred getter effects with actual returned counts and sampled instruction endpoints.
+- Tested how: one fresh guarded native process, 38 stops/289 reads/151 context triples; independent decoder and 47 additional mutation controls; source, settings, cursor and visual receipts.
+- Result: twelve signed returns of 11, eleven equal source/store words, getter return and caller resume; clean process exits and bounded capture. Fifty-four idle retirements, four armed exits and seven unchanged refusals remain distinct.
+- Still broken or not tested: selected actor identity, downstream consumer, intervening-write exclusion, rendered pose, ordinary campaign completion, Rust parity and other platforms. Rejected reviewer assumption about armed exits is retained; capture unchanged.
+- Next: execute the bounded conditional eleven-word/entry-FP replay and zero-count control, then design a fresh getter-to-consumer witness.
+
 ## 2026-11-06: admit single selected getter and plan separate native adapter
 
 - Agent/model: Codex Desktop, GPT-6 family; exact model identifier unavailable. No subagents used.

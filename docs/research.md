@@ -1,5 +1,11 @@
 # Sources and native research
 
+## Native getter samples admitted (2026-11-06 MG–MI)
+
+The first independently admitted selected retail history contains twelve actual signed count returns of 11 and eleven equal pre-FLD/post-FSTP float-word samples, then getter return and caller resume. The selector's eligibility snapshot remains separate from returned EAX. All 38 stopped FP images retain CW 027f, SW 4037, MXCSR 1fbf, empty tags and unchanged eight-XMM bytes. The final sampled output prefix agrees; tail endpoint equality does not exclude intervening writes.
+
+Only the exact 106 retail dispatch/getter/count bytes are admitted by the retail adapter. Authored carrier setup, epilogue and alternate-target machinery are excluded. The separate prelaunch review replays all 178 authored records and accepts a coherent changed-count transcript only as a conditional parser diagnostic. The actual native capture has no forced fixture configuration. MI independently reviews raw contexts, lifetimes and instruction semantics and rejects 47 additional mutations. Unchanged raw DR6 refusals and armed thread exits are retained as explicit ownership outcomes. No named actor, model correspondence for this selected object, downstream consumer, rendered pose or campaign/Rust parity is inferred.
+
 ## Selected getter evidence remains authored (2026-11-06 ME–MF)
 
 The first exact candidate with stable current virtual count11is selected, while actual EAX count returns remain independent evidence. Three authored runs cover normal completion, dormant-state refusal and24-store budget retirement before a25thwrite. Their178stops/214context triples preserve saved ownership and stop new arming after selection. Full output/FP baselines remain equal. No claim of retail getter execution is made yet.
