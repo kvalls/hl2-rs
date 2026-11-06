@@ -4,7 +4,7 @@
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
 
-**Changed:** main fast-forwarded to 4c5ad9f and to f55c705, each after CI passed on Windows and macOS. In 9bb0ac6: the inspection search (ai/scanner/inspect.rs). In ec26bac, branch only: npc_manhack's first step, with its animation and blade known wrong. In 4c5ad9f: the flash attack (ai/scanner/flash.rs, SCHED_CSCANNER_ATTACK_FLASH), the eye sprite and the flash's light, blinding by how directly the player looks, on photographs too; the faceplate, tail, dynamo and flaps (ai/scanner/pose.rs, `Scene::scanner_poses`). ShotEffect, shot_effects and entities.rs's yaw helpers moved to their own modules, since those files were at their limits. In 50eac31: the spotlight (ai/scanner/spotlight.rs), beam strip and halo, InputDisableSpotlight, `PhysicsSight::first_solid`, a shader mode for dim sprites, effects/sprite_modes.rs.
+**Changed:** main fast-forwarded to 4c5ad9f and to f55c705, each after CI passed on Windows and macOS. In 9bb0ac6: the inspection search (ai/scanner/inspect.rs). In ec26bac and the fix after it: npc_manhack's first step (chase, burst, cut, gibs). In 4c5ad9f: the flash attack (ai/scanner/flash.rs, SCHED_CSCANNER_ATTACK_FLASH), the eye sprite and the flash's light, blinding by how directly the player looks, on photographs too; the faceplate, tail, dynamo and flaps (ai/scanner/pose.rs, `Scene::scanner_poses`). ShotEffect, shot_effects and entities.rs's yaw helpers moved to their own modules, since those files were at their limits. In 50eac31: the spotlight (ai/scanner/spotlight.rs), beam strip and halo, InputDisableSpotlight, `PhysicsSight::first_solid`, a shader mode for dim sprites, effects/sprite_modes.rs.
 
 **Why:** next steps of the session plan; the owner saw during the session that the animated faceplate was missing.
 
@@ -14,7 +14,7 @@
 
 **Still broken or not tested:** see STATUS "Not done for scanners". Native comparison of shape, flash delay and fade curve done; native's full-white peak, the body's brightness and dim sprites are open. Ordinary play of a scanner map **not tested**.
 
-**Next:** npc_manhack's ACT_FLY and blade, then the open native items.
+**Next:** npc_manhack's remaining steps, then the open native items.
 
 ## 2026-11-05 session 46c: npc_cscanner in the runtime, main at 031aa58 (Claude Code desktop, claude-opus-5-5)
 
