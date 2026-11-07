@@ -19,8 +19,14 @@ use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
 
-/// sk_manhack_melee_dmg where skill.cfg leaves it out.
+/// sk_manhack_melee_dmg and sk_manhack_health where skill.cfg leaves them out.
 const CUT_DAMAGE: f32 = 20.;
+const MAX_HEALTH: f32 = 25.;
+/// Bump grinds when the surface's normal is this close to across the blades' plane.
+const GRIND_ACROSS: f32 = 0.25;
+/// MaintainGroundHeight's 52 units and its 32 u/s climb.
+const GROUND_HEIGHT: f32 = 52.;
+const GROUND_RISE: f32 = 32.;
 /// The bodygroup that shows its blade.
 const BLADE_GROUP: usize = 1;
 /// How close to an NPC's middle counts as touching it.
@@ -32,6 +38,8 @@ const TURN_RATE: f32 = 360.;
 enum Cut {
     Player,
     Npc(usize, Vec3),
+    /// Thrown into something: this share of its max health.
+    Smash(f32),
 }
 
 /// Its enemy's place across the ground and at height, for a burst's checks.
@@ -56,9 +64,16 @@ fn collide(m: &mut Manhack, air: &Air, origin: Vec3, hit: Option<Cut>, now: f64)
     }
     let ahead = air.trace(origin, origin + m.hover.velocity * THINK_INTERVAL as f32);
     if ahead.trace.fraction < 1. {
-        m.hover.bounce(ahead.trace.normal);
+        let speed = m.hover.velocity.length();
+        let normal = ahead.trace.normal;
+        m.hover.bounce(normal);
         m.stop_burst(now);
-        m.requests.push(CopRequest::Sound(manhack::GRIND));
+        // Bump: the blades grind only on what stands across their plane, a wall and not a floor;
+        // the body turns only about its yaw, so its up is the world's.
+        if normal.z.abs() < GRIND_ACROSS && !m.gagged() {
+            m.requests.push(CopRequest::Sound(manhack::GRIND));
+        }
+        return m.smash(speed, now).map(Cut::Smash);
     }
     None
 }
@@ -110,6 +125,11 @@ fn steer(
     if scene.manhack_panels.get(&id) != Some(&m.panels) {
         scene.manhack_panels.insert(id, m.panels);
     }
+    keep_off_ground(m, air, origin);
+    // MoveToTarget returns while the engine is stalled: it flies on as it was thrown.
+    if m.stalled(now) {
+        return collide(m, air, origin, None, now);
+    }
     m.fly(origin, interval, now);
     let view = enemy.map(|e| enemy_view(origin, e.feet, e.eyes));
     m.hover
@@ -135,6 +155,20 @@ fn steer(
         }
     });
     collide(m, air, origin, touching, now)
+}
+
+/// MaintainGroundHeight, every think but packed: under 52 units over the ground and not rising
+/// faster than 32 u/s, it is pushed up, the harder the nearer. The SDK's trace sees brushes only;
+/// this one sees what flight sees.
+fn keep_off_ground(m: &mut Manhack, air: &Air, origin: Vec3) {
+    let rise = m.hover.velocity.z;
+    if rise > GROUND_RISE {
+        return;
+    }
+    let down = air.trace(origin, origin - Vec3::Z * GROUND_HEIGHT);
+    if down.trace.fraction < 1. {
+        m.hover.velocity.z += (-rise * 0.5).max(16.) * (1. - down.trace.fraction);
+    }
 }
 
 /// A new move's line: the world in the way fails it.
@@ -221,27 +255,30 @@ impl AiRuntime {
             }
         }
     }
-    /// The living manhacks' eye and light, placed for this frame.
+    /// The living manhacks' eye and light, placed for this frame, and whether they are stunned.
+    /// A stunned eye strobes, so half the time it is not drawn.
     pub fn manhack_glows<'a>(
         &'a self,
         world: &'a World,
         scene: &'a Scene,
-    ) -> impl Iterator<Item = (usize, Vec3)> + 'a {
-        let lit = |id: &usize| {
-            let state = scene.states.get(*id);
+    ) -> impl Iterator<Item = (Vec3, bool)> + 'a {
+        let alive = |id: usize| {
+            let state = scene.states.get(id);
             state.is_some_and(|s| s.visible && !s.killed && !s.corpse)
         };
         self.actors
             .iter()
-            .filter(|(_, actor)| matches!(actor.class, AiClass::Manhack(_)))
-            .map(|(&id, _)| id)
-            .filter(lit)
-            .flat_map(move |id| {
+            .filter_map(move |(&id, actor)| match &actor.class {
+                AiClass::Manhack(m) if alive(id) => Some((id, m.stunned)),
+                _ => None,
+            })
+            .filter(move |&(id, stunned)| !stunned || manhack::strobe_lit(scene.time, id))
+            .flat_map(move |(id, stunned)| {
                 let frames = scene.attachment_frames(world, id, &manhack::GLOW_ATTACHMENTS);
                 frames
                     .into_iter()
                     .flatten()
-                    .map(move |frame| (id, frame.w_axis.truncate()))
+                    .map(move |frame| (frame.w_axis.truncate(), stunned))
             })
     }
     /// The squad's members as the swarm reads them.
@@ -294,6 +331,7 @@ impl AiRuntime {
         let now = scene.time;
         let per_second = scene.skill.get("sk_manhack_melee_dmg", CUT_DAMAGE);
         let (held, squads) = (&self.held_npcs, &mut self.squads);
+        let punts = std::mem::take(&mut scene.npc_punts);
         let mut cuts = Vec::new();
         let mut asks = Vec::new();
         for (&id, actor) in self.actors.iter_mut() {
@@ -327,16 +365,24 @@ impl AiRuntime {
             if let Some(ask) = m.swarm.ask {
                 asks.push((id, ask));
             }
+            // Punted: it thinks at once, as the SDK's next think 0.01 s on.
+            for &(_, push) in punts.iter().filter(|(target, _)| *target == id) {
+                m.punted(push, now);
+                m.next_steer = now;
+            }
             if now >= m.next_steer {
                 m.next_steer = now + THINK_INTERVAL;
                 claim_slot(m, squads, squad, (enemy_id, now));
                 if let Some(cut) = steer(m, &air, scene, enemy.as_ref(), player) {
                     let origin = scene.states[id].origin;
                     let from = match &cut {
-                        Cut::Player => player.feet + Vec3::Z * 36.,
-                        Cut::Npc(_, middle) => *middle,
+                        Cut::Player => Some(player.feet + Vec3::Z * 36.),
+                        Cut::Npc(_, middle) => Some(*middle),
+                        Cut::Smash(_) => None,
                     };
-                    m.rebound(origin - from, now);
+                    if let Some(from) = from {
+                        m.rebound(origin - from, now);
+                    }
                     cuts.push((id, cut, origin));
                 }
             }
@@ -358,6 +404,20 @@ impl AiRuntime {
     /// What a cut does: the damage and its sound.
     fn pay_cut(&mut self, scene: &mut Scene, id: usize, cut: Cut, origin: Vec3, per_second: f32) {
         let interval = THINK_INTERVAL as f32;
+        if let Cut::Smash(share) = cut {
+            // TakeDamageFromPhyscannon: DMG_GENERIC from the player who threw it.
+            let health = scene.skill.get("sk_manhack_health", MAX_HEALTH);
+            scene.entity_damage.push(crate::projectiles::Damage {
+                target: crate::projectiles::DamageTarget::Entity(id),
+                amount: health * share,
+                kind: 0,
+                dissolve: false,
+                direction: Vec3::ZERO,
+                origin,
+                attacker: crate::projectiles::Attacker::Player,
+            });
+            return;
+        }
         scene.sounds.push(SoundRequest {
             origin: Some(origin),
             ..manhack::SLICE.into()
@@ -377,6 +437,7 @@ impl AiRuntime {
                 position: middle,
                 direction: (middle - origin).normalize_or_zero(),
             }),
+            Cut::Smash(_) => {}
         }
     }
 }

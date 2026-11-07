@@ -20,6 +20,8 @@ pub const DMG_SONIC: u32 = 1 << 9;
 pub const DMG_DROWN: u32 = 1 << 14;
 pub const DMG_PARALYZE: u32 = 1 << 15;
 pub const DMG_NERVEGAS: u32 = 1 << 16;
+/// The gravity gun's punt (shared/shareddefs.h).
+pub const DMG_PHYSGUN: u32 = 1 << 23;
 pub const DMG_POISON: u32 = 1 << 17;
 pub const DMG_RADIATION: u32 = 1 << 18;
 pub const DMG_DROWNRECOVER: u32 = 1 << 19;

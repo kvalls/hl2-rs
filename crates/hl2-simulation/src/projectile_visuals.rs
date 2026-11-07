@@ -60,7 +60,7 @@ pub struct Quad {
 pub struct ProjectileVisuals {
     /// Scanners' lit eyes and spotlights, and manhacks' glows, this frame, from the host.
     pub eye_flares: Vec<EyeFlare>,
-    pub manhack_glows: Vec<(usize, Vec3)>,
+    pub manhack_glows: Vec<(Vec3, bool)>,
     pub beams: Vec<Beam>,
     pub sprites: HashMap<String, Sprite>,
     pub quads: Vec<Quad>,

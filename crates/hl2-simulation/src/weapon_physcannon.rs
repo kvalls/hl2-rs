@@ -506,9 +506,13 @@ impl Inventory {
                 let p = hit.position * SCALE;
                 body.apply_impulse_at_point(vector![k.x, k.y, k.z], point![p.x, p.y, p.z], true);
             }
-            // PuntVPhysics recoil: ViewPunch(RandomFloat(1, 2), RandomFloat(-1, 1), 0).
-            let recoil = Vec3::new(1.5 + 0.5 * self.random(), self.random(), 0.);
-            self.punch.punch(recoil);
+            self.punt_recoil();
+        } else if world
+            .entities
+            .get(id)
+            .is_some_and(|e| e.class() == "npc_manhack")
+        {
+            self.punt_manhack(scene, id, forward, hit.position);
         } else {
             let class = world.entities.get(id).map_or("", |e| e.class());
             if !matches!(class, "func_breakable" | "func_physbox") && !class.starts_with("prop_") {
@@ -536,6 +540,29 @@ impl Inventory {
         self.physcannon.element_debounce = time + 0.5;
         self.physcannon.check_suppress = time + 0.25;
         self.physcannon.next_secondary = time + 0.5;
+    }
+    /// PuntVPhysics' recoil: ViewPunch(RandomFloat(1, 2), RandomFloat(-1, 1), 0).
+    fn punt_recoil(&mut self) {
+        let recoil = Vec3::new(1.5 + 0.5 * self.random(), self.random(), 0.);
+        self.punch.punch(recoil);
+    }
+    /// PuntVPhysics on a manhack, whose VPhysics body is its .phy's first solid: DMG_PHYSGUN,
+    /// which the manhack turns into 1 damage, then OnPhysGunPickup(PUNTED_BY_CANNON) and the
+    /// push, which the AI applies.
+    fn punt_manhack(&mut self, scene: &mut Scene, id: usize, forward: Vec3, at: Vec3) {
+        let mass = crate::ai::manhack::PHYSICS_MASS;
+        let (dv, offset) = punt_impulse(forward, mass);
+        scene.entity_damage.push(crate::projectiles::Damage {
+            target: crate::projectiles::DamageTarget::Entity(id),
+            amount: 1.,
+            kind: crate::player_damage::DMG_PHYSGUN,
+            dissolve: false,
+            direction: forward,
+            origin: at,
+            attacker: crate::projectiles::Attacker::Player,
+        });
+        scene.npc_punts.push((id, dv + offset / mass));
+        self.punt_recoil();
     }
     /// Primary fire with an object held: it leaves at the launch speed, spinning.
     fn launch_held(

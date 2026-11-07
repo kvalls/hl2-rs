@@ -78,6 +78,7 @@ pub const SOUNDS: &[&str] = &[
     GRIND,
     CHARGE_ANNOUNCE,
     CHARGE_END,
+    STUNNED,
 ];
 
 /// The eye and the light (StartEye, at Activate and when the engine starts): red additive glow1
@@ -91,6 +92,25 @@ pub const GLOW_BRIGHTNESS: f32 = 164. / 255.;
 /// The four panels' pose parameters (UpdatePanels): open wide while hostile, else closing by 25
 /// degrees a think. Retail reads the same 90 and 25; the owned model's range is 0 to 90.
 pub const PANELS: [&str; 4] = ["Panel1", "Panel2", "Panel3", "Panel4"];
+pub const GLOW_COLOR: [u8; 3] = [255, 0, 0];
+
+/// The gravity gun (OnPhysGunPickup, PUNTED_BY_CANNON): its VPhysics body is the owned
+/// manhack.phy's first solid; the engine stalls for 2 s with the eye stunned (orange, scale
+/// 0.15, strobing fast); a hit within 0.35 s of the punt is a smash for max health times speed
+/// over 500, at most twice (TakeDamageFromPhyscannon).
+pub const PHYSICS_MASS: f32 = 3.693_67;
+const STALL: f64 = 2.;
+const SMASH_TIME: f64 = 0.35;
+const SMASH_SPEED: f32 = 500.;
+const STUNNED: &str = "NPC_Manhack.Stunned";
+pub const STUNNED_COLOR: [u8; 3] = [255, 128, 0];
+pub const STUNNED_SCALE: f32 = 0.15;
+
+/// kRenderFxStrobeFast: lit while sin(16 t + 363 x index) is positive. The SDK's index is the
+/// sprite's own entity; here it is the manhack's.
+pub fn strobe_lit(now: f64, id: usize) -> bool {
+    (now * 16. + id as f64 * 363.).sin() > 0.
+}
 const PANELS_OPEN: f32 = 90.;
 const PANELS_CLOSING: f32 = 25.;
 
@@ -175,7 +195,12 @@ pub struct Manhack {
     pub swarm: Swarm,
     /// m_bShowingHostile: a burst is on. Its panels' opening in degrees.
     pub hostile: bool,
-    pub panels: f32,
+    pub panels: [f32; 4],
+    /// m_flEngineStallTime, the punt's time (m_flLastPhysicsInfluenceTime with the player as its
+    /// physics attacker), and the eye's stunned state.
+    pub stalled_until: f64,
+    pub punted_at: Option<f64>,
+    pub stunned: bool,
     /// SF_NPC_GAG: it flies without its engine sound.
     gagged: bool,
     seed: u64,
@@ -298,16 +323,46 @@ impl Manhack {
             self.requests.push(CopRequest::Sound(cue));
         }
     }
-    /// Once a think: past its burst it is no longer hostile, and the panels follow.
+    /// Once a think: a stalled engine flutters each panel at random; otherwise past its burst it
+    /// is no longer hostile, and the panels follow.
     pub fn update_panels(&mut self, now: f64) {
+        if self.stalled(now) {
+            self.panels = std::array::from_fn(|_| self.dice() * PANELS_OPEN);
+            return;
+        }
         if !self.bursting(now) {
             self.show_hostile(false);
         }
-        self.panels = if self.hostile {
+        let open = if self.hostile {
             PANELS_OPEN
         } else {
-            (self.panels - PANELS_CLOSING).max(0.)
+            (self.panels[0] - PANELS_CLOSING).max(0.)
         };
+        self.panels = [open; 4];
+    }
+    /// A punt by the gravity gun: the speed it adds, up to VPhysics' limit, the burst's end (its
+    /// DMG_PHYSGUN), the stall and the stunned eye.
+    pub fn punted(&mut self, push: Vec3, now: f64) {
+        let speed = self.hover.velocity + push;
+        self.hover.velocity = speed.clamp_length_max(crate::physics::MAX_VELOCITY);
+        self.stop_burst(now);
+        self.stalled_until = now + STALL;
+        self.punted_at = Some(now);
+        self.stunned = true;
+        self.requests.push(CopRequest::Sound(STUNNED));
+    }
+    /// SF_NPC_GAG: no engine and no grind.
+    pub fn gagged(&self) -> bool {
+        self.gagged
+    }
+    /// MoveToTarget does nothing while the engine is stalled.
+    pub fn stalled(&self, now: f64) -> bool {
+        now < self.stalled_until
+    }
+    /// A hit soon after a punt: the share of its max health it takes.
+    pub fn smash(&self, speed: f32, now: f64) -> Option<f32> {
+        let thrown = self.punted_at.is_some_and(|at| now - at <= SMASH_TIME);
+        thrown.then(|| (speed / SMASH_SPEED).clamp(0., 2.))
     }
     /// StartBurst: no steering to speak of for a second, and no other for two. One already under
     /// way runs on as it is.
@@ -316,6 +371,8 @@ impl Manhack {
             return;
         }
         self.show_hostile(true);
+        // SetEyeState(MANHACK_EYE_STATE_CHARGE): the eye is red again.
+        self.stunned = false;
         self.burst_direction = direction.normalize_or_zero();
         self.burst_until = now + BURST_LENGTH;
         self.next_burst = now + BURST_PAUSE;
@@ -589,11 +646,11 @@ mod tests {
         let mut m = Manhack::new(false, 3);
         m.start_burst(Vec3::X, 10.);
         m.update_panels(10.1);
-        assert_eq!(m.panels, 90.);
+        assert_eq!(m.panels, [90.; 4]);
         let closing: Vec<f32> = [11.1, 11.2, 11.3, 11.4]
             .map(|now| {
                 m.update_panels(now);
-                m.panels
+                m.panels[0]
             })
             .to_vec();
         assert_eq!(closing, [65., 40., 15., 0.]);
@@ -616,6 +673,41 @@ mod tests {
             })
             .collect();
         assert_eq!(cues, [CHARGE_ANNOUNCE, CHARGE_END]);
+    }
+
+    #[test]
+    fn a_punt_stalls_it_for_two_seconds_and_stuns_its_eye_until_a_charge() {
+        let mut m = Manhack::new(false, 3);
+        m.punted(Vec3::X * 4661., 10.);
+        assert_eq!(m.hover.velocity, Vec3::X * 2000.);
+        assert!(m.stalled(11.9) && !m.stalled(12.));
+        assert!(m.stunned);
+        m.update_panels(10.5);
+        assert!(m.panels.iter().all(|p| (0. ..=90.).contains(p)));
+        assert!(
+            m.panels.windows(2).any(|w| w[0] != w[1]),
+            "each panel at random"
+        );
+        m.start_burst(Vec3::X, 12.5);
+        assert!(!m.stunned);
+    }
+
+    #[test]
+    fn a_smash_counts_only_just_after_a_punt_and_is_at_most_twice_max_health() {
+        let mut m = Manhack::new(false, 3);
+        assert_eq!(m.smash(1000., 10.), None);
+        m.punted(Vec3::X * 100., 10.);
+        assert_eq!(m.smash(250., 10.2), Some(0.5));
+        assert_eq!(m.smash(2000., 10.35), Some(2.));
+        assert_eq!(m.smash(2000., 10.4), None);
+    }
+
+    #[test]
+    fn the_fast_strobe_is_lit_about_half_the_time() {
+        let lit = (0..1000)
+            .filter(|i| strobe_lit(f64::from(*i) * 0.01, 7))
+            .count();
+        assert!((400..600).contains(&lit), "{lit}");
     }
 
     #[test]

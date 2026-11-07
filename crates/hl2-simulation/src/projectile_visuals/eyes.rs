@@ -1,6 +1,8 @@
 //! Eyes drawn as sprites: scanners' kRenderGlow eyes, and manhacks' eye and light.
 use super::{ProjectileVisuals, GLOW_SUFFIX};
-use crate::ai::manhack::{GLOW_BRIGHTNESS, GLOW_SCALE, GLOW_SPRITE};
+use crate::ai::manhack::{
+    GLOW_BRIGHTNESS, GLOW_COLOR, GLOW_SCALE, GLOW_SPRITE, STUNNED_COLOR, STUNNED_SCALE,
+};
 use crate::ai::scanner::flash::EYE_SPRITE;
 use crate::physics::Physics;
 use glam::Vec3;
@@ -31,20 +33,25 @@ impl ProjectileVisuals {
         self.eye_flares = flares;
     }
 
-    /// Manhacks' eye and light: red kRenderTransAdd sprites, so the world hides them as it hides
-    /// the body, at brightness 164 of 255.
+    /// Manhacks' eye and light: kRenderTransAdd sprites, so the world hides them as it hides the
+    /// body, at brightness 164 of 255; red, or orange and smaller while stunned.
     pub(super) fn manhack_glow_quads(&mut self, axes: (Vec3, Vec3)) {
         let glows = std::mem::take(&mut self.manhack_glows);
         let width = self
             .sprites
             .get(GLOW_SPRITE)
             .map_or(0., |s| s.image.width as f32);
-        for &(_, at) in &glows {
+        for &(at, stunned) in &glows {
+            let (color, scale) = if stunned {
+                (STUNNED_COLOR, STUNNED_SCALE)
+            } else {
+                (GLOW_COLOR, GLOW_SCALE)
+            };
             let before = self.quads.len();
-            self.quad(GLOW_SPRITE, at, axes, width * 0.5 * GLOW_SCALE, 0., 1.);
+            self.quad(GLOW_SPRITE, at, axes, width * 0.5 * scale, 0., 1.);
             if let Some(quad) = self.quads.get_mut(before) {
-                let red = (GLOW_BRIGHTNESS * 255.).round() as u8;
-                quad.color = [red, 0, 0, 255];
+                let [r, g, b] = color.map(|c| (f32::from(c) * GLOW_BRIGHTNESS).round() as u8);
+                quad.color = [r, g, b, 255];
             }
         }
         self.manhack_glows = glows;

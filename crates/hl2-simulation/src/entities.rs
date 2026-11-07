@@ -508,8 +508,10 @@ pub struct Scene {
     pub tongues: BTreeMap<usize, crate::ai::barnacle::TonguePose>,
     /// Scanners' faceplates, tails, dynamos and flaps, over the model's pose parameters.
     pub scanner_poses: BTreeMap<usize, crate::ai::scanner::pose::Pose>,
-    /// Each manhack's panels, in degrees (`ai::manhack::PANELS`).
-    pub manhack_panels: BTreeMap<usize, f32>,
+    /// Each manhack's panels, in degrees (`ai::manhack::PANELS`), and this tick's gravity gun
+    /// punts of NPCs: who, and the speed added.
+    pub manhack_panels: BTreeMap<usize, [f32; 4]>,
+    pub npc_punts: Vec<(usize, glam::Vec3)>,
     /// Advances every ragdoll update (render pose cache key).
     pub ragdoll_frame: u64,
     /// NPCs whose AI has the player as enemy or in enemy memory (CAI_BaseHumanoid
@@ -724,6 +726,7 @@ impl Scene {
             tongues: BTreeMap::new(),
             scanner_poses: BTreeMap::new(),
             manhack_panels: BTreeMap::new(),
+            npc_punts: Vec::new(),
             ragdoll_frame: 0,
             npc_knows_player: Default::default(),
             ai_sequence_end: BTreeMap::new(),

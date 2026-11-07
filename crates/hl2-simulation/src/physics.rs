@@ -45,7 +45,7 @@ pub struct ProjectileHit {
 }
 const SCALE: f32 = 1. / 39.37;
 /// k_flMaxVelocity / k_flMaxAngularVelocity (SDK public/vphysics/performance.h).
-const MAX_VELOCITY: f32 = 2000.;
+pub(crate) const MAX_VELOCITY: f32 = 2000.;
 const MAX_ANGULAR_VELOCITY: f32 = 360. * 10.;
 // Retail CGameMovement::PlayerSolidMask(true): NPC-only clip volumes do not
 // block players. Keep their colliders available for other query categories.
