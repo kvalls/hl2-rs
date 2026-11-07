@@ -67,7 +67,32 @@ pub const DIE: &str = "NPC_Manhack.Die";
 pub const SLICE: &str = "NPC_Manhack.Slice";
 pub const GRIND: &str = "NPC_Manhack.Grind";
 /// Every cue this class plays; a cue that is not preloaded is dropped.
-pub const SOUNDS: &[&str] = &[ENGINE_1, ENGINE_2, DIE, SLICE, GRIND];
+const CHARGE_ANNOUNCE: &str = "NPC_Manhack.ChargeAnnounce";
+const CHARGE_END: &str = "NPC_Manhack.ChargeEnd";
+
+pub const SOUNDS: &[&str] = &[
+    ENGINE_1,
+    ENGINE_2,
+    DIE,
+    SLICE,
+    GRIND,
+    CHARGE_ANNOUNCE,
+    CHARGE_END,
+];
+
+/// The eye and the light (StartEye, at Activate and when the engine starts): red additive glow1
+/// sprites at these attachments, brightness 164 and scale 0.25, lit for as long as it lives. Retail
+/// precaches the same sprite.
+pub const GLOW_SPRITE: &str = "sprites/glow1";
+pub const GLOW_ATTACHMENTS: [&str; 2] = ["Eye", "Light"];
+pub const GLOW_SCALE: f32 = 0.25;
+pub const GLOW_BRIGHTNESS: f32 = 164. / 255.;
+
+/// The four panels' pose parameters (UpdatePanels): open wide while hostile, else closing by 25
+/// degrees a think. Retail reads the same 90 and 25; the owned model's range is 0 to 90.
+pub const PANELS: [&str; 4] = ["Panel1", "Panel2", "Panel3", "Panel4"];
+const PANELS_OPEN: f32 = 90.;
+const PANELS_CLOSING: f32 = 25.;
 
 const ATTACK: &str = "SCHED_MANHACK_ATTACK_HOVER";
 const IDLE: &str = "SCHED_MANHACK_IDLE";
@@ -148,6 +173,9 @@ pub struct Manhack {
     pub blade_shut: bool,
     /// How it stands with its squad.
     pub swarm: Swarm,
+    /// m_bShowingHostile: a burst is on. Its panels' opening in degrees.
+    pub hostile: bool,
+    pub panels: f32,
     /// SF_NPC_GAG: it flies without its engine sound.
     gagged: bool,
     seed: u64,
@@ -196,6 +224,15 @@ impl Manhack {
     }
     pub fn bursting(&self, now: f64) -> bool {
         self.burst_until > now
+    }
+    /// MeleeAttack1Conditions: rested, its enemy near across the ground and level with the eyes.
+    /// The SDK measures between the bodies' middles; this from its enemy's feet.
+    fn melee_ready(&self, ctx: &Context) -> bool {
+        let (Some((_, feet)), Some(eyes)) = (ctx.enemy, ctx.enemy_eye) else {
+            return false;
+        };
+        let across = (feet - ctx.origin).truncate().length();
+        ctx.now >= self.next_burst && swarm::in_melee(across, ctx.origin.z - eyes.z)
     }
     /// Rather than chase: it rests between bursts, or its squad's attack slots are taken.
     pub fn swarms(&self, now: f64) -> bool {
@@ -254,8 +291,31 @@ impl Manhack {
             && in_height
             && heading.dot(to_enemy.normalize_or_zero()) > BURST_AIM
     }
-    /// StartBurst: no steering to speak of for a second, and no other for two.
+    /// ShowHostile: the panels open, and it says so as it changes.
+    fn show_hostile(&mut self, hostile: bool) {
+        if std::mem::replace(&mut self.hostile, hostile) != hostile {
+            let cue = if hostile { CHARGE_ANNOUNCE } else { CHARGE_END };
+            self.requests.push(CopRequest::Sound(cue));
+        }
+    }
+    /// Once a think: past its burst it is no longer hostile, and the panels follow.
+    pub fn update_panels(&mut self, now: f64) {
+        if !self.bursting(now) {
+            self.show_hostile(false);
+        }
+        self.panels = if self.hostile {
+            PANELS_OPEN
+        } else {
+            (self.panels - PANELS_CLOSING).max(0.)
+        };
+    }
+    /// StartBurst: no steering to speak of for a second, and no other for two. One already under
+    /// way runs on as it is.
     pub fn start_burst(&mut self, direction: Vec3, now: f64) {
+        if self.bursting(now) {
+            return;
+        }
+        self.show_hostile(true);
         self.burst_direction = direction.normalize_or_zero();
         self.burst_until = now + BURST_LENGTH;
         self.next_burst = now + BURST_PAUSE;
@@ -408,6 +468,8 @@ impl Behavior for Manhack {
             } else {
                 Complete
             }),
+            // SWARM's COND_CAN_MELEE_ATTACK1: an enemy in reach ends the move.
+            swarm::MOVE_AT if self.melee_ready(ctx) => Some(Complete),
             swarm::MOVE_AT => Some(self.swarm.step(ctx.origin, ctx.now)),
             _ => None,
         }
@@ -482,6 +544,29 @@ mod tests {
     }
 
     #[test]
+    fn an_enemy_in_reach_ends_a_swarm_move_once_rested() {
+        let (mut m, mut npc, mut ctx) = hunting(10.);
+        ctx.origin = Vec3::new(0., 0., 60.);
+        ctx.enemy = Some((1, Vec3::X * 30.));
+        ctx.enemy_eye = Some(Vec3::new(30., 0., 64.));
+        m.swarm.until = 20.;
+        m.swarm.point = Vec3::X * 500.;
+        let none = TaskArg::Number(0.);
+        let mut run = |m: &mut Manhack| {
+            m.run_task(
+                &mut npc,
+                swarm::MOVE_AT,
+                &none,
+                &ctx,
+                &mut FakeMotor::default(),
+            )
+        };
+        assert_eq!(run(&mut m), Some(Complete));
+        m.next_burst = 11.;
+        assert_eq!(run(&mut m), Some(Running));
+    }
+
+    #[test]
     fn a_squad_question_holds_its_task_until_the_runtime_answers() {
         let (mut m, mut npc, ctx) = hunting(10.);
         let none = TaskArg::Number(0.);
@@ -497,6 +582,40 @@ mod tests {
             m.run_task(&mut npc, task, &none, &ctx, &mut FakeMotor::default()),
             Some(Complete)
         );
+    }
+
+    #[test]
+    fn a_burst_opens_the_panels_at_once_and_they_close_by_25_a_think() {
+        let mut m = Manhack::new(false, 3);
+        m.start_burst(Vec3::X, 10.);
+        m.update_panels(10.1);
+        assert_eq!(m.panels, 90.);
+        let closing: Vec<f32> = [11.1, 11.2, 11.3, 11.4]
+            .map(|now| {
+                m.update_panels(now);
+                m.panels
+            })
+            .to_vec();
+        assert_eq!(closing, [65., 40., 15., 0.]);
+    }
+
+    #[test]
+    fn it_announces_a_charge_and_its_end_once_each() {
+        let mut m = Manhack::new(false, 3);
+        m.start_burst(Vec3::X, 10.);
+        m.start_burst(Vec3::X, 10.5);
+        for now in [10.6, 11.1, 11.2] {
+            m.update_panels(now);
+        }
+        let cues: Vec<_> = m
+            .requests
+            .iter()
+            .filter_map(|r| match r {
+                CopRequest::Sound(cue) => Some(*cue),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cues, [CHARGE_ANNOUNCE, CHARGE_END]);
     }
 
     #[test]

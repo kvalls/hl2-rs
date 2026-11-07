@@ -148,6 +148,13 @@ impl Scene {
         if let Some(pose) = self.scanner_poses.get(&id) {
             pose.apply(rig, &mut params);
         }
+        if let Some(&open) = self.manhack_panels.get(&id) {
+            for i in crate::ai::manhack::PANELS.map(|name| rig.pose_parameter(name)) {
+                if let Some(i) = i {
+                    params[i] = rig.pose_parameters[i].normalize(open);
+                }
+            }
+        }
         params
     }
 
@@ -172,6 +179,9 @@ impl Scene {
         }
         if let Some(pose) = self.scanner_poses.get(&id) {
             hash = pose.values().into_iter().fold(hash, mix);
+        }
+        if let Some(&open) = self.manhack_panels.get(&id) {
+            hash = mix(hash, open);
         }
         for (_, time, weight) in self.sequence_fades(id) {
             hash = mix(mix(hash, time), weight);

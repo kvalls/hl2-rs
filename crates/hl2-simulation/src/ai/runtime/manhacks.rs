@@ -106,6 +106,10 @@ fn steer(
     let swarming = m.swarm.flying_at(now).filter(|_| !m.bursting(now));
     m.target = swarming.or(enemy.map(|e| e.eyes));
     check_swarm_line(m, air, origin);
+    m.update_panels(now);
+    if scene.manhack_panels.get(&id) != Some(&m.panels) {
+        scene.manhack_panels.insert(id, m.panels);
+    }
     m.fly(origin, interval, now);
     let view = enemy.map(|e| enemy_view(origin, e.feet, e.eyes));
     m.hover
@@ -216,6 +220,29 @@ impl AiRuntime {
                 _ => {}
             }
         }
+    }
+    /// The living manhacks' eye and light, placed for this frame.
+    pub fn manhack_glows<'a>(
+        &'a self,
+        world: &'a World,
+        scene: &'a Scene,
+    ) -> impl Iterator<Item = (usize, Vec3)> + 'a {
+        let lit = |id: &usize| {
+            let state = scene.states.get(*id);
+            state.is_some_and(|s| s.visible && !s.killed && !s.corpse)
+        };
+        self.actors
+            .iter()
+            .filter(|(_, actor)| matches!(actor.class, AiClass::Manhack(_)))
+            .map(|(&id, _)| id)
+            .filter(lit)
+            .flat_map(move |id| {
+                let frames = scene.attachment_frames(world, id, &manhack::GLOW_ATTACHMENTS);
+                frames
+                    .into_iter()
+                    .flatten()
+                    .map(move |frame| (id, frame.w_axis.truncate()))
+            })
     }
     /// The squad's members as the swarm reads them.
     fn swarm_members(&self, squad: &str, scene: &Scene) -> Vec<manhack::Member> {

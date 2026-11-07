@@ -14,6 +14,9 @@ pub(super) fn shot_effects(game: &Gameplay, effects: &mut Effects) {
     source.eye_flares.clear();
     let eyes = game.ai.scanner_eyes(&game.world, &game.scene);
     source.eye_flares.extend(eyes);
+    source.manhack_glows.clear();
+    let glows = game.ai.manhack_glows(&game.world, &game.scene);
+    source.manhack_glows.extend(glows);
     source.beams.clear();
     let beams = game.ai.scanner_beams(&game.scene);
     let seen = &game.scene.look_targets;
