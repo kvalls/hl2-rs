@@ -149,10 +149,9 @@ impl Scene {
             pose.apply(rig, &mut params);
         }
         if let Some(&open) = self.manhack_panels.get(&id) {
-            for i in crate::ai::manhack::PANELS.map(|name| rig.pose_parameter(name)) {
-                if let Some(i) = i {
-                    params[i] = rig.pose_parameters[i].normalize(open);
-                }
+            let panels = crate::ai::manhack::PANELS.map(|name| rig.pose_parameter(name));
+            for i in panels.into_iter().flatten() {
+                params[i] = rig.pose_parameters[i].normalize(open);
             }
         }
         params

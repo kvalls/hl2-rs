@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-07 session 49: the engine's cubemap pick, manhack squads, panels and glows (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** 81adb31: a model's cubemap follows the retail light cache (cell middle, nearest sample, kept per cell); cubes upload their mip chain. 4d17eb7: npc_manhack step 3, squads and swarming, with slots given back on death, and squads' slots serializable in reports. 35dc359: panels, ShowHostile's sounds, eye and light sprites, the swarm's melee interrupt; the scanners' eye quads moved to projectile_visuals/eyes.rs.
+
+**Why:** the session plan's first two items; the owner's rule to check SDK, retail and owned files for every feature.
+
+**Tested how / Result:** see STATUS "Current session 49": retail engine and server functions, owned samples and model, two native views, packaged runs on d1_canals_02, d1_town_02 and d1_canals_03 with a no-squad control.
+
+**Frame time:** **not measured**. The cubemap pick runs only when a moving model enters a new cell; the glows read two attachments per living manhack per frame.
+
+**Still broken or not tested:** the reflections' tint and speckle (mips did not explain them); static props and late-loaded models do not reflect; manhack REGROUP, carried manhacks, the gravity gun, the crash and water; what native's manhack attacked under notarget.
+
+**Next:** the native tint test with the scanner's position; manhack step 4; native hit frames on a scanner.
+
 ## 2026-11-06 session 48: npc_cscanner polish from a native comparison, NPC surfaces for every class (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
