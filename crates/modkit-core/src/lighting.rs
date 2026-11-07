@@ -236,7 +236,29 @@ fn boost_luminance(c: Vec3) -> f32 {
     c.x * 0.30 + c.y * 0.59 + c.z * 0.11
 }
 
+/// Which light cache cell holds a point. Cells are 32 by 32 by 128 units; below zero the retail
+/// cell count runs from -1, so a point exactly on a negative edge falls one cell lower.
+pub fn cache_cell(point: Vec3) -> [i32; 3] {
+    let cell = |value: f32, shift: u32| {
+        let count = (value.abs() as i32) >> shift;
+        (if value < 0. { -1 - count } else { count }) << shift
+    };
+    [cell(point.x, 5), cell(point.y, 5), cell(point.z, 7)]
+}
+
 impl LightingData {
+    /// Where the light cache reads the world for `point` (r_lightcachecenter, on by default): the
+    /// middle of its cell, then that at the point's own height, whichever the point can reach
+    /// past opaque leaves, else the point itself.
+    pub fn cache_point(&self, point: Vec3) -> Vec3 {
+        let [x, y, z] = cache_cell(point).map(|edge| edge as f32);
+        let center = Vec3::new(x + 16., y + 16., z + 64.);
+        let level = Vec3::new(center.x, center.y, point.z);
+        [center, level]
+            .into_iter()
+            .find(|target| self.trace(point, *target).is_none())
+            .unwrap_or(point)
+    }
     /// Containing leaf of a point, or None for malformed trees.
     pub fn leaf_at(&self, point: Vec3) -> Option<usize> {
         if !point.is_finite() {
@@ -777,6 +799,37 @@ mod tests {
         data.leaves[1].ambient_first = 0;
         assert_eq!(data.leaf_ambient(1, Vec3::ZERO), [Vec3::ZERO; 6]);
     }
+    #[test]
+    fn cache_cells_are_32_by_32_by_128_and_negative_ones_count_from_minus_one() {
+        assert_eq!(cache_cell(Vec3::new(5., 40., 130.)), [0, 32, 128]);
+        assert_eq!(cache_cell(Vec3::new(-5., -40., -130.)), [-32, -64, -256]);
+        assert_eq!(cache_cell(Vec3::new(-32., 0., -128.)), [-64, 0, -256]);
+    }
+
+    #[test]
+    fn the_cache_point_is_the_cell_middle_the_point_can_reach() {
+        // split_world is solid below x = 0 and open from there on.
+        let open = Vec3::new(40., 3., 10.);
+        assert_eq!(split_world().cache_point(open), Vec3::new(48., 16., 64.));
+
+        // Solid above z = 40: the cell's middle is out of reach, its own height is not.
+        let mut ceiling = split_world();
+        ceiling.nodes[0].normal = Vec3::NEG_Z;
+        ceiling.nodes[0].distance = -40.;
+        let low = Vec3::new(5., 3., 10.);
+        assert_eq!(ceiling.cache_point(low), Vec3::new(16., 16., 10.));
+
+        // Solid below x = 20: neither is in reach, so the point stands for itself.
+        let mut wall = split_world();
+        wall.nodes[0].distance = 20.;
+        let beside = Vec3::new(25., 3., 10.);
+        assert_eq!(wall.cache_point(beside), beside);
+
+        // A point inside solid reaches nothing.
+        let inside = Vec3::new(-40., 3., 10.);
+        assert_eq!(split_world().cache_point(inside), inside);
+    }
+
     #[test]
     fn traces_stop_at_solid_leaves_and_hide_lights_behind_them() {
         let mut data = split_world();

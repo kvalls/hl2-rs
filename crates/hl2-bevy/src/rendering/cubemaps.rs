@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 pub struct ModelCubemaps(pub Vec<(Vec3, Handle<Image>)>);
 
 impl ModelCubemaps {
-    /// The sample a model at `at` reflects.
+    /// The sample a model reflects, from its light cache point (`LightingData::cache_point`).
     pub fn pick(&self, at: Vec3) -> Option<(usize, Handle<Image>)> {
         let index = nearest(self.0.iter().map(|(origin, _)| *origin), at)?;
         Some((index, self.0[index].1.clone()))
@@ -30,14 +30,7 @@ pub(super) fn upload(
         let cube = &sample.cube;
         let handle = handles
             .entry(format!("{}#cube", sample.path))
-            .or_insert_with(|| {
-                images.add(cube_image_filtered(
-                    cube.size,
-                    cube.hdr,
-                    cube.faces.concat(),
-                    filtering,
-                ))
-            });
+            .or_insert_with(|| images.add(cube_image_filtered(cube, filtering)));
         (sample.origin, handle.clone())
     };
     ModelCubemaps(samples.iter().map(&mut upload).collect())

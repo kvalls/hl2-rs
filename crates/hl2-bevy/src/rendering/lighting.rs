@@ -26,6 +26,8 @@ pub struct ModelLit {
     dynamic: bool,
     /// The cubemap sample it reflects, for a material that reflects one; usize::MAX before any.
     cubemap: Option<usize>,
+    /// The light cache cell that sample was chosen in: the choice holds until it leaves the cell.
+    cell: Option<[i32; 3]>,
 }
 
 impl ModelLit {
@@ -38,6 +40,7 @@ impl ModelLit {
             last: None,
             dynamic: false,
             cubemap: None,
+            cell: None,
         }
     }
     /// Its material reflects the cubemap sample near it. A model loaded late has no mask for it
@@ -45,6 +48,28 @@ impl ModelLit {
     pub(super) fn reflecting(mut self, reflects: bool) -> Self {
         self.cubemap = reflects.then_some(usize::MAX);
         self
+    }
+    /// Binds the sample a model at `origin` reflects. Only a model that moved gets here, and only
+    /// a new cell chooses again, as the retail cache keeps a sample per entry: one that stands
+    /// still pays nothing.
+    fn reflect(
+        &mut self,
+        material: &mut SourceMaterial,
+        origin: glam::Vec3,
+        data: &modkit_core::lighting::LightingData,
+        cubemaps: Option<&super::cubemaps::ModelCubemaps>,
+    ) {
+        let cell = modkit_core::lighting::cache_cell(origin);
+        let moved = self.cell.replace(cell) != Some(cell);
+        let Some(held) = self.cubemap.filter(|_| moved) else {
+            return;
+        };
+        let sample = cubemaps.and_then(|cubes| cubes.pick(data.cache_point(origin)));
+        if let Some((index, cube)) = sample.filter(|(index, _)| *index != held) {
+            material.envmap = cube;
+            material.envmap_tint.w = 1.;
+            self.cubemap = Some(index);
+        }
     }
 }
 
@@ -137,16 +162,7 @@ pub fn present_lighting(
             if lit.entity.is_none() && material.viewmodel_flashlight != beam {
                 material.viewmodel_flashlight = beam;
             }
-            // Only a model that moved gets here, so one that stands still pays nothing.
-            let sample = lit.cubemap.and_then(|held| {
-                let (index, cube) = cubemaps.as_ref()?.pick(origin)?;
-                (index != held).then_some((index, cube))
-            });
-            if let Some((index, cube)) = sample {
-                material.envmap = cube;
-                material.envmap_tint.w = 1.;
-                lit.cubemap = Some(index);
-            }
+            lit.reflect(&mut material, origin, data, cubemaps.as_deref());
         }
         lit.last = Some((origin, lit.half_lambert));
     }

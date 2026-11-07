@@ -287,6 +287,32 @@ pub struct Cube {
     /// Otherwise RGBA8 texels as stored (sRGB-encoded for LDR envmaps).
     pub hdr: bool,
     pub faces: [Vec<u8>; 6],
+    /// The levels below `faces`, largest first, six faces each: the texture's own chain. Without
+    /// it a reflection minified on a curved or distant surface aliases into speckle.
+    pub mips: Vec<[Vec<u8>; 6]>,
+}
+impl Cube {
+    /// Every level of every face, one face after another, as a GPU upload takes them.
+    pub fn layers(&self) -> Vec<u8> {
+        (0..6)
+            .flat_map(|face| {
+                let lower = self.mips.iter().map(move |level| &level[face]);
+                std::iter::once(&self.faces[face]).chain(lower)
+            })
+            .flatten()
+            .copied()
+            .collect()
+    }
+    /// How many levels the chain has, the largest included.
+    pub fn levels(&self) -> u32 {
+        self.mips.len() as u32 + 1
+    }
+    /// What the decoded cube holds, for the caller's budget.
+    pub fn bytes(&self) -> usize {
+        let top: usize = self.faces.iter().map(Vec::len).sum();
+        let lower: usize = self.mips.iter().flatten().map(Vec::len).sum();
+        top + lower
+    }
 }
 pub fn decode_cube(data: &[u8], max_dimension: usize) -> Result<Cube> {
     decode_cube_picmip(data, max_dimension, 0)
@@ -296,22 +322,34 @@ pub fn decode_cube_picmip(data: &[u8], max_dimension: usize, picmip: i32) -> Res
     if l.faces < 6 || l.width != l.height {
         bail!("VTF is not a square cubemap");
     }
-    let hdr = l.format == 24;
-    let faces = (0..6)
-        .map(|face| {
-            if hdr {
-                let n = size(24, l.width, l.height)?;
-                Ok(bytes(data, l.offset + face * n, n)?.to_vec())
-            } else {
-                Ok(decode_face(data, &l, face)?.rgba)
-            }
+    let mips = (1..=l.smaller_mips)
+        .map(|below| {
+            cube_faces(
+                data,
+                &layout_level_picmip(data, max_dimension, picmip, below)?,
+            )
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Cube {
         size: u16::try_from(l.width)?,
-        hdr,
-        faces: faces.try_into().expect("six faces"),
+        hdr: l.format == 24,
+        faces: cube_faces(data, &l)?,
+        mips,
     })
+}
+/// The six faces of one level.
+fn cube_faces(data: &[u8], l: &Layout) -> Result<[Vec<u8>; 6]> {
+    let faces = (0..6)
+        .map(|face| {
+            if l.format == 24 {
+                let n = size(24, l.width, l.height)?;
+                Ok(bytes(data, l.offset + face * n, n)?.to_vec())
+            } else {
+                Ok(decode_face(data, l, face)?.rgba)
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(faces.try_into().expect("six faces"))
 }
 fn decode_face(data: &[u8], l: &Layout, face: usize) -> Result<Image> {
     let (format, w, h) = (l.format, l.width, l.height);
@@ -604,6 +642,37 @@ mod tests {
         // picmip 2 on texture with IGNORE_PICMIP should remain at full (4, 2)
         let img_ignored = decode_picmip(&d_ignored, 512, 2).unwrap();
         assert_eq!((img_ignored.width, img_ignored.height), (4, 2));
+    }
+    #[test]
+    fn a_cube_keeps_its_mip_chain_face_by_face() {
+        // Two levels, smallest first in the file: 1 by 1 then 2 by 2, RGBA8888, six faces.
+        let mut d = vec![0; 80];
+        d[..4].copy_from_slice(b"VTF\0");
+        d[4..8].copy_from_slice(&7u32.to_le_bytes());
+        d[8..12].copy_from_slice(&5u32.to_le_bytes());
+        d[12..16].copy_from_slice(&80u32.to_le_bytes());
+        d[16..18].copy_from_slice(&2u16.to_le_bytes());
+        d[18..20].copy_from_slice(&2u16.to_le_bytes());
+        d[20..24].copy_from_slice(&0x4000u32.to_le_bytes());
+        d[24..26].copy_from_slice(&1u16.to_le_bytes());
+        d[56] = 2;
+        d[63..65].copy_from_slice(&1u16.to_le_bytes());
+        for face in 0..6u8 {
+            d.extend([100 + face; 4]);
+        }
+        for face in 0..6u8 {
+            d.extend([face; 16]);
+        }
+        let cube = decode_cube(&d, 512).unwrap();
+        assert_eq!((cube.size, cube.levels()), (2, 2));
+        assert_eq!(cube.bytes(), 6 * (16 + 4));
+        assert_eq!(cube.mips[0][3], vec![103; 4]);
+        // Each face's levels sit together: the upload is one face after another.
+        let layers = cube.layers();
+        assert_eq!(layers.len(), cube.bytes());
+        assert_eq!(&layers[..16], &[0; 16]);
+        assert_eq!(&layers[16..20], &[100; 4]);
+        assert_eq!(&layers[20..36], &[1; 16]);
     }
     #[test]
     fn truncated_vtf_is_error() {

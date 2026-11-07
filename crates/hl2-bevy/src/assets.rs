@@ -665,7 +665,7 @@ fn load_envmap(
     let cube = source_assets::vtf::decode_cube_picmip(&data, MAX_TEXTURE_DIMENSION, picmip)
         .with_context(|| format!("decode {path}"))?;
     let total = decoded_bytes
-        .checked_add(cube.faces.iter().map(Vec::len).sum())
+        .checked_add(cube.bytes())
         .context("decoded VTF byte count overflow")?;
     if total > MAX_DECODED_BYTES {
         bail!("map decoded texture budget exceeds 512 MiB");

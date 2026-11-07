@@ -71,8 +71,8 @@ pub fn load(vfs: &Vfs, map: &str, bsp: &Bsp, quality: (i32, bool)) -> (Vec<Sampl
     (samples, errors)
 }
 
-/// The index of the sample nearest `point`. Which sample the engine picks is not established
-/// (DESIGN 14o session 48): this rule is checked against native pictures, not the retail code.
+/// The index of the sample nearest `point`, as the retail light cache chooses when it fills an
+/// entry. Equal distances keep the earlier sample, as its strict comparison does.
 pub fn nearest(origins: impl Iterator<Item = Vec3>, point: Vec3) -> Option<usize> {
     origins
         .enumerate()

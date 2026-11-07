@@ -793,14 +793,7 @@ pub fn spawn_map_filtered(
             let (cube, path) = m.envmap.as_ref().zip(m.envmap_path.as_ref())?;
             let handle = texture_handles
                 .entry(format!("{path}#cube"))
-                .or_insert_with(|| {
-                    images.add(cube_image_filtered(
-                        cube.size,
-                        cube.hdr,
-                        cube.faces.concat(),
-                        filtering,
-                    ))
-                })
+                .or_insert_with(|| images.add(cube_image_filtered(cube, filtering)))
                 .clone();
             Some((name.clone(), handle))
         })

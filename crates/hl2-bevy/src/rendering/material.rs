@@ -17,31 +17,38 @@ use bevy::{
 /// strong handle like the white fallback: a UUID handle does not keep the image alive, and
 /// materials re-prepared later (per-frame model lighting) would then fail to bind.
 pub(crate) fn black_cube() -> Image {
-    cube_image(1, false, vec![0; 6 * 4])
+    let cube = source_assets::vtf::Cube {
+        size: 1,
+        hdr: false,
+        faces: std::array::from_fn(|_| vec![0; 4]),
+        mips: Vec::new(),
+    };
+    cube_image_filtered(&cube, hl2_ui::config::Filtering::Trilinear)
 }
 
 /// A six-layer cube texture: RGBA16F linear halves (HDR) or sRGB-encoded RGBA8 (LDR).
 pub(super) fn cube_image_filtered(
-    size: u16,
-    hdr: bool,
-    data: Vec<u8>,
+    cube: &source_assets::vtf::Cube,
     filtering: hl2_ui::config::Filtering,
 ) -> Image {
     let mut image = Image::new(
         Extent3d {
-            width: size.into(),
-            height: size.into(),
+            width: cube.size.into(),
+            height: cube.size.into(),
             depth_or_array_layers: 6,
         },
         TextureDimension::D2,
-        data,
-        if hdr {
+        cube.faces.concat(),
+        if cube.hdr {
             TextureFormat::Rgba16Float
         } else {
             TextureFormat::Rgba8UnormSrgb
         },
         RenderAssetUsages::RENDER_WORLD,
     );
+    // Image::new checks one level; each face's lower levels follow it in the same buffer.
+    image.data = Some(cube.layers());
+    image.texture_descriptor.mip_level_count = cube.levels();
     image.texture_view_descriptor = Some(TextureViewDescriptor {
         dimension: Some(TextureViewDimension::Cube),
         ..Default::default()
@@ -58,10 +65,6 @@ pub(super) fn cube_image_filtered(
         ..Default::default()
     });
     image
-}
-
-pub(super) fn cube_image(size: u16, hdr: bool, data: Vec<u8>) -> Image {
-    cube_image_filtered(size, hdr, data, hl2_ui::config::Filtering::Trilinear)
 }
 
 pub(crate) fn sampler_descriptor(
