@@ -4,7 +4,7 @@
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
 
-**Changed:** 81adb31: a model's cubemap follows the retail light cache (cell middle, nearest sample, kept per cell); cubes upload their mip chain. 4d17eb7: npc_manhack step 3, squads and swarming, with slots given back on death, and squads' slots serializable in reports. 35dc359: panels, ShowHostile's sounds, eye and light sprites, the swarm's melee interrupt; the scanners' eye quads moved to projectile_visuals/eyes.rs. fa16612: strict Clippy and docs. 58f4e38: late-loaded models reflect (their mask uploaded and bound, a sample picked); its message wrongly names spawned NPCs, which use pooled entities loaded with the map and already reflected (STATUS has the A/B and the correction).
+**Changed:** 81adb31: a model's cubemap follows the retail light cache (cell middle, nearest sample, kept per cell); cubes upload their mip chain. 4d17eb7: npc_manhack step 3, squads and swarming, with slots given back on death, and squads' slots serializable in reports. 35dc359: panels, ShowHostile's sounds, eye and light sprites, the swarm's melee interrupt; the scanners' eye quads moved to projectile_visuals/eyes.rs. fa16612: strict Clippy and docs. c2d0a85: the gravity gun punts manhacks (stall, stunned eye, smash), MaintainGroundHeight, and grinds only on walls. 58f4e38: late-loaded models reflect (their mask uploaded and bound, a sample picked); its message wrongly names spawned NPCs, which use pooled entities loaded with the map and already reflected (STATUS has the A/B and the correction).
 
 **Why:** the session plan's first two items; the owner's rule to check SDK, retail and owned files for every feature.
 
@@ -12,7 +12,7 @@
 
 **Frame time:** **not measured**. The cubemap pick runs only when a moving model enters a new cell; the glows read two attachments per living manhack per frame.
 
-**Still broken or not tested:** the reflections' tint and speckle (mips did not explain them); static props do not reflect; manhack REGROUP, carried manhacks, the gravity gun, the crash and water; what native's manhack attacked under notarget.
+**Still broken or not tested:** the reflections' tint and speckle (mips did not explain them); static props do not reflect; holding and launching a manhack with the gravity gun; manhack REGROUP, carried manhacks, the gravity gun, the crash and water; what native's manhack attacked under notarget.
 
 **Next:** the native tint test with the scanner's position; manhack step 4; native hit frames on a scanner.
 
