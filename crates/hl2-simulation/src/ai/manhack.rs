@@ -6,7 +6,7 @@ use super::assault::Assault;
 use super::conditions::{COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE};
 use super::hover::{Hover, Thrust};
 use super::metropolice::CopRequest;
-use super::schedule::TaskStatus::Running;
+use super::schedule::TaskStatus::{Complete, Running};
 use super::schedule::{
     base_select_schedule, AiNpc, Behavior, Context, Motor, Schedule, Schedules, TaskArg, TaskStatus,
 };
@@ -15,6 +15,9 @@ use super::state::NpcState;
 use crate::sounds::PatchOp;
 use glam::Vec3;
 use serde::Serialize;
+
+mod swarm;
+pub use swarm::{center, member_to_join, Ask, Member, Swarm};
 
 /// VIEW_FIELD_FULL: it sees all round.
 pub const FIELD_OF_VIEW: f32 = -1.;
@@ -105,7 +108,7 @@ const SCHEDULES: &[(&str, &str)] = &[
 ];
 
 pub fn add_schedules(schedules: &mut Schedules) {
-    for (name, text) in SCHEDULES {
+    for (name, text) in SCHEDULES.iter().chain(swarm::SCHEDULES) {
         let schedule = Schedule::parse(name, text).expect("manhack schedule");
         schedules.0.insert((*name).into(), schedule);
     }
@@ -143,6 +146,8 @@ pub struct Manhack {
     pub woken: bool,
     /// The deploy sequence has not opened the blade yet.
     pub blade_shut: bool,
+    /// How it stands with its squad.
+    pub swarm: Swarm,
     /// SF_NPC_GAG: it flies without its engine sound.
     gagged: bool,
     seed: u64,
@@ -152,6 +157,11 @@ impl Manhack {
     pub fn new(gagged: bool, seed: u64) -> Self {
         Self {
             bob: Vec3::splat(NOISE_RATE),
+            // Alone it needs no slot; a squad's claim decides from its first think.
+            swarm: Swarm {
+                may_attack: true,
+                ..Default::default()
+            },
             gagged,
             seed: seed | 1,
             ..Default::default()
@@ -186,6 +196,10 @@ impl Manhack {
     }
     pub fn bursting(&self, now: f64) -> bool {
         self.burst_until > now
+    }
+    /// Rather than chase: it rests between bursts, or its squad's attack slots are taken.
+    pub fn swarms(&self, now: f64) -> bool {
+        self.next_burst > now || !self.swarm.may_attack
     }
     /// One think's thrust: a burst holds its line, steered a little at the enemy; otherwise it
     /// flies at its target, never more in a think than the distance left.
@@ -331,11 +345,23 @@ impl Behavior for Manhack {
             let held = self.waits && !self.woken;
             return if held { PACKED } else { DEPLOY }.into();
         }
-        if ctx.enemy.is_some() { ATTACK } else { IDLE }.into()
+        match ctx.enemy {
+            Some(_) if self.swarms(ctx.now) => swarm::SWARM,
+            Some(_) => ATTACK,
+            None if self.swarm.squadded => swarm::SWARM_IDLE,
+            None => IDLE,
+        }
+        .into()
     }
     fn translate_schedule(&mut self, name: &str, _npc: &AiNpc, _ctx: &Context) -> String {
         match name {
-            "SCHED_IDLE_STAND" | "SCHED_ALERT_STAND" => IDLE.into(),
+            "SCHED_IDLE_STAND" | "SCHED_ALERT_STAND" | "SCHED_ALERT_FACE" => if self.swarm.squadded
+            {
+                swarm::SWARM_IDLE
+            } else {
+                IDLE
+            }
+            .into(),
             other => other.into(),
         }
     }
@@ -343,26 +369,54 @@ impl Behavior for Manhack {
         &mut self,
         _npc: &mut AiNpc,
         task: &str,
-        _argument: &TaskArg,
-        _ctx: &Context,
+        argument: &TaskArg,
+        ctx: &Context,
         _motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
-        (task == "TASK_MANHACK_HOVER").then_some(Running)
+        match task {
+            "TASK_MANHACK_HOVER" => {}
+            swarm::FIND_CENTER => self.swarm.ask = Some(Ask::Center),
+            swarm::FIND_MEMBER => self.swarm.ask = Some(Ask::Member),
+            swarm::MOVE_AT => {
+                let seconds = if let TaskArg::Number(seconds) = argument {
+                    *seconds
+                } else {
+                    1.
+                };
+                self.swarm.start_move(seconds, ctx.random, ctx.now);
+            }
+            _ => return None,
+        }
+        Some(Running)
     }
     fn run_task(
         &mut self,
         _npc: &mut AiNpc,
         task: &str,
         _value: &TaskArg,
-        _ctx: &Context,
+        ctx: &Context,
         _motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
-        (task == "TASK_MANHACK_HOVER").then_some(Running)
+        match task {
+            // The hover has no end of its own: a rest or a taken slot sends it back to swarm.
+            "TASK_MANHACK_HOVER" => {
+                let done = self.swarms(ctx.now) && !self.bursting(ctx.now);
+                Some(if done { Complete } else { Running })
+            }
+            swarm::FIND_CENTER | swarm::FIND_MEMBER => Some(if self.swarm.ask.is_some() {
+                Running
+            } else {
+                Complete
+            }),
+            swarm::MOVE_AT => Some(self.swarm.step(ctx.origin, ctx.now)),
+            _ => None,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::schedule::tests::FakeMotor;
     use super::*;
 
     #[test]
@@ -374,6 +428,75 @@ mod tests {
         assert_eq!(m.select_schedule(&mut npc, &ctx), PACKED);
         m.wake();
         assert_eq!(m.select_schedule(&mut npc, &ctx), DEPLOY);
+    }
+
+    /// A flying manhack free to attack, with an enemy in `ctx`.
+    fn hunting(now: f64) -> (Manhack, AiNpc, Context) {
+        let m = Manhack::new(false, 3);
+        let ctx = Context {
+            now,
+            enemy: Some((1, Vec3::X * 100.)),
+            ..Default::default()
+        };
+        (m, AiNpc::new(1), ctx)
+    }
+
+    #[test]
+    fn it_attacks_when_rested_and_free_and_swarms_otherwise() {
+        let (mut m, mut npc, ctx) = hunting(10.);
+        assert_eq!(m.select_schedule(&mut npc, &ctx), ATTACK);
+        m.next_burst = 11.;
+        assert_eq!(m.select_schedule(&mut npc, &ctx), swarm::SWARM);
+        m.next_burst = 0.;
+        m.swarm.may_attack = false;
+        assert_eq!(m.select_schedule(&mut npc, &ctx), swarm::SWARM);
+    }
+
+    #[test]
+    fn an_idle_squad_keeps_together_and_a_lone_manhack_waits() {
+        let mut m = Manhack::new(false, 3);
+        let mut npc = AiNpc::new(1);
+        let ctx = Context::default();
+        assert_eq!(m.select_schedule(&mut npc, &ctx), IDLE);
+        m.swarm.squadded = true;
+        assert_eq!(m.select_schedule(&mut npc, &ctx), swarm::SWARM_IDLE);
+        assert_eq!(
+            m.translate_schedule("SCHED_ALERT_FACE", &npc, &ctx),
+            swarm::SWARM_IDLE
+        );
+    }
+
+    #[test]
+    fn the_hover_ends_when_it_must_swarm_but_never_inside_a_burst() {
+        let (mut m, mut npc, ctx) = hunting(10.);
+        let task = "TASK_MANHACK_HOVER";
+        let none = TaskArg::Number(0.);
+        let mut run =
+            |m: &mut Manhack| m.run_task(&mut npc, task, &none, &ctx, &mut FakeMotor::default());
+        assert_eq!(run(&mut m), Some(Running));
+        m.next_burst = 12.;
+        m.burst_until = 11.;
+        assert_eq!(run(&mut m), Some(Running));
+        m.burst_until = 9.;
+        assert_eq!(run(&mut m), Some(Complete));
+    }
+
+    #[test]
+    fn a_squad_question_holds_its_task_until_the_runtime_answers() {
+        let (mut m, mut npc, ctx) = hunting(10.);
+        let none = TaskArg::Number(0.);
+        let task = swarm::FIND_CENTER;
+        m.start_task(&mut npc, task, &none, &ctx, &mut FakeMotor::default());
+        assert_eq!(m.swarm.ask, Some(Ask::Center));
+        assert_eq!(
+            m.run_task(&mut npc, task, &none, &ctx, &mut FakeMotor::default()),
+            Some(Running)
+        );
+        m.swarm.answer(Vec3::X);
+        assert_eq!(
+            m.run_task(&mut npc, task, &none, &ctx, &mut FakeMotor::default()),
+            Some(Complete)
+        );
     }
 
     #[test]

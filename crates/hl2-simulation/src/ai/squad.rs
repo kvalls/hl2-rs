@@ -25,11 +25,21 @@ pub struct Squad {
     pub name: String,
     pub members: Vec<usize>,
     /// Occupied slots per enemy (None for no enemy).
+    #[serde(serialize_with = "slots_as_pairs")]
     slots: BTreeMap<Option<usize>, BTreeSet<i32>>,
     /// m_flSquadSoundWaitTime / m_nSquadSoundPriority.
     pub sound_wait: f64,
     pub sound_priority: i32,
 }
+/// Reports are JSON, whose keys are strings, and an enemy is not one: a squad holding a slot would
+/// otherwise take the whole AI block out of every report.
+fn slots_as_pairs<S: serde::Serializer>(
+    slots: &BTreeMap<Option<usize>, BTreeSet<i32>>,
+    out: S,
+) -> Result<S::Ok, S::Error> {
+    out.collect_seq(slots.iter())
+}
+
 impl Squad {
     pub fn new(name: &str) -> Self {
         Self {
@@ -120,6 +130,14 @@ pub fn should_take_squad_enemy(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_squad_holding_a_slot_still_goes_into_a_report() {
+        let mut squad = Squad::new("cops");
+        let mut held = None;
+        assert!(squad.occupy_range(Some(7), SLOT_ATTACK1, SLOT_ATTACK2, &mut held));
+        let report = serde_json::to_value(&squad).expect("a report needs string keys");
+        assert_eq!(report["slots"], serde_json::json!([[7, [SLOT_ATTACK1]]]));
+    }
     #[test]
     fn two_attack_slots_per_enemy() {
         let mut squad = Squad::new("cops");

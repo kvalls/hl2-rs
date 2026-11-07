@@ -71,7 +71,7 @@ impl AiRuntime {
                 continue;
             }
             if class == "npc_manhack" {
-                self.unpack_manhack(target);
+                self.manhack_input(target, &input);
                 continue;
             }
             if class == "aiscripted_schedule" {
