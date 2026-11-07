@@ -1244,6 +1244,7 @@ pub fn spawn_map_filtered(
         black_cube,
         flashlight,
         missing,
+        plain: plain_materials,
     });
 }
 
@@ -1356,12 +1357,7 @@ pub(crate) fn build_model_draws(
             draw.insert(levels);
         }
         if lit {
-            draw.insert(ModelLit::new(
-                Some(id),
-                instance.asset_key(),
-                instance.scale,
-                definition.half_lambert,
-            ));
+            draw.insert(cache.model_lit(id, instance, definition));
         }
         if let Some(animation) = animation {
             if let Some(skeleton) = &animation.gpu {

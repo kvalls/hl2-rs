@@ -349,5 +349,10 @@ pub(super) fn draw_material(
     if lit {
         material.lighting = super::ModelLighting::fallback(definition.half_lambert);
     }
+    let mask = definition.envmap_mask_path.as_ref();
+    let mask = mask.and_then(|path| cache.textures.get(path));
+    if let Some(mask) = mask.filter(|_| lit && cache.reflects(definition)) {
+        material.envmap_mask = mask.clone();
+    }
     material
 }
