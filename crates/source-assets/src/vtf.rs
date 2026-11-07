@@ -736,6 +736,35 @@ mod tests {
     }
     #[test]
     #[ignore = "requires owned HL2 installation"]
+    fn owned_every_listed_cubemap_sample_decodes() {
+        let mut vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
+        for map in ["d1_trainstation_02", "d1_canals_02"] {
+            let bytes = vfs.read(&format!("maps/{map}.bsp")).unwrap().unwrap();
+            let bsp = crate::bsp::Bsp::parse(&bytes).unwrap();
+            vfs.mount_pak(bsp.lump(40)).unwrap();
+            let origins = bsp.cubemap_origins();
+            assert!(!origins.is_empty(), "{map}");
+            let started = std::time::Instant::now();
+            let mut decoded = 0;
+            let mut largest = 0;
+            for [x, y, z] in &origins {
+                let name = format!("materials/maps/{map}/c{x}_{y}_{z}.hdr.vtf");
+                let data = vfs.read(&name).unwrap().expect(&name);
+                let cube = decode_cube(&data, 1024).unwrap();
+                largest = largest.max(cube.size);
+                decoded += cube.faces.iter().map(Vec::len).sum::<usize>();
+            }
+            println!(
+                "CUBES {map}: {} samples, largest {largest}, {:.1} MB, {:.0} ms",
+                origins.len(),
+                decoded as f64 / 1e6,
+                started.elapsed().as_secs_f64() * 1000.,
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires owned HL2 installation"]
     fn owned_trainstation_window_cubemaps_decode() {
         let mut vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
         let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();

@@ -4,17 +4,17 @@
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
 
-**Changed:** 9be0b34: the hover plays the inspect sequences through TranslateActivity's walk and run fallback, a flare closes through retract, every NPC hit reports the hit bone's surfaceprop (sound, sparks, decal group), scanners, manhacks and striders ricochet, a hurt scanner trails smoke, its end throws sparks. e37dd64: physics collisions report the model's surface too.
+**Changed:** 9be0b34: the hover plays the inspect sequences through TranslateActivity's walk and run fallback, a flare closes through retract, every NPC hit reports the hit bone's surfaceprop (sound, sparks, decal group), scanners, manhacks and striders ricochet, a hurt scanner trails smoke, its end throws sparks. e37dd64: physics collisions report the model's surface too. 8b493b7: npc_manhack step 2 (packed, Unpack, deploy) and placed manhacks' model, which they never had. e77d79e and 69ce610: env_cubemap for models.
 
 **Why:** the owner's playtest: plate held back, no faceplate animation, flesh sounds, no sparks or smoke; asked for a long native comparison and for retail and installed files to be checked, not the SDK alone.
 
 **Tested how / Result:** see STATUS "Current session 48": 1802 native engine frames and sequence timelines, retail server functions, owned model and material dumps, packaged runs on d1_canals_02.
 
-**Frame time:** **not measured**. A smoking scanner adds one particle per think; a hit adds one lookup in a map and one in a rig.
+**Frame time:** reflections A/B on d1_trainstation_02: main 3D pass about 0.01 ms more on the GPU, model lighting mean unchanged at about 0.04 ms, its worst frame about 3.0 against 2.5 ms; 8.5 MB and about 1 ms to decode that map's samples. Smoke and hits **not measured**: one particle per think, one map and one rig lookup per hit.
 
-**Still broken or not tested:** model reflections (env_cubemap), so bodies are dark; native frames of a hit; the flash's flat 255; why native's first flash comes late.
+**Still broken or not tested:** reflections are a little cooler than native, and which sample the engine picks is not established; static props and late-loaded models do not reflect; native frames of a hit; the flash's flat 255; why native's first flash comes late.
 
-**Next:** env_cubemap for models per DESIGN, then npc_manhack steps 2 to 5.
+**Next:** npc_manhack steps 3 to 5, the reflection's tint and sample choice.
 
 ## 2026-11-06 session 47: npc_cscanner's flash, faceplate, spotlight and inspection search, main at f55c705 (Claude Code desktop, claude-opus-5-5)
 
