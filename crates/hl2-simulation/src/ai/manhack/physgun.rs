@@ -80,6 +80,10 @@ impl Manhack {
     pub(super) fn stun(&mut self, now: f64) {
         self.stalled_until = now + STALL;
         self.punted_at = Some(now);
+        self.stun_eye();
+    }
+    /// SetEyeState(MANHACK_EYE_STATE_STUNNED), which says so.
+    pub(super) fn stun_eye(&mut self) {
         self.stunned = true;
         self.requests.push(CopRequest::Sound(STUNNED));
     }

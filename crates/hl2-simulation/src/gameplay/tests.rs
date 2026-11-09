@@ -249,7 +249,12 @@ fn flames_and_blasts_reach_the_npcs_pain_sounds_but_only_characters_hurt_its_ai(
         &mut scene,
         &mut physics,
     );
-    assert_eq!(scene.npc_damage, [(0, false, 0.), (0, true, 25.)]);
+    let reports: Vec<_> = scene
+        .npc_damage
+        .iter()
+        .map(|r| (r.victim, r.by_player, r.damage))
+        .collect();
+    assert_eq!(reports, [(0, false, 0.), (0, true, 25.)]);
     assert_eq!(scene.states[0].value, 14.);
 }
 #[test]

@@ -17,8 +17,10 @@ use crate::sounds::PatchOp;
 use glam::Vec3;
 use serde::Serialize;
 
+mod damage;
 mod physgun;
 mod swarm;
+pub use damage::CLUB_SHARE;
 pub use physgun::Victim;
 pub use swarm::{center, member_to_join, Ask, Member, Swarm};
 

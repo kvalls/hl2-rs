@@ -9,7 +9,7 @@
   "hl2-simulation": {
    "glob imports": 13,
    "mutable statics": 2,
-   "too_many_arguments allowances": 33
+   "too_many_arguments allowances": 32
   },
   "hl2-ui": {
    "glob imports": 4,

@@ -1,7 +1,7 @@
 //! Partial HL2 weapon behavior, reconstructed from installed scripts and the singleplayer SDK.
 //! Projectile attacks queue actual moving projectiles, independently of hitscan fire.
 use crate::{
-    entities::Scene,
+    entities::{NpcDamage, Scene},
     physics::Physics,
     projectiles::{Attacker, ProjectileSpawn},
 };
@@ -1625,11 +1625,11 @@ impl Inventory {
                         // memory only come from an FL_NPC or FL_CLIENT attacker (an
                         // entityflame is its own attacker): no damage amount otherwise.
                         if npc {
-                            scene.npc_damage.push((
-                                id,
-                                matches!(damage.attacker, crate::projectiles::Attacker::Player),
-                                if by_character { amount } else { 0. },
-                            ));
+                            let player = matches!(damage.attacker, Attacker::Player);
+                            let felt = if by_character { amount } else { 0. };
+                            let (along, kind) = (damage.direction, damage.kind);
+                            let report = NpcDamage::new(id, player, felt, along, kind);
+                            scene.npc_damage.push(report);
                         }
                         // The rest of OnTakeDamage_Alive: a lethal blast releases the crab
                         // (headless, not modeled yet), then ShouldBecomeTorso / BecomeTorso.
@@ -2213,15 +2213,15 @@ pub fn apply_hit(
         sneak_attack: sneak,
     });
     scene.states[id].value -= damage;
-    scene.npc_damage.push((id, attacker.player, damage));
-    scene.fire(id, "OnDamaged", usize::MAX);
+    let push = direction * force;
+    hits::report_hit(scene, id, attacker.player, (damage, push), melee);
     if scene.states[id].value <= 0. {
         scene.fire(id, "OnDeath", usize::MAX);
         scene.npc_deaths.push(id);
         scene
             .npc_death_forces
-            .insert(id, (direction * force, Some(hit.position)));
-        hits::bullet_crab_release(scene, e, id, (damage, direction * force), (melee, headshot));
+            .insert(id, (push, Some(hit.position)));
+        hits::bullet_crab_release(scene, e, id, (damage, push), (melee, headshot));
         hits::remove_killed(scene, e, id);
         physics.set_entity(
             id,

@@ -280,12 +280,27 @@ pub(super) fn bullet_kind(ammo_type: &str, melee: bool) -> u32 {
     }
 }
 
-/// A club hit takes all of a barnacle's health.
+/// A bullet's or a club's hit for the AI's OnTakeDamage_Alive, with its damage force, and the
+/// victim's OnDamaged output.
+pub(super) fn report_hit(
+    scene: &mut Scene,
+    id: usize,
+    by_player: bool,
+    (damage, force): (f32, Vec3),
+    club: bool,
+) {
+    let report = crate::entities::NpcDamage::hit(id, by_player, damage, force, club);
+    scene.npc_damage.push(report);
+    scene.fire(id, "OnDamaged", usize::MAX);
+}
+
+/// A club hit takes all of a barnacle's health, and half as much again from a manhack
+/// (CNPC_Manhack::OnTakeDamage_Alive: crowbar duels take two hits).
 pub(super) fn club_damage(e: &Entity, melee: bool, health: f32, damage: f32) -> f32 {
-    if melee && e.class() == "npc_barnacle" {
-        health
-    } else {
-        damage
+    match e.class() {
+        "npc_barnacle" if melee => health,
+        "npc_manhack" if melee => damage * crate::ai::manhack::CLUB_SHARE,
+        _ => damage,
     }
 }
 /// Takes a dead entity out of the world. A barnacle stays on its ceiling as a corpse and plays

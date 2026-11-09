@@ -7,6 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 mod choreography;
+mod npc_damage;
+pub use npc_damage::NpcDamage;
 mod color_correction;
 mod inputs;
 mod io;
@@ -447,9 +449,8 @@ pub struct Scene {
     pub skill: crate::skill::Skill,
     /// Diagnostics: the last bullet/club hit on an NPC.
     pub last_npc_hit: Option<crate::gameplay::NpcHitReport>,
-    /// Bullet/club hits on NPCs this tick (victim, by the player, damage) for the AI's
-    /// OnTakeDamage_Alive conditions; the AI runtime drains it.
-    pub npc_damage: Vec<(usize, bool, f32)>,
+    /// Hits on NPCs this tick for the AI's OnTakeDamage_Alive; the AI runtime drains it.
+    pub npc_damage: Vec<NpcDamage>,
     /// NPCs killed by damage this tick (CBaseCombatCharacter::Event_Killed, not removal
     /// by Kill inputs): the host drops their active weapons (DESIGN 14r part B).
     pub npc_deaths: Vec<usize>,

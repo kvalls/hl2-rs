@@ -23,6 +23,12 @@ pub enum AiClass {
 }
 
 impl AiClass {
+    /// The class's own part of OnTakeDamage_Alive.
+    pub fn hurt(&mut self, report: &crate::entities::NpcDamage, now: f64) {
+        if let Self::Manhack(m) = self {
+            m.hurt(report, now);
+        }
+    }
     pub fn cop(&self) -> Option<&Metropolice> {
         match self {
             Self::Metropolice(cop) => Some(cop),

@@ -539,8 +539,16 @@ fn hurt_and_killed_cops_speak_their_pain_and_death_lines() {
     let health = crate::gameplay::npc_spawn_health(&r.scene, &r.world.entities[0]);
     // A first light hit (> 0.8 health): PAIN_LIGHT; another within a second: none.
     r.scene.states[0].value = health * 0.85;
-    r.scene.npc_damage.push((0, true, health * 0.15));
-    r.scene.npc_damage.push((0, true, 1.));
+    r.scene.npc_damage.push(crate::entities::NpcDamage::new(
+        0,
+        true,
+        health * 0.15,
+        Vec3::ZERO,
+        0,
+    ));
+    r.scene
+        .npc_damage
+        .push(crate::entities::NpcDamage::new(0, true, 1., Vec3::ZERO, 0));
     run(&mut r, 1, player_at(-3000.));
     let spoken = |r: &Rig| -> Vec<String> {
         r.scene
@@ -554,8 +562,12 @@ fn hurt_and_killed_cops_speak_their_pain_and_death_lines() {
     // Killed: DeathSound once.
     r.scene.sounds.clear();
     r.scene.states[0].killed = true;
-    r.scene.npc_damage.push((0, true, 50.));
-    r.scene.npc_damage.push((0, true, 50.));
+    r.scene
+        .npc_damage
+        .push(crate::entities::NpcDamage::new(0, true, 50., Vec3::ZERO, 0));
+    r.scene
+        .npc_damage
+        .push(crate::entities::NpcDamage::new(0, true, 50., Vec3::ZERO, 0));
     run(&mut r, 1, player_at(-3000.));
     assert_eq!(spoken(&r), ["#METROPOLICE_DIE"]);
     assert_eq!(
@@ -910,7 +922,9 @@ fn player_hits_give_damage_conditions_and_make_the_player_the_enemy() {
     run(&mut r, 10, behind);
     assert_eq!(r.ai.actors[&0].npc.enemy, None);
     // A 357 round (more than 20): light and heavy damage, the player remembered.
-    r.scene.npc_damage.push((0, true, 40.));
+    r.scene
+        .npc_damage
+        .push(crate::entities::NpcDamage::new(0, true, 40., Vec3::ZERO, 0));
     run(&mut r, 1, behind);
     for _ in 0..10 {
         if r.ai.actors[&0].npc.enemy.is_some() {

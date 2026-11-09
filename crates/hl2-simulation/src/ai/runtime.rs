@@ -811,19 +811,19 @@ impl AiRuntime {
         self.random ^= self.random << 17;
         (self.random >> 40) as f32 / (1u32 << 24) as f32
     }
-    /// One fixed tick of the NPC stage (before the movement controller tick).
-    #[allow(clippy::too_many_arguments)]
     /// OnTakeDamage_Alive: hits since the last tick, per victim.
     fn take_damage_reports(&mut self, world: &World, scene: &mut Scene, player: PlayerState) {
-        for (victim, by_player, damage) in std::mem::take(&mut scene.npc_damage) {
-            if let Some(actor) = self.actors.get_mut(&victim) {
-                actor.damage_taken = actor.damage_taken.max(damage);
-                actor.damaged_by_player |= by_player;
+        for report in std::mem::take(&mut scene.npc_damage) {
+            if let Some(actor) = self.actors.get_mut(&report.victim) {
+                actor.damage_taken = actor.damage_taken.max(report.damage);
+                actor.damaged_by_player |= report.by_player;
+                actor.class.hurt(&report, scene.time);
             }
-            self.barnacle_hurt(victim);
-            self.pain_or_death_sound(victim, world, scene, player);
+            self.barnacle_hurt(report.victim);
+            self.pain_or_death_sound(report.victim, world, scene, player);
         }
     }
+    /// One fixed tick of the NPC stage (before the movement controller tick).
     pub fn tick(
         &mut self,
         world: &World,
