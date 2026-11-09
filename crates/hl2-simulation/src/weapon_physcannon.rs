@@ -1,8 +1,12 @@
 //! weapon_physcannon (gravity gun) from the singleplayer SDK (weapon_physcannon.cpp:
 //! CWeaponPhysCannon, CGrabController; player_pickup.cpp launch velocity) acting on the
-//! existing Rapier prop bodies. The mega cannon, ragdolls and NPC grabs are out of scope.
-//! SDK behavior; VPhysics' shadow controller lives in vphysics.dll (not in the SDK), so
-//! the hold uses a velocity-to-target approximation ("native fit needed").
+//! existing Rapier prop bodies, and on manhacks through their AI (`npc`). The mega cannon,
+//! ragdolls and other NPC grabs are out of scope. SDK behavior; VPhysics' shadow controller
+//! lives in vphysics.dll (not in the SDK), so the hold uses a velocity-to-target
+//! approximation ("native fit needed").
+mod npc;
+pub use npc::NpcPhysgun;
+
 use crate::{
     entities::Scene,
     gameplay::{activity_sequence, duration, play_sound, Inventory, Weapon},
@@ -75,6 +79,10 @@ pub struct PhyscannonState {
     /// The tick's buttons from Inventory::tick.
     buttons: (bool, bool),
     grab: Option<GrabController>,
+    /// The held thing is an NPC its AI flies, and what it is still to be told.
+    pub holds_npc: bool,
+    #[serde(skip)]
+    npc_events: Vec<(usize, NpcPhysgun)>,
     /// Launch/punt effect positions this frame (EFFECT_LAUNCH), host-drawn.
     pub launches: Vec<Vec3>,
     /// The newest EFFECT_LAUNCH (time, end position) for the beam, sparks and flash.
@@ -167,6 +175,7 @@ impl Inventory {
         crouched: bool,
     ) {
         self.physcannon.launches.clear();
+        scene.npc_physgun.append(&mut self.physcannon.npc_events);
         if self.active != "weapon_physcannon" || self.health <= 0. {
             return;
         }
@@ -178,7 +187,13 @@ impl Inventory {
         let s = &mut self.physcannon;
         // ItemPreFrame: elements approach their destination; update a held object.
         s.element_position += (s.element_destination - s.element_position).clamp(-0.1, 0.1);
-        if s.held.is_some() && !self.update_held(physics, eye, forward, feet, crouched) {
+        let view = crate::grab::HoldView {
+            eye,
+            forward,
+            feet,
+            crouched,
+        };
+        if s.held.is_some() && !self.update_held(physics, scene, view) {
             self.detach(physics, scene, &weapon, world, true, false);
         }
         if time < self.owner_attack_until {
@@ -189,7 +204,7 @@ impl Inventory {
         self.physcannon.secondary_held = secondary;
         // ItemPostFrame.
         if self.physcannon.held.is_none() {
-            self.check_for_target(physics, eye, forward, time);
+            self.check_for_target(physics, scene, eye, forward, time);
             let s = &mut self.physcannon;
             if s.element_debounce < time && s.change_state != ElementChange::None {
                 match s.change_state {
@@ -261,13 +276,21 @@ impl Inventory {
         ))
     }
     /// CheckForTarget: open the elements while aiming at a pickable object in range.
-    fn check_for_target(&mut self, physics: &Physics, eye: Vec3, forward: Vec3, time: f64) {
+    fn check_for_target(
+        &mut self,
+        physics: &Physics,
+        scene: &Scene,
+        eye: Vec3,
+        forward: Vec3,
+        time: f64,
+    ) {
         let s = &mut self.physcannon;
         if s.check_suppress > time || s.held.is_some() {
             return;
         }
         if let Some((entity, fraction, _)) = Self::find_trace(physics, eye, forward) {
-            if fraction * TRACE_LENGTH * 4. <= TRACE_LENGTH && can_pickup(physics, entity) {
+            let pickable = can_pickup(physics, entity) || npc::holdable(scene, entity);
+            if fraction * TRACE_LENGTH * 4. <= TRACE_LENGTH && pickable {
                 s.change_state = ElementChange::None;
                 s.change_state = ElementChange::Open;
                 s.element_debounce = time.min(s.element_debounce);
@@ -279,15 +302,16 @@ impl Inventory {
             s.element_debounce = time + 0.5;
         }
     }
-    /// FindObjectInCone: the nearest dynamic body within 251 units whose center is
-    /// inside the 0.97 cone and visible.
-    fn find_in_cone(physics: &Physics, eye: Vec3, forward: Vec3) -> Option<usize> {
+    /// FindObjectInCone: the nearest dynamic body or holdable NPC within 251 units whose
+    /// center is inside the 0.97 cone and visible.
+    fn find_in_cone(physics: &Physics, scene: &Scene, eye: Vec3, forward: Vec3) -> Option<usize> {
         let mut nearest = TRACE_LENGTH + 1.;
         let mut best = None;
-        for &id in physics.dynamic.keys() {
-            let Some(c) = center(physics, id) else {
-                continue;
-            };
+        let bodies = physics
+            .dynamic
+            .keys()
+            .filter_map(|&id| center(physics, id).map(|c| (id, c)));
+        for (id, c) in bodies.chain(npc::cone_candidates(scene)) {
             let los = c - eye;
             let distance = los.length();
             if distance >= nearest || los.normalize_or_zero().dot(forward) <= CONE {
@@ -341,13 +365,14 @@ impl Inventory {
             pull = !attach;
         }
         if !attach && !pull {
-            if let Some(id) = Self::find_in_cone(physics, eye, forward) {
+            if let Some(id) = Self::find_in_cone(physics, scene, eye, forward) {
                 entity = Some(id);
                 // Within TraceLength x 4 of the eye (always true inside the cone search).
                 attach = true;
             }
         }
-        let Some(id) = entity.filter(|id| can_pickup(physics, *id)) else {
+        let pickable = |id: &usize| can_pickup(physics, *id) || npc::holdable(scene, *id);
+        let Some(id) = entity.filter(pickable) else {
             // CanPickupObject fails for no entity too (NULL): OBJECT_NOT_FOUND with the
             // deny sound once per press wherever the player aims.
             if !self.physcannon.deny_played {
@@ -367,11 +392,12 @@ impl Inventory {
         } else {
             // Pull: ApplyForceCenter(pullDir x 4000, scaled by (mass + 0.5) / 50 under
             // 50 kg), an impulse in kg in/s.
-            if let (Some(c), Some(mass)) = (center(physics, id), body_mass(physics, id)) {
-                let mut pull = (eye - c).normalize_or_zero() * PULL_FORCE;
-                if mass < 50. {
-                    pull *= (mass + 0.5) / 50.;
-                }
+            if npc::holdable(scene, id) {
+                let toward = eye - scene.states[id].origin;
+                let speed = npc::pull_speed(toward, crate::ai::manhack::PHYSICS_MASS);
+                scene.npc_physgun.push((id, NpcPhysgun::Push(speed)));
+            } else if let (Some(c), Some(mass)) = (center(physics, id), body_mass(physics, id)) {
+                let pull = npc::pull_speed(eye - c, mass) * mass;
                 if let Some(body) = physics.bodies.get_mut(physics.dynamic[&id]) {
                     let j = pull * SCALE;
                     body.apply_impulse(vector![j.x, j.y, j.z], true);
@@ -394,13 +420,17 @@ impl Inventory {
         forward: Vec3,
     ) {
         let time = scene.time;
-        let Some(mut grab) = GrabController::attach(physics, id, forward, false, None) else {
-            return;
-        };
-        grab.carry_angles = crate::grab::CarryAngles::for_entity(world, id);
-        self.physcannon.held = Some(id);
-        self.physcannon.grab = Some(grab);
-        scene.prop_physgun_pickup(world, id, crate::entities::PhysGunPickup::Cannon);
+        if npc::holdable(scene, id) {
+            self.attach_npc(scene, id, forward);
+        } else {
+            let Some(mut grab) = GrabController::attach(physics, id, forward, false, None) else {
+                return;
+            };
+            grab.carry_angles = crate::grab::CarryAngles::for_entity(world, id);
+            self.physcannon.held = Some(id);
+            self.physcannon.grab = Some(grab);
+            scene.prop_physgun_pickup(world, id, crate::entities::PhysGunPickup::Cannon);
+        }
         // AttachObject: Play(motor, 0, 50), pitch to 100 and volume to 0.8 over 0.5 s.
         {
             use crate::sounds::PatchOp;
@@ -434,10 +464,18 @@ impl Inventory {
         let Some(id) = self.physcannon.held.take() else {
             return;
         };
-        if let Some(grab) = self.physcannon.grab.take() {
-            grab.detach(physics, launched);
+        let grab = self.physcannon.grab.take();
+        if self.physcannon.holds_npc {
+            // A launch tells the NPC its speed itself.
+            if !launched {
+                self.release_npc(Some(&mut *scene), id, None);
+            }
+        } else {
+            if let Some(grab) = grab {
+                grab.detach(physics, launched);
+            }
+            scene.prop_physgun_drop(world, id);
         }
-        scene.prop_physgun_drop(world, id);
         motor_wind_down(scene);
         if sound {
             play_sound(scene, weapon, "melee_miss", world, "");
@@ -450,14 +488,21 @@ impl Inventory {
     fn update_held(
         &mut self,
         physics: &mut Physics,
-        eye: Vec3,
-        forward: Vec3,
-        feet: Vec3,
-        crouched: bool,
+        scene: &mut Scene,
+        view: crate::grab::HoldView,
     ) -> bool {
+        if self.physcannon.holds_npc {
+            return self.hold_npc(physics, scene, view);
+        }
         let Some(grab) = self.physcannon.grab.as_mut() else {
             return false;
         };
+        let crate::grab::HoldView {
+            eye,
+            forward,
+            feet,
+            crouched,
+        } = view;
         grab.update(physics, eye, forward, feet, crouched, HOLD_MAX_ERROR)
     }
     /// PrimaryAttack: launch a held object (within 250 units of the player center) at
@@ -507,11 +552,7 @@ impl Inventory {
                 body.apply_impulse_at_point(vector![k.x, k.y, k.z], point![p.x, p.y, p.z], true);
             }
             self.punt_recoil();
-        } else if world
-            .entities
-            .get(id)
-            .is_some_and(|e| e.class() == "npc_manhack")
-        {
+        } else if npc::holdable(scene, id) {
             self.punt_manhack(scene, id, forward, hit.position);
         } else {
             let class = world.entities.get(id).map_or("", |e| e.class());
@@ -561,7 +602,9 @@ impl Inventory {
             origin: at,
             attacker: crate::projectiles::Attacker::Player,
         });
-        scene.npc_punts.push((id, dv + offset / mass));
+        scene
+            .npc_physgun
+            .push((id, NpcPhysgun::Punt(dv + offset / mass)));
         self.punt_recoil();
     }
     /// Primary fire with an object held: it leaves at the launch speed, spinning.
@@ -575,12 +618,42 @@ impl Inventory {
         (eye, forward, feet): (Vec3, Vec3, Vec3),
     ) {
         let time = scene.time;
-        let held_center = center(physics, id).unwrap_or(eye);
+        let held_center = if self.physcannon.holds_npc {
+            scene.states.get(id).map_or(eye, |s| s.origin)
+        } else {
+            center(physics, id).unwrap_or(eye)
+        };
         if held_center.distance(feet + Vec3::Z * 36.) > TRACE_LENGTH {
             self.dry_fire(scene, weapon, world, time);
             return;
         }
         let mass = self.physcannon.grab.as_ref().map_or(1., |g| g.saved_mass);
+        if self.physcannon.holds_npc {
+            self.detach(physics, scene, weapon, world, false, true);
+            let launch = npc::launch_velocity(forward, mass);
+            self.release_npc(Some(&mut *scene), id, Some(launch));
+        } else {
+            self.launch_body(id, (weapon, world), scene, physics, (forward, mass));
+        }
+        self.physcannon.next_primary = time + 0.5;
+        self.physcannon.next_secondary = time + 0.5;
+        self.physcannon.launches.push(held_center);
+        self.physcannon.last_launch = Some((time, held_center));
+        self.physcannon.change_state = ElementChange::Closed;
+        self.physcannon.element_debounce = time + 0.1;
+        self.physcannon.check_suppress = time + 0.25;
+        self.primary_fire_effect(scene, weapon, world);
+        self.cannon_send(world, weapon, "ACT_VM_SECONDARYATTACK", time);
+    }
+    /// A held body's launch: let go, then its speed along the aim and its spin.
+    fn launch_body(
+        &mut self,
+        id: usize,
+        (weapon, world): (&Weapon, &World),
+        scene: &mut Scene,
+        physics: &mut Physics,
+        (forward, mass): (Vec3, f32),
+    ) {
         // PhysGunLaunchAngularImpulse: none for spin_zaxis props, whose
         // OnPhysGunDrop(LAUNCHED_BY_CANNON) adds a 5000 deg/s spin about their
         // local z and zeroes their angular drag.
@@ -619,15 +692,6 @@ impl Inventory {
                 physics.angular_drag_disabled.insert(handle);
             }
         }
-        self.physcannon.next_primary = time + 0.5;
-        self.physcannon.next_secondary = time + 0.5;
-        self.physcannon.launches.push(held_center);
-        self.physcannon.last_launch = Some((time, held_center));
-        self.physcannon.change_state = ElementChange::Closed;
-        self.physcannon.element_debounce = time + 0.1;
-        self.physcannon.check_suppress = time + 0.25;
-        self.primary_fire_effect(scene, weapon, world);
-        self.cannon_send(world, weapon, "ACT_VM_SECONDARYATTACK", time);
     }
     fn dry_fire(&mut self, scene: &mut Scene, weapon: &Weapon, world: &World, time: f64) {
         self.cannon_send(world, weapon, "ACT_VM_PRIMARYATTACK", time);
@@ -651,7 +715,10 @@ impl Inventory {
     }
     /// Holster -> ForceDrop -> StopEffects: the motor fades out over 0.1 s.
     pub(crate) fn physcannon_holster(&mut self) {
-        self.physcannon.held = None;
+        let held = self.physcannon.held.take();
+        if let Some(id) = held.filter(|_| self.physcannon.holds_npc) {
+            self.release_npc(None, id, None);
+        }
         self.physcannon.grab = None;
         self.deferred_sounds
             .push(motor(crate::sounds::PatchOp::FadeOut { seconds: 0.1 }));

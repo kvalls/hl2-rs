@@ -676,6 +676,19 @@ impl AiRuntime {
         };
     }
 
+    /// Classify(): the class table's, but a manhack the gravity gun holds is the player's ally
+    /// (m_bHeld).
+    pub fn npc_class(&self, world: &World, id: usize, precriminal: bool) -> Class {
+        let held = |class: &AiClass| matches!(class, AiClass::Manhack(m) if m.held);
+        if self.actors.get(&id).is_some_and(|a| held(&a.class)) {
+            return Class::PlayerAlly;
+        }
+        classify(
+            world.entities.get(id).map_or("", |e| e.class()),
+            precriminal,
+        )
+    }
+
     /// IRelationType of NPC `subject` toward NPC `target`. F4 allegiances make sides: two
     /// NPCs with allegiances hate each other when they differ and like each other when
     /// they match; one with an allegiance hates an NPC whose class (SDK table) hates the
@@ -689,12 +702,7 @@ impl AiRuntime {
         target: usize,
         precriminal: bool,
     ) -> Disposition {
-        let class = |id: usize| {
-            classify(
-                world.entities.get(id).map_or("", |e| e.class()),
-                precriminal,
-            )
-        };
+        let class = |id: usize| self.npc_class(world, id, precriminal);
         let side = |id: usize| -> Option<Disposition> {
             self.allegiances.get(&id).copied().or_else(|| {
                 match self.relationships.get(class(id), Class::Player).0 {

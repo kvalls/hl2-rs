@@ -1189,8 +1189,7 @@ impl AiRuntime {
         let center = origin + Vec3::Z * center_z(world, id);
         let facing = scene.states[id].rotation * Vec3::X;
         let sight = PhysicsSight { physics, world };
-        let class_name = world.entities.get(id).map_or("", |e| e.class());
-        let my_class = classify(class_name, precriminal);
+        let my_class = self.npc_class(world, id, precriminal);
         let field_of_view = self.actors[&id].class.field_of_view();
         let sound_interests = self.actors[&id].class.sound_interests();
         // CFastHeadcrab::QuerySeeEntity: outside combat, nothing 150+ units above or below.
@@ -1324,8 +1323,7 @@ impl AiRuntime {
                 .filter(|&e| e != PLAYER)
                 .filter(|&e| scene.states.get(e).is_some_and(|s| !s.killed && s.visible))
                 .map(|e| {
-                    let class =
-                        classify(world.entities.get(e).map_or("", |x| x.class()), precriminal);
+                    let class = self.npc_class(world, e, precriminal);
                     (
                         e,
                         (

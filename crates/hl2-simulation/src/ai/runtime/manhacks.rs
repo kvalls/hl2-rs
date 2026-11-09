@@ -5,6 +5,7 @@
 use super::super::host::PhysicsSight;
 use super::super::manhack::{self, Manhack};
 use super::super::metropolice::{CopRequest, PLAYER};
+use super::super::relationships::{classify, Class, Disposition, Relationships};
 use super::super::senses::SightWorld;
 use super::super::squad::{Squad, SLOT_ATTACK1, SLOT_ATTACK2};
 use super::birds::Air;
@@ -12,6 +13,7 @@ use super::crabs::fall_hull;
 use super::scanners::{break_body, strikes_player};
 use super::{AiActor, AiClass, AiRuntime, MeleeHit, PlayerHit, PlayerState, THINK_INTERVAL};
 use crate::entities::Scene;
+use crate::npc_probe::{NpcCollisionWorld, Query};
 use crate::physics::{angles, Physics};
 use crate::sounds::{entity_emitter, PatchOp, SoundRequest};
 use crate::view_control::angles_toward;
@@ -31,14 +33,37 @@ const GROUND_RISE: f32 = 32.;
 const BLADE_GROUP: usize = 1;
 /// How close to an NPC's middle counts as touching it.
 const CUT_REACH: f32 = 32.;
-/// How fast the body turns toward what it flies at, degrees a second.
+/// How fast the body turns toward what it flies at, degrees a second, and held (the grab
+/// controller's 3600).
 const TURN_RATE: f32 = 360.;
+const HELD_TURN_RATE: f32 = 3600.;
+/// CheckCollisions: a held manhack this close to its carrier traces along the aim this far.
+const CARRIER_NEAR: f32 = 30.;
+const CARRIER_REACH: f32 = 40.;
 
 /// What a think cut, for the stage to pay out once the actors are free again.
 enum Cut {
     Player,
     Npc(usize, Vec3),
     /// Thrown into something: this share of its max health.
+    Smash(f32),
+    /// CheckCollisions met an entity: who, where and the surface's normal, still to be judged.
+    Touch(usize, Vec3, Vec3),
+}
+
+/// What a cut comes to: damage on the player, a slice, or the manhack's own smash.
+enum Paid {
+    Player(f32),
+    /// An NPC or a breakable cut there for this much; the player deals it when the manhack is
+    /// held or thrown; what does not bleed grinds.
+    Slice {
+        victim: usize,
+        at: Vec3,
+        damage: f32,
+        by_player: bool,
+        npc: bool,
+        grinds: bool,
+    },
     Smash(f32),
 }
 
@@ -64,18 +89,167 @@ fn collide(m: &mut Manhack, air: &Air, origin: Vec3, hit: Option<Cut>, now: f64)
     }
     let ahead = air.trace(origin, origin + m.hover.velocity * THINK_INTERVAL as f32);
     if ahead.trace.fraction < 1. {
-        let speed = m.hover.velocity.length();
-        let normal = ahead.trace.normal;
-        m.hover.bounce(normal);
-        m.stop_burst(now);
-        // Bump: the blades grind only on what stands across their plane, a wall and not a floor;
-        // the body turns only about its yaw, so its up is the world's.
-        if normal.z.abs() < GRIND_ACROSS && !m.gagged() {
-            m.requests.push(CopRequest::Sound(manhack::GRIND));
-        }
-        return m.smash(speed, now).map(Cut::Smash);
+        return bump(m, ahead.trace.normal, now).map(Cut::Smash);
     }
     None
+}
+
+/// Bump: it bounces off and its burst ends; the blades grind only on what stands across their
+/// plane, a wall and not a floor (the body turns only about its yaw, so its up is the world's);
+/// thrown moments ago, it smashes.
+fn bump(m: &mut Manhack, normal: Vec3, now: f64) -> Option<f32> {
+    let speed = m.hover.velocity.length();
+    m.hover.bounce(normal);
+    m.stop_burst(now);
+    if normal.z.abs() < GRIND_ACROSS && !m.gagged() {
+        m.requests.push(CopRequest::Sound(manhack::GRIND));
+    }
+    m.smash(speed, now)
+}
+
+/// CheckCollisions held or stalled: a hull trace along a think's travel, or along the aim when
+/// its carrier is close, meets NPCs and props as well as the world. The world is bumped at once;
+/// an entity is judged by the stage.
+fn blade_contact(
+    m: &mut Manhack,
+    air: &Air,
+    origin: Vec3,
+    player: &PlayerState,
+    now: f64,
+) -> Option<Cut> {
+    let mut reach = m.hover.velocity * THINK_INTERVAL as f32;
+    if m.held && near_carrier(player, origin) {
+        reach = player.facing.normalize_or_zero() * CARRIER_REACH;
+    }
+    let query = Query {
+        excluded_entities: &[air.id],
+        ..Default::default()
+    };
+    let hit = air
+        .physics
+        .npc_trace_hull(origin, origin + reach, air.hull, query);
+    if hit.trace.fraction >= 1. && !hit.trace.start_solid {
+        return None;
+    }
+    let at = origin + reach * hit.trace.fraction;
+    match hit.entity {
+        Some(entity) => Some(Cut::Touch(entity, at, hit.trace.normal)),
+        None => bump(m, hit.trace.normal, now).map(Cut::Smash),
+    }
+}
+
+/// The carrier's box (CalcDistanceFromPoint) is within CARRIER_NEAR of its middle.
+fn near_carrier(player: &PlayerState, origin: Vec3) -> bool {
+    let height = if player.crouched { 36. } else { 72. };
+    let low = player.feet - Vec3::new(16., 16., 0.);
+    let high = player.feet + Vec3::new(16., 16., height);
+    origin.distance(origin.clamp(low, high)) < CARRIER_NEAR
+}
+
+/// What CheckCollisions may cut, by the class table: ai_relationship and F4 sides are not read.
+struct Blades<'a> {
+    world: &'a World,
+    relationships: &'a Relationships,
+    precriminal: bool,
+}
+
+/// What a touch comes to.
+enum Verdict {
+    Slice(manhack::Victim),
+    /// Held, it spares the player's friends.
+    Spare,
+    Bump,
+}
+
+impl Blades<'_> {
+    fn class(&self, id: usize) -> Class {
+        let name = self.world.entities.get(id).map_or("", |e| e.class());
+        classify(name, self.precriminal)
+    }
+    /// Slice's and CheckCollisions' rules: what takes damage and is no manhack is cut; held, an
+    /// NPC that likes the player is spared.
+    fn judge(&self, m: &Manhack, scene: &Scene, victim: usize) -> Verdict {
+        let name = self.world.entities.get(victim).map_or("", |e| e.class());
+        if name.starts_with("npc_") {
+            let alive = scene
+                .states
+                .get(victim)
+                .is_some_and(|s| !s.killed && !s.corpse);
+            if !alive || name == "npc_manhack" {
+                return Verdict::Bump;
+            }
+            let likes = self.relationships.get(self.class(victim), Class::Player).0;
+            if m.held && likes == Disposition::LI {
+                return Verdict::Spare;
+            }
+            return Verdict::Slice(self.npc_victim(m, victim));
+        }
+        match crate::gameplay::breakable_health(self.world, scene, victim) {
+            Some(health) => Verdict::Slice(manhack::Victim::Breakable(health)),
+            None => Verdict::Bump,
+        }
+    }
+    /// An NPC as Slice sees it: an npc_combine_s it hates takes six times as much. Held, it is the
+    /// player's ally (Classify).
+    fn npc_victim(&self, m: &Manhack, victim: usize) -> manhack::Victim {
+        let mine = if m.held {
+            Class::PlayerAlly
+        } else {
+            Class::Manhack
+        };
+        let hates = self.relationships.get(mine, self.class(victim)).0 == Disposition::HT;
+        let soldier = self
+            .world
+            .entities
+            .get(victim)
+            .is_some_and(|e| e.class() == "npc_combine_s");
+        manhack::Victim::Npc {
+            hated_soldier: hates && soldier,
+        }
+    }
+    /// What does not bleed (BloodColor DONT_BLEED) grinds: robots and props.
+    fn grinds(&self, victim: usize) -> bool {
+        let name = self.world.entities.get(victim).map_or("", |e| e.class());
+        !name.starts_with("npc_") || crate::gameplay::blood_color(name).is_none()
+    }
+}
+
+/// A think's cut, reckoned while its manhack is at hand: Slice's damage and the bounce away from
+/// what it cut (ComputeSliceBounceVelocity), a spared friend, or a bump.
+fn reckon(
+    m: &mut Manhack,
+    cut: Cut,
+    (blades, scene): (&Blades, &Scene),
+    (origin, rate, player): (Vec3, (f32, f32), &PlayerState),
+) -> Option<Paid> {
+    let now = scene.time;
+    let guard = scene.skill.get("sk_combine_guard_health", 0.);
+    let (victim, at, kind) = match cut {
+        Cut::Smash(share) => return Some(Paid::Smash(share)),
+        Cut::Player => {
+            m.rebound(origin - (player.feet + Vec3::Z * 36.), now);
+            let damage = m.slice_damage(rate, manhack::Victim::Player, guard, now);
+            return Some(Paid::Player(damage));
+        }
+        Cut::Npc(victim, middle) => (victim, middle, blades.npc_victim(m, victim)),
+        Cut::Touch(victim, at, normal) => match blades.judge(m, scene, victim) {
+            Verdict::Slice(kind) => (victim, at, kind),
+            Verdict::Spare => return None,
+            Verdict::Bump => return bump(m, normal, now).map(Paid::Smash),
+        },
+    };
+    let damage = m.slice_damage(rate, kind, guard, now);
+    let by_player = m.physics_attacker(now);
+    let middle = scene.states.get(victim).map_or(at, |s| s.origin);
+    m.rebound(origin - middle, now);
+    Some(Paid::Slice {
+        victim,
+        at,
+        damage,
+        by_player,
+        npc: matches!(kind, manhack::Victim::Npc { .. }),
+        grinds: blades.grinds(victim),
+    })
 }
 
 /// The enemy's feet and eyes, and whether it is the player.
@@ -125,10 +299,14 @@ fn steer(
     if scene.manhack_panels.get(&id) != Some(&m.panels) {
         scene.manhack_panels.insert(id, m.panels);
     }
+    // Held, the grab steers it; stalled, MoveToTarget returns and it flies on as it was thrown.
+    // CheckCollisions sees everything its hull meets then.
+    if m.held {
+        return blade_contact(m, air, origin, &player, now);
+    }
     keep_off_ground(m, air, origin);
-    // MoveToTarget returns while the engine is stalled: it flies on as it was thrown.
     if m.stalled(now) {
-        return collide(m, air, origin, None, now);
+        return blade_contact(m, air, origin, &player, now);
     }
     m.fly(origin, interval, now);
     let view = enemy.map(|e| enemy_view(origin, e.feet, e.eyes));
@@ -331,7 +509,14 @@ impl AiRuntime {
         let now = scene.time;
         let per_second = scene.skill.get("sk_manhack_melee_dmg", CUT_DAMAGE);
         let (held, squads) = (&self.held_npcs, &mut self.squads);
-        let punts = std::mem::take(&mut scene.npc_punts);
+        let events = std::mem::take(&mut scene.npc_physgun);
+        scene.physgun_npcs.clear();
+        let blades = Blades {
+            world,
+            relationships: &self.relationships,
+            precriminal: scene.globals.is_on("gordon_precriminal"),
+        };
+        let rate = (per_second, THINK_INTERVAL as f32);
         let mut cuts = Vec::new();
         let mut asks = Vec::new();
         for (&id, actor) in self.actors.iter_mut() {
@@ -365,32 +550,34 @@ impl AiRuntime {
             if let Some(ask) = m.swarm.ask {
                 asks.push((id, ask));
             }
-            // Punted: it thinks at once, as the SDK's next think 0.01 s on.
-            for &(_, push) in punts.iter().filter(|(target, _)| *target == id) {
-                m.punted(push, now);
-                m.next_steer = now;
+            // Its VPhysics object: the gravity gun may take it (a carried one has none yet).
+            if !m.carried && scene.states[id].visible {
+                scene.physgun_npcs.push(id);
+            }
+            // A punt or a launch has it think at once, as the SDK's next think 0.01 s on.
+            for &(_, event) in events.iter().filter(|(target, _)| *target == id) {
+                if m.physgun(event, now) {
+                    m.next_steer = now;
+                }
             }
             if now >= m.next_steer {
                 m.next_steer = now + THINK_INTERVAL;
                 claim_slot(m, squads, squad, (enemy_id, now));
                 if let Some(cut) = steer(m, &air, scene, enemy.as_ref(), player) {
                     let origin = scene.states[id].origin;
-                    let from = match &cut {
-                        Cut::Player => Some(player.feet + Vec3::Z * 36.),
-                        Cut::Npc(_, middle) => Some(*middle),
-                        Cut::Smash(_) => None,
-                    };
-                    if let Some(from) = from {
-                        m.rebound(origin - from, now);
+                    let ctx = (origin, rate, &player);
+                    if let Some(paid) = reckon(m, cut, (&blades, scene), ctx) {
+                        cuts.push((id, paid, origin));
                     }
-                    cuts.push((id, cut, origin));
                 }
             }
             let dt = air.step(&mut m.hover.velocity, &mut m.last_step, scene);
-            if let Some(look) = enemy.as_ref().map(|e| e.eyes).or(m.target) {
-                let yaw = angles_toward(look - scene.states[id].origin).1;
+            let origin = scene.states[id].origin;
+            let look = enemy.as_ref().map(|e| e.eyes).or(m.target);
+            let aim = look.map(|look| (angles_toward(look - origin).1, TURN_RATE));
+            if let Some((yaw, rate)) = m.held_yaw.map(|yaw| (yaw, HELD_TURN_RATE)).or(aim) {
                 let current = super::super::host::yaw_of(scene, id);
-                let turned = super::super::host::clamp_yaw(TURN_RATE, current, yaw, dt);
+                let turned = super::super::host::clamp_yaw(rate, current, yaw, dt);
                 scene.states[id].rotation = angles(Vec3::new(0., turned, 0.));
             }
         }
@@ -398,13 +585,12 @@ impl AiRuntime {
             self.answer_swarm(scene, id, ask);
         }
         for (id, cut, origin) in cuts {
-            self.pay_cut(scene, id, cut, origin, per_second);
+            self.pay_cut(scene, id, cut, origin);
         }
     }
     /// What a cut does: the damage and its sound.
-    fn pay_cut(&mut self, scene: &mut Scene, id: usize, cut: Cut, origin: Vec3, per_second: f32) {
-        let interval = THINK_INTERVAL as f32;
-        if let Cut::Smash(share) = cut {
+    fn pay_cut(&mut self, scene: &mut Scene, id: usize, cut: Paid, origin: Vec3) {
+        if let Paid::Smash(share) = cut {
             // TakeDamageFromPhyscannon: DMG_GENERIC from the player who threw it.
             let health = scene.skill.get("sk_manhack_health", MAX_HEALTH);
             scene.entity_damage.push(crate::projectiles::Damage {
@@ -418,26 +604,60 @@ impl AiRuntime {
             });
             return;
         }
+        let grinds = matches!(cut, Paid::Slice { grinds: true, .. });
+        let cue = if grinds {
+            manhack::GRIND
+        } else {
+            manhack::SLICE
+        };
         scene.sounds.push(SoundRequest {
             origin: Some(origin),
-            ..manhack::SLICE.into()
+            ..cue.into()
         });
         match cut {
-            Cut::Player => self.player_hits.push(PlayerHit {
+            Paid::Player(damage) => self.player_hits.push(PlayerHit {
                 attacker: id,
-                damage: manhack::cut_damage(per_second, interval, true),
+                damage,
                 punch: Vec3::ZERO,
                 impulse: Vec3::ZERO,
                 fade: None,
             }),
-            Cut::Npc(victim, middle) => self.melee_hits.push(MeleeHit {
+            // An NPC cut by a free manhack is its melee hit; the player's cuts and breakables
+            // take DMG_SLASH through the entity path, where the player's friends refuse it.
+            Paid::Slice {
+                victim,
+                at,
+                damage,
+                by_player: false,
+                npc: true,
+                ..
+            } => self.melee_hits.push(MeleeHit {
                 attacker: id,
                 victim,
-                damage: manhack::cut_damage(per_second, interval, false),
-                position: middle,
-                direction: (middle - origin).normalize_or_zero(),
+                damage,
+                position: at,
+                direction: (at - origin).normalize_or_zero(),
             }),
-            Cut::Smash(_) => {}
+            Paid::Slice {
+                victim,
+                at,
+                damage,
+                by_player,
+                ..
+            } => scene.entity_damage.push(crate::projectiles::Damage {
+                target: crate::projectiles::DamageTarget::Entity(victim),
+                amount: damage,
+                kind: crate::player_damage::DMG_SLASH,
+                dissolve: false,
+                direction: (at - origin).normalize_or_zero(),
+                origin: at,
+                attacker: if by_player {
+                    crate::projectiles::Attacker::Player
+                } else {
+                    crate::projectiles::Attacker::Entity(id)
+                },
+            }),
+            Paid::Smash(_) => {}
         }
     }
 }
@@ -449,6 +669,7 @@ pub(super) fn class_for(flags: u32, id: usize) -> AiClass {
     if flags & manhack::SF_PACKED_UP != 0 {
         manhack.pack(flags & SF_NPC_WAIT_FOR_SCRIPT != 0);
     }
+    manhack.carried = flags & manhack::SF_CARRIED != 0;
     AiClass::Manhack(Box::new(manhack))
 }
 

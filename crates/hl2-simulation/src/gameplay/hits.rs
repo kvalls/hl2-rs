@@ -4,6 +4,61 @@ use crate::projectiles::Damage;
 use glam::Vec3;
 use modkit_core::{Entity, PropData};
 
+/// A prop_physics' prop_data, from its model.
+pub fn prop_data_of(world: &World, id: usize) -> Option<&PropData> {
+    let entity = world.entities.get(id)?;
+    if !entity.class().starts_with("prop_physics") {
+        return None;
+    }
+    world
+        .model_instances
+        .iter()
+        .find(|i| i.entity == Some(id))
+        .and_then(|i| world.model_prop_data.get(&i.asset_key()))
+}
+
+/// CPropData::ParsePropData: prop_data's health overrides the keyvalue (not on *_override props);
+/// 0 or none is no health.
+pub(super) fn spawn_health(world: &World, entity: &Entity, id: usize) -> Option<f32> {
+    prop_health(world, entity, id)
+        .or_else(|| entity.get("health").and_then(|s| s.parse::<f32>().ok()))
+        .filter(|v| *v > 0.)
+}
+
+fn prop_health(world: &World, entity: &Entity, id: usize) -> Option<f32> {
+    prop_data_of(world, id)
+        .filter(|_| !entity.class().ends_with("_override"))
+        .map(|d| d.health)
+}
+
+/// Whether damage can break this non-NPC: a breakable brush, or a prop_physics with health.
+/// Health 0 or none is DAMAGE_EVENTS_ONLY (prop_data 0, or a prop_physics with neither prop_data
+/// health nor a health keyvalue).
+pub(super) fn breaks(world: &World, entity: &Entity, id: usize) -> bool {
+    let class = entity.class();
+    let prop = class.starts_with("prop_physics");
+    if prop_health(world, entity, id) == Some(0.)
+        || (prop && spawn_health(world, entity, id).is_none())
+    {
+        return false;
+    }
+    prop || matches!(class, "func_breakable" | "func_physbox")
+}
+
+/// The health a breakable has left: what damage has not taken yet, from its spawn health (40
+/// without one). None when damage never breaks it, or it is gone.
+pub fn breakable_health(world: &World, scene: &Scene, id: usize) -> Option<f32> {
+    let entity = world.entities.get(id)?;
+    let state = scene.states.get(id).filter(|s| !s.killed)?;
+    if entity.class().starts_with("npc_") || !breaks(world, entity, id) {
+        return None;
+    }
+    if state.value > 0. {
+        return Some(state.value);
+    }
+    Some(spawn_health(world, entity, id).unwrap_or(40.))
+}
+
 /// The rest of OnTakeDamage_Alive: a lethal blast releases the crab (headless, not modeled yet),
 /// then ShouldBecomeTorso / BecomeTorso.
 pub(super) fn zombie_split(

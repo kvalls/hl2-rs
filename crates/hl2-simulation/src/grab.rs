@@ -11,6 +11,8 @@ pub(crate) const HOLD_MAX_SPEED: f32 = 1000.;
 const HOLD_MAX_ANGULAR: f32 = 3600.;
 /// UpdateObject's flError from both callers.
 pub(crate) const HOLD_MAX_ERROR: f32 = 12.;
+/// The simulation step a hold's velocity covers.
+const HOLD_STEP: f32 = 0.015;
 /// Player hull radius in 2D (OBBMaxs 16,16 -> Length2D).
 pub(crate) const PLAYER_RADIUS: f32 = 22.627417;
 /// hl2_normspeed: a drop clamps linear speed to 1.5x this.
@@ -137,6 +139,15 @@ impl CarryAngles {
             Self::Level(q) => eye_rotation(forward, true) * q,
         }
     }
+}
+
+/// Where the eye holds things this tick.
+#[derive(Clone, Copy, Debug)]
+pub struct HoldView {
+    pub eye: Vec3,
+    pub forward: Vec3,
+    pub feet: Vec3,
+    pub crouched: bool,
 }
 
 /// CGrabController state for one attached prop.
@@ -278,6 +289,75 @@ impl GrabController {
         let (Some(position), Some(current)) = (center(physics, id), rotation(physics, id)) else {
             return false;
         };
+        let view = HoldView {
+            eye,
+            forward,
+            feet,
+            crouched,
+        };
+        let extents = half_extents(physics, id);
+        let Some(v) = self.track(physics, position, extents, view, max_error) else {
+            return false;
+        };
+        let dt = HOLD_STEP;
+        let (axis, mut angle) = (self.target_rotation * current.inverse()).to_axis_angle();
+        if angle > std::f32::consts::PI {
+            angle -= std::f32::consts::TAU;
+        }
+        let w = (axis * angle / dt).clamp_length_max(HOLD_MAX_ANGULAR.to_radians());
+        if let Some(body) = physics.bodies.get_mut(physics.dynamic[&id]) {
+            let v = v * SCALE;
+            body.set_linvel(vector![v.x, v.y, v.z], true);
+            body.set_angvel(vector![w.x, w.y, w.z], true);
+        }
+        true
+    }
+    /// A grab of something its AI flies rather than a rigid body (a manhack): the target starts
+    /// where it is, and its rotation in player space is kept.
+    pub fn attach_flyer(
+        id: usize,
+        position: Vec3,
+        rotation: Quat,
+        forward: Vec3,
+        mass: f32,
+    ) -> Self {
+        Self {
+            entity: id,
+            relative: eye_rotation(forward, false).inverse() * rotation,
+            saved_mass: mass,
+            saved_gravity: 1.,
+            saved_rot_damping: 0.,
+            saved_props: None,
+            ignore_pitch: false,
+            error: 0.,
+            error_time: -1.,
+            target: position,
+            target_rotation: rotation,
+            carry_angles: None,
+        }
+    }
+    /// The rotation the hold turns it toward, from the last `track`.
+    pub fn target_rotation(&self) -> Quat {
+        self.target_rotation
+    }
+    /// UpdateObject's ComputeError and target for a held thing at `position` with these half
+    /// extents: its velocity toward the target, at most 1000 u/s, or None once the error passed
+    /// `max_error` and it is let go. The brush trace does not see the held entity.
+    pub fn track(
+        &mut self,
+        physics: &Physics,
+        position: Vec3,
+        extents: Vec3,
+        view: HoldView,
+        max_error: f32,
+    ) -> Option<Vec3> {
+        let HoldView {
+            eye,
+            forward,
+            feet,
+            crouched,
+        } = view;
+        let id = self.entity;
         if self.error_time > 0. {
             self.error_time = self.error_time.min(1.);
             let mut error = (self.target - position).length();
@@ -288,10 +368,9 @@ impl GrabController {
             self.error_time = 0.;
         }
         if self.error > max_error {
-            return false;
+            return None;
         }
         let aim = forward.normalize_or(Vec3::X);
-        let extents = half_extents(physics, id);
         let radial =
             (aim.x.abs() * extents.x + aim.y.abs() * extents.y + aim.z.abs() * extents.z).abs();
         let radius = PLAYER_RADIUS + radial;
@@ -317,23 +396,12 @@ impl GrabController {
             Some(preferred) => preferred.target(forward),
             None => eye_rotation(forward, self.ignore_pitch) * self.relative,
         };
-        let dt = 0.015;
-        let mut v = (self.target - position) / dt;
+        let mut v = (self.target - position) / HOLD_STEP;
         if v.length() > HOLD_MAX_SPEED {
             v = v.normalize() * HOLD_MAX_SPEED;
         }
-        let (axis, mut angle) = (self.target_rotation * current.inverse()).to_axis_angle();
-        if angle > std::f32::consts::PI {
-            angle -= std::f32::consts::TAU;
-        }
-        let w = (axis * angle / dt).clamp_length_max(HOLD_MAX_ANGULAR.to_radians());
-        if let Some(body) = physics.bodies.get_mut(physics.dynamic[&id]) {
-            let v = v * SCALE;
-            body.set_linvel(vector![v.x, v.y, v.z], true);
-            body.set_angvel(vector![w.x, w.y, w.z], true);
-        }
-        self.error_time += dt;
-        true
+        self.error_time += HOLD_STEP;
+        Some(v)
     }
 }
 

@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-09 session 50: the gravity gun holds and launches manhacks (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** npc_manhack step 4b: pickup, hold, drop, pull and launch through `Scene::npc_physgun`; the grab controller's target shared with props; CheckCollisions held or stalled slices NPCs and breakables by retail's Slice rules (100 a second held, the guard's health thrown, a breakable's health); a held manhack is the player's ally to the AI and spares the player's friends. The breakable health rule moved to gameplay/hits.rs.
+
+**Why:** the session plan's first item (DESIGN 14o session 49, step 4b); the owner's rule to check SDK, retail and owned files.
+
+**Tested how / Result:** unit tests for the hold, drop, launch, smash and slice rules; three packaged runs on d1_town_02 (STATUS "Current session 50"). Full validation in STATUS.
+
+**Frame time:** **not measured**; the new work runs only for held or stalled manhacks beyond one list push per living manhack.
+
+**Still broken or not tested:** native comparison of a hold or a launch; packed and carried manhacks; OnTakeDamage_Alive's stall, push and bat; the stall's random panels; REGROUP, the crash, water.
+
+**Next:** OnTakeDamage_Alive's reactions; SF_MANHACK_CARRIED and the metrocops' throw; native A/B of a punt or launch.
+
 ## 2026-11-07 session 49: the engine's cubemap pick, manhack squads, panels and glows (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

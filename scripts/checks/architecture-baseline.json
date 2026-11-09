@@ -153,9 +153,9 @@
   "crates/hl2-bevy/src/rendering.rs": 1400,
   "crates/hl2-bevy/src/video.rs": 1027,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
-  "crates/hl2-simulation/src/ai/runtime.rs": 2397,
+  "crates/hl2-simulation/src/ai/runtime.rs": 2395,
   "crates/hl2-simulation/src/entities/choreography.rs": 1229,
-  "crates/hl2-simulation/src/gameplay.rs": 2860,
+  "crates/hl2-simulation/src/gameplay.rs": 2833,
   "crates/hl2-simulation/src/npc.rs": 1383,
   "crates/hl2-simulation/src/physics.rs": 3423,
   "crates/hl2-simulation/src/projectiles.rs": 1264,
@@ -226,7 +226,7 @@
    133
   ],
   "crates/hl2-simulation/src/ai/runtime.rs::think": [
-   1159
+   1157
   ],
   "crates/hl2-simulation/src/ai/runtime.rs::tick": [
    252
@@ -265,7 +265,7 @@
    127
   ],
   "crates/hl2-simulation/src/gameplay.rs::apply_projectile_damage": [
-   255
+   227
   ],
   "crates/hl2-simulation/src/gameplay.rs::attack": [
    182

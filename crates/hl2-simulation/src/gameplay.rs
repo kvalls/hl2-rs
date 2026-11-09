@@ -13,6 +13,7 @@ use source_assets::{keyvalues, vpk::Vfs};
 use std::collections::BTreeMap;
 
 mod hits;
+pub use hits::{breakable_health, prop_data_of};
 
 #[derive(Clone, Default)]
 pub struct Weapon {
@@ -1504,37 +1505,9 @@ impl Inventory {
                         continue;
                     }
                     let npc = entity.class().starts_with("npc_");
-                    // CPropData::ParsePropData: prop_data health overrides the keyvalue
-                    // (not on *_override props); 0 means unbreakable.
-                    let data = entity
-                        .class()
-                        .starts_with("prop_physics")
-                        .then(|| {
-                            world
-                                .model_instances
-                                .iter()
-                                .find(|i| i.entity == Some(id))
-                                .and_then(|i| world.model_prop_data.get(&i.asset_key()))
-                        })
-                        .flatten();
-                    let prop_data = data
-                        .filter(|_| !entity.class().ends_with("_override"))
-                        .map(|d| d.health);
-                    let health = prop_data
-                        .or_else(|| entity.get("health").and_then(|s| s.parse::<f32>().ok()))
-                        .filter(|v| *v > 0.);
-                    // Health 0 / none: DAMAGE_EVENTS_ONLY, never breaks (prop_data 0, or a
-                    // prop_physics without prop_data health or a health keyvalue).
-                    if !npc
-                        && (prop_data == Some(0.)
-                            || (health.is_none() && entity.class().starts_with("prop_physics")))
-                    {
-                        continue;
-                    }
-                    if !npc
-                        && !matches!(entity.class(), "func_breakable" | "func_physbox")
-                        && !entity.class().starts_with("prop_physics")
-                    {
+                    let data = hits::prop_data_of(world, id);
+                    let health = hits::spawn_health(world, entity, id);
+                    if !npc && !hits::breaks(world, entity, id) {
                         continue;
                     }
                     self.hits += 1;

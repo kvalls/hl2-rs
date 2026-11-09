@@ -1,7 +1,8 @@
 //! npc_manhack (DESIGN 14o session 47, step 1): a flying blade. This module holds what it decides
 //! and its flight arithmetic; `runtime::manhacks` gives it the world and carries the body. It flies
-//! at its enemy's eyes, bursts from close by, cuts what it touches and bounces off. Not yet: packed
-//! manhacks, swarming, the gravity gun, its sprites and panels, a crash in place of gibs, water.
+//! at its enemy's eyes, bursts from close by, cuts what it touches and bounces off. Packed manhacks
+//! (step 2), swarming (step 3), panels and sprites (step 5) and the gravity gun (`physgun`, step 4)
+//! followed. Not yet: carried manhacks, a crash in place of gibs, water.
 use super::assault::Assault;
 use super::conditions::{COND_HEAVY_DAMAGE, COND_LIGHT_DAMAGE};
 use super::hover::{Hover, Thrust};
@@ -16,7 +17,9 @@ use crate::sounds::PatchOp;
 use glam::Vec3;
 use serde::Serialize;
 
+mod physgun;
 mod swarm;
+pub use physgun::Victim;
 pub use swarm::{center, member_to_join, Ask, Member, Swarm};
 
 /// VIEW_FIELD_FULL: it sees all round.
@@ -122,6 +125,8 @@ const PACKED: &str = "SCHED_MANHACK_PACKED";
 
 /// SF_MANHACK_PACKED_UP.
 pub const SF_PACKED_UP: u32 = 1 << 16;
+/// SF_MANHACK_CARRIED: a metrocop carries it.
+pub const SF_CARRIED: u32 = 1 << 19;
 /// The deploy sequence's events: the engine starts, the blade opens, and it is done.
 pub const AE_START_ENGINE: i32 = 50;
 pub const AE_DONE_UNPACKING: i32 = 51;
@@ -196,11 +201,17 @@ pub struct Manhack {
     /// m_bShowingHostile: a burst is on. Its panels' opening in degrees.
     pub hostile: bool,
     pub panels: [f32; 4],
-    /// m_flEngineStallTime, the punt's time (m_flLastPhysicsInfluenceTime with the player as its
-    /// physics attacker), and the eye's stunned state.
+    /// m_flEngineStallTime, the time of the gravity gun's last pickup, punt or launch
+    /// (m_flLastPhysicsInfluenceTime with the player as its physics attacker), and the eye's
+    /// stunned state.
     pub stalled_until: f64,
     pub punted_at: Option<f64>,
     pub stunned: bool,
+    /// m_bHeld: the gravity gun holds it, at this yaw in degrees.
+    pub held: bool,
+    pub held_yaw: Option<f32>,
+    /// SF_MANHACK_CARRIED: a metrocop carries it, and it has no physics object yet.
+    pub carried: bool,
     /// SF_NPC_GAG: it flies without its engine sound.
     gagged: bool,
     seed: u64,
@@ -346,10 +357,8 @@ impl Manhack {
         let speed = self.hover.velocity + push;
         self.hover.velocity = speed.clamp_length_max(crate::physics::MAX_VELOCITY);
         self.stop_burst(now);
-        self.stalled_until = now + STALL;
-        self.punted_at = Some(now);
-        self.stunned = true;
-        self.requests.push(CopRequest::Sound(STUNNED));
+        self.held = false;
+        self.stun(now);
     }
     /// SF_NPC_GAG: no engine and no grind.
     pub fn gagged(&self) -> bool {
@@ -359,10 +368,11 @@ impl Manhack {
     pub fn stalled(&self, now: f64) -> bool {
         now < self.stalled_until
     }
-    /// A hit soon after a punt: the share of its max health it takes.
+    /// A hit soon after a punt or a launch: the share of its max health it takes. Held, it takes
+    /// no impact damage.
     pub fn smash(&self, speed: f32, now: f64) -> Option<f32> {
-        let thrown = self.punted_at.is_some_and(|at| now - at <= SMASH_TIME);
-        thrown.then(|| (speed / SMASH_SPEED).clamp(0., 2.))
+        self.thrown(now)
+            .then(|| (speed / SMASH_SPEED).clamp(0., 2.))
     }
     /// StartBurst: no steering to speak of for a second, and no other for two. One already under
     /// way runs on as it is.
@@ -442,12 +452,6 @@ fn pitches(enemy_distance: Option<f32>) -> (f32, f32) {
         low + (high - low) * share
     };
     (rise(PITCH_NEAR_1, PITCH_1), rise(PITCH_NEAR_2, PITCH_2))
-}
-
-/// A cut's damage for `interval` seconds of contact, at `per_second` on an NPC.
-pub fn cut_damage(per_second: f32, interval: f32, on_player: bool) -> f32 {
-    let share = if on_player { PLAYER_SHARE } else { 1. };
-    (per_second * interval * share).max(LEAST_CUT)
 }
 
 impl Behavior for Manhack {
@@ -827,13 +831,6 @@ mod tests {
         assert!(!m.bursting(0.5));
         assert_eq!(m.next_burst, 2.5);
         assert_eq!(m.cuts, 1);
-    }
-
-    #[test]
-    fn a_cut_does_twice_as_much_to_the_player_and_never_less_than_one() {
-        assert_eq!(cut_damage(20., 0.1, false), 2.);
-        assert_eq!(cut_damage(20., 0.1, true), 4.);
-        assert_eq!(cut_damage(5., 0.1, false), 1.);
     }
 
     #[test]
