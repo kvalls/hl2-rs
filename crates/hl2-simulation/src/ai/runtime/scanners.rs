@@ -325,12 +325,12 @@ fn gib(s: &mut Scanner, air: &Air, scene: &mut Scene) {
     });
     let blast = (origin, 1., 2., false, Attacker::Entity(id));
     scene.prop_explosions.push(blast);
-    break_body(air, scene, s.hover.velocity);
+    break_body(air, scene, (s.hover.velocity, Vec3::ZERO));
     scene.scanner_poses.remove(&id);
 }
 
 /// The end of a flying body: its pieces take its speed and it is gone.
-pub(super) fn break_body(air: &Air, scene: &mut Scene, velocity: Vec3) {
+pub(super) fn break_body(air: &Air, scene: &mut Scene, (velocity, spin): (Vec3, Vec3)) {
     let id = air.id;
     let (origin, rotation) = (scene.states[id].origin, scene.states[id].rotation);
     let instance = air.world.model_instances.iter();
@@ -341,7 +341,7 @@ pub(super) fn break_body(air: &Air, scene: &mut Scene, velocity: Vec3) {
             origin,
             rotation,
             velocity,
-            angular_velocity: Vec3::ZERO,
+            angular_velocity: spin,
             center_of_mass: origin,
             skin: instance.skin as i32,
         });

@@ -25,6 +25,11 @@ const CLUB_BEST_DOT: f32 = 0.9;
 const HIT_PUSH: f32 = 20.;
 const HIT_STALL: f64 = 0.25;
 const BAT: &str = "NPC_Manhack.Bat";
+/// CorpseGib: clubbed to death, the pieces fly at 150 u/s and spin up to 2000 degrees a second
+/// about each axis; otherwise they keep its velocity and spin up to 500.
+const CLUB_GIB_SPEED: f32 = 150.;
+const CLUB_GIB_SPIN: f32 = 2000.;
+const GIB_SPIN: f32 = 500.;
 
 impl Manhack {
     /// A hit's reaction. A club bats it away (NPC_Manhack.Bat, the burst ends, the eye is
@@ -35,6 +40,10 @@ impl Manhack {
         // Alive at half health or less (integer halves), the smoke trail starts.
         let half = health > 0. && health <= (max / 2.).floor();
         self.smoking |= half && !self.no_damage_effects;
+        if health <= 0. {
+            self.club_kill =
+                (report.kind & DMG_CLUB != 0).then_some(report.force.normalize_or_zero());
+        }
         if report.kind & DMG_PHYSGUN != 0 {
             return;
         }
@@ -55,6 +64,18 @@ impl Manhack {
         };
         self.hover.velocity += impulse + along * report.damage * HIT_PUSH;
         self.stalled_until = now + HIT_STALL;
+    }
+    /// CorpseGib's motion for the pieces, radians a second for the spin. Clubbed, they fly away from
+    /// the attacker: the SDK negates g_vecAttackDir, which the base class has pointed at the
+    /// inflictor by then; the swing's own direction stands in for that here.
+    pub fn gib_motion(&mut self) -> (Vec3, Vec3) {
+        let (velocity, spin) = match self.club_kill {
+            Some(along) => (along * CLUB_GIB_SPEED, CLUB_GIB_SPIN),
+            None => (self.hover.velocity, GIB_SPIN),
+        };
+        let spin = spin.to_radians();
+        let axes = [self.dice(), self.dice(), self.dice()].map(|r| (r * 2. - 1.) * spin);
+        (velocity, Vec3::from_array(axes))
     }
     /// The club's knock along `aim`: VPhysicsTakeDamage's damage x 200 over its mass and
     /// m_vForceVelocity's damage x 0.5.
@@ -109,6 +130,32 @@ mod tests {
             "10 of 25 smokes"
         );
         assert_eq!(m.requests.len(), 2, "Bat and Stunned");
+    }
+    #[test]
+    fn clubbed_to_death_its_pieces_fly_on_at_150_and_spin_harder() {
+        let mut m = Manhack::new(false, 5);
+        m.hover.velocity = Vec3::Y * 300.;
+        let shot = NpcDamage::new(
+            1,
+            true,
+            30.,
+            Vec3::X * 77.,
+            crate::player_damage::DMG_BULLET,
+        );
+        m.hurt(&shot, (-5., 25.), 1.);
+        let (velocity, spin) = m.gib_motion();
+        assert_eq!(
+            velocity, m.hover.velocity,
+            "shot dead: its own velocity, shove and all"
+        );
+        assert!(spin.abs().max_element() <= 500f32.to_radians());
+        let mut c = Manhack::new(false, 5);
+        let club = NpcDamage::new(1, true, 30., Vec3::X * 3000., DMG_CLUB);
+        c.hurt(&club, (-5., 25.), 1.);
+        let (velocity, spin) = c.gib_motion();
+        assert_eq!(velocity, Vec3::X * 150.);
+        assert!(spin.abs().max_element() <= 2000f32.to_radians());
+        assert!(spin.abs().max_element() > 500f32.to_radians() * 0.5);
     }
     #[test]
     fn the_club_aims_it_at_the_best_lined_up_light_object_ahead() {

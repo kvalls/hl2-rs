@@ -418,7 +418,7 @@ fn end(m: &mut Manhack, air: &Air, scene: &mut Scene) {
         origin: Some(origin),
         ..manhack::DIE.into()
     });
-    break_body(air, scene, m.hover.velocity);
+    break_body(air, scene, m.gib_motion());
 }
 
 /// Where a club knocks it: the light props ahead are the candidates. NPCs' physics shadows, which

@@ -219,6 +219,8 @@ pub struct Manhack {
     pub carried: bool,
     /// A club's knock still to be aimed: the swing's direction and the damage before its 1.5.
     pub batted: Option<(Vec3, f32)>,
+    /// A club's blow killed it, swung along this.
+    pub club_kill: Option<Vec3>,
     /// Its smoke trail runs (half health), unless SF_MANHACK_NO_DAMAGE_EFFECTS.
     pub smoking: bool,
     pub no_damage_effects: bool,
