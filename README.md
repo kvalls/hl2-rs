@@ -35,7 +35,6 @@ The folder preference is stored in `%LOCALAPPDATA%\hl2-rs\installation.json` on 
 | Windows 11 64-bit (x86_64) | Primary tested platform | Owner builds, unit and owned-file tests, packaged replays/captures and native-game comparisons; CI runs on `windows-latest`. |
 | macOS 15+ on Apple Silicon (aarch64, Metal) | Tested by a contributor | On an Apple M1 Pro: build, tests, and the packaged build (`./scripts/build-bevy.sh`, `./launch-bevy.sh`) running `d1_trainstation_02`, including the scripted dispenser, Metrocop sequence and queue, with exit code 0 ([PR #1](https://github.com/kvalls/hl2-rs/pull/1)). Background packaged replays and controlled captures pass; windowed checks and native comparisons are **not tested** (see [validation](docs/validation.md)). |
 | Linux | **Not tested** | Install discovery looks in `~/.steam/steam` and `~/.local/share/Steam`, but neither a build nor the POSIX scripts have been run on Linux. No Linux test environment is available. |
-| macOS on Intel, other systems | **Not tested** | |
 
 ## Runtime and development requirements
 
