@@ -8,11 +8,11 @@
 
 **Why:** the session plan's first item (DESIGN 14o session 49, step 4b); the owner's rule to check SDK, retail and owned files.
 
-**Tested how / Result:** unit tests for the hold, drop, launch, smash and slice rules; three packaged runs on d1_town_02 (STATUS "Current session 50"). Full validation in STATUS.
+**Tested how / Result:** unit tests for the hold, drop, launch, smash, slice, bat and shove rules; packaged runs on d1_town_02: hold, hold into a cop, launch at a cop, a pistol shot and a crowbar swing, with unfired controls (STATUS "Current session 50"). Full validation in STATUS.
 
 **Frame time:** **not measured**; the new work runs only for held or stalled manhacks beyond one list push per living manhack.
 
-**Still broken or not tested:** native comparison of a hold or a launch; packed and carried manhacks; a crowbar hit packaged, the club's aim at a nearby prop, the smoke trail at half health; REGROUP, the crash, water. (The stall's random panels were already in with c2d0a85.)
+**Still broken or not tested:** native comparison of a hold or a launch; packed and carried manhacks; the club's aim at a nearby prop, the smoke trail at half health; REGROUP, the crash, water. (The stall's random panels were already in with c2d0a85.)
 
 **Next:** the smoke trail and a crowbar fixture; SF_MANHACK_CARRIED and the metrocops' throw; native A/B of a punt, a launch and a shot.
 
