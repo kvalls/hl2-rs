@@ -24,9 +24,11 @@ pub enum AiClass {
 
 impl AiClass {
     /// The class's own part of OnTakeDamage_Alive.
-    pub fn hurt(&mut self, report: &crate::entities::NpcDamage, now: f64) {
+    pub fn hurt(&mut self, report: &crate::entities::NpcDamage, scene: &crate::entities::Scene) {
         if let Self::Manhack(m) = self {
-            m.hurt(report, now);
+            let health = scene.states.get(report.victim).map_or(0., |s| s.value);
+            let max = scene.skill.get("sk_manhack_health", manhack::MAX_HEALTH);
+            m.hurt(report, (health, max), scene.time);
         }
     }
     pub fn cop(&self) -> Option<&Metropolice> {

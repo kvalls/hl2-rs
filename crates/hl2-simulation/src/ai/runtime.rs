@@ -817,7 +817,7 @@ impl AiRuntime {
             if let Some(actor) = self.actors.get_mut(&report.victim) {
                 actor.damage_taken = actor.damage_taken.max(report.damage);
                 actor.damaged_by_player |= report.by_player;
-                actor.class.hurt(&report, scene.time);
+                actor.class.hurt(&report, scene);
             }
             self.barnacle_hurt(report.victim);
             self.pain_or_death_sound(report.victim, world, scene, player);

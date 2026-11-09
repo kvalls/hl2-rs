@@ -4,7 +4,7 @@
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
 
-**Changed:** npc_manhack step 6: a club bats a manhack away (1.5 times the damage, NPC_Manhack.Bat, 0.5 s stall, the stunned eye), any other hit shoves it along the shot and stalls it 0.25 s, through an `NpcDamage` report with the hit's force and kind. Step 4b: pickup, hold, drop, pull and launch through `Scene::npc_physgun`; the grab controller's target shared with props; CheckCollisions held or stalled slices NPCs and breakables by retail's Slice rules (100 a second held, the guard's health thrown, a breakable's health); a held manhack is the player's ally to the AI and spares the player's friends. The breakable health rule moved to gameplay/hits.rs.
+**Changed:** npc_manhack step 6: a club bats a manhack away (1.5 times the damage, NPC_Manhack.Bat, 0.5 s stall, the stunned eye), any other hit shoves it along the shot and stalls it 0.25 s, through an `NpcDamage` report with the hit's force and kind; at half health it trails smoke (step 6b). Step 4b: pickup, hold, drop, pull and launch through `Scene::npc_physgun`; the grab controller's target shared with props; CheckCollisions held or stalled slices NPCs and breakables by retail's Slice rules (100 a second held, the guard's health thrown, a breakable's health); a held manhack is the player's ally to the AI and spares the player's friends. The breakable health rule moved to gameplay/hits.rs.
 
 **Why:** the session plan's first item (DESIGN 14o session 49, step 4b); the owner's rule to check SDK, retail and owned files.
 
@@ -12,9 +12,9 @@
 
 **Frame time:** **not measured**; the new work runs only for held or stalled manhacks beyond one list push per living manhack.
 
-**Still broken or not tested:** native comparison of a hold or a launch; packed and carried manhacks; the club's aim at a nearby prop, the smoke trail at half health; REGROUP, the crash, water. (The stall's random panels were already in with c2d0a85.)
+**Still broken or not tested:** native comparison of a hold or a launch; packed and carried manhacks; the club's aim at a nearby prop; REGROUP, the crash, water. (The stall's random panels were already in with c2d0a85.)
 
-**Next:** the smoke trail and a crowbar fixture; SF_MANHACK_CARRIED and the metrocops' throw; native A/B of a punt, a launch and a shot.
+**Next:** the club's aim at a nearby prop and its gibs; SF_MANHACK_CARRIED and the metrocops' throw; native A/B of a punt, a launch and a shot.
 
 ## 2026-11-07 session 49: the engine's cubemap pick, manhack squads, panels and glows (Claude Code desktop, claude-opus-5-5)
 

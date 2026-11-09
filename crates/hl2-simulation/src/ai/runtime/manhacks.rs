@@ -6,6 +6,7 @@ use super::super::host::PhysicsSight;
 use super::super::manhack::{self, Manhack};
 use super::super::metropolice::{CopRequest, PLAYER};
 use super::super::relationships::{classify, Class, Disposition, Relationships};
+use super::super::scanner::damage::effect as scanner_effect;
 use super::super::senses::SightWorld;
 use super::super::squad::{Squad, SLOT_ATTACK1, SLOT_ATTACK2};
 use super::birds::Air;
@@ -21,9 +22,10 @@ use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
 
-/// sk_manhack_melee_dmg and sk_manhack_health where skill.cfg leaves them out.
+/// sk_manhack_melee_dmg where skill.cfg leaves it out.
 const CUT_DAMAGE: f32 = 20.;
-const MAX_HEALTH: f32 = 25.;
+/// The smoke trail's twenty puffs a second, at a think of 0.1 s.
+const PUFFS_PER_THINK: usize = 2;
 /// Bump grinds when the surface's normal is this close to across the blades' plane.
 const GRIND_ACROSS: f32 = 0.25;
 /// MaintainGroundHeight's 52 units and its 32 u/s climb.
@@ -419,6 +421,16 @@ fn end(m: &mut Manhack, air: &Air, scene: &mut Scene) {
     break_body(air, scene, m.hover.velocity);
 }
 
+/// A think's puffs of its smoke trail, drifting with it.
+fn smoke(scene: &mut Scene, id: usize, velocity: Vec3) {
+    use crate::projectiles::EffectKind;
+    let origin = scene.states[id].origin;
+    for _ in 0..PUFFS_PER_THINK {
+        let puff = scanner_effect(EffectKind::ManhackSmoke, origin, velocity, scene.time);
+        scene.impact_effects.push(puff);
+    }
+}
+
 /// SF_NPC_WAIT_FOR_SCRIPT.
 const SF_NPC_WAIT_FOR_SCRIPT: u32 = 128;
 
@@ -563,6 +575,9 @@ impl AiRuntime {
             if now >= m.next_steer {
                 m.next_steer = now + THINK_INTERVAL;
                 claim_slot(m, squads, squad, (enemy_id, now));
+                if m.smoking {
+                    smoke(scene, id, m.hover.velocity);
+                }
                 if let Some(cut) = steer(m, &air, scene, enemy.as_ref(), player) {
                     let origin = scene.states[id].origin;
                     let ctx = (origin, rate, &player);
@@ -592,7 +607,7 @@ impl AiRuntime {
     fn pay_cut(&mut self, scene: &mut Scene, id: usize, cut: Paid, origin: Vec3) {
         if let Paid::Smash(share) = cut {
             // TakeDamageFromPhyscannon: DMG_GENERIC from the player who threw it.
-            let health = scene.skill.get("sk_manhack_health", MAX_HEALTH);
+            let health = scene.skill.get("sk_manhack_health", manhack::MAX_HEALTH);
             scene.entity_damage.push(crate::projectiles::Damage {
                 target: crate::projectiles::DamageTarget::Entity(id),
                 amount: health * share,
@@ -670,6 +685,7 @@ pub(super) fn class_for(flags: u32, id: usize) -> AiClass {
         manhack.pack(flags & SF_NPC_WAIT_FOR_SCRIPT != 0);
     }
     manhack.carried = flags & manhack::SF_CARRIED != 0;
+    manhack.no_damage_effects = flags & manhack::SF_NO_DAMAGE_EFFECTS != 0;
     AiClass::Manhack(Box::new(manhack))
 }
 

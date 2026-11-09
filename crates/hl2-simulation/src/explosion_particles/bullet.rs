@@ -6,9 +6,30 @@ use glam::Vec3;
 
 const DUST: &str = "particle/particle_smokegrenade";
 const NOISE: &str = "particle/particle_noisesphere";
-/// StartSmokeTrail's spawn radius, and C_SmokeTrail's opacity.
-const TRAIL_RADIUS: f32 = 10.;
+/// C_SmokeTrail's opacity.
 const TRAIL_OPACITY: f32 = 0.5;
+
+/// A SmokeTrail's set-up: spawn radius, particle life, start and end size, and start gray.
+pub struct SmokeTrail {
+    pub radius: f32,
+    pub life: f32,
+    pub sizes: [f32; 2],
+    pub gray: f32,
+}
+/// The scanner's StartSmokeTrail (retail 10335c60, as the SDK): ten a second, one per think.
+pub const SCANNER_TRAIL: SmokeTrail = SmokeTrail {
+    radius: 10.,
+    life: 1.,
+    sizes: [8., 50.],
+    gray: 0.5,
+};
+/// The manhack's CreateSmokeTrail (SDK): twenty a second, two per think, gray 0.4.
+pub const MANHACK_TRAIL: SmokeTrail = SmokeTrail {
+    radius: 5.,
+    life: 0.5,
+    sizes: [8., 32.],
+    gray: 0.4,
+};
 const CHUNKS: &str = "effects/blood";
 const FLECK_ANGULAR_SPRAY: f32 = 0.6;
 const FLECK_MIN_SPEED: f32 = 64.;
@@ -213,17 +234,16 @@ impl Particles {
         flash.roll = rng.float(0., 360.);
         self.add(flash);
     }
-    /// One puff of the trail StartSmokeTrail sets up: a second's life, growing from 8 to 50 and
-    /// fading out, with the body's speed and a little of its own. C_SmokeTrail spawns ten a second,
-    /// one per think here.
-    pub(super) fn trail_smoke(&mut self, e: &Effect, rng: &mut Random) {
+    /// One puff of a SmokeTrail: growing and fading out over its life, with the body's speed and
+    /// a little of its own (15 to 25 for both trails).
+    pub(super) fn trail_smoke(&mut self, e: &Effect, trail: &SmokeTrail, rng: &mut Random) {
         let material = if rng.unit() < 0.5 { DUST } else { NOISE };
-        let mut puff = Particle::new(Kind::Smoke, material, e, 1.);
-        puff.position += rng.vector(-TRAIL_RADIUS, TRAIL_RADIUS);
+        let mut puff = Particle::new(Kind::Smoke, material, e, trail.life);
+        puff.position += rng.vector(-trail.radius, trail.radius);
         puff.velocity = e.normal + rng.vector(-1., 1.) * rng.float(15., 25.);
-        puff.sizes = [8., 50.];
+        puff.sizes = trail.sizes;
         puff.alpha = [TRAIL_OPACITY * rng.float(0.75, 1.25), 0.];
-        puff.color = Vec3::splat(0.5 + rng.float(-0.2, 0.2));
+        puff.color = Vec3::splat(trail.gray + rng.float(-0.2, 0.2));
         puff.roll = rng.float(0., 360.);
         puff.roll_rate = rng.float(-1., 1.);
         puff.near_clip = true;
@@ -253,6 +273,7 @@ mod tests {
         let mut particles = Particles::default();
         particles.trail_smoke(
             &effect(EffectKind::TrailSmoke, Vec3::X * 200.),
+            &SCANNER_TRAIL,
             &mut Random(7),
         );
         let puff = &particles.particles[0];

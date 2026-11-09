@@ -25,7 +25,10 @@ impl Manhack {
     /// stunned); anything else is shoved along the hit. Both stall the engine, replacing a longer
     /// stall as the SDK does. The punt's DMG_PHYSGUN is the gravity gun's own (`punted`); DMG_GENERIC
     /// carries no force. Not modeled: the club's turn toward a light physics object ahead.
-    pub fn hurt(&mut self, report: &NpcDamage, now: f64) {
+    pub fn hurt(&mut self, report: &NpcDamage, (health, max): (f32, f32), now: f64) {
+        // Alive at half health or less (integer halves), the smoke trail starts.
+        let half = health > 0. && health <= (max / 2.).floor();
+        self.smoking |= half && !self.no_damage_effects;
         if report.kind & DMG_PHYSGUN != 0 {
             return;
         }
@@ -63,7 +66,7 @@ mod tests {
         m.requests.clear();
         // A crowbar's 10, scaled to 15 by the club rule.
         let report = NpcDamage::new(1, true, 15., Vec3::X * 3000., DMG_CLUB);
-        m.hurt(&report, 9.5);
+        m.hurt(&report, (10., 25.), 9.5);
         let speed = 10. * (CLUB_FORCE / PHYSICS_MASS + CLUB_PUSH);
         assert!(
             (m.hover.velocity.x - speed).abs() < 1e-3,
@@ -71,19 +74,36 @@ mod tests {
             m.hover.velocity.x
         );
         assert!(m.stalled(9.99) && !m.stalled(10.));
-        assert!(m.stunned && !m.bursting(9.6));
+        assert!(
+            m.stunned && !m.bursting(9.6) && m.smoking,
+            "10 of 25 smokes"
+        );
         assert_eq!(m.requests.len(), 2, "Bat and Stunned");
     }
     #[test]
     fn a_bullet_shoves_it_along_the_shot_for_a_quarter_second_and_a_punt_is_left_to_the_gun() {
         let mut m = Manhack::new(false, 5);
         let report = NpcDamage::new(1, true, 5., Vec3::Y * 77., DMG_BULLET);
-        m.hurt(&report, 3.);
+        m.hurt(&report, (20., 25.), 3.);
         let speed = 77. / PHYSICS_MASS + 5. * HIT_PUSH;
         assert!((m.hover.velocity.y - speed).abs() < 1e-3);
-        assert!(m.stalled(3.24) && !m.stalled(3.25) && !m.stunned);
+        assert!(m.stalled(3.24) && !m.stalled(3.25) && !m.stunned && !m.smoking);
+        let mut quiet = Manhack::new(false, 5);
+        quiet.no_damage_effects = true;
+        quiet.hurt(&report, (12., 25.), 3.);
+        assert!(!quiet.smoking);
+        let mut dying = Manhack::new(false, 5);
+        dying.hurt(&report, (0., 25.), 3.);
+        assert!(!dying.smoking, "a dead one makes no trail");
+        let mut half = Manhack::new(false, 5);
+        half.hurt(&report, (13., 25.), 3.);
+        assert!(!half.smoking, "13 is over the integer half of 25");
         let mut punted = Manhack::new(false, 5);
-        punted.hurt(&NpcDamage::new(1, true, 1., Vec3::Y, DMG_PHYSGUN), 3.);
+        punted.hurt(
+            &NpcDamage::new(1, true, 1., Vec3::Y, DMG_PHYSGUN),
+            (24., 25.),
+            3.,
+        );
         assert_eq!(
             (punted.hover.velocity, punted.stalled(3.1)),
             (Vec3::ZERO, false)

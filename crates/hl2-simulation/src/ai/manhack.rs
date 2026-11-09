@@ -127,8 +127,11 @@ const PACKED: &str = "SCHED_MANHACK_PACKED";
 
 /// SF_MANHACK_PACKED_UP.
 pub const SF_PACKED_UP: u32 = 1 << 16;
-/// SF_MANHACK_CARRIED: a metrocop carries it.
+/// SF_MANHACK_CARRIED: a metrocop carries it; SF_MANHACK_NO_DAMAGE_EFFECTS: no smoke.
 pub const SF_CARRIED: u32 = 1 << 19;
+pub const SF_NO_DAMAGE_EFFECTS: u32 = 1 << 17;
+/// sk_manhack_health where skill.cfg leaves it out.
+pub const MAX_HEALTH: f32 = 25.;
 /// The deploy sequence's events: the engine starts, the blade opens, and it is done.
 pub const AE_START_ENGINE: i32 = 50;
 pub const AE_DONE_UNPACKING: i32 = 51;
@@ -214,6 +217,9 @@ pub struct Manhack {
     pub held_yaw: Option<f32>,
     /// SF_MANHACK_CARRIED: a metrocop carries it, and it has no physics object yet.
     pub carried: bool,
+    /// Its smoke trail runs (half health), unless SF_MANHACK_NO_DAMAGE_EFFECTS.
+    pub smoking: bool,
+    pub no_damage_effects: bool,
     /// SF_NPC_GAG: it flies without its engine sound.
     gagged: bool,
     seed: u64,
