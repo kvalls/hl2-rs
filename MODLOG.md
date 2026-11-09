@@ -12,7 +12,7 @@
 
 **Frame time:** **not measured**; the new work runs only for held or stalled manhacks beyond one list push per living manhack.
 
-**Still broken or not tested:** native comparison of a hold or a launch; packed and carried manhacks; OnTakeDamage_Alive's stall, push and bat; the stall's random panels; REGROUP, the crash, water.
+**Still broken or not tested:** native comparison of a hold or a launch; packed and carried manhacks; OnTakeDamage_Alive's stall, push and bat; REGROUP, the crash, water. (The stall's random panels were already in with c2d0a85.)
 
 **Next:** OnTakeDamage_Alive's reactions; SF_MANHACK_CARRIED and the metrocops' throw; native A/B of a punt or launch.
 
