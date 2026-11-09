@@ -20,7 +20,7 @@ use serde::Serialize;
 mod damage;
 mod physgun;
 mod swarm;
-pub use damage::CLUB_SHARE;
+pub use damage::{club_aim, CLUB_SHARE};
 pub use physgun::Victim;
 pub use swarm::{center, member_to_join, Ask, Member, Swarm};
 
@@ -217,6 +217,8 @@ pub struct Manhack {
     pub held_yaw: Option<f32>,
     /// SF_MANHACK_CARRIED: a metrocop carries it, and it has no physics object yet.
     pub carried: bool,
+    /// A club's knock still to be aimed: the swing's direction and the damage before its 1.5.
+    pub batted: Option<(Vec3, f32)>,
     /// Its smoke trail runs (half health), unless SF_MANHACK_NO_DAMAGE_EFFECTS.
     pub smoking: bool,
     pub no_damage_effects: bool,

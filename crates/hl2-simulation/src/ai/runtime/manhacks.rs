@@ -421,6 +421,15 @@ fn end(m: &mut Manhack, air: &Air, scene: &mut Scene) {
     break_body(air, scene, m.hover.velocity);
 }
 
+/// Where a club knocks it: the light props ahead are the candidates. NPCs' physics shadows, which
+/// the SDK's box also finds, are not searched.
+fn club_target(physics: &Physics, origin: Vec3, along: Vec3) -> Vec3 {
+    use crate::grab::{body_mass, center};
+    let props = physics.dynamic.keys();
+    let candidates = props.filter_map(|&id| Some((center(physics, id)?, body_mass(physics, id)?)));
+    manhack::club_aim(origin, along, candidates)
+}
+
 /// A think's puffs of its smoke trail, drifting with it.
 fn smoke(scene: &mut Scene, id: usize, velocity: Vec3) {
     use crate::projectiles::EffectKind;
@@ -571,6 +580,9 @@ impl AiRuntime {
                 if m.physgun(event, now) {
                     m.next_steer = now;
                 }
+            }
+            if let Some((along, base)) = m.batted.take() {
+                m.bat(club_target(physics, scene.states[id].origin, along), base);
             }
             if now >= m.next_steer {
                 m.next_steer = now + THINK_INTERVAL;

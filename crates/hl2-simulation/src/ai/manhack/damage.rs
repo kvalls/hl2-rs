@@ -6,6 +6,7 @@ use super::{Manhack, PHYSICS_MASS};
 use crate::ai::metropolice::CopRequest;
 use crate::entities::NpcDamage;
 use crate::player_damage::{DMG_CLUB, DMG_PHYSGUN};
+use glam::Vec3;
 
 /// A club deals half as much again (tdInfo.ScaleDamage(1.5)).
 pub const CLUB_SHARE: f32 = 1.5;
@@ -14,6 +15,11 @@ pub const CLUB_SHARE: f32 = 1.5;
 const CLUB_FORCE: f32 = 200.;
 const CLUB_PUSH: f32 = 0.5;
 const CLUB_STALL: f64 = 0.5;
+/// What the club may knock it into: a physics object of at most 200 kg whose middle lies in a box
+/// of 128 units each way, 128 ahead along the swing, lined up within a dot of 0.9.
+pub const CLUB_SEARCH: f32 = 128.;
+pub const CLUB_MAX_MASS: f32 = 200.;
+const CLUB_BEST_DOT: f32 = 0.9;
 /// Any other hit: VPhysicsTakeDamage with the hit's own force (the x 20 goes only to the copy the
 /// base class reads, retail as the SDK), m_vForceVelocity of damage x 20, 0.25 s stalled.
 const HIT_PUSH: f32 = 20.;
@@ -34,9 +40,8 @@ impl Manhack {
         }
         let along = report.force.normalize_or_zero();
         if report.kind & DMG_CLUB != 0 {
-            // The force reads the damage before the 1.5.
-            let base = report.damage / CLUB_SHARE;
-            self.hover.velocity += along * base * (CLUB_FORCE / PHYSICS_MASS + CLUB_PUSH);
+            // The force reads the damage before the 1.5; the stage aims it (`bat`).
+            self.batted = Some((along, report.damage / CLUB_SHARE));
             self.requests.push(CopRequest::Sound(BAT));
             self.stalled_until = now + CLUB_STALL;
             self.stop_burst(now);
@@ -44,20 +49,43 @@ impl Manhack {
             return;
         }
         let impulse = if report.kind == 0 {
-            glam::Vec3::ZERO
+            Vec3::ZERO
         } else {
             report.force / PHYSICS_MASS
         };
         self.hover.velocity += impulse + along * report.damage * HIT_PUSH;
         self.stalled_until = now + HIT_STALL;
     }
+    /// The club's knock along `aim`: VPhysicsTakeDamage's damage x 200 over its mass and
+    /// m_vForceVelocity's damage x 0.5.
+    pub fn bat(&mut self, aim: Vec3, base: f32) {
+        self.hover.velocity += aim * base * (CLUB_FORCE / PHYSICS_MASS + CLUB_PUSH);
+    }
+}
+
+/// Where a club knocks it from `origin` along `along`: toward the candidate (its middle and mass)
+/// in the box ahead that lines up best, else along the swing.
+pub fn club_aim(origin: Vec3, along: Vec3, candidates: impl Iterator<Item = (Vec3, f32)>) -> Vec3 {
+    let ahead = origin + along * CLUB_SEARCH;
+    let reach = Vec3::splat(CLUB_SEARCH);
+    let inside = |c: Vec3| c.cmpge(ahead - reach).all() && c.cmple(ahead + reach).all();
+    let mut best = (CLUB_BEST_DOT, along);
+    for (middle, mass) in candidates {
+        if mass > CLUB_MAX_MASS || !inside(middle) {
+            continue;
+        }
+        let to = (middle - origin).normalize_or_zero();
+        if along.dot(to) > best.0 {
+            best = (along.dot(to), to);
+        }
+    }
+    best.1
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::player_damage::DMG_BULLET;
-    use glam::Vec3;
 
     #[test]
     fn a_crowbar_bats_it_away_along_the_swing_and_stalls_it_half_a_second() {
@@ -67,6 +95,8 @@ mod tests {
         // A crowbar's 10, scaled to 15 by the club rule.
         let report = NpcDamage::new(1, true, 15., Vec3::X * 3000., DMG_CLUB);
         m.hurt(&report, (10., 25.), 9.5);
+        assert_eq!(m.batted, Some((Vec3::X, 10.)));
+        m.bat(Vec3::X, 10.);
         let speed = 10. * (CLUB_FORCE / PHYSICS_MASS + CLUB_PUSH);
         assert!(
             (m.hover.velocity.x - speed).abs() < 1e-3,
@@ -79,6 +109,21 @@ mod tests {
             "10 of 25 smokes"
         );
         assert_eq!(m.requests.len(), 2, "Bat and Stunned");
+    }
+    #[test]
+    fn the_club_aims_it_at_the_best_lined_up_light_object_ahead() {
+        let o = Vec3::ZERO;
+        // Nothing near: along the swing.
+        assert_eq!(club_aim(o, Vec3::X, std::iter::empty()), Vec3::X);
+        let crate_ahead = (Vec3::new(100., 30., 0.), 20.);
+        let heavy = (Vec3::new(100., 0., 0.), 500.);
+        let wide = (Vec3::new(50., 50., 0.), 5.);
+        let behind = (Vec3::new(-50., 0., 0.), 5.);
+        let aim = club_aim(o, Vec3::X, [heavy, wide, behind, crate_ahead].into_iter());
+        assert!((aim - Vec3::new(100., 30., 0.).normalize()).length() < 1e-5);
+        // Past the box (more than 256 ahead) it is not seen.
+        let far = (Vec3::new(300., 10., 0.), 5.);
+        assert_eq!(club_aim(o, Vec3::X, [far].into_iter()), Vec3::X);
     }
     #[test]
     fn a_bullet_shoves_it_along_the_shot_for_a_quarter_second_and_a_punt_is_left_to_the_gun() {
