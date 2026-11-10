@@ -50,9 +50,6 @@ pub struct ViewmodelEffects {
 
 const ORANGE: [u8; 3] = [255, 128, 0];
 const WHITE: [u8; 3] = [255, 255, 255];
-/// StartEffects attachment names.
-const GLOW_ATTACHMENTS: [&str; 6] = ["fork1b", "fork1m", "fork1t", "fork2b", "fork2m", "fork2t"];
-const BEAM_ATTACHMENTS: [&str; 4] = ["fork1t", "fork2t", "fork1t", "fork2t"];
 
 impl Inventory {
     /// What the active weapon draws on the viewmodel at `time` (nothing while the +USE
@@ -119,63 +116,7 @@ impl Inventory {
                     color: WHITE,
                 });
             }
-            "weapon_physcannon" => {
-                let holding = self.physcannon.held.is_some() || self.physcannon.holding_effect;
-                let ready = !holding && self.physcannon.open;
-                // DoEffectIdle flickers the glow sprites every frame (16-24, 0.3-0.35).
-                for name in GLOW_ATTACHMENTS {
-                    out.sprites.push(ViewmodelSprite {
-                        anchor: Anchor::Name(name),
-                        material: "sprites/glow04_noz",
-                        scale: (0.3, 0.35),
-                        brightness: (16., 24.),
-                        color: ORANGE,
-                    });
-                }
-                if holding {
-                    // DoEffectHolding: end caps on (flicker 200-255, 0.1-0.15), the four
-                    // fork beams to attachment 1, the center core at 255 / 0.2.
-                    for name in ["fork1t", "fork2t"] {
-                        out.sprites.push(ViewmodelSprite {
-                            anchor: Anchor::Name(name),
-                            material: "sprites/orangeflare1",
-                            scale: (0.1, 0.15),
-                            brightness: (200., 255.),
-                            color: WHITE,
-                        });
-                    }
-                    for name in BEAM_ATTACHMENTS {
-                        out.beams.push(ViewmodelBeam {
-                            start: Anchor::Name(name),
-                            end: Anchor::Index(1),
-                            material: "sprites/orangelight1",
-                            width: 0.,
-                            end_width: (2., 4.),
-                            brightness: 128.,
-                            color: WHITE,
-                            noise: (8., 16.),
-                            shade_in: false,
-                        });
-                    }
-                    out.sprites.push(core("sprites/orangecore1", 0.2, 255.));
-                } else if ready {
-                    // DoEffectReady: center 128 / 0.15, blast 255 / 0.1.
-                    out.sprites.push(core("sprites/orangecore1", 0.15, 128.));
-                    out.sprites.push(core("sprites/orangecore2", 0.1, 255.));
-                }
-                // DoEffectLaunch: the blast sprite on, scale to 2.0 and brightness to 0
-                // over 0.1 s (from the ready values).
-                if let Some((at, _)) = self.physcannon.last_launch {
-                    let t = ((time - at) / 0.1) as f32;
-                    if (0. ..1.).contains(&t) {
-                        out.sprites.push(core(
-                            "sprites/orangecore2",
-                            0.1 + (2. - 0.1) * t,
-                            255. * (1. - t),
-                        ));
-                    }
-                }
-            }
+            "weapon_physcannon" => self.physcannon_effects(time, &mut out),
             _ => {}
         }
         out
@@ -218,16 +159,6 @@ impl Inventory {
     pub fn viewmodel_matrices(&self, rig: &Rig, scene_time: f64) -> Vec<Mat4> {
         let state = self.viewmodel_animation_state(rig, scene_time);
         viewmodel_state_matrices(rig, &state, &self.viewmodel_pose_values(rig))
-    }
-}
-
-fn core(material: &'static str, scale: f32, brightness: f32) -> ViewmodelSprite {
-    ViewmodelSprite {
-        anchor: Anchor::Index(1),
-        material,
-        scale: (scale, scale),
-        brightness: (brightness, brightness),
-        color: WHITE,
     }
 }
 
@@ -579,13 +510,16 @@ mod tests {
 
         let mut cannon = Inventory::default();
         cannon.active = "weapon_physcannon".into();
+        cannon.physcannon.show_effect(0.);
         let closed = cannon.viewmodel_effects(0.);
         assert_eq!((closed.sprites.len(), closed.beams.len()), (6, 0));
         cannon.physcannon.open = true;
-        let ready = cannon.viewmodel_effects(0.);
+        cannon.physcannon.show_effect(1.);
+        let ready = cannon.viewmodel_effects(1.5);
         assert_eq!((ready.sprites.len(), ready.beams.len()), (8, 0));
         cannon.physcannon.held = Some(3);
-        let holding = cannon.viewmodel_effects(0.);
+        cannon.physcannon.show_effect(2.);
+        let holding = cannon.viewmodel_effects(2.5);
         assert_eq!((holding.sprites.len(), holding.beams.len()), (9, 4));
     }
 

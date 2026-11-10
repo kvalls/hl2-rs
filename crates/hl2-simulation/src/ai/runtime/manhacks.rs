@@ -15,9 +15,10 @@ use super::scanners::{break_body, strikes_player};
 use super::{AiActor, AiClass, AiRuntime, MeleeHit, PlayerHit, PlayerState, THINK_INTERVAL};
 use crate::entities::Scene;
 use crate::npc_probe::{NpcCollisionWorld, Query};
-use crate::physics::{angles, Physics};
+use crate::physics::Physics;
 use crate::sounds::{entity_emitter, PatchOp, SoundRequest};
 use crate::view_control::angles_toward;
+use crate::weapon_physcannon::NpcPhysgun;
 use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
@@ -33,12 +34,9 @@ const GROUND_HEIGHT: f32 = 52.;
 const GROUND_RISE: f32 = 32.;
 /// The bodygroup that shows its blade.
 const BLADE_GROUP: usize = 1;
+const BLUR_GROUP: usize = 2;
 /// How close to an NPC's middle counts as touching it.
 const CUT_REACH: f32 = 32.;
-/// How fast the body turns toward what it flies at, degrees a second, and held (the grab
-/// controller's 3600).
-const TURN_RATE: f32 = 360.;
-const HELD_TURN_RATE: f32 = 3600.;
 /// CheckCollisions: a held manhack this close to its carrier traces along the aim this far.
 const CARRIER_NEAR: f32 = 30.;
 const CARRIER_REACH: f32 = 40.;
@@ -100,10 +98,16 @@ fn collide(m: &mut Manhack, air: &Air, origin: Vec3, hit: Option<Cut>, now: f64)
 /// plane, a wall and not a floor (the body turns only about its yaw, so its up is the world's);
 /// thrown moments ago, it smashes.
 fn bump(m: &mut Manhack, normal: Vec3, now: f64) -> Option<f32> {
-    let speed = m.hover.velocity.length();
+    let before = m.hover.velocity;
+    let speed = before.length();
     m.hover.bounce(normal);
+    m.jolt(
+        (m.hover.velocity - before) * manhack::PHYSICS_MASS,
+        manhack::BLADE_HIT,
+    );
     m.stop_burst(now);
-    if normal.z.abs() < GRIND_ACROSS && !m.gagged() {
+    let up = m.attitude.rotation() * Vec3::Z;
+    if up.dot(normal).abs() < GRIND_ACROSS && !m.gagged() {
         m.requests.push(CopRequest::Sound(manhack::GRIND));
     }
     m.smash(speed, now)
@@ -290,8 +294,14 @@ fn steer(
     let (id, now) = (air.id, scene.time);
     let origin = scene.states[id].origin;
     let interval = THINK_INTERVAL as f32;
-    if !m.blade_shut && !std::mem::replace(&mut m.blade_out, true) {
-        scene.set_bodygroup(air.world, id, BLADE_GROUP, 1);
+    // SpinBlades: the blade shows while the blades are slow, the blur once they are fast.
+    if !m.blade_shut {
+        m.blade_out = true;
+        m.attitude.think(interval, m.stalled(now));
+        if let Some((blade, blur)) = m.attitude.blade_groups() {
+            scene.set_bodygroup(air.world, id, BLADE_GROUP, blade as i32);
+            scene.set_bodygroup(air.world, id, BLUR_GROUP, blur as i32);
+        }
     }
     // A burst holds its line at the enemy; otherwise a swarm's move leads.
     let swarming = m.swarm.flying_at(now).filter(|_| !m.bursting(now));
@@ -311,6 +321,11 @@ fn steer(
         return blade_contact(m, air, origin, &player, now);
     }
     m.fly(origin, interval, now);
+    m.bank(origin, now);
+    // TurnHeadToTarget: the yaw its motor turns it to.
+    if let Some(look) = enemy.map(|e| e.eyes).or(m.target) {
+        m.attitude.head_yaw = angles_toward(look - origin).1;
+    }
     let view = enemy.map(|e| enemy_view(origin, e.feet, e.eyes));
     m.hover
         .add_noise(m.bob, m.noise(view.as_ref().map(|v| v.across)), now as f32);
@@ -526,12 +541,11 @@ impl AiRuntime {
         (world, physics): (&World, &Physics),
         scene: &mut Scene,
         player: PlayerState,
+        events: &[(usize, NpcPhysgun)],
     ) {
         let now = scene.time;
         let per_second = scene.skill.get("sk_manhack_melee_dmg", CUT_DAMAGE);
         let (held, squads) = (&self.held_npcs, &mut self.squads);
-        let events = std::mem::take(&mut scene.npc_physgun);
-        scene.physgun_npcs.clear();
         let blades = Blades {
             world,
             relationships: &self.relationships,
@@ -573,7 +587,7 @@ impl AiRuntime {
             }
             // Its VPhysics object: the gravity gun may take it (a carried one has none yet).
             if !m.carried && scene.states[id].visible {
-                scene.physgun_npcs.push(id);
+                scene.physgun_npcs.push(manhack::listing(id));
             }
             // A punt or a launch has it think at once, as the SDK's next think 0.01 s on.
             for &(_, event) in events.iter().filter(|(target, _)| *target == id) {
@@ -599,14 +613,12 @@ impl AiRuntime {
                 }
             }
             let dt = air.step(&mut m.hover.velocity, &mut m.last_step, scene);
-            let origin = scene.states[id].origin;
-            let look = enemy.as_ref().map(|e| e.eyes).or(m.target);
-            let aim = look.map(|look| (angles_toward(look - origin).1, TURN_RATE));
-            if let Some((yaw, rate)) = m.held_yaw.map(|yaw| (yaw, HELD_TURN_RATE)).or(aim) {
-                let current = super::super::host::yaw_of(scene, id);
-                let turned = super::super::host::clamp_yaw(rate, current, yaw, dt);
-                scene.states[id].rotation = angles(Vec3::new(0., turned, 0.));
+            m.attitude.start(super::super::host::yaw_of(scene, id));
+            match m.held_yaw {
+                Some(yaw) => m.attitude.hold(yaw, dt),
+                None => m.attitude.step(dt),
             }
+            scene.states[id].rotation = m.attitude.rotation();
         }
         for (id, ask) in asks {
             self.answer_swarm(scene, id, ask);
@@ -713,6 +725,17 @@ mod tests {
 
     fn claim(m: &mut Manhack, squads: &mut BTreeMap<String, Squad>, enemy: Option<usize>) {
         claim_slot(m, squads, Some("pack"), (enemy, 10.));
+    }
+
+    #[test]
+    fn with_its_blades_out_every_idle_is_its_flight_and_packed_it_idles_shut() {
+        let mut class = class_for(0, 1);
+        assert!(class.activity_rules().flies);
+        let AiClass::Manhack(m) = &mut class else {
+            panic!("a manhack");
+        };
+        m.pack(false);
+        assert!(!class.activity_rules().flies);
     }
 
     #[test]

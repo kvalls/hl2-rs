@@ -17,11 +17,13 @@ use crate::sounds::PatchOp;
 use glam::Vec3;
 use serde::Serialize;
 
+mod attitude;
 mod damage;
 mod physgun;
 mod swarm;
+pub use attitude::{Attitude, BLADE_HIT};
 pub use damage::{club_aim, CLUB_SHARE};
-pub use physgun::Victim;
+pub use physgun::{listing, Victim};
 pub use swarm::{center, member_to_join, Ask, Member, Swarm};
 
 /// VIEW_FIELD_FULL: it sees all round.
@@ -203,6 +205,8 @@ pub struct Manhack {
     pub blade_shut: bool,
     /// How it stands with its squad.
     pub swarm: Swarm,
+    /// Its body's angles, spin, banking and blades.
+    pub attitude: Attitude,
     /// m_bShowingHostile: a burst is on. Its panels' opening in degrees.
     pub hostile: bool,
     pub panels: [f32; 4],
@@ -411,6 +415,7 @@ impl Manhack {
     pub fn rebound(&mut self, away: Vec3, now: f64) {
         let across = away.truncate().normalize_or_zero();
         self.hover.velocity = across.extend(0.) * REBOUND;
+        self.attitude.slow_blades(BLADE_HIT);
         self.cuts += 1;
         self.stop_burst(now);
     }

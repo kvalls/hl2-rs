@@ -12,6 +12,7 @@ use super::super::relationships::{classify, Class};
 use super::super::scanner::damage;
 use super::super::scanner::flash::{self, EyeFlare};
 use super::super::scanner::inspect::{self, Candidate};
+use super::super::scanner::physgun;
 use super::super::scanner::spotlight::{self, Beam, Spotlight};
 use super::super::scanner::{self, Mode, Scanner, COND_FLY_BLOCKED, COND_FLY_CLEAR};
 use super::super::senses::SightWorld;
@@ -27,6 +28,7 @@ use crate::projectiles::Attacker;
 use crate::projectiles::EffectKind;
 use crate::sounds::{entity_emitter, PatchOp, SoundRequest};
 use crate::view_control::angles_toward;
+use crate::weapon_physcannon::NpcPhysgun;
 use glam::Vec3;
 use modkit_core::World;
 
@@ -174,13 +176,16 @@ fn steer(s: &mut Scanner, air: &Air, scene: &mut Scene, state: NpcState) {
         pass_corner(s, air.world, scene, air.id);
         wanted = s.next_leg(origin).or_else(|| hover(s));
     }
-    match wanted {
-        Some(point) => s.hover.fly_scanner(point - origin, interval),
-        None => s.hover.coast(interval),
+    // Held, the grab flies it; stalled, MoveToTarget returns and it flies on as it was thrown.
+    if !s.grounded(scene.time) {
+        match wanted {
+            Some(point) => s.hover.fly_scanner(point - origin, interval),
+            None => s.hover.coast(interval),
+        }
+        avoid(s, air, origin, interval);
+        s.hover.add_noise(s.bob, scanner::NOISE, scene.time as f32);
+        s.hover.limit(scanner::MAX_SPEED);
     }
-    avoid(s, air, origin, interval);
-    s.hover.add_noise(s.bob, scanner::NOISE, scene.time as f32);
-    s.hover.limit(scanner::MAX_SPEED);
     if let Some(look) = s.enemy_eye.or(s.inspect_at).or(wanted) {
         s.look_yaw = Some(angles_toward(look - origin).1);
     }
@@ -281,9 +286,37 @@ fn spotlight_think(s: &mut Scanner, air: &Air, scene: &Scene) {
 /// The body turns toward what it looks at and eases into its lean.
 fn turn(s: &mut Scanner, scene: &mut Scene, id: usize, dt: f32) {
     let current = yaw_of(scene, id);
-    let yaw = clamp_yaw(s.turn_rate(), current, s.look_yaw.unwrap_or(current), dt);
+    let held = s.gun.held_yaw.map(|yaw| (physgun::HELD_TURN_RATE, yaw));
+    let (rate, wanted) = held.unwrap_or((s.turn_rate(), s.look_yaw.unwrap_or(current)));
+    let yaw = clamp_yaw(rate, current, wanted, dt);
     s.roll = clamp_yaw(LEAN_RATE, s.roll, s.lean, dt);
     scene.states[id].rotation = angles(Vec3::new(0., yaw, s.roll));
+}
+
+/// VPhysicsCollision just after a punt or a launch: what this tick's flight meets costs it
+/// TakeDamageFromPhyscannon's share of its max health, DMG_GENERIC from the player.
+fn smash(s: &Scanner, air: &Air, scene: &mut Scene) {
+    let (now, origin) = (scene.time, scene.states[air.id].origin);
+    let Some(share) = s.smash(s.hover.velocity.length(), now) else {
+        return;
+    };
+    let dt = (now - s.last_step).clamp(0., 0.1) as f32;
+    if air
+        .trace(origin, origin + s.hover.velocity * dt)
+        .trace
+        .fraction
+        < 1.
+    {
+        scene.entity_damage.push(crate::projectiles::Damage {
+            target: crate::projectiles::DamageTarget::Entity(air.id),
+            amount: s.max_health * share,
+            kind: 0,
+            dissolve: false,
+            direction: Vec3::ZERO,
+            origin,
+            attacker: crate::projectiles::Attacker::Player,
+        });
+    }
 }
 
 /// A killed scanner's engine stops.
@@ -429,14 +462,11 @@ impl AiRuntime {
     /// This tick's hovering: a steer once per think and each scanner's step.
     pub(super) fn fly_scanners(
         &mut self,
-        world: &World,
+        (world, physics): (&World, &Physics),
         scene: &mut Scene,
-        physics: &Physics,
         player: PlayerState,
+        gun: &[(usize, NpcPhysgun)],
     ) {
-        if !self.enabled {
-            return;
-        }
         let now = scene.time;
         let held = &self.held_npcs;
         let actors: Vec<usize> = self.actors.keys().copied().collect();
@@ -470,6 +500,15 @@ impl AiRuntime {
                 }
                 continue;
             }
+            // Its VPhysics object: the gravity gun may take it.
+            if scene.states[id].visible {
+                scene.physgun_npcs.push(physgun::listing(id));
+            }
+            for &(_, event) in gun.iter().filter(|(target, _)| *target == id) {
+                if s.physgun(event, now) {
+                    s.next_steer = now;
+                }
+            }
             start_path(s, world, id);
             if now >= s.next_steer {
                 s.next_steer = now + THINK_INTERVAL;
@@ -484,6 +523,7 @@ impl AiRuntime {
                 s.blinded += 1;
                 flashes.push((id, fade));
             }
+            smash(s, &air, scene);
             let dt = air.step(&mut s.hover.velocity, &mut s.last_step, scene);
             turn(s, scene, id, dt);
             if let Some(light) = s.spotlight.as_mut() {
@@ -623,6 +663,11 @@ fn gather(actor: &mut AiActor, world: &World, scene: &Scene, player: &PlayerStat
         Some(true) => conditions.set(COND_FLY_BLOCKED),
         Some(false) => conditions.set(COND_FLY_CLEAR),
         None => {}
+    }
+    if s.gun.held {
+        conditions.set(scanner::COND_GRABBED);
+    } else if std::mem::take(&mut s.gun.released) {
+        conditions.set(scanner::COND_RELEASED);
     }
     s.sense_inspection(conditions, enemy.is_some(), scene.time);
     s.sees_enemy = conditions.has(COND_SEE_ENEMY);

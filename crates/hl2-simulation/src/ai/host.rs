@@ -38,11 +38,8 @@ pub struct SceneMotor<'a> {
     pub idle_angry: bool,
     /// The active weapon's class (Weapon_TranslateActivity).
     pub weapon: Option<String>,
-    /// CNPC_Combine::NPC_TranslateActivity: ACT_RANGE_ATTACK2 is the grenade throw
-    /// (ACT_COMBINE_THROW_GRENADE; combine_soldier has no ACT_RANGE_ATTACK2 sequence).
-    pub combine: bool,
-    /// CZombie::NPC_TranslateActivity: ACT_RUN becomes ACT_WALK (routes walk).
-    pub walk_only: bool,
+    /// What its class does to an activity (NPC_TranslateActivity).
+    pub rules: ActivityRules,
     /// CNPC_BaseZombie::NPC_TranslateActivity while IsOnFire.
     pub on_fire: bool,
     /// Weapon_SetActivity requests of this think: (weapon activity, NPC sequence
@@ -68,6 +65,19 @@ pub fn clamp_yaw(speed: f32, current: f32, ideal: f32, dt: f32) -> f32 {
         current + step * delta.signum()
     }
 }
+/// NPC_TranslateActivity's class rules.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ActivityRules {
+    /// CNPC_Combine: ACT_RANGE_ATTACK2 is the grenade throw (ACT_COMBINE_THROW_GRENADE;
+    /// combine_soldier has no ACT_RANGE_ATTACK2 sequence).
+    pub combine: bool,
+    /// CZombie: ACT_RUN becomes ACT_WALK (routes walk).
+    pub walk_only: bool,
+    /// CNPC_Manhack with its blades active: idling, walking and running are all its flight.
+    pub flies: bool,
+}
+/// CNPC_Manhack::IsFlyingActivity.
+const FLYING: [&str; 4] = ["ACT_FLY", "ACT_IDLE", "ACT_RUN", "ACT_WALK"];
 impl SceneMotor<'_> {
     fn release_goal(&mut self) {
         if let Some(key) = self.goal.take() {
@@ -84,13 +94,15 @@ impl SceneMotor<'_> {
         let weapon = self.weapon.as_deref().unwrap_or("");
         // CNPC_Combine::NPC_TranslateActivity: nothing changes the activity while it
         // burns (ACT_COMBINE_BUGBAIT).
-        let activity = if self.combine && self.on_fire {
+        let activity = if self.rules.combine && self.on_fire {
             "ACT_COMBINE_BUGBAIT"
+        } else if self.rules.flies && FLYING.contains(&activity) {
+            "ACT_FLY"
         } else if self.idle_angry && activity == "ACT_IDLE" {
             "ACT_IDLE_ANGRY"
-        } else if self.combine && activity == "ACT_RANGE_ATTACK2" {
+        } else if self.rules.combine && activity == "ACT_RANGE_ATTACK2" {
             "ACT_COMBINE_THROW_GRENADE"
-        } else if self.walk_only && activity == "ACT_RUN" {
+        } else if self.rules.walk_only && activity == "ACT_RUN" {
             "ACT_WALK"
         } else {
             activity
@@ -98,11 +110,11 @@ impl SceneMotor<'_> {
         // CNPC_BaseZombie::NPC_TranslateActivity (zombies: walk-only) and
         // CNPC_MetroPolice's ACT_RUN -> ACT_RUN_ON_FIRE.
         let on_fire = match activity {
-            "ACT_WALK" | "ACT_RUN_ON_FIRE" if self.on_fire && self.walk_only => {
+            "ACT_WALK" | "ACT_RUN_ON_FIRE" if self.on_fire && self.rules.walk_only => {
                 Some("ACT_WALK_ON_FIRE")
             }
-            "ACT_IDLE" if self.on_fire && self.walk_only => Some("ACT_IDLE_ON_FIRE"),
-            "ACT_RUN" if self.on_fire && !self.walk_only && !self.combine => {
+            "ACT_IDLE" if self.on_fire && self.rules.walk_only => Some("ACT_IDLE_ON_FIRE"),
+            "ACT_RUN" if self.on_fire && !self.rules.walk_only && !self.rules.combine => {
                 Some("ACT_RUN_ON_FIRE")
             }
             _ => None,
@@ -184,7 +196,7 @@ impl Motor for SceneMotor<'_> {
         angle_diff(ideal, next).abs() <= 0.006
     }
     fn path_to(&mut self, goal: Vec3, run: bool) -> bool {
-        let run = run && !self.walk_only;
+        let run = run && !self.rules.walk_only;
         // Goal entities often float above the floor (the d1_canals_01 rally point is 32
         // units up); ground routes end on the floor below (CAI_MoveProbe::FloorPoint over
         // the step height and a little more), else at the goal as given.

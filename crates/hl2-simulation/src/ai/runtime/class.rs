@@ -1,11 +1,12 @@
 //! What each AI class answers for itself: its goals, requests, senses and schedule hooks.
 
 use super::super::bird::{self, Bird};
+use super::super::host::ActivityRules;
 use super::super::manhack::{self, Manhack};
 use super::super::scanner::{self, Scanner};
 use super::{
-    assault, headcrab, zombie, Behavior, CopRequest, Headcrab, Humanoid, Metropolice, Zombie,
-    METROPOLICE_FOV, METROPOLICE_SOUNDS,
+    assault, headcrab, humanoid, zombie, Behavior, CopRequest, Headcrab, Humanoid, Metropolice,
+    Zombie, METROPOLICE_FOV, METROPOLICE_SOUNDS,
 };
 use glam::Vec3;
 use serde::Serialize;
@@ -121,6 +122,15 @@ impl AiClass {
     /// class table says.
     pub(super) fn spares_precriminal(&self) -> bool {
         matches!(self, Self::Scanner(_))
+    }
+    /// NPC_TranslateActivity's rules for this class now: a manhack's blades are active once its
+    /// deploy opened them (m_bBladesActive), so a packed one still idles shut.
+    pub(super) fn activity_rules(&self) -> ActivityRules {
+        ActivityRules {
+            combine: matches!(self, Self::Humanoid(h) if h.kind == humanoid::Kind::Combine),
+            walk_only: matches!(self, Self::Zombie(z) if z.kind != zombie::Kind::Fast),
+            flies: matches!(self, Self::Manhack(m) if !m.blade_shut),
+        }
     }
     /// m_flFieldOfView.
     pub(super) fn field_of_view(&self) -> f32 {

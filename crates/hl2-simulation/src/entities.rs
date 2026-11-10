@@ -513,7 +513,7 @@ pub struct Scene {
     /// NPCs, and the NPCs it may hold, listed by the AI stage.
     pub manhack_panels: BTreeMap<usize, [f32; 4]>,
     pub npc_physgun: Vec<(usize, crate::weapon_physcannon::NpcPhysgun)>,
-    pub physgun_npcs: Vec<usize>,
+    pub physgun_npcs: Vec<crate::weapon_physcannon::PhysgunNpc>,
     /// Advances every ragdoll update (render pose cache key).
     pub ragdoll_frame: u64,
     /// NPCs whose AI has the player as enemy or in enemy memory (CAI_BaseHumanoid

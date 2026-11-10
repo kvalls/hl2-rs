@@ -56,9 +56,12 @@ impl AiRuntime {
         }
         self.climb_edges(scene, controller, player);
         self.fly_birds(world, scene, physics);
-        self.fly_scanners(world, scene, physics, player);
         if self.enabled {
-            self.fly_manhacks((world, physics), scene, player);
+            // What the gravity gun asked of the NPCs it can hold, and this tick's list of them.
+            let gun = std::mem::take(&mut scene.npc_physgun);
+            scene.physgun_npcs.clear();
+            self.fly_scanners((world, physics), scene, player, &gun);
+            self.fly_manhacks((world, physics), scene, player, &gun);
         }
         self.step_falls(world, scene, physics, player);
         for id in controller.jumpers() {

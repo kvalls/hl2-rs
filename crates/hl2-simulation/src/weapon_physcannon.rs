@@ -4,8 +4,9 @@
 //! ragdolls and other NPC grabs are out of scope. SDK behavior; VPhysics' shadow controller
 //! lives in vphysics.dll (not in the SDK), so the hold uses a velocity-to-target
 //! approximation ("native fit needed").
+mod glow;
 mod npc;
-pub use npc::NpcPhysgun;
+pub use npc::{NpcPhysgun, PhysgunNpc, DROP_SPEED};
 
 use crate::{
     entities::Scene,
@@ -79,6 +80,8 @@ pub struct PhyscannonState {
     /// The tick's buttons from Inventory::tick.
     buttons: (bool, bool),
     grab: Option<GrabController>,
+    /// The center and blast sprites' ramps.
+    pub glow: glow::Glow,
     /// The held thing is an NPC its AI flies, and what it is still to be told.
     pub holds_npc: bool,
     #[serde(skip)]
@@ -185,6 +188,7 @@ impl Inventory {
         let time = scene.time;
         let forward = forward.normalize_or_zero();
         let s = &mut self.physcannon;
+        s.show_effect(time);
         // ItemPreFrame: elements approach their destination; update a held object.
         s.element_position += (s.element_destination - s.element_position).clamp(-0.1, 0.1);
         let view = crate::grab::HoldView {
@@ -392,9 +396,9 @@ impl Inventory {
         } else {
             // Pull: ApplyForceCenter(pullDir x 4000, scaled by (mass + 0.5) / 50 under
             // 50 kg), an impulse in kg in/s.
-            if npc::holdable(scene, id) {
+            if let Some(npc) = npc::listed(scene, id) {
                 let toward = eye - scene.states[id].origin;
-                let speed = npc::pull_speed(toward, crate::ai::manhack::PHYSICS_MASS);
+                let speed = npc::pull_speed(toward, npc.mass);
                 scene.npc_physgun.push((id, NpcPhysgun::Push(speed)));
             } else if let (Some(c), Some(mass)) = (center(physics, id), body_mass(physics, id)) {
                 let pull = npc::pull_speed(eye - c, mass) * mass;
@@ -552,8 +556,8 @@ impl Inventory {
                 body.apply_impulse_at_point(vector![k.x, k.y, k.z], point![p.x, p.y, p.z], true);
             }
             self.punt_recoil();
-        } else if npc::holdable(scene, id) {
-            self.punt_manhack(scene, id, forward, hit.position);
+        } else if let Some(npc) = npc::listed(scene, id) {
+            self.punt_npc(scene, npc, forward, hit.position);
         } else {
             let class = world.entities.get(id).map_or("", |e| e.class());
             if !matches!(class, "func_breakable" | "func_physbox") && !class.starts_with("prop_") {
@@ -587,24 +591,24 @@ impl Inventory {
         let recoil = Vec3::new(1.5 + 0.5 * self.random(), self.random(), 0.);
         self.punch.punch(recoil);
     }
-    /// PuntVPhysics on a manhack, whose VPhysics body is its .phy's first solid: DMG_PHYSGUN,
-    /// which the manhack turns into 1 damage, then OnPhysGunPickup(PUNTED_BY_CANNON) and the
-    /// push, which the AI applies.
-    fn punt_manhack(&mut self, scene: &mut Scene, id: usize, forward: Vec3, at: Vec3) {
-        let mass = crate::ai::manhack::PHYSICS_MASS;
-        let (dv, offset) = punt_impulse(forward, mass);
-        scene.entity_damage.push(crate::projectiles::Damage {
-            target: crate::projectiles::DamageTarget::Entity(id),
-            amount: 1.,
-            kind: crate::player_damage::DMG_PHYSGUN,
-            dissolve: false,
-            direction: forward,
-            origin: at,
-            attacker: crate::projectiles::Attacker::Player,
-        });
-        scene
-            .npc_physgun
-            .push((id, NpcPhysgun::Punt(dv + offset / mass)));
+    /// PuntVPhysics on an NPC its AI flies, whose VPhysics body is its .phy's first solid:
+    /// DMG_PHYSGUN, which a manhack turns into 1 damage and a scanner into none, then
+    /// OnPhysGunPickup(PUNTED_BY_CANNON) and the push, which the AI applies.
+    fn punt_npc(&mut self, scene: &mut Scene, npc: PhysgunNpc, forward: Vec3, at: Vec3) {
+        let (dv, offset) = punt_impulse(forward, npc.mass);
+        if npc.punt_damage > 0. {
+            scene.entity_damage.push(crate::projectiles::Damage {
+                target: crate::projectiles::DamageTarget::Entity(npc.id),
+                amount: npc.punt_damage,
+                kind: crate::player_damage::DMG_PHYSGUN,
+                dissolve: false,
+                direction: forward,
+                origin: at,
+                attacker: crate::projectiles::Attacker::Player,
+            });
+        }
+        let push = NpcPhysgun::Punt(dv + offset / npc.mass);
+        scene.npc_physgun.push((npc.id, push));
         self.punt_recoil();
     }
     /// Primary fire with an object held: it leaves at the launch speed, spinning.

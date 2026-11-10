@@ -2,6 +2,7 @@
 //! has the SDK's constants. The push runs along the attack, away from the attacker: the manhack's
 //! TraceAttack sets g_vecAttackDir to the attack's direction before the handler reads it.
 
+use super::attitude::{BLADE_CLUBBED, BLADE_HIT};
 use super::{Manhack, PHYSICS_MASS};
 use crate::ai::metropolice::CopRequest;
 use crate::entities::NpcDamage;
@@ -45,12 +46,15 @@ impl Manhack {
                 (report.kind & DMG_CLUB != 0).then_some(report.force.normalize_or_zero());
         }
         if report.kind & DMG_PHYSGUN != 0 {
+            self.attitude.slow_blades(BLADE_HIT);
             return;
         }
         let along = report.force.normalize_or_zero();
         if report.kind & DMG_CLUB != 0 {
             // The force reads the damage before the 1.5; the stage aims it (`bat`).
-            self.batted = Some((along, report.damage / CLUB_SHARE));
+            let base = report.damage / CLUB_SHARE;
+            self.jolt(along * base * CLUB_FORCE, BLADE_CLUBBED);
+            self.batted = Some((along, base));
             self.requests.push(CopRequest::Sound(BAT));
             self.stalled_until = now + CLUB_STALL;
             self.stop_burst(now);
@@ -63,6 +67,8 @@ impl Manhack {
             report.force / PHYSICS_MASS
         };
         self.hover.velocity += impulse + along * report.damage * HIT_PUSH;
+        // VPhysicsTakeDamage pushes where the hit landed, which spins the body.
+        self.jolt(impulse * PHYSICS_MASS, BLADE_HIT);
         self.stalled_until = now + HIT_STALL;
     }
     /// CorpseGib's motion for the pieces, radians a second for the spin. Clubbed, they fly away from

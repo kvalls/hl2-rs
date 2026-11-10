@@ -121,7 +121,8 @@ pub struct CrossbowState {
     cursor: Option<(String, f64, f32)>,
 }
 
-/// CSprite::SetBrightness/SetScale(value, duration): linear from the current value.
+/// CSprite::SetBrightness/SetScale(value, duration) with ClientThink: a new value ramps linearly
+/// from the last one asked for, and asking for the same value again restarts nothing.
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct SpriteRamp {
     pub from: f32,
@@ -134,16 +135,17 @@ impl SpriteRamp {
         if self.duration <= 0. {
             return self.to;
         }
-        let t = (((time - self.at) as f32) / self.duration).clamp(0., 1.);
-        self.from + (self.to - self.from) * t
+        let t = ((time - self.at) as f32) / self.duration;
+        if t >= 1. {
+            return self.to;
+        }
+        self.from + (self.to - self.from) * t.max(0.)
     }
-    fn set(&mut self, to: f32, duration: f32, time: f64) {
-        *self = Self {
-            from: self.value(time),
-            to,
-            at: time,
-            duration,
-        };
+    pub(crate) fn set(&mut self, to: f32, duration: f32, time: f64) {
+        if to != self.to {
+            (self.from, self.to, self.at) = (self.to, to, time);
+        }
+        self.duration = duration;
     }
 }
 

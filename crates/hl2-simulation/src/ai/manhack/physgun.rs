@@ -4,14 +4,12 @@
 
 use super::{Manhack, LEAST_CUT, PLAYER_SHARE, SMASH_TIME, STALL, STUNNED};
 use crate::ai::metropolice::CopRequest;
-use crate::weapon_physcannon::NpcPhysgun;
+use crate::weapon_physcannon::{NpcPhysgun, PhysgunNpc, DROP_SPEED};
 
 /// A held manhack cuts this much a second, whatever it cuts.
 const HELD_CUT: f32 = 100.;
 /// Slice's share on an npc_combine_s it hates.
 const SOLDIER_SHARE: f32 = 6.;
-/// DetachEntity's limit on a plain drop: 1.5 x hl2_normspeed.
-const DROP_SPEED: f32 = 285.;
 
 /// What a slice cut.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,13 +23,26 @@ pub enum Victim {
     Breakable(f32),
 }
 
+/// How the gun's list names a manhack: its box (HULL_TINY_CENTERED) stands in for its VPhysics
+/// shape's extent, and it turns a punt's DMG_PHYSGUN into 1 damage.
+pub fn listing(id: usize) -> PhysgunNpc {
+    PhysgunNpc {
+        id,
+        mass: super::PHYSICS_MASS,
+        extents: glam::Vec3::new(8., 8., 4.),
+        punt_damage: 1.,
+    }
+}
+
 impl Manhack {
     /// What the gravity gun did to it this tick. True when it thinks at once, as the SDK's next
     /// think 0.01 s on.
     pub fn physgun(&mut self, event: NpcPhysgun, now: f64) -> bool {
         match event {
+            // The punt lands off its middle (PuntVPhysics' ApplyForceOffset).
             NpcPhysgun::Punt(push) => {
                 self.punted(push, now);
+                self.jolt(push * super::PHYSICS_MASS, super::BLADE_HIT);
                 true
             }
             NpcPhysgun::Push(speed) => {
@@ -66,6 +77,7 @@ impl Manhack {
             } => {
                 self.let_go();
                 self.hover.velocity = speed.clamp_length_max(crate::physics::MAX_VELOCITY);
+                self.launch_spin();
                 self.stun(now);
                 true
             }

@@ -26,18 +26,33 @@ pub enum NpcPhysgun {
     Drop { launch: Option<Vec3> },
 }
 
-/// The manhack's box (HULL_TINY_CENTERED) stands in for its VPhysics shape's extent.
-const FLYER_EXTENTS: Vec3 = Vec3::new(8., 8., 4.);
+/// An NPC the gun may take hold of, as the AI stage lists it: its VPhysics body's mass and half
+/// extents, and what a punt's DMG_PHYSGUN costs it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PhysgunNpc {
+    pub id: usize,
+    pub mass: f32,
+    pub extents: Vec3,
+    pub punt_damage: f32,
+}
 
-/// Whether the gun may take hold of this NPC: the AI stage lists them.
+/// DetachEntity's limit on a plain drop: 1.5 x hl2_normspeed.
+pub const DROP_SPEED: f32 = 285.;
+
+/// The gun's entry for this NPC, when the AI stage listed it.
+pub(super) fn listed(scene: &Scene, id: usize) -> Option<PhysgunNpc> {
+    scene.physgun_npcs.iter().copied().find(|npc| npc.id == id)
+}
+
+/// Whether the gun may take hold of this NPC.
 pub(super) fn holdable(scene: &Scene, id: usize) -> bool {
-    scene.physgun_npcs.contains(&id)
+    listed(scene, id).is_some()
 }
 
 /// FindObjectInCone's candidates among those NPCs: their middles.
 pub(super) fn cone_candidates(scene: &Scene) -> impl Iterator<Item = (usize, Vec3)> + '_ {
-    let origin = |id: usize| scene.states.get(id).map(|s| (id, s.origin));
-    scene.physgun_npcs.iter().filter_map(move |&id| origin(id))
+    let origin = |npc: &PhysgunNpc| scene.states.get(npc.id).map(|s| (npc.id, s.origin));
+    scene.physgun_npcs.iter().filter_map(origin)
 }
 
 /// The pull's speed on a light body: ApplyForceCenter(pullDir x 4000) scaled by (mass + 0.5) / 50
@@ -54,11 +69,11 @@ impl Inventory {
     /// AttachObject for an NPC: the grab starts where it is and keeps its rotation in player
     /// space; the NPC is told it is held.
     pub(super) fn attach_npc(&mut self, scene: &mut Scene, id: usize, forward: Vec3) {
-        let Some(state) = scene.states.get(id) else {
+        let (Some(state), Some(npc)) = (scene.states.get(id), listed(scene, id)) else {
             return;
         };
-        let mass = crate::ai::manhack::PHYSICS_MASS;
-        let grab = GrabController::attach_flyer(id, state.origin, state.rotation, forward, mass);
+        let grab =
+            GrabController::attach_flyer(id, state.origin, state.rotation, forward, npc.mass);
         self.physcannon.held = Some(id);
         self.physcannon.grab = Some(grab);
         self.physcannon.holds_npc = true;
@@ -77,11 +92,10 @@ impl Inventory {
         };
         let id = grab.entity;
         let alive = scene.states.get(id).filter(|s| !s.killed && !s.corpse);
-        let Some(origin) = alive.map(|s| s.origin) else {
+        let (Some(origin), Some(npc)) = (alive.map(|s| s.origin), listed(scene, id)) else {
             return false;
         };
-        let Some(velocity) = grab.track(physics, origin, FLYER_EXTENTS, view, HOLD_MAX_ERROR)
-        else {
+        let Some(velocity) = grab.track(physics, origin, npc.extents, view, HOLD_MAX_ERROR) else {
             return false;
         };
         let forward = grab.target_rotation() * Vec3::X;

@@ -113,6 +113,9 @@ pub const SOUNDS: &[&str] = &[
 /// COND_SCANNER_FLY_CLEAR and COND_SCANNER_FLY_BLOCKED: the way to its enemy.
 pub const COND_FLY_CLEAR: Cond = Cond(LAST_SHARED_CONDITION + 1);
 pub const COND_FLY_BLOCKED: Cond = Cond(LAST_SHARED_CONDITION + 2);
+/// COND_SCANNER_GRABBED_BY_PHYSCANNON and COND_SCANNER_RELEASED_FROM_PHYSCANNON.
+pub const COND_GRABBED: Cond = Cond(LAST_SHARED_CONDITION + 6);
+pub const COND_RELEASED: Cond = Cond(LAST_SHARED_CONDITION + 7);
 /// COND_CSCANNER_HAVE_INSPECT_TARGET, COND_CSCANNER_INSPECT_DONE, COND_CSCANNER_CAN_PHOTOGRAPH.
 pub const COND_HAVE_TARGET: Cond = Cond(LAST_SHARED_CONDITION + 3);
 pub const COND_INSPECT_DONE: Cond = Cond(LAST_SHARED_CONDITION + 4);
@@ -193,7 +196,7 @@ const SCHEDULES: &[(&str, &str)] = &[
 ];
 
 pub fn add_schedules(schedules: &mut Schedules) {
-    for (name, text) in SCHEDULES {
+    for (name, text) in SCHEDULES.iter().chain([&physgun::HELD_SCHEDULE]) {
         let schedule = Schedule::parse(name, text).expect("scanner schedule");
         schedules.0.insert((*name).into(), schedule);
     }
@@ -204,6 +207,7 @@ pub fn add_schedules(schedules: &mut Schedules) {
 pub enum Plan {
     Script,
     Flinch,
+    Held,
     TakeCover,
     Patrol,
     Corners,
@@ -299,6 +303,8 @@ pub struct Scanner {
     pub can_photograph: bool,
     /// m_flGoalOverrideDistance.
     pub distance_override: f32,
+    /// What the gravity gun has done to it.
+    pub gun: physgun::Gun,
     /// Its dive, and that its death has been looked at.
     pub dive: Option<Dive>,
     /// Hurt enough to trail smoke, which then lasts as long as it does.
@@ -447,12 +453,17 @@ impl Scanner {
         let hurt = npc.conditions.has(COND_LIGHT_DAMAGE) || npc.conditions.has(COND_HEAVY_DAMAGE);
         if hurt {
             match npc.state {
+                _ if self.gun.held => return Plan::Flinch,
                 NpcState::Idle => return Plan::Flinch,
                 NpcState::Alert if health < COVER_HEALTH => return Plan::TakeCover,
                 NpcState::Alert => {}
                 _ if roll < COMBAT_FLINCH => return Plan::Flinch,
                 _ => {}
             }
+        }
+        // Held by the gravity gun, it struggles.
+        if self.gun.held {
+            return Plan::Held;
         }
         let Some((_, enemy)) = ctx.enemy.filter(|_| !self.ignores_enemies) else {
             return self.plan_without_enemy(npc);
@@ -730,6 +741,7 @@ impl Behavior for Scanner {
         match self.plan(npc, ctx, self.health, ctx.random) {
             Plan::Script => base_select_schedule(npc, ctx, false),
             Plan::Flinch => "SCHED_SMALL_FLINCH".into(),
+            Plan::Held => physgun::HELD.into(),
             // SCHED_TAKE_COVER_FROM_ORIGIN looks for cover among nodes this flight has no search
             // for yet: it flies off on patrol instead.
             Plan::TakeCover | Plan::Patrol => PATROL.into(),
@@ -753,7 +765,11 @@ impl Behavior for Scanner {
     }
     /// The class's conditions in the schedules that listen for them.
     fn custom_interrupts(&self, npc: &AiNpc) -> Conditions {
-        match npc.schedule.as_deref() {
+        // COND_SCANNER_GRABBED_BY_PHYSCANNON ends every schedule but the held one, which
+        // COND_SCANNER_RELEASED_FROM_PHYSCANNON ends.
+        let held = npc.schedule.as_deref() == Some(physgun::HELD);
+        let gun = if held { COND_RELEASED } else { COND_GRABBED };
+        let own = match npc.schedule.as_deref() {
             Some(PATROL | CORNERS) => Conditions::of(&[COND_HAVE_TARGET]),
             Some(ATTACK_HOVER | FOLLOW_HOVER) => Conditions::of(&[COND_FLY_BLOCKED]),
             Some(SPOTLIGHT_HOVER) => Conditions::of(&[COND_FLY_BLOCKED, COND_INSPECT_DONE]),
@@ -763,7 +779,8 @@ impl Behavior for Scanner {
             Some(PHOTOGRAPH) => Conditions::of(&[COND_INSPECT_DONE]),
             Some(CHASE | MOVE_TO_INSPECT) => Conditions::of(&[COND_FLY_CLEAR]),
             _ => Conditions::default(),
-        }
+        };
+        own.union(Conditions::of(&[gun]))
     }
     fn start_task(
         &mut self,
@@ -865,6 +882,7 @@ impl Behavior for Scanner {
 pub mod damage;
 pub mod flash;
 pub mod inspect;
+pub mod physgun;
 pub mod pose;
 pub mod spotlight;
 #[cfg(test)]

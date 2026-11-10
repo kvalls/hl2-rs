@@ -60,6 +60,26 @@ fn an_alert_scanner_in_good_health_has_no_flinch_to_play() {
 }
 
 #[test]
+fn held_by_the_gravity_gun_it_struggles_flinches_at_any_hit_and_only_its_release_ends_that() {
+    let mut s = Scanner::default();
+    s.gun.held = true;
+    let ctx = hunting(100., 1.);
+    assert_eq!(
+        s.plan(&npc(NpcState::Combat, &[]), &ctx, 1., 0.9),
+        Plan::Held
+    );
+    let hit = npc(NpcState::Alert, &[COND_LIGHT_DAMAGE]);
+    assert_eq!(s.plan(&hit, &ctx, 0.9, 0.9), Plan::Flinch);
+    let mut held = npc(NpcState::Combat, &[]);
+    held.schedule = Some(physgun::HELD.into());
+    assert!(s.custom_interrupts(&held).has(COND_RELEASED));
+    assert!(!s.custom_interrupts(&held).has(COND_GRABBED));
+    held.schedule = Some(PATROL.into());
+    assert!(s.custom_interrupts(&held).has(COND_GRABBED));
+    assert!(s.custom_interrupts(&held).has(COND_HAVE_TARGET));
+}
+
+#[test]
 fn a_combat_flinch_is_four_in_eleven() {
     let s = Scanner::default();
     let hit = npc(NpcState::Combat, &[COND_LIGHT_DAMAGE]);

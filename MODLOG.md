@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-10 session 51: scanners in the gravity gun, the manhack's body, its pose after an attack, the gun's glow (Claude Code desktop, claude-fable-5-2)
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** four findings from the owner's playtest. The gravity gun picks up, holds, drops, punts and launches scanners (ai/scanner/physgun.rs; `PhysgunNpc` in the gun's list). The manhack's body banks, turns on a yaw spring and spins when knocked, with the blades' speed and SpinBlades' bodygroups (ai/manhack/attitude.rs). ACT_IDLE, ACT_WALK and ACT_RUN are ACT_FLY for a manhack with its blades out, so it no longer folds into its packed pose after an attack (`ActivityRules`). The gravity gun's center and blast sprites ramp into place (weapon_physcannon/glow.rs; `SpriteRamp::set` by CSprite::ClientThink's rule).
+
+**Why:** the owner's playtest report of 2026-11-10.
+
+**Tested how / Result:** unit tests for each; packaged on d1_town_02: a scanner taken, held and launched into the ground (30 to -30), and four manhacks attacking for 21 s (the `fly` clip through 25 cuts, pitch to 34 degrees, roll to 20, yaw spin to 493 degrees a second). Full validation in STATUS "Current session 51".
+
+**Frame time:** **not measured**; the new work is a few float operations per flying manhack a tick.
+
+**Still broken or not tested:** native comparison of all four; the glow's ramp in the packaged build; the blur bodygroup by eye; a punt and a plain drop of a scanner; the knock's lever arm is random, not the contact point.
+
+**Next:** look at the four in the packaged build beside native; then session 50's list (step 6's remainder, SF_MANHACK_CARRIED).
+
 ## 2026-11-09 session 50: the gravity gun holds and launches manhacks (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
