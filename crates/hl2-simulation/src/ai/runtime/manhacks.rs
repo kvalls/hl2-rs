@@ -586,10 +586,11 @@ impl AiRuntime {
         let mut asks = Vec::new();
         for (&id, actor) in self.actors.iter_mut() {
             let enemy = enemy_of(actor, world, scene, &player);
-            let enemy_id = actor.npc.enemy;
+            let (enemy_id, state) = (actor.npc.enemy, actor.npc.state);
             let AiClass::Manhack(m) = &mut actor.class else {
                 continue;
             };
+            m.state_changed(state);
             actor.fall = None;
             let squad = actor.squad.as_deref();
             if scene.states[id].killed || scene.states[id].corpse {

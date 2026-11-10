@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-10 session 52b: idle manhacks stop wobbling; the Windows plaza profile (Claude Code desktop, claude-opus-5-5)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** CNPC_Manhack::OnStateChange (Source SDK hl2/npc_manhack.cpp): on its first state change a manhack still on MANHACK_NOISEMOD_HIDE's noise rates (5000 on every axis) and neither packed nor waiting for a script gets SetNoiseMod(0, 0, 1.7 to 2.3), a slow vertical bob. We never made that switch, so a think's sample of the 5000 rate noise was a random shove every 0.1 s: the owner's "wobble in place". `Manhack::state_changed`, called each tick with the NPC state. Docs: docs/performance.md "Owner's manhack plaza on Windows".
+
+**Why:** the owner's playtest (idle manhacks wobble) and their question why native runs the plaza at 276 fps.
+
+**Tested how / Result:** unit test; packaged, d1_trainstation_02 plaza, 28 idle manhacks: the sideways velocity flipped sign on 29% of samples 45 ms apart and averaged 6.3 u/s; now 0% and 2.8 u/s (what is left of the spawn push), bob (0, 0, 2.13). Profile on the owner's PC (RTX 3070, 1080p, their settings, uncapped): plaza empty 13.6 ms a frame, 30 manhacks hunting the player 42.1 ms (F1 showed 25 fps); one simulation tick 5.3 ms empty and 10.5 ms with the crowd, of which Rapier 2.5 ms and the AI 0.7 to 6 ms; render CPU 8-9 ms a frame; the GPU mostly idle. Validated with artifacts/s52/validate2.sh: strict Clippy, fmt and architecture exit 0; 1647 tests passed and 2 failed (the two known --release should_panic rendering tests); s52-regression 26/26, 17/17, 26/26; replays 71 of 72 in 531 s with JOBS=3 (monitors-kleiner-scene, the known flake, its outcomes as expected; every manhack replay as expected).
+
+**Frame time:** the wobble fix adds one comparison per manhack a tick.
+
+**Still broken or not tested:** the performance causes are located, not fixed; no native timing on a matched fixture.
+
+**Next:** the performance steps in docs/performance.md; the owner's verdict on the manhack and scanner fixes.
+
 ## 2026-11-10 session 52: manhacks bump off walls and props with sparks; a thrown scanner breaks at its first contact (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

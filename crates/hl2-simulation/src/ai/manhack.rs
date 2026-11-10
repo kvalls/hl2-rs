@@ -56,6 +56,8 @@ const BURST_AIM: f32 = 0.75;
 const NOISE_FAR: f32 = 7.;
 const NOISE_NEAR: f32 = 2.;
 pub const NOISE_RATE: f32 = 5000.;
+/// OnStateChange's normal noise: a vertical bob at a random rate in this range.
+const BOB_RATES: (f32, f32) = (1.7, 2.3);
 /// How fast a cut sends it back.
 const REBOUND: f32 = 200.;
 /// A cut's damage on the player against an NPC, and the least a cut does.
@@ -187,6 +189,9 @@ pub struct Manhack {
     /// Bumps so far, and m_flBumpSuppressTime.
     pub bumps: u32,
     pub bump_quiet_until: f64,
+    /// Its NPC state when last seen, for OnStateChange.
+    #[serde(skip)]
+    pub last_state: Option<NpcState>,
     /// The last surface its body met since its last think, and this think's bumps to show.
     #[serde(skip)]
     pub contact: Option<Bumped>,
@@ -339,6 +344,18 @@ impl Manhack {
         }
         self.hover
             .push(self.burst_direction, thrust(BURST_THRUST, climb), interval);
+    }
+    /// OnStateChange: a manhack still on MANHACK_NOISEMOD_HIDE's rates and neither packed nor
+    /// waiting for a script gets a normal noise: it only bobs up and down, 1.7 to 2.3 a second.
+    /// (Left at 5000 on every axis, a think's sample of the noise is a random shove: the wobble.)
+    pub fn state_changed(&mut self, state: NpcState) {
+        if self.last_state.replace(state) == Some(state) {
+            return;
+        }
+        if self.bob.z == NOISE_RATE && !self.waits && !self.packed {
+            let (low, high) = BOB_RATES;
+            self.bob = Vec3::new(0., 0., low + self.dice() * (high - low));
+        }
     }
     /// How much noise its flight takes, by how far across it is from its enemy.
     pub fn noise(&self, across: Option<f32>) -> f32 {
@@ -573,6 +590,25 @@ mod tests {
     use super::super::schedule::tests::FakeMotor;
     use super::*;
 
+    #[test]
+    fn its_first_state_change_turns_the_hiding_noise_into_a_slow_vertical_bob() {
+        let mut m = Manhack::new(false, 3);
+        assert_eq!(m.bob, Vec3::splat(NOISE_RATE));
+        m.state_changed(NpcState::Idle);
+        assert_eq!((m.bob.x, m.bob.y), (0., 0.));
+        assert!((BOB_RATES.0..=BOB_RATES.1).contains(&m.bob.z), "{}", m.bob);
+        let bob = m.bob;
+        m.state_changed(NpcState::Combat);
+        assert_eq!(m.bob, bob, "only the hiding noise is replaced");
+        let mut packed = Manhack::new(false, 3);
+        packed.pack(false);
+        packed.state_changed(NpcState::Idle);
+        assert_eq!(
+            packed.bob,
+            Vec3::splat(NOISE_RATE),
+            "packed, it keeps hiding"
+        );
+    }
     #[test]
     fn a_packed_manhack_waiting_for_a_script_stays_shut_until_woken() {
         let mut m = Manhack::new(false, 3);

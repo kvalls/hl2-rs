@@ -1,5 +1,55 @@
 # Performance measurements - 2026-10-05
 
+## Owner's manhack plaza on Windows: where the frame goes (2026-11-10, session 52)
+
+RTX 3070, Ryzen 7 3700X, Windows 11, packaged build 078d8d1 with a temporary lap probe in `Gameplay::tick`
+(not committed), the owner's saved video settings (1920x1080 borderless, HDR Full, High details, motion
+blur, no AA), `--uncapped --profile`, 1,500 ticks, labels every 150 ticks (dense labels add 2-3 ms of
+report sampling to the `diagnostics` scope). Fixtures: artifacts/s52 make_walk.py, make_plaza.py,
+make_crowd.py.
+
+| Scenario | Mean frame | About |
+| --- | ---: | ---: |
+| d1_town_02, flying, no manhacks | 9.55 ms | 105 fps |
+| d1_town_02, flying, 30 manhacks hovering (unsensed) | 18.85 ms | 53 fps |
+| d1_trainstation_02 plaza, walking, no manhacks | 13.6 ms | 73 fps |
+| plaza, walking, 30 manhacks hunting the player (no damage on this map) | 42.1 ms | 24 fps; F1 read 25 fps, 1,064,474 triangles, 1,329 entities |
+| plaza, flying, 30 manhacks and a citizen every 0.9 s | 58.0 ms | 17 fps |
+
+Native: the owner's screenshot of the plaza with a comparable crowd of manhacks shows 276 fps (3.6 ms). It was
+not a matched fixture; no native timing was taken in this session.
+
+One 15 ms simulation tick, ms, averages over 300 ticks (the lap probe):
+
+| Stage | Plaza, empty | Plaza, 30 manhacks hunting |
+| --- | ---: | ---: |
+| scene and npc_makers | 0.69 | 0.67 |
+| weapons and entity poses | 0.20 | 0.21 |
+| NPC hitboxes and projectile spawns | 0.27 | 0.45 |
+| query refresh | 0.13 | 0.13 |
+| AI (`ai.tick`) | 0.68-0.88 | 3.9-6.1 |
+| after the AI (results, NPC fire, effects, projectiles, zombies) | 0.20 rising to 1.14 | 0.29-0.94 |
+| Rapier (`physics.tick`) | 2.55-2.85 | 2.43-2.79 |
+| the rest (ragdolls, sounds) | 0.28-0.36 | 0.28-0.37 |
+| total | about 5.3 | about 10.5 |
+
+Per frame (`--profile` scopes): render_graph 3.4-3.8 ms, render_prepare 1.7-2.2, render_write 0.5-0.9,
+render_assets 0.3-1.5, bind groups 0.5-0.7; shadows 0.04 empty and 1.5-1.7 with 30 casters; animation
+0.4-1.2. Bevy's instrumented GPU passes add up to under 1 ms (our own passes are not instrumented).
+
+Reading: the frame is CPU-bound and the GPU mostly idle. The fixed tick costs 5.3 ms on the empty plaza and
+10.5 ms with the hunting crowd; once a frame takes over 15 ms the next one runs more than one tick, so the
+frame rate falls faster than the work grows (about 2.8 ticks a frame at 42 ms). Rapier's 2.5 ms a tick is the
+largest fixed cost and does not depend on the NPCs; the AI costs about 0.15 ms a tick per hunting manhack;
+the render CPU is 8-9 ms a frame at these settings whatever the scene. The after-AI stage grows over an empty
+run (0.2 to 1.1 ms in 18 s): something accumulates there. Not measured: Source's own server tick and render
+CPU on this machine.
+
+Next bounded steps: Rapier's awake bodies, colliders and query updates per tick at the plaza; laps inside
+`ai.tick` for a manhack (senses, the flight trace that traces again for every NPC it passes, the swarm); the
+growing after-AI stage; the cameras and passes per frame at the plaza; a matched native measurement on the
+same spot.
+
 ## Low settings: what bounds the frame (2026-11-01)
 
 Apple M1 Pro/Metal, packaged, headless, uncapped, `--profile`, spawn views, 1,500 frames, muted. Low is every Video > Advanced
