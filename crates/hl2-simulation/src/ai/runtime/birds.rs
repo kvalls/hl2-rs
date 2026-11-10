@@ -168,7 +168,7 @@ impl Air<'_> {
     }
     /// A hull trace of this flight's body.
     pub fn trace(&self, from: Vec3, to: Vec3) -> crate::npc_probe::HullTrace {
-        flight_trace(self.world, self.physics, (from, to), self.hull, self.id)
+        flight_trace(self.physics, (from, to), self.hull, self.id)
     }
     /// One tick along the velocity, which what stops the body takes that part of away. The
     /// tick's length.

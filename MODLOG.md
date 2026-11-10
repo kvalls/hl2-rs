@@ -18,6 +18,8 @@
 
 **Performance step 1 (located, not fixed):** temporary probes (reverted) on the plaza crowd: Rapier's 2.4 ms a tick is 1 ms of broad phase and 1 ms of query tree refit and rebalance inside its step (we pass our query pipeline in); hitbox moves are not Rapier's cost (A/B), but posing every NPC's hitboxes every tick costs about 2 ms a tick elsewhere (frame 37.8 to 24.4 ms without it). Plan: DESIGN 14s.
 
+**Flight traces in one sweep:** `flight_trace` masks NPC colliders (CONTENTS_MONSTER) out of one sweep instead of tracing again past each NPC; crowd tick 8.50 to 7.75-7.95 ms. Validated (artifacts/s52/validate3.sh): Clippy, fmt, architecture 0; 1647 tests passed and 2 failed (the two known); s52-regression 26/26, 17/17, 26/26; replays 72 of 72 in 536 s with JOBS=3. Owner report recorded, not fixed: the manhack's rotor does not read as spinning fast (STATUS "Current session 52" (g)).
+
 ## 2026-11-10 session 52: manhacks bump off walls and props with sparks; a thrown scanner breaks at its first contact (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

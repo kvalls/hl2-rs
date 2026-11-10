@@ -67,7 +67,15 @@ manhack traces meeting moving hitboxes), and the frame falls from 37.8 to 24.4 m
 hypothesis: hitbox moves as Rapier's cost (one A/B, recorded). Rapier timings came from its `profiler`
 feature in a temporary build (Cargo.toml and Cargo.lock restored).
 
-Next bounded steps (DESIGN 14s for the first two): hitboxes posed on demand; our query pipeline updated by us instead of inside Rapier's step; laps inside
+Flight traces in one sweep (committed after step 1): `ai::host::flight_trace`, which scanners, manhacks
+and birds fly with, traced again past every NPC it met (up to eight), each sweep testing the NPCs'
+hitbox colliders (CONTENTS_MONSTER). It now masks CONTENTS_MONSTER out of one sweep: the same result for
+npc_* entities. Plaza crowd, two runs: fixed_simulation 7.95 and 7.75 ms a tick against 8.50; frames
+39.8 and 37.1 ms against 37.8-42.1 (within run-to-run noise). AI sight has the same pattern: `PhysicsSight::
+first_solid` casts a projectile ray again past every NPC, up to eight; Source's line of sight
+(MASK_BLOCKLOS) never tests monsters. Not changed yet.
+
+Next bounded steps (DESIGN 14s for the first two; then sight rays without NPC colliders): hitboxes posed on demand; our query pipeline updated by us instead of inside Rapier's step; laps inside
 `ai.tick` for a manhack (senses, the flight trace that traces again for every NPC it passes, the swarm); the
 growing after-AI stage; the cameras and passes per frame at the plaza; a matched native measurement on the
 same spot.
