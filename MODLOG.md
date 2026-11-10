@@ -16,6 +16,8 @@
 
 **Next:** the performance steps in docs/performance.md; the owner's verdict on the manhack and scanner fixes.
 
+**Performance step 1 (located, not fixed):** temporary probes (reverted) on the plaza crowd: Rapier's 2.4 ms a tick is 1 ms of broad phase and 1 ms of query tree refit and rebalance inside its step (we pass our query pipeline in); hitbox moves are not Rapier's cost (A/B), but posing every NPC's hitboxes every tick costs about 2 ms a tick elsewhere (frame 37.8 to 24.4 ms without it). Plan: DESIGN 14s.
+
 ## 2026-11-10 session 52: manhacks bump off walls and props with sparks; a thrown scanner breaks at its first contact (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

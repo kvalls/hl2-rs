@@ -45,7 +45,29 @@ the render CPU is 8-9 ms a frame at these settings whatever the scene. The after
 run (0.2 to 1.1 ms in 18 s): something accumulates there. Not measured: Source's own server tick and render
 CPU on this machine.
 
-Next bounded steps: Rapier's awake bodies, colliders and query updates per tick at the plaza; laps inside
+Step 1 findings, same scene (plaza, walking, 30 manhacks), temporary probes reverted afterwards:
+
+| Rapier step, ms (averages over 300 ticks) | Hitboxes posed every tick | Hitbox posing switched off |
+| --- | ---: | ---: |
+| whole step | 2.39-2.41 | 2.31-2.32 |
+| broad phase (BroadPhaseMultiSap) | 1.04 | 0.99 |
+| query pipeline update | 0.99-1.00 | 1.03 |
+| narrow phase | 0.30 | 0.22 |
+| islands, solver, CCD | under 0.04 | under 0.04 |
+| awake bodies / contact pairs | 4 / 0 | 4 / 0 |
+| fixed_simulation per tick | 8.50 | 6.49 |
+| mean frame | 37.8 ms | 24.4 ms |
+
+Rapier's 2.4 ms is not the NPC hitboxes and not motion: with 4 awake bodies and no contacts, about 1 ms goes
+to the broad phase over 5,659 colliders and about 1 ms to the query pipeline we pass into
+`PhysicsPipeline::step`, whose last substep refits and rebalances the whole tree every tick (rapier3d 0.26.1
+pipeline/physics_pipeline.rs, read, not changed; `update_incremental(.., remaining_substeps == 0)`). Posing the
+NPCs' hitboxes every tick costs about 2 ms a tick elsewhere (the skinning matrices of every NPC, and possibly
+manhack traces meeting moving hitboxes), and the frame falls from 37.8 to 24.4 ms without it. Rejected
+hypothesis: hitbox moves as Rapier's cost (one A/B, recorded). Rapier timings came from its `profiler`
+feature in a temporary build (Cargo.toml and Cargo.lock restored).
+
+Next bounded steps (DESIGN 14s for the first two): hitboxes posed on demand; our query pipeline updated by us instead of inside Rapier's step; laps inside
 `ai.tick` for a manhack (senses, the flight trace that traces again for every NPC it passes, the swarm); the
 growing after-AI stage; the cameras and passes per frame at the plaza; a matched native measurement on the
 same spot.
