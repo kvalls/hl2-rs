@@ -73,7 +73,10 @@ hitbox colliders (CONTENTS_MONSTER). It now masks CONTENTS_MONSTER out of one sw
 npc_* entities. Plaza crowd, two runs: fixed_simulation 7.95 and 7.75 ms a tick against 8.50; frames
 39.8 and 37.1 ms against 37.8-42.1 (within run-to-run noise). AI sight has the same pattern: `PhysicsSight::
 first_solid` casts a projectile ray again past every NPC, up to eight; Source's line of sight
-(MASK_BLOCKLOS) never tests monsters. Not changed yet.
+(MASK_BLOCKLOS) never tests monsters. Then changed the same way: `first_solid` casts one
+`filtered_ray` whose filter leaves npc_* colliders out. Plaza crowd, two runs: frames 27.9 and 28.4 ms
+(35 fps) against 37.1-39.8 ms (25-26 fps); fixed_simulation 7.22 and 7.29 ms a tick against 7.75-7.95.
+The frame gains more than the tick: fewer ticks a frame.
 
 Next bounded steps (DESIGN 14s for the first two; then sight rays without NPC colliders): hitboxes posed on demand; our query pipeline updated by us instead of inside Rapier's step; laps inside
 `ai.tick` for a manhack (senses, the flight trace that traces again for every NPC it passes, the swarm); the

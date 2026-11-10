@@ -20,6 +20,8 @@
 
 **Flight traces in one sweep:** `flight_trace` masks NPC colliders (CONTENTS_MONSTER) out of one sweep instead of tracing again past each NPC; crowd tick 8.50 to 7.75-7.95 ms. Validated (artifacts/s52/validate3.sh): Clippy, fmt, architecture 0; 1647 tests passed and 2 failed (the two known); s52-regression 26/26, 17/17, 26/26; replays 72 of 72 in 536 s with JOBS=3. Owner report recorded, not fixed: the manhack's rotor does not read as spinning fast (STATUS "Current session 52" (g)).
 
+**Sight rays without NPC colliders:** `PhysicsSight::first_solid` casts one ray whose filter leaves npc_* colliders out (Source's MASK_BLOCKLOS has no CONTENTS_MONSTER) instead of casting again past each NPC; plaza crowd 37-40 ms to 28 ms a frame (25 to 35 fps). Validated (artifacts/s52/validate4.sh): Clippy, fmt, architecture 0; 1647 tests passed and 2 failed (the two known); s52-regression 26/26, 17/17, 26/26; replays 71 of 72 in 779 s with JOBS=3 (monitors-kleiner-scene, the known flake, its outcomes as expected).
+
 ## 2026-11-10 session 52: manhacks bump off walls and props with sparks; a thrown scanner breaks at its first contact (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

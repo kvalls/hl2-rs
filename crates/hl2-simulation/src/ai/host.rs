@@ -357,25 +357,21 @@ pub struct PhysicsSight<'a> {
     pub world: &'a World,
 }
 impl PhysicsSight<'_> {
-    /// Where a line first meets something that stops sight; NPCs do not. After eight NPCs in a row
-    /// the last one counts.
+    /// Where a line first meets something that stops sight; NPCs do not (Source's MASK_BLOCKLOS has
+    /// no CONTENTS_MONSTER). Their colliders are left out of the one ray: casting again past each
+    /// NPC met cost up to nine rays a look in a crowd.
     pub fn first_solid(&self, from: Vec3, to: Vec3, ignore: &[usize]) -> Option<Vec3> {
-        let mut excluded: Vec<usize> = ignore.to_vec();
-        let mut last = None;
-        for _ in 0..8 {
-            let hit = self.physics.projectile_ray(from, to, &excluded)?;
-            let npc = self
-                .world
-                .entities
-                .get(hit.entity)
-                .is_some_and(|e| e.class().starts_with("npc_"));
-            if !npc {
-                return Some(hit.position);
-            }
-            excluded.push(hit.entity);
-            last = Some(hit.position);
-        }
-        last
+        let world = self.world;
+        let keep = |entity: usize| {
+            !ignore.contains(&entity)
+                && !world
+                    .entities
+                    .get(entity)
+                    .is_some_and(|e| e.class().starts_with("npc_"))
+        };
+        self.physics
+            .filtered_ray(from, to, &keep)
+            .map(|hit| hit.position)
     }
 }
 impl SightWorld for PhysicsSight<'_> {
