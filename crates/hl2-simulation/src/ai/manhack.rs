@@ -18,10 +18,12 @@ use glam::Vec3;
 use serde::Serialize;
 
 mod attitude;
+pub mod body;
 mod damage;
 mod physgun;
 mod swarm;
 pub use attitude::{Attitude, BLADE_HIT};
+pub use body::{BumpMarks, Bumped};
 pub use damage::{club_aim, CLUB_SHARE};
 pub use physgun::{listing, Victim};
 pub use swarm::{center, member_to_join, Ask, Member, Swarm};
@@ -178,7 +180,18 @@ pub struct Manhack {
     pub requests: Vec<CopRequest>,
     pub assault: Option<Assault>,
     pub script_goal: Option<(Vec3, bool)>,
+    /// The velocity the AI wants (m_vCurrentVelocity).
     pub hover: Hover,
+    /// Its VPhysics body's velocity, which the motor pulls toward the wanted one.
+    pub body: Vec3,
+    /// Bumps so far, and m_flBumpSuppressTime.
+    pub bumps: u32,
+    pub bump_quiet_until: f64,
+    /// The last surface its body met since its last think, and this think's bumps to show.
+    #[serde(skip)]
+    pub contact: Option<Bumped>,
+    #[serde(skip)]
+    pub bumped: Vec<Bumped>,
     /// Where it flies: its enemy's eyes, or its last known place, from this think's gather.
     pub target: Option<Vec3>,
     /// m_flBurstDuration, m_flNextBurstTime and m_vecBurstDirection.
@@ -370,8 +383,8 @@ impl Manhack {
     /// A punt by the gravity gun: the speed it adds, up to VPhysics' limit, the burst's end (its
     /// DMG_PHYSGUN), the stall and the stunned eye.
     pub fn punted(&mut self, push: Vec3, now: f64) {
-        let speed = self.hover.velocity + push;
-        self.hover.velocity = speed.clamp_length_max(crate::physics::MAX_VELOCITY);
+        let speed = self.body + push;
+        self.throw_body(speed.clamp_length_max(crate::physics::MAX_VELOCITY));
         self.stop_burst(now);
         self.held = false;
         self.stun(now);
@@ -411,10 +424,11 @@ impl Manhack {
         }
     }
     /// A cut landed: `away` runs from what it cut to itself. It flies back across the ground and
-    /// the burst ends.
+    /// the burst ends. The body takes the rebound at once: its physical hit on what it cut, which
+    /// stops it in the SDK, is not modeled.
     pub fn rebound(&mut self, away: Vec3, now: f64) {
         let across = away.truncate().normalize_or_zero();
-        self.hover.velocity = across.extend(0.) * REBOUND;
+        self.throw_body(across.extend(0.) * REBOUND);
         self.attitude.slow_blades(BLADE_HIT);
         self.cuts += 1;
         self.stop_burst(now);

@@ -654,9 +654,12 @@ fn gather(actor: &mut AiActor, world: &World, scene: &Scene, player: &PlayerStat
     s.inspect_at = s.inspect.and_then(|e| eyes(world, scene, player, e));
     s.inspect_facing = s.inspect.and_then(|e| marked_side(world, scene, e));
     s.enemy_in_suit = enemy == Some(PLAYER) && player.suit;
-    let health = scene.states[id].value;
+    // Its health before any damage is its spawn health, so a smash just after a throw costs the
+    // whole of TakeDamageFromPhyscannon's share from the first contact.
+    let entity = &world.entities[id];
+    let health = crate::gameplay::npc_health(scene, entity, id);
     let before = s.health * s.max_health;
-    s.max_health = s.max_health.max(health);
+    s.max_health = crate::gameplay::npc_max_health(scene, entity, id);
     s.health = health / s.max_health.max(1.);
     let conditions = &mut actor.npc.conditions;
     match s.fly_blocked {

@@ -35,6 +35,15 @@ const FLECK_ANGULAR_SPRAY: f32 = 0.6;
 const FLECK_MIN_SPEED: f32 = 64.;
 const FLECK_MAX_SPEED: f32 = 128.;
 const METAL_SPARK_SPREAD: f32 = 0.5;
+/// FX_SparkFan (the manhack's ManhackSparks), Source SDK client fx_sparks.cpp: METAL_SCRAPE's
+/// spread, speeds, gravity and collision damping, 35 sparks living 2 s.
+const SPARK_FAN_COUNT: usize = 35;
+const SPARK_FAN_SPREAD: f32 = 0.3;
+const SPARK_FAN_SPEEDS: (f32, f32) = (128., 512.);
+const SPARK_FAN_GRAVITY: f32 = 800.;
+const SPARK_FAN_BOUNCE: f32 = 0.4;
+const SPARK_FAN_LENGTH: f32 = 0.06;
+pub const SPARK_FAN_LIFE: f32 = 2.;
 
 /// GetColorForSurface: the surface's color (here one per material, not its texture's
 /// reflectivity) in the light at the hit, which the effect's `magnitude` carries.
@@ -234,6 +243,31 @@ impl Particles {
         flash.roll = rng.float(0., 360.);
         self.add(flash);
     }
+    /// FX_SparkFan: white sparks thrown along `normal` (left unnormalized, as the effect gets
+    /// it), one unit off the surface; the wider a spark strays, the slower it flies. They fall,
+    /// bounce off what they hit and keep their light to the end.
+    pub(super) fn spark_fan(&mut self, e: &Effect, rng: &mut Random) {
+        let mut from = *e;
+        from.position += e.normal;
+        for _ in 0..SPARK_FAN_COUNT {
+            let mut p = Particle::new(Kind::Spark, "effects/spark", &from, SPARK_FAN_LIFE);
+            let spread = rng.float(0., 2.);
+            let reach = SPARK_FAN_SPREAD * spread;
+            let direction = e.normal + rng.vector(-reach, reach);
+            let (low, high) = SPARK_FAN_SPEEDS;
+            p.velocity = direction * rng.float(low * (2. - spread), high * (2. - spread));
+            p.sizes = [rng.float(2., 5.); 2];
+            p.alpha = [1.; 2];
+            p.trail = rng.float(SPARK_FAN_LENGTH * 0.25, SPARK_FAN_LENGTH);
+            p.motion = Motion::Trail {
+                gravity: SPARK_FAN_GRAVITY,
+                drag: 0.,
+                bounce: SPARK_FAN_BOUNCE,
+                collide: true,
+            };
+            self.add(p);
+        }
+    }
     /// One puff of a SmokeTrail: growing and fading out over its life, with the body's speed and
     /// a little of its own (15 to 25 for both trails).
     pub(super) fn trail_smoke(&mut self, e: &Effect, trail: &SmokeTrail, rng: &mut Random) {
@@ -326,5 +360,20 @@ mod tests {
         let forward = sparks.iter().filter(|p| p.velocity.x > 0.).count();
         assert!(forward * 2 > sparks.len(), "most fly along the reflection");
         assert_eq!(particles.particles.len(), sparks.len() + 1, "and one flash");
+    }
+
+    #[test]
+    fn a_manhack_bump_throws_35_falling_sparks_off_the_wall_for_two_seconds() {
+        let mut particles = Particles::default();
+        let fan = effect(EffectKind::ManhackSparks, Vec3::new(0.5, 0., 0.));
+        particles.spark_fan(&fan, &mut Random(11));
+        let sparks = &particles.particles;
+        assert_eq!(sparks.len(), SPARK_FAN_COUNT);
+        assert!(sparks.iter().all(|p| p.kind == Kind::Spark
+            && p.life == SPARK_FAN_LIFE
+            && p.velocity.length() < 1024.
+            && matches!(p.motion, Motion::Trail { collide: true, .. })));
+        let forward = sparks.iter().filter(|p| p.velocity.x > 0.).count();
+        assert!(forward * 4 > sparks.len() * 3, "{forward}");
     }
 }

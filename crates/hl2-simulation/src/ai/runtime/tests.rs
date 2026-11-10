@@ -533,6 +533,22 @@ fn friend_and_foe_cops_target_each_other_and_relationships_override_classes() {
     assert_eq!(r.ai.actors[&0].npc.enemy, None);
 }
 #[test]
+fn an_npc_never_hurt_has_its_spawn_health_and_a_dead_one_none() {
+    use crate::gameplay::{npc_health, npc_max_health, npc_spawn_health};
+    let mut r = rig();
+    let cop = &r.world.entities[0];
+    let spawn = npc_spawn_health(&r.scene, cop);
+    assert!(spawn > 0.);
+    assert_eq!(r.scene.states[0].value, 0., "not set before a first hit");
+    assert_eq!(npc_health(&r.scene, cop, 0), spawn);
+    assert_eq!(npc_max_health(&r.scene, cop, 0), spawn);
+    r.scene.npc_max_health.insert(0, spawn * 0.5);
+    r.scene.states[0].killed = true;
+    let cop = &r.world.entities[0];
+    assert_eq!(npc_health(&r.scene, cop, 0), 0.);
+    assert_eq!(npc_max_health(&r.scene, cop, 0), spawn * 0.5);
+}
+#[test]
 fn hurt_and_killed_cops_speak_their_pain_and_death_lines() {
     let mut r = rig();
     r.ai.enabled = true;

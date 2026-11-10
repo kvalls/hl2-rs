@@ -37,12 +37,28 @@ impl Gameplay {
             }
         }
     }
-    pub(super) fn apply_ai_results(&mut self, physics: &mut Physics) {
-        self.move_tongue_props(physics);
+    /// The scanners' flash lights, and the manhacks' bumps: their lights, ManhackCut decals and
+    /// pushes on props (kg in/s).
+    fn apply_flyer_marks(&mut self, physics: &mut Physics) {
         for at in self.ai.take_scanner_lights() {
             let light = hl2_simulation::ai::scanner::flash::light(at);
             self.push_shot_effect(super::ShotEffect::Light(light));
         }
+        let marks = std::mem::take(&mut self.ai.manhack_marks);
+        for light in marks.lights {
+            self.push_shot_effect(super::ShotEffect::Light(light));
+        }
+        for (prop, impulse, at) in marks.pushes {
+            physics.impulse_at(prop, impulse / 39.37, at);
+        }
+        for (hit, material) in marks.decals {
+            self.impacts
+                .add_decal(hit, material, &self.world, physics, &self.scene);
+        }
+    }
+    pub(super) fn apply_ai_results(&mut self, physics: &mut Physics) {
+        self.move_tongue_props(physics);
+        self.apply_flyer_marks(physics);
         for hit in std::mem::take(&mut self.ai.player_hits) {
             if hit.damage > 0. {
                 self.scene

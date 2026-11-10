@@ -341,11 +341,7 @@ pub(super) fn bullet_crab_release(
             Some(crate::ai::zombie::Kind::Classic | crate::ai::zombie::Kind::Poison)
         )
     {
-        let max = scene
-            .npc_max_health
-            .get(&id)
-            .copied()
-            .unwrap_or_else(|| npc_spawn_health(scene, e));
+        let max = super::npc_max_health(scene, e, id);
         let threshold = (damage / max.max(1e-6)).min(1.);
         let release = crate::ai::zombie::bullet_release(headshot, threshold);
         if release != crate::ai::zombie::BulletRelease::No {

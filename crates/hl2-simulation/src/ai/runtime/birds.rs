@@ -173,21 +173,34 @@ impl Air<'_> {
     /// One tick along the velocity, which what stops the body takes that part of away. The
     /// tick's length.
     pub fn step(&self, velocity: &mut Vec3, last_step: &mut f64, scene: &mut Scene) -> f32 {
-        let id = self.id;
-        let now = scene.time;
-        let dt = (now - *last_step).clamp(0., 0.1) as f32;
-        *last_step = now;
-        let origin = scene.states[id].origin;
-        let end = origin + *velocity * dt;
-        let hit = self.trace(origin, end);
-        let fraction = flight_fraction(&hit);
-        scene.states[id].origin = origin + (end - origin) * fraction;
-        if fraction < 1. {
+        let dt = tick(last_step, scene.time);
+        if let Some(hit) = self.sweep(*velocity, dt, scene) {
             let normal = hit.trace.normal;
             *velocity -= normal * velocity.dot(normal).min(0.);
         }
         dt
     }
+    /// Moves the body `velocity` for `dt` until something stops it; what stopped it.
+    pub fn sweep(
+        &self,
+        velocity: Vec3,
+        dt: f32,
+        scene: &mut Scene,
+    ) -> Option<crate::npc_probe::HullTrace> {
+        let origin = scene.states[self.id].origin;
+        let end = origin + velocity * dt;
+        let hit = self.trace(origin, end);
+        let fraction = flight_fraction(&hit);
+        scene.states[self.id].origin = origin + (end - origin) * fraction;
+        (fraction < 1.).then_some(hit)
+    }
+}
+
+/// The time since the body last moved, at most a tenth of a second; `last_step` becomes now.
+pub fn tick(last_step: &mut f64, now: f64) -> f32 {
+    let dt = (now - *last_step).clamp(0., 0.1) as f32;
+    *last_step = now;
+    dt
 }
 
 /// How much of a step a flying body takes. One that starts inside something moves freely: physics

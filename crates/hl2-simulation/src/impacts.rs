@@ -237,6 +237,7 @@ impl Impacts {
             .into_iter()
             .flat_map(|family| (1..=5).map(move |i| format!("decals/{family}/shot{i}")))
             .chain([crate::weapon_bugbait::SPLAT_DECAL.to_string()])
+            .chain(crate::ai::manhack::body::CUT_DECALS.map(String::from))
             .chain(
                 BLOOD_DECALS
                     .iter()
@@ -1072,7 +1073,10 @@ mod tests {
         // 21 world decals + Impact.Flesh's 5 subrects and their 5 $modelmaterials +
         // decals/beersplashmodel (studio decals) + the Blood/YellowBlood groups' 12
         // subrects and their 12 $modelmaterials (TraceBleed).
-        assert_eq!(impacts.textures.len(), 56, "{:?}", impacts.errors);
+        // Counted on the owned install (session 52): the list above came to 96 by then, and the
+        // ManhackCut group adds its 3 subrects and their 3 $modelmaterials.
+        assert_eq!(impacts.textures.len(), 102, "{:?}", impacts.errors);
+        assert!(impacts.textures.contains_key("decals/manhackcut3_subrect"));
         assert!(impacts.textures.contains_key("decals/blood1_subrect"));
         assert!(impacts.textures.contains_key("decals/yblood6_subrect"));
         assert!(impacts.textures.contains_key("decals/flesh/blood1"));

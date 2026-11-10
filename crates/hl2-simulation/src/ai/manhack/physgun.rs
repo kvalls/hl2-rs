@@ -46,7 +46,7 @@ impl Manhack {
                 true
             }
             NpcPhysgun::Push(speed) => {
-                self.hover.velocity += speed;
+                self.throw_body(self.body + speed);
                 false
             }
             // OnPhysGunPickup: the player is its physics attacker and it is held.
@@ -57,7 +57,7 @@ impl Manhack {
             }
             NpcPhysgun::Hold { velocity, yaw } => {
                 if self.held {
-                    self.hover.velocity = velocity;
+                    self.throw_body(velocity);
                     self.held_yaw = Some(yaw);
                 }
                 false
@@ -67,7 +67,7 @@ impl Manhack {
             NpcPhysgun::Drop { launch: None } => {
                 self.let_go();
                 self.punted_at = None;
-                self.hover.velocity = self.hover.velocity.clamp_length_max(DROP_SPEED);
+                self.throw_body(self.body.clamp_length_max(DROP_SPEED));
                 false
             }
             // LAUNCHED_BY_CANNON: cleared, launched, stalled and stunned, the player its physics
@@ -76,7 +76,7 @@ impl Manhack {
                 launch: Some(speed),
             } => {
                 self.let_go();
-                self.hover.velocity = speed.clamp_length_max(crate::physics::MAX_VELOCITY);
+                self.throw_body(speed.clamp_length_max(crate::physics::MAX_VELOCITY));
                 self.launch_spin();
                 self.stun(now);
                 true

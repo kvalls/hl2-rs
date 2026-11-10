@@ -25,6 +25,8 @@ pub enum EffectKind {
     TrailSmoke,
     /// One puff of a damaged manhack's SmokeTrail (`normal` is the body's velocity).
     ManhackSmoke,
+    /// A manhack's Bump: ManhackSparks, FX_SparkFan's 35 sparks along `normal`.
+    ManhackSparks,
 }
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct Effect {
@@ -48,6 +50,7 @@ impl Effect {
             EffectKind::Dust => 1.,
             EffectKind::TrailSmoke => 2.,
             EffectKind::ManhackSmoke => 1.,
+            EffectKind::ManhackSparks => f64::from(crate::explosion_particles::SPARK_FAN_LIFE),
             EffectKind::SporeExplosion => f64::from(crate::weapon_bugbait::DISTRACT_TIME) + 2.,
         }
     }

@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use source_assets::{keyvalues, vpk::Vfs};
 use std::collections::BTreeMap;
 
+mod health;
 mod hits;
+pub use health::{npc_health, npc_max_health, npc_spawn_health};
 pub use hits::{breakable_health, prop_data_of};
 
 #[derive(Clone, Default)]
@@ -2261,16 +2263,6 @@ pub struct NpcHitReport {
     pub health_after: f32,
     pub distance: f32,
     pub sneak_attack: bool,
-}
-/// An NPC's health before its first damage: the class's Spawn value from skill.cfg
-/// (`Skill::npc_health`), else the map's health keyvalue, else 40.
-pub fn npc_spawn_health(scene: &Scene, e: &modkit_core::Entity) -> f32 {
-    scene.skill.npc_entity_health(e).unwrap_or_else(|| {
-        e.get("health")
-            .and_then(|v| v.parse::<f32>().ok())
-            .filter(|v| *v > 0.)
-            .unwrap_or(40.)
-    })
 }
 /// Studio hitbox poses for this tick (the entity collider pose stage): every NPC with
 /// hitboxes takes its animated skeleton; dead/hidden ones are disabled.

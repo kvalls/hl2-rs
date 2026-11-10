@@ -275,6 +275,7 @@ impl Particles {
                 EffectKind::ManhackSmoke => {
                     self.trail_smoke(effect, &bullet::MANHACK_TRAIL, &mut rng)
                 }
+                EffectKind::ManhackSparks => self.spark_fan(effect, &mut rng),
                 // Sprite-only (projectile_visuals) or not drawn yet.
                 EffectKind::BoltGlow | EffectKind::Sparks => {}
             }
@@ -716,6 +717,7 @@ pub fn force_direction(origin: Vec3, magnitude: f32, physics: &Physics) -> Vec3 
 }
 
 mod bullet;
+pub use bullet::SPARK_FAN_LIFE;
 
 #[cfg(test)]
 mod tests {

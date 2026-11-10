@@ -66,7 +66,7 @@ impl Manhack {
         } else {
             report.force / PHYSICS_MASS
         };
-        self.hover.velocity += impulse + along * report.damage * HIT_PUSH;
+        self.knock(impulse, along * report.damage * HIT_PUSH);
         // VPhysicsTakeDamage pushes where the hit landed, which spins the body.
         self.jolt(impulse * PHYSICS_MASS, BLADE_HIT);
         self.stalled_until = now + HIT_STALL;
@@ -86,7 +86,10 @@ impl Manhack {
     /// The club's knock along `aim`: VPhysicsTakeDamage's damage x 200 over its mass and
     /// m_vForceVelocity's damage x 0.5.
     pub fn bat(&mut self, aim: Vec3, base: f32) {
-        self.hover.velocity += aim * base * (CLUB_FORCE / PHYSICS_MASS + CLUB_PUSH);
+        self.knock(
+            aim * base * CLUB_FORCE / PHYSICS_MASS,
+            aim * base * CLUB_PUSH,
+        );
     }
 }
 
@@ -124,11 +127,11 @@ mod tests {
         m.hurt(&report, (10., 25.), 9.5);
         assert_eq!(m.batted, Some((Vec3::X, 10.)));
         m.bat(Vec3::X, 10.);
-        let speed = 10. * (CLUB_FORCE / PHYSICS_MASS + CLUB_PUSH);
+        let knock = (m.body.x, m.hover.velocity.x);
+        let speeds = (10. * CLUB_FORCE / PHYSICS_MASS, 10. * CLUB_PUSH);
         assert!(
-            (m.hover.velocity.x - speed).abs() < 1e-3,
-            "{}",
-            m.hover.velocity.x
+            (knock.0 - speeds.0).abs() < 1e-3 && (knock.1 - speeds.1).abs() < 1e-3,
+            "{knock:?}"
         );
         assert!(m.stalled(9.99) && !m.stalled(10.));
         assert!(
@@ -183,8 +186,10 @@ mod tests {
         let mut m = Manhack::new(false, 5);
         let report = NpcDamage::new(1, true, 5., Vec3::Y * 77., DMG_BULLET);
         m.hurt(&report, (20., 25.), 3.);
-        let speed = 77. / PHYSICS_MASS + 5. * HIT_PUSH;
-        assert!((m.hover.velocity.y - speed).abs() < 1e-3);
+        // The hit's force moves the body; m_vForceVelocity, what it wants.
+        let shove = (m.body.y, m.hover.velocity.y);
+        assert!((shove.0 - 77. / PHYSICS_MASS).abs() < 1e-3, "{shove:?}");
+        assert!((shove.1 - 5. * HIT_PUSH).abs() < 1e-3, "{shove:?}");
         assert!(m.stalled(3.24) && !m.stalled(3.25) && !m.stunned && !m.smoking);
         let mut quiet = Manhack::new(false, 5);
         quiet.no_damage_effects = true;

@@ -440,6 +440,9 @@ pub struct AiRuntime {
     eaten: std::collections::BTreeSet<usize>,
     /// Props on a tongue this tick for the host: (prop, the velocity that keeps them on it).
     pub prop_moves: Vec<(usize, Vec3)>,
+    /// What the manhacks' bumps leave for the host this tick: lights, decals, pushes on props.
+    #[serde(skip)]
+    pub manhack_marks: super::manhack::BumpMarks,
     /// WeaponSound(SINGLE_NPC, soundtime) requests that start later (WeaponSoundRealtime
     /// schedules a machine gun's second sound ahead of the next think).
     #[serde(skip)]
@@ -773,6 +776,7 @@ impl AiRuntime {
             held_npcs: Default::default(),
             eaten: Default::default(),
             prop_moves: Vec::new(),
+            manhack_marks: Default::default(),
             delayed_sounds: Vec::new(),
             diagnostics: Diagnostics::default(),
             random: 0x9e37_79b9_7f4a_7c15,
@@ -2352,32 +2356,6 @@ fn swat_candidates(
         .collect()
 }
 
-/// The nearest horizontal spot (DIST_EPSILON outside) where `hull` at `origin` no longer
-/// overlaps the box, shallowest side first, among those `clear` accepts; None when it does
-/// not overlap or no side is clear.
-fn push_out_of_box(
-    origin: Vec3,
-    hull: crate::npc_probe::Hull,
-    box_lo: Vec3,
-    box_hi: Vec3,
-    clear: impl Fn(Vec3) -> bool,
-) -> Option<Vec3> {
-    let (lo, hi) = (origin + hull.mins, origin + hull.maxs);
-    if !overlaps(lo, hi, box_lo, box_hi) {
-        return None;
-    }
-    let mut moves = [
-        Vec3::X * (box_hi.x - lo.x),
-        -Vec3::X * (hi.x - box_lo.x),
-        Vec3::Y * (box_hi.y - lo.y),
-        -Vec3::Y * (hi.y - box_lo.y),
-    ];
-    moves.sort_by(|a, b| a.length().total_cmp(&b.length()));
-    moves
-        .into_iter()
-        .map(|m| origin + m + m.normalize_or_zero() * 0.03125)
-        .find(|p| clear(*p))
-}
 /// WorldSpaceCenter / EyePosition heights of an NPC by class (`ai_hull`).
 fn center_z(world: &World, id: usize) -> f32 {
     world

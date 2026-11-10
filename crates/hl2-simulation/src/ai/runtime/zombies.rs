@@ -263,12 +263,7 @@ pub(super) fn poison_stage(
         return;
     };
     if z.kind == zombie::Kind::Poison {
-        let max_health = scene
-            .npc_max_health
-            .get(&id)
-            .copied()
-            .unwrap_or_else(|| crate::gameplay::npc_spawn_health(scene, &world.entities[id]))
-            .max(1.);
+        let max_health = crate::gameplay::npc_max_health(scene, &world.entities[id], id).max(1.);
         z.poison_think(now, new_enemy, largest_hit / max_health);
         let origin = scene.states[id].origin;
         let enemy_distance = enemy.and_then(|e| {

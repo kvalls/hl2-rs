@@ -3,7 +3,7 @@
 //! round what stands in the way yet, so a wall stops it until its enemy moves.
 
 use super::super::host::PhysicsSight;
-use super::super::manhack::{self, Manhack};
+use super::super::manhack::{self, body, Bumped, Manhack};
 use super::super::metropolice::{CopRequest, PLAYER};
 use super::super::relationships::{classify, Class, Disposition, Relationships};
 use super::super::scanner::damage::effect as scanner_effect;
@@ -22,6 +22,8 @@ use crate::weapon_physcannon::NpcPhysgun;
 use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
+
+mod contact;
 
 /// sk_manhack_melee_dmg where skill.cfg leaves it out.
 const CUT_DAMAGE: f32 = 20.;
@@ -47,8 +49,8 @@ enum Cut {
     Npc(usize, Vec3),
     /// Thrown into something: this share of its max health.
     Smash(f32),
-    /// CheckCollisions met an entity: who, where and the surface's normal, still to be judged.
-    Touch(usize, Vec3, Vec3),
+    /// CheckCollisions met an entity: who and what it met, still to be judged.
+    Touch(usize, Bumped),
 }
 
 /// What a cut comes to: damage on the player, a slice, or the manhack's own smash.
@@ -82,34 +84,55 @@ fn enemy_view(origin: Vec3, feet: Vec3, eyes: Vec3) -> EnemyView {
     }
 }
 
-/// A think's collisions: a cut if it touches what it hunts, else a bump off what is in its way.
+/// A think's collisions: a cut if it touches what it hunts, else CheckCollisions' trace along a
+/// think of its body's flight. A body pressed on a surface by a motor still pushing into it meets
+/// that surface too (inferred: VPhysics keeps such a body in contact; not compared with native).
 fn collide(m: &mut Manhack, air: &Air, origin: Vec3, hit: Option<Cut>, now: f64) -> Option<Cut> {
+    let pressed = m.contact.take();
     if let Some(cut) = hit {
         return Some(cut);
     }
-    let ahead = air.trace(origin, origin + m.hover.velocity * THINK_INTERVAL as f32);
-    if ahead.trace.fraction < 1. {
-        return bump(m, ahead.trace.normal, now).map(Cut::Smash);
-    }
-    None
+    let reach = m.body * THINK_INTERVAL as f32;
+    let ahead = air.trace(origin, origin + reach);
+    let met = if ahead.trace.fraction < 1. || ahead.trace.start_solid {
+        Some(Bumped {
+            at: origin + reach * ahead.trace.fraction,
+            normal: ahead.trace.normal,
+            entity: ahead.entity,
+            start_solid: ahead.trace.start_solid,
+            sparks: None,
+        })
+    } else {
+        pressed.filter(|c| m.hover.velocity.dot(c.normal) < 0.)
+    };
+    bump(m, air, met?, origin, now).map(Cut::Smash)
 }
 
-/// Bump: it bounces off and its burst ends; the blades grind only on what stands across their
-/// plane, a wall and not a floor (the body turns only about its yaw, so its up is the world's);
-/// thrown moments ago, it smashes.
-fn bump(m: &mut Manhack, normal: Vec3, now: f64) -> Option<f32> {
+/// Bump: unless bumps are suppressed, what it wants turns off the surface, its blades slow and
+/// its burst ends; on what stands across the blades' plane, a wall and not a floor, they grind
+/// and spark; thrown moments ago, it smashes.
+fn bump(m: &mut Manhack, air: &Air, mut met: Bumped, origin: Vec3, now: f64) -> Option<f32> {
+    if m.bump_quiet(now) {
+        return None;
+    }
+    let speed = m.body.length();
     let before = m.hover.velocity;
-    let speed = before.length();
-    m.hover.bounce(normal);
+    let floor = air.trace(origin, origin - Vec3::Z * body::FLOOR_NEAR);
+    m.deflect_off(&met, floor.trace.fraction < 1., now);
     m.jolt(
         (m.hover.velocity - before) * manhack::PHYSICS_MASS,
         manhack::BLADE_HIT,
     );
     m.stop_burst(now);
+    m.bumps += 1;
     let up = m.attitude.rotation() * Vec3::Z;
-    if up.dot(normal).abs() < GRIND_ACROSS && !m.gagged() {
-        m.requests.push(CopRequest::Sound(manhack::GRIND));
+    if up.dot(met.normal).abs() < GRIND_ACROSS {
+        met.sparks = Some(body::spark_normal(met.normal, before));
+        if !m.gagged() {
+            m.requests.push(CopRequest::Sound(manhack::GRIND));
+        }
     }
+    m.bumped.push(met);
     m.smash(speed, now)
 }
 
@@ -123,7 +146,7 @@ fn blade_contact(
     player: &PlayerState,
     now: f64,
 ) -> Option<Cut> {
-    let mut reach = m.hover.velocity * THINK_INTERVAL as f32;
+    let mut reach = m.body * THINK_INTERVAL as f32;
     if m.held && near_carrier(player, origin) {
         reach = player.facing.normalize_or_zero() * CARRIER_REACH;
     }
@@ -137,10 +160,16 @@ fn blade_contact(
     if hit.trace.fraction >= 1. && !hit.trace.start_solid {
         return None;
     }
-    let at = origin + reach * hit.trace.fraction;
+    let met = Bumped {
+        at: origin + reach * hit.trace.fraction,
+        normal: hit.trace.normal,
+        entity: hit.entity,
+        start_solid: hit.trace.start_solid,
+        sparks: None,
+    };
     match hit.entity {
-        Some(entity) => Some(Cut::Touch(entity, at, hit.trace.normal)),
-        None => bump(m, hit.trace.normal, now).map(Cut::Smash),
+        Some(entity) => Some(Cut::Touch(entity, met)),
+        None => bump(m, air, met, origin, now).map(Cut::Smash),
     }
 }
 
@@ -225,7 +254,7 @@ impl Blades<'_> {
 fn reckon(
     m: &mut Manhack,
     cut: Cut,
-    (blades, scene): (&Blades, &Scene),
+    (blades, scene, air): (&Blades, &Scene, &Air),
     (origin, rate, player): (Vec3, (f32, f32), &PlayerState),
 ) -> Option<Paid> {
     let now = scene.time;
@@ -238,10 +267,10 @@ fn reckon(
             return Some(Paid::Player(damage));
         }
         Cut::Npc(victim, middle) => (victim, middle, blades.npc_victim(m, victim)),
-        Cut::Touch(victim, at, normal) => match blades.judge(m, scene, victim) {
-            Verdict::Slice(kind) => (victim, at, kind),
+        Cut::Touch(victim, met) => match blades.judge(m, scene, victim) {
+            Verdict::Slice(kind) => (victim, met.at, kind),
             Verdict::Spare => return None,
-            Verdict::Bump => return bump(m, normal, now).map(Paid::Smash),
+            Verdict::Bump => return bump(m, air, met, origin, now).map(Paid::Smash),
         },
     };
     let damage = m.slice_damage(rate, kind, guard, now);
@@ -546,6 +575,7 @@ impl AiRuntime {
         let now = scene.time;
         let per_second = scene.skill.get("sk_manhack_melee_dmg", CUT_DAMAGE);
         let (held, squads) = (&self.held_npcs, &mut self.squads);
+        let marks = &mut self.manhack_marks;
         let blades = Blades {
             world,
             relationships: &self.relationships,
@@ -602,17 +632,18 @@ impl AiRuntime {
                 m.next_steer = now + THINK_INTERVAL;
                 claim_slot(m, squads, squad, (enemy_id, now));
                 if m.smoking {
-                    smoke(scene, id, m.hover.velocity);
+                    smoke(scene, id, m.body);
                 }
                 if let Some(cut) = steer(m, &air, scene, enemy.as_ref(), player) {
                     let origin = scene.states[id].origin;
                     let ctx = (origin, rate, &player);
-                    if let Some(paid) = reckon(m, cut, (&blades, scene), ctx) {
+                    if let Some(paid) = reckon(m, cut, (&blades, scene, &air), ctx) {
                         cuts.push((id, paid, origin));
                     }
                 }
+                contact::show(m, &air, scene, marks);
             }
-            let dt = air.step(&mut m.hover.velocity, &mut m.last_step, scene);
+            let dt = contact::carry(m, &air, scene, marks);
             m.attitude.start(super::super::host::yaw_of(scene, id));
             match m.held_yaw {
                 Some(yaw) => m.attitude.hold(yaw, dt),
