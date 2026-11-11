@@ -330,13 +330,14 @@ fn add_static_decals(world: &mut World, vfs: &Vfs, errors: &mut Vec<String>) {
                     }
                 });
         if let Some(size) = size {
-            added.extend(modkit_core::decals::static_decal(
-                &world.surfaces,
-                origin,
-                size,
-                5.,
-                &material,
-            ));
+            let pieces =
+                modkit_core::decals::static_decal(&world.surfaces, origin, size, 5., &material);
+            if pieces.is_empty() {
+                errors.push(format!(
+                    "infodecal {material} at {origin}: no surface in reach"
+                ));
+            }
+            added.extend(pieces);
         }
     }
     world.surfaces.extend(added);
