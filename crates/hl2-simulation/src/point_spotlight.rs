@@ -1,7 +1,9 @@
 //! point_spotlight (DESIGN 14t): a lamp's volumetric beam and the halo at its start. Source SDK
 //! point_spotlight.cpp: an unparented spotlight is made once, at Activate
 //! (CreateEfficientSpotlight and ComputeRenderInfo): a trace along its angles that only brushes
-//! stop, then a glow_test02 beam from its origin to the hit, drawn like a scanner's.
+//! stop, then a glow_test02 beam from its origin to the hit, drawn like a scanner's. The beam has
+//! a halo texture, so the client draws it through DrawBeamWithHalo (view_beams.cpp): at its start
+//! width from end to end, whatever ComputeRenderInfo's end width says.
 use crate::ai::scanner::spotlight::Beam;
 use crate::physics::Physics;
 use glam::Vec3;
@@ -121,7 +123,7 @@ fn beam(id: usize, entity: &Entity, trace: &dyn Fn(Vec3, Vec3) -> Option<Vec3>) 
         start: origin,
         end,
         width,
-        end_width: (width * reached / length).clamp(0., MAX_BEAM_WIDTH),
+        end_width: width,
         fade_length: reached.min(length),
         color: color.to_array().map(|c| c.clamp(0., 255.) as u8),
         intensity: BRIGHTNESS * hdr,
@@ -176,12 +178,11 @@ mod tests {
     }
 
     #[test]
-    fn the_beam_ends_on_the_floor_and_narrows_with_what_it_reached() {
+    fn the_beam_ends_on_the_floor_as_wide_as_it_starts() {
         let beam = beam(4, &lamp(), &floor).expect("beam");
         assert_eq!(beam.start, Vec3::new(0., 0., 100.));
         assert!(beam.end.distance(Vec3::ZERO) < 1e-3, "{:?}", beam.end);
-        assert_eq!(beam.width, 64.);
-        assert!((beam.end_width - 64. * 100. / 256.).abs() < 1e-3);
+        assert_eq!((beam.width, beam.end_width), (64., 64.));
         assert!((beam.fade_length - 100.).abs() < 1e-3);
         assert_eq!(beam.color, [254, 216, 146]);
         assert!((beam.intensity - 64. * 0.7).abs() < 1e-4);
@@ -193,7 +194,7 @@ mod tests {
         let open = beam(0, &lamp(), &|_, _| None).expect("beam");
         assert!((open.end.z - (100. - 512.)).abs() < 1e-3);
         assert!((open.fade_length - 256.).abs() < 1e-3);
-        assert_eq!(open.end_width, MAX_BEAM_WIDTH);
+        assert_eq!(open.end_width, 64.);
         let mut through = lamp();
         through.properties.push(("IgnoreSolid".into(), "1".into()));
         assert!((beam(0, &through, &floor).expect("beam").end.z + 412.).abs() < 1e-3);
