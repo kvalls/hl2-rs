@@ -124,6 +124,8 @@ struct Walk {
     segment: (Vec3, Vec3),
     last: Option<usize>,
     budget: usize,
+    /// Whether the walk has reached an open leaf: until then it is in the solid it started in.
+    opened: bool,
 }
 fn default_dynamic_minlight() -> f32 {
     1.
@@ -292,12 +294,14 @@ impl LightingData {
         None
     }
     /// Fraction along start->end where the segment first enters an opaque leaf or one of
-    /// the opaque brushes an open leaf lists, and the last open leaf before it.
+    /// the opaque brushes a leaf lists, and the last open leaf before it. A segment that
+    /// starts in solid is startsolid: only a brush it enters stops it (CM_ClipBoxToBrush).
     pub fn trace(&self, start: Vec3, end: Vec3) -> Option<(f32, Option<usize>)> {
         let mut walk = Walk {
             segment: (start, end),
             last: None,
             budget: 4 * self.nodes.len() + 64,
+            opened: false,
         };
         self.trace_node(self.root, (0., 1.), (start, end), &mut walk)
             .map(|f| (f, walk.last))
@@ -318,11 +322,19 @@ impl LightingData {
             let Some(record) = self.leaves.get(leaf) else {
                 return Some(f1);
             };
+            let hit = self.leaf_brush_hit(record, walk.segment, (f1, f2));
             if record.contents & MASK_OPAQUE != 0 {
-                return Some(f1);
+                // Entered from open space, a solid leaf stops it even where no brush is listed;
+                // without brushes to say where the solid ends, one it starts in stops it too.
+                return if walk.opened || record.brushes.is_empty() {
+                    hit.or(Some(f1))
+                } else {
+                    hit
+                };
             }
+            walk.opened = true;
             walk.last = Some(leaf);
-            return self.leaf_brush_hit(record, walk.segment, (f1, f2));
+            return hit;
         }
         let node = self.nodes.get(id as usize)?;
         let t1 = node.normal.dot(p1) - node.distance;

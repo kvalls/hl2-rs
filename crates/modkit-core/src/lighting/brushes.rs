@@ -114,6 +114,27 @@ mod tests {
     }
 
     #[test]
+    fn a_trace_starting_in_a_solid_leaf_is_stopped_only_by_a_brush_it_enters() {
+        // split_world: leaf 0 open (x >= 0), leaf 1 solid (x < 0), made of one wall brush.
+        let mut world = super::super::tests::split_world();
+        world
+            .brushes
+            .push(cube(Vec3::new(-64., -64., -64.), Vec3::new(0., 64., 64.)));
+        world.leaves[1].brushes.push(0);
+        let light = super::super::tests::point_light(Vec3::new(50., 0., 0.), 100.);
+        // A lighting origin 4 units inside the wall still sees the light in the room.
+        let inside = Vec3::new(-4., 0., 0.);
+        assert_eq!(world.trace(inside, light.origin), None);
+        assert!(world.intensity_at(&light, inside).is_some());
+        // From the room, the wall still blocks a light behind it.
+        let behind = super::super::tests::point_light(Vec3::new(-30., 0., 0.), 100.);
+        let (f, _) = world
+            .trace(Vec3::new(20., 0., 0.), behind.origin)
+            .expect("wall");
+        assert!((f * 50. - 20.).abs() < 1e-3, "{f}");
+    }
+
+    #[test]
     fn a_detail_brush_in_an_open_leaf_blocks_the_light_behind_it() {
         let mut world = super::super::tests::split_world();
         let light = super::super::tests::point_light(Vec3::new(50., 0., 0.), 100.);
