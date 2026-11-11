@@ -135,6 +135,10 @@ pub struct World {
     /// Authored VPhysics solid parameters (.phy "solid" block) per model asset key.
     #[serde(default)]
     pub model_physics: std::collections::BTreeMap<String, PhysicsSolid>,
+    /// A static prop's .phy solid surfaceprop per model asset key: what a VPhysics trace
+    /// against its hull reports (static props have no `model_physics` entry).
+    #[serde(default)]
+    pub model_surfaceprops: std::collections::BTreeMap<String, String>,
     /// Ragdolls (.phy ragdoll section) per NPC model asset key, prepared at load.
     #[serde(default)]
     pub model_ragdolls: std::collections::BTreeMap<String, std::sync::Arc<RagdollModel>>,

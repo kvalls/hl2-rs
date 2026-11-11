@@ -157,11 +157,11 @@
   "crates/hl2-simulation/src/entities/choreography.rs": 1229,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1383,
-  "crates/hl2-simulation/src/physics.rs": 3423,
+  "crates/hl2-simulation/src/physics.rs": 3389,
   "crates/hl2-simulation/src/projectiles.rs": 1264,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1761,
-  "crates/source-assets/src/models.rs": 1295,
+  "crates/source-assets/src/models.rs": 1280,
   "crates/source-ui/src/widgets.rs": 2176
  },
  "functions": {
@@ -397,7 +397,7 @@
    112
   ],
   "crates/source-assets/src/models.rs::append_models_lod": [
-   340
+   332
   ],
   "crates/source-assets/src/phy.rs::read_solid": [
    160

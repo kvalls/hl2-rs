@@ -13,6 +13,20 @@ use std::{
 // VPhysics hulls can sit slightly outside a model's visible triangles. Keep
 // a bounded, same-receiver projection instead of painting the collision plane.
 // This is an approximate render-mesh adapter, not Source's studio decal system.
+/// How far a static prop's drawn mesh may sit from its hull for a decal (our bound, not a
+/// Source constant: a curved bench back or a tree trunk sits a few units inside its hull).
+const STATIC_PROP_GAP: f32 = 4.;
+/// How far from a hit its drawn receiver may lie: an entity model's hull 1.5 units (model
+/// space), a static prop's hull STATIC_PROP_GAP, the world's own faces nothing.
+fn receiver_gap(hit: &RayHit, world: &World, physics: &Physics, scale: f32) -> f32 {
+    if hit.entity < world.entities.len() {
+        1.5 / scale
+    } else if physics.static_surfaceprop(hit).is_some() {
+        STATIC_PROP_GAP
+    } else {
+        0.
+    }
+}
 fn receiver(
     surfaces: &[Surface],
     center: GVec3,
@@ -392,22 +406,11 @@ impl Impacts {
         let surfaces_ref = posed.as_deref().unwrap_or(surfaces);
         let center = rotation.inverse() * (hit.position - origin) / scale;
         let normal = rotation.inverse() * hit.normal;
-        let gap = if hit.entity < world.entities.len() {
-            1.5 / scale
-        } else {
-            0.
-        };
+        let gap = receiver_gap(hit, world, physics, scale);
         let Some((receiver, center)) = receiver(surfaces_ref, center, normal, gap) else {
             return Err(true);
         };
-        // A trace against a VPhysics prop reports its collision model's surfaceprop
-        // (the .phy solid's, e.g. the gas can's "metal"), not the texture's.
-        let prop = physics
-            .prop_materials
-            .get(&hit.entity)
-            .or_else(|| self.surfaceprops.get(&receiver.material))
-            .cloned()
-            .unwrap_or_else(|| "default".into());
+        let prop = self.hit_prop(hit, physics, &receiver.material);
         let surfaces = match posed {
             Some(posed) => std::borrow::Cow::Owned(posed),
             None => std::borrow::Cow::Borrowed(surfaces),
@@ -648,6 +651,18 @@ impl Impacts {
         let material = format!("decals/{family}/shot{}", self.created % 5 + 1);
         self.add_decal(hit, &material, world, physics, scene);
     }
+    /// A trace reports its collision model's surfaceprop: a VPhysics prop's .phy solid (the gas
+    /// can's "metal") or a static prop's hull, else the receiving texture's.
+    fn hit_prop(&self, hit: &RayHit, physics: &Physics, material: &str) -> String {
+        physics
+            .prop_materials
+            .get(&hit.entity)
+            .map(String::as_str)
+            .or_else(|| physics.static_surfaceprop(hit))
+            .or_else(|| self.surfaceprops.get(material).map(String::as_str))
+            .unwrap_or("default")
+            .to_owned()
+    }
     /// Surfaceprop of the surface a trace hit, None (counted) when it cannot be located.
     fn hit_surfaceprop(
         &mut self,
@@ -658,10 +673,16 @@ impl Impacts {
     ) -> Option<String> {
         match self.locate(hit, world, physics, scene) {
             Ok(located) => Some(located.prop),
-            Err(unclippable) => {
-                self.unclippable += usize::from(unclippable);
-                None
-            }
+            // A static prop's hull names its surface even where its drawn mesh is out of
+            // reach: the sound and particles play, and add_decal counts the decal it cannot
+            // place.
+            Err(unclippable) => match physics.static_surfaceprop(hit) {
+                Some(prop) => Some(prop.to_owned()),
+                None => {
+                    self.unclippable += usize::from(unclippable);
+                    None
+                }
+            },
         }
     }
     /// Queue a studio decal on an NPC: the world decal's size, drawn with its
@@ -1043,6 +1064,64 @@ mod tests {
         );
         assert_eq!(impacts.created, 257);
         assert_eq!(impacts.unclippable, 1);
+    }
+    /// A static prop's VPhysics hull can sit off its drawn mesh (a bench's curved back, a
+    /// tree's trunk): the hit still names the hull's .phy surfaceprop, and the drawn face
+    /// within STATIC_PROP_GAP receives it.
+    #[test]
+    fn static_prop_hull_hits_keep_their_surfaceprop_and_reach_the_mesh() {
+        let mut world = flat_world();
+        let key = "bench.mdl#0".to_owned();
+        // The hull's top is 2 units above the drawn triangle (world.surfaces, z = 0).
+        let corners = [-12f32, 12.];
+        let vertices = corners
+            .iter()
+            .flat_map(|&x| {
+                corners
+                    .iter()
+                    .flat_map(move |&y| [GVec3::new(x, y, -6.), GVec3::new(x, y, 2.)])
+            })
+            .collect();
+        world.model_collision.insert(
+            key.clone(),
+            vec![modkit_core::ConvexPiece {
+                vertices,
+                indices: Vec::new(),
+            }],
+        );
+        world
+            .model_surfaceprops
+            .insert(key.clone(), "wood_crate".into());
+        world.model_assets.insert(key, world.surfaces.clone());
+        world.model_instances.push(modkit_core::ModelInstance {
+            background: false,
+            model: "bench.mdl".into(),
+            origin: GVec3::ZERO,
+            angles: GVec3::ZERO,
+            skin: 0,
+            body: 0,
+            scale: 1.,
+            kind: "static_prop".into(),
+            solid: true,
+            solid_mode: Some(6),
+            entity: None,
+        });
+        let physics = Physics::new(&world);
+        let hit = physics
+            .impact_ray(GVec3::Z * 20., -GVec3::Z, 40.)
+            .expect("hull hit");
+        assert_eq!(hit.entity, usize::MAX);
+        assert!((hit.position.z - 2.).abs() < 0.05, "{:?}", hit.position);
+        assert_eq!(physics.static_surfaceprop(&hit), Some("wood_crate"));
+        let scene = Scene::new(&world);
+        let mut impacts = Impacts::default();
+        assert_eq!(
+            impacts
+                .hit_surfaceprop(&hit, &world, &physics, &scene)
+                .as_deref(),
+            Some("wood_crate")
+        );
+        assert_eq!(impacts.unclippable, 0);
     }
     #[test]
     fn collision_offset_snaps_only_to_nearest_bounded_visible_receiver() {

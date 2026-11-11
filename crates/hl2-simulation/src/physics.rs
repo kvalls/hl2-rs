@@ -209,6 +209,18 @@ fn groups_filter(groups: InteractionGroups) -> QueryFilter<'static> {
         .exclude_sensors()
         .predicate(&ENABLED)
 }
+/// The surfaceprop a model instance's colliders report: its authored VPhysics solid's, or a
+/// static prop's .phy surfaceprop (World::model_surfaceprops).
+fn solid_surfaceprop(
+    world: &World,
+    instance: &modkit_core::ModelInstance,
+    authored: Option<&modkit_core::PhysicsSolid>,
+) -> Option<String> {
+    authored
+        .map(|solid| &solid.surfaceprop)
+        .or_else(|| world.model_surfaceprops.get(&instance.asset_key()))
+        .cloned()
+}
 fn vector(p: Vec3) -> Vector<Real> {
     vector![p.x * SCALE, p.y * SCALE, p.z * SCALE]
 }
@@ -1324,7 +1336,7 @@ impl Physics {
         if let (Some(id), Some(s)) = (entity, &solid) {
             self.prop_materials.insert(id, s.surfaceprop.clone());
         }
-        let surfaceprop = solid.as_ref().map(|s| s.surfaceprop.clone());
+        let surfaceprop = solid_surfaceprop(world, instance, solid.as_ref());
         for shape in &cached.shapes {
             let collider = match material {
                 // VPhysics multiplies both surfaces' friction and elasticity
@@ -3135,52 +3147,6 @@ impl Physics {
         keep: &dyn Fn(usize) -> bool,
     ) -> Option<RayHit> {
         self.masked_ray(start, end, 0x0200_400b, keep)
-    }
-    /// `filtered_ray` with a contents mask for world brushes (MASK_BLOCKLOS is 0x4041:
-    /// world windows and grates do not block it).
-    pub fn masked_ray(
-        &self,
-        start: Vec3,
-        end: Vec3,
-        mask: u32,
-        keep: &dyn Fn(usize) -> bool,
-    ) -> Option<RayHit> {
-        let delta = end - start;
-        let length = delta.length();
-        if !length.is_finite() || length <= 1e-5 {
-            return None;
-        }
-        let direction = delta / length;
-        let predicate = |handle: ColliderHandle, collider: &Collider| {
-            let entity = (collider.user_data as usize).wrapping_sub(1);
-            collider.is_enabled()
-                && keep(entity)
-                && self
-                    .world_brush_contents
-                    .get(&handle)
-                    .is_none_or(|contents| contents & mask != 0)
-        };
-        let (handle, hit) = self.query.cast_ray_and_get_normal(
-            &self.bodies,
-            &self.colliders,
-            &Ray::new(
-                Point::from(vector(start)),
-                vector![direction.x, direction.y, direction.z],
-            ),
-            length * SCALE,
-            true,
-            QueryFilter::default()
-                .groups(QUERY_GROUPS)
-                .exclude_sensors()
-                .predicate(&predicate),
-        )?;
-        Some(RayHit {
-            entity: (self.colliders[handle].user_data as usize).wrapping_sub(1),
-            position: start + direction * (hit.time_of_impact / SCALE),
-            normal: Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z),
-            hitgroup: self.hitgroup(handle),
-            bone: self.hitbox_bone(handle),
-        })
     }
     /// Closest collision point on an entity, for radius attenuation. Models
     /// without a collider are handled explicitly by the caller.

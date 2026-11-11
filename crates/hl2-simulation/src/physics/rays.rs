@@ -4,7 +4,7 @@ use super::{
     PICK_GROUPS, QUERY_GROUPS, SCALE,
 };
 use glam::Vec3;
-use rapier3d::prelude::{nalgebra, InteractionGroups, Ray};
+use rapier3d::prelude::{nalgebra, InteractionGroups, QueryFilter, Ray};
 
 impl Physics {
     pub fn ray(&self, origin: Vec3, direction: Vec3, distance: f32) -> Option<(usize, Vec3)> {
@@ -138,5 +138,76 @@ impl super::Physics {
     pub fn studio_model(&self, id: usize) -> Option<&str> {
         let set = self.studio_hitboxes.get(&id)?;
         Some(set.asset_key.as_str())
+    }
+}
+impl Physics {
+    /// `filtered_ray` with a contents mask for world brushes (MASK_BLOCKLOS is 0x4041:
+    /// world windows and grates do not block it).
+    pub fn masked_ray(
+        &self,
+        start: Vec3,
+        end: Vec3,
+        mask: u32,
+        keep: &dyn Fn(usize) -> bool,
+    ) -> Option<RayHit> {
+        let delta = end - start;
+        let length = delta.length();
+        if !length.is_finite() || length <= 1e-5 {
+            return None;
+        }
+        let direction = delta / length;
+        let predicate = |handle: ColliderHandle, collider: &Collider| {
+            let entity = (collider.user_data as usize).wrapping_sub(1);
+            collider.is_enabled()
+                && keep(entity)
+                && self
+                    .world_brush_contents
+                    .get(&handle)
+                    .is_none_or(|contents| contents & mask != 0)
+        };
+        let (handle, hit) = self.query.cast_ray_and_get_normal(
+            &self.bodies,
+            &self.colliders,
+            &Ray::new(
+                Point::from(vector(start)),
+                vector![direction.x, direction.y, direction.z],
+            ),
+            length * SCALE,
+            true,
+            QueryFilter::default()
+                .groups(QUERY_GROUPS)
+                .exclude_sensors()
+                .predicate(&predicate),
+        )?;
+        Some(RayHit {
+            entity: (self.colliders[handle].user_data as usize).wrapping_sub(1),
+            position: start + direction * (hit.time_of_impact / SCALE),
+            normal: Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z),
+            hitgroup: self.hitgroup(handle),
+            bone: self.hitbox_bone(handle),
+        })
+    }
+    /// The `.phy` surfaceprop of the static prop a trace hit (`World::model_surfaceprops`):
+    /// its hull can sit off its drawn mesh (a bench's curved back, a tree's trunk), so the
+    /// drawn surface under the hit cannot name it. None for a hit on anything else.
+    pub fn static_surfaceprop(&self, hit: &RayHit) -> Option<&str> {
+        if hit.entity != usize::MAX {
+            return None;
+        }
+        let point = Point::from(vector(hit.position - hit.normal * 0.25));
+        let predicate = |handle: ColliderHandle, collider: &Collider| {
+            collider.user_data == 0 && self.collider_materials.contains_key(&handle)
+        };
+        let (handle, projection) = self.query.project_point(
+            &self.bodies,
+            &self.colliders,
+            &point,
+            true,
+            QueryFilter::default()
+                .exclude_sensors()
+                .predicate(&predicate),
+        )?;
+        let gap = (projection.point - point).norm() / SCALE;
+        (projection.is_inside || gap < 0.5).then(|| self.collider_materials[&handle].as_str())
     }
 }

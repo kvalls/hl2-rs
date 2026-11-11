@@ -580,8 +580,10 @@ fn parse_static(data: &[u8], version: u16) -> Result<Vec<ModelInstance>> {
 }
 mod bodygroups;
 mod chunks;
+mod collision;
 pub use bodygroups::{body_variants, RUNTIME_BODYGROUPS};
 pub use chunks::used_chunk_models;
+use collision::static_collision;
 mod ai_activities;
 mod geometry;
 mod prop_data;
@@ -792,17 +794,9 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
             && instance.solid_mode == Some(6)
             && collision_attempted.insert(instance.asset_key())
         {
-            match read_collision(vfs, &instance.model) {
-                Ok(Some(pieces)) => {
-                    report.collision_models_loaded += 1;
-                    report.collision_pieces_loaded += pieces.len();
-                    world.model_collision.insert(instance.asset_key(), pieces);
-                }
-                Ok(None) => report.collision_models_missing += 1,
-                Err(error) => report.collision_warnings.push(format!(
-                    "{}: {error:#}; using render collision fallback",
-                    instance.model
-                )),
+            if let Some((pieces, prop)) = static_collision(vfs, &instance.model, &mut report) {
+                world.model_collision.insert(instance.asset_key(), pieces);
+                world.model_surfaceprops.insert(instance.asset_key(), prop);
             }
         }
         // CAI_BaseNPC::SetupVPhysicsHull sets the shadow's mass from the studio header.
@@ -1301,15 +1295,6 @@ pub fn read_ragdoll(
         .map(|b| (b.name.clone(), b.inverse_bind.inverse()))
         .collect();
     crate::phy::ragdoll_model(&phy, checksum, &bones)
-}
-pub fn read_collision(vfs: &Vfs, model: &str) -> Result<Option<Vec<modkit_core::ConvexPiece>>> {
-    let stem = model.trim_end_matches(".mdl");
-    let Some(phy) = vfs.read(&format!("{stem}.phy"))? else {
-        return Ok(None);
-    };
-    let mdl = vfs.read(model)?.context("PHY companion MDL missing")?;
-    let checksum = crate::phy::identity_root_checksum(&mdl)?;
-    Ok(Some(crate::phy::read(&phy, checksum)?.pieces))
 }
 #[cfg(test)]
 mod tests {
