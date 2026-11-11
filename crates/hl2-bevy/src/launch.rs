@@ -49,7 +49,13 @@ pub(super) fn default_plugins(
                 },
                 title: "HL2-RS | Bevy/wgpu migration | gameplay migration preview".into(),
                 resolution: WindowResolution::new(options.width, options.height),
-                mode: video::mode::startup_mode(options.display_mode),
+                // A placed borderless window starts windowed where it was placed
+                // (`borderless_on_placed_monitor`).
+                mode: if placed_borderless(options) {
+                    bevy::window::WindowMode::Windowed
+                } else {
+                    video::mode::startup_mode(options.display_mode)
+                },
                 // macOS: Bevy's default hides the menu bar and Dock outright in
                 // borderless full screen; without it the native full-screen Space shows
                 // them (and the title bar) when the pointer reaches the top edge.
@@ -68,7 +74,43 @@ pub(super) fn default_plugins(
     }
 }
 
+/// `--window-at` with borderless full screen: a window can only be made full screen on the
+/// primary monitor before it exists, so it is created windowed at that position.
+fn placed_borderless(options: &Options) -> bool {
+    options.window_at.is_some()
+        && matches!(
+            video::mode::startup_mode(options.display_mode),
+            bevy::window::WindowMode::BorderlessFullscreen(_)
+        )
+}
+
+/// Once the placed window exists, it goes borderless full screen on its own monitor.
+fn borderless_on_placed_monitor(
+    mut windows: bevy::prelude::Query<
+        &mut Window,
+        (
+            bevy::prelude::With<bevy::window::PrimaryWindow>,
+            bevy::prelude::With<bevy::window::RawHandleWrapper>,
+        ),
+    >,
+    options: bevy::prelude::Res<Options>,
+    mut done: bevy::prelude::Local<bool>,
+) {
+    if *done {
+        return;
+    }
+    if let Ok(mut window) = windows.single_mut() {
+        window.mode = video::mode::desired_mode(options.display_mode);
+        *done = true;
+    }
+}
+
 pub(super) fn add_video_systems(app: &mut App) {
+    app.add_systems(
+        Update,
+        borderless_on_placed_monitor
+            .run_if(|options: bevy::prelude::Res<Options>| placed_borderless(&options)),
+    );
     app.add_systems(PreUpdate, crate::video::present_frame)
         .add_systems(PostUpdate, crate::video::update_present_gamma)
         .add_systems(PostUpdate, crate::video::sync_present_mode)
