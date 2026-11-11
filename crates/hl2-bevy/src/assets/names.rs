@@ -40,11 +40,40 @@ pub(super) fn rendered_material_names(world: &World) -> BTreeSet<String> {
         if !instance.entity.is_some_and(|id| visible_entity(world, id)) {
             continue;
         }
-        if let Some(surfaces) = world.model_assets.get(&instance.asset_key()) {
-            append(surfaces);
+        for body in drawable_bodies(world, instance) {
+            let key = modkit_core::ModelInstance {
+                body,
+                ..instance.clone()
+            }
+            .asset_key();
+            if let Some(surfaces) = world.model_assets.get(&key) {
+                append(surfaces);
+            }
         }
     }
     names
+}
+
+/// The instance's body and, for a class that sets bodygroups at runtime, every body it can
+/// switch to: the model loader preloads those meshes, so their materials load with the map
+/// (a manhack's blur is only in the bodies SpinBlades switches to).
+fn drawable_bodies(world: &World, instance: &modkit_core::ModelInstance) -> Vec<i32> {
+    use source_assets::models::{RUNTIME_BODYGROUPS, body_variants};
+    let class = instance
+        .entity
+        .and_then(|id| world.entities.get(id))
+        .map(|e| e.class());
+    let groups = RUNTIME_BODYGROUPS
+        .iter()
+        .find(|(c, _)| Some(*c) == class)
+        .map(|(_, groups)| *groups);
+    match (
+        groups,
+        world.model_body_parts.get(&instance.model.to_lowercase()),
+    ) {
+        (Some(groups), Some(parts)) => body_variants(parts, instance.body, groups),
+        _ => vec![instance.body],
+    }
 }
 
 pub(super) fn map_material_names(

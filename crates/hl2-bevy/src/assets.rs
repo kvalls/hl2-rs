@@ -1199,6 +1199,7 @@ mod tests {
                 entity("prop_dynamic", "visible.mdl", false),
                 entity("prop_dynamic", "hidden.mdl", true),
                 entity("prop_dynamic", "background.mdl", false),
+                entity("npc_manhack", "manhack.mdl", false),
             ],
             background_entities: vec![4, 7],
             brush_models: (1..=6)
@@ -1213,16 +1214,27 @@ mod tests {
                 instance("hidden.mdl", Some(6), false),
                 instance("background.mdl", Some(7), true),
                 instance("static.mdl", None, false),
+                instance("manhack.mdl", Some(8), false),
             ],
-            model_assets: ["visible", "hidden", "background", "static", "unused"]
-                .into_iter()
-                .map(|name| {
-                    (
-                        format!("{name}.mdl#0"),
-                        vec![surface(&format!("model-{name}"), false)],
-                    )
-                })
-                .collect(),
+            model_assets: [
+                "visible",
+                "hidden",
+                "background",
+                "static",
+                "unused",
+                "manhack",
+            ]
+            .into_iter()
+            .map(|name| {
+                (
+                    format!("{name}.mdl#0"),
+                    vec![surface(&format!("model-{name}"), false)],
+                )
+            })
+            // SpinBlades' blur body (BladeBlur on): drawn only after a runtime swap.
+            .chain([("manhack.mdl#0@2".into(), vec![surface("model-blur", false)])])
+            .collect(),
+            model_body_parts: [("manhack.mdl".into(), vec![(1, 1), (2, 1), (2, 2)])].into(),
             ..Default::default()
         };
         assert_eq!(
@@ -1237,6 +1249,8 @@ mod tests {
                 "brush-4".into(),
                 "model-hidden".into(),
                 "model-visible".into(),
+                "model-manhack".into(),
+                "model-blur".into(),
             ])
         );
     }
