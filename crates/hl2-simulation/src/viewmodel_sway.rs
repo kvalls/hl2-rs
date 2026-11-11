@@ -90,7 +90,10 @@ impl ViewmodelSway {
             if distance > MAX_LAG {
                 speed *= distance / MAX_LAG;
             }
-            let caught = (*last + difference * (speed * input.frame_time)).normalize_or_zero();
+            // Ours caps the step at the whole difference: a long frame (a hitch) would
+            // overshoot the facing and set it swinging.
+            let step = (speed * input.frame_time).min(1.);
+            let caught = (*last + difference * step).normalize_or_zero();
             *last = if caught == Vec3::ZERO {
                 forward
             } else {
@@ -153,6 +156,17 @@ mod tests {
             last = sway.place(input(Vec3::new(0., 10., 0.), 0., 1. + frame as f64 * 0.015));
         }
         assert!(last.offset.length() < 0.01, "{:?}", last.offset);
+    }
+
+    #[test]
+    fn a_long_frame_catches_up_without_overshooting() {
+        let mut sway = ViewmodelSway::default();
+        sway.place(input(Vec3::ZERO, 0., 1.));
+        let mut hitch = input(Vec3::new(0., 90., 0.), 0., 3.);
+        hitch.frame_time = 2.;
+        sway.place(hitch);
+        let after = sway.place(input(Vec3::new(0., 90., 0.), 0., 3.015));
+        assert!(after.offset.length() < 1e-4, "{:?}", after.offset);
     }
 
     #[test]
