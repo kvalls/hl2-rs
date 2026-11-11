@@ -510,9 +510,10 @@ mod tests {
 
         let mut cannon = Inventory::default();
         cannon.active = "weapon_physcannon".into();
+        // Closed prongs show the ready core and blast too (ItemPostFrame's EFFECT_READY).
         cannon.physcannon.show_effect(0.);
-        let closed = cannon.viewmodel_effects(0.);
-        assert_eq!((closed.sprites.len(), closed.beams.len()), (6, 0));
+        let closed = cannon.viewmodel_effects(0.5);
+        assert_eq!((closed.sprites.len(), closed.beams.len()), (8, 0));
         cannon.physcannon.open = true;
         cannon.physcannon.show_effect(1.);
         let ready = cannon.viewmodel_effects(1.5);

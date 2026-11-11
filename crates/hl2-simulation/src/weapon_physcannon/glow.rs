@@ -81,15 +81,15 @@ impl Glow {
 }
 
 impl PhyscannonState {
-    /// The effect the gun shows now: holding with something held or attack2 down, ready with
-    /// the prongs open.
+    /// The effect the gun shows now: holding with something held or attack2 down, else ready.
+    /// ItemPostFrame asks for EFFECT_READY every frame while attack2 is up and nothing is held
+    /// (retail's too), open prongs or not, so CloseElements' EFFECT_CLOSED never outlasts its
+    /// frame: the idle core stays lit at 0.15 and 128, and a press grows it from there.
     pub(crate) fn show_effect(&mut self, now: f64) {
         let effect = if self.held.is_some() || self.holding_effect {
             Effect::Holding
-        } else if self.open {
-            Effect::Ready
         } else {
-            Effect::Closed
+            Effect::Ready
         };
         self.glow.show(effect, now);
     }
@@ -182,6 +182,19 @@ mod tests {
         let (scale, brightness) = core_at(&glow, 1.1);
         assert!((scale - 0.1).abs() < 1e-4 && brightness == 255.);
         assert_eq!(core_at(&glow, 1.3), (0.2, 255.));
+    }
+
+    #[test]
+    fn idle_shows_the_ready_core_and_a_press_grows_it_from_there() {
+        let mut state = PhyscannonState::default();
+        // Prongs closed, attack2 up: EFFECT_READY after StartEffects' 0.1 and 255.
+        state.show_effect(0.);
+        assert_eq!(core_at(&state.glow, 0.5), (0.15, 128.));
+        state.holding_effect = true;
+        state.show_effect(1.);
+        let (scale, brightness) = core_at(&state.glow, 1.1);
+        assert!((scale - 0.175).abs() < 1e-4, "{scale}");
+        assert_eq!(brightness, 255.);
     }
 
     #[test]
