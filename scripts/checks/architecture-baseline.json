@@ -393,9 +393,6 @@
   "crates/source-assets/src/flexes.rs::run_rules": [
    143
   ],
-  "crates/source-assets/src/model_lighting.rs::read_with": [
-   112
-  ],
   "crates/source-assets/src/models.rs::append_models_lod": [
    332
   ],

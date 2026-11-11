@@ -1,11 +1,13 @@
 //! BSP lumps for model lighting: leaf tree, leaf ambient samples and world lights.
 //! LDR or HDR data follows the same choice as the lightmap atlas.
-use crate::{bytes, f32le, i16le, i32le, index, records, u16le, vec3};
+use crate::{bytes, f32le, i16le, i32le, index, records, u16le, u32le, vec3};
 use anyhow::{bail, Context, Result};
 use glam::Vec3;
 use modkit_core::lighting::{
-    AmbientSample, EmitType, LightLeaf, LightNode, LightingData, WorldLight,
+    AmbientSample, EmitType, LightLeaf, LightNode, LightingData, WorldLight, MASK_OPAQUE,
 };
+use modkit_core::{Brush, Plane};
+use std::collections::BTreeMap;
 
 /// ColorRGBExp32ToVector: channel * 2^exponent. Unlike lightmap texels
 /// (TexLightToLinear, divided by 255), the engine scales cube colors back by 255.
@@ -106,13 +108,27 @@ pub fn read_with(lumps: &[Vec<u8>], versions: &[u32], hdr: bool) -> Result<Light
                 ambient_count: count,
                 ambient_first: first,
                 sky_faces: Vec::new(),
+                brushes: Vec::new(),
             })
         })
         .collect::<Result<Vec<_>>>()?;
     add_sky_faces(lumps, hdr, &raw_leaves, &mut leaves)?;
-    let light_lump = lump(if hdr { 54 } else { 15 });
-    let stride = if light_lump.len() % 88 == 0 { 88 } else { 84 };
-    let lights = records(light_lump, stride)?
+    let brushes = add_leaf_brushes(lumps, &raw_leaves, &mut leaves, &planes)?;
+    Ok(LightingData {
+        root,
+        nodes,
+        leaves,
+        ambient,
+        lights: world_lights(lump(if hdr { 54 } else { 15 }))?,
+        dynamic_minlight: 1.,
+        brushes,
+    })
+}
+
+/// dworldlight_t records (84 bytes, or 88 with flags).
+fn world_lights(light_lump: &[u8]) -> Result<Vec<WorldLight>> {
+    let stride = if light_lump.len().is_multiple_of(88) { 88 } else { 84 };
+    records(light_lump, stride)?
         .map(|l| {
             let raw_kind = i32le(l, 40)?;
             Ok(WorldLight {
@@ -130,15 +146,70 @@ pub fn read_with(lumps: &[Vec<u8>], versions: &[u32], hdr: bool) -> Result<Light
                 flags: if stride == 88 { i32le(l, 76)? } else { 0 },
             })
         })
+        .collect::<Result<Vec<_>>>()
+}
+
+/// CM leafbrushes for the light visibility trace: each leaf lists the opaque brushes
+/// (MASK_OPAQUE, detail brushes included) it touches; each brush is stored once.
+fn add_leaf_brushes(
+    lumps: &[Vec<u8>],
+    raw_leaves: &[&[u8]],
+    leaves: &mut [LightLeaf],
+    planes: &[(Vec3, f32)],
+) -> Result<Vec<Brush>> {
+    let lump = |id: usize| lumps.get(id).map(Vec::as_slice).unwrap_or_default();
+    let sides = records(lump(19), 8)?.collect::<Vec<_>>();
+    let records18 = records(lump(18), 12)?.collect::<Vec<_>>();
+    let leafbrushes = records(lump(17), 2)?
+        .map(|r| u16le(r, 0))
         .collect::<Result<Vec<_>>>()?;
-    Ok(LightingData {
-        root,
-        nodes,
-        leaves,
-        ambient,
-        lights,
-        dynamic_minlight: 1.,
-    })
+    let mut brushes = Vec::new();
+    let mut slots: BTreeMap<u16, Option<u32>> = BTreeMap::new();
+    for (raw, leaf) in raw_leaves.iter().zip(leaves.iter_mut()) {
+        let start = usize::from(u16le(raw, 24)?);
+        let count = usize::from(u16le(raw, 26)?);
+        for &id in leafbrushes
+            .get(start..start + count)
+            .context("leaf brush range")?
+        {
+            let slot = match slots.get(&id) {
+                Some(slot) => *slot,
+                None => {
+                    let record = records18.get(usize::from(id)).context("brush index")?;
+                    let slot = opaque_brush(record, &sides, planes)?.map(|brush| {
+                        brushes.push(brush);
+                        (brushes.len() - 1) as u32
+                    });
+                    slots.insert(id, slot);
+                    slot
+                }
+            };
+            leaf.brushes.extend(slot);
+        }
+    }
+    Ok(brushes)
+}
+
+/// One dbrush_t with its dbrushside_t planes, when its contents are opaque.
+fn opaque_brush(record: &[u8], sides: &[&[u8]], planes: &[(Vec3, f32)]) -> Result<Option<Brush>> {
+    let contents = u32le(record, 8)?;
+    if contents & MASK_OPAQUE as u32 == 0 {
+        return Ok(None);
+    }
+    let start = usize::try_from(i32le(record, 0)?)?;
+    let count = usize::try_from(i32le(record, 4)?)?;
+    let planes = sides
+        .get(start..start + count)
+        .context("brush side range")?
+        .iter()
+        .map(|side| {
+            let (normal, distance) = *planes
+                .get(usize::from(u16le(side, 0)?))
+                .context("brush plane index")?;
+            Ok(Plane { normal, distance })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(Brush { planes, contents }))
 }
 
 /// Collect SURF_SKY/SURF_SKY2D face polygons for every leaf that lists them.
@@ -234,5 +305,26 @@ mod tests {
                 state.lights.len()
             );
         }
+    }
+    #[test]
+    #[ignore = "requires owned HL2 installation"]
+    fn owned_plaza_facade_of_detail_brushes_shades_the_sun() {
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
+        let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();
+        let data = crate::bsp::Bsp::parse_with(&bytes, true)
+            .unwrap()
+            .model_lighting_with(true)
+            .unwrap();
+        let sun = |p: Vec3| {
+            data.state_at(p)
+                .lights
+                .iter()
+                .any(|l| l.kind == modkit_core::lighting::ShaderLightKind::Directional)
+        };
+        // The sun line from the plaza pallet meets a facade of detail brushes (SOLID|DETAIL)
+        // 1121 units out, in leaves that are not solid: the vrad lightmaps there are unsunlit.
+        assert!(!sun(Vec3::new(-2231., -2250., 8.)), "pallet");
+        assert!(!sun(Vec3::new(-2205., -2120., 36.)), "bench");
+        assert!(sun(Vec3::new(-2231., -2250., 900.)), "above the roofs");
     }
 }

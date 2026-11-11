@@ -10,6 +10,8 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+mod brushes;
+
 /// Retail cvar defaults (r_worldlights, r_worldlightmin, r_ambientmin,
 /// r_ambientfraction) and the literal boost clamp.
 pub const MAX_LOCAL_LIGHTS: usize = 4;
@@ -22,7 +24,8 @@ const VISIBILITY_SLACK: f32 = 8.0;
 /// Skylight visibility trace length (retail 1.74 * 32768).
 const SKY_TRACE: f32 = 57016.32;
 /// Opaque world contents: CONTENTS_SOLID | CONTENTS_OPAQUE | CONTENTS_MOVEABLE.
-const MASK_OPAQUE: i32 = 0x4081;
+/// CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_OPAQUE: what the visibility trace stops on.
+pub const MASK_OPAQUE: i32 = 0x4081;
 const DWL_FLAGS_INAMBIENTCUBE: i32 = 1;
 /// +X, -X, +Y, -Y, +Z, -Z: Source ambient cube face order.
 pub const CUBE_AXES: [Vec3; 6] = [
@@ -90,6 +93,10 @@ pub struct LightLeaf {
     /// Sky-textured face polygons bounding this leaf, for skylight visibility.
     #[serde(default)]
     pub sky_faces: Vec<Vec<Vec3>>,
+    /// The opaque brushes this leaf lists (CM leafbrushes, detail brushes included), as
+    /// indices into [`LightingData::brushes`].
+    #[serde(default)]
+    pub brushes: Vec<u32>,
 }
 /// One leaf ambient sample: linear cube colors and a position as fractions
 /// (0..255) of its leaf bounds.
@@ -108,6 +115,15 @@ pub struct LightingData {
     /// The engine's per-map floor for dynamic-light minlight (`dynamic_minlight_floor`).
     #[serde(default = "default_dynamic_minlight")]
     pub dynamic_minlight: f32,
+    /// The opaque world brushes leaves list ([`LightLeaf::brushes`]).
+    #[serde(default)]
+    pub brushes: Vec<crate::Brush>,
+}
+/// One visibility trace's segment, its last open leaf and its node budget.
+struct Walk {
+    segment: (Vec3, Vec3),
+    last: Option<usize>,
+    budget: usize,
 }
 fn default_dynamic_minlight() -> f32 {
     1.
@@ -275,50 +291,54 @@ impl LightingData {
         }
         None
     }
-    /// Fraction along start->end where the segment first enters an opaque leaf,
-    /// and the last open leaf before it.
+    /// Fraction along start->end where the segment first enters an opaque leaf or one of
+    /// the opaque brushes an open leaf lists, and the last open leaf before it.
     pub fn trace(&self, start: Vec3, end: Vec3) -> Option<(f32, Option<usize>)> {
-        let mut budget = 4 * self.nodes.len() + 64;
-        let mut last = None;
-        self.trace_node(self.root, (0., 1.), (start, end), &mut last, &mut budget)
-            .map(|f| (f, last))
+        let mut walk = Walk {
+            segment: (start, end),
+            last: None,
+            budget: 4 * self.nodes.len() + 64,
+        };
+        self.trace_node(self.root, (0., 1.), (start, end), &mut walk)
+            .map(|f| (f, walk.last))
     }
     fn trace_node(
         &self,
         id: i32,
         (f1, f2): (f32, f32),
         (p1, p2): (Vec3, Vec3),
-        last: &mut Option<usize>,
-        budget: &mut usize,
+        walk: &mut Walk,
     ) -> Option<f32> {
-        if *budget == 0 {
+        if walk.budget == 0 {
             return None;
         }
-        *budget -= 1;
+        walk.budget -= 1;
         if id < 0 {
             let leaf = (-id - 1) as usize;
-            let contents = self.leaves.get(leaf).map_or(1, |l| l.contents);
-            if contents & MASK_OPAQUE != 0 {
+            let Some(record) = self.leaves.get(leaf) else {
+                return Some(f1);
+            };
+            if record.contents & MASK_OPAQUE != 0 {
                 return Some(f1);
             }
-            *last = Some(leaf);
-            return None;
+            walk.last = Some(leaf);
+            return self.leaf_brush_hit(record, walk.segment, (f1, f2));
         }
         let node = self.nodes.get(id as usize)?;
         let t1 = node.normal.dot(p1) - node.distance;
         let t2 = node.normal.dot(p2) - node.distance;
         if t1 >= 0. && t2 >= 0. {
-            return self.trace_node(node.children[0], (f1, f2), (p1, p2), last, budget);
+            return self.trace_node(node.children[0], (f1, f2), (p1, p2), walk);
         }
         if t1 < 0. && t2 < 0. {
-            return self.trace_node(node.children[1], (f1, f2), (p1, p2), last, budget);
+            return self.trace_node(node.children[1], (f1, f2), (p1, p2), walk);
         }
         let side = usize::from(t1 < 0.);
         let frac = (t1 / (t1 - t2)).clamp(0., 1.);
         let mid = p1 + (p2 - p1) * frac;
         let fm = f1 + (f2 - f1) * frac;
-        self.trace_node(node.children[side], (f1, fm), (p1, mid), last, budget)
-            .or_else(|| self.trace_node(node.children[1 - side], (fm, f2), (mid, p2), last, budget))
+        self.trace_node(node.children[side], (f1, fm), (p1, mid), walk)
+            .or_else(|| self.trace_node(node.children[1 - side], (fm, f2), (mid, p2), walk))
     }
     /// Mod_LeafAmbientColorAtPos: inverse-square-plus-one weighted leaf samples.
     pub fn leaf_ambient(&self, leaf: usize, point: Vec3) -> [Vec3; 6] {
@@ -738,7 +758,7 @@ impl LightState {
 mod tests {
     use super::*;
     /// One plane at x=0: front leaf 0 is open, back leaf 1 is solid.
-    fn split_world() -> LightingData {
+    pub(super) fn split_world() -> LightingData {
         let leaf = |contents| LightLeaf {
             contents,
             flags: 0,
@@ -747,6 +767,7 @@ mod tests {
             ambient_count: 0,
             ambient_first: 0,
             sky_faces: Vec::new(),
+            brushes: Vec::new(),
         };
         LightingData {
             root: 0,
@@ -759,9 +780,10 @@ mod tests {
             ambient: Vec::new(),
             lights: Vec::new(),
             dynamic_minlight: 1.,
+            brushes: Vec::new(),
         }
     }
-    fn point_light(origin: Vec3, intensity: f32) -> WorldLight {
+    pub(super) fn point_light(origin: Vec3, intensity: f32) -> WorldLight {
         WorldLight {
             origin,
             intensity: Vec3::splat(intensity),
