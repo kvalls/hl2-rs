@@ -2,6 +2,14 @@
 use super::Effects;
 use crate::gameplay::Gameplay;
 
+/// The effects' xorshift: the next value in [0, 1).
+pub(super) fn next_random(rng: &mut u64) -> f32 {
+    *rng ^= *rng << 13;
+    *rng ^= *rng >> 7;
+    *rng ^= *rng << 17;
+    (*rng >> 40) as f32 / (1u32 << 24) as f32
+}
+
 pub(super) fn shot_effects(
     game: &Gameplay,
     physics: &hl2_simulation::physics::Physics,
@@ -30,12 +38,7 @@ pub(super) fn shot_effects(
     source
         .beams
         .extend(lamps.copied().filter(|b| seen.in_pvs(b.entity)));
-    let mut random = || {
-        *rng ^= *rng << 13;
-        *rng ^= *rng >> 7;
-        *rng ^= *rng << 17;
-        (*rng >> 40) as f32 / (1u32 << 24) as f32
-    };
+    let mut random = || next_random(rng);
     for (serial, at, effect) in &game.shot_effects {
         if *serial <= *shot_serial {
             continue;

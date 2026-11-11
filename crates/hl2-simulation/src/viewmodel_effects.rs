@@ -383,6 +383,26 @@ pub fn attachment_size_factor(viewmodel_fov: f32, world_fov: f32) -> f32 {
         1.
     }
 }
+/// CSprite and CBeam entities on the viewmodel draw in the world pass before the viewmodel, so
+/// its silhouette covers them ($ignorez only skips the world's depth). Their quads move out
+/// along the viewmodel camera's rays (the same pixels) behind every part of the gun, whose depth
+/// then hides them; the viewmodel camera's far plane (1000) bounds the push.
+pub fn behind_viewmodel(quads: &mut [Quad], camera: Vec3) {
+    const PUSH: f32 = 20.;
+    const FARTHEST: f32 = 900.;
+    for quad in quads {
+        let reach = quad
+            .positions
+            .iter()
+            .map(|p| p.distance(camera))
+            .fold(0., f32::max);
+        let push = PUSH.min(FARTHEST / reach.max(1e-3));
+        for p in &mut quad.positions {
+            *p = camera + (*p - camera) * push;
+        }
+    }
+}
+
 /// Viewmodel-space quads: billboards facing the viewmodel camera (+X) and camera-facing
 /// beam strips (8 segments with noise). `random` returns [0, 1); `sprite_width` the
 /// texture width of a material (None skips it); `size_factor` from
@@ -522,6 +542,29 @@ mod tests {
         cannon.physcannon.show_effect(2.);
         let holding = cannon.viewmodel_effects(2.5);
         assert_eq!((holding.sprites.len(), holding.beams.len()), (9, 4));
+    }
+
+    #[test]
+    fn quads_move_behind_the_viewmodel_along_the_camera_rays() {
+        let camera = Vec3::new(-2., 0., 1.);
+        let mut quads = vec![Quad {
+            material: "glow".into(),
+            positions: [
+                Vec3::new(10., 1., 1.),
+                Vec3::new(10., -1., 1.),
+                Vec3::new(10., -1., 3.),
+                Vec3::new(10., 1., 3.),
+            ],
+            color: [255; 4],
+            uv: [[0., 0.]; 4],
+        }];
+        let before = quads[0].positions;
+        behind_viewmodel(&mut quads, camera);
+        for (old, new) in before.iter().zip(quads[0].positions) {
+            let (a, b) = ((*old - camera).normalize(), (new - camera).normalize());
+            assert!(a.dot(b) > 0.999_999, "same pixel");
+            assert!(new.distance(camera) > 200. && new.distance(camera) < 900.);
+        }
     }
 
     #[test]

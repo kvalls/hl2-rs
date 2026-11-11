@@ -1,5 +1,6 @@
 //! Depth-tested host adapter for shared owned projectile sprites and impact marks.
 mod gibs;
+mod initial;
 mod material;
 mod model_reading;
 mod shots;
@@ -175,6 +176,10 @@ pub struct Effects {
     viewmodel_quads: Vec<QuadDraw>,
     viewmodel_draws: usize,
     rng: u64,
+    /// The viewmodel's bob and lag, and the viewmodel camera's position in viewmodel space
+    /// (Source axes) that its sway gives (`camera::present_player_view`).
+    pub(crate) viewmodel_sway: hl2_simulation::viewmodel_sway::ViewmodelSway,
+    pub(crate) viewmodel_camera: glam::Vec3,
     /// The newest crossbow load effect already given its CrossbowLoad sparks.
     load_sparks: f64,
     /// The newest gravity gun EFFECT_LAUNCH already given its GaussExplosion.
@@ -324,34 +329,11 @@ pub fn install(
         ));
     }
     // Move CPU sprite state out of PreparedMap after all owned images are uploaded.
-    commands.insert_resource(Effects {
-        source: ProjectileVisuals::empty(),
-        materials: handles,
-        quads: Vec::new(),
-        marks: BTreeMap::new(),
+    commands.insert_resource(Effects::new(
+        handles,
         grenade_meshes,
-        grenades: BTreeMap::new(),
-        stuck: BTreeMap::new(),
-        viewmodel_quads: Vec::new(),
-        viewmodel_draws: 0,
-        rng: 0x2545_f491_4f6c_dd1d,
-        load_sparks: f64::NEG_INFINITY,
-        launch_sparks: f64::NEG_INFINITY,
-        shot_serial: 0,
-        player_flash: f64::NEG_INFINITY,
-        player_muzzle_lights: 0,
-        elight_time: 0.,
-        model_errors: loaded.effects.model_errors.clone(),
-        draws: 0,
-        grenade_draws: 0,
-        mark_draws: 0,
-        pose_mismatches: 0,
-        observed_decals: 0,
-        observed_grenades: 0,
-        gibs: BTreeMap::new(),
-        gib_state: BTreeMap::new(),
-        gib_draws: 0,
-    });
+        loaded.effects.model_errors.clone(),
+    ));
 }
 pub fn adopt(source: ProjectileVisuals, commands: &mut Commands) {
     commands.queue(move |world: &mut World| {
@@ -557,12 +539,7 @@ fn viewmodel_quads(
         {
             let world = eye + forward * local.x - right * local.y * factor + up * local.z * factor;
             let rng = &mut effects.rng;
-            let mut random = || {
-                *rng ^= *rng << 13;
-                *rng ^= *rng >> 7;
-                *rng ^= *rng << 17;
-                (*rng >> 40) as f32 / (1u32 << 24) as f32
-            };
+            let mut random = || shots::next_random(rng);
             effects.source.muzzle.elights.muzzle_flash(
                 VIEWMODEL_LIGHT_KEY,
                 world,
@@ -593,12 +570,7 @@ fn viewmodel_quads(
         if at > effects.launch_sparks {
             effects.launch_sparks = at;
             let r = &mut effects.rng;
-            let mut unit = || {
-                *r ^= *r << 13;
-                *r ^= *r >> 7;
-                *r ^= *r << 17;
-                (*r >> 40) as f32 / (1u32 << 24) as f32 * 2. - 1.
-            };
+            let mut unit = || shots::next_random(r) * 2. - 1.;
             let direction = glam::Vec3::new(unit(), unit(), unit());
             effects
                 .source
@@ -629,12 +601,7 @@ fn viewmodel_quads(
             .and_then(|a| rig.attachment_matrix(&matrices, a))
         {
             let rng = &mut effects.rng;
-            let mut random = || {
-                *rng ^= *rng << 13;
-                *rng ^= *rng >> 7;
-                *rng ^= *rng << 17;
-                (*rng >> 40) as f32 / (1u32 << 24) as f32
-            };
+            let mut random = || shots::next_random(rng);
             effects.source.muzzle.flash(
                 kind,
                 true,
@@ -655,12 +622,7 @@ fn viewmodel_quads(
     flashes.retain(|q| effects.source.sprites.contains_key(&q.material));
     let sprites = &effects.source.sprites;
     let rng = &mut effects.rng;
-    let mut random = || {
-        *rng ^= *rng << 13;
-        *rng ^= *rng >> 7;
-        *rng ^= *rng << 17;
-        (*rng >> 40) as f32 / (1u32 << 24) as f32
-    };
+    let mut random = || shots::next_random(rng);
     let mut quads = vm::viewmodel_quads(
         &described,
         &|anchor| vm::anchor_position(rig, &matrices, anchor),
@@ -668,6 +630,7 @@ fn viewmodel_quads(
         &mut random,
         vm::attachment_size_factor(viewmodel_fov, world_fov),
     );
+    vm::behind_viewmodel(&mut quads, effects.viewmodel_camera);
     quads.extend(flashes);
     quads
 }
