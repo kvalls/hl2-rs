@@ -224,10 +224,12 @@ impl Impacts {
         }
         let mut result = Self {
             properties,
+            // Static props' hulls are VPhysics objects too (World::model_surfaceprops).
             vphysics_props: world
                 .model_physics
                 .values()
                 .map(|s| s.surfaceprop.clone())
+                .chain(world.model_surfaceprops.values().cloned())
                 .collect(),
             ..Default::default()
         };
@@ -306,11 +308,9 @@ impl Impacts {
             .flat_map(|p| {
                 ["bulletimpact", "stepleft", "stepright"].map(|key| self.property(p, key))
             })
-            .chain(
-                self.vphysics_props
-                    .iter()
-                    .flat_map(|p| ["impacthard", "impactsoft"].map(|key| self.property(p, key))),
-            )
+            .chain(self.vphysics_props.iter().flat_map(|p| {
+                ["impacthard", "impactsoft", "bulletimpact"].map(|key| self.property(p, key))
+            }))
             .flatten()
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
