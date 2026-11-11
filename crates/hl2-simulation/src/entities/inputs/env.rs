@@ -189,3 +189,8 @@ pub(super) fn combine_camera(scene: &mut Scene, d: &Delivery) -> bool {
 pub(super) fn commentary_node(scene: &mut Scene, d: &Delivery) -> bool {
     crate::commentary::CommentaryState::handle_input(scene, d.world, d.id, d.input)
 }
+
+/// point_spotlight's LightOn and LightOff (its beam, DESIGN 14t).
+pub(super) fn point_spotlight(scene: &mut Scene, d: &Delivery) -> bool {
+    scene.spotlights.input(d.id, d.input)
+}

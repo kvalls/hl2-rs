@@ -16,6 +16,7 @@ mod movers;
 mod parenting;
 mod sequences;
 mod startup;
+pub use startup::weapon_idle_activity;
 mod triggers;
 mod turning;
 use turning::{angle_diff, clamp_yaw};
@@ -352,14 +353,6 @@ pub struct SceneAnimationState {
 pub fn metropolice_idle_activity(entity: &Entity) -> &'static str {
     weapon_idle_activity(entity.get("additionalequipment").unwrap_or(""))
 }
-/// ACT_IDLE through a held weapon's acttable (CAI_BaseNPC::TranslateActivity:
-/// NPC_TranslateActivity, identity at idle outside combat and the player's squad, then
-/// Weapon_TranslateActivity): weapon_pistol -> ACT_IDLE_PISTOL, weapon_smg1 ->
-/// ACT_IDLE_SMG1 ...; unarmed or a weapon without an ACT_IDLE row: ACT_IDLE.
-pub fn weapon_idle_activity(weapon: &str) -> &'static str {
-    crate::npc_weapons::translate(&weapon.trim().to_ascii_lowercase(), "ACT_IDLE")
-        .unwrap_or("ACT_IDLE")
-}
 pub struct Scene {
     pub states: Vec<State>,
     /// KeyValues set at runtime by AddOutput, by (entity, lowercase key).
@@ -445,6 +438,8 @@ pub struct Scene {
     pub maker_inputs: Vec<(usize, String, String)>,
     /// Template NPCs and npc_template_makers (DESIGN 14s).
     pub makers: crate::npc_makers::NpcMakers,
+    /// point_spotlights: which are lit and their beams (DESIGN 14t).
+    pub spotlights: crate::point_spotlight::Spotlights,
     /// skill.cfg values (NPC health, hitgroup damage); SDK defaults when absent.
     pub skill: crate::skill::Skill,
     /// Diagnostics: the last bullet/club hit on an NPC.
@@ -703,6 +698,7 @@ impl Scene {
             ai_inputs: Vec::new(),
             maker_inputs: Vec::new(),
             makers: Default::default(),
+            spotlights: Default::default(),
             skill: Default::default(),
             last_npc_hit: None,
             npc_damage: Vec::new(),
@@ -758,6 +754,7 @@ impl Scene {
         scene.hold_template_children(world);
         // MapEntity_ParseAllEntities removes SF_NPC_TEMPLATE NPCs (npc_template_maker).
         scene.makers = crate::npc_makers::NpcMakers::new(world, &mut scene.states);
+        scene.spotlights = crate::point_spotlight::Spotlights::new(world);
         scene.setup_spawn_parents(world);
         scene.start_logic(world, new_game);
         scene

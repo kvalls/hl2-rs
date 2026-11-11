@@ -570,6 +570,9 @@ impl ProjectileVisuals {
         self.quad(HALO_SPRITE, halo.at, axes, halo.size, 0., halo.brightness);
         if let Some(quad) = self.quads.get_mut(before) {
             quad.material.push_str(GLOW_SUFFIX);
+            for (channel, tint) in quad.color.iter_mut().zip(halo.color) {
+                *channel = (u16::from(*channel) * u16::from(tint) / 255) as u8;
+            }
         }
     }
 

@@ -60,15 +60,23 @@ pub struct Spotlight {
     pub reach: f32,
 }
 
-/// What the host draws: the width is the same at both ends.
+/// What the host draws (CBeam with FBEAM_SHADEOUT): a scanner's or a point_spotlight's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Beam {
     pub entity: usize,
     pub start: Vec3,
     pub end: Vec3,
+    /// Its width at the start and at the end.
     pub width: f32,
+    pub end_width: f32,
     /// How far along the beam it fades out.
     pub fade_length: f32,
+    /// Its color, and its brightness of 255 with the HDR color scale applied.
+    pub color: [u8; 3],
+    pub intensity: f32,
+    /// SetHaloScale (half the halo's side) and the HDR scale on the halo's color.
+    pub halo_size: f32,
+    pub halo_hdr: f32,
 }
 
 impl Spotlight {
@@ -123,7 +131,12 @@ impl Spotlight {
             start,
             end: self.end,
             width,
+            end_width: width,
             fade_length: self.length.min(self.reach),
+            color: [255; 3],
+            intensity: BRIGHTNESS,
+            halo_size: HALO_SIZE,
+            halo_hdr: HDR_SCALE,
         }
     }
 }
@@ -132,6 +145,8 @@ impl Spotlight {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Halo {
     pub at: Vec3,
+    /// The beam's color, which the halo takes.
+    pub color: [u8; 3],
     /// Half its side, in units.
     pub size: f32,
     pub brightness: f32,
@@ -180,8 +195,9 @@ impl Beam {
         let fade = facing * 2.;
         Some(Halo {
             at: self.start,
-            size: grown.clamp(1., 2.) * HALO_SIZE,
-            brightness: (fade * fade).clamp(0., 1.) * HDR_SCALE,
+            color: self.color,
+            size: grown.clamp(1., 2.) * self.halo_size,
+            brightness: (fade * fade).clamp(0., 1.) * self.halo_hdr,
             entity: self.entity,
         })
     }
@@ -198,7 +214,8 @@ impl Beam {
         let at = |piece: usize| piece as f32 / PIECES as f32;
         let edge = |piece: usize| {
             let point = self.start + run * at(piece);
-            let side = run.cross(point - eye).normalize_or_zero() * self.width * 0.5;
+            let width = self.width + (self.end_width - self.width) * at(piece);
+            let side = run.cross(point - eye).normalize_or_zero() * width * 0.5;
             [point - side, point + side]
         };
         let dimming = self.dimming(eye);
@@ -212,11 +229,12 @@ impl Beam {
                 return None;
             }
             let (near, far) = (at(piece), at(piece + 1));
-            let shade = (self.brightness(near) * dimming * BRIGHTNESS).round() as u8;
+            let shade = self.brightness(near) * dimming * self.intensity / 255.;
+            let [red, green, blue] = self.color.map(|c| (f32::from(c) * shade).round() as u8);
             Some(Quad {
                 material: BEAM_SPRITE.into(),
                 positions: [a, b, d, c],
-                color: [shade, shade, shade, 255],
+                color: [red, green, blue, 255],
                 uv: [[1., near], [0., near], [0., far], [1., far]],
             })
         })
@@ -341,7 +359,12 @@ mod tests {
             start: Vec3::ZERO,
             end: Vec3::NEG_Z * 400.,
             width: 32.,
+            end_width: 32.,
             fade_length,
+            color: [255; 3],
+            intensity: BRIGHTNESS,
+            halo_size: HALO_SIZE,
+            halo_hdr: HDR_SCALE,
         }
     }
 

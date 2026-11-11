@@ -704,7 +704,7 @@ pub fn present(
         .muzzle
         .elights
         .decay(game.scene.time, frametime);
-    shots::shot_effects(&game, &mut effects);
+    shots::shot_effects(&game, &sim.physics, &mut effects);
     effects.source.frame(
         &game.projectiles,
         glam::Vec3::from_array(sim.view_origin().to_array()),

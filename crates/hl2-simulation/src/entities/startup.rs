@@ -1,5 +1,5 @@
 //! The last steps of a scene's construction at map start.
-use super::{number, output, parse_vec3, weapon_idle_activity, Diagnostics, Scene, State};
+use super::{number, output, parse_vec3, Diagnostics, Scene, State};
 use crate::physics;
 use glam::{Quat, Vec3};
 use modkit_core::{Entity, World};
@@ -274,4 +274,13 @@ impl Scene {
             }
         }
     }
+}
+
+/// ACT_IDLE through a held weapon's acttable (CAI_BaseNPC::TranslateActivity:
+/// NPC_TranslateActivity, identity at idle outside combat and the player's squad, then
+/// Weapon_TranslateActivity): weapon_pistol -> ACT_IDLE_PISTOL, weapon_smg1 ->
+/// ACT_IDLE_SMG1 ...; unarmed or a weapon without an ACT_IDLE row: ACT_IDLE.
+pub fn weapon_idle_activity(weapon: &str) -> &'static str {
+    crate::npc_weapons::translate(&weapon.trim().to_ascii_lowercase(), "ACT_IDLE")
+        .unwrap_or("ACT_IDLE")
 }

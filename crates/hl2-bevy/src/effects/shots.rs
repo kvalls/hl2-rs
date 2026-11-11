@@ -2,7 +2,11 @@
 use super::Effects;
 use crate::gameplay::Gameplay;
 
-pub(super) fn shot_effects(game: &Gameplay, effects: &mut Effects) {
+pub(super) fn shot_effects(
+    game: &Gameplay,
+    physics: &hl2_simulation::physics::Physics,
+    effects: &mut Effects,
+) {
     use crate::gameplay::ShotEffect;
     use hl2_simulation::muzzle_effects as fx;
     let Effects {
@@ -21,6 +25,9 @@ pub(super) fn shot_effects(game: &Gameplay, effects: &mut Effects) {
     let beams = game.ai.scanner_beams(&game.scene);
     let seen = &game.scene.look_targets;
     source.beams.extend(beams.filter(|b| seen.in_pvs(b.entity)));
+    // Lit point_spotlights: still lamps, drawn where their beams are ahead of the view.
+    let lamps = game.scene.spotlights.beams(&game.world, physics);
+    source.beams.extend(lamps.copied());
     let mut random = || {
         *rng ^= *rng << 13;
         *rng ^= *rng >> 7;

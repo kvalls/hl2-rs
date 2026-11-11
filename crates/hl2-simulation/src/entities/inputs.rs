@@ -56,6 +56,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("env_physimpact", env::physimpact),
     ("ambient_generic", env::ambient_generic),
     ("npc_combine_camera", env::combine_camera),
+    ("point_spotlight", env::point_spotlight),
     ("point_commentary_node", env::commentary_node),
 ];
 

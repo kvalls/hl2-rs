@@ -187,6 +187,37 @@ impl Physics {
             bone: self.hitbox_bone(handle),
         })
     }
+    /// MASK_SOLID_BRUSHONLY: where a trace from `start` to `end` meets the world's solid
+    /// brushes, which alone stop it (a point_spotlight's beam).
+    pub fn brush_ray(&self, start: Vec3, end: Vec3) -> Option<Vec3> {
+        const MASK_SOLID_BRUSHONLY: u32 = 0x400b;
+        let delta = end - start;
+        let length = delta.length();
+        if !length.is_finite() || length <= 1e-5 {
+            return None;
+        }
+        let direction = delta / length;
+        let predicate = |handle: ColliderHandle, _: &Collider| {
+            self.world_brush_contents
+                .get(&handle)
+                .is_some_and(|contents| contents & MASK_SOLID_BRUSHONLY != 0)
+        };
+        let (_, toi) = self.query.cast_ray(
+            &self.bodies,
+            &self.colliders,
+            &Ray::new(
+                Point::from(vector(start)),
+                nalgebra::vector![direction.x, direction.y, direction.z],
+            ),
+            length * SCALE,
+            true,
+            QueryFilter::default()
+                .groups(QUERY_GROUPS)
+                .exclude_sensors()
+                .predicate(&predicate),
+        )?;
+        Some(start + direction * (toi / SCALE))
+    }
     /// The `.phy` surfaceprop of the static prop a trace hit (`World::model_surfaceprops`):
     /// its hull can sit off its drawn mesh (a bench's curved back, a tree's trunk), so the
     /// drawn surface under the hit cannot name it. None for a hit on anything else.
