@@ -427,7 +427,13 @@ pub fn attention_pvs(
         eyes.push(camera.origin);
     }
     let mut visible = std::collections::BTreeSet::new();
-    let beams = game.ai.scanner_beams(&game.scene);
+    // Scanner beams and lit point_spotlights: near when any of the beam can be seen.
+    let lamps = game
+        .scene
+        .spotlights
+        .beams(&game.world, &sim.physics)
+        .copied();
+    let beams = game.ai.scanner_beams(&game.scene).chain(lamps);
     let beams: std::collections::BTreeMap<_, _> = beams.map(|b| (b.entity, b)).collect();
     for (id, entity) in game.world.entities.iter().enumerate() {
         let tongue = game.scene.tongues.get(&id);

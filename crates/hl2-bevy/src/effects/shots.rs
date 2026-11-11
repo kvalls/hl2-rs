@@ -25,9 +25,11 @@ pub(super) fn shot_effects(
     let beams = game.ai.scanner_beams(&game.scene);
     let seen = &game.scene.look_targets;
     source.beams.extend(beams.filter(|b| seen.in_pvs(b.entity)));
-    // Lit point_spotlights: still lamps, drawn where their beams are ahead of the view.
+    // Lit point_spotlights, in the view's PVS like the scanners' beams (attention_pvs).
     let lamps = game.scene.spotlights.beams(&game.world, physics);
-    source.beams.extend(lamps.copied());
+    source
+        .beams
+        .extend(lamps.copied().filter(|b| seen.in_pvs(b.entity)));
     let mut random = || {
         *rng ^= *rng << 13;
         *rng ^= *rng >> 7;
