@@ -5,8 +5,19 @@ use super::{LightLeaf, LightingData};
 use crate::Brush;
 use glam::Vec3;
 
-/// Fraction along `start`->`end` where the segment enters `brush` (0 when it starts inside).
+/// Fraction along `start`->`end` where the segment enters `brush`. CM_ClipBoxToBrush: a segment
+/// that starts inside only marks the trace startsolid and is not stopped, unless it never gets
+/// out (allsolid, fraction 0): a prop whose lighting origin sits in a curb or planter still sees.
 pub(super) fn entry(brush: &Brush, start: Vec3, end: Vec3) -> Option<f32> {
+    let outside = |p: Vec3| {
+        brush
+            .planes
+            .iter()
+            .any(|plane| plane.normal.dot(p) > plane.distance)
+    };
+    if !outside(start) {
+        return (!outside(end)).then_some(0.);
+    }
     let delta = end - start;
     let (mut enter, mut leave) = (0f32, 1f32);
     for plane in &brush.planes {
@@ -89,10 +100,16 @@ mod tests {
             None,
             "beside"
         );
+        // Starting inside and getting out is startsolid, not a hit; never getting out is.
         assert_eq!(
             entry(&brush, Vec3::new(15., 0., 0.), Vec3::new(40., 0., 0.)),
+            None,
+            "starts inside"
+        );
+        assert_eq!(
+            entry(&brush, Vec3::new(12., 0., 0.), Vec3::new(18., 0., 0.)),
             Some(0.),
-            "inside"
+            "all inside"
         );
     }
 

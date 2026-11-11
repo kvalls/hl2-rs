@@ -127,7 +127,11 @@ pub fn read_with(lumps: &[Vec<u8>], versions: &[u32], hdr: bool) -> Result<Light
 
 /// dworldlight_t records (84 bytes, or 88 with flags).
 fn world_lights(light_lump: &[u8]) -> Result<Vec<WorldLight>> {
-    let stride = if light_lump.len().is_multiple_of(88) { 88 } else { 84 };
+    let stride = if light_lump.len().is_multiple_of(88) {
+        88
+    } else {
+        84
+    };
     records(light_lump, stride)?
         .map(|l| {
             let raw_kind = i32le(l, 40)?;
