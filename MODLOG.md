@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-11 session 54: the gravity gun's pull glow, detail brushes shade the plaza props (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: (1) weapon_physcannon/glow.rs: the effect is READY whenever nothing is held and attack2 is up, open prongs or not (ItemPostFrame), so the idle core is lit and a pull grows it (1a6f0d3). (2) modkit-core lighting: the visibility trace clips the opaque brushes each open leaf lists (new lighting/brushes.rs); source-assets model_lighting reads the leaf brushes, brushes and brush sides, and its world lights moved out of `read_with` (now under the function limit; baseline lowered) (e67cea4).
+- Why: owner playtest 2026-11-11 (the pull glow looked instantaneous) and session 53's open finding (plaza props about 2.6 times native's brightness and warm).
+- Tested how: unit tests (the idle ready core and the growth from it; brush entry; a detail brush in an open leaf blocks a light; a lamp inside its fixture brush stays within the slack); owned test (d1_trainstation_02: the pallet and bench lose the sun, a point above the roofs keeps it); packaged A/Bs against native (the glow's growth on a fixed 15 ms clock; the pallet's and pavement's screen colors). Retail: server.dll DoEffect, DoEffectHolding and ItemPostFrame read from the private decompile, constants 0.1, 0.2, 0.5 from the binary.
+- Result: the glow rises over about 15 ticks like native's (5/13/24/40/57/77/100% at 3-16 ticks against native 9/19/33/45/63/79/92%); the pallet (73,73,71) against native (77,76,72), before (195,180,118). Cost: `state_at` 13.8 to 19.1 us a call, only for entities that moved or meet a dynamic light; frame time in a crowd scene not measured.
+- Also: (3) the light trace treats a start inside a brush as startsolid, not a hit (CM_ClipBoxToBrush; efa325c): the first version darkened lamp posts and trees whose lighting origins sit in curbs, found by diffing the regression batch against session 53's. (4) viewmodel_sway (new): HL2's AddViewmodelBob and CalcViewModelLag on the host's viewmodel camera (8d5f24b). (5) point_spotlight beams keep their start width (DrawBeamWithHalo; 1e46409).
+- Still broken or not tested: the viewmodel sway not compared frame by frame with native; viewmodel sprites depth-tested in the viewmodel pass; indoor lighting beyond the regression batch not compared with native; a trace that starts in a solid leaf still stops at once; the lamp's warm haze and halo; SpinBlades' playback rate; detail props.
+- Next: the session 55 prompt (artifacts/s54/next-session-prompt.txt).
+
 ## 2026-11-11 session 53: the manhack's blur, static prop hits, lamp beams (Claude Code desktop, claude-opus-5-5)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
