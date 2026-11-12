@@ -1,6 +1,7 @@
 //! Game-neutral data and extension boundary. All positions are Z-up, in Source units.
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 pub mod animation;
 pub mod decals;
 pub mod lighting;
@@ -41,6 +42,34 @@ pub struct Surface {
     /// flex vertex deltas can be applied.
     #[serde(default)]
     pub flex_source: Option<FlexSource>,
+}
+/// Material, lightmap page and 3D-skybox flag: world surfaces sharing them draw as one batch.
+pub type SurfaceKey = (String, Option<usize>, bool);
+impl Surface {
+    pub fn key(&self) -> SurfaceKey {
+        (self.material.clone(), self.lightmap, self.background)
+    }
+    /// One world surface per key. Surfaces that share a key (the pieces of static decals of one
+    /// material on one lightmap page) keep all their triangles, in order.
+    pub fn batch(surfaces: impl IntoIterator<Item = Surface>) -> BTreeMap<SurfaceKey, Surface> {
+        let mut batches = BTreeMap::<SurfaceKey, Surface>::new();
+        for surface in surfaces {
+            match batches.entry(surface.key()) {
+                std::collections::btree_map::Entry::Occupied(mut batch) => {
+                    let batch = batch.get_mut();
+                    let base = batch.vertices.len() as u32;
+                    batch.vertices.extend(surface.vertices);
+                    batch
+                        .indices
+                        .extend(surface.indices.iter().map(|i| base + i));
+                }
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(surface);
+                }
+            }
+        }
+        batches
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FlexSource {
@@ -662,6 +691,37 @@ pub struct Block {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn surface_batches_keep_every_piece_sharing_a_key() {
+        let triangle = |material: &str, lightmap, x: f32| Surface {
+            background: false,
+            material: material.into(),
+            vertices: [0., 1., 2.]
+                .map(|y| Vertex {
+                    position: Vec3::new(x, y, 0.),
+                    uv: Vec2::ZERO,
+                    color: [255; 4],
+                    light_uv: Vec2::ZERO,
+                    skin: None,
+                    normal: Vec3::Z,
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+            lightmap,
+            flex_source: None,
+        };
+        // Two decals of one material on one lightmap page, one on another page.
+        let batches = Surface::batch([
+            triangle("decals/leaves", Some(0), 1.),
+            triangle("decals/leaves", Some(1), 2.),
+            triangle("decals/leaves", Some(0), 3.),
+        ]);
+        assert_eq!(batches.len(), 2);
+        let page0 = &batches[&("decals/leaves".into(), Some(0), false)];
+        assert_eq!(page0.indices, [0, 1, 2, 3, 4, 5]);
+        let xs: Vec<f32> = page0.vertices.iter().map(|v| v.position.x).collect();
+        assert_eq!(xs, [1., 1., 1., 3., 3., 3.]);
+    }
     fn cube() -> World {
         World {
             brushes: vec![Brush {

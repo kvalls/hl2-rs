@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-12 session 55: every static decal draws (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: modkit-core `Surface::batch`/`Surface::key`: world surfaces that share (material, lightmap page, skybox) are appended into one, keeping every triangle; source-assets `append_models_lod` uses it instead of a `collect()` that kept only the last surface of each key (its size baseline lowered).
+- Why: session 54's open bug, floor infodecals missing; it turned out to be every static decal whose material and lightmap page another decal also used.
+- Tested how: unit test (`surface_batches_keep_every_piece_sharing_a_key`); a temporary count of the host's decal draws; packaged captures of the plaza poster wall (native A/B), the leaf litter and a trash decal; frame time A/B (inconclusive: noise).
+- Result: d1_trainstation_02's leaf litter, trash and the missing centre poster cluster draw; meshes unchanged, triangles +3217.
+- Still broken or not tested: decal draw order between materials; frame time not resolved by the A/B.
+- Next: see STATUS "Current session 55".
+
 ## 2026-11-11 session 54: the gravity gun's pull glow, detail brushes shade the plaza props (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

@@ -742,11 +742,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
     let mut collision_attempted = BTreeSet::new();
     let mut ragdolls_read = BTreeSet::new();
     let mut collision_modes_reported = BTreeSet::new();
-    let mut batches: BTreeMap<(String, Option<usize>, bool), Surface> = world
-        .surfaces
-        .drain(..)
-        .map(|s| ((s.material.clone(), s.lightmap, s.background), s))
-        .collect();
+    let mut batches = Surface::batch(world.surfaces.drain(..));
     for instance in &world.model_instances {
         let key = (instance.model.to_lowercase(), instance.skin, instance.body);
         let model = cache.entry(key.clone()).or_insert_with(|| {
