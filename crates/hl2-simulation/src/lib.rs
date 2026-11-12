@@ -35,6 +35,7 @@ pub mod selection;
 pub mod skill;
 pub mod sounds;
 pub mod soundscapes;
+pub mod static_prop_decals;
 pub mod suit;
 pub mod view_punch;
 pub mod viewmodel_effects;
