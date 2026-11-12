@@ -46,11 +46,11 @@ impl Suit {
             return;
         }
         let mut empty = None;
-        for i in 0..CSUITNOREPEAT {
-            match &self.no_repeat[i] {
+        for (i, slot) in self.no_repeat.iter_mut().enumerate().take(CSUITNOREPEAT) {
+            match slot {
                 Some((name, until)) if name.eq_ignore_ascii_case(sentence) => {
                     if *until < now {
-                        self.no_repeat[i] = None;
+                        *slot = None;
                         empty = Some(i);
                         break;
                     }

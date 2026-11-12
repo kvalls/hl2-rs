@@ -117,8 +117,8 @@ impl Scene {
                 self.states[id].timer_at = self.time + self.timer_interval(e);
             }
         }
-        for id in 0..world.entities.len() {
-            if world.entities[id].class() == "logic_auto" {
+        for (id, entity) in world.entities.iter().enumerate() {
+            if entity.class() == "logic_auto" {
                 self.fire(id, "OnMapSpawn", usize::MAX);
                 if new_game {
                     self.fire(id, "OnNewGame", usize::MAX);
