@@ -31,6 +31,7 @@ pub mod player_damage;
 pub mod player_pickup;
 pub mod projectiles;
 pub mod ragdolls;
+pub mod screen_shake;
 pub mod selection;
 pub mod skill;
 pub mod sounds;

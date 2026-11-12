@@ -94,6 +94,10 @@ pub fn present_player_view(
     let aspect = crate::video::frame_aspect(frame.as_deref());
     // The player's own FOV, including SetFOV ramps (crossbow zoom).
     let player_fov = game.map_or(sim.fov, |game| game.inventory.view_fov(game.scene.time));
+    // CViewEffects::CalcShake's offset (units) and roll (degrees), read at the scene's time.
+    let (shake, roll) = game.map_or((glam::Vec3::ZERO, 0.), |g| {
+        g.scene.shakes.applied(g.scene.time)
+    });
     if let (Some(game), Ok((mut transform, mut projection))) = (game, viewmodel.single_mut()) {
         let framing = sim.viewmodel_framing(&game.inventory.active, aspect);
         let degrees = hl2_simulation::viewmodel_effects::viewmodel_fov(
@@ -119,10 +123,17 @@ pub fn present_player_view(
             .as_deref()
             .map(|e| e.viewmodel_sway)
             .unwrap_or_default();
-        let (camera, at) = viewmodel_camera(framing.offset, sway.place(input));
+        let eye = hl2_simulation::viewmodel_sway::rotation(input.angles);
+        let (mut camera, at) = viewmodel_camera(framing.offset, sway.place(input));
         if let Some(effects) = effects.as_deref_mut() {
             (effects.viewmodel_sway, effects.viewmodel_camera) = (sway, at);
         }
+        // view.cpp places the viewmodel from the shaken view, then CalcViewModelView's ApplyShake
+        // adds 0.1 more: against the screen the gun moves a tenth of the shake (native d1_eli_01).
+        // The viewmodel camera, unshaken, moves the other way, in eye axes.
+        let local = eye.inverse() * shake * -0.1;
+        camera.translation += crate::source_to_bevy(Vec3::from_array(local.to_array()));
+        camera.rotate_local_z((roll * -0.1).to_radians());
         if *transform != camera {
             *transform = camera;
         }
@@ -137,6 +148,9 @@ pub fn present_player_view(
             crate::source_to_bevy(crate::source_direction(yaw, pitch)),
             Vec3::Y,
         );
+        // CViewEffects::ApplyShake, factor 1: the offset onto the origin, the angle onto the roll.
+        camera.translation += crate::source_to_bevy(Vec3::from_array(shake.to_array()));
+        camera.rotate_local_z(roll.to_radians());
         let fov = sim.world_camera_fov(sim.view_fov(player_fov), aspect);
         if let Projection::Perspective(perspective) = &mut *projection {
             let active_fov = sim

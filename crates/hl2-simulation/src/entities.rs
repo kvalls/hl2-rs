@@ -440,6 +440,7 @@ pub struct Scene {
     pub makers: crate::npc_makers::NpcMakers,
     /// point_spotlights: which are lit and their beams (DESIGN 14t).
     pub spotlights: crate::point_spotlight::Spotlights,
+    pub shakes: crate::screen_shake::ScreenShakes,
     /// skill.cfg values (NPC health, hitgroup damage); SDK defaults when absent.
     pub skill: crate::skill::Skill,
     /// Diagnostics: the last bullet/club hit on an NPC.
@@ -699,6 +700,7 @@ impl Scene {
             maker_inputs: Vec::new(),
             makers: Default::default(),
             spotlights: Default::default(),
+            shakes: Default::default(),
             skill: Default::default(),
             last_npc_hit: None,
             npc_damage: Vec::new(),

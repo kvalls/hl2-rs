@@ -126,6 +126,42 @@ fn named_input_uses_deferred_glob_delivery_and_rejects_invalid_delay() {
     assert_eq!(scene.states[0].value, 5.);
     assert_eq!(scene.states[1].value, 2.);
 }
+/// env_shake StartShake shakes the view of a player within its radius (EnvShake.cpp through
+/// UTIL_ScreenShake); one outside it feels nothing, and StopShake clears the shakes.
+#[test]
+fn env_shake_shakes_a_player_within_its_radius() {
+    let shake = |name: &str, origin: &str| {
+        let keys = [("origin", origin), ("amplitude", "8"), ("frequency", "40")];
+        entity(
+            "env_shake",
+            name,
+            &[
+                keys[0],
+                keys[1],
+                keys[2],
+                ("duration", "2"),
+                ("radius", "500"),
+            ],
+        )
+    };
+    let world = World {
+        entities: vec![shake("near", "0 0 0"), shake("far", "2000 0 0")],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    let moved = |scene: &Scene| {
+        (1..60).any(|i| scene.shakes.applied(scene.time + i as f64 * 0.01).0 != Vec3::ZERO)
+    };
+    assert!(scene.send_named("far", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(!moved(&scene));
+    assert!(scene.send_named("near", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(moved(&scene));
+    assert!(scene.send_named("near", "StopShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(!moved(&scene));
+}
 /// CEventQueue::ServiceEvents: a target no entity is named after reaches every entity of that
 /// class (ent_fire point_spotlight LightOff); a name match keeps the class out.
 #[test]

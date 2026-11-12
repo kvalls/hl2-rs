@@ -190,6 +190,49 @@ pub(super) fn commentary_node(scene: &mut Scene, d: &Delivery) -> bool {
     crate::commentary::CommentaryState::handle_input(scene, d.world, d.id, d.input)
 }
 
+/// env_shake's StartShake, StopShake, Amplitude and Frequency (EnvShake.cpp ApplyShake through
+/// UTIL_ScreenShake): the player within `radius` (any distance with spawnflag 1, Everyone) gets a
+/// view shake whose amplitude falls off with distance; Amplitude and Frequency keep the new value
+/// for later starts. "Don't shake view" (0x20) and the physics and rope shakes are not drawn.
+pub(super) fn shake(scene: &mut Scene, d: &Delivery) -> bool {
+    use crate::screen_shake::{local_amplitude, Command};
+    let key = |name: &str| d.entity.get(name).and_then(|v| v.parse::<f32>().ok());
+    let command = match d.input {
+        "startshake" => Command::Start,
+        "stopshake" => Command::Stop,
+        "amplitude" => Command::Amplitude,
+        "frequency" => Command::Frequency,
+        _ => return false,
+    };
+    scene.shakes.tune(d.id, command, d.value);
+    let (tuned_amplitude, tuned_frequency) = scene.shakes.tuned(d.id);
+    let amplitude = tuned_amplitude.unwrap_or_else(|| key("amplitude").unwrap_or(0.));
+    let frequency = tuned_frequency.unwrap_or_else(|| key("frequency").unwrap_or(0.));
+    let spawnflags = key("spawnflags").unwrap_or(0.) as i64;
+    if spawnflags & 0x20 != 0 {
+        return true;
+    }
+    let radius = if spawnflags & 1 != 0 {
+        0.
+    } else {
+        key("radius").unwrap_or(0.)
+    };
+    // UTIL_ScreenShake measures to the player's WorldSpaceCenter, 36 units above the feet.
+    let player = d.player_feet + glam::Vec3::Z * 36.;
+    let Some(local) = local_amplitude(scene.states[d.id].origin, player, amplitude, radius) else {
+        return true;
+    };
+    let duration = key("duration").unwrap_or(0.);
+    let local = if command == Command::Stop { 0. } else { local };
+    let now = scene.time;
+    if local > 0. || command == Command::Stop {
+        scene
+            .shakes
+            .command(command, (local, frequency, duration), now);
+    }
+    true
+}
+
 /// point_spotlight's LightOn and LightOff (its beam, DESIGN 14t).
 pub(super) fn point_spotlight(scene: &mut Scene, d: &Delivery) -> bool {
     scene.spotlights.input(d.id, d.input)

@@ -57,6 +57,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("ambient_generic", env::ambient_generic),
     ("npc_combine_camera", env::combine_camera),
     ("point_spotlight", env::point_spotlight),
+    ("env_shake", env::shake),
     ("point_commentary_node", env::commentary_node),
 ];
 
