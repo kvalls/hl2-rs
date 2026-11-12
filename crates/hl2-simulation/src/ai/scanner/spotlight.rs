@@ -151,6 +151,9 @@ pub struct Halo {
     pub size: f32,
     pub brightness: f32,
     pub entity: usize,
+    /// The pixel-visibility proxy's size: view_beams.cpp's estimate 1 + halo scale x width /
+    /// end width, 1 to 8 units.
+    pub proxy: f32,
 }
 
 /// `value`'s place between `from` and `to`, carried over to between `low` and `high`.
@@ -199,6 +202,8 @@ impl Beam {
             size: grown.clamp(1., 2.) * self.halo_size,
             brightness: (fade * fade).clamp(0., 1.) * self.halo_hdr,
             entity: self.entity,
+            proxy: (1. + self.halo_size * self.width / self.end_width.max(f32::EPSILON))
+                .clamp(1., 8.),
         })
     }
     /// How bright it is `along` the way from its start, from 1 down to 0 at the fade length.
@@ -218,7 +223,7 @@ impl Beam {
             let side = run.cross(point - eye).normalize_or_zero() * width * 0.5;
             [point - side, point + side]
         };
-        let dimming = self.dimming(eye);
+        let dimming = self.dimming(eye) * lamp_beam_alpha(self.start, eye);
         if dimming <= 0. {
             return Vec::new();
         }
@@ -240,6 +245,13 @@ impl Beam {
         })
         .collect()
     }
+}
+
+/// BEAM_SPRITE's material binds the `lampbeam` proxy (owned sprites/glow_test02.vmt; SDK
+/// lampbeamproxy.cpp): its $alpha is 1 - |z| of the direction from the view to the beam entity,
+/// whose origin is the beam's start, so a beam seen from straight below or above vanishes.
+fn lamp_beam_alpha(start: Vec3, eye: Vec3) -> f32 {
+    1. - (start - eye).normalize_or_zero().z.abs()
 }
 
 /// The patrol's sweep: ahead of its flight, tipped down by the noise, a long way off.
@@ -372,10 +384,11 @@ mod tests {
     fn the_beam_is_brightest_at_the_eye_and_fades_along_its_length() {
         let quads = beam(400.).quads(Vec3::new(300., 0., -200.));
         assert_eq!(quads.len(), PIECES);
-        assert_eq!(quads[0].color[0], 24);
+        // 24 before the lampbeam alpha, which is 1 - 200 / 360.6 from this view.
+        assert_eq!(quads[0].color[0], 11);
         let shades: Vec<_> = quads.iter().map(|q| q.color[0]).collect();
         assert!(
-            shades.windows(2).all(|pair| pair[0] > pair[1]),
+            shades.windows(2).all(|pair| pair[0] >= pair[1]) && shades[0] > shades[PIECES - 1],
             "{shades:?}"
         );
     }
@@ -420,7 +433,16 @@ mod tests {
         assert_eq!(beam(400.).dimming(at(5.)), 0.);
         assert!(beam(400.).quads(at(20.)).is_empty());
         let shade = |x: f32| beam(400.).quads(at(x))[0].color[0];
-        assert_eq!(shade(80.), 12);
+        // Half of 24, times the lampbeam alpha 1 - 200 / 215.4 this close under the light.
+        assert_eq!(shade(80.), 1);
+    }
+
+    #[test]
+    fn the_lampbeam_alpha_hides_a_beam_seen_from_straight_below_or_above() {
+        assert_eq!(lamp_beam_alpha(Vec3::ZERO, Vec3::new(300., 0., 0.)), 1.);
+        assert_eq!(lamp_beam_alpha(Vec3::ZERO, Vec3::NEG_Z * 300.), 0.);
+        assert_eq!(lamp_beam_alpha(Vec3::ZERO, Vec3::Z * 300.), 0.);
+        assert!((lamp_beam_alpha(Vec3::ZERO, Vec3::new(300., 0., -300.)) - 0.2929).abs() < 1e-3);
     }
 
     #[test]

@@ -17,9 +17,9 @@ const START_ON: i64 = 1;
 const DEFAULT_LENGTH: f32 = 500.;
 const DEFAULT_WIDTH: f32 = 10.;
 const MAX_BEAM_WIDTH: f32 = 102.3;
-/// SpotlightCreate: SetBrightness(64). Its SetHaloScale(60) halo is not drawn: Source fades it
-/// by an occlusion query (pixel visibility), which hides d1_trainstation_02's spawn lamp halo
-/// inside its shade, and our halo's one-ray test does not (DESIGN 14t).
+/// SpotlightCreate: SetBrightness(64) and SetHaloScale(60). Native's spawn lamp shows that halo as
+/// a wide warm glow (DESIGN 14v), but ours at scale 60 came out up to 2.4 times brighter near its
+/// core and whiter, so it stays off until the sprite color path is matched.
 const BRIGHTNESS: f32 = 64.;
 const HALO_SCALE: f32 = 0.;
 

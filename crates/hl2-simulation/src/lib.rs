@@ -19,6 +19,7 @@ pub mod gameplay;
 pub mod gibs;
 pub mod globals;
 pub mod grab;
+pub mod halo_visibility;
 pub mod impact_damage;
 pub mod muzzle_effects;
 pub mod npc;

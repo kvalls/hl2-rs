@@ -92,6 +92,8 @@ pub struct ProjectileVisuals {
     pub pcf_library: crate::pcf_runtime::Library,
     pub pcf: crate::pcf_runtime::Runtime,
     pcf_time: f64,
+    /// Beam halos' faded pixel visibility (halo_visibility.rs).
+    halos: crate::halo_visibility::HaloVisibility,
 }
 /// One CTrailParticles TrailParticle of FX_ElectricSpark.
 #[derive(Clone, Debug)]
@@ -253,6 +255,7 @@ impl ProjectileVisuals {
             pcf_library: Default::default(),
             pcf: Default::default(),
             pcf_time: 0.,
+            halos: Default::default(),
         }
     }
     /// C_EntityFlame for each burning entity (owner, control points): "burning_character"
@@ -540,9 +543,10 @@ impl ProjectileVisuals {
     fn scanner_quads(
         &mut self,
         (axes, direction): ((Vec3, Vec3), Vec3),
-        view: Vec3,
+        (view, time): (Vec3, f64),
         physics: &Physics,
     ) {
+        self.halos.begin_frame(time);
         self.beams.retain(|beam| beam.ahead_of(view, direction));
         self.eye_quads(axes, view, physics);
         self.manhack_glow_quads(axes);
@@ -558,16 +562,21 @@ impl ProjectileVisuals {
         }
     }
 
-    /// A spotlight's halo: a kRenderGlow sprite, shown once a line from the view reaches it.
+    /// A spotlight's halo: a kRenderGlow sprite (drawn through walls), dimmed by how much of its
+    /// pixel-visibility proxy the view sees.
     fn halo_quad(&mut self, halo: Halo, axes: (Vec3, Vec3), view: Vec3, physics: &Physics) {
-        if physics
-            .projectile_ray(view, halo.at, &[halo.entity])
-            .is_some()
-        {
-            return;
-        }
+        let excluded = [halo.entity];
+        let clear = |point| physics.projectile_ray(view, point, &excluded).is_none();
+        let seen = self.halos.fraction(&halo, view, axes, clear);
         let before = self.quads.len();
-        self.quad(HALO_SPRITE, halo.at, axes, halo.size, 0., halo.brightness);
+        self.quad(
+            HALO_SPRITE,
+            halo.at,
+            axes,
+            halo.size,
+            0.,
+            halo.brightness * seen,
+        );
         if let Some(quad) = self.quads.get_mut(before) {
             quad.material.push_str(GLOW_SUFFIX);
             for (channel, tint) in quad.color.iter_mut().zip(halo.color) {
@@ -712,7 +721,7 @@ impl ProjectileVisuals {
         self.quads.clear();
         let axes = basis(direction);
         self.shot_quads(axes, eye, time);
-        self.scanner_quads((axes, direction), eye, physics);
+        self.scanner_quads((axes, direction), (eye, time), physics);
         self.previous
             .retain(|id, _| projectiles.active.iter().any(|p| p.id == *id));
         for ball in projectiles

@@ -126,6 +126,26 @@ fn named_input_uses_deferred_glob_delivery_and_rejects_invalid_delay() {
     assert_eq!(scene.states[0].value, 5.);
     assert_eq!(scene.states[1].value, 2.);
 }
+/// CEventQueue::ServiceEvents: a target no entity is named after reaches every entity of that
+/// class (ent_fire point_spotlight LightOff); a name match keeps the class out.
+#[test]
+fn input_to_a_target_no_entity_is_named_goes_to_that_class() {
+    let world = World {
+        entities: vec![
+            entity("math_counter", "", &[]),
+            entity("math_counter", "", &[]),
+            entity("math_counter", "logic_relay", &[]),
+            entity("logic_relay", "", &[]),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    assert!(scene.send_named("math_counter", "Add", "4", 0.));
+    assert!(scene.send_named("logic_relay", "Add", "1", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    let values: Vec<f32> = scene.states.iter().map(|s| s.value).collect();
+    assert_eq!(values[..3], [4., 4., 5.]);
+}
 #[test]
 #[ignore = "requires an installed owned HL2 copy; isolated scene I/O, not campaign parity"]
 fn owned_security03_blocks_movement_condition_and_delivers_real_gate_after_resume() {

@@ -2,7 +2,7 @@
 
 use super::{glob, inputs, number, Pending, PhysGunPickup, Scene};
 use glam::Vec3;
-use modkit_core::World;
+use modkit_core::{Entity, World};
 
 impl Scene {
     pub fn fire(&mut self, id: usize, name: &str, activator: usize) {
@@ -43,16 +43,20 @@ impl Scene {
         if target == "!activator" {
             return vec![p.activator];
         }
-        world
-            .entities
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| {
-                e.get("targetname")
-                    .is_some_and(|n| glob(&target, &n.to_lowercase()))
-            })
-            .map(|(id, _)| id)
-            .collect()
+        let matching = |key: fn(&Entity) -> Option<&str>| -> Vec<usize> {
+            let entities = world.entities.iter().enumerate();
+            let matches = |e: &Entity| key(e).is_some_and(|n| glob(&target, &n.to_lowercase()));
+            entities
+                .filter(|(_, e)| matches(e))
+                .map(|(id, _)| id)
+                .collect()
+        };
+        let named = matching(|e| e.get("targetname"));
+        if !named.is_empty() {
+            return named;
+        }
+        // CEventQueue::ServiceEvents: a target that names no entity is taken as a classname.
+        matching(|e| Some(e.class()))
     }
 
     pub fn send(&mut self, id: usize, input: &str, parameter: &str) {
