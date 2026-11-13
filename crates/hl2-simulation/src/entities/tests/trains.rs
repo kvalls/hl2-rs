@@ -140,6 +140,47 @@ fn env_message_shows_its_titles_message_once() {
     scene.send(0, "ShowMessage", "");
     scene.tick(&world, Vec3::ZERO, 0.015);
     assert_eq!(scene.intro.messages.len(), 1);
-    assert_eq!(scene.intro.messages[0].0, "CHAPTER1_TITLE");
+    assert_eq!(
+        scene.intro.messages[0].0,
+        crate::script_intro::HudText::Title("CHAPTER1_TITLE".into())
+    );
     assert!(scene.states[0].killed);
+}
+
+#[test]
+fn game_text_replaces_the_message_on_its_channel() {
+    // d1_trainstation_01's turret_hurt_1_text keys.
+    let keys = [
+        ("message", "turrets killed you"),
+        ("x", "-1"),
+        ("y", "-1"),
+        ("effect", "0"),
+        ("color", "100 100 100"),
+        ("color2", "240 110 0"),
+        ("fadein", "1.5"),
+        ("fadeout", "0.5"),
+        ("holdtime", "1.2"),
+        ("fxtime", "0.25"),
+        ("channel", "1"),
+    ];
+    let world = World {
+        entities: vec![
+            entity("game_text", "a", &keys),
+            entity("game_text", "b", &keys),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    scene.send(0, "Display", "");
+    scene.send(1, "Display", "");
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    assert_eq!(scene.intro.messages.len(), 1, "one per channel");
+    let crate::script_intro::HudText::Text { message, channel } = &scene.intro.messages[0].0 else {
+        panic!("game_text");
+    };
+    assert_eq!((*channel, message.text.as_str()), (1, "turrets killed you"));
+    assert_eq!(
+        (message.color, message.holdtime),
+        ([100, 100, 100, 255], 1.2)
+    );
 }

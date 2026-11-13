@@ -39,7 +39,8 @@ impl Default for TextMessage {
     }
 }
 
-fn color(values: &[f32]) -> Option<[u8; 4]> {
+/// A color from three or four numbers (alpha 255 when missing).
+pub fn color(values: &[f32]) -> Option<[u8; 4]> {
     (values.len() >= 3).then(|| {
         let channel = |i: usize| values.get(i).map_or(255, |v| v.clamp(0., 255.) as u8);
         [channel(0), channel(1), channel(2), channel(3)]

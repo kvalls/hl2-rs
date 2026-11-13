@@ -95,11 +95,50 @@ pub(super) fn message(scene: &mut Scene, d: &Delivery) -> bool {
         return false;
     }
     let name = d.entity.get("message").unwrap_or("").to_owned();
-    scene.intro.messages.push((name, scene.time));
+    let title = crate::script_intro::HudText::Title(name);
+    scene.intro.messages.push((title, scene.time));
     if number(d.entity, "spawnflags", 0.) as u32 & 1 != 0 {
         let state = &mut scene.states[d.id];
         (state.killed, state.visible, state.enabled) = (true, false, false);
     }
+    true
+}
+
+/// CGameText::InputDisplay: UTIL_HudMessage with the entity's text parameters (color and
+/// color2 as UTIL_StringToIntArray reads them); a message replaces the one on its channel
+/// (CHudMessage::MsgFunc_HudMsg).
+pub(super) fn game_text(scene: &mut Scene, d: &Delivery) -> bool {
+    if d.input != "display" {
+        return false;
+    }
+    let e = d.entity;
+    let color = |key: &str| {
+        let values: Vec<f32> = e
+            .get(key)
+            .unwrap_or("")
+            .split_whitespace()
+            .filter_map(|v| v.parse().ok())
+            .collect();
+        source_assets::titles::color(&values).unwrap_or([255; 4])
+    };
+    let message = source_assets::titles::TextMessage {
+        effect: number(e, "effect", 0.) as i32,
+        color: color("color"),
+        color2: color("color2"),
+        x: number(e, "x", -1.),
+        y: number(e, "y", -1.),
+        fadein: number(e, "fadein", 0.),
+        fadeout: number(e, "fadeout", 0.),
+        holdtime: number(e, "holdtime", 0.),
+        fxtime: number(e, "fxtime", 0.),
+        text: e.get("message").unwrap_or("").to_owned(),
+    };
+    let channel = number(e, "channel", 0.) as i32;
+    use crate::script_intro::HudText;
+    let same = |t: &HudText| matches!(t, HudText::Text { channel: c, .. } if *c == channel);
+    scene.intro.messages.retain(|(t, _)| !same(t));
+    let text = HudText::Text { message, channel };
+    scene.intro.messages.push((text, scene.time));
     true
 }
 

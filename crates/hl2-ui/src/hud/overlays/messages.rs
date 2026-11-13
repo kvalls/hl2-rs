@@ -2,6 +2,7 @@
 //! scanned or faded in the CenterPrintText font. Native (this build) draws the stored text as it
 //! is, so d1_trainstation_01's chapter title reads `#HL2_Chapter1_Title`.
 use super::super::{font::HudFont, WeaponHud};
+use hl2_simulation::script_intro::HudText;
 use source_assets::keyvalues::Entry;
 use source_assets::titles::TextMessage;
 use source_assets::{keyvalues, vpk::Vfs};
@@ -102,16 +103,22 @@ fn position(fraction: f32, size: f32, total: f32, screen: f32) -> f32 {
 }
 
 impl WeaponHud {
-    /// CHudMessage::Paint over the messages env_message showed: (titles.txt name, start).
-    pub fn draw_messages(&self, time: f64, shown: &[(String, f64)]) {
+    /// CHudMessage::Paint over the shown messages: titles.txt names and game_text's own.
+    pub fn draw_messages(&self, time: f64, shown: &[(HudText, f64)]) {
         let messages = &self.overlays.messages;
         let font = &messages.font;
         let (width, height) = (self.canvas.width(), self.canvas.height());
         let mut buffer = [0u8; 4];
-        for (name, start) in shown {
-            let key = name.trim_start_matches('#').to_ascii_uppercase();
-            let Some(m) = messages.titles.get(&key) else {
-                continue;
+        for (text, start) in shown {
+            let m = match text {
+                HudText::Title(name) => {
+                    let key = name.trim_start_matches('#').to_ascii_uppercase();
+                    let Some(m) = messages.titles.get(&key) else {
+                        continue;
+                    };
+                    m
+                }
+                HudText::Text { message, .. } => message,
             };
             let t = (time - start) as f32;
             if !(0. ..=duration(m)).contains(&t) {

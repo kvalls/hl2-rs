@@ -28,8 +28,19 @@ pub struct Intro {
     pub credits: Option<f64>,
     /// env_starfield: on, and its density (CEnvStarfield: off, density 1).
     pub starfield: (bool, f32),
-    /// env_message ShowMessage: the titles.txt messages the HUD shows, with their start.
-    pub messages: Vec<(String, f64)>,
+    /// The HUD text messages shown (env_message, game_text), with their start.
+    pub messages: Vec<(HudText, f64)>,
+}
+
+/// A HUD text message: a titles.txt name (env_message, UTIL_ShowMessage) or game_text's own
+/// parameters on a channel (UTIL_HudMessage).
+#[derive(Clone, Debug, PartialEq)]
+pub enum HudText {
+    Title(String),
+    Text {
+        message: source_assets::titles::TextMessage,
+        channel: i32,
+    },
 }
 
 impl Intro {

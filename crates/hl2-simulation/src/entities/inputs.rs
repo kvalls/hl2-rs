@@ -66,6 +66,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("script_intro", env::script_intro),
     ("env_credits", env::credits),
     ("env_message", env::message),
+    ("game_text", env::game_text),
     ("env_starfield", env::starfield),
     ("point_commentary_node", env::commentary_node),
 ];
