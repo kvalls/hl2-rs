@@ -76,6 +76,21 @@ impl Scene {
                 .unwrap_or(Vec3::ZERO),
             velocity_type: number(e, "velocitytype", 0.) as u8,
             orientation_type: number(e, "orientationtype", 1.) as u8,
+            sound: crate::trains::TrainSound {
+                moving: e.get("MoveSound").unwrap_or("").to_string(),
+                start: e.get("StartSound").unwrap_or("").to_string(),
+                stop: e.get("StopSound").unwrap_or("").to_string(),
+                volume: number(e, "volume", 10.).trunc() * 0.1,
+                pitch: (
+                    Some(number(e, "MoveSoundMinPitch", 0.))
+                        .filter(|p| *p != 0.)
+                        .unwrap_or(60.),
+                    Some(number(e, "MoveSoundMaxPitch", 0.))
+                        .filter(|p| *p != 0.)
+                        .unwrap_or(200.),
+                ),
+                playing: None,
+            },
             ..Train::default()
         };
         let target = e.get("target").map(str::to_lowercase);
@@ -142,6 +157,7 @@ impl Scene {
     }
 
     pub(super) fn stop_train(&mut self, id: usize) {
+        self.train_sound_stop(id);
         if let Some(train) = self.trains.trains.get_mut(&id) {
             train.velocity = Vec3::ZERO;
             train.angular = Vec3::ZERO;
@@ -174,18 +190,21 @@ impl Scene {
         } else {
             0.015
         };
-        let train = &self.trains.trains[&id];
-        let Some(path) = train.path else {
+        let Some(path) = self.trains.trains[&id].path else {
+            self.train_sound_stop(id);
             self.trains.trains.get_mut(&id).expect("train").speed = 0.;
             return;
         };
+        self.train_sound_update(id);
         let origin = self.states[id].origin;
+        let train = &self.trains.trains[&id];
         let (speed, height) = (train.speed, train.height);
         let ahead =
             self.trains
                 .look_ahead(world, path, origin - Vec3::Z * height, speed * 0.1, true);
         let target = ahead.point + Vec3::Z * height;
         let Some(next) = ahead.node else {
+            self.train_sound_stop(id);
             let train = self.trains.trains.get_mut(&id).expect("train");
             let to = target - origin;
             train.angular = Vec3::ZERO;
@@ -306,5 +325,75 @@ impl Scene {
         if let Some(node) = node {
             self.fire(node, "OnPass", id);
         }
+    }
+
+    /// SoundUpdate: the start sound and the move sound when it starts, then the move sound's
+    /// pitch, 60..200 by |speed| / 1000 (or / max speed with USE_MAXSPEED_FOR_PITCH).
+    fn train_sound_update(&mut self, id: usize) {
+        let origin = self.states[id].origin;
+        let train = self.trains.trains.get_mut(&id).expect("train");
+        let sound = &mut train.sound;
+        if sound.moving.is_empty() {
+            return;
+        }
+        let top = if train.flags & crate::trains::MAXSPEED_PITCH != 0 {
+            train.max_speed
+        } else {
+            crate::trains::SOUND_MAX_SPEED
+        };
+        let ratio = (train.speed.abs() / top).clamp(0., 1.);
+        let pitch = (sound.pitch.0 + (sound.pitch.1 - sound.pitch.0) * ratio).trunc();
+        let volume = sound.volume;
+        let op = match sound.playing {
+            None => crate::sounds::PatchOp::Play { volume, pitch },
+            Some(sent) if sent != pitch => crate::sounds::PatchOp::Pitch { pitch, seconds: 0. },
+            Some(_) => return,
+        };
+        let starting = sound.playing.is_none();
+        sound.playing = Some(pitch);
+        let (moving, start) = (sound.moving.clone(), sound.start.clone());
+        if starting && !start.is_empty() {
+            self.sounds
+                .push(train_sound(&start, id, origin, volume, None));
+        }
+        self.sounds
+            .push(train_sound(&moving, id, origin, volume, Some(op)));
+    }
+
+    /// SoundStop: the move sound stops and the stop sound plays.
+    fn train_sound_stop(&mut self, id: usize) {
+        let origin = self.states[id].origin;
+        let Some(train) = self.trains.trains.get_mut(&id) else {
+            return;
+        };
+        let sound = &mut train.sound;
+        if sound.playing.take().is_none() {
+            return;
+        }
+        let (moving, stop, volume) = (sound.moving.clone(), sound.stop.clone(), sound.volume);
+        let destroy = Some(crate::sounds::PatchOp::Destroy);
+        self.sounds
+            .push(train_sound(&moving, id, origin, volume, destroy));
+        if !stop.is_empty() {
+            self.sounds
+                .push(train_sound(&stop, id, origin, volume, None));
+        }
+    }
+}
+
+/// A sound the train emits from its origin (a patch op on its looping move sound, else once).
+fn train_sound(
+    name: &str,
+    id: usize,
+    origin: Vec3,
+    volume: f32,
+    patch: Option<crate::sounds::PatchOp>,
+) -> crate::sounds::SoundRequest {
+    crate::sounds::SoundRequest {
+        emitter: Some(id as u64),
+        origin: Some(origin),
+        volume: Some(volume),
+        patch,
+        ..name.into()
     }
 }

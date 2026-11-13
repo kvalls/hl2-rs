@@ -25,6 +25,8 @@ fn line_world() -> World {
                     ("startspeed", "100"),
                     ("wheels", "50"),
                     ("spawnflags", "2"),
+                    ("MoveSound", "Trainyard.train_move"),
+                    ("StopSound", "Trainyard.train_stop"),
                 ],
             ),
             entity(
@@ -81,6 +83,22 @@ fn a_train_starts_on_its_first_path_track_and_follows_the_path_at_its_speed() {
         scene.states[4].origin
     );
     assert_eq!(scene.trains.trains[&4].speed, 0.);
+    // SoundUpdate / SoundStop: the move loop at pitch 60 + 140 x 100 / 1000, then the stop
+    // sound and the loop destroyed at the dead end.
+    use crate::sounds::PatchOp;
+    let patches: Vec<_> = scene.sounds.iter().filter_map(|s| s.patch).collect();
+    assert_eq!(
+        patches.first(),
+        Some(&PatchOp::Play {
+            volume: 1.,
+            pitch: 74.
+        })
+    );
+    assert!(patches.contains(&PatchOp::Destroy));
+    assert!(scene
+        .sounds
+        .iter()
+        .any(|s| s.name == "Trainyard.train_stop"));
     // Stop and a rider: a point on the train moves and turns with it.
     let push = crate::trains::Push {
         entity: 4,

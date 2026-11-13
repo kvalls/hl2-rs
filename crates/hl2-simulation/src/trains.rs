@@ -45,7 +45,27 @@ pub struct Train {
     pub velocity_type: u8,
     /// m_eOrientationType: 0 fixed, 1 at path tracks, 2 linear blend, 3 ease in/out.
     pub orientation_type: u8,
+    pub sound: TrainSound,
 }
+
+/// The train's sounds (MoveSound, StartSound, StopSound) and its move sound's state.
+#[derive(Clone, Debug, Default)]
+pub struct TrainSound {
+    pub moving: String,
+    pub start: String,
+    pub stop: String,
+    /// m_flVolume (`volume` / 10).
+    pub volume: f32,
+    /// MoveSoundMinPitch / MoveSoundMaxPitch (60 / 200 when 0).
+    pub pitch: (f32, f32),
+    /// m_bSoundPlaying, and the pitch last sent.
+    pub playing: Option<f32>,
+}
+
+/// SF_TRACKTRAIN_USE_MAXSPEED_FOR_PITCH.
+pub const MAXSPEED_PITCH: u32 = 0x100;
+/// TRAIN_MAXSPEED: the speed of the highest pitch without that flag.
+pub const SOUND_MAX_SPEED: f32 = 1000.;
 
 /// A pusher's pose before and after one scene tick.
 #[derive(Clone, Copy, Debug)]
