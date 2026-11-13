@@ -1397,7 +1397,7 @@ impl AiRuntime {
             }
             AiClass::Humanoid(h) => {
                 h.now = now;
-                h.armed = actor.weapon.is_some();
+                h.refresh(actor.weapon.is_some(), scene.on_train(world, id));
                 precriminal_hate
             }
             other => precriminal_hate && !(precriminal && other.spares_precriminal()),

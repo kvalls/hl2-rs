@@ -10,6 +10,11 @@ use glam::Vec3;
 use modkit_core::World;
 
 impl Scene {
+    /// The entity's move parent is a func_tracktrain.
+    pub fn on_train(&self, world: &World, id: usize) -> bool {
+        let parent = self.states.get(id).and_then(|s| s.parent.as_ref());
+        parent.is_some_and(|p| self.ent(world, p.entity).class() == "func_tracktrain")
+    }
     /// One tick of a train: its first think (Find), then Next while it has a speed, then the
     /// move by its velocity and angular velocity.
     pub(super) fn advance_train(&mut self, world: &World, id: usize, dt: f32) {

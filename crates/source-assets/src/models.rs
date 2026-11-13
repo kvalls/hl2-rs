@@ -584,7 +584,7 @@ mod collision;
 pub use bodygroups::{body_variants, RUNTIME_BODYGROUPS};
 pub use chunks::used_chunk_models;
 use collision::static_collision;
-mod ai_activities;
+pub mod ai_activities;
 mod geometry;
 mod prop_data;
 pub use ai_activities::{
@@ -916,7 +916,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                 wanted.extend(NPC_BASE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
             }
             wanted.extend(
-                class_ai_activities(&instance.kind)
+                ai_activities::instance_ai_sequences(world, instance)
                     .iter()
                     .map(|a| a.to_lowercase()),
             );

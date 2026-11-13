@@ -95,6 +95,7 @@ impl AiRuntime {
                     .and_then(|v| v.trim().parse().ok())
                     .unwrap_or(0);
                 h.elite = kind == humanoid::Kind::Combine && is_elite_model(e.get("model"));
+                h.train = humanoid::train::TrainRide::at_spawn(e);
                 AiClass::Humanoid(Box::new(h))
             }
             None => AiClass::Metropolice(Box::new(Metropolice::new(flags, baton))),
