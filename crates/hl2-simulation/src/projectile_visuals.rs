@@ -35,6 +35,7 @@ pub const SPRITES: &[&str] = &[
     "effects/laser1_noz",
     // FX_ElectricSpark (crossbow bolt sparks).
     "effects/spark",
+    "effects/spark_noz",
     "effects/yellowflare_noz",
     // weapon_physcannon PHYSCANNON_* sprites and beam.
     "sprites/orangelight1",
@@ -64,6 +65,7 @@ pub struct ProjectileVisuals {
     pub beams: Vec<Beam>,
     pub sprites: HashMap<String, Sprite>,
     pub quads: Vec<Quad>,
+    starfield: crate::starfield::Starfield,
     previous: HashMap<u64, glam::Vec3>,
     rng: u64,
     pub errors: BTreeMap<String, String>,
@@ -231,6 +233,7 @@ impl ProjectileVisuals {
         Self {
             sprites: HashMap::new(),
             quads: Vec::new(),
+            starfield: Default::default(),
             eye_flares: Vec::new(),
             manhack_glows: Vec::new(),
             beams: Vec::new(),
@@ -380,7 +383,17 @@ impl ProjectileVisuals {
         self.spark_glows.push((time, position, outer, shade));
     }
     /// Simulate (when not paused) and draw sparks as camera-facing tracers.
-    fn draw_sparks(&mut self, eye: Vec3, axes: (Vec3, Vec3), time: f64, dt: f32) {
+    /// The sparks and env_starfield's tracers (`starfield`: its density while on).
+    fn draw_sparks(
+        &mut self,
+        (eye, direction): (Vec3, Vec3),
+        axes: (Vec3, Vec3),
+        (time, starfield): (f64, Option<f32>),
+        dt: f32,
+    ) {
+        self.spark_frame = time;
+        let view = [eye, direction, axes.0, axes.1];
+        self.starfield.draw(starfield, view, dt, &mut self.quads);
         for spark in &mut self.sparks {
             spark.velocity.z -= spark.gravity * dt;
             spark.position += spark.velocity * dt;
@@ -714,7 +727,7 @@ impl ProjectileVisuals {
         projectiles: &Projectiles,
         eye: Vec3,
         direction: Vec3,
-        time: f64,
+        (time, starfield): (f64, Option<f32>),
         paused: bool,
         physics: &Physics,
     ) {
@@ -897,8 +910,7 @@ impl ProjectileVisuals {
         } else {
             ((time - self.spark_frame).clamp(0., 0.1)) as f32
         };
-        self.spark_frame = time;
-        self.draw_sparks(eye, axes, time, dt);
+        self.draw_sparks((eye, direction), axes, (time, starfield), dt);
         self.particles.sync(&projectiles.effects, time, physics);
         for quad in self.particles.draw(eye, direction, time, physics) {
             if self.sprites.contains_key(&quad.material) {
@@ -921,14 +933,24 @@ mod tests {
         assert!((18..=36).contains(&count), "{count}");
         assert_eq!(visuals.spark_glows.len(), 2);
         let before: Vec<f32> = visuals.sparks.iter().map(|s| s.velocity.z).collect();
-        visuals.draw_sparks(Vec3::X * -100., basis(Vec3::X), 0.015, 0.015);
+        visuals.draw_sparks(
+            (Vec3::X * -100., Vec3::X),
+            basis(Vec3::X),
+            (0.015, None),
+            0.015,
+        );
         // No spark material loaded: nothing is drawn, but the sparks still simulate.
         assert!(visuals.quads.is_empty());
         for (spark, z) in visuals.sparks.iter().zip(before) {
             assert!(spark.velocity.z < z);
         }
         for i in 2..200 {
-            visuals.draw_sparks(Vec3::X * -100., basis(Vec3::X), i as f64 * 0.015, 0.015);
+            visuals.draw_sparks(
+                (Vec3::X * -100., Vec3::X),
+                basis(Vec3::X),
+                (i as f64 * 0.015, None),
+                0.015,
+            );
         }
         assert!(visuals.sparks.is_empty() && visuals.spark_glows.is_empty());
     }

@@ -83,6 +83,18 @@ pub(super) fn credits(scene: &mut Scene, d: &Delivery) -> bool {
     true
 }
 
+/// CEnvStarfield: TurnOn, TurnOff, SetDensity.
+pub(super) fn starfield(scene: &mut Scene, d: &Delivery) -> bool {
+    let starfield = &mut scene.intro.starfield;
+    match d.input {
+        "turnon" => starfield.0 = true,
+        "turnoff" => starfield.0 = false,
+        "setdensity" => starfield.1 = d.value,
+        _ => return false,
+    }
+    true
+}
+
 /// CEnvFade::InputFade.
 pub(super) fn fade(scene: &mut Scene, d: &Delivery) -> bool {
     if d.input != "fade" {

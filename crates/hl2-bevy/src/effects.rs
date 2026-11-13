@@ -672,7 +672,7 @@ pub fn present(
         &game.projectiles,
         glam::Vec3::from_array(sim.view_origin().to_array()),
         direction,
-        game.scene.time,
+        (game.scene.time, game.scene.intro.starfield()),
         !sim.world_running(),
         &sim.physics,
     );

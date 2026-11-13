@@ -19,11 +19,30 @@ pub struct IntroFrame {
 }
 
 /// The intro's presentation: the active script_intro and env_credits' logo.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Intro {
     pub script: ScriptIntro,
     /// ShowLogo: when the logo was shown and how long it holds.
     pub logo: Option<(f64, f32)>,
+    /// env_starfield: on, and its density (CEnvStarfield: off, density 1).
+    pub starfield: (bool, f32),
+}
+
+impl Intro {
+    /// The starfield's density while it is on.
+    pub fn starfield(&self) -> Option<f32> {
+        self.starfield.0.then_some(self.starfield.1)
+    }
+}
+
+impl Default for Intro {
+    fn default() -> Self {
+        Self {
+            script: ScriptIntro::default(),
+            logo: None,
+            starfield: (false, 1.),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

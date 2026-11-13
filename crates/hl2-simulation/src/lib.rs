@@ -37,6 +37,7 @@ pub mod selection;
 pub mod skill;
 pub mod sounds;
 pub mod soundscapes;
+pub mod starfield;
 pub mod static_prop_decals;
 pub mod suit;
 pub mod trains;
