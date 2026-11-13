@@ -1137,7 +1137,7 @@ impl WeaponHud {
             ammo_icon_font: HudFont::read(fonts, "WeaponIconsSmall", face, 16.),
             selection_numbers: HudFont::read(fonts, "HudSelectionNumbers", bold.clone(), 11.),
             selection_text: HudFont::read(fonts, "HudSelectionText", bold.clone(), 10.),
-            labels: HudFont::read(fonts, "Default", bold, 12.),
+            labels: HudFont::read(fonts, "Default", bold.clone(), 12.),
             health_panel: PanelLayout::read(
                 layout
                     .get("HudHealth")
@@ -1177,7 +1177,7 @@ impl WeaponHud {
                     value("dmg_tall2", 240.),
                 ]
             },
-            overlays: overlays::Overlays::load(vfs),
+            overlays: overlays::Overlays::load(vfs, (fonts, bold)),
             health_label: loc.text("#Valve_Hud_HEALTH"),
             suit_label: loc.text("#Valve_Hud_SUIT"),
             ammo_label: loc.text("#Valve_Hud_AMMO"),

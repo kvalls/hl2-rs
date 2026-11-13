@@ -24,6 +24,8 @@ pub struct Intro {
     pub script: ScriptIntro,
     /// ShowLogo: when the logo was shown and how long it holds.
     pub logo: Option<(f64, f32)>,
+    /// RollCredits: when the intro names started.
+    pub credits: Option<f64>,
     /// env_starfield: on, and its density (CEnvStarfield: off, density 1).
     pub starfield: (bool, f32),
 }
@@ -40,6 +42,7 @@ impl Default for Intro {
         Self {
             script: ScriptIntro::default(),
             logo: None,
+            credits: None,
             starfield: (false, 1.),
         }
     }

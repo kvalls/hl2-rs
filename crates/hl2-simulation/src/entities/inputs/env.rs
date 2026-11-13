@@ -73,8 +73,13 @@ pub(super) fn script_intro(scene: &mut Scene, d: &Delivery) -> bool {
 }
 
 /// CCredits::InputShowLogo: the logo holds `logolength` seconds (LogoTimeMsg), else 5
-/// (CreditsMsg CREDITS_LOGO). RollCredits and RollOutroCredits are not in.
+/// (CreditsMsg CREDITS_LOGO); RollCredits starts the intro names (CREDITS_INTRO).
+/// RollOutroCredits is not in.
 pub(super) fn credits(scene: &mut Scene, d: &Delivery) -> bool {
+    if d.input == "rollcredits" {
+        scene.intro.credits = Some(scene.time);
+        return true;
+    }
     if d.input != "showlogo" {
         return false;
     }
