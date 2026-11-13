@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-13 session 58: the intro's title, car door, HL1 room and passengers (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: HUD messages localize `#Token` text; parented func_door/func_door_rotating/func_movelinear and triggers follow their parent (doors travel in the parent's frame; nested parents move first); scripted_sequence MoveToPosition and SF_SCRIPT_START_ON_SPAWN; light styles (source-assets `lighting::styled_faces`/`compose_styles`, modkit-core `StyledLightmap`, hl2-simulation `lightstyles`, the host's `rendering::lightstyles` recomposing atlas pages on change); env_beam (`env_beam.rs`); func_train (`func_train.rs`); scene MOVETO targets resolve `!targetN`; refactors for the architecture check (effects/frame_quads.rs, Scene::spawn_entities, follow_parents, queue_script_input, Bsp::lightmap_fields).
+- Why: the owner's report after playing native (title, HL1 room rays and light, the car door, the extra car's passengers, the opening camera move) and session 57's open station-arrival item.
+- Tested how: unit tests (title localization, parented mover, start-on-spawn script, light styles, env_beam segments and strikes, func_train loop); dense native captures (artifacts/s58/native-dense, native-dense2); packaged intro and 300 s arrival runs (artifacts/s58/intro1, intro2, arrival1; sheets hl1room-ab.png, eye-ab.png, arrival1-sheet.png, ours-intro1-sheet.png); validation artifacts/s58/validate1.sh (see STATUS).
+- Result: the title reads POINT INSERTION; the HL1 room is lit with its plasma beams and orbiting zap trains (owner confirmed the rotation and beams); the extra car's passengers sit and stand like native; the car door rides with the train and opens at the platform; both passengers walk out at the station and the car is empty from about 100 s.
+- Still broken or not tested: the opening eye shot's zoom timing and drift; env_sprite (glow_1 and the HL1 room flares); light style patterns are static means; the station walk-through after the passengers leave was not compared with native; the movement key hint panel (env_hudhint).
+- Next: see STATUS "Current session 58".
+
 ## 2026-11-13 session 57: the G-Man's face, the passengers, the chapter title (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
