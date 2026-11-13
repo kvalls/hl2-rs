@@ -88,6 +88,21 @@ pub(super) fn credits(scene: &mut Scene, d: &Delivery) -> bool {
     true
 }
 
+/// CMessage::InputShowMessage: the HUD shows the `message` from titles.txt (UTIL_ShowMessage);
+/// SF_MESSAGE_ONCE (1) removes the entity. The `messagesound` is not played yet.
+pub(super) fn message(scene: &mut Scene, d: &Delivery) -> bool {
+    if d.input != "showmessage" {
+        return false;
+    }
+    let name = d.entity.get("message").unwrap_or("").to_owned();
+    scene.intro.messages.push((name, scene.time));
+    if number(d.entity, "spawnflags", 0.) as u32 & 1 != 0 {
+        let state = &mut scene.states[d.id];
+        (state.killed, state.visible, state.enabled) = (true, false, false);
+    }
+    true
+}
+
 /// CEnvStarfield: TurnOn, TurnOff, SetDensity.
 pub(super) fn starfield(scene: &mut Scene, d: &Delivery) -> bool {
     let starfield = &mut scene.intro.starfield;

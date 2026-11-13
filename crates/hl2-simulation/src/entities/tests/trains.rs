@@ -124,3 +124,22 @@ fn point_teleport_moves_the_player_to_its_origin_and_angles() {
     assert_eq!(teleport.feet, Vec3::new(5., 6., 7.));
     assert_eq!(teleport.angles, Vec3::new(0., 15., 0.));
 }
+
+#[test]
+fn env_message_shows_its_titles_message_once() {
+    // d1_trainstation_01's text_chapter (spawnflags 1: SF_MESSAGE_ONCE).
+    let world = World {
+        entities: vec![entity(
+            "env_message",
+            "text_chapter",
+            &[("message", "CHAPTER1_TITLE"), ("spawnflags", "1")],
+        )],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    scene.send(0, "ShowMessage", "");
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    assert_eq!(scene.intro.messages.len(), 1);
+    assert_eq!(scene.intro.messages[0].0, "CHAPTER1_TITLE");
+    assert!(scene.states[0].killed);
+}

@@ -6,6 +6,8 @@ use source_assets::{keyvalues, vpk::Vfs};
 use source_ui::canvas::{Color, MutexCell};
 use source_ui::font::FontFace;
 
+mod messages;
+
 /// The overlays' state: the queued screen fades and the credits parameters.
 pub(super) struct Overlays {
     pub(super) fades: MutexCell<crate::fades::ScreenFades>,
@@ -13,6 +15,8 @@ pub(super) struct Overlays {
     /// ClientScheme's CreditsText (the installed scheme has none: the HUD's installed sans
     /// face at 20, its fallback), the intro names' font.
     credits_text: HudFont,
+    /// env_message's titles.txt messages (CHudMessage).
+    messages: messages::HudMessages,
 }
 
 impl Overlays {
@@ -20,7 +24,8 @@ impl Overlays {
         Self {
             fades: MutexCell::new(Default::default()),
             credits: CreditsParams::load(vfs),
-            credits_text: HudFont::read(fonts, "CreditsText", face, 20.),
+            credits_text: HudFont::read(fonts, "CreditsText", face.clone(), 20.),
+            messages: messages::HudMessages::load(vfs, fonts, face),
         }
     }
 }

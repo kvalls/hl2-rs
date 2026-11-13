@@ -351,6 +351,7 @@ pub fn present(
     hud.source
         .draw_fade(time, game.scene.intro.script.frame(time).map(|f| f.fade));
     hud.source.draw_credits(time, &game.scene.intro);
+    hud.source.draw_messages(time, &game.scene.intro.messages);
     // While GameUI is up in a level (pause menu, console, dialogs) the engine hides the client's
     // HUD panel: native pause captures (hl2_complete oracle, 2026-10-29) show no HUD or crosshair.
     let hud_hidden = ui.source.paused() && !ui.source.background_level();

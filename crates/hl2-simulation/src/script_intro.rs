@@ -28,6 +28,8 @@ pub struct Intro {
     pub credits: Option<f64>,
     /// env_starfield: on, and its density (CEnvStarfield: off, density 1).
     pub starfield: (bool, f32),
+    /// env_message ShowMessage: the titles.txt messages the HUD shows, with their start.
+    pub messages: Vec<(String, f64)>,
 }
 
 impl Intro {
@@ -44,6 +46,7 @@ impl Default for Intro {
             logo: None,
             credits: None,
             starfield: (false, 1.),
+            messages: Vec::new(),
         }
     }
 }
