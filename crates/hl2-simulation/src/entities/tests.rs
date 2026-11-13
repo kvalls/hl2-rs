@@ -14,6 +14,7 @@ use source_assets::scenes::EventType;
 use source_assets::vpk::Vfs;
 mod lifecycle;
 mod scenes;
+mod trains;
 #[test]
 fn random_timers_filters_and_cancel_pending_follow_the_sdk() {
     let world = World {

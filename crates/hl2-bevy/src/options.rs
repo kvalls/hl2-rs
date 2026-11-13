@@ -46,6 +46,7 @@ impl Options {
             frames: None,
             capture: None,
             capture_burst: 0,
+            capture_every: None,
             capture_live: false,
             monitor_capture: None,
             report: "artifacts/bevy-report.json".into(),
@@ -98,6 +99,7 @@ impl Options {
             "--frames" => options.frames = Some(next()?.parse()?),
             "--capture" => options.capture = Some(next()?.into()),
             "--capture-burst" => options.capture_burst = next()?.parse()?,
+            "--capture-every" => options.capture_every = Some(next()?.parse()?),
             "--capture-live" => options.capture_live = true,
             "--capture-monitor" => options.monitor_capture = Some(next()?.into()),
             "--report" => options.report = next()?.into(),
@@ -187,8 +189,8 @@ impl Options {
         if !(320..=8192).contains(&options.width) || !(240..=8192).contains(&options.height) {
             bail!("window size is outside 320x240..8192x8192");
         }
-        if options.frames.is_some_and(|n| !(30..=36000).contains(&n)) {
-            bail!("--frames must be between 30 and 36000");
+        if options.frames.is_some_and(|n| !(30..=200_000).contains(&n)) {
+            bail!("--frames must be between 30 and 200000");
         }
         if !options.position.is_none_or(|p| p.is_finite())
             || !options.pitch.is_finite()

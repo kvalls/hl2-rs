@@ -29,15 +29,32 @@ impl Simulation {
             .view(
                 &game.world,
                 |id| states.get(id).filter(|s| !s.killed).map(|s| s.origin),
+                |id, name| attachment(game, id, name),
                 self.eye,
             )
             .or_else(|| game.scene.commentary.view_control_override());
-        self.zoom_fov = game
-            .scene
-            .view_control
-            .zoom
-            .map(|zoom| zoom.fov_at(self.fov, game.scene.time));
+        // GetFOV with the player's default; a finished return to the default lets it go.
+        let time = game.scene.time;
+        self.zoom_fov = game.scene.view_control.zoom.clone().and_then(|mut zoom| {
+            zoom.default_fov = self.fov;
+            let done = zoom.target == 0 && time >= zoom.time + f64::from(zoom.rate);
+            (!done).then(|| zoom.get(time))
+        });
     }
+}
+
+/// An entity's animated attachment in world space (CBaseAnimating::GetAttachment).
+fn attachment(game: &Gameplay, id: usize, name: &str) -> Option<glam::Vec3> {
+    let state = game.scene.states.get(id).filter(|s| !s.killed)?;
+    let instance = game
+        .world
+        .model_instances
+        .iter()
+        .find(|i| i.entity == Some(id))?;
+    let rig = game.world.rigs.get(&instance.asset_key())?;
+    let local =
+        rig.attachment_matrix(&game.scene.actor_matrices(rig, id), rig.attachment(name)?)?;
+    Some(state.origin + state.rotation * local.w_axis.truncate())
 }
 
 #[cfg(test)]

@@ -55,6 +55,7 @@ pub fn install(
     commands.spawn((
         MapOwned,
         MonitorCamera,
+        crate::video::OwnTarget,
         Camera3d::default(),
         Camera {
             order: -3,

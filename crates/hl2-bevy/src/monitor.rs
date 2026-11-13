@@ -234,6 +234,15 @@ fn advance_capture(
                 exit.write(AppExit::Success);
             }
         }
+        if let (Some(path), Some(every)) = (&options.capture, options.capture_every) {
+            crate::capture::timelapse(
+                commands,
+                control,
+                (path, every),
+                game.scene.time,
+                capture_source,
+            );
+        }
         // Burst frames: PNG-N.png for each of the frames after the requested capture.
         if let (Some(path), Some(frame)) = (&options.capture, control.requested_frame) {
             let index = control.frames - frame;

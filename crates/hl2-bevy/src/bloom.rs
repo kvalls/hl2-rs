@@ -24,6 +24,7 @@ use bevy::{
 
 pub mod color_correction;
 mod correction_pass;
+pub(crate) mod fullscreen_pass;
 pub mod motion_blur;
 mod motion_blur_pass;
 /// Bloom amount on the last 3D camera of the main view, and the image that receives the

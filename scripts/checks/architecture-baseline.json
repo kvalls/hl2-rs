@@ -150,16 +150,16 @@
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1596,
   "crates/hl2-bevy/src/rendering.rs": 1400,
-  "crates/hl2-bevy/src/video.rs": 1027,
+  "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2372,
   "crates/hl2-simulation/src/entities/choreography.rs": 1229,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1383,
-  "crates/hl2-simulation/src/physics.rs": 3389,
+  "crates/hl2-simulation/src/physics.rs": 3377,
   "crates/hl2-simulation/src/projectiles.rs": 1264,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
-  "crates/hl2-ui/src/hud.rs": 1761,
+  "crates/hl2-ui/src/hud.rs": 1737,
   "crates/source-assets/src/models.rs": 1276,
   "crates/source-ui/src/widgets.rs": 2176
  },
@@ -246,7 +246,7 @@
    101
   ],
   "crates/hl2-simulation/src/entities.rs::tick": [
-   204
+   201
   ],
   "crates/hl2-simulation/src/entities/choreography.rs::tick_choreography": [
    376
@@ -309,7 +309,7 @@
    107
   ],
   "crates/hl2-simulation/src/physics.rs::new": [
-   125
+   112
   ],
   "crates/hl2-simulation/src/physics.rs::spawn_ragdoll": [
    124

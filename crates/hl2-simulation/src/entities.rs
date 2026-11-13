@@ -17,9 +17,12 @@ mod parenting;
 mod sequences;
 mod startup;
 pub use startup::weapon_idle_activity;
+mod tracktrain;
 mod triggers;
 mod turning;
+mod types;
 use turning::{angle_diff, clamp_yaw};
+pub use types::{ChoreographyState, PhysGunPickup, SceneAnimationState};
 
 /// Entity classes that move with VPhysics (MOVETYPE_VPHYSICS) for trigger touches.
 fn is_vphysics_class(class: &str) -> bool {
@@ -310,39 +313,6 @@ pub struct Diagnostics {
     /// Scene captions dropped by the caption radius (AttenuateCaption).
     pub attenuated_captions: u64,
 }
-#[derive(Serialize)]
-pub struct ChoreographyState {
-    pub entity: usize,
-    pub targetname: String,
-    pub file: String,
-    pub elapsed: Option<f64>,
-    pub pause: bool,
-    pub pause_reason: Option<&'static str>,
-    pub completed_early: bool,
-    pub active: bool,
-}
-/// PhysGunPickup_t reasons that fire prop outputs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PhysGunPickup {
-    /// PICKED_UP_BY_PLAYER (+USE).
-    Player,
-    /// PICKED_UP_BY_CANNON.
-    Cannon,
-    /// PUNTED_BY_CANNON.
-    Punt,
-}
-#[derive(Serialize)]
-pub struct SceneAnimationState {
-    pub entity: usize,
-    pub targetname: String,
-    pub animation: String,
-    pub sample_time: f32,
-    pub scene_owner: Option<usize>,
-    pub scripted_by: Option<usize>,
-    pub clip_loaded: bool,
-    pub origin: [f32; 3],
-    pub yaw_degrees: f32,
-}
 /// The idle activity a metrocop starts and returns to (CAI_BaseNPC idles on ACT_IDLE;
 /// CBaseCombatCharacter::Weapon_TranslateActivity maps it through the held weapon's
 /// acttable: weapon_pistol -> ACT_IDLE_PISTOL, weapon_smg1/ar2/shotgun -> ACT_IDLE_SMG1;
@@ -422,6 +392,10 @@ pub struct Scene {
     pub color_correction: crate::color_correction::ColorCorrection,
     /// The point_viewcontrol and env_zoom the local player's view follows.
     pub view_control: crate::view_control::ViewControl,
+    /// func_tracktrain trains and the moves they and point_teleport give the player.
+    pub trains: crate::trains::Trains,
+    /// The new game's intro: script_intro and env_credits' logo.
+    pub intro: crate::script_intro::Intro,
     /// Developer commentary state and `point_commentary_node` nodes.
     pub commentary: crate::commentary::CommentaryState,
     /// point_template children that do not exist until ForceSpawn, with their authored
@@ -741,6 +715,8 @@ impl Scene {
             tonemap: Default::default(),
             color_correction: crate::color_correction::ColorCorrection::new(world),
             view_control: Default::default(),
+            trains: Default::default(),
+            intro: Default::default(),
             commentary: Default::default(),
             templates: BTreeMap::new(),
             player_feet: Vec3::ZERO,
@@ -834,11 +810,8 @@ impl Scene {
                     self.camera_activity(world, id, false);
                 }
             }
-            if matches!(
-                e.class(),
-                "func_door" | "func_door_rotating" | "prop_door_rotating" | "func_movelinear"
-            ) {
-                self.advance_mover(id, dt);
+            if movers::moves(e.class()) {
+                self.advance_mover(world, id, dt);
             }
             if e.class() == "logic_timer"
                 && self.states[id].enabled

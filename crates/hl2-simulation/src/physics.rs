@@ -6,6 +6,7 @@ use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
+mod brush_entities;
 #[path = "physics_npc_trace.rs"]
 mod npc_trace;
 #[path = "player_convex.rs"]
@@ -882,20 +883,7 @@ impl Physics {
             let Some(model) = world.brush_models.iter().find(|m| m.id == model_id) else {
                 continue;
             };
-            let solid = matches!(
-                e.class(),
-                "func_brush"
-                    | "func_wall"
-                    | "func_wall_toggle"
-                    | "func_door"
-                    | "func_door_rotating"
-                    | "func_movelinear"
-                    | "func_rotating"
-                    | "func_breakable"
-                    | "func_physbox"
-                    | "func_detail"
-            );
-            if !solid || e.get("solid") == Some("0") || e.get("Solidity") == Some("1") {
+            if !brush_entities::solid(e) {
                 continue;
             }
             let position = pose(

@@ -11,6 +11,7 @@ mod env;
 mod logic;
 mod player;
 mod scenes;
+mod trains;
 mod triggers;
 
 /// One input being delivered to an entity.
@@ -38,6 +39,9 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("func_door_rotating", doors::door),
     ("prop_door_rotating", doors::door),
     ("func_movelinear", doors::movelinear),
+    ("func_tracktrain", trains::tracktrain),
+    ("path_track", trains::path_track),
+    ("point_teleport", trains::point_teleport),
     ("logic_relay", logic::relay),
     ("logic_branch", logic::branch),
     ("logic_case", logic::case),
@@ -58,6 +62,8 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("npc_combine_camera", env::combine_camera),
     ("point_spotlight", env::point_spotlight),
     ("env_shake", env::shake),
+    ("script_intro", env::script_intro),
+    ("env_credits", env::credits),
     ("point_commentary_node", env::commentary_node),
 ];
 

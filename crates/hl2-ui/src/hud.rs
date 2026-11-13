@@ -4,6 +4,7 @@ mod captions;
 mod commentary;
 mod crosshair;
 mod font;
+mod overlays;
 mod power;
 mod quick_info;
 mod rules;
@@ -972,7 +973,7 @@ pub struct WeaponHud {
     /// (proportional, 480-line units).
     damage_layout: [f32; 5],
     /// Client screen fades (CViewEffects).
-    fades: MutexCell<crate::fades::ScreenFades>,
+    overlays: overlays::Overlays,
     health_label: String,
     suit_label: String,
     ammo_label: String,
@@ -1176,7 +1177,7 @@ impl WeaponHud {
                     value("dmg_tall2", 240.),
                 ]
             },
-            fades: MutexCell::new(Default::default()),
+            overlays: overlays::Overlays::load(vfs),
             health_label: loc.text("#Valve_Hud_HEALTH"),
             suit_label: loc.text("#Valve_Hud_SUIT"),
             ammo_label: loc.text("#Valve_Hud_AMMO"),
@@ -1195,31 +1196,6 @@ impl WeaponHud {
         self.commentary.draw(self, overlay, closecaption, time);
     }
 
-    /// ViewDrawFade over the 3D view, before the HUD. The modulate material's exact
-    /// use of the fade alpha is engine code; here the frame is multiplied by the color
-    /// blended toward white by (1 - alpha), which is inferred, not verified.
-    pub fn draw_fade(&self, time: f64) {
-        let Some(([r, g, b, a], modulate)) = self.fades.borrow_mut().params(time) else {
-            return;
-        };
-        if a == 0 {
-            return;
-        }
-        if modulate {
-            let t = f32::from(a) / 255.;
-            let mix = |c: u8| 1. - t + t * f32::from(c) / 255.;
-            self.canvas.modulate(Color::new(mix(r), mix(g), mix(b), 1.));
-        } else {
-            self.canvas.additive(false);
-            self.canvas.rectangle(
-                0.,
-                0.,
-                self.canvas.width(),
-                self.canvas.height(),
-                Color::from_rgba(r, g, b, a),
-            );
-        }
-    }
     /// CHudDamageIndicator::MsgFunc_Damage. `view_yaw` is the Source view yaw in degrees.
     #[allow(clippy::too_many_arguments)]
     pub fn damage_message(

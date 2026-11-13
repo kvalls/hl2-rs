@@ -36,6 +36,30 @@ pub(crate) fn save_capture(image: Option<Image>, path: Option<&PathBuf>) -> Opti
     }
 }
 
+/// `--capture-every`: saves the frame as `<capture>-<seconds>s.png` each time the scene clock
+/// passes another interval, so one run gives a time-lapse to set beside native frames.
+pub(crate) fn timelapse(
+    commands: &mut bevy::prelude::Commands,
+    control: &mut crate::CaptureControl,
+    (path, every): (&PathBuf, f64),
+    scene_time: f64,
+    source: impl Fn() -> bevy::render::view::screenshot::Screenshot,
+) {
+    if every <= 0.0 {
+        return;
+    }
+    let interval = (scene_time / every).floor() as u64;
+    if interval < control.next_timelapse {
+        return;
+    }
+    control.next_timelapse = interval + 1;
+    let name = path.file_stem().unwrap_or_default().to_string_lossy();
+    let file = path.with_file_name(format!("{name}-{:05.0}s.png", interval as f64 * every));
+    commands
+        .spawn(source())
+        .observe(bevy::render::view::screenshot::save_to_disk(file));
+}
+
 /// Diagnostic captures include the actual install frame, before any fixed simulation tick.
 /// Ordinary play does no screenshot work. This exposes one-frame loading handoff regressions
 /// that a movement-script capture, taken after the first tick, cannot observe.

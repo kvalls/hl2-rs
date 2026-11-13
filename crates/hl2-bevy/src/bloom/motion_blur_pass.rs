@@ -2,7 +2,7 @@
 //! textures swap and the previous one is drawn back blurred (into the multisampled attachment too,
 //! so the viewmodel camera that follows draws its weapon sharp over the blurred world, as the
 //! engine blurs before the viewmodel). No pass or buffer exists while the component is absent.
-use super::motion_blur::SourceMotionBlur;
+use super::{fullscreen_pass, fullscreen_pass::group_of, motion_blur::SourceMotionBlur};
 use bevy::render::extract_component::ExtractComponentPlugin;
 use bevy::{
     core_pipeline::{
@@ -21,11 +21,8 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, FilterMode, FragmentState,
-            LoadOp, MultisampleState, Operations, PipelineCache, RenderPassColorAttachment,
-            RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, StoreOp, TextureFormat, TextureSampleType,
-            TextureView, TextureViewId, UniformBuffer,
+            CachedRenderPipelineId, PipelineCache, Sampler, SamplerBindingType, ShaderStages,
+            ShaderType, TextureFormat, TextureSampleType, TextureViewId, UniformBuffer,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
@@ -91,11 +88,7 @@ fn init(
             ),
         ),
     );
-    let sampler = device.create_sampler(&SamplerDescriptor {
-        min_filter: FilterMode::Linear,
-        mag_filter: FilterMode::Linear,
-        ..Default::default()
-    });
+    let sampler = fullscreen_pass::linear_sampler(&device);
     commands.insert_resource(Pipelines {
         layout,
         sampler,
@@ -118,26 +111,14 @@ fn prepare_pipelines(
     for (entity, view, msaa) in &views {
         let key = (view.target_format, msaa.samples());
         let id = *known.entry(key).or_insert_with(|| {
-            cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some("source_motion_blur".into()),
-                layout: vec![pipelines.layout.clone()],
-                vertex: pipelines.fullscreen.to_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader: pipelines.shader.clone(),
-                    shader_defs: Vec::new(),
-                    entry_point: Some("motion_blur".into()),
-                    targets: vec![Some(ColorTargetState {
-                        format: key.0,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                }),
-                multisample: MultisampleState {
-                    count: key.1,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
+            let pass = fullscreen_pass::Fullscreen {
+                label: "source_motion_blur",
+                entry: "motion_blur",
+                layout: &pipelines.layout,
+                vertex: &pipelines.fullscreen,
+                shader: &pipelines.shader,
+            };
+            fullscreen_pass::queue_pipeline(&cache, &pass, key)
         });
         commands.entity(entity).insert(BlurPipeline(id));
     }
@@ -221,15 +202,6 @@ fn prepare_groups(
     }
 }
 
-fn group_of<'a>(
-    groups: &'a [(TextureViewId, BindGroup); 2],
-    view: &TextureView,
-) -> Option<&'a BindGroup> {
-    groups
-        .iter()
-        .find_map(|(id, group)| (*id == view.id()).then_some(group))
-}
-
 fn source_motion_blur(
     view: ViewQuery<(&ViewTarget, &BlurPipeline, &BlurGroup)>,
     cache: Res<PipelineCache>,
@@ -242,32 +214,5 @@ fn source_motion_blur(
     let Some(group) = group_of(&groups.0, target.main_texture_view()) else {
         return;
     };
-    // The frame stays readable in the texture it was resolved to; the attachment now resolves
-    // into the other one, so no copy of the frame is needed.
-    let destination = target.post_process_write().destination;
-    // The triangle overwrites every sample, so loading the old image would only cost bandwidth.
-    // The multisampled image must be stored: the viewmodel camera continues from it.
-    let (view, resolve_target) = match target.sampled_main_texture_view() {
-        Some(sampled) => (sampled, Some(destination)),
-        None => (destination, None),
-    };
-    let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
-        label: Some("source_motion_blur"),
-        color_attachments: &[Some(RenderPassColorAttachment {
-            view,
-            depth_slice: None,
-            resolve_target: resolve_target.map(|view| &**view),
-            ops: Operations {
-                load: LoadOp::Clear(Default::default()),
-                store: StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-        multiview_mask: None,
-    });
-    pass.set_render_pipeline(pipeline);
-    pass.set_bind_group(0, group, &[]);
-    pass.draw(0..3, 0..1);
+    fullscreen_pass::draw(&mut ctx, "source_motion_blur", target, (pipeline, group));
 }

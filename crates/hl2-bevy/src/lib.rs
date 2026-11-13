@@ -17,6 +17,7 @@ mod flashlight;
 pub mod gameplay;
 mod gpu_skinning;
 pub mod input;
+mod intro_view;
 mod launch;
 mod map_install;
 mod material_proxies;
@@ -59,6 +60,8 @@ struct Options {
     capture: Option<PathBuf>,
     /// Also save this many consecutive frames after the capture (flicker checks).
     capture_burst: u32,
+    /// Also save a frame each time this many seconds of scene time pass (time-lapse checks).
+    capture_every: Option<f64>,
     /// Keep the simulation running after a movement script ends, so burst frames show
     /// motion over time instead of one frozen frame.
     capture_live: bool,
@@ -152,6 +155,8 @@ struct CaptureControl {
     requested: bool,
     requested_frame: Option<u64>,
     completed_frame: Option<u64>,
+    /// The next `--capture-every` interval to save.
+    next_timelapse: u64,
 }
 use coords::{bevy_to_source, source_direction, source_to_bevy};
 
@@ -215,6 +220,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         >::default())
         .add_plugins(MaterialPlugin::<effects::EffectMaterial>::default())
         .add_plugins((bloom::SourceBloomPlugin, ShadowPlugin, FlashlightPlugin))
+        .add_plugins(intro_view::IntroViewPlugin)
         .add_plugins(bevy::sprite_render::Material2dPlugin::<
             canvas_renderer::HudMaterial,
         >::default())

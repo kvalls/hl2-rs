@@ -3,6 +3,7 @@ use crate::source_direction;
 use bevy::{app::RunFixedMainLoopSystems, prelude::*};
 pub(crate) mod commentary;
 pub(crate) mod movie;
+mod ride;
 pub(crate) mod script;
 mod view;
 use hl2_simulation::physics::Physics;
@@ -213,7 +214,10 @@ impl Simulation {
     /// The player takes no input: a menu background level, or a point_viewcontrol with
     /// `SF_CAMERA_PLAYER_TAKECONTROL`.
     /// The player's own move, or the tongue that holds him.
-    fn move_player(&mut self, input: Input, game: Option<&crate::gameplay::Gameplay>) {
+    fn move_player(&mut self, input: Input, mut game: Option<&mut crate::gameplay::Gameplay>) {
+        if let Some(game) = game.as_deref_mut() {
+            ride::apply(self, game);
+        }
         match game.and_then(|game| game.ai.barnacle_hold()) {
             Some(by) => self.player.carried(by, &self.physics, TICK),
             None => self.player.step(input, &self.physics, TICK),
@@ -690,7 +694,7 @@ impl Simulation {
                 } else {
                     self.input
                 };
-                self.move_player(input, game.as_deref());
+                self.move_player(input, game.as_deref_mut());
                 self.eye = self.player.eye();
                 // The player's VPhysics shadow pushes and weighs down movable props.
                 let held = game.as_deref().and_then(|game| {

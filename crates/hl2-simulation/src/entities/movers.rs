@@ -3,11 +3,28 @@
 
 use super::Scene;
 use glam::Quat;
+use modkit_core::World;
+
+/// Classes whose pose advances every tick: doors, linear movers and trains.
+pub(super) fn moves(class: &str) -> bool {
+    matches!(
+        class,
+        "func_door"
+            | "func_door_rotating"
+            | "prop_door_rotating"
+            | "func_movelinear"
+            | "func_tracktrain"
+    )
+}
 
 impl Scene {
     /// One tick of a `func_door`, `func_door_rotating`, `prop_door_rotating` or
     /// `func_movelinear`: a door that waited long enough closes, the pose follows the target.
-    pub(super) fn advance_mover(&mut self, id: usize, dt: f32) {
+    pub(super) fn advance_mover(&mut self, world: &World, id: usize, dt: f32) {
+        if world.entities[id].class() == "func_tracktrain" {
+            self.advance_train(world, id, dt);
+            return;
+        }
         if self.states[id].return_at.is_some_and(|t| t <= self.time) {
             self.send(id, "Close", "");
             self.states[id].return_at = None;

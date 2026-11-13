@@ -33,15 +33,53 @@ pub(super) fn viewcontrol(scene: &mut Scene, d: &Delivery) -> bool {
 pub(super) fn zoom(scene: &mut Scene, d: &Delivery) -> bool {
     match d.input {
         "zoom" => {
-            scene.view_control.zoom = Some(crate::view_control::Zoom {
-                fov: number(d.entity, "FOV", 0.),
-                rate: number(d.entity, "Rate", 0.),
-                started: scene.time,
-            });
+            let mut zoom = scene.view_control.zoom.clone().unwrap_or_default();
+            zoom.set(
+                number(d.entity, "FOV", 0.) as i32,
+                number(d.entity, "Rate", 0.),
+                scene.time,
+            );
+            scene.view_control.zoom = Some(zoom);
         }
         "unzoom" => scene.view_control.zoom = None,
         _ => return false,
     }
+    true
+}
+
+/// script_intro (crate::script_intro): Activate, Deactivate, SetCameraViewEntity, the blend
+/// modes and times, the camera view's field of view and the fades.
+pub(super) fn script_intro(scene: &mut Scene, d: &Delivery) -> bool {
+    let camera = (d.input == "setcameraviewentity")
+        .then(|| {
+            let mut lookup = d.pending.clone();
+            lookup.target = d.pending.parameter.clone();
+            let found = scene.targets(d.world, &lookup).into_iter();
+            found.into_iter().find(|&id| id != usize::MAX)
+        })
+        .flatten();
+    let player_fov = scene
+        .view_control
+        .zoom
+        .as_ref()
+        .map_or(75., |z| z.get(scene.time));
+    let spline = number(d.entity, "alternatefovchange", 0.) != 0.;
+    scene.intro.script.set_spline_fov(spline);
+    let parameter = &d.pending.parameter;
+    scene
+        .intro
+        .script
+        .input(d.input, parameter, scene.time, camera, player_fov)
+}
+
+/// CCredits::InputShowLogo: the logo holds `logolength` seconds (LogoTimeMsg), else 5
+/// (CreditsMsg CREDITS_LOGO). RollCredits and RollOutroCredits are not in.
+pub(super) fn credits(scene: &mut Scene, d: &Delivery) -> bool {
+    if d.input != "showlogo" {
+        return false;
+    }
+    let length = number(d.entity, "logolength", 0.);
+    scene.intro.logo = Some((scene.time, if length != 0. { length } else { 5. }));
     true
 }
 
