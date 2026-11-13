@@ -67,6 +67,8 @@ pub struct Simulation {
     /// The active point_viewcontrol's view (from the latest world tick); the player keeps
     /// its own eye, which still selects the soundscape (SDK `EarPosition`).
     pub view_control: Option<hl2_simulation::view_control::View>,
+    /// The following camera's angles between ticks (FollowTarget's eased turn).
+    pub camera_turn: Option<hl2_simulation::view_control::Turn>,
     /// The env_zoom field of view (from the latest world tick), overriding `fov`.
     pub zoom_fov: Option<f32>,
     pub loading: bool,
@@ -134,6 +136,7 @@ impl Simulation {
             background_level: false,
             background_audio_pending: false,
             view_control: None,
+            camera_turn: None,
             zoom_fov: None,
             loading: false,
             focused: true,

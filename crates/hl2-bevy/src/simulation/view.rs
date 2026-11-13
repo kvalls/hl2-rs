@@ -23,15 +23,16 @@ impl Simulation {
 
     pub(crate) fn refresh_scripted_view(&mut self, game: &Gameplay) {
         let states = &game.scene.states;
-        self.view_control = game
-            .scene
-            .view_control
-            .view(
-                &game.world,
-                |id| states.get(id).filter(|s| !s.killed).map(|s| s.origin),
-                |id, name| attachment(game, id, name),
-                self.eye,
-            )
+        let control = &game.scene.view_control;
+        let goal = control.view(
+            &game.world,
+            |id| states.get(id).filter(|s| !s.killed).map(|s| s.origin),
+            |id, name| attachment(game, id, name),
+            self.eye,
+        );
+        let turn = &mut self.camera_turn;
+        self.view_control = goal
+            .map(|goal| control.follow(&game.world, turn, goal, game.scene.time))
             .or_else(|| game.scene.commentary.view_control_override());
         // GetFOV with the player's default; a finished return to the default lets it go.
         let time = game.scene.time;
