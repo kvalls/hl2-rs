@@ -32,6 +32,7 @@ mod material;
 pub use lighting::present_lighting;
 pub use material::MaterialKey;
 mod model_cache;
+mod npc_weapon_draws;
 mod placement;
 pub(crate) use placement::draw_hidden;
 mod runtime;
@@ -898,33 +899,12 @@ pub fn spawn_map_filtered(
             }
         }
     }
-    let ai = &loaded.gameplay.ai;
-    let usable_weapons = crate::gameplay::spawn_usable_weapons(world, ai);
-    // NPC weapons: the active weapon's world model follows its owner (DESIGN 14w step 4).
-    // A pooled F4 spawn gets one per weapon its class can use, shown only while it is
-    // the active one (NpcWeaponDraw); the pool and this goes with DESIGN 14r.
-    for instance in &world.model_instances {
-        let Some(id) = instance.entity.filter(|id| visible_entity(world, *id)) else {
-            continue;
-        };
-        let mut models: BTreeSet<String> = ai.weapon_world_model(id).into_iter().collect();
-        let entity = &world.entities[id];
-        if let Some(label) = entity.get(hl2_simulation::ai::spawn::POOL_KEY) {
-            models.extend(
-                usable_weapons
-                    .get(label)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|w| ai.weapon_model(w)),
-            );
-        }
-        for model in models {
-            let key = format!("{model}#0");
-            if let Some(surfaces) = world.model_assets.get(&key) {
-                let transform = Mat4::from_scale(Vec3::splat(instance.scale));
-                for surface in surfaces {
-                    append(surface, transform, Owner::NpcWeapon(id, key.clone()));
-                }
+    // NPC weapons: their world models follow their owners (npc_weapon_draws).
+    for (id, key, scale) in npc_weapon_draws::npc_weapon_draws(world, &loaded.gameplay.ai) {
+        if let Some(surfaces) = world.model_assets.get(&key) {
+            let transform = Mat4::from_scale(Vec3::splat(scale));
+            for surface in surfaces {
+                append(surface, transform, Owner::NpcWeapon(id, key.clone()));
             }
         }
     }

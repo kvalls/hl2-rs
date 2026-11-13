@@ -346,4 +346,11 @@ pub const ACTTABLES: &[(&str, &[ActRow])] = &[
             ("ACT_WALK", "ACT_WALK_PACKAGE", false),
         ],
     ),
+    (
+        "weapon_citizensuitcase",
+        &[
+            ("ACT_IDLE", "ACT_IDLE_SUITCASE", false),
+            ("ACT_WALK", "ACT_WALK_SUITCASE", false),
+        ],
+    ),
 ];

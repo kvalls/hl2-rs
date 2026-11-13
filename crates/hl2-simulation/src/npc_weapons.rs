@@ -50,7 +50,31 @@ pub const NPC_WEAPONS: &[&str] = &[
     "weapon_rpg",
     "weapon_alyxgun",
     "weapon_annabelle",
+    "weapon_citizenpackage",
+    "weapon_citizensuitcase",
 ];
+
+/// Every weapon the map's outputs give an NPC by name (`<name>,GiveWeapon,<weapon>`), by
+/// lowercase target name: Source creates and precaches them at the input, so the host
+/// prepares their held models at load.
+pub fn given_weapons(world: &modkit_core::World) -> BTreeMap<String, Vec<String>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for entity in &world.entities {
+        for (key, value) in &entity.properties {
+            let Some(output) = crate::entities::output(key, value) else {
+                continue;
+            };
+            if output.input.eq_ignore_ascii_case("giveweapon") {
+                let weapons = out.entry(output.target.to_ascii_lowercase()).or_default();
+                let weapon = output.parameter.trim().to_ascii_lowercase();
+                if !weapon.is_empty() && !weapons.contains(&weapon) {
+                    weapons.push(weapon);
+                }
+            }
+        }
+    }
+    out
+}
 
 /// WeaponProficiency_t.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -994,7 +1018,7 @@ mod tests {
             .collect();
         // A Barney model with only the baton activities: his campaign loadout (SMG1,
         // AR2) first, then the stunstick and crowbar (same required rows) by
-        // Weapon_CanUse, not the pistol.
+        // Weapon_CanUse, not the pistol; the package and suitcase have no required rows.
         let usable = usable_weapons("npc_barney", &activities, &defs);
         assert_eq!(
             usable,
@@ -1002,7 +1026,9 @@ mod tests {
                 "weapon_smg1",
                 "weapon_ar2",
                 "weapon_stunstick",
-                "weapon_crowbar"
+                "weapon_crowbar",
+                "weapon_citizenpackage",
+                "weapon_citizensuitcase"
             ]
         );
         // A zombie has no bits_CAP_USE_WEAPONS: nothing, whatever its model has.

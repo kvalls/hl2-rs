@@ -155,15 +155,15 @@ fn scene_actor_class(class: &str) -> bool {
         || class == "cycler_actor"
 }
 #[derive(Clone)]
-struct Output {
+pub(crate) struct Output {
     name: String,
-    target: String,
-    input: String,
-    parameter: String,
+    pub(crate) target: String,
+    pub(crate) input: String,
+    pub(crate) parameter: String,
     delay: f64,
     remaining: i32,
 }
-fn output(name: &str, text: &str) -> Option<Output> {
+pub(crate) fn output(name: &str, text: &str) -> Option<Output> {
     let separator = if text.contains('\x1b') { '\x1b' } else { ',' };
     let values: Vec<_> = text.split(separator).collect();
     if values.len() != 5 {

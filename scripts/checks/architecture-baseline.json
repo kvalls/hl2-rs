@@ -149,7 +149,7 @@
  ],
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1596,
-  "crates/hl2-bevy/src/rendering.rs": 1400,
+  "crates/hl2-bevy/src/rendering.rs": 1380,
   "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2372,

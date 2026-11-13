@@ -284,6 +284,31 @@ impl AiRuntime {
         }
     }
 
+    /// CNPC_PlayerCompanion::InputGiveWeapon: GiveWeapon (Weapon_Create, then Weapon_Equip
+    /// replacing the active weapon) at once, except for CLASS_PLAYER_ALLY_VITAL (Barney,
+    /// Alyx), whose weapon waits for SCHED_SWITCH_TO_PENDING_WEAPON (not modeled: counted
+    /// as an unknown goal). The old weapon's drop and the `<name>_weapon` name are not in.
+    pub(super) fn give_weapon(&mut self, id: usize, class: &str, weapon: &str) {
+        let weapon = weapon.trim();
+        if matches!(class, "npc_barney" | "npc_alyx") {
+            *self
+                .diagnostics
+                .unknown_goals
+                .entry(format!("GiveWeapon pending {weapon}"))
+                .or_default() += 1;
+            return;
+        }
+        if Self::equip(class, weapon, &self.weapon_defs).is_none() {
+            *self
+                .diagnostics
+                .unknown_goals
+                .entry(format!("GiveWeapon {weapon}"))
+                .or_default() += 1;
+            return;
+        }
+        self.set_equipment(id, class, weapon);
+    }
+
     /// The weapons `class` can be given on a model with `activities` (upper case):
     /// bits_CAP_USE_WEAPONS and Weapon_CanUse over the installed weapon definitions.
     pub fn usable_weapons(
