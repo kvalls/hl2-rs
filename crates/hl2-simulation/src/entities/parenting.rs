@@ -232,12 +232,6 @@ impl Scene {
             let Some(spec) = e.get("parentname").filter(|n| !n.is_empty()) else {
                 continue;
             };
-            if super::self_positioned(e.class())
-                || self.template_pending(id)
-                || self.makers.held(id)
-            {
-                continue;
-            }
             let (name, attachment) = match spec.split_once(',') {
                 Some((n, a)) => (n.trim(), Some(a.trim().to_owned())),
                 None => (spec.trim(), None),
@@ -248,6 +242,16 @@ impl Scene {
             }) else {
                 continue;
             };
+            // An NPC rides a train it is parented to (d1_trainstation_01's passengers on
+            // intro_train_2); other NPCs and brushes position themselves.
+            let rides = e.class().starts_with("npc_")
+                && world.entities[parent].class() == "func_tracktrain";
+            if (super::self_positioned(e.class()) && !rides)
+                || self.template_pending(id)
+                || self.makers.held(id)
+            {
+                continue;
+            }
             if parent != id && !self.template_pending(parent) && !self.makers.held(parent) {
                 self.set_parent(world, id, parent, attachment, true);
             }
