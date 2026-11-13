@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-13 session 57: the G-Man's face, the passengers, the chapter title (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `attention::is_flex_actor` gates faces, eyes, heads, scene LOOKAT/FACE and sequence transitions (cycler_actor, generic_actor, monster_generic join npc_*; cycler_actor has an animated face); `World::spawn` takes the master info_player_start; GiveWeapon on player companions with weapon_citizenpackage/weapon_citizensuitcase (acttables, NPC weapon list, held models for map-given weapons; the NPC weapon draw list moved out of rendering.rs); SCHED_CITIZEN_SIT_ON_TRAIN (ai/humanoid/train.rs; the loader adds the four d1_t01_TrainRide sequences for parented citizens); source-assets titles.rs, env_message ShowMessage and hl2-ui's HUD text messages (hud/overlays/messages.rs); point_viewcontrol FollowTarget's eased turn (`ViewControl::follow`); rotating.rs (func_rotating) and parented func_brush; 7 replay expectations re-recorded.
+- Why: the owner heard the intro G-Man speak with a still face; session 56's open first-map items (passengers' seat and suitcases, the chapter title, the camera turn, the HL1 room).
+- Tested how: unit tests (flex actor classes, master start, GiveWeapon lists, train riders, titles parser on a sample and the owned titles.txt, HUD message scan/fade, env_message, FollowTarget snap and turn, func_rotating start and ACCDCC); retail RTTI of CFlextalkActor from the private server.dll copy; packaged time-lapses of the intro and the ride against session 56's and the native time-lapse (artifacts/s57/gman2-ab.png, gman2-native.png, ride2-native.png, intro3-ab.png); validate1 on 4c38188, replays 72 of 72 on cb08e76, validate2 on fbbee4a (all steps pass, replays 72 of 72).
+- Result: the G-Man's mouth moves with his speech, he blinks and frames head-on like native; one passenger sits, the other stands with his suitcase; `#HL2_Chapter1_Title` scans in at native's time and place (native draws the raw token in this build); the intro cameras trail their targets.
+- Still broken or not tested: the HL1 room's sprites/beams/func_train and a native A/B of its rotation; GiveWeapon's `<npc>_weapon` name, drop and vital pending weapon; messagesound, game_text; the intro credits' font size (the waves' names and times match native); env_hudhint's key panel; collision of moving func_brush.
+- Next: see STATUS "Current session 57".
+
 ## 2026-11-13 session 56: d1_trainstation_01 from New Game, the train ride and the G-Man intro (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
