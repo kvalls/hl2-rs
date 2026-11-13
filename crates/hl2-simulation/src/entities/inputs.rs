@@ -6,8 +6,10 @@ use super::{Pending, Scene};
 use glam::Vec3;
 use modkit_core::{Entity, World};
 
+mod beams;
 mod doors;
 mod env;
+mod lights;
 mod logic;
 mod player;
 mod scenes;
@@ -41,6 +43,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("func_movelinear", doors::movelinear),
     ("func_tracktrain", trains::tracktrain),
     ("func_rotating", trains::rotating),
+    ("func_train", trains::func_train),
     ("path_track", trains::path_track),
     ("point_teleport", trains::point_teleport),
     ("logic_relay", logic::relay),
@@ -69,7 +72,13 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("game_text", env::game_text),
     ("env_starfield", env::starfield),
     ("point_commentary_node", env::commentary_node),
+    ("light", lights::light),
+    ("light_spot", lights::light),
+    ("light_glspot", lights::light),
+    ("env_beam", beams::beam),
 ];
+
+pub(super) use lights::spawn_lights;
 
 /// The handler of `class`'s own inputs, if it has any.
 pub(super) fn handler(class: &str) -> Option<Handler> {

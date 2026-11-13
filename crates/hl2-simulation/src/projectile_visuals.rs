@@ -156,6 +156,9 @@ pub fn load_sprite_sized(vfs: &Vfs, material: &str, max_dimension: usize) -> Res
                 | "sprites/orangeflare1"
                 | "sprites/orangecore1"
                 | "sprites/orangecore2"
+                // env_beam (kRenderTransAdd).
+                | "sprites/plasma"
+                | "sprites/laserbeam"
         ) {
             3
         } else {
@@ -469,6 +472,7 @@ impl ProjectileVisuals {
             .iter()
             .chain(crate::explosion_particles::MATERIALS)
             .chain(crate::muzzle_effects::MATERIALS)
+            .chain(crate::env_beam::MATERIALS)
             .collect::<std::collections::BTreeSet<_>>()
         {
             match load_sprite(vfs, name) {

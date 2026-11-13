@@ -18,7 +18,31 @@ pub(super) fn moves(class: &str) -> bool {
     )
 }
 
+/// Doors and linear movers whose travel is an offset from their closed pose: a parented one
+/// travels in its parent's frame (SDK CBaseDoor::Spawn keeps local origins).
+pub(super) fn travels(class: &str) -> bool {
+    matches!(
+        class,
+        "func_door" | "func_door_rotating" | "func_movelinear"
+    )
+}
+
 impl Scene {
+    /// func_trains move; corners they reach fire OnPass (path_corner InPass).
+    pub(super) fn advance_func_trains(&mut self, world: &World) {
+        let mut passed = Vec::new();
+        let states = &mut self.states;
+        self.func_trains.advance(
+            world,
+            self.time,
+            |id, origin| states[id].origin = origin,
+            &mut passed,
+        );
+        for corner in passed {
+            self.fire(corner, "OnPass", usize::MAX);
+        }
+    }
+
     /// A func_rotating's state, spawned from its keyvalues on first use.
     pub(super) fn rotating_state(
         &mut self,

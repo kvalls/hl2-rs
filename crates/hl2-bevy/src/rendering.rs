@@ -10,9 +10,7 @@ use bevy::{
     mesh::Indices,
     prelude::*,
     reflect::TypePath,
-    render::render_resource::{
-        AsBindGroup, Extent3d, PrimitiveTopology, ShaderType, TextureDimension, TextureFormat,
-    },
+    render::render_resource::{AsBindGroup, PrimitiveTopology, ShaderType, TextureFormat},
 };
 use hl2_ui::extensions::RenderBudget;
 use modkit_core::Surface;
@@ -26,6 +24,8 @@ mod face_flex;
 pub use face_flex::FlexModels;
 mod lighting;
 use lighting::ModelLit;
+mod lightstyles;
+pub use lightstyles::{LightmapPages, apply_lightstyles};
 pub(crate) mod lod;
 mod map_draw;
 mod material;
@@ -821,24 +821,9 @@ pub fn spawn_map_filtered(
         })
         .collect();
     unfilter(images, texture_handles.values(), nearest);
-    let lightmaps: Vec<_> = world
-        .lightmaps
-        .iter()
-        .map(|lm| {
-            let lightmap = Image::new(
-                Extent3d {
-                    width: lm.width.into(),
-                    height: lm.height.into(),
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                lm.rgba.iter().flat_map(|t| t.to_le_bytes()).collect(),
-                TextureFormat::Rgba16Float,
-                RenderAssetUsages::RENDER_WORLD,
-            );
-            images.add(lightmap)
-        })
-        .collect();
+    let pages = lightstyles::upload(world, images);
+    let lightmaps = pages.handles().to_vec();
+    commands.insert_resource(pages);
     let mut batches: BTreeMap<(Owner, String, Option<usize>, usize), Batch> = BTreeMap::new();
     let skipped = 0usize;
     let mut transparent_id = 0usize;
@@ -1381,6 +1366,7 @@ pub(crate) fn mesh_from_surface(surface: &Surface, definition: &MaterialData) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::render::render_resource::{Extent3d, TextureDimension};
     fn partition_fixture() -> Batch {
         let positions = vec![
             [-2048., 0., 0.],

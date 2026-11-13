@@ -149,11 +149,11 @@
  ],
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1596,
-  "crates/hl2-bevy/src/rendering.rs": 1380,
+  "crates/hl2-bevy/src/rendering.rs": 1365,
   "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2372,
-  "crates/hl2-simulation/src/entities/choreography.rs": 1229,
+  "crates/hl2-simulation/src/entities/choreography.rs": 1225,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1383,
   "crates/hl2-simulation/src/physics.rs": 3377,
@@ -180,7 +180,7 @@
    119
   ],
   "crates/hl2-bevy/src/effects.rs::present": [
-   181
+   161
   ],
   "crates/hl2-bevy/src/effects.rs::viewmodel_quads": [
    193
@@ -246,10 +246,10 @@
    101
   ],
   "crates/hl2-simulation/src/entities.rs::tick": [
-   201
+   199
   ],
   "crates/hl2-simulation/src/entities/choreography.rs::tick_choreography": [
-   376
+   372
   ],
   "crates/hl2-simulation/src/entities/io.rs::deliver": [
    173
@@ -384,7 +384,7 @@
    208
   ],
   "crates/source-assets/src/bsp.rs::model_world": [
-   461
+   459
   ],
   "crates/source-assets/src/flexes.rs::read_flexes": [
    130

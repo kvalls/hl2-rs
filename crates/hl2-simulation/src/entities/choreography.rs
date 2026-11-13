@@ -1002,19 +1002,15 @@ impl Scene {
                                             event: index,
                                             actor,
                                         };
-                                        let target = world
-                                            .entities
-                                            .iter()
-                                            .enumerate()
-                                            .find(|(target, e)| {
-                                                !self.states[*target].killed
-                                                    && e.get("targetname").is_some_and(|name| {
-                                                        name.eq_ignore_ascii_case(
-                                                            &event.parameters[0],
-                                                        )
-                                                    })
-                                            })
-                                            .map(|(id, _)| id);
+                                        let target = match self.scene_look_target(
+                                            world,
+                                            id,
+                                            actor,
+                                            &event.parameters[0],
+                                        ) {
+                                            Some(crate::attention::Target::Entity(t)) => Some(t),
+                                            _ => None,
+                                        };
                                         match (
                                             target,
                                             crate::npc::MoveStyle::parse(&event.parameters[1]),

@@ -2,6 +2,12 @@
 //! pathtrack.cpp, pointteleport.cpp).
 
 use super::{Delivery, Scene};
+
+/// func_train: Start, Stop, Toggle.
+pub(super) fn func_train(scene: &mut Scene, d: &Delivery) -> bool {
+    let time = scene.time;
+    scene.func_trains.input(d.world, d.id, d.input, time)
+}
 use crate::trains::Teleport;
 use glam::Vec3;
 

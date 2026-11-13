@@ -127,7 +127,7 @@ struct SceneAnimation {
     previous_started: f64,
     previous_done: Option<f64>,
 }
-fn number(e: &Entity, key: &str, default: f32) -> f32 {
+pub(crate) fn number(e: &Entity, key: &str, default: f32) -> f32 {
     e.get(key)
         .and_then(|s| s.parse::<f32>().ok())
         .filter(|v| v.is_finite())
@@ -220,6 +220,8 @@ pub struct State {
     script_finish: Option<f64>,
     /// A scripted_sequence's walk/run to its mark (SCHED_SCRIPTED_WALK/RUN) in progress.
     script_move: Option<crate::npc::GoalKey>,
+    /// MoveToPosition (m_bWaitForBeginSequence): the actor idles on the mark until BeginSequence.
+    script_wait: bool,
     post_idle_done: Option<(f64, usize)>,
     shuffle: Vec<usize>,
     last_shuffle: Option<usize>,
@@ -280,9 +282,11 @@ pub struct Parent {
 /// Classes whose own movement code positions them; map-spawn `parentname` is not
 /// applied to them here (moving hierarchies remain unfinished).
 fn self_positioned(class: &str) -> bool {
-    // CFuncBrush has no movement of its own: a parented one follows its parent.
+    // CFuncBrush and triggers have no movement of their own and doors travel in their
+    // parent's frame: parented ones follow it (d1_trainstation_01's car door and triggers).
     class != "func_brush"
-        && ["func_", "prop_door", "prop_physics", "npc_", "trigger_"]
+        && !movers::travels(class)
+        && ["func_", "prop_door", "prop_physics", "npc_"]
             .iter()
             .any(|p| class.starts_with(p))
 }
@@ -396,6 +400,9 @@ pub struct Scene {
     pub view_control: crate::view_control::ViewControl,
     /// func_tracktrain trains and the moves they and point_teleport give the player.
     pub trains: crate::trains::Trains,
+    pub lightstyles: crate::lightstyles::LightStyles,
+    pub beams: crate::env_beam::EnvBeams,
+    pub func_trains: crate::func_train::FuncTrains,
     /// The new game's intro: script_intro and env_credits' logo.
     pub intro: crate::script_intro::Intro,
     /// Developer commentary state and `point_commentary_node` nodes.
@@ -718,25 +725,16 @@ impl Scene {
             color_correction: crate::color_correction::ColorCorrection::new(world),
             view_control: Default::default(),
             trains: Default::default(),
+            lightstyles: Default::default(),
+            beams: Default::default(),
+            func_trains: Default::default(),
             intro: Default::default(),
             commentary: Default::default(),
             templates: BTreeMap::new(),
             player_feet: Vec3::ZERO,
             tick_dt: 0.,
         };
-        let diagnostics = &mut scene.diagnostics;
-        scene.states = (world.entities.iter())
-            .map(|e| Self::initial_state(world, e, diagnostics))
-            .collect();
-        scene.initialize_idle_activities(world);
-        scene.spawn_combine_cameras(world);
-        scene.start_weapon_idles(world);
-        scene.hold_template_children(world);
-        // MapEntity_ParseAllEntities removes SF_NPC_TEMPLATE NPCs (npc_template_maker).
-        scene.makers = crate::npc_makers::NpcMakers::new(world, &mut scene.states);
-        scene.spotlights = crate::point_spotlight::Spotlights::new(world);
-        scene.setup_spawn_parents(world);
-        scene.start_logic(world, new_game);
+        scene.spawn_entities(world, new_game);
         scene
     }
     /// Whether an entity is a point_template child that has not been spawned yet.
@@ -914,12 +912,10 @@ impl Scene {
                 self.states[id].touching = inside;
             }
         }
+        self.advance_func_trains(world);
+        self.beams.think(self.time);
         // Parented children follow this tick's parent poses and animated attachments.
-        for id in 0..self.states.len() {
-            if self.states[id].parent.is_some() && !self.states[id].killed {
-                self.follow_parent(world, id);
-            }
-        }
+        self.follow_parents(world);
         for _ in 0..2048 {
             let Some(index) = self
                 .queue

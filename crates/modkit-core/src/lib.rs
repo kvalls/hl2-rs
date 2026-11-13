@@ -153,6 +153,9 @@ pub struct World {
     pub model_collision: std::collections::BTreeMap<String, Vec<ConvexPiece>>,
     #[serde(default)]
     pub lightmaps: Vec<Lightmap>,
+    /// Faces lit by light styles other than 0, recomposed when a style's value changes.
+    #[serde(default)]
+    pub lightmap_styles: Vec<StyledLightmap>,
     #[serde(default)]
     pub rigs: std::collections::BTreeMap<String, animation::Rig>,
     /// Leaf ambient samples and world lights for model lighting (None if unreadable).
@@ -448,6 +451,17 @@ pub struct Lightmap {
     pub height: u16,
     /// Linear, unclamped baked light as IEEE half-float bits (RGBA16F texels).
     pub rgba: Vec<u16>,
+}
+/// A face's atlas rectangle lit by more than style 0: each style's linear samples (row-major,
+/// width x height), summed times the style's value.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct StyledLightmap {
+    pub page: usize,
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub styles: Vec<(u8, Vec<[f32; 3]>)>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct BrushModel {

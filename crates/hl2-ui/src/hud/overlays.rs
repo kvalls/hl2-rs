@@ -20,12 +20,15 @@ pub(super) struct Overlays {
 }
 
 impl Overlays {
-    pub(super) fn load(vfs: &Vfs, (fonts, face): (&Entry, FontFace)) -> Self {
+    pub(super) fn load(
+        vfs: &Vfs,
+        (fonts, face, loc): (&Entry, FontFace, &crate::gameui::localize::Localization),
+    ) -> Self {
         Self {
             fades: MutexCell::new(Default::default()),
             credits: CreditsParams::load(vfs),
             credits_text: HudFont::read(fonts, "CreditsText", face.clone(), 20.),
-            messages: messages::HudMessages::load(vfs, fonts, face),
+            messages: messages::HudMessages::load(vfs, fonts, face, loc),
         }
     }
 }

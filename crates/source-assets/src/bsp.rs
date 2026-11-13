@@ -16,6 +16,7 @@ pub struct Bsp {
     pub static_props: Vec<modkit_core::ModelInstance>,
     lightmaps: Vec<modkit_core::Lightmap>,
     face_lighting: Vec<Option<crate::lighting::FaceLight>>,
+    lightmap_styles: Vec<modkit_core::StyledLightmap>,
     /// Whether the HDR lighting copies are wanted (see [`crate::lighting::choose_hdr`]).
     hdr: bool,
 }
@@ -86,6 +87,7 @@ impl Bsp {
         Self {
             lightmaps: Vec::new(),
             face_lighting: Vec::new(),
+            lightmap_styles: Vec::new(),
             static_props: Vec::new(),
             version: 20,
             revision: 0,
@@ -118,9 +120,11 @@ impl Bsp {
             lumps.push(decode_lump(bytes(data, offset, len)?, i)?);
         }
         let (lightmaps, face_lighting) = crate::lighting::build(&lumps, hdr)?;
+        let lightmap_styles = crate::lighting::styled_faces(&lumps, hdr, &face_lighting)?;
         Ok(Self {
             lightmaps,
             face_lighting,
+            lightmap_styles,
             static_props: crate::models::static_props(data, &lumps[35])?,
             version,
             revision: u32le(data, 1032)?,
@@ -241,14 +245,23 @@ impl Bsp {
             crate::visibility::cluster(&self.lumps, self.lump_versions[10], e.origin())?,
         )
     }
+    /// The atlas pages and styled faces, carried by the world model (model 0) only.
+    fn lightmap_fields(
+        &self,
+        model_index: usize,
+    ) -> (Vec<modkit_core::Lightmap>, Vec<modkit_core::StyledLightmap>) {
+        if model_index == 0 {
+            (self.lightmaps.clone(), self.lightmap_styles.clone())
+        } else {
+            Default::default()
+        }
+    }
     fn model_world(&self, name: &str, model_index: usize) -> Result<World> {
+        let (lightmaps, lightmap_styles) = self.lightmap_fields(model_index);
         let mut world = World {
             name: name.into(),
-            lightmaps: if model_index == 0 {
-                self.lightmaps.clone()
-            } else {
-                Vec::new()
-            },
+            lightmaps,
+            lightmap_styles,
             entities: if model_index == 0 {
                 keyvalues::entities(self.lump(0))?
             } else {
@@ -799,6 +812,7 @@ mod tests {
             static_props: Vec::new(),
             lightmaps: Vec::new(),
             face_lighting: Vec::new(),
+            lightmap_styles: Vec::new(),
             hdr: true,
         }
     }

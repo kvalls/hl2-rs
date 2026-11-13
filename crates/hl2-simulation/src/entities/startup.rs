@@ -109,6 +109,24 @@ impl Scene {
             }
         }
     }
+    /// The map's entities spawn: their states, idle activities, cameras, templates, makers,
+    /// spotlights, parents and the logic that starts with the map.
+    pub(super) fn spawn_entities(&mut self, world: &World, new_game: bool) {
+        let diagnostics = &mut self.diagnostics;
+        self.states = (world.entities.iter())
+            .map(|e| Self::initial_state(world, e, diagnostics))
+            .collect();
+        self.initialize_idle_activities(world);
+        self.spawn_combine_cameras(world);
+        self.start_weapon_idles(world);
+        self.hold_template_children(world);
+        // MapEntity_ParseAllEntities removes SF_NPC_TEMPLATE NPCs (npc_template_maker).
+        self.makers = crate::npc_makers::NpcMakers::new(world, &mut self.states);
+        self.spotlights = crate::point_spotlight::Spotlights::new(world);
+        self.setup_spawn_parents(world);
+        self.start_logic(world, new_game);
+    }
+
     /// Timers' first delays and logic_auto's outputs.
     pub(super) fn start_logic(&mut self, world: &World, new_game: bool) {
         // CTimerEntity::Spawn -> Enable -> ResetTimer: random timers draw their first delay.
@@ -116,6 +134,12 @@ impl Scene {
             if e.class() == "logic_timer" && number(e, "UseRandomTime", 0.) != 0. {
                 self.states[id].timer_at = self.time + self.timer_interval(e);
             }
+        }
+        self.start_scripts_on_spawn(world);
+        super::inputs::spawn_lights(self, world);
+        self.beams.spawn(world, self.time);
+        for (id, origin) in self.func_trains.spawn(world, self.time) {
+            self.states[id].origin = origin;
         }
         for (id, entity) in world.entities.iter().enumerate() {
             if entity.class() == "logic_auto" {
@@ -175,6 +199,7 @@ impl Scene {
             script_post_idle: None,
             script_finish: None,
             script_move: None,
+            script_wait: false,
             post_idle_done: None,
             shuffle: Vec::new(),
             last_shuffle: None,

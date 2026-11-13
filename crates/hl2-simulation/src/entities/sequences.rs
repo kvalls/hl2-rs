@@ -265,7 +265,62 @@ impl Scene {
         }
     }
 
+    /// CAI_ScriptedSequence::Spawn: a script without a name, or with SF_SCRIPT_START_ON_SPAWN
+    /// (16), starts thinking 1 s after spawn; a named one then waits for BeginSequence.
+    pub(super) fn start_scripts_on_spawn(&mut self, world: &World) {
+        for (id, e) in world.entities.iter().enumerate() {
+            if e.class() != "scripted_sequence" || self.template_pending(id) {
+                continue;
+            }
+            let named = e.get("targetname").is_some_and(|n| !n.is_empty());
+            if named && number(e, "spawnflags", 0.) as u32 & 16 == 0 {
+                continue;
+            }
+            let input = if named {
+                "MoveToPosition"
+            } else {
+                "BeginSequence"
+            };
+            self.queue_script_input(id, input, 1.);
+        }
+    }
+
+    /// Queues a script's own BeginSequence or MoveToPosition `delay` seconds from now.
+    fn queue_script_input(&mut self, id: usize, input: &str, delay: f64) {
+        self.sequence += 1;
+        self.queue.push(Pending {
+            due: self.time + delay,
+            sequence: self.sequence,
+            target: format!("#{id}"),
+            input: input.into(),
+            parameter: String::new(),
+            caller: id,
+            activator: usize::MAX,
+            opener: None,
+        });
+    }
+
+    /// MoveToPosition: the actor goes to the mark and idles there (m_iszIdle) until
+    /// BeginSequence plays the action.
+    pub(super) fn move_to_position(&mut self, world: &World, id: usize) {
+        self.states[id].script_wait = true;
+        self.start_script(world, id);
+    }
+
+    /// BeginSequence: a waiting script's actor plays the action on its mark (or on arrival).
     pub(super) fn begin_sequence(&mut self, world: &World, id: usize) {
+        if std::mem::take(&mut self.states[id].script_wait) {
+            if self.states[id].script_move.is_some() {
+                return;
+            }
+            if let Some(actor) = self.states[id].script_actor {
+                return self.start_script_play(world, id, actor);
+            }
+        }
+        self.start_script(world, id);
+    }
+
+    fn start_script(&mut self, world: &World, id: usize) {
         let script = self.ent(world, id);
         let name = script.get("m_iszEntity").unwrap_or("");
         let actor = world
@@ -292,17 +347,12 @@ impl Scene {
             .scripted_by
             .is_some_and(|owner| owner != id)
         {
-            self.sequence += 1;
-            self.queue.push(Pending {
-                due: self.time + 0.25,
-                sequence: self.sequence,
-                target: format!("#{id}"),
-                input: "BeginSequence".into(),
-                parameter: String::new(),
-                caller: id,
-                activator: usize::MAX,
-                opener: None,
-            });
+            let input = if self.states[id].script_wait {
+                "MoveToPosition"
+            } else {
+                "BeginSequence"
+            };
+            self.queue_script_input(id, input, 0.25);
             return;
         }
         let movement = number(script, "m_fMoveTo", 0.) as i32;
@@ -371,8 +421,26 @@ impl Scene {
         self.start_script_play(world, id, key.actor);
     }
 
-    /// StartSequence: the actor plays m_iszPlay (or ends at once without one).
+    /// TASK_WAIT_FOR_SCRIPT: the actor owned by a waiting script plays its m_iszIdle.
+    fn start_script_idle(&mut self, world: &World, id: usize, actor: usize) {
+        self.states[actor].script_post_idle = None;
+        self.states[actor].scripted_by = Some(id);
+        self.states[id].script_actor = Some(actor);
+        if let Some(idle) = self
+            .ent(world, id)
+            .get("m_iszIdle")
+            .filter(|s| !s.is_empty())
+        {
+            self.animate(world, actor, idle, false);
+        }
+    }
+
+    /// StartSequence: the actor plays m_iszPlay (or ends at once without one); a waiting
+    /// script idles instead.
     fn start_script_play(&mut self, world: &World, id: usize, actor: usize) {
+        if self.states[id].script_wait {
+            return self.start_script_idle(world, id, actor);
+        }
         let script = self.ent(world, id);
         // Another script takes the actor: the old post idle ends (m_hNextCine).
         self.states[actor].script_post_idle = None;

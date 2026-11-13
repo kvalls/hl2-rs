@@ -1,7 +1,9 @@
 //! HUD text messages (SDK client/message.cpp CHudMessage): env_message's titles.txt messages
-//! scanned or faded in the CenterPrintText font. Native (this build) draws the stored text as it
-//! is, so d1_trainstation_01's chapter title reads `#HL2_Chapter1_Title`.
+//! scanned or faded in the CenterPrintText font. A `#Token` text is localized (MessageDrawScan's
+//! g_pVGuiLocalize->Find; the raw text when the token is missing), so d1_trainstation_01's
+//! chapter title reads hl2_english.txt's HL2_Chapter1_Title.
 use super::super::{font::HudFont, WeaponHud};
+use crate::gameui::localize::Localization;
 use hl2_simulation::script_intro::HudText;
 use source_assets::keyvalues::Entry;
 use source_assets::titles::TextMessage;
@@ -19,17 +21,31 @@ pub(in crate::hud) struct HudMessages {
 }
 
 impl HudMessages {
-    pub(super) fn load(vfs: &Vfs, fonts: &Entry, face: FontFace) -> Self {
-        let titles = vfs
+    pub(super) fn load(vfs: &Vfs, fonts: &Entry, face: FontFace, loc: &Localization) -> Self {
+        let mut titles: BTreeMap<String, TextMessage> = vfs
             .read("scripts/titles.txt")
             .ok()
             .flatten()
             .and_then(|data| keyvalues::decode_text(&data).ok())
             .map(|text| source_assets::titles::parse(&text))
             .unwrap_or_default();
+        for message in titles.values_mut() {
+            localize(message, loc);
+        }
         Self {
             titles,
             font: HudFont::read(fonts, "CenterPrintText", face, 18.),
+        }
+    }
+}
+
+/// MessageDrawScan's lookup: a text starting with `#` (a trailing control character
+/// stripped) becomes its localized text when the token exists.
+fn localize(message: &mut TextMessage, loc: &Localization) {
+    let token = message.text.trim_end_matches(char::is_control);
+    if token.starts_with('#') {
+        if let Some(text) = loc.lookup(token) {
+            message.text = text.to_owned();
         }
     }
 }
@@ -187,5 +203,26 @@ mod tests {
         assert!((duration(&m) - 5.19).abs() < 1e-4);
         assert_eq!(position(-1., 100., 100., 1280.), 590.);
         assert_eq!(position(0.58, 27., 27., 720.), 0.58 * 720.);
+    }
+
+    #[test]
+    fn a_token_text_is_localized_and_a_missing_token_stays_raw() {
+        let mut loc = Localization::default();
+        loc.insert("HL2_Chapter1_Title", "X1");
+        let mut m = title();
+        localize(&mut m, &loc);
+        assert_eq!(m.text, "X1");
+        let mut missing = TextMessage {
+            text: "#HL2_Missing
+"
+            .into(),
+            ..title()
+        };
+        localize(&mut missing, &loc);
+        assert_eq!(
+            missing.text,
+            "#HL2_Missing
+"
+        );
     }
 }

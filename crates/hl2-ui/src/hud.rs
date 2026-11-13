@@ -1177,7 +1177,7 @@ impl WeaponHud {
                     value("dmg_tall2", 240.),
                 ]
             },
-            overlays: overlays::Overlays::load(vfs, (fonts, bold)),
+            overlays: overlays::Overlays::load(vfs, (fonts, bold, &loc)),
             health_label: loc.text("#Valve_Hud_HEALTH"),
             suit_label: loc.text("#Valve_Hud_SUIT"),
             ammo_label: loc.text("#Valve_Hud_AMMO"),

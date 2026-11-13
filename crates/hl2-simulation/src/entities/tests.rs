@@ -1725,3 +1725,76 @@ fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
         angle(&scene)
     );
 }
+#[test]
+fn a_parented_mover_rides_its_parent_and_travels_in_its_frame() {
+    // d1_trainstation_01's train_door_1 is a func_door parented to intro_train_2 (SDK
+    // CBaseDoor::Spawn keeps local origins, so a door travels in its parent's frame).
+    let w = World {
+        entities: vec![
+            entity("func_brush", "car", &[("origin", "0 0 0")]),
+            entity(
+                "func_movelinear",
+                "slider",
+                &[
+                    ("origin", "10 0 0"),
+                    ("parentname", "car"),
+                    ("movedir", "0 90 0"),
+                    ("movedistance", "100"),
+                    ("speed", "1000"),
+                ],
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    assert_eq!(scene.states[1].parent.as_ref().map(|p| p.entity), Some(0));
+    scene.states[0].origin = Vec3::new(500., 0., 0.);
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    assert!(scene.states[1].origin.distance(Vec3::new(510., 0., 0.)) < 1e-3);
+    scene.send(1, "Open", "");
+    for _ in 0..20 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert!(scene.states[1].origin.distance(Vec3::new(510., 100., 0.)) < 1e-2);
+    // The car turns a quarter: the open slider turns with it.
+    scene.states[0].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    assert!(
+        scene.states[1].origin.distance(Vec3::new(400., 10., 0.)) < 1e-2,
+        "{}",
+        scene.states[1].origin
+    );
+}
+#[test]
+fn a_start_on_spawn_script_takes_its_actor_to_the_mark_after_a_second() {
+    // SDK CAI_ScriptedSequence::Spawn: SF_SCRIPT_START_ON_SPAWN (16) thinks 1 s after spawn;
+    // a named script then holds its NPC on the mark (m_iszIdle) until BeginSequence.
+    let w = World {
+        entities: vec![
+            entity("npc_citizen", "rider", &[("origin", "0 0 0")]),
+            entity(
+                "scripted_sequence",
+                "ss_ride",
+                &[
+                    ("origin", "40 8 16"),
+                    ("spawnflags", "16"),
+                    ("m_iszEntity", "rider"),
+                    ("m_fMoveTo", "4"),
+                    ("m_iszIdle", "sit_idle"),
+                ],
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    for _ in 0..60 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert_eq!(scene.states[0].scripted_by, None);
+    for _ in 0..10 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert_eq!(scene.states[0].scripted_by, Some(1));
+    assert!(scene.states[0].origin.distance(Vec3::new(40., 8., 16.)) < 1e-3);
+    assert!(scene.states[1].script_wait);
+}
