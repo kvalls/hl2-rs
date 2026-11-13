@@ -377,7 +377,7 @@ impl Scene {
             Target::Position(p) => Some(p),
             Target::Entity(t) => {
                 let state = self.states.get(t).filter(|s| !s.killed)?;
-                if self.ent(world, t).class().starts_with("npc_") {
+                if crate::attention::is_flex_actor(self.ent(world, t).class()) {
                     let eyes = self.attachment_frames(world, t, &["eyes"])[0];
                     Some(eyes.map_or(state.origin + Vec3::Z * 64., |m| m.w_axis.truncate()))
                 } else {
@@ -393,7 +393,7 @@ impl Scene {
         actors.extend(self.heads.keys().copied());
         for actor in actors {
             let state = &self.states[actor];
-            if state.killed || !self.ent(world, actor).class().starts_with("npc_") {
+            if state.killed || !crate::attention::is_flex_actor(self.ent(world, actor).class()) {
                 self.heads.remove(&actor);
                 continue;
             }
@@ -957,9 +957,9 @@ impl Scene {
                                 }
                                 EventType::Face => {
                                     // StartFacingSceneEvent needs a target; NPCs turn in process_faces.
-                                    if let Some(actor) = actor
-                                        .filter(|a| self.ent(world, *a).class().starts_with("npc_"))
-                                    {
+                                    if let Some(actor) = actor.filter(|a| {
+                                        crate::attention::is_flex_actor(self.ent(world, *a).class())
+                                    }) {
                                         if let Some(target) = self.scene_look_target(
                                             world,
                                             id,
@@ -976,10 +976,10 @@ impl Scene {
                                     }
                                 }
                                 EventType::LookAt => {
-                                    // CBaseFlex LOOKAT refreshes NPC interests; non-NPC flex actors are a no-op.
-                                    if let Some(actor) = actor
-                                        .filter(|a| self.ent(world, *a).class().starts_with("npc_"))
-                                    {
+                                    // CBaseFlex LOOKAT refreshes NPC interests (cyclers included); props are a no-op.
+                                    if let Some(actor) = actor.filter(|a| {
+                                        crate::attention::is_flex_actor(self.ent(world, *a).class())
+                                    }) {
                                         if let Some(target) = self.scene_look_target(
                                             world,
                                             id,

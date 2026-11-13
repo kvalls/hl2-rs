@@ -512,12 +512,25 @@ impl World {
         merge(&mut self.model_breaks, loaded.model_breaks);
         self.warnings.extend(loaded.warnings);
     }
+    /// CBasePlayer::EntSelectSpawnPoint without a landmark start spot: FindPlayerStart
+    /// takes the info_player_start with SF_PLAYER_START_MASTER (spawnflags 1), else the
+    /// first one; info_player_deathmatch is this host's last resort.
     pub fn spawn(&self) -> (Vec3, f32) {
-        if let Some(e) = self
-            .entities
-            .iter()
-            .find(|e| matches!(e.class(), "info_player_start" | "info_player_deathmatch"))
-        {
+        let starts = || {
+            self.entities
+                .iter()
+                .filter(|e| e.class() == "info_player_start")
+        };
+        let master = starts().find(|e| {
+            e.get("spawnflags")
+                .and_then(|f| f.trim().parse::<u32>().ok())
+                .is_some_and(|f| f & 1 != 0)
+        });
+        if let Some(e) = master.or_else(|| starts().next()).or_else(|| {
+            self.entities
+                .iter()
+                .find(|e| e.class() == "info_player_deathmatch")
+        }) {
             let yaw = parse_vec3(e.get("angles").unwrap_or("0 0 0"))
                 .unwrap_or(Vec3::ZERO)
                 .y
@@ -691,6 +704,28 @@ pub struct Block {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_player_spawns_at_the_master_player_start() {
+        let start = |origin: &str, flags: &str| Entity {
+            properties: vec![
+                ("classname".into(), "info_player_start".into()),
+                ("origin".into(), origin.into()),
+                ("angles".into(), "0 90 0".into()),
+                ("spawnflags".into(), flags.into()),
+            ],
+        };
+        // d1_trainstation_01: the master start in front of the intro G-Man comes later.
+        let mut world = World {
+            entities: vec![
+                start("-4690 -1186 -27", "0"),
+                start("-14576 -14208 -1300", "1"),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(world.spawn().0, Vec3::new(-14576., -14208., -1236.));
+        world.entities[1].properties[3].1 = "0".into();
+        assert_eq!(world.spawn().0, Vec3::new(-4690., -1186., 37.));
+    }
     #[test]
     fn surface_batches_keep_every_piece_sharing_a_key() {
         let triangle = |material: &str, lightmap, x: f32| Surface {

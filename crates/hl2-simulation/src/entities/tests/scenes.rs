@@ -133,7 +133,7 @@ fn face_turns_standing_npc_toward_target_at_max_yaw_speed() {
     assert_eq!(clamp_yaw(5., 358., 10.), 3.);
 }
 #[test]
-fn lookat_binds_target_alias_once_and_reports_missing_target_without_cycler_interest() {
+fn lookat_binds_target_alias_once_and_reports_missing_target_for_npcs_and_cyclers() {
     use crate::attention::Target;
     let mut world = World {
         entities: vec![
@@ -166,7 +166,9 @@ fn lookat_binds_target_alias_once_and_reports_missing_target_without_cycler_inte
     scene.tick(&world, Vec3::ZERO, 0.015);
     scene.tick(&world, Vec3::ZERO, 0.05);
     assert_eq!(scene.look_targets.report()[&1][0].target, Target::Entity(3));
-    assert!(!scene.look_targets.report().contains_key(&2));
+    // Retail RTTI: CFlextalkActor <- CGenericActor <- CAI_BaseActor, whose LOOKAT adds
+    // a look target like any NPC's.
+    assert_eq!(scene.look_targets.report()[&2][0].target, Target::Player);
     // Renaming a surviving entity does not re-resolve an already-started event.
     world.entities[3].properties = vec![
         ("classname".into(), "info_target".into()),

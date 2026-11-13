@@ -36,7 +36,7 @@ impl Eyes {
         let mut result = Self::default();
         for i in &loaded.world.model_instances {
             let Some(id) = i.entity else { continue };
-            if !loaded.world.entities[id].class().starts_with("npc_") {
+            if !hl2_simulation::attention::is_flex_actor(loaded.world.entities[id].class()) {
                 continue;
             }
             if let Some(gaze) = loaded.gaze.get(&i.asset_key()) {
@@ -339,7 +339,7 @@ pub fn present(
                 if id.is_some_and(|id| {
                     game.scene
                         .entity(&game.world, id)
-                        .is_some_and(|e| e.class().starts_with("npc_"))
+                        .is_some_and(|e| hl2_simulation::attention::is_flex_actor(e.class()))
                 }) {
                     eyes.tracking_npc += 1;
                 }

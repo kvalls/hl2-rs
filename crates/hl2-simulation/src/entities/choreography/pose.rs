@@ -66,7 +66,7 @@ impl Scene {
             let state = &self.states[id];
             if state.killed
                 || self.ragdoll_matrices.contains_key(&id)
-                || !self.ent(world, id).class().starts_with("npc_")
+                || !crate::attention::is_flex_actor(self.ent(world, id).class())
             {
                 if !self.sequence_transitions.is_empty() {
                     self.sequence_transitions.remove(&id);
