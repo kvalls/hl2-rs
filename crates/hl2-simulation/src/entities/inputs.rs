@@ -40,6 +40,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("prop_door_rotating", doors::door),
     ("func_movelinear", doors::movelinear),
     ("func_tracktrain", trains::tracktrain),
+    ("func_rotating", trains::rotating),
     ("path_track", trains::path_track),
     ("point_teleport", trains::point_teleport),
     ("logic_relay", logic::relay),

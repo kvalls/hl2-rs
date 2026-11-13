@@ -14,16 +14,46 @@ pub(super) fn moves(class: &str) -> bool {
             | "prop_door_rotating"
             | "func_movelinear"
             | "func_tracktrain"
+            | "func_rotating"
     )
 }
 
 impl Scene {
+    /// A func_rotating's state, spawned from its keyvalues on first use.
+    pub(super) fn rotating_state(
+        &mut self,
+        world: &World,
+        id: usize,
+    ) -> &mut crate::rotating::Rotating {
+        let time = self.time;
+        self.trains.rotating.entry(id).or_insert_with(|| {
+            let e = &world.entities[id];
+            let number = |key: &str| super::number(e, key, 0.);
+            let angles = modkit_core::parse_vec3(e.get("angles").unwrap_or("0 0 0"));
+            crate::rotating::Rotating::spawn(
+                number("spawnflags") as u32,
+                number("maxspeed"),
+                number("fanfriction"),
+                angles.unwrap_or_default(),
+                time,
+            )
+        })
+    }
+
     /// One tick of a `func_door`, `func_door_rotating`, `prop_door_rotating` or
     /// `func_movelinear`: a door that waited long enough closes, the pose follows the target.
     pub(super) fn advance_mover(&mut self, world: &World, id: usize, dt: f32) {
-        if world.entities[id].class() == "func_tracktrain" {
-            self.advance_train(world, id, dt);
-            return;
+        match world.entities[id].class() {
+            "func_tracktrain" => return self.advance_train(world, id, dt),
+            "func_rotating" => {
+                let time = self.time;
+                let rotating = self.rotating_state(world, id);
+                rotating.advance(time, dt);
+                let angles = rotating.angles;
+                self.states[id].rotation = crate::physics::angles(angles);
+                return;
+            }
+            _ => {}
         }
         if self.states[id].return_at.is_some_and(|t| t <= self.time) {
             self.send(id, "Close", "");

@@ -145,6 +145,8 @@ pub struct Trains {
     pub pushes: Vec<Push>,
     /// A point_teleport of the local player, applied before its next move.
     pub teleport: Option<Teleport>,
+    /// func_rotating state, created at each one's first tick (rotating.rs).
+    pub rotating: BTreeMap<usize, crate::rotating::Rotating>,
 }
 
 /// The end of a `look_ahead`: the node whose segment holds the point, the node after it,

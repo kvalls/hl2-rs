@@ -5,6 +5,15 @@ use super::{Delivery, Scene};
 use crate::trains::Teleport;
 use glam::Vec3;
 
+/// CFuncRotating's inputs (rotating.rs).
+pub(super) fn rotating(scene: &mut Scene, d: &Delivery) -> bool {
+    let time = scene.time;
+    let value = d.pending.parameter.trim().parse().unwrap_or(0.);
+    scene
+        .rotating_state(d.world, d.id)
+        .input(d.input, value, time)
+}
+
 /// Stop, StartForward, StartBackward, Toggle, Resume, Reverse, SetSpeed, SetSpeedReal and
 /// SetSpeedDir (SetSpeedDirAccel without its acceleration).
 pub(super) fn tracktrain(scene: &mut Scene, d: &Delivery) -> bool {

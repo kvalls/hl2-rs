@@ -280,9 +280,11 @@ pub struct Parent {
 /// Classes whose own movement code positions them; map-spawn `parentname` is not
 /// applied to them here (moving hierarchies remain unfinished).
 fn self_positioned(class: &str) -> bool {
-    ["func_", "prop_door", "prop_physics", "npc_", "trigger_"]
-        .iter()
-        .any(|p| class.starts_with(p))
+    // CFuncBrush has no movement of its own: a parented one follows its parent.
+    class != "func_brush"
+        && ["func_", "prop_door", "prop_physics", "npc_", "trigger_"]
+            .iter()
+            .any(|p| class.starts_with(p))
 }
 /// The local player in trigger_hurt toucher lists.
 const PLAYER: usize = usize::MAX;
