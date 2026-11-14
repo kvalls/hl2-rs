@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-14 session 60: the movement key hint; the ride's ground ray (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: env_hudhint's ShowHudHint/HideHudHint inputs set the scene's KeyHintText message; new hl2-ui hud/key_hint.rs draws CHudHintKeyDisplay (SetHintText labels, key names from the configured bindings, two-column rows, r-aligned panel, KeyHintMessageShow/Hide through the HUD animation engine); the animation engine moved from hud.rs to hud/effects.rs (observe and load split); source-ui FontFace::gdi_height (the GDI cell height); placeholder token HL2RS_KeyNotBound; the player's ground ray ignores NPC-only clip brushes (MASK_PLAYERSOLID).
+- Why: owner priority (2026-11-13) d1_trainstation_01 to native fidelity, prompt item (1a); DESIGN 14z-b.
+- Tested how: unit tests (labels, placement, animation timings, gdi_height, env_hudhint, the clip ground ray); owned test (panel edges and row pitch at 720p); packaged 150 s captures (artifacts/s60/hint2, hint3) against native time-lapses (artifacts/s56/native-ts01); temporary prints of trigger entries and skipped train carries (artifacts/s60/dbg1.log, dbg2.log); validate1.sh (see STATUS).
+- Result: the hint shows FORWARD W / BACK S / LEFT A / RIGHT D at native's place and size, fades in, flashes twice and fades out after 12 s, and repeats every 19 s while the player stays in the train, like native; before the ground ray fix it showed once.
+- Frame time: not measured; the hint's labels and layout are built once per message and per canvas size; drawing is 8 labels and one rounded box while visible, nothing while hidden.
+- Still broken or not tested: the small labels' weight and width (DejaVu Sans for Verdana); the first show's timing is about 1 s early against native's earliest bound; other maps' hints (12 maps use env_hudhint) not checked against native.
+- Also: shakes skip a player off the ground unless the shake is an air shake (env_shake spawnflag 4), per SDK UTIL_ScreenShake (bd65609; unit tests only, no native A/B).
+- Next: see STATUS "Current session 60".
+
 ## 2026-11-14 session 59: the passengers reach the hall; grenade shakes (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
