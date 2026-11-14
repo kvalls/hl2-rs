@@ -7,6 +7,12 @@ use glam::Vec3;
 use rapier3d::prelude::{nalgebra, InteractionGroups, QueryFilter, Ray};
 
 impl Physics {
+    pub(super) fn hitgroup(&self, handle: ColliderHandle) -> i32 {
+        self.collider_hitgroups.get(&handle).copied().unwrap_or(0)
+    }
+    pub(super) fn hitbox_bone(&self, handle: ColliderHandle) -> Option<usize> {
+        self.collider_hitbox_bones.get(&handle).copied()
+    }
     pub fn ray(&self, origin: Vec3, direction: Vec3, distance: f32) -> Option<(usize, Vec3)> {
         self.impact_ray(origin, direction, distance)
             .map(|h| (h.entity, h.position))

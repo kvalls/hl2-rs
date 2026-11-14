@@ -241,8 +241,7 @@ impl Physics {
             compute_impact_geometry_on_penetration: true,
         };
         if let Some((handle, hit)) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
+            (&self.bodies, &self.colliders),
             &position,
             &vector(end - start),
             &shape,

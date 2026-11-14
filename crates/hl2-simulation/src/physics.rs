@@ -12,6 +12,7 @@ use std::sync::Mutex;
 mod npc_trace;
 #[path = "player_convex.rs"]
 mod player_convex;
+mod queries;
 mod rays;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RayHit {
@@ -644,11 +645,11 @@ impl PhysicsHooks for WorldSideMaterials {
 pub struct Physics {
     pub bodies: RigidBodySet,
     pub colliders: ColliderSet,
-    query: QueryPipeline,
+    query: queries::Queries,
     changed_entity_colliders: Vec<ColliderHandle>,
     pipeline: PhysicsPipeline,
     islands: IslandManager,
-    broad: BroadPhaseMultiSap,
+    broad: queries::RecordingBroadPhase,
     narrow: NarrowPhase,
     impulses: ImpulseJointSet,
     multibody: MultibodyJointSet,
@@ -1533,28 +1534,23 @@ impl Physics {
             return;
         };
         for (c, bone, center, bind) in &set.boxes {
-            let Some(collider) = self.colliders.get_mut(*c) else {
+            let Some(collider) = self.colliders.get(*c) else {
                 continue;
             };
-            if enabled {
-                let model = skin.get(*bone).map_or(*bind, |m| *m * *bind);
-                let at = mat4_pose(frame * model * Mat4::from_translation(*center));
-                if *collider.position() != at {
-                    collider.set_position(at);
-                    self.changed_entity_colliders.push(*c);
-                }
-            }
-            if collider.is_enabled() != enabled {
+            let model = || skin.get(*bone).map_or(*bind, |m| *m * *bind);
+            let at = enabled
+                .then(|| mat4_pose(frame * model() * Mat4::from_translation(*center)))
+                .filter(|at| collider.position() != at);
+            let toggle = collider.is_enabled() != enabled;
+            // A mutable borrow marks the collider modified for the next step: only for a change.
+            let changes = usize::from(at.is_some()) + usize::from(toggle);
+            if changes > 0 {
+                let collider = self.colliders.get_mut(*c).expect("hitbox collider");
+                at.into_iter().for_each(|at| collider.set_position(at));
                 collider.set_enabled(enabled);
-                self.changed_entity_colliders.push(*c);
+                (self.changed_entity_colliders).extend(std::iter::repeat_n(*c, changes));
             }
         }
-    }
-    fn hitgroup(&self, handle: ColliderHandle) -> i32 {
-        self.collider_hitgroups.get(&handle).copied().unwrap_or(0)
-    }
-    fn hitbox_bone(&self, handle: ColliderHandle) -> Option<usize> {
-        self.collider_hitbox_bones.get(&handle).copied()
     }
     pub fn set_entity(&mut self, id: usize, origin: Vec3, rotation: Quat, enabled: bool) {
         let dynamic = self.dynamic.get(&id);
@@ -1569,21 +1565,22 @@ impl Physics {
         }
         if let Some(&(hull, mins, maxs)) = self.npc_hulls.get(&id) {
             let at = pose(origin + (mins + maxs) * 0.5, Quat::IDENTITY);
-            if let Some(c) = self.colliders.get_mut(hull) {
-                if *c.position() != at || c.is_enabled() != enabled {
-                    c.set_position(at);
-                    c.set_enabled(enabled);
-                    self.changed_entity_colliders.push(hull);
-                }
+            // A disabled hull is placed when it is enabled, not while it stays disabled.
+            let stale =
+                |c: &Collider| c.is_enabled() != enabled || (enabled && *c.position() != at);
+            if self.colliders.get(hull).is_some_and(stale) {
+                let c = self.colliders.get_mut(hull).expect("hull collider");
+                c.set_position(at);
+                c.set_enabled(enabled);
+                self.changed_entity_colliders.push(hull);
             }
         }
         if let Some(set) = self.studio_hitboxes.get(&id) {
             for (c, ..) in &set.boxes {
-                if let Some(collider) = self.colliders.get_mut(*c) {
-                    if collider.is_enabled() != enabled {
-                        collider.set_enabled(enabled);
-                        self.changed_entity_colliders.push(*c);
-                    }
+                if (self.colliders.get(*c)).is_some_and(|c| c.is_enabled() != enabled) {
+                    let collider = self.colliders.get_mut(*c).expect("hitbox collider");
+                    collider.set_enabled(enabled);
+                    self.changed_entity_colliders.push(*c);
                 }
             }
         }
@@ -1594,6 +1591,7 @@ impl Physics {
                     continue;
                 };
                 let move_pose = target.as_ref().is_some_and(|target| c.position() != target);
+                let move_pose = move_pose && (enabled || c.is_enabled());
                 let change_enabled = c.is_enabled() != enabled;
                 if !move_pose && !change_enabled {
                     continue;
@@ -1724,10 +1722,11 @@ impl Physics {
             &mut self.impulses,
             &mut self.multibody,
             &mut self.ccd,
-            Some(&mut self.query),
+            None,
             &self.world_sides,
             &(),
         );
+        self.query.apply_step(&self.colliders, &mut self.broad);
         self.time += f64::from(dt);
         // physics_performanceparams_t::Defaults (SDK performance.h; CPhysicsHook keeps
         // them): world-space speed limits of 2000 u/s and 3600 deg/s per object.
@@ -2764,8 +2763,7 @@ impl Physics {
                 .groups(QUERY_GROUPS)
                 .exclude_sensors();
             let (collider, _) = physics.query.cast_shape(
-                &physics.bodies,
-                &physics.colliders,
+                (&physics.bodies, &physics.colliders),
                 &pose(center(from), Quat::IDENTITY),
                 &vector(to - from),
                 &shape,
@@ -2889,8 +2887,7 @@ impl Physics {
                 .predicate(&skip);
             let delta = velocity * dt;
             if let Some((collider, hit)) = self.query.cast_shape(
-                &self.bodies,
-                &self.colliders,
+                (&self.bodies, &self.colliders),
                 &pose(position + skin_offset, Quat::IDENTITY),
                 &vector(delta),
                 &shape,
@@ -3113,8 +3110,7 @@ impl Physics {
                     .is_none_or(|contents| contents & 0x0200_400b != 0)
         };
         let (handle, hit) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
+            (&self.bodies, &self.colliders),
             &pose(start, Quat::IDENTITY),
             &vector(end - start),
             shape.as_ref(),
@@ -3212,8 +3208,7 @@ impl Physics {
             compute_impact_geometry_on_penetration: true,
         };
         let (handle, hit) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
+            (&self.bodies, &self.colliders),
             &pose(origin, Quat::IDENTITY),
             &vector(direction * distance),
             &shape,
@@ -3351,8 +3346,7 @@ impl CollisionWorld for Physics {
             compute_impact_geometry_on_penetration: true,
         };
         if let Some((_, hit)) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
+            (&self.bodies, &self.colliders),
             &position,
             &vector(delta),
             &shape,

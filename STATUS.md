@@ -1,5 +1,19 @@
 # STATUS
 
+## Checkpoint: owned query tree and the cause of Rapier's maintenance cost (2026-11-14)
+
+**Not measured, replays not run.** Found by probing what each physics step is told:
+`set_entity` and `set_npc_hitboxes` took a mutable collider reference before checking for a
+change, which marks the collider modified; about 2,175 colliders a tick, 1,855 of them disabled
+and therefore removed and re-added in the broad phase and the query tree on every step. Fixed:
+the reference is taken only for a real change (about 334 modified and 6 removed a step in the
+crowd run). The earlier "fixed cost inside the library" reading is corrected in
+`docs/performance-research.md`. Also in: the query tree owned by the game (DESIGN plan E),
+with tests against the library's pipeline. The last six removals a step were disabled NPC
+hulls repositioned every tick while hidden; a collider that stays disabled is now placed when
+it is enabled. Open: measurement and the packaged replays. Validation passes.
+Plugin rules read: yes; exceptions: none.
+
 ## Performance: flex deltas once per actor; silhouettes need a design decision (2026-11-11)
 
 Since the brush set (next section): facial flex vertex deltas are built once per actor per frame

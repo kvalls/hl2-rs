@@ -143,6 +143,32 @@ generated flex data; the existing owned-file flex tests; packaged replays (face 
 checks). Measurement: frame time and the `animation` stage, interleaved pairs, load recorded.
 Reversible by restoring `face_flex.rs` and the map's hasher.
 
+### E. Query tree owned by the game (2026-11-11, bounded plan; replaces 14s performance step 2)
+
+Budget (10 ms samples, M1 Pro): the query tree update inside the physics step is about 0.6 ms
+per tick and `refresh_entity_queries` about 0.1 ms, of a 3.3 ms quiet and a 3.8 ms crowd tick,
+with about four bodies awake. The cost is the tree's rebalance, which rebuilds every node above
+depth 5 on each call; rapier3d's query pipeline only offers it together with the refit.
+
+Design: `physics::queries::Queries` holds the same tree type (`Qbvh<ColliderHandle>` from the
+physics library's geometry crate, already a dependency) and offers the six queries the game
+uses with their present signatures: ray, ray with normal, shape cast, shape intersections,
+point projection and box overlap. The step no longer receives a query pipeline. A recording
+wrapper around the unchanged broad phase collects the colliders each step reports as modified
+or removed, and `Physics` applies them after the step. Every update removes, inserts and
+refits exactly as before, so the tree always holds current boxes; the rebalance runs when a
+collider was inserted or removed, or after 64 refits that changed something. Full rebuilds
+(`refresh_queries`) are unchanged.
+
+What can differ: only the tree's shape between rebalances, hence the order candidates are
+visited in. Query contents are the same; a tie between equally near hits could resolve
+differently. Not part of this step: the broad phase, hitboxes on demand.
+
+Validation: unit tests that every query returns the same result as the physics library's own
+pipeline over the same colliders through moves, inserts, removals and skipped rebalances; the
+existing physics tests; all packaged replays. Measurement: tick cost at a fixed tick count,
+interleaved pairs, load recorded. Reversible: `Physics::query` goes back to the library type.
+
 ## Performance research and benchmark plan (2026-11-11)
 
 Before runtime implementation, map author-documented crowd, particle and renderer techniques to

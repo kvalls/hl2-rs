@@ -290,6 +290,29 @@ What would remove them, each a design choice rather than a tweak:
 
 Neither is started. **Owner decision.**
 
+### Correction: most of the Rapier maintenance was caused by our own collider access
+
+The section above calls both costs fixed inside the physics library. A probe of what each step
+is told shows otherwise. `ColliderSet::get_mut` marks a collider modified, and the step treats a
+modified collider that is disabled as removed. `set_entity` and `set_npc_hitboxes` took that
+mutable reference before checking whether pose or enabled state differed, so on
+d1_trainstation_02 every step was told of about 2,175 modified colliders, 1,855 of them
+disabled: removed from and re-added to the broad phase and the query tree on every tick. With
+the reference taken only for a real change the crowd run reports about 334 modified and 6
+removed per step. Those six were disabled NPC hulls whose entities move while hidden:
+`set_entity` repositioned them every tick. A collider that stays disabled is now left where
+it is and placed when it is enabled (the same for an entity's other colliders).
+
+Checkpoint, **not measured**: that fix, and the query tree owned by the game (DESIGN plan E:
+the same tree type, refit on every update, rebalance on insert, removal or after 64 changing
+refits; the step gets no query pipeline and a recording wrapper around the unchanged broad
+phase passes on the colliders it reports). Unit tests compare all six queries with the
+library's pipeline through 300 rounds of moves, inserts and removals. Two things depend on the
+tree's shape and are stated in the tests: a shape cast that starts overlapping several
+colliders reports the first one visited, and the box query answers from stored boxes that may
+be looser than the collider (its callers test each candidate exactly). The one packaged pair
+taken before the access fix showed the owned tree alone at about 0.13 ms off the tick.
+
 ### Machine load during these runs
 
 The two new sampled runs were taken on a loaded machine: load average about 4 on 10 logical

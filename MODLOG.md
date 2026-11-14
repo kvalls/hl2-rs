@@ -1,5 +1,29 @@
 # MODLOG
 
+## 2026-11-14: checkpoint, owned query tree and unchanged colliders no longer marked modified
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `physics/queries.rs`: `Queries` (the six scene queries over the library's tree
+type, refit on every update, rebalance on a schedule) and `RecordingBroadPhase` (the unchanged
+broad phase, passing on the colliders each step reports); the step no longer receives a query
+pipeline. `set_entity` and `set_npc_hitboxes` take a mutable collider reference only when pose
+or enabled state differs, and leave a collider that stays disabled where it is. DESIGN plan E.
+
+**Why:** the tree's rebalance ran on every update; and a probe showed each step being told of
+about 2,175 modified colliders, 1,855 of them disabled, because a mutable reference alone
+marks a collider modified.
+
+**Tested how / Result:** three new unit tests (queries equal to the library's pipeline through
+300 rounds; full rebuild; an entity set to its present state is not reported) and validation
+pass. Probe, crowd run: about 334 modified and 6 removed per step after the fix. One packaged
+pair of the owned tree alone, before the fix: tick 3.39 to 3.27 ms quiet, 3.90 to 3.77 ms crowd.
+
+**Still broken or not tested:** nothing here is measured; replays and the Windows check are
+not run on this state.
+
+**Next:** merge upstream main, measure, replays. Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-11: facial flex deltas once per actor; silhouette cost attributed
 
 **Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
