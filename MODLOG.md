@@ -9,6 +9,7 @@
 - Result: the hint shows FORWARD W / BACK S / LEFT A / RIGHT D at native's place and size, fades in, flashes twice and fades out after 12 s, and repeats every 19 s while the player stays in the train, like native; before the ground ray fix it showed once.
 - Frame time: not measured; the hint's labels and layout are built once per message and per canvas size; drawing is 8 labels and one rounded box while visible, nothing while hidden.
 - Still broken or not tested: the small labels' weight and width (DejaVu Sans for Verdana); the first show's timing is about 1 s early against native's earliest bound; other maps' hints (12 maps use env_hudhint) not checked against native.
+- Also: owner report fixed: the crosshair is hidden while a point_viewcontrol (or a commentary view position) holds the view, as CHudCrosshair::ShouldDraw requires the player to be the view entity; packaged A/B shows it from the teleport onto the train (about 61 s), not during the intro.
 - Also: shakes skip a player off the ground unless the shake is an air shake (env_shake spawnflag 4), per SDK UTIL_ScreenShake (bd65609; unit tests only, no native A/B).
 - Next: see STATUS "Current session 60".
 
