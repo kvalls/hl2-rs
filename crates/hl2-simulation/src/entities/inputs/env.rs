@@ -104,6 +104,18 @@ pub(super) fn message(scene: &mut Scene, d: &Delivery) -> bool {
     true
 }
 
+/// CEnvHudHint::InputShowHudHint / InputHideHudHint: the KeyHintText user message with the
+/// entity's `message`, or an empty one that hides the hint (SDK server/EnvHudHint.cpp).
+pub(super) fn hud_hint(scene: &mut Scene, d: &Delivery) -> bool {
+    let message = match d.input {
+        "showhudhint" => d.entity.get("message").unwrap_or(""),
+        "hidehudhint" => "",
+        _ => return false,
+    };
+    scene.intro.key_hint = Some((message.to_owned(), scene.time));
+    true
+}
+
 /// CGameText::InputDisplay: UTIL_HudMessage with the entity's text parameters (color and
 /// color2 as UTIL_StringToIntArray reads them); a message replaces the one on its channel
 /// (CHudMessage::MsgFunc_HudMsg).

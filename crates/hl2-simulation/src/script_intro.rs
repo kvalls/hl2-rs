@@ -30,6 +30,9 @@ pub struct Intro {
     pub starfield: (bool, f32),
     /// The HUD text messages shown (env_message, game_text), with their start.
     pub messages: Vec<(HudText, f64)>,
+    /// The last KeyHintText message (env_hudhint: a localization token or text; empty
+    /// hides the hint) and when it was sent.
+    pub key_hint: Option<(String, f64)>,
 }
 
 /// A HUD text message: a titles.txt name (env_message, UTIL_ShowMessage) or game_text's own
@@ -58,6 +61,7 @@ impl Default for Intro {
             credits: None,
             starfield: (false, 1.),
             messages: Vec::new(),
+            key_hint: None,
         }
     }
 }

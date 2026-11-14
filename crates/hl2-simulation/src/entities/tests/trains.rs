@@ -148,6 +148,28 @@ fn env_message_shows_its_titles_message_once() {
 }
 
 #[test]
+fn env_hudhint_sends_its_message_and_hides_it_with_an_empty_one() {
+    // d1_trainstation_01's hudhint_movement (timer_hudhintmovement fires ShowHudHint).
+    let world = World {
+        entities: vec![entity(
+            "env_hudhint",
+            "hudhint_movement",
+            &[("message", "Valve_Hint_Movement")],
+        )],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    scene.send(0, "ShowHudHint", "");
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    let (message, at) = scene.intro.key_hint.clone().unwrap();
+    assert_eq!(message, "Valve_Hint_Movement");
+    scene.send(0, "HideHudHint", "");
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    let (message, hidden_at) = scene.intro.key_hint.clone().unwrap();
+    assert!(message.is_empty() && hidden_at > at);
+}
+
+#[test]
 fn game_text_replaces_the_message_on_its_channel() {
     // d1_trainstation_01's turret_hurt_1_text keys.
     let keys = [

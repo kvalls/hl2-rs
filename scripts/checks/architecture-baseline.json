@@ -152,7 +152,7 @@
   "crates/hl2-simulation/src/physics.rs": 3377,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
-  "crates/hl2-ui/src/hud.rs": 1737,
+  "crates/hl2-ui/src/hud.rs": 1150,
   "crates/source-assets/src/models.rs": 1276,
   "crates/source-ui/src/widgets.rs": 2176
  },
@@ -362,10 +362,7 @@
    148
   ],
   "crates/hl2-ui/src/hud.rs::load": [
-   155
-  ],
-  "crates/hl2-ui/src/hud.rs::observe": [
-   123
+   151
   ],
   "crates/modkit-core/src/decals.rs::static_decal": [
    101

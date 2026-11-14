@@ -81,7 +81,9 @@ impl Physics {
         };
         self.cast_shot(origin, direction, distance, &predicate)
     }
-    /// Ground trace under the player (MASK_PLAYERSOLID: clip brushes count).
+    /// Ground trace under the player (MASK_PLAYERSOLID: player clips count, NPC-only clips
+    /// do not: the station's DETAIL|MONSTERCLIP slab under the arriving train is not the
+    /// player's ground).
     pub fn ground_ray(&self, origin: Vec3, direction: Vec3, distance: f32) -> Option<RayHit> {
         self.ray_with(origin, direction, distance, QUERY_GROUPS, true)
     }
@@ -105,10 +107,18 @@ impl Physics {
         direction: Vec3,
         distance: f32,
         groups: InteractionGroups,
-        clips: bool,
+        player_clips: bool,
     ) -> Option<RayHit> {
+        // SDK bspflags.h MASK_PLAYERSOLID.
+        const MASK_PLAYERSOLID: u32 = 0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8;
         let predicate = |handle: ColliderHandle, collider: &Collider| {
-            collider.is_enabled() && (clips || !self.world_sides.clip_brushes.contains(&handle))
+            collider.is_enabled()
+                && (!self.world_sides.clip_brushes.contains(&handle)
+                    || player_clips
+                        && self
+                            .world_brush_contents
+                            .get(&handle)
+                            .is_some_and(|contents| contents & MASK_PLAYERSOLID != 0))
         };
         let ray = Ray::new(
             Point::from(vector(origin)),
