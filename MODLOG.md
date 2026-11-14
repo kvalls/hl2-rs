@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-14 session 59: the passengers reach the hall; grenade shakes (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: actbusy reads `busy_sequence` entries and plays the sequence first; hint nodes are routable (the unconditional info_node_hint exclusion is gone, with the now-unused `restrictions` parameters); new npc/exclusions.rs: per-actor nav-ignored entities (func_brush `excludednpc`/`invert_exclusion`, logic_navigation Ignore targets) and the headcrab group; a scene that takes a walking AI NPC without animating it leaves it idle (`Scene::script_animates`); grenade detonation shakes through `ScreenShakes::start` (projectiles/detonation.rs, one shared detonation after the projectile match); four replays' io expectations.
+- Why: session 58's open item: the passengers' forced actbusy hints were resolved but never taken; prompt item (2), explosion shakes.
+- Tested how: unit tests (sequence-only busy entries, a hint node on a route, exclusions, the shake radius, a frag's shake); the node graph read with artifacts/s59/ain.py; temporary route prints (removed) that found the stale turnstile link and the failing actor; packaged 300 s arrivals (artifacts/s59/arrival1-3, dbg1-4); validate1.sh and validate2.sh (see STATUS).
+- Result: no NPC route fails on d1_trainstation_01 any more (session 58: 525 NoRoute); the passengers walk from the luggage drop through the turnstile into the hall and stand idle where the breencast scene takes them; frag and SMG grenades shake the view within 750 units.
+- Frame time: not measured; the exclusions are computed once per actor at map load and add a few entity ids to each NPC probe's exclusion list (no per-frame allocation beyond the existing list).
+- Still broken or not tested: native comparison of the passengers' walk and stop; hint-group navigation limiting; the exclusion inputs; the shake's in-air rule and a native A/B of the shake; the opening eye shot's drift.
+- Next: see STATUS "Current session 59".
+
 ## 2026-11-13 session 58: the intro's title, car door, HL1 room and passengers (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
