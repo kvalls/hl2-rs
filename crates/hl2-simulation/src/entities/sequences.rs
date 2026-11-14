@@ -11,6 +11,11 @@ impl Scene {
     /// actor of a running playback or through its body animation) or a scene move.
     /// The AI yields to it (NPC_STATE_SCRIPT / SCHED_AISCRIPT semantics).
     pub fn ai_scripted(&self, id: usize) -> bool {
+        self.script_holds(id) || self.scene_events_hold(id)
+    }
+    /// A scripted_sequence, a scene animation or a scene or script move owns the actor
+    /// (an unknown actor counts as held).
+    pub fn script_holds(&self, id: usize) -> bool {
         let Some(state) = self.states.get(id) else {
             return true;
         };
@@ -20,24 +25,26 @@ impl Scene {
                 .movement_animation
                 .as_ref()
                 .is_some_and(|m| m.key.scene != crate::npc::AI_SCENE)
-            // A scene holds an NPC's AI only when it has events that enter
-            // SCHED_SCENE_GENERIC for it; speech-only scenes (the can cop's nags and
-            // "carry on" lines) leave the AI running, like native.
-            || self.choreography.values().any(|c| {
-                c.playback.as_ref().is_some_and(|p| {
-                    p.actors.iter().enumerate().any(|(slot, a)| {
-                        *a == Some(id)
-                            && c.data
-                                .events
-                                .iter()
-                                .any(|e| e.actor == Some(slot) && e.active() && e.takes_npc_ai())
-                    })
-                })
-            })
             || self
                 .movement_ready
                 .keys()
                 .any(|k| k.actor == id && k.scene != crate::npc::AI_SCENE)
+    }
+    /// A scene holds an NPC's AI only when it has events that enter SCHED_SCENE_GENERIC
+    /// for it; speech-only scenes (the can cop's nags and "carry on" lines) leave the AI
+    /// running, like native.
+    pub fn scene_events_hold(&self, id: usize) -> bool {
+        self.choreography.values().any(|c| {
+            c.playback.as_ref().is_some_and(|p| {
+                p.actors.iter().enumerate().any(|(slot, a)| {
+                    *a == Some(id)
+                        && c.data
+                            .events
+                            .iter()
+                            .any(|e| e.actor == Some(slot) && e.active() && e.takes_npc_ai())
+                })
+            })
+        })
     }
 
     /// Play an activity or sequence on an actor for the AI (CAI_BaseNPC::SetActivity:

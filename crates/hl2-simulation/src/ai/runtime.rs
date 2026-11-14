@@ -690,10 +690,7 @@ impl AiRuntime {
     /// skill.cfg (sk_npc_dmg_stunstick) and the stunstick's sound script.
     pub fn new(world: &World, vfs: Option<&Vfs>) -> Self {
         let schedules = setup::class_schedules();
-        let busy_anims = vfs
-            .and_then(|vfs| vfs.read("scripts/actbusy.txt").ok().flatten())
-            .map(|text| super::actbusy::parse_busy_anims(&String::from_utf8_lossy(&text)))
-            .unwrap_or_default();
+        let busy_anims = vfs.map(super::actbusy::load_busy_anims).unwrap_or_default();
         let busy_hints = setup::busy_hints(world);
         let actbusy_ranges = setup::actbusy_ranges(world);
         let skill = vfs.map(setup::skill_damage).unwrap_or_default();
@@ -880,7 +877,7 @@ impl AiRuntime {
                 continue;
             }
             // NPC_STATE_SCRIPT: scripts own the actor; the AI yields.
-            if scene.ai_scripted(id) {
+            if scene.ai_scripted(id) && !self.refuses_scene(id, scene) {
                 self.yield_to_script(id, world, scene, controller);
                 self.diagnostics.scripted_skips += 1;
                 continue;

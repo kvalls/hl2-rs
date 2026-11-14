@@ -7,6 +7,26 @@ use glam::Vec3;
 use modkit_core::World;
 
 impl AiRuntime {
+    /// CBaseFlex's scene entry: a scene's events do not take an NPC whose current schedule
+    /// has no interrupt but COND_PROVOKED ("don't interrupt sequences that don't understand
+    /// being interrupted": the actbusy walk and busy schedules); scripted sequences, scene
+    /// animations and moves still do, and an NPC already taken stays taken.
+    pub(super) fn refuses_scene(&self, id: usize, scene: &Scene) -> bool {
+        let Some(actor) = self.actors.get(&id) else {
+            return false;
+        };
+        if actor.npc.state == NpcState::Script || scene.script_holds(id) {
+            return false;
+        }
+        let schedule = actor.npc.schedule.as_deref();
+        schedule
+            .and_then(|name| self.schedules.0.get(name))
+            .is_some_and(|s| {
+                let mut mask = s.interrupts;
+                mask.clear(super::super::conditions::COND_PROVOKED);
+                mask.0 == 0
+            })
+    }
     /// NPC_STATE_SCRIPT: scripts own the actor; its goal stops and its activity is the script's.
     pub(super) fn yield_to_script(
         &mut self,

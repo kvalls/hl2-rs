@@ -242,6 +242,23 @@ fn a_runtime_spawned_cop_gets_an_actor_and_thinks() {
 }
 
 #[test]
+fn a_scene_does_not_take_an_npc_whose_schedule_ignores_interrupts() {
+    // CBaseFlex's scene entry: the actbusy schedules (no interrupt but COND_PROVOKED)
+    // keep the NPC; an interruptible schedule or a scripted_sequence does not.
+    let mut r = rig();
+    let set = |r: &mut Rig, s: &str| r.ai.actors.get_mut(&0).unwrap().npc.schedule = Some(s.into());
+    set(&mut r, "SCHED_ACTBUSY_BUSY");
+    assert!(r.ai.refuses_scene(0, &r.scene));
+    set(&mut r, "SCHED_ACTBUSY_START_BUSYING");
+    assert!(r.ai.refuses_scene(0, &r.scene));
+    set(&mut r, "SCHED_IDLE_STAND");
+    assert!(!r.ai.refuses_scene(0, &r.scene));
+    set(&mut r, "SCHED_ACTBUSY_BUSY");
+    r.scene.states[0].scripted_by = Some(2);
+    assert!(!r.ai.refuses_scene(0, &r.scene));
+}
+
+#[test]
 fn scripted_cops_are_left_to_their_script() {
     let mut r = rig();
     r.ai.enabled = true;

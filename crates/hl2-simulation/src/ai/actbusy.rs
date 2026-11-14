@@ -104,6 +104,29 @@ pub fn parse_busy_anims(text: &str) -> Vec<BusyAnim> {
     }
     anims
 }
+/// scripts/actbusy.txt through the VFS (none when it is missing).
+pub fn load_busy_anims(vfs: &source_assets::vpk::Vfs) -> Vec<BusyAnim> {
+    vfs.read("scripts/actbusy.txt")
+        .ok()
+        .flatten()
+        .map(|text| parse_busy_anims(&String::from_utf8_lossy(&text)))
+        .unwrap_or_default()
+}
+/// The busy sequences the map's hints can play (the sequence entries an info_node_hint's
+/// hintactivity names), lowercase, for the NPC models' clip preload.
+pub fn hint_sequences(
+    world: &modkit_core::World,
+    anims: &[BusyAnim],
+) -> std::collections::BTreeSet<String> {
+    world
+        .entities
+        .iter()
+        .filter(|e| e.class() == "info_node_hint")
+        .filter_map(|e| find_busy_anim(anims, e.get("hintactivity")?.trim()))
+        .filter(|anim| !anim.sequence.is_empty())
+        .map(|anim| anim.sequence.to_lowercase())
+        .collect()
+}
 /// FindBusyAnim: the first entry named like the hint's activity or sequence, or whose busy
 /// activity is the hint's activity.
 pub fn find_busy_anim<'a>(anims: &'a [BusyAnim], hint_activity: &str) -> Option<&'a BusyAnim> {
@@ -558,6 +581,18 @@ mod tests {
         assert_eq!((seq.busy_label(), seq.activity.as_str()), ("x", ""));
         assert_eq!(anims[0].busy_label(), "ACT_BUSY_STAND");
         assert!(find_busy_anim(&anims, "").is_none());
+        // Hints naming the sequence entry preload its clip; activity hints need none.
+        let hint = |activity: &str| modkit_core::Entity {
+            properties: vec![
+                ("classname".into(), "info_node_hint".into()),
+                ("hintactivity".into(), activity.into()),
+            ],
+        };
+        let world = modkit_core::World {
+            entities: vec![hint("seq_only"), hint("ACT_BUSY_STAND")],
+            ..Default::default()
+        };
+        assert_eq!(hint_sequences(&world, &anims), ["x".to_string()].into());
         let origin = Vec3::new(-3740., -932., 72.);
         let h = hints();
         // Nearest picks the closest; random spreads over the three; locks and groups apply.

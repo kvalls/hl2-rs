@@ -286,8 +286,22 @@ pub fn prepare_npcs(
                 .push(format!("NPC {}: {error:#}", instance.model)),
         }
     }
+    add_hint_sequences(world, vfs, &mut clips);
     prepare_actor_animations(world, vfs, clips);
     controller
+}
+/// Every NPC model also loads the busy sequences of the map's actbusy hints
+/// (`actbusy::hint_sequences`: LineIdle01, d1_t01_BreakRoom_WatchBreen).
+fn add_hint_sequences(
+    world: &World,
+    vfs: &Vfs,
+    clips: &mut std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+) {
+    let anims = crate::ai::actbusy::load_busy_anims(vfs);
+    let sequences = crate::ai::actbusy::hint_sequences(world, &anims);
+    for wanted in clips.values_mut() {
+        wanted.extend(sequences.iter().cloned());
+    }
 }
 
 pub fn tick_npcs(
