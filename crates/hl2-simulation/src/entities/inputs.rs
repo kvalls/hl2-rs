@@ -76,6 +76,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("light_spot", lights::light),
     ("light_glspot", lights::light),
     ("env_beam", beams::beam),
+    ("env_sprite", beams::sprite),
 ];
 
 pub(super) use lights::spawn_lights;

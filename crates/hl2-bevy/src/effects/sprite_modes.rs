@@ -14,9 +14,13 @@ pub(super) fn shading(name: &str) -> f32 {
     }
 }
 
-/// The sprites drawn in kRenderGlow mode: the RPG laser dot, a scanner's eye and its halo.
+/// The sprites drawn in kRenderGlow mode: the RPG laser dot, a scanner's eye and its halo, and
+/// env_sprite's sprites (their kRenderGlow draws take the glow variant).
 pub(super) fn glows(name: &str) -> bool {
-    name == DOT_SPRITE || name == EYE_SPRITE || name == HALO_SPRITE
+    name == DOT_SPRITE
+        || name == EYE_SPRITE
+        || name == HALO_SPRITE
+        || hl2_simulation::env_sprite::MATERIALS.contains(&name)
 }
 
 #[cfg(test)]

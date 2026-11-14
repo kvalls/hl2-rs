@@ -138,6 +138,7 @@ impl Scene {
         self.start_scripts_on_spawn(world);
         super::inputs::spawn_lights(self, world);
         self.beams.spawn(world, self.time);
+        self.sprites.spawn(world);
         for (id, origin) in self.func_trains.spawn(world, self.time) {
             self.states[id].origin = origin;
         }

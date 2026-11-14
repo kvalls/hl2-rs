@@ -14,6 +14,7 @@ pub mod ai_hull;
 pub mod citizens;
 pub mod entities;
 pub mod env_beam;
+pub mod env_sprite;
 pub mod flashlight;
 pub mod footsteps;
 pub mod func_train;

@@ -402,6 +402,7 @@ pub struct Scene {
     pub trains: crate::trains::Trains,
     pub lightstyles: crate::lightstyles::LightStyles,
     pub beams: crate::env_beam::EnvBeams,
+    pub sprites: crate::env_sprite::EnvSprites,
     pub func_trains: crate::func_train::FuncTrains,
     /// The new game's intro: script_intro and env_credits' logo.
     pub intro: crate::script_intro::Intro,
@@ -727,6 +728,7 @@ impl Scene {
             trains: Default::default(),
             lightstyles: Default::default(),
             beams: Default::default(),
+            sprites: Default::default(),
             func_trains: Default::default(),
             intro: Default::default(),
             commentary: Default::default(),

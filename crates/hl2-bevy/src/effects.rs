@@ -677,11 +677,9 @@ pub fn present(
         !sim.world_running(),
         &sim.physics,
     );
-    frame_quads::env_beams(
-        &game,
-        &mut effects,
-        (sim.view_origin().to_array(), direction),
-    );
+    let view = (sim.view_origin().to_array(), direction);
+    frame_quads::env_beams(&game, &mut effects, view);
+    frame_quads::env_sprites(&game, &mut effects, &sim.physics, view);
     // C_EntityFlame's burning_character on burning props (control points: the prop's
     // center and world bounds).
     {
