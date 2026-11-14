@@ -15,6 +15,10 @@ pub(super) struct Overlays {
     /// ClientScheme's CreditsText (the installed scheme has none: the HUD's installed sans
     /// face at 20, its fallback), the intro names' font.
     credits_text: HudFont,
+    /// ClientScheme's CreditsIcons (HalfLife2, tall 34), the logo's font in the retail client
+    /// (its DrawLogo asks for CreditsIcons, or ClientTitleFont under Episodic; the SDK's for
+    /// WeaponIcons).
+    credits_logo: HudFont,
     /// env_message's titles.txt messages (CHudMessage).
     messages: messages::HudMessages,
 }
@@ -22,12 +26,18 @@ pub(super) struct Overlays {
 impl Overlays {
     pub(super) fn load(
         vfs: &Vfs,
-        (fonts, face, loc): (&Entry, FontFace, &crate::gameui::localize::Localization),
+        (fonts, face, icons, loc): (
+            &Entry,
+            FontFace,
+            FontFace,
+            &crate::gameui::localize::Localization,
+        ),
     ) -> Self {
         Self {
             fades: MutexCell::new(Default::default()),
             credits: CreditsParams::load(vfs),
             credits_text: HudFont::read(fonts, "CreditsText", face.clone(), 20.),
+            credits_logo: HudFont::read(fonts, "CreditsIcons", icons, 34.),
             messages: messages::HudMessages::load(vfs, fonts, face, loc),
         }
     }
@@ -210,7 +220,7 @@ impl WeaponHud {
             );
         }
     }
-    /// CHudCredits::DrawLogo: the logo in the WeaponIcons font, centered, in the credits color
+    /// CHudCredits::DrawLogo: the logo in CreditsIcons (`Overlays::credits_logo`), centered, in the credits color
     /// with the fade's alpha; `shown` is when env_credits showed it and how long it holds.
     pub fn draw_credits(&self, time: f64, intro: &hl2_simulation::script_intro::Intro) {
         if let Some(rolled) = intro.credits {
@@ -226,10 +236,11 @@ impl WeaponHud {
             return;
         }
         let [r, g, b, _] = self.overlays.credits.color;
-        let x = (self.canvas.width() - self.icons.width(&self.overlays.credits.logo)) * 0.5;
-        let y = (self.canvas.height() - self.icons.size()) * 0.5;
+        let font = &self.overlays.credits_logo;
+        let x = (self.canvas.width() - font.width(&self.overlays.credits.logo)) * 0.5;
+        let y = (self.canvas.height() - font.size()) * 0.5;
         let color = Color::from_rgba(r, g, b, alpha as u8);
-        self.icons.draw(&self.overlays.credits.logo, x, y, color);
+        font.draw(&self.overlays.credits.logo, x, y, color);
     }
 }
 
