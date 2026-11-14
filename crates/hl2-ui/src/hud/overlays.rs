@@ -51,6 +51,8 @@ pub(super) struct CreditsParams {
     timing: Timing,
     /// (x, y) in 640x480 units.
     position: (f32, f32),
+    /// `separation` (480-line units; 5 without it): the gap between intro slots.
+    separation: f32,
     /// IntroCreditsNames: (name, font).
     names: Vec<(String, String)>,
 }
@@ -172,6 +174,7 @@ impl CreditsParams {
             color: [0, 1, 2, 3].map(|i| color.get(i).copied().unwrap_or(255)),
             timing,
             position: (number("posx", 2.), number("posy", 2.)),
+            separation: number("separation", 5.),
             names,
         }
     }
@@ -264,7 +267,13 @@ impl WeaponHud {
                 &self.overlays.credits_text
             };
             let (x, slot) = (credits.position.0 * width / 640., (i % 3) as f32);
-            let y = (credits.position.1 + slot * font.size()) * height / 480.;
+            let y = intro_name_y(
+                credits.position.1,
+                slot,
+                font.size(),
+                credits.separation,
+                height,
+            );
             let [r, g, b, a] = credits.color;
             font.draw(
                 name,
@@ -276,8 +285,22 @@ impl WeaponHud {
     }
 }
 
+/// The retail client's intro name position: YRES(posy) plus the slot times the name font's
+/// tall and YRES(separation) (the SDK's PrepareIntroCredits has YRES(posy + slot x tall)).
+fn intro_name_y(posy: f32, slot: f32, tall: f32, separation: f32, height: f32) -> f32 {
+    let yres = height / 480.;
+    posy * yres + slot * (tall + separation * yres)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn intro_names_are_a_font_tall_and_the_separation_apart() {
+        // CreditsText (20 px) and the installed separation 10 at 720 lines: 35 px, as
+        // native draws the intro names.
+        let y = |slot| super::intro_name_y(360., slot, 20., 10., 720.);
+        assert_eq!((y(0.), y(1.), y(2.)), (540., 575., 610.));
+    }
     #[test]
     fn intro_names_come_in_waves_of_three_like_the_sdk() {
         use super::{intro_schedule, Timing};
