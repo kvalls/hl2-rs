@@ -110,6 +110,8 @@ impl AiRuntime {
             }
             match input.as_str() {
                 "giveweapon" => self.give_weapon(target, class, &parameter),
+                // A Kill of `<npc>_weapon` (entities::io): the weapon is gone.
+                "killweapon" => self.set_equipment(target, class, ""),
                 "setpolicegoal" => {
                     let goal = world.entities.iter().enumerate().find_map(|(id, e)| {
                         (e.class() == "ai_goal_police"

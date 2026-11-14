@@ -939,9 +939,7 @@ impl Scene {
             } else {
                 self.targets(world, &p)
             };
-            for id in targets {
-                self.deliver(world, id, &p, player_feet);
-            }
+            self.deliver_all(world, targets, &p, player_feet);
         }
         self.diagnostics.budget_exhaustions += 1;
     }

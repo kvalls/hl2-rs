@@ -427,6 +427,46 @@ impl Scene {
     }
 }
 
+impl Scene {
+    /// Delivers an event to its targets; a Kill whose target names no entity may name an
+    /// NPC's weapon.
+    pub(super) fn deliver_all(
+        &mut self,
+        world: &World,
+        targets: Vec<usize>,
+        p: &Pending,
+        player_feet: Vec3,
+    ) {
+        if targets.is_empty() {
+            self.kill_npc_weapon(world, p);
+        }
+        for id in targets {
+            self.deliver(world, id, p, player_feet);
+        }
+    }
+
+    /// GiveWeapon and spawn equipment name an NPC's weapon `<npc name>_weapon`: a Kill sent to
+    /// that name removes the NPC's weapon (the AI runtime's `killweapon`).
+    fn kill_npc_weapon(&mut self, world: &World, p: &Pending) {
+        if !p.input.eq_ignore_ascii_case("kill") {
+            return;
+        }
+        let lower = p.target.to_ascii_lowercase();
+        let Some(owner) = lower.strip_suffix("_weapon").filter(|o| !o.is_empty()) else {
+            return;
+        };
+        let npc = world.entities.iter().position(|e| {
+            e.class().starts_with("npc_")
+                && e.get("targetname")
+                    .is_some_and(|n| n.eq_ignore_ascii_case(owner))
+        });
+        if let Some(id) = npc.filter(|&id| !self.states[id].killed) {
+            self.ai_inputs
+                .push((id, "killweapon".into(), String::new(), p.activator));
+        }
+    }
+}
+
 /// Whether an input belongs to the AI runtime (`Scene::ai_inputs`).
 fn is_ai_input(class: &str, input: &str) -> bool {
     match class {

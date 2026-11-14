@@ -1798,3 +1798,26 @@ fn a_start_on_spawn_script_takes_its_actor_to_the_mark_after_a_second() {
     assert!(scene.states[0].origin.distance(Vec3::new(40., 8., 16.)) < 1e-3);
     assert!(scene.states[1].script_wait);
 }
+#[test]
+fn a_kill_sent_to_an_npc_weapon_name_removes_that_weapon() {
+    // GiveWeapon names the weapon `<npc>_weapon`; d1_trainstation_01's luggage drop kills it.
+    let w = World {
+        entities: vec![
+            entity("npc_citizen", "rider", &[("origin", "0 0 0")]),
+            entity(
+                "logic_relay",
+                "drop",
+                &[("OnTrigger", "rider_weapon,Kill,,0,-1")],
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    scene.send(1, "Trigger", "");
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    assert!(scene
+        .ai_inputs
+        .iter()
+        .any(|(id, input, ..)| *id == 0 && input == "killweapon"));
+}
