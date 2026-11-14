@@ -114,18 +114,14 @@ fn a_hull_stands_off_a_climb_node_by_its_dismount_side() {
     // Yaw 90 faces +y; the human hull shifts 13 + 8 units.
     let at = |info| node(Vec3::new(100., 200., 50.), 4, info);
     let map = graph(vec![at(2), at(4), at(8), at(16)], vec![]);
-    let feet = |n| {
-        let restrictions = NavRestrictions::default();
-        route_feet(&map, n, &restrictions, HullType::Human, true).unwrap()
-    };
+    let feet = |n| route_feet(&map, n, HullType::Human, true).unwrap();
     let near = |a: Vec3, x: f32, y: f32| (a - Vec3::new(x, y, 50.)).length() < 0.01;
     assert!(near(feet(0), 100., 179.), "on the ladder: {:?}", feet(0));
     assert!(near(feet(1), 100., 221.), "off forward: {:?}", feet(1));
     assert!(near(feet(2), 58., 179.), "off left: {:?}", feet(2));
     assert!(near(feet(3), 142., 179.), "off right: {:?}", feet(3));
     // Not for movers that do not climb.
-    let restrictions = NavRestrictions::default();
-    assert!(route_feet(&map, 0, &restrictions, HullType::Human, false).is_none());
+    assert!(route_feet(&map, 0, HullType::Human, false).is_none());
 }
 
 #[test]

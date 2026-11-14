@@ -174,6 +174,12 @@ impl Scene {
 
     /// The activity of the actor's current sequence, ACT_IDLE when it has none
     /// (CAI_ScriptedSequence::StartSequence: SetActivityAndSequence(act, ...)).
+    /// Whether a scripted_sequence or a scene plays its own animation on the actor.
+    pub fn script_animates(&self, id: usize) -> bool {
+        self.states
+            .get(id)
+            .is_some_and(|s| s.scripted_by.is_some() || s.scene_animation.is_some())
+    }
     pub fn sequence_activity(&self, world: &World, id: usize) -> Option<String> {
         let animation = &self.states.get(id)?.animation;
         let rig = world

@@ -24,6 +24,11 @@ impl AiRuntime {
             controller.cancel(key);
             controller.forget(key);
             scene.ai_forget_move(key);
+            // SCHED_SCENE_GENERIC's TASK_STOP_MOVING and TASK_SET_ACTIVITY ACT_IDLE: a scene
+            // that takes a walking NPC without animating it itself leaves it idle.
+            if !scene.script_animates(id) {
+                scene.ai_set_activity(world, id, "ACT_IDLE");
+            }
         }
         if let Some(cop) = actor.class.cop_mut() {
             cop.scripted = true;

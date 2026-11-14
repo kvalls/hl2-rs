@@ -255,6 +255,7 @@ pub fn prepare_npcs(
                     controller.set_opens_doors(actor, false);
                 }
                 controller.set_headcrab(actor, crate::ai::headcrab::is_headcrab_class(class));
+                controller.set_nav_ignored(actor, world, class);
                 controller.set_move_caps(actor, move_caps(vfs, &instance.model, class, rig)?);
                 wanted
             } else {

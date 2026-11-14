@@ -52,16 +52,29 @@ pub fn add_schedules(schedules: &mut Schedules) {
     }
 }
 
-/// A busy animation from scripts/actbusy.txt (busyanim_t, activity form).
+/// A busy animation from scripts/actbusy.txt (busyanim_t's busy part).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct BusyAnim {
     pub name: String,
+    /// "busy_anim" (empty without one).
     pub activity: String,
+    /// "busy_sequence" (empty without one).
+    pub sequence: String,
     pub min_time: f32,
     pub max_time: f32,
 }
-/// CActBusyAnimData::ParseAnimDataFile, the entries whose busy animation is an activity
-/// ("busy_anim"); sequence-only entries are skipped.
+impl BusyAnim {
+    /// PlayAnimForActBusy(BA_BUSY): the sequence first, the activity second.
+    pub fn busy_label(&self) -> &str {
+        if self.sequence.is_empty() {
+            &self.activity
+        } else {
+            &self.sequence
+        }
+    }
+}
+/// CActBusyAnimData::ParseAnimDataFile: every entry with a busy sequence ("busy_sequence")
+/// or activity ("busy_anim"); an entry with neither can never be played (HasAnimForActBusy).
 pub fn parse_busy_anims(text: &str) -> Vec<BusyAnim> {
     let Ok(root) = source_assets::keyvalues::parse(text) else {
         return Vec::new();
@@ -76,29 +89,28 @@ pub fn parse_busy_anims(text: &str) -> Vec<BusyAnim> {
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
         };
-        let Some(activity) = get("busy_anim") else {
+        let (activity, sequence) = (get("busy_anim"), get("busy_sequence"));
+        if activity.is_none() && sequence.is_none() {
             continue;
-        };
+        }
         let time = |k: &str| get(k).and_then(|v| v.parse().ok()).unwrap_or(0.);
         anims.push(BusyAnim {
             name: name.to_owned(),
-            activity: activity.to_owned(),
+            activity: activity.unwrap_or_default().to_owned(),
+            sequence: sequence.unwrap_or_default().to_owned(),
             min_time: time("min_time"),
             max_time: time("max_time"),
         });
     }
     anims
 }
-/// FindBusyAnim: the entry whose busy activity, or name, is the hint's activity.
+/// FindBusyAnim: the first entry named like the hint's activity or sequence, or whose busy
+/// activity is the hint's activity.
 pub fn find_busy_anim<'a>(anims: &'a [BusyAnim], hint_activity: &str) -> Option<&'a BusyAnim> {
-    anims
-        .iter()
-        .find(|a| a.activity.eq_ignore_ascii_case(hint_activity))
-        .or_else(|| {
-            anims
-                .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(hint_activity))
-        })
+    anims.iter().find(|a| {
+        a.name.eq_ignore_ascii_case(hint_activity)
+            || (!a.activity.is_empty() && a.activity.eq_ignore_ascii_case(hint_activity))
+    })
 }
 
 /// A locked hint node and its busy animation.
@@ -348,8 +360,8 @@ impl Behavior for ActBusy {
                         ctx.now + f64::from(min + (max - min) * ctx.random)
                     };
                 }
-                npc.activity = hint.anim.activity.clone();
-                motor.set_activity(&hint.anim.activity);
+                npc.activity = hint.anim.busy_label().to_owned();
+                motor.set_activity(hint.anim.busy_label());
                 self.forced = false;
                 self.use_nearest = false;
                 TaskStatus::Running
@@ -538,8 +550,14 @@ mod tests {
     #[test]
     fn busy_anims_and_hint_search() {
         let anims = stand();
-        assert_eq!(anims.len(), 1);
+        assert_eq!(anims.len(), 2);
         assert_eq!(anims[0].max_time, 20.);
+        // A sequence-only entry (d1_trainstation_01's LineIdle01 hints) is found by its name
+        // and plays its sequence; an activity entry plays its activity.
+        let seq = find_busy_anim(&anims, "SEQ_ONLY").expect("sequence entry");
+        assert_eq!((seq.busy_label(), seq.activity.as_str()), ("x", ""));
+        assert_eq!(anims[0].busy_label(), "ACT_BUSY_STAND");
+        assert!(find_busy_anim(&anims, "").is_none());
         let origin = Vec3::new(-3740., -932., 72.);
         let h = hints();
         // Nearest picks the closest; random spreads over the three; locks and groups apply.
