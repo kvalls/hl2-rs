@@ -14,6 +14,7 @@ use source_assets::scenes::EventType;
 use source_assets::vpk::Vfs;
 mod lifecycle;
 mod scenes;
+mod trains;
 #[test]
 fn random_timers_filters_and_cancel_pending_follow_the_sdk() {
     let world = World {
@@ -125,6 +126,86 @@ fn named_input_uses_deferred_glob_delivery_and_rejects_invalid_delay() {
     scene.tick(&world, Vec3::ZERO, 0.06);
     assert_eq!(scene.states[0].value, 5.);
     assert_eq!(scene.states[1].value, 2.);
+}
+/// env_shake StartShake shakes the view of a player within its radius (EnvShake.cpp through
+/// UTIL_ScreenShake); one outside it feels nothing, and StopShake clears the shakes.
+#[test]
+fn env_shake_shakes_a_player_within_its_radius() {
+    let shake = |name: &str, origin: &str| {
+        let keys = [("origin", origin), ("amplitude", "8"), ("frequency", "40")];
+        entity(
+            "env_shake",
+            name,
+            &[
+                keys[0],
+                keys[1],
+                keys[2],
+                ("duration", "2"),
+                ("radius", "500"),
+            ],
+        )
+    };
+    let world = World {
+        entities: vec![shake("near", "0 0 0"), shake("far", "2000 0 0")],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    let moved = |scene: &Scene| {
+        (1..60).any(|i| scene.shakes.applied(scene.time + i as f64 * 0.01).0 != Vec3::ZERO)
+    };
+    assert!(scene.send_named("far", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(!moved(&scene));
+    assert!(scene.send_named("near", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(moved(&scene));
+    assert!(scene.send_named("near", "StopShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(!moved(&scene));
+    // UTIL_ScreenShake skips a player off the ground unless SF_SHAKE_INAIR (4) is set.
+    scene.shakes.player_airborne = true;
+    assert!(scene.send_named("near", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(!moved(&scene));
+    let air = entity(
+        "env_shake",
+        "air",
+        &[
+            ("amplitude", "8"),
+            ("frequency", "40"),
+            ("duration", "2"),
+            ("spawnflags", "5"),
+        ],
+    );
+    let world = World {
+        entities: vec![air],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    scene.shakes.player_airborne = true;
+    assert!(scene.send_named("air", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(moved(&scene));
+}
+/// CEventQueue::ServiceEvents: a target no entity is named after reaches every entity of that
+/// class (ent_fire point_spotlight LightOff); a name match keeps the class out.
+#[test]
+fn input_to_a_target_no_entity_is_named_goes_to_that_class() {
+    let world = World {
+        entities: vec![
+            entity("math_counter", "", &[]),
+            entity("math_counter", "", &[]),
+            entity("math_counter", "logic_relay", &[]),
+            entity("logic_relay", "", &[]),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    assert!(scene.send_named("math_counter", "Add", "4", 0.));
+    assert!(scene.send_named("logic_relay", "Add", "1", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    let values: Vec<f32> = scene.states.iter().map(|s| s.value).collect();
+    assert_eq!(values[..3], [4., 4., 5.]);
 }
 #[test]
 #[ignore = "requires an installed owned HL2 copy; isolated scene I/O, not campaign parity"]
@@ -1667,4 +1748,100 @@ fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
         "{} {fresh}",
         angle(&scene)
     );
+}
+#[test]
+fn a_parented_mover_rides_its_parent_and_travels_in_its_frame() {
+    // d1_trainstation_01's train_door_1 is a func_door parented to intro_train_2 (SDK
+    // CBaseDoor::Spawn keeps local origins, so a door travels in its parent's frame).
+    let w = World {
+        entities: vec![
+            entity("func_brush", "car", &[("origin", "0 0 0")]),
+            entity(
+                "func_movelinear",
+                "slider",
+                &[
+                    ("origin", "10 0 0"),
+                    ("parentname", "car"),
+                    ("movedir", "0 90 0"),
+                    ("movedistance", "100"),
+                    ("speed", "1000"),
+                ],
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    assert_eq!(scene.states[1].parent.as_ref().map(|p| p.entity), Some(0));
+    scene.states[0].origin = Vec3::new(500., 0., 0.);
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    assert!(scene.states[1].origin.distance(Vec3::new(510., 0., 0.)) < 1e-3);
+    scene.send(1, "Open", "");
+    for _ in 0..20 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert!(scene.states[1].origin.distance(Vec3::new(510., 100., 0.)) < 1e-2);
+    // The car turns a quarter: the open slider turns with it.
+    scene.states[0].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    assert!(
+        scene.states[1].origin.distance(Vec3::new(400., 10., 0.)) < 1e-2,
+        "{}",
+        scene.states[1].origin
+    );
+}
+#[test]
+fn a_start_on_spawn_script_takes_its_actor_to_the_mark_after_a_second() {
+    // SDK CAI_ScriptedSequence::Spawn: SF_SCRIPT_START_ON_SPAWN (16) thinks 1 s after spawn;
+    // a named script then holds its NPC on the mark (m_iszIdle) until BeginSequence.
+    let w = World {
+        entities: vec![
+            entity("npc_citizen", "rider", &[("origin", "0 0 0")]),
+            entity(
+                "scripted_sequence",
+                "ss_ride",
+                &[
+                    ("origin", "40 8 16"),
+                    ("spawnflags", "16"),
+                    ("m_iszEntity", "rider"),
+                    ("m_fMoveTo", "4"),
+                    ("m_iszIdle", "sit_idle"),
+                ],
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    for _ in 0..60 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert_eq!(scene.states[0].scripted_by, None);
+    for _ in 0..10 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert_eq!(scene.states[0].scripted_by, Some(1));
+    assert!(scene.states[0].origin.distance(Vec3::new(40., 8., 16.)) < 1e-3);
+    assert!(scene.states[1].script_wait);
+}
+#[test]
+fn a_kill_sent_to_an_npc_weapon_name_removes_that_weapon() {
+    // GiveWeapon names the weapon `<npc>_weapon`; d1_trainstation_01's luggage drop kills it.
+    let w = World {
+        entities: vec![
+            entity("npc_citizen", "rider", &[("origin", "0 0 0")]),
+            entity(
+                "logic_relay",
+                "drop",
+                &[("OnTrigger", "rider_weapon,Kill,,0,-1")],
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    scene.send(1, "Trigger", "");
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    assert!(scene
+        .ai_inputs
+        .iter()
+        .any(|(id, input, ..)| *id == 0 && input == "killweapon"));
 }

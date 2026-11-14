@@ -584,7 +584,7 @@ mod collision;
 pub use bodygroups::{body_variants, RUNTIME_BODYGROUPS};
 pub use chunks::used_chunk_models;
 use collision::static_collision;
-mod ai_activities;
+pub mod ai_activities;
 mod geometry;
 mod prop_data;
 pub use ai_activities::{
@@ -742,11 +742,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
     let mut collision_attempted = BTreeSet::new();
     let mut ragdolls_read = BTreeSet::new();
     let mut collision_modes_reported = BTreeSet::new();
-    let mut batches: BTreeMap<(String, Option<usize>, bool), Surface> = world
-        .surfaces
-        .drain(..)
-        .map(|s| ((s.material.clone(), s.lightmap, s.background), s))
-        .collect();
+    let mut batches = Surface::batch(world.surfaces.drain(..));
     for instance in &world.model_instances {
         let key = (instance.model.to_lowercase(), instance.skin, instance.body);
         let model = cache.entry(key.clone()).or_insert_with(|| {
@@ -920,7 +916,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                 wanted.extend(NPC_BASE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
             }
             wanted.extend(
-                class_ai_activities(&instance.kind)
+                ai_activities::instance_ai_sequences(world, instance)
                     .iter()
                     .map(|a| a.to_lowercase()),
             );

@@ -54,8 +54,12 @@ impl ScreenFades {
     pub fn clear(&mut self) {
         self.list.clear();
     }
-    /// GetFadeParams: (r, g, b, a) and whether to modulate; None when nothing shows.
-    pub fn params(&mut self, now: f64) -> Option<([u8; 4], bool)> {
+    /// GetFadeParams: (r, g, b, a) and whether to modulate; None when nothing shows. An active
+    /// script_intro's fade (`intro`, 0..255) replaces the others while its alpha is not zero.
+    pub fn params(&mut self, now: f64, intro: Option<[f32; 4]>) -> Option<([u8; 4], bool)> {
+        if let Some(fade) = intro.filter(|f| f[3] != 0.) {
+            return Some((fade.map(|c| c.clamp(0., 255.) as u8), false));
+        }
         if now < self.time {
             // A new map clock: the old fades belonged to the previous timeline.
             self.list.clear();
@@ -105,27 +109,32 @@ mod tests {
         let mut fades = ScreenFades::default();
         // DamageEffect crush: red 128 alpha, 1 s fade from 0.1 s hold.
         fades.add(ScreenFade::new([128, 0, 0, 128], 1., 0.1, FFADE_IN), 10.);
-        assert_eq!(fades.params(10.05), Some(([128, 0, 0, 128], false)));
-        let ([_, _, _, half], _) = fades.params(10.6).unwrap();
+        assert_eq!(fades.params(10.05, None), Some(([128, 0, 0, 128], false)));
+        let ([_, _, _, half], _) = fades.params(10.6, None).unwrap();
         assert!((63..=65).contains(&half), "{half}");
-        assert_eq!(fades.params(11.2), None);
+        assert_eq!(fades.params(11.2, None), None);
         // env_fade style out + stay: reaches full alpha and remains.
         fades.add(
             ScreenFade::new([0, 0, 0, 255], 2., 0., FFADE_OUT | FFADE_STAYOUT),
             20.,
         );
-        let ([_, _, _, a], _) = fades.params(21.).unwrap();
+        let ([_, _, _, a], _) = fades.params(21., None).unwrap();
         assert!((126..=128).contains(&a), "{a}");
-        assert_eq!(fades.params(30.), Some(([0, 0, 0, 255], false)));
+        assert_eq!(fades.params(30., None), Some(([0, 0, 0, 255], false)));
         // Purge clears it; modulate flags the blend; colors average.
         fades.add(
             ScreenFade::new([0, 0, 255, 100], 0.2, 0.4, FFADE_MODULATE | FFADE_PURGE),
             30.,
         );
         fades.add(ScreenFade::new([255, 0, 0, 50], 1., 0., 0), 30.);
-        assert_eq!(fades.params(30.1), Some(([127, 0, 127, 100], true)));
+        assert_eq!(fades.params(30.1, None), Some(([127, 0, 127, 100], true)));
         // A zero duration never adds the clock, so its hold has already expired.
         fades.add(ScreenFade::new([0, 255, 0, 255], 0., 5., FFADE_PURGE), 40.);
-        assert_eq!(fades.params(40.), None);
+        assert_eq!(fades.params(40., None), None);
+        // An active script_intro fade replaces the others (CViewEffects::GetFadeParams).
+        assert_eq!(
+            fades.params(40., Some([0., 0., 0., 127.6])),
+            Some(([0, 0, 0, 127], false))
+        );
     }
 }

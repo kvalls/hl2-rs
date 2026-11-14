@@ -46,6 +46,17 @@ impl AiRuntime {
         }
     }
 
+    /// CAI_DynamicLink(Controller)::InputTurnOn/Off: the graph links' state.
+    fn dynamic_link_input(&mut self, controller: &mut Controller, target: usize, input: &str) {
+        if !controller.set_dynamic_link(target, input == "turnon") {
+            *self
+                .diagnostics
+                .unknown_goals
+                .entry(format!("dynamic link #{target}"))
+                .or_default() += 1;
+        }
+    }
+
     /// SetPoliceGoal / ActivateBaton on cops and EnableKnockOut / DisableKnockOut on
     /// ai_goal_police (processed even while the AI is off, so map-spawn inputs stick).
     pub(super) fn inputs(&mut self, world: &World, scene: &mut Scene, controller: &mut Controller) {
@@ -94,17 +105,13 @@ impl AiRuntime {
                 continue;
             }
             if matches!(class, "info_node_link" | "info_node_link_controller") {
-                // CAI_DynamicLink(Controller)::InputTurnOn/Off: the graph links' state.
-                if !controller.set_dynamic_link(target, input == "turnon") {
-                    *self
-                        .diagnostics
-                        .unknown_goals
-                        .entry(format!("dynamic link #{target}"))
-                        .or_default() += 1;
-                }
+                self.dynamic_link_input(controller, target, &input);
                 continue;
             }
             match input.as_str() {
+                "giveweapon" => self.give_weapon(target, class, &parameter),
+                // A Kill of `<npc>_weapon` (entities::io): the weapon is gone.
+                "killweapon" => self.set_equipment(target, class, ""),
                 "setpolicegoal" => {
                     let goal = world.entities.iter().enumerate().find_map(|(id, e)| {
                         (e.class() == "ai_goal_police"
@@ -220,6 +227,7 @@ impl AiRuntime {
                 let name = tokens.next().unwrap_or("").to_lowercase();
                 let mut nearest = false;
                 let mut max_time = None;
+                let mut hint = None;
                 for token in tokens {
                     match token {
                         "nearest" => nearest = true,
@@ -235,13 +243,20 @@ impl AiRuntime {
                         }
                         t => match t.parse::<f32>() {
                             Ok(v) => max_time = Some(v),
-                            // A hint node name.
+                            // A hint node name (FindEntityByName; a non-hint is refused).
                             Err(_) => {
-                                *self
-                                    .diagnostics
-                                    .unknown_goals
-                                    .entry(format!("actbusy hint {t}"))
-                                    .or_default() += 1;
+                                hint = world.entities.iter().position(|e| {
+                                    e.class() == "info_node_hint"
+                                        && e.get("targetname")
+                                            .is_some_and(|n| n.eq_ignore_ascii_case(t))
+                                });
+                                if hint.is_none() {
+                                    *self
+                                        .diagnostics
+                                        .unknown_goals
+                                        .entry(format!("actbusy hint {t}"))
+                                        .or_default() += 1;
+                                }
                             }
                         },
                     }
@@ -264,6 +279,7 @@ impl AiRuntime {
                 };
                 if let Some(busy) = actor.class.actbusy_mut() {
                     busy.force(Some(goal), range, max_time, nearest, &mut actor.npc, now);
+                    busy.forced_hint = hint;
                 }
             }
             "setbusysearchrange" => {

@@ -52,16 +52,29 @@ pub fn add_schedules(schedules: &mut Schedules) {
     }
 }
 
-/// A busy animation from scripts/actbusy.txt (busyanim_t, activity form).
+/// A busy animation from scripts/actbusy.txt (busyanim_t's busy part).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct BusyAnim {
     pub name: String,
+    /// "busy_anim" (empty without one).
     pub activity: String,
+    /// "busy_sequence" (empty without one).
+    pub sequence: String,
     pub min_time: f32,
     pub max_time: f32,
 }
-/// CActBusyAnimData::ParseAnimDataFile, the entries whose busy animation is an activity
-/// ("busy_anim"); sequence-only entries are skipped.
+impl BusyAnim {
+    /// PlayAnimForActBusy(BA_BUSY): the sequence first, the activity second.
+    pub fn busy_label(&self) -> &str {
+        if self.sequence.is_empty() {
+            &self.activity
+        } else {
+            &self.sequence
+        }
+    }
+}
+/// CActBusyAnimData::ParseAnimDataFile: every entry with a busy sequence ("busy_sequence")
+/// or activity ("busy_anim"); an entry with neither can never be played (HasAnimForActBusy).
 pub fn parse_busy_anims(text: &str) -> Vec<BusyAnim> {
     let Ok(root) = source_assets::keyvalues::parse(text) else {
         return Vec::new();
@@ -76,29 +89,51 @@ pub fn parse_busy_anims(text: &str) -> Vec<BusyAnim> {
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
         };
-        let Some(activity) = get("busy_anim") else {
+        let (activity, sequence) = (get("busy_anim"), get("busy_sequence"));
+        if activity.is_none() && sequence.is_none() {
             continue;
-        };
+        }
         let time = |k: &str| get(k).and_then(|v| v.parse().ok()).unwrap_or(0.);
         anims.push(BusyAnim {
             name: name.to_owned(),
-            activity: activity.to_owned(),
+            activity: activity.unwrap_or_default().to_owned(),
+            sequence: sequence.unwrap_or_default().to_owned(),
             min_time: time("min_time"),
             max_time: time("max_time"),
         });
     }
     anims
 }
-/// FindBusyAnim: the entry whose busy activity, or name, is the hint's activity.
-pub fn find_busy_anim<'a>(anims: &'a [BusyAnim], hint_activity: &str) -> Option<&'a BusyAnim> {
-    anims
+/// scripts/actbusy.txt through the VFS (none when it is missing).
+pub fn load_busy_anims(vfs: &source_assets::vpk::Vfs) -> Vec<BusyAnim> {
+    vfs.read("scripts/actbusy.txt")
+        .ok()
+        .flatten()
+        .map(|text| parse_busy_anims(&String::from_utf8_lossy(&text)))
+        .unwrap_or_default()
+}
+/// The busy sequences the map's hints can play (the sequence entries an info_node_hint's
+/// hintactivity names), lowercase, for the NPC models' clip preload.
+pub fn hint_sequences(
+    world: &modkit_core::World,
+    anims: &[BusyAnim],
+) -> std::collections::BTreeSet<String> {
+    world
+        .entities
         .iter()
-        .find(|a| a.activity.eq_ignore_ascii_case(hint_activity))
-        .or_else(|| {
-            anims
-                .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(hint_activity))
-        })
+        .filter(|e| e.class() == "info_node_hint")
+        .filter_map(|e| find_busy_anim(anims, e.get("hintactivity")?.trim()))
+        .filter(|anim| !anim.sequence.is_empty())
+        .map(|anim| anim.sequence.to_lowercase())
+        .collect()
+}
+/// FindBusyAnim: the first entry named like the hint's activity or sequence, or whose busy
+/// activity is the hint's activity.
+pub fn find_busy_anim<'a>(anims: &'a [BusyAnim], hint_activity: &str) -> Option<&'a BusyAnim> {
+    anims.iter().find(|a| {
+        a.name.eq_ignore_ascii_case(hint_activity)
+            || (!a.activity.is_empty() && a.activity.eq_ignore_ascii_case(hint_activity))
+    })
 }
 
 /// A locked hint node and its busy animation.
@@ -141,6 +176,8 @@ pub struct ActBusy {
     pub running: bool,
     /// m_bLeaving: ForceActBusyLeave.
     pub leaving: bool,
+    /// ForceNPCToActBusy's named hint node: taken without a search while it is free.
+    pub forced_hint: Option<usize>,
     /// The NPC reached its exit: the host removes it.
     #[serde(skip)]
     pub remove: bool,
@@ -152,6 +189,7 @@ impl ActBusy {
         if goal.is_some() {
             self.goal = goal;
         }
+        self.forced_hint = None;
         self.enabled = true;
         self.busy = false;
         self.moving_to_busy = false;
@@ -345,8 +383,8 @@ impl Behavior for ActBusy {
                         ctx.now + f64::from(min + (max - min) * ctx.random)
                     };
                 }
-                npc.activity = hint.anim.activity.clone();
-                motor.set_activity(&hint.anim.activity);
+                npc.activity = hint.anim.busy_label().to_owned();
+                motor.set_activity(hint.anim.busy_label());
                 self.forced = false;
                 self.use_nearest = false;
                 TaskStatus::Running
@@ -433,6 +471,19 @@ pub fn find_exit_hint(
         exit: true,
     })
 }
+/// ForceActBusy's named hint: the hint `entity` with its busy animation, whatever its group,
+/// range or state.
+pub fn named_hint(hints: &[HintCandidate], anims: &[BusyAnim], entity: usize) -> Option<BusyHint> {
+    let hint = hints.iter().find(|h| h.entity == entity)?;
+    Some(BusyHint {
+        entity,
+        origin: hint.origin,
+        yaw: hint.yaw,
+        anim: find_busy_anim(anims, &hint.activity)?.clone(),
+        exit: false,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn find_hint(
     hints: &[HintCandidate],
@@ -505,10 +556,43 @@ mod tests {
     }
 
     #[test]
+    fn a_named_hint_is_taken_whatever_its_group_and_range() {
+        // CAI_ActBusyGoal::InputForceNPCToActBusy with a hint node name: no search.
+        let (anims, h) = (stand(), hints());
+        let hint = named_hint(&h, &anims, 826).expect("named hint");
+        assert_eq!((hint.entity, hint.origin.y), (826, -1968.));
+        assert!(named_hint(&h, &anims, 9).is_none());
+        let mut busy = ActBusy {
+            forced_hint: Some(826),
+            ..Default::default()
+        };
+        busy.enable(None, 100., 0.);
+        assert_eq!(busy.forced_hint, None);
+    }
+
+    #[test]
     fn busy_anims_and_hint_search() {
         let anims = stand();
-        assert_eq!(anims.len(), 1);
+        assert_eq!(anims.len(), 2);
         assert_eq!(anims[0].max_time, 20.);
+        // A sequence-only entry (d1_trainstation_01's LineIdle01 hints) is found by its name
+        // and plays its sequence; an activity entry plays its activity.
+        let seq = find_busy_anim(&anims, "SEQ_ONLY").expect("sequence entry");
+        assert_eq!((seq.busy_label(), seq.activity.as_str()), ("x", ""));
+        assert_eq!(anims[0].busy_label(), "ACT_BUSY_STAND");
+        assert!(find_busy_anim(&anims, "").is_none());
+        // Hints naming the sequence entry preload its clip; activity hints need none.
+        let hint = |activity: &str| modkit_core::Entity {
+            properties: vec![
+                ("classname".into(), "info_node_hint".into()),
+                ("hintactivity".into(), activity.into()),
+            ],
+        };
+        let world = modkit_core::World {
+            entities: vec![hint("seq_only"), hint("ACT_BUSY_STAND")],
+            ..Default::default()
+        };
+        assert_eq!(hint_sequences(&world, &anims), ["x".to_string()].into());
         let origin = Vec3::new(-3740., -932., 72.);
         let h = hints();
         // Nearest picks the closest; random spreads over the three; locks and groups apply.

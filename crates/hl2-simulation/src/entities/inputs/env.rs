@@ -33,13 +33,134 @@ pub(super) fn viewcontrol(scene: &mut Scene, d: &Delivery) -> bool {
 pub(super) fn zoom(scene: &mut Scene, d: &Delivery) -> bool {
     match d.input {
         "zoom" => {
-            scene.view_control.zoom = Some(crate::view_control::Zoom {
-                fov: number(d.entity, "FOV", 0.),
-                rate: number(d.entity, "Rate", 0.),
-                started: scene.time,
-            });
+            let mut zoom = scene.view_control.zoom.clone().unwrap_or_default();
+            zoom.set(
+                number(d.entity, "FOV", 0.) as i32,
+                number(d.entity, "Rate", 0.),
+                scene.time,
+            );
+            scene.view_control.zoom = Some(zoom);
         }
         "unzoom" => scene.view_control.zoom = None,
+        _ => return false,
+    }
+    true
+}
+
+/// script_intro (crate::script_intro): Activate, Deactivate, SetCameraViewEntity, the blend
+/// modes and times, the camera view's field of view and the fades.
+pub(super) fn script_intro(scene: &mut Scene, d: &Delivery) -> bool {
+    let camera = (d.input == "setcameraviewentity")
+        .then(|| {
+            let mut lookup = d.pending.clone();
+            lookup.target = d.pending.parameter.clone();
+            let found = scene.targets(d.world, &lookup).into_iter();
+            found.into_iter().find(|&id| id != usize::MAX)
+        })
+        .flatten();
+    let player_fov = scene
+        .view_control
+        .zoom
+        .as_ref()
+        .map_or(75., |z| z.get(scene.time));
+    let spline = number(d.entity, "alternatefovchange", 0.) != 0.;
+    scene.intro.script.set_spline_fov(spline);
+    let parameter = &d.pending.parameter;
+    scene
+        .intro
+        .script
+        .input(d.input, parameter, scene.time, camera, player_fov)
+}
+
+/// CCredits::InputShowLogo: the logo holds `logolength` seconds (LogoTimeMsg), else 5
+/// (CreditsMsg CREDITS_LOGO); RollCredits starts the intro names (CREDITS_INTRO).
+/// RollOutroCredits is not in.
+pub(super) fn credits(scene: &mut Scene, d: &Delivery) -> bool {
+    if d.input == "rollcredits" {
+        scene.intro.credits = Some(scene.time);
+        return true;
+    }
+    if d.input != "showlogo" {
+        return false;
+    }
+    let length = number(d.entity, "logolength", 0.);
+    scene.intro.logo = Some((scene.time, if length != 0. { length } else { 5. }));
+    true
+}
+
+/// CMessage::InputShowMessage: the HUD shows the `message` from titles.txt (UTIL_ShowMessage);
+/// SF_MESSAGE_ONCE (1) removes the entity. The `messagesound` is not played yet.
+pub(super) fn message(scene: &mut Scene, d: &Delivery) -> bool {
+    if d.input != "showmessage" {
+        return false;
+    }
+    let name = d.entity.get("message").unwrap_or("").to_owned();
+    let title = crate::script_intro::HudText::Title(name);
+    scene.intro.messages.push((title, scene.time));
+    if number(d.entity, "spawnflags", 0.) as u32 & 1 != 0 {
+        let state = &mut scene.states[d.id];
+        (state.killed, state.visible, state.enabled) = (true, false, false);
+    }
+    true
+}
+
+/// CEnvHudHint::InputShowHudHint / InputHideHudHint: the KeyHintText user message with the
+/// entity's `message`, or an empty one that hides the hint (SDK server/EnvHudHint.cpp).
+pub(super) fn hud_hint(scene: &mut Scene, d: &Delivery) -> bool {
+    let message = match d.input {
+        "showhudhint" => d.entity.get("message").unwrap_or(""),
+        "hidehudhint" => "",
+        _ => return false,
+    };
+    scene.intro.key_hint = Some((message.to_owned(), scene.time));
+    true
+}
+
+/// CGameText::InputDisplay: UTIL_HudMessage with the entity's text parameters (color and
+/// color2 as UTIL_StringToIntArray reads them); a message replaces the one on its channel
+/// (CHudMessage::MsgFunc_HudMsg).
+pub(super) fn game_text(scene: &mut Scene, d: &Delivery) -> bool {
+    if d.input != "display" {
+        return false;
+    }
+    let e = d.entity;
+    let color = |key: &str| {
+        let values: Vec<f32> = e
+            .get(key)
+            .unwrap_or("")
+            .split_whitespace()
+            .filter_map(|v| v.parse().ok())
+            .collect();
+        source_assets::titles::color(&values).unwrap_or([255; 4])
+    };
+    let message = source_assets::titles::TextMessage {
+        effect: number(e, "effect", 0.) as i32,
+        color: color("color"),
+        color2: color("color2"),
+        x: number(e, "x", -1.),
+        y: number(e, "y", -1.),
+        fadein: number(e, "fadein", 0.),
+        fadeout: number(e, "fadeout", 0.),
+        holdtime: number(e, "holdtime", 0.),
+        fxtime: number(e, "fxtime", 0.),
+        text: e.get("message").unwrap_or("").to_owned(),
+    };
+    let channel = number(e, "channel", 0.) as i32;
+    use crate::script_intro::HudText;
+    let same = |t: &HudText| matches!(t, HudText::Text { channel: c, .. } if *c == channel);
+    scene.intro.messages.retain(|(t, _)| !same(t));
+    let text = HudText::Text { message, channel };
+    scene.intro.messages.push((text, scene.time));
+    true
+}
+
+/// CEnvStarfield: TurnOn, TurnOff, SetDensity.
+pub(super) fn starfield(scene: &mut Scene, d: &Delivery) -> bool {
+    let starfield = &mut scene.intro.starfield;
+    match d.input {
+        "turnon" => starfield.0 = true,
+        "turnoff" => starfield.0 = false,
+        "setdensity" => starfield.1 = d.value,
         _ => return false,
     }
     true
@@ -188,6 +309,53 @@ pub(super) fn combine_camera(scene: &mut Scene, d: &Delivery) -> bool {
 /// CPointCommentaryNode StartCommentary / StartUnstoppableCommentary / Enable / Disable.
 pub(super) fn commentary_node(scene: &mut Scene, d: &Delivery) -> bool {
     crate::commentary::CommentaryState::handle_input(scene, d.world, d.id, d.input)
+}
+
+/// env_shake's StartShake, StopShake, Amplitude and Frequency (EnvShake.cpp ApplyShake through
+/// UTIL_ScreenShake): the player within `radius` (any distance with spawnflag 1, Everyone) gets a
+/// view shake whose amplitude falls off with distance; Amplitude and Frequency keep the new value
+/// for later starts. A player off the ground gets no Start unless spawnflag 4 (SF_SHAKE_INAIR)
+/// is set. "Don't shake view" (0x20) and the physics and rope shakes are not drawn.
+pub(super) fn shake(scene: &mut Scene, d: &Delivery) -> bool {
+    use crate::screen_shake::{local_amplitude, Command};
+    let key = |name: &str| d.entity.get(name).and_then(|v| v.parse::<f32>().ok());
+    let command = match d.input {
+        "startshake" => Command::Start,
+        "stopshake" => Command::Stop,
+        "amplitude" => Command::Amplitude,
+        "frequency" => Command::Frequency,
+        _ => return false,
+    };
+    scene.shakes.tune(d.id, command, d.value);
+    let (tuned_amplitude, tuned_frequency) = scene.shakes.tuned(d.id);
+    let amplitude = tuned_amplitude.unwrap_or_else(|| key("amplitude").unwrap_or(0.));
+    let frequency = tuned_frequency.unwrap_or_else(|| key("frequency").unwrap_or(0.));
+    let spawnflags = key("spawnflags").unwrap_or(0.) as i64;
+    if spawnflags & 0x20 != 0 {
+        return true;
+    }
+    if command == Command::Start && scene.shakes.player_airborne && spawnflags & 4 == 0 {
+        return true;
+    }
+    let radius = if spawnflags & 1 != 0 {
+        0.
+    } else {
+        key("radius").unwrap_or(0.)
+    };
+    // UTIL_ScreenShake measures to the player's WorldSpaceCenter, 36 units above the feet.
+    let player = d.player_feet + glam::Vec3::Z * 36.;
+    let Some(local) = local_amplitude(scene.states[d.id].origin, player, amplitude, radius) else {
+        return true;
+    };
+    let duration = key("duration").unwrap_or(0.);
+    let local = if command == Command::Stop { 0. } else { local };
+    let now = scene.time;
+    if local > 0. || command == Command::Stop {
+        scene
+            .shakes
+            .command(command, (local, frequency, duration), now);
+    }
+    true
 }
 
 /// point_spotlight's LightOn and LightOff (its beam, DESIGN 14t).

@@ -61,8 +61,17 @@ impl Default for FovRamp {
         }
     }
 }
+/// C_BaseHLPlayer::GetFOV's single-player minimum: HL2 draws the player's view at 5 degrees or
+/// wider (d1_trainstation_01's intro snaps env_zoom to 1).
+const MIN_FOV: f32 = 5.;
+
 impl FovRamp {
+    /// The FOV drawn: C_BaseHLPlayer::GetFOV clamps C_BasePlayer::GetFOV's ramp.
     pub fn get(&self, time: f64) -> f32 {
+        self.ramp(time).max(MIN_FOV)
+    }
+    /// C_BasePlayer::GetFOV: the ramp from the start to the target, unclamped.
+    fn ramp(&self, time: f64) -> f32 {
         let fov = if self.target == 0 {
             self.default_fov
         } else {
@@ -81,7 +90,8 @@ impl FovRamp {
     /// SetFOV(requester, FOV, zoomRate) with iZoomStart 0: the start is the current
     /// GetFOV truncated to the integer m_iFOVStart.
     pub fn set(&mut self, target: i32, rate: f32, time: f64) {
-        self.start = self.get(time) as i32;
+        // The server's CBasePlayer::GetFOV, without the HL2 client's minimum.
+        self.start = self.ramp(time) as i32;
         self.time = time;
         self.target = target;
         self.rate = rate;

@@ -36,9 +36,9 @@ impl WeaponHud {
 
     /// A ScreenFade message (DamageEffect or env_fade) on the game clock.
     pub fn screen_fade(&self, fade: hl2_simulation::player_damage::ScreenFade, time: f64) {
-        self.fades.borrow_mut().add(fade, time);
+        self.overlays.fades.borrow_mut().add(fade, time);
     }
     pub fn clear_fades(&self) {
-        self.fades.borrow_mut().clear();
+        self.overlays.fades.borrow_mut().clear();
     }
 }

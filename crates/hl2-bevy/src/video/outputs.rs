@@ -12,15 +12,17 @@ use bevy::{
 };
 use hl2_ui::extensions::RenderBudget;
 
+/// A camera that renders into its own image (a monitor's or the intro's camera view), not
+/// into the game frame.
+#[derive(bevy::ecs::component::Component)]
+pub struct OwnTarget;
+
 /// Every game camera, routed into the frame by `present_frame`.
 pub(crate) type FrameCameras<'w, 's> = Query<
     'w,
     's,
     (&'static mut Camera, &'static mut RenderTarget),
-    (
-        Without<crate::monitors::MonitorCamera>,
-        Without<PresentCamera>,
-    ),
+    (Without<OwnTarget>, Without<PresentCamera>),
 >;
 
 /// A render-target image for the game frame, linearly filtered when scaled.

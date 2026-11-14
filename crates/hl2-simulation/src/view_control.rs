@@ -12,6 +12,18 @@ const TARGET_PLAYER: u32 = 2;
 const TAKE_CONTROL: u32 = 4;
 /// `SF_CAMERA_PLAYER_INFINITE_WAIT`: never return to the player after `wait` seconds.
 const INFINITE_WAIT: u32 = 8;
+/// `SF_CAMERA_PLAYER_SNAP_TO`: the first FollowTarget think snaps to the goal angles.
+const SNAP_TO: u32 = 16;
+
+/// A following camera's own angles between FollowTarget thinks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Turn {
+    camera: usize,
+    enabled: f64,
+    time: f64,
+    pitch: f32,
+    yaw: f32,
+}
 
 /// The view of an enabled camera, in Source units and degrees (pitch positive looks down).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -23,30 +35,29 @@ pub struct View {
     pub freeze_player: bool,
 }
 
-/// `env_zoom` `Zoom`: the player's field of view moves to `fov` over `rate` seconds.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Zoom {
-    pub fov: f32,
-    pub rate: f32,
-    pub started: f64,
-}
-
-impl Zoom {
-    /// The field of view at `time`, blending from `from` (the player's own field of view).
-    pub fn fov_at(&self, from: f32, time: f64) -> f32 {
-        if self.rate <= 0. {
-            return self.fov;
-        }
-        let t = (((time - self.started) as f32) / self.rate).clamp(0., 1.);
-        from + (self.fov - from) * t
-    }
-}
+/// `env_zoom` `Zoom`: CBasePlayer::SetFOV(this, FOV, Rate) on the player's field of view,
+/// from the current one (FOV 0: back to the default).
+pub type Zoom = crate::weapon_crossbow::FovRamp;
 
 #[derive(Clone, Debug, Default)]
 pub struct ViewControl {
     /// The enabled `point_viewcontrol` and when it was enabled.
     camera: Option<(usize, f64)>,
     pub zoom: Option<Zoom>,
+}
+
+/// An entity's `angles` keyvalue as (pitch, yaw).
+fn own_angles(e: &modkit_core::Entity) -> (f32, f32) {
+    let angles: Vec<f32> = e
+        .get("angles")
+        .unwrap_or("0 0 0")
+        .split_whitespace()
+        .filter_map(|v| v.parse().ok())
+        .collect();
+    (
+        angles.first().copied().unwrap_or(0.),
+        angles.get(1).copied().unwrap_or(0.),
+    )
 }
 
 fn flags(world: &World, id: usize) -> u32 {
@@ -120,14 +131,15 @@ impl ViewControl {
     }
 
     /// The active camera's view: its position, looking at its `target` (or the player with
-    /// `SF_CAMERA_PLAYER_TARGET`), else along its own `angles`. `origin_of` gives an entity's
-    /// current position (so parented cameras and targets move). Cameras snap to their goal
-    /// angles, as every menu background camera does (`SF_CAMERA_PLAYER_SNAP_TO`); the eased
-    /// turn of the other cameras is not modeled.
+    /// `SF_CAMERA_PLAYER_TARGET`), at the target's `targetattachment` when it names one,
+    /// else along its own `angles`. `origin_of` gives an entity's current position (so
+    /// parented cameras and targets move); `attachment_of` an entity's animated attachment.
+    /// These are the goal angles; `follow` turns a following camera toward them.
     pub fn view(
         &self,
         world: &World,
         origin_of: impl Fn(usize) -> Option<Vec3>,
+        attachment_of: impl Fn(usize, &str) -> Option<Vec3>,
         player_eye: Vec3,
     ) -> Option<View> {
         let (id, _) = self.camera?;
@@ -145,22 +157,16 @@ impl ViewControl {
                             .is_some_and(|n| n.eq_ignore_ascii_case(name))
                     })
                 })
-                .and_then(&origin_of)
+                .and_then(|target| {
+                    e.get("targetattachment")
+                        .filter(|a| !a.is_empty())
+                        .and_then(|a| attachment_of(target, a))
+                        .or_else(|| origin_of(target))
+                })
         };
         let (pitch, yaw) = match target {
             Some(target) => angles_toward(target - origin),
-            None => {
-                let angles: Vec<f32> = e
-                    .get("angles")
-                    .unwrap_or("0 0 0")
-                    .split_whitespace()
-                    .filter_map(|v| v.parse().ok())
-                    .collect();
-                (
-                    angles.first().copied().unwrap_or(0.),
-                    angles.get(1).copied().unwrap_or(0.),
-                )
-            }
+            None => own_angles(e),
         };
         Some(View {
             origin,
@@ -168,6 +174,51 @@ impl ViewControl {
             yaw,
             freeze_player: flags & TAKE_CONTROL != 0,
         })
+    }
+
+    /// CTriggerCamera::FollowTarget for a camera with a target: the first think after Enable
+    /// snaps to the goal with SF_CAMERA_PLAYER_SNAP_TO (else the camera starts from its own
+    /// angles); every later think sets the angular velocity to the angle left x 40 x
+    /// frametime, which that frame's movement applies. `turn` keeps the camera's angles;
+    /// `time` is the scene time of this think.
+    pub fn follow(&self, world: &World, turn: &mut Option<Turn>, goal: View, time: f64) -> View {
+        let Some((id, enabled)) = self.camera else {
+            *turn = None;
+            return goal;
+        };
+        let e = &world.entities[id];
+        let flags = flags(world, id);
+        if flags & TARGET_PLAYER == 0 && e.get("target").is_none_or(|t| t.is_empty()) {
+            *turn = None;
+            return goal;
+        }
+        let current = match turn {
+            Some(t) if t.camera == id && t.enabled == enabled => t,
+            _ => {
+                let (pitch, yaw) = if flags & SNAP_TO != 0 {
+                    (goal.pitch, goal.yaw)
+                } else {
+                    own_angles(e)
+                };
+                turn.insert(Turn {
+                    camera: id,
+                    enabled,
+                    time,
+                    pitch,
+                    yaw,
+                })
+            }
+        };
+        let dt = (time - current.time).clamp(0., 0.1) as f32;
+        current.time = time;
+        let left = |goal: f32, now: f32| (goal - now + 180.).rem_euclid(360.) - 180.;
+        current.pitch += left(goal.pitch, current.pitch) * 40. * dt * dt;
+        current.yaw += left(goal.yaw, current.yaw) * 40. * dt * dt;
+        View {
+            pitch: current.pitch,
+            yaw: current.yaw,
+            ..goal
+        }
     }
 }
 
@@ -211,10 +262,15 @@ mod tests {
         ];
         let origin_of = |id: usize| origins.get(id).copied();
         let mut control = ViewControl::default();
-        assert_eq!(control.view(&world, origin_of, Vec3::ZERO), None);
+        assert_eq!(
+            control.view(&world, origin_of, |_, _| None, Vec3::ZERO),
+            None
+        );
 
         assert_eq!(control.enable(0, 1.), None);
-        let view = control.view(&world, origin_of, Vec3::ZERO).unwrap();
+        let view = control
+            .view(&world, origin_of, |_, _| None, Vec3::ZERO)
+            .unwrap();
         assert!(
             (view.yaw - 45.).abs() < 1e-3 && (view.pitch - 45.).abs() < 1e-3,
             "{view:?}"
@@ -224,7 +280,9 @@ mod tests {
         assert_eq!(control.expired(&world, 1000.), None);
 
         assert_eq!(control.enable(2, 2.), Some(0));
-        let view = control.view(&world, origin_of, Vec3::ZERO).unwrap();
+        let view = control
+            .view(&world, origin_of, |_, _| None, Vec3::ZERO)
+            .unwrap();
         assert_eq!(
             (view.origin, view.pitch, view.yaw),
             (origins[2], -10., 295.)
@@ -252,22 +310,67 @@ mod tests {
         assert_eq!(control.expired(&world, 12.9), None);
         assert_eq!(control.expired(&world, 13.), Some(0));
         let view = control
-            .view(&world, |_| Some(Vec3::ZERO), Vec3::ZERO)
+            .view(&world, |_| Some(Vec3::ZERO), |_, _| None, Vec3::ZERO)
             .unwrap();
         assert!(!view.freeze_player);
 
-        let instant = Zoom {
-            fov: 75.,
-            rate: 0.,
-            started: 0.,
+        // env_zoom: an instant zoom, then eased ramps from the current FOV (SimpleSpline);
+        // FOV 0 returns to the default (d1_trainstation_01's zoom_final).
+        let mut zoom = Zoom::default();
+        zoom.set(75, 0., 0.);
+        assert_eq!(zoom.get(0.), 75.);
+        zoom.set(50, 2., 1.);
+        assert_eq!(zoom.get(2.), 62.5);
+        assert_eq!(zoom.get(9.), 50.);
+        zoom.default_fov = 90.;
+        zoom.set(0, 14., 10.);
+        assert_eq!(zoom.get(17.), 70.);
+        assert_eq!(zoom.get(30.), 90.);
+        // The intro's snap to 1 draws at HL2's minimum 5; a ramp from 1 starts from 1.
+        zoom.set(1, 0.1, 40.);
+        assert_eq!(zoom.get(41.), 5.);
+        zoom.set(40, 12., 41.);
+        assert_eq!(zoom.start, 1);
+        assert_eq!(zoom.get(47.), 20.5);
+    }
+
+    #[test]
+    fn following_cameras_snap_once_then_ease_toward_the_goal() {
+        let camera = |flags: &str| {
+            entity(&[
+                ("classname", "point_viewcontrol"),
+                ("target", "gman"),
+                ("spawnflags", flags),
+                ("angles", "0 90 0"),
+            ])
         };
-        assert_eq!(instant.fov_at(110., 0.), 75.);
-        let eased = Zoom {
-            fov: 50.,
-            rate: 2.,
-            started: 1.,
+        let world = World {
+            entities: vec![camera("28"), camera("12")],
+            ..Default::default()
         };
-        assert_eq!(eased.fov_at(90., 2.), 70.);
-        assert_eq!(eased.fov_at(90., 9.), 50.);
+        let goal = |yaw: f32| View {
+            origin: Vec3::ZERO,
+            pitch: 0.,
+            yaw,
+            freeze_player: true,
+        };
+        let mut control = ViewControl::default();
+        control.enable(0, 1.);
+        let mut turn = None;
+        // SF_CAMERA_PLAYER_SNAP_TO: the first think takes the goal.
+        assert_eq!(control.follow(&world, &mut turn, goal(30.), 1.).yaw, 30.);
+        // Then 40 x frametime of the angle left per second, for one 15 ms frame.
+        let eased = control.follow(&world, &mut turn, goal(40.), 1.015).yaw;
+        assert!(
+            (eased - (30. + 10. * 40. * 0.015 * 0.015)).abs() < 1e-4,
+            "{eased}"
+        );
+        // Across 360: the short way round.
+        let mut turn = None;
+        control.follow(&world, &mut turn, goal(350.), 2.);
+        assert!(control.follow(&world, &mut turn, goal(10.), 2.015).yaw > 350.);
+        // Without SNAP_TO the camera starts from its own angles.
+        control.enable(1, 3.);
+        assert_eq!(control.follow(&world, &mut turn, goal(30.), 3.).yaw, 90.);
     }
 }

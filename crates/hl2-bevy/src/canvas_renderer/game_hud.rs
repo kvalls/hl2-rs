@@ -5,6 +5,8 @@ use crate::{gameplay::Gameplay, ui_host::Console};
 pub(super) fn draw(hud: &Hud, game: &Gameplay, ui: &Console) {
     hud.source
         .set_poisoned(game.player_damage.hud_poisoned(&game.inventory));
+    let hint = game.scene.intro.key_hint.as_ref();
+    hud.source.set_key_hint(hint, &ui.source.config.keys);
     hud.source.draw_status(
         &game.inventory,
         &game.weapons,

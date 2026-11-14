@@ -6,6 +6,7 @@ use crate::{
 };
 use glam::Vec3;
 
+mod detonation;
 mod effects;
 pub use effects::{Effect, EffectKind};
 use modkit_core::World;
@@ -442,15 +443,7 @@ impl Projectiles {
         for mut projectile in std::mem::take(&mut self.active) {
             projectile.previous_position = projectile.position;
             if projectile.position.abs().max_element() > 16384. {
-                self.diagnostics.out_of_world += 1;
-                if projectile.kind == ProjectileKind::RpgMissile {
-                    if let Some(owner) = projectile.npc_owner() {
-                        self.npc_missiles_died.push(owner);
-                    } else {
-                        self.missile_events
-                            .push(crate::weapon_rpg::MissileEvent::Removed);
-                    }
-                }
+                self.left_world(&projectile);
                 continue;
             }
             if projectile.expires_at.is_some_and(|end| scene.time >= end) {
@@ -458,6 +451,8 @@ impl Projectiles {
                 continue;
             }
             let mut alive = true;
+            // A grenade's detonation this tick: its blast normal.
+            let mut detonated = None;
             match projectile.kind {
                 ProjectileKind::SmgGrenade => {
                     // FLYGRAVITY applies half of its 400-unit gravity before the
@@ -471,20 +466,7 @@ impl Projectiles {
                         &[],
                     ) {
                         projectile.position = hit.position;
-                        self.grenade_explosion(
-                            projectile.position,
-                            projectile.damage,
-                            projectile.radius,
-                            hit.normal,
-                            projectile.owner,
-                            world,
-                            scene,
-                            physics,
-                            player_feet,
-                            player_ducked,
-                            &mut damage,
-                        );
-                        alive = false;
+                        detonated = Some(hit.normal);
                     } else {
                         projectile.position = end;
                         projectile.velocity.z -= 200. * dt;
@@ -499,20 +481,7 @@ impl Projectiles {
                         fuse.next_think = scene.time + 0.1;
                     }
                     if think && scene.time > fuse.detonate {
-                        self.grenade_explosion(
-                            projectile.position,
-                            projectile.damage,
-                            projectile.radius,
-                            Vec3::Z,
-                            projectile.owner,
-                            world,
-                            scene,
-                            physics,
-                            player_feet,
-                            player_ducked,
-                            &mut damage,
-                        );
-                        alive = false;
+                        detonated = Some(Vec3::Z);
                     } else {
                         fuse.warned |= think && scene.time >= fuse.warn;
                         if think && scene.time > fuse.next_blip {
@@ -811,7 +780,22 @@ impl Projectiles {
                     }
                 }
             }
-            if alive {
+            if let Some(normal) = detonated {
+                self.grenade_explosion(
+                    projectile.position,
+                    projectile.damage,
+                    projectile.radius,
+                    normal,
+                    projectile.owner,
+                    world,
+                    scene,
+                    physics,
+                    player_feet,
+                    player_ducked,
+                    &mut damage,
+                );
+                detonation::grenade_shake(scene, projectile.position, player_feet);
+            } else if alive {
                 survivors.push(projectile);
             }
         }
@@ -1362,14 +1346,11 @@ mod tests {
         let mut detonated = None;
         for tick in 0..240 {
             scene.time = f64::from(tick) * 0.015;
-            projectiles.tick(
-                &world,
-                &mut scene,
-                &mut physics,
-                Vec3::splat(9999.),
-                false,
-                0.015,
-            );
+            // The player stands 375 units from the falling grenade.
+            let player = projectiles.active.first().map_or(Vec3::splat(9999.), |p| {
+                p.position + Vec3::new(375., 0., -36.)
+            });
+            projectiles.tick(&world, &mut scene, &mut physics, player, false, 0.015);
             for s in scene.sounds.drain(..) {
                 if s.name == "Grenade.Blip" {
                     blips.push(scene.time);
@@ -1388,6 +1369,8 @@ mod tests {
         }
         let at = detonated.unwrap();
         assert!((at - 3.045).abs() < 0.005, "{at}");
+        // CBaseGrenade::Detonate's UTIL_ScreenShake reaches the player 375 units away.
+        assert!(scene.shakes.applied(at + 0.05).0.length() > 0.);
     }
     #[test]
     fn frag_flight_follows_native_vphysics_drag_samples() {

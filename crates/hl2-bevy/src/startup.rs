@@ -179,7 +179,7 @@ const HELP_LINES: &[&str] = &[
     "      --fake-monitor <spec>           Simulate a monitor with specified modes (e.g. 1920x1080,1280x720)",
     "      --fly                           Start with flight/noclip mode enabled (requires --map)",
     "      --frag-swept-box                Use swept-box physics query for frag grenade collision",
-    "      --frames <count>                Exit automatically after rendering N frames (30..=36000)",
+    "      --frames <count>                Exit automatically after rendering N frames (30..=200000)",
     "      --fullscreen                    Start in exclusive fullscreen display mode",
     "      --game <path>                   Path to Half-Life 2 installation (overrides saved preference and HL2_ROOT)",
     "      --height <pixels>               Window height in pixels (240..=8192, default from video config)",

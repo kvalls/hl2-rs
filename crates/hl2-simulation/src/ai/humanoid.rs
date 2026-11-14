@@ -11,6 +11,7 @@
 mod behaviors;
 
 mod announce;
+pub(crate) mod train;
 use super::assault::Assault;
 use super::conditions::{
     Cond, Conditions, COND_CAN_MELEE_ATTACK1, COND_CAN_RANGE_ATTACK1, COND_ENEMY_DEAD,
@@ -227,6 +228,7 @@ const COMPANION_SCHEDULES: &[(&str, &str)] = &[
          TASK_STOP_MOVING 0 TASK_FACE_SAVEPOSITION 0 TASK_SET_ACTIVITY ACTIVITY:ACT_IDLE \
          Interrupts COND_NEW_ENEMY",
     ),
+    train::SIT_ON_TRAIN,
     (
         "SCHED_CITIZEN_RANGE_ATTACK1_RPG",
         "Tasks TASK_STOP_MOVING 0 TASK_FACE_ENEMY 0 TASK_ANNOUNCE_ATTACK 1 \
@@ -316,6 +318,8 @@ pub struct Humanoid {
     rpg_launched: bool,
     /// CNPC_CombineS::m_fIsElite (models/combine_super_soldier.mdl).
     pub elite: bool,
+    /// CNPC_Citizen on a func_tracktrain (d1_trainstation_01's passengers).
+    pub train: Option<train::TrainRide>,
     /// m_flNextAltFireTime (the spawn time; DelayAltFireAttack pushes it).
     pub next_alt_fire: f64,
     /// m_vecAltFireTarget.
@@ -374,6 +378,7 @@ impl Humanoid {
             rpg_wait_until: 0.,
             rpg_launched: false,
             elite: false,
+            train: None,
             next_alt_fire: 0.,
             alt_fire_target: Vec3::ZERO,
             alt_fire_probe: None,
@@ -479,9 +484,12 @@ impl Humanoid {
         }
         schedule
     }
-    /// CNPC_PlayerCompanion::SelectSchedule (CNPC_Citizen adds nothing reachable here:
-    /// no trains, heals, item retrieval, inspections or patrols).
+    /// CNPC_PlayerCompanion::SelectSchedule after CNPC_Citizen's train ride (no heals,
+    /// item retrieval, inspections or patrols).
     fn select_companion(&mut self, npc: &mut AiNpc, ctx: &Context) -> String {
+        if let Some(schedule) = self.train_schedule() {
+            return schedule;
+        }
         // SelectScheduleDanger.
         if npc.conditions.has(COND_HEAR_DANGER) && ctx.best_sound.is_some() {
             return "SCHED_TAKE_COVER_FROM_BEST_SOUND".into();

@@ -206,8 +206,13 @@ impl Scene {
         };
         let (origin, rotation) = if keep_offset {
             let state = &self.states[id];
-            let local =
-                frame.inverse() * Mat4::from_rotation_translation(state.rotation, state.origin);
+            // A door keeps its closed pose; its travel is added in follow_parent.
+            let (rotation, origin) = if super::movers::travels(self.ent(world, id).class()) {
+                (state.base_rotation, state.base_origin)
+            } else {
+                (state.rotation, state.origin)
+            };
+            let local = frame.inverse() * Mat4::from_rotation_translation(rotation, origin);
             let (_, rotation, origin) = local.to_scale_rotation_translation();
             (origin, rotation.normalize())
         } else {
@@ -222,6 +227,15 @@ impl Scene {
         self.follow_parent(world, id);
     }
 
+    /// Parented children follow this tick's parent poses and animated attachments.
+    pub(super) fn follow_parents(&mut self, world: &World) {
+        for id in 0..self.states.len() {
+            if self.states[id].parent.is_some() && !self.states[id].killed {
+                self.follow_parent(world, id);
+            }
+        }
+    }
+
     /// Move a parented child onto its parent frame and local offset.
     pub(super) fn follow_parent(&mut self, world: &World, id: usize) {
         let Some(parent) = self.states[id].parent.clone() else {
@@ -230,12 +244,30 @@ impl Scene {
         if self.states[parent.entity].killed {
             return;
         }
+        // A parent later in the list moves first (train_door_2 on train_door_1 on the train).
+        if parent.entity > id && self.states[parent.entity].parent.is_some() {
+            self.follow_parent(world, parent.entity);
+        }
         if let Some(frame) = self.parent_frame(world, parent.entity, parent.attachment.as_deref()) {
-            let pose = frame * Mat4::from_rotation_translation(parent.rotation, parent.origin);
+            let pose = frame
+                * Mat4::from_rotation_translation(parent.rotation, parent.origin)
+                * self.travel_offset(world, id);
             let (_, rotation, origin) = pose.to_scale_rotation_translation();
             self.states[id].origin = origin;
             self.states[id].rotation = rotation.normalize();
         }
+    }
+
+    /// A door's or linear mover's travel from its closed pose, in its own frame.
+    fn travel_offset(&self, world: &World, id: usize) -> Mat4 {
+        if !super::movers::travels(self.ent(world, id).class()) {
+            return Mat4::IDENTITY;
+        }
+        let s = &self.states[id];
+        Mat4::from_rotation_translation(
+            Quat::from_axis_angle(s.axis, s.angle * s.fraction),
+            s.base_rotation.inverse() * s.translation * s.fraction,
+        )
     }
 
     /// SetupParentsForSpawnList: `parentname` ("name" or "name,attachment") keeps the
@@ -246,12 +278,6 @@ impl Scene {
             let Some(spec) = e.get("parentname").filter(|n| !n.is_empty()) else {
                 continue;
             };
-            if super::self_positioned(e.class())
-                || self.template_pending(id)
-                || self.makers.held(id)
-            {
-                continue;
-            }
             let (name, attachment) = match spec.split_once(',') {
                 Some((n, a)) => (n.trim(), Some(a.trim().to_owned())),
                 None => (spec.trim(), None),
@@ -262,6 +288,16 @@ impl Scene {
             }) else {
                 continue;
             };
+            // An NPC rides a train it is parented to (d1_trainstation_01's passengers on
+            // intro_train_2); other NPCs and brushes position themselves.
+            let rides = e.class().starts_with("npc_")
+                && world.entities[parent].class() == "func_tracktrain";
+            if (super::self_positioned(e.class()) && !rides)
+                || self.template_pending(id)
+                || self.makers.held(id)
+            {
+                continue;
+            }
             if parent != id && !self.template_pending(parent) && !self.makers.held(parent) {
                 self.set_parent(world, id, parent, attachment, true);
             }

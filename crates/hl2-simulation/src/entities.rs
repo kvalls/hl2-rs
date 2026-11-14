@@ -17,9 +17,12 @@ mod parenting;
 mod sequences;
 mod startup;
 pub use startup::weapon_idle_activity;
+mod tracktrain;
 mod triggers;
 mod turning;
+mod types;
 use turning::{angle_diff, clamp_yaw};
+pub use types::{ChoreographyState, PhysGunPickup, SceneAnimationState};
 
 /// Entity classes that move with VPhysics (MOVETYPE_VPHYSICS) for trigger touches.
 fn is_vphysics_class(class: &str) -> bool {
@@ -124,7 +127,7 @@ struct SceneAnimation {
     previous_started: f64,
     previous_done: Option<f64>,
 }
-fn number(e: &Entity, key: &str, default: f32) -> f32 {
+pub(crate) fn number(e: &Entity, key: &str, default: f32) -> f32 {
     e.get(key)
         .and_then(|s| s.parse::<f32>().ok())
         .filter(|v| v.is_finite())
@@ -152,15 +155,15 @@ fn scene_actor_class(class: &str) -> bool {
         || class == "cycler_actor"
 }
 #[derive(Clone)]
-struct Output {
+pub(crate) struct Output {
     name: String,
-    target: String,
-    input: String,
-    parameter: String,
+    pub(crate) target: String,
+    pub(crate) input: String,
+    pub(crate) parameter: String,
     delay: f64,
     remaining: i32,
 }
-fn output(name: &str, text: &str) -> Option<Output> {
+pub(crate) fn output(name: &str, text: &str) -> Option<Output> {
     let separator = if text.contains('\x1b') { '\x1b' } else { ',' };
     let values: Vec<_> = text.split(separator).collect();
     if values.len() != 5 {
@@ -217,6 +220,8 @@ pub struct State {
     script_finish: Option<f64>,
     /// A scripted_sequence's walk/run to its mark (SCHED_SCRIPTED_WALK/RUN) in progress.
     script_move: Option<crate::npc::GoalKey>,
+    /// MoveToPosition (m_bWaitForBeginSequence): the actor idles on the mark until BeginSequence.
+    script_wait: bool,
     post_idle_done: Option<(f64, usize)>,
     shuffle: Vec<usize>,
     last_shuffle: Option<usize>,
@@ -277,9 +282,13 @@ pub struct Parent {
 /// Classes whose own movement code positions them; map-spawn `parentname` is not
 /// applied to them here (moving hierarchies remain unfinished).
 fn self_positioned(class: &str) -> bool {
-    ["func_", "prop_door", "prop_physics", "npc_", "trigger_"]
-        .iter()
-        .any(|p| class.starts_with(p))
+    // CFuncBrush and triggers have no movement of their own and doors travel in their
+    // parent's frame: parented ones follow it (d1_trainstation_01's car door and triggers).
+    class != "func_brush"
+        && !movers::travels(class)
+        && ["func_", "prop_door", "prop_physics", "npc_"]
+            .iter()
+            .any(|p| class.starts_with(p))
 }
 /// The local player in trigger_hurt toucher lists.
 const PLAYER: usize = usize::MAX;
@@ -309,39 +318,6 @@ pub struct Diagnostics {
     pub scene_completions: u64,
     /// Scene captions dropped by the caption radius (AttenuateCaption).
     pub attenuated_captions: u64,
-}
-#[derive(Serialize)]
-pub struct ChoreographyState {
-    pub entity: usize,
-    pub targetname: String,
-    pub file: String,
-    pub elapsed: Option<f64>,
-    pub pause: bool,
-    pub pause_reason: Option<&'static str>,
-    pub completed_early: bool,
-    pub active: bool,
-}
-/// PhysGunPickup_t reasons that fire prop outputs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PhysGunPickup {
-    /// PICKED_UP_BY_PLAYER (+USE).
-    Player,
-    /// PICKED_UP_BY_CANNON.
-    Cannon,
-    /// PUNTED_BY_CANNON.
-    Punt,
-}
-#[derive(Serialize)]
-pub struct SceneAnimationState {
-    pub entity: usize,
-    pub targetname: String,
-    pub animation: String,
-    pub sample_time: f32,
-    pub scene_owner: Option<usize>,
-    pub scripted_by: Option<usize>,
-    pub clip_loaded: bool,
-    pub origin: [f32; 3],
-    pub yaw_degrees: f32,
 }
 /// The idle activity a metrocop starts and returns to (CAI_BaseNPC idles on ACT_IDLE;
 /// CBaseCombatCharacter::Weapon_TranslateActivity maps it through the held weapon's
@@ -422,6 +398,14 @@ pub struct Scene {
     pub color_correction: crate::color_correction::ColorCorrection,
     /// The point_viewcontrol and env_zoom the local player's view follows.
     pub view_control: crate::view_control::ViewControl,
+    /// func_tracktrain trains and the moves they and point_teleport give the player.
+    pub trains: crate::trains::Trains,
+    pub lightstyles: crate::lightstyles::LightStyles,
+    pub beams: crate::env_beam::EnvBeams,
+    pub sprites: crate::env_sprite::EnvSprites,
+    pub func_trains: crate::func_train::FuncTrains,
+    /// The new game's intro: script_intro and env_credits' logo.
+    pub intro: crate::script_intro::Intro,
     /// Developer commentary state and `point_commentary_node` nodes.
     pub commentary: crate::commentary::CommentaryState,
     /// point_template children that do not exist until ForceSpawn, with their authored
@@ -440,6 +424,7 @@ pub struct Scene {
     pub makers: crate::npc_makers::NpcMakers,
     /// point_spotlights: which are lit and their beams (DESIGN 14t).
     pub spotlights: crate::point_spotlight::Spotlights,
+    pub shakes: crate::screen_shake::ScreenShakes,
     /// skill.cfg values (NPC health, hitgroup damage); SDK defaults when absent.
     pub skill: crate::skill::Skill,
     /// Diagnostics: the last bullet/club hit on an NPC.
@@ -699,6 +684,7 @@ impl Scene {
             maker_inputs: Vec::new(),
             makers: Default::default(),
             spotlights: Default::default(),
+            shakes: Default::default(),
             skill: Default::default(),
             last_npc_hit: None,
             npc_damage: Vec::new(),
@@ -739,24 +725,18 @@ impl Scene {
             tonemap: Default::default(),
             color_correction: crate::color_correction::ColorCorrection::new(world),
             view_control: Default::default(),
+            trains: Default::default(),
+            lightstyles: Default::default(),
+            beams: Default::default(),
+            sprites: Default::default(),
+            func_trains: Default::default(),
+            intro: Default::default(),
             commentary: Default::default(),
             templates: BTreeMap::new(),
             player_feet: Vec3::ZERO,
             tick_dt: 0.,
         };
-        let diagnostics = &mut scene.diagnostics;
-        scene.states = (world.entities.iter())
-            .map(|e| Self::initial_state(world, e, diagnostics))
-            .collect();
-        scene.initialize_idle_activities(world);
-        scene.spawn_combine_cameras(world);
-        scene.start_weapon_idles(world);
-        scene.hold_template_children(world);
-        // MapEntity_ParseAllEntities removes SF_NPC_TEMPLATE NPCs (npc_template_maker).
-        scene.makers = crate::npc_makers::NpcMakers::new(world, &mut scene.states);
-        scene.spotlights = crate::point_spotlight::Spotlights::new(world);
-        scene.setup_spawn_parents(world);
-        scene.start_logic(world, new_game);
+        scene.spawn_entities(world, new_game);
         scene
     }
     /// Whether an entity is a point_template child that has not been spawned yet.
@@ -832,11 +812,8 @@ impl Scene {
                     self.camera_activity(world, id, false);
                 }
             }
-            if matches!(
-                e.class(),
-                "func_door" | "func_door_rotating" | "prop_door_rotating" | "func_movelinear"
-            ) {
-                self.advance_mover(id, dt);
+            if movers::moves(e.class()) {
+                self.advance_mover(world, id, dt);
             }
             if e.class() == "logic_timer"
                 && self.states[id].enabled
@@ -937,12 +914,10 @@ impl Scene {
                 self.states[id].touching = inside;
             }
         }
+        self.advance_func_trains(world);
+        self.beams.think(self.time);
         // Parented children follow this tick's parent poses and animated attachments.
-        for id in 0..self.states.len() {
-            if self.states[id].parent.is_some() && !self.states[id].killed {
-                self.follow_parent(world, id);
-            }
-        }
+        self.follow_parents(world);
         for _ in 0..2048 {
             let Some(index) = self
                 .queue
@@ -964,9 +939,7 @@ impl Scene {
             } else {
                 self.targets(world, &p)
             };
-            for id in targets {
-                self.deliver(world, id, &p, player_feet);
-            }
+            self.deliver_all(world, targets, &p, player_feet);
         }
         self.diagnostics.budget_exhaustions += 1;
     }

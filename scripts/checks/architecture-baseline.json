@@ -49,7 +49,6 @@
   "3a2cd52dae7e",
   "3d34c27267f6",
   "3e923f2e08e9",
-  "3fa421ec2839",
   "441823ff37f1",
   "442c96193fbf",
   "4485b755ca4c",
@@ -57,8 +56,6 @@
   "47163d1b36d3",
   "4b79d0c2102e",
   "4b968de7b6ef",
-  "4c111500605a",
-  "4ec30d257a41",
   "5035ab2c721c",
   "51a0b37e8e88",
   "53136e999d91",
@@ -103,7 +100,6 @@
   "9ec8a216cb40",
   "9f0ef0916d4c",
   "a4c21639b055",
-  "a8263c39f066",
   "a9113a641cb5",
   "aa8e8d1e0bf9",
   "ab26a1c4ce2b",
@@ -111,7 +107,6 @@
   "b1f6bf83d509",
   "b2794ce5c815",
   "b37979a42461",
-  "b37b712db267",
   "b49ec7f1774a",
   "b5d102b845ac",
   "b834caf3ed6c",
@@ -125,7 +120,6 @@
   "c598e4b6274f",
   "c775201a664b",
   "ccba164609c7",
-  "cd1bfc8c9e45",
   "ce0f6e21b531",
   "ce408197dc4f",
   "ce439e7b222c",
@@ -143,24 +137,23 @@
   "f59070197c8c",
   "fc1edf5f2624",
   "fd5835bbe06e",
-  "fe098fa81821",
   "fe47f0b4abe9",
   "fed629d3999b"
  ],
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1596,
-  "crates/hl2-bevy/src/rendering.rs": 1400,
-  "crates/hl2-bevy/src/video.rs": 1027,
+  "crates/hl2-bevy/src/rendering.rs": 1365,
+  "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
-  "crates/hl2-simulation/src/ai/runtime.rs": 2372,
-  "crates/hl2-simulation/src/entities/choreography.rs": 1229,
+  "crates/hl2-simulation/src/ai/runtime.rs": 2369,
+  "crates/hl2-simulation/src/entities/choreography.rs": 1225,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
-  "crates/hl2-simulation/src/npc.rs": 1383,
-  "crates/hl2-simulation/src/physics.rs": 3380,
-  "crates/hl2-simulation/src/projectiles.rs": 1264,
+  "crates/hl2-simulation/src/npc.rs": 1362,
+  "crates/hl2-simulation/src/physics.rs": 3368,
+  "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
-  "crates/hl2-ui/src/hud.rs": 1761,
-  "crates/source-assets/src/models.rs": 1280,
+  "crates/hl2-ui/src/hud.rs": 1150,
+  "crates/source-assets/src/models.rs": 1276,
   "crates/source-ui/src/widgets.rs": 2176
  },
  "functions": {
@@ -180,7 +173,7 @@
    119
   ],
   "crates/hl2-bevy/src/effects.rs::present": [
-   181
+   159
   ],
   "crates/hl2-bevy/src/effects.rs::viewmodel_quads": [
    193
@@ -243,10 +236,10 @@
    101
   ],
   "crates/hl2-simulation/src/entities.rs::tick": [
-   204
+   197
   ],
   "crates/hl2-simulation/src/entities/choreography.rs::tick_choreography": [
-   376
+   372
   ],
   "crates/hl2-simulation/src/entities/io.rs::deliver": [
    173
@@ -306,7 +299,7 @@
    107
   ],
   "crates/hl2-simulation/src/physics.rs::new": [
-   125
+   112
   ],
   "crates/hl2-simulation/src/physics.rs::spawn_ragdoll": [
    124
@@ -318,7 +311,7 @@
    240
   ],
   "crates/hl2-simulation/src/projectile_visuals.rs::frame": [
-   199
+   198
   ],
   "crates/hl2-simulation/src/projectiles.rs::grenade_explosion": [
    104
@@ -327,7 +320,7 @@
    114
   ],
   "crates/hl2-simulation/src/projectiles.rs::tick": [
-   403
+   386
   ],
   "crates/hl2-simulation/src/ragdolls.rs::impacts": [
    126
@@ -366,10 +359,7 @@
    148
   ],
   "crates/hl2-ui/src/hud.rs::load": [
-   155
-  ],
-  "crates/hl2-ui/src/hud.rs::observe": [
-   123
+   151
   ],
   "crates/modkit-core/src/decals.rs::static_decal": [
    101
@@ -381,7 +371,7 @@
    208
   ],
   "crates/source-assets/src/bsp.rs::model_world": [
-   461
+   459
   ],
   "crates/source-assets/src/flexes.rs::read_flexes": [
    130
@@ -390,7 +380,7 @@
    143
   ],
   "crates/source-assets/src/models.rs::append_models_lod": [
-   332
+   328
   ],
   "crates/source-assets/src/phy.rs::read_solid": [
    160

@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod air;
 mod backaway;
 mod embedded;
+mod exclusions;
 mod graph;
 pub mod links;
 mod tactical;
@@ -144,7 +145,6 @@ pub struct GoalSnapshot {
 
 #[derive(Clone, Debug, Default)]
 pub struct NavRestrictions {
-    pub unusable_nodes: BTreeSet<usize>,
     pub unusable_links: BTreeSet<usize>,
     /// CAI_DynamicLink: graph links each info_node_link / info_node_link_controller
     /// entity controls.
@@ -159,7 +159,9 @@ pub struct NavRestrictions {
 const MAX_NODE_LINK_DIST: f32 = 60. * 12.;
 const MAX_AIR_NODE_LINK_DIST: f32 = 120. * 12.;
 impl NavRestrictions {
-    /// Exclude hinted nodes rather than pretending to implement hint locks. Dynamic
+    /// Hint nodes stay routable (CAI_BaseNPC::IsUnusableNode skips a node only for an NPC
+    /// whose navigation is limited to its hint group, `hintlimiting`: not modeled; none on
+    /// d1_trainstation_01). Dynamic
     /// links (CAI_DynamicLink::InitDynamicLinks) take their initial state: an
     /// info_node_link controls the link between its StartNode/EndNode editor ids; an
     /// info_node_link_controller (GenerateLinksFromVolume) every link whose nodes lie
@@ -176,15 +178,6 @@ impl NavRestrictions {
         for (entity_id, entity) in world.entities.iter().enumerate() {
             let off = entity.get("initialstate").is_some_and(|v| v.trim() == "0");
             match entity.class() {
-                "info_node_hint" => {
-                    if let Some(id) = entity.get("nodeid").and_then(|s| s.parse::<i32>().ok()) {
-                        for (index, hammer_id) in graph.hammer_ids.iter().enumerate() {
-                            if *hammer_id == id {
-                                result.unusable_nodes.insert(index);
-                            }
-                        }
-                    }
-                }
                 "info_node_link" => {
                     let id = |k: &str| entity.get(k).and_then(|v| v.trim().parse::<i32>().ok());
                     let link = id("StartNode")
@@ -576,6 +569,8 @@ struct Actor {
     pause_sequence: Option<String>,
     /// Jump and climb links (ground only by default).
     caps: MoveCaps,
+    /// Entities this actor's probes pass (`exclusions::nav_ignored_by`).
+    nav_ignored: Vec<usize>,
 }
 struct Goal {
     request: MoveRequest,
@@ -806,9 +801,7 @@ impl Controller {
         if count == 0 || count > 1500 {
             return None;
         }
-        let positions: Vec<_> = (0..count)
-            .map(|n| node_feet(graph, n, restrictions, hull))
-            .collect();
+        let positions: Vec<_> = (0..count).map(|n| node_feet(graph, n, hull)).collect();
         let mut adjacent = vec![Vec::new(); count];
         for (index, link) in graph.links.iter().enumerate() {
             if link.source < count
@@ -828,14 +821,6 @@ impl Controller {
     /// Whether the controller opens route doors for this actor (bits_CAP_DOORS_GROUP).
     pub fn opens_doors(&self, entity: usize) -> bool {
         self.actors.get(&entity).is_none_or(|a| a.opens_doors)
-    }
-    /// HL2COLLISION_GROUP_HEADCRAB membership (the headcrab classes).
-    pub fn set_headcrab(&mut self, entity: usize, on: bool) {
-        if on {
-            self.headcrabs.insert(entity);
-        } else {
-            self.headcrabs.remove(&entity);
-        }
     }
     /// The entities a mover's hull traces leave out: itself, and every crab for a crab.
     pub fn set_opens_doors(&mut self, entity: usize, on: bool) {
@@ -898,6 +883,7 @@ impl Controller {
                 playback_rate: 1.,
                 pause_sequence: None,
                 caps: MoveCaps::default(),
+                nav_ignored: Vec::new(),
             },
         );
         Ok(())
@@ -1015,7 +1001,7 @@ impl Controller {
                 .ok_or(GoalBlockReason::MissingActor)?;
             actor.locomotion.track(goal.request.style)?;
             goal.tolerance = goal_tolerance(actor, &goal.request);
-            let excluded = excluded_for(&self.headcrabs, key.actor);
+            let excluded = exclusions::excluded_for(&self.headcrabs, Some(actor), key.actor);
             let query = Query {
                 excluded_entities: &excluded,
                 transients,
@@ -1133,7 +1119,7 @@ impl Controller {
                     goal.next = 0;
                     goal.state = GoalState::Moving;
                 }
-                let excluded = excluded_for(&self.headcrabs, key.actor);
+                let excluded = exclusions::excluded_for(&self.headcrabs, Some(actor), key.actor);
                 let query = Query {
                     excluded_entities: &excluded,
                     transients,
@@ -1251,13 +1237,6 @@ fn update(key: GoalKey, goal: &Goal, doors: &BTreeSet<usize>, name: Option<Strin
     }
 }
 /// The mover itself, or every crab for a crab (HL2COLLISION_GROUP_HEADCRAB).
-fn excluded_for(crabs: &BTreeSet<usize>, entity: usize) -> Vec<usize> {
-    if crabs.contains(&entity) {
-        crabs.iter().copied().collect()
-    } else {
-        vec![entity]
-    }
-}
 fn advance<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
@@ -1880,7 +1859,7 @@ mod tests {
         let mut invalid = graph(&points, &[(0, 1), (1, 2), (2, 3)]);
         invalid.nodes[1].node_type = 3;
         invalid.nodes[1].hull_z_offsets[0] = -500.;
-        assert!(node_feet(&invalid, 1, &NavRestrictions::default(), HullType::Human).is_none());
+        assert!(node_feet(&invalid, 1, HullType::Human).is_none());
         assert!(search(
             &invalid,
             &NavRestrictions::default(),
@@ -1899,9 +1878,17 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert!(NavRestrictions::from_world(&map, &invalid)
-            .unusable_nodes
-            .contains(&1));
+        // A hint node is routable like any other (CAI_BaseNPC::IsUnusableNode).
+        let hinted = graph(&points, &[(0, 1), (1, 2), (2, 3)]);
+        assert!(search(
+            &hinted,
+            &NavRestrictions::from_world(&map, &hinted),
+            (HullType::Human, &MoveCaps::default()),
+            0,
+            3,
+            |_, a, b| Some(a.distance(b))
+        )
+        .is_ok());
     }
     #[test]
     fn a_blocked_graph_link_turns_stale_and_the_retry_routes_around_it() {

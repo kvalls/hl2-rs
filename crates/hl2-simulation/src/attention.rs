@@ -340,12 +340,22 @@ impl LookTargets {
         })
     }
 }
+/// CAI_BaseNPC classes: CBaseFlex actors whose faces flex with scenes and lip sync and whose
+/// scene LOOKAT/FACE events move their heads and bodies. Besides npc_*, the SDK's cyclers
+/// cycler_actor (CFlextalkActor) and generic_actor (genericactor.cpp) and monster_generic
+/// (genericmonster.cpp) are NPCs; d1_trainstation_01's intro G-Man is a cycler_actor.
+pub fn is_flex_actor(class: &str) -> bool {
+    class.starts_with("npc_")
+        || matches!(class, "cycler_actor" | "generic_actor" | "monster_generic")
+}
 /// NPC classes with bits_CAP_ANIMATEDFACE (they run CAI_BaseActor::MaintainLookTargets).
-/// Cyclers keep the host's own eye fallback.
+/// cycler_actor inherits CGenericActor::Spawn, which adds it with "eyes" and "forward"
+/// attachments. Other cyclers keep the host's own eye fallback.
 pub fn has_animated_face(class: &str) -> bool {
     matches!(
         class,
-        "npc_metropolice"
+        "cycler_actor"
+            | "npc_metropolice"
             | "npc_combine_s"
             | "npc_citizen"
             | "npc_barney"
@@ -497,6 +507,23 @@ mod tests {
             up: Vec3::Z,
             scripted: false,
         }
+    }
+    #[test]
+    fn npc_cyclers_are_flex_actors_with_animated_faces() {
+        // SDK genericactor.cpp / genericmonster.cpp: these cyclers are CAI_BaseNPCs.
+        for class in [
+            "npc_citizen",
+            "cycler_actor",
+            "generic_actor",
+            "monster_generic",
+        ] {
+            assert!(is_flex_actor(class), "{class}");
+        }
+        for class in ["prop_dynamic", "cycler", "prop_physics"] {
+            assert!(!is_flex_actor(class), "{class}");
+        }
+        assert!(has_animated_face("cycler_actor"));
+        assert!(!has_animated_face("cycler"));
     }
     #[test]
     fn interest_ramps_in_and_out_like_cai_interest_target() {

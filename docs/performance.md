@@ -1,5 +1,18 @@
 # Performance measurements - 2026-10-05
 
+## Dense report labels distort frame time (2026-11-12, session 55)
+
+RTX 3070, Ryzen 7 3700X, Windows 11, packaged session 55 build (c20abc1), 1920x1080 borderless on the second
+monitor, `--uncapped --profile`, d1_trainstation_02 plaza, static fly view (eye -2330 -2272 60, yaw 0, pitch -8).
+Session 52's plaza fixtures (artifacts/s52/plaza.json, plaza-empty.json) label every 3 ticks from tick 150 for
+the idle-wobble test; each label samples the report. With them, four runs measured 45.6, 56.7, 52.1 and 29.0 ms a
+frame (17 to 35 fps) with 370-550 ms frames every few seconds, all in the `diagnostics` scope (mean 2.2 ms,
+max 538 ms). The same fixture with labels only at ticks 1, 150 multiples and 1500 (artifacts/s55/plaza-sparse.json):
+17.1 ms mean (58.5 fps), p95 24 ms, max 44 ms over 1195 measured frames; per-scope means fixed_simulation 5.2 ms
+(max 38.8), render_graph 5.5 (max 108), render_prepare 2.3, animation 2.0, render_assets 1.4 (one 598 ms upload
+at the start), shadows 0.8, render_bindgroups 0.8. Use sparse labels for any frame-time claim; the session 52
+numbers above that came from the dense fixtures are inflated by the sampling.
+
 ## Owner's manhack plaza on Windows: where the frame goes (2026-11-10, session 52)
 
 RTX 3070, Ryzen 7 3700X, Windows 11, packaged build 078d8d1 with a temporary lap probe in `Gameplay::tick`

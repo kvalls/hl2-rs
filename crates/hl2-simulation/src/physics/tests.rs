@@ -1249,15 +1249,20 @@ fn npc_only_clip_does_not_block_player_sweeps_or_overlap_queries() {
     assert!(!sweep.start_solid);
     let inside = Vec3::new(15., 0., 40.);
     assert!(!physics.trace_hull(inside, inside, mins, maxs).start_solid);
-    // Shots and use traces (MASK_SHOT / MASK_SOLID) pass clip-only brushes; the
-    // player's ground trace (MASK_PLAYERSOLID) still finds them.
+    // Shots and use traces (MASK_SHOT / MASK_SOLID) pass clip-only brushes, and so does
+    // the player's ground trace (MASK_PLAYERSOLID has no CONTENTS_MONSTERCLIP).
     assert!(physics
         .impact_ray(Vec3::new(-5., 0., 40.), Vec3::X, 40.)
         .is_none());
     assert!(physics
         .ground_ray(Vec3::new(15., 0., 140.), -Vec3::Z, 60.)
-        .is_some());
+        .is_none());
     assert_eq!(physics.colliders.len(), 1);
+    // A player clip is the player's ground.
+    let physics = Physics::new(&clip_box(0x10000));
+    assert!(physics
+        .ground_ray(Vec3::new(15., 0., 140.), -Vec3::Z, 60.)
+        .is_some());
 }
 #[test]
 fn physics_objects_pass_clip_only_brushes_but_rest_on_solid_ones() {

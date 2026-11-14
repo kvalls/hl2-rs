@@ -55,7 +55,7 @@ pub fn read_script(path: &Path) -> Result<Vec<Command>> {
             || c.actions.len() > 64
             || c.actions.iter().any(|a| !a.valid())
             || c.tick <= previous
-            || c.tick > 6000
+            || c.tick > 40000
             || !c.forward.is_finite()
             || !c.side.is_finite()
             || c.forward.abs() > 1.

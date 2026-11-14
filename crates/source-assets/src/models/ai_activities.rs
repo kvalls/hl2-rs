@@ -1,4 +1,5 @@
 //! The activities each AI class's rig preloads.
+use modkit_core::{ModelInstance, World};
 
 /// Activities every npc_* class may set through the shared AI (the base schedules and
 /// tasks, flinches, natural attacks, deaths, jumps and leaps), loaded for every NPC
@@ -59,6 +60,26 @@ pub const ZOMBIE_AI_ACTIVITIES: &[&str] = &[
 /// The activities a class's own AI sets beyond the shared ones: the swatting zombies',
 /// CBlackHeadcrab::NPC_TranslateActivity's panic scurry, SCHED_ZOMBIE_POISON_RANGE_ATTACK2's
 /// threat, CFastZombie's leap, landings, frenzy and big slash, and the birds' flight.
+/// CNPC_Citizen's train ride sequences (npc_citizen17.cpp), loaded for citizens with a
+/// map-spawn parent: Sit_Idle, Sit_Exit, Stand, Stand_Exit.
+pub const TRAIN_RIDE_SEQUENCES: &[&str] = &[
+    "d1_t01_TrainRide_Sit_Idle",
+    "d1_t01_TrainRide_Sit_Exit",
+    "d1_t01_TrainRide_Stand",
+    "d1_t01_TrainRide_Stand_Exit",
+];
+/// The AI activities and sequences an NPC instance's rig loads beyond the shared lists.
+pub fn instance_ai_sequences(world: &World, instance: &ModelInstance) -> Vec<&'static str> {
+    let mut out = class_ai_activities(&instance.kind).to_vec();
+    let parented = instance
+        .entity
+        .and_then(|id| world.entities[id].get("parentname"))
+        .is_some_and(|p| !p.is_empty());
+    if instance.kind == "npc_citizen" && parented {
+        out.extend(TRAIN_RIDE_SEQUENCES);
+    }
+    out
+}
 pub fn class_ai_activities(class: &str) -> &'static [&'static str] {
     match class {
         "npc_zombie" | "npc_zombie_torso" => ZOMBIE_AI_ACTIVITIES,

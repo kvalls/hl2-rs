@@ -649,6 +649,10 @@ impl Impacts {
             _ => "concrete",
         };
         let material = format!("decals/{family}/shot{}", self.created % 5 + 1);
+        // AddDecalToStaticProp: a static prop takes the decal on its drawn mesh along the shot.
+        let hit = (direction.filter(|_| physics.static_surfaceprop(&hit).is_some()))
+            .and_then(|d| crate::static_prop_decals::on_mesh(world, &hit, d))
+            .unwrap_or(hit);
         self.add_decal(hit, &material, world, physics, scene);
     }
     /// A trace reports its collision model's surfaceprop: a VPhysics prop's .phy solid (the gas

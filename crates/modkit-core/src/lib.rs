@@ -1,6 +1,7 @@
 //! Game-neutral data and extension boundary. All positions are Z-up, in Source units.
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 pub mod animation;
 mod brush_set;
 pub use brush_set::BrushSet;
@@ -43,6 +44,34 @@ pub struct Surface {
     /// flex vertex deltas can be applied.
     #[serde(default)]
     pub flex_source: Option<FlexSource>,
+}
+/// Material, lightmap page and 3D-skybox flag: world surfaces sharing them draw as one batch.
+pub type SurfaceKey = (String, Option<usize>, bool);
+impl Surface {
+    pub fn key(&self) -> SurfaceKey {
+        (self.material.clone(), self.lightmap, self.background)
+    }
+    /// One world surface per key. Surfaces that share a key (the pieces of static decals of one
+    /// material on one lightmap page) keep all their triangles, in order.
+    pub fn batch(surfaces: impl IntoIterator<Item = Surface>) -> BTreeMap<SurfaceKey, Surface> {
+        let mut batches = BTreeMap::<SurfaceKey, Surface>::new();
+        for surface in surfaces {
+            match batches.entry(surface.key()) {
+                std::collections::btree_map::Entry::Occupied(mut batch) => {
+                    let batch = batch.get_mut();
+                    let base = batch.vertices.len() as u32;
+                    batch.vertices.extend(surface.vertices);
+                    batch
+                        .indices
+                        .extend(surface.indices.iter().map(|i| base + i));
+                }
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(surface);
+                }
+            }
+        }
+        batches
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FlexSource {
@@ -126,6 +155,9 @@ pub struct World {
     pub model_collision: std::collections::BTreeMap<String, Vec<ConvexPiece>>,
     #[serde(default)]
     pub lightmaps: Vec<Lightmap>,
+    /// Faces lit by light styles other than 0, recomposed when a style's value changes.
+    #[serde(default)]
+    pub lightmap_styles: Vec<StyledLightmap>,
     #[serde(default)]
     pub rigs: std::collections::BTreeMap<String, animation::Rig>,
     /// Leaf ambient samples and world lights for model lighting (None if unreadable).
@@ -422,6 +454,17 @@ pub struct Lightmap {
     /// Linear, unclamped baked light as IEEE half-float bits (RGBA16F texels).
     pub rgba: Vec<u16>,
 }
+/// A face's atlas rectangle lit by more than style 0: each style's linear samples (row-major,
+/// width x height), summed times the style's value.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct StyledLightmap {
+    pub page: usize,
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub styles: Vec<(u8, Vec<[f32; 3]>)>,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct BrushModel {
     pub id: usize,
@@ -485,12 +528,25 @@ impl World {
         merge(&mut self.model_breaks, loaded.model_breaks);
         self.warnings.extend(loaded.warnings);
     }
+    /// CBasePlayer::EntSelectSpawnPoint without a landmark start spot: FindPlayerStart
+    /// takes the info_player_start with SF_PLAYER_START_MASTER (spawnflags 1), else the
+    /// first one; info_player_deathmatch is this host's last resort.
     pub fn spawn(&self) -> (Vec3, f32) {
-        if let Some(e) = self
-            .entities
-            .iter()
-            .find(|e| matches!(e.class(), "info_player_start" | "info_player_deathmatch"))
-        {
+        let starts = || {
+            self.entities
+                .iter()
+                .filter(|e| e.class() == "info_player_start")
+        };
+        let master = starts().find(|e| {
+            e.get("spawnflags")
+                .and_then(|f| f.trim().parse::<u32>().ok())
+                .is_some_and(|f| f & 1 != 0)
+        });
+        if let Some(e) = master.or_else(|| starts().next()).or_else(|| {
+            self.entities
+                .iter()
+                .find(|e| e.class() == "info_player_deathmatch")
+        }) {
             let yaw = parse_vec3(e.get("angles").unwrap_or("0 0 0"))
                 .unwrap_or(Vec3::ZERO)
                 .y
@@ -685,6 +741,59 @@ pub struct Block {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_player_spawns_at_the_master_player_start() {
+        let start = |origin: &str, flags: &str| Entity {
+            properties: vec![
+                ("classname".into(), "info_player_start".into()),
+                ("origin".into(), origin.into()),
+                ("angles".into(), "0 90 0".into()),
+                ("spawnflags".into(), flags.into()),
+            ],
+        };
+        // d1_trainstation_01: the master start in front of the intro G-Man comes later.
+        let mut world = World {
+            entities: vec![
+                start("-4690 -1186 -27", "0"),
+                start("-14576 -14208 -1300", "1"),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(world.spawn().0, Vec3::new(-14576., -14208., -1236.));
+        world.entities[1].properties[3].1 = "0".into();
+        assert_eq!(world.spawn().0, Vec3::new(-4690., -1186., 37.));
+    }
+    #[test]
+    fn surface_batches_keep_every_piece_sharing_a_key() {
+        let triangle = |material: &str, lightmap, x: f32| Surface {
+            background: false,
+            material: material.into(),
+            vertices: [0., 1., 2.]
+                .map(|y| Vertex {
+                    position: Vec3::new(x, y, 0.),
+                    uv: Vec2::ZERO,
+                    color: [255; 4],
+                    light_uv: Vec2::ZERO,
+                    skin: None,
+                    normal: Vec3::Z,
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+            lightmap,
+            flex_source: None,
+        };
+        // Two decals of one material on one lightmap page, one on another page.
+        let batches = Surface::batch([
+            triangle("decals/leaves", Some(0), 1.),
+            triangle("decals/leaves", Some(1), 2.),
+            triangle("decals/leaves", Some(0), 3.),
+        ]);
+        assert_eq!(batches.len(), 2);
+        let page0 = &batches[&("decals/leaves".into(), Some(0), false)];
+        assert_eq!(page0.indices, [0, 1, 2, 3, 4, 5]);
+        let xs: Vec<f32> = page0.vertices.iter().map(|v| v.position.x).collect();
+        assert_eq!(xs, [1., 1., 1., 3., 3., 3.]);
+    }
     fn cube() -> World {
         World {
             brushes: vec![Brush {

@@ -196,7 +196,11 @@ pub(super) fn add_presentation_systems(app: &mut App) {
     )
     .add_systems(
         PostUpdate,
-        rendering::present_render_colors.after(rendering::present_entities),
+        (
+            rendering::present_render_colors,
+            rendering::apply_lightstyles,
+        )
+            .after(rendering::present_entities),
     )
     .add_systems(
         PostUpdate,

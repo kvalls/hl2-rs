@@ -112,6 +112,10 @@ impl HudFont {
         self.face
             .draw(value, x, y, self.size(), (blur, scanlines), color);
     }
+    /// GetFontTall: the GDI cell height of the font at its current size.
+    pub(super) fn gdi_height(&self) -> f32 {
+        self.face.gdi_height(self.size())
+    }
     pub(super) fn width(&self, value: &str) -> f32 {
         self.face.width(value, self.size())
     }

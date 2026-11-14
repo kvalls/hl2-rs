@@ -20,8 +20,9 @@ pub(super) fn load(vfs: &Vfs, world: &World, errors: &mut Vec<String>) -> Faces 
         let mut face = None;
         if world.model_instances.iter().any(|i| {
             i.asset_key() == *key
-                && i.entity
-                    .is_some_and(|id| world.entities[id].class().starts_with("npc_"))
+                && i.entity.is_some_and(|id| {
+                    hl2_simulation::attention::is_flex_actor(world.entities[id].class())
+                })
         }) {
             match vfs
                 .read(model)

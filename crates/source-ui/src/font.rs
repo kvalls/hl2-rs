@@ -50,6 +50,8 @@ pub struct FontFace {
     monochrome: MonochromeCache,
     cell_height: f32,
     ascent: f32,
+    /// OS/2 usWinAscent per EM: the GDI cell's ascent.
+    win_ascent: f32,
     freetype: Option<FreeTypeCell>,
 }
 type GlyphCache = Arc<MutexCell<HashMap<(char, u32, u16, u16), Glyph>>>;
@@ -252,10 +254,14 @@ impl FontFace {
             .map_err(anyhow::Error::msg)?;
         let face = ttf_parser::Face::parse(bytes, 0).context("read HUD font metrics")?;
         let units = f32::from(face.units_per_em()).max(1.);
-        let (ascent, cell_height) = face.tables().os2.map_or_else(
+        let (ascent, cell_height, win_ascent) = face.tables().os2.map_or_else(
             || {
                 let metrics = font.horizontal_line_metrics(1.).unwrap();
-                (metrics.ascent, metrics.ascent - metrics.descent)
+                (
+                    metrics.ascent,
+                    metrics.ascent - metrics.descent,
+                    metrics.ascent,
+                )
             },
             |table| {
                 let win_ascent = f32::from(table.windows_ascender()) / units;
@@ -267,7 +273,7 @@ impl FontFace {
                     .map_or(win_ascent, |cap| {
                         (cell_height + f32::from(cap) / units) * 0.5
                     });
-                (ascent, cell_height)
+                (ascent, cell_height, win_ascent)
             },
         );
         Ok(Self {
@@ -277,6 +283,7 @@ impl FontFace {
             monochrome: Arc::new(MutexCell::new(HashMap::new())),
             cell_height: cell_height.max(0.01),
             ascent,
+            win_ascent,
             freetype: (baseline == CellBaseline::FreeType)
                 .then(|| FreeTypeCell::from_bytes(bytes))
                 .flatten(),
@@ -287,6 +294,19 @@ impl FontFace {
     fn cell_em(&self, cell: f32) -> f32 {
         self.freetype
             .map_or(cell / self.cell_height, |ft| ft.size_for(cell).0)
+    }
+    /// Retail CWin32Font's height (GetFontTall, the GDI tmHeight) for a cell of `tall`
+    /// pixels: GDI renders at a whole-pixel EM and the cell's ascent and descent round up,
+    /// so it can come out a pixel taller than asked (native CHudHintKeyDisplay rows:
+    /// Verdana bold at tall 21 is 22 high). FreeType cells keep `tall`.
+    pub fn gdi_height(&self, tall: f32) -> f32 {
+        let tall = tall.round().max(1.);
+        if self.freetype.is_some() {
+            return tall;
+        }
+        let em = (tall / self.cell_height).round();
+        let up = |v: f32| (v - 1e-3).ceil();
+        up(self.win_ascent * em) + up((self.cell_height - self.win_ascent) * em)
     }
     /// Baseline below the cell top for glyphs rasterized at `em` pixels.
     fn ascent_at(&self, em: f32) -> f32 {
@@ -804,6 +824,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn gdi_height_rounds_the_em_and_the_cell_edges() {
+        let font = FontFace::load_with(
+            include_bytes!("../assets/fonts/ProggyClean.ttf"),
+            Canvas::default(),
+            CellBaseline::Gdi,
+        )
+        .unwrap();
+        // ProggyClean: usWinAscent 1280 and usWinDescent 384 of 2048 units per EM.
+        // A 13 px cell renders at EM 16: ascent 10 and descent 3 fit exactly.
+        assert_eq!(font.gdi_height(13.), 13.);
+        // A 16 px cell renders at EM 20: ascent 12.5 and descent 3.75 round up to 17.
+        assert_eq!(font.gdi_height(16.), 17.);
+        assert_eq!(font.gdi_height(21.), 22.);
     }
 
     #[test]

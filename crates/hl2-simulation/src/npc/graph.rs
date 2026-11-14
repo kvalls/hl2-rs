@@ -32,26 +32,15 @@ pub(super) fn pop_nearest(open: &mut Vec<(usize, f32)>) -> Option<usize> {
     Some(open.swap_remove(best).0)
 }
 /// CAI_Node::GetPosition(hull): the node origin raised by the hull's offset.
-pub(super) fn node_feet(
-    graph: &Graph,
-    node: usize,
-    restrictions: &NavRestrictions,
-    hull: HullType,
-) -> Option<Vec3> {
-    route_feet(graph, node, restrictions, hull, false)
+pub(super) fn node_feet(graph: &Graph, node: usize, hull: HullType) -> Option<Vec3> {
+    route_feet(graph, node, hull, false)
 }
 /// `node_feet`, with a ladder's climb nodes (their info holds the climb bits) for climbers.
-pub(super) fn route_feet(
-    graph: &Graph,
-    node: usize,
-    restrictions: &NavRestrictions,
-    hull: HullType,
-    climbs: bool,
-) -> Option<Vec3> {
+pub(super) fn route_feet(graph: &Graph, node: usize, hull: HullType, climbs: bool) -> Option<Vec3> {
     let value = graph.nodes.get(node)?;
     let ground = value.node_type == NODE_GROUND && value.info == 0;
     let climb = climbs && value.node_type == NODE_CLIMB;
-    if !(ground || climb) || restrictions.unusable_nodes.contains(&node) {
+    if !(ground || climb) {
         return None;
     }
     let origin = if climb {
@@ -108,7 +97,6 @@ fn connector<W: NpcCollisionWorld>(
 fn candidates<W: NpcCollisionWorld>(
     world: &W,
     graph: &Graph,
-    restrictions: &NavRestrictions,
     actor: &Actor,
     point: Vec3,
     view: Vec3,
@@ -116,7 +104,7 @@ fn candidates<W: NpcCollisionWorld>(
 ) -> Vec<usize> {
     let mut nearest: Vec<_> = (0..graph.nodes.len())
         .filter_map(|index| {
-            let feet = node_feet(graph, index, restrictions, actor.hull)?;
+            let feet = node_feet(graph, index, actor.hull)?;
             ((graph.nodes[index].origin - point)
                 .abs()
                 .cmple(Vec3::splat(720.))
@@ -129,7 +117,7 @@ fn candidates<W: NpcCollisionWorld>(
         .into_iter()
         .take(10)
         .filter_map(|(index, _)| {
-            let feet = node_feet(graph, index, restrictions, actor.hull)?;
+            let feet = node_feet(graph, index, actor.hull)?;
             let visible = world
                 .npc_trace_hull(
                     feet + view,
@@ -187,7 +175,7 @@ fn plan<W: NpcCollisionWorld>(
         feet: end,
         tolerance,
     } = destination;
-    let excluded = [entity];
+    let excluded = super::exclusions::self_and_ignored(actor, entity);
     let query = Query {
         contents_mask: npc_probe::NPC_BRUSH_ONLY_MASK,
         excluded_entities: &excluded,
@@ -206,10 +194,10 @@ fn plan<W: NpcCollisionWorld>(
     let view = actor
         .view_offset
         .ok_or(GoalBlockReason::MissingViewOffset)?;
-    let starts = candidates(world, graph, restrictions, actor, start, view, query);
-    let ends = candidates(world, graph, restrictions, actor, end, view, query);
+    let starts = candidates(world, graph, actor, start, view, query);
+    let ends = candidates(world, graph, actor, end, view, query);
     let climbs = actor.caps.climbs();
-    let feet_of = |n| route_feet(graph, n, restrictions, actor.hull, climbs).unwrap();
+    let feet_of = |n| route_feet(graph, n, actor.hull, climbs).unwrap();
     let start_node = starts
         .into_iter()
         .take(4)
@@ -220,8 +208,8 @@ fn plan<W: NpcCollisionWorld>(
         .take(4)
         .find(|n| connector(world, actor, feet_of(*n), end, tolerance, query))
         .ok_or(GoalBlockReason::NoRoute)?;
-    // CAI_Pathfinder::IsLinkUsable: graph data only (flags, accepted move types and
-    // unusable nodes, in `search`); a stale-suggested link is unusable until it expires,
+    // CAI_Pathfinder::IsLinkUsable: graph data only (flags and accepted move types,
+    // in `search`); a stale-suggested link is unusable until it expires,
     // then IsLinkStillStale rechecks it once per plan (CheckStaleRoute: the local move).
     let Stale { links, now } = stale;
     let mut rechecked = false;
@@ -295,7 +283,7 @@ pub(super) fn probe_doors<W: NpcCollisionWorld>(
     if door_set.is_empty() {
         return;
     }
-    let excluded = [entity];
+    let excluded = super::exclusions::self_and_ignored(actor, entity);
     let query = Query {
         contents_mask: npc_probe::NPC_BRUSH_ONLY_MASK,
         excluded_entities: &excluded,
@@ -325,14 +313,14 @@ pub(super) fn search(
     if count == 0
         || count > 1500
         || graph.links.len() > 1_000_000
-        || node_feet(graph, start, restrictions, hull).is_none()
-        || node_feet(graph, end, restrictions, hull).is_none()
+        || node_feet(graph, start, hull).is_none()
+        || node_feet(graph, end, hull).is_none()
     {
         return Err(GoalBlockReason::InvalidGraph);
     }
     let climbs = caps.climbs();
     let positions: Vec<_> = (0..count)
-        .map(|n| route_feet(graph, n, restrictions, hull, climbs))
+        .map(|n| route_feet(graph, n, hull, climbs))
         .collect();
     let mut adjacent = vec![Vec::new(); count];
     for (index, link) in graph.links.iter().enumerate() {

@@ -29,7 +29,7 @@ mod msaa;
 mod outputs;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
 pub use outputs::frame_image;
-pub(crate) use outputs::{FrameCameras, apply_video_settings, skip_covered_outputs};
+pub(crate) use outputs::{FrameCameras, OwnTarget, apply_video_settings, skip_covered_outputs};
 pub mod mode {
     use super::*;
     use hl2_ui::config::DisplayMode;
@@ -949,10 +949,7 @@ type SuspendCameras<'w, 's> = Query<
         &'static mut Camera,
         Option<&'static SuspendedCamera>,
     ),
-    (
-        Without<crate::monitors::MonitorCamera>,
-        Without<PresentCamera>,
-    ),
+    (Without<OwnTarget>, Without<PresentCamera>),
 >;
 
 /// Resizes the game frame safely when the configured resolution changes (see
@@ -1527,6 +1524,7 @@ mod tests {
             .world_mut()
             .spawn((
                 crate::monitors::MonitorCamera,
+                OwnTarget,
                 Camera::default(),
                 RenderTarget::default(),
             ))

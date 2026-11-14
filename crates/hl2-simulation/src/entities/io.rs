@@ -2,7 +2,7 @@
 
 use super::{glob, inputs, number, Pending, PhysGunPickup, Scene};
 use glam::Vec3;
-use modkit_core::World;
+use modkit_core::{Entity, World};
 
 impl Scene {
     pub fn fire(&mut self, id: usize, name: &str, activator: usize) {
@@ -43,16 +43,20 @@ impl Scene {
         if target == "!activator" {
             return vec![p.activator];
         }
-        world
-            .entities
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| {
-                e.get("targetname")
-                    .is_some_and(|n| glob(&target, &n.to_lowercase()))
-            })
-            .map(|(id, _)| id)
-            .collect()
+        let matching = |key: fn(&Entity) -> Option<&str>| -> Vec<usize> {
+            let entities = world.entities.iter().enumerate();
+            let matches = |e: &Entity| key(e).is_some_and(|n| glob(&target, &n.to_lowercase()));
+            entities
+                .filter(|(_, e)| matches(e))
+                .map(|(id, _)| id)
+                .collect()
+        };
+        let named = matching(|e| e.get("targetname"));
+        if !named.is_empty() {
+            return named;
+        }
+        // CEventQueue::ServiceEvents: a target that names no entity is taken as a classname.
+        matching(|e| Some(e.class()))
     }
 
     pub fn send(&mut self, id: usize, input: &str, parameter: &str) {
@@ -423,6 +427,46 @@ impl Scene {
     }
 }
 
+impl Scene {
+    /// Delivers an event to its targets; a Kill whose target names no entity may name an
+    /// NPC's weapon.
+    pub(super) fn deliver_all(
+        &mut self,
+        world: &World,
+        targets: Vec<usize>,
+        p: &Pending,
+        player_feet: Vec3,
+    ) {
+        if targets.is_empty() {
+            self.kill_npc_weapon(world, p);
+        }
+        for id in targets {
+            self.deliver(world, id, p, player_feet);
+        }
+    }
+
+    /// GiveWeapon and spawn equipment name an NPC's weapon `<npc name>_weapon`: a Kill sent to
+    /// that name removes the NPC's weapon (the AI runtime's `killweapon`).
+    fn kill_npc_weapon(&mut self, world: &World, p: &Pending) {
+        if !p.input.eq_ignore_ascii_case("kill") {
+            return;
+        }
+        let lower = p.target.to_ascii_lowercase();
+        let Some(owner) = lower.strip_suffix("_weapon").filter(|o| !o.is_empty()) else {
+            return;
+        };
+        let npc = world.entities.iter().position(|e| {
+            e.class().starts_with("npc_")
+                && e.get("targetname")
+                    .is_some_and(|n| n.eq_ignore_ascii_case(owner))
+        });
+        if let Some(id) = npc.filter(|&id| !self.states[id].killed) {
+            self.ai_inputs
+                .push((id, "killweapon".into(), String::new(), p.activator));
+        }
+    }
+}
+
 /// Whether an input belongs to the AI runtime (`Scene::ai_inputs`).
 fn is_ai_input(class: &str, input: &str) -> bool {
     match class {
@@ -432,6 +476,7 @@ fn is_ai_input(class: &str, input: &str) -> bool {
         ),
         "ai_goal_police" => matches!(input, "enableknockout" | "disableknockout"),
         "npc_barnacle" => matches!(input, "droptongue" | "setdroptonguespeed" | "letgo"),
+        "npc_citizen" | "npc_barney" | "npc_alyx" => input == "giveweapon",
         "npc_crow" | "npc_pigeon" | "npc_seagull" => input == "flyaway",
         "npc_manhack" => matches!(input, "unpack" | "disableswarm"),
         "npc_cscanner" => matches!(

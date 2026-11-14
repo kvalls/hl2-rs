@@ -6,11 +6,14 @@ use super::{Pending, Scene};
 use glam::Vec3;
 use modkit_core::{Entity, World};
 
+mod beams;
 mod doors;
 mod env;
+mod lights;
 mod logic;
 mod player;
 mod scenes;
+mod trains;
 mod triggers;
 
 /// One input being delivered to an entity.
@@ -38,6 +41,11 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("func_door_rotating", doors::door),
     ("prop_door_rotating", doors::door),
     ("func_movelinear", doors::movelinear),
+    ("func_tracktrain", trains::tracktrain),
+    ("func_rotating", trains::rotating),
+    ("func_train", trains::func_train),
+    ("path_track", trains::path_track),
+    ("point_teleport", trains::point_teleport),
     ("logic_relay", logic::relay),
     ("logic_branch", logic::branch),
     ("logic_case", logic::case),
@@ -57,8 +65,22 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("ambient_generic", env::ambient_generic),
     ("npc_combine_camera", env::combine_camera),
     ("point_spotlight", env::point_spotlight),
+    ("env_shake", env::shake),
+    ("script_intro", env::script_intro),
+    ("env_credits", env::credits),
+    ("env_message", env::message),
+    ("env_hudhint", env::hud_hint),
+    ("game_text", env::game_text),
+    ("env_starfield", env::starfield),
     ("point_commentary_node", env::commentary_node),
+    ("light", lights::light),
+    ("light_spot", lights::light),
+    ("light_glspot", lights::light),
+    ("env_beam", beams::beam),
+    ("env_sprite", beams::sprite),
 ];
+
+pub(super) use lights::spawn_lights;
 
 /// The handler of `class`'s own inputs, if it has any.
 pub(super) fn handler(class: &str) -> Option<Handler> {

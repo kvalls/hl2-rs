@@ -705,12 +705,15 @@ impl Rig {
         current: Option<&str>,
         mut draw: impl FnMut(u32) -> u32,
     ) -> Option<&str> {
+        // LookupSequence matches labels case-insensitively; clips are keyed in lowercase, so a
+        // mixed-case label (LineIdle01) answers with its clip's key.
         if let Some(sequence) = self
             .sequences
             .iter()
             .find(|s| s.name.eq_ignore_ascii_case(name))
         {
-            return Some(&sequence.name);
+            let clip = self.clips.get_key_value(&sequence.name.to_lowercase());
+            return Some(clip.map_or(sequence.name.as_str(), |(key, _)| key.as_str()));
         }
         if let Some((label, _)) = self.clips.get_key_value(&name.to_lowercase()) {
             return Some(label);
@@ -928,6 +931,24 @@ pub fn skin(position: Vec3, weights: &Weights, matrices: &[Mat4]) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_mixed_case_label_answers_with_its_clip_key() {
+        let clip = Clip {
+            events: Vec::new(),
+            fps: 30.,
+            looping: true,
+            frames: vec![Vec::new()],
+            layer: ClipLayer::default(),
+        };
+        let rig = Rig {
+            sequences: vec![Sequence::new("LineIdle01", "", 1, 0)],
+            clips: [("lineidle01".to_string(), clip)].into(),
+            ..Default::default()
+        };
+        let label = rig.lookup_sequence("LineIdle01", None, |_| panic!());
+        assert_eq!(label, Some("lineidle01"));
+        assert!(rig.clips.contains_key(label.unwrap()));
+    }
     #[test]
     fn sequence_lookup_preserves_labels_weight_intervals_and_negative_current() {
         let mut rig = Rig {

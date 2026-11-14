@@ -3,6 +3,7 @@ use crate::source_direction;
 use bevy::{app::RunFixedMainLoopSystems, prelude::*};
 pub(crate) mod commentary;
 pub(crate) mod movie;
+mod ride;
 pub(crate) mod script;
 mod view;
 use hl2_simulation::physics::Physics;
@@ -66,6 +67,8 @@ pub struct Simulation {
     /// The active point_viewcontrol's view (from the latest world tick); the player keeps
     /// its own eye, which still selects the soundscape (SDK `EarPosition`).
     pub view_control: Option<hl2_simulation::view_control::View>,
+    /// The following camera's angles between ticks (FollowTarget's eased turn).
+    pub camera_turn: Option<hl2_simulation::view_control::Turn>,
     /// The env_zoom field of view (from the latest world tick), overriding `fov`.
     pub zoom_fov: Option<f32>,
     pub loading: bool,
@@ -133,6 +136,7 @@ impl Simulation {
             background_level: false,
             background_audio_pending: false,
             view_control: None,
+            camera_turn: None,
             zoom_fov: None,
             loading: false,
             focused: true,
@@ -213,7 +217,10 @@ impl Simulation {
     /// The player takes no input: a menu background level, or a point_viewcontrol with
     /// `SF_CAMERA_PLAYER_TAKECONTROL`.
     /// The player's own move, or the tongue that holds him.
-    fn move_player(&mut self, input: Input, game: Option<&crate::gameplay::Gameplay>) {
+    fn move_player(&mut self, input: Input, mut game: Option<&mut crate::gameplay::Gameplay>) {
+        if let Some(game) = game.as_deref_mut() {
+            ride::apply(self, game);
+        }
         match game.and_then(|game| game.ai.barnacle_hold()) {
             Some(by) => self.player.carried(by, &self.physics, TICK),
             None => self.player.step(input, &self.physics, TICK),
@@ -690,7 +697,7 @@ impl Simulation {
                 } else {
                     self.input
                 };
-                self.move_player(input, game.as_deref());
+                self.move_player(input, game.as_deref_mut());
                 self.eye = self.player.eye();
                 // The player's VPhysics shadow pushes and weighs down movable props.
                 let held = game.as_deref().and_then(|game| {

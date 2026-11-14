@@ -30,6 +30,9 @@ impl Humanoid {
         ctx: &Context,
         motor: &mut dyn Motor,
     ) -> Option<TaskStatus> {
+        if let Some(status) = self.train_task(run, task, motor) {
+            return Some(status);
+        }
         if self.running_actbusy {
             return if run {
                 self.actbusy.run_task(npc, task, arg, ctx, motor)

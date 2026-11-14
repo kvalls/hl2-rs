@@ -34,6 +34,8 @@ pub const STATUS_CLASSIC_EFFECTS: &str = "#HL2RS_StatusClassicEffects";
 pub const STATUS_AERO: &str = "#HL2RS_StatusAero";
 pub const STATUS_STEAM_INPUT: &str = "#HL2RS_StatusSteamInput";
 pub const STATUS_UNIMPLEMENTED: &str = "#HL2RS_StatusUnimplemented";
+/// A key hint's command with no key bound (the retail client's own text; no installed token).
+pub const KEY_NOT_BOUND: &str = "#HL2RS_KeyNotBound";
 
 /// Temporary English text of each placeholder token (keys without the `#`).
 pub const PLACEHOLDER_STRINGS: &[(&str, &str)] = &[
@@ -52,6 +54,7 @@ pub const PLACEHOLDER_STRINGS: &[(&str, &str)] = &[
     ("HL2RS_StatusSteamInput", "Not implemented: opening Steam Input configuration from this button is not connected yet."),
     ("HL2RS_StatusUnimplemented", "Not implemented: this control has no effect yet."),
     ("HL2RS_Console_ReverseSearch", "reverse-i-search"),
+    ("HL2RS_KeyNotBound", "< not bound >"),
 ];
 
 /// The placeholder text of `token` (with or without `#`, any case).
