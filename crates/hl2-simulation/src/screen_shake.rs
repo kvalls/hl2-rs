@@ -100,6 +100,23 @@ impl ScreenShakes {
             }
         }
     }
+    /// UTIL_ScreenShake's SHAKE_START (amplitude, frequency, duration, radius) at `origin`
+    /// for the player standing at `feet` (measured to its WorldSpaceCenter, 36 units up):
+    /// nothing beyond `radius` (0: everywhere).
+    pub fn start(
+        &mut self,
+        origin: Vec3,
+        (amplitude, frequency, duration, radius): (f32, f32, f32, f32),
+        feet: Vec3,
+        now: f64,
+    ) {
+        let center = feet + Vec3::Z * 36.;
+        if let Some(local) = local_amplitude(origin, center, amplitude, radius) {
+            if local > 0. {
+                self.command(Command::Start, (local, frequency, duration), now);
+            }
+        }
+    }
     /// CalcShake at `now`: the view's offset (units) and roll (degrees).
     pub fn applied(&self, now: f64) -> (Vec3, f32) {
         let (mut offset, mut roll) = (Vec3::ZERO, 0.);
@@ -166,6 +183,17 @@ impl Random {
 mod tests {
     use super::*;
 
+    #[test]
+    fn start_shakes_only_a_player_within_the_radius() {
+        let mut shakes = ScreenShakes::default();
+        let shake = (25., 150., 1., 750.);
+        shakes.start(Vec3::ZERO, shake, Vec3::new(800., 0., -36.), 0.);
+        assert_eq!(shakes.applied(0.05), (Vec3::ZERO, 0.));
+        shakes.start(Vec3::ZERO, shake, Vec3::new(375., 0., -36.), 0.);
+        let (offset, _) = shakes.applied(0.05);
+        // Half the radius: half the amplitude.
+        assert!(offset.length() > 0. && offset.abs().max_element() <= 12.5);
+    }
     #[test]
     fn a_shake_moves_within_its_amplitude_settles_and_ends() {
         let mut shakes = ScreenShakes::default();

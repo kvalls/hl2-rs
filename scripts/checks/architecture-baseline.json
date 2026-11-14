@@ -49,7 +49,6 @@
   "3a2cd52dae7e",
   "3d34c27267f6",
   "3e923f2e08e9",
-  "3fa421ec2839",
   "441823ff37f1",
   "442c96193fbf",
   "4485b755ca4c",
@@ -57,8 +56,6 @@
   "47163d1b36d3",
   "4b79d0c2102e",
   "4b968de7b6ef",
-  "4c111500605a",
-  "4ec30d257a41",
   "5035ab2c721c",
   "51a0b37e8e88",
   "53136e999d91",
@@ -103,7 +100,6 @@
   "9ec8a216cb40",
   "9f0ef0916d4c",
   "a4c21639b055",
-  "a8263c39f066",
   "a9113a641cb5",
   "aa8e8d1e0bf9",
   "ab26a1c4ce2b",
@@ -111,7 +107,6 @@
   "b1f6bf83d509",
   "b2794ce5c815",
   "b37979a42461",
-  "b37b712db267",
   "b49ec7f1774a",
   "b5d102b845ac",
   "b834caf3ed6c",
@@ -125,7 +120,6 @@
   "c598e4b6274f",
   "c775201a664b",
   "ccba164609c7",
-  "cd1bfc8c9e45",
   "ce0f6e21b531",
   "ce408197dc4f",
   "ce439e7b222c",
@@ -143,7 +137,6 @@
   "f59070197c8c",
   "fc1edf5f2624",
   "fd5835bbe06e",
-  "fe098fa81821",
   "fe47f0b4abe9",
   "fed629d3999b"
  ],
@@ -157,7 +150,7 @@
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1362,
   "crates/hl2-simulation/src/physics.rs": 3377,
-  "crates/hl2-simulation/src/projectiles.rs": 1264,
+  "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1737,
   "crates/source-assets/src/models.rs": 1276,
@@ -330,7 +323,7 @@
    114
   ],
   "crates/hl2-simulation/src/projectiles.rs::tick": [
-   403
+   386
   ],
   "crates/hl2-simulation/src/ragdolls.rs::impacts": [
    126
