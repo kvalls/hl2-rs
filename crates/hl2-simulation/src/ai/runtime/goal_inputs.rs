@@ -227,6 +227,7 @@ impl AiRuntime {
                 let name = tokens.next().unwrap_or("").to_lowercase();
                 let mut nearest = false;
                 let mut max_time = None;
+                let mut hint = None;
                 for token in tokens {
                     match token {
                         "nearest" => nearest = true,
@@ -242,13 +243,20 @@ impl AiRuntime {
                         }
                         t => match t.parse::<f32>() {
                             Ok(v) => max_time = Some(v),
-                            // A hint node name.
+                            // A hint node name (FindEntityByName; a non-hint is refused).
                             Err(_) => {
-                                *self
-                                    .diagnostics
-                                    .unknown_goals
-                                    .entry(format!("actbusy hint {t}"))
-                                    .or_default() += 1;
+                                hint = world.entities.iter().position(|e| {
+                                    e.class() == "info_node_hint"
+                                        && e.get("targetname")
+                                            .is_some_and(|n| n.eq_ignore_ascii_case(t))
+                                });
+                                if hint.is_none() {
+                                    *self
+                                        .diagnostics
+                                        .unknown_goals
+                                        .entry(format!("actbusy hint {t}"))
+                                        .or_default() += 1;
+                                }
                             }
                         },
                     }
@@ -271,6 +279,7 @@ impl AiRuntime {
                 };
                 if let Some(busy) = actor.class.actbusy_mut() {
                     busy.force(Some(goal), range, max_time, nearest, &mut actor.npc, now);
+                    busy.forced_hint = hint;
                 }
             }
             "setbusysearchrange" => {

@@ -141,6 +141,8 @@ pub struct ActBusy {
     pub running: bool,
     /// m_bLeaving: ForceActBusyLeave.
     pub leaving: bool,
+    /// ForceNPCToActBusy's named hint node: taken without a search while it is free.
+    pub forced_hint: Option<usize>,
     /// The NPC reached its exit: the host removes it.
     #[serde(skip)]
     pub remove: bool,
@@ -152,6 +154,7 @@ impl ActBusy {
         if goal.is_some() {
             self.goal = goal;
         }
+        self.forced_hint = None;
         self.enabled = true;
         self.busy = false;
         self.moving_to_busy = false;
@@ -433,6 +436,19 @@ pub fn find_exit_hint(
         exit: true,
     })
 }
+/// ForceActBusy's named hint: the hint `entity` with its busy animation, whatever its group,
+/// range or state.
+pub fn named_hint(hints: &[HintCandidate], anims: &[BusyAnim], entity: usize) -> Option<BusyHint> {
+    let hint = hints.iter().find(|h| h.entity == entity)?;
+    Some(BusyHint {
+        entity,
+        origin: hint.origin,
+        yaw: hint.yaw,
+        anim: find_busy_anim(anims, &hint.activity)?.clone(),
+        exit: false,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn find_hint(
     hints: &[HintCandidate],
@@ -502,6 +518,21 @@ mod tests {
                 max_state: 3,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_named_hint_is_taken_whatever_its_group_and_range() {
+        // CAI_ActBusyGoal::InputForceNPCToActBusy with a hint node name: no search.
+        let (anims, h) = (stand(), hints());
+        let hint = named_hint(&h, &anims, 826).expect("named hint");
+        assert_eq!((hint.entity, hint.origin.y), (826, -1968.));
+        assert!(named_hint(&h, &anims, 9).is_none());
+        let mut busy = ActBusy {
+            forced_hint: Some(826),
+            ..Default::default()
+        };
+        busy.enable(None, 100., 0.);
+        assert_eq!(busy.forced_hint, None);
     }
 
     #[test]

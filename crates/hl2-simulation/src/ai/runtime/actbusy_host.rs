@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use glam::Vec3;
 use modkit_core::World;
 
-use super::super::actbusy::{find_exit_hint, find_hint, ActBusy, BusyAnim, HintCandidate};
+use super::super::actbusy::{
+    find_exit_hint, find_hint, named_hint, ActBusy, BusyAnim, HintCandidate,
+};
 use super::super::humanoid::{Humanoid, Kind};
 use super::{AiClass, NpcState};
 use crate::entities::Scene;
@@ -55,8 +57,11 @@ impl HintSearch<'_> {
             NpcState::Alert => 2,
             _ => 1,
         };
+        let free = |hint: &usize| self.locks.get(hint).is_none_or(|&holder| holder == id);
         busy.candidate = if busy.leaving {
             find_exit_hint(self.hints, group, state, roll)
+        } else if let Some(hint) = busy.forced_hint.filter(free) {
+            named_hint(self.hints, self.anims, hint)
         } else {
             find_hint(
                 self.hints,
