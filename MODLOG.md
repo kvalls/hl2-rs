@@ -1,5 +1,33 @@
 # MODLOG
 
+## 2026-11-14: physics maintenance measured; upstream main merged
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** merged upstream main through `56c2da5e` (63 commits; conflicts in MODLOG and the
+architecture baseline, which only tightened). Results of the checkpoint below recorded in
+`docs/performance-research.md` and STATUS. No code beyond the checkpoint.
+
+**Why:** the checkpoint was unmeasured and the branch was 63 commits behind.
+
+**Tested how / Result:** validation and the Windows cross-target check pass on the merged
+tree. Three interleaved packaged pairs on the pre-merge base, 600 ticks, M1 Pro / Metal, 1080p,
+load average 6.8 to 15.3 recorded per run. Frame time before to after: quiet 5.56 to 5.45 ms,
+30 manhacks 10.68 to 10.64 ms (ranges overlap; not established). Tick: 3.34 to 2.48 ms and
+3.80 to 3.20 ms, no overlap.
+Packaged replays on the merged tree: 106 of 107 pass. The one failure is
+`flashlight_viewmodel`'s off-light image control, which also failed on an earlier merged
+baseline without these changes and passed on the run after it: an unstable check, **not
+investigated**. A first suite run that showed 70 failures is discarded: it had packaged a
+stale pre-merge binary, because a temporary second checkout had shared the build directory.
+
+**Still broken or not tested:** the machine was busy during the timing, which was not repeated
+on the merged tree; Windows runtime and a matched native run; the broad phase's remaining cost;
+the unstable flashlight image check.
+
+**Next:** owner decision on GPU silhouettes; attribute `PostUpdate`'s unscoped 1.4 ms.
+Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-14: checkpoint, owned query tree and unchanged colliders no longer marked modified
 
 **Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.

@@ -1,17 +1,23 @@
 # STATUS
 
-## Checkpoint: owned query tree and the cause of Rapier's maintenance cost (2026-11-14)
+## Performance: physics maintenance measured; upstream merged through 56c2da5e (2026-11-14)
 
-**Not measured, replays not run.** Found by probing what each physics step is told:
-`set_entity` and `set_npc_hitboxes` took a mutable collider reference before checking for a
-change, which marks the collider modified; about 2,175 colliders a tick, 1,855 of them disabled
-and therefore removed and re-added in the broad phase and the query tree on every step. Fixed:
-the reference is taken only for a real change (about 334 modified and 6 removed a step in the
-crowd run). The earlier "fixed cost inside the library" reading is corrected in
-`docs/performance-research.md`. Also in: the query tree owned by the game (DESIGN plan E),
-with tests against the library's pipeline. The last six removals a step were disabled NPC
-hulls repositioned every tick while hidden; a collider that stays disabled is now placed when
-it is enabled. Open: measurement and the packaged replays. Validation passes.
+Each physics step was being told of about 2,175 modified colliders a tick, 1,855 of them
+disabled, because `set_entity` and `set_npc_hitboxes` took a mutable collider reference before
+checking for a change. They now take it only for a change and leave a collider that stays
+disabled in place; the query tree is owned by the game (DESIGN plan E). Three interleaved
+pairs on the pre-merge base, M1 Pro / Metal, 1080p, 600 ticks, load average 6.8 to 15.3
+recorded per run: tick 3.34 to 2.48 ms (quiet) and 3.80 to 3.20 ms (30 manhacks), no range
+overlap. Frame time is **not established** as improved at that load (quiet 5.56 to 5.45 ms,
+crowd 10.68 to 10.64 ms, ranges overlapping); timing was not repeated on the merged tree.
+Packaged replays on the merged tree: 106 of 107 pass. The one failure is
+`flashlight_viewmodel`'s off-light image control, which also failed on an earlier merged
+baseline without these changes and passed on the run after it: an unstable check, **not
+investigated**. A first suite run that showed 70 failures is discarded: it had packaged a
+stale pre-merge binary, because a temporary second checkout had shared the build directory.
+Validation and the Windows cross-target check pass on the merged tree. Windows runtime and a
+matched native run are **not tested**. Open: shadow silhouettes on the GPU (owner decision), the
+1.4 ms of `PostUpdate` in no scope, what the broad phase still costs.
 Plugin rules read: yes; exceptions: none.
 
 ## Performance: flex deltas once per actor; silhouettes need a design decision (2026-11-11)

@@ -313,6 +313,31 @@ colliders reports the first one visited, and the box query answers from stored b
 be looser than the collider (its callers test each candidate exactly). The one packaged pair
 taken before the access fix showed the owned tree alone at about 0.13 ms off the tick.
 
+### Unchanged colliders not reported, query tree owned: measured
+
+Three interleaved pairs on the same pre-merge base (the flex build against the checkpoint
+commit), 600 ticks, M1 Pro / Metal, 1080p, all runs exit 0 at tick 600. The machine was busy:
+load average 6.8 to 15.3 on 10 logical CPUs, recorded per run.
+
+| Case | Tick before | Tick after | Fixed loop per frame | Frame before | Frame after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Quiet | 3.34 ms (3.28 to 3.39) | 2.48 ms (2.44 to 2.51) | 1.30 to 0.97 ms | 5.56 ms (5.56 to 5.91) | 5.45 ms (5.11 to 5.54) |
+| 30 manhacks | 3.80 ms (3.79 to 3.83) | 3.20 ms (3.19 to 3.52) | 2.80 to 2.34 ms | 10.68 ms (10.66 to 10.85) | 10.64 ms (10.24 to 11.28) |
+
+The tick is 26% cheaper in the quiet scene and 16% cheaper in the crowd, with no overlap
+between the tick ranges. Frame time is **not established** as improved at this load: the quiet
+ranges barely separate and the crowd ranges overlap (one after-run at load 10.9 took 11.28 ms).
+The saving sits in the fixed loop, which is now 18 to 22% of the frame; presentation
+(`PostUpdate`, about 5 ms in the crowd) is the larger part. Where frames hold more ticks, as on
+the retained Windows crowd profile, the tick saving counts more than once per frame. The
+timing was not repeated on the merged tree.
+
+Packaged replays on the merged tree: 106 of 107 pass. The one failure is
+`flashlight_viewmodel`'s off-light image control, which also failed on an earlier merged
+baseline without these changes and passed on the run after it: an unstable check, **not
+investigated**. A first suite run that showed 70 failures is discarded: it had packaged a
+stale pre-merge binary, because a temporary second checkout had shared the build directory.
+
 ### Machine load during these runs
 
 The two new sampled runs were taken on a loaded machine: load average about 4 on 10 logical
@@ -349,9 +374,9 @@ the post-merge sample applied to 4.96 ms); each returns about 1.65 times itself 
 5. Facial flex deltas once per actor, cheap key hash. Done: `animation` 1.46 to 1.02 ms
    crowd, 0.72 to 0.55 ms quiet. Flexes on the GPU would remove the rest and the mesh
    re-uploads (`render_assets` about 2.5 ms on the render thread); not planned.
-6. Rapier maintenance: about 1.3 ms per tick is fixed cost of the broad phase and of the
-   query tree's rebalance, on every map. Needs our own query tree and our own broad phase;
-   see the section above. Owner decision.
+6. Physics maintenance. Done: unchanged colliders are no longer reported to the step and the
+   query tree is owned; tick 3.34 to 2.48 ms quiet, 3.80 to 3.20 ms crowd. What the broad
+   phase still costs per step is **not re-measured**.
 7. Name the 1.39 ms of `PostUpdate` and 0.92 ms of `PreUpdate` in no scope before spending on them.
 8. One pose composition per actor per tick shared by its consumers. Ceiling about 0.5 ms.
 9. Design choice for the owner: run the fixed step off the frame's critical path (its own
