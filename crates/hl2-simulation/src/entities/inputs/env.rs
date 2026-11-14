@@ -314,7 +314,8 @@ pub(super) fn commentary_node(scene: &mut Scene, d: &Delivery) -> bool {
 /// env_shake's StartShake, StopShake, Amplitude and Frequency (EnvShake.cpp ApplyShake through
 /// UTIL_ScreenShake): the player within `radius` (any distance with spawnflag 1, Everyone) gets a
 /// view shake whose amplitude falls off with distance; Amplitude and Frequency keep the new value
-/// for later starts. "Don't shake view" (0x20) and the physics and rope shakes are not drawn.
+/// for later starts. A player off the ground gets no Start unless spawnflag 4 (SF_SHAKE_INAIR)
+/// is set. "Don't shake view" (0x20) and the physics and rope shakes are not drawn.
 pub(super) fn shake(scene: &mut Scene, d: &Delivery) -> bool {
     use crate::screen_shake::{local_amplitude, Command};
     let key = |name: &str| d.entity.get(name).and_then(|v| v.parse::<f32>().ok());
@@ -331,6 +332,9 @@ pub(super) fn shake(scene: &mut Scene, d: &Delivery) -> bool {
     let frequency = tuned_frequency.unwrap_or_else(|| key("frequency").unwrap_or(0.));
     let spawnflags = key("spawnflags").unwrap_or(0.) as i64;
     if spawnflags & 0x20 != 0 {
+        return true;
+    }
+    if command == Command::Start && scene.shakes.player_airborne && spawnflags & 4 == 0 {
         return true;
     }
     let radius = if spawnflags & 1 != 0 {

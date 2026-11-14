@@ -162,6 +162,30 @@ fn env_shake_shakes_a_player_within_its_radius() {
     assert!(scene.send_named("near", "StopShake", "", 0.));
     scene.tick(&world, Vec3::ZERO, 0.05);
     assert!(!moved(&scene));
+    // UTIL_ScreenShake skips a player off the ground unless SF_SHAKE_INAIR (4) is set.
+    scene.shakes.player_airborne = true;
+    assert!(scene.send_named("near", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(!moved(&scene));
+    let air = entity(
+        "env_shake",
+        "air",
+        &[
+            ("amplitude", "8"),
+            ("frequency", "40"),
+            ("duration", "2"),
+            ("spawnflags", "5"),
+        ],
+    );
+    let world = World {
+        entities: vec![air],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    scene.shakes.player_airborne = true;
+    assert!(scene.send_named("air", "StartShake", "", 0.));
+    scene.tick(&world, Vec3::ZERO, 0.05);
+    assert!(moved(&scene));
 }
 /// CEventQueue::ServiceEvents: a target no entity is named after reaches every entity of that
 /// class (ent_fire point_spotlight LightOff); a name match keeps the class out.

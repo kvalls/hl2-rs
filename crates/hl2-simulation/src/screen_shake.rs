@@ -46,6 +46,9 @@ pub struct ScreenShakes {
     /// env_shake SetAmplitude / SetFrequency: what each one's Amplitude and Frequency inputs set,
     /// used by its later shakes instead of its keys.
     tuned: std::collections::BTreeMap<usize, (Option<f32>, Option<f32>)>,
+    /// The local player is off the ground (FL_ONGROUND clear), as the host last moved it:
+    /// UTIL_ScreenShake sends it no SHAKE_START unless the shake is an air shake.
+    pub player_airborne: bool,
 }
 
 impl ScreenShakes {
@@ -102,7 +105,8 @@ impl ScreenShakes {
     }
     /// UTIL_ScreenShake's SHAKE_START (amplitude, frequency, duration, radius) at `origin`
     /// for the player standing at `feet` (measured to its WorldSpaceCenter, 36 units up):
-    /// nothing beyond `radius` (0: everywhere).
+    /// nothing beyond `radius` (0: everywhere), nothing for a player off the ground (no
+    /// bAirShake: CBaseGrenade::Explode).
     pub fn start(
         &mut self,
         origin: Vec3,
@@ -110,6 +114,9 @@ impl ScreenShakes {
         feet: Vec3,
         now: f64,
     ) {
+        if self.player_airborne {
+            return;
+        }
         let center = feet + Vec3::Z * 36.;
         if let Some(local) = local_amplitude(origin, center, amplitude, radius) {
             if local > 0. {
@@ -193,6 +200,18 @@ mod tests {
         let (offset, _) = shakes.applied(0.05);
         // Half the radius: half the amplitude.
         assert!(offset.length() > 0. && offset.abs().max_element() <= 12.5);
+    }
+    #[test]
+    fn a_player_off_the_ground_gets_no_grenade_shake() {
+        let mut shakes = ScreenShakes {
+            player_airborne: true,
+            ..Default::default()
+        };
+        shakes.start(Vec3::ZERO, (25., 150., 1., 750.), Vec3::ZERO, 0.);
+        assert_eq!(shakes.applied(0.05), (Vec3::ZERO, 0.));
+        shakes.player_airborne = false;
+        shakes.start(Vec3::ZERO, (25., 150., 1., 750.), Vec3::ZERO, 0.);
+        assert_ne!(shakes.applied(0.05).0, Vec3::ZERO);
     }
     #[test]
     fn a_shake_moves_within_its_amplitude_settles_and_ends() {

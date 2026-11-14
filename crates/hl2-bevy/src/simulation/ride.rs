@@ -1,12 +1,14 @@
 //! The local player moved by map entities before its own move: a point_teleport, and the
 //! func_tracktrain it stands on (SDK CPhysicsPushedEntities: a player on a pusher moves with
-//! it, and FinishRotPushedEntity turns its view by the pusher's yaw).
+//! it, and FinishRotPushedEntity turns its view by the pusher's yaw). The scene also learns
+//! whether the player is off the ground (UTIL_ScreenShake skips such a player).
 
 use super::Simulation;
 use crate::gameplay::Gameplay;
 use glam::Vec3;
 
 pub(super) fn apply(sim: &mut Simulation, game: &mut Gameplay) {
+    game.scene.shakes.player_airborne = !sim.player.grounded;
     if let Some(teleport) = game.scene.trains.teleport.take() {
         // CBasePlayer::Teleport with angles snaps the view; the velocity stays.
         sim.player.feet = teleport.feet;
