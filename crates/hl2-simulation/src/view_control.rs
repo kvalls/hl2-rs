@@ -326,6 +326,12 @@ mod tests {
         zoom.set(0, 14., 10.);
         assert_eq!(zoom.get(17.), 70.);
         assert_eq!(zoom.get(30.), 90.);
+        // The intro's snap to 1 draws at HL2's minimum 5; a ramp from 1 starts from 1.
+        zoom.set(1, 0.1, 40.);
+        assert_eq!(zoom.get(41.), 5.);
+        zoom.set(40, 12., 41.);
+        assert_eq!(zoom.start, 1);
+        assert_eq!(zoom.get(47.), 20.5);
     }
 
     #[test]
