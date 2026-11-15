@@ -338,6 +338,41 @@ baseline without these changes and passed on the run after it: an unstable check
 investigated**. A first suite run that showed 70 failures is discarded: it had packaged a
 stale pre-merge binary, because a temporary second checkout had shared the build directory.
 
+### Presentation after the merge: no single unscoped system; mesh rewrites load the render thread
+
+A 10 ms sample of the merged build in the crowd (attribution only; load average about 1.5).
+The `PostUpdate` time in no scope is spread over several small systems, none above about
+0.3 ms per frame: the effect, eye, visibility, monitor and material-proxy `present` systems
+together about 0.9 ms (effects 0.3, of which half is posing actors for muzzle attachments),
+visibility and bounds about 0.4 ms. Nothing there repeats unchanged work.
+
+The larger cost is on the render thread: `allocate_and_free_meshes` about 2.7 ms per frame and
+material preparation about 1.7 ms (bind groups rebuilt for materials whose lighting changed).
+The time the main schedule spends outside itself has grown with every main-thread saving
+(0.97, then 1.36, now about 1.7 ms per crowd frame): the render thread is becoming the bound.
+
+A counter at each mesh write, per frame in the crowd: effect sprite quads 115 to 180, shadow
+decals about 23, eye meshes about 13, face meshes about 8. Every one is a real change (each
+site compares before writing); each is one mesh asset rewritten and uploaded again. The sprite
+quads are one mesh and one draw per quad by design, to keep alpha ordering and per-view
+visibility, and a quad that faces the camera changes every frame.
+
+Ceiling, a discarded experiment (sprite quads not rewritten, so drawn wrongly): two
+interleaved pairs, 600 ticks, M1 Pro / Metal, 1080p, load average 18 to 24 (very busy, recorded):
+frame 10.84 ms (10.73, 10.96) to 9.86 ms (9.85, 9.87); the render thread's asset stage 2.52 to
+1.71 ms. So at most about 1 ms, 9% of the crowd frame, is available from the sprite quads.
+
+Reaching it is a design choice, **not started**: draw the quads of one material as one mesh
+(one upload per material instead of one per quad). Additive sprites do not depend on draw
+order among themselves; alpha-blended ones do, and a merged mesh is sorted as one object
+against other translucent surfaces, so images can change where sprites overlap them. The eye
+meshes (the iris projection is written into a vertex attribute of the head mesh) and the
+per-entity lighting carried in materials are the same kind of cost and the same kind of choice.
+
+Also found: the report check used by the paired timing driver
+(`scripts/checks/check_effect_pool_performance.py`) rejects every run of the merged tree,
+because the map now reports one infodecal without a surface as a texture error. **Not fixed.**
+
 ### Machine load during these runs
 
 The two new sampled runs were taken on a loaded machine: load average about 4 on 10 logical
@@ -377,7 +412,9 @@ the post-merge sample applied to 4.96 ms); each returns about 1.65 times itself 
 6. Physics maintenance. Done: unchanged colliders are no longer reported to the step and the
    query tree is owned; tick 3.34 to 2.48 ms quiet, 3.80 to 3.20 ms crowd. What the broad
    phase still costs per step is **not re-measured**.
-7. Name the 1.39 ms of `PostUpdate` and 0.92 ms of `PreUpdate` in no scope before spending on them.
+7. `PostUpdate`'s unscoped time: attributed, no single system and no repeated work. The
+   render thread's mesh rewrites are the next cost: sprite quads as one mesh per material,
+   ceiling about 1 ms per crowd frame. Owner decision. `PreUpdate` 0.92 ms: not attributed.
 8. One pose composition per actor per tick shared by its consumers. Ceiling about 0.5 ms.
 9. Design choice for the owner: run the fixed step off the frame's critical path (its own
    thread, or overlapped with rendering), which removes the amplification itself.

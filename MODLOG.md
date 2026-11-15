@@ -1,5 +1,25 @@
 # MODLOG
 
+## 2026-11-15: presentation and render-thread cost attributed (documentation only)
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `docs/performance-research.md` and STATUS; no code.
+
+**Why:** 1.4 ms of `PostUpdate` per crowd frame was in no scope.
+
+**Tested how / Result:** a 10 ms sample and temporary counters, both removed: the unscoped time
+is several small systems; per crowd frame 115 to 180 effect sprite meshes, about 23 shadow
+decals, 13 eye meshes and 8 face meshes are rewritten and uploaded. Discarded experiment
+without the sprite rewrites, two interleaved pairs, load average 18 to 24: frame 10.84 to
+9.86 ms.
+
+**Still broken or not tested:** nothing changed; `PreUpdate` not attributed; the paired timing
+driver's report check rejects the merged tree.
+
+**Next:** owner decision on drawing sprite quads as one mesh per material.
+Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-14: physics maintenance measured; upstream main merged
 
 **Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.

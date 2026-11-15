@@ -16,8 +16,13 @@ baseline without these changes and passed on the run after it: an unstable check
 investigated**. A first suite run that showed 70 failures is discarded: it had packaged a
 stale pre-merge binary, because a temporary second checkout had shared the build directory.
 Validation and the Windows cross-target check pass on the merged tree. Windows runtime and a
-matched native run are **not tested**. Open: shadow silhouettes on the GPU (owner decision), the
-1.4 ms of `PostUpdate` in no scope, what the broad phase still costs.
+matched native run are **not tested**. `PostUpdate`'s unscoped time is attributed (2026-11-15):
+several small systems, no repeated work. The render thread is becoming the bound: 115 to 180
+effect sprite meshes are rewritten and uploaded per crowd frame; a discarded experiment puts
+the ceiling at about 1 ms of a 10.8 ms frame. Open, each an owner decision: sprite quads as
+one mesh per material, shadow silhouettes on the GPU. Also open: what the broad phase still
+costs; the paired timing driver's report check rejects the merged tree (one infodecal
+texture error), **not fixed**.
 Plugin rules read: yes; exceptions: none.
 
 ## Performance: flex deltas once per actor; silhouettes need a design decision (2026-11-11)
