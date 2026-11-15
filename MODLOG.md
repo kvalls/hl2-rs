@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-15: show `--position`/`--yaw`/`--pitch` launch args in F1 developer overlay footer
+
+**Agent/model:** Antigravity (exact model identifier not exposed), completing uncommitted plugin edits from Claude Code desktop. No subagents.
+
+**Changed:** `plugins/hl2-debug/src/overlay.rs`, `plugins/hl2-debug/src/bevy/host/draw.rs`. Extended `DeveloperFrame` with `angles: [f32; 2]`, replaced the bottom footer preview text with `--position {x:.0} {y:.0} {z:.0} --yaw {yaw:.0} --pitch {pitch:.0}  |  {ms:.2} ms  |  {materials} materials / {colliders} colliders / {bodies} bodies`, and expanded the footer background/row loop in `OverlayPainter::draw_debug` to draw lines `4..` cleanly.
+
+**Why:** Let the developer read reproducible `--position`/`--yaw`/`--pitch` launch flags directly from the F1 overlay while investigating level regressions.
+
+**Tested how / Result:** `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo fmt --all -- --check`, `cargo test -p hl2-debug --all-features` (35 passed), and `python3 scripts/checks/architecture.py` passed.
+
+**Still broken or not tested:** Live visual capture of the updated F1 footer **not tested** yet (will be exercised in subsequent packaged runs). Windows build not tested here. Plugin rules read: yes; exceptions: none.
+
+**Next:** Fix viewmodel motion blur regression in `plugins/hl2-advanced-options` and `source_depth.wgsl`.
+
 ## 2026-11-15: draw dirty shadow atlas cells on the GPU
 
 **Agent/model** — Codex desktop, `gpt-6.1-sol`. No subagents on this implementation.

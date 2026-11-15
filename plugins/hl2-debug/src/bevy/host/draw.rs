@@ -23,6 +23,7 @@ impl State {
         if self.dev_overlay {
             let (triangles, materials, textures) = status.geometry_statistics();
             let eye = sim.eye();
+            let (yaw, pitch) = sim.view_angles();
             self.lines = crate::overlay::developer_lines(crate::overlay::DeveloperFrame {
                 map: &game.world.name,
                 triangles,
@@ -32,6 +33,7 @@ impl State {
                 fps: hud.frame_statistics().0,
                 friendly_fire: game.scene.player_hurts_friendlies,
                 eye: eye.to_array(),
+                angles: [yaw.to_degrees(), pitch.to_degrees()],
                 frame_ms: hud.frame_statistics().1,
                 materials,
                 colliders: sim.physics.colliders.len(),

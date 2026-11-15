@@ -5,6 +5,8 @@ use source_ui::{
     font::FontFace,
 };
 const DEBUG_HEADER_HEIGHT: f32 = 105.;
+/// Height of one footer row; the footer holds the fifth and later lines, the last at the bottom.
+const FOOTER_ROW: f32 = 26.;
 pub struct OverlayPainter<'a> {
     pub canvas: &'a Canvas,
     pub font: Option<&'a FontFace>,
@@ -23,7 +25,7 @@ fn text(
     }
 }
 impl OverlayPainter<'_> {
-    /// Four compact header rows and a footer, preserving the retained host's developer layout.
+    /// Four compact header rows and a footer of the remaining lines, the last at the bottom.
     /// Font data is bundled under its own MIT license, independent of installed game content.
     /// Returns the height the overlay occupies at the top of the canvas.
     pub fn draw_debug(&self, lines: &[String]) -> f32 {
@@ -50,15 +52,17 @@ impl OverlayPainter<'_> {
         for (line, (origin, size, color)) in lines.iter().take(4).zip(rows) {
             draw(line, origin, size, color);
         }
-        if let Some(footer) = lines.get(4) {
-            self.canvas.rectangle(
-                0.,
-                self.canvas.height() - 38.,
-                self.canvas.width(),
-                38.,
-                Color::new(0.025, 0.045, 0.07, 0.85),
-            );
-            draw(footer, vec2(20., self.canvas.height() - 13.), 18., WHITE);
+        let footer = lines.get(4..).unwrap_or_default();
+        if !footer.is_empty() {
+            let height = 12. + FOOTER_ROW * footer.len() as f32;
+            let top = self.canvas.height() - height;
+            let colour = Color::new(0.025, 0.045, 0.07, 0.85);
+            self.canvas
+                .rectangle(0., top, self.canvas.width(), height, colour);
+            for (row, line) in footer.iter().enumerate() {
+                let baseline = top + FOOTER_ROW * (row + 1) as f32;
+                draw(line, vec2(20., baseline), 18., WHITE);
+            }
         }
         DEBUG_HEADER_HEIGHT
     }
@@ -119,6 +123,8 @@ pub struct DeveloperFrame<'a> {
     pub fps: f64,
     pub friendly_fire: bool,
     pub eye: [f32; 3],
+    /// View yaw and pitch in degrees, in the convention `--yaw` and `--pitch` take.
+    pub angles: [f32; 2],
     pub frame_ms: f64,
     pub materials: usize,
     pub colliders: usize,
@@ -131,6 +137,47 @@ pub fn developer_lines(frame: DeveloperFrame<'_>) -> Vec<String> {
             "WASD / click: mouse / Esc pause / tilde console / F2 fly / Space,Ctrl vertical in fly / G prop impulse".into(),
             "E use / Ctrl crouch / Space jump / R reload / 1-6 / wheel: weapon menu / Q last / F3 dev loadout / F1 overlay / F4 NPC spawn".into(),
             format!("Player hurts friendlies: {} (F4 options, debug)", if frame.friendly_fire { "ON" } else { "off" }),
-            format!("Map reconstruction preview  |  position {:.1}, {:.1}, {:.1}  |  Bevy/wgpu  |  {:.2} ms  |  {} materials / {} colliders / {} bodies", frame.eye[0], frame.eye[1], frame.eye[2], frame.frame_ms, frame.materials, frame.colliders, frame.bodies),
+            location_line(&frame),
         ]
+}
+
+/// Where the view is, written as the launch arguments that start a run there, and the frame's
+/// physics and material counts.
+fn location_line(frame: &DeveloperFrame<'_>) -> String {
+    let [x, y, z] = frame.eye;
+    let [yaw, pitch] = frame.angles;
+    format!(
+        "--position {x:.0} {y:.0} {z:.0} --yaw {yaw:.0} --pitch {pitch:.0}  |  {:.2} ms  |  {} materials / {} colliders / {} bodies",
+        frame.frame_ms, frame.materials, frame.colliders, frame.bodies
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DeveloperFrame, developer_lines};
+
+    #[test]
+    fn the_last_line_names_the_view_as_launch_arguments() {
+        let lines = developer_lines(DeveloperFrame {
+            map: "d1_canals_01a",
+            triangles: 1,
+            textures: 2,
+            entities: 3,
+            flying: false,
+            fps: 80.,
+            friendly_fire: false,
+            eye: [360.4, 6259.6, -33.2],
+            angles: [61.3, -4.6],
+            frame_ms: 12.5,
+            materials: 4,
+            colliders: 5,
+            bodies: 6,
+        });
+        assert_eq!(lines.len(), 6);
+        assert!(
+            lines[5].starts_with("--position 360 6260 -33 --yaw 61 --pitch -5  |  12.50 ms"),
+            "{}",
+            lines[5]
+        );
+    }
 }
