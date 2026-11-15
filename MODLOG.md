@@ -1,5 +1,29 @@
 # MODLOG
 
+## 2026-11-15: displacement cells alternate their diagonal (canal dark wedge)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `source-assets` `bsp.rs`: `disp_cell_triangles` splits each displacement cell along
+the diagonal its first vertex's parity picks (Source SDK `public/builddisp.cpp`
+GetTriangleIndicesForDispBBox); the render surfaces and `world.terrain` (collision, shadow
+receivers) use it.
+
+**Why:** owner screenshot of a sharp dark wedge on d1_canals_01a's mud bank. A flat brush top at
+z = -96 lies under the displacement; with one diagonal everywhere, our terrain dipped below it
+between vertices where the engine's does not, exposing luxels the compiler baked black. The
+owner's retail screenshot at the same place shows no wedge.
+
+**Tested how / Result:** 2 unit tests (checkerboard order, both splits keep the winding).
+Packaged captures at the owner's view and from above: no wedge (before: wedge, see
+`artifacts/shadows/canal-high.png`). Validation and the Windows cross-target check pass.
+Packaged replays 106 of 107; the failure was flashlight_viewmodel's off-light image check, which passed when rerun alone (the known unstable check).
+
+**Still broken or not tested:** the WorldVertexTransition blend texture on displacements (the
+straw in the retail screenshot) is not drawn.
+
+**Next:** the displacement blend texture, on the owner's word.
+
 ## 2026-11-15: NPCs steer around each other; canal dark wedge located
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

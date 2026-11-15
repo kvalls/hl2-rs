@@ -13,14 +13,15 @@
 - **Sprites, particles and decals cast no flashlight shadow** (`c4458ca2`): **not seen in a
   packaged capture** yet.
 - **Canal dark wedge (owner screenshot, d1_canals_01a `--position 600 6029 -32 --yaw 45 --pitch -27`):
-  located, not fixed.** It is not dynamic shadows (identical at Low and High) and not the
-  displacement (no flipped cells; its heights are smooth there). Under the mud displacement lies a
-  flat brush top at z = -96 (faces 5936, 5938, 5998, 6001, 6004, material `..._wvt_patch_...`, a
-  WorldVertexTransition brush side that the compiler turned LightmappedGeneric). Where the
-  displacement dips below -96 that flat face shows through; skipping those faces in a probe build
-  leaves holes there. Its baked lightmap is black where the displacement covers it and lit where
-  it is exposed; the wedge is the strip where the face is barely exposed and its luxels are dark.
-  Whether retail shows the same needs a native screenshot at that position: **not compared**.
+  fixed.** Under the mud displacement lies a flat brush top at z = -96 (a WorldVertexTransition
+  brush side the compiler made LightmappedGeneric); where the terrain dips below it, it shows
+  through, and its baked luxels are black where the compiled terrain covered it. Ours split every
+  displacement cell along one diagonal, so between vertices our terrain dipped below that face
+  where the engine's does not; the engine, vrad and collision alternate the diagonal in a
+  checkerboard (Source SDK `public/builddisp.cpp` GetTriangleIndicesForDispBBox). Now ours does.
+  Owner's retail screenshot (source-recomp build on macOS) shows no wedge; ours at the same view and
+  from above shows none now. Packaged replays 106 of 107; the failure was flashlight_viewmodel's off-light image check, which passed when rerun alone (the known unstable check). Also visible in the retail screenshot, **not done**: the
+  WorldVertexTransition blend (the straw-covered second texture) is missing on our displacements.
 
 ## GPU shadow silhouettes on the performance branch (2026-11-15)
 

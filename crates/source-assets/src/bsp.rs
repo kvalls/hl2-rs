@@ -527,14 +527,9 @@ impl Bsp {
                         });
                     }
                 }
-                for y in 0..cells {
-                    for x in 0..cells {
-                        let a = base + (y * side + x) as u32;
-                        let b = a + side as u32;
-                        batch
-                            .indices
-                            .extend_from_slice(&[a, b, a + 1, a + 1, b, b + 1]);
-                    }
+                for cell in (0..cells).flat_map(|y| (0..cells).map(move |x| y * side + x)) {
+                    let triangles = disp_cell_triangles(cell as u32, side as u32);
+                    batch.indices.extend(triangles.iter().map(|i| base + i));
                 }
                 let count = cells * cells * 6;
                 world.terrain.push(Surface {
@@ -749,6 +744,19 @@ impl LightMapping {
 }
 
 /// Material name of a texinfo (texdata string table entry), lower-case.
+/// The two triangles of the displacement cell whose first vertex is `index` in a grid `side`
+/// vertices wide. The diagonal alternates in a checkerboard by the index's parity, as the
+/// engine, the lighting compiler and collision split it (Source SDK `public/builddisp.cpp`
+/// `GetTriangleIndicesForDispBBox`); a single diagonal reshapes the terrain between vertices.
+fn disp_cell_triangles(index: u32, side: u32) -> [u32; 6] {
+    let (a, b) = (index, index + side);
+    if index % 2 == 1 {
+        [a, b, a + 1, a + 1, b, b + 1]
+    } else {
+        [a, b, b + 1, a, b + 1, a + 1]
+    }
+}
+
 fn texinfo_material(
     texinfo: &[&[u8]],
     texdata: &[&[u8]],
@@ -771,6 +779,8 @@ fn texinfo_material(
 
 #[cfg(test)]
 mod brush_set_tests;
+#[cfg(test)]
+mod displacement_tests;
 
 #[cfg(test)]
 mod tests {
