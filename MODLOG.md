@@ -1,5 +1,30 @@
 # MODLOG
 
+## 2026-11-15: NPCs steer around each other; canal dark wedge located
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `npc/steer.rs`: a ground step blocked by another NPC or the player tries the
+deflection along the obstruction's surface (within 0.7 of the heading), then turns of 30, 60 and
+90 degrees, the free side first (right when head-on), and takes the first that covers half the
+wanted distance. `GroundMove::by_actor` carries the hull trace's actor flag. `advance` calls
+`steer::step` (3 lines shorter). Two controller tests now run in a corridor, where steering has no
+room, to keep testing what they test. DESIGN plan G.
+
+**Why:** owner report: two plaza citizens stood face to face; Source steers before failing a
+move blocked by an NPC (OnObstructionPreSteer, CAI_PlaneSolver).
+
+**Tested how / Result:** 4 new unit tests (deflection order, head-on order, head-on humans pass
+and arrive, a wall still blocks); the passing test fails with steering disabled. Validation and
+the Windows cross-target check pass. Packaged replays 107 of 107 with steering.
+
+**Still broken or not tested:** a plaza capture at the owner's position; look-ahead avoidance
+before contact; give-way schedules. Canal wedge: located (a flat WorldVertexTransition brush top
+under the displacement, dark lightmap where barely exposed), not fixed and not compared with
+retail.
+
+**Next:** native screenshot of the canal position; plaza capture.
+
 ## 2026-11-15: sprites, particles and decals cast no flashlight shadow
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

@@ -15,6 +15,7 @@ mod embedded;
 mod exclusions;
 mod graph;
 pub mod links;
+mod steer;
 mod tactical;
 #[cfg(test)]
 use graph::search;
@@ -1319,14 +1320,11 @@ fn advance<W: NpcCollisionWorld>(
                 npc_probe::time_to_cover(distance, remaining, forward)?,
             )
         };
-        let direction = delta / distance;
-        let desired = goal.feet + direction * amount;
-        // This tick's first step starts where `fits` and `stand` just passed.
-        let movement = if std::mem::take(&mut start_validated) {
-            npc_probe::ground_move_from_valid(world, goal.feet, desired, actor.ground, query)
-        } else {
-            npc_probe::ground_move(world, goal.feet, desired, actor.ground, query)
-        };
+        // This tick's first step starts where `fits` and `stand` just passed. An actor in the
+        // way is steered around (`steer`); the world is not.
+        let validated = std::mem::take(&mut start_validated);
+        let heading = (goal.feet, delta / distance, amount);
+        let (movement, direction) = steer::step(world, actor, heading, query, validated);
         let actual = (movement.end - goal.feet).truncate().length();
         goal.feet = movement.end;
         goal.contact_normal = movement.normal;
@@ -1399,6 +1397,11 @@ mod tests {
                 },
             ],
         }
+    }
+    /// Walls either side of the X axis, one unit clear of a human hull: no room to steer.
+    pub(super) fn corridor() -> Vec<Brush> {
+        let wall = |y0: f32, y1: f32| cube(Vec3::new(-50., y0, 0.), Vec3::new(400., y1, 100.));
+        vec![wall(14., 40.), wall(-40., -14.)]
     }
     pub(super) fn world(obstacles: Vec<Brush>) -> World {
         let mut brushes = vec![cube(
@@ -1707,8 +1710,8 @@ mod tests {
     #[test]
     fn headcrabs_move_through_each_other() {
         // HL2COLLISION_GROUP_HEADCRAB: a crab's move is blocked by another NPC's hull
-        // (entity 8) unless both are crabs.
-        let physics = Physics::new(&world(vec![]));
+        // (entity 8) unless both are crabs. The corridor leaves no room to steer around it.
+        let physics = Physics::new(&world(corridor()));
         let blocker = [ActorHull {
             entity: Some(8),
             feet: Vec3::X * 50.,
@@ -1736,7 +1739,8 @@ mod tests {
     }
     #[test]
     fn player_obstruction_holds_idle_then_retries_actual_ground_travel() {
-        let physics = Physics::new(&world(vec![]));
+        // In the open the mover steers around the player (`steer`); the corridor prevents that.
+        let physics = Physics::new(&world(corridor()));
         let mut controller = make_controller(None);
         let mut feet = Vec3::ZERO;
         controller.request(key(1), request(Vec3::X * 200.), pose(feet), &physics, &[]);

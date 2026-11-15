@@ -1,5 +1,27 @@
 # STATUS
 
+## NPCs steer around each other; the canal's dark wedge located (2026-11-15)
+
+- **NPC blocking (owner, d1_trainstation_02 plaza):** a ground move blocked by another NPC or the
+  player used to stop the goal and replan the same route every 1.5 s, so two NPCs meeting head-on
+  stood facing each other. Now the step is steered first (DESIGN plan G, SDK OnObstructionPreSteer
+  and the plane solver): the deflection along the obstruction's surface, then turns of 30, 60 and
+  90 degrees, the free side first, the right when head-on. World obstructions are not steered.
+  Unit tests: head-on humans pass and arrive (fails without steering), a wall still blocks.
+  Packaged replays 107 of 107 with steering. Plaza capture at the owner's position **not done**. Not in: the full plane solver
+  (look-ahead before contact), triangulated waypoints, give-way schedules.
+- **Sprites, particles and decals cast no flashlight shadow** (`c4458ca2`): **not seen in a
+  packaged capture** yet.
+- **Canal dark wedge (owner screenshot, d1_canals_01a `--position 600 6029 -32 --yaw 45 --pitch -27`):
+  located, not fixed.** It is not dynamic shadows (identical at Low and High) and not the
+  displacement (no flipped cells; its heights are smooth there). Under the mud displacement lies a
+  flat brush top at z = -96 (faces 5936, 5938, 5998, 6001, 6004, material `..._wvt_patch_...`, a
+  WorldVertexTransition brush side that the compiler turned LightmappedGeneric). Where the
+  displacement dips below -96 that flat face shows through; skipping those faces in a probe build
+  leaves holes there. Its baked lightmap is black where the displacement covers it and lit where
+  it is exposed; the wedge is the strip where the face is barely exposed and its luxels are dark.
+  Whether retail shows the same needs a native screenshot at that position: **not compared**.
+
 ## GPU shadow silhouettes on the performance branch (2026-11-15)
 
 The opt-in `HL2RS_GPU_SILHOUETTES=1` moved the median 1080p station02 crowd frame on M1 Pro

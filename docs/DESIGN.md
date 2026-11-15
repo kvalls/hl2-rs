@@ -206,6 +206,36 @@ whose image checks cover muzzle flashes, glows and env_sprite. Measurement: fram
 render thread's asset stage, interleaved pairs, load recorded. Reversible: an empty additive
 set restores one draw per quad.
 
+### G. NPCs steer around each other instead of stopping (2026-11-15, bounded plan)
+
+Owner report: on d1_trainstation_02's plaza two citizens meet head-on on a sidewalk and stand
+facing each other (F1: `--position -2375 -1481 60 --yaw 6 --pitch -28`). Ours: a ground move
+that meets another NPC or the player stops the goal (`GoalState::Blocked(Collision)`), waits
+1.5 s and replans the same graph route, so two NPCs walking at each other block for good.
+
+Source (SDK `ai_navigator.cpp`, `ai_localnavigator.cpp`, `ai_planesolver.cpp`): a move blocked
+by an NPC (AIMR_BLOCKED_NPC) is steered before it is failed. OnObstructionPreSteer deflects along
+the obstruction's surface (CalculateDeflection: the heading projected onto the hit plane) when
+that keeps within 0.7 of the heading; the plane solver probes an arc either side of the heading
+(270 degrees, 5 probes; 340 when very close) with nearby NPCs and the player as circular
+obstacles; PrependLocalAvoidance triangulates a waypoint around. Player companions also tell an
+idle ally that blocks them to move away (SCHED_MOVE_AWAY).
+
+Step 1, this change: when a ground step is blocked by an actor (the hull trace's transient
+flag, now carried in `GroundMove::by_actor`), `npc::steer` tries the deflection, then
+directions 30, 60 and 90 degrees either side of the heading, the side away from the
+obstruction first; head-on, where neither side is freer, it takes the right (our tie-break,
+so two NPCs meeting head-on pass each other). The first direction whose step covers at least
+half the wanted distance is taken for this step; the route is unchanged, so the next step heads
+for the waypoint again. World obstructions keep today's handling.
+
+Not in this step: the full plane solver (weighted suggestions, look-ahead before contact),
+triangulated waypoints, give-way schedules.
+
+Validation: unit tests (head-on actors pass each other and both arrive; a world wall is not
+steered around; deflection along a slanted actor surface), the packaged plaza replays and
+gameplay replays, a plaza capture at the owner's position.
+
 ## Performance research and benchmark plan (2026-11-11)
 
 Before runtime implementation, map author-documented crowd, particle and renderer techniques to
