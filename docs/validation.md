@@ -1,5 +1,27 @@
 # Local validation — 2026-10-05
 
+## GPU shadow silhouette experiment (2026-11-15)
+
+Run the adapter test with
+`cargo test --locked -p hl2-bevy --lib gpu_shadow_atlas_matches_cpu_on_motion_alpha_and_cell_reuse -- --ignored --nocapture`.
+It reads back a real R8 attachment after four partial updates. It compares opaque and
+texture-alpha triangles in both windings, negative and repeating UVs, changed positions,
+and byte-exact preservation of the neighbouring cell. For the active cell the test allows
+one R8 rounding step in the interior. A larger difference must lie within 1/128 texel of
+the triangle outline. It also reports what sixteen overlapping sub-LSB alpha layers produce.
+
+The packaged camera fixture is `test-inputs/performance-research/shadow-plaza.json`.
+Use `--background --no-setup --mute --map d1_trainstation_02 --width 1280 --height 720
+--tonemap-scale 1.0 --frames 2400` with `--movement-script`, `--capture` and `--report`.
+Compare High shadows from the CPU path and `HL2RS_GPU_SILHOUETTES=1`, a second CPU High
+capture and a CPU Low (blob) control. Repeat with the actor's Y changed from -2180 to -2132.
+Require a paused, completed script at tick 440 and GPU cell submissions in the candidate.
+See [the performance research report](performance-research.md#gpu-shadow-silhouettes-on-station02)
+for the pixel counts and paired timings. Fixed camera and scripted gameplay on Metal were tested.
+Windows rendering, other graphics backends and an ordinary campaign playthrough are **not tested**.
+Workspace tests, strict Clippy, formatting, architecture, repository isolation, all plugin
+selections and the Windows cross-target strict Clippy check passed.
+
 ## Exact brush candidate rejection (2026-11-11)
 
 `cargo test --locked -p modkit-core brush_set` passes six synthetic exactness tests.

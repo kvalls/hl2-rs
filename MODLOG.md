@@ -1,5 +1,23 @@
 # MODLOG
 
+## 2026-11-15: draw dirty shadow atlas cells on the GPU
+
+**Agent/model** — Codex desktop, `gpt-6.1-sol`. No subagents on this implementation.
+
+**Changed / why** — Added an opt-in renderer for projected caster surfaces. The crowd spends
+about 1.44 ms per frame in CPU shadows. Dirty cells now clear and draw into the existing atlas
+on the GPU, retaining the caster selection, posed geometry, receiver and material behavior.
+
+**Tested / result** — Three interleaved 600-tick release pairs on M1 Pro/Metal at 1080p.
+Crowd 9.575 to 8.693 ms median, quiet 5.327 to 5.328 ms; matching gameplay outcomes.
+Offscreen readback and two fixed-camera comparisons cover moving shadows, alpha and cell
+reuse. See [measurements and limitations](docs/performance-research.md#gpu-shadow-silhouettes-on-station02).
+
+**Still open / next** — CPU remains the default. Sixteen quarter-level alpha layers
+produced 0 on Metal versus 4 on CPU; test higher precision for translucent cells.
+Windows rendering and matched native performance are **not tested**.
+Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-15: lighting outside the material, ceiling measured (documentation only)
 
 **Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.

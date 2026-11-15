@@ -17,6 +17,7 @@
 //! render-to-texture detail.
 mod caster;
 mod draw;
+mod gpu;
 pub mod material;
 #[cfg(test)]
 mod owned_tests;
@@ -91,6 +92,7 @@ pub struct ShadowPlugin;
 
 impl Plugin for ShadowPlugin {
     fn build(&self, app: &mut App) {
+        gpu::install(app);
         app.add_plugins(MaterialPlugin::<ShadowMaterial>::default())
             .add_systems(
                 PostUpdate,
@@ -168,6 +170,8 @@ impl MapShadows {
             "textured": cells.count(),
             "rebuilds": self.rebuilds,
             "silhouettes": self.silhouettes,
+            "gpu_cells_submitted": self.textures.submitted.as_ref().map(|count|
+                count.load(std::sync::atomic::Ordering::Relaxed)),
             "control": {"direction": self.control.direction.to_array(), "color": self.control.color,
                 "distance": self.control.distance, "disabled": self.control.disabled},
         })

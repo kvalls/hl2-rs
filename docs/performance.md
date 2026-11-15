@@ -1,5 +1,12 @@
 # Performance measurements - 2026-10-05
 
+## GPU shadow silhouettes (2026-11-15)
+
+The research build accepts `HL2RS_GPU_SILHOUETTES=1` to draw dirty model silhouettes
+into the shadow atlas on the GPU. The default uses the CPU. The paired station02 tests,
+GPU readback and receiver-pixel comparisons are in the
+[performance research report](performance-research.md#gpu-shadow-silhouettes-on-station02).
+
 ## Dense report labels distort frame time (2026-11-12, session 55)
 
 RTX 3070, Ryzen 7 3700X, Windows 11, packaged session 55 build (c20abc1), 1920x1080 borderless on the second

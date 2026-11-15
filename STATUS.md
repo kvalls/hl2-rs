@@ -1,5 +1,14 @@
 # STATUS
 
+## GPU shadow silhouettes on the performance branch (2026-11-15)
+
+The opt-in `HL2RS_GPU_SILHOUETTES=1` moved the median 1080p station02 crowd frame on M1 Pro
+from 9.575 to 8.693 ms across three packaged pairs. Quiet stayed at 5.33 ms. Metal readback
+and two Metrocop captures confirm that the GPU draws the moving silhouettes. The CPU stays
+the default because very faint overlapping contributions can round away on the GPU.
+Next precision test and raw timings: [performance research](docs/performance-research.md#gpu-shadow-silhouettes-on-station02).
+Windows runtime and matched native measurements are **not tested**.
+
 ## Performance: additive sprites batched, silhouette vertices placed once (2026-11-15)
 
 Additive effect sprite quads are drawn as one mesh per material (DESIGN plan F); other quads

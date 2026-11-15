@@ -1,5 +1,72 @@
 # Performance research and implementation results
 
+## GPU shadow silhouettes on station02
+
+2026-11-15. Three alternating pairs on the final packaged build reduced the median crowd
+frame from **9.575 to 8.693 ms** (104.4 to 115.0 FPS). Quiet remained **5.33 ms**. This is
+an opt-in experiment, `HL2RS_GPU_SILHOUETTES=1`. A measured difference on very faint
+overlapping surfaces keeps the CPU renderer as the default.
+
+The earlier experiment which omitted coverage altogether measured 9.69 to 9.04 ms in a
+different run. Here the candidate skins and projects the same caster surfaces, clears dirty
+cells and draws two-sided triangles with additive texture-alpha coverage into the sampled
+R8 page before the cameras run. It also avoids replacing the CPU-backed page and refreshing
+the material after each batch. The geometry and index upload buffers persist across frames.
+Only 35 silhouettes were requested in an entire quiet run. On the crowd workload animated
+casters needed roughly 17,000–19,000 redraws over 600 ticks.
+
+M1 Pro, Metal, 16 GiB unified memory, release packages, 1920×1080 uncapped, High shadows,
+muted background rendering with observed GPU completion and at most two outstanding frames.
+Each row is an independent pair, A is the production CPU renderer and B the GPU prototype.
+Times are post-warm-up frame means. Tail values are 1 ms histogram upper bounds.
+
+| Scene / pair | Order | A / B frame (ms) | B change | A / B p95 (ms) | A / B p99 (ms) |
+| --- | --- | --- | ---: | --- | --- |
+| Quiet 1 | AB | 5.325 / 5.349 | +0.46% | 8 / 8 | 9 / 12 |
+| Quiet 2 | BA | 5.343 / 5.302 | −0.77% | 8 / 8 | 12 / 10 |
+| Quiet 3 | AB | 5.327 / 5.328 | +0.03% | 8 / 8 | 10 / 9 |
+| 30 manhacks 1 | AB | 9.614 / 8.649 | −10.03% | 14 / 13 | 19 / 15 |
+| 30 manhacks 2 | BA | 9.524 / 8.693 | −8.72% | 14 / 13 | 18 / 17 |
+| 30 manhacks 3 | AB | 9.575 / 8.752 | −8.60% | 14 / 13 | 19 / 17 |
+
+Crowd CPU `shadows` stage means fell from 1.442–1.450 to 0.434–0.477 ms.
+The median fixed tick moved from 3.22 to 3.20 ms. The GPU submitted 19,023 / 18,876 /
+18,837 cells in the three crowd runs. At report sampling each had 16 more main-world
+requests than submissions. Quiet submitted 35/35 in each. The matched pair digests of
+AI, inventory, projectiles and the workload validator's player/outcomes agreed. All 30
+spawned manhacks hunted the player. All twelve runs finished tick 600 with zero GPU
+completion errors and pose mismatches. Verification allowed only the exact previously
+recorded station02 graffiti decal with no receiver. Preliminary runs on the first
+prototype also favoured the crowd path in all three pairs (median 9.338 to 8.690 ms).
+
+Load averages spanned 3.7–5.3 on ten logical CPUs. The first crowd baseline had a competing
+build flag; both other crowd pairs improved by over 8%. Across crowd runs, system GPU busy
+rose from 55–57% to 63–64% and process CPU from 235–237% to 243–245% of one core. Peak
+sampled game RSS ranged from 1.78–2.21 GiB on A and 2.03–2.24 GiB on B. Swap was already
+in use; the sampled swap-out counter stayed flat in the final runs. These are system GPU
+occupancy samples, with no per-pass GPU timings or separate VRAM measurement.
+
+**Image evidence.** Two fixed 1280×720 views placed a Metrocop on the plaza, then 48 units
+to the side. The initial indoor view faced a wall and was discarded. In the outdoor views
+the repeat CPU captures had zero pixels differing by more than two RGB levels. CPU High
+versus Low changed 5,909 / 4,484 pixels by that threshold. Within a fixed rectangle over
+the receiver, 2,989 / 1,939 pixels responded to the control by more than eight levels.
+CPU and GPU differed by at most one level at all those pixels. Over each whole frame,
+11 / 17 of 921,600 pixels differed by more than two. Direct atlas readback independently
+found one covered edge sample 0.001287 texel from the CPU triangle outline. Unmodified
+neighbouring cells were byte-identical through every update.
+
+**Decision.** The fixed-view accuracy and crowd gain justify retaining the experiment.
+Rendering directly into R8 rounds every alpha contribution. Sixteen layers each contributing
+one quarter of an R8 level measured 0 on Metal versus 4 after the CPU's final quantization.
+Before changing the default, test higher-precision accumulation on translucent cells with
+that fixture and remeasure the crowd. The reported Windows/native gap remains unmeasured by
+this experiment. To reproduce the workloads use the packaged arguments above with
+`--profile --map d1_trainstation_02 --width 1920 --height 1080 --frames 12000`,
+`--movement-script test-inputs/performance-research/{quiet,plaza-crowd}.json` (one fixture
+per launch) and a separate `--report` per run. Settings and fixtures must match within each
+pair. The installed-game camera procedure is in [validation](validation.md#gpu-shadow-silhouette-experiment-2026-11-15).
+
 Checkpoint: 2026-11-11. Two presentation-side CPU optimizations are implemented and tested,
 but the 30-run paired matrix establishes no end-to-end FPS gain. Helper cost falls in isolated
 experiments; quiet/active/crowd frame medians remain within variation and 1080p crowd tails worsen.
@@ -465,8 +532,8 @@ the post-merge sample applied to 4.96 ms); each returns about 1.65 times itself 
 2. Whole-frame timing. Done; it corrected the stage means and this ranking.
 3. Candidate rejection for world brush traces. Done: crowd tick 6.03 to 3.84 ms, frame
    13.85 to 11.18 ms; quiet tick 3.89 to 3.32 ms. The ceilings below predate it.
-4. Shadow silhouettes: already redrawn only on change. Remaining 1.57 ms is the CPU
-   rasterizer for casters that do change; drawing them on the GPU is an owner decision.
+4. Shadow silhouettes: tested on the GPU; the final crowd pairs and precision limits
+   are recorded under [GPU shadow silhouettes on station02](#gpu-shadow-silhouettes-on-station02).
 5. Facial flex deltas once per actor, cheap key hash. Done: `animation` 1.46 to 1.02 ms
    crowd, 0.72 to 0.55 ms quiet. Flexes on the GPU would remove the rest and the mesh
    re-uploads (`render_assets` about 2.5 ms on the render thread); not planned.

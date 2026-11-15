@@ -1,5 +1,17 @@
 # Design
 
+## GPU silhouette experiment (2026-11-15)
+
+On station02, omitting CPU triangle coverage took the 30-manhack frame from 9.69 to 9.04 ms.
+Test whether a real GPU pass can recover a measurable part of that budget. Retain the production
+CPU renderer as the reference. On the experimental path keep the same poses, dirty-cell decisions,
+cell allocator, receiver geometry and shadow material. Draw the projected surfaces into the existing
+R8 page before the camera pass, clearing just the updated cells. Reuse upload buffers. Include
+opaque, two-sided and texture-alpha coverage, as well as a moving caster and an untouched neighbour,
+in GPU readback comparisons. Compare packaged fixed-view images, then run three alternating quiet
+and crowd pairs with machine telemetry. Report whole-frame and tail costs alongside the CPU stage.
+Enable by default only if the visual evidence and sustained frame-time results support it.
+
 ## Performance implementation and validation phase (2026-11-11)
 
 The owner clarified that techniques must be implemented and tested before the final report.

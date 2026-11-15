@@ -30,7 +30,9 @@ pub(super) struct Textures {
     /// The blob shadows' material, made with the first shadow.
     pub blob: Option<Handle<ShadowMaterial>>,
     pub page: Allocator,
-    atlas_image: Option<Handle<Image>>,
+    pub(super) atlas_image: Option<Handle<Image>>,
+    pub(super) batch: Option<super::gpu::Batch>,
+    pub(super) submitted: Option<Arc<std::sync::atomic::AtomicU64>>,
     /// The render-to-texture shadows' material, made with the first silhouette.
     pub atlas_material: Option<Handle<ShadowMaterial>>,
     /// Base texture and opacity of the translucent and alpha-tested materials: their silhouettes
@@ -46,6 +48,7 @@ pub(super) struct Textures {
 
 impl Textures {
     pub fn new(loaded: &LoadedMap, color: [f32; 3]) -> Self {
+        let gpu = super::gpu::enabled();
         Self {
             picture: loaded
                 .materials
@@ -54,6 +57,8 @@ impl Textures {
             blob: None,
             page: Allocator::new(),
             atlas_image: None,
+            batch: gpu.then(super::gpu::Batch::default),
+            submitted: gpu.then(Arc::default),
             atlas_material: None,
             alphas: loaded
                 .materials
@@ -94,6 +99,10 @@ impl Textures {
                 TextureFormat::R8Unorm,
                 RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
             );
+            if self.batch.is_some() {
+                image.texture_descriptor.usage |=
+                    bevy::render::render_resource::TextureUsages::RENDER_ATTACHMENT;
+            }
             image.sampler = ImageSampler::Descriptor(crate::rendering::sampler_descriptor(
                 false,
                 hl2_ui::config::Filtering::Bilinear,
@@ -135,6 +144,10 @@ impl Textures {
         frame: &Frame,
         (surfaces, place): (&[Surface], Place),
     ) {
+        if let Some(batch) = &mut self.batch {
+            batch.cell(n, at, frame, (surfaces, place), &self.alphas);
+            return;
+        }
         silhouette::clear(&mut self.cell, n);
         for surface in surfaces {
             let alpha = self
@@ -173,7 +186,7 @@ impl Textures {
 }
 
 /// A texture's alpha at a repeating texture coordinate (nearest texel).
-fn texel_alpha(picture: &vtf::Image, uv: glam::Vec2) -> f32 {
+pub(super) fn texel_alpha(picture: &vtf::Image, uv: glam::Vec2) -> f32 {
     let (w, h) = (
         u32::from(picture.width).max(1),
         u32::from(picture.height).max(1),
