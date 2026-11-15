@@ -743,7 +743,7 @@ pub fn present(
         .collect();
     for id in dead {
         if let Some((entity, handle)) = effects.marks.remove(&id) {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
             meshes.remove(&handle);
         }
     }
@@ -830,7 +830,7 @@ fn present_grenades(
     for id in dead {
         if let Some(entities) = effects.grenades.remove(&id) {
             for entity in entities {
-                commands.entity(entity).despawn();
+                commands.entity(entity).try_despawn();
             }
         }
     }
@@ -891,7 +891,7 @@ fn present_stuck_bolts(commands: &mut Commands, effects: &mut Effects, game: &Ga
     for id in gone {
         for entity in effects.stuck.remove(&id).unwrap_or_default() {
             if let Ok(mut cmd) = commands.get_entity(entity) {
-                cmd.despawn();
+                cmd.try_despawn();
             }
         }
     }

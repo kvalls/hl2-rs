@@ -1,5 +1,27 @@
 # MODLOG
 
+## 2026-11-15: stop `ground_property` full-world decal projection freezes and guard transient `.try_despawn()` commands
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+- **Changed:**
+  - `crates/modkit-core/src/decals.rs`: extracted `Frame` (`new`, stack-backed `clip` writing into `&mut [DecalVertex; 16]` via `EMPTY_POLYGON` with zero per-triangle heap allocation) and added `decals::touches` to test whether a mark reaches any non-background triangle of a `Surface` without allocating decal output vertices. Extended `impact_is_clipped_at_surface_edge_and_never_spills_to_parallel_wall` with `touches` assertions.
+  - `crates/hl2-simulation/src/impacts.rs`: updated `Impacts::ground_property` to return `physics.prop_materials` or `physics.static_surfaceprop(&hit)` directly before calling `self.locate(...)` (extended `static_prop_hull_hits_keep_their_surfaceprop_and_reach_the_mesh` with `ground_property` checks on and past the drawn mesh boundary); updated `receiver` Pass 1 to call `decals::touches` and immediately return `None` when `gap <= 0.`, and updated Pass 2 (bounded gap search for entities/static props) to use `decals::touches`.
+  - `crates/hl2-bevy/src/{audio.rs,effects.rs,effects/gibs.rs,flashlight.rs,intro_view.rs,rendering/runtime.rs,studio_decals.rs,tonemap.rs}`: replaced deferred entity `.despawn()` calls on transient audio/effect/decal/camera entities with `.try_despawn()` so entities already despawned earlier in the same schedule (such as `PlaybackSettings::DESPAWN` one-shots) do not log `Entity despawned` ECS command errors.
+  - `scripts/checks/architecture-baseline.json`: tightened 2 removed duplicated blocks (`115 -> 113`).
+- **Why:** On `d1_canals_01a` (notably approaching the blue van near the canal bank), every grounded fixed tick calls `Impacts::ground_property` (`Simulation::step`), which previously ran `Impacts::locate` -> `receiver(&world.surfaces, ...)`, allocating `Vec` polygons while running full `decals::project` across all world surfaces and repeating $O(N^2)$ surface scans in Pass 2 whenever the ground trace hit a prop hull or a surface with `gap == 0.`. Separately, racing `.despawn()` commands against `PlaybackSettings::DESPAWN` / multi-system cleanup logged `Entity despawned` warnings during gameplay.
+- **Tested how:**
+  - Validation & cross-target checks: `scripts/checks/validate.sh` (`architecture.py`, Python check unit tests, `check_plugin_selection.py`, `cargo test --workspace --locked --no-fail-fast`, strict workspace `cargo clippy`, `cargo fmt --check`) and `scripts/checks/check_windows.sh` (`x86_64-pc-windows-msvc` strict Clippy).
+  - Owned-install tests: `cargo test -q -p hl2-simulation impacts -- --ignored` (`2 passed; 0 failed`).
+  - Packaged verification on macOS arm64 (`bin/hl2-bevy`, 365-tick `d1_canals_01a` 8-angle van-approach `--movement-script` / `--report` runs and `scripts/checks/replays.py` with `JOBS=2` + rerun `ONLY=flashlight_viewmodel`).
+- **Result:**
+  - `d1_canals_01a` 8-angle approach (`-000`..`-315`): `d1_canals_01a-000` `frame_total` dropped from `mean 531.76 ms` / `max 667.85 ms` to `mean 6.81 ms` / `p95 9.16 ms` / `max 13.57 ms`, `fixed_simulation` from `mean 159.79 ms` (`p95 162.55 ms`, `max 184.29 ms`) to `mean 3.71 ms` (`p95 4.87 ms`, `max 7.51 ms`), and max sampled `step_ms` from `157.03 ms` to `3.17 ms`. `d1_canals_01a-270` `frame_total` dropped from `mean 10.11 ms` / `max 386.45 ms` to `mean 6.59 ms` / `max 13.55 ms` (`fixed_simulation` max `129.04 ms` -> `7.67 ms`). Across all 8 angles, `fixed_simulation` max stayed `6.59–9.53 ms` and `Entity despawned` log warnings dropped from `89` total to `0`.
+  - Packaged replay suite: `106 of 107` shared checks passed on the full `JOBS=2` run (including `pistol-breaks-teeter-seat-chunks` and all `70` gameplay checks) with `0` `Entity despawned` warnings across all `.log` / `.game.log` files; the single failure was `flashlight_viewmodel` (`off has no weapon light`, `13 px` diff — the intermittent control check noted in `STATUS.md`), which passed on rerun (`ONLY=flashlight_viewmodel`, `84 s`).
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` passed.
+- **Still broken or not tested:**
+  - Windows runtime and windowed replay checks (`WINDOWED=1`) **not tested** here.
+- **Next:** Review `orbitalman/performance_research` diff and manual gameplay on `d1_canals_01a` and `d1_trainstation_02`.
+
 ## 2026-11-19 session 66: the bench FPS drop traced (fix in PR #5), per-entity trigger touches, NPC route detours (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner answered on the bench FPS drop during the session (walking on the benches outside the train, not standing).

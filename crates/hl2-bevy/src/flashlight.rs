@@ -161,7 +161,7 @@ fn show(
 ) {
     let Some(light) = host.light else {
         if let Some(entity) = host.entity.take() {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         }
         return;
     };

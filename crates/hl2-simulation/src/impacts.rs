@@ -35,9 +35,12 @@ fn receiver(
 ) -> Option<(&Surface, GVec3)> {
     if let Some(surface) = surfaces
         .iter()
-        .find(|s| !decals::project(std::slice::from_ref(s), center, normal, 0.15, 0.).is_empty())
+        .find(|s| decals::touches(s, center, normal, 0.15))
     {
         return Some((surface, center));
+    }
+    if gap <= 0. {
+        return None;
     }
     let mut nearest = None;
     let mut distance = gap;
@@ -54,9 +57,7 @@ fn receiver(
                 continue;
             }
             let projected = center + normal * offset;
-            if !decals::project(std::slice::from_ref(surface), projected, normal, 0.15, 0.)
-                .is_empty()
-            {
+            if decals::touches(surface, projected, normal, 0.15) {
                 nearest = Some((surface, projected));
                 distance = offset.abs();
             }
@@ -434,6 +435,16 @@ impl Impacts {
         depth: f32,
     ) -> Option<String> {
         let hit = physics.ground_ray(feet + GVec3::Z * 2., -GVec3::Z, depth + 2.)?;
+        // A VPhysics body or a static prop's hull names its own surfaceprop (as `hit_prop`
+        // prefers): the drawn face under it need not be searched for.
+        if let Some(prop) = physics
+            .prop_materials
+            .get(&hit.entity)
+            .map(String::as_str)
+            .or_else(|| physics.static_surfaceprop(&hit))
+        {
+            return Some(prop.to_owned());
+        }
         self.locate(&hit, world, physics, scene)
             .ok()
             .map(|l| l.prop)
@@ -1126,6 +1137,17 @@ mod tests {
             Some("wood_crate")
         );
         assert_eq!(impacts.unclippable, 0);
+        // Standing on the hull names its surfaceprop too, also past the drawn triangle's
+        // corner (11, 11), where no face under the hull receives anything.
+        for feet in [GVec3::new(0., 0., 2.), GVec3::new(11., 11., 2.)] {
+            assert_eq!(
+                impacts
+                    .ground_property(&world, &physics, &scene, feet, 4.)
+                    .as_deref(),
+                Some("wood_crate"),
+                "{feet}"
+            );
+        }
     }
     #[test]
     fn collision_offset_snaps_only_to_nearest_bounded_visible_receiver() {

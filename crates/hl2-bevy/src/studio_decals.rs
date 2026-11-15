@@ -182,7 +182,7 @@ pub fn present(
         list.push((request.id, spawned));
         while list.len() > MAX_MODEL_DECALS {
             for entity in list.remove(0).1 {
-                commands.entity(entity).despawn();
+                commands.entity(entity).try_despawn();
             }
         }
     }

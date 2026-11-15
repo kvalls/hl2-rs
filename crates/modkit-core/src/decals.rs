@@ -6,6 +6,89 @@ pub struct DecalVertex {
     pub position: Vec3,
     pub uv: Vec2,
 }
+const EMPTY_POLYGON: [DecalVertex; 16] = [DecalVertex {
+    position: Vec3::ZERO,
+    uv: Vec2::ZERO,
+}; 16];
+/// A square mark of half-width `radius` around `center`, facing `normal`, turned by `angle`.
+struct Frame {
+    center: Vec3,
+    normal: Vec3,
+    u: Vec3,
+    v: Vec3,
+    radius: f32,
+}
+impl Frame {
+    fn new(center: Vec3, normal: Vec3, radius: f32, angle: f32) -> Option<Self> {
+        if !radius.is_finite() || radius <= 0. || normal.length_squared() < 0.5 {
+            return None;
+        }
+        let normal = normal.normalize();
+        let axis = if normal.z.abs() < 0.9 {
+            Vec3::Z
+        } else {
+            Vec3::Y
+        };
+        let right = normal.cross(axis).normalize();
+        let up = normal.cross(right);
+        let u = right * angle.cos() + up * angle.sin();
+        Some(Self {
+            center,
+            normal,
+            u,
+            v: normal.cross(u),
+            radius,
+        })
+    }
+    /// The part of triangle `p` inside the mark (mark-plane uv, not yet normalized): writes up
+    /// to 16 vertices into `out` and returns the count (`0` for a triangle turned away from the
+    /// mark or more than half a unit off its plane).
+    fn clip(&self, p: [Vec3; 3], out: &mut [DecalVertex; 16]) -> usize {
+        let tri_normal = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
+        if tri_normal.dot(self.normal).abs() < 0.85
+            || p.iter()
+                .any(|p| (*p - self.center).dot(self.normal).abs() > 0.5)
+        {
+            return 0;
+        }
+        let mut len = 3;
+        for (i, position) in p.into_iter().enumerate() {
+            let offset = position - self.center;
+            out[i] = DecalVertex {
+                position,
+                uv: Vec2::new(offset.dot(self.u), offset.dot(self.v)),
+            };
+        }
+        for (axis, sign) in [(0, 1.), (0, -1.), (1, 1.), (1, -1.)] {
+            if len == 0 {
+                break;
+            }
+            let mut next = EMPTY_POLYGON;
+            let mut next_len = 0;
+            for i in 0..len {
+                let a = out[i];
+                let b = out[(i + 1) % len];
+                let da = a.uv[axis] * sign - self.radius;
+                let db = b.uv[axis] * sign - self.radius;
+                if da <= 0. && next_len < next.len() {
+                    next[next_len] = a;
+                    next_len += 1;
+                }
+                if (da <= 0.) != (db <= 0.) && next_len < next.len() {
+                    let t = da / (da - db);
+                    next[next_len] = DecalVertex {
+                        position: a.position.lerp(b.position, t),
+                        uv: a.uv.lerp(b.uv, t),
+                    };
+                    next_len += 1;
+                }
+            }
+            *out = next;
+            len = next_len;
+        }
+        len
+    }
+}
 pub fn project(
     surfaces: &[Surface],
     center: Vec3,
@@ -13,60 +96,20 @@ pub fn project(
     radius: f32,
     angle: f32,
 ) -> Vec<DecalVertex> {
-    if !radius.is_finite() || radius <= 0. || normal.length_squared() < 0.5 {
+    let Some(frame) = Frame::new(center, normal, radius, angle) else {
         return Vec::new();
-    }
-    let normal = normal.normalize();
-    let axis = if normal.z.abs() < 0.9 {
-        Vec3::Z
-    } else {
-        Vec3::Y
     };
-    let right = normal.cross(axis).normalize();
-    let up = normal.cross(right);
-    let u = right * angle.cos() + up * angle.sin();
-    let v = normal.cross(u);
     let mut result = Vec::new();
+    let mut polygon = EMPTY_POLYGON;
     for surface in surfaces.iter().filter(|s| !s.background) {
         for tri in surface.indices.as_chunks::<3>().0 {
-            let p = tri.map(|i| surface.vertices[i as usize].position);
-            let tri_normal = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
-            if tri_normal.dot(normal).abs() < 0.85
-                || p.iter().any(|p| (*p - center).dot(normal).abs() > 0.5)
-            {
-                continue;
-            }
-            let mut polygon = p
-                .map(|position| DecalVertex {
-                    position,
-                    uv: Vec2::new((position - center).dot(u), (position - center).dot(v)),
-                })
-                .to_vec();
-            for (axis, sign) in [(0, 1.), (0, -1.), (1, 1.), (1, -1.)] {
-                let input = std::mem::take(&mut polygon);
-                if input.is_empty() {
-                    break;
-                }
-                for i in 0..input.len() {
-                    let a = input[i];
-                    let b = input[(i + 1) % input.len()];
-                    let da = a.uv[axis] * sign - radius;
-                    let db = b.uv[axis] * sign - radius;
-                    if da <= 0. {
-                        polygon.push(a);
-                    }
-                    if (da <= 0.) != (db <= 0.) {
-                        let t = da / (da - db);
-                        polygon.push(DecalVertex {
-                            position: a.position.lerp(b.position, t),
-                            uv: a.uv.lerp(b.uv, t),
-                        });
-                    }
-                }
-            }
-            for i in 1..polygon.len().saturating_sub(1) {
+            let len = frame.clip(
+                tri.map(|i| surface.vertices[i as usize].position),
+                &mut polygon,
+            );
+            for i in 1..len.saturating_sub(1) {
                 for mut vertex in [polygon[0], polygon[i], polygon[i + 1]] {
-                    vertex.position += normal * 0.06;
+                    vertex.position += frame.normal * 0.06;
                     vertex.uv = vertex.uv / (radius * 2.) + Vec2::splat(0.5);
                     result.push(vertex);
                 }
@@ -74,6 +117,20 @@ pub fn project(
         }
     }
     result
+}
+/// Whether `project` would put any of a mark on `surface`, without building it: stops at the
+/// first triangle the mark reaches.
+pub fn touches(surface: &Surface, center: Vec3, normal: Vec3, radius: f32) -> bool {
+    !surface.background
+        && Frame::new(center, normal, radius, 0.).is_some_and(|frame| {
+            let mut polygon = EMPTY_POLYGON;
+            surface.indices.as_chunks::<3>().0.iter().any(|tri| {
+                frame.clip(
+                    tri.map(|i| surface.vertices[i as usize].position),
+                    &mut polygon,
+                ) >= 3
+            })
+        })
 }
 /// Static map decal (infodecal) on lightmapped world faces: centered on the plane point
 /// nearest `center`, `size` world units wide/high, oriented by each face's texture axes
@@ -218,6 +275,10 @@ mod tests {
             && v.position.x + v.position.y <= 10.01
             && v.uv.min_element() >= -0.001
             && v.uv.max_element() <= 1.001));
+        assert!(touches(&surface, Vec3::new(1., 1., 0.), Vec3::Z, 0.15));
+        assert!(!touches(&surface, Vec3::new(1., 1., 3.), Vec3::Z, 0.15));
+        assert!(!touches(&surface, Vec3::new(20., 20., 0.), Vec3::Z, 0.15));
+        assert!(!touches(&surface, Vec3::new(1., 1., 0.), Vec3::X, 0.15));
         assert!(project(&[surface], Vec3::new(1., 1., 3.), Vec3::Z, 3., 0.).is_empty());
     }
     #[test]
