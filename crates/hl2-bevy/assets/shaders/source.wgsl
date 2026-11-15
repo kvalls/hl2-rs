@@ -193,13 +193,21 @@ fn flashlight(world_position: vec4<f32>, n: vec3<f32>, frag_coord: vec2<f32>) ->
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var base = textureSample(base_texture, base_sampler, mesh.uv);
+    let eye = material.parameters.w > 0.5 && material.parameters.w < 1.5;
+    if material.parameters.w > 1.5 {
+        // WorldVertexTransition (SDK lightmappedgeneric_ps2_3_x.h): the second base, at the
+        // same coordinates, by the vertex alpha a displacement vertex carries; alpha too.
+        base = mix(base, textureSample(iris_texture, iris_sampler, mesh.uv), mesh.color.a);
+    }
     let base_alpha = base.a;
-    if material.parameters.w > 0.5 {
+    if eye {
         let iris = textureSample(iris_texture, iris_sampler, mesh.uv_b);
         base = vec4(mix(base.rgb, iris.rgb, iris.a), base.a);
     }
     base.a = select(base.a, 1.0, material.parameters.y > 0.5);
     var vertex_color = mesh.color;
+    // Vertex alpha is a blend weight there, never opacity (camera materials use it below).
+    if material.parameters.w > -0.5 { vertex_color.a = 1.0; }
     let lit = material.lighting.params.x > 0.5;
     if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
     if material.parameters.w < -0.5 {
@@ -219,7 +227,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     base.a = 1.0;
 #endif
 
-    let baked = select(textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb, vec3(1.0), material.parameters.w > 0.5);
+    let baked = select(textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb, vec3(1.0), eye);
     // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
     // Procedural camera images are sampled through an sRGB view and are already linear.
     var rgb = select(srgb_to_linear(base.rgb) * baked, base.rgb, material.parameters.w < -0.5);

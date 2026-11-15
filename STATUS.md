@@ -20,8 +20,15 @@
   where the engine's does not; the engine, vrad and collision alternate the diagonal in a
   checkerboard (Source SDK `public/builddisp.cpp` GetTriangleIndicesForDispBBox). Now ours does.
   Owner's retail screenshot (source-recomp build on macOS) shows no wedge; ours at the same view and
-  from above shows none now. Packaged replays 106 of 107; the failure was flashlight_viewmodel's off-light image check, which passed when rerun alone (the known unstable check). Also visible in the retail screenshot, **not done**: the
-  WorldVertexTransition blend (the straw-covered second texture) is missing on our displacements.
+  from above shows none now.
+- **Blended displacement textures (WorldVertexTransition):** done. A displacement vertex carries
+  its dispvert alpha; materials load `$basetexture2` (the map's cubemap patches included); the
+  world shader lerps the two bases by that alpha (SDK `lightmappedgeneric_ps2_3_x.h`), keeping
+  the lightmap, and vertex alpha is no longer used as opacity there. The canal mud bank now shows
+  the straw texture like the owner's retail screenshot. No measurable frame-time change (canal 5.78 against
+  6.01 ms medians of three interleaved pairs with ranges 5.72-6.05 and 5.72-6.03, plaza quiet
+  5.51/5.53, crowd 9.81/9.81). Packaged replays 107 of 107.
+  Not in: `$blendmodulatetexture`, `$bumpmap2`.
 
 ## GPU shadow silhouettes on the performance branch (2026-11-15)
 

@@ -1,4 +1,5 @@
 //! Read owned Source assets before constructing the Bevy app; no system performs file I/O.
+mod blend;
 pub(crate) mod cubemaps;
 mod faces;
 pub(crate) mod loading;
@@ -132,6 +133,8 @@ pub struct MaterialData {
     /// $selfillum with $selfillumtint: diffuse = lerp(diffuse, tint * albedo, base alpha).
     pub self_illum: Option<[f32; 3]>,
     pub two_texture: Option<TwoTexture>,
+    /// WorldVertexTransition `$basetexture2`, blended in by vertex alpha (`blend`).
+    pub base2: Option<(String, Arc<Image>)>,
 }
 
 impl Default for MaterialData {
@@ -171,6 +174,7 @@ impl Default for MaterialData {
             envmap_bump: false,
             self_illum: None,
             two_texture: None,
+            base2: None,
         }
     }
 }
@@ -891,6 +895,10 @@ fn load_material(
         }
         Err(error) => errors.push(format!("{name}: {error:#}")),
     }
+    let textures = (&mut *cache, &mut *decoded_bytes);
+    if let Err(e) = blend::load_second_base(vfs, &definition, &mut material, textures, picmip) {
+        errors.push(format!("{name}: $basetexture2: {e:#}"));
+    }
     match self_illum(&definition, material.base.as_deref()) {
         Ok(tint) => material.self_illum = tint,
         Err(error) => errors.push(format!("{name}: selfillum: {error:#}")),
@@ -907,24 +915,12 @@ fn load_material(
         errors.push(format!("{name}: envmap: {error:#}"));
     }
     if definition.shader.eq_ignore_ascii_case("eyes") || material.eye_fallback {
-        let iris = (|| -> Result<(String, Arc<Image>)> {
-            let path = asset_path(
-                definition
-                    .properties
-                    .get("$iris")
-                    .context("Eyes VMT missing $iris")?,
-                ".vtf",
-            )?;
-            let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
-                vfs.read(&path)?.context("owned iris VTF absent")
-            })?;
-            Ok((path, image))
-        })();
-        match iris {
-            Ok((path, image)) => {
-                material.iris_path = Some(path);
-                material.iris = Some(image);
+        let textures = (&mut *cache, &mut *decoded_bytes);
+        match blend::named_texture(vfs, &definition, "$iris", textures, picmip) {
+            Ok(Some((path, image))) => {
+                (material.iris_path, material.iris) = (Some(path), Some(image))
             }
+            Ok(None) => errors.push(format!("{name}: iris: Eyes VMT missing $iris")),
             Err(e) => errors.push(format!("{name}: iris: {e:#}")),
         }
     }

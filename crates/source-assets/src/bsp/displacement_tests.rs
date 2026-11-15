@@ -22,3 +22,14 @@ fn both_splits_keep_the_winding_of_the_cell() {
         }
     }
 }
+
+#[test]
+fn dispvert_alpha_becomes_a_clamped_byte() {
+    use super::disp_alpha;
+    assert_eq!(disp_alpha(0.), 0);
+    assert_eq!(disp_alpha(127.6), 128);
+    assert_eq!(disp_alpha(255.), 255);
+    assert_eq!(disp_alpha(300.), 255);
+    assert_eq!(disp_alpha(-4.), 0);
+    assert_eq!(disp_alpha(f32::NAN), 0);
+}

@@ -172,6 +172,10 @@ pub(crate) fn image(width: u16, height: u16, rgba: Vec<u8>, repeat: bool) -> Ima
 /// The white, black cube and flashlight cookie textures every material binds.
 pub(crate) type Fallbacks<'a> = (&'a Handle<Image>, &'a Handle<Image>, &'a Handle<Image>);
 
+/// `parameters.w` of a WorldVertexTransition material: lerp the base toward the second texture
+/// slot (`iris`) by vertex alpha.
+pub(crate) const BLEND_SECOND_BASE: f32 = 2.;
+
 pub(crate) fn make_material(
     definition: &MaterialData,
     base: Handle<Image>,
@@ -209,6 +213,8 @@ pub(crate) fn make_material(
                 }
             } else if definition.two_texture.is_some() {
                 -3.
+            } else if definition.base2.is_some() {
+                BLEND_SECOND_BASE
             } else {
                 f32::from(iris.is_some())
             },
@@ -336,9 +342,73 @@ fn faces_culled(current: Option<Face>, two_sided: bool, mesh_key: MeshPipelineKe
     }
 }
 
+/// A texture's GPU image, uploaded once per texture path; bases repeat, the iris does not.
+pub(super) fn texture_handle(
+    handles: &mut std::collections::BTreeMap<String, Handle<Image>>,
+    images: &mut Assets<Image>,
+    (path, image, repeat): (&str, &source_assets::vtf::Image, bool),
+    filtering: hl2_ui::config::Filtering,
+) -> Handle<Image> {
+    let upload = || {
+        let rgba = image.rgba.clone();
+        images.add(image_filtered(
+            image.width,
+            image.height,
+            rgba,
+            repeat,
+            filtering,
+        ))
+    };
+    handles
+        .entry(path.to_owned())
+        .or_insert_with(upload)
+        .clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_base_selects_the_vertex_alpha_blend_and_binds_the_second_slot() {
+        let mut images = Assets::<Image>::default();
+        let (white, cube, cookie) = (
+            images.add(image(1, 1, vec![255; 4], false)),
+            Handle::default(),
+            Handle::default(),
+        );
+        let second = images.add(image(1, 1, vec![9; 4], true));
+        let mut definition = MaterialData::default();
+        let plain = make_material(
+            &definition,
+            white.clone(),
+            white.clone(),
+            None,
+            (&white, &cube, &cookie),
+        );
+        assert_eq!(plain.parameters.w, 0.);
+        definition.base2 = Some((
+            "b.vtf".into(),
+            std::sync::Arc::new(source_assets::vtf::Image {
+                width: 1,
+                height: 1,
+                rgba: vec![9; 4],
+                format: 0,
+                translucent: false,
+            }),
+        ));
+        let blended = make_material(
+            &definition,
+            white.clone(),
+            white.clone(),
+            Some(second.clone()),
+            (&white, &cube, &cookie),
+        );
+        assert_eq!(blended.parameters.w, BLEND_SECOND_BASE);
+        assert_eq!(blended.iris, second);
+        // Lightmapped like any world surface (the eye mode alone drops the lightmap).
+        assert_eq!(blended.lighting.params.w, 0.);
+    }
 
     #[test]
     fn motion_prepass_culls_like_the_colour_pass_and_shadows_keep_both_faces() {

@@ -140,7 +140,7 @@
  ],
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1596,
-  "crates/hl2-bevy/src/rendering.rs": 1345,
+  "crates/hl2-bevy/src/rendering.rs": 1341,
   "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2369,
@@ -156,7 +156,7 @@
  },
  "functions": {
   "crates/hl2-bevy/src/assets.rs::load_material": [
-   203
+   195
   ],
   "crates/hl2-bevy/src/audio.rs::queue": [
    273

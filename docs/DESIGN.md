@@ -236,6 +236,27 @@ Validation: unit tests (head-on actors pass each other and both arrive; a world 
 steered around; deflection along a slanted actor surface), the packaged plaza replays and
 gameplay replays, a plaza capture at the owner's position.
 
+### H. Blended displacement textures (WorldVertexTransition, 2026-11-15, bounded plan)
+
+Owner's retail screenshot of d1_canals_01a: the mud bank shows a second, straw-covered texture
+blended into the mud; ours draws the first texture only. The map's displacement materials use
+WorldVertexTransition (`nature/blendmudmud001a`: `$basetexture` mudfloor001a, `$basetexture2`
+mudfloor002a). Source SDK `lightmappedgeneric_ps2_3_x.h`: `blendfactor` is the vertex colour
+alpha, and `baseColor = lerp(baseColor, baseColor2, blendfactor)`, alpha too; a displacement
+vertex's alpha is its dispvert alpha (0..255).
+
+Steps: (1) the BSP loader puts each displacement vertex's alpha into its colour alpha; (2) the
+material loader reads `$basetexture2` (cubemap-patched map materials included); (3) the second
+base is uploaded like the first and bound in the material's second texture slot, with a new
+`parameters.w` mode (2) that lerps the bases by vertex alpha right after sampling; (4) the world
+shader ignores vertex alpha as output alpha for these surfaces, so terrain stays opaque. Not in:
+`$blendmodulatetexture`, `$bumpmap2` (not used by HL2's materials here).
+
+Validation: unit tests for the dispvert alpha and the parameter mode; an owned test that the
+canal's patched material has its second base; captures against the retail screenshot; frame
+time A/B on d1_trainstation_02 and d1_canals_01a; replays (eye and face checks guard the shared
+texture slot).
+
 ## Performance research and benchmark plan (2026-11-11)
 
 Before runtime implementation, map author-documented crowd, particle and renderer techniques to

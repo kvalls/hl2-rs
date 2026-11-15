@@ -1,5 +1,33 @@
 # MODLOG
 
+## 2026-11-15: blended displacement textures (WorldVertexTransition)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `source-assets` `bsp.rs`: displacement vertices carry their dispvert alpha in the
+colour alpha (`disp_alpha`). `assets/blend.rs`: `named_texture` (shared by `$iris`, which it
+replaces in `load_material`, and `$basetexture2`); `MaterialData::base2`. Rendering: textures
+upload through one helper (`material::texture_handle`, bases, irises and second bases); a material
+with a second base gets `parameters.w = BLEND_SECOND_BASE` and the second base in its second slot;
+`source.wgsl` lerps the bases by vertex alpha right after sampling, keeps the lightmap, and ignores
+vertex alpha as opacity outside the camera and two-texture materials. DESIGN plan H.
+
+**Why:** owner's retail screenshot of d1_canals_01a: the straw texture blended into the mud was
+missing.
+
+**Tested how / Result:** unit tests (dispvert alpha, the blend mode and slot); owned test: the
+canal's patched mud material has `nature/mudfloor002a` as its second base. Packaged capture at
+the owner's view shows the straw like retail. Frame time, interleaved against the previous build,
+load average 5.1 to 9.2 recorded: canal view 5.78 to 6.01 ms (medians of 3; ranges 5.72-6.05
+and 5.72-6.03 overlap),
+plaza quiet 5.51 to 5.53 ms and crowd 9.81 to 9.81 ms (2 pairs each). Validation and the Windows
+cross-target check pass. Packaged replays 107 of 107.
+
+**Still broken or not tested:** `$blendmodulatetexture`, `$bumpmap2`; other blended maps not
+captured.
+
+**Next:** owner's choice.
+
 ## 2026-11-15: displacement cells alternate their diagonal (canal dark wedge)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

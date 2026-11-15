@@ -513,15 +513,15 @@ impl Bsp {
                         let dv =
                             dispverts[index(dvstart + (y * side + x) as i32, dispverts.len())?];
                         let pos = p + vec3(dv, 0)? * f32le(dv, 12)?;
+                        let [r, g, b, _] = match face_light {
+                            Some(_) => [255; 4],
+                            None => color(p)?,
+                        };
                         batch.vertices.push(Vertex {
                             normal: face_normal,
                             position: pos,
                             uv: uv(p),
-                            color: if face_light.is_some() {
-                                [255; 4]
-                            } else {
-                                color(p)?
-                            },
+                            color: [r, g, b, disp_alpha(f32le(dv, 16)?)],
                             skin: None,
                             light_uv: face_light.map_or(Vec2::ZERO, |l| l.disp_uv(fx, fy)),
                         });
@@ -754,6 +754,16 @@ fn disp_cell_triangles(index: u32, side: u32) -> [u32; 6] {
         [a, b, a + 1, a + 1, b, b + 1]
     } else {
         [a, b, b + 1, a, b + 1, a + 1]
+    }
+}
+
+/// A dispvert's blend alpha (authored 0..255) as a vertex colour alpha: how much of
+/// `$basetexture2` shows there.
+fn disp_alpha(alpha: f32) -> u8 {
+    if alpha.is_finite() {
+        alpha.round().clamp(0., 255.) as u8
+    } else {
+        0
     }
 }
 

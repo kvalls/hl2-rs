@@ -51,7 +51,8 @@ pub use weapons::{WeaponMesh, present_weapons};
 pub struct SourceMaterial {
     #[uniform(0)]
     pub(crate) tint: Vec4,
-    // x = alpha cutoff, y = ignore base alpha, z = additive output.
+    // x = alpha cutoff, y = ignore base alpha, z = additive output, w = second slot use (1 iris,
+    // 2 WorldVertexTransition base by vertex alpha, -1/-2 camera, -3 two-texture, 0 none).
     #[uniform(0)]
     pub(crate) parameters: Vec4,
     #[texture(1)]
@@ -675,21 +676,28 @@ pub fn spawn_map_filtered(
                 camera_target.clone()
             } else {
                 match (&material.base, &material.base_path) {
-                    (Some(base), Some(path)) => texture_handles
-                        .entry(path.clone())
-                        .or_insert_with(|| {
-                            images.add(image_filtered(
-                                base.width,
-                                base.height,
-                                base.rgba.clone(),
-                                true,
-                                filtering,
-                            ))
-                        })
-                        .clone(),
+                    (Some(base), Some(path)) => material::texture_handle(
+                        &mut texture_handles,
+                        images,
+                        (path, base, true),
+                        filtering,
+                    ),
                     _ => missing.clone(),
                 }
             };
+            (name.clone(), handle)
+        })
+        .collect();
+    // WorldVertexTransition's $basetexture2, bound in the second texture slot.
+    let seconds: BTreeMap<_, _> = (loaded.materials.iter())
+        .filter_map(|(name, m)| m.base2.as_ref().map(|(path, image)| (name, path, image)))
+        .map(|(name, path, image)| {
+            let handle = material::texture_handle(
+                &mut texture_handles,
+                images,
+                (path, image, true),
+                filtering,
+            );
             (name.clone(), handle)
         })
         .collect();
@@ -697,24 +705,10 @@ pub fn spawn_map_filtered(
         .materials
         .iter()
         .filter_map(|(name, m)| {
-            m.iris
-                .as_ref()
-                .zip(m.iris_path.as_ref())
-                .map(|(image, path)| {
-                    let handle = texture_handles
-                        .entry(path.clone())
-                        .or_insert_with(|| {
-                            images.add(self::image_filtered(
-                                image.width,
-                                image.height,
-                                image.rgba.clone(),
-                                false,
-                                filtering,
-                            ))
-                        })
-                        .clone();
-                    (name.clone(), handle)
-                })
+            let (image, path) = m.iris.as_ref().zip(m.iris_path.as_ref())?;
+            let iris = (path.as_str(), &**image, false);
+            let handle = material::texture_handle(&mut texture_handles, images, iris, filtering);
+            Some((name.clone(), handle))
         })
         .collect();
     let overlays: BTreeMap<_, _> = loaded
@@ -960,7 +954,9 @@ pub fn spawn_map_filtered(
                     lm.and_then(|index| lightmaps.get(index))
                         .unwrap_or(&white)
                         .clone(),
-                    irises.get(&name).or_else(|| overlays.get(&name)).cloned(),
+                    (irises.get(&name).or_else(|| overlays.get(&name)))
+                        .or_else(|| seconds.get(&name))
+                        .cloned(),
                     (&white, &black_cube, &flashlight),
                 );
                 material.tint *= modulation;
