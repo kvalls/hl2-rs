@@ -175,6 +175,8 @@ pub(crate) type Fallbacks<'a> = (&'a Handle<Image>, &'a Handle<Image>, &'a Handl
 /// `parameters.w` of a WorldVertexTransition material: lerp the base toward the second texture
 /// slot (`iris`) by vertex alpha.
 pub(crate) const BLEND_SECOND_BASE: f32 = 2.;
+/// `parameters.z` of a DecalModulate material: output twice the texture for the multiply blend.
+pub(crate) const MODULATE_OUTPUT: f32 = 2.;
 
 pub(crate) fn make_material(
     definition: &MaterialData,
@@ -187,7 +189,7 @@ pub(crate) fn make_material(
     let unlit = definition.unlit
         || definition.camera
         || definition.two_texture.is_some()
-        || matches!(alpha, AlphaMode::Add);
+        || matches!(alpha, AlphaMode::Add | AlphaMode::Multiply);
     SourceMaterial {
         tint: Vec4::new(
             definition.tint[0],
@@ -204,7 +206,11 @@ pub(crate) fn make_material(
                     0.001
                 }),
             f32::from(matches!(alpha, AlphaMode::Opaque)),
-            f32::from(matches!(alpha, AlphaMode::Add)),
+            match alpha {
+                AlphaMode::Add => 1.,
+                AlphaMode::Multiply => MODULATE_OUTPUT,
+                _ => 0.,
+            },
             if definition.camera {
                 if definition.camera_vertex_color {
                     -2.
@@ -260,7 +266,9 @@ pub(crate) fn make_material(
 }
 
 pub(super) fn alpha_mode(material: &MaterialData) -> AlphaMode {
-    if material.additive {
+    if material.modulate {
+        AlphaMode::Multiply
+    } else if material.additive {
         AlphaMode::Add
     } else if let Some(cutoff) = material.alpha_cutoff {
         AlphaMode::Mask(cutoff)
@@ -368,6 +376,29 @@ pub(super) fn texture_handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decal_modulate_multiplies_the_frame_unlit() {
+        let mut images = Assets::<Image>::default();
+        let white = images.add(image(1, 1, vec![255; 4], false));
+        let (cube, cookie) = (Handle::default(), Handle::default());
+        let definition = MaterialData {
+            modulate: true,
+            ..Default::default()
+        };
+        let decal = make_material(
+            &definition,
+            white.clone(),
+            white.clone(),
+            None,
+            (&white, &cube, &cookie),
+        );
+        assert_eq!(decal.alpha, AlphaMode::Multiply);
+        assert_eq!(decal.parameters.z, MODULATE_OUTPUT);
+        // Alpha-tested above zero, and no flashlight on it.
+        assert!(decal.parameters.x > 0. && decal.parameters.x < 0.01);
+        assert_eq!(decal.lighting.params.w, 1.);
+    }
 
     #[test]
     fn a_second_base_selects_the_vertex_alpha_blend_and_binds_the_second_slot() {

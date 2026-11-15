@@ -1,5 +1,25 @@
 # MODLOG
 
+## 2026-11-15: DecalModulate world decals multiply the frame (no grey boxes)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `MaterialData::modulate` (DecalModulate shader); such materials get
+`AlphaMode::Multiply`, `parameters.z = MODULATE_OUTPUT` and no flashlight; `source.wgsl` alpha-tests
+them and returns twice the texture, so the multiply blend leaves grey unchanged.
+
+**Why:** owner: blood decals on d1_canals_01a showed grey opaque rectangles. Map infodecals become
+world surfaces drawn with the world material; DecalModulate needs the mod2x blend (SDK
+`decalmodulate_dx9.cpp`: DST_COLOR, SRC_COLOR). Impact decals already used it.
+
+**Tested how / Result:** unit test of the material mode; packaged capture at the canal view shows
+the blood without the box. Validation and the Windows cross-target check pass. Packaged replays 107 of 107. Frame
+time not measured: a handful of decal draws move to the transparent phase; no new pass.
+
+**Still broken or not tested:** other modulate decals on other maps not captured.
+
+**Next:** owner's choice.
+
 ## 2026-11-15: blended displacement textures (WorldVertexTransition)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.

@@ -193,7 +193,13 @@ fn flashlight(world_position: vec4<f32>, n: vec3<f32>, frag_coord: vec2<f32>) ->
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var base = textureSample(base_texture, base_sampler, mesh.uv);
-    let eye = material.parameters.w > 0.5 && material.parameters.w < 1.5;
+    // DecalModulate (SDK decalmodulate_dx9.cpp): alpha test, then the frame times twice the
+    // texture (DST_COLOR, SRC_COLOR): grey leaves it unchanged. Unlit and without the tonemap scale.
+    if material.parameters.z > 1.5 {
+        if base.a < material.parameters.x { discard; }
+        return vec4(srgb_to_linear(base.rgb * 2.0), 1.0);
+    }
+    let eye =material.parameters.w > 0.5 && material.parameters.w < 1.5;
     if material.parameters.w > 1.5 {
         // WorldVertexTransition (SDK lightmappedgeneric_ps2_3_x.h): the second base, at the
         // same coordinates, by the vertex alpha a displacement vertex carries; alpha too.

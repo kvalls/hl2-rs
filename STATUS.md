@@ -29,6 +29,11 @@
   6.01 ms medians of three interleaved pairs with ranges 5.72-6.05 and 5.72-6.03, plaza quiet
   5.51/5.53, crowd 9.81/9.81). Packaged replays 107 of 107.
   Not in: `$blendmodulatetexture`, `$bumpmap2`.
+- **Blood decals on grey boxes (owner):** fixed. Map infodecals with the DecalModulate shader
+  (decals/bloodstain_*) were drawn as opaque world surfaces, so their neutral grey showed as a
+  box. They now blend like retail: alpha test, then the frame times twice the texture
+  (SDK `decalmodulate_dx9.cpp`, DST_COLOR/SRC_COLOR), unlit. Capture at the canal view: blood on
+  the wall with no box. Packaged replays 107 of 107.
 
 ## GPU shadow silhouettes on the performance branch (2026-11-15)
 

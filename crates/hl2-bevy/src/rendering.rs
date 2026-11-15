@@ -51,8 +51,8 @@ pub use weapons::{WeaponMesh, present_weapons};
 pub struct SourceMaterial {
     #[uniform(0)]
     pub(crate) tint: Vec4,
-    // x = alpha cutoff, y = ignore base alpha, z = additive output, w = second slot use (1 iris,
-    // 2 WorldVertexTransition base by vertex alpha, -1/-2 camera, -3 two-texture, 0 none).
+    // x = alpha cutoff, y = ignore base alpha, z = output (1 additive, 2 mod2x), w = second slot
+    // (1 iris, 2 WorldVertexTransition base by vertex alpha, -1/-2 camera, -3 two-texture, 0 none).
     #[uniform(0)]
     pub(crate) parameters: Vec4,
     #[texture(1)]
