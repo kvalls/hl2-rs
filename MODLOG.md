@@ -18,11 +18,11 @@ projected silhouette path; validation and the Windows cross-target check pass. I
 packaged pairs, 600 ticks, M1 Pro / Metal, 1080p, load recorded per run. Frame time before to
 after: batching 10.65 to 9.84 ms (crowd, no overlap), quiet 5.42 to 5.42 ms; silhouettes 9.80
 to 9.70 ms (crowd), `shadows` stage 1.56 to 1.46 ms. Replays with batching 106 of 107
-(`effect-ball`: the `pooled_quads` counter had lost its meaning; restored); the six effect and
-shadow replays pass with both changes.
+(`effect-ball`: the `pooled_quads` counter had lost its meaning; restored); the full suite on
+the final state: 107 of 107.
 
-**Still broken or not tested:** the full replay suite after the counter fix and the shadow
-change; glows against translucent surfaces; Windows runtime; a matched native run.
+**Still broken or not tested:** glows against translucent surfaces; Windows runtime; a matched
+native run.
 
 **Next:** owner decisions: per-entity lighting outside the material, silhouettes on the GPU.
 Plugin rules read: yes; exceptions: none.

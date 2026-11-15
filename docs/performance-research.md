@@ -390,7 +390,8 @@ experiment gave (9.86 ms); the quiet scene has few sprites and does not move. Ti
 main schedule falls from 1.65 to 1.36 ms. Packaged replays: 106 of 107 on the first run; the
 failure was `effect-ball`, whose check reads `pooled_quads` as the most quads drawn at once,
 a meaning the first version of the change had dropped. The counter keeps that meaning now
-(`batched_quads` is new) and the six effect and shadow replays pass. Limitation, as planned: a
+(`batched_quads` is new); the full suite on the final state, with the silhouette change below,
+passes 107 of 107. Limitation, as planned: a
 batch is sorted against other translucent draws as one object; no image check changed, but no
 check places a glow against glass. **Not tested** beyond the replays' images.
 

@@ -9,8 +9,8 @@ M1 Pro / Metal, 1080p, 600 ticks, load average 4.1 to 9.5 recorded per run: 30 m
 vertex once instead of once per triangle corner, bit-identical by unit test: `shadows` stage
 1.56 to 1.46 ms, crowd frame 9.80 to 9.70 ms. On this merge the crowd has gone from 10.65 to
 9.70 ms (94 to 103 FPS). Replays: 106 of 107 with batching (the failure was a report counter
-whose meaning had changed, restored); the six effect and shadow replays pass with both
-changes; the full suite was **not rerun** after the counter fix and the shadow change.
+whose meaning had changed, restored); with both changes and the counter fix the full suite
+passes 107 of 107.
 Validation and the Windows cross-target check pass. A batch is sorted against other translucent
 draws as one object: no replay image changed, but none places a glow against glass. Model
 lighting examined, not changed: no repeated work; its cost is material preparation on the
