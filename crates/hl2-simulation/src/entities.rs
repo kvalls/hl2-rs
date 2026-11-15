@@ -492,6 +492,8 @@ pub struct Scene {
     /// Each manhack's panels, in degrees (`ai::manhack::PANELS`), this tick's gravity gun hand on
     /// NPCs, and the NPCs it may hold, listed by the AI stage.
     pub manhack_panels: BTreeMap<usize, [f32; 4]>,
+    /// Last scene time consumed by `ai_auto_movement` for `(actor -> (sequence_name, time))`.
+    ai_auto_motion_time: BTreeMap<usize, (String, f64)>,
     pub npc_physgun: Vec<(usize, crate::weapon_physcannon::NpcPhysgun)>,
     pub physgun_npcs: Vec<crate::weapon_physcannon::PhysgunNpc>,
     /// Advances every ragdoll update (render pose cache key).
@@ -735,6 +737,7 @@ impl Scene {
             templates: BTreeMap::new(),
             player_feet: Vec3::ZERO,
             tick_dt: 0.,
+            ai_auto_motion_time: BTreeMap::new(),
         };
         scene.spawn_entities(world, new_game);
         scene

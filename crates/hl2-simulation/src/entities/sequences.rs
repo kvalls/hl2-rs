@@ -248,6 +248,7 @@ impl Scene {
         self.states[id].animation_started = self.time;
         self.states[id].animation_done =
             finish.then_some(self.time + clip.duration().max(0.015) as f64);
+        self.ai_auto_motion_time.remove(&id);
         true
     }
 
@@ -595,5 +596,69 @@ impl Scene {
                 }
             }
         }
+    }
+    /// Advance an actor's origin and yaw by the active sequence's authored root motion since
+    /// the previous call (or sequence start), clamping to `cycle = 1.0` when `clamp_to_end` is
+    /// set on a non-looping clip (`CBaseAnimating::AutoMovement`).
+    pub fn ai_auto_movement(&mut self, world: &World, id: usize, clamp_to_end: bool) -> bool {
+        let Some(state) = self.states.get(id) else {
+            return false;
+        };
+        let seq_name = state.animation.clone();
+        let started = state.animation_started;
+        let forward = state.rotation * Vec3::X;
+        let yaw_rad = forward.y.atan2(forward.x);
+        let Some(clip) = world
+            .model_instances
+            .iter()
+            .find(|i| i.entity == Some(id))
+            .and_then(|i| world.rigs.get(&i.asset_key()))
+            .and_then(|r| {
+                r.clips
+                    .get(&seq_name)
+                    .or_else(|| r.clips.get(&seq_name.to_lowercase()))
+            })
+        else {
+            return false;
+        };
+        let duration = f64::from(clip.duration());
+        if duration <= 1e-6 {
+            return false;
+        }
+        let prev_time = self
+            .ai_auto_motion_time
+            .get(&id)
+            .and_then(|(prev_seq, t)| prev_seq.eq_ignore_ascii_case(&seq_name).then_some(*t))
+            .unwrap_or(started);
+        let next_time = if clamp_to_end && !clip.looping {
+            (started + duration).max(self.time)
+        } else {
+            self.time
+        };
+        self.ai_auto_motion_time.insert(id, (seq_name, next_time));
+        let mut from_cycle = ((prev_time - started) / duration) as f32;
+        let mut to_cycle = ((next_time - started) / duration) as f32;
+        if !clip.looping {
+            from_cycle = from_cycle.clamp(0.0, 1.0);
+            to_cycle = to_cycle.clamp(0.0, 1.0);
+        }
+        if to_cycle <= from_cycle {
+            return false;
+        }
+        let Some(sample) = clip.movement(from_cycle, to_cycle) else {
+            return false;
+        };
+        let (sin, cos) = yaw_rad.sin_cos();
+        let world_delta = Vec3::new(
+            sample.position.x * cos - sample.position.y * sin,
+            sample.position.x * sin + sample.position.y * cos,
+            sample.position.z,
+        );
+        self.states[id].origin += world_delta;
+        if sample.yaw_degrees.abs() > 1e-4 {
+            let new_yaw = yaw_rad.to_degrees() + sample.yaw_degrees;
+            self.ai_set_yaw(id, new_yaw);
+        }
+        true
     }
 }

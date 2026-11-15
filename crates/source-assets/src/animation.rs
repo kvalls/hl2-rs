@@ -277,6 +277,7 @@ fn clip(
         };
         frames.push(frame(data, start, bones, local_frame, delta_animation)?);
     }
+    let root_motion = crate::models::clip_root_motion(mdl, at)?;
     let _ = vfs;
     Ok(Clip {
         events: Vec::new(),
@@ -285,6 +286,7 @@ fn clip(
         frames,
         layer: ClipLayer {
             all_zeros: animation_flags & sequence_flags::ALLZEROS != 0,
+            root_motion,
             ..ClipLayer::default()
         },
     })
@@ -671,6 +673,16 @@ struct LoadState {
     ordinal: u32,
     bytes: usize,
 }
+fn with_sequence_layer(clip: Clip, layer: ClipLayer) -> Clip {
+    Clip {
+        layer: ClipLayer {
+            all_zeros: clip.layer.all_zeros,
+            root_motion: clip.layer.root_motion,
+            ..layer
+        },
+        ..clip
+    }
+}
 fn load_sequences(
     vfs: &Vfs,
     path: &str,
@@ -793,13 +805,8 @@ fn load_sequences(
             u32le(data, at + 12)? & 1 != 0,
         )
         .and_then(|clip| {
-            sequence_layer(data, at, &source_bones, &remap, sequences, base).map(|layer| Clip {
-                layer: ClipLayer {
-                    all_zeros: clip.layer.all_zeros,
-                    ..layer
-                },
-                ..clip
-            })
+            sequence_layer(data, at, &source_bones, &remap, sequences, base)
+                .map(|layer| with_sequence_layer(clip, layer))
         })
         .and_then(|mut clip| {
             if blends > 1 {
@@ -1301,6 +1308,37 @@ mod owned_weapon_tests {
                 "{model} {sequence}: {:?}",
                 clip.events
             );
+        }
+    }
+    #[test]
+    #[ignore = "requires owned installed HL2"]
+    fn owned_actbusy_entry_and_exit_clips_preserve_root_motion() {
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
+        let wanted = std::collections::BTreeSet::from([
+            "idle_to_d1_t01_breakroom_sit01".into(),
+            "d1_t01_breakroom_sit01_to_idle".into(),
+            "d1_t02_plaza_sit01_idle".into(),
+        ]);
+        for (model, expected_x) in [
+            ("models/humans/group01/male_01.mdl", -19.12),
+            ("models/humans/group01/female_01.mdl", -24.69),
+        ] {
+            let rig = super::load(&vfs, model, &wanted).unwrap();
+            let entry = &rig.clips["idle_to_d1_t01_breakroom_sit01"];
+            let entry_delta = entry.movement(0., 1.).unwrap();
+            assert!(
+                (entry_delta.position.x - expected_x).abs() < 0.05,
+                "{model}: {entry_delta:?}"
+            );
+            let exit = &rig.clips["d1_t01_breakroom_sit01_to_idle"];
+            let exit_delta = exit.movement(0., 1.).unwrap();
+            assert!(
+                (exit_delta.position.x + expected_x).abs() < 0.05,
+                "{model}: {exit_delta:?}"
+            );
+            assert!(rig.clips["d1_t02_plaza_sit01_idle"]
+                .movement(0., 1.)
+                .is_none());
         }
     }
 }

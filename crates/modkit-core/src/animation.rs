@@ -83,6 +83,9 @@ pub struct ClipLayer {
     /// The single sampled animation has no data (STUDIO_ALLZEROS animation).
     #[serde(default)]
     pub all_zeros: bool,
+    /// Sequence root motion (`mstudiomovement_t`) of the central animation, when present.
+    #[serde(default)]
+    pub root_motion: Option<RootMotion>,
 }
 /// Model pose parameter (mstudioposeparamdesc_t); values are normalized 0..1.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -349,7 +352,7 @@ pub struct ClipEvent {
     pub options: String,
 }
 /// Authored movement block. Speeds describe distance across the block's cycle fraction.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MovementRecord {
     pub end_frame: i32,
     pub motion_flags: u32,
@@ -360,7 +363,7 @@ pub struct MovementRecord {
     pub cumulative_position: Vec3,
 }
 /// Movement of one animation blend; independent of skeletal pose sampling.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RootMotion {
     pub fps: f32,
     pub frame_count: u32,
@@ -431,6 +434,17 @@ impl RootMotion {
     /// Cumulative local position/yaw, including complete cycles in either direction.
     /// The caller applies sequence loop/clamping policy; this method samples animation cycles.
     pub fn position(&self, cycle: f32) -> Result<RootMotionSample, RootMotionError> {
+        self.sample_position(cycle, false)
+    }
+    /// Cumulative local position/yaw, saturating past the final movement block like Studio_AnimPosition.
+    pub fn position_clamped(&self, cycle: f32) -> Result<RootMotionSample, RootMotionError> {
+        self.sample_position(cycle, true)
+    }
+    fn sample_position(
+        &self,
+        cycle: f32,
+        clamp_tail: bool,
+    ) -> Result<RootMotionSample, RootMotionError> {
         self.validate()?;
         let Some(last) = self.records.last() else {
             return Err(RootMotionError::NoMovement);
@@ -471,12 +485,34 @@ impl RootMotion {
             previous_position = record.cumulative_position;
             previous_yaw = record.end_yaw_degrees;
         }
+        if clamp_tail {
+            return finite_motion(RootMotionSample {
+                position: previous_position + loops as f32 * last.cumulative_position,
+                yaw_degrees: previous_yaw + loops as f32 * last.end_yaw_degrees,
+            });
+        }
         Err(RootMotionError::UncoveredCycle)
     }
     /// Interval displacement expressed relative to the starting heading, with unwrapped yaw.
     pub fn movement(&self, from: f32, to: f32) -> Result<RootMotionSample, RootMotionError> {
-        let start = self.position(from)?;
-        let end = self.position(to)?;
+        self.sample_movement(from, to, false)
+    }
+    /// Interval displacement saturating past the final movement block like Studio_AnimMovement.
+    pub fn movement_clamped(
+        &self,
+        from: f32,
+        to: f32,
+    ) -> Result<RootMotionSample, RootMotionError> {
+        self.sample_movement(from, to, true)
+    }
+    fn sample_movement(
+        &self,
+        from: f32,
+        to: f32,
+        clamp_tail: bool,
+    ) -> Result<RootMotionSample, RootMotionError> {
+        let start = self.sample_position(from, clamp_tail)?;
+        let end = self.sample_position(to, clamp_tail)?;
         let delta = end.position - start.position;
         let (sin, cos) = (-start.yaw_degrees).to_radians().sin_cos();
         finite_motion(RootMotionSample {
@@ -499,6 +535,14 @@ fn finite_motion(sample: RootMotionSample) -> Result<RootMotionSample, RootMotio
 impl Clip {
     pub fn duration(&self) -> f32 {
         self.frames.len().saturating_sub(1) as f32 / self.fps.max(1.)
+    }
+    /// Interval root-motion displacement between normalized cycles, when authored.
+    pub fn movement(&self, from: f32, to: f32) -> Option<RootMotionSample> {
+        self.layer
+            .root_motion
+            .as_ref()?
+            .movement_clamped(from, to)
+            .ok()
     }
     /// CalcPoseSingle subset: blend-grid animations selected by pose parameters, each sampled
     /// at `cycle`. `None` when the selected animations have no data (PoseIsAllZeros).
@@ -1135,6 +1179,27 @@ mod tests {
         motion.records[0].v0 = 4.;
         motion.records.truncate(1);
         assert_eq!(motion.position(0.75), Err(RootMotionError::UncoveredCycle));
+        assert_eq!(
+            motion.position_clamped(0.75).unwrap(),
+            RootMotionSample {
+                position: Vec3::X * 6.,
+                yaw_degrees: 90.
+            }
+        );
+        let clip = Clip {
+            events: Vec::new(),
+            fps: 20.,
+            looping: false,
+            frames: vec![Vec::new(); 21],
+            layer: ClipLayer {
+                root_motion: Some(motion.clone()),
+                ..Default::default()
+            },
+        };
+        let moved = clip.movement(0.25, 1.).unwrap();
+        let expected = Vec3::new(3.5 / 2f32.sqrt(), -3.5 / 2f32.sqrt(), 0.);
+        assert!((moved.position - expected).length() < 1e-5);
+        assert!((moved.yaw_degrees - 45.).abs() < 1e-5);
         motion.records.clear();
         assert_eq!(motion.movement(0., 1.), Err(RootMotionError::NoMovement));
         motion.fps = 0.;

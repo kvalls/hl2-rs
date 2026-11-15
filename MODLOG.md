@@ -1,5 +1,30 @@
 # MODLOG
 
+## 2026-11-15: play actbusy entry/exit animations and apply MDL root motion so bench NPCs seat cleanly
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+**Plugin rules read:** yes; exceptions: none
+
+- **Changed:**
+  - `crates/modkit-core/src/animation.rs`: derived `PartialEq` on `MovementRecord` and `RootMotion`, added optional `ClipLayer::root_motion`, and added `RootMotion::position_clamped`, `RootMotion::movement_clamped`, and `Clip::movement` to integrate frame-to-frame linear and yaw root motion across a cycle range.
+  - `crates/source-assets/src/models/root_motion.rs`, `crates/source-assets/src/models.rs`, `crates/source-assets/src/animation.rs`, `crates/source-assets/src/models/ai_activities.rs`: extracted MDL v48 `mstudioanimdesc_t` / `mstudiomovement_t` root-motion decoding into `models::root_motion` (refactoring `sequence_motion` and `AnimationTable`), populated `ClipLayer::root_motion` via `with_sequence_layer`, and added `ACT_BUSY_SIT_CHAIR*`, `ACT_BUSY_SIT_GROUND*`, and `ACT_BUSY_LEAN_*` to `HUMANOID_AI_ACTIVITIES` so actbusy entry/exit/busy sequences preload on humanoid rigs. Tightened `scripts/checks/architecture-baseline.json` (`models.rs`: `1276 -> 1060`, `animation.rs::load_sequences`: `208 -> 203`).
+  - `crates/hl2-simulation/src/entities.rs`, `crates/hl2-simulation/src/entities/sequences.rs`, `crates/hl2-simulation/src/entities/tests.rs`, `crates/hl2-simulation/src/ai/schedule.rs`, `crates/hl2-simulation/src/ai/host.rs`, `crates/hl2-simulation/src/ai/actbusy.rs`: parsed `entry_anim`/`entry_sequence`/`exit_anim`/`exit_sequence` from `scripts/actbusy.txt` in `BusyAnim` and preloaded them in `actbusy::hint_sequences`; added `Scene::ai_auto_movement`, `Motor::try_set_activity`, and `Motor::auto_movement` (tracking per-entity `ai_auto_motion_time` in `Scene`); updated `ActBusy` `TASK_ACTBUSY_PLAY_ENTRY`, `TASK_ACTBUSY_PLAY_BUSY_ANIM`, and `TASK_ACTBUSY_PLAY_EXIT` to play the entry/exit animations and drive entity origin/yaw through `auto_movement` (clamping non-looping entry/exit clips at `1.0` on completion). Added `entry_and_exit_anims_parse_preload_and_drive_auto_movement` and `ai_auto_movement_rotates_root_motion_by_yaw_and_clamps_on_finish`.
+- **Why:** Plaza bench hint nodes (`hint_sit_chair_*`) are placed ~24 units in front of the bench seats. Without `scripts/actbusy.txt` entry/exit sequences (`Idle_to_d1_t01_BreakRoom_Sit01`, `d1_t01_BreakRoom_Sit02_Entry`) and `Studio_SeqMovement` root-motion translation back onto the slats, citizens started sitting in midair ~25 units in front of the benches.
+- **Tested how:**
+  - Unit tests: `cargo test -p modkit-core --lib`, `cargo test -p source-assets --lib`, `cargo test -p hl2-simulation --lib` (owned-install `source-assets` tests run previously with `-- --ignored` before the static/binary checks).
+  - Static checks & build: `cargo fmt --all -- --check`, `python3 scripts/checks/architecture.py`, `cargo clippy -p modkit-core -p source-assets -p hl2-simulation --all-targets --all-features -- -D warnings`, `bash scripts/build-bevy.sh`.
+  - Packaged verification on macOS arm64: `./bin/hl2-bevy --no-setup --novid --windowed --no-focus --width 1280 --height 720 --mute --map d1_trainstation_02 --movement-script artifacts/nov15-regressions/freeze/bench_sit_verify.json --capture artifacts/nov15-regressions/benches_after.png --frames 1000 --report artifacts/nov15-regressions/freeze/bench_sit_verify.json.out` (spawning two citizens near `hint_sit_chair_1` and `hint_sit_chair_2` and sending `ForceNPCToActBusy`).
+- **Result:**
+  - `modkit-core --lib`: `74 passed; 0 failed`.
+  - `source-assets --lib`: `122 passed; 0 failed; 59 ignored`.
+  - `hl2-simulation --lib`: `812 passed; 0 failed; 34 ignored`.
+  - `cargo fmt`, `architecture.py`, strict Clippy across the three crates, and `build-bevy.sh` passed.
+  - Packaged capture `benches_after.png` and report (`actor 1298`: `d1_t02_Plaza_Sit01_Idle`, `actor 1299`: `d1_t02_Plaza_Sit02`) confirmed both citizens walked to the hint nodes, played entry root motion back onto the benches, and sat cleanly on the wooden bench slats.
+- **Still broken or not tested:**
+  - Windows build/checks (`check_windows.sh`) and full workspace `validate.sh` deferred to final cleanup step.
+  - `d1_canals_01a` freeze spikes and Bevy `Entity despawned` command warnings not addressed in this commit.
+- **Next:** Diagnose and fix `d1_canals_01a` van-door freezes and Bevy `Entity despawned` command warnings, then run full validation and Windows check.
+
 ## 2026-11-15: eliminate per-frame material dirtying, visibility churn, and redundant MSAA writeback passes on weapon cameras
 
 **Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
