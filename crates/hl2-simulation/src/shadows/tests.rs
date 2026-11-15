@@ -338,6 +338,40 @@ fn a_silhouette_covers_the_caster_and_saturates_where_parts_overlap() {
 }
 
 #[test]
+fn vertices_projected_once_draw_the_same_silhouette_as_triangles_placed_one_by_one() {
+    use super::silhouette::{clear, draw, draw_projected, project};
+    let (bounds, at) = crate_box();
+    let f = Frame::render_to_texture(bounds, &at, Vec3::new(0.3, -0.2, -1.).normalize(), 50.);
+    let n = 32;
+    // A fan of slanted triangles sharing their vertices, with texture coordinates.
+    let vertices: Vec<(Vec3, Vec2)> = (0..24)
+        .map(|i| {
+            let turn = i as f32 * 0.7;
+            let point = Vec3::new(turn.cos() * 14., turn.sin() * 11., 8. + (i % 5) as f32 * 9.);
+            (point, Vec2::new(i as f32 * 0.13, turn.sin()))
+        })
+        .collect();
+    let triangles: Vec<[usize; 3]> = (0..22).map(|i| [0, i + 1, i + 2]).collect();
+    let alpha = |uv: Vec2| (uv.x * 0.3 + uv.y.abs() * 0.2).fract();
+    for alpha in [None, Some(&alpha as &dyn Fn(Vec2) -> f32)] {
+        let (mut each, mut once) = (Vec::new(), Vec::new());
+        clear(&mut each, n);
+        clear(&mut once, n);
+        let placed: Vec<Vec2> = vertices.iter().map(|v| project(&f, n, v.0)).collect();
+        for t in &triangles {
+            let uvs = t.map(|i| vertices[i].1);
+            draw(&mut each, n, &f, (t.map(|i| vertices[i].0), uvs), alpha);
+            draw_projected(&mut once, n, (t.map(|i| placed[i]), uvs), alpha);
+        }
+        assert!(each.iter().any(|c| *c > 0.));
+        assert_eq!(
+            each.iter().map(|c| c.to_bits()).collect::<Vec<_>>(),
+            once.iter().map(|c| c.to_bits()).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn fragments_follow_screen_area_up_to_the_texture_size() {
     use super::allocator::{uv_rect, Allocator};
     let mut page = Allocator::new();

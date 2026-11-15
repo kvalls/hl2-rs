@@ -1,5 +1,22 @@
 # STATUS
 
+## Performance: additive sprites batched, silhouette vertices placed once (2026-11-15)
+
+Additive effect sprite quads are drawn as one mesh per material (DESIGN plan F); other quads
+and the viewmodel's keep one draw each. Three interleaved pairs against the merged build,
+M1 Pro / Metal, 1080p, 600 ticks, load average 4.1 to 9.5 recorded per run: 30 manhacks
+10.65 to 9.84 ms, no range overlap; quiet unchanged at 5.42 ms. Shadow silhouettes place each
+vertex once instead of once per triangle corner, bit-identical by unit test: `shadows` stage
+1.56 to 1.46 ms, crowd frame 9.80 to 9.70 ms. On this merge the crowd has gone from 10.65 to
+9.70 ms (94 to 103 FPS). Replays: 106 of 107 with batching (the failure was a report counter
+whose meaning had changed, restored); the six effect and shadow replays pass with both
+changes; the full suite was **not rerun** after the counter fix and the shadow change.
+Validation and the Windows cross-target check pass. A batch is sorted against other translucent
+draws as one object: no replay image changed, but none places a glow against glass. Model
+lighting examined, not changed: no repeated work; its cost is material preparation on the
+render thread, a design change. Windows runtime and a matched native run are **not tested**.
+Plugin rules read: yes; exceptions: none.
+
 ## Performance: physics maintenance measured; upstream merged through 56c2da5e (2026-11-14)
 
 Each physics step was being told of about 2,175 modified colliders a tick, 1,855 of them

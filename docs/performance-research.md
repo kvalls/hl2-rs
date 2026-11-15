@@ -373,6 +373,44 @@ Also found: the report check used by the paired timing driver
 (`scripts/checks/check_effect_pool_performance.py`) rejects every run of the merged tree,
 because the map now reports one infodecal without a surface as a texture error. **Not fixed.**
 
+### Additive sprite quads as one mesh per material: measured
+
+DESIGN plan F. Quads whose material blends by pure addition share one mesh per material in the
+world layer; every other quad, and the viewmodel's, keeps its own draw. Three interleaved
+pairs against the merged build, 600 ticks, M1 Pro / Metal, 1080p, load average 4.1 to 9.5
+recorded per run:
+
+| Case | Frame before | Frame after | Render asset stage |
+| --- | ---: | ---: | ---: |
+| 30 manhacks | 10.65 ms (10.63 to 10.92) | 9.84 ms (9.67 to 9.96) | 2.51 to 1.77 ms |
+| Quiet | 5.42 ms (5.38 to 5.52) | 5.42 ms (5.41 to 5.43) | 0.53 to 0.54 ms |
+
+The crowd frame is 7.6% shorter with no range overlap, which is the whole ceiling the discarded
+experiment gave (9.86 ms); the quiet scene has few sprites and does not move. Time outside the
+main schedule falls from 1.65 to 1.36 ms. Packaged replays: 106 of 107 on the first run; the
+failure was `effect-ball`, whose check reads `pooled_quads` as the most quads drawn at once,
+a meaning the first version of the change had dropped. The counter keeps that meaning now
+(`batched_quads` is new) and the six effect and shadow replays pass. Limitation, as planned: a
+batch is sorted against other translucent draws as one object; no image check changed, but no
+check places a glow against glass. **Not tested** beyond the replays' images.
+
+### Shadow silhouettes: each vertex placed once
+
+The silhouette rasterizer skinned and projected every vertex once per triangle corner, about
+six times per vertex. A surface's vertices are now placed once into a reused buffer and the
+triangles index them; a unit test compares the coverage bit for bit with the per-triangle
+path. Three interleaved pairs against the batching build, same settings, load average 4.4 to
+5.7: the `shadows` stage 1.56 to 1.46 ms per crowd frame, frame 9.80 ms (9.71 to 9.81) to
+9.70 ms (9.68 to 9.71). The remaining 1.46 ms is the triangle rasterizer itself and the decal
+clipping for casters that moved; drawing silhouettes on the GPU stays an owner decision.
+
+Model lighting, examined and **not changed**: 0.39 ms per crowd frame on the main thread, 96%
+of it the light visibility traces of entities that moved more than a unit, each computed once
+per entity per frame. No repeated work was found. Its larger cost is on the render thread: a
+moved entity's lighting lives in its materials, so each is prepared again (about 1.7 ms per
+crowd frame in the sample). Moving per-entity lighting out of the material is a rendering
+design change, **not started**.
+
 ### Machine load during these runs
 
 The two new sampled runs were taken on a loaded machine: load average about 4 on 10 logical
@@ -412,9 +450,10 @@ the post-merge sample applied to 4.96 ms); each returns about 1.65 times itself 
 6. Physics maintenance. Done: unchanged colliders are no longer reported to the step and the
    query tree is owned; tick 3.34 to 2.48 ms quiet, 3.80 to 3.20 ms crowd. What the broad
    phase still costs per step is **not re-measured**.
-7. `PostUpdate`'s unscoped time: attributed, no single system and no repeated work. The
-   render thread's mesh rewrites are the next cost: sprite quads as one mesh per material,
-   ceiling about 1 ms per crowd frame. Owner decision. `PreUpdate` 0.92 ms: not attributed.
+7. Sprite quads: additive ones are one mesh per material. Done: crowd frame 10.65 to 9.84 ms.
+   Silhouette vertices placed once: `shadows` 1.56 to 1.46 ms. Next on the render thread:
+   per-entity lighting carried in materials (about 1.7 ms of material preparation), eye and
+   face mesh rewrites. `PreUpdate` 0.92 ms: not attributed.
 8. One pose composition per actor per tick shared by its consumers. Ceiling about 0.5 ms.
 9. Design choice for the owner: run the fixed step off the frame's critical path (its own
    thread, or overlapped with rendering), which removes the amplification itself.

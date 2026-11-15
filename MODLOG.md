@@ -1,5 +1,32 @@
 # MODLOG
 
+## 2026-11-15: additive sprite quads batched; silhouette vertices placed once
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `effects/quads/batch.rs`: additive quads of one material share one mesh, in input
+order, rewritten only when one of them changed; `QuadLayer` holds a layer's pool and batches;
+the additive material names are collected with the sprite materials (`sprite_materials`, split
+out of `install`). `shadows::silhouette::project` and `draw_projected`: the host places each
+vertex of a surface once. DESIGN plan F.
+
+**Why:** 115 to 180 sprite meshes were rewritten and uploaded per crowd frame; the silhouette
+rasterizer skinned every vertex about six times.
+
+**Tested how / Result:** 8 unit tests for batches, layer and pool; a bit-for-bit test of the
+projected silhouette path; validation and the Windows cross-target check pass. Interleaved
+packaged pairs, 600 ticks, M1 Pro / Metal, 1080p, load recorded per run. Frame time before to
+after: batching 10.65 to 9.84 ms (crowd, no overlap), quiet 5.42 to 5.42 ms; silhouettes 9.80
+to 9.70 ms (crowd), `shadows` stage 1.56 to 1.46 ms. Replays with batching 106 of 107
+(`effect-ball`: the `pooled_quads` counter had lost its meaning; restored); the six effect and
+shadow replays pass with both changes.
+
+**Still broken or not tested:** the full replay suite after the counter fix and the shadow
+change; glows against translucent surfaces; Windows runtime; a matched native run.
+
+**Next:** owner decisions: per-entity lighting outside the material, silhouettes on the GPU.
+Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-15: presentation and render-thread cost attributed (documentation only)
 
 **Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
