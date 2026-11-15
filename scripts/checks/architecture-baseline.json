@@ -169,11 +169,8 @@
   "crates/hl2-bevy/src/campaign.rs::poll": [
    108
   ],
-  "crates/hl2-bevy/src/effects.rs::install": [
-   119
-  ],
   "crates/hl2-bevy/src/effects.rs::present": [
-   159
+   156
   ],
   "crates/hl2-bevy/src/effects.rs::viewmodel_quads": [
    193

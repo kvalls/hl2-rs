@@ -18,7 +18,7 @@ pub use gibs::{gib_models, present_gibs};
 use hl2_simulation::{projectile_visuals::ProjectileVisuals, projectiles::ProjectileKind};
 pub(crate) use model_reading::read_effect_model_lod;
 use modkit_core::Surface;
-use quads::{QuadDraw, draw_pool};
+use quads::QuadLayer;
 use source_assets::vpk::Vfs;
 use sprite_modes::{glows, shading};
 use std::collections::BTreeMap;
@@ -157,7 +157,9 @@ impl Effects {
 pub struct Effects {
     source: ProjectileVisuals,
     materials: BTreeMap<String, Handle<EffectMaterial>>,
-    quads: Vec<QuadDraw>,
+    /// Names of the materials that blend by pure addition: their quads share a mesh.
+    additive: std::collections::BTreeSet<String>,
+    quads: QuadLayer,
     marks: BTreeMap<usize, (Entity, Handle<Mesh>)>,
     grenade_meshes: BTreeMap<String, Vec<ModelPart>>,
     /// Gib draws by gib id: entity, its own material (lighting and fade alpha) and the
@@ -170,7 +172,7 @@ pub struct Effects {
     /// Stuck crossbow bolt model instances by StuckBolt id.
     stuck: BTreeMap<u64, Vec<Entity>>,
     /// Viewmodel-space sprite/beam quads on the viewmodel camera's layer.
-    viewmodel_quads: Vec<QuadDraw>,
+    viewmodel_quads: QuadLayer,
     viewmodel_draws: usize,
     rng: u64,
     /// The viewmodel's bob and lag, and the viewmodel camera's position in viewmodel space
@@ -203,7 +205,7 @@ impl Effects {
         self.materials.get(name).cloned()
     }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"sprite_draws":self.draws,"pooled_quads":self.quads.len(),
+        serde_json::json!({"sprite_draws":self.draws,"pooled_quads":self.quads.counts().0,"batched_quads":self.quads.counts().1,
             "viewmodel_sprite_draws":self.viewmodel_draws,"stuck_bolt_draws":self.stuck.len(),
             "grenade_draws":self.grenade_draws,"gib_draws":self.gib_draws,"decal_draws":self.mark_draws,"pose_mismatches":self.pose_mismatches, "observed_decals":self.observed_decals,"observed_grenades":self.observed_grenades,
             "muzzle_flashes":self.source.muzzle.flashes,"tracers":self.source.muzzle.tracers_made,
@@ -213,15 +215,17 @@ impl Effects {
             "limitations":"owned smoke/fire/ember/debris/electric emitters and shock rings; native RNG, ambient cubes, soft depth blending, beam tessellation, particle-manager scheduling, animated receivers and exact shading remain unfinished"})
     }
 }
-pub fn install(
+/// The sprite materials by name, with the names of those that blend by pure addition.
+fn sprite_materials(
     loaded: &LoadedMap,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<rendering::SourceMaterial>,
     effects: &mut Assets<EffectMaterial>,
     images: &mut Assets<Image>,
+) -> (
+    BTreeMap<String, Handle<EffectMaterial>>,
+    std::collections::BTreeSet<String>,
 ) {
     let mut handles = BTreeMap::new();
+    let mut additive = std::collections::BTreeSet::new();
     for (name, sprite) in &loaded.effects.sprites.sprites {
         let texture = images.add(rendering::image(
             sprite.image.width,
@@ -248,6 +252,9 @@ pub fn install(
                 ignore_z: false,
             }),
         );
+        if sprite.kind == material::ADDITIVE {
+            additive.insert(name.clone());
+        }
         // These draw in kRenderGlow mode (no depth test).
         if glows(name) {
             let glow = EffectMaterial {
@@ -257,12 +264,24 @@ pub fn install(
                     .cloned()
                     .expect("material just added")
             };
-            handles.insert(
-                format!("{name}{}", hl2_simulation::projectile_visuals::GLOW_SUFFIX),
-                effects.add(glow),
-            );
+            let glow_name = format!("{name}{}", hl2_simulation::projectile_visuals::GLOW_SUFFIX);
+            if sprite.kind == material::ADDITIVE {
+                additive.insert(glow_name.clone());
+            }
+            handles.insert(glow_name, effects.add(glow));
         }
     }
+    (handles, additive)
+}
+pub fn install(
+    loaded: &LoadedMap,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<rendering::SourceMaterial>,
+    effects: &mut Assets<EffectMaterial>,
+    images: &mut Assets<Image>,
+) {
+    let (mut handles, additive) = sprite_materials(loaded, effects, images);
     for (name, decal) in &loaded.gameplay.impacts.textures {
         let texture = images.add(rendering::image(
             decal.image.width,
@@ -327,7 +346,7 @@ pub fn install(
     }
     // Move CPU sprite state out of PreparedMap after all owned images are uploaded.
     commands.insert_resource(Effects::new(
-        handles,
+        (handles, additive),
         grenade_meshes,
         loaded.effects.model_errors.clone(),
     ));
@@ -642,10 +661,12 @@ pub fn present(
     let quads = std::mem::take(&mut effects.source.quads);
     let Effects {
         materials,
-        quads: pool,
+        additive,
+        quads: layer,
         ..
     } = &mut *effects;
-    draw_pool(&mut commands, &mut meshes, pool, &quads, materials, None);
+    let world_materials = (&*materials, &*additive);
+    layer.draw(&mut commands, &mut meshes, &quads, world_materials, None);
     effects.source.quads = quads;
     // Sprites and beams on the viewmodel (CSprite/CBeam viewmodel attachments).
     let aspect = crate::video::frame_aspect(frame.as_deref());
@@ -653,17 +674,12 @@ pub fn present(
     effects.viewmodel_draws = viewmodel.len();
     let Effects {
         materials,
-        viewmodel_quads: pool,
+        viewmodel_quads: layer,
         ..
     } = &mut *effects;
-    draw_pool(
-        &mut commands,
-        &mut meshes,
-        pool,
-        &viewmodel,
-        materials,
-        Some(1),
-    );
+    // The viewmodel's few quads keep one draw each: they are placed against the gun.
+    let unbatched = (&*materials, &Default::default());
+    layer.draw(&mut commands, &mut meshes, &viewmodel, unbatched, Some(1));
     let dead: Vec<_> = effects
         .marks
         .keys()

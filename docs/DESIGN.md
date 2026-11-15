@@ -169,6 +169,31 @@ pipeline over the same colliders through moves, inserts, removals and skipped re
 existing physics tests; all packaged replays. Measurement: tick cost at a fixed tick count,
 interleaved pairs, load recorded. Reversible: `Physics::query` goes back to the library type.
 
+### F. Additive sprite quads drawn as one mesh per material (2026-11-15, bounded plan)
+
+Budget (merged tree, M1 Pro, 30 manhacks): 115 to 180 sprite quad meshes are rewritten and
+uploaded again per frame, one mesh asset each; the render thread's mesh allocation is about
+2.7 ms per frame and the main schedule waits about 1.7 ms on it. A discarded experiment
+without the rewrites took the frame from 10.84 to 9.86 ms: the ceiling for all quads.
+
+Design: quads whose material blends by pure addition (source alpha, one: kind 3, with or
+without the glow depth mode) are gathered per material and layer into one mesh, in their
+input order, rewritten only when a quad of that material changed, in place while the quad
+count is unchanged. Every other quad keeps its own mesh and draw exactly as now. Additive
+quads commute among themselves, so their order inside a batch cannot change the image.
+
+What can differ: a batch is sorted against other translucent draws as one object, by the
+centre of its bounds, where each quad was sorted by its own centre. A glow in front of or
+behind a translucent surface (glass, smoke) may be drawn on the other side of it than before.
+Per-view visibility is tested per batch, not per quad. Alpha-blended, alpha-add and modulate
+quads are not batched because their order matters.
+
+Validation: unit tests for batch contents, input order, rewrite only on change, show and
+hide, material and layer; the existing pool tests unchanged in meaning; packaged replays,
+whose image checks cover muzzle flashes, glows and env_sprite. Measurement: frame time and the
+render thread's asset stage, interleaved pairs, load recorded. Reversible: an empty additive
+set restores one draw per quad.
+
 ## Performance research and benchmark plan (2026-11-11)
 
 Before runtime implementation, map author-documented crowd, particle and renderer techniques to

@@ -8,6 +8,7 @@ use bevy::{
     mesh::{Indices, VertexAttributeValues},
 };
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 fn quad() -> Quad {
     Quad {
@@ -135,7 +136,7 @@ impl Fixture {
             &mut self.meshes,
             &mut self.pool,
             quads,
-            &self.materials,
+            (&self.materials, &BTreeSet::new()),
             Some(1),
         );
         state.apply(&mut self.world);
@@ -233,6 +234,31 @@ fn pool_preserves_material_bounds_layers_and_show_hide_transitions() {
             .iter()
             .all(|&id| f.world.entity(id).get::<Visibility>() == Some(&Visibility::Hidden))
     );
+}
+
+#[test]
+fn a_layer_batches_the_additive_materials_and_pools_the_rest() {
+    let mut f = Fixture::new();
+    let mut second = quad();
+    second.material = "second".into();
+    let mut layer = super::QuadLayer::default();
+    let mut state = SystemState::<Commands>::new(&mut f.world);
+    let mut commands = state.get_mut(&mut f.world).expect("fixture commands");
+    let additive = BTreeSet::from(["first".to_owned()]);
+    let quads = [quad(), second, quad()];
+    layer.draw(
+        &mut commands,
+        &mut f.meshes,
+        &quads,
+        (&f.materials, &additive),
+        None,
+    );
+    state.apply(&mut f.world);
+    // One pooled draw for the other material, one batch mesh holding both additive quads.
+    assert_eq!(layer.counts(), (3, 2));
+    assert_eq!(f.meshes.len(), 2);
+    layer.clear();
+    assert_eq!(layer.counts(), (0, 0));
 }
 
 #[test]

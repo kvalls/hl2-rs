@@ -1,4 +1,6 @@
-//! Persistent sprite geometry; preserve the input order and individual draw bounds.
+//! Persistent sprite geometry: one draw per quad, in input order with its own bounds, except
+//! the additive quads, which [`batch`] draws as one mesh per material.
+mod batch;
 use super::EffectMaterial;
 use bevy::{
     camera::primitives::MeshAabb,
@@ -8,7 +10,7 @@ use bevy::{
     },
 };
 use hl2_simulation::projectile_visuals::Quad;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct QuadDraw {
     entity: Entity,
@@ -18,7 +20,7 @@ pub(super) struct QuadDraw {
     visible: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Geometry {
     positions: [glam::Vec3; 4],
     color: [u8; 4],
@@ -45,13 +47,22 @@ fn quad_mesh(quad: &Quad) -> Mesh {
     )
 }
 
+impl Geometry {
+    fn bevy_positions(&self) -> [[f32; 3]; 4] {
+        self.positions
+            .map(|p| crate::source_to_bevy(Vec3::from_array(p.to_array())).to_array())
+    }
+    fn unit_color(&self) -> [f32; 4] {
+        self.color.map(|c| f32::from(c) / 255.)
+    }
+}
+
 fn positions(quad: &Quad) -> [[f32; 3]; 4] {
-    quad.positions
-        .map(|p| crate::source_to_bevy(Vec3::from_array(p.to_array())).to_array())
+    Geometry::from(quad).bevy_positions()
 }
 
 fn color(quad: &Quad) -> [f32; 4] {
-    quad.color.map(|c| f32::from(c) / 255.)
+    Geometry::from(quad).unit_color()
 }
 
 /// Only the varying attributes change. Indices, normals and the unused second UV
@@ -123,17 +134,54 @@ fn spawn(
     }
 }
 
-/// Keep one draw per quad: alpha ordering and per-view visibility stay unchanged.
+/// The effect materials by name, and the names of those whose quads are batched.
+pub(super) type Materials<'a> = (
+    &'a BTreeMap<String, Handle<EffectMaterial>>,
+    &'a BTreeSet<String>,
+);
+
+/// The sprite quads of one render layer: a pooled draw each, or a batch per additive material.
+#[derive(Default)]
+pub(super) struct QuadLayer {
+    pool: Vec<QuadDraw>,
+    batches: batch::Batches,
+}
+
+impl QuadLayer {
+    pub fn clear(&mut self) {
+        self.pool.clear();
+        self.batches.clear();
+    }
+    /// The most quads drawn at once (pooled draws and the batches' fullest frame), and the quads
+    /// inside batches now.
+    pub fn counts(&self) -> (usize, usize) {
+        (self.pool.len() + self.batches.most(), self.batches.quads())
+    }
+    pub fn draw(
+        &mut self,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        quads: &[Quad],
+        materials: Materials,
+        layer: Option<usize>,
+    ) {
+        (self.batches).draw((&mut *commands, &mut *meshes), quads, materials, layer);
+        draw_pool(commands, meshes, &mut self.pool, quads, materials, layer);
+    }
+}
+
+/// Keep one draw per quad: alpha ordering and per-view visibility stay unchanged. Quads whose
+/// material is in `batched` are drawn elsewhere and take no slot.
 pub(super) fn draw_pool(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     pool: &mut Vec<QuadDraw>,
     quads: &[Quad],
-    materials: &BTreeMap<String, Handle<EffectMaterial>>,
+    (materials, batched): Materials,
     layer: Option<usize>,
 ) {
     let mut used = 0;
-    for quad in quads {
+    for quad in quads.iter().filter(|q| !batched.contains(&q.material)) {
         let Some(material) = materials.get(&quad.material) else {
             continue;
         };
