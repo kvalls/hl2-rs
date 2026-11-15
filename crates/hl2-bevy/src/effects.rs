@@ -734,7 +734,7 @@ pub fn present(
                     Mesh3d(mesh.clone()),
                     MeshMaterial3d(material),
                     transform,
-                    DecalDraw { id: mark.id },
+                    (DecalDraw { id: mark.id }, bevy::light::NotShadowCaster),
                 ))
                 .id();
             effects.marks.insert(mark.id, (entity, mesh));

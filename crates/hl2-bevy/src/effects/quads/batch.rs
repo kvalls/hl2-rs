@@ -152,6 +152,7 @@ impl Batch {
             Mesh3d(mesh.clone()),
             MeshMaterial3d(material.clone()),
             Transform::IDENTITY,
+            bevy::light::NotShadowCaster,
             Visibility::Hidden,
         ));
         if let Some(layer) = layer {

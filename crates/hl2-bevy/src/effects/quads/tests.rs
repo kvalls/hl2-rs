@@ -157,6 +157,10 @@ fn pool_preserves_material_bounds_layers_and_show_hide_transitions() {
     for (index, quad) in [first.clone(), second.clone()].iter().enumerate() {
         let entity = f.world.entity(entities[index]);
         assert_eq!(entity.get::<Visibility>(), Some(&Visibility::Visible));
+        assert!(
+            entity.contains::<bevy::light::NotShadowCaster>(),
+            "sprites cast no shadow"
+        );
         assert_eq!(
             entity.get::<MeshMaterial3d<EffectMaterial>>().unwrap().0,
             f.materials[&quad.material]

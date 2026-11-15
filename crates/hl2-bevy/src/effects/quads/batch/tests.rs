@@ -126,6 +126,10 @@ fn additive_quads_share_one_mesh_per_material_in_input_order() {
     assert_quads(f.mesh("flare"), &[frame[2].clone()]);
     let entity = f.world.entity(f.batches.by_material["glow"].entity);
     assert_eq!(entity.get::<Visibility>(), Some(&Visibility::Visible));
+    assert!(
+        entity.contains::<bevy::light::NotShadowCaster>(),
+        "sprites cast no shadow"
+    );
     assert_eq!(entity.get::<RenderLayers>(), Some(&RenderLayers::layer(1)));
     assert_eq!(
         entity.get::<MeshMaterial3d<EffectMaterial>>().unwrap().0,

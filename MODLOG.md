@@ -1,5 +1,24 @@
 # MODLOG
 
+## 2026-11-15: sprites, particles and decals cast no flashlight shadow
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** effect sprite and particle quads (pooled and batched), impact decals, studio decals
+and projected shadow decals are spawned with `NotShadowCaster`.
+
+**Why:** with the flashlight's shadow depth on (Shadow detail High), impact smoke drew sharp
+silhouettes on floors and walls (owner screenshots, d1_trainstation_02). The effect depth shader
+alpha-tests a translucent puff into an opaque cutout. Source renders only opaque world and models
+into the flashlight's shadow depth; sprites, particles and decals never cast.
+
+**Tested how / Result:** the quad pool and batch unit tests assert the component (8 passed).
+Packaged visual check **not done**; replays not run for this change alone.
+
+**Still broken or not tested:** a packaged capture of smoke under the flashlight.
+
+**Next:** canal displacement shadows, plaza NPC blocking.
+
 ## 2026-11-15: stop `ground_property` full-world decal projection freezes and guard transient `.try_despawn()` commands
 
 **Agent/model:** Antigravity (exact model identifier not exposed). No subagents.

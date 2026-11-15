@@ -86,6 +86,7 @@ pub(super) fn write(
                     Visibility::Hidden,
                     aabb,
                     ShadowDraw,
+                    bevy::light::NotShadowCaster,
                     MapOwned,
                 ))
                 .id();

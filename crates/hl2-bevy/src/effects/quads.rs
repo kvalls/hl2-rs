@@ -117,6 +117,8 @@ fn spawn(
         Mesh3d(mesh.clone()),
         MeshMaterial3d(material.clone()),
         Transform::IDENTITY,
+        // Sprites and particles are translucent: no shadow depth (the flashlight's included).
+        bevy::light::NotShadowCaster,
         Visibility::Visible,
     ));
     if let Some(bounds) = bounds {
