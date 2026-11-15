@@ -13,8 +13,9 @@ whose meaning had changed, restored); with both changes and the counter fix the 
 passes 107 of 107.
 Validation and the Windows cross-target check pass. A batch is sorted against other translucent
 draws as one object: no replay image changed, but none places a glow against glass. Model
-lighting examined, not changed: no repeated work; its cost is material preparation on the
-render thread, a design change. Windows runtime and a matched native run are **not tested**.
+lighting examined, not changed: no repeated work. Moving it out of the material was measured
+by a discarded experiment and would save about 0.2 ms of a 9.5 ms crowd frame: recommended
+against. Windows runtime and a matched native run are **not tested**.
 Plugin rules read: yes; exceptions: none.
 
 ## Performance: physics maintenance measured; upstream merged through 56c2da5e (2026-11-14)

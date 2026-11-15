@@ -412,6 +412,28 @@ moved entity's lighting lives in its materials, so each is prepared again (about
 crowd frame in the sample). Moving per-entity lighting out of the material is a rendering
 design change, **not started**.
 
+### Per-entity lighting outside the material: ceiling measured, not worth the change
+
+Before designing it, a discarded experiment froze every entity's lighting after its first
+state (wrong lighting, never kept): two interleaved pairs against the current build, 600
+ticks, M1 Pro / Metal, 1080p, load average 4.8 to 6.7 recorded per run.
+
+| Per crowd frame | Current | Lighting frozen |
+| --- | ---: | ---: |
+| Frame | 9.46 ms (9.2 to 9.70) | 9.04 ms (8.96, 9.12) |
+| `model lighting` (main thread) | 0.38 ms | 0.02 ms |
+| Render asset stage | 1.70 ms | 1.27 ms |
+| Outside the main schedule | 1.40 ms | 1.17 ms |
+
+Quiet is unchanged (5.54 against 5.57 ms). The 0.42 ms the experiment frees is mostly the
+main-thread light traces (0.36 ms), which a change of storage would keep: moving the lighting
+out of the material would only remove the material preparation, about 0.2 ms of a 9.5 ms
+crowd frame, 2%. The earlier estimate of 1.7 ms was the whole material preparation stage in
+a sample, most of which is not lighting. A workable design exists (a fixed-size storage buffer
+of light states written in place, indexed by a per-draw mesh tag, with the material's own
+lighting as the fallback), but it changes the model shader for every lit draw for that 2%.
+**Not done; recommended against.**
+
 ### Machine load during these runs
 
 The two new sampled runs were taken on a loaded machine: load average about 4 on 10 logical

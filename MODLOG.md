@@ -1,5 +1,24 @@
 # MODLOG
 
+## 2026-11-15: lighting outside the material, ceiling measured (documentation only)
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `docs/performance-research.md` and STATUS; no code.
+
+**Why:** the owner approved moving per-entity lighting out of the material; the ceiling was
+measured first.
+
+**Tested how / Result:** discarded experiment with entity lighting frozen, two interleaved
+pairs, load average 4.8 to 6.7 recorded per run. Frame time current to frozen: 30 manhacks
+9.46 to 9.04 ms, quiet 5.54 to 5.57 ms. 0.36 ms of the 0.42 ms is the main-thread light traces,
+which the change would keep; about 0.2 ms would be saved.
+
+**Still broken or not tested:** nothing changed.
+
+**Next:** not recommended; remaining single items are silhouettes on the GPU (1.46 ms stage)
+and the broad phase. Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-15: additive sprite quads batched; silhouette vertices placed once
 
 **Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
