@@ -133,6 +133,15 @@ pub enum MoveStatus {
 /// The motor/navigator the host provides (npc.rs Controller, animation state).
 pub trait Motor {
     fn set_activity(&mut self, activity: &str);
+    /// Play `activity` (or a sequence name) when the rig provides it; true when started.
+    fn try_set_activity(&mut self, activity: &str) -> bool {
+        self.set_activity(activity);
+        true
+    }
+    /// Advance origin and yaw by authored root motion on the active sequence (`AutoMovement`).
+    fn auto_movement(&mut self, _finish: bool) -> bool {
+        false
+    }
     /// SetIdealActivity of the activity already playing: MaintainActivity changes the
     /// sequence only when SelectWeightedSequence picks another one (cycle 0); the same
     /// sequence keeps playing. Hosts without weighted sequences restart it.

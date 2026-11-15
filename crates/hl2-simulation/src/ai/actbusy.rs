@@ -52,7 +52,7 @@ pub fn add_schedules(schedules: &mut Schedules) {
     }
 }
 
-/// A busy animation from scripts/actbusy.txt (busyanim_t's busy part).
+/// A busy animation from scripts/actbusy.txt (busyanim_t's entry, busy, and exit parts).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct BusyAnim {
     pub name: String,
@@ -60,6 +60,14 @@ pub struct BusyAnim {
     pub activity: String,
     /// "busy_sequence" (empty without one).
     pub sequence: String,
+    /// "entry_anim" (empty without one).
+    pub entry_activity: String,
+    /// "entry_sequence" (empty without one).
+    pub entry_sequence: String,
+    /// "exit_anim" (empty without one).
+    pub exit_activity: String,
+    /// "exit_sequence" (empty without one).
+    pub exit_sequence: String,
     pub min_time: f32,
     pub max_time: f32,
 }
@@ -72,6 +80,17 @@ impl BusyAnim {
             &self.sequence
         }
     }
+    /// PlayAnimForActBusy(BA_ENTRY): the sequence first, the activity second.
+    pub fn entry_label(&self) -> Option<&str> {
+        non_empty(&self.entry_sequence).or_else(|| non_empty(&self.entry_activity))
+    }
+    /// PlayAnimForActBusy(BA_EXIT): the sequence first, the activity second.
+    pub fn exit_label(&self) -> Option<&str> {
+        non_empty(&self.exit_sequence).or_else(|| non_empty(&self.exit_activity))
+    }
+}
+fn non_empty(s: &str) -> Option<&str> {
+    (!s.is_empty()).then_some(s)
 }
 /// CActBusyAnimData::ParseAnimDataFile: every entry with a busy sequence ("busy_sequence")
 /// or activity ("busy_anim"); an entry with neither can never be played (HasAnimForActBusy).
@@ -98,6 +117,10 @@ pub fn parse_busy_anims(text: &str) -> Vec<BusyAnim> {
             name: name.to_owned(),
             activity: activity.unwrap_or_default().to_owned(),
             sequence: sequence.unwrap_or_default().to_owned(),
+            entry_activity: get("entry_anim").unwrap_or_default().to_owned(),
+            entry_sequence: get("entry_sequence").unwrap_or_default().to_owned(),
+            exit_activity: get("exit_anim").unwrap_or_default().to_owned(),
+            exit_sequence: get("exit_sequence").unwrap_or_default().to_owned(),
             min_time: time("min_time"),
             max_time: time("max_time"),
         });
@@ -112,8 +135,8 @@ pub fn load_busy_anims(vfs: &source_assets::vpk::Vfs) -> Vec<BusyAnim> {
         .map(|text| parse_busy_anims(&String::from_utf8_lossy(&text)))
         .unwrap_or_default()
 }
-/// The busy sequences the map's hints can play (the sequence entries an info_node_hint's
-/// hintactivity names), lowercase, for the NPC models' clip preload.
+/// The busy/entry/exit sequences (and entry/exit activities) the map's hints can play,
+/// lowercase, for the NPC models' clip preload.
 pub fn hint_sequences(
     world: &modkit_core::World,
     anims: &[BusyAnim],
@@ -123,8 +146,18 @@ pub fn hint_sequences(
         .iter()
         .filter(|e| e.class() == "info_node_hint")
         .filter_map(|e| find_busy_anim(anims, e.get("hintactivity")?.trim()))
-        .filter(|anim| !anim.sequence.is_empty())
-        .map(|anim| anim.sequence.to_lowercase())
+        .flat_map(|anim| {
+            [
+                anim.sequence.as_str(),
+                anim.entry_sequence.as_str(),
+                anim.exit_sequence.as_str(),
+                anim.entry_activity.as_str(),
+                anim.exit_activity.as_str(),
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .map(str::to_lowercase)
+        })
         .collect()
 }
 /// FindBusyAnim: the first entry named like the hint's activity or sequence, or whose busy
@@ -322,6 +355,98 @@ impl ActBusy {
         None
     }
 }
+impl ActBusy {
+    fn start_entry_task(
+        &mut self,
+        npc: &mut AiNpc,
+        ctx: &Context,
+        motor: &mut dyn Motor,
+    ) -> TaskStatus {
+        let Some(hint) = &self.hint else {
+            return TaskStatus::Failed;
+        };
+        if self.moving_to_busy && hint.origin.truncate().distance(ctx.origin.truncate()) > 16. {
+            self.end_busy_at = ctx.now;
+            return TaskStatus::Failed;
+        }
+        self.moving_to_busy = false;
+        if let Some(label) = hint.anim.entry_label().map(str::to_owned) {
+            if motor.try_set_activity(&label) {
+                npc.activity = label;
+                return TaskStatus::Running;
+            }
+        }
+        TaskStatus::Complete
+    }
+    fn start_busy_anim_task(
+        &mut self,
+        npc: &mut AiNpc,
+        ctx: &Context,
+        motor: &mut dyn Motor,
+    ) -> TaskStatus {
+        if !self.enabled {
+            return TaskStatus::Complete;
+        }
+        let Some(hint) = &self.hint else {
+            return TaskStatus::Failed;
+        };
+        if self.moving_to_busy && hint.origin.truncate().distance(ctx.origin.truncate()) > 16. {
+            self.end_busy_at = ctx.now;
+            return TaskStatus::Failed;
+        }
+        self.moving_to_busy = false;
+        if !self.busy {
+            self.busy = true;
+            self.hint_outputs.push((hint.entity, "OnNPCStartedUsing"));
+            self.outputs.push("OnNPCStartedBusy");
+            let (mut min, mut max) = (hint.anim.min_time, hint.anim.max_time);
+            if self.forced {
+                if let Some(forced) = self.forced_max_time {
+                    max = forced;
+                    if max > 0. && max < min {
+                        min = max;
+                    }
+                }
+            }
+            self.end_busy_at = if max <= 0. {
+                0.
+            } else {
+                ctx.now + f64::from(min + (max - min) * ctx.random)
+            };
+        }
+        npc.activity = hint.anim.busy_label().to_owned();
+        motor.set_activity(hint.anim.busy_label());
+        self.forced = false;
+        self.use_nearest = false;
+        TaskStatus::Running
+    }
+    fn start_exit_task(&mut self, npc: &mut AiNpc, motor: &mut dyn Motor) -> TaskStatus {
+        let exit_label = self
+            .hint
+            .as_ref()
+            .and_then(|h| h.anim.exit_label())
+            .map(str::to_owned);
+        if let Some(label) = exit_label {
+            if motor.try_set_activity(&label) {
+                npc.activity = label;
+                return TaskStatus::Running;
+            }
+        }
+        self.finish_busy();
+        TaskStatus::Complete
+    }
+    /// The busy animation is over: OnNPCFinishedBusy, the hint's OnNPCStoppedUsing, hint released.
+    fn finish_busy(&mut self) {
+        if self.busy {
+            self.outputs.push("OnNPCFinishedBusy");
+            let hint = self.hint.as_ref().map(|h| h.entity);
+            let stopped = hint.map(|h| (h, "OnNPCStoppedUsing"));
+            self.hint_outputs.extend(stopped);
+        }
+        self.busy = false;
+        self.release_hint();
+    }
+}
 impl Behavior for ActBusy {
     fn start_task(
         &mut self,
@@ -353,58 +478,10 @@ impl Behavior for ActBusy {
                 }
                 None => TaskStatus::Failed,
             },
-            // No entry animations (the subset's hints have none).
-            "TASK_ACTBUSY_PLAY_ENTRY" | "TASK_ACTBUSY_VERIFY_EXIT" => TaskStatus::Complete,
-            "TASK_ACTBUSY_PLAY_BUSY_ANIM" => {
-                if !self.enabled {
-                    return Some(TaskStatus::Complete);
-                }
-                let Some(hint) = &self.hint else {
-                    return Some(TaskStatus::Failed);
-                };
-                if self.moving_to_busy
-                    && hint.origin.truncate().distance(ctx.origin.truncate()) > 16.
-                {
-                    self.end_busy_at = ctx.now;
-                    return Some(TaskStatus::Failed);
-                }
-                self.moving_to_busy = false;
-                if !self.busy {
-                    self.busy = true;
-                    self.hint_outputs.push((hint.entity, "OnNPCStartedUsing"));
-                    self.outputs.push("OnNPCStartedBusy");
-                    let (mut min, mut max) = (hint.anim.min_time, hint.anim.max_time);
-                    if self.forced {
-                        if let Some(forced) = self.forced_max_time {
-                            max = forced;
-                            if max > 0. && max < min {
-                                min = max;
-                            }
-                        }
-                    }
-                    self.end_busy_at = if max <= 0. {
-                        0.
-                    } else {
-                        ctx.now + f64::from(min + (max - min) * ctx.random)
-                    };
-                }
-                npc.activity = hint.anim.busy_label().to_owned();
-                motor.set_activity(hint.anim.busy_label());
-                self.forced = false;
-                self.use_nearest = false;
-                TaskStatus::Running
-            }
-            "TASK_ACTBUSY_PLAY_EXIT" => {
-                if self.busy {
-                    self.outputs.push("OnNPCFinishedBusy");
-                    let hint = self.hint.as_ref().map(|h| h.entity);
-                    let stopped = hint.map(|h| (h, "OnNPCStoppedUsing"));
-                    self.hint_outputs.extend(stopped);
-                }
-                self.busy = false;
-                self.release_hint();
-                TaskStatus::Complete
-            }
+            "TASK_ACTBUSY_VERIFY_EXIT" => TaskStatus::Complete,
+            "TASK_ACTBUSY_PLAY_ENTRY" => self.start_entry_task(npc, ctx, motor),
+            "TASK_ACTBUSY_PLAY_BUSY_ANIM" => self.start_busy_anim_task(npc, ctx, motor),
+            "TASK_ACTBUSY_PLAY_EXIT" => self.start_exit_task(npc, motor),
             _ => return None,
         })
     }
@@ -422,13 +499,29 @@ impl Behavior for ActBusy {
                 Some(_) => TaskStatus::Running,
                 None => TaskStatus::Failed,
             }),
+            "TASK_ACTBUSY_PLAY_ENTRY" => Some(if motor.activity_finished() {
+                motor.auto_movement(true);
+                TaskStatus::Complete
+            } else {
+                motor.auto_movement(false);
+                TaskStatus::Running
+            }),
             "TASK_ACTBUSY_PLAY_BUSY_ANIM" => Some(
                 if !self.enabled || self.end_busy_at > 0. && ctx.now >= self.end_busy_at {
                     TaskStatus::Complete
                 } else {
+                    motor.auto_movement(false);
                     TaskStatus::Running
                 },
             ),
+            "TASK_ACTBUSY_PLAY_EXIT" => Some(if motor.activity_finished() {
+                motor.auto_movement(true);
+                self.finish_busy();
+                TaskStatus::Complete
+            } else {
+                motor.auto_movement(false);
+                TaskStatus::Running
+            }),
             _ => None,
         }
     }
@@ -767,5 +860,170 @@ mod tests {
         assert!(a.wants_hint(16.7));
         // A base schedule other than idle (e.g. combat) leaves actbusy alone.
         assert_eq!(a.select(&mut npc, &ctx(17.), "SCHED_CHASE_ENEMY"), None);
+    }
+
+    #[derive(Default)]
+    struct EntryExitMotor {
+        finished: bool,
+        tried: Vec<String>,
+        auto_moves: Vec<bool>,
+    }
+    impl Motor for EntryExitMotor {
+        fn set_activity(&mut self, _activity: &str) {}
+        fn try_set_activity(&mut self, activity: &str) -> bool {
+            self.tried.push(activity.to_owned());
+            true
+        }
+        fn auto_movement(&mut self, finish: bool) -> bool {
+            self.auto_moves.push(finish);
+            true
+        }
+        fn activity_finished(&self) -> bool {
+            self.finished
+        }
+        fn stop_moving(&mut self) -> bool {
+            true
+        }
+        fn face(&mut self, _goal: Goal) -> bool {
+            true
+        }
+        fn path_to(&mut self, _goal: Vec3, _run: bool) -> bool {
+            true
+        }
+        fn movement(&self) -> super::super::schedule::MoveStatus {
+            super::super::schedule::MoveStatus::Arrived
+        }
+    }
+
+    #[test]
+    fn entry_and_exit_anims_parse_preload_and_drive_auto_movement() {
+        let anims = parse_busy_anims(
+            "\"ActBusy.txt\" { \"sit_bench\" { \
+             \"entry_anim\" \"ACT_BUSY_SIT_CHAIR_ENTRY\" \
+             \"entry_sequence\" \"enter_bench\" \
+             \"busy_anim\" \"ACT_BUSY_SIT_CHAIR\" \
+             \"busy_sequence\" \"sit_idle\" \
+             \"exit_anim\" \"ACT_BUSY_SIT_CHAIR_EXIT\" \
+             \"exit_sequence\" \"exit_bench\" \
+             \"min_time\" \"5.0\" \"max_time\" \"5.0\" } }",
+        );
+        assert_eq!(anims.len(), 1);
+        assert_eq!(anims[0].entry_label(), Some("enter_bench"));
+        assert_eq!(anims[0].busy_label(), "sit_idle");
+        assert_eq!(anims[0].exit_label(), Some("exit_bench"));
+        let world = modkit_core::World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![
+                    ("classname".into(), "info_node_hint".into()),
+                    ("hintactivity".into(), "sit_bench".into()),
+                ],
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            hint_sequences(&world, &anims),
+            [
+                "act_busy_sit_chair_entry",
+                "act_busy_sit_chair_exit",
+                "enter_bench",
+                "exit_bench",
+                "sit_idle",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect()
+        );
+        let hint_origin = Vec3::new(-2237., -1472., 19.);
+        let mut a = ActBusy {
+            enabled: true,
+            moving_to_busy: true,
+            hint: Some(BusyHint {
+                entity: 10,
+                origin: hint_origin,
+                yaw: 180.,
+                anim: anims[0].clone(),
+                exit: false,
+            }),
+            ..Default::default()
+        };
+        let ctx_at = |now, origin| Context {
+            now,
+            origin,
+            ..Default::default()
+        };
+        let mut npc = AiNpc::new(1);
+        let mut motor = EntryExitMotor::default();
+        assert_eq!(
+            a.start_task(
+                &mut npc,
+                "TASK_ACTBUSY_PLAY_ENTRY",
+                &TaskArg::Number(0.),
+                &ctx_at(1., hint_origin),
+                &mut motor
+            ),
+            Some(TaskStatus::Running)
+        );
+        assert!(!a.moving_to_busy);
+        assert_eq!(
+            a.run_task(
+                &mut npc,
+                "TASK_ACTBUSY_PLAY_ENTRY",
+                &TaskArg::Number(0.),
+                &ctx_at(1.5, hint_origin),
+                &mut motor
+            ),
+            Some(TaskStatus::Running)
+        );
+        motor.finished = true;
+        assert_eq!(
+            a.run_task(
+                &mut npc,
+                "TASK_ACTBUSY_PLAY_ENTRY",
+                &TaskArg::Number(0.),
+                &ctx_at(2., hint_origin),
+                &mut motor
+            ),
+            Some(TaskStatus::Complete)
+        );
+        // Entry moved the NPC > 16 units onto the bench; PLAY_BUSY_ANIM must still succeed.
+        let seated_origin = hint_origin + Vec3::X * 24.69;
+        assert_eq!(
+            a.start_task(
+                &mut npc,
+                "TASK_ACTBUSY_PLAY_BUSY_ANIM",
+                &TaskArg::Number(0.),
+                &ctx_at(2., seated_origin),
+                &mut motor
+            ),
+            Some(TaskStatus::Running)
+        );
+        assert!(a.busy);
+        motor.finished = false;
+        assert_eq!(
+            a.start_task(
+                &mut npc,
+                "TASK_ACTBUSY_PLAY_EXIT",
+                &TaskArg::Number(0.),
+                &ctx_at(8., seated_origin),
+                &mut motor
+            ),
+            Some(TaskStatus::Running)
+        );
+        assert!(a.busy);
+        motor.finished = true;
+        assert_eq!(
+            a.run_task(
+                &mut npc,
+                "TASK_ACTBUSY_PLAY_EXIT",
+                &TaskArg::Number(0.),
+                &ctx_at(9., hint_origin),
+                &mut motor
+            ),
+            Some(TaskStatus::Complete)
+        );
+        assert!(!a.busy && a.hint.is_none());
+        assert_eq!(a.released, vec![10]);
+        assert_eq!(motor.tried, vec!["enter_bench", "exit_bench"]);
+        assert_eq!(motor.auto_moves, vec![false, true, true]);
     }
 }
