@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-15: restore viewmodel motion blur when viewmodel sway/shake moves `ViewmodelCamera`
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+**Changed:** `plugins/hl2-advanced-options/src/bevy/viewmodel_blur.rs`, `crates/hl2-bevy/assets/shaders/source_depth.wgsl`. Stopped tracking `ViewmodelCamera`'s `Transform` in `viewmodel_blur::History.view` (keeping `(lens, map)` only) so continuous `viewmodel_sway` / `screen_shake` updates no longer reset the 3-frame warmup counter every frame; updated the viewmodel (`params.w > 1.5`) branch in `source_depth.wgsl` to project `mesh.previous_world_position` with `view.unjittered_clip_from_world` so camera sway/shake does not inject false velocity into viewmodel animation blur. Added regression unit test `sway_on_camera_transform_keeps_history_warm_while_lens_or_map_resets`.
+
+**Why:** `viewmodel_sway` and `screen_shake` move `ViewmodelCamera`'s `Transform` on every walk/turn/shake frame, which kept `viewmodel_blur`'s warm counter stuck at `0` so `WeaponBlur.max` stayed `0.0` on Advanced and Ultra settings.
+
+**Tested how / Result:** `cargo test -p hl2-advanced-options --all-features` (48 passed), `cargo clippy -p hl2-advanced-options -p hl2-bevy --all-targets --all-features -- -D warnings`, `scripts/build-bevy.sh`, `ONLY=viewmodel_motion_blur` replay check (passed in 87 s), and packaged `d1_trainstation_02` walking+turning crowbar swing captures under Retail, Advanced, and Ultra (Advanced shows clear directional crowbar blur with 30,099 px changed in weapon region vs Retail).
+
+**Still broken or not tested:** Windows rendering **not tested**. Plugin rules read: yes; exceptions: none.
+
+**Next:** Fix jagged shadow cutouts on displacement receivers (`crates/hl2-simulation/src/shadows/receivers.rs`).
+
 ## 2026-11-15: show `--position`/`--yaw`/`--pitch` launch args in F1 developer overlay footer
 
 **Agent/model:** Antigravity (exact model identifier not exposed), completing uncommitted plugin edits from Claude Code desktop. No subagents.
