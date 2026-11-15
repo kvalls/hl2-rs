@@ -12,6 +12,8 @@ on the GPU, retaining the caster selection, posed geometry, receiver and materia
 Crowd 9.575 to 8.693 ms median, quiet 5.327 to 5.328 ms; matching gameplay outcomes.
 Offscreen readback and two fixed-camera comparisons cover moving shadows, alpha and cell
 reuse. See [measurements and limitations](docs/performance-research.md#gpu-shadow-silhouettes-on-station02).
+Workspace validation and Windows cross-target Clippy passed. With the GPU renderer enabled,
+the shared packaged replay suite passed all 107 checks in 1,436 seconds on macOS.
 
 **Still open / next** — CPU remains the default. Sixteen quarter-level alpha layers
 produced 0 on Metal versus 4 on CPU; test higher precision for translucent cells.

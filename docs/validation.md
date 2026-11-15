@@ -21,6 +21,12 @@ for the pixel counts and paired timings. Fixed camera and scripted gameplay on M
 Windows rendering, other graphics backends and an ordinary campaign playthrough are **not tested**.
 Workspace tests, strict Clippy, formatting, architecture, repository isolation, all plugin
 selections and the Windows cross-target strict Clippy check passed.
+With the GPU path enabled, all 107 shared packaged checks passed on macOS in 1,436 seconds,
+including flashlight shadows, the viewmodel and the campaign gameplay fixtures. Reproduce
+with `HL2RS_GPU_SILHOUETTES=1 NO_BUILD=1 JOBS=2 python3 scripts/checks/replays.py` after
+building the package. The final build resolves the same embedded shader relative to the
+crate root. Its machine instructions and shader bytes match the timed and replayed package.
+Of the Mach-O sections only the constant data differed, at three source line numbers.
 
 ## Exact brush candidate rejection (2026-11-11)
 
