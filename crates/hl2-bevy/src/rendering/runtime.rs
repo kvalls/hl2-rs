@@ -102,7 +102,7 @@ pub fn swap_runtime_bodies(
             continue;
         }
         for draw in &own {
-            commands.entity(draw.0).despawn();
+            commands.entity(draw.0).try_despawn();
         }
         let state = &game.scene.states[id];
         let transform = entity_transform(state.origin, state.rotation);

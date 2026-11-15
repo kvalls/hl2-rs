@@ -482,7 +482,7 @@ fn update_player(
             if let Some(key) = &player.emitter {
                 audio.patches.remove(key);
             }
-            ctx.commands.entity(entity).despawn();
+            ctx.commands.entity(entity).try_despawn();
             return;
         }
         // An entity's patch moves with it (CSoundPatch follows its entity's origin).
@@ -648,7 +648,7 @@ pub fn queue(
             let despawn = |commands: &mut Commands| {
                 for (entity, owner) in &emitted {
                     if owner == &key {
-                        commands.entity(*entity).despawn();
+                        commands.entity(*entity).try_despawn();
                     }
                 }
             };
@@ -707,7 +707,7 @@ pub fn queue(
             let (AmbientControl::Play(id) | AmbientControl::Stop(id)) = control;
             for (entity, player, _) in &owned {
                 if player == &Some(id) {
-                    commands.entity(*entity).despawn();
+                    commands.entity(*entity).try_despawn();
                 }
             }
             if let (AmbientControl::Play(_), Some(ambient)) =
@@ -819,7 +819,7 @@ pub fn queue(
                 audio.soundscape_volumes.remove(&handle);
                 for (entity, _, owner) in &owned {
                     if owner == &Some(handle) {
-                        commands.entity(*entity).despawn();
+                        commands.entity(*entity).try_despawn();
                     }
                 }
             }
@@ -906,7 +906,7 @@ pub fn observe(
             if audio.frame.saturating_sub(player.queued_frame) > 120 {
                 audio.library.errors.insert(player.path.clone(), "playback sink did not start within 120 frames; audio device/backend may be unavailable".into());
                 audio.failed += 1;
-                commands.entity(entity).despawn();
+                commands.entity(entity).try_despawn();
             }
         }
     }

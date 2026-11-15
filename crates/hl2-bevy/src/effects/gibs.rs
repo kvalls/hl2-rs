@@ -60,7 +60,7 @@ pub fn present_gibs(
     for id in gone {
         for (entity, material, _) in effects.gibs.remove(&id).unwrap_or_default() {
             if let Ok(mut cmd) = commands.get_entity(entity) {
-                cmd.despawn();
+                cmd.try_despawn();
             }
             materials.remove(&material);
         }

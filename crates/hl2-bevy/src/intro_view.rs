@@ -76,7 +76,7 @@ fn update(
     });
     let despawn = |commands: &mut Commands, intro: &Query<IntroCameras, With<IntroCamera>>| {
         for (entity, ..) in intro {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         }
     };
     let Some((frame, pose)) = composed else {

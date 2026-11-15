@@ -142,7 +142,7 @@ pub fn update(
                         *histogram.lock().expect("tonemap histogram") = Some(h);
                     }
                     *pending.lock().expect("tonemap pending") = false;
-                    commands.entity(event.entity).despawn();
+                    commands.entity(event.entity).try_despawn();
                 });
         }
         let control = game.scene.tonemap;
