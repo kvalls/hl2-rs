@@ -36,12 +36,15 @@ mod npc_weapon_draws;
 mod placement;
 pub(crate) use placement::draw_hidden;
 mod runtime;
+mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
 use material::{alpha_mode, cube_image_filtered, image_filtered, mip_image_filtered, unfilter};
 pub(crate) use material::{black_cube, fallback_images, image, make_material, sampler_descriptor};
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
 pub use runtime::{despawn_killed_runtime_draws, spawn_runtime_draws, swap_runtime_bodies};
+pub(super) use weapons::WeaponSkin;
+pub use weapons::{WeaponMesh, present_weapons};
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 #[bind_group_data(MaterialKey)]
@@ -594,29 +597,6 @@ pub fn present_render_colors(
         if m.tint != tint {
             m.tint = tint;
         }
-    }
-}
-#[derive(Component)]
-pub struct WeaponMesh(pub String);
-/// A viewmodel draw that belongs to one skin only (surfaces whose material differs
-/// between skins 0 and 1).
-#[derive(Component)]
-pub struct WeaponSkin(u8);
-pub fn present_weapons(
-    game: Res<crate::gameplay::Gameplay>,
-    mut draws: Query<(&WeaponMesh, Option<&WeaponSkin>, &mut Visibility)>,
-) {
-    let skin = game.inventory.viewmodel_skin();
-    for (weapon, variant, mut visibility) in &mut draws {
-        // The +USE carry holsters the weapon (CPlayerPickupController::Init).
-        *visibility = if weapon.0 == game.inventory.active
-            && !game.inventory.carrying()
-            && variant.is_none_or(|v| v.0 == skin)
-        {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
     }
 }
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]

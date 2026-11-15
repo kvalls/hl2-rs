@@ -1,5 +1,6 @@
 //! Spawns the frame, viewmodel and world cameras of the startup map.
 use super::{FlyCamera, Options, bloom, camera, source_direction, source_to_bevy, tonemap, video};
+use bevy::camera::MsaaWriteback;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::{
     Camera, Camera2d, Camera3d, ClearColorConfig, Commands, PerspectiveProjection, Projection,
@@ -33,6 +34,8 @@ pub(super) fn spawn(
         Camera {
             order: 1,
             clear_color: ClearColorConfig::None,
+            // SkyCamera, FlyCamera, and ViewmodelCamera share the same StoreOp::Store MSAA attachment.
+            msaa_writeback: MsaaWriteback::Off,
             ..default()
         },
         bevy::camera::visibility::RenderLayers::layer(1),
@@ -59,6 +62,10 @@ pub(super) fn spawn(
     ));
     commands.spawn((
         Camera3d::default(),
+        Camera {
+            msaa_writeback: MsaaWriteback::Off,
+            ..default()
+        },
         Tonemapping::None,
         msaa,
         Projection::Perspective(PerspectiveProjection {

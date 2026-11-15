@@ -2,12 +2,13 @@
 use super::{ModelLighting, SourceMaterial};
 use crate::source_to_bevy;
 use bevy::{
-    asset::Assets,
+    asset::{Assets, Handle},
     camera::visibility::InheritedVisibility,
     ecs::{
         component::Component,
         system::{Query, Res, ResMut},
     },
+    image::Image,
     math::{Mat4, Vec3},
     pbr::MeshMaterial3d,
     transform::components::Transform,
@@ -49,28 +50,31 @@ impl ModelLit {
         self.cubemap = reflects.then_some(usize::MAX);
         self
     }
-    /// Binds the sample a model at `origin` reflects. Only a model that moved gets here, and only
-    /// a new cell chooses again, as the retail cache keeps a sample per entry: one that stands
-    /// still pays nothing.
-    fn reflect(
+    /// Returns the new cubemap index and texture if moving into `origin`'s light cache cell changes
+    /// this model's reflection sample; updates the tracked cell without touching `Assets`.
+    fn next_cubemap(
         &mut self,
-        material: &mut SourceMaterial,
         origin: glam::Vec3,
         data: &modkit_core::lighting::LightingData,
         cubemaps: Option<&super::cubemaps::ModelCubemaps>,
-    ) {
+    ) -> Option<(usize, Handle<Image>)> {
         let cell = modkit_core::lighting::cache_cell(origin);
         let moved = self.cell.replace(cell) != Some(cell);
-        let Some(held) = self.cubemap.filter(|_| moved) else {
-            return;
-        };
-        let sample = cubemaps.and_then(|cubes| cubes.pick(data.cache_point(origin)));
-        if let Some((index, cube)) = sample.filter(|(index, _)| *index != held) {
-            material.envmap = cube;
-            material.envmap_tint.w = 1.;
-            self.cubemap = Some(index);
-        }
+        let held = self.cubemap.filter(|_| moved)?;
+        cubemaps
+            .and_then(|cubes| cubes.pick(data.cache_point(origin)))
+            .filter(|(index, _)| *index != held)
     }
+}
+
+struct LightingContext<'a> {
+    game: &'a crate::gameplay::Gameplay,
+    sim: &'a crate::simulation::Simulation,
+    data: &'a modkit_core::lighting::LightingData,
+    elights: &'a [modkit_core::lighting::WorldLight],
+    cubemaps: Option<&'a super::cubemaps::ModelCubemaps>,
+    beam: crate::flashlight::ViewmodelLight,
+    view: Mat4,
 }
 
 /// Recompute each lit model's light state when its illumination origin moves
@@ -102,69 +106,109 @@ pub fn present_lighting(
     let mut states =
         BTreeMap::<Option<usize>, (glam::Vec3, modkit_core::lighting::LightState)>::new();
     let (yaw, pitch) = sim.view_angles();
-    let view = viewmodel_basis(sim.view_origin(), yaw, pitch);
-    let beam = crate::flashlight::ViewmodelLight::from_light(flashlight.light());
+    let ctx = LightingContext {
+        game: &game,
+        sim: &sim,
+        data,
+        elights: &elights,
+        cubemaps: cubemaps.as_deref(),
+        beam: crate::flashlight::ViewmodelLight::from_light(flashlight.light()),
+        view: viewmodel_basis(sim.view_origin(), yaw, pitch),
+    };
     for (mut lit, material, visible) in &mut draws {
         if !visible.get() && lit.last.is_some() {
             continue;
         }
-        let illumination = game
-            .world
-            .illumination
-            .get(&lit.key)
-            .copied()
-            .unwrap_or_default();
-        let origin = match lit.entity {
-            Some(id) => {
-                let Some(state) = game.scene.states.get(id) else {
-                    continue;
-                };
-                let (origin, rotation) = sim
-                    .physics
-                    .entity_pose(id)
-                    .unwrap_or((state.origin, state.rotation));
-                origin + rotation * (illumination.position * lit.scale)
-            }
-            None => glam::Vec3::from_array(sim.eye().to_array()),
-        };
-        let lit_dynamic = elights
-            .iter()
-            .any(|l| modkit_core::lighting::dynamic_reaches(origin, l));
-        if lit.entity.is_some()
-            && !lit_dynamic
-            && !lit.dynamic
-            && lit.last.is_some_and(|(last, hl)| {
-                last.distance_squared(origin) < 1. && hl == lit.half_lambert
-            })
-        {
-            continue;
+        present_draw_lighting(&ctx, &mut lit, &material.0, &mut states, &mut materials);
+    }
+}
+
+fn present_draw_lighting(
+    ctx: &LightingContext<'_>,
+    lit: &mut ModelLit,
+    material: &Handle<SourceMaterial>,
+    states: &mut BTreeMap<Option<usize>, (glam::Vec3, modkit_core::lighting::LightState)>,
+    materials: &mut Assets<SourceMaterial>,
+) {
+    let illumination = ctx
+        .game
+        .world
+        .illumination
+        .get(&lit.key)
+        .copied()
+        .unwrap_or_default();
+    let origin = match lit.entity {
+        Some(id) => {
+            let Some(state) = ctx.game.scene.states.get(id) else {
+                return;
+            };
+            let (origin, rotation) = ctx
+                .sim
+                .physics
+                .entity_pose(id)
+                .unwrap_or((state.origin, state.rotation));
+            origin + rotation * (illumination.position * lit.scale)
         }
-        lit.dynamic = lit_dynamic;
+        None => glam::Vec3::from_array(ctx.sim.eye().to_array()),
+    };
+    let lit_dynamic = ctx
+        .elights
+        .iter()
+        .any(|l| modkit_core::lighting::dynamic_reaches(origin, l));
+    let same_light = !lit_dynamic
+        && !lit.dynamic
+        && lit
+            .last
+            .is_some_and(|(last, hl)| last.distance_squared(origin) < 1. && hl == lit.half_lambert);
+    if lit.entity.is_some() && same_light {
+        return;
+    }
+    let Some(existing) = materials.get(material) else {
+        return;
+    };
+    let uniform = if lit.entity.is_none() && same_light && existing.lighting.params.w == 2. {
+        let mut uniform = existing.lighting;
+        uniform.basis = ctx.view;
+        uniform
+    } else {
         let (_, state) = states.entry(lit.entity).or_insert_with(|| {
-            let mut state = data.state_at(origin);
+            let mut state = ctx.data.state_at(origin);
             if illumination.ambient_boost() {
-                data.boost(&mut state, origin);
+                ctx.data.boost(&mut state, origin);
             }
-            for light in &elights {
-                data.add_dynamic(&mut state, origin, light);
+            for light in ctx.elights {
+                ctx.data.add_dynamic(&mut state, origin, light);
             }
             (origin, state)
         });
         let mut uniform = ModelLighting::from_state(state, lit.half_lambert);
         if lit.entity.is_none() {
-            uniform.basis = view;
+            uniform.basis = ctx.view;
             uniform.params.w = 2.;
         }
-        if let Some(mut material) = materials.get_mut(&material.0) {
-            if material.lighting != uniform {
-                material.lighting = uniform;
-            }
-            if lit.entity.is_none() && material.viewmodel_flashlight != beam {
-                material.viewmodel_flashlight = beam;
-            }
-            lit.reflect(&mut material, origin, data, cubemaps.as_deref());
+        uniform
+    };
+    let lighting_changed = existing.lighting != uniform;
+    let beam_changed = lit.entity.is_none() && existing.viewmodel_flashlight != ctx.beam;
+    let env_update = lit.next_cubemap(origin, ctx.data, ctx.cubemaps);
+    lit.dynamic = lit_dynamic;
+    lit.last = Some((origin, lit.half_lambert));
+    if !lighting_changed && !beam_changed && env_update.is_none() {
+        return;
+    }
+    // Only borrow mutably when fields change so unchanged materials emit no AssetEvent::Modified.
+    if let Some(mut mat) = materials.get_mut(material) {
+        if lighting_changed {
+            mat.lighting = uniform;
         }
-        lit.last = Some((origin, lit.half_lambert));
+        if beam_changed {
+            mat.viewmodel_flashlight = ctx.beam;
+        }
+        if let Some((index, cube)) = env_update {
+            mat.envmap = cube;
+            mat.envmap_tint.w = 1.;
+            lit.cubemap = Some(index);
+        }
     }
 }
 /// The fixed +X viewmodel draw space mapped onto the player's world view.
@@ -196,5 +240,129 @@ mod tests {
             assert!(normal.distance(-forward) < 1e-5);
             assert!((normal.length() - 1.).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn stationary_lighting_and_viewmodel_emit_no_modified_material_events_on_repeat_frames() {
+        use bevy::{
+            app::{App, TaskPoolPlugin, Update},
+            asset::{AssetApp, AssetEvent, AssetPlugin},
+            ecs::message::{MessageCursor, Messages},
+            math::{Mat3, Vec4},
+            prelude::AlphaMode,
+        };
+        use std::sync::Arc;
+
+        fn dummy_material() -> SourceMaterial {
+            SourceMaterial {
+                tint: Vec4::ONE,
+                parameters: Vec4::ZERO,
+                base: Handle::default(),
+                lightmap: Handle::default(),
+                iris: Handle::default(),
+                secondary_uv: Mat3::IDENTITY,
+                lighting: ModelLighting::default(),
+                envmap: Handle::default(),
+                envmap_tint: Vec4::ZERO,
+                envmap_contrast: Vec4::ZERO,
+                envmap_saturation: Vec4::ZERO,
+                envmap_mask: Handle::default(),
+                self_illum: Vec4::ZERO,
+                flashlight: Handle::default(),
+                viewmodel_flashlight: crate::flashlight::ViewmodelLight::default(),
+                alpha: AlphaMode::Opaque,
+                two_sided: false,
+            }
+        }
+
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<SourceMaterial>()
+            .add_systems(Update, present_lighting);
+
+        let mut lighting = modkit_core::lighting::LightingData::default();
+        lighting.ambient.push(modkit_core::lighting::AmbientSample {
+            cube: [glam::Vec3::splat(0.25); 6],
+            position: [128, 128, 128],
+        });
+        let world = modkit_core::World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![
+                    ("classname".into(), "prop_dynamic".into()),
+                    ("origin".into(), "10 20 0".into()),
+                ],
+            }],
+            lighting: Some(Arc::new(lighting)),
+            ..Default::default()
+        };
+        let sim =
+            crate::simulation::Simulation::new(&world, glam::Vec3::Z * 64., 0., 0., false, vec![]);
+        let game = crate::gameplay::Gameplay::synthetic(world);
+        let vm_handle = app
+            .world_mut()
+            .resource_mut::<Assets<SourceMaterial>>()
+            .add(dummy_material());
+        let world_handle = app
+            .world_mut()
+            .resource_mut::<Assets<SourceMaterial>>()
+            .add(dummy_material());
+
+        app.insert_resource(game)
+            .insert_resource(sim)
+            .init_resource::<crate::flashlight::HostFlashlight>();
+        app.world_mut().spawn((
+            ModelLit::new(None, "vm".into(), 1., false),
+            MeshMaterial3d(vm_handle.clone()),
+            InheritedVisibility::VISIBLE,
+        ));
+        app.world_mut().spawn((
+            ModelLit::new(Some(0), "prop".into(), 1., false),
+            MeshMaterial3d(world_handle),
+            InheritedVisibility::VISIBLE,
+        ));
+
+        let mut cursor = MessageCursor::<AssetEvent<SourceMaterial>>::default();
+        let drain_modified = |app: &App, cursor: &mut MessageCursor<AssetEvent<SourceMaterial>>| {
+            let messages = app
+                .world()
+                .resource::<Messages<AssetEvent<SourceMaterial>>>();
+            cursor
+                .read(messages)
+                .filter_map(|event| match event {
+                    AssetEvent::Modified { id } => Some(*id),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Frame 0: both materials receive their initial lighting uniform.
+        app.update();
+        assert_eq!(drain_modified(&app, &mut cursor).len(), 2);
+
+        // Repeat frame with stationary player/camera/world emits no Modified events.
+        app.update();
+        assert!(drain_modified(&app, &mut cursor).is_empty());
+
+        // Rotating the view updates only the viewmodel basis, leaving the world model untouched.
+        let game_world = app
+            .world()
+            .resource::<crate::gameplay::Gameplay>()
+            .world
+            .clone();
+        let turned = crate::simulation::Simulation::new(
+            &game_world,
+            glam::Vec3::Z * 64.,
+            1.0,
+            0.,
+            false,
+            vec![],
+        );
+        app.insert_resource(turned);
+        app.update();
+        assert_eq!(drain_modified(&app, &mut cursor), vec![vm_handle.id()]);
+
+        // Next stationary frame after turning emits no Modified events again.
+        app.update();
+        assert!(drain_modified(&app, &mut cursor).is_empty());
     }
 }

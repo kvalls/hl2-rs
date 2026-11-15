@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-15: eliminate per-frame material dirtying, visibility churn, and redundant MSAA writeback passes on weapon cameras
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+**Changed:** `crates/hl2-bevy/src/rendering/lighting.rs`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/rendering/weapons.rs`, `crates/hl2-bevy/src/startup_cameras.rs`, `crates/hl2-bevy/src/sky.rs`, `scripts/checks/architecture-baseline.json`. Replaced `ModelLit::reflect` with `ModelLit::next_cubemap`, split `present_draw_lighting` from `present_lighting` to inspect `materials.get` before calling `materials.get_mut` (only emitting `AssetEvent::Modified<SourceMaterial>` when `lighting`, `viewmodel_flashlight`, or `envmap` changes, and skipping redundant `state_at` lookups for stationary viewmodels), moved `WeaponMesh`/`WeaponSkin`/`present_weapons` into `rendering/weapons.rs` and guarded `Visibility` writes (tightening `rendering.rs` baseline `1365 -> 1345`), added unit test `stationary_lighting_and_viewmodel_emit_no_modified_material_events_on_repeat_frames`, and set `MsaaWriteback::Off` on `SkyCamera` (`order: -2, -1`), `FlyCamera` (`order: 0`), and `ViewmodelCamera` (`order: 1`) so the shared `Msaa::Sample4` color attachment preserves earlier passes via `StoreOp::Store` without intermediate MSAA resolve/writeback passes between ordered 3D cameras.
+
+**Why:** Calling `Assets::get_mut` unconditionally queued `AssetEvent::Modified<SourceMaterial>` every frame even when stationary viewmodels/props had unchanged lighting, triggering redundant asset/bind-group preparation; unconditional `Visibility` mutation caused false change-detection churn on weapon entities; and default `MsaaWriteback::Auto` resolved and wrote back the fullscreen MSAA color buffer across the multi-camera pipeline (most visibly when wielding a viewmodel or rendering 4x MSAA at `3456x2168`).
+
+**Tested how / Result:** `cargo fmt --all -- --check`, `cargo clippy -p hl2-bevy --all-targets --all-features -- -D warnings`, `cargo test -p hl2-bevy --lib` (`179 passed; 0 failed; 23 ignored`), `python3 scripts/checks/architecture.py`, and `./scripts/build-bevy.sh` passed; packaged `hl2-bevy` `d1_trainstation_02` benchmarks (`3456x2168`, `4x MSAA`, `hdr=full`, `2`-run medians) improved from `9.257 ms` (`108.03 fps`) to `8.018 ms` (`124.73 fps`) unarmed, `9.783 ms` (`102.22 fps`) to `8.422 ms` (`118.74 fps`) with crowbar (`model lighting` `0.1494 -> 0.0954 ms`, `render_graph` `6.0261 -> 4.7329 ms`), `9.826 ms` (`101.77 fps`) to `8.473 ms` (`118.02 fps`) with pistol, and `10.680 ms` (`93.64 fps`) to `9.415 ms` (`106.21 fps`) with physcannon; packaged visual capture of `d1_trainstation_02` with crowbar (`1500` frames) verified crowbar viewmodel, HUD, plaza, and skybox render cleanly under `4x MSAA`.
+
+**Still broken or not tested:** Owned-install `#[ignore]` tests, full replay suite, and Windows build **not tested**; `4x MSAA` GPU rasterization on `ViewmodelCamera` still adds ~0.4 ms (`~0.11 ms` crowbar / `~0.07 ms` pistol without MSAA), and `physcannon`'s 8 active viewmodel sprites add ~1.0 ms further.
+
+**Next:** Fix NPC actbusy sitting alignment on `d1_trainstation_02` plaza benches (`crates/hl2-simulation/src/ai/actbusy.rs`, `crates/source-assets/src/animation.rs`).
+
 ## 2026-11-15: fix displacement lightmap UVs and sloped displacement shadow receiver normals
 
 **Agent/model:** Antigravity (exact model identifier not exposed). No subagents.

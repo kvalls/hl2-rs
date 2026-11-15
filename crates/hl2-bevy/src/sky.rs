@@ -71,6 +71,7 @@ pub fn install(
             Camera {
                 order,
                 is_active: false,
+                msaa_writeback: bevy::camera::MsaaWriteback::Off,
                 ..default()
             },
             target_comp.clone(),
