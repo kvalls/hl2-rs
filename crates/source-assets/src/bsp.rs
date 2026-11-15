@@ -523,7 +523,7 @@ impl Bsp {
                                 color(p)?
                             },
                             skin: None,
-                            light_uv: light_uv(p)?,
+                            light_uv: face_light.map_or(Vec2::ZERO, |l| l.disp_uv(fx, fy)),
                         });
                     }
                 }

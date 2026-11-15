@@ -26,6 +26,18 @@ pub struct FaceLight {
     pub width: usize,
     pub height: usize,
 }
+impl FaceLight {
+    /// Displacement lightmap coordinates follow the rotated base grid `(fx, fy)` across the
+    /// face's `(width, height)` luxel block (`CalcLuxelCoords` / `CalcDispSurfCoords`).
+    pub fn disp_uv(self, fx: f32, fy: f32) -> glam::Vec2 {
+        let x = fx.clamp(0., 1.) * self.width.saturating_sub(1) as f32;
+        let y = fy.clamp(0., 1.) * self.height.saturating_sub(1) as f32;
+        glam::Vec2::new(
+            (self.x as f32 + x + 0.5) / 1024.,
+            (self.y as f32 + y + 0.5) / 1024.,
+        )
+    }
+}
 pub fn build(lumps: &[Vec<u8>], hdr: bool) -> Result<(Vec<Lightmap>, Vec<Option<FaceLight>>)> {
     let hdr = choose_hdr(lumps, hdr);
     let data = &lumps[if hdr { 53 } else { 8 }];
@@ -233,5 +245,36 @@ mod tests {
         assert_eq!(texel(r.x), [2., 0., 0., 1.]);
         assert_eq!(texel(r.x - 1), [2., 0., 0., 1.]);
         assert_eq!(texel(r.x + 1), [0., 1., 0., 1.]);
+    }
+
+    #[test]
+    fn disp_uv_follows_rotated_grid() {
+        let light = FaceLight {
+            page: 0,
+            x: 10,
+            y: 20,
+            width: 66,
+            height: 34,
+        };
+        assert_eq!(
+            light.disp_uv(0., 0.),
+            glam::Vec2::new(10.5 / 1024., 20.5 / 1024.)
+        );
+        assert_eq!(
+            light.disp_uv(1., 0.),
+            glam::Vec2::new(75.5 / 1024., 20.5 / 1024.)
+        );
+        assert_eq!(
+            light.disp_uv(0., 1.),
+            glam::Vec2::new(10.5 / 1024., 53.5 / 1024.)
+        );
+        assert_eq!(
+            light.disp_uv(1., 1.),
+            glam::Vec2::new(75.5 / 1024., 53.5 / 1024.)
+        );
+        assert_eq!(
+            light.disp_uv(0.5, 0.5),
+            glam::Vec2::new(43. / 1024., 37. / 1024.)
+        );
     }
 }

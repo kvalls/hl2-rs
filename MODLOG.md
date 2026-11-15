@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-15: fix displacement lightmap UVs and sloped displacement shadow receiver normals
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+**Changed:** `crates/source-assets/src/lighting.rs`, `crates/source-assets/src/bsp.rs`, `crates/hl2-simulation/src/shadows/receivers.rs`, `crates/hl2-simulation/src/shadows/tests.rs`. Added `FaceLight::disp_uv(fx, fy)` mapping displacement lightmap coordinates across the rotated base quad `(fx, fy)` instead of planar `texinfo` world projection (Source SDK `public/builddisp.cpp`: `CalcLuxelCoords` / `CalcDispSurfCoords`), and switched `bsp::model_world` displacement vertices to use `disp_uv`. Updated `Receivers::new` so `Kind::World` receiver triangles also use their geometric triangle normal oriented to the shading normal rather than copying the flat base face normal on displaced surfaces. Added unit tests `disp_uv_follows_rotated_grid` and `displaced_world_surface_uses_geometric_triangle_normal`.
+
+**Why:** On `d1_canals_01a` (`face 7257`, `disp 29`, `startPosition = (1024, 6464)` at rotated corner 2), planar `light_uv(p)` mirrored the X axis of the lightmap atlas block, projecting zero-luxel cliff regions onto the open canal mud bank as large jagged pitch-black polygons; additionally, displaced world shadow receivers reused the flat base-face normal on sloped triangles. Note that the remaining small dark notch at `(832, 6080)` comes from the BSP's underlying flat `Z = -96` world faces intersecting `face 7257` where its vertex dips to `Z = -111` (zero luxels in VRAD).
+
+**Tested how / Result:** `cargo fmt --all -- --check`, `cargo clippy -p source-assets -p hl2-simulation --all-targets --all-features -- -D warnings`, `cargo test -p source-assets -p hl2-simulation --all-features` (`source-assets`: 122 passed, 0 failed, 58 ignored; `hl2-simulation`: 810 passed, 0 failed, 34 ignored), `python3 scripts/checks/architecture.py` passed; rebuilt release `bin/hl2-bevy` and captured `d1_canals_01a` (`--position 560 6030 -30 --yaw 50 --pitch -8` and `615 6020 -30`) visually confirming the large foreground/bank jagged black shadows are eliminated.
+
+**Still broken or not tested:** Owned-install `#[ignore]` tests in `source-assets`/`hl2-simulation` and Windows build **not tested**.
+
+**Next:** Investigate and fix weapon-wielding FPS drop (`present_lighting`, `present_weapons`, `ViewmodelCamera`).
+
 ## 2026-11-15: restore viewmodel motion blur when viewmodel sway/shake moves `ViewmodelCamera`
 
 **Agent/model:** Antigravity (exact model identifier not exposed). No subagents.

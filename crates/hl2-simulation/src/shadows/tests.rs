@@ -411,3 +411,51 @@ fn a_size_used_up_this_frame_falls_back_to_a_smaller_one() {
     let (at, _) = page.rect(casters[0]).unwrap();
     assert!(at.y >= 512);
 }
+
+#[test]
+fn displaced_world_surface_uses_geometric_triangle_normal() {
+    // Displaced terrain keeps the flat base-face shading normal (+Z) even on sloped triangles;
+    // receiver triangles must follow the sloped geometry and stay lifted off the sloped surface.
+    let slope = [
+        Vec3::new(-32., -32., 0.),
+        Vec3::new(32., -32., 0.),
+        Vec3::new(32., 32., 32.),
+        Vec3::new(-32., 32., 32.),
+    ];
+    let surface = Surface {
+        flex_source: None,
+        background: false,
+        material: "nature/dirtfloor006a".into(),
+        vertices: slope
+            .iter()
+            .map(|&position| Vertex {
+                position,
+                normal: Vec3::Z,
+                uv: Vec2::ZERO,
+                color: [255; 4],
+                skin: None,
+                light_uv: Vec2::ZERO,
+            })
+            .collect(),
+        indices: vec![0, 1, 2, 0, 2, 3],
+        lightmap: None,
+    };
+    let decal = decal_with(
+        &[surface],
+        Cast {
+            static_props: false,
+            bias: 0,
+            lift: 0.1,
+        },
+    );
+    assert!(!decal.is_empty());
+    let expected = Vec3::new(0., -32., 64.).normalize();
+    for &n in &decal.normals {
+        close3(n, expected, "sloped displacement receiver normal");
+    }
+    for &p in &decal.positions {
+        let on_plane = (p.y + 32.) * 0.5;
+        let offset = (p - Vec3::new(p.x, p.y, on_plane)).dot(expected);
+        close(offset, 0.1, "shadow decal lifted along triangle normal");
+    }
+}
