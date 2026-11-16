@@ -2863,6 +2863,7 @@ Claude Code desktop, `claude-opus-5-5`. No subagents. New branch `wip/session35-
 Session 61 (details in "Current session 61"):
 - d1_trainstation_01: light_dynamic's world illumination and dlight styles are not modeled; the mouth shot's peak is brighter and whiter than native's. Model lighting ignores world-light styles (se, se_l and the red disaster lights light models while off; DESIGN 14z-e step 3, blocked on PR #5's rendering/lighting.rs). The key hint's labels (DejaVu Sans for Verdana) and the credits fonts are unchanged; the logo's 8% is not explained.
 - d1_trainstation_01: compare native timings within one oracle run (separate runs' wall-clock waits differ by seconds); the intro names match native (artifacts/s61/credits-ab2.png), the VALVE logo's moment and the passengers' walk are not compared.
+- Hint-group limiting: ai_changehintgroup is not modeled: 18 installed maps use it, 6 of them with hintlimiting (d1_trainstation_06 x3, d1_canals_01, d2_coast_01 x2, d2_prison_08, d3_c17_02 x2, d3_c17_12b); SDK triggers.cpp CAI_ChangeHintGroup: SearchType 0 name / 1 classname within Radius of its origin, 2 NPCs whose current hint group is SearchName (sphere, FLT_MAX for radius 0); Activate calls SetHintGroup(NewHintGroup, hintlimiting) on every match; assault points, npc makers and npc_antlion's override not modeled either.
 - PR #5 (@OrbitalMan) is open and touches 91 files: performance (DESIGN 14s) is its claim.
 
 Session 60 (details in "Current session 60"):
