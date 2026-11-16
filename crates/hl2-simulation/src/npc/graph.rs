@@ -102,7 +102,9 @@ fn candidates<W: NpcCollisionWorld>(
     view: Vec3,
     query: Query<'_>,
 ) -> Vec<usize> {
+    // CAI_Network::NearestNodeToPoint passes over the NPC's unusable nodes.
     let mut nearest: Vec<_> = (0..graph.nodes.len())
+        .filter(|index| super::hint_limits::usable(actor, *index))
         .filter_map(|index| {
             let feet = node_feet(graph, index, actor.hull)?;
             ((graph.nodes[index].origin - point)
@@ -158,6 +160,18 @@ fn door_link<W: NpcCollisionWorld>(
     let moved = npc_probe::ground_move(world, from, to, actor.ground, query);
     !moved.completed && moved.blocker.is_some_and(|b| doors.contains(&b))
 }
+impl Route {
+    /// A route straight to `end` without graph nodes.
+    fn direct(end: Vec3) -> Self {
+        Self {
+            nodes: Vec::new(),
+            feet: vec![end],
+            doors: vec![None],
+            door_known: vec![true],
+            navs: Vec::new(),
+        }
+    }
+}
 #[allow(clippy::too_many_arguments)]
 fn plan<W: NpcCollisionWorld>(
     world: &W,
@@ -182,13 +196,7 @@ fn plan<W: NpcCollisionWorld>(
         ..Default::default()
     };
     if connector(world, actor, start, end, tolerance, query) {
-        return Ok(Route {
-            nodes: Vec::new(),
-            feet: vec![end],
-            doors: vec![None],
-            door_known: vec![true],
-            navs: Vec::new(),
-        });
+        return Ok(Route::direct(end));
     }
     let graph = graph.ok_or(GoalBlockReason::MissingGraph)?;
     let view = actor
@@ -220,6 +228,14 @@ fn plan<W: NpcCollisionWorld>(
         start_node,
         end_node,
         |link, from, to| {
+            // IsUnusableNode: such a node is never expanded nor reached.
+            let ends = (graph.links[link].source, graph.links[link].destination);
+            if ![ends.0, ends.1]
+                .iter()
+                .all(|n| super::hint_limits::usable(actor, *n))
+            {
+                return None;
+            }
             let Some(&expires) = links.get(&link) else {
                 return Some(from.distance(to));
             };
