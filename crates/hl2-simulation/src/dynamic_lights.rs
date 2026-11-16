@@ -154,9 +154,11 @@ fn live_origin(states: &[crate::entities::State], id: usize) -> Option<Vec3> {
 }
 
 impl crate::entities::Scene {
-    /// env_beam strikes and light_dynamic aims, after parented children moved.
+    /// env_beam strikes, light style frames and fades, and light_dynamic aims, after parented
+    /// children moved.
     pub(crate) fn think_effects(&mut self) {
         self.beams.think(self.time);
+        self.lightstyles.animate(self.time);
         let states = &self.states;
         self.dynamic_lights
             .think(self.time, |id| live_origin(states, id));
