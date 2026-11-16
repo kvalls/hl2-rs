@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-16 session 61: light_dynamic; animated light styles (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation dynamic_lights.rs (light_dynamic spawn, 0.1 s aim, TurnOn/TurnOff/Toggle, model lights), modkit-core `DynamicLight::spot_light` (retail cone conversion), the host adds light_dynamic to model lighting; a shared `entities::named` replaces two copies; `--capture-every` below 1 s names milliseconds. Light styles: the 64 engine style strings with the world defaults, defaultstyle presets, FadeToPattern, a 10 Hz frame for the styles faces use; the host writes only changed faces' rectangles (render-world write_texture).
+- Why: owner priority (2026-11-13) d1_trainstation_01 to native fidelity: native's intro lights the G-Man with moving coloured lights ours lacked; light style patterns (prompt item 1f).
+- Tested how: unit tests; owned test (the intro's train lights); packaged A/B against native time-lapses and a dense native recording (artifacts/s61); validate1.sh (see STATUS).
+- Result: the intro's G-Man is lit by the warm and cyan train lights like native. Fluorescent and other animated styles flicker in their retail letter order (d3_c17_02 packaged); named lights take defaultstyle presets and FadeToPattern.
+- Frame time: light_dynamic adds up to four entity lights to models within their reach (the existing per-frame dynamic path; maps without light_dynamic allocate nothing). Light styles: 29 recompositions in 4.5 s of d3_c17_02's flicker each below the scope timer's resolution, frames 15.9 ms (--profile); no work while no used style changes.
+- Still broken or not tested: light_dynamic's world illumination and style; the mouth shot's peak brightness; model lighting ignores light styles (DESIGN 14z-e step 3).
+- Next: see STATUS "Current session 61".
+
 ## 2026-11-14 session 60: the movement key hint; the ride's ground ray (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
