@@ -6,7 +6,7 @@
 //! SF_CORNER_WAIT_FOR_TRIG (1), waits the corner's `wait` seconds, or goes on at once. Stop
 //! halts it, Toggle switches. SF_CORNER_TELEPORT, blocking damage and the move sounds are not
 //! modeled.
-use crate::entities::number;
+use crate::entities::{named, number};
 use glam::Vec3;
 use modkit_core::{Entity, World};
 use std::collections::BTreeMap;
@@ -31,14 +31,6 @@ struct Train {
 #[derive(Clone, Debug, Default)]
 pub struct FuncTrains {
     trains: BTreeMap<usize, Train>,
-}
-
-fn named(world: &World, name: &str) -> Option<usize> {
-    (!name.is_empty()).then_some(())?;
-    world.entities.iter().position(|e| {
-        e.get("targetname")
-            .is_some_and(|t| t.eq_ignore_ascii_case(name))
-    })
 }
 
 fn target(e: &Entity) -> String {

@@ -247,6 +247,30 @@ impl DynamicLight {
     }
 }
 
+/// A dlight_t's cone: m_Direction and m_InnerAngle / m_OuterAngle in degrees; an outer angle
+/// of 0 is a point light.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicCone {
+    pub direction: Vec3,
+    pub inner: f32,
+    pub outer: f32,
+}
+impl DynamicLight {
+    /// [`Self::world_light`] for a dlight with a cone: the retail conversion makes one whose
+    /// outer angle is above 0 an emit_spotlight along its direction with stopdot cos(inner) and
+    /// stopdot2 cos(outer) (the angles in degrees: pi / 180) and leaves its exponent 0.
+    pub fn spot_light(&self, floor: f32, cone: DynamicCone) -> WorldLight {
+        let mut light = self.world_light(floor);
+        if cone.outer > 0. {
+            light.kind = EmitType::Spot;
+            light.normal = cone.direction;
+            light.stopdot = cone.inner.to_radians().cos();
+            light.stopdot2 = cone.outer.to_radians().cos();
+        }
+        light
+    }
+}
+
 fn luminance(c: Vec3) -> f32 {
     c.x * 0.299 + c.y * 0.587 + c.z * 0.114
 }
@@ -959,6 +983,36 @@ mod tests {
         let before = state.clone();
         data.add_dynamic(&mut state, point, &far);
         assert_eq!(state, before);
+    }
+    #[test]
+    fn a_dynamic_light_with_a_cone_converts_to_a_spot() {
+        let light = DynamicLight {
+            origin: Vec3::ZERO,
+            radius: 220.,
+            color: [79, 232, 198],
+            exponent: 1,
+            minlight: 0.,
+        };
+        let point = light.world_light(1.);
+        let cone = |outer| DynamicCone {
+            direction: Vec3::Y,
+            inner: 30.,
+            outer,
+        };
+        assert_eq!(light.spot_light(1., cone(0.)), point);
+        let spot = light.spot_light(1., cone(45.));
+        assert_eq!(
+            (spot.kind, spot.normal, spot.exponent),
+            (EmitType::Spot, Vec3::Y, 0.)
+        );
+        assert!((spot.stopdot - 0.866_025_4).abs() < 1e-6);
+        assert!((spot.stopdot2 - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
+        assert_eq!(
+            (spot.intensity, spot.attenuation),
+            (point.intensity, point.attenuation)
+        );
+        let shader = shader_light(&spot).unwrap();
+        assert_eq!((shader.kind, shader.exponent), (ShaderLightKind::Spot, 1.));
     }
     #[test]
     fn ambient_cube_cleared_lights_skip_baked_lights_and_boost_dark_cubes() {

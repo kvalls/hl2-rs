@@ -206,3 +206,39 @@ fn game_text_replaces_the_message_on_its_channel() {
         ([100, 100, 100, 255], 1.2)
     );
 }
+
+#[test]
+#[ignore = "requires an installed owned HL2 copy"]
+fn owned_intro_light_trains_carry_their_dynamic_lights() {
+    let game = source_assets::install::discover().unwrap();
+    let data = std::fs::read(game.join("hl2/maps/d1_trainstation_01.bsp")).unwrap();
+    let world = source_assets::bsp::Bsp::parse(&data)
+        .unwrap()
+        .world("d1_trainstation_01")
+        .unwrap();
+    let mut scene = Scene::new(&world);
+    let named = |n: &str| crate::entities::named(&world, n).unwrap();
+    let (light, train) = (
+        named("light_tracktrain2"),
+        named("dynamic_light_tracktrain2"),
+    );
+    let lit = |scene: &Scene| {
+        scene
+            .dynamic_lights
+            .model_lights(|id| Some(scene.states[id].origin), 1.)
+            .len()
+    };
+    for _ in 0..1000 {
+        scene.tick(&world, Vec3::ZERO, 0.015);
+    }
+    // 15 s: scene2_flash_mode_2 turned the two train lights on and light_start off.
+    assert_eq!(lit(&scene), 2);
+    for _ in 1000..1800 {
+        scene.tick(&world, Vec3::ZERO, 0.015);
+    }
+    // 27 s: StartForward and SetSpeed 0.2 at 22.4 s moved the train 91 units at 20 units a
+    // second, from dynamic_light_path3 past path4 to path5; the light keeps its spawn offset.
+    let (origin, carrier) = (scene.states[light].origin, scene.states[train].origin);
+    assert!((origin - carrier - Vec3::new(-16., -6., -14.)).length() < 0.01);
+    assert!((carrier - Vec3::new(-14538., -13880., -1200.)).length() < 4.);
+}

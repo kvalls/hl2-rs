@@ -17,6 +17,11 @@ pub(super) fn light(scene: &mut Scene, d: &Delivery) -> bool {
     true
 }
 
+/// `light_dynamic` (SDK dynamiclight.cpp CDynamicLight): TurnOn, TurnOff, Toggle.
+pub(super) fn dynamic(scene: &mut Scene, d: &Delivery) -> bool {
+    scene.dynamic_lights.input(d.id, d.input)
+}
+
 /// CLight::Spawn: an unnamed light is inert; a named one sets its style.
 pub(in crate::entities) fn spawn_lights(scene: &mut Scene, world: &World) {
     for (id, e) in world.entities.iter().enumerate() {

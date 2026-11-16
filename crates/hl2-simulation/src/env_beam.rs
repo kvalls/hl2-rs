@@ -11,7 +11,7 @@
 //! twice BoltWidth (SF_BEAM_TAPEROUT narrows it to 0 at the end) and the color is rendercolor
 //! x renderamt. Not modeled: rings, strikes without LightningEnd (random area or point), sparks,
 //! decals, shade in/out, the sprite's frame animation and the HDR color scale.
-use crate::entities::number;
+use crate::entities::{named, number};
 use crate::projectile_visuals::Quad;
 use glam::Vec3;
 use modkit_core::{Entity, World};
@@ -55,14 +55,6 @@ struct Beam {
 pub struct EnvBeams {
     beams: BTreeMap<usize, Beam>,
     seed: u64,
-}
-
-fn named(world: &World, name: &str) -> Option<usize> {
-    (!name.is_empty()).then_some(())?;
-    world.entities.iter().position(|e| {
-        e.get("targetname")
-            .is_some_and(|t| t.eq_ignore_ascii_case(name))
-    })
 }
 
 fn spec(world: &World, e: &Entity) -> Spec {

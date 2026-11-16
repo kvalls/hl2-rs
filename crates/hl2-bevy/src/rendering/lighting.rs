@@ -96,9 +96,10 @@ pub fn present_lighting(
     let Some(data) = game.world.lighting.as_deref() else {
         return;
     };
-    let elights = effects
+    let mut elights = effects
         .as_deref()
         .map_or_else(Vec::new, |e| e.elights(data.dynamic_minlight));
+    elights.extend(game.scene.dynamic_model_lights(data.dynamic_minlight));
     let mut states =
         BTreeMap::<Option<usize>, (glam::Vec3, modkit_core::lighting::LightState)>::new();
     let (yaw, pitch) = sim.view_angles();

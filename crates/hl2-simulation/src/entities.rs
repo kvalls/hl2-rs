@@ -127,6 +127,14 @@ struct SceneAnimation {
     previous_started: f64,
     previous_done: Option<f64>,
 }
+/// The first entity named `name` (FindEntityByName, ignoring case); none for an empty name.
+pub(crate) fn named(world: &World, name: &str) -> Option<usize> {
+    (!name.is_empty()).then_some(())?;
+    world.entities.iter().position(|e| {
+        e.get("targetname")
+            .is_some_and(|t| t.eq_ignore_ascii_case(name))
+    })
+}
 pub(crate) fn number(e: &Entity, key: &str, default: f32) -> f32 {
     e.get(key)
         .and_then(|s| s.parse::<f32>().ok())
@@ -401,6 +409,7 @@ pub struct Scene {
     /// func_tracktrain trains and the moves they and point_teleport give the player.
     pub trains: crate::trains::Trains,
     pub lightstyles: crate::lightstyles::LightStyles,
+    pub dynamic_lights: crate::dynamic_lights::DynamicLights,
     pub beams: crate::env_beam::EnvBeams,
     pub sprites: crate::env_sprite::EnvSprites,
     pub func_trains: crate::func_train::FuncTrains,
@@ -727,6 +736,7 @@ impl Scene {
             view_control: Default::default(),
             trains: Default::default(),
             lightstyles: Default::default(),
+            dynamic_lights: Default::default(),
             beams: Default::default(),
             sprites: Default::default(),
             func_trains: Default::default(),
@@ -915,9 +925,9 @@ impl Scene {
             }
         }
         self.advance_func_trains(world);
-        self.beams.think(self.time);
         // Parented children follow this tick's parent poses and animated attachments.
         self.follow_parents(world);
+        self.think_effects();
         for _ in 0..2048 {
             let Some(index) = self
                 .queue
