@@ -822,7 +822,8 @@ impl Behavior for Scanner {
                 Running
             }
             "TASK_CSCANNER_GET_PATH_TO_INSPECT_TARGET" => {
-                let route = self.inspect_at.and_then(|goal| motor.fly_route(goal));
+                let route =
+                    (self.inspect_at).and_then(|goal| motor.fly_route(goal, self.tolerance));
                 self.follow(route)
             }
             "TASK_SET_TOLERANCE_DISTANCE" => {
@@ -835,7 +836,7 @@ impl Behavior for Scanner {
             }
             "TASK_GET_PATH_TO_ENEMY" => {
                 let goal = ctx.enemy_lkp.or(ctx.enemy.map(|(_, at)| at));
-                self.follow(goal.and_then(|goal| motor.fly_route(goal)))
+                self.follow(goal.and_then(|goal| motor.fly_route(goal, 0.)))
             }
             "TASK_RUN_PATH" => {
                 npc.activity = "ACT_RUN".into();

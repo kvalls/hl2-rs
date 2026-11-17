@@ -129,21 +129,25 @@ impl AirGraph {
 }
 
 impl Controller {
-    /// The legs of a flight from `from` to `to`, the last being `to`. `clear` says whether a body
-    /// can fly a straight leg. None: there is no way.
+    /// The legs of a flight from `from` to `to`, the last being `to`. `reach` is the share of a
+    /// straight leg a body can fly (1: clear). The last leg, from the network to `to`, may be
+    /// blocked within `tolerance` of `to` (CAI_Pathfinder::RouteFromNode builds it with
+    /// bits_BUILD_GET_CLOSE: a move obstructed by no more than the goal tolerance is taken).
+    /// None: there is no way.
     pub fn fly_route(
         &mut self,
         hull: HullType,
-        from: Vec3,
-        to: Vec3,
-        clear: impl Fn(Vec3, Vec3) -> bool,
+        (from, to, tolerance): (Vec3, Vec3, f32),
+        reach: impl Fn(Vec3, Vec3) -> f32,
     ) -> Option<Vec<Vec3>> {
+        let clear = |a, b| reach(a, b) >= 1.;
         if clear(from, to) {
             return Some(vec![to]);
         }
         let air = self.air_graph(hull)?;
         let starts = air.legs(from, |node| clear(from, node));
-        let ends = air.legs(to, |node| clear(node, to));
+        let close = |node: Vec3| (1. - reach(node, to)) * node.distance(to) <= tolerance;
+        let ends = air.legs(to, close);
         let mut way = air.shortest(&starts, &ends)?;
         way.push(to);
         Some(way)
@@ -211,11 +215,16 @@ mod tests {
         };
         Controller::new(Some(graph), NavRestrictions::default())
     }
-    /// A wall along the y axis, up to y = 150, between west and east.
-    fn past_the_wall(a: Vec3, b: Vec3) -> bool {
-        let crosses = a.x * b.x < 0.;
-        let at = a.y + (b.y - a.y) * (a.x / (a.x - b.x));
-        !crosses || at > 150.
+    /// A wall along the y axis, up to y = 150, between west and east: the share of a leg
+    /// flown before it.
+    fn past_the_wall(a: Vec3, b: Vec3) -> f32 {
+        let share = a.x / (a.x - b.x);
+        let at = a.y + (b.y - a.y) * share;
+        if a.x * b.x < 0. && at <= 150. {
+            share
+        } else {
+            1.
+        }
     }
     fn over_the_wall() -> Vec<Node> {
         vec![node(-60., 200.), node(60., 200.)]
@@ -224,7 +233,7 @@ mod tests {
     #[test]
     fn a_clear_flight_goes_straight_with_no_graph_at_all() {
         let mut c = Controller::new(None, NavRestrictions::default());
-        let way = c.fly_route(HullType::Tiny, WEST, EAST, |_, _| true);
+        let way = c.fly_route(HullType::Tiny, (WEST, EAST, 0.), |_, _| 1.);
         assert_eq!(way, Some(vec![EAST]));
     }
 
@@ -232,7 +241,7 @@ mod tests {
     fn a_wall_is_passed_by_the_nodes_over_it() {
         let mut c = controller(over_the_wall(), vec![link(0, 1, MOVE_FLY)]);
         let way = c
-            .fly_route(HullType::Tiny, WEST, EAST, past_the_wall)
+            .fly_route(HullType::Tiny, (WEST, EAST, 0.), past_the_wall)
             .unwrap();
         let expected = [Vec3::new(-60., 200., 0.), Vec3::new(60., 200., 0.), EAST];
         assert_eq!(way, expected);
@@ -241,20 +250,26 @@ mod tests {
     #[test]
     fn a_ground_link_is_no_way_through_the_air() {
         let mut c = controller(over_the_wall(), vec![link(0, 1, 1)]);
-        assert_eq!(c.fly_route(HullType::Tiny, WEST, EAST, past_the_wall), None);
+        assert_eq!(
+            c.fly_route(HullType::Tiny, (WEST, EAST, 0.), past_the_wall),
+            None
+        );
     }
 
     #[test]
     fn no_graph_and_a_wall_is_no_route() {
         let mut c = Controller::new(None, NavRestrictions::default());
-        assert_eq!(c.fly_route(HullType::Tiny, WEST, EAST, past_the_wall), None);
+        assert_eq!(
+            c.fly_route(HullType::Tiny, (WEST, EAST, 0.), past_the_wall),
+            None
+        );
     }
 
     #[test]
     fn nodes_with_no_clear_leg_are_not_entered() {
         let mut c = controller(over_the_wall(), vec![link(0, 1, MOVE_FLY)]);
-        let sealed = |a: Vec3, b: Vec3| past_the_wall(a, b) && a != WEST;
-        assert_eq!(c.fly_route(HullType::Tiny, WEST, EAST, sealed), None);
+        let sealed = |a: Vec3, b: Vec3| if a == WEST { 0. } else { past_the_wall(a, b) };
+        assert_eq!(c.fly_route(HullType::Tiny, (WEST, EAST, 0.), sealed), None);
     }
 
     #[test]
@@ -268,7 +283,7 @@ mod tests {
         let links = vec![link(2, 3, MOVE_FLY), link(0, 1, MOVE_FLY)];
         let mut c = controller(nodes, links);
         let way = c
-            .fly_route(HullType::Tiny, WEST, EAST, past_the_wall)
+            .fly_route(HullType::Tiny, (WEST, EAST, 0.), past_the_wall)
             .unwrap();
         assert!(way.iter().all(|p| p.y <= 200.), "{way:?}");
     }
@@ -278,10 +293,30 @@ mod tests {
         let mut only_human = link(0, 1, 0);
         only_human.accepted_move_types[HullType::Human.index()] = MOVE_FLY;
         let mut c = controller(over_the_wall(), vec![only_human]);
-        assert_eq!(c.fly_route(HullType::Tiny, WEST, EAST, past_the_wall), None);
+        assert_eq!(
+            c.fly_route(HullType::Tiny, (WEST, EAST, 0.), past_the_wall),
+            None
+        );
         assert!(c
-            .fly_route(HullType::Human, WEST, EAST, past_the_wall)
+            .fly_route(HullType::Human, (WEST, EAST, 0.), past_the_wall)
             .is_some());
+    }
+
+    #[test]
+    fn the_last_leg_may_be_blocked_within_the_goal_tolerance() {
+        // Two linked nodes west of the wall; the goal 30 units past it, so each leg from them is
+        // obstructed for about 31 units.
+        let nodes = vec![node(-60., -20.), node(-60., 20.)];
+        let mut c = controller(nodes, vec![link(0, 1, MOVE_FLY)]);
+        let goal = Vec3::new(30., 0., 0.);
+        let way = |c: &mut Controller, tolerance| {
+            c.fly_route(HullType::Tiny, (WEST, goal, tolerance), past_the_wall)
+        };
+        assert_eq!(way(&mut c, 0.), None);
+        assert_eq!(way(&mut c, 20.), None);
+        let way = way(&mut c, 128.).unwrap();
+        assert_eq!(way.last(), Some(&goal));
+        assert!(way[..way.len() - 1].iter().all(|p| p.x == -60.), "{way:?}");
     }
 
     fn line_of_nodes(count: usize) -> Controller {

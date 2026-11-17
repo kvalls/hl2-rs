@@ -287,12 +287,13 @@ impl Motor for SceneMotor<'_> {
         )
     }
     /// From just off the ground, so that a bird standing on it can leave.
-    fn fly_route(&mut self, goal: Vec3) -> Option<Vec<Vec3>> {
+    fn fly_route(&mut self, goal: Vec3, tolerance: f32) -> Option<Vec<Vec3>> {
         let (world, physics, me) = (self.world, self.physics, self.entity);
         let hull = flight_hull(world, me);
         let from = self.scene.states[me].origin + Vec3::Z * FLIGHT_START_LIFT;
-        let clear = |a, b| clear_flight(physics, (a, b), hull, me);
-        self.controller.fly_route(hull, from, goal, clear)
+        let reach = |a, b| flight_reach(physics, (a, b), hull, me);
+        self.controller
+            .fly_route(hull, (from, goal, tolerance), reach)
     }
     fn fly_patrol(&mut self, length: f32, seed: &mut u64) -> Option<Vec<Vec3>> {
         let (world, physics, me) = (self.world, self.physics, self.entity);
@@ -325,8 +326,17 @@ fn flight_hull(world: &World, id: usize) -> HullType {
 
 /// Whether a body can fly a straight leg.
 fn clear_flight(physics: &Physics, leg: (Vec3, Vec3), hull: HullType, id: usize) -> bool {
+    flight_reach(physics, leg, hull, id) >= 1.
+}
+
+/// The share of a straight leg a body can fly (none when it starts in something solid).
+fn flight_reach(physics: &Physics, leg: (Vec3, Vec3), hull: HullType, id: usize) -> f32 {
     let hit = flight_trace(physics, leg, hull.bounds(), id);
-    !hit.trace.start_solid && hit.trace.fraction >= 1.
+    if hit.trace.start_solid {
+        0.
+    } else {
+        hit.trace.fraction
+    }
 }
 
 /// A hull trace that only the world and props stop: birds pass through NPCs, each other and the
