@@ -8,7 +8,7 @@
 - Tested how: unit tests (the floor with and without HDR, FindQualifiedNPC's searches, the hint-group override, assault groups, the get-close last leg); an owned test (d1_trainstation_06's chaser cops); a native exposure-goal timeline (artifacts/s62/native_tm.py); two native time-lapses of the arrival (session 61's and artifacts/s62/native-scan1); packaged time-lapses against them (artifacts/s62); validate1.sh and validate2.sh, replays on the tip, CI 43989334185 and 43999129325 (see STATUS).
 - Result: the G-Man's close-up at 17-22 s matches native's frame brightness (66 -> 41 against 70 -> 41; it was 110 -> 67) and its warm key and shadowed side; the mouth shot shows native's double exposure.
 - Frame time: no change (a constant chosen at map load).
-- Still broken or not tested: our exposure still dips in the mouth shot (native stays at 2.0; blocked on PR #5's files); muzzle-flash elights, now 5 times weaker with HDR, not compared with native; the platform scanner photographs about 17 s early from outside the car (native gets into the aisle); runtime hint groups not compared with native on a map.
+- Still broken or not tested: our exposure still dips in the mouth shot (native stays at 2.0; blocked on PR #5's files); the pistol's flash frame brightens the viewmodel quarter 2.37 times in ours and 2.10 times natively (the elight alone not separated); the platform scanner photographs about 17 s early from outside the car (native gets into the aisle); runtime hint groups not compared with native on a map.
 - Next: see STATUS "Current session 62".
 
 ## 2026-11-16 session 61: light_dynamic; animated light styles (Claude Code desktop, claude-opus-5-5)
