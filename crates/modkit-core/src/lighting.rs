@@ -131,12 +131,17 @@ fn default_dynamic_minlight() -> f32 {
     1.
 }
 /// Retail CMapLoadHelper::Init (engine.dll 0x101d7e30, reviewed privately) sets the
-/// minlight floor of dlight -> dworldlight_t per map: BSP version < 20 -> 0.078125;
-/// else from LUMP_MAP_FLAGS: LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_NONHDR (0x100) ->
-/// 0.078125, _HDR (0x200) -> 0.01953125, neither -> 1/256; without the lump it keeps
-/// its previous value (1.0 initially). A material-system query (vtable +0xd8, likely
-/// InEditorMode) forces 1/256; it is false in ordinary play (inferred).
-pub fn dynamic_minlight_floor(bsp_version: u32, map_flags: Option<u32>) -> f32 {
+/// minlight floor of dlight -> dworldlight_t per map. Its first test is
+/// IMaterialSystemHardwareConfig::GetHDRType (MaterialSystemHardwareConfig012 slot 54,
+/// vtable +0xd8: the same slot that picks a float `_rt_TeenyFB` when it returns
+/// HDR_TYPE_FLOAT), so with HDR lighting (`hdr`) the floor is 1/256 on every map. Without
+/// HDR: BSP version < 20 -> 0.078125; else from LUMP_MAP_FLAGS:
+/// LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_NONHDR (0x100) -> 0.078125, _HDR (0x200) ->
+/// 0.01953125, neither -> 1/256; without the lump it keeps its previous value (1.0 initially).
+pub fn dynamic_minlight_floor(bsp_version: u32, map_flags: Option<u32>, hdr: bool) -> f32 {
+    if hdr {
+        return 1. / 256.;
+    }
     if bsp_version < 20 {
         return 0.078125;
     }
@@ -244,6 +249,30 @@ impl DynamicLight {
             attenuation: [0., 0., 1. / (radius * minlight * radius)],
             flags: 0,
         }
+    }
+}
+
+/// A dlight_t's cone: m_Direction and m_InnerAngle / m_OuterAngle in degrees; an outer angle
+/// of 0 is a point light.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicCone {
+    pub direction: Vec3,
+    pub inner: f32,
+    pub outer: f32,
+}
+impl DynamicLight {
+    /// [`Self::world_light`] for a dlight with a cone: the retail conversion makes one whose
+    /// outer angle is above 0 an emit_spotlight along its direction with stopdot cos(inner) and
+    /// stopdot2 cos(outer) (the angles in degrees: pi / 180) and leaves its exponent 0.
+    pub fn spot_light(&self, floor: f32, cone: DynamicCone) -> WorldLight {
+        let mut light = self.world_light(floor);
+        if cone.outer > 0. {
+            light.kind = EmitType::Spot;
+            light.normal = cone.direction;
+            light.stopdot = cone.inner.to_radians().cos();
+            light.stopdot2 = cone.outer.to_radians().cos();
+        }
+        light
     }
 }
 
@@ -913,12 +942,15 @@ mod tests {
         .world_light(1.);
         assert!((muzzle.intensity - Vec3::new(32., 24.094118, 8.031373)).length() < 1e-4);
         assert_eq!(muzzle.attenuation, [0., 0., 1. / 2304.]);
-        // HL2 BSP 20 maps with baked HDR static-prop lighting (0x200): 0.01953125.
-        assert_eq!(dynamic_minlight_floor(20, Some(0x200)), 0.019_531_25);
-        assert_eq!(dynamic_minlight_floor(20, Some(0x203)), 0.019_531_25);
-        assert_eq!(dynamic_minlight_floor(20, Some(0x100)), 0.078125);
-        assert_eq!(dynamic_minlight_floor(19, None), 0.078125);
-        assert_eq!(dynamic_minlight_floor(20, Some(0)), 1. / 256.);
+        // Without HDR, HL2 BSP 20 maps with baked HDR static-prop lighting (0x200): 0.01953125.
+        assert_eq!(dynamic_minlight_floor(20, Some(0x200), false), 0.019_531_25);
+        assert_eq!(dynamic_minlight_floor(20, Some(0x203), false), 0.019_531_25);
+        assert_eq!(dynamic_minlight_floor(20, Some(0x100), false), 0.078125);
+        assert_eq!(dynamic_minlight_floor(19, None, false), 0.078125);
+        assert_eq!(dynamic_minlight_floor(20, Some(0), false), 1. / 256.);
+        // GetHDRType() != HDR_TYPE_NONE comes first: 1/256 on every map.
+        assert_eq!(dynamic_minlight_floor(20, Some(0x200), true), 1. / 256.);
+        assert_eq!(dynamic_minlight_floor(19, None, true), 1. / 256.);
         let hdr = DynamicLight {
             origin: Vec3::ZERO,
             radius: 48.,
@@ -959,6 +991,36 @@ mod tests {
         let before = state.clone();
         data.add_dynamic(&mut state, point, &far);
         assert_eq!(state, before);
+    }
+    #[test]
+    fn a_dynamic_light_with_a_cone_converts_to_a_spot() {
+        let light = DynamicLight {
+            origin: Vec3::ZERO,
+            radius: 220.,
+            color: [79, 232, 198],
+            exponent: 1,
+            minlight: 0.,
+        };
+        let point = light.world_light(1.);
+        let cone = |outer| DynamicCone {
+            direction: Vec3::Y,
+            inner: 30.,
+            outer,
+        };
+        assert_eq!(light.spot_light(1., cone(0.)), point);
+        let spot = light.spot_light(1., cone(45.));
+        assert_eq!(
+            (spot.kind, spot.normal, spot.exponent),
+            (EmitType::Spot, Vec3::Y, 0.)
+        );
+        assert!((spot.stopdot - 0.866_025_4).abs() < 1e-6);
+        assert!((spot.stopdot2 - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
+        assert_eq!(
+            (spot.intensity, spot.attenuation),
+            (point.intensity, point.attenuation)
+        );
+        let shader = shader_light(&spot).unwrap();
+        assert_eq!((shader.kind, shader.exponent), (ShaderLightKind::Spot, 1.));
     }
     #[test]
     fn ambient_cube_cleared_lights_skip_baked_lights_and_boost_dark_cubes() {

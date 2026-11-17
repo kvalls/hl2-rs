@@ -25,7 +25,7 @@ pub use face_flex::FlexModels;
 mod lighting;
 use lighting::ModelLit;
 mod lightstyles;
-pub use lightstyles::{LightmapPages, apply_lightstyles};
+pub use lightstyles::{LightmapPages, LightmapWritesPlugin, apply_lightstyles};
 pub(crate) mod lod;
 mod map_draw;
 mod material;

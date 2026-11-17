@@ -221,6 +221,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .add_plugins(MaterialPlugin::<effects::EffectMaterial>::default())
         .add_plugins((bloom::SourceBloomPlugin, ShadowPlugin, FlashlightPlugin))
         .add_plugins(intro_view::IntroViewPlugin)
+        .add_plugins(rendering::LightmapWritesPlugin)
         .add_plugins(bevy::sprite_render::Material2dPlugin::<
             canvas_renderer::HudMaterial,
         >::default())

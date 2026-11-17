@@ -20,7 +20,14 @@ pub(super) fn draw(hud: &Hud, game: &Gameplay, ui: &Console) {
         game.scene.time,
     );
     if !ui.source.paused() {
-        hud.source.draw_crosshair(&game.inventory);
+        // CHudCrosshair::ShouldDraw: only while the player is the view entity (a
+        // point_viewcontrol or a commentary node's view position takes it).
+        let scene = &game.scene;
+        let camera = scene.view_control.active().is_some()
+            || scene.commentary.view_control_override().is_some();
+        if !camera {
+            hud.source.draw_crosshair(&game.inventory);
+        }
         if game.scene.commentary.enabled {
             hud.source.draw_commentary(
                 game.scene.commentary.active_overlay().as_ref(),

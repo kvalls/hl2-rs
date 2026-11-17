@@ -76,6 +76,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("light", lights::light),
     ("light_spot", lights::light),
     ("light_glspot", lights::light),
+    ("light_dynamic", lights::dynamic),
     ("env_beam", beams::beam),
     ("env_sprite", beams::sprite),
 ];

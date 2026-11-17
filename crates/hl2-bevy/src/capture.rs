@@ -54,7 +54,13 @@ pub(crate) fn timelapse(
     }
     control.next_timelapse = interval + 1;
     let name = path.file_stem().unwrap_or_default().to_string_lossy();
-    let file = path.with_file_name(format!("{name}-{:05.0}s.png", interval as f64 * every));
+    // Whole seconds keep their short names; shorter intervals name milliseconds too.
+    let at = interval as f64 * every;
+    let file = if every >= 1.0 {
+        path.with_file_name(format!("{name}-{at:05.0}s.png"))
+    } else {
+        path.with_file_name(format!("{name}-{at:09.3}s.png"))
+    };
     commands
         .spawn(source())
         .observe(bevy::render::view::screenshot::save_to_disk(file));

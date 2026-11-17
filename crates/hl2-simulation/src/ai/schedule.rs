@@ -177,8 +177,8 @@ pub trait Motor {
     fn find_backaway(&mut self, _threat: Vec3) -> Option<Vec3> {
         None
     }
-    /// A route in NAV_FLY: the legs to `goal`, or None when there is no way there.
-    fn fly_route(&mut self, _goal: Vec3) -> Option<Vec<Vec3>> {
+    /// A route in NAV_FLY: the legs to `goal` (the last may stop within `tolerance` of it), or None.
+    fn fly_route(&mut self, _goal: Vec3, _tolerance: f32) -> Option<Vec<Vec3>> {
         None
     }
     /// A wander in NAV_FLY of about `length`: its points, or None when it cannot start.

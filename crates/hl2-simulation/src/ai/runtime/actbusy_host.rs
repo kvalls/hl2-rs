@@ -37,7 +37,7 @@ impl HintSearch<'_> {
     pub fn offer(
         &self,
         busy: &mut ActBusy,
-        (world, id): (&World, usize),
+        (world, scene, id): (&World, &Scene, usize),
         (origin, now): (Vec3, f64),
         state: NpcState,
         roll: f32,
@@ -46,12 +46,7 @@ impl HintSearch<'_> {
         if !busy.wants_hint(now) {
             return;
         }
-        let group = world
-            .entities
-            .get(id)
-            .and_then(|e| e.get("hintgroup"))
-            .unwrap_or("")
-            .trim();
+        let group = super::goal_inputs::hint_groups::group(world, scene, id);
         let state = match state {
             NpcState::Combat => 3,
             NpcState::Alert => 2,

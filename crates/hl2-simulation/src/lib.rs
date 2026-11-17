@@ -4,6 +4,7 @@
 //! extracting it does not establish equivalence with Valve's VPhysics solver.
 
 pub mod drag;
+pub mod dynamic_lights;
 pub mod fire;
 pub mod npc_probe;
 pub mod physics;

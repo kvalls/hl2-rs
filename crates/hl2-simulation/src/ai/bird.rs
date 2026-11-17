@@ -509,7 +509,7 @@ impl Behavior for Bird {
                     self.hint = None;
                     Complete
                 } else {
-                    let legs = self.hint.and_then(|hint| motor.fly_route(hint));
+                    let legs = self.hint.and_then(|hint| motor.fly_route(hint, 0.));
                     self.follow(legs)
                 }
             }

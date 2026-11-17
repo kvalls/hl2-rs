@@ -1,5 +1,44 @@
 # MODLOG
 
+## 2026-11-17 — Merge main into the performance research branch
+
+Codex desktop, GPT-6 family. Merged main at `b82e2f8e` with the performance branch at
+`bee44bd5`. All eight Rust files edited by both branches retained both parents' patches.
+Kept both development histories and tightened the architecture baseline for the merged NPC module.
+
+Verified with `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, the owned
+`owned_chaser_cops_take_their_limited_group` test, and `JOBS=3 python3 scripts/checks/replays.py`
+on both packages. All 107 shared replays passed before and after with the same expectations.
+Matched canal captures retained the blended terrain and blood decal. Across three alternating
+1080p Metal pairs, median mean frame times before and after were 5.364 and 5.288 ms on quiet
+station02, 9.311 and 9.307 ms with 30 manhacks, and 8.677 and 8.710 ms with the optional GPU
+silhouettes in the same crowd. The GPU pair differences changed direction across runs.
+
+Windows runtime, interactive playthrough and native comparison were **not tested**.
+Next validation on Windows can use the same packaged replays and station02 workloads.
+
+## 2026-11-17 session 62: the HDR dlight minlight floor (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: modkit-core `dynamic_minlight_floor` takes the HDR state (retail GetHDRType first: 1/256 with HDR on every map); source-assets passes the lighting copy it chose. ai_changehintgroup: hl2-simulation ai/runtime/goal_inputs/hint_groups.rs (FindQualifiedNPC's three searches, SetHintGroup into the scene's keyvalue overrides), `Controller::limit_to_hint_group`, actbusy reads the runtime group; SetPoliceGoal moved out of AiRuntime::inputs. Flight routes: the last leg may end within the goal tolerance (RouteFromNode's bits_BUILD_GET_CLOSE); the arrival's platform scanner now photographs the player. Assault points give the NPC their `assaultgroup` on arrival and clear it (OnHitAssaultPoint, ClearAssaultPoint).
+- Why: owner priority (2026-11-13) d1_trainstation_01 to native fidelity; the intro's G-Man was blown out by the light_dynamic train lights (prompt item 1 a2).
+- Tested how: unit tests (the floor with and without HDR, FindQualifiedNPC's searches, the hint-group override, assault groups, the get-close last leg); an owned test (d1_trainstation_06's chaser cops); a native exposure-goal timeline (artifacts/s62/native_tm.py); two native time-lapses of the arrival (session 61's and artifacts/s62/native-scan1); packaged time-lapses against them (artifacts/s62); validate1.sh and validate2.sh, replays on the tip, CI 43989334185 and 43999129325 (see STATUS).
+- Result: the G-Man's close-up at 17-22 s matches native's frame brightness (66 -> 41 against 70 -> 41; it was 110 -> 67) and its warm key and shadowed side; the mouth shot shows native's double exposure.
+- Frame time: no change (a constant chosen at map load).
+- Still broken or not tested: our exposure still dips in the mouth shot (native stays at 2.0; blocked on PR #5's files); the pistol's flash frame brightens the viewmodel quarter 2.37 times in ours and 2.10 times natively (the elight alone not separated); the platform scanner photographs about 17 s early from outside the car (native gets into the aisle); runtime hint groups not compared with native on a map.
+- Next: see STATUS "Current session 62".
+
+## 2026-11-16 session 61: light_dynamic; animated light styles (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation dynamic_lights.rs (light_dynamic spawn, 0.1 s aim, TurnOn/TurnOff/Toggle, model lights), modkit-core `DynamicLight::spot_light` (retail cone conversion), the host adds light_dynamic to model lighting; a shared `entities::named` replaces two copies; `--capture-every` below 1 s names milliseconds. Hint-group navigation limiting (npc/hint_limits.rs, NavRestrictions moved to npc/restrictions.rs). Light styles: the 64 engine style strings with the world defaults, defaultstyle presets, FadeToPattern, a 10 Hz frame for the styles faces use; the host writes only changed faces' rectangles (render-world write_texture).
+- Why: owner priority (2026-11-13) d1_trainstation_01 to native fidelity: native's intro lights the G-Man with moving coloured lights ours lacked; light style patterns (prompt item 1f).
+- Tested how: unit tests; owned test (the intro's train lights); packaged A/B against native time-lapses and a dense native recording (artifacts/s61); validate1.sh (see STATUS).
+- Result: the intro's G-Man is lit by the warm and cyan train lights like native. Fluorescent and other animated styles flicker in their retail letter order (d3_c17_02 packaged); named lights take defaultstyle presets and FadeToPattern.
+- Frame time: light_dynamic adds up to four entity lights to models within their reach (the existing per-frame dynamic path; maps without light_dynamic allocate nothing). Light styles: 29 recompositions in 4.5 s of d3_c17_02's flicker each below the scope timer's resolution, frames 15.9 ms (--profile); no work while no used style changes.
+- Still broken or not tested: light_dynamic's world illumination and style; the mouth shot's peak brightness; model lighting ignores light styles (DESIGN 14z-e step 3).
+- Next: see STATUS "Current session 61".
+
 ## 2026-11-15: DecalModulate world decals multiply the frame (no grey boxes)
 
 **Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
@@ -366,6 +405,7 @@ not run on this state.
 - Result: the hint shows FORWARD W / BACK S / LEFT A / RIGHT D at native's place and size, fades in, flashes twice and fades out after 12 s, and repeats every 19 s while the player stays in the train, like native; before the ground ray fix it showed once.
 - Frame time: not measured; the hint's labels and layout are built once per message and per canvas size; drawing is 8 labels and one rounded box while visible, nothing while hidden.
 - Still broken or not tested: the small labels' weight and width (DejaVu Sans for Verdana); the first show's timing is about 1 s early against native's earliest bound; other maps' hints (12 maps use env_hudhint) not checked against native.
+- Also: owner report fixed: the crosshair is hidden while a point_viewcontrol (or a commentary view position) holds the view, as CHudCrosshair::ShouldDraw requires the player to be the view entity; packaged A/B shows it from the teleport onto the train (about 61 s), not during the intro.
 - Also: shakes skip a player off the ground unless the shake is an air shake (env_shake spawnflag 4), per SDK UTIL_ScreenShake (bd65609; unit tests only, no native A/B).
 - Next: see STATUS "Current session 60".
 

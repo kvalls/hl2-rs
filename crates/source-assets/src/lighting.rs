@@ -186,22 +186,7 @@ pub fn compose_styles(
 ) {
     let size = usize::from(lightmap.width);
     for face in faces.iter().filter(|f| f.page == page) {
-        let values: Vec<f32> = face.styles.iter().map(|(s, _)| value(*s)).collect();
-        for dy in 0..face.height {
-            for dx in 0..face.width {
-                let i = dy * face.width + dx;
-                let mut rgb = [0f32; 3];
-                for ((_, samples), v) in face.styles.iter().zip(&values) {
-                    for (c, sum) in rgb.iter_mut().enumerate() {
-                        *sum += samples[i][c] * v;
-                    }
-                }
-                let target = ((face.y + dy) * size + face.x + dx) * 4;
-                for (c, light) in rgb.iter().enumerate() {
-                    lightmap.rgba[target + c] = half::f16::from_f32(light.min(MAX_LIGHT)).to_bits();
-                }
-            }
-        }
+        write_face(&mut lightmap.rgba, size, (face.x, face.y), face, &value);
         border(
             &mut lightmap.rgba,
             size,
@@ -210,9 +195,78 @@ pub fn compose_styles(
     }
 }
 
+/// One styled face composed as [`compose_styles`] would, with its one-texel border: rows of
+/// `width + 2` RGBA16F texels that belong at (`x - 1`, `y - 1`) of its page.
+pub fn compose_face(face: &StyledLightmap, value: impl Fn(u8) -> f32) -> Vec<u16> {
+    let size = face.width + 2;
+    let mut rgba = vec![ONE; size * (face.height + 2) * 4];
+    write_face(&mut rgba, size, (1, 1), face, &value);
+    border(&mut rgba, size, (1, 1, face.width, face.height));
+    rgba
+}
+
+/// Writes `face`'s texels at (`x`, `y`) of an RGBA16F image `size` texels wide.
+fn write_face(
+    rgba: &mut [u16],
+    size: usize,
+    (x, y): (usize, usize),
+    face: &StyledLightmap,
+    value: &impl Fn(u8) -> f32,
+) {
+    let values: Vec<f32> = face.styles.iter().map(|(s, _)| value(*s)).collect();
+    for dy in 0..face.height {
+        for dx in 0..face.width {
+            let i = dy * face.width + dx;
+            let mut rgb = [0f32; 3];
+            for ((_, samples), v) in face.styles.iter().zip(&values) {
+                for (c, sum) in rgb.iter_mut().enumerate() {
+                    *sum += samples[i][c] * v;
+                }
+            }
+            let target = ((y + dy) * size + x + dx) * 4;
+            for (c, light) in rgb.iter().enumerate() {
+                rgba[target + c] = half::f16::from_f32(light.min(MAX_LIGHT)).to_bits();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_composed_face_matches_its_rectangle_of_the_recomposed_page() {
+        let face = StyledLightmap {
+            page: 0,
+            x: 2,
+            y: 3,
+            width: 2,
+            height: 2,
+            styles: vec![
+                (0, vec![[1., 0.5, 0.25]; 4]),
+                (
+                    33,
+                    vec![[0., 1., 0.], [0., 2., 0.], [0., 3., 0.], [0., 4., 0.]],
+                ),
+            ],
+        };
+        let mut page = Lightmap {
+            width: 8,
+            height: 8,
+            rgba: vec![ONE; 8 * 8 * 4],
+        };
+        let value = |s: u8| if s == 33 { 0.5 } else { 1. };
+        compose_styles(&mut page, 0, std::slice::from_ref(&face), value);
+        let rect = compose_face(&face, value);
+        assert_eq!(rect.len(), 4 * 4 * 4);
+        for row in 0..4 {
+            let start = ((face.y - 1 + row) * 8 + face.x - 1) * 4;
+            assert_eq!(page.rgba[start..start + 16], rect[row * 16..row * 16 + 16]);
+        }
+        // The last texel: 1 + 0, 0.5 + 4 x 0.5, 0.25.
+        let texel = |i: usize| half::f16::from_bits(rect[(2 * 4 + 2) * 4 + i]).to_f32();
+        assert_eq!([texel(0), texel(1), texel(2)], [1., 2.5, 0.25]);
+    }
     #[test]
     fn an_ldr_frame_reads_the_ldr_copies_when_the_map_has_them() {
         let mut lumps = vec![vec![]; 64];

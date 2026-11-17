@@ -28,7 +28,7 @@ impl Motor for FakeMotor {
     fn movement(&self) -> MoveStatus {
         MoveStatus::Idle
     }
-    fn fly_route(&mut self, _goal: Vec3) -> Option<Vec<Vec3>> {
+    fn fly_route(&mut self, _goal: Vec3, _tolerance: f32) -> Option<Vec<Vec3>> {
         self.legs.clone()
     }
     fn fly_patrol(&mut self, _length: f32, _seed: &mut u64) -> Option<Vec<Vec3>> {

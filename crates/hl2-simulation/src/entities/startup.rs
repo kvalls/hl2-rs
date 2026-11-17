@@ -139,6 +139,7 @@ impl Scene {
         super::inputs::spawn_lights(self, world);
         self.beams.spawn(world, self.time);
         self.sprites.spawn(world);
+        self.dynamic_lights.spawn(world, self.time);
         for (id, origin) in self.func_trains.spawn(world, self.time) {
             self.states[id].origin = origin;
         }

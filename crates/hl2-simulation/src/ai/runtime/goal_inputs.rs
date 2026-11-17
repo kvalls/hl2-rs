@@ -7,6 +7,7 @@ use crate::npc::Controller;
 use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
+pub(super) mod hint_groups;
 
 /// The pairs each active ai_relationship applied.
 #[derive(Clone, Debug, Default)]
@@ -109,35 +110,15 @@ impl AiRuntime {
                 continue;
             }
             match input.as_str() {
+                "activate" if class == "ai_changehintgroup" => self.change_hint_group(
+                    (world, &mut *scene, &mut *controller),
+                    target,
+                    activator,
+                ),
                 "giveweapon" => self.give_weapon(target, class, &parameter),
                 // A Kill of `<npc>_weapon` (entities::io): the weapon is gone.
                 "killweapon" => self.set_equipment(target, class, ""),
-                "setpolicegoal" => {
-                    let goal = world.entities.iter().enumerate().find_map(|(id, e)| {
-                        (e.class() == "ai_goal_police"
-                            && e.get("targetname")
-                                .is_some_and(|n| n.eq_ignore_ascii_case(&parameter)))
-                        .then_some(id)
-                    });
-                    match (
-                        goal.and_then(|g| self.goals.get(&g)),
-                        self.actors.get_mut(&target),
-                    ) {
-                        (Some(goal), Some(actor)) if actor.class.cop().is_some() => {
-                            let cop = actor.class.cop_mut().expect("cop");
-                            // CAI_PolicingBehavior::Enable clears the schedule.
-                            cop.policing = Some(Policing::new(goal.clone()));
-                            actor.npc.schedule = None;
-                        }
-                        _ => {
-                            *self
-                                .diagnostics
-                                .unknown_goals
-                                .entry(parameter.clone())
-                                .or_default() += 1;
-                        }
-                    }
-                }
+                "setpolicegoal" => self.set_police_goal(world, target, &parameter),
                 "activatebaton" => {
                     if let Some(actor) = self.actors.get_mut(&target) {
                         if let AiClass::Metropolice(cop) = &mut actor.class {
@@ -152,6 +133,34 @@ impl AiRuntime {
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// SetPoliceGoal: the cop polices the named ai_goal_police (CAI_PolicingBehavior::Enable
+    /// clears the schedule); an unknown goal is counted.
+    fn set_police_goal(&mut self, world: &World, target: usize, parameter: &str) {
+        let goal = world.entities.iter().enumerate().find_map(|(id, e)| {
+            (e.class() == "ai_goal_police"
+                && e.get("targetname")
+                    .is_some_and(|n| n.eq_ignore_ascii_case(parameter)))
+            .then_some(id)
+        });
+        match (
+            goal.and_then(|g| self.goals.get(&g)),
+            self.actors.get_mut(&target),
+        ) {
+            (Some(goal), Some(actor)) if actor.class.cop().is_some() => {
+                let cop = actor.class.cop_mut().expect("cop");
+                cop.policing = Some(Policing::new(goal.clone()));
+                actor.npc.schedule = None;
+            }
+            _ => {
+                *self
+                    .diagnostics
+                    .unknown_goals
+                    .entry(parameter.to_owned())
+                    .or_default() += 1;
             }
         }
     }
