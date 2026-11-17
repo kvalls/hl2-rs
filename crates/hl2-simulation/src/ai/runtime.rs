@@ -1173,7 +1173,7 @@ impl AiRuntime {
         // the lost-sound delay U(5, 15)).
         let speech_rolls: [f32; 4] = std::array::from_fn(|_| self.roll_for(id));
         // FindHint's bits_HINT_NODE_RANDOM pick.
-        let hint_roll = self.roll_for(id);
+        let roll = self.roll_for(id);
         // CFastHeadcrab's run timers (only fast crabs draw: other actors' streams stay put).
         let run_roll = if matches!(&self.actors[&id].class, AiClass::Headcrab(h) if h.fast) {
             self.random()
@@ -2086,7 +2086,7 @@ impl AiRuntime {
                 anims: &self.busy_anims,
                 locks: &self.hint_locks,
             }
-            .offer(busy, (world, id), (origin, now), npc_state, hint_roll);
+            .offer(busy, (world, scene, id), (origin, now), npc_state, roll);
         }
         zombies::think_sounds(actor, id, world, scene, &player, now);
         zombies::poison_stage(actor, id, world, scene, &player, now);

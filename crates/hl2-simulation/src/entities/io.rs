@@ -505,6 +505,7 @@ fn is_ai_input(class: &str, input: &str) -> bool {
         ),
         "info_node_link" | "info_node_link_controller" => matches!(input, "turnon" | "turnoff"),
         "ai_relationship" => matches!(input, "applyrelationship" | "revertrelationship"),
+        "ai_changehintgroup" => input == "activate",
         _ => false,
     }
 }

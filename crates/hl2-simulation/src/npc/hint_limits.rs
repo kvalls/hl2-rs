@@ -3,20 +3,32 @@
 //! hints of its group. The pathfinder skips other nodes when they leave the open set and
 //! refuses one as the destination (ai_pathfinder.cpp), and the nearest-node choice passes them
 //! over (ai_network.cpp), so routes never start, end or pass through them. The group is read at
-//! spawn; SetHintGroup and npc_antlion's own override are not modeled.
+//! spawn and changed by SetHintGroup (ai_changehintgroup); npc_antlion's own override is not
+//! modeled.
 use super::Controller;
 use crate::entities::number;
 use modkit_core::World;
 use std::collections::BTreeSet;
 
 impl Controller {
-    /// The nodes `entity` may use: all (`None`) unless it limits itself to its hint group.
+    /// The spawn limit of `entity` from its `hintgroup` and `hintlimiting` keyvalues.
     pub fn set_hint_limit(&mut self, entity: usize, world: &World) {
         let Some(e) = world.entities.get(entity) else {
             return;
         };
         let group = e.get("hintgroup").map_or("", str::trim);
-        let limited = number(e, "hintlimiting", 0.) != 0. && !group.is_empty();
+        let limited = number(e, "hintlimiting", 0.) != 0.;
+        self.limit_to_hint_group(entity, world, group, limited);
+    }
+    /// The nodes `entity` may use: all (`None`) unless it limits itself to a non-empty group.
+    pub fn limit_to_hint_group(
+        &mut self,
+        entity: usize,
+        world: &World,
+        group: &str,
+        limited: bool,
+    ) {
+        let limited = limited && !group.is_empty();
         let ids = self.graph.as_ref().map(|g| g.hammer_ids.as_slice());
         let nodes = limited.then(|| hint_nodes(world, ids, group));
         if let Some(actor) = self.actors.get_mut(&entity) {
