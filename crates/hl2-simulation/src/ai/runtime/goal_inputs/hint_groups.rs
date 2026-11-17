@@ -64,6 +64,32 @@ impl Search {
     }
 }
 
+/// Fires an assault output with `npc` as its activator. CAI_AssaultBehavior::OnHitAssaultPoint
+/// gives the NPC the point's `assaultgroup` and ClearAssaultPoint takes it away again (both
+/// SetHintGroup without limiting; the SDK notes the clear also drops a group set before).
+pub(in crate::ai::runtime) fn fire_assault_output(
+    world: &World,
+    scene: &mut Scene,
+    (point, output): (usize, &'static str),
+    npc: usize,
+) {
+    scene.fire(point, output, npc);
+    let Some(e) = world.entities.get(point) else {
+        return;
+    };
+    let group = e.get("assaultgroup").map_or("", str::trim);
+    if e.class() != "assault_assaultpoint" || group.is_empty() {
+        return;
+    }
+    let new_group = match output {
+        "OnArrival" => group,
+        "OnAssaultClear" => "",
+        _ => return,
+    };
+    (scene.keyvalue_overrides).insert((npc, "hintgroup".into()), new_group.into());
+    (scene.keyvalue_overrides).insert((npc, "hintlimiting".into()), "0".into());
+}
+
 impl AiRuntime {
     /// CAI_ChangeHintGroup::InputActivate: every qualified NPC takes NewHintGroup (empty
     /// clears it) and the changer's `hintlimiting` (SetHintGroup).
@@ -169,6 +195,29 @@ mod tests {
         assert_eq!(group(&world, &scene, 0), "chaser_cop_4_hint");
         assert_eq!(override_of(&scene, 0, "hintlimiting"), Some("1"));
         assert_eq!(override_of(&scene, 1, "hintgroup"), None);
+    }
+
+    #[test]
+    fn an_assault_point_sets_its_group_on_arrival_and_clears_it() {
+        let world = World {
+            entities: vec![
+                cop("cop", "0 0 0", "own"),
+                entity(&[
+                    ("classname", "assault_assaultpoint"),
+                    ("assaultgroup", "ap_hints"),
+                ]),
+                entity(&[("classname", "assault_rallypoint")]),
+            ],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        fire_assault_output(&world, &mut scene, (2, "OnArrival"), 0);
+        assert_eq!(group(&world, &scene, 0), "own");
+        fire_assault_output(&world, &mut scene, (1, "OnArrival"), 0);
+        assert_eq!(group(&world, &scene, 0), "ap_hints");
+        assert_eq!(override_of(&scene, 0, "hintlimiting"), Some("0"));
+        fire_assault_output(&world, &mut scene, (1, "OnAssaultClear"), 0);
+        assert_eq!(group(&world, &scene, 0), "");
     }
 
     #[test]

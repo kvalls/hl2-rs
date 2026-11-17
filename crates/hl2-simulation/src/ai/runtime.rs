@@ -2292,7 +2292,7 @@ impl AiRuntime {
         let mut unlock = false;
         if let Some(assault) = actor.class.assault_mut().as_mut() {
             for (entity, output) in std::mem::take(&mut assault.outputs) {
-                scene.fire(entity, output, id);
+                goal_inputs::hint_groups::fire_assault_output(world, scene, (entity, output), id);
             }
             unlock = std::mem::take(&mut assault.unlock);
         }
