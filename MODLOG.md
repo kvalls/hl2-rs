@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-17 session 62: the HDR dlight minlight floor (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: modkit-core `dynamic_minlight_floor` takes the HDR state (retail GetHDRType first: 1/256 with HDR on every map); source-assets passes the lighting copy it chose. ai_changehintgroup: hl2-simulation ai/runtime/goal_inputs/hint_groups.rs (FindQualifiedNPC's three searches, SetHintGroup into the scene's keyvalue overrides), `Controller::limit_to_hint_group`, actbusy reads the runtime group; SetPoliceGoal moved out of AiRuntime::inputs.
+- Why: owner priority (2026-11-13) d1_trainstation_01 to native fidelity; the intro's G-Man was blown out by the light_dynamic train lights (prompt item 1 a2).
+- Tested how: modkit-core and source-assets unit tests (the floor with and without HDR); a native exposure-goal timeline (artifacts/s62/native_tm.py); packaged time-lapses every 0.1 s before and after against native's fixed-clock recording (artifacts/s62); validate1.sh (see STATUS).
+- Result: the G-Man's close-up at 17-22 s matches native's frame brightness (66 -> 41 against 70 -> 41; it was 110 -> 67) and its warm key and shadowed side; the mouth shot shows native's double exposure.
+- Frame time: no change (a constant chosen at map load).
+- Still broken or not tested: our exposure still dips in the mouth shot (native stays at 2.0); muzzle-flash elights, now 5 times weaker with HDR, not compared with native.
+- Next: see STATUS "Current session 62".
+
 ## 2026-11-16 session 61: light_dynamic; animated light styles (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
