@@ -138,13 +138,12 @@ impl Bsp {
     }
     /// Leaf ambient samples, world lights and the leaf tree for model lighting.
     pub fn model_lighting(&self) -> Result<modkit_core::lighting::LightingData> {
-        let mut data = crate::model_lighting::read(&self.lumps, &self.lump_versions, self.hdr)?;
-        data.dynamic_minlight = self.dynamic_minlight();
-        Ok(data)
+        let hdr = crate::lighting::choose_hdr(&self.lumps, self.hdr);
+        self.model_lighting_with(hdr)
     }
     pub fn model_lighting_with(&self, hdr: bool) -> Result<modkit_core::lighting::LightingData> {
         let mut data = crate::model_lighting::read_with(&self.lumps, &self.lump_versions, hdr)?;
-        data.dynamic_minlight = self.dynamic_minlight();
+        data.dynamic_minlight = self.dynamic_minlight(hdr);
         Ok(data)
     }
     /// LUMP_CUBEMAPS (42): where each sample was built, which also names its texture.
@@ -159,14 +158,15 @@ impl Bsp {
             })
             .collect()
     }
-    /// LUMP_MAP_FLAGS (59) and the BSP version select the dynamic-light minlight floor.
-    fn dynamic_minlight(&self) -> f32 {
+    /// HDR lighting, LUMP_MAP_FLAGS (59) and the BSP version select the dynamic-light minlight
+    /// floor (`modkit_core::lighting::dynamic_minlight_floor`).
+    fn dynamic_minlight(&self, hdr: bool) -> f32 {
         let flags = self
             .lumps
             .get(59)
             .and_then(|l| l.get(..4))
             .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-        modkit_core::lighting::dynamic_minlight_floor(self.version, flags)
+        modkit_core::lighting::dynamic_minlight_floor(self.version, flags, hdr)
     }
     pub fn visibility_index(&self) -> Result<crate::visibility::VisibilityIndex> {
         crate::visibility::VisibilityIndex::new(&self.lumps, self.lump_versions[10])

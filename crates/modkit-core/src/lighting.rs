@@ -131,12 +131,17 @@ fn default_dynamic_minlight() -> f32 {
     1.
 }
 /// Retail CMapLoadHelper::Init (engine.dll 0x101d7e30, reviewed privately) sets the
-/// minlight floor of dlight -> dworldlight_t per map: BSP version < 20 -> 0.078125;
-/// else from LUMP_MAP_FLAGS: LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_NONHDR (0x100) ->
-/// 0.078125, _HDR (0x200) -> 0.01953125, neither -> 1/256; without the lump it keeps
-/// its previous value (1.0 initially). A material-system query (vtable +0xd8, likely
-/// InEditorMode) forces 1/256; it is false in ordinary play (inferred).
-pub fn dynamic_minlight_floor(bsp_version: u32, map_flags: Option<u32>) -> f32 {
+/// minlight floor of dlight -> dworldlight_t per map. Its first test is
+/// IMaterialSystemHardwareConfig::GetHDRType (MaterialSystemHardwareConfig012 slot 54,
+/// vtable +0xd8: the same slot that picks a float `_rt_TeenyFB` when it returns
+/// HDR_TYPE_FLOAT), so with HDR lighting (`hdr`) the floor is 1/256 on every map. Without
+/// HDR: BSP version < 20 -> 0.078125; else from LUMP_MAP_FLAGS:
+/// LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_NONHDR (0x100) -> 0.078125, _HDR (0x200) ->
+/// 0.01953125, neither -> 1/256; without the lump it keeps its previous value (1.0 initially).
+pub fn dynamic_minlight_floor(bsp_version: u32, map_flags: Option<u32>, hdr: bool) -> f32 {
+    if hdr {
+        return 1. / 256.;
+    }
     if bsp_version < 20 {
         return 0.078125;
     }
@@ -937,12 +942,15 @@ mod tests {
         .world_light(1.);
         assert!((muzzle.intensity - Vec3::new(32., 24.094118, 8.031373)).length() < 1e-4);
         assert_eq!(muzzle.attenuation, [0., 0., 1. / 2304.]);
-        // HL2 BSP 20 maps with baked HDR static-prop lighting (0x200): 0.01953125.
-        assert_eq!(dynamic_minlight_floor(20, Some(0x200)), 0.019_531_25);
-        assert_eq!(dynamic_minlight_floor(20, Some(0x203)), 0.019_531_25);
-        assert_eq!(dynamic_minlight_floor(20, Some(0x100)), 0.078125);
-        assert_eq!(dynamic_minlight_floor(19, None), 0.078125);
-        assert_eq!(dynamic_minlight_floor(20, Some(0)), 1. / 256.);
+        // Without HDR, HL2 BSP 20 maps with baked HDR static-prop lighting (0x200): 0.01953125.
+        assert_eq!(dynamic_minlight_floor(20, Some(0x200), false), 0.019_531_25);
+        assert_eq!(dynamic_minlight_floor(20, Some(0x203), false), 0.019_531_25);
+        assert_eq!(dynamic_minlight_floor(20, Some(0x100), false), 0.078125);
+        assert_eq!(dynamic_minlight_floor(19, None, false), 0.078125);
+        assert_eq!(dynamic_minlight_floor(20, Some(0), false), 1. / 256.);
+        // GetHDRType() != HDR_TYPE_NONE comes first: 1/256 on every map.
+        assert_eq!(dynamic_minlight_floor(20, Some(0x200), true), 1. / 256.);
+        assert_eq!(dynamic_minlight_floor(19, None, true), 1. / 256.);
         let hdr = DynamicLight {
             origin: Vec3::ZERO,
             radius: 48.,
