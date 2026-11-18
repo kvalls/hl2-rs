@@ -145,7 +145,7 @@
   "crates/hl2-bevy/src/rendering.rs": 1365,
   "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
-  "crates/hl2-simulation/src/ai/runtime.rs": 2369,
+  "crates/hl2-simulation/src/ai/runtime.rs": 2368,
   "crates/hl2-simulation/src/entities/choreography.rs": 1225,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1259,
@@ -221,7 +221,7 @@
    1156
   ],
   "crates/hl2-simulation/src/ai/runtime.rs::tick": [
-   252
+   246
   ],
   "crates/hl2-simulation/src/ai/runtime/goal_inputs.rs::assault_goal_input": [
    167

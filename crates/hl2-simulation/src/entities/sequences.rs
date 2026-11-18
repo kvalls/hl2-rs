@@ -6,6 +6,9 @@ use crate::physics;
 use glam::Vec3;
 use modkit_core::World;
 
+/// The internal input name of a scripted_sequence's search think.
+pub(super) const SCRIPT_THINK: &str = "ScriptThink";
+
 impl Scene {
     /// The actor belongs to a script: a scripted_sequence, a choreographed scene (as an
     /// actor of a running playback or through its body animation) or a scene move.
@@ -366,8 +369,7 @@ impl Scene {
             })
             .map(|(i, _)| i);
         let Some(actor) = actor else {
-            self.unsupported_input("scripted_sequence", &format!("actor:{name}"));
-            return;
+            return self.retry_script_search(id);
         };
         if self.states[actor]
             .scripted_by
@@ -429,6 +431,22 @@ impl Scene {
             }
         }
         self.start_script_play(world, id, actor);
+    }
+
+    /// CAI_ScriptedSequence::ScriptThink without an NPC: CancelScript (OnCancelSequence, and
+    /// OnCancelFailedSequence for a script that never started) and another search in 1 s, so
+    /// an actor a point_template spawns later is found (d1_trainstation_01's ss_luggageShove).
+    /// The think rides the input queue under SCRIPT_THINK, which is not an entity input: not
+    /// counted, not traced. The cancel of other scripts of the same name is not modeled.
+    fn retry_script_search(&mut self, id: usize) {
+        self.fire(id, "OnCancelSequence", usize::MAX);
+        self.fire(id, "OnCancelFailedSequence", usize::MAX);
+        self.queue_script_input(id, SCRIPT_THINK, 1.);
+    }
+
+    /// The retry's think: the same search, still waiting for BeginSequence if it was.
+    pub(super) fn script_think(&mut self, world: &World, id: usize) {
+        self.start_script(world, id);
     }
 
     /// The script's arrival (CINE_MOVETO_WALK/RUN): TASK_PLANT_ON_SCRIPT and

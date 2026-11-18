@@ -1931,6 +1931,32 @@ fn a_no_auto_return_door_stays_open_after_its_wait() {
 }
 
 #[test]
+fn a_script_keeps_searching_for_an_actor_spawned_later() {
+    // CAI_ScriptedSequence::ScriptThink: no NPC yet, CancelScript and another search in 1 s
+    // (d1_trainstation_01's ss_luggageShove waits for luggage_script_template's actors).
+    let script = [("m_iszEntity", "cop"), ("m_fMoveTo", "4")];
+    let w = World {
+        entities: vec![
+            entity("scripted_sequence", "ss", &script),
+            entity("npc_metropolice", "cop", &[]),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    scene.states[1].killed = true;
+    scene.send(0, "MoveToPosition", "");
+    for _ in 0..30 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert!(scene.states[0].script_actor.is_none());
+    scene.states[1].killed = false;
+    for _ in 0..80 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert_eq!(scene.states[0].script_actor, Some(1));
+}
+
+#[test]
 fn door_travel_is_the_compiled_brush_size_less_lip() {
     // Mod_LoadSubmodels spreads the compiled bounds by 1 and CBaseDoor::Spawn subtracts 2:
     // d1_trainstation_01's train_door_1 (a 2-unit helper, lip 0) pushes the car door's

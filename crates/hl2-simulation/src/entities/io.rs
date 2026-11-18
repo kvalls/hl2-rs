@@ -224,7 +224,7 @@ impl Scene {
         if self.states[id].killed {
             return;
         }
-        self.diagnostics.inputs_delivered += 1;
+        self.count_input(p);
         let e = self.ent(world, id);
         let class = e.class();
         let input = p.input.to_lowercase();
@@ -445,7 +445,8 @@ impl Scene {
         }
         for id in targets {
             // AcceptInput's developer-2 line: only an existing entity takes the input.
-            let exists = id >= self.states.len() || !self.states[id].killed;
+            let exists = (id >= self.states.len() || !self.states[id].killed)
+                && p.input != super::sequences::SCRIPT_THINK;
             if let Some(trace) = self.io_trace.as_mut().filter(|_| exists) {
                 trace.record_input(self.time, (p.caller, id), &p.input, &p.parameter);
             }
@@ -471,6 +472,15 @@ impl Scene {
         if let Some(id) = npc.filter(|&id| !self.states[id].killed) {
             self.ai_inputs
                 .push((id, "killweapon".into(), String::new(), p.activator));
+        }
+    }
+}
+
+impl Scene {
+    /// One delivered entity input (a scripted_sequence's search think is not one).
+    fn count_input(&mut self, p: &Pending) {
+        if p.input != super::sequences::SCRIPT_THINK {
+            self.diagnostics.inputs_delivered += 1;
         }
     }
 }
@@ -514,6 +524,7 @@ fn is_ai_input(class: &str, input: &str) -> bool {
         "info_node_link" | "info_node_link_controller" => matches!(input, "turnon" | "turnoff"),
         "ai_relationship" => matches!(input, "applyrelationship" | "revertrelationship"),
         "ai_changehintgroup" => input == "activate",
+        "ai_script_conditions" => matches!(input, "enable" | "disable"),
         _ => false,
     }
 }

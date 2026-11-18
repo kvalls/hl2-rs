@@ -250,6 +250,49 @@ fn a_given_weapon_switches_the_walk_variant() {
     assert_eq!(controller.walk_name(0), Some("walk_all"));
 }
 
+/// ai_script_conditions without an actor: enabled at Activate (StartDisabled 0), it thinks
+/// every 0.25 s and fires OnConditionsSatisfied once RequiredTime has passed with every
+/// condition holding, then disables itself (SDK ai_scriptconditions.cpp EvaluationThink).
+#[test]
+fn script_conditions_fire_after_their_required_time_then_disable() {
+    let mut conditions = entity(&[
+        ("classname", "ai_script_conditions"),
+        ("targetname", "cond"),
+        ("StartDisabled", "0"),
+        ("RequiredTime", "0.5"),
+        ("PlayerActorFOV", "360"),
+    ]);
+    conditions
+        .properties
+        .push(("OnConditionsSatisfied".into(), "count,Add,1,0,-1".into()));
+    let world = World {
+        entities: vec![
+            conditions,
+            entity(&[("classname", "math_counter"), ("targetname", "count")]),
+        ],
+        ..Default::default()
+    };
+    let mut r = Rig {
+        scene: Scene::new(&world),
+        physics: Physics::new(&world),
+        ai: AiRuntime::new(&world, None),
+        controller: Controller::new(None, Default::default()),
+        world,
+    };
+    let mut fired_at = None;
+    for tick in 0..100 {
+        run(&mut r, 1, player_at(0.));
+        r.scene.tick(&r.world, Vec3::ZERO, 0.);
+        if fired_at.is_none() && r.scene.states[1].value == 1. {
+            fired_at = Some(tick);
+        }
+    }
+    // Enabled at the first tick: thinks at +0.25 (timer running), +0.5 (expired: fires).
+    let fired_at = fired_at.expect("satisfied");
+    assert!((33..=35).contains(&fired_at), "{fired_at}");
+    assert_eq!(r.scene.states[1].value, 1., "fires once, then disabled");
+}
+
 #[test]
 fn a_runtime_spawned_cop_gets_an_actor_and_thinks() {
     let mut r = rig();

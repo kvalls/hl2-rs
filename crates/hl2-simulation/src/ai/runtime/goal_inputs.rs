@@ -115,6 +115,9 @@ impl AiRuntime {
                     target,
                     activator,
                 ),
+                "enable" | "disable" if class == "ai_script_conditions" => {
+                    self.script_conditions_input(world, scene, target, &input)
+                }
                 "giveweapon" => self.give_weapon(controller, target, class, &parameter),
                 "killweapon" => self.kill_weapon(controller, target, class),
                 "setpolicegoal" => self.set_police_goal(world, target, &parameter),

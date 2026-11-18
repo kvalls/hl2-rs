@@ -54,6 +54,7 @@ use navlinks::overlaps;
 pub use toss::{vec_check_throw, vec_check_toss};
 mod requests;
 mod scanners;
+mod script_conditions;
 mod setup;
 mod speech;
 mod squads;
@@ -447,6 +448,9 @@ pub struct AiRuntime {
     /// schedules a machine gun's second sound ahead of the next think).
     #[serde(skip)]
     delayed_sounds: Vec<(f64, crate::sounds::SoundRequest)>,
+    /// The enabled ai_script_conditions entities (script_conditions.rs).
+    #[serde(skip)]
+    script_conditions: script_conditions::ScriptConditions,
     pub diagnostics: Diagnostics,
     random: u64,
     /// Debug (F4): the AI does not sense the player (ai_ignoreplayers / notarget).
@@ -775,6 +779,7 @@ impl AiRuntime {
             prop_moves: Vec::new(),
             manhack_marks: Default::default(),
             delayed_sounds: Vec::new(),
+            script_conditions: Default::default(),
             diagnostics: Diagnostics::default(),
             random: 0x9e37_79b9_7f4a_7c15,
         }
@@ -838,15 +843,9 @@ impl AiRuntime {
         if let Some(value) = self.stunstick_damage {
             super::metropolice::STUNSTICK_DAMAGE.with(|d| d.set(value));
         }
-        let due = scene.time + 1e-9;
-        let (now_due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.delayed_sounds)
-            .into_iter()
-            .partition(|(at, _)| *at <= due);
-        self.delayed_sounds = later;
-        scene
-            .sounds
-            .extend(now_due.into_iter().map(|(_, request)| request));
+        self.play_delayed_sounds(scene);
         self.inputs(world, scene, controller);
+        self.think_script_conditions(world, scene, physics, player);
         // PhysicsStep's gravity runs whether or not the NPC thinks (ai_disable).
         self.step_falls_and_links(world, scene, controller, physics, player);
         if !self.enabled {
