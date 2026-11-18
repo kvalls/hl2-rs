@@ -397,7 +397,12 @@ impl Scene {
             // goes to the mark through the NPC movement controller; arrival (tick) plants him
             // on the script origin, faces its angles and plays. A custom move without
             // m_iszCustomMove walks (GetScriptCustomMoveActivity's ACT_WALK).
-            1..=3 if movement != 3 || custom_move_walks(script) => {
+            1..=3 => {
+                if movement == 3 && !custom_move_walks(script) {
+                    // ACT_SCRIPT_CUSTOM_MOVE with m_iszCustomMove's sequence (ss_VortSweep*:
+                    // Walk_all_HoldBroom) is not modeled yet: the actor walks.
+                    self.unsupported_input("scripted_sequence", "custom-move-sequence");
+                }
                 let key = crate::npc::GoalKey {
                     scene: id,
                     event: 0,

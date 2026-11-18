@@ -15,6 +15,7 @@ mod embedded;
 mod exclusions;
 mod graph;
 mod hint_limits;
+mod move_style;
 mod restrictions;
 pub use restrictions::NavRestrictions;
 pub mod links;
@@ -41,13 +42,6 @@ pub enum MoveStyle {
     Run,
 }
 impl MoveStyle {
-    pub fn parse(value: &str) -> Result<Self, GoalBlockReason> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "" | "walk" => Ok(Self::Walk),
-            "run" => Ok(Self::Run),
-            _ => Err(GoalBlockReason::UnsupportedStyle(value.to_owned())),
-        }
-    }
     fn sequence(self) -> &'static str {
         match self {
             Self::Walk => "walk_all",
@@ -1344,6 +1338,18 @@ pub(crate) mod tests {
             let names = &self.actors.get(&entity)?.locomotion.names;
             names.get(&MoveStyle::Walk).map(String::as_str)
         }
+    }
+    /// DetermineExpressionMoveActivity (SDK baseflex.cpp): a MOVETO's parameter 2 is the
+    /// activity's word, then an optional distance style after a space (luggage_shove.vcd's
+    /// "Walk Close_Distance_Once").
+    #[test]
+    fn a_scene_move_style_reads_its_first_word() {
+        assert_eq!(
+            MoveStyle::parse("Walk Close_Distance_Once"),
+            Ok(MoveStyle::Walk)
+        );
+        assert_eq!(MoveStyle::parse(" run "), Ok(MoveStyle::Run));
+        assert!(MoveStyle::parse("CrouchWalk").is_err());
     }
     pub(super) fn key(scene: usize) -> GoalKey {
         GoalKey {

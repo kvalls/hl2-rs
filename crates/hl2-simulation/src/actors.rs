@@ -57,7 +57,7 @@ pub const GROUND_HUMANS: [&str; 2] = ["npc_barney", "npc_kleiner"];
 /// Human-hull NPC classes registered for AI goals (step 14); scenes and scripted_sequences
 /// move them too while they own the actor. SetHullType(HULL_HUMAN) in CNPC_MetroPolice,
 /// CNPC_Combine and CNPC_PlayerCompanion (npc_citizen, npc_alyx) Spawn.
-pub const AI_GROUND_HUMANS: [&str; 15] = [
+pub const AI_GROUND_HUMANS: [&str; 16] = [
     "npc_metropolice",
     "npc_combine_s",
     "npc_citizen",
@@ -73,6 +73,8 @@ pub const AI_GROUND_HUMANS: [&str; 15] = [
     "npc_crow",
     "npc_pigeon",
     "npc_seagull",
+    // Moved by scenes and scripts (d1_trainstation_01's sweeping vort_sweepy); no AI layer.
+    "npc_vortigaunt",
 ];
 /// AI movers' walk/run per weapon class ("" unarmed): Weapon_TranslateActivity of
 /// ACT_WALK/ACT_RUN when the model has the result (else the base activity), played as

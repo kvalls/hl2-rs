@@ -87,6 +87,8 @@ pub fn class_hull(class: &str) -> Option<HullType> {
         "npc_crow" | "npc_pigeon" | "npc_seagull" => Some(HullType::Tiny),
         // CNPC_BaseScanner::Spawn and CNPC_Manhack::Spawn.
         "npc_cscanner" | "npc_manhack" => Some(HullType::TinyCentered),
+        // CNPC_Vortigaunt::Spawn (SDK hl2/npc_vortigaunt_episodic.cpp, HL2's vortigaunt too).
+        "npc_vortigaunt" => Some(HullType::WideHuman),
         _ => None,
     }
 }
