@@ -172,6 +172,10 @@ pub struct ActBusy {
     /// ai_goal_actbusy outputs for the host to fire (OnNPCStartedBusy, ...).
     #[serde(skip)]
     pub outputs: Vec<&'static str>,
+    /// The hint node's own outputs for the host to fire, with the hint (CAI_Hint::NPCStartedUsing
+    /// and NPCStoppedUsing).
+    #[serde(skip)]
+    pub hint_outputs: Vec<(usize, &'static str)>,
     /// The behavior selected the current schedule.
     pub running: bool,
     /// m_bLeaving: ForceActBusyLeave.
@@ -367,6 +371,7 @@ impl Behavior for ActBusy {
                 self.moving_to_busy = false;
                 if !self.busy {
                     self.busy = true;
+                    self.hint_outputs.push((hint.entity, "OnNPCStartedUsing"));
                     self.outputs.push("OnNPCStartedBusy");
                     let (mut min, mut max) = (hint.anim.min_time, hint.anim.max_time);
                     if self.forced {
@@ -392,6 +397,9 @@ impl Behavior for ActBusy {
             "TASK_ACTBUSY_PLAY_EXIT" => {
                 if self.busy {
                     self.outputs.push("OnNPCFinishedBusy");
+                    let hint = self.hint.as_ref().map(|h| h.entity);
+                    let stopped = hint.map(|h| (h, "OnNPCStoppedUsing"));
+                    self.hint_outputs.extend(stopped);
                 }
                 self.busy = false;
                 self.release_hint();
@@ -736,6 +744,8 @@ mod tests {
         // ACT_BUSY_STAND: 10-20 s (random 0.5: 15 s).
         assert!((a.end_busy_at - 16.).abs() < 1e-6);
         assert_eq!(a.outputs, vec!["OnNPCStartedBusy"]);
+        let hint = a.hint.as_ref().unwrap().entity;
+        assert_eq!(a.hint_outputs, vec![(hint, "OnNPCStartedUsing")]);
         assert_eq!(
             a.select(&mut npc, &ctx(5.), "SCHED_IDLE_STAND"),
             Some("SCHED_ACTBUSY_BUSY")
