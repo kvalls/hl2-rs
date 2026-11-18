@@ -167,6 +167,14 @@ impl Scene {
             }
         }
     }
+    /// The logic_auto think at once: a background level's first frame is drawn through the
+    /// camera its spawn outputs enable, before any time passes (no flash of the spawn view).
+    pub fn think_logic_autos_now(&mut self, world: &World) {
+        if let Some((at, _)) = self.logic_auto_at.as_mut() {
+            *at = self.time;
+        }
+        self.think_logic_autos(world);
+    }
     /// An enabled logic_timer whose time has come fires OnTimer and draws its next time.
     pub(super) fn think_timer(&mut self, world: &World, id: usize) {
         let e = &world.entities[id];

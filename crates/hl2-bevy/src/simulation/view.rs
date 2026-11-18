@@ -17,6 +17,7 @@ impl Simulation {
     }
 
     pub(crate) fn prepare_background_view(&mut self, game: &mut Gameplay) {
+        game.scene.think_logic_autos_now(&game.world);
         game.scene.tick(&game.world, self.player.feet, 0.);
         self.refresh_scripted_view(game);
     }

@@ -13,12 +13,12 @@
   "label": "breen-screen-active"
  },
  {
-  "tick": 1660,
+  "tick": 1674,
   "paused": true,
   "label": "breen-screen-frozen"
  },
  {
-  "tick": 1690,
+  "tick": 1704,
   "label": "breen-screen-capture"
  }
 ]
