@@ -287,11 +287,16 @@ impl Performance {
         }
     }
     pub fn record_stage(&self, name: &'static str, milliseconds: f64) {
+        self.record_stages([(name, milliseconds)]);
+    }
+    fn record_stages(&self, stages: impl IntoIterator<Item = (&'static str, f64)>) {
         let mut all = self.0.lock().expect("CPU timing");
-        let samples = all.entry(name).or_default();
-        samples.calls += 1;
-        if samples.calls > 30 && samples.values.len() < 4096 {
-            samples.values.push(milliseconds);
+        for (name, milliseconds) in stages {
+            let samples = all.entry(name).or_default();
+            samples.calls += 1;
+            if samples.calls > 30 && samples.values.len() < 4096 {
+                samples.values.push(milliseconds);
+            }
         }
     }
 }

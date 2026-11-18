@@ -1,5 +1,14 @@
 # STATUS
 
+## F4 NPC roster and frame accounting (2026-11-18)
+
+The packaged station02 plaza created all 47 presets through both the F4 overlay and
+`npc_create_aimed`. Each path created 42 on the first pass and the other five at clear
+positions. An unlisted NPC class was rejected. Per-class AI fidelity was not tested.
+The frame profiler now publishes complete frames together so schedule means sum to
+the whole-frame mean across the same samples. Workspace validation and Windows
+cross-target Clippy passed locally.
+
 ## Station01 luggage encounter and plaza crowds (2026-11-18)
 
 The approach before customs now activates the luggage scene. A post-intro packaged run

@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-18 — Align frame profiler samples and verify the F4 roster
+
+Codex desktop, GPT-6 family. The macOS CI frame-accounting assertion measured
+11.991 ms in summed stage means and 12.288 ms in whole frames. The stages included
+an unfinished frame. Buffer schedule intervals and publish them together at the
+next frame boundary. The test now requires identical sample counts and checks the
+sum to floating-point precision. This applies only with profiling enabled.
+
+Packaged macOS station02 plaza replay on 505adb21: all 47 presets produced entity
+IDs with both F4 and the aimed console command. On each path the barnacle, City
+Scanner, strider, gunship and helicopter first hit the placement guard and spawned on
+clear ground. An unknown console NPC class was rejected. The game logged unsupported
+idle animation requests for both turrets, the Combine camera and the dropship.
+Per-class combat, movement and visual fidelity were not tested. Workspace validation
+and Windows cross-target Clippy passed. Windows runtime was not tested.
+
 ## 2026-11-18 — Station luggage choreography and NPC crowd cost
 
 Codex desktop, GPT-6 family. The luggage inspection in station01 now starts from the

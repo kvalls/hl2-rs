@@ -24,6 +24,7 @@ struct Marker(usize);
 struct Marks {
     previous: Option<Instant>,
     frame: Option<Instant>,
+    pending: Vec<(&'static str, f64)>,
 }
 
 /// Wraps the main schedules present now; one added later is counted with its predecessor.
@@ -45,12 +46,19 @@ pub(super) fn install(app: &mut App) {
             move |mut marks: ResMut<Marks>, performance: Res<Performance>| {
                 let now = Instant::now();
                 if let Some(previous) = marks.previous.replace(now) {
-                    performance.record_stage(name, (now - previous).as_secs_f64() * 1000.);
+                    marks
+                        .pending
+                        .push((name, (now - previous).as_secs_f64() * 1000.));
                 }
                 if index == 0
                     && let Some(frame) = marks.frame.replace(now)
                 {
-                    performance.record_stage(TOTAL, (now - frame).as_secs_f64() * 1000.);
+                    // Publish only complete frames so warm-up, resets and reports
+                    // always see the same sample window for every stage.
+                    marks
+                        .pending
+                        .push((TOTAL, (now - frame).as_secs_f64() * 1000.));
+                    performance.record_stages(marks.pending.drain(..));
                 }
             },
         );
@@ -95,7 +103,15 @@ mod tests {
             .filter(|(name, _)| name.starts_with("main_schedule."))
             .map(|(name, _)| mean(name))
             .sum();
-        assert!((parts - mean(TOTAL)).abs() < 0.2, "{parts} {}", mean(TOTAL));
+        for (name, stats) in stages {
+            assert_eq!(stats["samples"], 9, "{name}");
+            assert_eq!(stats["calls"], 39, "{name}");
+        }
+        assert!(
+            (parts - mean(TOTAL)).abs() < 1e-9,
+            "{parts} {}",
+            mean(TOTAL)
+        );
         performance.restart_stages();
         assert!(performance.report().as_object().expect("stages").is_empty());
     }
