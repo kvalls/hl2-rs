@@ -171,6 +171,19 @@ impl Scene {
         }
     }
 
+    /// m_flPlaybackRate over one tick of `dt`: the entity's sequence runs at `rate` of the game's
+    /// clock. A sequence's time is the time since `animation_started`, so the start (and the AI's
+    /// sequence end with it) moves on by the share it does not play.
+    pub fn play_at_rate(&mut self, id: usize, rate: f32, dt: f32) {
+        let held = f64::from((1. - rate) * dt);
+        if let Some(state) = self.states.get_mut(id) {
+            state.animation_started += held;
+        }
+        if let Some(end) = self.ai_sequence_end.get_mut(&id) {
+            *end += held;
+        }
+    }
+
     pub fn body_sequence_owner(&self, id: usize) -> Option<usize> {
         self.states
             .get(id)?

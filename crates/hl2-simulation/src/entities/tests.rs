@@ -1845,3 +1845,24 @@ fn a_kill_sent_to_an_npc_weapon_name_removes_that_weapon() {
         .iter()
         .any(|(id, input, ..)| *id == 0 && input == "killweapon"));
 }
+#[test]
+fn a_playback_rate_slows_the_sequence_clock_and_its_end() {
+    let world = World {
+        entities: vec![entity("prop_dynamic", "rotor", &[])],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    scene.ai_sequence_end.insert(0, 2.);
+    let start = scene.animation_time(0);
+    // A quarter rate for a second of ticks plays a quarter of a second.
+    for _ in 0..100 {
+        scene.time += 0.01;
+        scene.play_at_rate(0, 0.25, 0.01);
+    }
+    let played = scene.animation_time(0) - start;
+    assert!((played - 0.25).abs() < 1e-4, "{played}");
+    assert!((scene.ai_sequence_end[&0] - 2.75).abs() < 1e-6);
+    // At the full rate nothing is held back.
+    scene.play_at_rate(0, 1., 0.5);
+    assert!((scene.ai_sequence_end[&0] - 2.75).abs() < 1e-6);
+}

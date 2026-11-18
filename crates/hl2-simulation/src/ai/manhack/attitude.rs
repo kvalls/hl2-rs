@@ -101,6 +101,11 @@ impl Attitude {
         }
         .min(BLADE_FULL);
     }
+    /// SpinBlades' m_flPlaybackRate while the blades are out: their speed's share of full, set on
+    /// every think, stalled or not (1 once they are shut, which is the caller's to know).
+    pub fn playback_rate(&self) -> f32 {
+        self.blade_speed / BLADE_FULL
+    }
     /// Something hit the blades or the body: they turn no faster than this for now.
     pub fn slow_blades(&mut self, speed: f32) {
         self.blade_speed = self.blade_speed.min(speed);
@@ -286,6 +291,19 @@ mod tests {
         assert_eq!(a.blade_groups(), Some((false, true)));
         a.slow_blades(BLADE_HIT);
         assert_eq!(a.blade_groups(), Some((true, true)));
+    }
+
+    #[test]
+    fn the_blades_play_at_their_share_of_full_speed() {
+        let mut a = Attitude::default();
+        assert_eq!(a.playback_rate(), 0.);
+        a.think(0.1, false);
+        assert_eq!(a.playback_rate(), 0.01);
+        a.slow_blades(0.);
+        // Stalled, the speed holds and so does the rate.
+        a.think(0.1, true);
+        assert_eq!(a.playback_rate(), 0.);
+        assert_eq!(flying().playback_rate(), 1.);
     }
 
     #[test]
