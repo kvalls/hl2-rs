@@ -444,6 +444,11 @@ impl Scene {
             self.kill_npc_weapon(world, p);
         }
         for id in targets {
+            // AcceptInput's developer-2 line: only an existing entity takes the input.
+            let exists = id >= self.states.len() || !self.states[id].killed;
+            if let Some(trace) = self.io_trace.as_mut().filter(|_| exists) {
+                trace.record_input(self.time, (p.caller, id), &p.input, &p.parameter);
+            }
             self.deliver(world, id, p, player_feet);
         }
     }
