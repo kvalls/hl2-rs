@@ -184,6 +184,7 @@ const HELP_LINES: &[&str] = &[
     "      --game <path>                   Path to Half-Life 2 installation (overrides saved preference and HL2_ROOT)",
     "      --height <pixels>               Window height in pixels (240..=8192, default from video config)",
     "  -h, --help                          Show this help message and exit",
+    "      --io-trace <path.txt>           Log every fired entity output as Source's developer 2 console does",
     "      --main-menu                     Open the main menu (overlaid on top of --map if specified)",
     "      --map <name>                    Map to load directly into gameplay (e.g. d1_trainstation_01)",
     "      --max-edicts <count>            Runtime entity limit (default: 2048, 0 for unlimited)",

@@ -4,6 +4,9 @@ use crate::physics;
 use glam::{Quat, Vec3};
 use modkit_core::{Entity, World};
 
+/// CLogicAuto::Activate's SetNextThink(curtime + 0.2) (Source SDK game/server/logicauto.cpp).
+const LOGIC_AUTO_THINK: f64 = 0.2;
+
 /// How a door or other mover travels, from its keyvalues.
 struct Motion {
     direction: Vec3,
@@ -143,6 +146,18 @@ impl Scene {
         for (id, origin) in self.func_trains.spawn(world, self.time) {
             self.states[id].origin = origin;
         }
+        // CLogicAuto::Activate: its outputs wait for the think 0.2 s on.
+        self.logic_auto_at = Some((self.time + LOGIC_AUTO_THINK, new_game));
+    }
+    /// CLogicAuto::Think once its time has come: OnMapSpawn, and OnNewGame on a new game.
+    pub(super) fn think_logic_autos(&mut self, world: &World) {
+        let Some((at, new_game)) = self.logic_auto_at else {
+            return;
+        };
+        if self.time + 1e-6 < at {
+            return;
+        }
+        self.logic_auto_at = None;
         for (id, entity) in world.entities.iter().enumerate() {
             if entity.class() == "logic_auto" {
                 self.fire(id, "OnMapSpawn", usize::MAX);
@@ -150,6 +165,15 @@ impl Scene {
                     self.fire(id, "OnNewGame", usize::MAX);
                 }
             }
+        }
+    }
+    /// An enabled logic_timer whose time has come fires OnTimer and draws its next time.
+    pub(super) fn think_timer(&mut self, world: &World, id: usize) {
+        let e = &world.entities[id];
+        let state = &self.states[id];
+        if e.class() == "logic_timer" && state.enabled && state.timer_at <= self.time {
+            self.states[id].timer_at = self.time + self.timer_interval(e);
+            self.fire(id, "OnTimer", usize::MAX);
         }
     }
     /// The spawn state of one entity (map load and runtime spawns share this).

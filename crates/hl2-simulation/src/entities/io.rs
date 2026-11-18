@@ -19,6 +19,9 @@ impl Scene {
             }
             self.sequence += 1;
             self.diagnostics.outputs_fired += 1;
+            if let Some(trace) = self.io_trace.as_mut() {
+                trace.record(self.time, id, output);
+            }
             self.queue.push(Pending {
                 due: self.time + output.delay,
                 sequence: self.sequence,

@@ -1866,3 +1866,45 @@ fn a_playback_rate_slows_the_sequence_clock_and_its_end() {
     scene.play_at_rate(0, 1., 0.5);
     assert!((scene.ai_sequence_end[&0] - 2.75).abs() < 1e-6);
 }
+#[test]
+fn logic_auto_fires_at_its_think_a_fifth_of_a_second_after_spawn() {
+    let world = World {
+        entities: vec![entity(
+            "logic_auto",
+            "",
+            &[
+                ("OnMapSpawn", "relay,Trigger,,0,-1"),
+                ("OnNewGame", "relay,Enable,,6,-1"),
+            ],
+        )],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&world);
+    scene.io_trace = Some(super::IoTrace::default());
+    // CLogicAuto::Activate thinks at curtime + 0.2: nothing fires before that.
+    for _ in 0..13 {
+        scene.tick(&world, Vec3::ZERO, 0.015);
+    }
+    assert!(scene
+        .io_trace
+        .as_mut()
+        .unwrap()
+        .take_lines(&world)
+        .is_empty());
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    let lines = scene.io_trace.as_mut().unwrap().take_lines(&world);
+    assert_eq!(
+        lines,
+        [
+            "(0.21) output: (logic_auto,) -> (relay,Trigger)()",
+            "(0.21) output: (logic_auto,) -> (relay,Enable,6.0)()",
+        ]
+    );
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    assert!(scene
+        .io_trace
+        .as_mut()
+        .unwrap()
+        .take_lines(&world)
+        .is_empty());
+}
