@@ -1,5 +1,16 @@
 # STATUS
 
+## Station01 luggage encounter and plaza crowds (2026-11-18)
+
+The approach before customs now activates the luggage scene. A post-intro packaged run
+showed the Metrocop and citizen perform the shove and leave the cart. The new replay
+checks the citizen's arrival at the authored step-away point and both suitcase pushes.
+The original merge package reproduced the stall.
+
+All 108 packaged checks passed across the suite and one isolated flashlight rerun.
+The [30-NPC measurements](docs/performance-research.md#station-plaza-ground-crowd)
+include the ground workload's remaining failed routes and the limits of the timing results.
+
 ## Performance branch integration with main (2026-11-17)
 
 Main `b82e2f8e` and performance tip `bee44bd5` passed merged workspace validation and Windows

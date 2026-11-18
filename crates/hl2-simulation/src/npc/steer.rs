@@ -37,7 +37,6 @@ pub(super) fn step<W: NpcCollisionWorld>(
         return (blocked, direction);
     }
     candidates(direction, blocked.normal)
-        .into_iter()
         .map(|turned| (walk(turned), turned))
         .find(|(moved, _)| {
             let travel = (moved.end - from).truncate().length();
@@ -49,25 +48,22 @@ pub(super) fn step<W: NpcCollisionWorld>(
 /// The directions to try, in order: the deflection along the obstruction's surface when it
 /// stays near the heading, then the turns, the side the obstruction's surface faces first
 /// (head-on, the right: our tie-break, so two actors meeting head-on pass each other).
-fn candidates(direction: Vec3, normal: Vec3) -> Vec<Vec3> {
+fn candidates(direction: Vec3, normal: Vec3) -> impl Iterator<Item = Vec3> {
     let flat = |v: Vec3| (v * Vec3::new(1., 1., 0.)).normalize_or_zero();
     let normal = flat(normal);
-    let mut out = Vec::with_capacity(1 + TURNS.len() * 2);
     // CalculateDeflection: the heading projected onto the obstruction's plane.
     let deflected = flat(normal.cross(direction.cross(normal)));
-    if deflected.dot(direction) > DEFLECTION_MIN_DOT {
-        out.push(deflected);
-    }
+    let deflection = (deflected.dot(direction) > DEFLECTION_MIN_DOT).then_some(deflected);
     // Positive turns are to the left (counter-clockwise about +Z, Source's yaw).
     let left_is_free = direction.cross(normal).z < 0.;
     let first = if left_is_free { 1. } else { -1. };
-    for turn in TURNS {
-        for side in [first, -first] {
-            let rotated = Quat::from_rotation_z((turn * side).to_radians()) * direction;
-            out.push(flat(rotated));
-        }
-    }
-    out
+    deflection
+        .into_iter()
+        .chain(TURNS.into_iter().flat_map(move |turn| {
+            [first, -first].into_iter().map(move |side| {
+                flat(Quat::from_rotation_z((turn * side).to_radians()) * direction)
+            })
+        }))
 }
 
 #[cfg(test)]
@@ -80,14 +76,14 @@ mod tests {
         let heading = Vec3::X;
         // The blocker's surface faces back and to the left of the heading.
         let normal = Vec3::new(-0.5, 0.866, 0.);
-        let first = candidates(heading, normal)[0];
+        let first = candidates(heading, normal).next().unwrap();
         assert!(first.dot(heading) > 0.7 && first.y > 0., "{first}");
         assert!(first.dot(normal).abs() < 1e-4);
     }
 
     #[test]
     fn head_on_turns_right_first_then_alternates() {
-        let order = candidates(Vec3::X, -Vec3::X);
+        let order: Vec<_> = candidates(Vec3::X, -Vec3::X).collect();
         // No deflection head-on: the first candidate is the 30 degree turn to the right.
         assert!(order[0].y < 0. && (order[0].x - 30f32.to_radians().cos()).abs() < 1e-4);
         assert!(order[1].y > 0.);

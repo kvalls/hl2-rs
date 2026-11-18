@@ -1,5 +1,39 @@
 # MODLOG
 
+## 2026-11-18 — Station luggage choreography and NPC crowd cost
+
+Codex desktop, GPT-6 family. The luggage inspection in station01 now starts from the
+authored player approach. NPC script conditions evaluate a single named actor's state,
+player distance, view cone, LOS and hold time at quarter-second intervals. The scene
+motor accepts the installed walk-to-a-fixed-target qualifier. The original package
+spawned the two actors but started zero scene events on the same approach.
+
+StartNPC now indexes newly appended entities once, retaining spawn order and delayed
+activation. NPC sight borrows its map candidate list and checks the view cone before
+relationship lookup. Ground steering evaluates alternate headings on demand, and actor
+hull probes use the brush contact rules with six stack-allocated planes.
+
+Checked with `scripts/checks/validate.sh` (1,764 Rust tests, 55 Python tests, four plugin
+selections, strict Clippy and formatting) and `scripts/checks/check_windows.sh`.
+`NO_BUILD=1 JOBS=3 python3 scripts/checks/replays.py` passed 107/108 on the first run.
+The flashlight-off control differed at 11 pixels against a limit of fewer than 10.
+`NO_BUILD=1 ONLY=flashlight_viewmodel python3 scripts/checks/replays.py` passed unchanged
+with 8 differing pixels. The new luggage replay verifies the active shove, completion,
+both suitcase pushes and the citizen's arrival. A separate packaged run after the train
+intro showed both actors playing the shove at 119.25 s and clear of the cart by 129 s.
+
+Two series of three alternating packaged pairs used default CPU shadows and the same
+1080p Metal settings. In the quieter series, median mean frame time before/after was
+5.448/5.231 ms quiet, 11.238/10.928 ms for 30 zombies and 9.436/9.340 ms for 30 manhacks.
+Ground-crowd p95 went from 15 to 16 ms; manhack p95 stayed at 14 ms.
+The busier series measured 8.364/7.823, 13.527/13.332 and 13.680/13.427 ms respectively.
+Ground actors still reported failed chase/wander tasks on both packages. See the
+[workload and limits](docs/performance-research.md#station-plaza-ground-crowd).
+
+Windows runtime, native comparison and an ordinary playthrough were **not tested**.
+Target-based, multiple-actor and timeout script conditions remain outside the implemented
+subset. Next crowd investigation: trace failed ground-route requests in the plaza workload.
+
 ## 2026-11-17 — Merge main into the performance research branch
 
 Codex desktop, GPT-6 family. Merged main at `b82e2f8e` with the performance branch at

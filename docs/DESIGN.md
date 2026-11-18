@@ -1,5 +1,18 @@
 # Design
 
+## Station luggage encounter and 30-NPC workloads (2026-11-18)
+
+The installed station01 trigger enables an actor condition with a 500-unit range, a 50-degree
+true view cone and required player LOS. The compiled shove scene asks the citizen to walk to
+its third target with the close-distance-once qualifier. Private retail server function
+100cffb0 contains separate satisfaction and timeout output paths. SDK
+`game/server/ai_scriptconditions.cpp` evaluates every quarter second, with distance and
+view gates before player LOS. Implement the named-actor condition subset used here, keep
+unsupported predicates inactive, and test the actor's movement and the scene completion
+through map I/O. Keep runtime work proportional to authored conditions.
+Measure a quiet scene and 30 ground and flying NPCs using matched packaged builds. Reduce
+repeated perception work without changing think rates, target selection or collision.
+
 ## GPU silhouette experiment (2026-11-15)
 
 On station02, omitting CPU triangle coverage took the 30-manhack frame from 9.69 to 9.04 ms.

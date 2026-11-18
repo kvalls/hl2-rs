@@ -632,9 +632,26 @@ pub fn trace_brushes(
     let mut result = Trace::miss();
     for brush in brushes {
         if brush.contents & contents_mask != 0 {
-            sweep_brush(brush, start, end, mins, maxs, &mut result);
+            sweep_planes(&brush.planes, start, end, mins, maxs, &mut result);
         }
     }
+    result
+}
+
+/// Sweep a hull against one axis-aligned box using the same planes and contact rules as a brush.
+pub fn trace_box(start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3, bounds: (Vec3, Vec3)) -> Trace {
+    let (lo, hi) = bounds;
+    let planes = [
+        (Vec3::X, hi.x),
+        (-Vec3::X, -lo.x),
+        (Vec3::Y, hi.y),
+        (-Vec3::Y, -lo.y),
+        (Vec3::Z, hi.z),
+        (-Vec3::Z, -lo.z),
+    ]
+    .map(|(normal, distance)| Plane { normal, distance });
+    let mut result = Trace::miss();
+    sweep_planes(&planes, start, end, mins, maxs, &mut result);
     result
 }
 
@@ -652,22 +669,22 @@ impl Trace {
 
 /// Adds one brush to a sweep's result. Brushes must be added in their list order: the first
 /// brush owns an equal-fraction normal, and a solid end keeps the normal found before it.
-pub(crate) fn sweep_brush(
-    brush: &Brush,
+pub(crate) fn sweep_planes(
+    planes: &[Plane],
     start: Vec3,
     end: Vec3,
     mins: Vec3,
     maxs: Vec3,
     result: &mut Trace,
 ) {
-    if !brush.planes.is_empty() {
+    if !planes.is_empty() {
         let mut enter = -1f32;
         let mut leave = 1f32;
         let mut normal = Vec3::ZERO;
         let mut start_inside = true;
         let mut end_inside = true;
         let mut reject = false;
-        for plane in &brush.planes {
+        for plane in planes {
             let n = plane.normal;
             let support = Vec3::new(
                 if n.x >= 0. { mins.x } else { maxs.x },

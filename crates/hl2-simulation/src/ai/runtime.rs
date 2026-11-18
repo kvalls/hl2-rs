@@ -54,6 +54,7 @@ use navlinks::overlaps;
 pub use toss::{vec_check_throw, vec_check_toss};
 mod requests;
 mod scanners;
+mod script_conditions;
 mod setup;
 mod speech;
 mod squads;
@@ -484,6 +485,8 @@ pub struct AiRuntime {
     /// Entities whose class is npc_* (sight candidates), built on first use.
     #[serde(skip)]
     npc_ids: Option<Vec<usize>>,
+    #[serde(skip)]
+    script_conditions: Vec<script_conditions::ActorCondition>,
     /// ai_relationship overrides (subject, target) -> disposition (target PLAYER for
     /// "!player"), and the pairs each active ai_relationship entity applied.
     #[serde(serialize_with = "serialize_pairs")]
@@ -733,6 +736,7 @@ impl AiRuntime {
             scripted_fired: Default::default(),
             allegiances: BTreeMap::new(),
             npc_ids: None,
+            script_conditions: script_conditions::for_world(world),
             relationship_overrides: BTreeMap::new(),
             applied_relationships: Default::default(),
             squads: BTreeMap::new(),
@@ -838,15 +842,9 @@ impl AiRuntime {
         if let Some(value) = self.stunstick_damage {
             super::metropolice::STUNSTICK_DAMAGE.with(|d| d.set(value));
         }
-        let due = scene.time + 1e-9;
-        let (now_due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.delayed_sounds)
-            .into_iter()
-            .partition(|(at, _)| *at <= due);
-        self.delayed_sounds = later;
-        scene
-            .sounds
-            .extend(now_due.into_iter().map(|(_, request)| request));
+        self.deliver_due_sounds(scene);
         self.inputs(world, scene, controller);
+        self.evaluate_script_conditions(world, scene, physics, player);
         // PhysicsStep's gravity runs whether or not the NPC thinks (ai_disable).
         self.step_falls_and_links(world, scene, controller, physics, player);
         if !self.enabled {
@@ -1222,18 +1220,14 @@ impl AiRuntime {
         let fvisible = !player.noclip && sight.visible(eye, player.center(), &[id]);
         // NPC-vs-NPC sight (DESIGN 14n step 1): hated, live NPCs in the view cone and look
         // distance with LOS to their center.
-        let npc_ids = self
-            .npc_ids
-            .get_or_insert_with(|| {
-                world
-                    .entities
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, e)| e.class().starts_with("npc_"))
-                    .map(|(i, _)| i)
-                    .collect()
-            })
-            .clone();
+        self.npc_ids.get_or_insert_with(|| {
+            world
+                .entities
+                .iter()
+                .enumerate()
+                .filter_map(|(id, entity)| entity.class().starts_with("npc_").then_some(id))
+                .collect()
+        });
         let viewer = Viewer {
             entity: id,
             class: my_class,
@@ -1242,8 +1236,12 @@ impl AiRuntime {
             field_of_view,
             look_distance: senses::LOOK_DISTANCE,
         };
-        let seen_npcs: Vec<(usize, Vec3)> = npc_ids
-            .into_iter()
+        let seen_npcs: Vec<(usize, Vec3)> = self
+            .npc_ids
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .copied()
             .filter(|&other| {
                 let Some(state) = scene.states.get(other) else {
                     return false;
@@ -1253,9 +1251,9 @@ impl AiRuntime {
                     && !state.dead()
                     && state.visible
                     && sees_height(state.origin.z)
-                    && center.distance(eye) <= senses::LOOK_DISTANCE
-                    && self.npc_disposition(world, id, other, precriminal) == Disposition::HT
+                    && center.distance_squared(eye) <= senses::LOOK_DISTANCE * senses::LOOK_DISTANCE
                     && senses::in_view_cone(&viewer, center)
+                    && self.npc_disposition(world, id, other, precriminal) == Disposition::HT
                     && sight.visible(eye, center, &[id, other])
             })
             .map(|other| (other, scene.states[other].origin))

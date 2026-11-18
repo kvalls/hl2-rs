@@ -92,26 +92,14 @@ fn merge_actors(result: &mut HullTrace, sweep: &Sweep, query: Query<'_>) {
         if sweep.misses_box(min, max) {
             continue;
         }
-        let brush = Brush {
-            contents: CONTENTS_MONSTER,
-            planes: [
-                (Vec3::X, max.x),
-                (-Vec3::X, -min.x),
-                (Vec3::Y, max.y),
-                (-Vec3::Y, -min.y),
-                (Vec3::Z, max.z),
-                (-Vec3::Z, -min.z),
-            ]
-            .into_iter()
-            .map(|(normal, distance)| modkit_core::Plane { normal, distance })
-            .collect(),
-        };
-        merge(
-            result,
-            sweep.against(&brush, query.contents_mask),
-            *entity,
-            true,
+        let hit = modkit_core::trace_box(
+            sweep.start,
+            sweep.end,
+            sweep.hull.mins,
+            sweep.hull.maxs,
+            (min, max),
         );
+        merge(result, hit, *entity, true);
     }
 }
 

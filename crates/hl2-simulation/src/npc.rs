@@ -44,7 +44,7 @@ pub enum MoveStyle {
 impl MoveStyle {
     pub fn parse(value: &str) -> Result<Self, GoalBlockReason> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "" | "walk" => Ok(Self::Walk),
+            "" | "walk" | "walk close_distance_once" => Ok(Self::Walk),
             "run" => Ok(Self::Run),
             _ => Err(GoalBlockReason::UnsupportedStyle(value.to_owned())),
         }

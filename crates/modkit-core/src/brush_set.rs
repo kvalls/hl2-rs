@@ -5,7 +5,7 @@
 //! some axis is outside one of those planes by more than the collision epsilon at both ends,
 //! and for such a plane the brush's plane loop reports no hit and no solid flag. The brushes
 //! that remain run through that same loop in list order.
-use crate::{sweep_brush, trace_brushes, Brush, Trace};
+use crate::{sweep_planes, trace_brushes, Brush, Trace};
 use glam::Vec3;
 
 /// Separation beyond which a brush cannot affect a sweep: well above the 1/32 collision
@@ -191,7 +191,7 @@ impl BrushSet {
         for &index in found.iter() {
             let brush = &self.brushes[index as usize];
             if brush.contents & contents_mask != 0 {
-                sweep_brush(brush, start, end, mins, maxs, &mut result);
+                sweep_planes(&brush.planes, start, end, mins, maxs, &mut result);
             }
         }
         result

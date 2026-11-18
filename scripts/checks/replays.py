@@ -1116,7 +1116,7 @@ def check_hud_aspect():
 STATION_01 = ("bevy-activity-idle", "bevy-attention", "bevy-audio-scenes", "bevy-face-security-1805",
               "bevy-face-security-2100", "bevy-face-security-2130", "bevy-face-security-2245",
               "bevy-gestures-security-1805", "bevy-gestures-security-2245", "bevy-gestures-timeline",
-              "bevy-monitors-kleiner-scene")
+              "bevy-monitors-kleiner-scene", "bevy-luggage-shove")
 STATION_02 = ("bevy-barrier-hum", "bevy-bugbait", "bevy-bugbait-wall", "bevy-carry-bottle-shove",
               "bevy-crate-drop-rest", "bevy-crate-on-box-stack", "bevy-crossbow", "bevy-crowbar-surfaces",
               "bevy-door-inputs", "bevy-door-swing", "bevy-effect-ball", "bevy-effect-decal",
@@ -1527,12 +1527,30 @@ def check_outcomes(fixture: str, run: Run) -> None:
     holds("outcomes as expected", not differences, f"{len(differences)} differences: {differences[:3]}")
 
 
+def check_luggage_shove(run: Run):
+    """Approaching the luggage carts starts the shove and the citizen walks away."""
+    def scene(game):
+        return next(s for s in game["choreography"] if s["targetname"] == "luggage_shove_scene")
+
+    during = run.sample("shove")["gameplay"]
+    end = run.sample("finish")["gameplay"]
+    holds("shove starts on approach", scene(during)["active"])
+    holds("shove finishes", not scene(end)["active"] and not scene(end)["completed_early"])
+    actor = next(a for a in end["animations"] if a["targetname"] == "luggage_citizen")
+    move = next(g for g in end["npc_goals"] if g["key"]["actor"] == actor["entity"]
+                and g["key"]["scene"] == scene(end)["entity"])
+    distance_sq = sum((x - y) ** 2 for x, y in zip(actor["origin"], move["target_feet"]))
+    holds("citizen reaches the step-away target", distance_sq <= move["tolerance"] ** 2, move)
+    expect("both luggage pushes fired", end["phys_explosions"]["pushes"], 2)
+
+
 GAMEPLAY_CHECKS: dict[str, Callable[[Run], None]] = {
     "bevy-movement": check_movement,
     "bevy-entities-weapons": check_entities_weapons,
     "bevy-door-swing": check_door_swing,
     "bevy-door-inputs": check_door_inputs,
     "bevy-attention": check_attention,
+    "bevy-luggage-shove": check_luggage_shove,
     **{f"bevy-effect-{n}": check_effect(n) for n in ("grenade", "ball", "decal", "explosion", "decal-door")},
     **{f"bevy-particles-{n}": check_particles(n) for n in ("fire", "smoke", "ball")},
 }

@@ -135,6 +135,20 @@ fn companion_die(world: &World, scene: &mut Scene, id: usize) {
     });
 }
 impl AiRuntime {
+    pub(super) fn deliver_due_sounds(&mut self, scene: &mut Scene) {
+        if self.delayed_sounds.is_empty() {
+            return;
+        }
+        let due = scene.time + 1e-9;
+        let (now_due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.delayed_sounds)
+            .into_iter()
+            .partition(|(at, _)| *at <= due);
+        self.delayed_sounds = later;
+        scene
+            .sounds
+            .extend(now_due.into_iter().map(|(_, request)| request));
+    }
+
     /// IdleSound's lines, and their effects when Speak succeeds.
     pub(super) fn speak_idle_lines(&mut self, world: &World, scene: &mut Scene) {
         for line in std::mem::take(&mut self.idle_lines) {

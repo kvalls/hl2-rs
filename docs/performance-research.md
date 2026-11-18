@@ -1,5 +1,30 @@
 # Performance research and implementation results
 
+## Station plaza ground crowd
+
+2026-11-18. The ground workload places 30 zombies on the same station02 grid as the
+30-manhack benchmark. Use the packaged flags below and the movement script
+`test-inputs/performance-research/plaza-ground-crowd.json`. Each of 36 runs reached
+tick 600, with the expected spawn count, 1920×1080 HUD, zero GPU completion errors
+and zero pose mismatches. A weapon dropped by a map NPC also appears in the ground
+spawn log. It is excluded from the count.
+
+M1 Pro, Metal, CPU shadow silhouettes, uncapped and muted. Baseline `8208887c` and
+candidate ran in alternating pairs. Each cell is the median of three runs' means in
+milliseconds. The repeat's one-minute load averages are in the per-run records.
+
+| Scene | First series, before / after frame | Repeat, before / after frame | Repeat, before / after fixed simulation | Repeat, before / after frame p95 upper bound |
+| --- | ---: | ---: | ---: | ---: |
+| Quiet | 8.364 / 7.823 | 5.448 / 5.231 | 2.567 / 2.457 | 8 / 8 |
+| 30 zombies | 13.527 / 13.332 | 11.238 / 10.928 | 4.052 / 4.013 | 15 / 16 |
+| 30 manhacks | 13.680 / 13.427 | 9.436 / 9.340 | 3.170 / 3.191 | 14 / 14 |
+
+Ground mean frame time fell in five of six pairs. Two repeat pairs differed by only
+0.04 ms. Host load and the simulated fight varied across runs, limiting attribution.
+All 30 manhacks moved over 32 units; typically 15–16 zombies did. Ground actors at the
+sample included both melee attackers and actors in failed chase or wander schedules.
+This workload measures combat in a crowd, not every actor's ability to reach a goal.
+
 ## GPU shadow silhouettes on station02
 
 2026-11-15. Three alternating pairs on the final packaged build reduced the median crowd
