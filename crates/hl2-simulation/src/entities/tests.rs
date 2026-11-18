@@ -1908,3 +1908,24 @@ fn logic_auto_fires_at_its_think_a_fifth_of_a_second_after_spawn() {
         .take_lines(&world)
         .is_empty());
 }
+#[test]
+fn a_no_auto_return_door_stays_open_after_its_wait() {
+    // CBaseDoor::DoorHitTop: SF_DOOR_NO_AUTO_RETURN (32) keeps the door at the top
+    // (d1_trainstation_01's train doors, wait 4); without it DoorGoDown follows `wait`.
+    let door = |name: &str, flags: &str| {
+        let values = [("spawnflags", flags), ("wait", "0.5"), ("speed", "1000")];
+        entity("func_door", name, &values)
+    };
+    let w = World {
+        entities: vec![door("toggle", "32"), door("returns", "0")],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    scene.send(0, "Open", "");
+    scene.send(1, "Open", "");
+    for _ in 0..10 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert!(scene.states[0].return_at.is_none());
+    assert!(scene.states[1].return_at.is_some());
+}
