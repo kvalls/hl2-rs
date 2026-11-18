@@ -24,7 +24,10 @@ impl Motion {
             .and_then(|m| m.strip_prefix('*'))
             .and_then(|m| m.parse::<usize>().ok())
             .and_then(|id| world.brush_models.iter().find(|m| m.id == id));
-        let bounds = model.map(|m| m.maxs - m.mins).unwrap_or(Vec3::splat(72.));
+        // Mod_LoadSubmodels (retail engine.dll 0x1013f8c0) spreads a brush model's compiled
+        // bounds by 1.0 on every side and CBaseDoor::Spawn / CFuncMoveLinear::Spawn subtract
+        // 2 from that OBB size (SDK doors.cpp, func_movelinear.cpp): the compiled size.
+        let bounds = model.map(|m| m.maxs - m.mins).unwrap_or(Vec3::splat(70.));
         let direction = parse_vec3(e.get("movedir").unwrap_or("0 0 0")).unwrap_or(Vec3::ZERO);
         let direction = if direction.x == -1. {
             Vec3::Z
@@ -35,15 +38,12 @@ impl Motion {
             let y = direction.y.to_radians();
             Vec3::new(p.cos() * y.cos(), p.cos() * y.sin(), -p.sin())
         };
-        let travel = number(
-            e,
-            "movedistance",
-            (bounds - Vec3::splat(2.))
-                .max(Vec3::ZERO)
-                .dot(direction.abs())
-                - number(e, "lip", 0.),
-        )
-        .max(0.01);
+        let sized = bounds.max(Vec3::ZERO).dot(direction.abs()) - number(e, "lip", 0.);
+        // CFuncMoveLinear::Spawn sizes a MoveDistance of 0 or less from the brush.
+        let travel = Some(number(e, "movedistance", 0.))
+            .filter(|d| *d > 0.)
+            .unwrap_or(sized)
+            .max(0.01);
         let rotating = matches!(e.class(), "func_door_rotating" | "prop_door_rotating");
         let angle = if e.class() == "prop_door_rotating" {
             let distance = number(e, "distance", 90.).abs();

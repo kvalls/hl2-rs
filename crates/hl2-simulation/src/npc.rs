@@ -1260,7 +1260,7 @@ fn advance<W: NpcCollisionWorld>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::physics::Physics;
     use modkit_core::{animation::MovementRecord, Brush, Entity, Plane};
@@ -1330,6 +1330,19 @@ mod tests {
                 (MoveStyle::Run, track(200., 200.)),
             ]),
             ..Default::default()
+        }
+    }
+    /// A test locomotion whose walk plays `walk` (a weapon-translated variant, say).
+    pub(crate) fn named_locomotion(walk: &str) -> Locomotion {
+        let mut l = locomotion();
+        l.names.insert(MoveStyle::Walk, walk.into());
+        l
+    }
+    impl Controller {
+        /// The walk sequence an actor's current locomotion names (None: walk_all).
+        pub(crate) fn walk_name(&self, entity: usize) -> Option<&str> {
+            let names = &self.actors.get(&entity)?.locomotion.names;
+            names.get(&MoveStyle::Walk).map(String::as_str)
         }
     }
     pub(super) fn key(scene: usize) -> GoalKey {

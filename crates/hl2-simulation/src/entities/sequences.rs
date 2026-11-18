@@ -391,10 +391,11 @@ impl Scene {
             // CINE_MOVETO_WAIT_FACING: face the script's angles, then play (the turn is
             // instant here).
             5 => self.states[actor].rotation = self.states[id].rotation,
-            // CINE_MOVETO_WALK / RUN (SCHED_SCRIPTED_WALK/RUN): the actor goes to the mark
-            // through the NPC movement controller; arrival (tick) plants him on the script
-            // origin, faces its angles and plays.
-            1 | 2 => {
+            // CINE_MOVETO_WALK / RUN / CUSTOM (SCHED_SCRIPTED_WALK/RUN/CUSTOM_MOVE): the actor
+            // goes to the mark through the NPC movement controller; arrival (tick) plants him
+            // on the script origin, faces its angles and plays. A custom move without
+            // m_iszCustomMove walks (GetScriptCustomMoveActivity's ACT_WALK).
+            1..=3 if movement != 3 || custom_move_walks(script) => {
                 let key = crate::npc::GoalKey {
                     scene: id,
                     event: 0,
@@ -409,10 +410,10 @@ impl Scene {
                     request: crate::npc::MoveRequest {
                         target_entity: id,
                         target_feet: script.origin(),
-                        style: if movement == 1 {
-                            crate::npc::MoveStyle::Walk
-                        } else {
+                        style: if movement == 2 {
                             crate::npc::MoveStyle::Run
+                        } else {
+                            crate::npc::MoveStyle::Walk
                         },
                         event_distance: 0.,
                         // StartScriptMoveToTargetTask walks unless within 1 unit.
@@ -609,4 +610,12 @@ impl Scene {
             }
         }
     }
+}
+
+/// A custom scripted move that walks: no m_iszCustomMove, or ACT_WALK itself.
+fn custom_move_walks(script: &modkit_core::Entity) -> bool {
+    script
+        .get("m_iszCustomMove")
+        .map(str::trim)
+        .is_none_or(|m| m.is_empty() || m.eq_ignore_ascii_case("ACT_WALK"))
 }

@@ -115,9 +115,8 @@ impl AiRuntime {
                     target,
                     activator,
                 ),
-                "giveweapon" => self.give_weapon(target, class, &parameter),
-                // A Kill of `<npc>_weapon` (entities::io): the weapon is gone.
-                "killweapon" => self.set_equipment(target, class, ""),
+                "giveweapon" => self.give_weapon(controller, target, class, &parameter),
+                "killweapon" => self.kill_weapon(controller, target, class),
                 "setpolicegoal" => self.set_police_goal(world, target, &parameter),
                 "activatebaton" => {
                     if let Some(actor) = self.actors.get_mut(&target) {

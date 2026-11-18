@@ -217,6 +217,39 @@ fn weapon_equip_goes_to_any_weapon_user_and_never_to_natural_attackers() {
     );
 }
 
+/// Weapon_TranslateActivity on every movement activity: a weapon given at runtime
+/// (d1_trainstation_01's passengers get weapon_citizensuitcase by GiveWeapon) switches the
+/// walk to the weapon's (luggage_walk_all); KillWeapon brings back the unarmed walk.
+#[test]
+fn a_given_weapon_switches_the_walk_variant() {
+    use crate::npc::tests::named_locomotion;
+    let world = World {
+        entities: vec![entity(&[("classname", "npc_citizen")])],
+        ..Default::default()
+    };
+    let mut ai = AiRuntime::new(&world, None);
+    let mut controller = Controller::new(None, Default::default());
+    let hull = crate::ai_hull::HullType::Human;
+    let ground = crate::npc::ground_for_hull(hull, 1., 18., 1.).unwrap();
+    let walk = named_locomotion("walk_all");
+    controller
+        .register_ai_actor(0, 1., ground, walk.clone())
+        .unwrap();
+    let suitcase = named_locomotion("luggage_walk_all");
+    let variants = [
+        ("".into(), walk),
+        ("weapon_citizensuitcase".into(), suitcase),
+    ];
+    controller.set_locomotion_variants(0, variants.into_iter().collect());
+    ai.give_weapon(&mut controller, 0, "npc_citizen", "weapon_citizensuitcase");
+    assert_eq!(controller.walk_name(0), Some("luggage_walk_all"));
+    ai.kill_weapon(&mut controller, 0, "npc_citizen");
+    assert_eq!(controller.walk_name(0), Some("walk_all"));
+    // A weapon without a variant on the model walks unarmed.
+    ai.give_weapon(&mut controller, 0, "npc_citizen", "weapon_smg1");
+    assert_eq!(controller.walk_name(0), Some("walk_all"));
+}
+
 #[test]
 fn a_runtime_spawned_cop_gets_an_actor_and_thinks() {
     let mut r = rig();

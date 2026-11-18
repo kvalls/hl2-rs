@@ -872,40 +872,7 @@ impl Physics {
                     .insert(world_material(ColliderBuilder::new(shape)));
             }
         }
-        for (id, e) in world.entities.iter().enumerate() {
-            let Some(model_id) = e
-                .get("model")
-                .and_then(|m| m.strip_prefix('*'))
-                .and_then(|s| s.parse::<usize>().ok())
-            else {
-                continue;
-            };
-            let Some(model) = world.brush_models.iter().find(|m| m.id == model_id) else {
-                continue;
-            };
-            if !brush_entities::solid(e) {
-                continue;
-            }
-            let position = pose(
-                e.origin(),
-                angles(
-                    modkit_core::parse_vec3(e.get("angles").unwrap_or("0 0 0"))
-                        .unwrap_or(Vec3::ZERO),
-                ),
-            );
-            for b in &model.brushes {
-                if let Some(shape) = brush_shape(b) {
-                    let c = p.colliders.insert(
-                        ColliderBuilder::new(shape)
-                            .position(position)
-                            .user_data(id as u128 + 1)
-                            .friction(0.8),
-                    );
-                    p.entity_colliders.entry(id).or_default().push(c);
-                    p.npc_collider_contents.insert(c, b.contents);
-                }
-            }
-        }
+        p.add_brush_entity_colliders(world);
         let mut shape_cache = BTreeMap::new();
         for instance in &world.model_instances {
             p.add_model_instance(world, instance, &mut shape_cache);

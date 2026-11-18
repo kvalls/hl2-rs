@@ -117,8 +117,8 @@ pub fn class_ai_activities(class: &str) -> &'static [&'static str] {
 }
 /// Activities the humanoid AI classes (npc_citizen, npc_barney, npc_alyx, npc_combine_s;
 /// hl2-simulation ai::humanoid and the base schedules) set, and every acttable result of
-/// the weapons they carry (SMG1, AR2, shotgun, pistol, RPG, Alyx gun, crowbar; a test in
-/// hl2-simulation keeps this in sync with its SDK acttables).
+/// the weapons they carry (SMG1, AR2, shotgun, pistol, RPG, Alyx gun, crowbar, the citizen
+/// package and suitcase; a test in hl2-simulation keeps this in sync with its SDK acttables).
 pub const HUMANOID_AI_ACTIVITIES: &[&str] = &[
     "ACT_IDLE_ANGRY",
     "ACT_WALK",
@@ -167,6 +167,10 @@ pub const HUMANOID_AI_ACTIVITIES: &[&str] = &[
     "ACT_IDLE_SMG1_STIMULATED",
     "ACT_IDLE_STEALTH_PISTOL",
     "ACT_IDLE_STIMULATED",
+    "ACT_IDLE_PACKAGE",
+    "ACT_WALK_PACKAGE",
+    "ACT_IDLE_SUITCASE",
+    "ACT_WALK_SUITCASE",
     "ACT_MELEE_ATTACK_SWING",
     "ACT_RANGE_AIM_AR2_LOW",
     "ACT_RANGE_AIM_PISTOL_LOW",

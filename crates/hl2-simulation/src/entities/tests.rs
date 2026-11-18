@@ -1929,3 +1929,30 @@ fn a_no_auto_return_door_stays_open_after_its_wait() {
     assert!(scene.states[0].return_at.is_none());
     assert!(scene.states[1].return_at.is_some());
 }
+
+#[test]
+fn door_travel_is_the_compiled_brush_size_less_lip() {
+    // Mod_LoadSubmodels spreads the compiled bounds by 1 and CBaseDoor::Spawn subtracts 2:
+    // d1_trainstation_01's train_door_1 (a 2-unit helper, lip 0) pushes the car door's
+    // halves 2 units out of the car's side; each half (56 wide, lip 1) slides 55.
+    let model = |id, half: Vec3| modkit_core::BrushModel {
+        id,
+        surfaces: Vec::new(),
+        brushes: Vec::new(),
+        mins: -half,
+        maxs: half,
+    };
+    let outer = [("model", "*1"), ("movedir", "0 270 0")];
+    let half = [("model", "*2"), ("movedir", "0 180 0"), ("lip", "1")];
+    let w = World {
+        entities: vec![
+            entity("func_door", "outer", &outer),
+            entity("func_door", "half", &half),
+        ],
+        brush_models: vec![model(1, Vec3::ONE), model(2, Vec3::new(28., 1., 56.))],
+        ..Default::default()
+    };
+    let scene = Scene::new(&w);
+    assert!((scene.states[0].translation - Vec3::new(0., -2., 0.)).length() < 1e-3);
+    assert!((scene.states[1].translation - Vec3::new(-55., 0., 0.)).length() < 1e-3);
+}
