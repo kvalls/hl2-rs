@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-19 session 66: the bench FPS drop traced (fix in PR #5), per-entity trigger touches, NPC route detours (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner answered on the bench FPS drop during the session (walking on the benches outside the train, not standing).
+- Changed: triggers keep per-entity touch lists (hl2-simulation entities/touch.rs, Scene::tick_trigger; the trigger block moved out of Scene::tick, 192 -> 107 lines), only real NPCs touch (not template makers), NPCs and objects touch when they move and a newly active trigger touches what is inside; the route planner tries a triangulated detour before the node graph (npc/graph/triangulate.rs).
+- Why: session 65's station 02 I/O diff (trigger_lcs_activator fires per citizen natively); the owner's bench FPS drop and the vortigaunt's walk time (d1_trainstation_01 priority). The bench fix (Impacts::ground_property on static props) was committed and reverted: open PR #5 carries the same fix (commit 788d623).
+- Tested how: a packaged probe build with a switch for the old path (artifacts/s66/bench); SDK triggers.cpp, physics_main_shared.cpp, ai_pathfinder.cpp, ai_utils.cpp; two native top-view runs and the station 02 native developer-2 log; temporary probes in owned-install tests and in the packaged planner (removed); unit tests (standing on a static prop hull; per-entity starts and ends, an NPC arriving while the player is inside, disable and enable, a spent trigger_once); artifacts/s66/validate.sh (results in STATUS "Current session 66").
+- Result: the bench FPS drop is explained and measured (1.9-5.7 ms per tick of world-face search walking on a bench; 0.017-0.026 ms with the static-prop shortcut, which PR #5 carries); OnStartTouch/OnEndTouch fire per entity at native-like times on d1_trainstation_02; blocked short NPC walks detour around small obstacles. The vortigaunt's sweep walk is not fixed (evidence in STATUS).
+- Frame time: trigger touches gather NPC and object candidates once per tick into reused lists instead of a full entity scan per NPC-flagged trigger, and resting NPCs skip their overlap tests (not timed separately); the route detour adds probes only when a straight walk under 32 feet is blocked.
+- Still broken or not tested: the bench fix is not on main until PR #5's commit lands; the vortigaunt's sweep walk (about 3 s late); the owner's own FPS on the benches.
+- Next: see the next-session prompt (artifacts/s66/next-session-prompt.txt).
+
 ## 2026-11-19 session 65, continued: no G-Man at load, the vortigaunt's broom walk (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner reported the G-Man flash and the bench FPS drop while playing.
