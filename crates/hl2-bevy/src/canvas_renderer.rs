@@ -354,7 +354,9 @@ pub fn present(
     hud.source.draw_messages(time, &game.scene.intro.messages);
     // While GameUI is up in a level (pause menu, console, dialogs) the engine hides the client's
     // HUD panel: native pause captures (hl2_complete oracle, 2026-10-29) show no HUD or crosshair.
-    let hud_hidden = ui.source.paused() && !ui.source.background_level();
+    // Nor is anything drawn before the map's first logic_auto think (the spawn hold, startup.rs).
+    let hud_hidden =
+        (ui.source.paused() && !ui.source.background_level()) || game.scene.logic_autos_pending();
     // Closed captions (Options > Audio) also show behind the main menu, under GameUI.
     let captions = hl2_ui::closecaption::Settings::from_config(ui.source.config.audio.captions);
     let messages = std::mem::take(&mut game.caption_messages);

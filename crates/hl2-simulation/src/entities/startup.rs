@@ -1,6 +1,7 @@
 //! The last steps of a scene's construction at map start.
 use super::{number, output, parse_vec3, Diagnostics, Scene, State};
 use crate::physics;
+use crate::player_damage::{ScreenFade, FFADE_IN, FFADE_OUT, FFADE_PURGE, FFADE_STAYOUT};
 use glam::{Quat, Vec3};
 use modkit_core::{Entity, World};
 
@@ -148,6 +149,15 @@ impl Scene {
         }
         // CLogicAuto::Activate: its outputs wait for the think 0.2 s on.
         self.logic_auto_at = Some((self.time + LOGIC_AUTO_THINK, new_game));
+        // The client draws nothing of the map before that think's outputs have run (the
+        // owner saw d1_trainstation_01's G-Man, in front of the master player start, for
+        // the 0.2 s before OnNewGame's viewcontrol_black and intro fade): black until it.
+        self.screen_fades.push(ScreenFade::new(
+            [0, 0, 0, 255],
+            0.,
+            0.,
+            FFADE_OUT | FFADE_STAYOUT,
+        ));
     }
     /// CLogicAuto::Think once its time has come: OnMapSpawn, and OnNewGame on a new game.
     pub(super) fn think_logic_autos(&mut self, world: &World) {
@@ -166,6 +176,17 @@ impl Scene {
                 }
             }
         }
+        // Lift the spawn hold; the outputs just fired are delivered in this same tick.
+        self.screen_fades.push(ScreenFade::new(
+            [0, 0, 0, 0],
+            0.,
+            0.,
+            FFADE_IN | FFADE_PURGE,
+        ));
+    }
+    /// The map's first logic_auto think has not run yet (nothing of the map is drawn).
+    pub fn logic_autos_pending(&self) -> bool {
+        self.logic_auto_at.is_some()
     }
     /// The logic_auto think at once: a background level's first frame is drawn through the
     /// camera its spawn outputs enable, before any time passes (no flash of the spawn view).
@@ -342,4 +363,35 @@ impl Scene {
 pub fn weapon_idle_activity(weapon: &str) -> &'static str {
     crate::npc_weapons::translate(&weapon.trim().to_ascii_lowercase(), "ACT_IDLE")
         .unwrap_or("ACT_IDLE")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Scene;
+    use crate::player_damage::{FFADE_OUT, FFADE_PURGE, FFADE_STAYOUT};
+    use glam::Vec3;
+    use modkit_core::World;
+
+    #[test]
+    fn the_map_stays_black_until_the_logic_auto_think() {
+        let world = World::default();
+        let mut scene = Scene::new(&world);
+        let hold = std::mem::take(&mut scene.screen_fades);
+        assert_eq!(hold.len(), 1);
+        assert_eq!(hold[0].color, [0, 0, 0, 255]);
+        assert_eq!(hold[0].flags, FFADE_OUT | FFADE_STAYOUT);
+        for _ in 0..13 {
+            scene.tick(&world, Vec3::ZERO, 0.015);
+        }
+        assert!(scene.screen_fades.is_empty());
+        scene.tick(&world, Vec3::ZERO, 0.015);
+        assert_eq!(scene.screen_fades.len(), 1);
+        assert_ne!(scene.screen_fades[0].flags & FFADE_PURGE, 0);
+        // A background level thinks at once: the hold and its purge arrive together.
+        let mut background = Scene::new(&world);
+        background.think_logic_autos_now(&world);
+        let flags: Vec<_> = background.screen_fades.iter().map(|f| f.flags).collect();
+        assert_eq!(flags.len(), 2);
+        assert_ne!(flags[1] & FFADE_PURGE, 0);
+    }
 }
