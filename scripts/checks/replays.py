@@ -33,6 +33,8 @@ Environment (no arguments, so the command line never changes):
                            fit in physical memory (GAME_MEMORY_GB per game, default 6, plus
                            4 GB left to the system), so the machine never swaps
   TIMESCALE=4              gameplay replays run their ticks this many times faster (1 = real time)
+  UI_TIMESCALE=4           other launches run unpaced and this many times faster, except checks
+                           marked real_time (1 = real time)
   WINDOWED=1               also run the windowed checks of this platform
   NO_BUILD=1               use bin/ as it is
   UPDATE_EXPECTED=1        record the gameplay outcomes as expected (after a reviewed change)
@@ -127,6 +129,13 @@ def game(name: str, *args: str, timeout: int = 240, background: bool = True, cap
     # --mute silences the run without touching the saved Audio settings.
     command = [str(game_dir() / EXE_NAME), "--no-setup", "--mute", *args, "--report", str(report)]
     command.insert(2, "--background" if background else "--no-focus")
+    # UI launches run unpaced frames UI_TIMESCALE times faster, each still covering about the game
+    # time of a 60 fps frame, so frame-counted launches finish sooner. Real-time checks opt out.
+    speed = os.environ.get("UI_TIMESCALE", "4")
+    if speed != "1" and "--timescale" not in args and not getattr(SETTINGS, "real_time", False):
+        # Capped at 60 fps times the speed-up, so a fast-forwarded game never starves the game
+        # running beside it.
+        command += ["--uncapped", "--max-fps", str(round(60 * float(speed))), "--timescale", speed]
     if png:
         command += ["--capture", str(png)]
     env = dict(os.environ, RUST_LOG=os.environ.get("RUST_LOG", "info,hl2_bevy=debug"),
@@ -1709,6 +1718,7 @@ class Check:
     category: str  # shared | windowed | macos | windows
     group: str = "ui"  # ui | gameplay (GROUP=gameplay runs one group)
     own_game: bool = False  # edits files of the staged game (shaders): runs its own copy
+    real_time: bool = False  # measures real-time behavior (countdowns, frame timing): never fast-forwarded
 
 
 CHECKS = [
@@ -1721,7 +1731,7 @@ CHECKS = [
     Check("options", check_options, "shared"),
     Check("video_8k", check_video_8k, "shared"),
     Check("video_portrait", check_video_portrait, "shared"),
-    Check("video_keep", check_video_keep, "shared"),
+    Check("video_keep", check_video_keep, "shared", real_time=True),
     Check("narrow_layout", check_narrow_layout, "shared"),
     Check("fov_settings", check_fov_settings, "shared"),
     Check("resolution_stress", check_resolution_stress, "shared"),
@@ -1736,15 +1746,15 @@ CHECKS = [
     Check("campaign", check_campaign, "shared"),
     Check("dev_overlay", check_dev_overlay, "shared"),
     Check("hud", check_hud, "shared"),
-    Check("hud_aspect", check_hud_aspect, "shared"),
+    Check("hud_aspect", check_hud_aspect, "shared", real_time=True),
     Check("power_hud", check_power_hud, "shared"),
     Check("flashlight_shadows", check_flashlight_shadows, "shared", own_game=True),
-    Check("flashlight_availability", check_flashlight_availability, "shared"),
+    Check("flashlight_availability", check_flashlight_availability, "shared", real_time=True),
     Check("options_status", check_options_status, "shared"),
     Check("lamp_emission", check_lamp_emission, "shared", own_game=True),
     Check("motion_blur_options", check_motion_blur_options, "shared"),
-    Check("viewmodel_motion_blur", check_viewmodel_motion_blur, "shared", own_game=True),
-    Check("flashlight_viewmodel", check_flashlight_viewmodel, "shared", own_game=True),
+    Check("viewmodel_motion_blur", check_viewmodel_motion_blur, "shared", own_game=True, real_time=True),
+    Check("flashlight_viewmodel", check_flashlight_viewmodel, "shared", own_game=True, real_time=True),
     Check("commentary", check_commentary, "shared"),
     Check("video", check_video, "shared"),
     Check("window", check_window, "windowed"),
@@ -1793,6 +1803,7 @@ def run_check(check: Check, output: ThreadOutput) -> tuple[bool, str, float]:
     SETTINGS.path = OUT / "settings" / check.name / "hl2-config.json"
     SETTINGS.path.parent.mkdir(parents=True, exist_ok=True)
     reset_settings()
+    SETTINGS.real_time = check.real_time
     SETTINGS.game = None
     if check.own_game:
         SETTINGS.game = OUT / "games" / check.name

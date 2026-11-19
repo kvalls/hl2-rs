@@ -76,6 +76,8 @@ struct Options {
     /// Simulation speed for unattended checks (`--timescale`): the same 15 ms ticks, this many
     /// times faster than real time. 1 in play.
     timescale: f32,
+    /// Cap frames per second for `--uncapped` runs that share the machine (`--max-fps`).
+    max_fps: Option<u32>,
     cpu_skinning: bool,
     no_pvs: bool,
     world_partition: bool,
@@ -237,6 +239,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .add_plugins(ui_system::UiPlugin)
         .add_plugins(simulation::MovementPlugin);
     launch::apply_timescale(&mut app, options.timescale);
+    launch::limit_frame_rate(&mut app, options.max_fps);
     launch::add_video_systems(&mut app);
     launch::add_presentation_systems(&mut app);
     if options.profile {

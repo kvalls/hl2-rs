@@ -1654,6 +1654,10 @@ UI and gameplay checks run side by side and `bin/hl2-config.json` (and a game ru
 is never touched. `JOBS` checks run at once, longest first by the previous run's durations
 (`artifacts/replays/durations.json`); checks that edit the staged game's shaders each run their own copy of it. Gameplay replays run
 with `--timescale` (`TIMESCALE`, default 4): the same 15 ms ticks, four times faster than real time.
+Other launches run `--uncapped --max-fps 240 --timescale 4` (`UI_TIMESCALE`, default 4): frames about
+four times as fast, each covering the game time of a 60 fps frame, capped so a fast game never
+starves the one beside it. Checks marked `real_time` (countdowns, frame-timed blur, sway and HUD
+sampling) never fast-forward; mark a new check that measures real time the same way.
 Environment instead of arguments: `ONLY="console movement"` runs those checks, `GROUP=ui` or
 `GROUP=gameplay` one group, `JOBS=4` up to four checks at once (never more games than fit in
 physical memory: `GAME_MEMORY_GB` per game, default 6, plus 4 GB for the system; a packaged game

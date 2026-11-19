@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-19 — Fast-forward the UI checks
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `--max-fps N` (10–1000, `launch::limit_frame_rate`, installed only when given). `scripts/checks/replays.py`: launches other than gameplay replays add `--uncapped --max-fps 240 --timescale 4` (`UI_TIMESCALE`, default 4; 1 turns it off); `real_time` checks opt out: `video_keep`, `viewmodel_motion_blur`, `flashlight_viewmodel`, `hud_aspect`, `flashlight_availability`.
+- Why: after the previous step the suite still spent most of its time on UI checks paced at 60 fps.
+- Tested how: UI group at 4×: 30 of 35 kept their outcomes, and the five that changed measure real time (the 15 s keep countdown, frame-timed blur and sway, HUD and suit-light sampling) and now opt out. Uncapped without a limit: 108/108 in 740 s, the real-time checks slowed by the unbounded game beside them. With `--max-fps`: 108/108 in 702 s (previous step 778 s, original 1,451 s). Workspace validation and Windows cross-target Clippy pass.
+- Frame time: none in play; `--max-fps` and `--timescale` are off unless given.
+- Still broken or not tested: the 740 s and 702 s runs may have shared the GPU with a browser game the owner was playing, so their times are not quiet-machine numbers; the four real-time checks (60–115 s each) now set the suite's floor.
+
 ## 2026-11-19 — Settings profiles and a faster replay suite
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

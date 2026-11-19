@@ -371,3 +371,19 @@ pub(crate) fn apply_timescale(app: &mut App, scale: f32) {
     time.set_relative_speed(scale);
     time.set_max_delta(std::time::Duration::from_secs_f32(0.05 * scale));
 }
+
+/// `--max-fps`: each frame waits out the rest of its share of a second before the next begins.
+/// Added only when asked for; play never runs it.
+pub(crate) fn limit_frame_rate(app: &mut App, max_fps: Option<u32>) {
+    let Some(fps) = max_fps else { return };
+    let period = std::time::Duration::from_secs_f64(1. / f64::from(fps));
+    let mut last = std::time::Instant::now();
+    app.add_systems(bevy::app::Last, move || {
+        let due = last + period;
+        let now = std::time::Instant::now();
+        if due > now {
+            std::thread::sleep(due - now);
+        }
+        last = std::time::Instant::now();
+    });
+}
