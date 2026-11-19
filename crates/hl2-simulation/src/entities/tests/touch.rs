@@ -134,3 +134,35 @@ fn a_spent_trigger_once_frees_its_touches_without_outputs() {
     assert!(!scene.states[0].enabled);
     assert!(touch_tick(&mut scene, &world, FAR).is_empty());
 }
+
+#[test]
+fn npcs_touch_when_they_move_and_a_new_trigger_touches_what_stands_inside() {
+    // A trigger's first pass (PostClientActive) touches an NPC already standing inside.
+    let world = touch_world("trigger_multiple", "2", 2);
+    let mut scene = Scene::new(&world);
+    scene.states[1].origin = Vec3::ZERO;
+    assert_eq!(
+        touch_tick(&mut scene, &world, FAR),
+        fired(&[("st", 1), ("sta", 1)])
+    );
+    // A maker's NPC appears inside the armed trigger: no touch until its first step.
+    scene.states[2].killed = true;
+    scene.states[2].origin = Vec3::new(4., 0., 0.);
+    touch_tick(&mut scene, &world, FAR);
+    scene.states[2].killed = false;
+    assert!(touch_tick(&mut scene, &world, FAR).is_empty());
+    scene.states[2].origin = Vec3::new(5., 0., 0.);
+    assert_eq!(touch_tick(&mut scene, &world, FAR), fired(&[("st", 2)]));
+}
+
+#[test]
+fn template_makers_never_touch() {
+    let mut world = touch_world("trigger_multiple", "2", 0);
+    world.entities.push(entity(
+        "npc_template_maker",
+        "maker",
+        &[("origin", "0 0 0")],
+    ));
+    let mut scene = Scene::new(&world);
+    assert!(touch_tick(&mut scene, &world, FAR).is_empty());
+}

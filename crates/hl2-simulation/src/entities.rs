@@ -250,6 +250,8 @@ pub struct State {
     wait: f64,
     /// Entities touching this trigger, in touch order (CBaseTrigger m_hTouchingEntities).
     touchers: Vec<usize>,
+    /// The trigger has touched everything inside it since it last became active.
+    touch_armed: bool,
     last_trigger: f64,
     pub value: f32,
     timer_at: f64,
@@ -350,6 +352,10 @@ pub struct Scene {
     sequence: u64,
     random: u64,
     queue: Vec<Pending>,
+    /// Every entity's origin at the previous trigger pass: NPCs and objects refresh their
+    /// touches only when they move (PhysicsTouchTriggers after a step).
+    touch_origins: Vec<Vec3>,
+    touch_candidates: touch::Candidates,
     pub diagnostics: Diagnostics,
     pub transition: Option<(String, String)>,
     pub sounds: Vec<crate::sounds::SoundRequest>,
@@ -672,6 +678,8 @@ impl Scene {
             sequence: 0,
             random: 1,
             queue: Vec::new(),
+            touch_origins: Vec::new(),
+            touch_candidates: Default::default(),
             diagnostics: Diagnostics::default(),
             transition: None,
             sounds: Vec::new(),
@@ -797,7 +805,6 @@ impl Scene {
             });
             !values.is_empty()
         });
-        let mut candidates = None;
         for id in 0..world.entities.len() {
             let e = self.ent(world, id);
             if self.states[id].killed {
@@ -842,9 +849,10 @@ impl Scene {
             if e.class().starts_with("trigger_")
                 && (self.states[id].enabled || !self.states[id].touchers.is_empty())
             {
-                self.tick_trigger(world, id, &mut candidates);
+                self.tick_trigger(world, id);
             }
         }
+        self.remember_touch_origins();
         self.advance_func_trains(world);
         // Parented children follow this tick's parent poses and animated attachments.
         self.follow_parents(world);
