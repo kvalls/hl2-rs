@@ -1116,7 +1116,7 @@ def check_hud_aspect():
 STATION_01 = ("bevy-activity-idle", "bevy-attention", "bevy-audio-scenes", "bevy-face-security-1805",
               "bevy-face-security-2100", "bevy-face-security-2130", "bevy-face-security-2245",
               "bevy-gestures-security-1805", "bevy-gestures-security-2245", "bevy-gestures-timeline",
-              "bevy-monitors-kleiner-scene")
+              "bevy-monitors-kleiner-scene", "bevy-luggage-shove")
 STATION_02 = ("bevy-barrier-hum", "bevy-bugbait", "bevy-bugbait-wall", "bevy-carry-bottle-shove",
               "bevy-crate-drop-rest", "bevy-crate-on-box-stack", "bevy-crossbow", "bevy-crowbar-surfaces",
               "bevy-door-inputs", "bevy-door-swing", "bevy-effect-ball", "bevy-effect-decal",
@@ -1350,6 +1350,25 @@ def check_door_inputs(run: Run) -> None:
     holds("OpenAwayFrom is implemented", not any("openawayfrom" in k.lower() for k in unsupported))
 
 
+def check_luggage_shove(run: Run) -> None:
+    """d1_trainstation_01's luggage cart (a fixture after PR #5's): the player crosses the platform
+    triggers and looks at the citizen; ai_script_conditions starts the shove, both suitcase pushes
+    fire, the scene completes and the citizen steps back to luggage_stepaway."""
+    def scene(label: str) -> dict:
+        game = run.sample(label)["gameplay"]
+        return next(s for s in game["choreography"] if s["targetname"] == "luggage_shove_scene")
+
+    holds("the shove is playing", scene("shove")["active"])
+    end = scene("finish")
+    holds("the shove completes", not end["active"] and not end["completed_early"])
+    game = run.sample("finish")["gameplay"]
+    expect("both suitcase pushes", game["phys_explosions"]["pushes"], 2)
+    citizen = next(a for a in game["animations"] if a.get("targetname") == "luggage_citizen")
+    step_away = (-4008.45, -1766.59)
+    off = sum((a - b) ** 2 for a, b in zip(citizen["origin"][:2], step_away)) ** 0.5
+    holds("the citizen stepped back to luggage_stepaway", off <= 48, f"{off:.1f} units away")
+
+
 def frozen_final(run: Run) -> None:
     sim = run.report["render"]["simulation"]
     holds("ends paused on the last sample", sim["paused"]
@@ -1532,6 +1551,7 @@ GAMEPLAY_CHECKS: dict[str, Callable[[Run], None]] = {
     "bevy-entities-weapons": check_entities_weapons,
     "bevy-door-swing": check_door_swing,
     "bevy-door-inputs": check_door_inputs,
+    "bevy-luggage-shove": check_luggage_shove,
     "bevy-attention": check_attention,
     **{f"bevy-effect-{n}": check_effect(n) for n in ("grenade", "ball", "decal", "explosion", "decal-door")},
     **{f"bevy-particles-{n}": check_particles(n) for n in ("fire", "smoke", "ball")},

@@ -293,6 +293,48 @@ fn script_conditions_fire_after_their_required_time_then_disable() {
     assert_eq!(r.scene.states[1].value, 1., "fires once, then disabled");
 }
 
+/// PlayerActorLOS 1 holds only while the actor sees the player: a notarget player
+/// (FL_NOTARGET, our ignore_player) fails CBaseEntity::FVisible, so nothing fires.
+#[test]
+fn script_conditions_line_of_sight_fails_for_a_notarget_player() {
+    for (notarget, fires) in [(false, true), (true, false)] {
+        let mut conditions = entity(&[
+            ("classname", "ai_script_conditions"),
+            ("Actor", "witness"),
+            ("PlayerActorLOS", "1"),
+            ("PlayerActorFOV", "360"),
+        ]);
+        conditions
+            .properties
+            .push(("OnConditionsSatisfied".into(), "count,Add,1,0,-1".into()));
+        let world = World {
+            entities: vec![
+                conditions,
+                entity(&[("classname", "math_counter"), ("targetname", "count")]),
+                entity(&[
+                    ("classname", "npc_citizen"),
+                    ("targetname", "witness"),
+                    ("origin", "100 0 0"),
+                ]),
+            ],
+            ..Default::default()
+        };
+        let mut r = Rig {
+            scene: Scene::new(&world),
+            physics: Physics::new(&world),
+            ai: AiRuntime::new(&world, None),
+            controller: Controller::new(None, Default::default()),
+            world,
+        };
+        r.ai.ignore_player = notarget;
+        for _ in 0..40 {
+            run(&mut r, 1, player_at(0.));
+            r.scene.tick(&r.world, Vec3::ZERO, 0.);
+        }
+        assert_eq!(r.scene.states[1].value == 1., fires, "notarget {notarget}");
+    }
+}
+
 #[test]
 fn a_runtime_spawned_cop_gets_an_actor_and_thinks() {
     let mut r = rig();

@@ -307,10 +307,12 @@ impl AiRuntime {
         let look = |viewed: usize, (fov, cone): (f32, bool)| {
             in_player_fov(&eval.player, eye(viewed), fov, cone)
         };
-        let los = |viewed: usize, want: i32| {
-            want == TRS_NONE
-                || eval.sight.visible(eye(viewed), player_eye, &[viewed]) == (want == TRS_TRUE)
+        // PlayerHasLineOfSight asks the viewed entity's FVisible(player), false for a player
+        // with FL_NOTARGET (SDK baseentity.cpp): `notarget` is the runtime's ignore_player.
+        let seen = |viewed: usize| {
+            !self.ignore_player && eval.sight.visible(eye(viewed), player_eye, &[viewed])
         };
+        let los = |viewed: usize, want: i32| want == TRS_NONE || seen(viewed) == (want == TRS_TRUE);
         let target_seen = |a: usize, t: usize| {
             let fov = npc.map_or(0., |n| n.class.field_of_view());
             let forward = eval.scene.states[a].rotation * Vec3::X;
