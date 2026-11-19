@@ -982,7 +982,7 @@ impl Controller {
                 };
                 let shaky = embedded::stand(world, *key, goal.feet, actor, query, &mut self.drops)?;
                 goal.shaky = shaky;
-                let moved = advance(world, actor, *key, goal, track, query, dt);
+                let moved = advance(world, actor, goal, track, query, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
             })();
@@ -1082,7 +1082,6 @@ fn update(key: GoalKey, goal: &Goal, doors: &BTreeSet<usize>, name: Option<Strin
 fn advance<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
-    key: GoalKey,
     goal: &mut Goal,
     track: &RootMotion,
     // The mover's exclusions (itself, or every crab for a crab) and the other actors.
@@ -1096,19 +1095,18 @@ fn advance<W: NpcCollisionWorld>(
         goal.state = GoalState::Arrived;
         return Ok(());
     }
-    // CAI_Navigator::SimplifyPath for AI goals (scene moves keep their routes).
-    if key.scene == AI_SCENE {
-        goal.simplify_in -= dt;
-        if goal.simplify_in <= 0. {
-            goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
-            let forced = !goal.simplified;
-            goal.simplified = true;
-            let plain = Query {
-                transients: &[],
-                ..query
-            };
-            simplify_path_forward(world, actor, goal, plain, forced);
-        }
+    // CAI_Navigator::SimplifyPath for every ground goal: AI goals and scripted or scene
+    // moves alike (the SDK's navigator simplifies any reducible path).
+    goal.simplify_in -= dt;
+    if goal.simplify_in <= 0. {
+        goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
+        let forced = !goal.simplified;
+        goal.simplified = true;
+        let plain = Query {
+            transients: &[],
+            ..query
+        };
+        simplify_path_forward(world, actor, goal, plain, forced);
     }
     let duration = track
         .duration()
