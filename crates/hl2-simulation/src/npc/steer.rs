@@ -3,7 +3,7 @@
 //! along the obstruction's surface comes first when it keeps close to the heading; then
 //! directions either side of the heading, the side away from the obstruction first. The route
 //! is unchanged: the next step heads for its waypoint again.
-use super::Actor;
+use super::{Actor, Goal};
 use crate::npc_probe::{self, GroundMove, NpcCollisionWorld, Query};
 use glam::{Quat, Vec3};
 
@@ -20,10 +20,12 @@ const MIN_PROGRESS: f32 = 0.5;
 pub(super) fn step<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
-    (from, direction, amount): (Vec3, Vec3, f32),
+    goal: &Goal,
+    (direction, amount): (Vec3, f32),
     query: Query<'_>,
     start_validated: bool,
 ) -> (GroundMove, Vec3) {
+    let from = goal.feet;
     let walk = |direction: Vec3| {
         let desired = from + direction * amount;
         if start_validated {
@@ -34,6 +36,16 @@ pub(super) fn step<W: NpcCollisionWorld>(
     };
     let blocked = walk(direction);
     if blocked.completed || !blocked.by_actor {
+        return (blocked, direction);
+    }
+    // A detour around the actor standing on the destination would send the mover back
+    // into the same hull. Let its schedule handle the obstruction (e.g. an ActBusy exit).
+    if query.transients.iter().any(|other| {
+        let local = goal.request.target_feet - other.feet;
+        other.entity == blocked.blocker
+            && local.cmpge(other.hull.mins).all()
+            && local.cmple(other.hull.maxs).all()
+    }) {
         return (blocked, direction);
     }
     candidates(direction, blocked.normal)
@@ -93,7 +105,7 @@ mod tests {
 
 #[cfg(test)]
 mod passing {
-    use super::super::tests::{key, locomotion, make_controller, request, world};
+    use super::super::tests::{key, locomotion, make_controller, pose, request, world};
     use super::super::{normal_human, ActorPose, GoalKey, GoalState};
     use crate::npc_probe::ActorHull;
     use crate::physics::Physics;
@@ -153,6 +165,29 @@ mod passing {
     fn two_humans_meeting_head_on_pass_each_other_and_arrive() {
         let states = meet(false);
         assert!(states.iter().all(GoalState::is_arrived), "{states:?}");
+    }
+
+    #[test]
+    fn occupied_destination_reports_contact_then_allows_arrival_when_clear() {
+        let physics = Physics::new(&world(vec![]));
+        let mut controller = make_controller(None);
+        let target = Vec3::X * 50.;
+        let blocker = ActorHull {
+            entity: Some(8),
+            feet: target,
+            hull: normal_human(1., 18., 1.).unwrap().hull,
+        };
+        controller.request(key(1), request(target), pose(Vec3::ZERO), &physics, &[]);
+        let updates = controller.tick(&physics, &[pose(Vec3::ZERO)], &[blocker], 0.5, false);
+        let contact = updates.last().unwrap();
+        assert!(matches!(contact.state, GoalState::Blocked(_)));
+        let mut feet = contact.feet;
+        for _ in 0..40 {
+            for update in controller.tick(&physics, &[pose(feet)], &[], 0.1, false) {
+                feet = update.feet;
+            }
+        }
+        assert!(controller.status(key(1)).unwrap().is_arrived());
     }
 
     #[test]

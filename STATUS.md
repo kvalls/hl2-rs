@@ -2,7 +2,9 @@
 
 ## Upstream integration and crowd measurements (2026-11-19)
 
-Upstream `2b55f809` and the performance branch at `95356e5f` both changed the luggage encounter. The merged replay retains both parents' destination checks. The simulation compiles and the architecture guard passes. The station02 shadow experiment compares the same merged package with CPU and GPU silhouettes at a fixed plaza view.
+Merge `51646bbc` retains the performance branch's authored bench animations and upstream's general script conditions and hint outputs. The station01 luggage replay matched all five checkpoints. The complete pre-merge and merged batches exposed known variations in pallet break timing and Kleiner gib removal respectively. Both passed isolated reruns.
+
+The merged station02 soundscape replay also exposed a repeatable crowd regression. Citizen 439 kept sidestepping around citizen 387, who occupied the exit destination. Upstream reported the collision, finished the departure at 35.92 s and ordered the replacement to leave at 36.30 s. The corrected packaged trace matches upstream byte-for-byte through tick 2800. The original expectations pass without changes. The full gameplay group then passed 72 of 73 on the fixed package; the Kleiner gib-removal timing variation passed alone. Three alternating 30-citizen pairs measured no cost from the fix (median 18.83 → 18.48 ms; control 6.72 → 6.73 ms). Use `NO_BUILD=1 ONLY=soundscapes python3 scripts/checks/replays.py` to replay the exit. Workspace validation, including strict Clippy, and Windows cross-target Clippy passed. The 30-NPC CPU/GPU measurements and frozen captures are described in docs/performance-research.md.
 
 ## F4 NPC roster and frame accounting (2026-11-18)
 

@@ -1165,8 +1165,8 @@ fn advance<W: NpcCollisionWorld>(
         // This tick's first step starts where `fits` and `stand` just passed. An actor in the
         // way is steered around (`steer`); the world is not.
         let validated = std::mem::take(&mut start_validated);
-        let heading = (goal.feet, delta / distance, amount);
-        let (movement, direction) = steer::step(world, actor, heading, query, validated);
+        let heading = (delta / distance, amount);
+        let (movement, direction) = steer::step(world, actor, goal, heading, query, validated);
         let actual = (movement.end - goal.feet).truncate().length();
         goal.feet = movement.end;
         goal.contact_normal = movement.normal;

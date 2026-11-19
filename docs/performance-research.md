@@ -1,5 +1,52 @@
 # Performance research and implementation results
 
+## Thirty-NPC plaza shadows after the station merge
+
+2026-11-19, revision `51646bbc`, M1 Pro/Metal, release package, 1920×1080, uncapped, High shadows.
+Three alternating pairs compared default CPU silhouettes with `HL2RS_GPU_SILHOUETTES=1` on the
+same executable. Each launch ran `d1_trainstation_02` to host tick 660. After warm-up it spawned
+30 actors of one class in three rows and viewed them from (-2020, -2680, 158), yaw 90, pitch -14.
+The control followed the same camera script with zero added actors. Each run's frame time is
+elapsed wall time divided by frames over its last three complete one-second windows. Pairs
+ran CPU/GPU, GPU/CPU, CPU/GPU. Paused captures were excluded from timing.
+
+| Added NPCs | Whole frame, CPU → GPU (ms, median) | FPS, CPU → GPU | Frame-time change in each pair | CPU shadow stage, CPU → GPU (ms) | p95 frame upper bound, CPU → GPU (ms) |
+| --- | ---: | ---: | --- | ---: | ---: |
+| 0 | 6.88 → 6.75 | 145.4 → 148.2 | −5.0%, −1.9%, +1.3% | 0.47 → 0.15 | 9 → 9 |
+| 30 citizens | 18.31 → 14.31 | 54.6 → 69.9 | −22.1%, −23.0%, −21.3% | 2.06 → 0.56 | 25 → 21 |
+| 30 G-Men | 21.26 → 13.64 | 47.0 → 73.3 | −36.1%, −37.6%, −32.3% | 3.99 → 1.10 | 25 → 17 |
+| 30 Combine dropships | 24.00 → 11.21 | 41.7 → 89.2 | −55.5%, −53.1%, −54.1% | 6.56 → 2.75 | 27 → 14 |
+
+Subtracting the control medians, the extra frame time for 30 actors fell from 11.43 to
+7.56 ms for citizens, 14.38 to 6.89 ms for G-Men, and 17.13 to 4.46 ms for dropships.
+The control varied in both directions. Median GPU busy rose from 32% to 53% for citizens,
+29% to 58% for G-Men and 27% to 66% for dropships. The game footprint was 6.4–6.8 GB in
+those crowds. The aligned samples recorded zero competing builds or other game processes.
+All timed runs observed GPU completions, at most two pending fences, zero completion or
+reported pose errors, and the expected number of successful spawns. Final visible triangle
+counts matched in every pair. AI, animations, spawn records, goals, health, projectiles,
+inventory, choreography and entity I/O matched. Prop transforms, head or random look
+states and path profiling counters could differ between launches.
+
+Each crowd also supplied frozen High CPU, High GPU, repeat High CPU and Low CPU captures.
+The comparison selected pixels where the two High CPU captures agreed within two RGB
+levels and High versus Low differed by more than eight on at least one channel.
+
+| Crowd | Selected pixels | CPU/GPU differences above 2 levels | Largest channel difference |
+| --- | ---: | ---: | ---: |
+| Citizens | 21,632 | 0 | 2 |
+| G-Men | 18,431 | 9 | 9 |
+| Dropships | 132,851 | 6 | 3 |
+
+A direct Metal atlas readback found one differing pixel at a moving opaque silhouette edge and reproduced the faint-layer
+precision difference (16 overlapping contributions gave CPU 4, GPU 0). CPU silhouettes remain
+the default. The results cover this camera, hardware and three crowd types. The citizen
+crowd still costs 7.56 ms over the control with GPU silhouettes. With that path enabled,
+the citizen fixed-simulation stage averaged 4.12 ms versus 2.36 ms in the control,
+and animation averaged 2.14 versus 0.72 ms. For G-Men, eye updates averaged 2.04
+versus 0.25 ms. These stage means cover the profiled run, including the pre-spawn
+period.
+
 ## Station plaza ground crowd
 
 2026-11-18. The ground workload places 30 zombies on the same station02 grid as the

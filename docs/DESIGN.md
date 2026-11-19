@@ -2551,3 +2551,7 @@ browser frame time and record the limits of static retail evidence.
 Validation: unit tests, a packaged background run reporting citizens that spawn, walk and are removed, and the gameplay replays. Reversible by dropping the commit.
 
 Known cost: removed entities keep their slot (`Scene::spawn_entity` only appends), so an endless maker grows the entity list by one per spawn. Reusing dead copies is a separate step if the measured growth matters.
+
+### Occupied crowd destinations
+
+The station02 soundscape replay distinguishes an actor blocking the route from an actor occupying the destination. On direct contact in the latter case, return the original collision so the owning schedule can retry or complete its exit-distance check. Check the existing head-on passing test, add an occupied-goal test, and compare the passerby departure and replacement to the upstream entity I/O trace.

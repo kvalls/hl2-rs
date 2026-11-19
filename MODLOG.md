@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-19 — Let an occupied destination end a crowd exit
+
+- Agent/model: Codex desktop, GPT-6 family (fix and trace comparison); Claude Code desktop, `claude-opus-5-5` (final replay rerun, cost repeat, commit). No subagents.
+- Changed: `npc/steer.rs` returns the original actor collision when the blocking actor's hull contains the move's target feet, instead of trying detours; `npc.rs` passes the goal to `steer::step`. New test: an occupied goal reports contact, then arrives once the blocker leaves.
+- Why: the merged station02 soundscape replay showed citizen 439 sidestepping around citizen 387, who stood on its exit point, until the replay ended. Upstream reports the obstruction, lets ActBusy finish the departure and spawns the next passerby.
+- Tested how: unit tests (head-on passing, occupied goal); the packaged entity I/O trace matches upstream byte for byte through tick 2800 (departure 35.92 s, replacement order 36.30 s); workspace validation, strict Clippy and Windows cross-target Clippy; 73 gameplay replays: 72 passed, and `monitors-kleiner-scene` failed on the known gib-removal timing (7 of 8 removed) and passed alone.
+- Frame time: one hull containment test per actor collision, only when a step is blocked by an actor. Three alternating pairs (station02, 30 citizens, 1920×1080, CPU silhouettes): median 18.83 → 18.48 ms, per pair +0.2%, +3.1%, −3.9%; control 6.72 → 6.73 ms. No measurable cost.
+- Still broken or not tested: none known for this change.
+
 ## 2026-11-19 — Integrate station gameplay and crowd rendering
 
 - Agent/model: Codex desktop, GPT-6 family.
