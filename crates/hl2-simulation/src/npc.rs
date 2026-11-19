@@ -1758,6 +1758,32 @@ pub(crate) mod tests {
         .is_ok());
     }
     #[test]
+    fn a_blocked_straight_walk_detours_beside_the_obstacle() {
+        // A box reaching 5 units into the hull's path (CAI_Pathfinder::Triangulate): one
+        // apex half a hull to the far side, no graph needed.
+        let physical_world = world(vec![cube(
+            Vec3::new(40., -40., 0.),
+            Vec3::new(60., -8., 60.),
+        )]);
+        let physics = Physics::new(&physical_world);
+        let mut controller = make_controller(None);
+        let mut feet = Vec3::ZERO;
+        let mut wanted = request(Vec3::new(100., 0., 0.));
+        wanted.force_short = true;
+        assert_eq!(
+            controller.request(key(1), wanted, pose(feet), &physics, &[]),
+            GoalState::Moving
+        );
+        let snapshot = &controller.snapshots()[0];
+        assert!(snapshot.route_nodes.is_empty());
+        assert_eq!(snapshot.route_feet.len(), 2, "{:?}", snapshot.route_feet);
+        assert!(snapshot.route_feet[0].y > 5., "{:?}", snapshot.route_feet);
+        for _ in 0..400 {
+            tick(&mut controller, &physics, &mut feet, 0.02, false);
+        }
+        assert!(controller.status(key(1)).unwrap().is_arrived());
+    }
+    #[test]
     fn a_blocked_graph_link_turns_stale_and_the_retry_routes_around_it() {
         // The graph claims a direct link 0-3 through the wall: the search trusts link data
         // (CAI_Pathfinder::IsLinkUsable), the walk blocks, MarkCurWaypointFailedLink marks
