@@ -1741,7 +1741,7 @@ CHECKS = [
     Check("background_reveal", check_background_reveal, "shared"),
     Check("background_fov", check_background_fov_independence, "shared"),
     Check("save_config", check_save_config, "shared"),
-    Check("console", check_console, "shared"),
+    Check("console", check_console, "shared", real_time=True),
     Check("console_map", check_console_map, "shared"),
     Check("campaign", check_campaign, "shared"),
     Check("dev_overlay", check_dev_overlay, "shared"),

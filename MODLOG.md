@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-19 — One command for every local check
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `scripts/checks/all.sh` builds the package once, then runs `validate.sh` and `check_windows.sh` at lower CPU priority beside `replays.py` (`NO_BUILD=1`, `JOBS` default 2), and prints each step's result and time (logs in `artifacts/check-all/`). `console` is marked `real_time`: sound plays in real time, so its pause/resume check failed twice under UI fast-forward. AGENTS.md and docs/validation.md name the script.
+- Tested how: `all.sh` passed build, validation and the Windows check and ran all 108 replays in 696 s total (one failure, `console`, now real-time; it passed alone twice).
+- Frame time: none.
+- Still broken or not tested: the total is about 11.6 minutes with two games; the replays' 1,378 s of work bounds two games near 11.5 minutes. Three games did not fit beside the apps open today. Windows has no equivalent script.
+
 ## 2026-11-19 — Read a map's models on all cores; gameplay replays at 8×
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

@@ -371,6 +371,8 @@ packaging is rebuilt. No dependencies added. The architecture baseline shrinks t
 110 long functions/19 large files, with no growth accepted.
 
 ```sh
+scripts/checks/all.sh   # every local check: package build, then validation and the Windows check beside the replays
+
 scripts/checks/validate.sh
 scripts/checks/check_windows.sh
 scripts/build-bevy.sh
