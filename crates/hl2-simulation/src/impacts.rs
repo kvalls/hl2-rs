@@ -434,6 +434,11 @@ impl Impacts {
         depth: f32,
     ) -> Option<String> {
         let hit = physics.ground_ray(feet + GVec3::Z * 2., -GVec3::Z, depth + 2.)?;
+        // A static prop's hull names its surface; its drawn mesh is not among the world's
+        // surfaces, so locating it would scan every world face every tick and find nothing.
+        if let Some(prop) = physics.static_surfaceprop(&hit) {
+            return Some(prop.to_owned());
+        }
         self.locate(&hit, world, physics, scene)
             .ok()
             .map(|l| l.prop)
@@ -1126,6 +1131,13 @@ mod tests {
             Some("wood_crate")
         );
         assert_eq!(impacts.unclippable, 0);
+        // Standing on it: the ground surface is the hull's, not the drawn face below.
+        assert_eq!(
+            impacts
+                .ground_property(&world, &physics, &scene, GVec3::Z * 2., 4.)
+                .as_deref(),
+            Some("wood_crate")
+        );
     }
     #[test]
     fn collision_offset_snaps_only_to_nearest_bounded_visible_receiver() {
