@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-20 — Three replay games at once
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `all.sh` runs three replay games at once by default and `GAME_MEMORY_GB` defaults to 4, so a 16 GB machine runs three. Launches stream their output to the game log instead of a pipe. `LOADING_AT_ONCE=N` (off by default) lets only N games load a map at once, holding a slot until the game's memory stops growing; the `loading_settled` check covers its rule.
+- Tested how: full `all.sh` runs on a 16 GB M1 Pro, judged by total time only: two games 696 s; three games loading one map at a time 722 s (every launch queued); three games loading freely 537 s, 109/109 passed; four games 595 s with two load-sensitive failures (`pallet-gibs-fade`, `monitors-kleiner-scene`).
+- Frame time: none.
+
 ## 2026-11-19 — One command for every local check
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

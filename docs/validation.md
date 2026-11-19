@@ -1661,10 +1661,10 @@ four times as fast, each covering the game time of a 60 fps frame, capped so a f
 starves the one beside it. Checks marked `real_time` (countdowns, frame-timed blur, sway and HUD
 sampling) never fast-forward; mark a new check that measures real time the same way.
 Environment instead of arguments: `ONLY="console movement"` runs those checks, `GROUP=ui` or
-`GROUP=gameplay` one group, `JOBS=4` up to four checks at once (never more games than fit in
-physical memory: `GAME_MEMORY_GB` per game, default 6, plus 4 GB for the system; a packaged game
-measured 4.9-5.8 GB on the station maps on 2026-10-23, so a 16 GB machine runs two; the
-`parallel_jobs` check covers the rule), `WINDOWED=1` adds the
+`GROUP=gameplay` one group, `JOBS=3` up to three checks at once (never more games than fit in
+physical memory: `GAME_MEMORY_GB` per game, default 4, plus 4 GB for the system, so a 16 GB
+machine runs three; the `parallel_jobs` check covers the rule; `LOADING_AT_ONCE=N` lets only N
+games load a map at once, which lowers memory peaks but queues every launch), `WINDOWED=1` adds the
 windowed ones of this platform, `NO_BUILD=1` keeps `bin/` as it is, `UPDATE_EXPECTED=1` records the
 gameplay outcomes (below).
 

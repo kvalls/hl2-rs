@@ -30,8 +30,8 @@ Environment (no arguments, so the command line never changes):
   ONLY="console options"   run these checks only
   GROUP=ui | GROUP=gameplay   run one group
   JOBS=4                   run up to 4 checks at once, longest first (default 1), never more than
-                           fit in physical memory (GAME_MEMORY_GB per game, default 6, plus
-                           4 GB left to the system), so the machine never swaps
+                           fit in physical memory (GAME_MEMORY_GB per game, default 4, plus
+                           4 GB left to the system; three on 16 GB, measured fastest)
   TIMESCALE=8              gameplay replays run their ticks this many times faster (1 = real time)
   UI_TIMESCALE=4           other launches run unpaced and this many times faster, except checks
                            marked real_time (1 = real time)
@@ -67,6 +67,11 @@ GAME = OUT / "game"
 EXE = GAME / EXE_NAME
 PROFILES = REPO / "profiles"
 SETTINGS = threading.local()
+# LOADING_AT_ONCE=N (default 0, no limit) lets at most N parallel games load at once: a game holds
+# a slot from launch until its memory stops growing (its map has loaded). It lowers memory peaks
+# but queues every launch, so the suite runs slower; only total duration decides the default.
+LOADING_AT_ONCE = int(os.environ.get("LOADING_AT_ONCE", "0"))
+LOADING = threading.BoundedSemaphore(max(1, LOADING_AT_ONCE))
 # Scripts that drive single launches without run_check (and may point it elsewhere) use this.
 CONFIG = GAME / "hl2-config.json"
 
@@ -119,6 +124,44 @@ class Failure(Exception):
     pass
 
 
+def resident_mb(pid: int) -> Optional[int]:
+    """A process's resident memory in MB, or None where ps cannot tell (Windows, exited)."""
+    if SYSTEM == "Windows":
+        return None
+    done = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True)
+    return int(done.stdout) // 1024 if done.stdout.strip().isdigit() else None
+
+
+def loading_settled(samples: list[int], window: int, growth_mb: int) -> bool:
+    """Memory samples taken since launch show loading is over: the last `window` samples grew
+    by less than `growth_mb`."""
+    return len(samples) > window and samples[-1] - samples[-1 - window] < growth_mb
+
+
+def wait_until_loaded(process: subprocess.Popen, timeout: int) -> None:
+    """Returns once the game's memory stops growing (LOAD_GATE_SECONDS at most, default 30), it
+    exits, or its memory cannot be read."""
+    limit = min(timeout, float(os.environ.get("LOAD_GATE_SECONDS", "30")))
+    begin, samples = time.time(), []
+    while process.poll() is None and time.time() - begin < limit:
+        resident = resident_mb(process.pid)
+        if resident is None:
+            return
+        samples.append(resident)
+        # Six samples a quarter second apart: 1.5 s with under 32 MB growth.
+        if loading_settled(samples, 6, 32):
+            return
+        time.sleep(0.25)
+
+
+def check_loading_settled() -> None:
+    """The loading gate opens only once memory has stopped growing."""
+    expect("still growing", loading_settled([100, 300, 600, 900, 1200, 1500, 1800], 6, 32), False)
+    expect("flat after the load", loading_settled([900, 2000, 2400, 2410, 2415, 2420, 2425, 2430, 2431],
+                                                  6, 32), True)
+    expect("too few samples", loading_settled([100, 100], 6, 32), False)
+
+
 def game(name: str, *args: str, timeout: int = 240, background: bool = True, capture: bool = True) -> Run:
     """One bounded launch; the report and capture are written to artifacts/replays/<name>.*"""
     report = OUT / f"{name}.json"
@@ -140,14 +183,26 @@ def game(name: str, *args: str, timeout: int = 240, background: bool = True, cap
         command += ["--capture", str(png)]
     env = dict(os.environ, RUST_LOG=os.environ.get("RUST_LOG", "info,hl2_bevy=debug"),
                HL2RS_SETTINGS=str(config_file()))
-    try:
-        done = subprocess.run(command, cwd=REPO, env=env, capture_output=True, text=True,
-                              errors="replace", timeout=timeout)
-        status, log = done.returncode, done.stdout + done.stderr
-    except subprocess.TimeoutExpired as expired:
-        status, log = -1, f"timed out after {timeout} s\n{expired.stdout or ''}{expired.stderr or ''}"
-    log = re.sub(r"\x1b\[[0-9;]*m", "", log if isinstance(log, str) else log.decode(errors="replace"))
-    (OUT / f"{name}.game.log").write_text(log, encoding="utf-8")
+    log_path = OUT / f"{name}.game.log"
+    with log_path.open("wb") as log_file:
+        if LOADING_AT_ONCE:
+            with LOADING:
+                process = subprocess.Popen(command, cwd=REPO, env=env, stdout=log_file,
+                                           stderr=subprocess.STDOUT)
+                wait_until_loaded(process, timeout)
+        else:
+            process = subprocess.Popen(command, cwd=REPO, env=env, stdout=log_file,
+                                       stderr=subprocess.STDOUT)
+        try:
+            status = process.wait(timeout=timeout)
+            timed_out = ""
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            status, timed_out = -1, f"timed out after {timeout} s\n"
+    log = timed_out + log_path.read_bytes().decode(errors="replace")
+    log = re.sub(r"\x1b\[[0-9;]*m", "", log)
+    log_path.write_text(log, encoding="utf-8")
     if status != 0:
         raise Failure(f"{name}: exit {status} (see {name}.game.log)")
     if not report.exists():
@@ -1694,9 +1749,9 @@ def physical_memory() -> Optional[int]:
 
 def parallel_jobs(requested: int, memory: Optional[int], per_game: int) -> int:
     """Gameplay replays to run at once: `requested`, but no more games than fit in `memory`
-    beside MEMORY_RESERVE (a packaged game takes about 5-6 GB on a station map); unknown memory
-    keeps `requested`. More games than memory makes the system swap: every check, and
-    everything else on the machine, slows down instead of the suite finishing sooner."""
+    beside MEMORY_RESERVE; unknown memory keeps `requested`. Games load maps at different
+    times, so they share memory: on 16 GB three games (4 GB each) finished sooner than two,
+    and four slower than three. Only the total duration decides the default."""
     if memory is None or per_game <= 0:
         return max(1, requested)
     return max(1, min(requested, (memory - MEMORY_RESERVE) // per_game))
@@ -1762,6 +1817,7 @@ CHECKS = [
     Check("no_border", check_no_border, "windows"),
     Check("coverage", check_coverage, "shared", "gameplay"),
     Check("parallel_jobs", check_parallel_jobs, "shared", "gameplay"),
+    Check("loading_settled", check_loading_settled, "shared", "gameplay"),
     *(Check(f[len("bevy-"):], gameplay_check(f), "shared", "gameplay") for f in sorted(GAMEPLAY_MAPS)),
 ]
 
@@ -1872,10 +1928,10 @@ def main() -> int:
                         key=lambda c: previous.get(c.name, 0.), reverse=True)
         requested = max(1, int(os.environ.get("JOBS", "1")))
         jobs = parallel_jobs(requested, physical_memory(),
-                             int(float(os.environ.get("GAME_MEMORY_GB", "6")) * GIB))
+                             int(float(os.environ.get("GAME_MEMORY_GB", "4")) * GIB))
         if jobs < requested:
             print(f"JOBS={requested} capped to {jobs}: each game takes up to "
-                  f"{os.environ.get('GAME_MEMORY_GB', '6')} GB and this machine has "
+                  f"{os.environ.get('GAME_MEMORY_GB', '4')} GB and this machine has "
                   f"{physical_memory() / GIB:.0f} GB")
         with ThreadPoolExecutor(jobs) as pool:
             ran = list(zip(shared, pool.map(lambda c: run_check(c, output), shared)))

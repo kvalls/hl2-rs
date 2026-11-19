@@ -2,7 +2,7 @@
 # Every local check in one command, no arguments: the release package build, then workspace
 # validation and the Windows cross-target check (at lower CPU priority) beside the packaged
 # replay suite. Prints each step's result and time and exits non-zero if any step failed.
-# Environment: JOBS (replay games at once, default 2), plus the replay suite's own settings.
+# Environment: JOBS (replay games at once, default 3, the fastest measured on 16 GB), plus the replay suite's own settings.
 # Logs: artifacts/check-all/. On Windows run the steps one by one (docs/validation.md).
 set -u
 cd "$(dirname "$0")/../.."
@@ -30,7 +30,7 @@ fi
   step validate nice -n 10 scripts/checks/validate.sh
   step windows nice -n 10 scripts/checks/check_windows.sh
 ) &
-step replays env NO_BUILD=1 JOBS="${JOBS:-2}" python3 -u scripts/checks/replays.py
+step replays env NO_BUILD=1 JOBS="${JOBS:-3}" python3 -u scripts/checks/replays.py
 wait
 
 failed=0
