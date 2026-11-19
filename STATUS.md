@@ -2919,7 +2919,7 @@ Session 65 (details in "Current session 65"):
 - d1_trainstation_01: the turnstile turns about twice as easily as native at x -4118 (ours past it in about 1 s, native about 2 s) and jams the player at x -4112 (near the post; native there not recorded); VPhysicsShadowUpdate's push-back of the player is not modeled.
 - func_physbox: EnableMotion/DisableMotion inputs, motion enabled by damage or force (damagetoenablemotion, forcetoenablemotion), the mass center override and overridescript are not modeled.
 - d1_trainstation_01: the platform benches cost about 2.2 ms more per simulation step while the player stands on one (owner: the FPS collapses); the cause is outside the Rapier step (suspect: player traces against the bench's convex pieces).
-- d1_trainstation_01: the vortigaunt's broom walk is not timed against native.
+- d1_trainstation_01: the vortigaunt reaches ss_VortSweep4 3.0 s later than native: native (view-d1_trainstation_01-20261119T085034Z, ORACLE_PRE="+developer 2", the player placed through both platform triggers; its PickRandom also chose ss_VortSweep4) BeginSequence 104.26 -> OnBeginSequence 113.86 (9.60 s); ours 104.26 -> 116.88 (12.62 s) with the broom walk (artifacts/s65/vort2) exactly as with session 64's ordinary walk, so the gap is not the animation (the two sequences' ground speeds, his route and any start delay are not compared yet).
 - Triggers: OnStartTouch/OnEndTouch fire only on the empty/occupied transitions (one touching flag per trigger), not per entity as in the SDK (d1_trainstation_02's trigger_lcs_activator fires twice natively at the start, once in ours).
 
 Session 64 (details in "Current session 64"):
