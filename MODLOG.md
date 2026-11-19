@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-19 session 65: the turnstile turns, its frame is solid (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner playtested during the session and reported the turnstile's sides and frame.
+- Changed: source-assets physcollide.rs reads the map's PHYSCOLLIDE lump (first solid per brush model: mass, damping, surfaceprop, volume, VPHY drag fractions) into World::brush_model_physics; func_physbox is a dynamic body (physics/physbox.rs) without contact skin or air drag from its zero drag fractions; func_lod is solid unless its inverted Solid key is set; the player shadow's movable sweeps see only dynamic bodies and a constrained body is never blocked along the push (physics/shadow_push.rs, blocked_along moved out of physics.rs).
+- Why: owner playtest of d1_trainstation_01: the turnstile was static, its frame had no collision, then (with the frame solid) the turnstile stuck on it.
+- Tested how: SDK physobj.cpp, func_lod.cpp, utils/vbsp/ivp.cpp; the installed map (PHYSCOLLIDE text and VPHY header, the frame's brushes against the arm sweep); unit tests (lump reader, physbox body, hinged physbox turning, func_lod rule); an owned-install test (the real turnstile spins freely in its frame); packaged walks on both sides; artifacts/s65/validate.sh (results in STATUS "Current session 65").
+- Result: the turnstile turns when pushed; walking through the middle of the left gap passes in about 1.2 s; the frame blocks the player.
+- Frame time: no new per-tick work beyond one more dynamic body on station 01 (and the physboxes of other maps); the movable-sweep filter only narrows a query.
+- Still broken or not tested: the player can jam part-way at some offsets (no shadow push-back of the player); no native recording of the walk; EnableMotion and damage/force-enabled motion.
+- Next: see the next-session prompt (artifacts/s65/next-session-prompt.txt).
+
 ## 2026-11-19 session 64, continued: the luggage shove merged with PR #5's best parts (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. Contributor work weighed: @OrbitalMan's PR #5 commit 505adb2 (Codex desktop, GPT-6 family per its MODLOG).

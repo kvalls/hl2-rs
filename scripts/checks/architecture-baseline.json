@@ -149,7 +149,7 @@
   "crates/hl2-simulation/src/entities/choreography.rs": 1225,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1253,
-  "crates/hl2-simulation/src/physics.rs": 3344,
+  "crates/hl2-simulation/src/physics.rs": 3309,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1150,
@@ -308,7 +308,7 @@
    143
   ],
   "crates/hl2-simulation/src/physics.rs::update_player_shadow": [
-   242
+   240
   ],
   "crates/hl2-simulation/src/projectile_visuals.rs::frame": [
    198

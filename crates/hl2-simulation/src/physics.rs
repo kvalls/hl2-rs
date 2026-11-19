@@ -9,9 +9,11 @@ use std::sync::Mutex;
 mod brush_entities;
 #[path = "physics_npc_trace.rs"]
 mod npc_trace;
+mod physbox;
 #[path = "player_convex.rs"]
 mod player_convex;
 mod rays;
+mod shadow_push;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RayHit {
     pub entity: usize,
@@ -2395,41 +2397,6 @@ impl Physics {
         );
         found
     }
-    /// The body touches a fixed body (world, static prop) or one heavier than the push
-    /// mass limit on its far side along `direction` (its contact normal points within
-    /// ~45 degrees of it). The player shadow's own contacts do not count.
-    fn blocked_along(&self, body: RigidBodyHandle, direction: Vec3) -> bool {
-        let Some(b) = self.bodies.get(body) else {
-            return false;
-        };
-        b.colliders().iter().any(|collider| {
-            self.narrow.contact_pairs_with(*collider).any(|pair| {
-                if !pair.has_any_active_contact
-                    || self.world_sides.shadow.contains(&pair.collider1)
-                    || self.world_sides.shadow.contains(&pair.collider2)
-                {
-                    return false;
-                }
-                let (sign, other) = if pair.collider1 == *collider {
-                    (1., pair.collider2)
-                } else {
-                    (-1., pair.collider1)
-                };
-                let immovable = self
-                    .colliders
-                    .get(other)
-                    .and_then(|c| c.parent())
-                    .and_then(|h| self.bodies.get(h))
-                    .is_none_or(|o| !o.is_dynamic() || o.mass() > PLAYER_PUSH_MASS_LIMIT);
-                immovable
-                    && pair.manifolds.iter().any(|m| {
-                        let n = m.data.normal * sign;
-                        !m.data.solver_contacts.is_empty()
-                            && Vec3::new(n.x, n.y, n.z).dot(direction) > 0.7
-                    })
-            })
-        })
-    }
     /// Teleport an entity's dynamic body (test fixtures): Source angles, world
     /// velocity, no spin. False when the entity has no dynamic body.
     pub fn place_body(
@@ -2713,9 +2680,7 @@ impl Physics {
         // (m_touchedPhysObject), from short hull sweeps against movable bodies.
         let movable = |physics: &Self, from: Vec3, to: Vec3| -> Option<RigidBodyHandle> {
             let shape = Cuboid::new(vector![half.x * SCALE, half.y * SCALE, half.z * SCALE]);
-            let filter = QueryFilter::default()
-                .groups(QUERY_GROUPS)
-                .exclude_sensors();
+            let filter = Self::movable_filter();
             let (collider, _) = physics.query.cast_shape(
                 &physics.bodies,
                 &physics.colliders,
