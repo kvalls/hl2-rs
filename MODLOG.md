@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-19 session 65, continued: no G-Man at load, the vortigaunt's broom walk (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner reported the G-Man flash and the bench FPS drop while playing.
+- Changed: the map stays black and the HUD hidden until the first logic_auto think (entities/startup.rs spawn hold and purge, Scene::logic_autos_pending, canvas_renderer.rs); MoveStyle::Custom with each actor's scripted custom-move track (npc/tracks.rs, actors.rs custom_moves, entities/sequences.rs); Locomotion::complete checks the walk and run tracks by name; validate_forward_track and the shared track check moved to npc/tracks.rs (npc.rs 1253 -> 1204 lines).
+- Why: owner playtest (G-Man visible for 0.2 s at a new game); DESIGN 14z-m's custom-move plan (the vortigaunt walked to his sweep spots with the ordinary walk).
+- Tested how: SDK logicentities.cpp and ai_basenpc_schedule.cpp; the installed map (master player start, logic_auto outputs) and model (walk_all_holdbroom); unit tests (the spawn hold and purge, the custom track and its fallback); an owned-install test (the vortigaunt's custom track); packaged captures every 0.05 s from the start and the platform fixture; artifacts/s65/validate2.sh (results in STATUS "Current session 65").
+- Result: the first 0.3 s of a new game are fully black; vort_sweepy walks to his spot with walk_all_holdbroom.
+- Frame time: nothing per tick beyond one flag read for the HUD; the custom tracks are read at map load.
+- Still broken or not tested: the vortigaunt's walk time against native; the bench FPS drop (measured, not fixed).
+- Next: see the next-session prompt (artifacts/s65/next-session-prompt.txt).
+
 ## 2026-11-19 session 65: the turnstile turns, its frame is solid (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner playtested during the session and reported the turnstile's sides and frame.
