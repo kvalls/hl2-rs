@@ -1096,8 +1096,8 @@ fn advance<W: NpcCollisionWorld>(
         goal.state = GoalState::Arrived;
         return Ok(());
     }
-    // CAI_Navigator::SimplifyPath for AI goals (scene moves keep their routes).
-    if key.scene == AI_SCENE {
+    // CAI_Navigator::SimplifyPath: AI goals and scripted_sequence moves (keyed by their target).
+    if key.scene == AI_SCENE || key.scene == goal.request.target_entity {
         goal.simplify_in -= dt;
         if goal.simplify_in <= 0. {
             goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
