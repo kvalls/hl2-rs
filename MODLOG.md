@@ -9,6 +9,7 @@
 - Result: the bench FPS drop is explained and measured (1.9-5.7 ms per tick of world-face search walking on a bench; 0.017-0.026 ms with the static-prop shortcut, which PR #5 carries); OnStartTouch/OnEndTouch fire per entity at native-like times on d1_trainstation_02; blocked short NPC walks detour around small obstacles. The vortigaunt's sweep walk is not fixed (evidence in STATUS).
 - Frame time: trigger touches gather NPC and object candidates once per tick into reused lists instead of a full entity scan per NPC-flagged trigger, and resting NPCs skip their overlap tests (not timed separately); the route detour adds probes only when a straight walk under 32 feet is blocked.
 - Still broken or not tested: the bench fix is not on main until PR #5's commit lands; the vortigaunt's sweep walk (about 3 s late); the owner's own FPS on the benches.
+- Late: SimplifyPath for scripted and scene moves (the SDK simplifies every ground path) took the vortigaunt's first sweep walk from 12.62 to 9.02 s (native 9.60/10.34 s with a ~0.65 s start delay) but also changed Barney's security_02 walks (face-security-1805's close-up shows the back of his head); held on branch wip/session66-20261119b (commit 9d36029; validate6: build, regression, replays 71 of 73), not merged.
 - Next: see the next-session prompt (artifacts/s66/next-session-prompt.txt).
 
 ## 2026-11-19 session 65, continued: no G-Man at load, the vortigaunt's broom walk (Claude Code desktop, claude-opus-5-5)
