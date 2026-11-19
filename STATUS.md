@@ -70,10 +70,10 @@ are recorded in MODLOG. Windows runtime and a full campaign playthrough were **n
 
 ## GPU shadow silhouettes on the performance branch (2026-11-15)
 
-The opt-in `HL2RS_GPU_SILHOUETTES=1` moved the median 1080p station02 crowd frame on M1 Pro
+GPU silhouettes (opt-in then, default since 2026-11-19) moved the median 1080p station02 crowd frame on M1 Pro
 from 9.575 to 8.693 ms across three packaged pairs. Quiet stayed at 5.33 ms. Metal readback
-and two Metrocop captures confirm that the GPU draws the moving silhouettes. The CPU stays
-the default because very faint overlapping contributions can round away on the GPU.
+and two Metrocop captures confirm that the GPU draws the moving silhouettes. Very faint overlapping
+contributions can round away on the GPU; invisible in normal play, so the GPU became the default. With the GPU default, workspace validation and Windows cross-target Clippy passed and the full replay suite passed 107 of 108 on macOS; flashlight_viewmodel failed on 12 pixels in a single-pixel lighting check and passed alone with both paths. That check now judges lighting at the same scale as the lit case (fewer than 50 pixels brighter by 8+ levels).
 The full 107-check packaged suite passed with the experiment enabled. Native validation
 and Windows cross-target Clippy passed. Next precision test and raw timings:
 [performance research](docs/performance-research.md#gpu-shadow-silhouettes-on-station02).

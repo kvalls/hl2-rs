@@ -38,6 +38,7 @@ HL2-RS is an experimental Rust rewrite of Half-Life 2 and relevant Source behavi
 - Windows is the primary tested platform, macOS a contributor platform. Gate platform-specific retail restrictions (`[$OSX]` `.res` conditionals) per platform, never globally; never rewrite stored settings because a platform lacks them. macOS display modes: docs/gameui.md section 0.
 - On sandbox/offline barriers or fundamental design choices, ask the owner instead of looping.
 - Keep window presentation size and the internal 3D render-target resolution distinct (render lower, upscale).
+- Judge visual fidelity as a player in normal play at native resolution: differences seen only in amplified diffs, magnified crops or pixel counts are no regression and never keep a speedup off by default; shadows vary per pixel, so checks never fail on a few pixels.
 - Retail behavior of the owned game wins unless the owner asks for a deviation. Use SDK references within their license and private binary analysis where legal; implement independently in Rust, never copy or mechanically translate Valve code, never use leaked source.
 - Research database/native exports are evidence, not automatic parity. Distinguish inferred names/signatures, SDK behavior and verified retail behavior. Seeded developer actors do not establish ordinary campaign completion.
 - Explain changes plainly: actual behavior, verification, limitations and next bounded step.

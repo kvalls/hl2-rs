@@ -24,18 +24,21 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-pub(super) fn enabled() -> bool {
-    std::env::var("HL2RS_GPU_SILHOUETTES").is_ok_and(|v| v == "1")
-}
+/// Present when silhouettes are drawn on the GPU: the default whenever a renderer exists.
+/// `HL2RS_GPU_SILHOUETTES=0` keeps the CPU rasterizer (reference and fallback).
+#[derive(Resource)]
+pub(crate) struct GpuSilhouettes;
 
 pub(super) fn install(app: &mut App) {
-    if enabled()
-        && let Some(render) = app.get_sub_app_mut(RenderApp)
-    {
+    if std::env::var("HL2RS_GPU_SILHOUETTES").is_ok_and(|v| v == "0") {
+        return;
+    }
+    if let Some(render) = app.get_sub_app_mut(RenderApp) {
         render
             .init_resource::<Pending>()
             .add_systems(ExtractSchedule, extract)
             .add_systems(RenderGraph, draw.in_set(RenderGraphSystems::Begin));
+        app.insert_resource(GpuSilhouettes);
     }
 }
 

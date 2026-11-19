@@ -1,9 +1,9 @@
 # Performance measurements - 2026-10-05
 
-## GPU shadow silhouettes (2026-11-15)
+## GPU shadow silhouettes (2026-11-15, default since 2026-11-19)
 
-The research build accepts `HL2RS_GPU_SILHOUETTES=1` to draw dirty model silhouettes
-into the shadow atlas on the GPU. The default uses the CPU. The paired station02 tests,
+Dirty model silhouettes are drawn into the shadow atlas on the GPU whenever a renderer exists.
+`HL2RS_GPU_SILHOUETTES=0` keeps the CPU rasterizer as the reference and fallback. The paired station02 tests,
 GPU readback and receiver-pixel comparisons are in the
 [performance research report](performance-research.md#gpu-shadow-silhouettes-on-station02).
 

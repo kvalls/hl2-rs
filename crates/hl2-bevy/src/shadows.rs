@@ -200,6 +200,12 @@ type CameraView<'w, 's> = (
     Option<Res<'w, GameFrame>>,
 );
 type EntityDraws<'w, 's> = Query<'w, 's, (&'static SourceEntity, &'static PvsDraw)>;
+/// Profiling, the frame budget and whether silhouettes go to the GPU pass.
+type FrameOptions<'w> = (
+    Option<Res<'w, crate::performance::Performance>>,
+    Option<Res<'w, crate::video::GameFrame>>,
+    Option<Res<'w, gpu::GpuSilhouettes>>,
+);
 
 /// The world camera, for screen areas: origin and forward in Source axes, and pixels per unit of
 /// size at unit depth (viewport height over the tangent of half the vertical field of view).
@@ -257,16 +263,15 @@ pub(crate) fn update(
     shadows: Option<ResMut<MapShadows>>,
     (mut meshes, mut materials, mut images): ShadowAssets,
     mut draws: Draws,
-    (camera, entity_draws, performance, frame): (
-        CameraView,
-        EntityDraws,
-        Option<Res<crate::performance::Performance>>,
-        Option<Res<crate::video::GameFrame>>,
-    ),
+    (camera, entity_draws): (CameraView, EntityDraws),
+    (performance, frame, gpu): FrameOptions,
 ) {
     let Some(mut shadows) = shadows else {
         return;
     };
+    if gpu.is_some() {
+        shadows.textures.use_gpu();
+    }
     let _timing = crate::performance::scope(performance.as_deref(), "shadows");
     let detail = ui.map(|ui| ui.source.config.video.advanced.shadow_detail);
     if detail != shadows.detail {

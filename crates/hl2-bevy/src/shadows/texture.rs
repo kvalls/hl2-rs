@@ -48,7 +48,6 @@ pub(super) struct Textures {
 
 impl Textures {
     pub fn new(loaded: &LoadedMap, color: [f32; 3]) -> Self {
-        let gpu = super::gpu::enabled();
         Self {
             picture: loaded
                 .materials
@@ -57,8 +56,8 @@ impl Textures {
             blob: None,
             page: Allocator::new(),
             atlas_image: None,
-            batch: gpu.then(super::gpu::Batch::default),
-            submitted: gpu.then(Arc::default),
+            batch: None,
+            submitted: None,
             atlas_material: None,
             alphas: loaded
                 .materials
@@ -70,6 +69,14 @@ impl Textures {
             points: Vec::new(),
             dirty: false,
             color: Vec4::new(color[0], color[1], color[2], 1.),
+        }
+    }
+
+    /// Hands silhouette drawing to the GPU pass; called before the atlas exists.
+    pub(super) fn use_gpu(&mut self) {
+        if self.batch.is_none() {
+            self.batch = Some(super::gpu::Batch::default());
+            self.submitted = Some(Arc::default());
         }
     }
 

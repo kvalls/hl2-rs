@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-19 — GPU shadow silhouettes by default
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `shadows/gpu.rs` installs the GPU silhouette pass whenever a render sub-app exists, unless `HL2RS_GPU_SILHOUETTES=0`, and marks it with a `GpuSilhouettes` resource; `shadows.rs` hands drawing to the GPU through `Textures::use_gpu` when that resource is present (`texture.rs` no longer reads the environment). AGENTS.md: visual fidelity is judged as a player sees normal play; differences found only in amplified or magnified comparisons never keep a measured speedup off by default.
+- Why: owner decision. The GPU path's only difference from the CPU path is a few pixels a few levels apart, invisible at normal size, while 30-NPC crowds ran 21–55% faster.
+- Tested how: workspace validation, Windows cross-target Clippy and the full packaged replay suite with the new default: 107 of 108 passed; `flashlight_viewmodel` failed on 12 pixels and passed alone with both paths. Its "no light" checks now count pixels brighter by 8+ levels against a 50-pixel limit (the lit case needs over 500) instead of failing on 10 single pixels. Timings and captures come from the earlier opt-in measurements of the same pass (docs/performance-research.md).
+- Frame time: 30 citizens 18.31 → 14.31 ms, 30 G-Men 21.26 → 13.64 ms, 30 dropships 24.00 → 11.21 ms, empty plaza 6.88 → 6.75 ms (M1 Pro, 1080p, High shadows).
+- Still broken or not tested: Windows and other graphics backends are **not tested** with the GPU path; faint overlapping translucent layers can come out lighter than on the CPU.
+
 ## 2026-11-19 — Let an occupied destination end a crowd exit
 
 - Agent/model: Codex desktop, GPT-6 family (fix and trace comparison); Claude Code desktop, `claude-opus-5-5` (final replay rerun, cost repeat, commit). No subagents.

@@ -1,5 +1,15 @@
 # Performance research and implementation results
 
+## GPU shadow silhouettes become the default
+
+2026-11-19, owner decision. Visual fidelity is judged as a player sees normal play at native
+resolution. In full-screen 1080p frozen captures of 30 citizens, G-Men and dropships, the CPU
+and GPU frames look the same. Only a pixel count finds the difference: at most 9 levels on 9
+pixels for G-Men, 3 levels for dropships, none above 2 for citizens. That difference does not
+justify leaving the measured 21–55% crowd frame-time gain (below) switched off. The GPU path
+is used whenever a renderer exists; `HL2RS_GPU_SILHOUETTES=0` keeps the CPU rasterizer as the
+reference and fallback. Headless runs without a render sub-app keep the CPU path.
+
 ## Shared actor bone matrices: rejected
 
 2026-11-19, revision `f2b0323f`, M1 Pro/Metal, release package, the 30-NPC station02 plaza
@@ -57,8 +67,8 @@ levels and High versus Low differed by more than eight on at least one channel.
 | Dropships | 132,851 | 6 | 3 |
 
 A direct Metal atlas readback found one differing pixel at a moving opaque silhouette edge and reproduced the faint-layer
-precision difference (16 overlapping contributions gave CPU 4, GPU 0). CPU silhouettes remain
-the default. The results cover this camera, hardware and three crowd types. The citizen
+precision difference (16 overlapping contributions gave CPU 4, GPU 0). CPU silhouettes remained
+the default until 2026-11-19, when the GPU path became the default (see below). The results cover this camera, hardware and three crowd types. The citizen
 crowd still costs 7.56 ms over the control with GPU silhouettes. With that path enabled,
 the citizen fixed-simulation stage averaged 4.12 ms versus 2.36 ms in the control,
 and animation averaged 2.14 versus 0.72 ms. For G-Men, eye updates averaged 2.04

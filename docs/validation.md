@@ -13,7 +13,7 @@ the triangle outline. It also reports what sixteen overlapping sub-LSB alpha lay
 The packaged camera fixture is `test-inputs/performance-research/shadow-plaza.json`.
 Use `--background --no-setup --mute --map d1_trainstation_02 --width 1280 --height 720
 --tonemap-scale 1.0 --frames 2400` with `--movement-script`, `--capture` and `--report`.
-Compare High shadows from the CPU path and `HL2RS_GPU_SILHOUETTES=1`, a second CPU High
+Compare High shadows from the CPU path (`HL2RS_GPU_SILHOUETTES=0`) and the default GPU path, a second CPU High
 capture and a CPU Low (blob) control. Repeat with the actor's Y changed from -2180 to -2132.
 Require a paused, completed script at tick 440 and GPU cell submissions in the candidate.
 See [the performance research report](performance-research.md#gpu-shadow-silhouettes-on-station02)
@@ -23,7 +23,7 @@ Workspace tests, strict Clippy, formatting, architecture, repository isolation, 
 selections and the Windows cross-target strict Clippy check passed.
 With the GPU path enabled, all 107 shared packaged checks passed on macOS in 1,436 seconds,
 including flashlight shadows, the viewmodel and the campaign gameplay fixtures. Reproduce
-with `HL2RS_GPU_SILHOUETTES=1 NO_BUILD=1 JOBS=2 python3 scripts/checks/replays.py` after
+with `NO_BUILD=1 JOBS=2 python3 scripts/checks/replays.py` (GPU silhouettes are the default) after
 building the package. The final build resolves the same embedded shader relative to the
 crate root. Its machine instructions and shader bytes match the timed and replayed package.
 Of the Mach-O sections only the constant data differed, at three source line numbers.
