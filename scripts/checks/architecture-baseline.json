@@ -148,7 +148,7 @@
   "crates/hl2-simulation/src/ai/runtime.rs": 2368,
   "crates/hl2-simulation/src/entities/choreography.rs": 1225,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
-  "crates/hl2-simulation/src/npc.rs": 1253,
+  "crates/hl2-simulation/src/npc.rs": 1204,
   "crates/hl2-simulation/src/physics.rs": 3309,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,

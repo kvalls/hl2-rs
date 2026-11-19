@@ -17,6 +17,7 @@ pub use io_trace::IoTrace;
 mod movers;
 mod parenting;
 mod sequences;
+pub(crate) use sequences::custom_move_walks;
 mod startup;
 pub use startup::weapon_idle_activity;
 mod tracktrain;

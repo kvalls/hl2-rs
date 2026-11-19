@@ -99,10 +99,27 @@ fn move_caps(
     let motion = source_assets::models::read_root_motion(vfs, model, &wanted)?;
     Ok(crate::npc::MoveCaps::for_class(class, &motion))
 }
+/// The sequences the scripted_sequences naming an actor (m_iszEntity) move it with under
+/// CINE_MOVETO_CUSTOM (m_iszCustomMove naming a sequence, not ACT_WALK).
+fn custom_moves(world: &World, actor: usize) -> std::collections::BTreeSet<String> {
+    let Some(name) = world.entities[actor].get("targetname") else {
+        return Default::default();
+    };
+    (world.entities.iter())
+        .filter(|e| e.class() == "scripted_sequence" && e.get("m_fMoveTo") == Some("3"))
+        .filter(|e| {
+            e.get("m_iszEntity")
+                .is_some_and(|n| n.eq_ignore_ascii_case(name))
+        })
+        .filter(|e| !crate::entities::custom_move_walks(e))
+        .filter_map(|e| e.get("m_iszCustomMove").map(|m| m.trim().to_owned()))
+        .collect()
+}
 fn locomotion_variants(
     vfs: &Vfs,
     model: &str,
     rig: &modkit_core::animation::Rig,
+    custom: &std::collections::BTreeSet<String>,
 ) -> Result<std::collections::BTreeMap<String, crate::npc::Locomotion>> {
     use crate::npc::MoveStyle;
     let sequence = |activity: &str| {
@@ -155,6 +172,7 @@ fn locomotion_variants(
     let wanted = choices
         .iter()
         .flat_map(|(_, walk, run)| [walk.0.clone(), run.0.clone()])
+        .chain(custom.iter().map(|name| name.to_lowercase()))
         .collect();
     let sequences = source_assets::models::read_root_motion(vfs, model, &wanted)?;
     Ok(choices
@@ -169,6 +187,9 @@ fn locomotion_variants(
             );
             if let Some((walk, run)) = aims.get(&weapon) {
                 locomotion.set_aim(walk.clone(), run.clone());
+            }
+            for name in custom {
+                locomotion.set_custom(name, &sequences);
             }
             (weapon, locomotion)
         })
@@ -229,7 +250,8 @@ pub fn prepare_npcs(
                     .rigs
                     .get(&instance.asset_key())
                     .ok_or_else(|| anyhow::anyhow!("no rig for {}", instance.model))?;
-                let variants = locomotion_variants(vfs, &instance.model, rig)?;
+                let custom = custom_moves(world, actor);
+                let variants = locomotion_variants(vfs, &instance.model, rig, &custom)?;
                 let equipment = world.entities[actor]
                     .get("additionalequipment")
                     .unwrap_or("")
@@ -492,6 +514,27 @@ mod tests {
     use super::*;
     #[test]
     #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn owned_vortigaunt_sweeps_to_his_spots_with_the_broom_walk() {
+        use crate::npc::MoveStyle;
+        let vfs = Vfs::mount(&source_assets::install::discover().unwrap()).unwrap();
+        let model = "models/vortigaunt_slave.mdl";
+        let wanted = source_assets::models::HUMANOID_AI_ACTIVITIES
+            .iter()
+            .map(|a| a.to_lowercase())
+            .collect();
+        let rig = source_assets::animation::load(&vfs, model, &wanted).unwrap();
+        let custom = ["Walk_all_HoldBroom".to_owned()].into();
+        let variants = locomotion_variants(&vfs, model, &rig, &custom).unwrap();
+        let keys: Vec<_> = variants.keys().collect();
+        let v = variants
+            .get("")
+            .unwrap_or_else(|| panic!("variants {keys:?}"));
+        assert_eq!(v.custom_failure, None);
+        assert_eq!(v.sequence_name(MoveStyle::Custom), "walk_all_holdbroom");
+        assert!(v.required_clips().contains("walk_all_holdbroom"));
+    }
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
     fn owned_ai_movers_walk_and_run_with_their_weapon_sequences() {
         use crate::npc::MoveStyle;
         let vfs = Vfs::mount(&source_assets::install::discover().unwrap()).unwrap();
@@ -502,7 +545,8 @@ mod tests {
             .collect();
         let rig = |model: &str| source_assets::animation::load(&vfs, model, &wanted).unwrap();
         let names = |model: &str, weapon: &str| {
-            let variants = locomotion_variants(&vfs, model, &rig(model)).unwrap();
+            let variants =
+                locomotion_variants(&vfs, model, &rig(model), &Default::default()).unwrap();
             let v = &variants[weapon];
             (
                 v.sequence_name(MoveStyle::Walk),
@@ -519,9 +563,11 @@ mod tests {
             names(soldier, "weapon_ar2"),
             ("walk_all".into(), "runall".into())
         );
-        assert!(!locomotion_variants(&vfs, soldier, &rig(soldier))
-            .unwrap()
-            .contains_key(""));
+        assert!(
+            !locomotion_variants(&vfs, soldier, &rig(soldier), &Default::default())
+                .unwrap()
+                .contains_key("")
+        );
         // A male citizen: unarmed walk_all/run_all, armed ACT_WALK/RUN_RIFLE.
         let citizen = "models/humans/group01/male_07.mdl";
         assert_eq!(names(citizen, ""), ("walk_all".into(), "run_all".into()));
@@ -544,7 +590,7 @@ mod tests {
                 .collect(),
         )
         .unwrap();
-        let variants = locomotion_variants(&vfs, zombie, &zombie_rig).unwrap();
+        let variants = locomotion_variants(&vfs, zombie, &zombie_rig, &Default::default()).unwrap();
         let fire = &variants[crate::ai::zombie::WALK_ON_FIRE];
         assert_eq!(
             (

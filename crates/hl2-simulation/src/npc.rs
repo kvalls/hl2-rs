@@ -17,7 +17,9 @@ mod graph;
 mod hint_limits;
 mod move_style;
 mod restrictions;
+mod tracks;
 pub use restrictions::NavRestrictions;
+use tracks::checked_track;
 pub mod links;
 mod tactical;
 #[cfg(test)]
@@ -40,11 +42,13 @@ pub struct GoalKey {
 pub enum MoveStyle {
     Walk,
     Run,
+    /// A scripted_sequence's CINE_MOVETO_CUSTOM with m_iszCustomMove's sequence (tracks.rs).
+    Custom,
 }
 impl MoveStyle {
     fn sequence(self) -> &'static str {
         match self {
-            Self::Walk => "walk_all",
+            Self::Walk | Self::Custom => "walk_all",
             Self::Run => "run_all",
         }
     }
@@ -52,6 +56,7 @@ impl MoveStyle {
         match self {
             Self::Walk => "ACT_WALK",
             Self::Run => "ACT_RUN",
+            Self::Custom => "ACT_SCRIPT_CUSTOM_MOVE",
         }
     }
 }
@@ -255,6 +260,8 @@ pub struct Locomotion {
     /// The aiming walk/run (Weapon_TranslateActivity of ACT_WALK_AIM/ACT_RUN_AIM) that
     /// move and shoot plays over the same root-motion track.
     aim_names: BTreeMap<MoveStyle, String>,
+    /// Why the custom move's sequence could not be used (it walks instead).
+    pub custom_failure: Option<GoalBlockReason>,
 }
 impl Locomotion {
     /// Load once at map/actor setup. Simulation ticks never access the VFS.
@@ -292,22 +299,7 @@ impl Locomotion {
             if key != style.sequence() {
                 result.names.insert(style, name.to_owned());
             }
-            let checked = sequences
-                .get(&key)
-                .ok_or_else(|| GoalBlockReason::MissingLocomotion(name.to_owned()))
-                .and_then(|sequence| {
-                    if !sequence.activity_name.eq_ignore_ascii_case(activity)
-                        || sequence.flags & 1 == 0
-                    {
-                        return Err(GoalBlockReason::UnsupportedLocomotion(name.to_owned()));
-                    }
-                    let track = sequence.blends.get(sequence.central_blend).ok_or_else(|| {
-                        GoalBlockReason::UnsupportedLocomotion("central blend index".to_owned())
-                    })?;
-                    validate_forward_track(track)?;
-                    Ok(track.clone())
-                });
-            match checked {
+            match checked_track(sequences, name, Some(activity)) {
                 Ok(track) => {
                     result.tracks.insert(style, track);
                 }
@@ -333,6 +325,7 @@ impl Locomotion {
         self.aim_names.len() == 2
     }
     fn played_name(&self, style: MoveStyle, aiming: bool) -> String {
+        let style = self.resolved(style);
         match self.aim_names.get(&style).filter(|_| aiming) {
             Some(name) => name.clone(),
             None => self.sequence_name(style),
@@ -344,11 +337,13 @@ impl Locomotion {
             .cloned()
             .unwrap_or_else(|| style.sequence().to_owned())
     }
-    /// Both styles have tracks.
+    /// Both styles have tracks (a custom move's track is extra).
     pub fn complete(&self) -> bool {
-        self.failures.is_empty() && self.tracks.len() == 2
+        let both = [MoveStyle::Walk, MoveStyle::Run].map(|s| self.tracks.contains_key(&s));
+        self.failures.is_empty() && both == [true, true]
     }
     fn track(&self, style: MoveStyle) -> Result<&RootMotion, GoalBlockReason> {
+        let style = self.resolved(style);
         self.tracks.get(&style).ok_or_else(|| {
             self.failures
                 .get(&style)
@@ -356,50 +351,6 @@ impl Locomotion {
                 .unwrap_or_else(|| GoalBlockReason::MissingLocomotion(style.sequence().to_owned()))
         })
     }
-}
-fn validate_forward_track(track: &RootMotion) -> Result<(), GoalBlockReason> {
-    let error = || {
-        GoalBlockReason::UnsupportedLocomotion(
-            "only complete forward central tracks are supported".to_owned(),
-        )
-    };
-    track
-        .validate()
-        .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
-    if track
-        .duration()
-        .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?
-        <= 0.
-        || track
-            .records
-            .last()
-            .is_none_or(|r| r.end_frame != track.frame_count as i32 - 1)
-    {
-        return Err(error());
-    }
-    let mut previous = 0.;
-    for record in &track.records {
-        let amount = (record.v0 + record.v1) * 0.5;
-        // The classic zombie's walks drift sideways by ~1e-4 of their direction (0.01
-        // units a cycle), the torso's crawl by 0.2 degrees (0.13 of 37.4 units) and the
-        // burning walk (firewalk) by 0.67 degrees (0.41 of 34.7 units, 0.0024 short of
-        // its mean speed along X); the motor moves
-        // along the path at the ground speed, so such drift is ignored and the track
-        // moves along +X.
-        let drift = record.cumulative_position - Vec3::X * (previous + amount);
-        if record.direction.distance(Vec3::X) > 0.015
-            || record.end_yaw_degrees.abs() > 0.0001
-            || record.v0 <= 0.
-            || record.v1 <= 0.
-            || drift.x.abs() > 0.001f32.max(1e-4 * amount)
-            || drift.truncate().length() > 0.05f32.max(0.015 * amount)
-            || drift.z.abs() > 0.001
-        {
-            return Err(error());
-        }
-        previous = record.cumulative_position.x;
-    }
-    Ok(())
 }
 pub fn normal_human(
     scale: f32,
@@ -1912,7 +1863,7 @@ pub(crate) mod tests {
         let mut sideways = track(80., 80.);
         sideways.records[0].direction = Vec3::Y;
         assert!(matches!(
-            validate_forward_track(&sideways),
+            super::tracks::validate_forward_track(&sideways),
             Err(GoalBlockReason::UnsupportedLocomotion(_))
         ));
         assert!(MoveStyle::parse("crouch").is_err());
