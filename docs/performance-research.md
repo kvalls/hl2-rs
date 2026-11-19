@@ -1,5 +1,23 @@
 # Performance research and implementation results
 
+## Shared actor bone matrices: rejected
+
+2026-11-19, revision `f2b0323f`, M1 Pro/Metal, release package, the 30-NPC station02 plaza
+script at 1920×1080 with CPU silhouettes. A temporary probe timed `Scene::actor_matrices` at its
+three render consumers (whole-run averages, one launch per class):
+
+| Crowd | Animation stage / matrices (ms) | Eyes stage / matrices (ms) | Shadows stage / matrices (ms) |
+| --- | ---: | ---: | ---: |
+| 30 vortigaunts | 2.49 / 0.25 | 1.81 / 0.29 | 1.80 / 0.15 |
+| 30 G-Men | 1.47 / 0.24 | 1.78 / 0.29 | 4.27 / 0.14 |
+| 30 citizens | 2.51 / 0.30 | 0.50 / 0.30 | 2.21 / 0.18 |
+
+Sharing the skinning pass's matrices with eyes and shadows could save at most the eyes and
+shadows matrix time, 0.43–0.48 ms per frame against 18–21 ms frames. It would also make eyes and
+shadows follow the drawn mesh's shared pose bucket instead of each actor's exact time. Not
+implemented. The stage cost lies elsewhere: eye work other than matrices (about 1.5 ms for
+vortigaunts and G-Men) and silhouette skinning and rasterization (see GPU silhouettes below).
+
 ## Thirty-NPC plaza shadows after the station merge
 
 2026-11-19, revision `51646bbc`, M1 Pro/Metal, release package, 1920×1080, uncapped, High shadows.
