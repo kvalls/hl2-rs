@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Entity rigs load on all cores
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `source-assets` loads every placed entity model's rig in parallel (`models/entity_rigs.rs`, sharing `prefetch::parallel_map` with the model reads) before the instance loop, which stores each rig at the instance that would have loaded it. The map's sequence names are collected once instead of once per rig. The map worker reports `model_props`, `model_gibs` and `model_rigs` timings. `models.rs` is now within the size limit (baseline tightened).
+- Why: rigs were about 450 ms of the 600 ms models phase, one model at a time.
+- Tested how: strict Clippy for source-assets; three gameplay replays one at a time: `model_props` 581-668 -> 268-315 ms, request to playable 2163-2373 -> 1848-1932 ms. `all.sh`: windows ok, 108/109 replays with unchanged outcomes in 525 s; validation stopped only on the improved size baseline (locked in, rerun before commit).
+- Still broken or not tested: `monitors-kleiner-scene` and `pallet-gibs-fade` sometimes miss one gib removal when games run in parallel (seen before this change; both pass alone).
+- Frame time: none (loading only).
+
 ## 2026-11-20 — Three replay games at once
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

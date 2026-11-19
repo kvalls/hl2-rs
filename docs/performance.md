@@ -212,6 +212,20 @@ do not establish reduced perceived afterimages. Keep it experimental pending con
 GPU reduction readback equivalence, clean idle/turn/swing comparisons and display testing.
 
 
+## Map loading: entity rigs on all cores (2026-11-20)
+
+The map worker's models phase now reports `model_props` (prop meshes, physics and rigs),
+`model_gibs` and `model_rigs` (weapon and player rigs) in `render.map_metadata.loading_ms`.
+Timing inside `model_props` on d1_trainstation_01/02 showed the entity rigs (skeletons and
+kept sequences of NPCs, props and ragdolls) took about 440-460 ms of 580-670 ms, loaded one model
+at a time; model files (already read on all cores) took 25 ms. Rigs now load on all cores
+before instances are placed, each stored at the instance that would have loaded it, so later
+steps see the same rigs; the map's sequence names are collected once instead of per rig.
+Three gameplay replays (M1 Pro, one game at a time): `model_props` 581-668 -> 268-315 ms,
+request to playable 2163-2373 -> 1848-1932 ms. All 109 packaged checks kept their outcomes;
+`monitors-kleiner-scene` missed one gib removal once with three games in parallel (also seen
+before this change) and passed alone twice.
+
 ## Background/shared map loading: parallel preparation and content reuse (2026-10-30)
 
 The serial timing baseline is `2bf2290`; the first complete pipeline checkpoint is

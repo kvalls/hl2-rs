@@ -366,6 +366,7 @@ pub use bodygroups::{body_variants, RUNTIME_BODYGROUPS};
 pub use chunks::used_chunk_models;
 use collision::static_collision;
 pub mod ai_activities;
+mod entity_rigs;
 mod geometry;
 mod prefetch;
 mod prop_data;
@@ -543,8 +544,12 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
     let mut collision_attempted = BTreeSet::new();
     let mut ragdolls_read = BTreeSet::new();
     let mut collision_modes_reported = BTreeSet::new();
+    // Placed instances only: one whose model failed to read is skipped below.
+    let mut rigs = entity_rigs::load(world, vfs, |i| {
+        cache.contains_key(&(i.model.to_lowercase(), i.skin, i.body))
+    });
     let mut batches = Surface::batch(world.surfaces.drain(..));
-    for instance in &world.model_instances {
+    for (index, instance) in world.model_instances.iter().enumerate() {
         let key = (instance.model.to_lowercase(), instance.skin, instance.body);
         let Some(model) = cache.get(&key) else {
             continue;
@@ -650,76 +655,8 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
             }
         }
         report.instances_loaded += 1;
-        if instance.entity.is_some() && !world.rigs.contains_key(&instance.asset_key()) {
-            let mut wanted = [
-                "ACT_IDLE",
-                // Weapon-translated metrocop idles (weapon_pistol/smg1 acttables).
-                "ACT_IDLE_PISTOL",
-                "ACT_IDLE_SMG1",
-                // Stunstick acttable results for the metrocop shove/baton chain.
-                "ACT_MELEE_ATTACK_SWING",
-                "ACT_IDLE_ANGRY_MELEE",
-                "idle_subtle",
-                "idle_baton",
-                "walk_all",
-                "run_all",
-                "idle",
-                "idle01",
-                "fire",
-                "reload",
-                "draw",
-                "swing",
-                "attack",
-                "death1",
-                // npc_combine_camera deploy/retire activities (matched lowercase).
-                "act_combine_camera_open_idle",
-                "act_combine_camera_closed_idle",
-                "act_combine_camera_close",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect::<BTreeSet<_>>();
-            // npc_metropolice AI activities (hl2-simulation ai::metropolice/police and the
-            // weapon acttables): the cloud AI branch requested them at runtime only, so
-            // their sequences were never loaded and every task using them failed.
-            if instance.kind == "npc_metropolice" {
-                wanted.extend(METROPOLICE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
-            }
-            if matches!(
-                instance.kind.as_str(),
-                "npc_citizen" | "npc_barney" | "npc_alyx" | "npc_combine_s"
-            ) {
-                wanted.extend(HUMANOID_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
-            }
-            if instance.kind.starts_with("npc_") {
-                wanted.extend(NPC_BASE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
-            }
-            wanted.extend(
-                ai_activities::instance_ai_sequences(world, instance)
-                    .iter()
-                    .map(|a| a.to_lowercase()),
-            );
-            // A raggib ragdolls from its sequence 0 (cycle 0).
-            if instance.kind == "raggib" {
-                if let Ok(Some(first)) = crate::animation::first_sequence_name(vfs, &instance.model)
-                {
-                    wanted.insert(first.to_lowercase());
-                }
-            }
-            for e in &world.entities {
-                for key in [
-                    "DefaultAnim",
-                    "m_iszPlay",
-                    "m_iszIdle",
-                    "m_iszPostIdle",
-                    "animation",
-                ] {
-                    if let Some(name) = e.get(key) {
-                        wanted.insert(name.to_lowercase());
-                    }
-                }
-            }
-            match crate::animation::load(vfs, &instance.model, &wanted) {
+        if let Some((model, loaded)) = rigs.remove(&index) {
+            match loaded {
                 Ok(rig) => {
                     report.rigs_loaded += 1;
                     report.clips_loaded += rig.clips.len();
@@ -728,9 +665,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                         .extend(rig.warnings.iter().cloned());
                     world.rigs.insert(instance.asset_key(), rig);
                 }
-                Err(e) => report
-                    .animation_warnings
-                    .push(format!("{}: {e:#}", instance.model)),
+                Err(e) => report.animation_warnings.push(format!("{model}: {e:#}")),
             }
         }
         // NPC deaths become ragdolls (C_BaseAnimating::BecomeRagdollOnClient); map
