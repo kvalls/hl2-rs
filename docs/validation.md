@@ -1649,10 +1649,13 @@ The packaged checks are one cross-platform Python script, `scripts/checks/replay
 It builds once (`scripts/build-bevy.sh`, `scripts/build-bevy.ps1` on Windows), copies the packaged
 game to `artifacts/replays/game/`, runs each check as bounded launches of that copy with their own
 `--report`, and asserts on what the reports record. One ok/FAIL line per check; logs, reports and
-captures in `artifacts/replays/`. The copy keeps its own settings next to it, so every check starts
-from default settings and `bin/hl2-config.json` (and a game running from `bin/`) is never touched.
+captures in `artifacts/replays/`. Each check gets its own settings file (`HL2RS_SETTINGS`, started from `profiles/test.json`), so
+UI and gameplay checks run side by side and `bin/hl2-config.json` (and a game running from `bin/`)
+is never touched. `JOBS` checks run at once, longest first by the previous run's durations
+(`artifacts/replays/durations.json`); checks that edit the staged game's shaders each run their own copy of it. Gameplay replays run
+with `--timescale` (`TIMESCALE`, default 4): the same 15 ms ticks, four times faster than real time.
 Environment instead of arguments: `ONLY="console movement"` runs those checks, `GROUP=ui` or
-`GROUP=gameplay` one group, `JOBS=4` up to four gameplay replays at once (never more games than fit in
+`GROUP=gameplay` one group, `JOBS=4` up to four checks at once (never more games than fit in
 physical memory: `GAME_MEMORY_GB` per game, default 6, plus 4 GB for the system; a packaged game
 measured 4.9-5.8 GB on the station maps on 2026-10-23, so a 16 GB machine runs two; the
 `parallel_jobs` check covers the rule), `WINDOWED=1` adds the

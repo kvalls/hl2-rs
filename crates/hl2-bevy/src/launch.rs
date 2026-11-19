@@ -357,3 +357,17 @@ pub(super) fn finish(
     }
     Ok(())
 }
+
+/// `--timescale`: the virtual clock runs `scale` times faster, so the fixed 15 ms ticks (and
+/// everything on virtual time) come due that much sooner; one frame may run up to `scale` times
+/// the normal 50 ms of ticks. The ticks themselves, and their order, do not change.
+pub(crate) fn apply_timescale(app: &mut App, scale: f32) {
+    if scale == 1. {
+        return;
+    }
+    let mut time = app
+        .world_mut()
+        .resource_mut::<bevy::time::Time<bevy::time::Virtual>>();
+    time.set_relative_speed(scale);
+    time.set_max_delta(std::time::Duration::from_secs_f32(0.05 * scale));
+}

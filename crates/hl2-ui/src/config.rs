@@ -718,11 +718,13 @@ impl Default for Config {
 }
 
 impl Config {
+    /// The settings file: the one `HL2RS_SETTINGS` names (a copied settings profile, so runs stay
+    /// isolated and can run side by side), otherwise `hl2-config.json` beside the executable.
     pub fn config_path() -> PathBuf {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("hl2-config.json")))
-            .unwrap_or_else(|| PathBuf::from("hl2-config.json"))
+        settings_path(
+            std::env::var_os("HL2RS_SETTINGS"),
+            std::env::current_exe().ok(),
+        )
     }
 
     pub fn load_or_default() -> Self {
@@ -860,9 +862,36 @@ impl Config {
     }
 }
 
+fn settings_path(chosen: Option<std::ffi::OsString>, exe: Option<PathBuf>) -> PathBuf {
+    match chosen.filter(|path| !path.is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => exe
+            .and_then(|p| p.parent().map(|d| d.join("hl2-config.json")))
+            .unwrap_or_else(|| PathBuf::from("hl2-config.json")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_file_is_chosen_or_beside_the_executable() {
+        let exe = Some(PathBuf::from("game/hl2-bevy"));
+        assert_eq!(
+            settings_path(Some("runs/a/settings.json".into()), exe.clone()),
+            PathBuf::from("runs/a/settings.json")
+        );
+        assert_eq!(
+            settings_path(Some("".into()), exe.clone()),
+            PathBuf::from("game/hl2-config.json")
+        );
+        assert_eq!(
+            settings_path(None, exe),
+            PathBuf::from("game/hl2-config.json")
+        );
+        assert_eq!(settings_path(None, None), PathBuf::from("hl2-config.json"));
+    }
 
     #[test]
     fn config_defaults_and_serialization() {

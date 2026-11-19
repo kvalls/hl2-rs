@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-19 — Settings profiles and a faster replay suite
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `HL2RS_SETTINGS` names the settings file (`Config::config_path`, unit-tested), defaulting to `hl2-config.json` beside the executable. Reviewed partial profiles in `profiles/` (`test.json` baseline, `shadows-{low,medium,high}.json`, README). `--timescale N` (1–16) runs the fixed 15 ms ticks N times faster on the virtual clock (`launch::apply_timescale`). `scripts/checks/replays.py`: each check gets its own settings file from `profiles/test.json`; all checks share one pool of `JOBS`, longest first by `artifacts/replays/durations.json`; shader-editing checks run a private copy of the staged game; gameplay replays pass `--timescale` (`TIMESCALE`, default 4). Scripts that drive `replays.py` directly keep `CONFIG` as their settings file.
+- Why: the suite took 24 minutes, mostly because UI checks ran one at a time over one shared settings file and every replay played in real time.
+- Tested how: workspace validation, Windows cross-target Clippy, check-script unit tests (55), and full replay suites at `JOBS=2`: serial baseline 1,451 s; profiles and one pool 1,111 s (108/108); everything together 778 s (108/108). The gameplay group at 4× took 268 s against about 500 s; one bottle replay broke a third bottle once under two-game load and passed alone twice at 4× and at 1×.
+- Frame time: none in play; `--timescale` defaults to 1.
+- Still broken or not tested: UI checks still run in real time; Windows replays with the new pool are **not tested**.
+
 ## 2026-11-19 — GPU shadow silhouettes by default
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

@@ -55,6 +55,7 @@ impl Options {
             pitch: 0.,
             profile: false,
             uncapped: false,
+            timescale: 1.,
             cpu_skinning: false,
             no_pvs: false,
             world_partition: false,
@@ -116,6 +117,7 @@ impl Options {
             "--world-partition" => options.world_partition = true,
             "--cpu-skinning" => options.cpu_skinning = true,
             "--uncapped" => options.uncapped = true,
+            "--timescale" => options.timescale = next()?.parse()?,
             "--profile" => options.profile = true,
             "--pitch" => options.pitch = next()?.parse::<f32>()?.to_radians(),
             "--width" => options.width = next()?.parse()?,
@@ -193,6 +195,9 @@ impl Options {
         }
         if options.frames.is_some_and(|n| !(30..=200_000).contains(&n)) {
             bail!("--frames must be between 30 and 200000");
+        }
+        if !(1. ..=16.).contains(&options.timescale) {
+            bail!("--timescale must be between 1 and 16");
         }
         if !options.position.is_none_or(|p| p.is_finite())
             || !options.pitch.is_finite()

@@ -21,6 +21,8 @@
 !/scripts/checks/*.sh
 !/scripts/checks/*.py
 !/scripts/checks/architecture-baseline.json
+!/profiles/*.json
+!/profiles/README.md
 !/test-inputs/*.json
 !/test-inputs/expected/*.json
 !/test-inputs/performance-research/*.json

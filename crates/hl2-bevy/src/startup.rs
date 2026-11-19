@@ -202,6 +202,7 @@ const HELP_LINES: &[&str] = &[
     "      --report <path.json>            Path for simulation report output (default: artifacts/bevy-report.json)",
     "      --setup                         Open the setup dialog to choose/remember the Half-Life 2 folder",
     "      --setup-preview <path.png>      Capture a screenshot of the setup dialog and exit without loading a map",
+    "      --timescale <1..16>             Run the simulation this many times faster than real time (checks)",
     "      --tonemap-scale <scale>         Override HDR tonemapping exposure multiplier (positive float)",
     "      --uncapped                      Disable VSync to render and present frames unconstrained",
     "      --volume <0.0..1.0>             Set master audio volume level (default from audio config)",

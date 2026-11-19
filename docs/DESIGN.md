@@ -2555,3 +2555,18 @@ Known cost: removed entities keep their slot (`Scene::spawn_entity` only appends
 ### Occupied crowd destinations
 
 The station02 soundscape replay distinguishes an actor blocking the route from an actor occupying the destination. On direct contact in the latter case, return the original collision so the owning schedule can retry or complete its exit-distance check. Check the existing head-on passing test, add an occupied-goal test, and compare the passerby departure and replacement to the upstream entity I/O trace.
+
+### Settings profiles and parallel replays (2026-11-19)
+
+Every run of one executable shares `hl2-config.json` beside it, so the replay suite runs its UI
+checks one at a time (939 of the suite's 1,466 s) and capture scripts copy the whole game folder
+to change one setting. `HL2RS_SETTINGS` names the settings file instead; without it nothing
+changes. The console history follows that file. Reviewed partial profiles live in `profiles/`
+(each section fills missing fields with defaults); `test.json` is the empty baseline every
+check starts from. Runs copy a profile and never write to it. The replay suite gives each check
+its own settings file, runs UI and gameplay checks in one pool of `JOBS`, longest first by the
+previous run's durations, and gives the checks that edit staged shaders their own copy of the
+game. `--timescale N` runs the fixed ticks N times faster than real time (virtual clock speed and
+per-frame tick allowance); gameplay replays use 4, since they end when their tick script ends.
+Validation: a unit test of the path choice, the full replay suite at `JOBS=2` against the
+serial outcomes, and its wall time before and after. Reversible by dropping the commit.

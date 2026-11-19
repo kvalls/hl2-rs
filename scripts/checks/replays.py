@@ -29,9 +29,10 @@ Categories:
 Environment (no arguments, so the command line never changes):
   ONLY="console options"   run these checks only
   GROUP=ui | GROUP=gameplay   run one group
-  JOBS=4                   run up to 4 gameplay replays at once (default 1), never more than
+  JOBS=4                   run up to 4 checks at once, longest first (default 1), never more than
                            fit in physical memory (GAME_MEMORY_GB per game, default 6, plus
                            4 GB left to the system), so the machine never swaps
+  TIMESCALE=4              gameplay replays run their ticks this many times faster (1 = real time)
   WINDOWED=1               also run the windowed checks of this platform
   NO_BUILD=1               use bin/ as it is
   UPDATE_EXPECTED=1        record the gameplay outcomes as expected (after a reviewed change)
@@ -57,11 +58,30 @@ REPO = Path(__file__).resolve().parents[2]
 OUT = REPO / "artifacts" / "replays"
 SYSTEM = platform.system()  # Darwin, Windows, Linux
 EXE_NAME = "hl2-bevy.exe" if SYSTEM == "Windows" else "hl2-bevy"
-# The checks run a copy of the packaged game, so its settings (saved next to the executable) are
-# the checks' own: bin/hl2-config.json and a game running from bin/ are never touched.
+# The checks run a copy of the packaged game. Each check has its own settings file
+# (HL2RS_SETTINGS), started from a profile in profiles/, so checks run side by side and
+# bin/hl2-config.json is never touched.
 GAME = OUT / "game"
 EXE = GAME / EXE_NAME
+PROFILES = REPO / "profiles"
+SETTINGS = threading.local()
+# Scripts that drive single launches without run_check (and may point it elsewhere) use this.
 CONFIG = GAME / "hl2-config.json"
+
+
+def config_file() -> Path:
+    """The running check's settings file, or CONFIG outside a check."""
+    return getattr(SETTINGS, "path", None) or CONFIG
+
+
+def game_dir() -> Path:
+    """The staged game the running check launches: its own copy for checks that edit its files."""
+    return getattr(SETTINGS, "game", None) or GAME
+
+
+def reset_settings(profile: str = "test") -> None:
+    """Starts the running check's settings from a profile (a copy; the profile never changes)."""
+    shutil.copyfile(PROFILES / f"{profile}.json", config_file())
 
 
 # ---- running the game ---------------------------------------------------------------------
@@ -105,11 +125,12 @@ def game(name: str, *args: str, timeout: int = 240, background: bool = True, cap
         if stale and stale.exists():
             stale.unlink()
     # --mute silences the run without touching the saved Audio settings.
-    command = [str(EXE), "--no-setup", "--mute", *args, "--report", str(report)]
+    command = [str(game_dir() / EXE_NAME), "--no-setup", "--mute", *args, "--report", str(report)]
     command.insert(2, "--background" if background else "--no-focus")
     if png:
         command += ["--capture", str(png)]
-    env = dict(os.environ, RUST_LOG=os.environ.get("RUST_LOG", "info,hl2_bevy=debug"))
+    env = dict(os.environ, RUST_LOG=os.environ.get("RUST_LOG", "info,hl2_bevy=debug"),
+               HL2RS_SETTINGS=str(config_file()))
     try:
         done = subprocess.run(command, cwd=REPO, env=env, capture_output=True, text=True,
                               errors="replace", timeout=timeout)
@@ -137,14 +158,14 @@ def game(name: str, *args: str, timeout: int = 240, background: bool = True, cap
 
 def settings(**sections: dict) -> None:
     """Default settings with the given sections merged in (written before a launch)."""
-    current = json.loads(CONFIG.read_text(encoding="utf-8")) if CONFIG.exists() else {}
+    current = json.loads(config_file().read_text(encoding="utf-8")) if config_file().exists() else {}
     for key, values in sections.items():
         current.setdefault(key, {}).update(values)
-    CONFIG.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    config_file().write_text(json.dumps(current, indent=2), encoding="utf-8")
 
 
 def saved() -> dict:
-    return json.loads(CONFIG.read_text(encoding="utf-8")) if CONFIG.exists() else {}
+    return json.loads(config_file().read_text(encoding="utf-8")) if config_file().exists() else {}
 
 
 def expect(what: str, actual, expected) -> None:
@@ -249,8 +270,7 @@ def check_menu_options():
     expect("loaded", run.loaded(), ["hl2/background01", "episodic/ep1_background01"])
     # An open drop-down list takes every click: one on the menu only closes it. (Default
     # settings again: the drag above saved the dialog's new place.)
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     run = game("menu_options-list", *MENU[:-2], "--frames", "400",
                "--movement-script", "test-inputs/bevy-menu-options-list.json")
     expect("the Resolution list opened",
@@ -268,8 +288,7 @@ EIGHT_K = "7680x4320,3840x2160,2560x1440,1920x1080,1280x720"
 def check_video_8k():
     """Options > Video on a faked 8K monitor (--fake-monitor): the Resolution list (16:9 by
     default) starts at the panel's 7680 x 4320 and is shown open in the capture."""
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     run = game("video_8k", *MENU, "--fake-monitor", EIGHT_K,
                "--movement-script", "test-inputs/bevy-menu-video-8k.json")
     options = run.sample("resolution-open")["console"].get("options") or {}
@@ -284,8 +303,7 @@ def check_video_portrait():
     """A rotated 1080 x 1920 monitor (--fake-monitor) running at 1080 x 1920: the menu and
     Options work on a portrait frame; by keyboard, Video > Aspect Ratio opens with Portrait 9:16
     selected and the Resolution choices are the 9:16 modes up to the panel."""
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     settings(video={"display_mode": "windowed", "width": 1080, "height": 1920})
     run = game("video_portrait", "--map", "background01", "--main-menu", "--width", "1080",
                "--height", "1920", "--frames", "400", "--fake-monitor", "1080x1920",
@@ -308,8 +326,7 @@ def check_video_keep():
     monitor, so 1440 x 1080) applies at once and asks to keep it. The timeout and Escape put
     back 1280 x 720; OK keeps the change past the timeout."""
     def run(name):
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         result = game(f"video_keep_{name}", *MENU[:-2], "--frames", "2000", "--fake-monitor", "1920x1080",
                       "--movement-script", f"test-inputs/bevy-menu-video-keep-{name}.json")
         asked = result.sample("asked")
@@ -342,8 +359,7 @@ def check_narrow_layout():
     sizes = {"portrait": (1080, 1920), "square": (1080, 1080), "landscape": (1920, 1080),
              "ultrawide": (3440, 1440), "super_ultrawide": (5120, 1440)}
     for name, (w, h) in sizes.items():
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         run = game(f"narrow_{name}", "--map", "background01", "--main-menu", "--width", str(w),
                    "--height", str(h), "--frames", "200",
                    "--movement-script", "test-inputs/bevy-console-open.json")
@@ -391,8 +407,7 @@ def check_fov_settings():
     value replaces it, the viewmodel value moves the viewmodel camera, and aspect-adaptive
     framing in `tuning.json` adjusts the viewmodel outside 5:4..=16:9."""
     def camera(name, size, **video):
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         settings(video=video)
         run = game(name, "--map", "d1_trainstation_02", "--width", str(size[0]), "--height", str(size[1]),
                    "--movement-script", "test-inputs/bevy-hud.json")
@@ -418,8 +433,7 @@ def check_resolution_stress():
     7680 x 4320, the smallest and largest sizes the console accepts, and four changes on
     consecutive ticks (full screen and windowed mixed), where the last one wins. Each labelled
     sample reports the size of the frame image being rendered."""
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     run = game("resolution_stress", *MENU[:-2], "--frames", "1200", "--fake-monitor", EIGHT_K,
                "--movement-script", "test-inputs/bevy-menu-resolution-stress.json")
     frame = lambda label: run.sample(label).get("frame")
@@ -474,8 +488,7 @@ def check_options():
         suffix = script.stem[len("bevy-options-capture"):].lstrip("-")
         if suffix not in KEYBOARD_FOCUS and suffix not in OPTIONS_STATES and suffix != "keyboard-credits":
             raise Failure(f"{script.name}: no expectation in replays.py")
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         run = game(f"options-{suffix or 'keyboard-advanced'}", *MENU,
                    "--movement-script", str(script.relative_to(REPO)))
         if suffix == "keyboard-credits":
@@ -527,8 +540,7 @@ def check_captions():
     """ep1_background02 (Kleiner's broadcast): captions shown when on, none when off."""
     counts = {}
     for mode in ("closed_captions", "none"):
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         settings(gameplay={"background_game": "episodic", "background_map": "ep1_background02"},
                  audio={"captions": mode})
         run = game(f"captions-{mode}", "--frames", "420", "--width", "1024", "--height", "768", timeout=180)
@@ -541,8 +553,7 @@ def check_captions():
 
 def check_commentary():
     """Developer commentary: balloon nodes, skin switching, and teleportation via secondary attack."""
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     settings(gameplay={"commentary": True}, audio={"captions": "subtitles"})
     run = game("commentary", "--map", "d2_lostcoast", "--width", "1280", "--height", "720",
                "--movement-script", "test-inputs/bevy-lostcoast-commentary.json", timeout=240)
@@ -578,8 +589,7 @@ def check_commentary():
 
 def check_video():
     """Modal full-screen video playback, skip handling, and fallback execution on missing video."""
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     run = game("video", "--map", "background01", "--main-menu", "--width", "1280", "--height", "720",
                "--movement-script", "test-inputs/bevy-video.json", timeout=120)
     s = run.samples()
@@ -603,8 +613,7 @@ def check_video():
 
 def check_background_reveal():
     """The install frame already uses the authored background camera, before tick one."""
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     settings(video={"fov": 90.0, "hdr": "none", "hdr_migrated": True,
                     "advanced": {"motion_blur": False, "antialiasing": "x4"}})
     run = game("background_reveal", "--map", "background01", "--main-menu",
@@ -621,8 +630,7 @@ def check_background_fov_independence():
     for width, height in [(1024, 768), (1280, 720)]:
         results = []
         for fov, vertical in [(75.0, 0.0), (110.0, 90.0)]:
-            if CONFIG.exists():
-                CONFIG.unlink()
+            reset_settings()
             settings(video={"fov": fov, "vertical_fov": vertical, "hdr": "none",
                             "hdr_migrated": True, "advanced": {"motion_blur": False}})
             name = f"background_fov_{width}_{int(fov)}"
@@ -637,8 +645,7 @@ def check_bg_compare():
     """Each game's chapter 1 background at 1024x768, FOV 75 (compare with the retail images)."""
     for game_, map_ in (("hl2", "background01"), ("episodic", "ep1_background01"),
                         ("ep2", "ep2_background01"), ("lostcoast", "background01")):
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         settings(gameplay={"background_game": game_, "background_map": map_}, video={"fov": 75.0})
         run = game(f"bg_compare-{game_}", "--frames", "300", "--width", "1024", "--height", "768", timeout=180)
         campaign = run.campaign()
@@ -827,7 +834,7 @@ def check_flashlight_shadows():
     expect("off light removed", off.report["render"]["presentation"]["flashlight"]["light"], None)
     # Negative control: only the private packaged copy's depth shader treats cutouts as solid.
     # The colour shader and installation stay untouched; always restore before another check.
-    depth = GAME / "bevy-assets/shaders/source_depth.wgsl"
+    depth = game_dir() / "bevy-assets/shaders/source_depth.wgsl"
     original = depth.read_text(encoding="utf-8")
     try:
         depth.write_text("#import bevy_pbr::prepass_io::VertexOutput\n@fragment\nfn fragment(mesh: VertexOutput) {}\n", encoding="utf-8")
@@ -840,14 +847,12 @@ def check_flashlight_shadows():
 
 
 def check_motion_blur_options():
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     preview = json.loads((REPO / "test-inputs/bevy-options-motion-blur.json").read_text())
     fixture = OUT / "motion_blur_selected.input.json"
     fixture.write_text(json.dumps([f for f in preview if f["tick"] <= 150]))
     game("motion_blur_selected", *MENU, "--movement-script", str(fixture))
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     result = game("motion_blur_options", *MENU, "--movement-script", "test-inputs/bevy-options-motion-blur.json")
     expect("Video tab reached", result.sample("video-tab")["console"]["options"]["tab"], "Video")
     expect("Advanced dialog opened", result.sample("video-advanced")["console"]["options"]["sub"], "VideoAdvanced")
@@ -862,7 +867,7 @@ def check_motion_blur_options():
 def check_viewmodel_motion_blur():
     """A still world view has animated weapon vectors, with MSAA and the option lifecycle."""
     script = json.loads((REPO / "test-inputs/bevy-viewmodel-motion-blur.json").read_text())
-    shader = GAME / "bevy-assets/shaders/weapon_blur.wgsl"
+    shader = game_dir() / "bevy-assets/shaders/weapon_blur.wgsl"
     original = shader.read_text(encoding="utf-8")
     hook = "if alpha == 0.0 { return mix(base,select(world,base,own.z < 0.5),data.flags.y); }"
     holds("animation reconstruction hook", hook in original)
@@ -951,7 +956,7 @@ def check_flashlight_viewmodel():
         expect("selected weapon", inventory["active"], "weapon_pistol" if weapon == "pistol" else "weapon_smg1")
         expect("no stale posed bounds", result.report["render"]["presentation"]["pose_or_visibility_mismatches"], 0)
         return result
-    shader = GAME / "bevy-assets/shaders/source.wgsl"
+    shader = game_dir() / "bevy-assets/shaders/source.wgsl"
     original = shader.read_text(encoding="utf-8")
     marker = "if material.viewmodel_flashlight.limits.z < 0.5"
     holds("control hook exists", marker in original)
@@ -1013,8 +1018,7 @@ def check_flashlight_availability():
 def check_options_status():
     """Platform-only visibility, cyan development status and unchanged orange retail hints."""
     for case, tab in (("mouse", "Mouse"), ("audio", "Audio"), ("advanced", "Video")):
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         run = game("options_status_" + case, *MENU,
                    "--movement-script", f"test-inputs/bevy-options-status-{case}.json")
         options = run.sample("status-final")["console"]["options"]
@@ -1056,7 +1060,7 @@ def check_lamp_emission():
             "--movement-script", "test-inputs/bevy-canals-lamp.json")
     normal = game("canals_lamp", *args)
     holds("completed", normal.report["render"]["simulation"]["script_finished"])
-    shader = GAME / "bevy-assets/shaders/source.wgsl"
+    shader = game_dir() / "bevy-assets/shaders/source.wgsl"
     original = shader.read_text(encoding="utf-8")
     marker = "srgb_to_linear(material_albedo * material.tint.rgb), base_alpha"
     holds("emissive albedo control exists", marker in original)
@@ -1079,8 +1083,7 @@ def check_hud_aspect():
     aspect (report `hud.frame` = [x, width] and `hud.panels` = health, suit, ammo, secondary ammo
     rectangles in screen pixels), Fit Display spans the screen, and 16:9 is unchanged."""
     def hud(name: str, aspect: str, width: int, height: int) -> dict:
-        if CONFIG.exists():
-            CONFIG.unlink()
+        reset_settings()
         settings(video={"hud_aspect": aspect})
         run = game(f"hud_aspect_{name}", "--map", "d1_trainstation_02", "--width", str(width),
                    "--height", str(height), "--movement-script", "test-inputs/bevy-hud.json")
@@ -1109,7 +1112,7 @@ def check_hud_aspect():
     expect("16:9 frame", centered["frame"], plain["frame"])
     expect("16:9 panels", centered["panels"], plain["panels"])
     expect("16:9 quads", centered["quads"], plain["quads"])
-    CONFIG.unlink()
+    reset_settings()
 
 
 # ---- gameplay replays (background) ---------------------------------------------------------
@@ -1202,8 +1205,10 @@ def near(a, b, tolerance=0.001) -> bool:
 def replay(fixture: str) -> Run:
     """Run one gameplay fixture on its map and apply the checks every fixture must pass."""
     script = REPO / "test-inputs" / f"{fixture}.json"
+    # Tick-scripted runs need no real-time pacing: the same ticks run TIMESCALE times faster.
     run = game(fixture, "--map", GAMEPLAY_MAPS[fixture], "--width", "1280", "--height", "720",
-               "--movement-script", str(script.relative_to(REPO)), timeout=300)
+               "--movement-script", str(script.relative_to(REPO)),
+               "--timescale", os.environ.get("TIMESCALE", "4"), timeout=300)
     check_report(run, json.loads(script.read_text(encoding="utf-8")), GAMEPLAY_MAPS[fixture], fixture)
     return run
 
@@ -1604,8 +1609,7 @@ def check_window():
                "--movement-script", "test-inputs/bevy-menu-resolution-change.json", background=False)
     holds("the frame was resized", "frame resize done" in run.log)
     expect("Options opened after the resize", run.console()["mode"], "Options")
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     settings(video={"display_mode": "windowed", "width": 1024, "height": 768})
     run = game("window-options-apply", "--map", "background01", "--main-menu", "--windowed",
                "--width", "1024", "--height", "768", "--frames", "600", "--capture-window",
@@ -1618,8 +1622,7 @@ def check_window():
     holds("the window took it", "[video] apply" in run.log)
     # Windowed resolution changes on a real window never stall: the smallest and largest sizes
     # the console accepts and four changes on consecutive ticks (the last one wins).
-    if CONFIG.exists():
-        CONFIG.unlink()
+    reset_settings()
     settings(video={"display_mode": "windowed", "width": 1024, "height": 768})
     run = game("window-resolution-stress", "--map", "background01", "--main-menu", "--windowed",
                "--width", "1024", "--height", "768", "--frames", "1200", "--capture-window",
@@ -1705,6 +1708,7 @@ class Check:
     run: Callable[[], None]
     category: str  # shared | windowed | macos | windows
     group: str = "ui"  # ui | gameplay (GROUP=gameplay runs one group)
+    own_game: bool = False  # edits files of the staged game (shaders): runs its own copy
 
 
 CHECKS = [
@@ -1734,13 +1738,13 @@ CHECKS = [
     Check("hud", check_hud, "shared"),
     Check("hud_aspect", check_hud_aspect, "shared"),
     Check("power_hud", check_power_hud, "shared"),
-    Check("flashlight_shadows", check_flashlight_shadows, "shared"),
+    Check("flashlight_shadows", check_flashlight_shadows, "shared", own_game=True),
     Check("flashlight_availability", check_flashlight_availability, "shared"),
     Check("options_status", check_options_status, "shared"),
-    Check("lamp_emission", check_lamp_emission, "shared"),
+    Check("lamp_emission", check_lamp_emission, "shared", own_game=True),
     Check("motion_blur_options", check_motion_blur_options, "shared"),
-    Check("viewmodel_motion_blur", check_viewmodel_motion_blur, "shared"),
-    Check("flashlight_viewmodel", check_flashlight_viewmodel, "shared"),
+    Check("viewmodel_motion_blur", check_viewmodel_motion_blur, "shared", own_game=True),
+    Check("flashlight_viewmodel", check_flashlight_viewmodel, "shared", own_game=True),
     Check("commentary", check_commentary, "shared"),
     Check("video", check_video, "shared"),
     Check("window", check_window, "windowed"),
@@ -1786,6 +1790,15 @@ class ThreadOutput:
 
 def run_check(check: Check, output: ThreadOutput) -> tuple[bool, str, float]:
     begin = time.time()
+    SETTINGS.path = OUT / "settings" / check.name / "hl2-config.json"
+    SETTINGS.path.parent.mkdir(parents=True, exist_ok=True)
+    reset_settings()
+    SETTINGS.game = None
+    if check.own_game:
+        SETTINGS.game = OUT / "games" / check.name
+        if SETTINGS.game.exists():
+            shutil.rmtree(SETTINGS.game)
+        shutil.copytree(GAME, SETTINGS.game)
     with (OUT / f"{check.name}.log").open("w", encoding="utf-8") as handle:
         output.local.handle = handle
         try:
@@ -1836,15 +1849,16 @@ def main() -> int:
     sys.stdout = output
     results = []
     try:
-        # UI checks write settings, so they run one at a time, each from default settings.
-        for check in (c for c in checks if c.group == "ui"):
-            if CONFIG.exists():
-                CONFIG.unlink()
-            results.append(run_check(check, output))
-        # Gameplay replays only read the default settings; JOBS of them run at once.
-        if CONFIG.exists():
-            CONFIG.unlink()
-        gameplay = [c for c in checks if c.group == "gameplay"]
+        # Every check has its own settings file, so UI and gameplay checks share one pool of
+        # JOBS, longest first (the previous run's durations) so no long check runs alone at the
+        # end. Checks that edit the staged game's files run their own copy of it.
+        durations = OUT / "durations.json"
+        try:
+            previous = json.loads(durations.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            previous = {}
+        shared = sorted(checks,
+                        key=lambda c: previous.get(c.name, 0.), reverse=True)
         requested = max(1, int(os.environ.get("JOBS", "1")))
         jobs = parallel_jobs(requested, physical_memory(),
                              int(float(os.environ.get("GAME_MEMORY_GB", "6")) * GIB))
@@ -1853,7 +1867,10 @@ def main() -> int:
                   f"{os.environ.get('GAME_MEMORY_GB', '6')} GB and this machine has "
                   f"{physical_memory() / GIB:.0f} GB")
         with ThreadPoolExecutor(jobs) as pool:
-            results += pool.map(lambda c: run_check(c, output), gameplay)
+            ran = list(zip(shared, pool.map(lambda c: run_check(c, output), shared)))
+        results = [result for _, result in ran]
+        previous.update({c.name: seconds for c, (_, _, seconds) in ran})
+        durations.write_text(json.dumps(previous, indent=1, sort_keys=True), encoding="utf-8")
     finally:
         sys.stdout = output.console
     failed = sum(1 for ok, _, _ in results if not ok)
