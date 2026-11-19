@@ -285,7 +285,7 @@ impl Scene {
                 },
                 -1.,
             ) as f64,
-            touching: false,
+            touchers: Vec::new(),
             last_trigger: -1e6,
             value: number(e, "startvalue", 0.),
             timer_at: number(e, "RefireTime", 1.).max(0.015) as f64,

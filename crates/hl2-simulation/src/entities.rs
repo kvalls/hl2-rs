@@ -20,6 +20,7 @@ mod sequences;
 pub(crate) use sequences::custom_move_walks;
 mod startup;
 pub use startup::weapon_idle_activity;
+mod touch;
 mod tracktrain;
 mod triggers;
 mod turning;
@@ -247,7 +248,8 @@ pub struct State {
     pub locked: bool,
     return_at: Option<f64>,
     wait: f64,
-    touching: bool,
+    /// Entities touching this trigger, in touch order (CBaseTrigger m_hTouchingEntities).
+    touchers: Vec<usize>,
     last_trigger: f64,
     pub value: f32,
     timer_at: f64,
@@ -795,6 +797,7 @@ impl Scene {
             });
             !values.is_empty()
         });
+        let mut candidates = None;
         for id in 0..world.entities.len() {
             let e = self.ent(world, id);
             if self.states[id].killed {
@@ -836,96 +839,10 @@ impl Scene {
                 self.advance_mover(world, id, dt);
             }
             self.think_timer(world, id);
-            if e.class().starts_with("trigger_") && self.states[id].enabled {
-                // CBaseTrigger PassesTriggerFilters: clients (1), NPCs (2), physics objects
-                // (8, MOVETYPE_VPHYSICS), everything (0x40), then the trigger's filter
-                // entity (filtername). Other trigger classes keep the earlier player-only
-                // touch.
-                let gated = matches!(e.class(), "trigger_once" | "trigger_multiple");
-                let flags = number(e, "spawnflags", 1.) as u32;
-                let clients = !gated || flags & (1 | 0x40) != 0;
-                let npcs = gated && flags & (2 | 0x40) != 0;
-                let physics_objects = gated && flags & (8 | 0x40) != 0;
-                let filter = gated
-                    .then(|| e.get("filtername").map(str::trim).filter(|f| !f.is_empty()))
-                    .flatten()
-                    .map(str::to_owned);
-                let passes = |scene: &Self, other: usize| {
-                    filter
-                        .as_deref()
-                        .is_none_or(|f| scene.passes_filter(world, f, other))
-                };
-                let player = clients
-                    && self.player_inside(world, id, player_feet)
-                    && passes(self, usize::MAX);
-                let npc = if npcs && !player {
-                    (0..self.states.len()).find(|&n| {
-                        self.ent(world, n).class().starts_with("npc_")
-                            && !self.states[n].killed
-                            && self.states[n].visible
-                            && self.player_inside(world, id, self.states[n].origin)
-                            && passes(self, n)
-                    })
-                } else {
-                    None
-                };
-                // A VPhysics object's origin inside the brush (small-object test).
-                let object = if physics_objects && !player && npc.is_none() {
-                    (0..self.states.len()).find(|&n| {
-                        is_vphysics_class(self.ent(world, n).class())
-                            && !self.states[n].killed
-                            && self.states[n].visible
-                            && self.touches(world, id, self.states[n].origin, Vec3::splat(2.))
-                            && passes(self, n)
-                    })
-                } else {
-                    None
-                };
-                let inside = player || npc.is_some() || object.is_some();
-                let activator = npc.or(object).unwrap_or(usize::MAX);
-                if inside && !self.states[id].touching {
-                    self.diagnostics.trigger_entries += 1;
-                    self.fire(id, "OnStartTouch", activator);
-                    self.fire(id, "OnStartTouchAll", activator);
-                }
-                if !inside && self.states[id].touching {
-                    self.fire(id, "OnEndTouch", activator);
-                    self.fire(id, "OnEndTouchAll", activator);
-                }
-                if inside
-                    && gated
-                    && self.time - self.states[id].last_trigger >= number(e, "wait", 0.2) as f64
-                {
-                    self.fire(id, "OnTrigger", activator);
-                    self.states[id].last_trigger = self.time;
-                    if e.class() == "trigger_once" {
-                        self.states[id].enabled = false;
-                    }
-                }
-                if e.class() == "trigger_hurt" {
-                    // Every touching player/NPC, before the trigger filters (Touch).
-                    let mut touching: Vec<usize> = (0..self.states.len())
-                        .filter(|&n| {
-                            self.ent(world, n).class().starts_with("npc_")
-                                && !self.states[n].killed
-                                && self.player_inside(world, id, self.states[n].origin)
-                        })
-                        .collect();
-                    if self.player_inside(world, id, player_feet) {
-                        touching.insert(0, PLAYER);
-                    }
-                    self.trigger_hurt(world, id, touching);
-                }
-                // SF_CHANGELEVEL_NOTOUCH (0x2) leaves the ChangeLevel input available,
-                // but must not change maps when the player overlaps the brush.
-                if inside
-                    && e.class() == "trigger_changelevel"
-                    && number(e, "spawnflags", 0.) as u32 & 2 == 0
-                    && !self.states[id].touching
-                {
-                    self.send(id, "ChangeLevel", "");
-                }
-                self.states[id].touching = inside;
+            if e.class().starts_with("trigger_")
+                && (self.states[id].enabled || !self.states[id].touchers.is_empty())
+            {
+                self.tick_trigger(world, id, &mut candidates);
             }
         }
         self.advance_func_trains(world);
