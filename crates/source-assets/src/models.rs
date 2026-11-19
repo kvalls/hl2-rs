@@ -367,6 +367,7 @@ pub use chunks::used_chunk_models;
 use collision::static_collision;
 pub mod ai_activities;
 mod geometry;
+mod prefetch;
 mod prop_data;
 mod root_motion;
 pub use ai_activities::{
@@ -523,37 +524,29 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         }
     }
     append_entity_models(world, vfs);
-    let mut cache: BTreeMap<(String, usize, i32), Option<ModelLevels>> = BTreeMap::new();
     let mut report = ModelReport::default();
+    let mut seen = BTreeSet::new();
+    let keys: Vec<prefetch::ModelKey> = (world.model_instances.iter())
+        .map(|i| (i.model.to_lowercase(), i.skin, i.body))
+        .filter(|key| seen.insert(key.clone()))
+        .collect();
+    let mut cache = BTreeMap::new();
+    for (key, read) in keys.iter().zip(prefetch::read_all(vfs, &keys, root_lod)) {
+        match read {
+            Ok(levels) => drop(cache.insert(key.clone(), levels)),
+            Err(error) => report
+                .errors
+                .push(format!("{} skin {}: {error}", key.0, key.1)),
+        }
+    }
+    report.unique_models = cache.len();
     let mut collision_attempted = BTreeSet::new();
     let mut ragdolls_read = BTreeSet::new();
     let mut collision_modes_reported = BTreeSet::new();
     let mut batches = Surface::batch(world.surfaces.drain(..));
     for instance in &world.model_instances {
         let key = (instance.model.to_lowercase(), instance.skin, instance.body);
-        let model = cache.entry(key.clone()).or_insert_with(|| {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                read_model_levels(vfs, &key.0, key.1, key.2, root_lod)
-            })) {
-                Ok(Ok(s)) => {
-                    report.unique_models += 1;
-                    Some(s)
-                }
-                result => {
-                    report.errors.push(format!(
-                        "{} skin {}: {}",
-                        key.0,
-                        key.1,
-                        match result {
-                            Ok(Err(e)) => format!("{e:#}"),
-                            _ => "model reader panicked".into(),
-                        }
-                    ));
-                    None
-                }
-            }
-        });
-        let Some(model) = model else {
+        let Some(model) = cache.get(&key) else {
             continue;
         };
         model.store(instance, (&mut world.model_assets, &mut world.model_lods));

@@ -151,7 +151,7 @@
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1150,
-  "crates/source-assets/src/models.rs": 1060,
+  "crates/source-assets/src/models.rs": 1053,
   "crates/source-ui/src/widgets.rs": 2176
  },
  "functions": {
@@ -372,7 +372,7 @@
    143
   ],
   "crates/source-assets/src/models.rs::append_models_lod": [
-   328
+   320
   ],
   "crates/source-assets/src/phy.rs::read_solid": [
    160

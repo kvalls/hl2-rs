@@ -1653,7 +1653,7 @@ captures in `artifacts/replays/`. Each check gets its own settings file (`HL2RS_
 UI and gameplay checks run side by side and `bin/hl2-config.json` (and a game running from `bin/`)
 is never touched. `JOBS` checks run at once, longest first by the previous run's durations
 (`artifacts/replays/durations.json`); checks that edit the staged game's shaders each run their own copy of it. Gameplay replays run
-with `--timescale` (`TIMESCALE`, default 4): the same 15 ms ticks, four times faster than real time.
+with `--timescale` (`TIMESCALE`, default 8): the same 15 ms ticks, eight times faster than real time.
 Other launches run `--uncapped --max-fps 240 --timescale 4` (`UI_TIMESCALE`, default 4): frames about
 four times as fast, each covering the game time of a 60 fps frame, capped so a fast game never
 starves the one beside it. Checks marked `real_time` (countdowns, frame-timed blur, sway and HUD

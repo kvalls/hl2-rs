@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-19 — Read a map's models on all cores; gameplay replays at 8×
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `source-assets/src/models/prefetch.rs` reads a map's unique (model, skin, body) keys on all cores, each worker taking the next key; `append_models_lod` then places instances from the filled cache. Errors keep first-seen order; a reader panic stays one model's error. `models.rs` shrank (baseline 1,060 → 1,053 lines). Gameplay replays default to `TIMESCALE=8`.
+- Why: model reading was the largest loading phase and ran one model at a time; the replay suite launches the game 178 times.
+- Tested how: `source-assets` tests (128) and Clippy, workspace validation, Windows cross-target Clippy; the gameplay group at 8× passed 73/73 in 249 s (4×: 268 s). Load phases over the 69 repeated gameplay runs, old loader → new: models 998 → 696 ms, request to playable 3,446 → 2,597 ms. Phases this change cannot touch also fell (main-thread install 990 → 595 ms), so the machine was busier for the old runs; the models gain of about 0.3 s per load is the attributable part.
+- Frame time: none; loading only. The prefetch uses every core briefly while a map loads.
+- Rejected: three games at once on this 16 GB Mac with other apps open (about 14.6 GB in use) pushed swap from 3.7 to 12.1 GB and was stopped.
+- Still broken or not tested: other model-phase work (rigs, physics, prop data) is still serial; a quiet-machine load comparison is not done.
+
 ## 2026-11-19 — Fast-forward the UI checks
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

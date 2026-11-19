@@ -32,7 +32,7 @@ Environment (no arguments, so the command line never changes):
   JOBS=4                   run up to 4 checks at once, longest first (default 1), never more than
                            fit in physical memory (GAME_MEMORY_GB per game, default 6, plus
                            4 GB left to the system), so the machine never swaps
-  TIMESCALE=4              gameplay replays run their ticks this many times faster (1 = real time)
+  TIMESCALE=8              gameplay replays run their ticks this many times faster (1 = real time)
   UI_TIMESCALE=4           other launches run unpaced and this many times faster, except checks
                            marked real_time (1 = real time)
   WINDOWED=1               also run the windowed checks of this platform
@@ -1217,7 +1217,7 @@ def replay(fixture: str) -> Run:
     # Tick-scripted runs need no real-time pacing: the same ticks run TIMESCALE times faster.
     run = game(fixture, "--map", GAMEPLAY_MAPS[fixture], "--width", "1280", "--height", "720",
                "--movement-script", str(script.relative_to(REPO)),
-               "--timescale", os.environ.get("TIMESCALE", "4"), timeout=300)
+               "--timescale", os.environ.get("TIMESCALE", "8"), timeout=300)
     check_report(run, json.loads(script.read_text(encoding="utf-8")), GAMEPLAY_MAPS[fixture], fixture)
     return run
 
