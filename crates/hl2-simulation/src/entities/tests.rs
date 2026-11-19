@@ -13,6 +13,7 @@ use glam::Mat4;
 use source_assets::scenes::EventType;
 use source_assets::vpk::Vfs;
 mod lifecycle;
+mod root_motion;
 mod scenes;
 mod trains;
 #[test]
@@ -1847,81 +1848,139 @@ fn a_kill_sent_to_an_npc_weapon_name_removes_that_weapon() {
 }
 
 #[test]
-fn ai_auto_movement_rotates_root_motion_by_yaw_and_clamps_on_finish() {
-    use modkit_core::{
-        animation::{Clip, ClipLayer, MovementRecord, Pose, Rig, RootMotion, Sequence},
-        ModelInstance,
+fn a_playback_rate_slows_the_sequence_clock_and_its_end() {
+    let world = World {
+        entities: vec![entity("prop_dynamic", "rotor", &[])],
+        ..Default::default()
     };
-
-    let delta = Vec3::new(-24.69, -1.14, 0.);
-    let dist = delta.length();
-    let motion = RootMotion {
-        fps: 30.,
-        frame_count: 31,
-        records: vec![MovementRecord {
-            end_frame: 25,
-            motion_flags: 0xc0,
-            v0: dist,
-            v1: dist,
-            end_yaw_degrees: 0.,
-            direction: delta.normalize(),
-            cumulative_position: delta,
-        }],
+    let mut scene = Scene::new(&world);
+    scene.ai_sequence_end.insert(0, 2.);
+    let start = scene.animation_time(0);
+    // A quarter rate for a second of ticks plays a quarter of a second.
+    for _ in 0..100 {
+        scene.time += 0.01;
+        scene.play_at_rate(0, 0.25, 0.01);
+    }
+    let played = scene.animation_time(0) - start;
+    assert!((played - 0.25).abs() < 1e-4, "{played}");
+    assert!((scene.ai_sequence_end[&0] - 2.75).abs() < 1e-6);
+    // At the full rate nothing is held back.
+    scene.play_at_rate(0, 1., 0.5);
+    assert!((scene.ai_sequence_end[&0] - 2.75).abs() < 1e-6);
+}
+#[test]
+fn logic_auto_fires_at_its_think_a_fifth_of_a_second_after_spawn() {
+    let world = World {
+        entities: vec![entity(
+            "logic_auto",
+            "",
+            &[
+                ("OnMapSpawn", "relay,Trigger,,0,-1"),
+                ("OnNewGame", "relay,Enable,,6,-1"),
+            ],
+        )],
+        ..Default::default()
     };
-    let entry_clip = Clip {
-        events: Vec::new(),
-        fps: 30.,
-        looping: false,
-        frames: vec![
-            vec![Pose {
-                position: Vec3::ZERO,
-                rotation: Quat::IDENTITY,
-            }];
-            31
-        ],
-        layer: ClipLayer {
-            root_motion: Some(motion),
-            ..Default::default()
-        },
+    let mut scene = Scene::new(&world);
+    scene.io_trace = Some(super::IoTrace::default());
+    // CLogicAuto::Activate thinks at curtime + 0.2: nothing fires before that.
+    for _ in 0..13 {
+        scene.tick(&world, Vec3::ZERO, 0.015);
+    }
+    assert!(scene
+        .io_trace
+        .as_mut()
+        .unwrap()
+        .take_lines(&world)
+        .is_empty());
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    let lines = scene.io_trace.as_mut().unwrap().take_lines(&world);
+    assert_eq!(
+        lines,
+        [
+            "(0.21) output: (logic_auto,) -> (relay,Trigger)()",
+            "(0.21) output: (logic_auto,) -> (relay,Enable,6.0)()",
+        ]
+    );
+    scene.tick(&world, Vec3::ZERO, 0.015);
+    assert!(scene
+        .io_trace
+        .as_mut()
+        .unwrap()
+        .take_lines(&world)
+        .is_empty());
+}
+#[test]
+fn a_no_auto_return_door_stays_open_after_its_wait() {
+    // CBaseDoor::DoorHitTop: SF_DOOR_NO_AUTO_RETURN (32) keeps the door at the top
+    // (d1_trainstation_01's train doors, wait 4); without it DoorGoDown follows `wait`.
+    let door = |name: &str, flags: &str| {
+        let values = [("spawnflags", flags), ("wait", "0.5"), ("speed", "1000")];
+        entity("func_door", name, &values)
     };
     let w = World {
-        entities: vec![entity("npc_citizen", "citizen", &[("origin", "0 0 0")])],
-        model_instances: vec![ModelInstance {
-            background: false,
-            model: "female_ss.mdl".into(),
-            origin: Vec3::ZERO,
-            angles: Vec3::new(0., 180., 0.),
-            skin: 0,
-            body: 0,
-            scale: 1.,
-            kind: "npc_citizen".into(),
-            solid: false,
-            solid_mode: None,
-            entity: Some(0),
-        }],
-        rigs: BTreeMap::from([(
-            "female_ss.mdl#0".into(),
-            Rig {
-                clips: BTreeMap::from([("sit_entry".to_string(), entry_clip)]),
-                sequences: vec![Sequence::new("sit_entry", "ACT_BUSY_SIT_CHAIR_ENTRY", 1, 0)],
-                ..Default::default()
-            },
-        )]),
+        entities: vec![door("toggle", "32"), door("returns", "0")],
         ..Default::default()
     };
     let mut scene = Scene::new(&w);
-    scene.states[0].origin = Vec3::new(-2237., -1472., 19.);
-    scene.ai_set_yaw(0, 180.);
-    assert!(scene.ai_set_activity(&w, 0, "ACT_BUSY_SIT_CHAIR_ENTRY"));
-    scene.tick(&w, Vec3::ZERO, 0.5);
-    assert!(scene.ai_auto_movement(&w, 0, false));
-    assert!(scene.states[0].origin.x > -2237.);
-    assert!(scene.ai_auto_movement(&w, 0, true));
-    let expected = Vec3::new(-2237. + 24.69, -1472. + 1.14, 19.);
-    assert!(
-        scene.states[0].origin.distance(expected) < 1e-3,
-        "origin {} expected {}",
-        scene.states[0].origin,
-        expected
-    );
+    scene.send(0, "Open", "");
+    scene.send(1, "Open", "");
+    for _ in 0..10 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert!(scene.states[0].return_at.is_none());
+    assert!(scene.states[1].return_at.is_some());
+}
+
+#[test]
+fn a_script_keeps_searching_for_an_actor_spawned_later() {
+    // CAI_ScriptedSequence::ScriptThink: no NPC yet, CancelScript and another search in 1 s
+    // (d1_trainstation_01's ss_luggageShove waits for luggage_script_template's actors).
+    let script = [("m_iszEntity", "cop"), ("m_fMoveTo", "4")];
+    let w = World {
+        entities: vec![
+            entity("scripted_sequence", "ss", &script),
+            entity("npc_metropolice", "cop", &[]),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    scene.states[1].killed = true;
+    scene.send(0, "MoveToPosition", "");
+    for _ in 0..30 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert!(scene.states[0].script_actor.is_none());
+    scene.states[1].killed = false;
+    for _ in 0..80 {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+    }
+    assert_eq!(scene.states[0].script_actor, Some(1));
+}
+
+#[test]
+fn door_travel_is_the_compiled_brush_size_less_lip() {
+    // Mod_LoadSubmodels spreads the compiled bounds by 1 and CBaseDoor::Spawn subtracts 2:
+    // d1_trainstation_01's train_door_1 (a 2-unit helper, lip 0) pushes the car door's
+    // halves 2 units out of the car's side; each half (56 wide, lip 1) slides 55.
+    let model = |id, half: Vec3| modkit_core::BrushModel {
+        id,
+        surfaces: Vec::new(),
+        brushes: Vec::new(),
+        mins: -half,
+        maxs: half,
+    };
+    let outer = [("model", "*1"), ("movedir", "0 270 0")];
+    let half = [("model", "*2"), ("movedir", "0 180 0"), ("lip", "1")];
+    let w = World {
+        entities: vec![
+            entity("func_door", "outer", &outer),
+            entity("func_door", "half", &half),
+        ],
+        brush_models: vec![model(1, Vec3::ONE), model(2, Vec3::new(28., 1., 56.))],
+        ..Default::default()
+    };
+    let scene = Scene::new(&w);
+    assert!((scene.states[0].translation - Vec3::new(0., -2., 0.)).length() < 1e-3);
+    assert!((scene.states[1].translation - Vec3::new(-55., 0., 0.)).length() < 1e-3);
 }

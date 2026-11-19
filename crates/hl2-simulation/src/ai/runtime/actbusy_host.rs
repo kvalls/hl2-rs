@@ -95,6 +95,10 @@ pub(super) fn settle(
             scene.fire(goal, output, id);
         }
     }
+    // CAI_Hint::NPCStartedUsing/NPCStoppedUsing: the hint's outputs, the NPC as activator.
+    for (hint, output) in std::mem::take(&mut busy.hint_outputs) {
+        scene.fire(hint, output, id);
+    }
     if std::mem::take(&mut busy.remove) {
         scene.send(id, "Kill", "");
     }

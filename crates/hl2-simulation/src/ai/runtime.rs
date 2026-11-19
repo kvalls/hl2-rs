@@ -448,6 +448,8 @@ pub struct AiRuntime {
     /// schedules a machine gun's second sound ahead of the next think).
     #[serde(skip)]
     delayed_sounds: Vec<(f64, crate::sounds::SoundRequest)>,
+    #[serde(skip)]
+    script_conditions: script_conditions::ScriptConditions,
     pub diagnostics: Diagnostics,
     random: u64,
     /// Debug (F4): the AI does not sense the player (ai_ignoreplayers / notarget).
@@ -485,8 +487,6 @@ pub struct AiRuntime {
     /// Entities whose class is npc_* (sight candidates), built on first use.
     #[serde(skip)]
     npc_ids: Option<Vec<usize>>,
-    #[serde(skip)]
-    script_conditions: Vec<script_conditions::ActorCondition>,
     /// ai_relationship overrides (subject, target) -> disposition (target PLAYER for
     /// "!player"), and the pairs each active ai_relationship entity applied.
     #[serde(serialize_with = "serialize_pairs")]
@@ -736,7 +736,6 @@ impl AiRuntime {
             scripted_fired: Default::default(),
             allegiances: BTreeMap::new(),
             npc_ids: None,
-            script_conditions: script_conditions::for_world(world),
             relationship_overrides: BTreeMap::new(),
             applied_relationships: Default::default(),
             squads: BTreeMap::new(),
@@ -779,6 +778,7 @@ impl AiRuntime {
             prop_moves: Vec::new(),
             manhack_marks: Default::default(),
             delayed_sounds: Vec::new(),
+            script_conditions: Default::default(),
             diagnostics: Diagnostics::default(),
             random: 0x9e37_79b9_7f4a_7c15,
         }
@@ -842,9 +842,9 @@ impl AiRuntime {
         if let Some(value) = self.stunstick_damage {
             super::metropolice::STUNSTICK_DAMAGE.with(|d| d.set(value));
         }
-        self.deliver_due_sounds(scene);
+        self.play_delayed_sounds(scene);
         self.inputs(world, scene, controller);
-        self.evaluate_script_conditions(world, scene, physics, player);
+        self.think_script_conditions(world, scene, physics, player);
         // PhysicsStep's gravity runs whether or not the NPC thinks (ai_disable).
         self.step_falls_and_links(world, scene, controller, physics, player);
         if !self.enabled {

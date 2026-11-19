@@ -6,6 +6,9 @@ use crate::physics;
 use glam::Vec3;
 use modkit_core::World;
 
+/// The internal input name of a scripted_sequence's search think.
+pub(super) const SCRIPT_THINK: &str = "ScriptThink";
+
 impl Scene {
     /// The actor belongs to a script: a scripted_sequence, a choreographed scene (as an
     /// actor of a running playback or through its body animation) or a scene move.
@@ -168,6 +171,19 @@ impl Scene {
     pub fn ai_set_yaw(&mut self, id: usize, yaw_degrees: f32) {
         if let Some(state) = self.states.get_mut(id) {
             state.rotation = physics::angles(Vec3::new(0., yaw_degrees, 0.));
+        }
+    }
+
+    /// m_flPlaybackRate over one tick of `dt`: the entity's sequence runs at `rate` of the game's
+    /// clock. A sequence's time is the time since `animation_started`, so the start (and the AI's
+    /// sequence end with it) moves on by the share it does not play.
+    pub fn play_at_rate(&mut self, id: usize, rate: f32, dt: f32) {
+        let held = f64::from((1. - rate) * dt);
+        if let Some(state) = self.states.get_mut(id) {
+            state.animation_started += held;
+        }
+        if let Some(end) = self.ai_sequence_end.get_mut(&id) {
+            *end += held;
         }
     }
 
@@ -354,8 +370,7 @@ impl Scene {
             })
             .map(|(i, _)| i);
         let Some(actor) = actor else {
-            self.unsupported_input("scripted_sequence", &format!("actor:{name}"));
-            return;
+            return self.retry_script_search(id);
         };
         if self.states[actor]
             .scripted_by
@@ -379,10 +394,13 @@ impl Scene {
             // CINE_MOVETO_WAIT_FACING: face the script's angles, then play (the turn is
             // instant here).
             5 => self.states[actor].rotation = self.states[id].rotation,
-            // CINE_MOVETO_WALK / RUN (SCHED_SCRIPTED_WALK/RUN): the actor goes to the mark
-            // through the NPC movement controller; arrival (tick) plants him on the script
-            // origin, faces its angles and plays.
-            1 | 2 => {
+            // CINE_MOVETO_WALK / RUN / CUSTOM (SCHED_SCRIPTED_WALK/RUN/CUSTOM_MOVE): the actor
+            // goes to the mark through the NPC movement controller; arrival (tick) plants him
+            // on the script origin, faces its angles and plays. A custom move without
+            // m_iszCustomMove walks (GetScriptCustomMoveActivity's ACT_WALK); one naming a
+            // sequence moves with it (ss_VortSweep*: Walk_all_HoldBroom), loaded at actor
+            // setup (actors.rs), walking when the actor has no such track.
+            1..=3 => {
                 let key = crate::npc::GoalKey {
                     scene: id,
                     event: 0,
@@ -397,10 +415,10 @@ impl Scene {
                     request: crate::npc::MoveRequest {
                         target_entity: id,
                         target_feet: script.origin(),
-                        style: if movement == 1 {
-                            crate::npc::MoveStyle::Walk
-                        } else {
-                            crate::npc::MoveStyle::Run
+                        style: match movement {
+                            2 => crate::npc::MoveStyle::Run,
+                            3 if !custom_move_walks(script) => crate::npc::MoveStyle::Custom,
+                            _ => crate::npc::MoveStyle::Walk,
                         },
                         event_distance: 0.,
                         // StartScriptMoveToTargetTask walks unless within 1 unit.
@@ -416,6 +434,22 @@ impl Scene {
             }
         }
         self.start_script_play(world, id, actor);
+    }
+
+    /// CAI_ScriptedSequence::ScriptThink without an NPC: CancelScript (OnCancelSequence, and
+    /// OnCancelFailedSequence for a script that never started) and another search in 1 s, so
+    /// an actor a point_template spawns later is found (d1_trainstation_01's ss_luggageShove).
+    /// The think rides the input queue under SCRIPT_THINK, which is not an entity input: not
+    /// counted, not traced. The cancel of other scripts of the same name is not modeled.
+    fn retry_script_search(&mut self, id: usize) {
+        self.fire(id, "OnCancelSequence", usize::MAX);
+        self.fire(id, "OnCancelFailedSequence", usize::MAX);
+        self.queue_script_input(id, SCRIPT_THINK, 1.);
+    }
+
+    /// The retry's think: the same search, still waiting for BeginSequence if it was.
+    pub(super) fn script_think(&mut self, world: &World, id: usize) {
+        self.start_script(world, id);
     }
 
     /// The script's arrival (CINE_MOVETO_WALK/RUN): TASK_PLANT_ON_SCRIPT and
@@ -661,4 +695,12 @@ impl Scene {
         }
         true
     }
+}
+
+/// A custom scripted move that walks: no m_iszCustomMove, or ACT_WALK itself.
+pub(crate) fn custom_move_walks(script: &modkit_core::Entity) -> bool {
+    script
+        .get("m_iszCustomMove")
+        .map(str::trim)
+        .is_none_or(|m| m.is_empty() || m.eq_ignore_ascii_case("ACT_WALK"))
 }

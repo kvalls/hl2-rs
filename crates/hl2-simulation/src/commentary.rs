@@ -565,7 +565,8 @@ impl CommentaryState {
         }
         let hovered = Self::raycast_nodes(scene, world, eye, view_angles);
         scene.commentary.hovered_node = hovered;
-        for (idx, node) in scene.commentary.nodes.iter().enumerate() {
+        for idx in 0..scene.commentary.nodes.len() {
+            let node = &scene.commentary.nodes[idx];
             let rate = if node.active {
                 3.0
             } else if hovered == Some(idx) && !node.listened {
@@ -573,9 +574,8 @@ impl CommentaryState {
             } else {
                 0.0
             };
-            if let Some(state) = scene.states.get_mut(node.entity_id) {
-                state.animation_started += f64::from((1.0 - rate) * dt);
-            }
+            let entity = node.entity_id;
+            scene.play_at_rate(entity, rate, dt);
         }
         if use_pressed {
             Self::handle_use(scene, world, eye, view_angles);

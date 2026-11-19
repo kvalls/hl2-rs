@@ -12,9 +12,12 @@ pub use npc_damage::NpcDamage;
 mod color_correction;
 mod inputs;
 mod io;
+mod io_trace;
+pub use io_trace::IoTrace;
 mod movers;
 mod parenting;
 mod sequences;
+pub(crate) use sequences::custom_move_walks;
 mod startup;
 pub use startup::weapon_idle_activity;
 mod tracktrain;
@@ -429,6 +432,10 @@ pub struct Scene {
     pub ai_inputs: Vec<(usize, String, String, usize)>,
     /// npc_template_maker inputs for `npc_makers` (target, lowercase input, parameter).
     pub maker_inputs: Vec<(usize, String, String)>,
+    /// Source's `developer 2` I/O log while the host keeps it (`--io-trace`); None records nothing.
+    pub io_trace: Option<IoTrace>,
+    /// The logic_auto think the map's spawn scheduled: when, and whether it is a new game.
+    logic_auto_at: Option<(f64, bool)>,
     /// Template NPCs and npc_template_makers (DESIGN 14s).
     pub makers: crate::npc_makers::NpcMakers,
     /// point_spotlights: which are lit and their beams (DESIGN 14t).
@@ -693,6 +700,8 @@ impl Scene {
             movement_ready: BTreeMap::new(),
             ai_inputs: Vec::new(),
             maker_inputs: Vec::new(),
+            io_trace: None,
+            logic_auto_at: None,
             makers: Default::default(),
             spotlights: Default::default(),
             shakes: Default::default(),
@@ -767,6 +776,7 @@ impl Scene {
             self.fire(camera, "OnEndFollow", usize::MAX);
         }
         self.player_feet = player_feet;
+        self.think_logic_autos(world);
         self.monitors.tick(&self.states, self.time);
         self.update_color_correction(world);
         self.look_targets.cleanup(self.time, |id| {
@@ -828,13 +838,7 @@ impl Scene {
             if movers::moves(e.class()) {
                 self.advance_mover(world, id, dt);
             }
-            if e.class() == "logic_timer"
-                && self.states[id].enabled
-                && self.states[id].timer_at <= self.time
-            {
-                self.states[id].timer_at = self.time + self.timer_interval(e);
-                self.fire(id, "OnTimer", usize::MAX);
-            }
+            self.think_timer(world, id);
             if e.class().starts_with("trigger_") && self.states[id].enabled {
                 // CBaseTrigger PassesTriggerFilters: clients (1), NPCs (2), physics objects
                 // (8, MOVETYPE_VPHYSICS), everything (0x40), then the trigger's filter

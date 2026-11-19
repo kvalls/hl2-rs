@@ -186,24 +186,60 @@ type Draw<'a> = (
     Option<&'a mut super::DrawTriangles>,
 );
 
-/// Each entity draw shows the level its depth in the world camera's view asks for.
+/// A view the levels are chosen for: its origin, forward and LOD scale.
+struct View {
+    origin: Vec3,
+    forward: Vec3,
+    tan_half_fov: f32,
+    height: f32,
+}
+impl View {
+    fn of(transform: &Transform, projection: &Projection, height: f32) -> Option<Self> {
+        let Projection::Perspective(p) = projection else {
+            return None;
+        };
+        Some(Self {
+            origin: transform.translation,
+            forward: transform.forward().as_vec3(),
+            tan_half_fov: (p.fov / 2.).tan(),
+            height,
+        })
+    }
+    fn level(&self, switches: &[f32], at: Vec3) -> usize {
+        let depth = (at - self.origin).dot(self.forward);
+        level_for(switches, metric(depth, self.tan_half_fov, self.height))
+    }
+}
+
+/// Each entity draw shows the level its depth asks for in the views drawn this frame: the
+/// world camera's and, while it renders `_rt_Camera`, the monitor camera's (256 pixels
+/// tall). Source picks a level per view; a draw has one mesh here, so the finer level
+/// wins: Breen before the broadcast camera keeps his close-up detail on the station's
+/// screens while the player is far away.
 pub(crate) fn switch_levels(
     camera: Query<Camera, With<crate::FlyCamera>>,
+    monitor: Query<(Camera, &bevy::camera::Camera), With<crate::monitors::MonitorCamera>>,
     frame: Option<Res<crate::video::GameFrame>>,
     mut draws: Query<Draw>,
 ) {
     let Ok((camera, projection)) = camera.single() else {
         return;
     };
-    let tan_half_fov = match projection {
-        Projection::Perspective(p) => (p.fov / 2.).tan(),
-        _ => return,
-    };
     let height = frame.map_or(768., |f| f.resolution.y as f32);
-    let forward = camera.forward().as_vec3();
+    let Some(view) = View::of(camera, projection, height) else {
+        return;
+    };
+    let monitor = monitor
+        .single()
+        .ok()
+        .filter(|(_, camera)| camera.is_active)
+        .and_then(|((t, p), _)| View::of(t, p, crate::monitors::SIZE as f32));
     for (transform, mut levels, mut mesh, animation, triangles) in &mut draws {
-        let depth = (transform.translation - camera.translation).dot(forward);
-        let wanted = level_for(&levels.switches, metric(depth, tan_half_fov, height));
+        let at = transform.translation;
+        let wanted = view.level(&levels.switches, at);
+        let wanted = monitor
+            .as_ref()
+            .map_or(wanted, |m| wanted.min(m.level(&levels.switches, at)));
         if wanted == levels.current {
             continue;
         }

@@ -229,6 +229,10 @@ impl Bsp {
                 maxs: vec3(record, 12)?,
             });
         }
+        match crate::physcollide::brush_model_solids(self.lump(29)) {
+            Ok(solids) => world.brush_model_physics = solids,
+            Err(e) => world.warnings.push(format!("PHYSCOLLIDE lump: {e:#}")),
+        }
         match self.model_lighting() {
             Ok(lighting) => world.lighting = Some(std::sync::Arc::new(lighting)),
             Err(e) => world.warnings.push(format!("model lighting data: {e:#}")),

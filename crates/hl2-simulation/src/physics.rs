@@ -11,10 +11,12 @@ use std::sync::Mutex;
 mod brush_entities;
 #[path = "physics_npc_trace.rs"]
 mod npc_trace;
+mod physbox;
 #[path = "player_convex.rs"]
 mod player_convex;
 mod queries;
 mod rays;
+mod shadow_push;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RayHit {
     pub entity: usize,
@@ -875,40 +877,7 @@ impl Physics {
                     .insert(world_material(ColliderBuilder::new(shape)));
             }
         }
-        for (id, e) in world.entities.iter().enumerate() {
-            let Some(model_id) = e
-                .get("model")
-                .and_then(|m| m.strip_prefix('*'))
-                .and_then(|s| s.parse::<usize>().ok())
-            else {
-                continue;
-            };
-            let Some(model) = world.brush_models.iter().find(|m| m.id == model_id) else {
-                continue;
-            };
-            if !brush_entities::solid(e) {
-                continue;
-            }
-            let position = pose(
-                e.origin(),
-                angles(
-                    modkit_core::parse_vec3(e.get("angles").unwrap_or("0 0 0"))
-                        .unwrap_or(Vec3::ZERO),
-                ),
-            );
-            for b in &model.brushes {
-                if let Some(shape) = brush_shape(b) {
-                    let c = p.colliders.insert(
-                        ColliderBuilder::new(shape)
-                            .position(position)
-                            .user_data(id as u128 + 1)
-                            .friction(0.8),
-                    );
-                    p.entity_colliders.entry(id).or_default().push(c);
-                    p.npc_collider_contents.insert(c, b.contents);
-                }
-            }
-        }
+        p.add_brush_entity_colliders(world);
         let mut shape_cache = BTreeMap::new();
         for instance in &world.model_instances {
             p.add_model_instance(world, instance, &mut shape_cache);
@@ -2429,41 +2398,6 @@ impl Physics {
         );
         found
     }
-    /// The body touches a fixed body (world, static prop) or one heavier than the push
-    /// mass limit on its far side along `direction` (its contact normal points within
-    /// ~45 degrees of it). The player shadow's own contacts do not count.
-    fn blocked_along(&self, body: RigidBodyHandle, direction: Vec3) -> bool {
-        let Some(b) = self.bodies.get(body) else {
-            return false;
-        };
-        b.colliders().iter().any(|collider| {
-            self.narrow.contact_pairs_with(*collider).any(|pair| {
-                if !pair.has_any_active_contact
-                    || self.world_sides.shadow.contains(&pair.collider1)
-                    || self.world_sides.shadow.contains(&pair.collider2)
-                {
-                    return false;
-                }
-                let (sign, other) = if pair.collider1 == *collider {
-                    (1., pair.collider2)
-                } else {
-                    (-1., pair.collider1)
-                };
-                let immovable = self
-                    .colliders
-                    .get(other)
-                    .and_then(|c| c.parent())
-                    .and_then(|h| self.bodies.get(h))
-                    .is_none_or(|o| !o.is_dynamic() || o.mass() > PLAYER_PUSH_MASS_LIMIT);
-                immovable
-                    && pair.manifolds.iter().any(|m| {
-                        let n = m.data.normal * sign;
-                        !m.data.solver_contacts.is_empty()
-                            && Vec3::new(n.x, n.y, n.z).dot(direction) > 0.7
-                    })
-            })
-        })
-    }
     /// Teleport an entity's dynamic body (test fixtures): Source angles, world
     /// velocity, no spin. False when the entity has no dynamic body.
     pub fn place_body(
@@ -2747,9 +2681,7 @@ impl Physics {
         // (m_touchedPhysObject), from short hull sweeps against movable bodies.
         let movable = |physics: &Self, from: Vec3, to: Vec3| -> Option<RigidBodyHandle> {
             let shape = Cuboid::new(vector![half.x * SCALE, half.y * SCALE, half.z * SCALE]);
-            let filter = QueryFilter::default()
-                .groups(QUERY_GROUPS)
-                .exclude_sensors();
+            let filter = Self::movable_filter();
             let (collider, _) = physics.query.cast_shape(
                 (&physics.bodies, &physics.colliders),
                 &pose(center(from), Quat::IDENTITY),

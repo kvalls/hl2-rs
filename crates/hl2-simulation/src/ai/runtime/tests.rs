@@ -217,6 +217,124 @@ fn weapon_equip_goes_to_any_weapon_user_and_never_to_natural_attackers() {
     );
 }
 
+/// Weapon_TranslateActivity on every movement activity: a weapon given at runtime
+/// (d1_trainstation_01's passengers get weapon_citizensuitcase by GiveWeapon) switches the
+/// walk to the weapon's (luggage_walk_all); KillWeapon brings back the unarmed walk.
+#[test]
+fn a_given_weapon_switches_the_walk_variant() {
+    use crate::npc::tests::named_locomotion;
+    let world = World {
+        entities: vec![entity(&[("classname", "npc_citizen")])],
+        ..Default::default()
+    };
+    let mut ai = AiRuntime::new(&world, None);
+    let mut controller = Controller::new(None, Default::default());
+    let hull = crate::ai_hull::HullType::Human;
+    let ground = crate::npc::ground_for_hull(hull, 1., 18., 1.).unwrap();
+    let walk = named_locomotion("walk_all");
+    controller
+        .register_ai_actor(0, 1., ground, walk.clone())
+        .unwrap();
+    let suitcase = named_locomotion("luggage_walk_all");
+    let variants = [
+        ("".into(), walk),
+        ("weapon_citizensuitcase".into(), suitcase),
+    ];
+    controller.set_locomotion_variants(0, variants.into_iter().collect());
+    ai.give_weapon(&mut controller, 0, "npc_citizen", "weapon_citizensuitcase");
+    assert_eq!(controller.walk_name(0), Some("luggage_walk_all"));
+    ai.kill_weapon(&mut controller, 0, "npc_citizen");
+    assert_eq!(controller.walk_name(0), Some("walk_all"));
+    // A weapon without a variant on the model walks unarmed.
+    ai.give_weapon(&mut controller, 0, "npc_citizen", "weapon_smg1");
+    assert_eq!(controller.walk_name(0), Some("walk_all"));
+}
+
+/// ai_script_conditions without an actor: enabled at Activate (StartDisabled 0), it thinks
+/// every 0.25 s and fires OnConditionsSatisfied once RequiredTime has passed with every
+/// condition holding, then disables itself (SDK ai_scriptconditions.cpp EvaluationThink).
+#[test]
+fn script_conditions_fire_after_their_required_time_then_disable() {
+    let mut conditions = entity(&[
+        ("classname", "ai_script_conditions"),
+        ("targetname", "cond"),
+        ("StartDisabled", "0"),
+        ("RequiredTime", "0.5"),
+        ("PlayerActorFOV", "360"),
+    ]);
+    conditions
+        .properties
+        .push(("OnConditionsSatisfied".into(), "count,Add,1,0,-1".into()));
+    let world = World {
+        entities: vec![
+            conditions,
+            entity(&[("classname", "math_counter"), ("targetname", "count")]),
+        ],
+        ..Default::default()
+    };
+    let mut r = Rig {
+        scene: Scene::new(&world),
+        physics: Physics::new(&world),
+        ai: AiRuntime::new(&world, None),
+        controller: Controller::new(None, Default::default()),
+        world,
+    };
+    let mut fired_at = None;
+    for tick in 0..100 {
+        run(&mut r, 1, player_at(0.));
+        r.scene.tick(&r.world, Vec3::ZERO, 0.);
+        if fired_at.is_none() && r.scene.states[1].value == 1. {
+            fired_at = Some(tick);
+        }
+    }
+    // Enabled at the first tick: thinks at +0.25 (timer running), +0.5 (expired: fires).
+    let fired_at = fired_at.expect("satisfied");
+    assert!((33..=35).contains(&fired_at), "{fired_at}");
+    assert_eq!(r.scene.states[1].value, 1., "fires once, then disabled");
+}
+
+/// PlayerActorLOS 1 holds only while the actor sees the player: a notarget player
+/// (FL_NOTARGET, our ignore_player) fails CBaseEntity::FVisible, so nothing fires.
+#[test]
+fn script_conditions_line_of_sight_fails_for_a_notarget_player() {
+    for (notarget, fires) in [(false, true), (true, false)] {
+        let mut conditions = entity(&[
+            ("classname", "ai_script_conditions"),
+            ("Actor", "witness"),
+            ("PlayerActorLOS", "1"),
+            ("PlayerActorFOV", "360"),
+        ]);
+        conditions
+            .properties
+            .push(("OnConditionsSatisfied".into(), "count,Add,1,0,-1".into()));
+        let world = World {
+            entities: vec![
+                conditions,
+                entity(&[("classname", "math_counter"), ("targetname", "count")]),
+                entity(&[
+                    ("classname", "npc_citizen"),
+                    ("targetname", "witness"),
+                    ("origin", "100 0 0"),
+                ]),
+            ],
+            ..Default::default()
+        };
+        let mut r = Rig {
+            scene: Scene::new(&world),
+            physics: Physics::new(&world),
+            ai: AiRuntime::new(&world, None),
+            controller: Controller::new(None, Default::default()),
+            world,
+        };
+        r.ai.ignore_player = notarget;
+        for _ in 0..40 {
+            run(&mut r, 1, player_at(0.));
+            r.scene.tick(&r.world, Vec3::ZERO, 0.);
+        }
+        assert_eq!(r.scene.states[1].value == 1., fires, "notarget {notarget}");
+    }
+}
+
 #[test]
 fn a_runtime_spawned_cop_gets_an_actor_and_thinks() {
     let mut r = rig();

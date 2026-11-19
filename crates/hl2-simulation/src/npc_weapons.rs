@@ -1187,6 +1187,8 @@ mod tests {
             "weapon_rpg",
             "weapon_alyxgun",
             "weapon_crowbar",
+            "weapon_citizenpackage",
+            "weapon_citizensuitcase",
         ] {
             for (_, to, _) in acttable(weapon) {
                 assert!(preloaded.contains(to), "{weapon}: {to} not preloaded");

@@ -83,6 +83,10 @@ impl Scene {
             self.send(id, "Close", "");
             self.states[id].return_at = None;
         }
+        // CBaseDoor::DoorHitTop: an SF_DOOR_NO_AUTO_RETURN (32) door stays open until told.
+        let e = &world.entities[id];
+        let flags = super::number(e, "spawnflags", 0.) as u32;
+        let no_auto_return = e.class().starts_with("func_door") && flags & 32 != 0;
         let s = &mut self.states[id];
         if (s.target - s.fraction).abs() > 0.00001 {
             s.fraction += (s.target - s.fraction).clamp(-s.rate * dt, s.rate * dt);
@@ -90,7 +94,7 @@ impl Scene {
             s.rotation = s.base_rotation * Quat::from_axis_angle(s.axis, s.angle * s.fraction);
             if (s.target - s.fraction).abs() < 0.00001 {
                 let open = s.target > 0.;
-                if open && s.wait >= 0. {
+                if open && s.wait >= 0. && !no_auto_return {
                     s.return_at = Some(self.time + s.wait);
                 }
                 self.diagnostics.door_completions += 1;

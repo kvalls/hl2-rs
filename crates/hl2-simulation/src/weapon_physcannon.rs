@@ -827,6 +827,7 @@ mod tests {
     fn punt_pushes_a_prop_forward_with_the_sdk_impulse() {
         let world = World::default();
         let mut scene = Scene::new(&world);
+        scene.screen_fades.clear(); // the map's spawn hold (startup.rs)
         let mut physics = prop(Vec3::new(100., 0., 64.), 10.);
         let mut inv = Inventory::default();
         inv.give("weapon_physcannon", &cannon(), 0.);

@@ -169,6 +169,10 @@ pub struct World {
     /// Authored VPhysics solid parameters (.phy "solid" block) per model asset key.
     #[serde(default)]
     pub model_physics: std::collections::BTreeMap<String, PhysicsSolid>,
+    /// The first compiled VPhysics solid's parameters per brush model index (the map's
+    /// PHYSCOLLIDE lump text): what a func_physbox's body is made from.
+    #[serde(default)]
+    pub brush_model_physics: std::collections::BTreeMap<usize, PhysicsSolid>,
     /// A static prop's .phy solid surfaceprop per model asset key: what a VPhysics trace
     /// against its hull reports (static props have no `model_physics` entry).
     #[serde(default)]

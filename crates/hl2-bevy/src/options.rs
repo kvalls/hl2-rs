@@ -67,6 +67,7 @@ impl Options {
             volume: config.audio.volume,
             mute: false,
             audio_trace: None,
+            io_trace: None,
             no_focus: false,
             background: false,
             capture_window: false,
@@ -126,6 +127,7 @@ impl Options {
             "--movement-script" => options.movement_script = Some(next()?.into()),
             "--volume" => options.volume = next()?.parse()?,
             "--audio-trace" => options.audio_trace = Some(next()?.into()),
+            "--io-trace" => options.io_trace = Some(next()?.into()),
             "--mute" => options.mute = true,
             "--mute-ambient" => {
                 audio::MUTE_AMBIENT.store(true, std::sync::atomic::Ordering::Relaxed)

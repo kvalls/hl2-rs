@@ -1238,6 +1238,35 @@ fn clip_box(contents: u32) -> World {
     });
     world
 }
+/// A func_brush made of NPC clip (d1_trainstation_01's turnstile box, contents
+/// DETAIL|MONSTERCLIP) does not stop the player, as the world's clip brushes do not; a solid
+/// one still does.
+#[test]
+fn a_brush_entity_of_npc_clip_does_not_block_the_player() {
+    for (contents, blocks) in [(0x8020000, false), (1, true)] {
+        let mut world = World {
+            brush_models: vec![modkit_core::BrushModel {
+                id: 1,
+                surfaces: Vec::new(),
+                brushes: clip_box(contents).brushes,
+                mins: Vec3::new(10., -8., 0.),
+                maxs: Vec3::new(20., 8., 100.),
+            }],
+            ..Default::default()
+        };
+        world.entities.push(modkit_core::Entity {
+            properties: vec![
+                ("classname".into(), "func_brush".into()),
+                ("model".into(), "*1".into()),
+            ],
+        });
+        let physics = Physics::new(&world);
+        let (mins, maxs) = (Vec3::new(-1., -1., 0.), Vec3::new(1., 1., 2.));
+        let sweep =
+            physics.trace_hull(Vec3::new(-5., 0., 40.), Vec3::new(35., 0., 40.), mins, maxs);
+        assert_eq!(sweep.fraction < 1., blocks, "contents {contents:#x}");
+    }
+}
 #[test]
 fn npc_only_clip_does_not_block_player_sweeps_or_overlap_queries() {
     // The installed station uses DETAIL|MONSTERCLIP boxes around benches.

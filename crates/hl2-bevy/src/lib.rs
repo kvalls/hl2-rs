@@ -18,6 +18,7 @@ pub mod gameplay;
 mod gpu_skinning;
 pub mod input;
 mod intro_view;
+mod io_trace;
 mod launch;
 mod map_install;
 mod material_proxies;
@@ -90,6 +91,8 @@ struct Options {
     mute: bool,
     /// JSON-lines sound lifecycle trace (requests, sink starts, removals).
     audio_trace: Option<PathBuf>,
+    /// The entity I/O log as Source prints it at `developer 2` (`--io-trace`).
+    io_trace: Option<PathBuf>,
     /// Do not take focus at window creation, so unattended tests leave the desktop usable.
     no_focus: bool,
     /// Run without an operating-system window (unattended replays and captures): nothing takes
@@ -196,6 +199,9 @@ pub fn run(application: extensions::Application) -> Result<()> {
     let mut app = startup::make_app(options.background, options.profile);
     if let Some(path) = &options.audio_trace {
         app.insert_resource(audio::AudioTrace::create(path)?);
+    }
+    if let Some(path) = &options.io_trace {
+        app.insert_resource(io_trace::IoTraceFile::create(path)?);
     }
     app.insert_resource(extensions::UiContributions(application.ui))
         .insert_resource(options.clone())

@@ -13,6 +13,7 @@ pub mod npc_models;
 pub mod overlays;
 pub mod pcf;
 pub mod phy;
+pub mod physcollide;
 pub mod proximity_material;
 pub mod scenes;
 pub mod sky;

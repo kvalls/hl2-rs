@@ -97,7 +97,7 @@
     ]
   },
   {
-    "tick": 2,
+    "tick": 16,
     "eye": [
       -3376,
       -252,
@@ -118,7 +118,7 @@
     ]
   },
   {
-    "tick": 3,
+    "tick": 17,
     "actions": [
       {
         "action": "send",
@@ -133,7 +133,7 @@
     ]
   },
   {
-    "tick": 10,
+    "tick": 24,
     "actions": [
       {
         "action": "send",
@@ -144,11 +144,11 @@
     "label": "lookat-start"
   },
   {
-    "tick": 65,
+    "tick": 79,
     "label": "monitor-interest"
   },
   {
-    "tick": 75,
+    "tick": 89,
     "actions": [
       {
         "action": "send",
@@ -158,15 +158,15 @@
     ]
   },
   {
-    "tick": 80,
+    "tick": 94,
     "label": "scene-paused"
   },
   {
-    "tick": 100,
+    "tick": 114,
     "label": "scene-held"
   },
   {
-    "tick": 101,
+    "tick": 115,
     "actions": [
       {
         "action": "send",
@@ -176,33 +176,33 @@
     ]
   },
   {
-    "tick": 445,
+    "tick": 459,
     "label": "player-monitor-overlap"
   },
   {
-    "tick": 465,
+    "tick": 479,
     "label": "player-after-monitor"
   },
   {
-    "tick": 480,
+    "tick": 494,
     "paused": true,
     "label": "ui-paused"
   },
   {
-    "tick": 520,
+    "tick": 534,
     "label": "ui-held"
   },
   {
-    "tick": 521,
+    "tick": 535,
     "paused": false,
     "label": "ui-resumed"
   },
   {
-    "tick": 1447,
+    "tick": 1461,
     "label": "self-interest"
   },
   {
-    "tick": 1450,
+    "tick": 1464,
     "actions": [
       {
         "action": "send",
@@ -213,15 +213,15 @@
     "label": "cancel-request"
   },
   {
-    "tick": 1451,
+    "tick": 1465,
     "label": "cancel-retains-tail"
   },
   {
-    "tick": 1460,
+    "tick": 1474,
     "label": "cancel-expired"
   },
   {
-    "tick": 1470,
+    "tick": 1484,
     "paused": true,
     "label": "attention-final"
   }

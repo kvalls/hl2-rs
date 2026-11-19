@@ -70,7 +70,7 @@
     "label": "station03-arrival"
   },
   {
-    "tick": 160,
+    "tick": 175,
     "paused": true,
     "label": "station03-final",
     "eye": [

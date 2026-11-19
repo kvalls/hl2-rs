@@ -289,7 +289,13 @@ impl AiRuntime {
     /// replacing the active weapon) at once, except for CLASS_PLAYER_ALLY_VITAL (Barney,
     /// Alyx), whose weapon waits for SCHED_SWITCH_TO_PENDING_WEAPON (not modeled: counted
     /// as an unknown goal). The old weapon's drop and the `<name>_weapon` name are not in.
-    pub(super) fn give_weapon(&mut self, id: usize, class: &str, weapon: &str) {
+    pub(super) fn give_weapon(
+        &mut self,
+        controller: &mut crate::npc::Controller,
+        id: usize,
+        class: &str,
+        weapon: &str,
+    ) {
         let weapon = weapon.trim();
         if matches!(class, "npc_barney" | "npc_alyx") {
             *self
@@ -308,6 +314,33 @@ impl AiRuntime {
             return;
         }
         self.set_equipment(id, class, weapon);
+        self.follow_weapon_locomotion(controller, id);
+    }
+
+    /// A Kill of `<npc>_weapon` (entities::io): the NPC holds nothing.
+    pub(super) fn kill_weapon(
+        &mut self,
+        controller: &mut crate::npc::Controller,
+        id: usize,
+        class: &str,
+    ) {
+        self.set_equipment(id, class, "");
+        self.follow_weapon_locomotion(controller, id);
+    }
+
+    /// NPC_TranslateActivity runs Weapon_TranslateActivity on every movement activity, so
+    /// the walk and run follow the weapon held now (weapon_citizensuitcase: ACT_WALK_SUITCASE,
+    /// luggage_walk_all); the unarmed variant when the model has none for it.
+    fn follow_weapon_locomotion(&self, controller: &mut crate::npc::Controller, id: usize) {
+        let weapon = self
+            .actors
+            .get(&id)
+            .and_then(|a| a.weapon.as_ref())
+            .or_else(|| self.held_weapons.get(&id))
+            .map_or("", |w| w.class.as_str());
+        if !controller.set_locomotion(id, weapon) {
+            controller.set_locomotion(id, "");
+        }
     }
 
     /// The weapons `class` can be given on a model with `activities` (upper case):

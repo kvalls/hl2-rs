@@ -1,8 +1,12 @@
 //! The last steps of a scene's construction at map start.
 use super::{number, output, parse_vec3, Diagnostics, Scene, State};
 use crate::physics;
+use crate::player_damage::{ScreenFade, FFADE_IN, FFADE_OUT, FFADE_PURGE, FFADE_STAYOUT};
 use glam::{Quat, Vec3};
 use modkit_core::{Entity, World};
+
+/// CLogicAuto::Activate's SetNextThink(curtime + 0.2) (Source SDK game/server/logicauto.cpp).
+const LOGIC_AUTO_THINK: f64 = 0.2;
 
 /// How a door or other mover travels, from its keyvalues.
 struct Motion {
@@ -21,7 +25,10 @@ impl Motion {
             .and_then(|m| m.strip_prefix('*'))
             .and_then(|m| m.parse::<usize>().ok())
             .and_then(|id| world.brush_models.iter().find(|m| m.id == id));
-        let bounds = model.map(|m| m.maxs - m.mins).unwrap_or(Vec3::splat(72.));
+        // Mod_LoadSubmodels (retail engine.dll 0x1013f8c0) spreads a brush model's compiled
+        // bounds by 1.0 on every side and CBaseDoor::Spawn / CFuncMoveLinear::Spawn subtract
+        // 2 from that OBB size (SDK doors.cpp, func_movelinear.cpp): the compiled size.
+        let bounds = model.map(|m| m.maxs - m.mins).unwrap_or(Vec3::splat(70.));
         let direction = parse_vec3(e.get("movedir").unwrap_or("0 0 0")).unwrap_or(Vec3::ZERO);
         let direction = if direction.x == -1. {
             Vec3::Z
@@ -32,15 +39,12 @@ impl Motion {
             let y = direction.y.to_radians();
             Vec3::new(p.cos() * y.cos(), p.cos() * y.sin(), -p.sin())
         };
-        let travel = number(
-            e,
-            "movedistance",
-            (bounds - Vec3::splat(2.))
-                .max(Vec3::ZERO)
-                .dot(direction.abs())
-                - number(e, "lip", 0.),
-        )
-        .max(0.01);
+        let sized = bounds.max(Vec3::ZERO).dot(direction.abs()) - number(e, "lip", 0.);
+        // CFuncMoveLinear::Spawn sizes a MoveDistance of 0 or less from the brush.
+        let travel = Some(number(e, "movedistance", 0.))
+            .filter(|d| *d > 0.)
+            .unwrap_or(sized)
+            .max(0.01);
         let rotating = matches!(e.class(), "func_door_rotating" | "prop_door_rotating");
         let angle = if e.class() == "prop_door_rotating" {
             let distance = number(e, "distance", 90.).abs();
@@ -143,6 +147,27 @@ impl Scene {
         for (id, origin) in self.func_trains.spawn(world, self.time) {
             self.states[id].origin = origin;
         }
+        // CLogicAuto::Activate: its outputs wait for the think 0.2 s on.
+        self.logic_auto_at = Some((self.time + LOGIC_AUTO_THINK, new_game));
+        // The client draws nothing of the map before that think's outputs have run (the
+        // owner saw d1_trainstation_01's G-Man, in front of the master player start, for
+        // the 0.2 s before OnNewGame's viewcontrol_black and intro fade): black until it.
+        self.screen_fades.push(ScreenFade::new(
+            [0, 0, 0, 255],
+            0.,
+            0.,
+            FFADE_OUT | FFADE_STAYOUT,
+        ));
+    }
+    /// CLogicAuto::Think once its time has come: OnMapSpawn, and OnNewGame on a new game.
+    pub(super) fn think_logic_autos(&mut self, world: &World) {
+        let Some((at, new_game)) = self.logic_auto_at else {
+            return;
+        };
+        if self.time + 1e-6 < at {
+            return;
+        }
+        self.logic_auto_at = None;
         for (id, entity) in world.entities.iter().enumerate() {
             if entity.class() == "logic_auto" {
                 self.fire(id, "OnMapSpawn", usize::MAX);
@@ -150,6 +175,34 @@ impl Scene {
                     self.fire(id, "OnNewGame", usize::MAX);
                 }
             }
+        }
+        // Lift the spawn hold; the outputs just fired are delivered in this same tick.
+        self.screen_fades.push(ScreenFade::new(
+            [0, 0, 0, 0],
+            0.,
+            0.,
+            FFADE_IN | FFADE_PURGE,
+        ));
+    }
+    /// The map's first logic_auto think has not run yet (nothing of the map is drawn).
+    pub fn logic_autos_pending(&self) -> bool {
+        self.logic_auto_at.is_some()
+    }
+    /// The logic_auto think at once: a background level's first frame is drawn through the
+    /// camera its spawn outputs enable, before any time passes (no flash of the spawn view).
+    pub fn think_logic_autos_now(&mut self, world: &World) {
+        if let Some((at, _)) = self.logic_auto_at.as_mut() {
+            *at = self.time;
+        }
+        self.think_logic_autos(world);
+    }
+    /// An enabled logic_timer whose time has come fires OnTimer and draws its next time.
+    pub(super) fn think_timer(&mut self, world: &World, id: usize) {
+        let e = &world.entities[id];
+        let state = &self.states[id];
+        if e.class() == "logic_timer" && state.enabled && state.timer_at <= self.time {
+            self.states[id].timer_at = self.time + self.timer_interval(e);
+            self.fire(id, "OnTimer", usize::MAX);
         }
     }
     /// The spawn state of one entity (map load and runtime spawns share this).
@@ -310,4 +363,35 @@ impl Scene {
 pub fn weapon_idle_activity(weapon: &str) -> &'static str {
     crate::npc_weapons::translate(&weapon.trim().to_ascii_lowercase(), "ACT_IDLE")
         .unwrap_or("ACT_IDLE")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Scene;
+    use crate::player_damage::{FFADE_OUT, FFADE_PURGE, FFADE_STAYOUT};
+    use glam::Vec3;
+    use modkit_core::World;
+
+    #[test]
+    fn the_map_stays_black_until_the_logic_auto_think() {
+        let world = World::default();
+        let mut scene = Scene::new(&world);
+        let hold = std::mem::take(&mut scene.screen_fades);
+        assert_eq!(hold.len(), 1);
+        assert_eq!(hold[0].color, [0, 0, 0, 255]);
+        assert_eq!(hold[0].flags, FFADE_OUT | FFADE_STAYOUT);
+        for _ in 0..13 {
+            scene.tick(&world, Vec3::ZERO, 0.015);
+        }
+        assert!(scene.screen_fades.is_empty());
+        scene.tick(&world, Vec3::ZERO, 0.015);
+        assert_eq!(scene.screen_fades.len(), 1);
+        assert_ne!(scene.screen_fades[0].flags & FFADE_PURGE, 0);
+        // A background level thinks at once: the hold and its purge arrive together.
+        let mut background = Scene::new(&world);
+        background.think_logic_autos_now(&world);
+        let flags: Vec<_> = background.screen_fades.iter().map(|f| f.flags).collect();
+        assert_eq!(flags.len(), 2);
+        assert_ne!(flags[1] & FFADE_PURGE, 0);
+    }
 }

@@ -313,6 +313,20 @@ fn enemy_of(actor: &AiActor, world: &World, scene: &Scene, player: &PlayerState)
     })
 }
 
+/// One physics tick of the body: its attitude (held level by a grab, else turned by its banking
+/// and blades) and, with the blades out, their playback rate on its sequence (SpinBlades).
+fn turn_body(m: &mut Manhack, scene: &mut Scene, id: usize, dt: f32) {
+    m.attitude.start(super::super::host::yaw_of(scene, id));
+    match m.held_yaw {
+        Some(yaw) => m.attitude.hold(yaw, dt),
+        None => m.attitude.step(dt),
+    }
+    scene.states[id].rotation = m.attitude.rotation();
+    if !m.blade_shut {
+        scene.play_at_rate(id, m.attitude.playback_rate(), dt);
+    }
+}
+
 /// One think of flight: thrust, noise, its limits, a burst if one is due, and what it touched.
 fn steer(
     m: &mut Manhack,
@@ -620,12 +634,7 @@ impl AiRuntime {
                 contact::show(m, &air, scene, marks);
             }
             let dt = contact::carry(m, &air, scene, marks);
-            m.attitude.start(super::super::host::yaw_of(scene, id));
-            match m.held_yaw {
-                Some(yaw) => m.attitude.hold(yaw, dt),
-                None => m.attitude.step(dt),
-            }
-            scene.states[id].rotation = m.attitude.rotation();
+            turn_body(m, scene, id, dt);
         }
         for (id, ask) in asks {
             self.answer_swarm(scene, id, ask);

@@ -39,6 +39,7 @@ pub(super) fn scripted_sequence(scene: &mut Scene, d: &Delivery) -> bool {
     match d.input {
         "beginsequence" => scene.begin_sequence(d.world, d.id),
         "movetoposition" => scene.move_to_position(d.world, d.id),
+        "scriptthink" => scene.script_think(d.world, d.id),
         "cancelsequence" => scene.end_sequence(d.world, d.id, true),
         _ => return false,
     }

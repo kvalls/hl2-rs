@@ -797,7 +797,7 @@ impl Plugin for MovementPlugin {
                 .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
                 .in_set(MovementControlsSet),
         )
-        .add_systems(FixedUpdate, fixed_step)
+        .add_systems(FixedUpdate, (crate::io_trace::flush, fixed_step).chain())
         .add_systems(Update, commentary::update_commentary_skins)
         .add_systems(
             RunFixedMainLoop,

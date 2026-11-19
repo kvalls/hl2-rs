@@ -13,6 +13,8 @@ use bevy::{
 
 #[derive(Component)]
 pub struct MonitorCamera;
+/// The `_rt_Camera` render target's size in pixels (square).
+pub const SIZE: u32 = 256;
 #[derive(Resource)]
 pub struct Monitors {
     pub target: Handle<Image>,
@@ -45,7 +47,7 @@ pub fn install(
     commands: &mut Commands,
     images: &mut Assets<Image>,
 ) -> Handle<Image> {
-    let mut image = Image::new_target_texture(256, 256, TextureFormat::Rgba8UnormSrgb, None);
+    let mut image = Image::new_target_texture(SIZE, SIZE, TextureFormat::Rgba8UnormSrgb, None);
     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
         address_mode_u: ImageAddressMode::Repeat,
         address_mode_v: ImageAddressMode::Repeat,

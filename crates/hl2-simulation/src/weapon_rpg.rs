@@ -671,6 +671,7 @@ mod tests {
     fn missile(at: Vec3, velocity: Vec3, grace: f32) -> (Projectiles, Scene, World) {
         let world = World::default();
         let mut scene = Scene::new(&world);
+        scene.screen_fades.clear(); // the map's spawn hold (startup.rs)
         let mut projectiles = Projectiles::default();
         projectiles.spawn(
             ProjectileSpawn {

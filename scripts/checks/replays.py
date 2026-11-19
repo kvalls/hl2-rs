@@ -1350,6 +1350,29 @@ def check_door_inputs(run: Run) -> None:
     holds("OpenAwayFrom is implemented", not any("openawayfrom" in k.lower() for k in unsupported))
 
 
+def check_luggage_shove(run: Run) -> None:
+    """d1_trainstation_01's luggage cart (a fixture after PR #5's): the player crosses the platform
+    triggers and looks at the citizen; ai_script_conditions starts the shove, both suitcase pushes
+    fire, the scene completes and the citizen steps back to luggage_stepaway."""
+    def scene(label: str) -> dict:
+        game = run.sample(label)["gameplay"]
+        return next(s for s in game["choreography"] if s["targetname"] == "luggage_shove_scene")
+
+    holds("the shove is playing", scene("shove")["active"])
+    end = scene("finish")
+    holds("the shove completes", not end["active"] and not end["completed_early"])
+    game = run.sample("finish")["gameplay"]
+    expect("both suitcase pushes", game["phys_explosions"]["pushes"], 2)
+    citizen = next(a for a in game["animations"] if a.get("targetname") == "luggage_citizen")
+    step_away = (-4008.45, -1766.59)
+    off = sum((a - b) ** 2 for a, b in zip(citizen["origin"][:2], step_away)) ** 0.5
+    holds("the citizen stepped back to luggage_stepaway", off <= 48, f"{off:.1f} units away")
+    move = next(g for g in game["npc_goals"] if g["key"]["actor"] == citizen["entity"]
+                and g["key"]["scene"] == end["entity"])
+    distance_sq = sum((x - y) ** 2 for x, y in zip(citizen["origin"], move["target_feet"]))
+    holds("citizen reaches the step-away target", distance_sq <= move["tolerance"] ** 2, move)
+
+
 def frozen_final(run: Run) -> None:
     sim = run.report["render"]["simulation"]
     holds("ends paused on the last sample", sim["paused"]
@@ -1525,23 +1548,6 @@ def check_outcomes(fixture: str, run: Run) -> None:
     for line in differences:
         print(f"  {line}")
     holds("outcomes as expected", not differences, f"{len(differences)} differences: {differences[:3]}")
-
-
-def check_luggage_shove(run: Run):
-    """Approaching the luggage carts starts the shove and the citizen walks away."""
-    def scene(game):
-        return next(s for s in game["choreography"] if s["targetname"] == "luggage_shove_scene")
-
-    during = run.sample("shove")["gameplay"]
-    end = run.sample("finish")["gameplay"]
-    holds("shove starts on approach", scene(during)["active"])
-    holds("shove finishes", not scene(end)["active"] and not scene(end)["completed_early"])
-    actor = next(a for a in end["animations"] if a["targetname"] == "luggage_citizen")
-    move = next(g for g in end["npc_goals"] if g["key"]["actor"] == actor["entity"]
-                and g["key"]["scene"] == scene(end)["entity"])
-    distance_sq = sum((x - y) ** 2 for x, y in zip(actor["origin"], move["target_feet"]))
-    holds("citizen reaches the step-away target", distance_sq <= move["tolerance"] ** 2, move)
-    expect("both luggage pushes fired", end["phys_explosions"]["pushes"], 2)
 
 
 GAMEPLAY_CHECKS: dict[str, Callable[[Run], None]] = {
