@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-19 session 64, continued: the luggage shove merged with PR #5's best parts (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. Contributor work weighed: @OrbitalMan's PR #5 commit 505adb2 (Codex desktop, GPT-6 family per its MODLOG).
+- Changed: the player line-of-sight conditions of ai_script_conditions fail for a notarget player (ignore_player); a luggage-shove replay (test-inputs/bevy-luggage-shove.json, replays.py check_luggage_shove, station 01) after PR #5's design.
+- Why: the owner asked which luggage-shove implementation is better and to keep it or merge the best of both. Session 64's covers every evaluator (PR #5's would leave 68 of 103 installed conditions on 29 maps dormant) and the SDK's MOVETO rule; PR #5 had the notarget rule (SDK CBaseEntity::FVisible) and a replay.
+- Tested how: SDK baseentity.cpp and ai_scriptconditions.cpp; an installed-map count of ai_script_conditions; unit test (notarget); the new replay; artifacts/s64/validate.sh on 16bbcdf: strict Clippy 0, workspace tests 1734 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed (26/26, 17/17, 26/26; images against artifacts/s64-regression1 at most 2.06 mean, partition-weapons-final, no pixel over 40; the Kleiner feed 0.05), replays 73 of 73 (JOBS=3, 620 s, the new luggage-shove included).
+- Result: Packaged (the new replay, alone and in the full run): the shove plays, completes, both suitcase pushes fire and the citizen ends 0.0 units from luggage_stepaway.
+- Frame time: unchanged (one flag read per LOS evaluation while a condition entity is enabled).
+- Still broken or not tested: PR #5's luggage commit conflicts with main (same file path) until it is dropped there; the rest as in the entry below.
+- Next: see the next-session prompt (artifacts/s64/next-session-prompt.txt).
+
 ## 2026-11-18 session 64: the owner's first-map playtest: car door, suitcases, shove, vortigaunt, Breen LOD, turnstile clip (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
