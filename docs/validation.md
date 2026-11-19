@@ -1690,9 +1690,13 @@ three layers:
    cancel and tail).
 3. Expected outcomes: each labelled sample's I/O counters, inventory, active scenes, gesture and
    look targets, projectile, gib and impact counters, the player's feet (within 1 unit), state and
-   clock, console mode and forward ray, compared with `test-inputs/expected/<fixture>.json`. Two
-   fields that vary between runs of the same build are left out for two pallet fixtures, and
-   `occluded_blast_targets` everywhere. A difference is either a regression or an intended change;
+   clock, console mode and forward ray, compared with `test-inputs/expected/<fixture>.json`. Fields
+   that vary between runs of the same build are left out for three pallet fixtures, and
+   `occluded_blast_targets` everywhere; `field.counter` leaves out one counter (`gibs.removed` in
+   `pallet-gibs-fade` and `monitors-kleiner-scene`: tick-exact gib removal shifts with frame
+   timing under load). Gib rules hold instead: in every replay gib counters only grow and never
+   more gibs go than came; `pallet-gibs-fade` checks the debris design (one stable set of 7 gibs,
+   none vanishes while in view or before its fade delay, all gone by the end). A difference is either a regression or an intended change;
    after reviewing it, `UPDATE_EXPECTED=1` records the new outcomes (review the diff of the expected
    files). The outcomes were recorded on macOS; physics on another platform may differ slightly.
 

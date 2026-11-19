@@ -154,6 +154,15 @@ def wait_until_loaded(process: subprocess.Popen, timeout: int) -> None:
         time.sleep(0.25)
 
 
+def check_unstable_counter() -> None:
+    """"field.counter" ignores only that counter of a field."""
+    want = {"s": {"gibs": {"spawned": 8, "removed": 8}}}
+    expect("removed may differ", outcome_differences(want, {"s": {"gibs": {"spawned": 8, "removed": 7}}},
+                                                     {"gibs.removed"}), [])
+    expect("spawned still compared",
+           len(outcome_differences(want, {"s": {"gibs": {"spawned": 7, "removed": 8}}}, {"gibs.removed"})), 1)
+
+
 def check_loading_settled() -> None:
     """The loading gate opens only once memory has stopped growing."""
     expect("still growing", loading_settled([100, 300, 600, 900, 1200, 1500, 1800], 6, 32), False)
@@ -1413,6 +1422,36 @@ def doors_swing_away(run: Run) -> None:
     holds("the closed door blocks the ray", s["closed"]["ray_entity"] in (350, 351))
 
 
+def gib_counts(run: Run) -> list[tuple[str, int, int]]:
+    """Each sample's (label, spawned, removed) gib counters, in fixture order."""
+    return [(s.get("label"), s["gameplay"]["gibs"]["spawned"], s["gameplay"]["gibs"]["removed"])
+            for s in run.report["render"]["simulation"]["samples"]]
+
+
+def gibs_add_up(run: Run) -> None:
+    """Every replay: gib counters only grow, and no more gibs go than came."""
+    counts = gib_counts(run)
+    pairs = list(zip(counts, counts[1:]))
+    holds("gib counters never fall", all(b[1] >= a[1] and b[2] >= a[2] for a, b in pairs),
+          [(a, b) for a, b in pairs if b[1] < a[1] or b[2] < a[2]])
+    holds("never more gibs removed than spawned", all(r <= s for _, s, r in counts))
+
+
+def check_pallet_gibs_fade(run: Run) -> None:
+    """A thrown pallet's gibs are debris (SUB_StartFadeOut / SUB_FadeOut): they never vanish while
+    the player looks at them, wait out their fade delay, then all fade once out of view. Each rule
+    has seconds of margin, so frame timing under load cannot flip it."""
+    counts = gib_counts(run)
+    labels = [label for label, _, _ in counts]
+    away = labels.index("away")  # the camera turns away from the gibs at tick 100
+    spawned = {s for _, s, _ in counts if s}
+    expect("the pallet breaks into one stable set of gibs", spawned, {7})
+    holds("no gib vanishes while in view", all(r == 0 for _, _, r in counts[:away + 1]))
+    holds("no gib fades before its fade delay (3 s in)",
+          dict((label, r) for label, _, r in counts)["s200"] == 0)
+    holds("every gib is gone by the end (debris never piles up)", counts[-1][2] == counts[-1][1] == 7)
+
+
 def check_door_swing(run: Run) -> None:
     """Linked station doors open away from the player from both sides and close again."""
     doors_swing_away(run)
@@ -1554,8 +1593,12 @@ def check_attention(run: Run) -> None:
 # intended change to record with UPDATE_EXPECTED=1 (review the diff of the expected files).
 EXPECTED = REPO / "test-inputs" / "expected"
 # Fields that differ between two runs of the same build, by fixture (left out of the comparison).
+# "field.counter" leaves out one counter of a field and keeps the rest.
 UNSTABLE = {
-    "bevy-pallet-gibs-fade": {"hits"},
+    # Tick-exact gib removal shifts with frame timing under load; the gib rules are checked instead
+    # (check_pallet_gibs_fade, gibs_add_up).
+    "bevy-monitors-kleiner-scene": {"gibs.removed"},
+    "bevy-pallet-gibs-fade": {"hits", "gibs.removed"},
     "bevy-pallet-launched-into-wall": {"hits", "ray"},
     "bevy-pallet-tips-off-plaza-cop": {"ray"},
 }
@@ -1595,6 +1638,9 @@ def outcome_differences(want: dict, got: dict, unstable: set) -> list[str]:
             continue
         for key in sorted(want[label].keys() | got[label].keys()):
             a, b = want[label].get(key), got[label].get(key)
+            dropped = {u.split(".", 1)[1] for u in unstable if u.startswith(f"{key}.")}
+            if dropped and isinstance(a, dict) and isinstance(b, dict):
+                a, b = ({k: v for k, v in d.items() if k not in dropped} for d in (a, b))
             if key in unstable or a == b:
                 continue
             if key == "feet" and near(a, b, FEET_TOLERANCE) or key == "time" and near(a, b, TIME_TOLERANCE):
@@ -1626,6 +1672,7 @@ def check_outcomes(fixture: str, run: Run) -> None:
 
 
 GAMEPLAY_CHECKS: dict[str, Callable[[Run], None]] = {
+    "bevy-pallet-gibs-fade": check_pallet_gibs_fade,
     "bevy-movement": check_movement,
     "bevy-entities-weapons": check_entities_weapons,
     "bevy-door-swing": check_door_swing,
@@ -1641,7 +1688,11 @@ def gameplay_check(fixture: str) -> Callable[[], None]:
     def run() -> None:
         result = replay(fixture)
         failure = None
-        if fixture in GAMEPLAY_CHECKS:
+        try:
+            gibs_add_up(result)
+        except Failure as error:
+            failure = error
+        if fixture in GAMEPLAY_CHECKS and not failure:
             try:
                 GAMEPLAY_CHECKS[fixture](result)
             except Failure as error:
@@ -1818,6 +1869,7 @@ CHECKS = [
     Check("coverage", check_coverage, "shared", "gameplay"),
     Check("parallel_jobs", check_parallel_jobs, "shared", "gameplay"),
     Check("loading_settled", check_loading_settled, "shared", "gameplay"),
+    Check("unstable_counter", check_unstable_counter, "shared", "gameplay"),
     *(Check(f[len("bevy-"):], gameplay_check(f), "shared", "gameplay") for f in sorted(GAMEPLAY_MAPS)),
 ]
 

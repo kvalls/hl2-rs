@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Gib checks test the debris rules, not tick-exact removal
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `replays.py` checks gibs by their design. Every replay: gib counters only grow and never more gibs are removed than spawned. `pallet-gibs-fade`: one stable set of 7 gibs, none vanishes while the player looks at them or before the fade delay, all gone by the end, each with seconds of margin. Expected-outcome comparison can leave out one counter of a field (`field.counter`); `gibs.removed` is left out for `pallet-gibs-fade` and `monitors-kleiner-scene`, whose spawn counts are still compared exactly. The `unstable_counter` check covers the comparison.
+- Why: with three games at once, one gib was sometimes removed a few ticks later than recorded, failing full runs over a difference no player sees.
+- Tested how: both fixtures and four other gameplay checks passed with three games at once; full `all.sh` with three games: build, validation, the Windows check and all 110 checks passed (replays 545 s, all checks 584 s).
+- Still broken or not tested: the frame-timing dependency that shifts gib removal under load is not found.
+- Frame time: none (checks only).
+
 ## 2026-11-20 — Entity rigs load on all cores
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
