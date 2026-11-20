@@ -606,13 +606,6 @@ pub const COMMANDS: &[Spec] = &[
         &[],
         map::mainmenu,
     ),
-    cvar(
-        "background_map",
-        "background_map [name|default]: query or set the persistent main-menu background map",
-        &[Arg::Names(Names::Map)],
-        map::background_map,
-        map::background_map_value,
-    ),
     command(
         "map_background",
         "map_background <name>: load an installed map as the main-menu background and persist it",
@@ -854,7 +847,6 @@ mod tests {
             "sv_rcon_maxpacketsize" => "4096",
             "ip" => "127.0.0.1",
             "hostport" => "27016",
-            "background_map" => "background02",
             other => panic!("{other}: no golden value"),
         }
         .to_owned()
@@ -906,17 +898,13 @@ mod tests {
         for spec in COMMANDS.iter().filter(|spec| spec.is_cvar()) {
             let value = spec.value.expect("a cvar");
             let current = value(&Console::default()).unwrap_or_default();
-            let mut cases = vec![
+            let cases = vec![
                 Vec::new(),
                 vec![golden_value(spec, &current)],
                 vec!["x".to_owned()],
                 vec!["9".to_owned()],
                 vec!["1".to_owned(), "1".to_owned()],
             ];
-            if spec.name == "background_map" {
-                // `default` resets the background instead of naming a map.
-                cases.insert(2, vec!["default".to_owned()]);
-            }
             transcript += &format!("{}\n", spec.name);
             for args in cases {
                 let mut console = Console::default();

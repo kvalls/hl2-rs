@@ -529,24 +529,6 @@ r_waterforcereflectentities
     value Some("0")
   1 1: error "r_waterforcereflectentities [0|1]: query or toggle water entity reflections (0=world only, 1=all)"
     value Some("0")
-background_map
-  query: no effect
-    | "background_map" is not set
-    value None
-  background02: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "background02"]
-    | background_map background02
-    value Some("background02")
-  default: ApplyConfig []
-    | background_map reset to default (none)
-    value None
-  x: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "x"]
-    | background_map x
-    value Some("x")
-  9: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "9"]
-    | background_map 9
-    value Some("9")
-  1 1: error "background_map [name|default]: query or set the persistent main-menu background map"
-    value None
 con_filter_enable
   query: no effect
     | "con_filter_enable" = "0"

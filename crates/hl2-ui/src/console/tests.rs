@@ -1542,33 +1542,12 @@ fn a_held_escape_presses_confirmation_cancel_button_and_release_cancels_it() {
 }
 
 #[test]
-fn background_map_and_map_background_console_commands() {
+fn map_background_console_command() {
     let mut console = installed_console();
-    // Query default background map
-    let effects = console.submit("background_map");
-    assert!(effects.is_empty());
-    assert!(console
-        .shell
-        .panel
-        .output
-        .iter()
-        .any(|line| line.contains("\"background_map\" = \"background01\"")));
-
-    // Set persistent background map
-    let effects = console.submit("background_map background03");
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(effects[0], Effect::ApplyConfig(_)));
-    assert_eq!(
-        console.config.gameplay.background_map.as_deref(),
-        Some("background03")
+    assert!(
+        console.submit("background_map background03").is_empty(),
+        "removed: not retail"
     );
-    assert_eq!(console.background_map(), Some("background03"));
-
-    // Reset to default
-    let effects = console.submit("background_map default");
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(effects[0], Effect::ApplyConfig(_)));
-    assert_eq!(console.config.gameplay.background_map, None);
     assert_eq!(console.background_map(), Some("background01"));
 
     // map_background loads as background map and persists to config

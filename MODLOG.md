@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-20 — `background_map` command removed
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the non-retail `background_map [name|default]` command is gone. It only printed, set or reset the saved menu background by hand, which retail `map_background` also sets (and loads). The saved value itself (`gameplay.background_map`/`background_game`) stays: the menu remembers the chapter background through it. Three menu replays typed the command only as a query at their settle step; they now type retail `echo`, and their checks read the saved settings as before.
+- Why: owner decision: no non-retail console commands in core; this one overlapped with `map_background`.
+- Tested how: `map_background` test (and a console refusing `background_map`); golden cvar transcript rewritten; `validate.sh` passed; replays `submenus`, `return_menu`, `chapter_menu` passed (packaged).
+
 ## 2026-11-20 — `background_force_default_blur` moves to `hl2-debug`; plugin settings survive Options
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

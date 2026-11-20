@@ -28,46 +28,6 @@ pub(super) fn mainmenu(console: &mut Console, spec: &Spec, args: &[String]) -> O
     Ok(None)
 }
 
-pub(super) fn background_map(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
-    if args.is_empty() {
-        match console.background_map() {
-            Some(map) => console.log(format!("\"background_map\" = \"{map}\"")),
-            None => console.log("\"background_map\" is not set"),
-        }
-    } else if args.len() == 1 {
-        let map = args[0].strip_suffix(".bsp").unwrap_or(&args[0]);
-        if map.eq_ignore_ascii_case("default")
-            || map == "0"
-            || map.eq_ignore_ascii_case("none")
-            || map.is_empty()
-        {
-            console.set_background(None);
-            let _ = console.config.save();
-            console.log(format!(
-                "background_map reset to default ({})",
-                console.gameui.background_map.as_deref().unwrap_or("none")
-            ));
-        } else {
-            if map.len() > 128 || !map.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
-                return Err("background_map: use a simple installed map name".into());
-            }
-            let current = console.loaded_map.as_ref().map(|m| m.game.as_str());
-            let background = console.game_map(map, current);
-            console.set_background(Some(background));
-            let _ = console.config.save();
-            console.log(format!("background_map {map}"));
-        }
-        return Ok(Some(Effect::ApplyConfig(Box::new(console.config.clone()))));
-    } else {
-        return Err(spec.usage());
-    }
-    Ok(None)
-}
-
-pub(super) fn background_map_value(console: &Console) -> Option<String> {
-    Some(console.background_map()?.to_owned())
-}
-
 pub(super) fn map_background(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.len() != 1 {
         return Err(spec.usage());
