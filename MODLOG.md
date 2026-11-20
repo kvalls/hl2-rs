@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-20 — Alpha sprites drawn as input-order runs
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `effects::quads` draws the quads of non-additive materials as runs: consecutive quads of one material share a mesh (`batch::Batch`, which additive batches already used), in input order. Run draws keep identity transforms, so they tie in the transparent sort and keep their entity order: the draw order and blending are those of one draw per quad. The layer tracks the most quads its runs drew, so `pooled_quads` keeps its meaning. Single-quad meshes (`QuadDraw`, `fill`, `quad_mesh`) are gone; their geometry and storage tests use the batch mesh functions; a new test checks runs and their order.
+- Why: in the mixed-crowd benchmark about 190 sprite meshes changed every frame, each re-uploaded by the renderer (`allocate_and_free_meshes`, 5.7 ms per frame).
+- Tested how: hl2-bevy effects tests (12); three alternating A/B pairs on the mixed crowd: fight frame 23.83 -> 21.83 ms median (every B run faster: 21.4-21.9 against 23.7-24.0 ms), whole-run mean 26.31 -> 25.10 ms, fixed simulation unchanged. Full `all.sh`: all 109 checks passed in 384 s.
+- Frame time: -2.0 ms (-8.4%) in the crowd fight; none in quiet scenes (few sprites).
+
 ## 2026-11-20 — Runs end from their exit frame (no exit hang after crowd fights)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

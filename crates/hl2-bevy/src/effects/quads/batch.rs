@@ -1,9 +1,11 @@
-//! Additive sprite quads of one material drawn as one mesh.
+//! Sprite quads drawn as one mesh: the additive quads of one material, or a run of consecutive
+//! quads of one material.
 //!
 //! A quad that faces the camera changes every frame, and every changed mesh is uploaded
 //! again; one mesh per quad makes that one upload per sprite. Quads that blend by pure
 //! addition commute, so those of one material can share a mesh without changing the image
-//! among themselves. The batch is sorted against other translucent draws as one object.
+//! among themselves; such a batch is sorted against other translucent draws as one object. A run
+//! keeps its quads in input order inside one draw.
 use super::{EffectMaterial, Geometry};
 use bevy::{
     camera::primitives::MeshAabb,
@@ -15,9 +17,9 @@ use bevy::{
 use hl2_simulation::projectile_visuals::Quad;
 use std::collections::{BTreeMap, BTreeSet};
 
-struct Batch {
-    entity: Entity,
-    mesh: Handle<Mesh>,
+pub(super) struct Batch {
+    pub(super) entity: Entity,
+    pub(super) mesh: Handle<Mesh>,
     material: Handle<EffectMaterial>,
     /// The quads in the mesh, and those of the frame being gathered.
     drawn: Vec<Geometry>,
@@ -33,7 +35,7 @@ pub(in super::super) struct Batches {
     most: usize,
 }
 
-fn batch_mesh(quads: &[Geometry]) -> Mesh {
+pub(super) fn batch_mesh(quads: &[Geometry]) -> Mesh {
     let corners = |f: fn(&Geometry) -> [[f32; 3]; 4]| quads.iter().flat_map(f).collect();
     super::super::mesh(
         corners(Geometry::bevy_positions),
@@ -50,7 +52,7 @@ fn batch_mesh(quads: &[Geometry]) -> Mesh {
 }
 
 /// Writes the quads over a mesh that holds as many; false when its storage does not fit.
-fn patch(mesh: &mut Mesh, quads: &[Geometry]) -> bool {
+pub(super) fn patch(mesh: &mut Mesh, quads: &[Geometry]) -> bool {
     let count = quads.len() * 4;
     let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
@@ -124,13 +126,8 @@ impl Batches {
                 .by_material
                 .get_mut(&quad.material)
                 .expect("batch just ensured");
-            batch.next.push(quad.into());
-            if batch.material != *material {
-                batch.material.clone_from(material);
-                if let Ok(mut entity) = commands.get_entity(batch.entity) {
-                    entity.insert(MeshMaterial3d(material.clone()));
-                }
-            }
+            batch.push(quad);
+            batch.set_material(commands, material);
         }
         let batches = self.by_material.values_mut();
         let rewritten = batches.map(|batch| batch.present(commands, meshes)).sum();
@@ -140,7 +137,27 @@ impl Batches {
 }
 
 impl Batch {
-    fn spawn(
+    /// Starts gathering a frame's quads with `material`.
+    pub(super) fn start(&mut self, commands: &mut Commands, material: &Handle<EffectMaterial>) {
+        self.next.clear();
+        self.set_material(commands, material);
+    }
+    /// Draws nothing this frame (hidden by [`Self::present`]).
+    pub(super) fn empty(&mut self) {
+        self.next.clear();
+    }
+    pub(super) fn push(&mut self, quad: &Quad) {
+        self.next.push(quad.into());
+    }
+    fn set_material(&mut self, commands: &mut Commands, material: &Handle<EffectMaterial>) {
+        if self.material != *material {
+            self.material.clone_from(material);
+            if let Ok(mut entity) = commands.get_entity(self.entity) {
+                entity.insert(MeshMaterial3d(material.clone()));
+            }
+        }
+    }
+    pub(super) fn spawn(
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         material: &Handle<EffectMaterial>,
@@ -169,7 +186,7 @@ impl Batch {
     }
     /// Shows the gathered quads; 1 if the mesh was rewritten. A batch without quads is hidden
     /// and keeps its mesh, so the same quads returning cost no upload.
-    fn present(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) -> usize {
+    pub(super) fn present(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) -> usize {
         let visible = !self.next.is_empty();
         let rewrite = visible && self.next != self.drawn;
         if rewrite && let Some(mut mesh) = meshes.get_mut(&self.mesh) {

@@ -38,7 +38,9 @@ A 10 ms stack sample of 20 s of the fight:
 | `present_entities` | 3.2 |
 
 Each frame about 190 effect-quad meshes, 27 eye meshes, 13 shadow meshes and 9 animated meshes
-(52,000 vertices) change and are uploaded again. The audio output thread is busy about one core
+(52,000 vertices) change and are uploaded again. Since `effects::quads` draws alpha sprites as runs (consecutive
+quads of one material share a mesh, in input order), the fight frame fell from 23.8 to 21.8 ms
+(median of three A/B pairs). The audio output thread is busy about one core
 mixing about 70 live sinks, muted or not. About one run in three hung at exit: closing the
 CoreAudio output waited on the device lock while the mixing callback kept it busy. Runs now end
 from their exit frame without dropping the app (`launch::exit_process`).

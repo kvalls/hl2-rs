@@ -677,7 +677,7 @@ pub fn present(
         viewmodel_quads: layer,
         ..
     } = &mut *effects;
-    // The viewmodel's few quads keep one draw each: they are placed against the gun.
+    // Viewmodel quads (placed against the gun) are never batched by material, only run.
     let unbatched = (&*materials, &Default::default());
     layer.draw(&mut commands, &mut meshes, &viewmodel, unbatched, Some(1));
     let dead: Vec<_> = effects

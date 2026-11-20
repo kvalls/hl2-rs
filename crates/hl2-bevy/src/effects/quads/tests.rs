@@ -1,4 +1,4 @@
-use super::{EffectMaterial, Quad, QuadDraw, color, draw_pool, fill, positions, quad_mesh};
+use super::{EffectMaterial, Geometry, Quad, batch, draw_runs};
 use bevy::prelude::{
     Assets, Commands, DetectChanges, Handle, Mesh, MeshMaterial3d, Vec4, Visibility, World,
 };
@@ -22,6 +22,14 @@ fn quad() -> Quad {
         color: [255, 127, 0, 64],
         uv: [[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
     }
+}
+
+fn positions(quad: &Quad) -> [[f32; 3]; 4] {
+    Geometry::from(quad).bevy_positions()
+}
+
+fn color(quad: &Quad) -> [f32; 4] {
+    Geometry::from(quad).unit_color()
 }
 
 fn assert_geometry(mesh: &Mesh, quad: &Quad) {
@@ -51,7 +59,7 @@ fn assert_geometry(mesh: &Mesh, quad: &Quad) {
 #[test]
 fn changed_sprite_keeps_storage_and_exact_geometry() {
     let mut quad = quad();
-    let mut mesh = quad_mesh(&quad);
+    let mut mesh = batch::batch_mesh(&[(&quad).into()]);
     let attributes = [
         Mesh::ATTRIBUTE_POSITION,
         Mesh::ATTRIBUTE_UV_0,
@@ -61,7 +69,7 @@ fn changed_sprite_keeps_storage_and_exact_geometry() {
     quad.positions[2] = glam::Vec3::new(6., -4., 12.);
     quad.uv[2] = [0.25, 0.75];
     quad.color = [0, 255, 31, 255];
-    fill(&mut mesh, &quad);
+    assert!(batch::patch(&mut mesh, &[(&quad).into()]));
     assert_geometry(&mesh, &quad);
     assert_eq!(
         storage,
@@ -75,18 +83,21 @@ fn changed_sprite_keeps_storage_and_exact_geometry() {
 
 #[test]
 fn invalid_storage_is_rebuilt_as_a_complete_quad() {
-    let quad = quad();
-    let mut mesh = quad_mesh(&quad);
-    mesh.remove_attribute(Mesh::ATTRIBUTE_UV_0);
-    fill(&mut mesh, &quad);
-    assert_geometry(&mesh, &quad);
+    let mut f = Fixture::new();
+    let mut quad = quad();
+    f.draw(std::slice::from_ref(&quad));
+    let handle = f.pool[0].mesh.clone();
+    (f.meshes.get_mut(&handle).unwrap()).remove_attribute(Mesh::ATTRIBUTE_UV_0);
+    quad.uv[1] = [0.5, 0.];
+    f.draw(std::slice::from_ref(&quad));
+    assert_geometry(f.meshes.get(&handle).unwrap(), &quad);
 }
 
 struct Fixture {
     world: World,
     meshes: Assets<Mesh>,
     materials: BTreeMap<String, Handle<EffectMaterial>>,
-    pool: Vec<QuadDraw>,
+    pool: Vec<batch::Batch>,
 }
 
 #[test]
@@ -128,10 +139,10 @@ impl Fixture {
         }
     }
 
-    fn draw(&mut self, quads: &[Quad]) {
+    fn draw(&mut self, quads: &[Quad]) -> usize {
         let mut state = SystemState::<Commands>::new(&mut self.world);
         let mut commands = state.get_mut(&mut self.world).expect("fixture commands");
-        draw_pool(
+        let drawn = draw_runs(
             &mut commands,
             &mut self.meshes,
             &mut self.pool,
@@ -140,7 +151,46 @@ impl Fixture {
             Some(1),
         );
         state.apply(&mut self.world);
+        drawn
     }
+}
+
+#[test]
+fn consecutive_quads_of_one_material_share_a_draw_in_input_order() {
+    let mut f = Fixture::new();
+    let first = quad();
+    let mut second = quad();
+    second.positions.iter_mut().for_each(|p| p.x += 5.);
+    let mut other = quad();
+    other.material = "second".into();
+    let mut last = quad();
+    last.positions.iter_mut().for_each(|p| p.y += 3.);
+    let drawn = f.draw(&[first.clone(), second.clone(), other.clone(), last.clone()]);
+    assert_eq!(drawn, 4);
+    // Runs: first + second, other, last: a material change starts a new draw.
+    assert_eq!((f.pool.len(), f.meshes.len()), (3, 3));
+    let run = f.meshes.get(&f.pool[0].mesh).unwrap();
+    let corners: Vec<[f32; 3]> = positions(&first)
+        .into_iter()
+        .chain(positions(&second))
+        .collect();
+    assert_eq!(
+        run.attribute(Mesh::ATTRIBUTE_POSITION),
+        Some(&VertexAttributeValues::Float32x3(corners))
+    );
+    assert_geometry(f.meshes.get(&f.pool[1].mesh).unwrap(), &other);
+    assert_geometry(f.meshes.get(&f.pool[2].mesh).unwrap(), &last);
+    let material = |i: usize| {
+        let entity = f.world.entity(f.pool[i].entity);
+        entity
+            .get::<MeshMaterial3d<EffectMaterial>>()
+            .unwrap()
+            .0
+            .clone()
+    };
+    assert_eq!(material(0), f.materials["first"]);
+    assert_eq!(material(1), f.materials["second"]);
+    assert_eq!(material(2), f.materials["first"]);
 }
 
 #[test]
@@ -258,7 +308,7 @@ fn a_layer_batches_the_additive_materials_and_pools_the_rest() {
         None,
     );
     state.apply(&mut f.world);
-    // One pooled draw for the other material, one batch mesh holding both additive quads.
+    // One run for the other material, one batch mesh holding both additive quads.
     assert_eq!(layer.counts(), (3, 2));
     assert_eq!(f.meshes.len(), 2);
     layer.clear();
@@ -279,14 +329,15 @@ fn benchmark_quad_geometry_updates() {
         } else {
             [true, false]
         } {
-            let mut mesh = quad_mesh(&quad);
+            let mut mesh = batch::batch_mesh(&[(&quad).into()]);
             let start = Instant::now();
             for i in 0..iterations {
                 quad.positions[0].x = (i % 97) as f32;
+                let geometry: Geometry = (&quad).into();
                 if reuse {
-                    fill(black_box(&mut mesh), black_box(&quad));
+                    batch::patch(black_box(&mut mesh), black_box(&[geometry]));
                 } else {
-                    mesh = quad_mesh(black_box(&quad));
+                    mesh = batch::batch_mesh(black_box(&[geometry]));
                 }
                 black_box(&mesh);
             }
