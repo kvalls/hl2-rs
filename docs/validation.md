@@ -1651,7 +1651,8 @@ The packaged checks are one cross-platform Python script, `scripts/checks/replay
 It builds once (`scripts/build-bevy.sh`, `scripts/build-bevy.ps1` on Windows), copies the packaged
 game to `artifacts/replays/game/`, runs each check as bounded launches of that copy with their own
 `--report`, and asserts on what the reports record. One ok/FAIL line per check; logs, reports and
-captures in `artifacts/replays/`. Each check gets its own settings file (`HL2RS_SETTINGS`, started from `profiles/test.json`), so
+captures in `artifacts/replays/` (unfiltered, uncompressed RGB PNGs from `source_assets::png`, which the
+suite reads row by row). Each check gets its own settings file (`HL2RS_SETTINGS`, started from `profiles/test.json`), so
 UI and gameplay checks run side by side and `bin/hl2-config.json` (and a game running from `bin/`)
 is never touched. `JOBS` checks run at once, longest first by the previous run's durations
 (`artifacts/replays/durations.json`); checks that edit the staged game's shaders each run their own copy of it. Gameplay replays run

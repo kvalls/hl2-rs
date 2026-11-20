@@ -4,7 +4,7 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
-from images import png_rgb, pixel_changes
+from images import pixel_changes, pixel_mask, png_rgb
 
 
 def write_png(path, rows, colour=2, width=2):
@@ -48,6 +48,18 @@ class CaptureImages(unittest.TestCase):
             with self.assertRaises(ValueError):
                 pixel_changes(a, b, region=(0, 0, 2, 2))
             self.assertEqual(pixel_changes(a, b), {"changed": 1, "darker": 1, "brighter": 1, "maximum": 100, "bounds": [0, 0, 0, 0]})
+
+    def test_identical_rows_change_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a, b = Path(folder) / "a.png", Path(folder) / "b.png"
+            write_png(a, [bytes([0, 5, 5, 5, 9, 9, 9]), bytes([0, 1, 2, 3, 4, 5, 6])])
+            write_png(b, [bytes([0, 5, 5, 5, 9, 9, 9]), bytes([0, 1, 2, 3, 4, 5, 60])])
+            self.assertEqual(pixel_changes(a, b, region=(0, 0, 2, 1))["maximum"], 0)
+            self.assertEqual(pixel_changes(a, b), {"changed": 1, "darker": 0, "brighter": 1, "maximum": 54, "bounds": [1, 1, 1, 1]})
+
+    def test_pixel_mask_marks_pixels_in_every_range(self):
+        rgb = bytes([255, 0, 255, 255, 255, 255, 241, 14, 250, 240, 0, 255])
+        self.assertEqual(pixel_mask(rgb, range(241, 256), range(0, 15), range(241, 256)), bytes([1, 0, 1, 0]))
 
 
 if __name__ == "__main__":

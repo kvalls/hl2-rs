@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Captures the checks read in milliseconds
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: every screenshot (`--capture`, its install frame, `--capture-burst` and `--capture-every` frames) is written by `source_assets::png::encode_rgb`: 8-bit RGB, every row unfiltered and stored in uncompressed deflate blocks, no new dependency (`crc32fast` was already there). The replay suite's `images.py` takes unfiltered rows as stored, skips identical rows when comparing, and counts colour ranges with whole-buffer byte operations (`pixel_mask`, used by `viewmodel_motion_blur`).
+- Why: the game wrote Paeth-filtered rows, which the suite's pure-Python reader undid byte by byte: 2.2 s per 1080p capture, 6.3 s to compare a pair; about 230 s of a full run's 1,343 s of work was outside the games, mostly this.
+- Tested how: `source-assets` PNG tests (stored blocks, CRCs, Adler-32, multi-block images); the Python image tests (57); a 1080p capture now decodes in about 0 s and a pair compares in 0.30 s; `viewmodel_motion_blur` 157 -> 72 s, `flashlight_viewmodel` 154 -> 59 s, `flashlight_shadows` 101 -> 48 s; full `all.sh`: build, validation, the Windows check and all 109 checks passed in 480 s, with validation recompiling for 132 s beside the replays (the image-heavy checks there: 121, 97 and 49 s).
+- Still broken or not tested: captures are the size of their pixels (a 1080p capture 6.2 MB instead of about 1.6 MB; a full run about 1.4 GB instead of 0.36 GB). A compressed, unfiltered encoder would need the image or deflate crate as a direct dependency (owner's call).
+- Frame time: none in play (captures only in unattended runs; writing them is faster than before).
+
 ## 2026-11-20 — JOBS is the replay suite's only parallelism setting
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

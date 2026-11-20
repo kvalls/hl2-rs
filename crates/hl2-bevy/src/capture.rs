@@ -21,18 +21,31 @@ pub(crate) fn monitor_capture_complete(event: On<ScreenshotCaptured>, status: Re
     report.monitor_image = Some(event.image.clone());
 }
 
+/// Saves a screenshot as an unfiltered, uncompressed RGB PNG (`source_assets::png`): quick to
+/// write and for the checks to read; returns the error, if any.
 pub(crate) fn save_capture(image: Option<Image>, path: Option<&PathBuf>) -> Option<String> {
     let path = path?;
-    match image {
-        Some(image) => match image.try_into_dynamic() {
-            Ok(image) => image
-                .to_rgb8()
-                .save(path)
-                .err()
-                .map(|error| error.to_string()),
-            Err(error) => Some(format!("screenshot conversion: {error}")),
-        },
-        None => Some("screenshot readback did not finish".into()),
+    let Some(image) = image else {
+        return Some("screenshot readback did not finish".into());
+    };
+    let rgb = match image.try_into_dynamic() {
+        Ok(image) => image.to_rgb8(),
+        Err(error) => return Some(format!("screenshot conversion: {error}")),
+    };
+    match source_assets::png::encode_rgb(rgb.width(), rgb.height(), rgb.as_raw()) {
+        Ok(png) => std::fs::write(path, png)
+            .err()
+            .map(|error| error.to_string()),
+        Err(error) => Some(error),
+    }
+}
+
+/// An observer saving its screenshot to `path` like `--capture` (see [`save_capture`]).
+pub(crate) fn save_to(path: PathBuf) -> impl FnMut(On<ScreenshotCaptured>) {
+    move |event: On<ScreenshotCaptured>| {
+        if let Some(error) = save_capture(Some(event.image.clone()), Some(&path)) {
+            bevy::log::error!("capture {}: {error}", path.display());
+        }
     }
 }
 
@@ -61,9 +74,7 @@ pub(crate) fn timelapse(
     } else {
         path.with_file_name(format!("{name}-{at:09.3}s.png"))
     };
-    commands
-        .spawn(source())
-        .observe(bevy::render::view::screenshot::save_to_disk(file));
+    commands.spawn(source()).observe(save_to(file));
 }
 
 /// Diagnostic captures include the actual install frame, before any fixed simulation tick.
@@ -82,10 +93,6 @@ pub(crate) fn installed_frame(commands: &mut bevy::prelude::Commands, capture: O
         let frame = frame.image.clone();
         world
             .spawn(bevy::render::view::screenshot::Screenshot::image(frame))
-            .observe(move |event: On<ScreenshotCaptured>| {
-                if let Some(error) = save_capture(Some(event.image.clone()), Some(&path)) {
-                    bevy::log::error!("Map installation capture: {error}");
-                }
-            });
+            .observe(save_to(path));
     });
 }

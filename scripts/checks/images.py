@@ -6,7 +6,8 @@ import zlib
 
 
 def png_rgb(path: Path) -> tuple[int, int, bytes]:
-    data = path.read_bytes()
+    """A capture's width, height and RGB bytes (alpha dropped)."""
+    data = Path(path).read_bytes()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError(f"not a PNG: {path}")
     offset, compressed = 8, bytearray()
@@ -31,7 +32,22 @@ def png_rgb(path: Path) -> tuple[int, int, bytes]:
     stride = width * channels
     if len(raw) != height * (stride + 1):
         raise ValueError(f"unexpected PNG scanline size: {path}")
-    previous, rgb = bytearray(stride), bytearray()
+    if raw[::stride + 1].count(0) == height:
+        # Every row unfiltered (the game's captures): the pixels are the rows as stored.
+        pixels = b"".join(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)] for y in range(height))
+    else:
+        pixels = _unfilter(raw, stride, height, channels)
+    if channels == 4:
+        rgb = bytearray(width * height * 3)
+        for channel in range(3):
+            rgb[channel::3] = pixels[channel::4]
+        pixels = bytes(rgb)
+    return width, height, bytes(pixels)
+
+
+def _unfilter(raw: bytes, stride: int, height: int, channels: int) -> bytearray:
+    """Undoes the five PNG scanline filters, byte by byte (PNGs from other encoders)."""
+    previous, pixels = bytearray(stride), bytearray()
     for y in range(height):
         start = y * (stride + 1)
         method = raw[start]
@@ -55,13 +71,9 @@ def png_rgb(path: Path) -> tuple[int, int, bytes]:
             else:
                 prediction = 0
             row[x] = (row[x] + prediction) & 255
-        if channels == 3:
-            rgb.extend(row)
-        else:
-            for x in range(0, stride, 4):
-                rgb.extend(row[x:x + 3])
+        pixels.extend(row)
         previous = row
-    return width, height, bytes(rgb)
+    return pixels
 
 
 def pixel_changes(before: Path, after: Path, threshold: int = 2,
@@ -76,16 +88,28 @@ def pixel_changes(before: Path, after: Path, threshold: int = 2,
     x0, y0, x1, y1 = region or (0, 0, width, height)
     if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
         raise ValueError("comparison region is outside the capture")
-    pixels = (y * width + x for y in range(y0, y1) for x in range(x0, x1))
-    for pixel in pixels:
-        i = pixel * 3
-        differences = [b[i + c] - a[i + c] for c in range(3)]
-        delta = max(abs(d) for d in differences)
-        maximum = max(maximum, delta)
-        if delta > threshold:
-            x, y = (i // 3) % width, (i // 3) // width
-            bounds = [min(bounds[0], x), min(bounds[1], y), max(bounds[2], x), max(bounds[3], y)]
-        changed += delta > threshold
-        darker += min(differences) < -threshold
-        brighter += max(differences) > threshold
+    for y in range(y0, y1):
+        start, end = (y * width + x0) * 3, (y * width + x1) * 3
+        row_a, row_b = a[start:end], b[start:end]
+        if row_a == row_b:
+            continue  # most rows of two captures of one scene match exactly
+        for i in range(0, end - start, 3):
+            red, green, blue = row_b[i] - row_a[i], row_b[i + 1] - row_a[i + 1], row_b[i + 2] - row_a[i + 2]
+            delta = max(abs(red), abs(green), abs(blue))
+            if delta > maximum:
+                maximum = delta
+            if delta > threshold:
+                changed += 1
+                x = x0 + i // 3
+                bounds = [min(bounds[0], x), min(bounds[1], y), max(bounds[2], x), max(bounds[3], y)]
+            darker += min(red, green, blue) < -threshold
+            brighter += max(red, green, blue) > threshold
     return {"changed": changed, "darker": darker, "brighter": brighter, "maximum": maximum, "bounds": bounds if changed else []}
+
+
+def pixel_mask(rgb: bytes, red: range, green: range, blue: range) -> bytes:
+    """One byte per pixel: 1 where every channel lies in its range, else 0 (whole-buffer byte
+    operations, no per-pixel Python loop)."""
+    masks = [int.from_bytes(rgb[channel::3].translate(bytes(int(v in wanted) for v in range(256))), "big")
+             for channel, wanted in enumerate((red, green, blue))]
+    return (masks[0] & masks[1] & masks[2]).to_bytes(len(rgb) // 3, "big")

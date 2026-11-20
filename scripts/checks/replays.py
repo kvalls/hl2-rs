@@ -53,7 +53,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from images import pixel_changes, png_rgb
+from images import pixel_changes, pixel_mask, png_rgb
 from typing import Callable, Optional
 
 REPO = Path(__file__).resolve().parents[2]
@@ -921,11 +921,12 @@ def check_viewmodel_motion_blur():
         counts = []
         for path in images:
             width, height, rgb = png_rgb(path)
-            locations = [(i // 3 % width, i // 3 // width) for i in range(0, len(rgb), 3)
-                         if rgb[i] > 240 and rgb[i+1] < 15 and rgb[i+2] > 240]
-            # Diagnostic magenta belongs to the lower weapon region, never the still world/HUD.
-            holds("vectors restricted to weapon", all(y > height * 0.4 for _, y in locations))
-            counts.append(len(locations))
+            magenta = pixel_mask(rgb, range(241, 256), range(0, 15), range(241, 256))
+            # Diagnostic magenta belongs to the lower weapon region (below 40% of the height),
+            # never the still world/HUD.
+            top = magenta[:(int(height * 0.4) + 1) * width].count(1)
+            holds("vectors restricted to weapon", top == 0, top)
+            counts.append(magenta.count(1))
         return max(counts)
 
     normal = run("viewmodel_blur_swing")
