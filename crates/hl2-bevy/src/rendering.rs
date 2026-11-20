@@ -921,6 +921,7 @@ pub fn spawn_map_filtered(
         plain: plain_materials,
     };
     let mut material_handles = BTreeMap::new();
+    let mut shared_levels = lod::SharedLevels::for_map(&loaded.flexes);
     let mut skeletons = BTreeMap::<Owner, crate::gpu_skinning::Skeleton>::new();
     for ((owner, name, lm, _), mut batch) in batches {
         let fallback = MaterialData::default();
@@ -1118,36 +1119,10 @@ pub fn spawn_map_filtered(
             two_textures: &two_textures,
             weapon_skins: &weapon_skins,
         };
-        insert_map_draw_components(&mut draw, &cx, &handle, animation.as_ref(), meshes);
-        if lit {
-            let (entity, key, scale) = match &owner {
-                Owner::Entity(id) => {
-                    let instance = world.model_instances.iter().find(|i| i.entity == Some(*id));
-                    (
-                        Some(*id),
-                        instance.map(|i| i.asset_key()).unwrap_or_default(),
-                        instance.map_or(1., |i| i.scale),
-                    )
-                }
-                Owner::Weapon(weapon) => (
-                    None,
-                    format!(
-                        "{}#0",
-                        loaded.gameplay.weapons[weapon].viewmodel.to_lowercase()
-                    ),
-                    1.,
-                ),
-                // The weapon is lit at its owner (bone-merged entities share the light state).
-                Owner::NpcWeapon(id, _) => {
-                    let instance = world.model_instances.iter().find(|i| i.entity == Some(*id));
-                    (
-                        Some(*id),
-                        instance.map(|i| i.asset_key()).unwrap_or_default(),
-                        instance.map_or(1., |i| i.scale),
-                    )
-                }
-                Owner::World | Owner::SkyWorld => unreachable!("lit draws are model owned"),
-            };
+        let lit_draw = lit.then(|| map_draw::lit_target(&cx));
+        let lods = (&mut *meshes, &mut shared_levels);
+        insert_map_draw_components(&mut draw, &cx, &handle, animation.as_ref(), lods);
+        if let Some((entity, key, scale)) = lit_draw {
             draw.insert(
                 ModelLit::new(entity, key, scale, definition.half_lambert)
                     .reflecting(definition.model_envmap && !plain_materials),
@@ -1293,7 +1268,7 @@ pub(crate) fn build_model_draws(
             &name,
             definition,
             (&handle, animation.as_ref()),
-            meshes,
+            (&mut *meshes, &mut lod::SharedLevels::default()),
         ) {
             draw.insert(levels);
         }

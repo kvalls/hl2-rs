@@ -29,6 +29,38 @@ pub(crate) type MapAssets<'a> = (
     &'a mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
 );
 
+/// Milliseconds for the load report: the whole install (`install_ms`) and each step
+/// (`install_<step>`).
+pub(crate) type InstallTimes = std::collections::BTreeMap<String, f64>;
+
+/// Times the install and its consecutive steps.
+struct Laps {
+    started: std::time::Instant,
+    last: std::time::Instant,
+    times: InstallTimes,
+}
+impl Laps {
+    fn new() -> Self {
+        let now = std::time::Instant::now();
+        Self {
+            started: now,
+            last: now,
+            times: InstallTimes::new(),
+        }
+    }
+    fn mark(&mut self, step: &str) {
+        let now = std::time::Instant::now();
+        let ms = (now - self.last).as_secs_f64() * 1000.;
+        self.times.insert(format!("install_{step}"), ms);
+        self.last = now;
+    }
+    fn finish(mut self) -> InstallTimes {
+        let ms = self.started.elapsed().as_secs_f64() * 1000.;
+        self.times.insert("install_ms".into(), ms);
+        self.times
+    }
+}
+
 pub(crate) fn install_loaded_map(
     loaded: assets::LoadedMap,
     commands: &mut Commands,
@@ -37,7 +69,7 @@ pub(crate) fn install_loaded_map(
     options: &crate::Options,
     filtering: hl2_ui::config::TextureSampling,
     target: Option<&bevy::asset::Handle<Image>>,
-) {
+) -> InstallTimes {
     let (meshes, materials, images, sounds, effect_materials, inverse_binds) = assets;
     install_map(
         loaded,
@@ -58,7 +90,7 @@ pub(crate) fn install_loaded_map(
         ),
         (filtering, options.mute),
         target,
-    );
+    )
 }
 
 pub(crate) fn install_map(
@@ -69,7 +101,8 @@ pub(crate) fn install_map(
     (cpu_skinning, no_pvs, world_partition): (bool, bool, bool),
     (filtering, mute): (hl2_ui::config::TextureSampling, bool),
     target: Option<&bevy::asset::Handle<Image>>,
-) {
+) -> InstallTimes {
+    let mut laps = Laps::new();
     {
         let mut stats = status.0.lock().expect("map stats");
         stats.meshes = 0;
@@ -88,6 +121,7 @@ pub(crate) fn install_map(
     commands.insert_resource(rendering::FlexModels(loaded.flexes.clone()));
     commands.insert_resource(runtime_props::RuntimeProps::new(loaded.vfs.clone()));
     let camera_target = monitors::install(&loaded, commands, images);
+    laps.mark("monitors");
     rendering::spawn_map_filtered(
         &loaded,
         commands,
@@ -98,6 +132,7 @@ pub(crate) fn install_map(
         (&camera_target, cpu_skinning, world_partition),
         filtering,
     );
+    laps.mark("draws");
     effects::install(
         &loaded,
         commands,
@@ -106,10 +141,12 @@ pub(crate) fn install_map(
         effect_materials,
         images,
     );
+    laps.mark("effects");
     commands.insert_resource(eyes::Eyes::new(&loaded));
     commands.insert_resource(shadows::MapShadows::new(&loaded));
     commands.insert_resource(console_host::MapEntityNames::of(&loaded.world.entities));
     sky::install(&loaded, commands, meshes, materials, images, target);
+    laps.mark("sky");
     commands.insert_resource(sky::Sky::new(
         loaded.bsp,
         loaded.world.background_camera.clone(),
@@ -138,4 +175,6 @@ pub(crate) fn install_map(
     });
     commands.insert_resource(canvas_renderer::Hud::new(loaded.hud));
     audio::install(commands, sounds, loaded.audio, mute);
+    laps.mark("rest");
+    laps.finish()
 }

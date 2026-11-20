@@ -212,6 +212,20 @@ do not establish reduced perceived afterimages. Keep it experimental pending con
 GPU reduction readback equivalence, clean idle/turn/swing comparisons and display testing.
 
 
+## Map install: shared LOD meshes (2026-11-20)
+
+The load report times the main-thread install in steps (`install_monitors`, `install_draws`,
+`install_effects`, `install_sky`, `install_rest`; `install_ms` stays the total). On
+d1_trainstation_01/02, `install_draws` took 430-510 ms; about 200 ms of it built the coarser LOD
+meshes of 400-530 entity draws, most of them repeats of the same model, material and scale.
+Every studio vertex carries a reference to its source mesh, so every studio draw counted as
+facially flexed and built private copies. Map install now builds each model, material, scale and
+skinning combination's coarser levels once and shares them (`lod::SharedLevels`), as runtime
+copies already did, unless the model's facial flexes move one of the draw's vertices (those keep
+their own meshes and per-level vertex data). Three gameplay replays (M1 Pro, one game at a time):
+`install_draws` 427-507 -> 326-330 ms, request to playable 1849-2015 -> 1758-1849 ms. Runtime
+spawns are unchanged.
+
 ## Map loading: entity rigs on all cores (2026-11-20)
 
 The map worker's models phase now reports `model_props` (prop meshes, physics and rigs),

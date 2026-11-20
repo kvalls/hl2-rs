@@ -25,6 +25,7 @@ use bevy::{
     transform::components::Transform,
 };
 use modkit_core::{Surface, World};
+use std::collections::BTreeMap;
 
 /// The LOD metric of a point at view depth `depth` (units along the view direction) for a view
 /// with `tan_half_fov` (tangent of half the vertical field of view) and `height` pixels: the
@@ -97,6 +98,49 @@ fn nothing(surface: &Surface) -> Surface {
     }
 }
 
+/// Coarser levels already built, by model asset, material, scale and skinning: map entity draws
+/// of one model share these meshes, as runtime copies do, unless facial flexes deform them. The
+/// skin attributes depend only on the model's weights and its rig's bone count.
+#[derive(Default)]
+pub(super) struct SharedLevels {
+    built: BTreeMap<LevelsKey, Vec<(f32, Level)>>,
+    /// The map's face models; without them every draw with flex references keeps its own levels.
+    faces: Option<FaceModels>,
+}
+
+/// A model asset, material, scale (bits) and whether the draw is skinned.
+type LevelsKey = (String, String, u32, bool);
+type FaceModels = BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>;
+
+impl SharedLevels {
+    /// Sharing for a map's draws, given its face models.
+    pub(super) fn for_map(faces: &FaceModels) -> Self {
+        Self {
+            built: BTreeMap::new(),
+            faces: Some(faces.clone()),
+        }
+    }
+
+    /// Whether facial flexes deform the draw: its model's flexes move a studio mesh one of its
+    /// vertices comes from (every studio vertex carries a reference to its source mesh).
+    fn deforms(&self, animation: &AnimatedMesh) -> bool {
+        if animation.flex.is_empty() {
+            return false;
+        }
+        let Some(faces) = &self.faces else {
+            return true;
+        };
+        let Some(face) = faces.get(&animation.key) else {
+            return false;
+        };
+        let flexed: std::collections::BTreeSet<(usize, usize)> = (face.flex.meshes.iter())
+            .map(|m| (m.bodypart, m.mesh))
+            .collect();
+        (animation.flex.iter().flatten())
+            .any(|[bodypart, mesh, _]| flexed.contains(&((*bodypart).into(), (*mesh).into())))
+    }
+}
+
 /// The coarser levels of an entity's draw of `material`, `root` being the draw's mesh and its
 /// animation; `None` when the model has no coarser level or the draw keeps the root LOD.
 pub(super) fn levels_for_draw(
@@ -105,7 +149,7 @@ pub(super) fn levels_for_draw(
     material: &str,
     definition: &MaterialData,
     (root, animation): (&Handle<Mesh>, Option<&AnimatedMesh>),
-    meshes: &mut Assets<Mesh>,
+    (meshes, shared): (&mut Assets<Mesh>, &mut SharedLevels),
 ) -> Option<ModelLevels> {
     if animation.is_some_and(|a| a.gpu.is_none() || a.weapon.is_some()) {
         return None;
@@ -120,7 +164,7 @@ pub(super) fn levels_for_draw(
         .get(&instance.asset_key())?
         .iter()
         .find(|s| s.material == material && !s.vertices.is_empty())?;
-    let flexes = animation.is_some_and(|a| !a.flex.is_empty());
+    let flexes = animation.is_some_and(|a| shared.deforms(a));
     let root_vertices = animation.filter(|_| flexes).map(|a| Vertices {
         bind: a.bind.clone(),
         normals: a.normals.clone(),
@@ -142,39 +186,85 @@ pub(super) fn levels_for_draw(
         }],
         current: 0,
     };
-    let scale = Mat4::from_scale(Vec3::splat(instance.scale));
-    for lod in lods {
-        let mut batch = Batch::default();
-        for surface in lod.surfaces.iter().filter(|s| s.material == material) {
-            batch.append(surface, scale, Some(definition));
-        }
-        let triangles = batch.indices.len() / 3;
-        if triangles == 0 {
-            batch.append(&nothing(first), scale, Some(definition));
-        }
-        let skin = std::mem::take(&mut batch.skin);
-        let flex = std::mem::take(&mut batch.flex);
-        let normals = batch.normals.clone();
-        let mut mesh = batch.mesh();
-        if let Some(animation) = animation {
-            if let Some(skeleton) = &animation.gpu {
-                skeleton.attributes(&mut mesh, &skin);
-            }
-            mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
-        }
-        levels.switches.push(lod.switch_point);
-        levels.levels.push(Level {
-            mesh: meshes.add(mesh),
-            triangles,
-            vertices: flexes.then(|| Vertices {
-                flex_base: skin.iter().map(|(p, _)| *p).collect(),
-                bind: skin,
-                normals,
-                flex,
-            }),
-        });
+    let coarser = Coarser {
+        lods,
+        material,
+        definition,
+        first,
+        scale: instance.scale,
+        animation,
+        flexes,
+    };
+    let built = if flexes {
+        coarser.build(meshes)
+    } else {
+        let key = (
+            instance.asset_key(),
+            material.to_owned(),
+            instance.scale.to_bits(),
+            animation.is_some(),
+        );
+        (shared.built.entry(key))
+            .or_insert_with(|| coarser.build(meshes))
+            .clone()
+    };
+    for (switch, level) in built {
+        levels.switches.push(switch);
+        levels.levels.push(level);
     }
     Some(levels)
+}
+
+/// What a draw's coarser levels are built from.
+struct Coarser<'a> {
+    lods: &'a [modkit_core::ModelLod],
+    material: &'a str,
+    definition: &'a MaterialData,
+    /// A surface of the material, shown collapsed at a level without its triangles.
+    first: &'a Surface,
+    scale: f32,
+    animation: Option<&'a AnimatedMesh>,
+    flexes: bool,
+}
+
+impl Coarser<'_> {
+    /// Each coarser level's switch point and level, finest first.
+    fn build(&self, meshes: &mut Assets<Mesh>) -> Vec<(f32, Level)> {
+        let scale = Mat4::from_scale(Vec3::splat(self.scale));
+        let level = |lod: &modkit_core::ModelLod, meshes: &mut Assets<Mesh>| {
+            let mut batch = Batch::default();
+            for surface in lod.surfaces.iter().filter(|s| s.material == self.material) {
+                batch.append(surface, scale, Some(self.definition));
+            }
+            let triangles = batch.indices.len() / 3;
+            if triangles == 0 {
+                batch.append(&nothing(self.first), scale, Some(self.definition));
+            }
+            let skin = std::mem::take(&mut batch.skin);
+            let flex = std::mem::take(&mut batch.flex);
+            let normals = batch.normals.clone();
+            let mut mesh = batch.mesh();
+            if let Some(animation) = self.animation {
+                if let Some(skeleton) = &animation.gpu {
+                    skeleton.attributes(&mut mesh, &skin);
+                }
+                mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+            }
+            Level {
+                mesh: meshes.add(mesh),
+                triangles,
+                vertices: self.flexes.then(|| Vertices {
+                    flex_base: skin.iter().map(|(p, _)| *p).collect(),
+                    bind: skin,
+                    normals,
+                    flex,
+                }),
+            }
+        };
+        (self.lods.iter())
+            .map(|lod| (lod.switch_point, level(lod, meshes)))
+            .collect()
+    }
 }
 
 type Camera<'a> = (&'a Transform, &'a Projection);

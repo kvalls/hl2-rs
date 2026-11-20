@@ -32,7 +32,7 @@ fn insert_entity_draw(
     id: usize,
     handle: &Handle<Mesh>,
     animation: Option<&AnimatedMesh>,
-    meshes: &mut Assets<Mesh>,
+    meshes: (&mut Assets<Mesh>, &mut lod::SharedLevels),
 ) {
     draw.insert(SourceEntity(id));
     let eye = cx
@@ -79,7 +79,7 @@ pub(crate) fn insert_map_draw_components(
     cx: &MapDrawContext,
     handle: &Handle<Mesh>,
     animation: Option<&AnimatedMesh>,
-    meshes: &mut Assets<Mesh>,
+    meshes: (&mut Assets<Mesh>, &mut lod::SharedLevels),
 ) {
     if matches!(cx.owner, Owner::SkyWorld)
         || cx
@@ -153,5 +153,30 @@ pub(crate) fn insert_map_draw_components(
                 draw.insert(WeaponSkin(0));
             }
         }
+    }
+}
+
+/// Where a lit model draw takes its light state: its entity (an NPC weapon is lit at its owner,
+/// bone-merged entities sharing the light state) or the viewmodel, with the model asset and
+/// scale.
+pub(crate) fn lit_target(cx: &MapDrawContext) -> (Option<usize>, String, f32) {
+    match cx.owner {
+        Owner::Entity(id) | Owner::NpcWeapon(id, _) => {
+            let instance = (cx.world.model_instances.iter()).find(|i| i.entity == Some(*id));
+            (
+                Some(*id),
+                instance.map(|i| i.asset_key()).unwrap_or_default(),
+                instance.map_or(1., |i| i.scale),
+            )
+        }
+        Owner::Weapon(weapon) => (
+            None,
+            format!(
+                "{}#0",
+                cx.loaded.gameplay.weapons[weapon].viewmodel.to_lowercase()
+            ),
+            1.,
+        ),
+        Owner::World | Owner::SkyWorld => unreachable!("lit draws are model owned"),
     }
 }

@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Map install shares LOD meshes between identical draws
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the load report times each main-thread install step (`install_monitors`, `install_draws`, `install_effects`, `install_sky`, `install_rest`; `install_ms` stays the total, now measured inside the install). Map install builds an entity draw's coarser LOD meshes once per model, material, scale and skinning and shares them between draws (`lod::SharedLevels`), unless the model's facial flexes move one of the draw's vertices: every studio vertex carries a reference to its source mesh, so every studio draw counted as flexed and built private copies. Runtime spawns keep building their own. `campaign::poll` (108 -> 104 lines) and `rendering.rs` (1341 -> 1316) shrank: the lit-draw target moved to `map_draw::lit_target`.
+- Why: `install_draws` took 430-510 ms of the main-thread install; about 200 ms of it built LOD meshes for 400-530 entity draws, most of them repeats.
+- Tested how: strict Clippy for hl2-bevy; three gameplay replays one at a time: `install_draws` 427-507 -> 326-330 ms, request to playable 1849-2015 -> 1758-1849 ms. Full `all.sh` with four games at once: build, validation, the Windows check and all 110 checks passed in 501 s (three games on the previous build: 545 s of replays, 584 s in all).
+- Still broken or not tested: facial flex faces were checked only through the existing replays (no image comparison).
+- Frame time: none (loading only; fewer duplicate meshes in memory).
+
 ## 2026-11-20 — Gib checks test the debris rules, not tick-exact removal
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
