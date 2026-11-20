@@ -340,7 +340,9 @@ mod tests {
         let weapons = pistol();
         let mut scene = Scene::new(&world);
         let mut physics = prop(Vec3::new(60., 0., 50.), 5.);
+        // With the HEV suit (without it the player always walks at 150).
         let mut inv = Inventory::default();
+        inv.suit = true;
         inv.give("weapon_pistol", &weapons, 0.);
         let eye = Vec3::Z * 64.;
         let forward = Vec3::new(1., 0., -0.2).normalize();
