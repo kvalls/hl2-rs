@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 session 68, continued: ForceNPCToActBusy teleport (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation ai/runtime/goal_inputs.rs: ForceNPCToActBusy's "teleport" token places the NPC on the named hint, facing its angles (SDK TASK_ACTBUSY_TELEPORT_TO_BUSY).
+- Why: d1_trainstation_03's drinker stopped 49 units short of hint_drinker_sit; d1_trainstation_01's trigger_watchclock uses the same token.
+- Tested how: packaged runs (artifacts/s68/drink, artifacts/s68/queue/rw.json); validation artifacts/s68/validate5.sh (v5-*: artifacts/s68/validate5.sh (v5-*): strict Clippy 0, workspace tests 1764 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed (26/26, 17/17, 26/26), replays 72 of 73 with pistol-breaks-bottle-skin4's known flake, which passes alone).
+- Result: the drinker stands on his hint at 1.35 s.
+- Still broken or not tested: the drinker never starts his busy animation (OnNPCStartedBusy missing); no unit test for the teleport (an AI-runtime fixture is needed).
+- Next: the actbusy.txt lookup of drinker_sit_idle, then the items in STATUS "Current session 68".
+
 ## 2026-11-20 session 68, continued: the cafeteria pacer's next scripts, the customs queue (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
