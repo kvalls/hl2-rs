@@ -333,13 +333,13 @@ fn init_console_ui(
         hl2_ui::console::remote::CONDEBUG_FILE
             .clone_into(&mut console_ui.source.remote.con_logfile);
     }
-    for command in &options.startup_commands {
-        console_ui.source.run_startup_command(command);
-    }
     console_ui.source.index_chapters();
     set_system_recommendation(&mut console_ui, adapter);
     request_startup_map(&mut console_ui, target);
     simulation::movie::startup_video_sequence(options, target.background, &mut console_ui);
+    console_ui
+        .source
+        .queue_startup_commands(options.startup_commands.clone());
     console_ui
 }
 

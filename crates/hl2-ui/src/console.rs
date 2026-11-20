@@ -97,6 +97,8 @@ pub struct Console {
     pub cheats: bool,
     /// What outside readers of the console use (log file).
     pub remote: remote::Remote,
+    /// Command-line `+` commands, run once the first level loaded (or failed to).
+    startup_commands: Vec<String>,
     /// Where the quit / main-menu box was dragged (centered on opening).
     quit_placement: Placement,
     /// Names arguments complete from (installed maps, the loaded map's entities), set by the host.
@@ -294,6 +296,7 @@ impl Default for Console {
             ),
             cheats: false,
             remote: remote::Remote::default(),
+            startup_commands: Vec::new(),
             quit_placement: Placement::default(),
             completion: complete::Context::default(),
             font: None,

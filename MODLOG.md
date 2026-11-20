@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Restart where the player was: `agent_resume`, `gamemenucommand`, `+commands` after the first level
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: retail `gamemenucommand <command>` runs a game menu command (`OpenOptionsDialog`, `ResumeGame`, `OpenNewGameDialog`, ...) through the same outcome code as a menu entry; retail `gameui_activate` and `gameui_hide` show and hide the pause menu. Command-line `+` commands now wait for the first level (loaded or failed), like Source's command buffer after the startup map, so menus they open stay open; the remote console starts after them, so `+rcon_password`/`+hostport` apply. `hl2-debug`'s agent link adds `agent_resume`: the launch arguments that restart at the same map, eye position, view and open windows.
+- Why: owner request: code fixes need a rebuild and restart; the restart puts the player back where they were.
+- Tested how: unit tests (game UI commands, queued startup commands keep their menus, resume arguments for game, pause and menu background); `validate.sh` passed. Packaged headless session on d1_trainstation_02: moved the player, opened the pause menu, Options and the console, restarted through the session loop; after the restart `ui_dump` showed the same map, eye, angles and windows.
+- Still broken or not tested: d1_trainstation_01's train intro moves the player regardless of `--position`; Options' open tab, sub-dialogs, scripted-sequence state and inventory are not restored (no save/load yet); windowed restart **not tested**.
+- Plugin rules read: yes; exceptions: none (`gamemenucommand`, `gameui_*` and the startup command order are retail and live in core).
+
 ## 2026-11-20 — Agent link in `hl2-debug`: `ui_dump`
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

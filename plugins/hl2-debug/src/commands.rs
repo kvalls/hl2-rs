@@ -9,6 +9,7 @@ pub enum Request {
     BackgroundBlurOpacity(u8),
     BackgroundMapFov(Option<f32>),
     UiDump,
+    AgentResume,
 }
 pub trait Host: Context {
     fn effect(request: Request) -> Self::Effect;
@@ -35,7 +36,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 6] {
+pub const fn specs<C: Host>() -> [Spec<C>; 7] {
     [
         command(
             "viewmodel_debug_mode",
@@ -72,6 +73,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 6] {
             "ui_dump: print the UI state (windows, focus, menus, map, position) as one JSON line",
             &[],
             ui_dump,
+        ),
+        command(
+            "agent_resume",
+            "agent_resume: print the launch arguments that restart at this map, view and open menus",
+            &[],
+            agent_resume,
         ),
     ]
 }
@@ -176,6 +183,14 @@ fn background_map_fov<C: Host>(
 fn ui_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
     if args.is_empty() {
         Ok(Some(C::effect(Request::UiDump)))
+    } else {
+        Err(spec.usage())
+    }
+}
+
+fn agent_resume<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    if args.is_empty() {
+        Ok(Some(C::effect(Request::AgentResume)))
     } else {
         Err(spec.usage())
     }

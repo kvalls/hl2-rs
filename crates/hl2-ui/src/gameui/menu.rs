@@ -276,7 +276,13 @@ impl GameMenu {
         if !entry.enabled {
             return MenuOutcome::Placeholder(entry.label);
         }
-        match entry.command {
+        self.run(entry.command, entry.label, loc)
+    }
+
+    /// What `command` does from this menu (an entry's, or `gamemenucommand`'s); `label` names
+    /// an unsupported one.
+    pub fn run(&mut self, command: MenuCommand, label: String, loc: &Localization) -> MenuOutcome {
+        match command {
             MenuCommand::SwitchExpansion(game) => {
                 self.set_category(&game, loc);
                 MenuOutcome::SwitchExpansion(game)
@@ -290,7 +296,7 @@ impl GameMenu {
             MenuCommand::Resume => MenuOutcome::Resume,
             MenuCommand::NewGame(game) => MenuOutcome::NewGame(game),
             MenuCommand::ReturnToMainMenu => MenuOutcome::ReturnToMainMenu,
-            _ => MenuOutcome::Placeholder(entry.label),
+            _ => MenuOutcome::Placeholder(label),
         }
     }
 }

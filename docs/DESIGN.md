@@ -39,7 +39,9 @@ Core (retail; each phase its own commit, tests in the owning crate):
    module, separate from the F1 overlay: `ui_dump` prints the UI state (windows, focus, menus,
    map, position, pause) as one JSON line that the log file and the remote console carry. The
    game is started with the retail switches (`-condebug -usercon +rcon_password ...`); the
-   watcher and the RCON client live outside the repository.
+   watcher and the RCON client live outside the repository. `agent_resume` prints the launch arguments
+   that restart into a new build at the same map, view and open menus (`--map`, `--position`,
+   `--yaw`, `--pitch`, then retail `gameui_activate`, `gamemenucommand`, `toggleconsole`).
 
 Validation: unit tests for path rules, the line cursor (including lines dropped from a full
 history), packet framing, authentication and bans, output redirection, `say`; one packaged run

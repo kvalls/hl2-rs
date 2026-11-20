@@ -98,6 +98,10 @@ fn serve(
     let Some(ui) = ui.as_deref_mut() else {
         return;
     };
+    // `+rcon_password`, `+hostport` and `+ip` run once the first level loaded.
+    if ui.source.startup_pending() {
+        return;
+    }
     if remote.is_none() && !*failed {
         match start(&ui.source.remote) {
             Ok(started) => *remote = Some(started),

@@ -54,10 +54,23 @@ impl Console {
         effects
     }
 
-    /// Runs a command-line `+` command; what it asks of the host comes with the next tick.
-    pub fn run_startup_command(&mut self, line: &str) {
-        let effects = self.execute(line);
-        self.deferred.extend(effects);
+    /// Queues the command line's `+` commands: like Source's command buffer they run after the
+    /// startup level loaded, so menus they open stay open.
+    pub fn queue_startup_commands(&mut self, commands: Vec<String>) {
+        self.startup_commands = commands;
+    }
+
+    /// Startup commands are still waiting for the first level.
+    pub fn startup_pending(&self) -> bool {
+        !self.startup_commands.is_empty()
+    }
+
+    /// Runs the queued startup commands; what they ask of the host comes with the next tick.
+    pub(super) fn run_startup_commands(&mut self) {
+        for line in std::mem::take(&mut self.startup_commands) {
+            let effects = self.execute(&line);
+            self.deferred.extend(effects);
+        }
     }
 
     /// Runs one command through its [`commands::Spec`] handler.

@@ -596,6 +596,24 @@ pub const COMMANDS: &[Spec] = &[
         video::mat_setvideomode,
     ),
     command(
+        "gamemenucommand",
+        "gamemenucommand <command>: run a game menu command (OpenOptionsDialog, ResumeGame, OpenNewGameDialog [game], ...)",
+        &[Arg::Free],
+        map::gamemenucommand,
+    ),
+    command(
+        "gameui_activate",
+        "gameui_activate: show the pause menu over the game",
+        &[],
+        map::gameui_activate,
+    ),
+    command(
+        "gameui_hide",
+        "gameui_hide: close the menus and return to the game",
+        &[],
+        map::gameui_hide,
+    ),
+    command(
         "mainmenu",
         "mainmenu: show the main menu",
         &[],
@@ -770,6 +788,7 @@ mod tests {
         let free = [
             "echo",
             "say",
+            "gamemenucommand",
             "npc_create",
             "npc_create_aimed",
             "npc_create_equipment",
@@ -803,7 +822,7 @@ mod tests {
                 Ok(Some(Effect::NpcCommand(line))) if free.contains(&spec.name) => {
                     assert!(line.starts_with(&format!("{} x", spec.name)), "{line}");
                 }
-                Ok(None) if matches!(spec.name, "echo" | "say") => {}
+                Ok(None) if matches!(spec.name, "echo" | "say" | "gamemenucommand") => {}
                 Ok(Some(Effect::PlayVideo {
                     exit_command: Some(_),
                     ..

@@ -133,3 +133,75 @@ pub(super) fn migrate_episodic_data(
     console.log("migrate_episodic_data: save data migration is not implemented in this build");
     Ok(None)
 }
+
+/// `gamemenucommand <command>`: a game menu command as a menu entry runs it.
+pub(super) fn gamemenucommand(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    if args.is_empty() {
+        return Err(spec.usage());
+    }
+    let effects = console.game_menu_command(&args.join(" "));
+    console.deferred.extend(effects);
+    Ok(None)
+}
+
+/// `gameui_activate`: shows the pause menu over a game (the main menu is already shown).
+pub(super) fn gameui_activate(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    if !args.is_empty() {
+        return Err(spec.usage());
+    }
+    if console.mode() == Mode::Gameplay && !console.background_level() {
+        console.set_mode(Mode::Pause);
+    }
+    Ok(None)
+}
+
+/// `gameui_hide`: back to the game, closing the menus (not over a menu background level).
+pub(super) fn gameui_hide(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    if !args.is_empty() {
+        return Err(spec.usage());
+    }
+    if !console.background_level() {
+        console.set_mode(Mode::Gameplay);
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod game_ui_tests {
+    use crate::console::{Console, Mode};
+
+    #[test]
+    fn game_ui_commands_open_the_pause_menu_and_options_and_close_them() {
+        let mut console = Console::default();
+        assert_eq!(console.mode(), Mode::Gameplay);
+        console.submit("gameui_activate");
+        assert_eq!(console.mode(), Mode::Pause);
+        console.submit("gamemenucommand OpenOptionsDialog");
+        assert_eq!(console.mode(), Mode::Options);
+        console.submit("gameui_hide");
+        assert_eq!(console.mode(), Mode::Gameplay);
+        console.submit("gamemenucommand OpenOptionsDialog");
+        assert_eq!(console.mode(), Mode::Options);
+    }
+
+    #[test]
+    fn startup_commands_wait_for_the_first_level_and_their_menus_stay_open() {
+        let mut console = Console::default();
+        console.queue_startup_commands(vec![
+            "gamemenucommand OpenOptionsDialog".into(),
+            "toggleconsole".into(),
+        ]);
+        assert!(console.startup_pending());
+        assert_eq!(console.mode(), Mode::Gameplay);
+        console.level_loaded(false);
+        assert!(!console.startup_pending());
+        assert_eq!(console.mode(), Mode::Console);
+        assert_eq!(
+            console.open_windows(),
+            [
+                crate::console::Window::Options,
+                crate::console::Window::Console
+            ]
+        );
+    }
+}
