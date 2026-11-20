@@ -45,6 +45,23 @@ mixing about 70 live sinks, muted or not. About one run in three hung at exit: c
 CoreAudio output waited on the device lock while the mixing callback kept it busy. Runs now end
 from their exit frame without dropping the app (`launch::exit_process`).
 
+Across tiers (2026-11-20, revision `2d7d4b75`, 1920×1080, one run each; Low and Max as the
+tier tool defines them, Default the settings' defaults; steady = last eight one-second windows):
+
+| Scene | Low | Default | Max |
+| --- | ---: | ---: | ---: |
+| Quiet plaza | 4.77 ms (210 FPS) | 5.30 ms (189 FPS) | 5.42 ms (185 FPS) |
+| Mixed crowd, fight | 18.32 ms (55 FPS) | 21.34 ms (47 FPS) | 22.10 ms (45 FPS) |
+
+Every tier is CPU-bound on the M1 Pro: Max costs little over Default. In the Default crowd the
+main thread sets the frame (fixed loop 11.1 ms, about 1.6 ticks of 6.9 ms; `PostUpdate` 9.2 ms:
+animation 3.9, eyes 1.0, shadows 0.9, model lighting 0.8, the rest Bevy's transform propagation
+and visibility); the render thread's 17 ms (render assets 7.9, render graph 5.7) run beside it.
+Open candidates: NPC hitboxes cost about 2 ms per crowd frame (pose matrices every tick and
+Rapier broad-phase updates for about 1,000 moved boxes; Source sets up bones only for entities a
+trace tests); a per-pair sight cache like Source's 90 ms one (`CBaseCombatCharacter::FVisible`)
+would save about 0.25 ms; the audio thread mixes about one core in fights.
+
 ## Shared actor bone matrices: rejected
 
 2026-11-19, revision `f2b0323f`, M1 Pro/Metal, release package, the 30-NPC station02 plaza
