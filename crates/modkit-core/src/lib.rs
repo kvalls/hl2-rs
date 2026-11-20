@@ -91,8 +91,12 @@ impl Entity {
             .find(|(k, _)| k.eq_ignore_ascii_case(key))
             .map(|(_, v)| v.as_str())
     }
+    /// The classname: the first key of a parsed map entity, otherwise found by scanning.
     pub fn class(&self) -> &str {
-        self.get("classname").unwrap_or("unknown")
+        match self.properties.first() {
+            Some((key, value)) if key.eq_ignore_ascii_case("classname") => value,
+            _ => self.get("classname").unwrap_or("unknown"),
+        }
     }
     pub fn origin(&self) -> Vec3 {
         parse_vec3(self.get("origin").unwrap_or("0 0 0")).unwrap_or(Vec3::ZERO)

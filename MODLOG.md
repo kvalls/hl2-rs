@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-20 — Cheaper entity class lookups
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: parsed map entities keep `classname` as their first key (`keyvalues::entities`; other keys keep their order) and `Entity::class` reads it there before scanning. Each tick, the touch triggers that NPCs or physics objects can fire gather their candidates once, in entity order, instead of every such trigger testing the class of every entity; trigger_hurt uses the same NPC list. The trigger-touch code moved from `Scene::tick` (192 -> 105 lines) into `entities/triggers.rs` (`touch_trigger`, `hurt_touching`, `TouchCandidates`).
+- Why: in the mixed-crowd benchmark `Entity::class` took about 7% of the fixed step, most of it in that per-trigger scan of all ~1,300 entities.
+- Tested how: modkit-core, source-assets and hl2-simulation tests; full `all.sh`: all 109 checks passed in 495 s. Two A/B pairs on the mixed crowd (load averages 4.6-6.8): fixed simulation 7.71 / 7.50 -> 7.41 / 7.00 ms, fight frame 24.38 / 24.43 -> 24.23 / 23.35 ms.
+- Frame time: lower, as above (two pairs only).
+
 ## 2026-11-20 — notarget and a mixed-NPC crowd benchmark
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
