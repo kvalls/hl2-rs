@@ -29,9 +29,8 @@ Categories:
 Environment (no arguments, so the command line never changes):
   ONLY="console options"   run these checks only
   GROUP=ui | GROUP=gameplay   run one group
-  JOBS=4                   run up to 4 checks at once, longest first (default 1), never more than
-                           fit in physical memory (GAME_MEMORY_GB per game, default 4, plus
-                           4 GB left to the system; three on 16 GB, measured fastest)
+  JOBS=4                   run 4 checks at once, longest first (without JOBS: one game per 3 CPU
+                           cores and per 4 GB of memory beyond 4 GB, three on a 10-core 16 GB Mac)
   TIMESCALE=8              gameplay replays run their ticks this many times faster (1 = real time)
   UI_TIMESCALE=4           other launches run unpaced and this many times faster, except checks
                            marked real_time (1 = real time)
@@ -42,6 +41,7 @@ Environment (no arguments, so the command line never changes):
 from __future__ import annotations
 
 import json
+import math
 import os
 import platform
 import re
@@ -67,11 +67,6 @@ GAME = OUT / "game"
 EXE = GAME / EXE_NAME
 PROFILES = REPO / "profiles"
 SETTINGS = threading.local()
-# LOADING_AT_ONCE=N (default 0, no limit) lets at most N parallel games load at once: a game holds
-# a slot from launch until its memory stops growing (its map has loaded). It lowers memory peaks
-# but queues every launch, so the suite runs slower; only total duration decides the default.
-LOADING_AT_ONCE = int(os.environ.get("LOADING_AT_ONCE", "0"))
-LOADING = threading.BoundedSemaphore(max(1, LOADING_AT_ONCE))
 # Scripts that drive single launches without run_check (and may point it elsewhere) use this.
 CONFIG = GAME / "hl2-config.json"
 
@@ -124,36 +119,6 @@ class Failure(Exception):
     pass
 
 
-def resident_mb(pid: int) -> Optional[int]:
-    """A process's resident memory in MB, or None where ps cannot tell (Windows, exited)."""
-    if SYSTEM == "Windows":
-        return None
-    done = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True)
-    return int(done.stdout) // 1024 if done.stdout.strip().isdigit() else None
-
-
-def loading_settled(samples: list[int], window: int, growth_mb: int) -> bool:
-    """Memory samples taken since launch show loading is over: the last `window` samples grew
-    by less than `growth_mb`."""
-    return len(samples) > window and samples[-1] - samples[-1 - window] < growth_mb
-
-
-def wait_until_loaded(process: subprocess.Popen, timeout: int) -> None:
-    """Returns once the game's memory stops growing (LOAD_GATE_SECONDS at most, default 30), it
-    exits, or its memory cannot be read."""
-    limit = min(timeout, float(os.environ.get("LOAD_GATE_SECONDS", "30")))
-    begin, samples = time.time(), []
-    while process.poll() is None and time.time() - begin < limit:
-        resident = resident_mb(process.pid)
-        if resident is None:
-            return
-        samples.append(resident)
-        # Six samples a quarter second apart: 1.5 s with under 32 MB growth.
-        if loading_settled(samples, 6, 32):
-            return
-        time.sleep(0.25)
-
-
 def check_unstable_counter() -> None:
     """"field.counter" ignores only that counter of a field."""
     want = {"s": {"gibs": {"spawned": 8, "removed": 8}}}
@@ -161,14 +126,6 @@ def check_unstable_counter() -> None:
                                                      {"gibs.removed"}), [])
     expect("spawned still compared",
            len(outcome_differences(want, {"s": {"gibs": {"spawned": 7, "removed": 8}}}, {"gibs.removed"})), 1)
-
-
-def check_loading_settled() -> None:
-    """The loading gate opens only once memory has stopped growing."""
-    expect("still growing", loading_settled([100, 300, 600, 900, 1200, 1500, 1800], 6, 32), False)
-    expect("flat after the load", loading_settled([900, 2000, 2400, 2410, 2415, 2420, 2425, 2430, 2431],
-                                                  6, 32), True)
-    expect("too few samples", loading_settled([100, 100], 6, 32), False)
 
 
 def game(name: str, *args: str, timeout: int = 240, background: bool = True, capture: bool = True) -> Run:
@@ -194,20 +151,11 @@ def game(name: str, *args: str, timeout: int = 240, background: bool = True, cap
                HL2RS_SETTINGS=str(config_file()))
     log_path = OUT / f"{name}.game.log"
     with log_path.open("wb") as log_file:
-        if LOADING_AT_ONCE:
-            with LOADING:
-                process = subprocess.Popen(command, cwd=REPO, env=env, stdout=log_file,
-                                           stderr=subprocess.STDOUT)
-                wait_until_loaded(process, timeout)
-        else:
-            process = subprocess.Popen(command, cwd=REPO, env=env, stdout=log_file,
-                                       stderr=subprocess.STDOUT)
         try:
-            status = process.wait(timeout=timeout)
+            status = subprocess.run(command, cwd=REPO, env=env, stdout=log_file,
+                                    stderr=subprocess.STDOUT, timeout=timeout).returncode
             timed_out = ""
         except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
             status, timed_out = -1, f"timed out after {timeout} s\n"
     log = timed_out + log_path.read_bytes().decode(errors="replace")
     log = re.sub(r"\x1b\[[0-9;]*m", "", log)
@@ -1437,19 +1385,33 @@ def gibs_add_up(run: Run) -> None:
     holds("never more gibs removed than spawned", all(r <= s for _, s, r in counts))
 
 
+def view_cosine(eye: list, yaw: float, point: list) -> float:
+    """The 2D cosine between a view at `yaw` (degrees) from `eye` and `point`, as FInViewCone
+    measures it (the player's view cone is cosine 0.766)."""
+    dx, dy = point[0] - eye[0], point[1] - eye[1]
+    length = math.hypot(dx, dy) or 1.
+    return (dx * math.cos(math.radians(yaw)) + dy * math.sin(math.radians(yaw))) / length
+
+
 def check_pallet_gibs_fade(run: Run) -> None:
     """A thrown pallet's gibs are debris (SUB_StartFadeOut / SUB_FadeOut): they never vanish while
-    the player looks at them, wait out their fade delay, then all fade once out of view. Each rule
-    has seconds of margin, so frame timing under load cannot flip it."""
+    the player looks at them, outlast their fade delay, and fade once out of view; one that lands
+    in view stays. Where gibs land varies between runs, so each rule allows for that."""
     counts = gib_counts(run)
     labels = [label for label, _, _ in counts]
     away = labels.index("away")  # the camera turns away from the gibs at tick 100
     spawned = {s for _, s, _ in counts if s}
     expect("the pallet breaks into one stable set of gibs", spawned, {7})
     holds("no gib vanishes while in view", all(r == 0 for _, _, r in counts[:away + 1]))
-    holds("no gib fades before its fade delay (3 s in)",
+    holds("no gib is gone 3 s after the break (fade delay and fade take longer)",
           dict((label, r) for label, _, r in counts)["s200"] == 0)
-    holds("every gib is gone by the end (debris never piles up)", counts[-1][2] == counts[-1][1] == 7)
+    steps = json.loads((REPO / "test-inputs" / "bevy-pallet-gibs-fade.json").read_text(encoding="utf-8"))
+    eye = next(s["eye"] for s in steps if "eye" in s)
+    yaw = [s["yaw"] for s in steps if "yaw" in s][-1]
+    last = run.report["render"]["simulation"]["samples"][-1]["gameplay"]["gibs"]["active"]
+    # Gib origins stand in for their centers: below cosine 0.6 a gib is clearly out of view.
+    lingering = [g["id"] for g in last if view_cosine(eye, yaw, g["position"]) < 0.6]
+    holds("every gib out of view is gone by the end (debris never piles up)", not lingering, lingering)
 
 
 def check_door_swing(run: Run) -> None:
@@ -1595,10 +1557,10 @@ EXPECTED = REPO / "test-inputs" / "expected"
 # Fields that differ between two runs of the same build, by fixture (left out of the comparison).
 # "field.counter" leaves out one counter of a field and keeps the rest.
 UNSTABLE = {
-    # Tick-exact gib removal shifts with frame timing under load; the gib rules are checked instead
-    # (check_pallet_gibs_fade, gibs_add_up).
+    # Where gibs land, and so when they fade and what the aim ray meets, varies between runs; the
+    # gib rules are checked instead (check_pallet_gibs_fade, gibs_add_up).
     "bevy-monitors-kleiner-scene": {"gibs.removed"},
-    "bevy-pallet-gibs-fade": {"hits", "gibs.removed"},
+    "bevy-pallet-gibs-fade": {"hits", "ray", "gibs.removed"},
     "bevy-pallet-launched-into-wall": {"hits", "ray"},
     "bevy-pallet-tips-off-plaza-cop": {"ray"},
 }
@@ -1773,8 +1735,12 @@ def check_no_border():
 
 
 GIB = 1 << 30
-# Memory left to the operating system and the user's own applications while replays run.
+# Without JOBS, as many games as the machine runs well: one per CORES_PER_GAME logical cores and
+# per GAME_MEMORY beyond MEMORY_RESERVE (left to the system and the user's applications). On one
+# build on a 10-core 16 GB Mac all checks took 444 s with three games and 491 s with four.
 MEMORY_RESERVE = 4 * GIB
+GAME_MEMORY = 4 * GIB
+CORES_PER_GAME = 3
 
 
 def physical_memory() -> Optional[int]:
@@ -1798,22 +1764,23 @@ def physical_memory() -> Optional[int]:
     return None
 
 
-def parallel_jobs(requested: int, memory: Optional[int], per_game: int) -> int:
-    """Gameplay replays to run at once: `requested`, but no more games than fit in `memory`
-    beside MEMORY_RESERVE; unknown memory keeps `requested`. Games load maps at different
-    times, so they share memory: on 16 GB three games (4 GB each) finished sooner than two,
-    and four slower than three. Only the total duration decides the default."""
-    if memory is None or per_game <= 0:
+def parallel_jobs(requested: Optional[int], memory: Optional[int], cores: Optional[int]) -> int:
+    """Checks to run at once: JOBS as given, otherwise one game per CORES_PER_GAME cores and per
+    GAME_MEMORY beyond MEMORY_RESERVE; memory the platform does not report does not limit it."""
+    if requested is not None:
         return max(1, requested)
-    return max(1, min(requested, (memory - MEMORY_RESERVE) // per_game))
+    by_cores = (cores or CORES_PER_GAME) // CORES_PER_GAME
+    by_memory = (memory - MEMORY_RESERVE) // GAME_MEMORY if memory else by_cores
+    return max(1, min(by_cores, by_memory))
 
 
 def check_parallel_jobs() -> None:
-    """The JOBS cap keeps parallel games within physical memory."""
-    expect("16 GB fits two 6 GB games", parallel_jobs(4, 16 * GIB, 6 * GIB), 2)
-    expect("64 GB keeps the requested four", parallel_jobs(4, 64 * GIB, 6 * GIB), 4)
-    expect("too little memory still runs one", parallel_jobs(4, 4 * GIB, 6 * GIB), 1)
-    expect("unknown memory keeps the request", parallel_jobs(3, None, 6 * GIB), 3)
+    """JOBS as given; otherwise what the machine's cores and memory run well."""
+    expect("JOBS is used as given", parallel_jobs(6, 16 * GIB, 10), 6)
+    expect("a 10-core 16 GB machine runs three", parallel_jobs(None, 16 * GIB, 10), 3)
+    expect("cores limit a large-memory machine", parallel_jobs(None, 64 * GIB, 10), 3)
+    expect("memory limits a small machine", parallel_jobs(None, 8 * GIB, 10), 1)
+    expect("unknown memory: cores alone", parallel_jobs(None, None, 12), 4)
     holds("this machine reports its memory", (physical_memory() or 0) > 0, physical_memory())
 
 
@@ -1868,7 +1835,6 @@ CHECKS = [
     Check("no_border", check_no_border, "windows"),
     Check("coverage", check_coverage, "shared", "gameplay"),
     Check("parallel_jobs", check_parallel_jobs, "shared", "gameplay"),
-    Check("loading_settled", check_loading_settled, "shared", "gameplay"),
     Check("unstable_counter", check_unstable_counter, "shared", "gameplay"),
     *(Check(f[len("bevy-"):], gameplay_check(f), "shared", "gameplay") for f in sorted(GAMEPLAY_MAPS)),
 ]
@@ -1978,13 +1944,9 @@ def main() -> int:
             previous = {}
         shared = sorted(checks,
                         key=lambda c: previous.get(c.name, 0.), reverse=True)
-        requested = max(1, int(os.environ.get("JOBS", "1")))
-        jobs = parallel_jobs(requested, physical_memory(),
-                             int(float(os.environ.get("GAME_MEMORY_GB", "4")) * GIB))
-        if jobs < requested:
-            print(f"JOBS={requested} capped to {jobs}: each game takes up to "
-                  f"{os.environ.get('GAME_MEMORY_GB', '4')} GB and this machine has "
-                  f"{physical_memory() / GIB:.0f} GB")
+        setting = os.environ.get("JOBS")
+        jobs = parallel_jobs(int(setting) if setting else None, physical_memory(), os.cpu_count())
+        print(f"{jobs} checks at once ({f'JOBS={setting}' if setting else 'by cores and memory'})")
         with ThreadPoolExecutor(jobs) as pool:
             ran = list(zip(shared, pool.map(lambda c: run_check(c, output), shared)))
         results = [result for _, result in ran]

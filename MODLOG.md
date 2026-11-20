@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — JOBS is the replay suite's only parallelism setting
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `replays.py` runs `JOBS` checks at once as given; without `JOBS`, one game per 3 CPU cores and per 4 GB of memory beyond a 4 GB reserve (three on a 10-core 16 GB Mac), so `all.sh` no longer sets it. Removed `GAME_MEMORY_GB` (it capped an explicit `JOBS`) and the `LOADING_AT_ONCE` gate with its memory polling and `loading_settled` check (one game loading at a time queued every launch: 722 s against 537 s). Launches use `subprocess.run` with output streamed to the game log. `pallet-gibs-fade` checks where its gibs end: a gib clearly outside the player's view cone (FInViewCone, from the fixture's eye and yaw) must be gone by the end, one in view may stay; `ray` joins `hits` among its fields that vary between runs.
+- Why: the owner asked for one setting instead of overlapping ones. In a three-game run one pallet gib flew east and landed in view at tick 100, so it correctly never faded and the aim ray met it; the old "all gone" rule assumed every gib lands behind the player.
+- Tested how: on one build, full `all.sh` with four games 491 s (all passed) and with three games 444 s (one failure, the pallet gib that landed in view; its report passes the new rule); the gib checks and self-tests passed twice with the default; final `all.sh` with no settings (three games): build, validation, the Windows check and all 109 checks passed in 451 s.
+- Still broken or not tested: why pallet gibs land differently between runs is not found (the pallet fixtures already left `hits` and `ray` out for the same reason).
+- Frame time: none (checks only).
+
 ## 2026-11-20 — Map install shares LOD meshes between identical draws
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

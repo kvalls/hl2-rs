@@ -1661,12 +1661,13 @@ four times as fast, each covering the game time of a 60 fps frame, capped so a f
 starves the one beside it. Checks marked `real_time` (countdowns, frame-timed blur, sway and HUD
 sampling) never fast-forward; mark a new check that measures real time the same way.
 Environment instead of arguments: `ONLY="console movement"` runs those checks, `GROUP=ui` or
-`GROUP=gameplay` one group, `JOBS=3` up to three checks at once (never more games than fit in
-physical memory: `GAME_MEMORY_GB` per game, default 4, plus 4 GB for the system, so a 16 GB
-machine runs three; the `parallel_jobs` check covers the rule; `LOADING_AT_ONCE=N` lets only N
-games load a map at once, which lowers memory peaks but queues every launch), `WINDOWED=1` adds the
-windowed ones of this platform, `NO_BUILD=1` keeps `bin/` as it is, `UPDATE_EXPECTED=1` records the
-gameplay outcomes (below).
+`GROUP=gameplay` one group, `JOBS=4` four checks at once (without `JOBS`: one game per 3 CPU cores
+and per 4 GB of memory beyond 4 GB for the system, three on a 10-core 16 GB Mac, where all checks
+took 444 s with three games and 491 s with four on one build (2026-11-20; two games took 696 s on
+an earlier one; letting only one game load a map at a time queued every launch); the
+`parallel_jobs` check covers the rule),
+`WINDOWED=1` adds the windowed ones of this platform, `NO_BUILD=1` keeps `bin/` as it is,
+`UPDATE_EXPECTED=1` records the gameplay outcomes (below).
 
 UI group: the labelled UI states (console mode and output, the Options dialog's tab / focused
 control / pending changes / sub-dialog), loaded maps, saved settings and captures.
