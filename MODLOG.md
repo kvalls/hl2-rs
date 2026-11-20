@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 — Index the world triangles a bullet decal can reach
+
+- Agent/model: Claude Code desktop (`claude-opus-5-5`) implemented the index, equivalence sweep and first A/B. Codex desktop (GPT-6 family) finished the batch-layout check, projection bounds, map-load diagnostics, measurements and validation.
+- Changed: static-world impacts query a tree of triangle boxes before the existing receiver, clip and lightmap tests. Candidates retain surface and triangle order. Model and posed geometry keep their original search.
+- Why: profiles of the 65-NPC mixed fight found repeated clipping against distant geometry. All six final launches produced 319 world marks, 368 studio marks and 17 unclippable hits.
+- Frame time: three alternating 1080p M1 Pro/Metal pairs against `a88dadd0`: median 20.68 → 18.51 ms (48.3 → 54.0 FPS), fixed simulation 6.57 → 5.40 ms. Station02 builds the index once in 20.5 ms and holds 15.16 MiB of index payload. Full pair and load data in docs/performance-research.md.
+- Tested how: `cargo test -p hl2-simulation impacts:: --locked -- --include-ignored` (9 passed, including the owned map and door), `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and `NO_BUILD=1 python3 -u scripts/checks/replays.py` on the final release package (109/109). Frozen 1080p door and stone-wall marks retained their visible placement and shape.
+- Result: the core index passed its first packaged batch. An intermediate load-report change failed Clippy compilation because the simulation crate did not link the JSON serializer. Returning a typed serializable report fixed both host and Windows checks without a dependency change.
+- Not tested: Windows GPU runtime and ordinary campaign play. Next profiling candidate from the crowd session is NPC hitbox posing.
+
 ## 2026-11-20 — NPC hitboxes kept out of the physics broad phase
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

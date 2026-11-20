@@ -1,5 +1,15 @@
 # STATUS
 
+## Mixed-crowd bullet decals (2026-11-20)
+
+Station02's 65-NPC fight measured 20.68 → 18.51 ms per frame in three alternating
+release-package pairs after indexing static decal triangles. The index took 20.5 ms
+to build and held 15.16 MiB of live data. Indexed and exhaustive receiver selection,
+clipped positions and UVs, and light samples agreed in the synthetic geometry sweep.
+Owned station02 and door tests, workspace validation, Windows cross-target Clippy, and all
+109 shared packaged replays passed. See docs/performance-research.md for raw pairs,
+map-load costs and reproduction. Windows gameplay is **not tested** for this change.
+
 ## Upstream integration and crowd measurements (2026-11-19)
 
 Merge `51646bbc` retains the performance branch's authored bench animations and upstream's general script conditions and hint outputs. The station01 luggage replay matched all five checkpoints. The complete pre-merge and merged batches exposed known variations in pallet break timing and Kleiner gib removal respectively. Both passed isolated reruns.

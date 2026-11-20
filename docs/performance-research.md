@@ -1,5 +1,44 @@
 # Performance research and implementation results
 
+## Indexed bullet decals in a mixed crowd (2026-11-20)
+
+The station02 mixed-crowd fight spends fixed-step time finding the surface under a shot
+and clipping its mark. Static surfaces are batched by material across the map. Indexing
+their triangles narrows the search while preserving the original triangle order for
+receiver selection, UVs, and lightmap samples. Brush models and posed actors keep their
+local-space search.
+
+M1 Pro/Metal, release, 1920×1080, `profiles/test.json`, 65 NPCs. Three alternating pairs
+compared the package at `a88dadd0` with the final index. Frame time is elapsed time divided
+by frames in the last eight one-second windows. The fixed-step column is the profiler's
+whole-run stage mean.
+
+| Pair | Fight frame, original → indexed (ms) | Frame-time reduction | Fixed step, original → indexed (ms) |
+| --- | ---: | ---: | ---: |
+| 1 | 20.774 → 18.672 | 10.1% | 6.575 → 5.349 |
+| 2 (reverse launch order) | 20.638 → 18.508 | 10.3% | 6.871 → 5.398 |
+| 3 | 20.683 → 18.274 | 11.6% | 6.482 → 5.449 |
+
+The medians were 48.3 → 54.0 FPS and 6.575 → 5.398 ms for fixed simulation. An earlier
+three-pair run on the first index implementation measured 21.034 → 18.799 ms. All six
+final runs reached the script endpoint with 319 world marks created, 256 active, 17
+unclippable hits, 368 studio marks, observed GPU completions and zero reported pose or
+GPU completion errors.
+
+Station02 indexed 148,720 triangles. Median construction took 20.5 ms (20.2–21.0).
+The triangle records, surface counts, tree nodes and proxies occupied 15.16 MiB of live
+data, excluding spare allocation capacity and construction scratch. Gameplay preparation
+rose from 251.9 to 277.3 ms. Total request-to-installed time was 1844.1 → 1854.3 ms.
+Median peak process RSS was 5.87 → 5.79 GB across the full launches. That process-wide
+measurement varies independently of the index's own storage. Map reports expose the
+triangle count, payload size and build time under `decal_index`.
+
+Reproduce with the same release package flags `--map d1_trainstation_02 --background
+--no-setup --mute --width 1920 --height 1080 --uncapped --profile --movement-script
+test-inputs/performance-research/mixed-crowd.json` and a separate report for each run.
+Frozen captures of a pistol mark on the station door and an adjacent stone wall showed
+the same visible placement and shape at 1080p.
+
 ## GPU shadow silhouettes become the default
 
 2026-11-19, owner decision. Visual fidelity is judged as a player sees normal play at native

@@ -27,46 +27,10 @@ fn receiver_gap(hit: &RayHit, world: &World, physics: &Physics, scale: f32) -> f
         0.
     }
 }
-fn receiver(
-    surfaces: &[Surface],
-    center: GVec3,
-    normal: GVec3,
-    gap: f32,
-) -> Option<(&Surface, GVec3)> {
-    if let Some(surface) = surfaces
-        .iter()
-        .find(|s| decals::touches(s, center, normal, 0.15))
-    {
-        return Some((surface, center));
-    }
-    if gap <= 0. {
-        return None;
-    }
-    let mut nearest = None;
-    let mut distance = gap;
-    for surface in surfaces.iter().filter(|s| !s.background) {
-        for triangle in surface.indices.as_chunks::<3>().0 {
-            let p = triangle.map(|i| surface.vertices[i as usize].position);
-            let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
-            let facing = normal.dot(n);
-            if facing.abs() < 0.85 {
-                continue;
-            }
-            let offset = (p[0] - center).dot(n) / facing;
-            if offset.abs() >= distance {
-                continue;
-            }
-            let projected = center + normal * offset;
-            if decals::touches(surface, projected, normal, 0.15) {
-                nearest = Some((surface, projected));
-                distance = offset.abs();
-            }
-        }
-    }
-    nearest
-}
 struct Located<'a> {
     surfaces: std::borrow::Cow<'a, [Surface]>,
+    /// The surfaces are the static world's, which `Impacts::world_index` covers.
+    indexed: bool,
     center: GVec3,
     normal: GVec3,
     scale: f32,
@@ -104,6 +68,7 @@ pub struct StudioDecal {
     pub angle: f32,
 }
 mod npc;
+mod surface_index;
 pub use npc::RICOCHET_SOUND;
 /// The surface of a model that names none; most HL2 humans and Combine name this one.
 const FLESH: &str = "flesh";
@@ -149,6 +114,8 @@ pub struct Impacts {
     pub studio_created: usize,
     /// World decal -> its `$modelmaterial` (drawn on models instead).
     model_materials: HashMap<String, String>,
+    /// The static world's triangles by box, so a mark tests only those it can reach.
+    world_index: Option<surface_index::SurfaceIndex>,
 }
 /// The display brightness of the baked light at `point` (1 on a map without light data): the
 /// lighting half of GetColorForSurface.
@@ -232,6 +199,7 @@ impl Impacts {
                 .map(|s| s.surfaceprop.clone())
                 .chain(world.model_surfaceprops.values().cloned())
                 .collect(),
+            world_index: Some(surface_index::SurfaceIndex::new(&world.surfaces)),
             ..Default::default()
         };
         for surface in world
@@ -408,7 +376,11 @@ impl Impacts {
         let center = rotation.inverse() * (hit.position - origin) / scale;
         let normal = rotation.inverse() * hit.normal;
         let gap = receiver_gap(hit, world, physics, scale);
-        let Some((receiver, center)) = receiver(surfaces_ref, center, normal, gap) else {
+        let index = (self.world_index.as_ref()).filter(|index| {
+            posed.is_none() && std::ptr::eq(surfaces, &world.surfaces[..]) && index.covers(surfaces)
+        });
+        let located = surface_index::receiver(surfaces_ref, index, center, normal, gap);
+        let Some((receiver, center)) = located else {
             return Err(true);
         };
         let prop = self.hit_prop(hit, physics, &receiver.material);
@@ -418,6 +390,7 @@ impl Impacts {
         };
         Ok(Located {
             surfaces,
+            indexed: index.is_some(),
             center,
             normal,
             scale,
@@ -778,12 +751,14 @@ impl Impacts {
     fn place_decal(&mut self, hit: &RayHit, material: &str, world: &World, located: Located) {
         let Located {
             surfaces,
+            indexed,
             center,
             normal,
             scale,
             ..
         } = located;
         let surfaces = &surfaces[..];
+        let index = self.world_index.as_ref().filter(|_| indexed);
         let Some(texture) = self.textures.get(material) else {
             return;
         };
@@ -792,7 +767,7 @@ impl Impacts {
         // (DecalBaseTimesLightmapAlphaBlend): sample it at the hit; the leaf ambient
         // cube stands in where the surface has no lightmap (models).
         let tint = if texture.translucent {
-            lightmap_light(world, surfaces, center, normal)
+            surface_index::lightmap_light(world, surfaces, index, center, normal)
                 .or_else(|| {
                     world.lighting.as_ref().map(|lighting| {
                         let n = normal.normalize_or_zero();
@@ -805,10 +780,10 @@ impl Impacts {
         } else {
             [1.; 3]
         };
-        let vertices = decals::project(
+        let vertices = surface_index::project(
             surfaces,
-            center,
-            normal,
+            index,
+            (center, normal),
             f32::from(texture.image.width) * factor * 0.5 / scale,
             (self.created as f32 * 2.399963).rem_euclid(std::f32::consts::TAU),
         );
@@ -931,65 +906,6 @@ fn material_shader(vfs: &Vfs, material: &str) -> Option<String> {
         material = root.get("include")?.text()?.to_owned();
     }
     None
-}
-/// Baked light (linear) at `point` on the lightmapped face of `surfaces` it lies on.
-fn lightmap_light(
-    world: &World,
-    surfaces: &[Surface],
-    point: GVec3,
-    normal: GVec3,
-) -> Option<GVec3> {
-    let normal = normal.normalize_or_zero();
-    for surface in surfaces.iter().filter(|s| !s.background) {
-        let Some(lightmap) = surface.lightmap.and_then(|i| world.lightmaps.get(i)) else {
-            continue;
-        };
-        for tri in surface.indices.as_chunks::<3>().0 {
-            let v = [0, 1, 2].map(|k| &surface.vertices[tri[k] as usize]);
-            let (a, b, c) = (v[0].position, v[1].position, v[2].position);
-            let n = (b - a).cross(c - a);
-            if n.length_squared() < 1e-8
-                || n.normalize().dot(normal).abs() < 0.85
-                || (point - a).dot(n.normalize()).abs() > 1.
-            {
-                continue;
-            }
-            // Barycentric coordinates of the point projected onto the triangle.
-            let (e0, e1, e2) = (b - a, c - a, point - a);
-            let (d00, d01, d11) = (e0.dot(e0), e0.dot(e1), e1.dot(e1));
-            let (d20, d21) = (e2.dot(e0), e2.dot(e1));
-            let denom = d00 * d11 - d01 * d01;
-            if denom.abs() < 1e-8 {
-                continue;
-            }
-            let w1 = (d11 * d20 - d01 * d21) / denom;
-            let w2 = (d00 * d21 - d01 * d20) / denom;
-            let w0 = 1. - w1 - w2;
-            if w0 < -0.01 || w1 < -0.01 || w2 < -0.01 {
-                continue;
-            }
-            let uv = v[0].light_uv * w0 + v[1].light_uv * w1 + v[2].light_uv * w2;
-            let x =
-                ((uv.x * f32::from(lightmap.width)) as usize).min(usize::from(lightmap.width) - 1);
-            let y = ((uv.y * f32::from(lightmap.height)) as usize)
-                .min(usize::from(lightmap.height) - 1);
-            let texel = (y * usize::from(lightmap.width) + x) * 4;
-            let rgb = lightmap.rgba.get(texel..texel + 3)?;
-            return Some(GVec3::new(half(rgb[0]), half(rgb[1]), half(rgb[2])));
-        }
-    }
-    None
-}
-/// IEEE half-float bits to f32.
-fn half(bits: u16) -> f32 {
-    let sign = if bits & 0x8000 != 0 { -1. } else { 1. };
-    let exponent = i32::from((bits >> 10) & 0x1f);
-    let mantissa = f32::from(bits & 0x3ff);
-    sign * match exponent {
-        0 => mantissa * 2f32.powi(-24),
-        31 => f32::INFINITY,
-        e => (1. + mantissa / 1024.) * 2f32.powi(e - 15),
-    }
 }
 #[cfg(test)]
 mod tests {
@@ -1160,12 +1076,22 @@ mod tests {
             v.position.z = -1.;
         }
         world.surfaces.insert(0, far);
-        let (surface, center) = receiver(&world.surfaces, GVec3::Z, GVec3::Z, 1.5).unwrap();
+        let (surface, center) =
+            surface_index::receiver(&world.surfaces, None, GVec3::Z, GVec3::Z, 1.5).unwrap();
         assert_eq!(surface.vertices[0].position.z, 0.);
         assert_eq!(center, GVec3::ZERO);
-        assert!(receiver(&world.surfaces, GVec3::Z * 2., GVec3::Z, 1.5).is_none());
-        assert!(receiver(&world.surfaces, GVec3::new(100., 0., 1.), GVec3::Z, 1.5).is_none());
-        assert!(receiver(&world.surfaces, GVec3::Z, GVec3::Z, 0.).is_none());
+        assert!(
+            surface_index::receiver(&world.surfaces, None, GVec3::Z * 2., GVec3::Z, 1.5).is_none()
+        );
+        assert!(surface_index::receiver(
+            &world.surfaces,
+            None,
+            GVec3::new(100., 0., 1.),
+            GVec3::Z,
+            1.5
+        )
+        .is_none());
+        assert!(surface_index::receiver(&world.surfaces, None, GVec3::Z, GVec3::Z, 0.).is_none());
     }
     #[test]
     #[ignore = "requires owned installed HL2"]

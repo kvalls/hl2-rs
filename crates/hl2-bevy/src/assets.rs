@@ -81,7 +81,7 @@ pub fn map_metadata(loaded: &LoadedMap) -> serde_json::Value {
                 .map(|(k, i)| (k.clone(), i.rgba.len()))
         })
         .collect();
-    serde_json::json!({"loading_ms":loaded.load_timings,"map":loaded.world.name,"bsp_revision":loaded.revision,"models":loaded.models,"texture_errors":loaded.texture_errors,"asset_warnings":loaded.world.warnings,
+    serde_json::json!({"loading_ms":loaded.load_timings,"decal_index":loaded.gameplay.impacts.decal_index_report(),"map":loaded.world.name,"bsp_revision":loaded.revision,"models":loaded.models,"texture_errors":loaded.texture_errors,"asset_warnings":loaded.world.warnings,
         "spawn_sky_visibility":format!("{:?}",loaded.bsp.sky_visibility(loaded.world.spawn().0)),
         "textures":{"source_materials":loaded.materials.len(),"unique_base_textures":unique.len(),"decoded_base_bytes":unique.values().sum::<usize>(),"decoded_base_budget":512*1024*1024,
             "owned_eye_dx8_fallbacks":loaded.materials.iter().filter(|(_,m)|m.eye_fallback).map(|(n,_)|n).collect::<Vec<_>>()}})
