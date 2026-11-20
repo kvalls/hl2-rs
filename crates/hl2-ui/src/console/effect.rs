@@ -5,8 +5,6 @@ pub enum Effect {
     /// An opaque contribution event, interpreted by an application-installed handler.
     Extension(serde_json::Value),
     Loadout,
-    /// ai_enable: None toggles.
-    AiEnable(Option<bool>),
     /// ai_disable (CC_AI_Disable): toggle the AI, Source's messages.
     AiDisable,
     /// notarget (CC_Notarget_f): toggle whether NPCs sense the player, Source's messages.

@@ -111,3 +111,21 @@ fn viewmodel_debug_name_is_registered_and_old_mode_name_is_not() {
     assert!(names.contains(&"viewmodel_debug_mode"));
     assert!(!names.contains(&"viewmodel_tweak_mode"));
 }
+
+#[test]
+fn ai_enable_comes_from_the_debug_plugin() {
+    let mut console = console();
+    assert_eq!(
+        console.submit("ai_enable 0"),
+        vec![effect(Request::AiEnable(Some(false)))]
+    );
+    assert_eq!(
+        console.submit("ai_enable"),
+        vec![effect(Request::AiEnable(None))]
+    );
+    assert!(console.submit("ai_enable 2").is_empty());
+    assert!(
+        Console::default().submit("ai_enable 0").is_empty(),
+        "core has no ai_enable"
+    );
+}

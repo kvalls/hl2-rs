@@ -156,7 +156,7 @@ impl Options {
             // 0 = no limit.
             "--max-edicts" => hl2_simulation::ai::spawn::MAX_EDICTS
                 .store(next()?.parse()?, std::sync::atomic::Ordering::Relaxed),
-            // Step 14 AI think loop (default on like Source's ai_disabled 0; console ai_enable).
+            // Step 14 AI think loop (default on like Source's ai_disabled 0; console ai_disable).
             "--ai" => gameplay::AI_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed),
             "--no-ai" => gameplay::AI_ENABLED.store(false, std::sync::atomic::Ordering::Relaxed),
             "--tonemap-scale" => {

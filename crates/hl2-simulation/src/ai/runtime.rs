@@ -2,7 +2,7 @@
 //! GatherConditions (sight of the player and hated NPCs, hearing, enemy memory and
 //! COND_NEW_ENEMY/SEE_ENEMY/ENEMY_OCCLUDED/LOST_ENEMY), SelectIdealState and
 //! MaintainSchedule through the class behavior. Switched by `enabled` (the host's
-//! `ai_enable`, on by default like Source's ai_disabled 0). NPCs owned by a
+//! `ai_disable`, on by default like Source's ai_disabled 0). NPCs owned by a
 //! scripted_sequence or a choreographed scene are NPC_STATE_SCRIPT and the AI leaves
 //! them alone. Simplified from the SDK: every NPC thinks every 0.1 s (no PVS/efficiency
 //! throttling, no think staggering). Class layers: npc_metropolice and the humanoids
@@ -372,7 +372,7 @@ pub struct Diagnostics {
 }
 #[derive(Serialize)]
 pub struct AiRuntime {
-    /// The `ai_enable` switch (the host turns it on by default, like Source).
+    /// The AI switch (`ai_disable`; the host turns it on by default, like Source).
     pub enabled: bool,
     #[serde(skip)]
     schedules: Schedules,

@@ -117,6 +117,15 @@ impl RuntimeExtension for State {
             crate::commands::Request::AgentResume => {
                 super::agent::agent_resume(context.simulation, ui)
             }
+            crate::commands::Request::AiEnable(value) => {
+                if let Some(game) = context.gameplay.as_deref_mut() {
+                    let on = hl2_bevy::simulation::set_ai_enabled(
+                        game,
+                        value.unwrap_or(!game.ai.enabled),
+                    );
+                    ui.source.log(format!("ai_enable {}", u8::from(on)));
+                }
+            }
             other => self.apply_background_debug_effect(context.simulation, ui, other),
         }
         true

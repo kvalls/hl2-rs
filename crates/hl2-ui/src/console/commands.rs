@@ -268,12 +268,6 @@ pub const COMMANDS: &[Spec] = &[
         cheats::notarget,
     ),
     command(
-        "ai_enable",
-        "ai_enable [0|1]: switch the NPC AI think loop (ours, default 1; Source uses ai_disable)",
-        BOOLEAN,
-        cheats::ai_enable,
-    ),
-    command(
         "clear",
         "clear: clear console output",
         &[],

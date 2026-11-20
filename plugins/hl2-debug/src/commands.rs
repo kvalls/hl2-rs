@@ -10,6 +10,7 @@ pub enum Request {
     BackgroundMapFov(Option<f32>),
     UiDump,
     AgentResume,
+    AiEnable(Option<bool>),
 }
 pub trait Host: Context {
     fn effect(request: Request) -> Self::Effect;
@@ -36,7 +37,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 7] {
+pub const fn specs<C: Host>() -> [Spec<C>; 8] {
     [
         command(
             "viewmodel_debug_mode",
@@ -79,6 +80,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 7] {
             "agent_resume: print the launch arguments that restart at this map, view and open menus",
             &[],
             agent_resume,
+        ),
+        command(
+            "ai_enable",
+            "ai_enable [0|1]: switch the NPC AI think loop explicitly (toggles without an argument; retail has only ai_disable)",
+            &[Arg::Values(&["0", "1"])],
+            ai_enable,
         ),
     ]
 }
@@ -194,6 +201,15 @@ fn agent_resume<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> O
     } else {
         Err(spec.usage())
     }
+}
+
+fn ai_enable<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    let value = match args {
+        [] => None,
+        [value] => Some(boolean(value).ok_or_else(|| spec.usage())?),
+        _ => return Err(spec.usage()),
+    };
+    Ok(Some(C::effect(Request::AiEnable(value))))
 }
 
 impl Host for hl2_ui::console::Console {

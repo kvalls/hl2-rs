@@ -101,15 +101,6 @@ fn cheat_toggle(console: &mut Console, spec: &Spec, args: &[String], effect: Eff
     Ok(Some(effect))
 }
 
-pub(super) fn ai_enable(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
-    let value = match args {
-        [] => None,
-        [value] => Some(boolean(value).ok_or_else(|| spec.usage())?),
-        _ => return Err(spec.usage()),
-    };
-    Ok(Some(Effect::AiEnable(value)))
-}
-
 pub(super) fn getpos(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());

@@ -117,7 +117,7 @@ impl Action {
         }
     }
 }
-/// The `ai_enable` switch across map loads: on like Source (ai_disabled 0); `--no-ai`
+/// The NPC AI switch (`ai_disable`) across map loads: on like Source (ai_disabled 0); `--no-ai`
 /// turns it off at startup, the console and the F4 overlay switch it.
 pub static AI_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 #[derive(Resource)]
@@ -163,7 +163,7 @@ pub struct Gameplay {
     skill: u32,
     /// The installed `cfg/skill.cfg`, kept to re-evaluate skill-dependent values.
     skill_config: Option<String>,
-    /// Step 14 NPC AI (on unless `--no-ai` / `ai_enable 0`).
+    /// Step 14 NPC AI (on unless `--no-ai` or `ai_disable`).
     pub ai: hl2_simulation::ai::runtime::AiRuntime,
     /// Velocity impulses on the player from NPC hits (ApplyAbsVelocityImpulse), applied
     /// before the next player move.

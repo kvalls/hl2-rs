@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-20 — `ai_enable` moves to `hl2-debug`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `ai_enable [0|1]` is not a retail command (retail has only the `ai_disable` toggle, which stays in core), so it left core (command, handler, `Effect::AiEnable`) for the `hl2-debug` plugin. Core keeps the AI switch as `simulation::set_ai_enabled`, used by `ai_disable`, `--no-ai` and the plugin.
+- Why: owner decision: non-retail console commands live in `hl2-debug`.
+- Tested how: plugin test (the command and its request; a console without the plugin refuses it); `validate.sh` passed.
+- Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-20 — F1 overlay stays on across runs
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
