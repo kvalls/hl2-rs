@@ -446,11 +446,11 @@ mod hitbox_bone_tests {
 
     #[test]
     #[ignore = "requires owned installed HL2"]
-    fn owned_hitbox_bones_pose_exactly_like_the_whole_skeleton() {
+    fn owned_hitbox_and_attachment_bones_pose_like_the_whole_skeleton() {
         let game = source_assets::install::discover().unwrap();
         let vfs = source_assets::vpk::Vfs::mount(&game).unwrap();
         let layers = GestureLayers::default();
-        let mut compared = 0;
+        let (mut compared, mut attached) = (0, 0);
         for model in [
             "models/humans/group01/male_07.mdl",
             "models/police.mdl",
@@ -486,9 +486,23 @@ mod hitbox_bone_tests {
                         );
                         compared += 1;
                     }
+                    // Attachments (eyes, muzzles, parenting) from their own bone chain.
+                    for attachment in &rig.attachments {
+                        let chain = rig.bone_chains([attachment.bone]);
+                        let some = Some(chain.as_slice());
+                        let part = layers.compose_blended_of(&rig, 0, base, &params, &fades, some);
+                        let frame = |m: &[Mat4]| rig.attachment_matrix(m, attachment);
+                        assert_eq!(
+                            frame(&full.0),
+                            frame(&part.0),
+                            "{model} {}",
+                            attachment.name
+                        );
+                        attached += 1;
+                    }
                 }
             }
         }
-        assert!(compared > 1000, "{compared}");
+        assert!(compared > 1000 && attached > 100, "{compared} {attached}");
     }
 }

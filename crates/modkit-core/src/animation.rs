@@ -910,9 +910,13 @@ impl Rig {
     }
     /// The hitbox bones (hitbox set 0) and their ancestors: what posing the hitboxes needs.
     pub fn hitbox_bones(&self) -> Vec<bool> {
+        self.bone_chains(self.hitboxes.iter().map(|h| h.bone))
+    }
+    /// `bones` and their ancestors: what posing those bones needs (a `Bones` set).
+    pub fn bone_chains(&self, chains: impl IntoIterator<Item = usize>) -> Vec<bool> {
         let mut bones = vec![false; self.bones.len()];
-        for hitbox in &self.hitboxes {
-            let mut bone = Some(hitbox.bone);
+        for first in chains {
+            let mut bone = Some(first);
             while let Some(b) = bone.filter(|&b| b < bones.len() && !bones[b]) {
                 bones[b] = true;
                 bone = self.bones[b].parent;

@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-20 — Attachment frames posed from their own bone chains
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the simulation's attachment frames (`Scene::attachment_frames_for_instance`: eyes for head control and look targets, muzzles, entities parented to an attachment) and bone-merged weapon frames (`merged_attachment_frame`, `merged_model_frame`) pose only the bones they read and their ancestors (`Rig::bone_chains`, which `hitbox_bones` now uses) instead of the whole skeleton. The frames are bit-identical. Renderer poses are unchanged.
+- Why: in the mixed crowd, eye and look-target attachments posed every flex actor's whole skeleton several times a tick, about 14% of the fixed step.
+- Tested how: the owned-install pose test (renamed `owned_hitbox_and_attachment_bones_pose_like_the_whole_skeleton`) also compares every attachment of the seven NPC models with the full-skeleton frame: all equal. Mixed-crowd A/B against `cbde563c`, three alternating pairs, twice. On a hot machine right after the build (load 12 -> 6): fixed simulation 4.80 -> 4.67 ms, fight frame 16.99 -> 17.45 ms. Repeated at load 4-5, every new run faster: fixed simulation 4.91 -> 4.57 ms (-7%), fight frame 17.69 -> 17.23 ms (-2.6%), whole-run mean 19.78 -> 19.16 ms. Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 437 s.
+- Frame time: -0.3 ms per tick of fixed simulation; fight frame -0.46 ms in the quiet-machine pairs (the first pairs, on a hot machine, did not show it).
+
 ## 2026-11-20 — AGENTS.md size check ignores line endings
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
