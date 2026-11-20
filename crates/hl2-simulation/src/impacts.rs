@@ -633,7 +633,9 @@ impl Impacts {
             self.add_on_npc(&hit, direction, world, physics, scene);
             return;
         }
-        let Some(prop) = self.hit_surfaceprop(&hit, world, physics, scene) else {
+        // One surface search per shot: it names the surfaceprop and places the decal.
+        let located = self.locate(&hit, world, physics, scene);
+        let Some(prop) = self.located_prop(&located, &hit, physics) else {
             return;
         };
         // Bullets and the player's crowbar alike (SDK PlayImpactSound).
@@ -661,10 +663,13 @@ impl Impacts {
         };
         let material = format!("decals/{family}/shot{}", self.created % 5 + 1);
         // AddDecalToStaticProp: a static prop takes the decal on its drawn mesh along the shot.
-        let hit = (direction.filter(|_| physics.static_surfaceprop(&hit).is_some()))
-            .and_then(|d| crate::static_prop_decals::on_mesh(world, &hit, d))
-            .unwrap_or(hit);
-        self.add_decal(hit, &material, world, physics, scene);
+        let moved = (direction.filter(|_| physics.static_surfaceprop(&hit).is_some()))
+            .and_then(|d| crate::static_prop_decals::on_mesh(world, &hit, d));
+        match (moved, located) {
+            (Some(moved), _) => self.add_decal(moved, &material, world, physics, scene),
+            (None, Ok(located)) => self.place_decal(&hit, &material, world, located),
+            (None, Err(unclippable)) => self.unclippable += usize::from(unclippable),
+        }
     }
     /// A trace reports its collision model's surfaceprop: a VPhysics prop's .phy solid (the gas
     /// can's "metal") or a static prop's hull, else the receiving texture's.
@@ -678,23 +683,22 @@ impl Impacts {
             .unwrap_or("default")
             .to_owned()
     }
-    /// Surfaceprop of the surface a trace hit, None (counted) when it cannot be located.
-    fn hit_surfaceprop(
+    /// The surfaceprop of a located hit; None (counted) when it could not be located.
+    fn located_prop(
         &mut self,
+        located: &Result<Located, bool>,
         hit: &RayHit,
-        world: &World,
         physics: &Physics,
-        scene: &Scene,
     ) -> Option<String> {
-        match self.locate(hit, world, physics, scene) {
-            Ok(located) => Some(located.prop),
+        match located {
+            Ok(located) => Some(located.prop.clone()),
             // A static prop's hull names its surface even where its drawn mesh is out of
             // reach: the sound and particles play, and add_decal counts the decal it cannot
             // place.
             Err(unclippable) => match physics.static_surfaceprop(hit) {
                 Some(prop) => Some(prop.to_owned()),
                 None => {
-                    self.unclippable += usize::from(unclippable);
+                    self.unclippable += usize::from(*unclippable);
                     None
                 }
             },
@@ -765,13 +769,13 @@ impl Impacts {
             self.add_studio_decal(&hit, material, None);
             return;
         }
-        let located = match self.locate(&hit, world, physics, scene) {
-            Ok(located) => located,
-            Err(unclippable) => {
-                self.unclippable += usize::from(unclippable);
-                return;
-            }
-        };
+        match self.locate(&hit, world, physics, scene) {
+            Ok(located) => self.place_decal(&hit, material, world, located),
+            Err(unclippable) => self.unclippable += usize::from(unclippable),
+        }
+    }
+    /// A decal of `material` on the surfaces [`Self::locate`] found for `hit`.
+    fn place_decal(&mut self, hit: &RayHit, material: &str, world: &World, located: Located) {
         let Located {
             surfaces,
             center,
@@ -1130,10 +1134,9 @@ mod tests {
         assert_eq!(physics.static_surfaceprop(&hit), Some("wood_crate"));
         let scene = Scene::new(&world);
         let mut impacts = Impacts::default();
+        let located = impacts.locate(&hit, &world, &physics, &scene);
         assert_eq!(
-            impacts
-                .hit_surfaceprop(&hit, &world, &physics, &scene)
-                .as_deref(),
+            impacts.located_prop(&located, &hit, &physics).as_deref(),
             Some("wood_crate")
         );
         assert_eq!(impacts.unclippable, 0);

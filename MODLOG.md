@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-20 — One surface search per bullet impact
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `Impacts::add_along` locates the hit surface once and uses the result for both the surfaceprop (sound, particles, decal family) and the decal (`place_decal`); only a hit moved onto a static prop's drawn mesh is located again (`add_decal`). `located_prop` keeps `hit_surfaceprop`'s static-prop fallback and unclippable count; `hit_surfaceprop` is gone (its test calls `locate` and `located_prop`).
+- Why: every world or prop hit searched the receiving surface twice; each search clips the surfaces' triangles against the decal frame (`decals::touches`), in the mixed crowd about 1.8 ms of shot work per frame.
+- Tested how: hl2-simulation impact tests; three alternating A/B pairs on the mixed crowd (every pair faster): fight frame 21.84 -> 21.15 ms, fixed simulation 7.14 -> 6.93 ms (medians). Full `all.sh`: all 109 checks passed in 392 s.
+- Frame time: -0.7 ms (-3.2%) in the crowd fight.
+
 ## 2026-11-20 — Alpha sprites drawn as input-order runs
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
