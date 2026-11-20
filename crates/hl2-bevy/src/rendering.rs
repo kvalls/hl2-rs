@@ -98,6 +98,9 @@ pub struct SourceMaterial {
     pub(crate) flashlight: Handle<Image>,
     #[uniform(0)]
     pub(crate) viewmodel_flashlight: crate::flashlight::ViewmodelLight,
+    /// Every eye's iris projection rows ([`crate::eyes::EYE_ROWS`]).
+    #[storage(20, read_only)]
+    pub(crate) eye_rows: Handle<bevy::render::storage::ShaderBuffer>,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
 }
@@ -291,12 +294,7 @@ impl Batch {
 pub struct SourceEntity(pub usize);
 #[derive(Component)]
 pub struct DrawTriangles(pub usize);
-#[derive(Component)]
-pub struct EyeMesh {
-    pub key: String,
-    pub eye: source_assets::eyes::Eyeball,
-    pub scale: f32,
-}
+pub use crate::eyes::EyeMesh;
 fn sample_key(clip: &modkit_core::animation::Clip, time: f32) -> u32 {
     if clip.frames.len() <= 1 {
         0
