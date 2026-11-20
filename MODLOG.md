@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — F1 overlay stays on across runs
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: pressing F1 saves whether the developer overlay is shown (`extensions.developer_overlay` in the settings file) and the next run starts with it as left. `Config` gains a top-level `extensions` store for plugin settings that belong to no Options section (written only when non-empty, unknown keys kept); scripted overlay toggles in replays do not save.
+- Why: owner request: the overlay stays on until F1 is pressed again, like an Options setting.
+- Tested how: unit test (setting survives save and load; files without it unchanged); `validate.sh` passed; packaged headless runs reported the overlay on with `developer_overlay: true` saved and off without it.
+- Frame time: none (read at startup, written on F1).
+- Plugin rules read: yes; exceptions: none (the store is generic and names no plugin).
+
 ## 2026-11-20 — Restart where the player was: `agent_resume`, `gamemenucommand`, `+commands` after the first level
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

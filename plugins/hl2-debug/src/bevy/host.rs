@@ -62,6 +62,10 @@ impl RuntimeExtension for State {
         let sim = &mut *context.simulation;
         if input.focused && input.keys.just_pressed(crate::bevy::input::OVERLAY_KEY) {
             self.dev_overlay = !self.dev_overlay;
+            if let Some(ui) = context.console.as_deref_mut() {
+                crate::overlay::set_shown(&mut ui.source.config, self.dev_overlay);
+                let _ = ui.source.config.save();
+            }
         }
         let mut repeats = std::mem::take(&mut self.repeats);
         input::process_debug_tuning_keys(
@@ -162,6 +166,7 @@ impl RuntimeExtension for State {
         });
     }
     fn startup(&mut self, config: &hl2_ui::config::Config) {
+        self.dev_overlay = crate::overlay::shown(config);
         self.force_default_blur = config.video.background_force_default_blur;
     }
     fn level_target(&mut self, map: &str, background: bool, widescreen: bool) {

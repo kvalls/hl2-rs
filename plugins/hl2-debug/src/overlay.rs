@@ -181,3 +181,35 @@ mod tests {
         );
     }
 }
+
+/// Where F1's overlay visibility is saved, so it stays as the player left it across runs.
+const SHOWN_SETTING: &str = "developer_overlay";
+
+/// Whether F1's overlay was left shown.
+pub fn shown(config: &hl2_ui::config::Config) -> bool {
+    config.extensions.bool(SHOWN_SETTING).unwrap_or(false)
+}
+
+pub fn set_shown(config: &mut hl2_ui::config::Config, on: bool) {
+    config.extensions.set_bool(SHOWN_SETTING, on);
+}
+
+#[cfg(test)]
+mod shown_tests {
+    use super::{set_shown, shown};
+
+    #[test]
+    fn the_overlay_setting_survives_a_save_and_load() {
+        let mut config = hl2_ui::config::Config::default();
+        assert!(!shown(&config));
+        set_shown(&mut config, true);
+        let text = serde_json::to_string(&config).expect("save");
+        let loaded: hl2_ui::config::Config = serde_json::from_str(&text).expect("load");
+        assert!(shown(&loaded));
+        let plain = serde_json::to_value(hl2_ui::config::Config::default()).expect("save");
+        assert!(
+            plain.get("extensions").is_none(),
+            "nothing extra in files without it"
+        );
+    }
+}

@@ -226,6 +226,9 @@ impl StoredExtensions {
     pub fn set_bool(&mut self, key: &str, value: bool) {
         self.0.insert(key.to_owned(), serde_json::json!(value));
     }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 /// Video > Advanced. Detail levels (`model_detail`, `texture_detail`), `antialiasing`, `filtering`, and `vsync` affect rendering.
@@ -668,6 +671,10 @@ pub struct Config {
     pub gamepad: GamepadSettings,
     pub dialogs: DialogPlacements,
     pub keys: BTreeMap<String, String>,
+    /// Plugin settings that belong to no Options section (overlay visibility, ...); kept whether
+    /// or not those plugins are in this build.
+    #[serde(skip_serializing_if = "StoredExtensions::is_empty")]
+    pub extensions: StoredExtensions,
 }
 
 impl Default for Config {
@@ -712,6 +719,7 @@ impl Default for Config {
             keyboard: KeyboardSettings::default(),
             gamepad: GamepadSettings::default(),
             dialogs: DialogPlacements::default(),
+            extensions: StoredExtensions::default(),
             keys,
         }
     }
