@@ -629,6 +629,9 @@ impl Scene {
                 },
                 actor,
             );
+            if !cancel && self.start_next_script(world, id, actor) {
+                return;
+            }
             if !cancel {
                 let duration = if animated
                     && self

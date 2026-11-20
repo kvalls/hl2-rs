@@ -13,6 +13,7 @@ use glam::Mat4;
 use source_assets::scenes::EventType;
 use source_assets::vpk::Vfs;
 mod lifecycle;
+mod next_script;
 mod scenes;
 mod touch;
 mod trains;
