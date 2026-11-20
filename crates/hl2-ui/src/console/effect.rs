@@ -37,6 +37,8 @@ pub enum Effect {
     MainMenuMap(GameMap),
     /// `impulse 100`: the flashlight toggles (CBasePlayer::ImpulseCommands).
     Flashlight,
+    /// `screenshot`: save the next game frame (the host picks the file).
+    Screenshot,
     /// Play a UI sound cue (e.g. button hover or release activation).
     PlaySound(String),
     /// Play a full-screen video file (Bink `.bik`) with optional exit command upon completion or skip.

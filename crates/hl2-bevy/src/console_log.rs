@@ -2,7 +2,7 @@
 //! settings file. Off, the system compares the cvar with the open name and returns; on, it
 //! writes and flushes once in frames that printed something.
 
-use bevy::prelude::{App, Last, ResMut, Resource, warn};
+use bevy::prelude::{App, Last, ResMut, Resource, Update, warn};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -14,9 +14,11 @@ pub struct LogFile {
     writer: Option<BufWriter<File>>,
 }
 
-/// Adds the log writer and, with `-usercon`, the remote console.
+/// Adds the log writer, the `screenshot` saver and, with `-usercon`, the remote console.
 pub fn install(app: &mut App, usercon: bool) {
-    app.init_resource::<LogFile>().add_systems(Last, write_log);
+    app.init_resource::<LogFile>()
+        .add_systems(Last, write_log)
+        .add_systems(Update, crate::capture::console_screenshot);
     if usercon {
         crate::rcon::install(app);
     }
@@ -32,7 +34,7 @@ fn open(folder: &Path, relative: &Path) -> std::io::Result<BufWriter<File>> {
     Ok(BufWriter::new(file))
 }
 
-fn settings_folder() -> PathBuf {
+pub(crate) fn settings_folder() -> PathBuf {
     let path = hl2_ui::config::Config::config_path();
     path.parent().map_or_else(PathBuf::new, Path::to_owned)
 }

@@ -96,3 +96,52 @@ pub(crate) fn installed_frame(commands: &mut bevy::prelude::Commands, capture: O
             .observe(save_to(path));
     });
 }
+
+/// `screenshot`: captures the next game frame (the window without one) and saves it on a
+/// thread as `<map>NNNN.png` in `screenshots/` beside the settings file (retail writes into the
+/// game folder, which stays read-only here).
+pub(crate) fn console_screenshot(
+    mut commands: bevy::prelude::Commands,
+    ui: Option<bevy::prelude::ResMut<crate::ui_host::Console>>,
+    frame: Option<Res<crate::video::GameFrame>>,
+) {
+    let Some(mut ui) = ui.filter(|ui| ui.screenshot_requested) else {
+        return;
+    };
+    ui.screenshot_requested = false;
+    let stem = ui
+        .source
+        .loaded_map
+        .as_ref()
+        .map_or_else(|| "screenshot".to_owned(), |map| map.map.clone());
+    let source = frame.map_or_else(
+        bevy::render::view::screenshot::Screenshot::primary_window,
+        |frame| bevy::render::view::screenshot::Screenshot::image(frame.image.clone()),
+    );
+    let folder = crate::console_log::settings_folder().join("screenshots");
+    commands
+        .spawn(source)
+        .observe(move |event: On<ScreenshotCaptured>| {
+            let (image, folder, stem) = (event.image.clone(), folder.clone(), stem.clone());
+            std::thread::spawn(move || save_numbered(image, &folder, &stem));
+        });
+}
+
+/// Saves `image` as the first free `<stem>NNNN.png` in `folder`.
+fn save_numbered(image: Image, folder: &std::path::Path, stem: &str) {
+    if let Err(error) = std::fs::create_dir_all(folder) {
+        bevy::log::warn!("screenshot: {error}");
+        return;
+    }
+    let Some(path) = (0..10_000)
+        .map(|n| folder.join(format!("{stem}{n:04}.png")))
+        .find(|path| !path.exists())
+    else {
+        bevy::log::warn!("screenshot: {} is full", folder.display());
+        return;
+    };
+    match save_capture(Some(image), Some(&path)) {
+        Some(error) => bevy::log::warn!("screenshot {}: {error}", path.display()),
+        None => bevy::log::info!("Wrote {}", path.display()),
+    }
+}

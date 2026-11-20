@@ -16,6 +16,8 @@ pub struct Console {
     /// The pending `map_request` loads a main-menu background level.
     pub background_request: bool,
     pub quit_requested: bool,
+    /// `screenshot` asked for the next frame.
+    pub screenshot_requested: bool,
 }
 impl Console {
     pub fn new(source: hl2_ui::console::Console) -> Self {
@@ -25,6 +27,7 @@ impl Console {
             map_request_game: None,
             background_request: false,
             quit_requested: false,
+            screenshot_requested: false,
         }
     }
     pub fn report(&self) -> serde_json::Value {

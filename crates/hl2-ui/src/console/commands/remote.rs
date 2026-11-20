@@ -1,7 +1,8 @@
-//! Console output for readers outside the game: the log file and chat lines.
+//! The console for readers outside the game: the log file, chat lines, the remote console's
+//! cvars and screenshots.
 
 use super::{Outcome, Spec};
-use crate::console::{remote, Console};
+use crate::console::{remote, Console, Effect};
 
 pub(super) fn con_logfile(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     match args {
@@ -96,6 +97,14 @@ fn parse<T: CvarValue>(text: &str) -> Option<T> {
 
 fn show<T: CvarValue>(value: &T) -> String {
     value.show()
+}
+
+/// `screenshot`: the host saves the next game frame.
+pub(super) fn screenshot(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    if !args.is_empty() {
+        return Err(spec.usage());
+    }
+    Ok(Some(Effect::Screenshot))
 }
 
 /// `say`: a chat line under the speaker's name, `Console` for the remote console. Its line

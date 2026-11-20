@@ -292,6 +292,12 @@ pub const COMMANDS: &[Spec] = &[
         developer::echo,
     ),
     command(
+        "screenshot",
+        "screenshot: save the next frame as a PNG in the screenshots folder beside the settings file",
+        &[],
+        remote::screenshot,
+    ),
+    command(
         "say",
         "say <text>: show a chat line from the player (from the remote console: from Console)",
         &[Arg::Free],

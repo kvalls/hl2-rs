@@ -446,6 +446,7 @@ impl Simulation {
                 }
                 Effect::NpcCommand(line) => self.apply_npc_command(ui, game, &line),
                 Effect::Quit => ui.quit_requested = true,
+                Effect::Screenshot => ui.screenshot_requested = true,
                 Effect::ApplyConfig(cfg) => self.apply_config_effect(ui, game, &cfg),
                 Effect::PlaySound(sound) => {
                     game.sound_requests

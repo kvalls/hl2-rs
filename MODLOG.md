@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — `screenshot` into the settings folder
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the retail `screenshot` command captures the next game frame (the window when there is none) through the `--capture` readback and saves it on a thread as `<map>NNNN.png` in `screenshots/` beside the settings file, then prints the path. Retail writes into the game folder, which HL2RS keeps read-only. `jpeg` is not implemented.
+- Why: owner request: a remote observer sees what the player sees (DESIGN "Console log file, `say`, remote console and screenshots").
+- Tested how: `validate.sh` passed; a packaged headless run on d1_trainstation_01 took `screenshot` over the remote console and wrote `d1_trainstation_010000.png` (the train interior, as rendered).
+- Frame time: no work unless requested (one flag check per frame); encoding and writing run off the game thread.
+- Still broken or not tested: a windowed run **not tested**; Windows **not tested**.
+
 ## 2026-11-20 — Console log file, `say`, remote console and startup commands
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
