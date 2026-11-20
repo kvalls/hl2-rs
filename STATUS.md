@@ -1,5 +1,22 @@
 # STATUS
 
+## Eye iris projection on the GPU: rejected for now (2026-11-20)
+
+Goal: stop re-uploading about 30 eye meshes a frame in the mixed crowd (the CPU rewrites every
+eye vertex's iris coordinates). Tried: each eye mesh's second UV holds a fixed slot; one storage
+buffer (a fixed handle every source material binds at 20) holds two world-space projection rows
+per slot, uploaded once a frame; the fragment shader projects `world_position` through them. The
+rows came from the model-space rows mapped through the actor's placement (origin + rotation x
+point x scale, in Bevy axes). Host tests and a unit test of that mapping passed, and the replays
+passed, but a frame-matched close-up of a spawned citizen on station02's plaza showed the irises
+pushed toward the outer corners (correct before the change). Attempt 2 took the pose placement
+uses (`physics.entity_pose`, else the entity state): the irises moved further out. So the GPU
+draws the eye somewhere the assumed mapping does not describe; not found after two attempts.
+The replays did not catch it: no check frames an eye from the front.
+Next, if resumed: measure where the GPU draws an eye vertex (skeleton root and joint world
+transforms against the CPU skin of the same vertex) before deriving rows; add a front-facing eye
+capture to the checks first.
+
 ## Upstream merge through `c51c6d36` (2026-11-20)
 
 Merged `main` (`c51c6d36`, 30 commits from sessions 66–67: per-entity trigger touches, resting-NPC/object trigger filtering, triangulated NPC detours, `SimplifyPath` for ground moves, blended motor speed planning and scripted plant wait) into `orbitalman/performance_research` (`35e4bd17`). The branch retains its static decal triangle index, single-search bullet impact locator, cached NPC candidates for `trigger_hurt` (including hidden live NPCs), authored actbusy bench entry/exit animations, and `npc/steer.rs` obstacle steering.
