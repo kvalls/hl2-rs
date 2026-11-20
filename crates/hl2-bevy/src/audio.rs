@@ -77,6 +77,9 @@ pub struct Audio {
     frame: u64,
     pending_sinks: usize,
     active_sinks: usize,
+    /// The most sinks alive in one frame, and the most of them with nothing left to play.
+    peak_sinks: usize,
+    peak_empty_sinks: usize,
     paused_sinks: usize,
     paused: bool,
     pause_changes: u64,
@@ -433,7 +436,7 @@ impl Audio {
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"ready":self.ready,"preparation_ms":self.preparation_ms,"preloaded_waves":self.handles.len(),"preloaded_bytes":self.bytes,"referenced_cues":self.cues,
             "requested":self.requested,"started_sinks":self.started,"failed_requests":self.failed,"capacity_rejections":self.capacity_rejections,
-            "pending_sinks":self.pending_sinks,"active_sinks":self.active_sinks,"paused_sinks":self.paused_sinks,
+            "pending_sinks":self.pending_sinks,"active_sinks":self.active_sinks,"peak_sinks":self.peak_sinks,"peak_empty_sinks":self.peak_empty_sinks,"paused_sinks":self.paused_sinks,
             "pause_changes":self.pause_changes,"resume_changes":self.resume_changes,"spatial":self.spatial,
             "channels":{"dynamic":self.channels.playing().0,"static":self.channels.playing().1},"muted":self.muted,"peak_output":self.peak_output,
             "variants":self.library.variants_played,"decoded":self.library.decoded,"errors":self.library.errors,
@@ -469,6 +472,8 @@ pub fn install(
         frame: 0,
         pending_sinks: 0,
         active_sinks: 0,
+        peak_sinks: 0,
+        peak_empty_sinks: 0,
         paused_sinks: 0,
         paused: false,
         pause_changes: 0,
@@ -941,9 +946,11 @@ pub fn observe(
     audio.pending_sinks = 0;
     audio.active_sinks = 0;
     audio.paused_sinks = 0;
+    let mut empty = 0;
     for (entity, mut player, sink) in &mut players {
         if let Some(sink) = sink {
             audio.active_sinks += 1;
+            empty += usize::from(sink.empty());
             audio.paused_sinks += usize::from(sink.is_paused());
             if !player.observed {
                 player.observed = true;
@@ -964,6 +971,8 @@ pub fn observe(
             }
         }
     }
+    audio.peak_sinks = audio.peak_sinks.max(audio.active_sinks);
+    audio.peak_empty_sinks = audio.peak_empty_sinks.max(empty);
 }
 
 #[cfg(test)]

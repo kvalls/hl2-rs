@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Why the audio thread stays busy in fights
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the report's audio section adds `peak_sinks` (the most sinks alive in one frame) and `peak_empty_sinks` (the most of them with nothing left to play), to show a sink that outlives its sound.
+- Why: after the retail channel limits the crowd fight still kept the audio output thread about 77% busy.
+- Result: no leak. In the mixed crowd at most 84 sinks were alive and at most 4 had finished; a dropped sink stops its source within the library's 5 ms poll. The load follows the sounds playing: 4% for 13 sounds in the quiet plaza, about 20% as a stretched fight dies down, 77% mid-fight (97% before the retail channels and earlier fixes). The cost is the audio library's per-sound path: every playing sound runs its own chain of about ten nested sources for every output sample, with a sample-rate converter rebuilt per span and an allocation and lock each time a sound's queue moves on, about 1% of a core per sound.
+- Tested how: 10 ms stack samples of the audio thread (mixed crowd, current build); one crowd run with the new counters; `validate.sh` passed.
+- Next (owner decision): mixing all sounds in one HL2RS source (block processing, its own pitch resampling and volume ramps) instead of one library sink per sound would remove most of this; it replaces the host's playback path.
+
 ## 2026-11-20 — Retail sound channel limits
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
