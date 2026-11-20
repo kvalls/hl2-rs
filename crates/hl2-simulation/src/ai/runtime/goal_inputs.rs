@@ -7,7 +7,9 @@ use crate::npc::Controller;
 use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
+mod actbusy_queue;
 pub(super) mod hint_groups;
+pub(super) use actbusy_queue::ActBusyGoals;
 
 /// The pairs each active ai_relationship applied.
 #[derive(Clone, Debug, Default)]
@@ -31,7 +33,10 @@ impl AiRuntime {
             if e.class() == "ai_relationship" {
                 self.apply_relationship(world, scene, id, true);
             }
-            if matches!(e.class(), "ai_goal_assault" | "ai_goal_actbusy") {
+            if matches!(
+                e.class(),
+                "ai_goal_assault" | "ai_goal_actbusy" | "ai_goal_actbusy_queue"
+            ) {
                 scene
                     .ai_inputs
                     .push((id, "activate".into(), String::new(), usize::MAX));
@@ -90,7 +95,10 @@ impl AiRuntime {
                 self.scripted_schedule_input(world, scene, target, &input);
                 continue;
             }
-            if class == "ai_goal_actbusy" {
+            if class == "ai_goal_actbusy_queue" && self.queue_input(scene, target, &input) {
+                continue;
+            }
+            if matches!(class, "ai_goal_actbusy" | "ai_goal_actbusy_queue") {
                 if matches!(
                     input.as_str(),
                     "forcethisnpctoactbusy" | "forcethisnpctoleave"
@@ -137,6 +145,7 @@ impl AiRuntime {
                 _ => {}
             }
         }
+        self.think_actbusy_queues(world, scene);
     }
 
     /// SetPoliceGoal: the cop polices the named ai_goal_police (CAI_PolicingBehavior::Enable
@@ -208,7 +217,7 @@ impl AiRuntime {
     fn actbusy_goal_input(
         &mut self,
         world: &World,
-        scene: &Scene,
+        scene: &mut Scene,
         goal: usize,
         input: &str,
         parameter: &str,
