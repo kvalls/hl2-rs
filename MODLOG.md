@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 session 67, continued: stations 03-06 against native, resting NPCs and trigger_multiple (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation entities/touch.rs: a trigger_multiple's OnTrigger activator is the player or a toucher that moved or entered this tick (a unit test).
+- Why: d1_trainstation_05's NPC-only gate trigger re-opened intro_train_gate_1 every second in ours, once natively (SDK CTriggerMultiple::MultiTouch runs from Touch, called by a mover's PhysicsTouchTriggers).
+- Tested how: native developer 2 start sequences of d1_trainstation_03..06 against ours (--io-trace; artifacts/s63/io_diff.py; artifacts/s67/io03..io06); validation: artifacts/s67/validate6.sh (v7-*): strict Clippy 0, workspace tests 1759 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed (26/26, 17/17, 26/26), replays 73 of 73; d1_trainstation_05 rerun (artifacts/s67/io05/io2.txt, diff2.txt): intro_train_gate_1 opens once (60 times before), 20 events match within 0.15 s. Commit 31c4d12; CI 44666804843 started.
+- Result: stations 03, 04 and 06 match within 0.15 s apart from the items below; station 05's gate trigger fires once.
+- Still broken or not tested: d1_trainstation_03's TVs topple off their motion-disabled drawers and break; the drinker's OnNPCStartedBusy; station 04's trigger_lighting at the player's start; station 05's lcs_alyxgreet04 stalls about 48 s.
+- Next: those four, from the session 67 notes in STATUS.
+
 ## 2026-11-20 session 67, continued: SimplifyPath for every ground move (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
