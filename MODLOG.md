@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-21 — Draw chat speaker labels in white in the developer console
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`: on the first wrapped row of unselected `Level::ChatLocal` and `Level::ChatRemote` lines, split at the speaker label (`chat_label_end`, e.g. `[ 12.34] Player:` or `Console:`) and draw the label in white ahead of the yellow/cyan message body. Extended `chat_levels_use_distinct_colors` to assert `chat_label_end` with and without timestamps.
+- Why: makes back-to-back messages from the same speaker and wrapped continuation lines immediately distinguishable at a glance.
+- Tested how: `cargo test -p source-ui chat_levels_use_distinct_colors`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime and packaged replays were **not tested** for this change.
+- Next: rebuild and relaunch when ready.
+
 ## 2026-11-21 — Batch consecutive same-material 2D UI quads in `canvas_renderer`
 
 - Agent/model: Antigravity (Gemini 4 Neon).

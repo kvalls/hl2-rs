@@ -1,6 +1,9 @@
 //! Lines printed since they were last taken, for readers outside the dialog (a log file, a
 //! remote console client). Kept only while a reader asked for them.
-use super::{Canvas, ConsolePanel, Level, Line, Selection, OUTPUT_LINES};
+use super::{
+    Canvas, Color, ConsolePanel, HistoryRow, Level, Line, Selection, OUTPUT_LINES, TAB_SPACES,
+    WHITE,
+};
 
 impl ConsolePanel {
     /// Prints a line at `level`, stamped with the current time.
@@ -85,6 +88,35 @@ impl ConsolePanel {
         }
         lines
     }
+    pub(super) fn draw_history_row(
+        &self,
+        shown: &HistoryRow<'_>,
+        selected: bool,
+        (x, baseline, scale): (f32, f32, f32),
+        color: Color,
+        draw_text: &impl Fn(&str, f32, f32, Color),
+    ) {
+        let content =
+            self.shown_text(shown.line)[shown.text.clone()].replace('\t', &" ".repeat(TAB_SPACES));
+        let split = (!selected && shown.text.start == 0)
+            .then(|| chat_label_end(shown.line.level, &content))
+            .flatten();
+        if let Some(split) = split {
+            draw_text(&content[..split], x, baseline, WHITE);
+            let body_x = x + self.text_width(&content[..split], scale);
+            draw_text(&content[split..], body_x, baseline, color);
+        } else {
+            draw_text(&content, x, baseline, color);
+        }
+    }
+}
+
+/// Byte offset after the speaker label (`"Speaker:"`, including any timestamp prefix) on the
+/// first row of a chat line, so the label draws in white before the colored message body.
+pub(super) fn chat_label_end(level: Level, content: &str) -> Option<usize> {
+    matches!(level, Level::ChatLocal | Level::ChatRemote)
+        .then(|| content.find(": ").map(|i| i + 1))
+        .flatten()
 }
 
 /// A redirect in progress: where its lines start among the kept ones.

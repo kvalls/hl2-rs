@@ -760,9 +760,8 @@ impl ConsolePanel {
             } else {
                 self.line_color(shown.line)
             };
-            let content = self.shown_text(shown.line)[shown.text.clone()]
-                .replace('\t', &" ".repeat(TAB_SPACES));
-            text(&content, area.x, top + row - CONSOLE_DESCENT * scale, color);
+            let baseline = top + row - CONSOLE_DESCENT * scale;
+            self.draw_history_row(shown, selected, (area.x, baseline, scale), color, &text);
         }
         painter.scroll_bar(
             view.bar,
@@ -1313,5 +1312,14 @@ mod tests {
         assert_ne!(CHAT_LOCAL_TEXT, CHAT_REMOTE_TEXT);
         assert_ne!(CHAT_LOCAL_TEXT, panel.style.text);
         assert_ne!(CHAT_REMOTE_TEXT, panel.style.text);
+        assert_eq!(
+            printed::chat_label_end(Level::ChatLocal, "[ 12.34] Player: hi"),
+            Some("[ 12.34] Player:".len())
+        );
+        assert_eq!(
+            printed::chat_label_end(Level::ChatRemote, "Console: hello"),
+            Some("Console:".len())
+        );
+        assert_eq!(printed::chat_label_end(Level::Normal, "Player: hi"), None);
     }
 }
