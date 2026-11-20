@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-20 — Color-code `Player:` and `Console:` chat lines in the developer console
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`: added `Level::ChatLocal` (yellow, `CHAT_LOCAL_TEXT`) and `Level::ChatRemote` (cyan, `CHAT_REMOTE_TEXT`) to `ConsolePanel::line_color`, with unit test `chat_levels_use_distinct_colors`.
+  - `crates/hl2-ui/src/console/commands/remote.rs`: `say` now prints local `Player:` lines with `Level::ChatLocal` and remote `Console:` lines with `Level::ChatRemote`; extended `say_names_the_player_or_the_remote_console` to assert both levels.
+  - `crates/hl2-bevy/src/rcon.rs`: mirrored remote `say` broadcasts now print with `Level::ChatRemote`.
+- Why: make player and remote console chat lines easier to distinguish at a glance during live RCON sessions.
+- Tested how: `cargo test -p source-ui chat_levels_use_distinct_colors`, `cargo test -p hl2-ui say_names_the_player_or_the_remote_console`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime and packaged replays were **not tested** for this change.
+- Next: rebuild the release binary and launch a live session to verify chat colors and the NPC steering fix in-game.
+
 ## 2026-11-20 — Fix NPC steering oscillation and zero-speed stall under blended motor
 
 - Agent/model: Antigravity (Gemini 4 Neon).

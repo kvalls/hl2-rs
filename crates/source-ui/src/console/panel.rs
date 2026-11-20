@@ -29,9 +29,11 @@ use std::sync::Mutex;
 
 /// Output lines kept for scrollback.
 pub const OUTPUT_LINES: usize = 1024;
-/// Warning and error lines (not in the scheme; the toolkit's own colors).
+/// Warning, error and chat lines (not in the scheme; the toolkit's own colors).
 const WARNING_TEXT: Color = Color::new(1.0, 0.8, 0.3, 1.0);
 const ERROR_TEXT: Color = Color::new(1.0, 0.4, 0.35, 1.0);
+const CHAT_LOCAL_TEXT: Color = Color::new(1.0, 0.92, 0.35, 1.0);
+const CHAT_REMOTE_TEXT: Color = Color::new(0.45, 0.9, 1.0, 1.0);
 /// SDK `CConsolePanel` shows at most this many completion rows, the last one `...` when more.
 const COMPLETION_ROWS: usize = 10;
 /// History rows scrolled per mouse wheel notch.
@@ -61,6 +63,10 @@ pub enum Level {
     /// A snapshot the app replaces at the end ([`ConsolePanel::replace_snapshot`]) instead of
     /// growing the scrollback.
     Snapshot,
+    /// Local player chat line (`say` typed locally): yellow.
+    ChatLocal,
+    /// Remote console chat line (`say` from RCON): cyan.
+    ChatRemote,
     Warning,
     Error,
 }
@@ -688,6 +694,8 @@ impl ConsolePanel {
             Level::Input | Level::Normal => self.style.text,
             Level::Developer => self.style.dev_text,
             Level::Snapshot => self.style.text,
+            Level::ChatLocal => CHAT_LOCAL_TEXT,
+            Level::ChatRemote => CHAT_REMOTE_TEXT,
             Level::Warning => WARNING_TEXT,
             Level::Error => ERROR_TEXT,
         }
@@ -1290,5 +1298,20 @@ mod tests {
             scaled_caret.is_some(),
             "scaled caret quad at 1440p (scale 2.0) must have width 2.0"
         );
+    }
+
+    #[test]
+    fn chat_levels_use_distinct_colors() {
+        let panel = ConsolePanel::new(SCALING);
+        let line = |level| Line {
+            level,
+            text: String::new(),
+            time: 0.0,
+        };
+        assert_eq!(panel.line_color(&line(Level::ChatLocal)), CHAT_LOCAL_TEXT);
+        assert_eq!(panel.line_color(&line(Level::ChatRemote)), CHAT_REMOTE_TEXT);
+        assert_ne!(CHAT_LOCAL_TEXT, CHAT_REMOTE_TEXT);
+        assert_ne!(CHAT_LOCAL_TEXT, panel.style.text);
+        assert_ne!(CHAT_REMOTE_TEXT, panel.style.text);
     }
 }

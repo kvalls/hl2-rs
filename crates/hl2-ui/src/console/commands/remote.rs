@@ -3,6 +3,7 @@
 
 use super::{Outcome, Spec};
 use crate::console::{remote, Console, Effect};
+use source_ui::console::panel::Level;
 
 pub(super) fn con_logfile(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     match args {
@@ -113,17 +114,17 @@ pub(super) fn say(console: &mut Console, spec: &Spec, args: &[String]) -> Outcom
     if args.is_empty() {
         return Err(spec.usage());
     }
-    let speaker = if console.remote.from_rcon {
-        remote::RCON_SPEAKER
+    let (speaker, level) = if console.remote.from_rcon {
+        (remote::RCON_SPEAKER, Level::ChatRemote)
     } else {
-        remote::PLAYER_SPEAKER
+        (remote::PLAYER_SPEAKER, Level::ChatLocal)
     };
     let line = format!("{speaker}: {}", args.join(" "));
     if console.remote.from_rcon {
         console.shell.panel.status = None;
         console.remote.broadcast.push(line.clone());
     }
-    console.log(line);
+    console.print(level, line);
     Ok(None)
 }
 
@@ -159,10 +160,18 @@ mod tests {
         console.submit("say hello there");
         assert_eq!(console.shell.panel.output.len(), before + 1);
         assert_eq!(last(&console), Some("Player: hello there"));
+        assert_eq!(
+            console.shell.panel.output.back().map(|line| line.level),
+            Some(super::Level::ChatLocal)
+        );
         assert!(console.remote.broadcast.is_empty());
         console.remote.from_rcon = true;
         console.submit("say hi");
         assert_eq!(last(&console), Some("Console: hi"));
+        assert_eq!(
+            console.shell.panel.output.back().map(|line| line.level),
+            Some(super::Level::ChatRemote)
+        );
         assert_eq!(console.remote.broadcast, ["Console: hi"]);
     }
 }

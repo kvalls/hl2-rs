@@ -79,7 +79,7 @@ fn run(
     let lines = ui.source.shell.panel.finish_redirect(redirect);
     ui.source.remote.from_rcon = false;
     for line in std::mem::take(&mut ui.source.remote.broadcast) {
-        ui.source.print(Level::Normal, line);
+        ui.source.print(Level::ChatRemote, line);
     }
     lines
         .iter()
