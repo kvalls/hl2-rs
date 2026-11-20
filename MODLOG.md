@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-21 — Reuse bloom uniform buffers, defer monitor sample JSON, and throttle model lightgrid resamples
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-bevy/src/bloom.rs`: pre-allocated reusable `constant_uniform`, `blur_h_uniform`, and `blur_v_uniform` buffers in `Pipelines` (`init_pipelines`) and updated `blur_h`/`blur_v` via `RenderQueue::write_buffer`, eliminating 5 per-frame `device.create_buffer_with_data` calls in `Pass::draw`.
+  - `crates/hl2-bevy/src/monitors.rs`: stored plain `MaterialSample` structs per frame instead of allocating `serde_json::Value` maps and formatted handle strings every frame; serialize to JSON only inside `Monitors::report`.
+  - `crates/hl2-bevy/src/rendering/lighting.rs`: raised the moving-model lightgrid resample threshold from `1.` to `16.` squared Source units (4 units, still 8× finer than Source's 32-unit lightgrid) so walking NPCs do not re-trace BSP lighting and trigger `SourceMaterial` GPU buffer reallocation on every frame.
+- Why: follow-up 4-second live unpaused profile on `d1_trainstation_02` after `4932da08` (`p50` dropped from `22.64 ms` to `11.53 ms`, `Qbvh::build` `620 -> 0`) showed per-frame `wgpu::Device::create_buffer` (including `bloom::Pass::draw` and `SourceMaterial::as_bind_group`), `LightingData::trace_node`, and `serde_json::Value` serialize/drop as top remaining CPU hotspots.
+- Tested how: `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: post-fix live unpaused frame time, packaged replays, and Windows runtime are **not tested** yet.
+- Next: rebuild the release binary and re-profile live unpaused `d1_trainstation_02` gameplay.
+
 ## 2026-11-20 — Gate player-shadow CCD by speed and avoid redundant `SourceMaterial` mutations
 
 - Agent/model: Antigravity (Gemini 4 Neon).

@@ -16,7 +16,7 @@ use bevy::{
             binding_types::{sampler, texture_2d, uniform_buffer},
             *,
         },
-        renderer::{RenderContext, RenderDevice, ViewQuery},
+        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::{CachedTexture, TextureCache},
         view::{ExtractedView, ViewTarget},
     },
@@ -88,6 +88,9 @@ struct Pipelines {
     presample: CachedRenderPipelineId,
     fullscreen: FullscreenShader,
     shader: Handle<Shader>,
+    constant_uniform: Buffer,
+    blur_h_uniform: Buffer,
+    blur_v_uniform: Buffer,
 }
 
 #[derive(ShaderType, Clone, Copy)]
@@ -171,6 +174,16 @@ fn init_pipelines(
         "presample",
         SMALL_FORMAT,
     ));
+    let make_uniform = |label, data: PassData| {
+        let mut buffer = encase::UniformBuffer::new(Vec::new());
+        buffer.write(&data).expect("bloom uniform");
+        device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some(label),
+            contents: buffer.as_ref(),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        })
+    };
+    let one = pass_data(Vec4::ZERO, Vec4::new(1., 0., 0., 0.));
     commands.insert_resource(Pipelines {
         layout,
         correction_layout: correction_pass::layout(),
@@ -180,6 +193,9 @@ fn init_pipelines(
         presample,
         fullscreen,
         shader,
+        constant_uniform: make_uniform("source_bloom_const", one),
+        blur_h_uniform: make_uniform("source_bloom_blur_h", one),
+        blur_v_uniform: make_uniform("source_bloom_blur_v", one),
     });
 }
 
@@ -249,7 +265,7 @@ struct Pass<'a> {
     pipeline: &'a RenderPipeline,
     source: &'a TextureView,
     glow: &'a TextureView,
-    data: PassData,
+    uniform: &'a Buffer,
     destination: &'a TextureView,
     /// Group 1, for the composite that applies color correction.
     extra: Option<&'a BindGroup>,
@@ -258,13 +274,6 @@ struct Pass<'a> {
 impl Pass<'_> {
     fn draw(self, ctx: &mut RenderContext, pipelines: &Pipelines, layout: &BindGroupLayout) {
         let device = ctx.render_device().clone();
-        let mut buffer = encase::UniformBuffer::new(Vec::new());
-        buffer.write(&self.data).expect("bloom uniform");
-        let data = device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("source_bloom_data"),
-            contents: buffer.as_ref(),
-            usage: BufferUsages::UNIFORM,
-        });
         let bind_group = device.create_bind_group(
             Some("source_bloom_bind_group"),
             layout,
@@ -272,7 +281,7 @@ impl Pass<'_> {
                 self.source,
                 self.glow,
                 &pipelines.sampler,
-                data.as_entire_binding(),
+                self.uniform.as_entire_binding(),
             )),
         );
         let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
@@ -305,6 +314,12 @@ fn pass_data(texel_direction: Vec4, params: Vec4) -> PassData {
     }
 }
 
+fn write_uniform(queue: &RenderQueue, target: &Buffer, data: PassData) {
+    let mut buffer = encase::UniformBuffer::new(Vec::new());
+    buffer.write(&data).expect("bloom uniform");
+    queue.write_buffer(target, 0, buffer.as_ref());
+}
+
 fn source_bloom(
     view: ViewQuery<(
         &ViewTarget,
@@ -314,6 +329,7 @@ fn source_bloom(
         Option<&correction_pass::Correction>,
     )>,
     pipelines: Res<Pipelines>,
+    queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
     mut ctx: RenderContext,
@@ -330,7 +346,7 @@ fn source_bloom(
             pipeline,
             source: frame,
             glow: frame,
-            data: pass_data(Vec4::ZERO, one),
+            uniform: &pipelines.constant_uniform,
             destination: &image.texture_view,
             extra: None,
         }
@@ -349,7 +365,7 @@ fn source_bloom(
                 pipeline,
                 source: post.source,
                 glow: post.source,
-                data: pass_data(Vec4::ZERO, one),
+                uniform: &pipelines.constant_uniform,
                 destination: post.destination,
                 extra: Some(group),
             }
@@ -366,13 +382,26 @@ fn source_bloom(
     };
     let size = small.0[0].texture.size();
     let texel = Vec2::new(1. / size.width as f32, 1. / size.height as f32);
+    write_uniform(
+        &queue,
+        &pipelines.blur_h_uniform,
+        pass_data(Vec4::new(texel.x, texel.y, 1., 0.), one),
+    );
+    write_uniform(
+        &queue,
+        &pipelines.blur_v_uniform,
+        pass_data(
+            Vec4::new(texel.x, texel.y, 0., 1.),
+            Vec4::new(bloom.amount, 0., 0., 0.),
+        ),
+    );
     let (a, b) = (&small.0[0].default_view, &small.0[1].default_view);
     let post = target.post_process_write();
-    let pass = |pipeline, source, glow, data, destination, extra| Pass {
+    let pass = |pipeline, source, glow, uniform, destination, extra| Pass {
         pipeline,
         source,
         glow,
-        data,
+        uniform,
         destination,
         extra,
     };
@@ -382,35 +411,18 @@ fn source_bloom(
             shape,
             post.source,
             post.source,
-            pass_data(Vec4::ZERO, one),
+            &pipelines.constant_uniform,
             a,
             None,
         ),
-        pass(
-            blur,
-            a,
-            a,
-            pass_data(Vec4::new(texel.x, texel.y, 1., 0.), one),
-            b,
-            None,
-        ),
+        pass(blur, a, a, &pipelines.blur_h_uniform, b, None),
         // The vertical blur carries the bloom amount.
-        pass(
-            blur,
-            b,
-            b,
-            pass_data(
-                Vec4::new(texel.x, texel.y, 0., 1.),
-                Vec4::new(bloom.amount, 0., 0., 0.),
-            ),
-            a,
-            None,
-        ),
+        pass(blur, b, b, &pipelines.blur_v_uniform, a, None),
         pass(
             pipeline,
             post.source,
             a,
-            pass_data(Vec4::ZERO, one),
+            &pipelines.constant_uniform,
             post.destination,
             extra,
         ),

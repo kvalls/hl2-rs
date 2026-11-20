@@ -158,9 +158,9 @@ fn present_draw_lighting(
         .any(|l| modkit_core::lighting::dynamic_reaches(origin, l));
     let same_light = !lit_dynamic
         && !lit.dynamic
-        && lit
-            .last
-            .is_some_and(|(last, hl)| last.distance_squared(origin) < 1. && hl == lit.half_lambert);
+        && lit.last.is_some_and(|(last, hl)| {
+            last.distance_squared(origin) < 16. && hl == lit.half_lambert
+        });
     if lit.entity.is_some() && same_light {
         return;
     }

@@ -15,12 +15,18 @@ use bevy::{
 pub struct MonitorCamera;
 /// The `_rt_Camera` render target's size in pixels (square).
 pub const SIZE: u32 = 256;
+struct MaterialSample {
+    material: String,
+    handle: AssetId<crate::rendering::SourceMaterial>,
+    color: [f32; 4],
+    secondary_uv: [[f32; 3]; 3],
+}
 #[derive(Resource)]
 pub struct Monitors {
     pub target: Handle<Image>,
     materials: Vec<String>,
     material_details: serde_json::Value,
-    material_samples: Vec<serde_json::Value>,
+    material_samples: Vec<MaterialSample>,
     proxy_sample_time: f64,
     active: Vec<usize>,
     selected: Option<usize>,
@@ -33,11 +39,21 @@ impl Monitors {
         self.selected
     }
     pub fn report(&self, game: &Gameplay) -> serde_json::Value {
+        let samples: Vec<_> = self
+            .material_samples
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "material": s.material, "handle": format!("{:?}", s.handle),
+                    "color": s.color, "secondary_uv": s.secondary_uv
+                })
+            })
+            .collect();
         serde_json::json!({"texture":"_rt_Camera","asset":format!("{:?}",self.target.id()),"size":[256,256],"materials":self.materials,"material_details":self.material_details,"eligible_cameras":self.active,
             "selected":self.selected.and_then(|id| game.scene.states.get(id).map(|s| serde_json::json!({"entity":id,"name":game.world.entities[id].get("targetname"),
                 "origin":s.origin.to_array(),"fov":game.scene.monitors.cameras[&id].fov}))),
             "rendered_frames":self.frames,"visibility_error":self.error,
-            "proxy_sample_time":self.proxy_sample_time,"material_samples":self.material_samples,
+            "proxy_sample_time":self.proxy_sample_time,"material_samples":samples,
             "state":game.scene.monitors,
             "limitations":"BSP bounds/PVS eligibility, shared live world/actor feed; native area connectivity, client list ordering, remaining monitor proxies/fog and monitor sky rendering remain incomplete; recursive monitor feedback is excluded"})
     }
@@ -224,11 +240,12 @@ pub fn present_materials(
             material.secondary_uv = secondary_uv;
         }
         if let Some(material) = materials.get(&handle.0) {
-            monitors.material_samples.push(serde_json::json!({
-                "material":definition.name,"handle":format!("{:?}",handle.0.id()),
-                "color":material.tint.to_array(),
-                "secondary_uv":material.secondary_uv.to_cols_array_2d()
-            }));
+            monitors.material_samples.push(MaterialSample {
+                material: definition.name.clone(),
+                handle: handle.0.id(),
+                color: material.tint.to_array(),
+                secondary_uv: material.secondary_uv.to_cols_array_2d(),
+            });
         }
     }
 }
