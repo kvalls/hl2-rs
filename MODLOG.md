@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — One HL2RS mixer for every sound
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: sounds no longer get one audio-library player each. `audio::mixer` (DESIGN I) is one source the host plays per map: it mixes every voice into 256-frame stereo blocks at 48 kHz under one lock and hands them out sample by sample. A voice reads its backend WAV's 16-bit PCM in place (the preloaded bytes, no copy or decode), steps through it at its speed with linear interpolation, plays mono on both channels and ramps gain changes across one block. Sound entities carry a `mixer::Voice` instead of an `AudioPlayer`: volume, speed and pause are set on it each frame as on the old sink, its position and end are read for traces and counters, dropping it (the entity despawning) stops it, and a finished one-shot despawns its entity as the library's despawn mode did. The stream plays at unity because each voice carries the global volume. Retail channels, captions, lip sync, patches and soundscapes are unchanged; the channel-claim code moved into `audio/channels.rs` to keep `audio.rs` under 1,000 lines. The report adds `mixer_voices`.
+- Why: owner request. Each library player ran about ten nested sources per output sample plus span conversions, allocations and locks: about 1% of a core per playing sound, 77% of the audio thread mid-fight.
+- Tested how: seven mixer unit tests (WAV parsing, mono on both channels at its gain, stereo channels and summing, gain ramp, half and double speed with interpolation, loops, pause, silent one-shots reaching their end, stop on drop); host tests (192). Mixed crowd, 10 ms stack samples mid-fight: audio output thread 77% -> 1.6% busy, the whole game 2.93 -> 2.18 cores; 69 voices at the end, no wave failed to load, failed requests unchanged (162 of 2,185). Three alternating A/B pairs against the previous build: fight frame 17.61 -> 17.78 ms, fixed simulation 4.64 -> 4.59 ms (no change). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 365 s.
+- Still broken or not tested: **not listened to**. Every automated run is muted, so the mix has only been checked by the unit tests; a by-ear check of the plaza and a crowd fight is needed. Windows playback not tested.
+- Energy: about 0.75 core less in crowd fights; frame time unchanged (mixing runs on its own thread).
+
 ## 2026-11-20 — Why the audio thread stays busy in fights
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

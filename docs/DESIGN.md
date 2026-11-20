@@ -270,6 +270,33 @@ canal's patched material has its second base; captures against the retail screen
 time A/B on d1_trainstation_02 and d1_canals_01a; replays (eye and face checks guard the shared
 texture slot).
 
+### I. One HL2RS mixer for every sound (2026-11-20, bounded plan; owner request)
+
+Budget (mixed crowd, M1 Pro): the audio output thread is about 77% busy mid-fight with up to 84
+sounds playing, 4% with 13 in the quiet plaza: about 1% of a core per sound. Each sound is its own
+audio-library player whose source chain (about ten nested sources) runs per output sample, with a
+sample-rate converter rebuilt per span and an allocation and lock whenever its queue moves on.
+
+Design: the host plays one source for the whole game, `audio::mixer`: it mixes every voice into a
+block of 256 stereo frames at the backend rate (48 kHz) under one lock, then hands the block out
+sample by sample. A voice reads the 16-bit PCM of an already loaded backend WAV in place (no copy,
+no decode), steps through it at its speed (pitch / 100) with linear interpolation (mono to both
+channels), and applies its volume ramped linearly over the block. Sound entities keep their
+`SoundPlayer` and carry a `Voice` handle instead of a library player; the handle sets volume,
+speed and pause, reads position and end, and stops the voice when the entity despawns. Finished
+one-shot voices despawn their entity as the library's despawn mode did. The retail channel rules,
+captions, lip sync, patches and soundscapes are unchanged.
+
+What can differ: interpolation details of pitch shifting (both are linear), volume changes ramp
+over 5 ms instead of stepping, and a sound starts at the next block instead of the library's next
+poll; no audible difference is expected.
+
+Validation: unit tests for block mixing (volume, ramp, pitch step, mono to stereo, loop, pause,
+end, stop on drop) and WAV parsing; the existing audio tests; packaged replays; a listening check
+of station02's plaza and a crowd fight. Measurement: audio thread busy share in the mixed crowd
+before and after, frame time A/B. Reversible as one commit; the library player path is not
+kept beside it.
+
 ## Performance research and benchmark plan (2026-11-11)
 
 Before runtime implementation, map author-documented crowd, particle and renderer techniques to

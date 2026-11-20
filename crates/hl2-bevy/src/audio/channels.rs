@@ -6,7 +6,8 @@
 //! a voice or stream and not the player's own (unless the new sound is the player's too).
 //! The engine also has an optional duplicate-sound limit behind a console variable; it is not
 //! reproduced (its variable and default were not identified).
-use bevy::prelude::Entity;
+use bevy::prelude::{Commands, Entity};
+use hl2_simulation::sounds::SoundRequest;
 
 pub const DYNAMIC: usize = 64;
 pub const STATIC: usize = 64;
@@ -90,6 +91,65 @@ impl Channels {
     /// Sounds on dynamic and static channels.
     pub fn playing(&self) -> (usize, usize) {
         (self.dynamic.iter().flatten().count(), self.statics.len())
+    }
+}
+
+/// The channel a starting sound was given.
+pub(super) enum Claim {
+    /// UI sounds stay outside the world's channels.
+    Ui,
+    Static,
+    Dynamic(usize, Voice),
+}
+
+impl super::Audio {
+    /// The retail channel for a sound about to start (this module), stopping the sound it
+    /// takes over; None when no channel takes it.
+    pub(super) fn claim(
+        &mut self,
+        commands: &mut Commands,
+        request: &SoundRequest,
+        statics: bool,
+        channel: i32,
+    ) -> Option<Claim> {
+        if request.ui {
+            return Some(Claim::Ui);
+        }
+        if statics {
+            if self.channels.static_free() {
+                return Some(Claim::Static);
+            }
+            self.capacity_rejections += 1;
+            return None;
+        }
+        let speaker = request
+            .actor
+            .as_ref()
+            .and_then(|a| a.entity)
+            .map(|e| e as u64);
+        let voice = Voice {
+            source: request.emitter.or(speaker),
+            channel,
+            player: request.origin.is_none(),
+        };
+        match self.channels.pick_dynamic(&voice) {
+            Some(Pick::Free(slot)) => Some(Claim::Dynamic(slot, voice)),
+            Some(Pick::Replace(slot, stopped)) => {
+                commands.entity(stopped).try_despawn();
+                Some(Claim::Dynamic(slot, voice))
+            }
+            None => {
+                self.capacity_rejections += 1;
+                None
+            }
+        }
+    }
+    pub(super) fn record(&mut self, claim: Claim, player: Entity) {
+        match claim {
+            Claim::Ui => {}
+            Claim::Static => self.channels.take_static(player),
+            Claim::Dynamic(slot, voice) => self.channels.take_dynamic(slot, player, voice),
+        }
     }
 }
 

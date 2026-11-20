@@ -41,7 +41,7 @@ mod ui_system;
 pub mod video;
 mod visibility;
 use anyhow::Result;
-use bevy::{prelude::*, render::renderer::RenderAdapterInfo};
+use bevy::{audio::AddAudioSource, prelude::*, render::renderer::RenderAdapterInfo};
 pub(crate) use map_install::{StartupAssets, install_loaded_map};
 use serde::Serialize;
 use std::{
@@ -226,6 +226,8 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .init_resource::<crate::video::VideoViewport>()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(default_plugins)
+        // Every game sound plays through one mixer stream (DESIGN I).
+        .add_audio_source::<audio::mixer::MixerStream>()
         .add_plugins(MaterialPlugin::<rendering::SourceMaterial>::default())
         .add_plugins(bevy::sprite_render::Material2dPlugin::<
             video::PresentMaterial,

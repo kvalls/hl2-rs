@@ -21,7 +21,7 @@ fn app(owner: Arc<()>, pending: PendingAudio) -> App {
     let mut app = App::new();
     let (options, _) =
         crate::Options::parse_from(std::iter::empty::<String>(), Default::default()).unwrap();
-    app.init_resource::<Assets<bevy::audio::AudioSource>>()
+    app.init_resource::<Assets<crate::audio::mixer::MixerStream>>()
         .insert_resource(options)
         .insert_resource(crate::ui_host::Console::new(Default::default()))
         .insert_resource(Gameplay::synthetic(Default::default()))
@@ -52,7 +52,7 @@ fn cancelled_and_replaced_world_results_never_install_sources_or_audio() {
         assert!(!app.world().contains_resource::<PendingAudio>());
         assert_eq!(
             app.world()
-                .resource::<Assets<bevy::audio::AudioSource>>()
+                .resource::<Assets<crate::audio::mixer::MixerStream>>()
                 .len(),
             0
         );
@@ -78,7 +78,7 @@ fn matching_generation_adopts_audio_after_world_copy_and_retains_request_order()
     assert!(app.world().resource::<super::Audio>().ready);
     assert_eq!(
         app.world()
-            .resource::<Assets<bevy::audio::AudioSource>>()
+            .resource::<Assets<crate::audio::mixer::MixerStream>>()
             .len(),
         1
     );

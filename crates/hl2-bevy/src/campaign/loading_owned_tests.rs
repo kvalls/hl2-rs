@@ -11,7 +11,7 @@ pub(super) fn init_map_assets(app: &mut App) -> &mut App {
     app.init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<crate::rendering::SourceMaterial>>()
         .init_resource::<Assets<Image>>()
-        .init_resource::<Assets<bevy::audio::AudioSource>>()
+        .init_resource::<Assets<crate::audio::mixer::MixerStream>>()
         .init_resource::<Assets<crate::effects::EffectMaterial>>()
         .init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
 }

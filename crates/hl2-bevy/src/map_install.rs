@@ -1,11 +1,11 @@
 //! Installing a loaded map: its draws, effects, sky, audio and map-owned resources.
+use crate::audio::mixer::MixerStream;
 use crate::{
     Status, assets, audio, canvas_renderer, console_host, effects, eyes, monitors, rendering,
     runtime_props, shadows, sky, studio_decals, visibility,
 };
 use bevy::{
     asset::Assets,
-    audio::AudioSource,
     ecs::{system::Commands, world::World},
     image::Image,
     mesh::Mesh,
@@ -15,7 +15,7 @@ pub(crate) type StartupAssets<'w> = (
     bevy::ecs::system::ResMut<'w, Assets<Mesh>>,
     bevy::ecs::system::ResMut<'w, Assets<rendering::SourceMaterial>>,
     bevy::ecs::system::ResMut<'w, Assets<Image>>,
-    bevy::ecs::system::ResMut<'w, Assets<AudioSource>>,
+    bevy::ecs::system::ResMut<'w, Assets<MixerStream>>,
     bevy::ecs::system::ResMut<'w, Assets<effects::EffectMaterial>>,
     bevy::ecs::system::ResMut<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 );
@@ -24,7 +24,7 @@ pub(crate) type MapAssets<'a> = (
     &'a mut Assets<Mesh>,
     &'a mut Assets<rendering::SourceMaterial>,
     &'a mut Assets<Image>,
-    &'a mut Assets<AudioSource>,
+    &'a mut Assets<MixerStream>,
     &'a mut Assets<effects::EffectMaterial>,
     &'a mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
 );
