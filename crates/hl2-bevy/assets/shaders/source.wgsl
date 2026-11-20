@@ -16,6 +16,8 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(16) var envmap_mask_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(18) var flashlight_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(19) var flashlight_sampler: sampler;
+// Iris projections, two world-space rows per eye mesh; the mesh's second UV holds its slot.
+@group(#{MATERIAL_BIND_GROUP}) @binding(20) var<storage, read> eye_rows: array<vec4<f32>>;
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
@@ -207,7 +209,13 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     }
     let base_alpha = base.a;
     if eye {
-        let iris = textureSample(iris_texture, iris_sampler, mesh.uv_b);
+        let slot = u32(mesh.uv_b.x + 0.5) * 2u;
+        let at = vec4(mesh.world_position.xyz, 1.0);
+        var iris_uv = vec2(0.0);
+        if slot + 1u < arrayLength(&eye_rows) {
+            iris_uv = vec2(dot(eye_rows[slot], at), dot(eye_rows[slot + 1u], at));
+        }
+        let iris = textureSample(iris_texture, iris_sampler, iris_uv);
         base = vec4(mix(base.rgb, iris.rgb, iris.a), base.a);
     }
     base.a = select(base.a, 1.0, material.parameters.y > 0.5);

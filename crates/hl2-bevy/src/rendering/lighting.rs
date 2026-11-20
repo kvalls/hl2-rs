@@ -273,6 +273,7 @@ mod tests {
                 viewmodel_flashlight: crate::flashlight::ViewmodelLight::default(),
                 alpha: AlphaMode::Opaque,
                 two_sided: false,
+                eye_rows: crate::eyes::EYE_ROWS,
             }
         }
 

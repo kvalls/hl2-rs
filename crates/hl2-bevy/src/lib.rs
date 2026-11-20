@@ -228,6 +228,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .add_plugins(default_plugins)
         // Every game sound plays through one mixer stream (DESIGN I).
         .add_audio_source::<audio::mixer::MixerStream>()
+        .add_systems(Startup, eyes::install_rows)
         .add_plugins(MaterialPlugin::<rendering::SourceMaterial>::default())
         .add_plugins(bevy::sprite_render::Material2dPlugin::<
             video::PresentMaterial,

@@ -1,11 +1,8 @@
 //! Owned iris projection with authored scene interests and a visible-interest fallback.
-use crate::{
-    FlyCamera,
-    assets::LoadedMap,
-    bevy_to_source,
-    rendering::{EyeMesh, SourceEntity},
+use crate::{FlyCamera, assets::LoadedMap, bevy_to_source, rendering::SourceEntity};
+use bevy::{
+    asset::uuid_handle, mesh::VertexAttributeValues, prelude::*, render::storage::ShaderBuffer,
 };
-use bevy::{mesh::VertexAttributeValues, prelude::*};
 use std::collections::BTreeMap;
 #[derive(Clone)]
 struct Actor {
@@ -30,6 +27,13 @@ pub struct Eyes {
     /// Bone-local eye forward/up per (entity, eyeball surface) for FACS eyelids; flexes
     /// consume the previous presentation's basis.
     pub lid_bases: BTreeMap<(usize, usize), (glam::Vec3, glam::Vec3)>,
+    /// Each eye mesh's slot in [`EYE_ROWS`], and the rows of every slot (two each), as last
+    /// computed and as last uploaded.
+    slots: std::collections::HashMap<AssetId<Mesh>, u32>,
+    /// Slots of eye meshes that are gone, to give out again.
+    free: Vec<u32>,
+    rows: Vec<Vec4>,
+    uploaded: Vec<Vec4>,
 }
 impl Eyes {
     pub fn new(loaded: &LoadedMap) -> Self {
@@ -51,6 +55,37 @@ impl Eyes {
             }
         }
         result
+    }
+    /// An eye mesh's slot, given on first sight and kept for the map.
+    /// An eye mesh's slot, given on first sight and kept while the mesh exists; None when all
+    /// [`EYE_SLOTS`] are taken.
+    fn slot(&mut self, mesh: AssetId<Mesh>) -> Option<u32> {
+        if let Some(slot) = self.slots.get(&mesh) {
+            return Some(*slot);
+        }
+        let slot = self.free.pop().or_else(|| {
+            let next = self.slots.len() as u32;
+            (next < EYE_SLOTS as u32).then_some(next)
+        })?;
+        self.slots.insert(mesh, slot);
+        Some(slot)
+    }
+    /// Frees the slots of eye meshes that no longer exist.
+    fn release_gone(&mut self, exists: impl Fn(AssetId<Mesh>) -> bool) {
+        let free = &mut self.free;
+        self.slots.retain(|mesh, slot| {
+            exists(*mesh) || {
+                free.push(*slot);
+                false
+            }
+        });
+    }
+    fn set_rows(&mut self, slot: u32, rows: [Vec4; 2]) {
+        let at = slot as usize * 2;
+        if self.rows.is_empty() {
+            self.rows.resize(2 * EYE_SLOTS, Vec4::ZERO);
+        }
+        self.rows[at..at + 2].copy_from_slice(&rows);
     }
     /// A runtime spawn of a template's model (DESIGN 14r part A) tracks like it.
     pub fn copy_actor(&mut self, template: usize, entity: usize) {
@@ -78,7 +113,7 @@ type EyeDrawItem<'a> = (
     &'a SourceEntity,
     &'a EyeMesh,
     &'a Mesh3d,
-    Option<&'a bevy::mesh::skinning::SkinnedMesh>,
+    &'a ViewVisibility,
 );
 
 fn collect_actor_poses<'a>(
@@ -107,22 +142,40 @@ fn collect_actor_poses<'a>(
         .collect()
 }
 
+/// An eyeball surface's draw: its model, eyeball and scale.
+#[derive(Component)]
+pub struct EyeMesh {
+    pub key: String,
+    pub eye: source_assets::eyes::Eyeball,
+    pub scale: f32,
+}
+/// Every eye mesh's iris projection: two world-space rows per slot (the mesh's second UV
+/// holds its slot), which every source material reads; one upload a frame instead of every
+/// eye mesh's texture coordinates.
+pub const EYE_ROWS: Handle<ShaderBuffer> = uuid_handle!("6f1b5c2e-9d3a-4e8b-a7c1-2f4d8e6b9a10");
+/// Eye meshes the buffer holds. Its size never changes: a resized buffer is a new GPU buffer the
+/// materials' bind groups would not see.
+const EYE_SLOTS: usize = 1024;
+/// Creates the projection buffer before any material reads it.
+pub fn install_rows(mut buffers: ResMut<Assets<ShaderBuffer>>) {
+    let rows = vec![bevy::math::Vec4::ZERO; 2 * EYE_SLOTS];
+    let mut buffer = ShaderBuffer::default();
+    buffer.set_data(rows);
+    let _ = buffers.insert(EYE_ROWS.id(), buffer);
+}
+
 pub fn present(
     mut eyes: ResMut<Eyes>,
     game: Res<crate::gameplay::Gameplay>,
     sim: Res<crate::simulation::Simulation>,
     camera: Query<&Transform, With<FlyCamera>>,
-    draws: Query<(
-        &SourceEntity,
-        &EyeMesh,
-        &Mesh3d,
-        Option<&bevy::mesh::skinning::SkinnedMesh>,
-    )>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    draws: Query<(&SourceEntity, &EyeMesh, &Mesh3d, &ViewVisibility)>,
+    (mut meshes, mut buffers): (ResMut<Assets<Mesh>>, ResMut<Assets<ShaderBuffer>>),
     performance: Option<Res<crate::performance::Performance>>,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "eyes");
     let Ok(camera) = camera.single() else { return };
+    eyes.release_gone(|mesh| meshes.contains(mesh));
     // Evaluate each visible actor once per presentation; target and iris consumers
     // share these skin transforms rather than sampling the full rig for every eye.
     let poses = collect_actor_poses(&eyes, draws, &game);
@@ -184,7 +237,12 @@ pub fn present(
         interest: Option<hl2_simulation::attention::Interest>,
     }
     let mut actor_targets = BTreeMap::<usize, Option<Selected>>::new();
-    for (owner, mesh_eye, handle, skinned) in &draws {
+    for (owner, mesh_eye, handle, visibility) in &draws {
+        // Like retail, only an eye being drawn gets its iris projection (it was culled last frame
+        // otherwise); gaze targets stay per actor.
+        if !visibility.get() {
+            continue;
+        }
         let Some(state) = game.scene.states.get(owner.0) else {
             continue;
         };
@@ -347,38 +405,51 @@ pub fn present(
         }
         eyes.projections.push(serde_json::json!({"entity":owner.0,"surface":mesh_eye.eye.surface,"rows":projection.iter().map(|r|r.to_array()).collect::<Vec<_>>(),
             "target":selected.as_ref().map(|s|&s.label),"world_target":selected.as_ref().map(|s|s.point.to_array()),"scripted_interest":selected.as_ref().and_then(|s|s.interest.as_ref())}));
+        // The shader projects each fragment's world position through this eye's rows; the
+        // mesh's second UV names its slot, written once.
+        let Some(slot) = eyes.slot(handle.0.id()) else {
+            continue;
+        };
+        // The pose the draws are placed at (`placement::place_entities`).
+        let placed = sim.physics.entity_pose(owner.0);
+        let placed = placed.unwrap_or((state.origin, state.rotation));
+        let rows = world_rows(projection, placed, mesh_eye.scale);
+        eyes.set_rows(slot, rows);
         if let Some(mesh) = meshes.get(&handle.0) {
-            let Some(VertexAttributeValues::Float32x3(positions)) =
-                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else {
-                continue;
-            };
-            let uvs = positions
-                .iter()
-                .enumerate()
-                .map(|(vertex, p)| {
-                    let point =
-                        glam::Vec3::from_array(bevy_to_source(Vec3::from_array(*p)).to_array())
-                            / mesh_eye.scale;
-                    let point = if skinned.is_some() {
-                        crate::gpu_skinning::skin_vertex(mesh, vertex, point, &poses[&owner.0])
-                    } else {
-                        point
-                    };
-                    [
-                        projection[0].dot(point.extend(1.)),
-                        projection[1].dot(point.extend(1.)),
-                    ]
-                })
-                .collect::<Vec<_>>();
-            if !matches!(mesh.attribute(Mesh::ATTRIBUTE_UV_1),Some(VertexAttributeValues::Float32x2(old)) if *old == uvs)
-                && let Some(mut mesh) = meshes.get_mut(&handle.0)
-            {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, uvs);
+            let (count, tag) = (mesh.count_vertices(), [slot as f32, 0.]);
+            let tagged = matches!(mesh.attribute(Mesh::ATTRIBUTE_UV_1),
+                Some(VertexAttributeValues::Float32x2(uvs)) if uvs.len() == count && uvs.iter().all(|uv| *uv == tag));
+            if !tagged && let Some(mut mesh) = meshes.get_mut(&handle.0) {
+                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![tag; count]);
             }
             eyes.draws += 1;
         }
     }
+    eprintln!("EYEPROBE draws {} slots {}", eyes.draws, eyes.slots.len());
+    if eyes.rows != eyes.uploaded
+        && let Some(mut buffer) = buffers.get_mut(&EYE_ROWS)
+    {
+        buffer.set_data(eyes.rows.clone());
+        eyes.uploaded = eyes.rows.clone();
+    }
+}
+
+/// World-space iris rows from `rows`, which take a skinned model-space point (Source units,
+/// before scale): a world (Bevy) position maps there through the actor's placement, as the
+/// renderer places its draws (origin + rotation x point x scale, in Bevy axes).
+fn world_rows(
+    rows: [glam::Vec4; 2],
+    (origin, rotation): (glam::Vec3, glam::Quat),
+    scale: f32,
+) -> [Vec4; 2] {
+    // Bevy (x, y, z) is Source (x, -z, y).
+    let to_source =
+        glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, -glam::Vec4::Y, glam::Vec4::W);
+    let to_model = glam::Mat4::from_scale(glam::Vec3::splat(1. / scale))
+        * glam::Mat4::from_quat(rotation.inverse())
+        * glam::Mat4::from_translation(-origin)
+        * to_source;
+    rows.map(|row| Vec4::from_array((to_model.transpose() * row).to_array()))
 }
 
 /// SDK CAI_BaseActor::ValidEyeTarget: at least 1 unit away and within 75 degrees of the head.
@@ -473,6 +544,37 @@ pub fn attention_pvs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn world_rows_project_the_rendered_position_like_the_model_point() {
+        let rows = [
+            glam::Vec4::new(0.3, -0.2, 0.9, 0.5),
+            glam::Vec4::new(-0.7, 0.4, 0.1, -0.25),
+        ];
+        for (origin, yaw, pitch, scale) in [
+            (glam::Vec3::ZERO, 0., 0., 1.),
+            (glam::Vec3::new(-2456., -2556., 64.), 1.1, 0., 1.),
+            (glam::Vec3::new(812., 4096., -300.), -2.5, 0.4, 1.25),
+        ] {
+            let rotation = glam::Quat::from_rotation_z(yaw) * glam::Quat::from_rotation_y(pitch);
+            let world = world_rows(rows, (origin, rotation), scale);
+            for model in [
+                glam::Vec3::new(1.5, -0.5, 66.),
+                glam::Vec3::new(-3., 2., 60.),
+            ] {
+                // Where the renderer draws the skinned model point, in Bevy axes.
+                let source = origin + rotation * (model * scale);
+                let at = crate::source_to_bevy(Vec3::from_array(source.to_array())).extend(1.);
+                for (world, model_row) in world.iter().zip(rows) {
+                    let expected = model_row.dot(model.extend(1.));
+                    assert!(
+                        (world.dot(at) - expected).abs() < 2e-3,
+                        "{origin} {expected}"
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn view_target_is_ahead_within_sdk_jitter_and_valid() {
         let eye = glam::Vec3::new(10., 20., 30.);

@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Eye irises projected on the GPU, visible eyes only
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: like retail (Source SDK `materialsystem/stdshaders/eye_refract_vs20.fxc` takes the iris coordinates as the world position's dot products with two per-eyeball projection vectors that `eyes_dx8_dx9_helper.cpp` sets as shader constants), the source shader computes an eye's iris coordinates from the fragment's world position and two world-space rows. Each eye mesh's second UV holds a slot, written once; one storage buffer (`eyes::EYE_ROWS`, a fixed handle every source material binds at 20) holds the rows of up to 1,024 eye meshes, uploaded once a frame when they change. Its size never changes: a resized buffer is a new GPU buffer the materials' bind groups would not see (the first attempt's misplaced irises). Rows come from the model-space projection through the pose the draws are placed at; slots of eye meshes that no longer exist are reused. Like retail, only eyes drawn last frame get projections (owner request); gaze targets stay per actor. The CPU skin of eye vertices moved into the GPU-skinning tests as their reference.
+- Why: the CPU rewrote every eye vertex's iris coordinates each frame and re-uploaded about 30 eye meshes a frame in the mixed crowd.
+- Tested how: a unit test of the world rows against the model projection; a frame-matched front-facing close-up of a spawned citizen on station02's plaza, before and after: the same centred gaze. A probe (removed) found the GPU draws an eye vertex within 0.03 units of the mapping and the CPU and GPU iris coordinates of one vertex within 0.02. Three alternating mixed-crowd A/B pairs against `aa32e58e` with another session's game running (load 6-10), every new run faster: fight frame 16.77 -> 15.21 ms (-9.3%), whole-run mean 18.57 -> 16.60 ms, fixed simulation 4.69 -> 4.65 ms. Full `all.sh` under that load: validation (after locking the improved baseline), the Windows check and 108 of 109 replays passed; `viewmodel_motion_blur` lost one capture-burst frame and passed when run again.
+- Frame time: -1.6 ms (-9.3%) in the crowd fight, measured on a shared, busy machine.
+- Still broken or not tested: no automated check frames an eye from the front (the close-up is a playground script); an eye that comes into view shows its last projection for one frame.
+
 ## 2026-11-20 — Faces split into the triangles flexes move and the rest
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

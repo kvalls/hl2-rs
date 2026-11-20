@@ -1,6 +1,10 @@
 # STATUS
 
-## Eye iris projection on the GPU: rejected for now (2026-11-20)
+## Eye iris projection on the GPU (2026-11-20): done after a first rejected attempt
+
+Resolved the same day: the misplaced irises came from the rows buffer growing (a new GPU buffer the
+materials never saw), not the mapping; the buffer now has a fixed size (MODLOG). The first attempt:
+
 
 Goal: stop re-uploading about 30 eye meshes a frame in the mixed crowd (the CPU rewrites every
 eye vertex's iris coordinates). Tried: each eye mesh's second UV holds a fixed slot; one storage
