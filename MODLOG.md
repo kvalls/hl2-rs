@@ -5,7 +5,7 @@
 - Agent/model: Codex desktop, `gpt-6.2-sol` for final verification.
 - Changed: `hl2-debug` supplies a temporary, localized console status. A remote chat reply clears it before the reply appears in history. The session watcher sets the status after receipt and switches to waiting after 60 seconds without a reply.
 - Why: Show that a reply is pending while keeping chat history and the console log readable.
-- Verification: 187 toolkit and debug-plugin tests passed. All four plugin selections compiled. Architecture, formatting and strict Clippy on macOS and the Windows target passed. Captures from the live macOS package show the status while waiting, then the reply after it clears. The Windows runtime and live timeout rendering were not tested.
+- Verification: 187 toolkit and debug-plugin tests passed. All four plugin selections compiled. Architecture, formatting and strict Clippy on macOS and the Windows target passed. Captures from the live macOS package show the status while waiting, then the reply after it clears. A follow-up live capture verifies three console layout units of extra space above the status after player feedback. All 15 console panel tests passed with the padding change. The Windows runtime and live timeout rendering were not tested.
 
 ## 2026-11-20 — Show each chat message once
 

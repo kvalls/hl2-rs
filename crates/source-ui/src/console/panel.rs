@@ -39,6 +39,7 @@ pub const WHEEL_ROWS: usize = 3;
 /// Console history and completion row height, text size and baseline distance from the row
 /// bottom, in layout units.
 pub const CONSOLE_ROW: f32 = 14.;
+const STATUS_TOP_PADDING: f32 = 3.;
 const CONSOLE_TEXT: f32 = 12.;
 const CONSOLE_DESCENT: f32 = 3.;
 /// Space between the history's border and its rows.
@@ -532,7 +533,7 @@ impl ConsolePanel {
         let placed = self.placement.place(&frame);
         let mut layout = DialogLayout::at(frame.scale, placed.origin, placed.size);
         if self.status.is_some() {
-            layout.history.h -= CONSOLE_ROW;
+            layout.history.h -= CONSOLE_ROW + STATUS_TOP_PADDING;
         }
         layout
     }
@@ -764,7 +765,9 @@ impl ConsolePanel {
         );
 
         if let Some(status) = &self.status {
-            let y = layout.canvas(layout.history).y + layout.history.h * scale + row;
+            let y = layout.canvas(layout.history).y
+                + (layout.history.h + STATUS_TOP_PADDING) * scale
+                + row;
             text(
                 status,
                 area.x,
