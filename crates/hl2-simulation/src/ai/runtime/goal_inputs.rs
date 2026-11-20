@@ -19,6 +19,16 @@ pub(super) struct AppliedRelationships {
     pub stale: bool,
 }
 
+/// SCHED_ACTBUSY_TELEPORT_TO_BUSY (ForceNPCToActBusy's "teleport"): the NPC is placed on the
+/// hint, facing its angles, and goes straight into its busy animation (no walk there).
+fn teleport_to_hint(world: &World, scene: &mut Scene, place: Option<(usize, usize)>) {
+    let Some((hint, npc)) = place else {
+        return;
+    };
+    let yaw = super::yaw_keyvalue(&world.entities[hint]).to_radians();
+    scene.states[npc].origin = world.entities[hint].origin();
+    scene.states[npc].rotation = glam::Quat::from_rotation_z(yaw);
+}
 impl AiRuntime {
     /// CAI_GoalEntity::Activate at spawn for StartActive goals.
     fn start_goals(&mut self, world: &World, scene: &mut Scene) {
@@ -303,13 +313,7 @@ impl AiRuntime {
                     busy.force(Some(goal), range, max_time, nearest, &mut actor.npc, now);
                     busy.forced_hint = hint;
                 }
-                // SCHED_ACTBUSY_TELEPORT_TO_BUSY: the NPC is placed on the hint, facing its
-                // angles, and goes straight into its busy animation (no walk there).
-                if let (Some(at), Some(id), true) = (hint, target, teleport) {
-                    let yaw = super::yaw_keyvalue(&world.entities[at]).to_radians();
-                    scene.states[id].origin = world.entities[at].origin();
-                    scene.states[id].rotation = glam::Quat::from_rotation_z(yaw);
-                }
+                teleport_to_hint(world, scene, hint.zip(target).filter(|_| teleport));
             }
             "setbusysearchrange" => {
                 if let Ok(v) = parameter.trim().parse() {
