@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 — Remove per-frame eye debug output
+
+- Agent/model: Codex desktop (GPT-6 family) removed the `eprintln!` and rebuilt the package; Antigravity (Gemini 4 Neon) tightened the architecture baseline, ran validation and replay checks, and committed.
+- Changed: removed the leftover per-frame `EYEPROBE draws ... slots ...` stderr print from `crates/hl2-bevy/src/eyes.rs::present` and tightened `scripts/checks/architecture-baseline.json` (`eyes.rs::present`: `269 -> 268`). Eye draw counts remain available in the runtime report.
+- Why: remove stray debug stderr spam on every frame with visible NPC eyes.
+- Tested how: `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and `NO_BUILD=1 ONLY=attention python3 scripts/checks/replays.py` on the rebuilt release package.
+- Result: all checks passed; `attention` passed with zero `EYEPROBE` lines in its game log.
+- Still broken or not tested: Windows runtime and interactive gameplay were **not tested**.
+- Next: none for this change.
+
 ## 2026-11-20 — Center the temporary console status
 
 - Agent/model: Codex desktop, `gpt-6.2-sol`.

@@ -425,7 +425,6 @@ pub fn present(
             eyes.draws += 1;
         }
     }
-    eprintln!("EYEPROBE draws {} slots {}", eyes.draws, eyes.slots.len());
     if eyes.rows != eyes.uploaded
         && let Some(mut buffer) = buffers.get_mut(&EYE_ROWS)
     {
