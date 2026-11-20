@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 session 68: the train car's seats (player clips, LightingOriginHack) and litter (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner's PC restarted once; the interrupted build was rerun.
+- Changed: hl2-simulation physics/brush_entities.rs: brush entities' player-solid clip brushes are swept by the player's hull trace (hull_contacts moved to physics/diagnostics.rs); lighting_origins.rs: LightingOrigin and LightingOriginHack (info_lighting_relative) resolved like Activate; hl2-bevy rendering/lighting.rs: the light state sampled at the moved point and the offset as the lighting basis; assets/static_decals.rs (moved out of assets.rs): infodecals with no world face in reach attach to the solid brush entity they touch (hl2-simulation brush_solidity.rs shares the rule).
+- Why: owner playtest: the train's seats had no collision and flashed bright one by one; native keeps them shaded; native's car floor shows litter ours lacked.
+- Tested how: unit tests (clip brushes, lighting origins, entity decals); packaged views 67 s into the ride against a native view (artifacts/s68/seats); validation artifacts/s68/validate1.sh (v1-*: strict Clippy 0, workspace tests 1761 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed 26/26, 17/17, 26/26, images within the usual variation against artifacts/s67-regression5, replays 72 of 73 with monitors-kleiner-scene's known gib-count flake, which passes alone) and validate2.sh (v2-*: Clippy 0, tests 1762 passed with the same 2, fmt 0, architecture 0, build ok, regression passed 26/26, 17/17, 26/26, replays 72 of 73 with the same flake, which passes alone).
+- Result: the seats block the player (unit-tested; not walked into in a packaged run), are lit by the mock car's ceiling spots like native, and the car's trash, stains and window cracks ride with it.
+- Still broken or not tested: the turnstile's resistance (the shadow pull-back was tried and changed nothing; not kept); the lighting-origin inputs; three infodecals elsewhere on the map.
+- Next: the turnstile against native per tick, the cafeteria pacer against native, the queue, the pen's Barney scene.
+
 ## 2026-11-20 session 67, continued: stations 03-06 against native, resting NPCs and trigger_multiple (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
