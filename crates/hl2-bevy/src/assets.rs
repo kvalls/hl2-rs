@@ -5,10 +5,12 @@ pub(crate) mod loading;
 mod loading_auxiliary;
 mod names;
 pub(crate) mod reuse;
+mod static_decals;
 pub(crate) mod work;
 #[cfg(test)]
 use names::rendered_material_names;
 pub(crate) use names::visible_entity;
+use static_decals::add_static_decals;
 mod vmt_vars;
 use anyhow::{Context, Result, bail};
 use modkit_core::World;
@@ -301,65 +303,6 @@ pub fn prepare_model_with_config(
     })
 }
 
-/// CDecal::StaticDecal: infodecals without a targetname are applied at map load (named ones
-/// wait for an input and are not handled yet). Size is the decal's base texture in world
-/// units times `$decalscale`.
-fn add_static_decals(world: &mut World, vfs: &Vfs, errors: &mut Vec<String>) {
-    let decals: Vec<_> = world
-        .entities
-        .iter()
-        .filter(|e| e.class() == "infodecal" && e.get("targetname").is_none_or(str::is_empty))
-        .filter_map(|e| {
-            Some((
-                e.origin(),
-                e.get("texture")?.replace('\\', "/").to_lowercase(),
-            ))
-        })
-        .collect();
-    let mut sizes = BTreeMap::<String, Option<glam::Vec2>>::new();
-    let mut added = Vec::new();
-    for (origin, material) in decals {
-        let size =
-            *sizes
-                .entry(material.clone())
-                .or_insert_with(|| match decal_size(vfs, &material) {
-                    Ok(size) => Some(size),
-                    Err(e) => {
-                        errors.push(format!("infodecal {material}: {e:#}"));
-                        None
-                    }
-                });
-        if let Some(size) = size {
-            let pieces =
-                modkit_core::decals::static_decal(&world.surfaces, origin, size, 5., &material);
-            if pieces.is_empty() {
-                errors.push(format!(
-                    "infodecal {material} at {origin}: no surface in reach"
-                ));
-            }
-            added.extend(pieces);
-        }
-    }
-    world.surfaces.extend(added);
-}
-fn decal_size(vfs: &Vfs, material: &str) -> Result<glam::Vec2> {
-    let definition = definition(vfs, material, 0, true)?;
-    let base = definition
-        .properties
-        .get("$basetexture")
-        .context("decal has no $basetexture")?;
-    let path = asset_path(base, ".vtf")?;
-    let data = vfs
-        .read(&path)?
-        .with_context(|| format!("VTF absent: {path}"))?;
-    if data.get(..4) != Some(b"VTF\0") || data.len() < 20 {
-        bail!("not a VTF: {path}");
-    }
-    let width = f32::from(u16::from_le_bytes([data[16], data[17]]));
-    let height = f32::from(u16::from_le_bytes([data[18], data[19]]));
-    let scale = scalar(&definition.properties, "$decalscale", 1.)?;
-    Ok(glam::Vec2::new(width, height) * scale)
-}
 /// BSP surfedges retain clockwise triangles, but vmdl's Strip::indices already
 /// reverses model triangles to CCW. Normalize BSP render copies before static
 /// props are merged, keeping original collision copies and model data intact.
