@@ -146,7 +146,7 @@
   "crates/hl2-simulation/src/ai/runtime.rs": 2367,
   "crates/hl2-simulation/src/entities/choreography.rs": 1225,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
-  "crates/hl2-simulation/src/npc.rs": 1202,
+  "crates/hl2-simulation/src/npc.rs": 1118,
   "crates/hl2-simulation/src/physics.rs": 3189,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
@@ -230,7 +230,7 @@
    101
   ],
   "crates/hl2-simulation/src/entities.rs::tick": [
-   105
+   107
   ],
   "crates/hl2-simulation/src/entities/choreography.rs::tick_choreography": [
    372
@@ -269,7 +269,7 @@
    215
   ],
   "crates/hl2-simulation/src/npc.rs::advance": [
-   121
+   120
   ],
   "crates/hl2-simulation/src/npc.rs::tick": [
    119

@@ -7,6 +7,8 @@ use glam::Vec3;
 use source_assets::navigation::{Graph, Node};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod triangulate;
+
 /// Usable node feet and each node's usable neighbors.
 /// NODE_GROUND and NODE_CLIMB (ai_node.h).
 const NODE_GROUND: u8 = 2;
@@ -195,8 +197,8 @@ fn plan<W: NpcCollisionWorld>(
         excluded_entities: &excluded,
         ..Default::default()
     };
-    if connector(world, actor, start, end, tolerance, query) {
-        return Ok(Route::direct(end));
+    if let Some(route) = triangulate::local_route(world, actor, (start, end), tolerance, query) {
+        return Ok(route);
     }
     let graph = graph.ok_or(GoalBlockReason::MissingGraph)?;
     let view = actor

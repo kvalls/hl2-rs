@@ -20,9 +20,9 @@ mod sequences;
 pub(crate) use sequences::custom_move_walks;
 mod startup;
 pub use startup::weapon_idle_activity;
+mod touch;
 mod tracktrain;
 mod triggers;
-use triggers::TouchCandidates;
 mod turning;
 mod types;
 use turning::{angle_diff, clamp_yaw};
@@ -222,6 +222,8 @@ pub struct State {
     script_finish: Option<f64>,
     /// A scripted_sequence's walk/run to its mark (SCHED_SCRIPTED_WALK/RUN) in progress.
     script_move: Option<crate::npc::GoalKey>,
+    /// When that move's actor is planted on the mark (`finish_script_move`).
+    script_plant_at: Option<f64>,
     /// MoveToPosition (m_bWaitForBeginSequence): the actor idles on the mark until BeginSequence.
     script_wait: bool,
     post_idle_done: Option<(f64, usize)>,
@@ -238,7 +240,10 @@ pub struct State {
     pub locked: bool,
     return_at: Option<f64>,
     wait: f64,
-    touching: bool,
+    /// Entities touching this trigger, in touch order (CBaseTrigger m_hTouchingEntities).
+    touchers: Vec<usize>,
+    /// The trigger has touched everything inside it since it last became active.
+    touch_armed: bool,
     last_trigger: f64,
     pub value: f32,
     timer_at: f64,
@@ -339,6 +344,10 @@ pub struct Scene {
     sequence: u64,
     random: u64,
     queue: Vec<Pending>,
+    /// Every entity's origin at the previous trigger pass: NPCs and objects refresh their
+    /// touches only when they move (PhysicsTouchTriggers after a step).
+    touch_origins: Vec<Vec3>,
+    touch_candidates: touch::Candidates,
     pub diagnostics: Diagnostics,
     pub transition: Option<(String, String)>,
     pub sounds: Vec<crate::sounds::SoundRequest>,
@@ -663,6 +672,8 @@ impl Scene {
             sequence: 0,
             random: 1,
             queue: Vec::new(),
+            touch_origins: Vec::new(),
+            touch_candidates: Default::default(),
             diagnostics: Diagnostics::default(),
             transition: None,
             sounds: Vec::new(),
@@ -789,7 +800,6 @@ impl Scene {
             });
             !values.is_empty()
         });
-        let mut candidates = TouchCandidates::default();
         for id in 0..world.entities.len() {
             let e = self.ent(world, id);
             if self.states[id].killed {
@@ -831,10 +841,13 @@ impl Scene {
                 self.advance_mover(world, id, dt);
             }
             self.think_timer(world, id);
-            if e.class().starts_with("trigger_") && self.states[id].enabled {
-                self.touch_trigger(world, id, player_feet, &mut candidates);
+            if e.class().starts_with("trigger_")
+                && (self.states[id].enabled || !self.states[id].touchers.is_empty())
+            {
+                self.tick_trigger(world, id);
             }
         }
+        self.remember_touch_origins();
         self.advance_func_trains(world);
         // Parented children follow this tick's parent poses and animated attachments.
         self.follow_parents(world);

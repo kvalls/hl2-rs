@@ -653,3 +653,32 @@ fn scene_sequence_uses_installed_clip_scene_clock_and_restores_baseline() {
         .unsupported
         .contains_key("npc_citizen.animation:missing_clip"));
 }
+
+#[test]
+fn a_scripted_move_plants_its_actor_two_ai_thinks_after_arriving() {
+    // Native d1_trainstation_01 (npc_task_text, point_proximity_sensor positions): the
+    // vortigaunt reaches ss_VortSweep2's mark at 105.96 s; TASK_PLANT_ON_SCRIPT and
+    // OnBeginSequence follow at 106.17 s.
+    let script = [("m_iszEntity", "walker"), ("m_fMoveTo", "1")];
+    let w = World {
+        entities: vec![
+            entity("scripted_sequence", "ss", &script),
+            entity("npc_citizen", "walker", &[]),
+        ],
+        ..Default::default()
+    };
+    let mut scene = Scene::new(&w);
+    scene.queue.clear();
+    scene.send(0, "BeginSequence", "");
+    scene.tick(&w, Vec3::ZERO, 0.015);
+    let key = scene.states[0].script_move.expect("walks to the mark");
+    scene.apply_movement(key, Vec3::ZERO, 0., None, true);
+    let mut ticks = 0;
+    while scene.states[0].script_move.is_some() {
+        scene.tick(&w, Vec3::ZERO, 0.015);
+        ticks += 1;
+        assert!(ticks < 100, "never planted");
+    }
+    // The arrival tick, two thinks of seven 15 ms ticks, and the tick order.
+    assert!((15..=16).contains(&ticks), "{ticks}");
+}

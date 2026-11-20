@@ -8,6 +8,11 @@ use modkit_core::World;
 
 /// The internal input name of a scripted_sequence's search think.
 pub(super) const SCRIPT_THINK: &str = "ScriptThink";
+/// A scripted move's arrival to TASK_PLANT_ON_SCRIPT: two thinks of the AI (0.1 s each, seven
+/// 15 ms ticks). Native (owned game, npc_task_text with point_proximity_sensor positions,
+/// d1_trainstation_01's vortigaunt): on the mark at 105.96 and 119.17 s, planted (and
+/// OnBeginSequence) at 106.17 and 119.40 s.
+const SCRIPT_ARRIVAL_THINKS: f64 = 2. * 0.105;
 
 impl Scene {
     /// The actor belongs to a script: a scripted_sequence, a choreographed scene (as an
@@ -409,6 +414,7 @@ impl Scene {
                 self.states[actor].script_post_idle = None;
                 self.states[id].script_actor = Some(actor);
                 self.states[id].script_move = Some(key);
+                self.states[id].script_plant_at = None;
                 self.movement_ready.insert(key, false);
                 self.movement_commands.push(SceneMoveCommand::Start {
                     key,
@@ -453,7 +459,9 @@ impl Scene {
     }
 
     /// The script's arrival (CINE_MOVETO_WALK/RUN): TASK_PLANT_ON_SCRIPT and
-    /// TASK_FACE_SCRIPT, then the sequence.
+    /// TASK_FACE_SCRIPT, then the sequence, `SCRIPT_ARRIVAL_THINKS` after the move ends
+    /// (TASK_WAIT_FOR_MOVEMENT sees the navigator's goal cleared a think later and the plant
+    /// starts on the next).
     pub(super) fn finish_script_move(&mut self, world: &World, id: usize) {
         let Some(key) = self.states[id].script_move else {
             return;
@@ -461,6 +469,21 @@ impl Scene {
         if !self.movement_ready.get(&key).copied().unwrap_or(false) {
             return;
         }
+        let now = self.time;
+        let plant_at = match self.states[id].script_plant_at {
+            Some(at) => at,
+            None => {
+                // The walk ends on arrival; the plant waits for the AI's thinks.
+                self.restore_movement_animation(key.actor);
+                *self.states[id]
+                    .script_plant_at
+                    .insert(now + SCRIPT_ARRIVAL_THINKS)
+            }
+        };
+        if plant_at > now + 1e-9 {
+            return;
+        }
+        self.states[id].script_plant_at = None;
         self.states[id].script_move = None;
         self.movement_ready.remove(&key);
         self.restore_movement_animation(key.actor);

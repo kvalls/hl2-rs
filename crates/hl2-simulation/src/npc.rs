@@ -11,14 +11,17 @@ use source_assets::{models::MotionSequence, navigation::Graph, vpk::Vfs};
 use std::collections::{BTreeMap, BTreeSet};
 mod air;
 mod backaway;
+pub(crate) mod blended;
 mod embedded;
 mod exclusions;
 mod graph;
 mod hint_limits;
 mod move_style;
 mod restrictions;
+mod simplify;
 mod tracks;
 pub use restrictions::NavRestrictions;
+use simplify::{simplify_path_forward, ROUTE_SIMPLIFY_DELAY};
 use tracks::checked_track;
 pub mod links;
 mod steer;
@@ -144,111 +147,6 @@ pub struct GoalSnapshot {
     pub contact_normal: Vec3,
     /// "jump", "climb" or empty.
     pub traversal: &'static str,
-}
-
-/// ROUTE_SIMPLIFY_TIME_DELAY (in the PVS, AIStrongOpt off).
-const ROUTE_SIMPLIFY_DELAY: f32 = 0.5;
-/// MIN_ANGLE_COS_SIMPLIFY: 40 degrees left or right of the current heading.
-const MIN_ANGLE_COS_SIMPLIFY: f32 = 0.766;
-/// CAI_Navigator::SimplifyPathForward with the full scan parameters (32 ft out, points
-/// within 12 ft, 3 ft increments, four samples): head straight for the farthest
-/// reachable point along the path ahead, else skip to the next waypoint when it is
-/// reachable and nearer than the scan distance. Points must lie within 40 degrees of the
-/// current heading unless `forced` (the first simplification of a path).
-fn simplify_path_forward<W: NpcCollisionWorld>(
-    world: &W,
-    actor: &Actor,
-    goal: &mut Goal,
-    query: Query<'_>,
-    forced: bool,
-) {
-    const SCAN_DIST: f32 = 32. * 12.;
-    const RADIUS: f32 = 12. * 12.;
-    const INCREMENT: f32 = 3. * 12.;
-    const MAX_SAMPLES: usize = 4;
-    let feet = goal.feet;
-    let next = goal.next;
-    let points = &goal.route.feet[..links::ground_end(&goal.route, next)];
-    // The goal waypoint is not reducible.
-    if next + 1 >= points.len() {
-        return;
-    }
-    let flat = |v: Vec3| v * Vec3::new(1., 1., 0.);
-    let heading = flat(points[next] - feet).normalize_or_zero();
-    let attempt = |p: Vec3| {
-        forced || flat(p - feet).normalize_or_zero().dot(heading) > MIN_ANGLE_COS_SIMPLIFY
-    };
-    let reachable = |p: Vec3| {
-        let moved = npc_probe::ground_move(world, feet, p, actor.ground, query);
-        moved.completed && flat(moved.end - p).length() < 1.
-    };
-    // Walk out along the path: (point, waypoint index of the segment start, skip test).
-    let mut samples = Vec::new();
-    let mut remaining = SCAN_DIST - flat(points[next] - feet).length();
-    let (mut at, mut wp) = (points[next], next);
-    while remaining > 0. && wp + 1 < points.len() {
-        let to_next = flat(points[wp + 1] - at).length();
-        if to_next < INCREMENT * 1.1 {
-            at = points[wp + 1];
-            remaining -= to_next;
-            wp += 1;
-        } else {
-            at += (points[wp + 1] - points[wp]).normalize_or_zero() * INCREMENT;
-            remaining -= INCREMENT;
-        }
-        let skip = flat(at - feet).length() > RADIUS + 0.1;
-        samples.push((at, wp, skip));
-    }
-    let mut tests = 0;
-    for &(point, segment, skip) in samples.iter().rev() {
-        if skip || tests >= MAX_SAMPLES || !attempt(point) {
-            continue;
-        }
-        tests += 1;
-        if reachable(point) {
-            // SimplifyPathInsertSimplification: the point replaces the waypoints up to
-            // its segment start.
-            goal.route.feet[segment] = point;
-            if let Some(door) = goal.route.doors.get_mut(segment) {
-                *door = None;
-            }
-            goal.next = segment;
-            return;
-        }
-    }
-    let following = points[next + 1];
-    if attempt(following) && flat(following - feet).length() < SCAN_DIST && reachable(following) {
-        goal.next = next + 1;
-        if let Some(door) = goal.route.doors.get_mut(next + 1) {
-            *door = None;
-        }
-    }
-}
-/// IsBoxIntersectingRay for the segment a -> b.
-fn segment_crosses_box(a: Vec3, b: Vec3, lo: Vec3, hi: Vec3) -> bool {
-    let d = b - a;
-    let (mut t0, mut t1) = (0f32, 1f32);
-    for axis in 0..3 {
-        if d[axis].abs() < 1e-6 {
-            if a[axis] < lo[axis] || a[axis] > hi[axis] {
-                return false;
-            }
-            continue;
-        }
-        let (mut x, mut y) = (
-            (lo[axis] - a[axis]) / d[axis],
-            (hi[axis] - a[axis]) / d[axis],
-        );
-        if x > y {
-            std::mem::swap(&mut x, &mut y);
-        }
-        t0 = t0.max(x);
-        t1 = t1.min(y);
-        if t0 > t1 {
-            return false;
-        }
-    }
-    true
 }
 
 #[derive(Clone, Debug, Default)]
@@ -413,6 +311,10 @@ struct Actor {
     nav_ignored: Vec<usize>,
     /// The graph nodes it may use under hint-group navigation limiting (`hint_limits`).
     hint_nodes: Option<BTreeSet<usize>>,
+    /// The blended motor's acceleration (`blended`); None moves at full speed at once.
+    accel: Option<blended::Accel>,
+    /// A moving goal's speed and the clock when it was cancelled (`blended::carry`).
+    carried: Option<(f32, f64)>,
 }
 struct Goal {
     request: MoveRequest,
@@ -435,6 +337,8 @@ struct Goal {
     link: links::GoalLink,
     /// This tick's start hangs over an edge (STEP_ON_INVALID_GROUND).
     shaky: bool,
+    /// The motor's current speed (`blended`).
+    speed: f32,
 }
 impl Goal {
     fn destination(&self) -> Destination {
@@ -677,6 +581,7 @@ impl Controller {
     pub fn cancel(&mut self, key: GoalKey) {
         if let Some(goal) = self.goals.get_mut(&key) {
             if goal.state != GoalState::Canceled {
+                blended::carry(self.actors.get_mut(&key.actor), goal, self.clock);
                 goal.state = GoalState::Canceled;
                 self.pending.push(update(key, goal, &self.doors, None));
                 if goal.link.label() == "climb" {
@@ -727,9 +632,16 @@ impl Controller {
                 caps: MoveCaps::default(),
                 nav_ignored: Vec::new(),
                 hint_nodes: None,
+                accel: None,
+                carried: None,
             },
         );
         Ok(())
+    }
+    pub fn set_accel(&mut self, entity: usize, accel: Option<blended::Accel>) {
+        if let Some(actor) = self.actors.get_mut(&entity) {
+            actor.accel = accel;
+        }
     }
     pub fn set_view_offset(&mut self, entity: usize, offset: Vec3) -> Result<(), GoalBlockReason> {
         if !offset.is_finite() {
@@ -835,6 +747,11 @@ impl Controller {
             paused: false,
             link: Default::default(),
             shaky: false,
+            speed: blended::starting_speed(
+                self.goals.get(&key),
+                self.actors.get_mut(&key.actor),
+                self.clock,
+            ),
         };
         let prepared = (|| {
             self.admit(key, &pose, &goal.request)?;
@@ -983,7 +900,7 @@ impl Controller {
                 };
                 let shaky = embedded::stand(world, *key, goal.feet, actor, query, &mut self.drops)?;
                 goal.shaky = shaky;
-                let moved = advance(world, actor, *key, goal, track, query, dt);
+                let moved = advance(world, actor, goal, track, query, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
             })();
@@ -1083,7 +1000,6 @@ fn update(key: GoalKey, goal: &Goal, doors: &BTreeSet<usize>, name: Option<Strin
 fn advance<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
-    key: GoalKey,
     goal: &mut Goal,
     track: &RootMotion,
     // The mover's exclusions (itself, or every crab for a crab) and the other actors.
@@ -1097,25 +1013,25 @@ fn advance<W: NpcCollisionWorld>(
         goal.state = GoalState::Arrived;
         return Ok(());
     }
-    // CAI_Navigator::SimplifyPath for AI goals (scene moves keep their routes).
-    if key.scene == AI_SCENE {
-        goal.simplify_in -= dt;
-        if goal.simplify_in <= 0. {
-            goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
-            let forced = !goal.simplified;
-            goal.simplified = true;
-            let plain = Query {
-                transients: &[],
-                ..query
-            };
-            simplify_path_forward(world, actor, goal, plain, forced);
-        }
+    // CAI_Navigator::SimplifyPath for every ground goal: AI goals, scripted and scene moves
+    // alike (the SDK's navigator simplifies any reducible path; native d1_trainstation_01's
+    // passengers cut the corners out of the car).
+    goal.simplify_in -= dt;
+    if goal.simplify_in <= 0. {
+        goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
+        let forced = !goal.simplified;
+        goal.simplified = true;
+        let plain = Query {
+            transients: &[],
+            ..query
+        };
+        simplify_path_forward(world, actor, goal, plain, forced);
     }
     let duration = track
         .duration()
         .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
     // The playback rate scales the run's distance and its cycle together.
-    let mut remaining = dt * actor.playback_rate;
+    let mut remaining = dt * actor.playback_rate * blended::throttle(actor, goal, track, dt)?;
     let mut start_validated = !goal.shaky;
     // Budget is ours, not an engine constant; failing never releases SECTION.
     for _ in 0..32 {
@@ -1373,6 +1289,7 @@ pub(crate) mod tests {
             paused: false,
             link: Default::default(),
             shaky: false,
+            speed: 0.,
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.
@@ -1690,6 +1607,47 @@ pub(crate) mod tests {
         assert!((controller.snapshots()[0].animation_time - 1.5).abs() < 0.0001);
     }
     #[test]
+    fn the_blended_motor_starts_from_rest_and_a_re_path_keeps_its_speed() {
+        // CAI_BlendedMotor (ai_blended_movement.cpp): the walk's 80 u/s, GetIdealAccel 130 u/s/s.
+        let physics = Physics::new(&world(vec![]));
+        let mut controller = make_controller(None);
+        controller.set_accel(7, Some(blended::Accel::PlusFifty));
+        let mut feet = Vec3::ZERO;
+        controller.request(key(1), request(Vec3::X * 900.), pose(feet), &physics, &[]);
+        tick(&mut controller, &physics, &mut feet, 0.1, false);
+        assert!((feet.x - 0.65).abs() < 0.05, "{feet}");
+        // The AI re-paths: a cancel and a new goal on the same clock keep the speed (13 u/s).
+        controller.cancel(key(1));
+        controller.request(key(2), request(Vec3::X * 900.), pose(feet), &physics, &[]);
+        let before = feet.x;
+        tick(&mut controller, &physics, &mut feet, 0.1, false);
+        assert!((feet.x - before - 1.95).abs() < 0.05, "{feet}");
+        // Stopped for a tick, the next goal starts at rest.
+        controller.cancel(key(2));
+        tick(&mut controller, &physics, &mut feet, 0.1, false);
+        controller.request(key(3), request(Vec3::X * 900.), pose(feet), &physics, &[]);
+        let before = feet.x;
+        tick(&mut controller, &physics, &mut feet, 0.1, false);
+        assert!((feet.x - before - 0.65).abs() < 0.05, "{feet}");
+    }
+    #[test]
+    fn a_scene_move_is_simplified_like_an_ai_goal() {
+        // CAI_Navigator::SimplifyPath runs for every ground path: native d1_trainstation_01's
+        // passengers cut the corners of their choreography walk out of the car.
+        let physics = Physics::new(&world(vec![]));
+        let mut controller = make_controller(None);
+        let mut feet = Vec3::ZERO;
+        let target = Vec3::new(150., 400., 0.);
+        // Scene 1's move to entity 9: neither an AI goal nor a scripted_sequence's own mark.
+        controller.request(key(1), request(target), pose(feet), &physics, &[]);
+        let route = &mut controller.goals.get_mut(&key(1)).unwrap().route;
+        route.feet = vec![Vec3::new(150., 0., 0.), Vec3::new(150., 150., 0.), target];
+        route.doors = vec![None; 3];
+        tick(&mut controller, &physics, &mut feet, 0.015, false);
+        // The first (forced) pass skips to the next reachable waypoint.
+        assert_eq!(controller.goals[&key(1)].next, 1);
+    }
+    #[test]
     fn graph_routes_around_wall_with_validated_connectors_and_excludes_air_hints() {
         let physical_world = world(vec![cube(
             Vec3::new(35., -45., 0.),
@@ -1760,6 +1718,32 @@ pub(crate) mod tests {
             |_, a, b| Some(a.distance(b))
         )
         .is_ok());
+    }
+    #[test]
+    fn a_blocked_straight_walk_detours_beside_the_obstacle() {
+        // A box reaching 5 units into the hull's path (CAI_Pathfinder::Triangulate): one
+        // apex half a hull to the far side, no graph needed.
+        let physical_world = world(vec![cube(
+            Vec3::new(40., -40., 0.),
+            Vec3::new(60., -8., 60.),
+        )]);
+        let physics = Physics::new(&physical_world);
+        let mut controller = make_controller(None);
+        let mut feet = Vec3::ZERO;
+        let mut wanted = request(Vec3::new(100., 0., 0.));
+        wanted.force_short = true;
+        assert_eq!(
+            controller.request(key(1), wanted, pose(feet), &physics, &[]),
+            GoalState::Moving
+        );
+        let snapshot = &controller.snapshots()[0];
+        assert!(snapshot.route_nodes.is_empty());
+        assert_eq!(snapshot.route_feet.len(), 2, "{:?}", snapshot.route_feet);
+        assert!(snapshot.route_feet[0].y > 5., "{:?}", snapshot.route_feet);
+        for _ in 0..400 {
+            tick(&mut controller, &physics, &mut feet, 0.02, false);
+        }
+        assert!(controller.status(key(1)).unwrap().is_arrived());
     }
     #[test]
     fn a_blocked_graph_link_turns_stale_and_the_retry_routes_around_it() {
