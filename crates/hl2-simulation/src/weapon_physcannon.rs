@@ -863,7 +863,9 @@ mod tests {
         let world = World::default();
         let mut scene = Scene::new(&world);
         let mut physics = prop(Vec3::new(150., 0., 64.), 10.);
+        // The carry speed rules apply with the HEV suit (without it the player always walks).
         let mut inv = Inventory::default();
+        inv.suit = true;
         inv.give("weapon_physcannon", &cannon(), 0.);
         let mut t = 0;
         let mut run = |inv: &mut Inventory,
