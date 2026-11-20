@@ -1,5 +1,25 @@
 # MODLOG
 
+## 2026-11-20 — Preserve console scroll and selection across RCON redirects
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed: `ConsolePanel::start_redirect` / `finish_redirect` in `crates/source-ui/src/console/panel/printed.rs` now save and restore `scroll` and `selection` when no earlier history lines were evicted during the redirect (`output_start` unchanged), instead of unconditionally resetting `scroll = 0` and `selection = None`. Added unit test `a_redirect_preserves_scroll_and_selection`.
+- Why: remote RCON commands (such as `getpos`, `ui_dump`, `npc_dump`, or a background monitor) snapped the player's console scroll back to the bottom and cleared text selection on every command.
+- Tested how: `cargo test -p source-ui printed`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime was **not tested**.
+- Next: rebuild and restart the live session to verify smooth scrolling under active RCON commands.
+
+## 2026-11-20 — Add `npc_dump` live NPC inspector to `hl2-debug`
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed: added `npc_dump [radius|id <entity>]` to `plugins/hl2-debug` (`commands.rs`, `agent.rs`, `bevy/agent.rs`, `bevy/host.rs`, `ui_tests.rs`, `docs/plugins.md`). Prints one JSON line (`npc_dump {...}`) with live AI schedule, task, activity, conditions, `last_failed_task`, `actbusy` state/hint, and `GoalSnapshot` (state/block reason, target, waypoint, route length, contact normal) for up to 12 nearby visible live NPCs (default 512 units, nearest first) or a specific entity ID. No changes to core crates (`crates/`).
+- Why: allow live RCON inspection of stuck NPCs and AI state during interactive sessions without scraping screenshots.
+- Tested how: `cargo test -p hl2-debug --features bevy`, `cargo test -p hl2-debug`, `scripts/checks/validate.sh` (including plugin selection builds, architecture, strict Clippy, `rustfmt`), and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime was **not tested**.
+- Next: rebuild and restart the live session to inspect live NPCs with `npc_dump`.
+
 ## 2026-11-20 — Remove per-frame eye debug output
 
 - Agent/model: Codex desktop (GPT-6 family) removed the `eprintln!` and rebuilt the package; Antigravity (Gemini 4 Neon) tightened the architecture baseline, ran validation and replay checks, and committed.

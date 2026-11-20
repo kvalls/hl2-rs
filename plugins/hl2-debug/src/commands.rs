@@ -1,5 +1,15 @@
 //! Debug commands use the shared console dispatcher and a bounded host interface.
 use source_ui::console::command::{Arg, Context, Outcome, Spec, boolean, parse};
+/// Default radius (Source units) for `npc_dump` when called with no arguments.
+pub const DEFAULT_NPC_DUMP_RADIUS: f32 = 512.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum NpcDumpQuery {
+    Nearby(f32),
+    Entity(usize),
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Request {
@@ -9,6 +19,7 @@ pub enum Request {
     BackgroundBlurOpacity(u8),
     BackgroundMapFov(Option<f32>),
     UiDump,
+    NpcDump(NpcDumpQuery),
     AgentResume,
     AiEnable(Option<bool>),
 }
@@ -41,7 +52,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 10] {
+pub const fn specs<C: Host>() -> [Spec<C>; 11] {
     [
         command(
             "viewmodel_debug_mode",
@@ -78,6 +89,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 10] {
             "ui_dump: print the UI state (windows, focus, menus, map, position) as one JSON line",
             &[],
             ui_dump,
+        ),
+        command(
+            "npc_dump",
+            "npc_dump [radius|id <entity>]: print nearby (default 512 u) or one entity's NPC AI and goal state as one JSON line",
+            &[Arg::Free, Arg::Free],
+            npc_dump,
         ),
         command(
             "agent_status",
@@ -209,6 +226,25 @@ fn ui_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcom
     } else {
         Err(spec.usage())
     }
+}
+
+fn npc_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    let query = match args {
+        [] => NpcDumpQuery::Nearby(DEFAULT_NPC_DUMP_RADIUS),
+        [radius] => {
+            let r: f32 = radius.parse().map_err(|_| spec.usage())?;
+            if !r.is_finite() || r <= 0.0 {
+                return Err(spec.usage());
+            }
+            NpcDumpQuery::Nearby(r)
+        }
+        [kw, id] if kw.eq_ignore_ascii_case("id") => {
+            let entity: usize = id.parse().map_err(|_| spec.usage())?;
+            NpcDumpQuery::Entity(entity)
+        }
+        _ => return Err(spec.usage()),
+    };
+    Ok(Some(C::effect(Request::NpcDump(query))))
 }
 
 fn agent_status<C: Host>(console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {

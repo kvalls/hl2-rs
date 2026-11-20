@@ -131,6 +131,35 @@ fn ai_enable_comes_from_the_debug_plugin() {
 }
 
 #[test]
+fn npc_dump_parses_default_radius_and_entity_id() {
+    use crate::commands::{DEFAULT_NPC_DUMP_RADIUS, NpcDumpQuery};
+    let mut console = console();
+    assert_eq!(
+        console.submit("npc_dump"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Nearby(
+            DEFAULT_NPC_DUMP_RADIUS
+        )))]
+    );
+    assert_eq!(
+        console.submit("npc_dump 250"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Nearby(250.0)))]
+    );
+    assert_eq!(
+        console.submit("npc_dump id 1297"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Entity(1297)))]
+    );
+    assert!(
+        console
+            .submit("npc_dump 0; npc_dump -5; npc_dump foo; npc_dump id abc")
+            .is_empty()
+    );
+    assert!(
+        Console::default().submit("npc_dump").is_empty(),
+        "core has no npc_dump"
+    );
+}
+
+#[test]
 fn remote_reply_clears_status_without_printing_it() {
     let mut c = console();
     let before = c.shell.panel.output.len();

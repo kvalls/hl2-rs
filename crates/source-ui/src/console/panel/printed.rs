@@ -1,6 +1,6 @@
 //! Lines printed since they were last taken, for readers outside the dialog (a log file, a
 //! remote console client). Kept only while a reader asked for them.
-use super::{Canvas, ConsolePanel, Level, Line, OUTPUT_LINES};
+use super::{Canvas, ConsolePanel, Level, Line, Selection, OUTPUT_LINES};
 
 impl ConsolePanel {
     /// Prints a line at `level`, stamped with the current time.
@@ -58,19 +58,31 @@ impl ConsolePanel {
     pub fn start_redirect(&mut self) -> Redirect {
         let kept = self.keeps_printed();
         let before = self.printed.get_or_insert_with(Vec::new).len();
-        Redirect { before, kept }
+        Redirect {
+            before,
+            kept,
+            output_start: self.output_start,
+            scroll: self.scroll,
+            selection: self.selection,
+        }
     }
 
     /// What was printed since [`Self::start_redirect`], taken out of the history and the kept
-    /// lines.
+    /// lines. Preserves the user's scroll position and text selection when no earlier history
+    /// lines were evicted during the redirect.
     pub fn finish_redirect(&mut self, redirect: Redirect) -> Vec<Line> {
         let printed = self.printed.get_or_insert_with(Vec::new);
         let lines = printed.split_off(redirect.before.min(printed.len()));
         self.keep_printed(redirect.kept);
         let keep = self.output.len().saturating_sub(lines.len());
         self.output.truncate(keep);
-        self.scroll = 0;
-        self.selection = None;
+        if self.output_start == redirect.output_start {
+            self.scroll = redirect.scroll;
+            self.selection = redirect.selection;
+        } else {
+            self.scroll = 0;
+            self.selection = None;
+        }
         lines
     }
 }
@@ -80,6 +92,9 @@ impl ConsolePanel {
 pub struct Redirect {
     before: usize,
     kept: bool,
+    output_start: u64,
+    scroll: usize,
+    selection: Option<Selection>,
 }
 
 #[cfg(test)]
@@ -131,5 +146,22 @@ mod tests {
         panel.print(&canvas, Level::Normal, "reply");
         assert_eq!(texts(&panel.finish_redirect(redirect)), ["reply"]);
         assert!(!panel.keeps_printed() && panel.output.is_empty());
+    }
+
+    #[test]
+    fn a_redirect_preserves_scroll_and_selection() {
+        let canvas = Canvas::default();
+        let mut panel = ConsolePanel::new(super::super::tests::SCALING);
+        for i in 0..20 {
+            panel.print(&canvas, Level::Normal, format!("line {i}"));
+        }
+        panel.scroll = 7;
+        let selection = Selection { anchor: 2, head: 5 };
+        panel.selection = Some(selection);
+        let redirect = panel.start_redirect();
+        panel.print(&canvas, Level::Normal, "remote reply");
+        assert_eq!(texts(&panel.finish_redirect(redirect)), ["remote reply"]);
+        assert_eq!(panel.scroll, 7);
+        assert_eq!(panel.selection, Some(selection));
     }
 }

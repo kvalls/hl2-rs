@@ -7,6 +7,14 @@
 /// The prefix of the `ui_dump` line.
 pub const UI_DUMP_PREFIX: &str = "ui_dump ";
 
+/// The prefix of the `npc_dump` line.
+pub const NPC_DUMP_PREFIX: &str = "npc_dump ";
+
+/// Formats an `npc_dump` payload as one JSON line.
+pub fn npc_dump_line(payload: serde_json::Value) -> String {
+    format!("{NPC_DUMP_PREFIX}{payload}")
+}
+
 /// Where the player is and what the game is doing, beside the UI report.
 pub struct World<'a> {
     pub map: Option<&'a str>,
