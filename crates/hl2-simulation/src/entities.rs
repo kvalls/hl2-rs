@@ -232,6 +232,8 @@ pub struct State {
     script_finish: Option<f64>,
     /// A scripted_sequence's walk/run to its mark (SCHED_SCRIPTED_WALK/RUN) in progress.
     script_move: Option<crate::npc::GoalKey>,
+    /// When that move's actor is planted on the mark (`finish_script_move`).
+    script_plant_at: Option<f64>,
     /// MoveToPosition (m_bWaitForBeginSequence): the actor idles on the mark until BeginSequence.
     script_wait: bool,
     post_idle_done: Option<(f64, usize)>,

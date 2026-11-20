@@ -270,18 +270,14 @@ pub fn prepare_npcs(
                     .register_ai_actor(actor, instance.scale, ground, motion)
                     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
                 controller.set_locomotion_variants(actor, variants);
-                // The zombies, crabs and birds have no bits_CAP_DOORS_GROUP (CZombie pounds on
-                // doors).
-                if crate::ai::zombie::is_zombie_class(class)
-                    || crate::ai::headcrab::is_headcrab_class(class)
-                    || crate::ai::bird::Kind::for_class(class).is_some()
-                {
-                    controller.set_opens_doors(actor, false);
-                }
-                controller.set_headcrab(actor, crate::ai::headcrab::is_headcrab_class(class));
-                controller.set_nav_ignored(actor, world, class);
-                controller.set_hint_limit(actor, world);
-                controller.set_move_caps(actor, move_caps(vfs, &instance.model, class, rig)?);
+                set_ai_caps(
+                    &mut controller,
+                    world,
+                    vfs,
+                    actor,
+                    (class, &instance.model),
+                    rig,
+                )?;
                 wanted
             } else {
                 let motion = crate::npc::Locomotion::load(vfs, &instance.model)?;
@@ -291,6 +287,7 @@ pub fn prepare_npcs(
                     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
                 wanted
             };
+            controller.set_accel(actor, crate::npc::blended::Accel::for_class(class));
             // Verified ordinary Barney eye offset comes from his MDL, not the player's eye.
             if instance.scale == 1. {
                 controller
@@ -314,6 +311,29 @@ pub fn prepare_npcs(
     add_hint_sequences(world, vfs, &mut clips);
     prepare_actor_animations(world, vfs, clips);
     controller
+}
+/// An AI actor's movement capabilities by class: doors, crab exclusions, navigation
+/// exclusions, hint limits, jumps and climbs.
+fn set_ai_caps(
+    controller: &mut crate::npc::Controller,
+    world: &World,
+    vfs: &Vfs,
+    actor: usize,
+    (class, model): (&str, &str),
+    rig: &modkit_core::animation::Rig,
+) -> anyhow::Result<()> {
+    // The zombies, crabs and birds have no bits_CAP_DOORS_GROUP (CZombie pounds on doors).
+    if crate::ai::zombie::is_zombie_class(class)
+        || crate::ai::headcrab::is_headcrab_class(class)
+        || crate::ai::bird::Kind::for_class(class).is_some()
+    {
+        controller.set_opens_doors(actor, false);
+    }
+    controller.set_headcrab(actor, crate::ai::headcrab::is_headcrab_class(class));
+    controller.set_nav_ignored(actor, world, class);
+    controller.set_hint_limit(actor, world);
+    controller.set_move_caps(actor, move_caps(vfs, model, class, rig)?);
+    Ok(())
 }
 /// Every NPC model also loads the busy sequences of the map's actbusy hints
 /// (`actbusy::hint_sequences`: LineIdle01, d1_t01_BreakRoom_WatchBreen).

@@ -1,5 +1,4 @@
 //! Graph links and nodes no actor may use: unusable links, CAI_DynamicLink states.
-use super::segment_crosses_box;
 use glam::Vec3;
 use modkit_core::World;
 use source_assets::navigation::Graph;
@@ -112,4 +111,31 @@ impl NavRestrictions {
         }
         true
     }
+}
+
+/// IsBoxIntersectingRay for the segment a -> b.
+fn segment_crosses_box(a: Vec3, b: Vec3, lo: Vec3, hi: Vec3) -> bool {
+    let d = b - a;
+    let (mut t0, mut t1) = (0f32, 1f32);
+    for axis in 0..3 {
+        if d[axis].abs() < 1e-6 {
+            if a[axis] < lo[axis] || a[axis] > hi[axis] {
+                return false;
+            }
+            continue;
+        }
+        let (mut x, mut y) = (
+            (lo[axis] - a[axis]) / d[axis],
+            (hi[axis] - a[axis]) / d[axis],
+        );
+        if x > y {
+            std::mem::swap(&mut x, &mut y);
+        }
+        t0 = t0.max(x);
+        t1 = t1.min(y);
+        if t0 > t1 {
+            return false;
+        }
+    }
+    true
 }

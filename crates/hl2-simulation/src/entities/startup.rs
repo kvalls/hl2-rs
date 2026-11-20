@@ -254,6 +254,7 @@ impl Scene {
             script_post_idle: None,
             script_finish: None,
             script_move: None,
+            script_plant_at: None,
             script_wait: false,
             post_idle_done: None,
             shuffle: Vec::new(),
