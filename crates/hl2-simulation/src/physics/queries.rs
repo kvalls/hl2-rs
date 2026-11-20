@@ -25,6 +25,7 @@ use rapier3d::prelude::{
     Isometry, Point, PointProjection, QueryFilter, Ray, RayIntersection, Real, RigidBodySet,
     Vector,
 };
+use std::collections::HashSet;
 
 /// Refits that changed the tree between two rebalances, at most.
 const REBALANCE_EVERY: u32 = 64;
@@ -258,13 +259,22 @@ impl Queries {
     }
 }
 
-/// rapier3d's broad phase, unchanged, noting the colliders each step reports as modified or
-/// removed: the same lists the step would hand to a query pipeline.
+/// rapier3d's broad phase, noting the colliders each step reports as modified or removed (the
+/// same lists the step would hand to a query pipeline), with trace-only colliders kept out.
 #[derive(Default)]
 pub(crate) struct RecordingBroadPhase {
     inner: BroadPhaseMultiSap,
     pub modified: Vec<ColliderHandle>,
     pub removed: Vec<ColliderHandle>,
+    /// Colliders only traces see (NPC hitboxes). The inner broad phase never holds them, so
+    /// they form no contact pairs: they never touch or wake a body (a moving hitbox woke every
+    /// body whose box overlapped it), and moving them costs no broad-phase update (about 1,000
+    /// in a crowd of 65 NPCs). Once Rapier paired them with props, which solved contacts
+    /// against every animated hitbox (owner report: a pallet sliding off a plaza cop dropped
+    /// 46 -> 17 fps). A collider joins the set before the next step, which would hand it on.
+    pub trace_only: HashSet<ColliderHandle>,
+    /// The step's modified and removed lists without trace-only colliders (reused).
+    forwarded: (Vec<ColliderHandle>, Vec<ColliderHandle>),
 }
 impl BroadPhase for RecordingBroadPhase {
     fn update(
@@ -279,15 +289,22 @@ impl BroadPhase for RecordingBroadPhase {
     ) {
         self.modified.extend_from_slice(modified_colliders);
         self.removed.extend_from_slice(removed_colliders);
+        let (mut modified, mut removed) = std::mem::take(&mut self.forwarded);
+        let pairing = |handle: &&ColliderHandle| !self.trace_only.contains(*handle);
+        modified.clear();
+        modified.extend(modified_colliders.iter().filter(pairing));
+        removed.clear();
+        removed.extend(removed_colliders.iter().filter(pairing));
         self.inner.update(
             dt,
             prediction_distance,
             colliders,
             bodies,
-            modified_colliders,
-            removed_colliders,
+            &modified,
+            &removed,
             events,
         );
+        self.forwarded = (modified, removed);
     }
 }
 

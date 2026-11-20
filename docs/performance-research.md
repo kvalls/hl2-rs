@@ -57,10 +57,13 @@ Every tier is CPU-bound on the M1 Pro: Max costs little over Default. In the Def
 main thread sets the frame (fixed loop 11.1 ms, about 1.6 ticks of 6.9 ms; `PostUpdate` 9.2 ms:
 animation 3.9, eyes 1.0, shadows 0.9, model lighting 0.8, the rest Bevy's transform propagation
 and visibility); the render thread's 17 ms (render assets 7.9, render graph 5.7) run beside it.
-Open candidates: NPC hitboxes cost about 2 ms per crowd frame (pose matrices every tick and
-Rapier broad-phase updates for about 1,000 moved boxes; Source sets up bones only for entities a
-trace tests); a per-pair sight cache like Source's 90 ms one (`CBaseCombatCharacter::FVisible`)
-would save about 0.25 ms; the audio thread mixes about one core in fights.
+NPC hitboxes no longer reach Rapier's broad phase (2026-11-20): they are trace colliders only,
+yet its sort handled about 1,000 of them every tick and woke the bodies they overlapped. Three
+alternating A/B pairs: fight frame 21.87 -> 20.67 ms, fixed simulation 7.11 -> 6.45 ms per tick
+(medians). Open candidates: posing every NPC's hitboxes every tick is about 6% of the fixed step
+(Source sets up bones only for entities a trace tests); a per-pair sight cache like Source's
+90 ms one (`CBaseCombatCharacter::FVisible`) would save about 0.25 ms; the audio thread mixes
+about one core in fights.
 
 ## Shared actor bone matrices: rejected
 

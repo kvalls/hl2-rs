@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 — NPC hitboxes kept out of the physics broad phase
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: trace-only colliders (NPC studio hitboxes, and the model-shaped colliders of hull-box NPCs whose model has no hitboxes) stay in the collider set and in our query tree, but out of Rapier's broad phase: `RecordingBroadPhase` hands the step's modified and removed lists on without them (`trace_only`), so they form no contact pairs. Every trace sees them as before. The contact filter's hitbox rule, its two copies of the set (`npc_hitboxes`, `WorldSideMaterials::hitboxes`) and the hitboxes' contact flags are gone. The hitbox code moved from `physics.rs` (3,300 -> 3,189 lines) into `physics/hitboxes.rs`.
+- Why: in the mixed-crowd benchmark the broad phase (`SAPLayer::update_regions`) took about 15% of the fixed step, sorting about 1,000 hitboxes that move every tick and whose every pair the contact filter then dropped. A moving hitbox also woke every body whose box overlapped it (Rapier wakes the bodies paired with a modified collider), although hitboxes never touch anything; Source never makes hitboxes physics objects.
+- Behavior: a body resting against an animated NPC's hitboxes, not its hull, can now fall asleep. Rapier's continuous collision still tests hitboxes as obstacles (it searches colliders directly, by collision groups only); unchanged.
+- Tested how: new test `traces_hit_posed_hitboxes_that_never_touch_or_wake_a_body`: shots hit the posed hitbox with its hitgroup and bone right after a refresh, after each step and after a full rebuild; a killed NPC's hitboxes take no shot until enabled again, then at that tick's pose; a resting box inside an animated hitbox's reach sleeps on, unmoved, in no contact pair. On the previous code it fails (the moving hitbox wakes the box). The hull test now asserts no contact pair at all. Three alternating A/B pairs on the mixed crowd, every new run faster than its pair: fight frame 21.87 -> 20.67 ms, whole-run mean 25.05 -> 23.38 ms, fixed simulation 7.11 -> 6.45 ms per tick (medians; load 3.7-5.5). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 456 s.
+- Frame time: -1.2 ms (-5.5%) in the crowd fight; fixed simulation -9.3%.
+- Next: posing hitboxes on demand (DESIGN 14s step 1); posing is now about 6% of the crowd's fixed step.
+
 ## 2026-11-20 — One surface search per bullet impact
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

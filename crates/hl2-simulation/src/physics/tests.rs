@@ -1,3 +1,4 @@
+mod hitboxes;
 mod ragdolls;
 use super::*;
 #[test]
@@ -393,9 +394,8 @@ fn npc_hull_box_carries_the_player_while_traces_hit_the_model_shape() {
             .any(|c| c.entities.contains(&Some(0)));
     }
     assert!(struck);
-    // The model-shaped hitboxes never form contact pairs with props (Rapier
-    // enables a pair when either side's collision types allow it): a box placed
-    // across the model column's face touches only the hull.
+    // The model-shaped hitboxes are trace-only, without any contact pair: a box
+    // placed across the model column's face touches only the hull.
     let inside = physics.bodies.insert(
         RigidBodyBuilder::dynamic()
             .translation(vector![4. * SCALE, 0., 30. * SCALE])
@@ -408,9 +408,7 @@ fn npc_hull_box_carries_the_player_while_traces_hit_the_model_shape() {
     );
     physics.tick(TICK);
     assert!(physics.narrow.contact_pairs().all(|pair| {
-        !physics.npc_hitboxes.contains(&pair.collider1)
-            && !physics.npc_hitboxes.contains(&pair.collider2)
-            || !pair.has_any_active_contact
+        !physics.is_trace_only(pair.collider1) && !physics.is_trace_only(pair.collider2)
     }));
     physics.remove_body(inside);
     let x = physics.bodies[body].translation().x / SCALE;
