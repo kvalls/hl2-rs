@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-20 — Center the temporary console status
+
+- Agent/model: Codex desktop, `gpt-6.2-sol`.
+- Changed: Center the visible status glyphs vertically between the history border and the input field.
+- Why: The player observed less space above the Thinking label than below it.
+- Verification: All 145 toolkit tests passed, along with strict toolkit Clippy, formatting and architecture checks. The live macOS capture at 1,000 pixels wide shows five pixels of space on each side of the label. Windows runtime was not tested.
+
 ## 2026-11-20 — Temporary console status for agent replies
 
 - Agent/model: Codex desktop, `gpt-6.2-sol` for final verification.

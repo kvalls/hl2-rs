@@ -39,7 +39,7 @@ pub const WHEEL_ROWS: usize = 3;
 /// Console history and completion row height, text size and baseline distance from the row
 /// bottom, in layout units.
 pub const CONSOLE_ROW: f32 = 14.;
-const STATUS_TOP_PADDING: f32 = 3.;
+const STATUS_EXTRA_HEIGHT: f32 = 3.;
 const CONSOLE_TEXT: f32 = 12.;
 const CONSOLE_DESCENT: f32 = 3.;
 /// Space between the history's border and its rows.
@@ -533,7 +533,7 @@ impl ConsolePanel {
         let placed = self.placement.place(&frame);
         let mut layout = DialogLayout::at(frame.scale, placed.origin, placed.size);
         if self.status.is_some() {
-            layout.history.h -= CONSOLE_ROW + STATUS_TOP_PADDING;
+            layout.history.h -= CONSOLE_ROW + STATUS_EXTRA_HEIGHT;
         }
         layout
     }
@@ -764,19 +764,14 @@ impl ConsolePanel {
             self.history_bar.pressed(),
         );
 
-        if let Some(status) = &self.status {
-            let y = layout.canvas(layout.history).y
-                + (layout.history.h + STATUS_TOP_PADDING) * scale
-                + row;
-            text(
-                status,
-                area.x,
-                y - CONSOLE_DESCENT * scale,
-                self.style.dev_text,
-            );
+        let entry = layout.canvas(layout.entry);
+        if let (Some(status), Some(font)) = (&self.status, &self.font) {
+            let history = layout.canvas(layout.history);
+            let center = (history.y + history.h + entry.y) * 0.5;
+            let baseline = font.centered_baseline(status, em, center);
+            text(status, area.x, baseline, self.style.dev_text);
         }
         self.draw_entry(&painter, &layout, look, time, &text);
-        let entry = layout.canvas(layout.entry);
         painter.button(
             layout.submit,
             look.submit,
