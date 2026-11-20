@@ -248,9 +248,11 @@ impl AiRuntime {
                 let mut nearest = false;
                 let mut max_time = None;
                 let mut hint = None;
+                let mut teleport = false;
                 for token in tokens {
                     match token {
                         "nearest" => nearest = true,
+                        "teleport" => teleport = true,
                         t if t.starts_with("teleport")
                             || t.starts_with('$')
                             || t.starts_with("see:") =>
@@ -300,6 +302,13 @@ impl AiRuntime {
                 if let Some(busy) = actor.class.actbusy_mut() {
                     busy.force(Some(goal), range, max_time, nearest, &mut actor.npc, now);
                     busy.forced_hint = hint;
+                }
+                // SCHED_ACTBUSY_TELEPORT_TO_BUSY: the NPC is placed on the hint, facing its
+                // angles, and goes straight into its busy animation (no walk there).
+                if let (Some(at), Some(id), true) = (hint, target, teleport) {
+                    let yaw = super::yaw_keyvalue(&world.entities[at]).to_radians();
+                    scene.states[id].origin = world.entities[at].origin();
+                    scene.states[id].rotation = glam::Quat::from_rotation_z(yaw);
                 }
             }
             "setbusysearchrange" => {
