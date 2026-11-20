@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 session 67, continued: SimplifyPath for every ground move (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation npc.rs `advance`: SimplifyPath runs for every ground goal (scene moves too), as session 66's held branch did; a unit test (a scene move's route is simplified).
+- Why: native d1_trainstation_01's train passengers cut the corners of their choreography walk out of the car (point_proximity_sensor positions); ours turned at right angles, which the blended motor now slows at.
+- Tested how: native positions (artifacts/s67/native_pass.py, trilat.py) against a packaged run (artifacts/s67/vort/pass3, pass_cmp.py); artifacts/s67/validate5.sh.
+- Result: citizen_train_2 within 0.15 s of native (was 0.6-0.7 s behind), citizen_train_1 about 0.35 s ahead (was 0.2 s). Replays 71 of 73 (gestures-security-1805 recorded alone, monitors-kleiner-scene's gib count passes alone); face-security-1805 passes.
+- Still broken or not tested: native Barney in security_02 (two capture attempts rejected); citizen_train_1's 0.35 s lead.
+- Next: Barney's security_02 walk against native by another method; citizen_train_1's lead.
+
 ## 2026-11-20 session 67: PR #5's bench FPS fix on main, the blended motor's speed plan, scripted moves plant two thinks after arriving (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner asked for PR #5's ground_property commit to reach main first.
