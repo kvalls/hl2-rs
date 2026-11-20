@@ -7,6 +7,7 @@ mod campaign;
 pub mod canvas_renderer;
 mod capture;
 mod console_host;
+mod console_log;
 mod coords;
 use capture::{capture_complete, monitor_capture_complete, save_capture};
 use {flashlight::FlashlightPlugin, shadows::ShadowPlugin};
@@ -26,6 +27,7 @@ mod monitor;
 mod monitors;
 mod options;
 pub mod performance;
+mod rcon;
 pub mod rendering;
 pub mod runtime_props;
 mod setup;
@@ -121,6 +123,12 @@ struct Options {
     background_map: Option<String>,
     /// Skip startup videos on launch (`-novid` / `--novid`).
     novid: bool,
+    /// `-condebug`: log console output to `console.log` from the start.
+    condebug: bool,
+    /// `-usercon`: start the remote console (`rcon_password`, `ip`, `hostport`).
+    usercon: bool,
+    /// `+command arguments` words, run in order once the console exists.
+    startup_commands: Vec<String>,
     /// Persisted user configuration.
     config: hl2_ui::config::Config,
 }
@@ -245,6 +253,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
     launch::limit_frame_rate(&mut app, options.max_fps);
     launch::add_video_systems(&mut app);
     launch::add_presentation_systems(&mut app);
+    console_log::install(&mut app, options.usercon);
     app.add_systems(Last, launch::exit_process.after(monitor::monitor));
     if options.profile {
         performance::install(&mut app);
@@ -320,6 +329,13 @@ fn init_console_ui(
 ) -> ui_host::Console {
     let mut console_ui = ui_host::Console::new(ui);
     console_ui.source.set_history(console_host::load_history());
+    if options.condebug {
+        hl2_ui::console::remote::CONDEBUG_FILE
+            .clone_into(&mut console_ui.source.remote.con_logfile);
+    }
+    for command in &options.startup_commands {
+        console_ui.source.run_startup_command(command);
+    }
     console_ui.source.index_chapters();
     set_system_recommendation(&mut console_ui, adapter);
     request_startup_map(&mut console_ui, target);

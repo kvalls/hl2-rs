@@ -12,6 +12,7 @@ mod developer;
 mod map;
 mod mouse;
 mod movie;
+mod remote;
 mod video;
 
 use super::{Console, Effect};
@@ -289,6 +290,12 @@ pub const COMMANDS: &[Spec] = &[
         "echo <text>: print text",
         &[Arg::Free],
         developer::echo,
+    ),
+    command(
+        "say",
+        "say <text>: show a chat line from the player (from the remote console: from Console)",
+        &[Arg::Free],
+        remote::say,
     ),
     command(
         "toggleconsole",
@@ -622,6 +629,76 @@ pub const COMMANDS: &[Spec] = &[
         developer::con_timestamp,
         developer::con_timestamp_value,
     ),
+    cvar(
+        "con_logfile",
+        "con_logfile [file]: append console output to this file in the settings folder (empty stops)",
+        &[Arg::Free],
+        remote::con_logfile,
+        remote::con_logfile_value,
+    ),
+    cvar(
+        "rcon_password",
+        "rcon_password [password]: remote console password (empty refuses every client; never saved)",
+        &[Arg::Free],
+        remote::rcon_password,
+        remote::rcon_password_value,
+    ),
+    cvar(
+        "sv_rcon_log",
+        "sv_rcon_log [0|1]: print each remote console command",
+        BOOLEAN,
+        remote::sv_rcon_log,
+        remote::sv_rcon_log_value,
+    ),
+    cvar(
+        "sv_rcon_maxfailures",
+        "sv_rcon_maxfailures [count]: failed remote console logins before the address is banned",
+        &[Arg::Free],
+        remote::sv_rcon_maxfailures,
+        remote::sv_rcon_maxfailures_value,
+    ),
+    cvar(
+        "sv_rcon_minfailures",
+        "sv_rcon_minfailures [count]: failed logins within sv_rcon_minfailuretime before a ban",
+        &[Arg::Free],
+        remote::sv_rcon_minfailures,
+        remote::sv_rcon_minfailures_value,
+    ),
+    cvar(
+        "sv_rcon_minfailuretime",
+        "sv_rcon_minfailuretime [seconds]: how long failed logins count for sv_rcon_minfailures",
+        &[Arg::Free],
+        remote::sv_rcon_minfailuretime,
+        remote::sv_rcon_minfailuretime_value,
+    ),
+    cvar(
+        "sv_rcon_banpenalty",
+        "sv_rcon_banpenalty [minutes]: how long a remote console ban lasts (0: until quit)",
+        &[Arg::Free],
+        remote::sv_rcon_banpenalty,
+        remote::sv_rcon_banpenalty_value,
+    ),
+    cvar(
+        "sv_rcon_maxpacketsize",
+        "sv_rcon_maxpacketsize [bytes]: larger remote console packets ban their address",
+        &[Arg::Free],
+        remote::sv_rcon_maxpacketsize,
+        remote::sv_rcon_maxpacketsize_value,
+    ),
+    cvar(
+        "ip",
+        "ip [address]: the address the remote console listens on (read at startup)",
+        &[Arg::Free],
+        remote::ip,
+        remote::ip_value,
+    ),
+    cvar(
+        "hostport",
+        "hostport [port]: the port the remote console listens on (read at startup)",
+        &[Arg::Free],
+        remote::hostport,
+        remote::hostport_value,
+    ),
     setting(
         "skill",
         "skill [1|2|3]: query or set game skill level (1=easy, 2=normal, 3=hard)",
@@ -686,6 +763,7 @@ mod tests {
         // Commands that take any arguments: the rest of the line or the host's NPC console.
         let free = [
             "echo",
+            "say",
             "npc_create",
             "npc_create_aimed",
             "npc_create_equipment",
@@ -719,7 +797,7 @@ mod tests {
                 Ok(Some(Effect::NpcCommand(line))) if free.contains(&spec.name) => {
                     assert!(line.starts_with(&format!("{} x", spec.name)), "{line}");
                 }
-                Ok(None) if spec.name == "echo" => {}
+                Ok(None) if matches!(spec.name, "echo" | "say") => {}
                 Ok(Some(Effect::PlayVideo {
                     exit_command: Some(_),
                     ..
@@ -757,6 +835,13 @@ mod tests {
             "sk_autoaim_scale1" | "m_autoaim_scale" => "1.5",
             "fov" | "fov_desired" => "100",
             "con_filter_text" => "bridge",
+            "con_logfile" => "session",
+            "rcon_password" => "golden",
+            "sv_rcon_maxfailures" | "sv_rcon_minfailures" => "3",
+            "sv_rcon_minfailuretime" | "sv_rcon_banpenalty" => "60",
+            "sv_rcon_maxpacketsize" => "4096",
+            "ip" => "127.0.0.1",
+            "hostport" => "27016",
             "background_map" => "background02",
             other => panic!("{other}: no golden value"),
         }

@@ -1,5 +1,51 @@
 # Design
 
+## Console log file, `say`, remote console and screenshots; agent link (2026-11-20, bounded plan; owner request)
+
+Goal: a developer (or a debugging agent) follows a running game live and talks to its player
+through the console. The installed engine already has the pieces (engine.dll strings:
+`-condebug`, `con_logfile`, `con_timestamp`, `-usercon`, `rcon_password`, `hostport`, `ip`,
+`sv_rcon_*`, `screenshot`, `jpeg`; server.dll: `say`), so core rebuilds those as retail
+features. Everything about following the stream on the other side (the agent link) is a
+`hl2-debug` feature, separate from the F1 overlay.
+
+Core (retail; each phase its own commit, tests in the owning crate):
+1. **Console log file.** `con_logfile <file>` and `-condebug` (`console.log`) append everything
+   the console prints, including `] command` echoes; `con_timestamp 1` prefixes each line as the
+   history shows it. Files go next to the settings file (never into the installation: a
+   deviation from retail, which writes into the game folder); a path may not be absolute or
+   climb with `..`. `ConsolePanel` numbers lines (`output_start`), so the host keeps a cursor and
+   writes the lines printed since; off, the system compares two integers and returns. On, one
+   buffered write and flush per frame that printed something. Frame time with logging on and
+   off is recorded in MODLOG.
+2. **`say <text>`.** Prints `<name>: <text>` (server.dll's `%s: %s`); the player's name is
+   `Player` until a `name` cvar exists (retail's exact single-player name **not verified**).
+   From the remote console the name is `Console`.
+3. **Remote console.** `-usercon` starts a listener thread on `ip` (default `127.0.0.1`) and
+   `hostport` (default 27015) speaking Valve's documented RCON packets (auth, exec, response).
+   Commands run only while `rcon_password` is non-empty; it is never saved. Failed
+   authentications follow `sv_rcon_maxfailures`/`sv_rcon_minfailures`/`sv_rcon_minfailuretime`
+   (the client is dropped and its address banned for the run). A frame system drains a channel
+   with `try_recv`; each command runs through the console like a typed one, and the lines it
+   prints are returned to the client and taken out of the local history (retail redirects them),
+   except `say`, whose line the player must see. `sv_rcon_log 1` (default) logs
+   `rcon from "<address>": command "<line>"`. Without `-usercon` no thread or system exists.
+4. **`screenshot`.** Saves the next presented frame as PNG through the `--capture` readback into
+   `screenshots/` next to the settings file (retail writes into the game folder) and prints the
+   path. `jpeg` is not implemented.
+
+`hl2-debug` (non-retail, application feature `debug-tools`):
+5. **Agent link.** `--agent-link` (and the `agent_link` command) turn on what a remote observer
+   needs at once: `-condebug`, `-usercon`, `con_timestamp 1`, and a UI state dump command
+   (`ui_dump`: open windows, focused layer, console mode, map) printed as one JSON line. The
+   watcher and the RCON client live outside the repository; this plugin only prepares the game.
+
+Validation: unit tests for path rules, the line cursor (including lines dropped from a full
+history), packet framing, authentication and bans, output redirection, `say`; one packaged run
+with `-condebug -usercon` driven by an RCON client (`getpos`, `say`, `screenshot`), and the
+frame-time pair. Not in scope: `jpeg`, `log on` server logs, remote access beyond the bind
+address the owner chooses.
+
 ## Station luggage encounter and 30-NPC workloads (2026-11-18)
 
 The installed station01 trigger enables an actor condition with a 500-unit range, a 50-degree

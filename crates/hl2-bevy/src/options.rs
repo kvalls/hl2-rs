@@ -14,9 +14,11 @@ impl Options {
         args: impl IntoIterator<Item = String>,
         config: hl2_ui::config::Config,
     ) -> Result<(Self, startup::InstallationRequest)> {
+        let (args, startup_commands) = split_startup_commands(args);
         let mut args = args.into_iter();
         let mut cli = Cli::default();
         let mut options = Self::defaults(config);
+        options.startup_commands = startup_commands;
         while let Some(arg) = args.next() {
             if let Some(name) = [
                 "--position",
@@ -79,6 +81,9 @@ impl Options {
             main_menu: false,
             background_map: None,
             novid: false,
+            condebug: false,
+            usercon: false,
+            startup_commands: Vec::new(),
             config,
         }
     }
@@ -170,6 +175,8 @@ impl Options {
             }
             "--main-menu" => options.main_menu = true,
             "-novid" | "--novid" => options.novid = true,
+            "-condebug" => options.condebug = true,
+            "-usercon" => options.usercon = true,
             "--background-map" => options.background_map = Some(next()?),
             "--help" | "-h" => {
                 startup::print_help();
@@ -254,4 +261,69 @@ struct Cli {
     no_setup: bool,
     setup_preview: Option<PathBuf>,
     explicit_mode: Option<hl2_ui::config::DisplayMode>,
+}
+
+/// Splits Source's `+command arguments` out of the command line: a `+` word starts a console
+/// command that takes the words up to the next one starting with `-` or `+`.
+fn split_startup_commands(args: impl IntoIterator<Item = String>) -> (Vec<String>, Vec<String>) {
+    let mut flags = Vec::new();
+    let mut commands: Vec<String> = Vec::new();
+    let mut in_command = false;
+    for arg in args {
+        if let Some(command) = arg.strip_prefix('+') {
+            commands.push(command.to_owned());
+            in_command = true;
+        } else if arg.starts_with('-') {
+            flags.push(arg);
+            in_command = false;
+        } else if let Some(command) = commands.last_mut().filter(|_| in_command) {
+            command.push(' ');
+            command.push_str(&console_word(&arg));
+        } else {
+            flags.push(arg);
+        }
+    }
+    (flags, commands)
+}
+
+/// A command-line word as one console word: quoted when it has spaces or separators.
+fn console_word(word: &str) -> String {
+    if word.is_empty() || word.contains([' ', ';', '"']) {
+        format!("\"{}\"", word.replace('"', ""))
+    } else {
+        word.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod startup_command_tests {
+    use super::*;
+
+    fn split(args: &[&str]) -> (Vec<String>, Vec<String>) {
+        split_startup_commands(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn plus_words_become_console_commands_until_the_next_flag() {
+        let (flags, commands) = split(&[
+            "--map",
+            "d1_trainstation_01",
+            "+rcon_password",
+            "s3cret",
+            "-usercon",
+            "+say",
+            "hello there",
+            "+sv_rcon_log",
+            "0",
+        ]);
+        assert_eq!(flags, ["--map", "d1_trainstation_01", "-usercon"]);
+        assert_eq!(
+            commands,
+            [
+                "rcon_password s3cret",
+                "say \"hello there\"",
+                "sv_rcon_log 0"
+            ]
+        );
+    }
 }

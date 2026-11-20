@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 — Console log file, `say`, remote console and startup commands
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: retail features for following the game from outside (DESIGN "Console log file, `say`, remote console and screenshots"). `con_logfile` and `-condebug` append everything the console prints (with `con_timestamp` stamps) to a file beside the settings file; the console panel keeps printed lines only while a reader asked for them (`keep_printed`). `say` prints `Player: <text>` (`Console: <text>` from the remote console). `-usercon` starts the remote console: Valve's RCON packets on `ip`:`hostport`, socket threads that never block a frame, authentication with `sv_rcon_maxfailures`/`minfailures`/`minfailuretime`/`banpenalty` bans, oversized packets (`sv_rcon_maxpacketsize`) banned, output redirected to the client, `sv_rcon_log` lines. Source's `+command` words run at startup without an echo (`Console::execute`, `run_startup_command`).
+- Why: owner request: a developer or a debugging agent follows a running game and answers the player through the console.
+- Tested how: unit tests (log paths, kept and redirected lines, `say`, startup command splitting, packet framing and splitting, authentication, failure windows, ban expiry, oversized packets, one real-socket round trip); `scripts/checks/validate.sh` passed. Packaged headless run on d1_trainstation_01 with `-condebug -usercon`: a wrong password was refused, `getpos`, a cvar query and `say` returned their output to an RCON client, `Console: ...` showed locally, and `console.log` recorded each remote command.
+- Frame time (packaged, headless, uncapped, d1_trainstation_01, 1,500 frames, alternating): off 4.268 / 4.243 / 4.245 ms, with `-condebug -usercon` 4.260 / 4.215 / 4.266 ms: no measurable cost. Load average 6.3 during the runs.
+- Still broken or not tested: retail's `sv_rcon_*` defaults and single-player `say` name are remembered, not verified against the installed engine; headless runs stamp lines 0.00 (the console clock advances with UI input); Windows **not tested**; a windowed session with a player typing **not tested**.
+- Next: `screenshot` into the settings folder; the agent link in `hl2-debug`.
+
 ## 2026-11-20 — Faces split into the triangles flexes move and the rest
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

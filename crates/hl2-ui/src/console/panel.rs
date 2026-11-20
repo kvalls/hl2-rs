@@ -30,6 +30,12 @@ impl Console {
             return Vec::new();
         }
         self.print(Level::Input, format!("] {line}"));
+        self.execute(line)
+    }
+
+    /// Runs a command line without echoing it (the command line's `+` commands, the remote
+    /// console).
+    pub fn execute(&mut self, line: &str) -> Vec<Effect> {
         let commands = match command::tokenize(line) {
             Ok(commands) => commands,
             Err(error) => {
@@ -46,6 +52,12 @@ impl Console {
             }
         }
         effects
+    }
+
+    /// Runs a command-line `+` command; what it asks of the host comes with the next tick.
+    pub fn run_startup_command(&mut self, line: &str) {
+        let effects = self.execute(line);
+        self.deferred.extend(effects);
     }
 
     /// Runs one command through its [`commands::Spec`] handler.

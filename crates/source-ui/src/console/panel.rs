@@ -5,6 +5,8 @@
 //! command table, and turns the panel's [`Action`]s into what they do.
 
 mod entry;
+mod printed;
+pub use printed::Redirect;
 mod snapshot;
 use super::command::{self, Context, Spec};
 use super::complete::{self, Completer};
@@ -273,6 +275,8 @@ pub struct ConsolePanel {
     pub con_timestamp: bool,
     /// History rows scrolled back from the newest.
     pub scroll: usize,
+    /// Lines printed since a reader last took them (`keep_printed`); `None` keeps nothing.
+    printed: Option<Vec<Line>>,
     /// Each output line's wrapped rows by line number, rebuilt when its shown text or the
     /// history width changes.
     wrapped: Mutex<HashMap<u64, Wrapped>>,
@@ -305,6 +309,7 @@ impl ConsolePanel {
             con_filter_text: String::new(),
             con_timestamp: false,
             scroll: 0,
+            printed: None,
             wrapped: Mutex::default(),
             ascii_advances: Mutex::default(),
             font: None,
@@ -319,6 +324,9 @@ impl ConsolePanel {
             text: text.into(),
             time: self.clock,
         });
+        if let (Some(printed), Some(line)) = (&mut self.printed, self.output.back()) {
+            printed.push(line.clone());
+        }
         if self.output.len() > OUTPUT_LINES {
             self.output.pop_front();
             self.output_start += 1;
@@ -998,7 +1006,7 @@ mod tests {
         canvas.y
     }
 
-    const SCALING: Scaling = Scaling {
+    pub(super) const SCALING: Scaling = Scaling {
         dialog_scale,
         design_height,
     };

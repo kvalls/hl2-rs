@@ -14,6 +14,7 @@ use fonts::load_ui_fonts;
 mod menu_flow;
 mod options_dialog;
 mod panel;
+pub mod remote;
 mod video_panel;
 
 use crate::gameui::{
@@ -94,6 +95,8 @@ pub struct Console {
     /// Escape held over a dialog, key repeat and the latest pointer.
     pub shell: Shell<Window>,
     pub cheats: bool,
+    /// What outside readers of the console use (log file).
+    pub remote: remote::Remote,
     /// Where the quit / main-menu box was dragged (centered on opening).
     quit_placement: Placement,
     /// Names arguments complete from (installed maps, the loaded map's entities), set by the host.
@@ -290,6 +293,7 @@ impl Default for Console {
                 crate::proportional::SCALING,
             ),
             cheats: false,
+            remote: remote::Remote::default(),
             quit_placement: Placement::default(),
             completion: complete::Context::default(),
             font: None,
