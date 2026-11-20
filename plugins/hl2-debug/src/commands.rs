@@ -24,6 +24,7 @@ pub trait Host: Context {
     fn background_opacity(&self) -> u8;
     fn set_background_opacity(&mut self, opacity: u8);
     fn focus_background(&mut self);
+    fn agent_status(&mut self, token: Option<&str>);
 }
 const fn command<C: Host>(
     name: &'static str,
@@ -40,7 +41,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 9] {
+pub const fn specs<C: Host>() -> [Spec<C>; 10] {
     [
         command(
             "viewmodel_debug_mode",
@@ -77,6 +78,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 9] {
             "ui_dump: print the UI state (windows, focus, menus, map, position) as one JSON line",
             &[],
             ui_dump,
+        ),
+        command(
+            "agent_status",
+            "agent_status <thinking|waiting|clear>: set the temporary remote chat status",
+            &[Arg::Values(&["thinking", "waiting", "clear"])],
+            agent_status,
         ),
         command(
             "agent_resume",
@@ -204,6 +211,20 @@ fn ui_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcom
     }
 }
 
+fn agent_status<C: Host>(console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    let [value] = args else {
+        return Err(spec.usage());
+    };
+    let token = match value.as_str() {
+        "thinking" => Some("#HL2RS_AgentThinking"),
+        "waiting" => Some("#HL2RS_AgentWaiting"),
+        "clear" => None,
+        _ => return Err(spec.usage()),
+    };
+    console.agent_status(token);
+    Ok(None)
+}
+
 fn agent_resume<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
     if args.is_empty() {
         Ok(Some(C::effect(Request::AgentResume)))
@@ -271,6 +292,9 @@ impl Host for hl2_ui::console::Console {
     }
     fn set_background_opacity(&mut self, opacity: u8) {
         self.presentation.background_opacity = Some(opacity);
+    }
+    fn agent_status(&mut self, token: Option<&str>) {
+        self.shell.panel.status = token.map(|token| self.resources().localization.text(token));
     }
     fn focus_background(&mut self) {
         self.focus_base();

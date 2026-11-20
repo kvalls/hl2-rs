@@ -1,8 +1,35 @@
 //! Lines printed since they were last taken, for readers outside the dialog (a log file, a
 //! remote console client). Kept only while a reader asked for them.
-use super::{ConsolePanel, Line};
+use super::{Canvas, ConsolePanel, Level, Line, OUTPUT_LINES};
 
 impl ConsolePanel {
+    /// Prints a line at `level`, stamped with the current time.
+    pub fn print(&mut self, canvas: &Canvas, level: Level, text: impl Into<String>) {
+        self.output.push_back(Line {
+            level,
+            text: text.into(),
+            time: self.clock,
+        });
+        if let (Some(printed), Some(line)) = (&mut self.printed, self.output.back()) {
+            printed.push(line.clone());
+        }
+        if self.output.len() > OUTPUT_LINES {
+            self.output.pop_front();
+            self.output_start += 1;
+        }
+        // Scrolled back, the view stays on its rows while new ones arrive below.
+        let number = self.output_start + self.output.len() as u64 - 1;
+        if let Some(line) = self
+            .output
+            .back()
+            .filter(|line| self.scroll > 0 && (self.con_filter != 1 || self.filter_match(line)))
+        {
+            self.scroll += self
+                .line_rows(number, line, self.wrap_metrics(canvas))
+                .len();
+        }
+    }
+
     /// Starts or stops keeping printed lines for [`Self::take_printed`]. Off, printing keeps
     /// nothing extra and lines not yet taken are dropped.
     pub fn keep_printed(&mut self, on: bool) {

@@ -2,7 +2,7 @@
 
 ## Console chat (2026-11-20)
 
-The macOS package records one speaker-labelled line per chat message from the player or RCON. Verified in a scripted player submission and a live remote console session.
+The macOS package records one speaker-labelled line per chat message from the player or RCON. Verified in a scripted player submission and a live remote console session. A debug session can show a temporary reply status below the console history. The next remote chat clears it.
 
 ## Eye iris projection on the GPU (2026-11-20): done after a first rejected attempt
 

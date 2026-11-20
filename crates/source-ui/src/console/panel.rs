@@ -249,6 +249,8 @@ fn rectangle_lines(canvas: &Canvas, x: f32, y: f32, w: f32, h: f32, thickness: f
 pub struct ConsolePanel {
     scaling: Scaling,
     pub output: VecDeque<Line>,
+    /// A temporary status below the history, excluded from copied and logged output.
+    pub status: Option<String>,
     /// Line number (since start) of `output[0]`: lines dropped from the front count on.
     pub output_start: u64,
     /// Output rows selected by dragging over the history, copied by the copy shortcut.
@@ -294,6 +296,7 @@ impl ConsolePanel {
         Self {
             scaling,
             output: VecDeque::new(),
+            status: None,
             output_start: 0,
             selection: None,
             selecting: false,
@@ -314,33 +317,6 @@ impl ConsolePanel {
             ascii_advances: Mutex::default(),
             font: None,
             style: Style::default(),
-        }
-    }
-
-    /// Prints a line at `level`, stamped with the current time.
-    pub fn print(&mut self, canvas: &Canvas, level: Level, text: impl Into<String>) {
-        self.output.push_back(Line {
-            level,
-            text: text.into(),
-            time: self.clock,
-        });
-        if let (Some(printed), Some(line)) = (&mut self.printed, self.output.back()) {
-            printed.push(line.clone());
-        }
-        if self.output.len() > OUTPUT_LINES {
-            self.output.pop_front();
-            self.output_start += 1;
-        }
-        // Scrolled back, the view stays on its rows while new ones arrive below.
-        let number = self.output_start + self.output.len() as u64 - 1;
-        if let Some(line) = self
-            .output
-            .back()
-            .filter(|line| self.scroll > 0 && (self.con_filter != 1 || self.filter_match(line)))
-        {
-            self.scroll += self
-                .line_rows(number, line, self.wrap_metrics(canvas))
-                .len();
         }
     }
 
@@ -554,7 +530,11 @@ impl ConsolePanel {
     pub fn dialog_layout(&self, canvas: &Canvas) -> DialogLayout {
         let frame = self.frame(canvas);
         let placed = self.placement.place(&frame);
-        DialogLayout::at(frame.scale, placed.origin, placed.size)
+        let mut layout = DialogLayout::at(frame.scale, placed.origin, placed.size);
+        if self.status.is_some() {
+            layout.history.h -= CONSOLE_ROW;
+        }
+        layout
     }
 
     /// The output the history shows (`con_filter_enable` 1 hides lines without
@@ -783,6 +763,15 @@ impl ConsolePanel {
             self.history_bar.pressed(),
         );
 
+        if let Some(status) = &self.status {
+            let y = layout.canvas(layout.history).y + layout.history.h * scale + row;
+            text(
+                status,
+                area.x,
+                y - CONSOLE_DESCENT * scale,
+                self.style.dev_text,
+            );
+        }
         self.draw_entry(&painter, &layout, look, time, &text);
         let entry = layout.canvas(layout.entry);
         painter.button(

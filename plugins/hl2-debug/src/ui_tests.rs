@@ -129,3 +129,21 @@ fn ai_enable_comes_from_the_debug_plugin() {
         "core has no ai_enable"
     );
 }
+
+#[test]
+fn remote_reply_clears_status_without_printing_it() {
+    let mut c = console();
+    let before = c.shell.panel.output.len();
+    c.execute("agent_status thinking");
+    assert_eq!(c.shell.panel.status.as_deref(), Some("Thinking..."));
+    c.execute("agent_status waiting");
+    assert_eq!(
+        c.shell.panel.status.as_deref(),
+        Some("Still waiting for a reply...")
+    );
+    assert_eq!(c.shell.panel.output.len(), before);
+    c.remote.from_rcon = true;
+    c.execute("say hello");
+    assert!(c.shell.panel.status.is_none());
+    assert_eq!(c.remote.broadcast, ["Console: hello"]);
+}
