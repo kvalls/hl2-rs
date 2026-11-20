@@ -16,11 +16,13 @@ const TURNS: [f32; 3] = [30., 60., 90.];
 const MIN_PROGRESS: f32 = 0.5;
 
 /// One ground step of `amount` from `from` along `direction`; when an actor blocks it, the
-/// first steered step that makes progress, with its direction.
+/// first steered step that makes progress, with its direction. Commits to the chosen side
+/// (`goal.steer`) until a straight step succeeds or that side is blocked, preventing left/right
+/// oscillation across a stationary blocker's hull.
 pub(super) fn step<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
-    goal: &Goal,
+    goal: &mut Goal,
     (direction, amount): (Vec3, f32),
     query: Query<'_>,
     start_validated: bool,
@@ -36,6 +38,7 @@ pub(super) fn step<W: NpcCollisionWorld>(
     };
     let blocked = walk(direction);
     if blocked.completed || !blocked.by_actor {
+        goal.steer = None;
         return (blocked, direction);
     }
     // A detour around the actor standing on the destination would send the mover back
@@ -46,36 +49,95 @@ pub(super) fn step<W: NpcCollisionWorld>(
             && local.cmpge(other.hull.mins).all()
             && local.cmple(other.hull.maxs).all()
     }) {
+        goal.steer = None;
         return (blocked, direction);
     }
-    candidates(direction, blocked.normal)
-        .map(|turned| (walk(turned), turned))
-        .find(|(moved, _)| {
+    let preferred = goal
+        .steer
+        .filter(|(blocker, _)| *blocker == blocked.blocker)
+        .map(|(_, side)| side);
+    if let Some((moved, turned, side)) = candidates(direction, blocked.normal, preferred)
+        .into_iter()
+        .map(|(turned, side)| (walk(turned), turned, side))
+        .find(|(moved, _, _)| {
             let travel = (moved.end - from).truncate().length();
             moved.completed || travel >= amount * MIN_PROGRESS
         })
-        .unwrap_or((blocked, direction))
+    {
+        goal.steer = Some((blocked.blocker, side));
+        (moved, turned)
+    } else {
+        goal.steer = None;
+        (blocked, direction)
+    }
 }
 
-/// The directions to try, in order: the deflection along the obstruction's surface when it
-/// stays near the heading, then the turns, the side the obstruction's surface faces first
-/// (head-on, the right: our tie-break, so two actors meeting head-on pass each other).
-fn candidates(direction: Vec3, normal: Vec3) -> impl Iterator<Item = Vec3> {
+/// The directions to try, in order, paired with their turn side (`+1` left, `-1` right):
+/// without a committed side, the deflection along the obstruction's surface when it stays near
+/// the heading, then the turns, the side the obstruction's surface faces first (head-on, the
+/// right: our tie-break, so two actors meeting head-on pass each other). With a committed side,
+/// every turn on that side is tried before flipping to the opposite side.
+fn candidates(direction: Vec3, normal: Vec3, preferred: Option<f32>) -> Vec<(Vec3, f32)> {
     let flat = |v: Vec3| (v * Vec3::new(1., 1., 0.)).normalize_or_zero();
+    let turn_dir = |deg: f32| flat(Quat::from_rotation_z(deg.to_radians()) * direction);
     let normal = flat(normal);
-    // CalculateDeflection: the heading projected onto the obstruction's plane.
     let deflected = flat(normal.cross(direction.cross(normal)));
-    let deflection = (deflected.dot(direction) > DEFLECTION_MIN_DOT).then_some(deflected);
-    // Positive turns are to the left (counter-clockwise about +Z, Source's yaw).
+    let deflection = (deflected.dot(direction) > DEFLECTION_MIN_DOT).then(|| {
+        let side = if direction.cross(deflected).z >= 0. {
+            1.
+        } else {
+            -1.
+        };
+        (deflected, side)
+    });
+    let tangent = |side: f32| {
+        // Tangent along the obstruction's face (dot(normal) == 0), oriented to `side` (+1 left,
+        // -1 right) relative to `direction`: even when `direction` tilts back toward the goal,
+        // sliding along the face never pokes back into the blocker.
+        let left_t = Vec3::new(-normal.y, normal.x, 0.);
+        let right_t = -left_t;
+        let pick = if (direction.cross(left_t).z >= 0.) == (side > 0.) {
+            left_t
+        } else {
+            right_t
+        };
+        (pick.length_squared() > 0.5).then_some((pick, side))
+    };
+    let mut out = Vec::with_capacity(9);
+    if let Some(side) = preferred {
+        if let Some(pair) = deflection.filter(|&(_, s)| s == side) {
+            out.push(pair);
+        }
+        for turn in TURNS {
+            out.push((turn_dir(turn * side), side));
+        }
+        if let Some(pair) = tangent(side) {
+            out.push(pair);
+        }
+        for turn in TURNS {
+            out.push((turn_dir(turn * -side), -side));
+        }
+        if let Some(pair) = tangent(-side) {
+            out.push(pair);
+        }
+        return out;
+    }
+    if let Some(pair) = deflection {
+        out.push(pair);
+    }
     let left_is_free = direction.cross(normal).z < 0.;
     let first = if left_is_free { 1. } else { -1. };
-    deflection
-        .into_iter()
-        .chain(TURNS.into_iter().flat_map(move |turn| {
-            [first, -first].into_iter().map(move |side| {
-                flat(Quat::from_rotation_z((turn * side).to_radians()) * direction)
-            })
-        }))
+    for turn in TURNS {
+        out.push((turn_dir(turn * first), first));
+        out.push((turn_dir(turn * -first), -first));
+    }
+    if let Some(pair) = tangent(first) {
+        out.push(pair);
+    }
+    if let Some(pair) = tangent(-first) {
+        out.push(pair);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -88,18 +150,29 @@ mod tests {
         let heading = Vec3::X;
         // The blocker's surface faces back and to the left of the heading.
         let normal = Vec3::new(-0.5, 0.866, 0.);
-        let first = candidates(heading, normal).next().unwrap();
-        assert!(first.dot(heading) > 0.7 && first.y > 0., "{first}");
+        let (first, side) = candidates(heading, normal, None)[0];
+        assert!(
+            first.dot(heading) > 0.7 && first.y > 0. && side > 0.,
+            "{first}"
+        );
         assert!(first.dot(normal).abs() < 1e-4);
     }
 
     #[test]
     fn head_on_turns_right_first_then_alternates() {
-        let order: Vec<_> = candidates(Vec3::X, -Vec3::X).collect();
+        let order = candidates(Vec3::X, -Vec3::X, None);
         // No deflection head-on: the first candidate is the 30 degree turn to the right.
-        assert!(order[0].y < 0. && (order[0].x - 30f32.to_radians().cos()).abs() < 1e-4);
-        assert!(order[1].y > 0.);
-        assert_eq!(order.len(), 6);
+        assert!(order[0].0.y < 0. && (order[0].0.x - 30f32.to_radians().cos()).abs() < 1e-4);
+        assert!(order[1].0.y > 0.);
+        assert_eq!(order.len(), 8);
+    }
+
+    #[test]
+    fn a_committed_side_tries_all_its_turns_before_flipping() {
+        let order = candidates(Vec3::X, -Vec3::X, Some(1.));
+        assert_eq!(order.len(), 8);
+        assert!(order[..4].iter().all(|&(_, side)| side == 1.));
+        assert!(order[4..].iter().all(|&(_, side)| side == -1.));
     }
 }
 
@@ -194,5 +267,50 @@ mod passing {
     fn a_wall_is_not_steered_around() {
         let states = meet(true);
         assert!(!states.iter().any(GoalState::is_arrived), "{states:?}");
+    }
+
+    #[test]
+    fn blended_human_passes_stationary_player_without_stalling_or_oscillating() {
+        let physics = Physics::new(&world(vec![]));
+        let mut controller = make_controller(None);
+        controller.set_accel(7, Some(super::super::blended::Accel::PlusFifty));
+        let player = ActorHull {
+            entity: None,
+            feet: Vec3::new(60., 0., 0.),
+            hull: super::super::Hull {
+                mins: Vec3::new(-16., -16., 0.),
+                maxs: Vec3::new(16., 16., 72.),
+            },
+        };
+        let mut feet = Vec3::ZERO;
+        controller.request(
+            key(1),
+            request(Vec3::X * 200.),
+            pose(feet),
+            &physics,
+            &[player],
+        );
+        let mut prev_yaw: Option<f32> = None;
+        let mut big_flips = 0usize;
+        for _ in 0..300 {
+            for update in controller.tick(&physics, &[pose(feet)], &[player], 0.015, false) {
+                if let Some(prev) = prev_yaw {
+                    let delta = (update.yaw_degrees - prev + 540.).rem_euclid(360.) - 180.;
+                    if delta.abs() > 100. {
+                        big_flips += 1;
+                    }
+                }
+                prev_yaw = Some(update.yaw_degrees);
+                feet = update.feet;
+            }
+            if controller.status(key(1)).unwrap().is_arrived() {
+                break;
+            }
+        }
+        assert!(
+            controller.status(key(1)).unwrap().is_arrived(),
+            "citizen stalled at {feet:?}"
+        );
+        assert_eq!(big_flips, 0, "citizen yaw oscillated {big_flips} times");
     }
 }

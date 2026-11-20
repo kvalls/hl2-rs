@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-20 — Fix NPC steering oscillation and zero-speed stall under blended motor
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-simulation/src/npc.rs` & `npc/steer.rs`: added per-goal steer-side commitment (`Goal::steer: Option<(Option<usize>, f32)>`) so an NPC blocked by a stationary player or NPC keeps trying turns on its committed side before flipping, and added the obstruction's surface tangent (`dot(normal) == 0`) on that side as a fallback so a tilted goal heading never pokes back into the blocker's flat face.
+  - `crates/hl2-simulation/src/npc/blended.rs`: while `goal.steer.is_some()`, keep `plan.heading` aligned with the path leg so a 90° sidestep does not multiply `nodes[0].speed` by `cos(90°) = 0` every tick.
+  - Added unit tests `a_committed_side_tries_all_its_turns_before_flipping` and `blended_human_passes_stationary_player_without_stalling_or_oscillating`.
+- Why: live `npc_dump` on `d1_trainstation_02` caught citizen `#1298` stuck and oscillating ±90° at near-zero speed against a stationary player (and a citizen stuck against a standing Metrocop).
+- Tested how: `cargo test -p hl2-simulation npc::steer` (7 passed), `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: packaged replays and Windows runtime were **not tested** yet for this change.
+- Next: run the affected `d1_trainstation_02` replays (or full suite) and hot-restart the live session to verify in-game.
+
 ## 2026-11-20 — Preserve console scroll and selection across RCON redirects
 
 - Agent/model: Antigravity (Gemini 4 Neon).

@@ -335,10 +335,10 @@ struct Goal {
     paused: bool,
     /// A jump or climb in progress.
     link: links::GoalLink,
-    /// This tick's start hangs over an edge (STEP_ON_INVALID_GROUND).
     shaky: bool,
-    /// The motor's current speed (`blended`).
+    /// The motor's current speed (`blended`) and active steer commitment `(blocker, side)`.
     speed: f32,
+    steer: Option<(Option<usize>, f32)>,
 }
 impl Goal {
     fn destination(&self) -> Destination {
@@ -752,6 +752,7 @@ impl Controller {
                 self.actors.get_mut(&key.actor),
                 self.clock,
             ),
+            steer: None,
         };
         let prepared = (|| {
             self.admit(key, &pose, &goal.request)?;
@@ -1078,8 +1079,7 @@ fn advance<W: NpcCollisionWorld>(
                 npc_probe::time_to_cover(distance, remaining, forward)?,
             )
         };
-        // This tick's first step starts where `fits` and `stand` just passed. An actor in the
-        // way is steered around (`steer`); the world is not.
+        // First step starts where `fits`/`stand` passed; steer around actors (`steer`), not walls.
         let validated = std::mem::take(&mut start_validated);
         let heading = (delta / distance, amount);
         let (movement, direction) = steer::step(world, actor, goal, heading, query, validated);
@@ -1290,6 +1290,7 @@ pub(crate) mod tests {
             link: Default::default(),
             shaky: false,
             speed: 0.,
+            steer: None,
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.
