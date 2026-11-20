@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Retail sound channel limits
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: sounds start on retail's channels (`audio/channels.rs`) instead of under a flat cap of 256 players. 64 dynamic channels for entity sounds: a sound takes over the channel its emitter already plays on (same emitter and script channel, not `CHAN_AUTO`), else the lowest free channel, else the lowest busy one that is not `CHAN_VOICE`, `CHAN_STREAM` or `CHAN_VOICE2` and not the player's own (unless the new sound is the player's). 64 static channels for ambient_generic, soundscape sounds and `CHAN_STATIC` scripts: a static sound that finds none does not play. UI sounds stay outside the channels. Sound scripts' `channel` is now read (`ScriptParams::channel`, SDK `public/soundflags.h` names or numbers); VOX sentences use `CHAN_VOICE`. The report's audio section shows the channels in use (`channels`).
+- Why: owner choice, to match retail. The installed engine (`bin/engine.dll`) allocates 64 dynamic channels before its static ones and refuses a static sound once all 128 are taken (`total_channels == MAX_CHANNELS`). In the mixed crowd HL2RS kept 256 sounds playing and turned 575 away; the mixer works on every playing sound.
+- Not reproduced: the engine's optional duplicate-sound limit and "nearest the end" stealing, behind a console variable whose name and default were not identified; with it off, the engine steals the lowest stealable channel, as here.
+- Tested how: unit tests for replacement, free channels, stealing (never voices, streams or another's player sound) and the 65th static sound; the script-parameter test reads `channel`. Mixed crowd: 84 sounds playing at the end instead of 256, 138 refused instead of 575. Three alternating A/B pairs against `7ab2e858`: fight frame 17.42 -> 17.45 ms, fixed simulation 4.64 -> 4.60 ms (no change). Full `all.sh`: replays (109/109) and the Windows check passed; validation passed after `cargo fmt`.
+- Still broken or not tested: the audio thread stays about 77% busy in the crowd fight (4% in the quiet plaza with 13 sounds). Most of it is rodio's per-sink sample-rate conversion (pitch other than 100); the mixer seems to hold more sources than the playing sounds, which was not established. Not listened to by hand.
+
 ## 2026-11-20 — Attachment frames posed from their own bone chains
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

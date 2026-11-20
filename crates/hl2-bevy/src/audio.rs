@@ -10,8 +10,7 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 const MAX_PRELOADED_BYTES: usize = 512 * 1024 * 1024;
-const MAX_PLAYERS: usize = 256;
-
+mod channels;
 mod cues;
 mod wav;
 use wav::{
@@ -104,7 +103,18 @@ pub struct Audio {
     captions: Vec<hl2_ui::closecaption::Request>,
     /// The listener (player eye) of the latest frame.
     listener: glam::Vec3,
+    /// Retail's 64 dynamic and 64 static sound channels.
+    channels: channels::Channels,
 }
+/// The channel a starting sound was given.
+enum Claim {
+    /// UI sounds stay outside the world's channels.
+    Ui,
+    Static,
+    Dynamic(usize, channels::Voice),
+}
+/// The soundscape handle of random (one-shot) soundscape sounds, which no loop owns.
+const SOUNDSCAPE_RANDOM: u64 = u64::MAX;
 /// `soundpatch_captionlength`: looping sound patches caption for this long.
 const SOUND_PATCH_CAPTION_LENGTH: f32 = 2.;
 impl Audio {
@@ -220,6 +230,54 @@ pub struct SoundPlayer {
     emitter: Option<(u64, String)>,
 }
 impl Audio {
+    /// The retail channel for a sound about to start ([`channels`]), stopping the sound it
+    /// takes over; None when no channel takes it.
+    fn claim(
+        &mut self,
+        commands: &mut Commands,
+        request: &SoundRequest,
+        statics: bool,
+        channel: i32,
+    ) -> Option<Claim> {
+        if request.ui {
+            return Some(Claim::Ui);
+        }
+        if statics {
+            if self.channels.static_free() {
+                return Some(Claim::Static);
+            }
+            self.capacity_rejections += 1;
+            return None;
+        }
+        let speaker = request
+            .actor
+            .as_ref()
+            .and_then(|a| a.entity)
+            .map(|e| e as u64);
+        let voice = channels::Voice {
+            source: request.emitter.or(speaker),
+            channel,
+            player: request.origin.is_none(),
+        };
+        match self.channels.pick_dynamic(&voice) {
+            Some(channels::Pick::Free(slot)) => Some(Claim::Dynamic(slot, voice)),
+            Some(channels::Pick::Replace(slot, stopped)) => {
+                commands.entity(stopped).try_despawn();
+                Some(Claim::Dynamic(slot, voice))
+            }
+            None => {
+                self.capacity_rejections += 1;
+                None
+            }
+        }
+    }
+    fn record(&mut self, claim: Claim, player: Entity) {
+        match claim {
+            Claim::Ui => {}
+            Claim::Static => self.channels.take_static(player),
+            Claim::Dynamic(slot, voice) => self.channels.take_dynamic(slot, player, voice),
+        }
+    }
     /// The volume a new player starts with: spatial sounds already carry their distance
     /// gain, because Source mixes a channel's first samples at its spatialized volume
     /// (a one-frame silent start swallowed the 25 ms far layer of NPC gunfire); `queue`
@@ -261,6 +319,7 @@ impl Audio {
             .as_ref()
             .and_then(|key| self.handles.get(key))
             .or_else(|| self.handles.get(&path))
+            .cloned()
         else {
             self.library.errors.entry(path).or_insert_with(|| {
                 "cue variant was not preloaded; no file reads are allowed in playback systems"
@@ -273,34 +332,40 @@ impl Audio {
         let soundlevel =
             spatial.map_or_else(|| self.library.params(&request.name).soundlevel, |s| s.1);
         let music = hl2_simulation::sounds::is_music(wave.dry_mix, soundlevel);
+        let channel = self.library.params(&request.name).channel;
+        let statics = ambient.is_some() || soundscape.is_some() || channel == channels::CHAN_STATIC;
+        let claim = self.claim(commands, request, statics, channel)?;
         let settings = if looped {
             PlaybackSettings::LOOP
         } else {
             PlaybackSettings::DESPAWN
         };
-        commands.spawn((
-            crate::campaign::MapOwned,
-            SoundPlayer {
-                // The premix key for distance variants (traces show the mix chosen).
-                path: variant.unwrap_or_else(|| path.clone()),
-                queued_frame: self.frame,
-                observed: false,
-                volume,
-                spatial,
-                ambient,
-                soundscape,
-                music,
-                ui: request.ui,
-                emitter: request.emitter.map(|e| (e, request.name.clone())),
-            },
-            AudioPlayer::new(handle.clone()),
-            PlaybackSettings {
-                volume: self.output(self.start_volume(volume, spatial) * self.mix(music)),
-                speed: pitch / 100.,
-                paused,
-                ..settings
-            },
-        ));
+        let player = commands
+            .spawn((
+                crate::campaign::MapOwned,
+                SoundPlayer {
+                    // The premix key for distance variants (traces show the mix chosen).
+                    path: variant.unwrap_or_else(|| path.clone()),
+                    queued_frame: self.frame,
+                    observed: false,
+                    volume,
+                    spatial,
+                    ambient,
+                    soundscape,
+                    music,
+                    ui: request.ui,
+                    emitter: request.emitter.map(|e| (e, request.name.clone())),
+                },
+                AudioPlayer::new(handle),
+                PlaybackSettings {
+                    volume: self.output(self.start_volume(volume, spatial) * self.mix(music)),
+                    speed: pitch / 100.,
+                    paused,
+                    ..settings
+                },
+            ))
+            .id();
+        self.record(claim, player);
         self.requested += 1;
         Some(path)
     }
@@ -336,27 +401,32 @@ impl Audio {
             .origin
             .zip(parameters)
             .map(|(origin, (_, _, soundlevel))| (origin, soundlevel));
-        commands.spawn((
-            crate::campaign::MapOwned,
-            SoundPlayer {
-                path: path.clone(),
-                queued_frame: self.frame,
-                observed: false,
-                volume,
-                spatial,
-                ambient: None,
-                soundscape: None,
-                music: false,
-                ui: request.ui,
-                emitter: None,
-            },
-            AudioPlayer::new(sources.add(AudioSource { bytes: wav.into() })),
-            PlaybackSettings {
-                volume: self.output(self.start_volume(volume, spatial) * self.mix(false)),
-                paused,
-                ..PlaybackSettings::DESPAWN
-            },
-        ));
+        // EmitSentence speaks on CHAN_VOICE.
+        let claim = self.claim(commands, request, false, channels::CHAN_VOICE)?;
+        let player = commands
+            .spawn((
+                crate::campaign::MapOwned,
+                SoundPlayer {
+                    path: path.clone(),
+                    queued_frame: self.frame,
+                    observed: false,
+                    volume,
+                    spatial,
+                    ambient: None,
+                    soundscape: None,
+                    music: false,
+                    ui: request.ui,
+                    emitter: None,
+                },
+                AudioPlayer::new(sources.add(AudioSource { bytes: wav.into() })),
+                PlaybackSettings {
+                    volume: self.output(self.start_volume(volume, spatial) * self.mix(false)),
+                    paused,
+                    ..PlaybackSettings::DESPAWN
+                },
+            ))
+            .id();
+        self.record(claim, player);
         self.requested += 1;
         Some(path)
     }
@@ -365,7 +435,7 @@ impl Audio {
             "requested":self.requested,"started_sinks":self.started,"failed_requests":self.failed,"capacity_rejections":self.capacity_rejections,
             "pending_sinks":self.pending_sinks,"active_sinks":self.active_sinks,"paused_sinks":self.paused_sinks,
             "pause_changes":self.pause_changes,"resume_changes":self.resume_changes,"spatial":self.spatial,
-            "muted":self.muted,"peak_output":self.peak_output,
+            "channels":{"dynamic":self.channels.playing().0,"static":self.channels.playing().1},"muted":self.muted,"peak_output":self.peak_output,
             "variants":self.library.variants_played,"decoded":self.library.decoded,"errors":self.library.errors,
             "soundscape":{"definitions":self.soundscapes.len(),"active":self.soundscape.active(),"started":self.soundscape.started,
                 "loops":self.soundscape.loops(),"random_plays":self.soundscape_plays,"unknown":self.soundscape.unknown},
@@ -417,6 +487,7 @@ pub fn install(
         patches: HashMap::new(),
         captions: Vec::new(),
         listener: glam::Vec3::ZERO,
+        channels: Default::default(),
     };
     let mute = MUTE_AMBIENT.load(std::sync::atomic::Ordering::Relaxed);
     let mut spawn: Vec<(usize, Ambient)> = audio
@@ -427,10 +498,6 @@ pub fn install(
         .collect();
     spawn.sort_by_key(|(id, _)| *id);
     for (id, ambient) in spawn {
-        if audio.requested >= MAX_PLAYERS as u64 {
-            audio.capacity_rejections += 1;
-            continue;
-        }
         if let Some(path) = audio.emit(
             commands,
             &ambient.request,
@@ -612,8 +679,8 @@ pub fn queue(
     let player = glam::Vec3::from_array(simulation.eye().to_array());
     let paused = !simulation.world_running();
     update_pause_state(&mut audio, paused);
-    let mut count = 0;
     audio.spatial.clear();
+    let mut live = std::collections::HashSet::new();
     let mut owned = Vec::new();
     let mut emitted: Vec<(Entity, (u64, String))> = Vec::new();
     let mut ctx = PlayerUpdateCtx {
@@ -629,12 +696,14 @@ pub fn queue(
         if let Some(key) = &player.emitter {
             emitted.push((entity, key.clone()));
         }
-        count += 1;
+        live.insert(entity);
         if !player.ui {
             settings.paused = paused;
         }
         update_player(entity, player, sink.as_deref_mut(), &mut audio, &mut ctx);
     }
+    // Channels whose sound ended are free again.
+    audio.channels.retain(|entity| live.contains(&entity));
     trace_requests(trace.as_deref_mut(), &audio, &game, paused);
     // CloseCaption messages: spawn-time ambient sounds, then scene speech.
     let mut captions = std::mem::take(&mut audio.captions);
@@ -670,16 +739,13 @@ pub fn queue(
                         let spatial = request.origin.map(|o| (o, soundlevel));
                         // The patch loops (SoundCreate on a looping wave; cue points
                         // are not read, so the wave is assumed to loop).
-                        if count < MAX_PLAYERS
-                            && let Some(path) = audio.emit(
-                                &mut commands,
-                                &request,
-                                true,
-                                (volume, pitch.max(1.), spatial),
-                                (paused, None, None),
-                            )
-                        {
-                            count += 1;
+                        if let Some(path) = audio.emit(
+                            &mut commands,
+                            &request,
+                            true,
+                            (volume, pitch.max(1.), spatial),
+                            (paused, None, None),
+                        ) {
                             // CSoundPatch::StartSound captions the script name.
                             captions.extend(audio.caption(
                                 &request,
@@ -727,21 +793,16 @@ pub fn queue(
             }
             continue;
         }
-        if count < MAX_PLAYERS && (request.name.starts_with('!') || request.name.starts_with('#')) {
+        if request.name.starts_with('!') || request.name.starts_with('#') {
             if audio
                 .emit_sentence(&mut commands, &mut sources, &request, paused)
-                .is_some()
+                .is_none()
             {
-                count += 1;
-            } else {
                 game.unplayed_sounds += 1;
             }
             continue;
         }
-        if count >= MAX_PLAYERS {
-            audio.capacity_rejections += 1;
-            game.unplayed_sounds += 1;
-        } else if let Some(path) = {
+        if let Some(path) = {
             // EmitSound: script volume/pitch drawn per emission unless the caller set the
             // volume; positioned requests use the script soundlevel for distance gain.
             let (volume, pitch, soundlevel) = audio.library.draw_params(&request.name);
@@ -754,7 +815,6 @@ pub fn queue(
                 (if request.ui { false } else { paused }, None, None),
             )
         } {
-            count += 1;
             captions.extend(audio.caption(&request, &path, None, (request.origin, player)));
             // Actor speech drives lip sync from the chosen wave's phonemes.
             if let Some(actor) = request.actor.as_ref().and_then(|a| a.entity) {
@@ -833,20 +893,14 @@ pub fn queue(
                 if mute {
                     continue;
                 }
-                if count >= MAX_PLAYERS {
-                    audio.capacity_rejections += 1;
-                } else if audio
-                    .emit(
-                        &mut commands,
-                        &wave.into(),
-                        false,
-                        (volume, pitch.max(1.), spatial),
-                        (paused, None, None),
-                    )
-                    .is_some()
-                {
-                    count += 1;
-                }
+                // Soundscape sounds are ambient sounds: static channels.
+                audio.emit(
+                    &mut commands,
+                    &wave.into(),
+                    false,
+                    (volume, pitch.max(1.), spatial),
+                    (paused, None, Some(SOUNDSCAPE_RANDOM)),
+                );
             }
         }
     }
