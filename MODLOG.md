@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Agent link in `hl2-debug`: `ui_dump`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `hl2-debug` gains an `agent` module, separate from the F1 overlay: `ui_dump` prints the console's UI report (mode, windows, menus, dialogs, pending map) without its output history, plus the map, eye position, angles and pause/loading state, as one `ui_dump {json}` line. With the retail log file and remote console a debugging agent reads it without screenshots. No core change.
+- Why: owner request: agent-only pieces go to the debug plugin; retail pieces stay in core.
+- Tested how: unit test (one line, no history, world fields); `validate.sh` passed; a packaged headless run answered `ui_dump` over the remote console with the expected JSON.
+- Frame time: none (runs only when the command is entered).
+- Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-20 — `screenshot` into the settings folder
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

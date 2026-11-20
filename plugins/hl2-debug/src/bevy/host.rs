@@ -109,6 +109,7 @@ impl RuntimeExtension for State {
             crate::commands::Request::ViewmodelTweakReset => {
                 self.viewmodel_tweak_reset(context.simulation, ui)
             }
+            crate::commands::Request::UiDump => super::agent::ui_dump(context.simulation, ui),
             other => self.apply_background_debug_effect(context.simulation, ui, other),
         }
         true

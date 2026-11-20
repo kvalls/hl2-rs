@@ -1,4 +1,5 @@
 //! Optional hl2-debug extension; portable policy and separately enabled Bevy integration.
+pub mod agent;
 #[cfg(feature = "bevy")]
 pub mod bevy;
 pub mod commands;

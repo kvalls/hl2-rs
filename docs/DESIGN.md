@@ -35,10 +35,11 @@ Core (retail; each phase its own commit, tests in the owning crate):
    path. `jpeg` is not implemented.
 
 `hl2-debug` (non-retail, application feature `debug-tools`):
-5. **Agent link.** `--agent-link` (and the `agent_link` command) turn on what a remote observer
-   needs at once: `-condebug`, `-usercon`, `con_timestamp 1`, and a UI state dump command
-   (`ui_dump`: open windows, focused layer, console mode, map) printed as one JSON line. The
-   watcher and the RCON client live outside the repository; this plugin only prepares the game.
+5. **Agent link.** Everything only a debugging agent needs lives in `hl2-debug`'s `agent`
+   module, separate from the F1 overlay: `ui_dump` prints the UI state (windows, focus, menus,
+   map, position, pause) as one JSON line that the log file and the remote console carry. The
+   game is started with the retail switches (`-condebug -usercon +rcon_password ...`); the
+   watcher and the RCON client live outside the repository.
 
 Validation: unit tests for path rules, the line cursor (including lines dropped from a full
 history), packet framing, authentication and bans, output redirection, `say`; one packaged run

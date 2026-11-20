@@ -8,6 +8,7 @@ pub enum Request {
     BackgroundDebugMode(bool),
     BackgroundBlurOpacity(u8),
     BackgroundMapFov(Option<f32>),
+    UiDump,
 }
 pub trait Host: Context {
     fn effect(request: Request) -> Self::Effect;
@@ -34,7 +35,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 5] {
+pub const fn specs<C: Host>() -> [Spec<C>; 6] {
     [
         command(
             "viewmodel_debug_mode",
@@ -65,6 +66,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 5] {
             "background_map_fov [degrees]: query or set background map field of view",
             &[Arg::Free],
             background_map_fov,
+        ),
+        command(
+            "ui_dump",
+            "ui_dump: print the UI state (windows, focus, menus, map, position) as one JSON line",
+            &[],
+            ui_dump,
         ),
     ]
 }
@@ -164,6 +171,14 @@ fn background_map_fov<C: Host>(
         return Err(spec.usage());
     }
     Ok(Some(C::effect(Request::BackgroundMapFov(Some(deg)))))
+}
+
+fn ui_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    if args.is_empty() {
+        Ok(Some(C::effect(Request::UiDump)))
+    } else {
+        Err(spec.usage())
+    }
 }
 
 impl Host for hl2_ui::console::Console {

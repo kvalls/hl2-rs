@@ -38,7 +38,7 @@ Dependencies point one way: application (`apps/hl2rs`, package `hl2-app`) -> plu
 | Plugin | Owns |
 | --- | --- |
 | `hl2-advanced-options` | Potato items below retail's lowest in Model, Texture, Shader, Shadow and Filtering; Advanced and Ultra motion blur, Fit Display and the extra aspect choices, the 15-second keep-or-revert dialog (on an aspect-choice change), vertical and viewmodel FOV |
-| `hl2-debug` | `viewmodel_debug_mode`, `background_debug_mode`, F1 statistics, F2 flight shortcut, F3 loadout shortcut, F4 NPC and prop panel, their tuning and presentation |
+| `hl2-debug` | `viewmodel_debug_mode`, `background_debug_mode`, F1 statistics, F2 flight shortcut, F3 loadout shortcut, F4 NPC and prop panel, their tuning and presentation; the agent link (`ui_dump`: the UI state as one JSON line for a debugging agent following the console log or the remote console) |
 
 Ordinary motion blur, flight, spawning, camera behavior and simulation mechanisms stay in core.
 
