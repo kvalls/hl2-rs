@@ -28,7 +28,7 @@ Core (retail; each phase its own commit, tests in the owning crate):
    (the client is dropped and its address banned for the run). A frame system drains a channel
    with `try_recv`; each command runs through the console like a typed one, and the lines it
    prints are returned to the client and taken out of the local history (retail redirects them),
-   except `say`, whose line the player must see. `sv_rcon_log 1` (default) logs
+   except `say`, whose labelled chat line the player sees once. For commands other than chat-only lines, `sv_rcon_log 1` (default) logs
    `rcon from "<address>": command "<line>"`. Without `-usercon` no thread or system exists.
 4. **`screenshot`.** Saves the next presented frame as PNG through the `--capture` readback into
    `screenshots/` next to the settings file (retail writes into the game folder) and prints the

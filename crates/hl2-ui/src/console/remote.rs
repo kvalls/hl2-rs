@@ -12,6 +12,16 @@ pub const PLAYER_SPEAKER: &str = "Player";
 /// The name `say` shows for remote console commands.
 pub const RCON_SPEAKER: &str = "Console";
 
+/// Valid chat commands print their own speaker-labelled output. Keep the input or remote
+/// log entry for malformed lines and batches that also run other commands.
+pub fn chat_only(commands: &Result<Vec<Vec<String>>, String>) -> bool {
+    commands.as_ref().is_ok_and(|commands| {
+        !commands.is_empty() && commands.iter().all(|tokens| {
+            matches!(tokens.as_slice(), [name, _, ..] if name.eq_ignore_ascii_case("say"))
+        })
+    })
+}
+
 /// What the host reads to serve outside readers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Remote {

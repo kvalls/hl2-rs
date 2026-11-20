@@ -63,7 +63,8 @@ fn run(
     line: &str,
     from: SocketAddr,
 ) -> String {
-    if ui.source.remote.sv_rcon_log {
+    let commands = source_ui::console::command::tokenize(line);
+    if ui.source.remote.sv_rcon_log && !hl2_ui::console::remote::chat_only(&commands) {
         ui.source.print(
             Level::Normal,
             format!("rcon from \"{from}\": command \"{line}\""),
@@ -71,7 +72,7 @@ fn run(
     }
     ui.source.remote.from_rcon = true;
     let redirect = ui.source.shell.panel.start_redirect();
-    let effects = ui.source.execute(line);
+    let effects = ui.source.execute_parsed(commands);
     if let Some(game) = game {
         sim.console_effects(ui, game, effects);
     }

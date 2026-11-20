@@ -1,5 +1,9 @@
 # STATUS
 
+## Console chat (2026-11-20)
+
+The macOS package records one speaker-labelled line per chat message from the player or RCON. Verified in a scripted player submission and a live remote console session.
+
 ## Eye iris projection on the GPU (2026-11-20): done after a first rejected attempt
 
 Resolved the same day: the misplaced irises came from the rows buffer growing (a new GPU buffer the

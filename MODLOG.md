@@ -1,5 +1,11 @@
 # MODLOG
 
+## 2026-11-20 — Show each chat message once
+
+- Agent/model: Codex desktop, GPT-6 family.
+- Changed and why: A valid chat-only submission prints one speaker-labelled line per message in the developer console and its log, as requested. Other commands, mixed batches and syntax errors retain their input or RCON trace.
+- Verification: Chat tests cover local and remote speakers, batches and quoted separators. A packaged macOS replay logged one player chat line and preserved a regular command echo. A live RCON message on the restarted build logged once. Strict Clippy passed on macOS and the Windows target. Windows runtime was not tested.
+
 ## 2026-11-20 — `background_map` command removed
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

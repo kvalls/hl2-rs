@@ -140,9 +140,23 @@ mod tests {
     }
 
     #[test]
+    fn only_chat_skips_the_command_echo() {
+        use crate::console::remote::chat_only;
+        use source_ui::console::command::tokenize;
+        for line in [r#"SAY "a;b""#, "say hello; say goodbye"] {
+            assert!(chat_only(&tokenize(line)));
+        }
+        for line in ["echo say", "say hello; echo ok", "say", "say \"open", ";"] {
+            assert!(!chat_only(&tokenize(line)));
+        }
+    }
+
+    #[test]
     fn say_names_the_player_or_the_remote_console() {
         let mut console = Console::default();
+        let before = console.shell.panel.output.len();
         console.submit("say hello there");
+        assert_eq!(console.shell.panel.output.len(), before + 1);
         assert_eq!(last(&console), Some("Player: hello there"));
         assert!(console.remote.broadcast.is_empty());
         console.remote.from_rcon = true;

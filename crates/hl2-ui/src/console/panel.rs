@@ -29,14 +29,22 @@ impl Console {
         if line.is_empty() {
             return Vec::new();
         }
-        self.print(Level::Input, format!("] {line}"));
-        self.execute(line)
+        let commands = command::tokenize(line);
+        if !super::remote::chat_only(&commands) {
+            self.print(Level::Input, format!("] {line}"));
+        }
+        self.execute_parsed(commands)
     }
 
     /// Runs a command line without echoing it (the command line's `+` commands, the remote
     /// console).
     pub fn execute(&mut self, line: &str) -> Vec<Effect> {
-        let commands = match command::tokenize(line) {
+        self.execute_parsed(command::tokenize(line))
+    }
+
+    /// Runs a line already parsed for console echo or remote logging.
+    pub fn execute_parsed(&mut self, commands: Result<Vec<Vec<String>>, String>) -> Vec<Effect> {
+        let commands = match commands {
             Ok(commands) => commands,
             Err(error) => {
                 self.log(error);
