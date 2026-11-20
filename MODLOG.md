@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-20 — AGENTS.md size check ignores line endings
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `scripts/checks/architecture.py` measures AGENTS.md with LF line ends (`text_bytes`) instead of its size on disk.
+- Why: the pull request's Windows job failed with "AGENTS.md is 20063 bytes": the checkout writes CRLF, one extra byte on each of its 116 lines, while the file holds 19,947 bytes in the repository. The limit is about the rules' length, not the platform's line ends.
+- Tested how: new `test_architecture.TextBytes` (the same size for LF and CRLF text); `python3 scripts/checks/architecture.py` passes locally. The Windows CI job itself was **not rerun** (needs a push).
+
 ## 2026-11-20 — NPC hitboxes posed from their own bones only
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

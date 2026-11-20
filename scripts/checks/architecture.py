@@ -215,6 +215,11 @@ def dependencies(manifest):
     return names
 
 
+def text_bytes(path):
+    """A text file's size with LF line ends, whatever the checkout wrote (CRLF on Windows)."""
+    return len(path.read_bytes().replace(b"\r\n", b"\n"))
+
+
 def measure():
     state = {"functions": defaultdict(list), "files": {}, "test_files": {},
              "counts": defaultdict(lambda: defaultdict(int))}
@@ -288,8 +293,8 @@ def measure():
         if len(places) > 1:
             duplicates[hashlib.sha1(block.encode()).hexdigest()[:12]] = places
     agents = REPO / "AGENTS.md"
-    if agents.exists() and agents.stat().st_size > AGENTS_BYTES:
-        problems.append(f"AGENTS.md is {agents.stat().st_size} bytes (limit {AGENTS_BYTES}): it holds "
+    if agents.exists() and text_bytes(agents) > AGENTS_BYTES:
+        problems.append(f"AGENTS.md is {text_bytes(agents)} bytes (limit {AGENTS_BYTES}): it holds "
                         f"rules, one line each; move details to docs/ and point to them")
     state["functions"] = {k: sorted(v, reverse=True) for k, v in state["functions"].items()}
     state["counts"] = {c: dict(v) for c, v in state["counts"].items()}
