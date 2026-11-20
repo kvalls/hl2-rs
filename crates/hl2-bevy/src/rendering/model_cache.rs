@@ -22,6 +22,8 @@ pub struct ModelCache {
     pub missing: Handle<Image>,
     /// Plain materials (a video option): no reflections, as for the map's own draws.
     pub plain: bool,
+    /// The map's face models by asset key: runtime faces split by their flexes too.
+    pub faces: BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>,
 }
 impl ModelCache {
     /// Upload a late-loaded model's materials: textures not on the GPU yet, then the

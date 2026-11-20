@@ -138,7 +138,7 @@
  ],
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1596,
-  "crates/hl2-bevy/src/rendering.rs": 1316,
+  "crates/hl2-bevy/src/rendering.rs": 1284,
   "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2367,
@@ -180,7 +180,7 @@
    103
   ],
   "crates/hl2-bevy/src/rendering.rs::build_model_draws": [
-   121
+   113
   ],
   "crates/hl2-bevy/src/rendering.rs::present_entities": [
    123

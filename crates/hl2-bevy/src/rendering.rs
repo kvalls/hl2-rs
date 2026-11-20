@@ -21,6 +21,7 @@ pub(crate) mod cubemaps;
 pub(crate) mod drawing;
 use cpu_skin::skin_on_cpu;
 mod face_flex;
+mod face_split;
 pub use face_flex::FlexModels;
 mod lighting;
 use lighting::ModelLit;
@@ -190,14 +191,7 @@ impl Batch {
     fn spatial_chunks(self) -> Vec<Self> {
         const CELL: f64 = 1024.;
         const MAX_CHUNKS: usize = 64;
-        if !self.indices.len().is_multiple_of(3)
-            || self.positions.iter().flatten().any(|v| !v.is_finite())
-            || self.uvs.len() != self.positions.len()
-            || self.light_uvs.len() != self.positions.len()
-            || self.colors.len() != self.positions.len()
-            || self.normals.len() != self.positions.len()
-            || self.skin.len() != self.positions.len()
-        {
+        if !self.consistent() || self.positions.iter().flatten().any(|v| !v.is_finite()) {
             return vec![self];
         }
         let mut groups = BTreeMap::<[i32; 3], Vec<u32>>::new();
@@ -219,28 +213,7 @@ impl Batch {
         if groups.len() <= 1 {
             return vec![self];
         }
-        groups
-            .into_values()
-            .map(|indices| {
-                let mut batch = Self::default();
-                let mut remap = std::collections::HashMap::new();
-                for index in indices {
-                    let new = *remap.entry(index).or_insert_with(|| {
-                        let new = batch.positions.len() as u32;
-                        let index = index as usize;
-                        batch.positions.push(self.positions[index]);
-                        batch.uvs.push(self.uvs[index]);
-                        batch.light_uvs.push(self.light_uvs[index]);
-                        batch.colors.push(self.colors[index]);
-                        batch.normals.push(self.normals[index]);
-                        batch.skin.push(self.skin[index].clone());
-                        new
-                    });
-                    batch.indices.push(new);
-                }
-                batch
-            })
-            .collect()
+        self.regroup(groups.into_values().collect())
     }
     fn append(&mut self, surface: &Surface, transform: Mat4, material: Option<&MaterialData>) {
         let offset = self.positions.len() as u32;
@@ -898,10 +871,12 @@ pub fn spawn_map_filtered(
                 && loaded.materials.get(&key.1).is_none_or(|m| {
                     matches!(alpha_mode(m), AlphaMode::Opaque | AlphaMode::Mask(_))
                 });
-            let chunks = if partition {
-                batch.spatial_chunks()
-            } else {
-                vec![batch]
+            let chunks = match &key.0 {
+                _ if partition => batch.spatial_chunks(),
+                Owner::Entity(id) => {
+                    face_split::split_entity_batch(batch, world, &loaded.flexes, *id)
+                }
+                _ => vec![batch],
             };
             if chunks.len() > 1 {
                 stats.partitioned_world_batches += 1;
@@ -1161,6 +1136,7 @@ pub fn spawn_map_filtered(
         flashlight,
         missing,
         plain: plain_materials,
+        faces: loaded.flexes.clone(),
     });
 }
 
@@ -1196,15 +1172,7 @@ pub(crate) fn build_model_draws(
     let Some(surfaces) = world.model_assets.get(&surface_key) else {
         return 0;
     };
-    let scale = Mat4::from_scale(Vec3::splat(instance.scale));
-    let mut batches: BTreeMap<String, Batch> = BTreeMap::new();
-    for surface in surfaces.iter().filter(|s| !s.indices.is_empty()) {
-        batches.entry(surface.material.clone()).or_default().append(
-            surface,
-            scale,
-            cache.definitions.get(&surface.material),
-        );
-    }
+    let batches = face_split::model_batches(surfaces, instance.scale, cache, (world, id));
     let rig = world
         .rigs
         .get(&instance.asset_key())

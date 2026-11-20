@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Faces split into the triangles flexes move and the rest
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: an entity's face batch (a model with facial flexes) is drawn as two meshes: the triangles touching a vertex some flex of the model can move, and the rigid rest (`rendering/face_split.rs`), for map entities and runtime spawns alike (`ModelCache::faces`). A changed mesh is uploaded whole, so a talking or blinking face now re-uploads only its movable part. The rigid draw keeps its flex references (the same LOD rules), but none of its vertices ever moves, so it is never uploaded again. The vertices both draws share are ones no flex moves, so there is no seam. `spatial_chunks` and the split share one triangle regrouping (`Batch::regroup`, `consistent`); `build_model_draws` 121 -> 113 lines, `rendering.rs` 1,316 -> 1,284.
+- Why: in the mixed crowd about 170 meshes changed each frame. The render thread's mesh uploads were mostly byte copies, and faces carried almost all the bytes (9.5 meshes, 53,000 vertices a frame) while an update moved about 130 of a face's 2,800 vertices.
+- Tested how: unit tests for the split (rigid and moving triangles, every attribute and flex reference moved with its vertex, faces with nothing or everything movable and inconsistent batches stay whole); host tests (196). Mesh changes measured with a temporary probe (not committed): animated-face vertices uploaded 53,000 -> 30,000 a frame (each movable part is still about 2,000 vertices: most face vertices can travel a quarter unit or more, so a size threshold would not help). Three alternating mixed-crowd A/B pairs against `3b1bdae7`, every new run faster: fight frame 18.04 -> 16.46 ms (-8.8%), whole-run mean 19.60 -> 18.15 ms, fixed simulation 4.59 -> 4.69 ms (unchanged). Stack samples: mesh uploads 25.6% -> 21.4% of wall time; busy cores 2.18 -> 2.17 while drawing more frames per second (uncapped). Full `all.sh`: all 109 replays passed; validation and the Windows check passed after a refactor that only moved code.
+- Frame time: -1.6 ms (-8.8%) in the crowd fight.
+- Next: GPU flex deltas (only weights per frame) would remove face uploads entirely; eye iris projections (30 meshes a frame) and effect runs (about 120 small meshes) are the other per-frame uploads.
+
 ## 2026-11-20 — One HL2RS mixer for every sound
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
