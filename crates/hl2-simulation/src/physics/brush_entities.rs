@@ -1,7 +1,8 @@
 //! Which brush entities get colliders.
 
-use super::{angles, brush_shape, pose, Physics, MASK_SOLID};
+use super::{angles, brush_shape, pose, Physics, MASK_SOLID, PLAYER_BRUSH_MASK};
 use glam::Vec3;
+use modkit_core::Trace;
 use modkit_core::{Entity, World};
 use rapier3d::prelude::{ActiveHooks, ColliderBuilder};
 
@@ -81,9 +82,55 @@ impl Physics {
                 if clip {
                     self.world_sides.clip_brushes.insert(c);
                     self.world_brush_contents.insert(c, b.contents);
+                    if b.contents & PLAYER_BRUSH_MASK != 0 {
+                        self.entity_player_clips.push(c);
+                    }
                 }
                 self.entity_colliders.entry(id).or_default().push(c);
                 self.npc_collider_contents.insert(c, b.contents);
+            }
+        }
+    }
+
+    /// Sweep the player hull against brush entities' player clips (CONTENTS_PLAYERCLIP
+    /// without solid contents, MASK_PLAYERSOLID): d1_trainstation_01's func_tracktrain
+    /// carries DETAIL|PLAYERCLIP blocks over its seats (the seat props are solid 0).
+    /// Static world clips are traced from the BSP's planes; these move with their
+    /// entity, so their planes come from the collider's current pose.
+    pub(super) fn trace_entity_player_clips(
+        &self,
+        mut cache: std::sync::MutexGuard<'_, super::player_convex::ConvexCache>,
+        sweep: (Vec3, Vec3, Vec3, Vec3),
+        result: &mut Trace,
+    ) {
+        let (start, end, mins, maxs) = sweep;
+        let low = start.min(end) + mins - Vec3::ONE;
+        let high = start.max(end) + maxs + Vec3::ONE;
+        for &handle in &self.entity_player_clips {
+            let Some(collider) = self.colliders.get(handle).filter(|c| c.is_enabled()) else {
+                continue;
+            };
+            let aabb = collider.compute_aabb();
+            let (lo, hi) = (
+                aabb.mins.coords / super::SCALE,
+                aabb.maxs.coords / super::SCALE,
+            );
+            if lo.x > high.x || lo.y > high.y || lo.z > high.z {
+                continue;
+            }
+            if hi.x < low.x || hi.y < low.y || hi.z < low.z {
+                continue;
+            }
+            let Some(brush) = cache.brush(handle, collider) else {
+                continue;
+            };
+            let hit =
+                modkit_core::trace_brushes(std::slice::from_ref(brush), start, end, mins, maxs, 1);
+            result.start_solid |= hit.start_solid;
+            result.all_solid |= hit.all_solid;
+            if hit.fraction < result.fraction {
+                result.fraction = hit.fraction;
+                result.normal = hit.normal;
             }
         }
     }

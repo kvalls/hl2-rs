@@ -6,6 +6,7 @@
 pub mod drag;
 pub mod dynamic_lights;
 pub mod fire;
+pub mod lighting_origins;
 pub mod npc_probe;
 pub mod physics;
 

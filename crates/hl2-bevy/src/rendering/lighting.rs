@@ -28,6 +28,8 @@ pub struct ModelLit {
     cubemap: Option<usize>,
     /// The light cache cell that sample was chosen in: the choice holds until it leaves the cell.
     cell: Option<[i32; 3]>,
+    /// Its entity's LightingOrigin/LightingOriginHack, resolved at its first lighting.
+    origins: Option<Option<hl2_simulation::lighting_origins::LightingOrigin>>,
 }
 
 impl ModelLit {
@@ -41,6 +43,49 @@ impl ModelLit {
             dynamic: false,
             cubemap: None,
             cell: None,
+            origins: None,
+        }
+    }
+    /// The point its entity is lit at: its own illumination point unless the entity names a
+    /// lighting origin (hl2_simulation::lighting_origins).
+    fn lighting_point(
+        &mut self,
+        game: &crate::gameplay::Gameplay,
+        id: usize,
+        point: glam::Vec3,
+    ) -> glam::Vec3 {
+        let origins = *self
+            .origins
+            .get_or_insert_with(|| hl2_simulation::lighting_origins::resolve(&game.world, id));
+        origins.map_or(point, |o| o.point(&game.scene.states, point))
+    }
+    /// The lighting offset of a relative lighting origin as the draw-to-lighting basis (the
+    /// shader lights basis * position and normal): resolved by lighting_point first.
+    fn lighting_basis(&self, game: &crate::gameplay::Gameplay) -> Option<Mat4> {
+        let (rotation, translation) = self.origins.flatten()?.offset(&game.scene.states)?;
+        // Source (x, y, z) is Bevy (x, z, -y): a proper rotation, so a quaternion's axis maps
+        // the same way.
+        let rotation = bevy::math::Quat::from_xyzw(rotation.x, rotation.z, -rotation.y, rotation.w);
+        let translation = source_to_bevy(Vec3::from_array(translation.to_array()));
+        Some(Mat4::from_rotation_translation(rotation, translation))
+    }
+    /// Keeps a cached light state's basis on the moving offset: the lighting point holds still
+    /// in the mock car while the car (and its landmark) moves.
+    fn rebase(
+        &self,
+        game: &crate::gameplay::Gameplay,
+        materials: &mut Assets<SourceMaterial>,
+        handle: &bevy::asset::Handle<SourceMaterial>,
+    ) {
+        let Some(basis) = self.lighting_basis(game) else {
+            return;
+        };
+        if materials
+            .get(handle)
+            .is_some_and(|m| m.lighting.basis != basis)
+            && let Some(mut material) = materials.get_mut(handle)
+        {
+            material.lighting.basis = basis;
         }
     }
     /// Its material reflects the cubemap sample near it. A model loaded late has no mask for it
@@ -124,7 +169,8 @@ pub fn present_lighting(
                     .physics
                     .entity_pose(id)
                     .unwrap_or((state.origin, state.rotation));
-                origin + rotation * (illumination.position * lit.scale)
+                let point = origin + rotation * (illumination.position * lit.scale);
+                lit.lighting_point(&game, id, point)
             }
             None => glam::Vec3::from_array(sim.eye().to_array()),
         };
@@ -138,6 +184,9 @@ pub fn present_lighting(
                 last.distance_squared(origin) < 1. && hl == lit.half_lambert
             })
         {
+            if lit.origins.flatten().is_some_and(|o| o.relative.is_some()) {
+                lit.rebase(&game, &mut materials, &material.0);
+            }
             continue;
         }
         lit.dynamic = lit_dynamic;
@@ -152,6 +201,7 @@ pub fn present_lighting(
             (origin, state)
         });
         let mut uniform = ModelLighting::from_state(state, lit.half_lambert);
+        uniform.basis = lit.lighting_basis(&game).unwrap_or(uniform.basis);
         if lit.entity.is_none() {
             uniform.basis = view;
             uniform.params.w = 2.;

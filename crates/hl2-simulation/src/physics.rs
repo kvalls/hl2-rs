@@ -7,6 +7,7 @@ use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 mod brush_entities;
+mod diagnostics;
 #[path = "physics_npc_trace.rs"]
 mod npc_trace;
 mod physbox;
@@ -695,6 +696,8 @@ pub struct Physics {
     /// tipped off a cop (owner report: 46 -> 17 fps) and 2-4 ms with props at rest.
     ccd_gated: HashMap<RigidBodyHandle, f32>,
     spawn_embedded_checked: bool,
+    /// Brush entities' player-solid clip brushes (brush_entities.rs).
+    entity_player_clips: Vec<ColliderHandle>,
     /// Stored drag fractions of bodies from a read collision file (PhysicsSolid).
     drag_fractions: HashMap<RigidBodyHandle, Vec3>,
     pub native_shape_count: usize,
@@ -2353,50 +2356,6 @@ impl Physics {
                 .any(|pair| pair.has_any_active_contact)
         })
     }
-    /// Diagnostics: colliders (entity id, or None for the world; dynamic body?) that
-    /// overlap the player hull at `feet`, shrunk by half the collision epsilon like
-    /// trace_hull's overlap test.
-    pub fn hull_contacts(&self, feet: Vec3, maxs_z: f32) -> Vec<(Option<usize>, bool, f32, Vec3)> {
-        let half = Vec3::new(16., 16., maxs_z * 0.5) - Vec3::splat(0.015625);
-        let position = pose(feet + Vec3::Z * maxs_z * 0.5, Quat::IDENTITY);
-        let mut found = Vec::new();
-        self.query.intersections_with_shape(
-            &self.bodies,
-            &self.colliders,
-            &position,
-            &Cuboid::new(vector(half)),
-            groups_filter(PLAYER_GROUPS),
-            |handle| {
-                let c = &self.colliders[handle];
-                // Penetration depth (units) and normal from the hull into the collider.
-                let (depth, normal) = rapier3d::parry::query::contact(
-                    &position,
-                    &Cuboid::new(vector(half)),
-                    c.position(),
-                    c.shape(),
-                    0.,
-                )
-                .ok()
-                .flatten()
-                .map_or((0., Vec3::ZERO), |k| {
-                    (
-                        -k.dist / SCALE,
-                        Vec3::new(k.normal1.x, k.normal1.y, k.normal1.z),
-                    )
-                });
-                found.push((
-                    (c.user_data as usize).checked_sub(1),
-                    c.parent()
-                        .and_then(|b| self.bodies.get(b))
-                        .is_some_and(|b| b.is_dynamic()),
-                    depth,
-                    normal,
-                ));
-                true
-            },
-        );
-        found
-    }
     /// Teleport an entity's dynamic body (test fixtures): Source angles, world
     /// velocity, no spin. False when the entity has no dynamic body.
     pub fn place_body(
@@ -3226,7 +3185,7 @@ impl CollisionWorld for Physics {
                 }
                 true
             });
-        drop(cache);
+        self.trace_entity_player_clips(cache, (start, end, mins, maxs), &mut result);
         let mut overlapping = Vec::new();
         self.query.intersections_with_shape(
             &self.bodies,
