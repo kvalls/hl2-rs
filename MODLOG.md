@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-20 session 68, continued: the cafeteria pacer's next scripts, the customs queue (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation entities/next_script.rs (m_iszNextScript: no post idle, the next script begins on the actor); ai/runtime/goal_inputs/actbusy_queue.rs (ai_goal_actbusy_queue: nodes, MoveQueueUp, the move-up ripple, the exit walk, its outputs); entities/io.rs routes the queue's inputs.
+- Why: owner order after the turnstile: the cafeteria pacer walking back and forth, then the queue moving up at the security pen. Ours left the pacer standing after one WatchClock and had no queue goal.
+- Tested how: unit tests (next script hand-over, queue setup); native npc_task_text/sensor and developer 2 I/O runs against packaged runs (artifacts/s68/np2, nq1, nq2; artifacts/s68/pacer, queue); validation artifacts/s68/validate3.sh (v3-*: Clippy 0, tests 1763 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed, replays 73 of 73) and validate4.sh (v4-*: Clippy 0, tests 1764 passed with the same 2, fmt 0, architecture 0, build ok, regression passed, replays 68 of 73: crowbar-surfaces, entities-weapons, footsteps, pistol-breaks-teeter-seat-chunks and soundscapes each lost one delivered input and one fired output on d1_trainstation_02, whose actbusy_food_queue now runs (its inputs were not routed to the AI before); recorded with UPDATE_EXPECTED=1 after review, 5 of 5 pass).
+- Result: the pacer loops with native's timings within 0.15 s per cycle; the queue's MoveQueueUp chain matches native's I/O and the line moves up.
+- Still broken or not tested: the pacer's arrival-to-play gap; the queue's player blocking, busy exit animation and newcomer steering; native queue positions.
+- Next: the pen's Barney scene (security_02), the turnstile per tick against native, then the I/O diffs of stations 02-06.
+
 ## 2026-11-20 session 68: the train car's seats (player clips, LightingOriginHack) and litter (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner's PC restarted once; the interrupted build was rerun.
