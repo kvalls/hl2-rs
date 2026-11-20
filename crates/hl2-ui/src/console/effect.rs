@@ -9,6 +9,8 @@ pub enum Effect {
     AiEnable(Option<bool>),
     /// ai_disable (CC_AI_Disable): toggle the AI, Source's messages.
     AiDisable,
+    /// notarget (CC_Notarget_f): toggle whether NPCs sense the player, Source's messages.
+    Notarget,
     /// npc_create / npc_create_aimed / npc_create_equipment / prop_physics_create /
     /// ent_create, the whole line.
     NpcCommand(String),

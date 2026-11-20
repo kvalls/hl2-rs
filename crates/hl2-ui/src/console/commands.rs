@@ -261,6 +261,12 @@ pub const COMMANDS: &[Spec] = &[
         cheats::ai_disable,
     ),
     command(
+        "notarget",
+        "notarget: toggle whether NPCs sense the player (cheat, Source command)",
+        &[],
+        cheats::notarget,
+    ),
+    command(
         "ai_enable",
         "ai_enable [0|1]: switch the NPC AI think loop (ours, default 1; Source uses ai_disable)",
         BOOLEAN,

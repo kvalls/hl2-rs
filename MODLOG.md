@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — notarget and a mixed-NPC crowd benchmark
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the console has Source's `notarget` cheat (CC_Notarget_f: toggles whether NPCs sense the player, "notarget ON" / "notarget OFF"), applied to the AI's existing ignore-player switch; `ai_enable`, `ai_disable` and `notarget` share one host function (`console_effects` stays within 100 lines) and one console helper. New benchmark `test-inputs/performance-research/mixed-crowd.json`: 65 NPCs of every spawnable class with their retail weapons fighting on station02's plaza (docs/performance-research.md).
+- Why: a mixed crowd only fights itself when NPCs ignore the player; the benchmark measures crowds of every NPC type and their combat.
+- Tested how: console tests (the cheat gating and arguments); full `all.sh` with the entity class change below: all 109 checks passed in 495 s. The benchmark's spawn records: all 65 spawns created, 43 actors fighting another NPC at the end.
+- Still broken or not tested: about one benchmark run in three hangs at exit (CoreAudio output close; see docs/performance-research.md).
+- Frame time: none.
+
 ## 2026-11-20 — Captures the checks read in milliseconds
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

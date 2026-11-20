@@ -85,11 +85,20 @@ fn npc_command(spec: &Spec, args: &[String]) -> Outcome {
 }
 
 pub(super) fn ai_disable(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    cheat_toggle(console, spec, args, Effect::AiDisable)
+}
+
+pub(super) fn notarget(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    cheat_toggle(console, spec, args, Effect::Notarget)
+}
+
+/// A cheat that toggles something and takes no arguments.
+fn cheat_toggle(console: &mut Console, spec: &Spec, args: &[String], effect: Effect) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());
     }
     cheat(console, spec)?;
-    Ok(Some(Effect::AiDisable))
+    Ok(Some(effect))
 }
 
 pub(super) fn ai_enable(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
@@ -151,4 +160,22 @@ pub(super) fn ent_fire(console: &mut Console, spec: &Spec, args: &[String]) -> O
         // Desktop ent_fire parses an integer delay; map I/O keeps fractions.
         delay: delay.trunc(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ai_disable_and_notarget_are_cheat_toggles_without_arguments() {
+        for (name, effect) in [
+            ("ai_disable", Effect::AiDisable),
+            ("notarget", Effect::Notarget),
+        ] {
+            let mut console = Console::default();
+            assert_eq!(console.submit(name), vec![]);
+            let line = format!("sv_cheats 1; {name}; {name} 1");
+            assert_eq!(console.submit(&line), vec![effect]);
+        }
+    }
 }

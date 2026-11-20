@@ -72,15 +72,6 @@ fn prop_physics_create_and_ent_create_are_cheats_routed_with_npc_create() {
     );
 }
 #[test]
-fn ai_disable_is_a_cheat_toggle_without_arguments() {
-    let mut console = Console::default();
-    assert_eq!(console.submit("ai_disable"), vec![]);
-    assert_eq!(
-        console.submit("sv_cheats 1; ai_disable; ai_disable 1"),
-        vec![Effect::AiDisable]
-    );
-}
-#[test]
 fn quoted_separators_are_text_and_bad_quotes_execute_nothing() {
     let mut console = Console::default();
     console.submit("echo \"hello; world\"; echo done");

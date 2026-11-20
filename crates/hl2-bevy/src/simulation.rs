@@ -402,15 +402,8 @@ impl Simulation {
                     }
                 }
                 Effect::Loadout => grant_loadout(ui, game),
-                Effect::AiEnable(value) => {
-                    let on = set_ai(game, value.unwrap_or(!game.ai.enabled));
-                    ui.source.log(format!("ai_enable {}", u8::from(on)));
-                }
-                // CC_AI_Disable: a toggle; DevMsg "AI Disabled." / "AI Enabled.".
-                Effect::AiDisable => {
-                    let on = set_ai(game, !game.ai.enabled);
-                    ui.source
-                        .log(if on { "AI Enabled." } else { "AI Disabled." });
+                effect @ (Effect::AiEnable(_) | Effect::AiDisable | Effect::Notarget) => {
+                    ai_effect(game, ui, effect);
                 }
                 Effect::Noclip(value) => {
                     self.fly = value.unwrap_or(!self.fly);
@@ -865,6 +858,34 @@ impl WindowSettings {
         Self::new(video.width, video.height, video.display_mode)
             .with_follows_window(video.frame_follows_window())
     }
+}
+
+/// The console's AI switches and their messages: ai_enable, ai_disable (CC_AI_Disable's DevMsg
+/// "AI Disabled." / "AI Enabled.") and notarget (CC_Notarget_f: FL_NOTARGET hides the player
+/// from NPC senses).
+fn ai_effect(
+    game: &mut crate::gameplay::Gameplay,
+    ui: &mut crate::ui_host::Console,
+    effect: hl2_ui::console::Effect,
+) {
+    use hl2_ui::console::Effect;
+    let message = match effect {
+        Effect::AiEnable(value) => {
+            let on = set_ai(game, value.unwrap_or(!game.ai.enabled));
+            format!("ai_enable {}", u8::from(on))
+        }
+        Effect::AiDisable => {
+            let on = set_ai(game, !game.ai.enabled);
+            (if on { "AI Enabled." } else { "AI Disabled." }).to_owned()
+        }
+        Effect::Notarget => {
+            game.ai.ignore_player = !game.ai.ignore_player;
+            let on = game.ai.ignore_player;
+            (if on { "notarget ON" } else { "notarget OFF" }).to_owned()
+        }
+        _ => return,
+    };
+    ui.source.log(message);
 }
 
 /// Turns the AI on or off; returns the new state.

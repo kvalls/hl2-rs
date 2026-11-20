@@ -10,6 +10,38 @@ justify leaving the measured 21–55% crowd frame-time gain (below) switched off
 is used whenever a renderer exists; `HL2RS_GPU_SILHOUETTES=0` keeps the CPU rasterizer as the
 reference and fallback. Headless runs without a render sub-app keep the CPU path.
 
+## Mixed-NPC crowd benchmark (2026-11-20)
+
+`test-inputs/performance-research/mixed-crowd.json` spawns 65 NPCs on station02's plaza with
+`ent_create`, the camera above each cell like `plaza-crowd.json`. Combine: Metrocops with
+stunsticks and pistols, soldiers, shotgunners, elites, a prison guard, manhacks, both scanners,
+rollermines and a floor turret. Rebels and allies: four kinds of citizen, Barney, Alyx,
+vortigaunts, Dog and the monk. Xen: four kinds of zombie and of headcrab, antlions, an antlion
+guard and a stalker. Bystanders: Kleiner, Eli, Mossman, Breen, the G-Man and birds. Armed
+classes get their retail weapon (`additionalequipment`), and `notarget` keeps the player out of
+the fight. The view holds from tick 141 to 1200. Antlions, the antlion guard, vortigaunts, Dog,
+the monk, the stalker, the claw scanner, rollermines, the floor turret and the story characters
+have no HL2RS AI yet: they cost drawing and animation only.
+
+M1 Pro, 1920×1080, `profiles/test.json`, `--uncapped --profile`, muted. At the end 43 actors
+fight another NPC. The last eight one-second windows average 23.9 ms (41.9 FPS), p95 ≤ 44 ms.
+A 10 ms stack sample of 20 s of the fight:
+
+| Work | ms per frame |
+| --- | ---: |
+| `fixed_step` | 11.0 |
+| — Rapier step (broad phase `SAPLayer::update_regions` 1.7) | 3.4 |
+| — shot impacts (`Impacts::add_along`, decal placement 1.6) | 1.8 |
+| — AI think (line-of-sight rays 0.5) | 1.1 |
+| — `Entity::class` lookups | 0.8 |
+| `allocate_and_free_meshes` (render world) | 5.7 |
+| `present_entities` | 3.2 |
+
+Each frame about 190 effect-quad meshes, 27 eye meshes, 13 shadow meshes and 9 animated meshes
+(52,000 vertices) change and are uploaded again. The audio output thread is busy about one core
+mixing about 70 live sinks, muted or not. About one run in three hangs at exit: closing the
+CoreAudio output waits on the device lock while the mixing callback keeps it busy (not fixed).
+
 ## Shared actor bone matrices: rejected
 
 2026-11-19, revision `f2b0323f`, M1 Pro/Metal, release package, the 30-NPC station02 plaza
