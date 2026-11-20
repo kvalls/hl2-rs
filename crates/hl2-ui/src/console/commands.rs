@@ -182,13 +182,6 @@ pub const COMMANDS: &[Spec] = &[
         BOOLEAN,
         cheats::noclip,
     ),
-    setting(
-        "background_force_default_blur",
-        "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios",
-        BOOLEAN,
-        video::background_force_default_blur_value,
-        video::set_background_force_default_blur,
-    ),
     command(
         "getpos",
         "getpos: print camera position and Source pitch/yaw/roll in degrees; getpos 2 is not implemented",

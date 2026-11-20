@@ -102,10 +102,10 @@ fn draw_debug_overlays(
         let lines = state.background_debug.lines(
             hl2_bevy::camera::background_fov(
                 aspect,
-                ui.source.config.video.background_force_default_blur,
+                crate::standard_background::forced(&ui.source.config.video),
             )
             .to_degrees(),
-            ui.source.config.video.background_force_default_blur,
+            crate::standard_background::forced(&ui.source.config.video),
         );
         stack_top = painter.draw_background_debug(&lines, stack_top) + OVERLAY_GAP;
     }

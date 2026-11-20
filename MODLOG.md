@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-20 — `background_force_default_blur` moves to `hl2-debug`; plugin settings survive Options
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: core no longer has the `background_force_default_blur` setting or command (not retail). It gains a generic hook instead: a plugin registers one standard-background rule (`Extensions::select_standard_background`, carried in `VideoSettings::standard_background`), and `background_uses_widescreen`, the blur artwork lookup and the background field of view ask it; without a plugin the choice is retail's, by aspect. `hl2-debug` registers the rule, owns the command and its `-` debug key, and keeps the value under the same name among the video settings' plugin values, so existing settings files keep it. The Options dialog's hidden-setting sync became generic (`OptionsDialog::sync_extension`), so a plugin setting changed while Options is open is not undone by applying it; the F1 overlay flag now uses it too. `Console::defer` hands an effect to the host from outside a console command.
+- Why: owner decision: non-retail console commands live in `hl2-debug`; owner request that F1 is stored the same way.
+- Tested how: core tests with a fake contributor (rule decides, one rule only, retail without one), Options sync for video and general plugin values, host camera FOV through applied settings; plugin tests (old files keep the choice, the `-` key toggles and saves); `validate.sh` passed. Packaged headless run with an old-style settings file (`video.background_force_default_blur: true`): the plugin command reported 1, `background_force_default_blur 0` saved `false`, `ai_enable 0` answered over RCON.
+- Plugin rules read: yes; exceptions: none (the hook names no plugin and works with none).
+
 ## 2026-11-20 — `ai_enable` moves to `hl2-debug`
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
@@ -53,6 +61,7 @@
 - Frame time (packaged, headless, uncapped, d1_trainstation_01, 1,500 frames, alternating): off 4.268 / 4.243 / 4.245 ms, with `-condebug -usercon` 4.260 / 4.215 / 4.266 ms: no measurable cost. Load average 6.3 during the runs.
 - Still broken or not tested: retail's `sv_rcon_*` defaults and single-player `say` name are remembered, not verified against the installed engine; headless runs stamp lines 0.00 (the console clock advances with UI input); Windows **not tested**; a windowed session with a player typing **not tested**.
 - Next: `screenshot` into the settings folder; the agent link in `hl2-debug`.
+
 ## 2026-11-20 — Eye irises projected on the GPU, visible eyes only
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

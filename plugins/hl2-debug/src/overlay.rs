@@ -194,6 +194,15 @@ pub fn set_shown(config: &mut hl2_ui::config::Config, on: bool) {
     config.extensions.set_bool(SHOWN_SETTING, on);
 }
 
+/// F1: saves whether the overlay is shown, keeping an open Options dialog from undoing it.
+pub fn save_shown(console: &mut hl2_ui::console::Console, on: bool) {
+    set_shown(&mut console.config, on);
+    console
+        .options
+        .sync_extension(|config| &mut config.extensions, SHOWN_SETTING, on);
+    let _ = console.config.save();
+}
+
 #[cfg(test)]
 mod shown_tests {
     use super::{set_shown, shown};

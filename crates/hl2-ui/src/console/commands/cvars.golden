@@ -11,19 +11,6 @@ sv_cheats
     value Some("0")
   1 1: error "sv_cheats [0|1]: query or enable local cheat commands"
     value Some("0")
-background_force_default_blur
-  query: no effect
-    | "background_force_default_blur" = "0"
-    value Some("0")
-  1: ApplyConfig [video.background_force_default_blur: false -> true]
-    | background_force_default_blur 1
-    value Some("1")
-  x: error "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios"
-    value Some("0")
-  9: error "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios"
-    value Some("0")
-  1 1: error "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios"
-    value Some("0")
 volume
   query: no effect
     | "volume" = "1.00"

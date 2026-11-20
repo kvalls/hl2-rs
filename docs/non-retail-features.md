@@ -110,7 +110,7 @@ and there is no framing data file to copy them into.
 
 ## Menu background debug mode
 
-`background_force_default_blur 0|1` is a saved option that works independently of
+`background_force_default_blur 0|1` (`hl2-debug` plugin) is a saved option that works independently of
 debug mode. **0** (the default) selects widescreen blur artwork on wide aspect
 ratios, with the normal existing fallback when that artwork is unavailable. **1**
 always selects the normal blur texture, even on wide frames. The choice applies to

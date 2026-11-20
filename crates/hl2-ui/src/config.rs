@@ -291,8 +291,10 @@ pub struct VideoSettings {
     pub width: u32,
     pub height: u32,
     pub display_mode: DisplayMode,
-    /// Force standard pre-blurred background artwork even on wide frames.
-    pub background_force_default_blur: bool,
+    /// A contributor's rule asking for the standard (4:3) menu background presentation on wide
+    /// frames (`Extensions::standard_background`); none keeps retail's choice by aspect.
+    #[serde(skip)]
+    pub standard_background: crate::extensions::StandardBackground,
     pub fov: f32,
     pub hdr: HdrMode,
     /// Set once the old default `hdr: none` has been replaced (see [`crate::hdr::migrate_default`]).
@@ -335,7 +337,7 @@ impl VideoSettings {
 
     /// Effective artwork variant; presentation aspect and gameplay FOV are independent.
     pub fn background_uses_widescreen(&self, widescreen: bool) -> bool {
-        widescreen && !self.background_force_default_blur
+        widescreen && !self.standard_background.0.is_some_and(|rule| rule(self))
     }
 
     pub fn render_budget(&self) -> crate::extensions::RenderBudget {
@@ -380,7 +382,7 @@ impl Default for VideoSettings {
             width: 1280,
             height: 720,
             display_mode: DisplayMode::Fullscreen,
-            background_force_default_blur: false,
+            standard_background: Default::default(),
             fov: 75.0,
             hdr: HdrMode::Full,
             hdr_migrated: None,

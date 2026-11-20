@@ -5,7 +5,7 @@ use crate::gameplay::Gameplay;
 impl Simulation {
     pub(crate) fn world_camera_fov(&self, view_degrees: f32, aspect: f32) -> f32 {
         if self.background_level {
-            crate::camera::background_fov(aspect, self.background_force_default_blur)
+            crate::camera::background_fov(aspect, self.standard_background)
         } else {
             self.video_policy.0.projection(
                 view_degrees,

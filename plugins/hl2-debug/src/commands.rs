@@ -18,6 +18,9 @@ pub trait Host: Context {
     fn has_background_context(&self) -> bool;
     fn background_mode(&self) -> bool;
     fn set_background_mode(&mut self, on: bool);
+    /// `background_force_default_blur`: the saved choice and setting it (the effect applies it).
+    fn standard_background(&self) -> bool;
+    fn set_standard_background(&mut self, on: bool) -> Self::Effect;
     fn background_opacity(&self) -> u8;
     fn set_background_opacity(&mut self, opacity: u8);
     fn focus_background(&mut self);
@@ -37,7 +40,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 8] {
+pub const fn specs<C: Host>() -> [Spec<C>; 9] {
     [
         command(
             "viewmodel_debug_mode",
@@ -86,6 +89,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 8] {
             "ai_enable [0|1]: switch the NPC AI think loop explicitly (toggles without an argument; retail has only ai_disable)",
             &[Arg::Values(&["0", "1"])],
             ai_enable,
+        ),
+        command(
+            crate::standard_background::SETTING,
+            "background_force_default_blur [0|1]: query or force the standard background blur artwork and field of view on wide frames",
+            &[Arg::Values(&["0", "1"])],
+            background_force_default_blur,
         ),
     ]
 }
@@ -212,6 +221,26 @@ fn ai_enable<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outc
     Ok(Some(C::effect(Request::AiEnable(value))))
 }
 
+fn background_force_default_blur<C: Host>(
+    console: &mut C,
+    spec: &Spec<C>,
+    args: &[String],
+) -> Outcome<C::Effect> {
+    match args {
+        [] => {
+            let value = u8::from(console.standard_background());
+            console.log(format!("\"{}\" = \"{value}\"", spec.name));
+            Ok(None)
+        }
+        [value] => {
+            let on = boolean(value).ok_or_else(|| spec.usage())?;
+            console.log(format!("{} {}", spec.name, u8::from(on)));
+            Ok(Some(console.set_standard_background(on)))
+        }
+        _ => Err(spec.usage()),
+    }
+}
+
 impl Host for hl2_ui::console::Console {
     fn effect(request: Request) -> hl2_ui::console::Effect {
         hl2_ui::console::Effect::Extension(serde_json::to_value(request).expect("debug request"))
@@ -224,6 +253,12 @@ impl Host for hl2_ui::console::Console {
     }
     fn background_mode(&self) -> bool {
         self.presentation.capture_menu_navigation
+    }
+    fn standard_background(&self) -> bool {
+        crate::standard_background::forced(&self.config.video)
+    }
+    fn set_standard_background(&mut self, on: bool) -> hl2_ui::console::Effect {
+        crate::standard_background::set_forced(self, on)
     }
     fn set_background_mode(&mut self, on: bool) {
         self.presentation.capture_menu_navigation = on;

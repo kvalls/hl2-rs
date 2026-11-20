@@ -65,6 +65,11 @@ impl Console {
         !self.startup_commands.is_empty()
     }
 
+    /// An effect for the host with the next tick (from code outside a console command).
+    pub fn defer(&mut self, effect: Effect) {
+        self.deferred.push(effect);
+    }
+
     /// Runs the queued startup commands; what they ask of the host comes with the next tick.
     pub(super) fn run_startup_commands(&mut self) {
         for line in std::mem::take(&mut self.startup_commands) {

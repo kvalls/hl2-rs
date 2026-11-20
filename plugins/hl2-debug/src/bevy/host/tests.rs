@@ -51,8 +51,13 @@ fn simulation() -> Simulation {
     )
 }
 
+/// A console with this plugin installed, as the application builds it.
 fn console() -> Console {
-    Console::new(Default::default())
+    let mut source = hl2_ui::console::Console::default();
+    let mut extensions = hl2_ui::extensions::Extensions::default();
+    crate::register(&mut extensions).unwrap();
+    extensions.install(&mut source);
+    Console::new(source)
 }
 
 fn request(state: &mut State, sim: &mut Simulation, ui: &mut Console, request: Request) {
@@ -362,19 +367,19 @@ fn minus_toggles_once_per_press_only_in_background_debug_outside_console() {
     keys.press(KeyCode::Minus);
 
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(ui.source.config.video.background_force_default_blur);
+    assert!(crate::standard_background::forced(&ui.source.config.video));
     assert_eq!(state.background_debug.blur_texture_name, "background01");
     keys.clear();
     assert!(keys.pressed(KeyCode::Minus));
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
     assert!(
-        ui.source.config.video.background_force_default_blur,
+        crate::standard_background::forced(&ui.source.config.video),
         "held key must not repeat"
     );
     keys.release(KeyCode::Minus);
     keys.press(KeyCode::Minus);
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(!ui.source.config.video.background_force_default_blur);
+    assert!(!crate::standard_background::forced(&ui.source.config.video));
     assert_eq!(
         state.background_debug.blur_texture_name,
         "background01_widescreen"
@@ -383,11 +388,11 @@ fn minus_toggles_once_per_press_only_in_background_debug_outside_console() {
     keys.release(KeyCode::Minus);
     keys.press(KeyCode::Minus);
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(!ui.source.config.video.background_force_default_blur);
+    assert!(!crate::standard_background::forced(&ui.source.config.video));
     ui.source.set_mode(Mode::MainMenu);
     state.background_debug.enabled = false;
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(!ui.source.config.video.background_force_default_blur);
+    assert!(!crate::standard_background::forced(&ui.source.config.video));
 }
 
 #[test]
@@ -480,8 +485,11 @@ fn artwork_changes_reset_temporary_fov_and_other_config_updates_keep_it() {
     let (mut state, mut sim, mut ui) = (State::default(), simulation(), console());
     let apply = |state: &mut State, force: bool, ui: &mut Console, sim: &mut Simulation| {
         let mut config = ui.source.config.clone();
-        config.video.background_force_default_blur = force;
-        sim.background_force_default_blur = force;
+        config
+            .video
+            .extensions
+            .set_bool(crate::standard_background::SETTING, force);
+        sim.standard_background = force;
         state.config_changed(
             &mut Context {
                 simulation: sim,
@@ -516,7 +524,11 @@ fn artwork_changes_reset_temporary_fov_and_other_config_updates_keep_it() {
 fn forced_resize_uses_the_normal_projection_baseline() {
     let mut state = State::default();
     let mut ui = console();
-    ui.source.config.video.background_force_default_blur = true;
+    ui.source
+        .config
+        .video
+        .extensions
+        .set_bool(crate::standard_background::SETTING, true);
     state.background_debug.enabled = true;
     state.background_debug.last_aspect = Some(4. / 3.);
     crate::bevy::host::background::aspect_changed(
@@ -563,7 +575,10 @@ fn developer_shortcuts_follow_gameplay_input_gates() {
 fn the_saved_artwork_choice_does_not_count_as_a_change_at_startup() {
     let (mut state, mut sim, mut ui) = (State::default(), simulation(), console());
     let mut config = ui.source.config.clone();
-    config.video.background_force_default_blur = true;
+    config
+        .video
+        .extensions
+        .set_bool(crate::standard_background::SETTING, true);
     state.startup(&config);
     state.background_debug.fov = Some(65.);
     state.config_changed(

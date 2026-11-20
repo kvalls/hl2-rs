@@ -63,8 +63,7 @@ impl RuntimeExtension for State {
         if input.focused && input.keys.just_pressed(crate::bevy::input::OVERLAY_KEY) {
             self.dev_overlay = !self.dev_overlay;
             if let Some(ui) = context.console.as_deref_mut() {
-                crate::overlay::set_shown(&mut ui.source.config, self.dev_overlay);
-                let _ = ui.source.config.save();
+                crate::overlay::save_shown(&mut ui.source, self.dev_overlay);
             }
         }
         let mut repeats = std::mem::take(&mut self.repeats);
@@ -176,13 +175,13 @@ impl RuntimeExtension for State {
     }
     fn startup(&mut self, config: &hl2_ui::config::Config) {
         self.dev_overlay = crate::overlay::shown(config);
-        self.force_default_blur = config.video.background_force_default_blur;
+        self.force_default_blur = crate::standard_background::forced(&config.video);
     }
     fn level_target(&mut self, map: &str, background: bool, widescreen: bool) {
         self.init_background_target(map, background, widescreen);
     }
     fn config_changed(&mut self, context: &mut Context<'_>, config: &hl2_ui::config::Config) {
-        let force = config.video.background_force_default_blur;
+        let force = crate::standard_background::forced(&config.video);
         if std::mem::replace(&mut self.force_default_blur, force) == force {
             return;
         }
@@ -234,10 +233,7 @@ impl RuntimeExtension for State {
     fn projection(&self, sim: &hl2_bevy::simulation::Simulation, aspect: f32) -> Option<f32> {
         self.background_debug.enabled.then(|| {
             self.background_debug
-                .fov(
-                    hl2_bevy::camera::background_fov(aspect, sim.background_force_default_blur)
-                        .to_degrees(),
-                )
+                .fov(hl2_bevy::camera::background_fov(aspect, sim.standard_background).to_degrees())
                 .to_radians()
         })
     }
