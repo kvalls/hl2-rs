@@ -899,7 +899,7 @@ impl Controller {
                 };
                 let shaky = embedded::stand(world, *key, goal.feet, actor, query, &mut self.drops)?;
                 goal.shaky = shaky;
-                let moved = advance(world, actor, *key, goal, track, query, dt);
+                let moved = advance(world, actor, goal, track, query, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
             })();
@@ -999,7 +999,6 @@ fn update(key: GoalKey, goal: &Goal, doors: &BTreeSet<usize>, name: Option<Strin
 fn advance<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
-    key: GoalKey,
     goal: &mut Goal,
     track: &RootMotion,
     // The mover's exclusions (itself, or every crab for a crab) and the other actors.
@@ -1013,19 +1012,19 @@ fn advance<W: NpcCollisionWorld>(
         goal.state = GoalState::Arrived;
         return Ok(());
     }
-    // CAI_Navigator::SimplifyPath: AI goals and scripted_sequence moves (keyed by their target).
-    if key.scene == AI_SCENE || key.scene == goal.request.target_entity {
-        goal.simplify_in -= dt;
-        if goal.simplify_in <= 0. {
-            goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
-            let forced = !goal.simplified;
-            goal.simplified = true;
-            let plain = Query {
-                transients: &[],
-                ..query
-            };
-            simplify_path_forward(world, actor, goal, plain, forced);
-        }
+    // CAI_Navigator::SimplifyPath for every ground goal: AI goals, scripted and scene moves
+    // alike (the SDK's navigator simplifies any reducible path; native d1_trainstation_01's
+    // passengers cut the corners out of the car).
+    goal.simplify_in -= dt;
+    if goal.simplify_in <= 0. {
+        goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
+        let forced = !goal.simplified;
+        goal.simplified = true;
+        let plain = Query {
+            transients: &[],
+            ..query
+        };
+        simplify_path_forward(world, actor, goal, plain, forced);
     }
     let duration = track
         .duration()
@@ -1626,6 +1625,23 @@ pub(crate) mod tests {
         let before = feet.x;
         tick(&mut controller, &physics, &mut feet, 0.1, false);
         assert!((feet.x - before - 0.65).abs() < 0.05, "{feet}");
+    }
+    #[test]
+    fn a_scene_move_is_simplified_like_an_ai_goal() {
+        // CAI_Navigator::SimplifyPath runs for every ground path: native d1_trainstation_01's
+        // passengers cut the corners of their choreography walk out of the car.
+        let physics = Physics::new(&world(vec![]));
+        let mut controller = make_controller(None);
+        let mut feet = Vec3::ZERO;
+        let target = Vec3::new(150., 400., 0.);
+        // Scene 1's move to entity 9: neither an AI goal nor a scripted_sequence's own mark.
+        controller.request(key(1), request(target), pose(feet), &physics, &[]);
+        let route = &mut controller.goals.get_mut(&key(1)).unwrap().route;
+        route.feet = vec![Vec3::new(150., 0., 0.), Vec3::new(150., 150., 0.), target];
+        route.doors = vec![None; 3];
+        tick(&mut controller, &physics, &mut feet, 0.015, false);
+        // The first (forced) pass skips to the next reachable waypoint.
+        assert_eq!(controller.goals[&key(1)].next, 1);
     }
     #[test]
     fn graph_routes_around_wall_with_validated_connectors_and_excludes_air_hints() {
