@@ -2528,8 +2528,7 @@ impl Physics {
                         .position(pose(center(feet), Quat::IDENTITY))
                         .lock_rotations()
                         .gravity_scale(0.)
-                        .additional_mass(PLAYER_SHADOW_MASS)
-                        .ccd_enabled(true),
+                        .additional_mass(PLAYER_SHADOW_MASS),
                 );
                 let collider = self.colliders.insert_with_parent(
                     ColliderBuilder::cuboid(skin.x * SCALE, skin.y * SCALE, skin.z * SCALE)
@@ -2549,6 +2548,7 @@ impl Physics {
                 );
                 self.world_sides.shadow = vec![collider];
                 self.drag_disabled.insert(body);
+                self.ccd_gated.insert(body, 0.);
                 self.player_shadow = Some((body, crouched));
                 (body, crouched)
             }

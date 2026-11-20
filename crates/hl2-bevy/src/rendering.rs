@@ -526,12 +526,12 @@ pub fn present_ragdoll_fades(
     if game.ragdolls.fading() == 0 {
         return;
     }
-    for (lit, material) in &draws {
+    for (lit, MeshMaterial3d(mat)) in &draws {
         let Some(alpha) = lit.entity.and_then(|id| game.ragdolls.fade_alpha(id)) else {
             continue;
         };
-        if let Some(mut m) = materials.get_mut(&material.0)
-            && m.tint.w != alpha
+        if materials.get(mat).is_some_and(|m| m.tint.w != alpha)
+            && let Some(mut m) = materials.get_mut(mat)
         {
             m.tint.w = alpha;
             m.alpha = AlphaMode::Blend;
@@ -550,23 +550,21 @@ pub fn present_render_colors(
     if game.scene.render_colors.is_empty() {
         return;
     }
-    for (lit, material) in &draws {
-        let Some(color) = lit.entity.and_then(|id| game.scene.render_colors.get(&id)) else {
+    for (lit, MeshMaterial3d(mat)) in &draws {
+        let Some(id) = lit.entity else { continue };
+        let (Some(color), Some(m)) = (game.scene.render_colors.get(&id), materials.get(mat)) else {
             continue;
         };
-        let Some(mut m) = materials.get_mut(&material.0) else {
-            continue;
-        };
-        let original = *base.entry(material.0.id()).or_insert(m.tint);
+        let original = *base.entry(mat.id()).or_insert(m.tint);
         // The runtime color replaces the keyvalue color the material was built with.
-        let keyvalue = lit
-            .entity
-            .map_or(Vec4::ONE, |id| entity_modulation(&game.world, id))
+        let keyvalue = entity_modulation(&game.world, id)
             .truncate()
             .max(Vec3::splat(1e-3));
         let rgb = Vec3::from_array(color.map(|c| f32::from(c) / 255.));
         let tint = (original.truncate() / keyvalue * rgb).extend(m.tint.w);
-        if m.tint != tint {
+        if m.tint != tint
+            && let Some(mut m) = materials.get_mut(mat)
+        {
             m.tint = tint;
         }
     }

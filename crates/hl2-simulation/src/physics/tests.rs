@@ -1876,3 +1876,30 @@ fn a_barnacle_body_is_a_small_box_under_its_origin_not_its_tongue() {
     assert_eq!((mins.z, maxs.z), (-40., 0.));
     assert_eq!((mins.x, maxs.x), (-16., 16.));
 }
+
+#[test]
+fn player_shadow_ccd_stays_off_at_walk_speed_and_enables_when_fast() {
+    let mut physics = Physics::new(&npc_floor_world());
+    physics.update_player_shadow(
+        Vec3::ZERO,
+        Vec3::new(3., 0., 0.),
+        false,
+        true,
+        0.,
+        Vec3::new(190., 0., 0.),
+        None,
+        0.015,
+    );
+    let (handle, _) = physics.player_shadow.expect("player shadow created");
+    physics.tick(0.015);
+    assert!(
+        !physics.bodies[handle].is_ccd_enabled(),
+        "normal walk speed should not enable CCD and force per-tick QBVH rebuilds"
+    );
+    physics.bodies[handle].set_linvel(vector![4000. * SCALE, 0., 0.], true);
+    physics.tick(0.015);
+    assert!(
+        physics.bodies[handle].is_ccd_enabled(),
+        "extreme velocity (> hull thickness per tick) should still enable CCD"
+    );
+}

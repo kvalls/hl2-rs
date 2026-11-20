@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-20 — Gate player-shadow CCD by speed and avoid redundant `SourceMaterial` mutations
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-simulation/src/physics.rs`: replaced unconditional `.ccd_enabled(true)` on `player_shadow` with `self.ccd_gated.insert(body, 0.)` so the 32-unit player hull only turns on Rapier3D CCD when moving faster than its own thickness per tick (matching dynamic props), instead of triggering `CCDSolver::predict_impacts_at_next_positions` (`Qbvh::build`) on every walking tick. Added unit test `player_shadow_ccd_stays_off_at_walk_speed_and_enables_when_fast` in `crates/hl2-simulation/src/physics/tests.rs`.
+  - `crates/hl2-bevy/src/rendering.rs`: checked `materials.get(&material.0)` before `materials.get_mut(&material.0)` in `present_ragdoll_fades` and `present_render_colors` so unchanged materials do not emit `AssetEvent::Modified` and trigger per-frame GPU buffer reallocation.
+- Why: a live 5-second unpaused profile on `d1_trainstation_02` (mean `23.38 ms` / `42.8 fps`, `p50 22.64 ms`, `p95 47.96 ms`, `max 74.91 ms`, versus paused `8.38 ms` / `119.3 fps`) showed `Qbvh::build` inside `CCDSolver::predict_impacts_at_next_positions` as the largest CPU hotspot (620 samples) and `SourceMaterial::as_bind_group` -> `wgpu::Device::create_buffer` as the second largest (443 samples).
+- Tested how: `cargo test -p hl2-simulation physics::tests`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: post-fix live unpaused frame time, packaged replays, and Windows runtime are **not tested** yet.
+- Next: rebuild and re-profile live unpaused `d1_trainstation_02` gameplay to measure the frame-time improvement.
+
 ## 2026-11-20 — Color-code `Player:` and `Console:` chat lines in the developer console
 
 - Agent/model: Antigravity (Gemini 4 Neon).
