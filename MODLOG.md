@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-21 — Batch consecutive same-material 2D UI quads in `canvas_renderer`
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-bevy/src/canvas_renderer.rs`: grouped consecutive 2D quads sharing the same `Handle<HudMaterial>` into a single pooled `Mesh` (`batch_quads` + `QuadGeometry::batch_mesh`) while preserving exact painter's order across interleaved materials. Added unit test `consecutive_same_material_quads_batch_while_preserving_order`.
+- Why: a 4-second live profile while scrolling the developer console at `3456 × 2168` (`mean 19.42 ms` / `51.5 fps`, `p50 13.53 ms`, `p95 35.11 ms`, `max 75.68 ms`, vs paused idle `8.38 ms` / `119.3 fps`) showed `canvas_renderer::sync_quads` (`269` samples), `wgpu create_buffer` (`296`), and `MeshSlab` (`73`) saturating the frame because every glyph was a separate `Mesh2d` entity (~1,500–2,700 meshes mutated per scroll tick).
+- Tested how: `cargo test -p hl2-bevy canvas_renderer`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: post-fix live console scrolling frame time, packaged replays, and Windows runtime are **not tested** yet.
+- Next: rebuild the release binary, relaunch the live session, and re-profile console scrolling and unpaused gameplay.
+
 ## 2026-11-21 — Reuse bloom uniform buffers, defer monitor sample JSON, and throttle model lightgrid resamples
 
 - Agent/model: Antigravity (Gemini 4 Neon).

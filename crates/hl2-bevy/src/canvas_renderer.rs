@@ -152,7 +152,7 @@ pub struct Hud {
     textures: HashMap<usize, GpuTexture>,
     white: Option<(Handle<HudMaterial>, Handle<HudMaterial>)>,
     modulate: Option<Handle<HudMaterial>>,
-    pool: Vec<(Entity, Handle<Mesh>, QuadGeometry)>,
+    pool: Vec<(Entity, Handle<Mesh>, Vec<QuadGeometry>)>,
     pub quads: usize,
     timing: FrameTiming,
     diagnostic_font: Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>>,
@@ -400,7 +400,38 @@ pub fn present(
         &mut draws,
     );
 }
-/// Keeps one pooled draw per quad of this frame and hides the rest.
+/// Groups consecutive quads sharing the same material so painter's order is preserved while
+/// collapsing thousands of glyphs and solid rectangles into a handful of draw calls.
+fn group_quad_batches(
+    items: impl IntoIterator<Item = (Handle<HudMaterial>, QuadGeometry)>,
+) -> Vec<(Handle<HudMaterial>, Vec<QuadGeometry>)> {
+    let mut batches: Vec<(Handle<HudMaterial>, Vec<QuadGeometry>)> = Vec::new();
+    for (material, geometry) in items {
+        if let Some((_, list)) = batches.last_mut().filter(|(last, _)| *last == material) {
+            list.push(geometry);
+        } else {
+            batches.push((material, vec![geometry]));
+        }
+    }
+    batches
+}
+
+fn batch_quads(
+    hud: &mut Hud,
+    quads: &[Quad],
+    viewport: Vec2,
+    images: &mut Assets<Image>,
+    materials: &mut Assets<HudMaterial>,
+) -> Vec<(Handle<HudMaterial>, Vec<QuadGeometry>)> {
+    group_quad_batches(quads.iter().map(|quad| {
+        (
+            hud.material(quad, images, materials),
+            QuadGeometry::of(quad, viewport),
+        )
+    }))
+}
+
+/// Keeps one pooled draw per consecutive same-material batch of this frame and hides the rest.
 fn draw_quads(
     commands: &mut Commands,
     hud: &mut Hud,
@@ -413,16 +444,16 @@ fn draw_quads(
     ),
     draws: &mut DrawQuery,
 ) {
-    for (i, quad) in quads.iter().enumerate() {
-        let material = hud.material(quad, images, materials);
-        let geometry = QuadGeometry::of(quad, viewport);
+    let batches = batch_quads(hud, quads, viewport, images, materials);
+    let batch_count = batches.len();
+    for (i, (material, geometries)) in batches.into_iter().enumerate() {
         if let Some((entity, handle, drawn)) = hud.pool.get_mut(i) {
-            // A rewritten mesh is prepared and uploaded again, so only a changed quad is rewritten.
-            let changed = *drawn != geometry;
+            // A rewritten mesh is prepared and uploaded again, so only a changed batch is rewritten.
+            let changed = *drawn != geometries;
             if changed {
-                *drawn = geometry;
+                *drawn = geometries;
                 if let Some(mut old) = meshes.get_mut(handle.id()) {
-                    *old = geometry.mesh();
+                    *old = QuadGeometry::batch_mesh(drawn);
                 }
             }
             if let Ok((mut old_material, mut transform, mut visibility, aabb)) =
@@ -442,7 +473,7 @@ fn draw_quads(
                 }
             }
         } else {
-            let mesh = meshes.add(geometry.mesh());
+            let mesh = meshes.add(QuadGeometry::batch_mesh(&geometries));
             let entity = commands
                 .spawn((
                     crate::campaign::MapOwned,
@@ -453,10 +484,10 @@ fn draw_quads(
                     RenderLayers::layer(2),
                 ))
                 .id();
-            hud.pool.push((entity, mesh, geometry));
+            hud.pool.push((entity, mesh, geometries));
         }
     }
-    for (entity, _, _) in hud.pool.iter().skip(quads.len()) {
+    for (entity, _, _) in hud.pool.iter().skip(batch_count) {
         if let Ok((_, _, mut visibility, _)) = draws.get_mut(*entity) {
             visibility.set_if_neq(Visibility::Hidden);
         }
@@ -501,16 +532,33 @@ impl QuadGeometry {
         }
     }
 
+    #[cfg(test)]
     fn mesh(&self) -> Mesh {
+        Self::batch_mesh(std::slice::from_ref(self))
+    }
+
+    fn batch_mesh(quads: &[Self]) -> Mesh {
+        let count = quads.len();
+        let mut positions = Vec::with_capacity(count * 4);
+        let mut uvs = Vec::with_capacity(count * 4);
+        let mut colors = Vec::with_capacity(count * 4);
+        let mut indices = Vec::with_capacity(count * 6);
+        for (i, quad) in quads.iter().enumerate() {
+            positions.extend_from_slice(&quad.positions);
+            uvs.extend_from_slice(&quad.uvs);
+            colors.extend_from_slice(&quad.colors);
+            let base = (i * 4) as u32;
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
         );
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions.to_vec());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; 4]);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs.to_vec());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors.to_vec());
-        mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; count * 4]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+        mesh.insert_indices(Indices::U32(indices));
         mesh
     }
 }
@@ -649,5 +697,51 @@ mod tests {
             panic!("HUD colors");
         };
         assert_eq!(colors[0], [0., 0., 0., 156.0 / 255.0]);
+    }
+
+    #[test]
+    fn consecutive_same_material_quads_batch_while_preserving_order() {
+        let geom = |x: f32| {
+            QuadGeometry::of(
+                &Quad {
+                    texture: None,
+                    source: Rect::new(0., 0., 1., 1.),
+                    destination: Rect::new(x, 0., 10., 10.),
+                    color: Color::from_rgba(255, 255, 255, 255),
+                    additive: false,
+                    modulate: false,
+                    vertices: None,
+                },
+                Vec2::new(640., 480.),
+            )
+        };
+        let mut materials = Assets::<HudMaterial>::default();
+        let a = materials.add(HudMaterial {
+            texture: Handle::default(),
+            additive: false,
+            modulate: false,
+        });
+        let b = materials.add(HudMaterial {
+            texture: Handle::default(),
+            additive: true,
+            modulate: false,
+        });
+        let batches = group_quad_batches([
+            (a.clone(), geom(0.)),
+            (a.clone(), geom(12.)),
+            (b, geom(24.)),
+            (a, geom(36.)),
+        ]);
+        assert_eq!(batches.len(), 3);
+        assert_eq!(batches[0].1.len(), 2);
+        assert_eq!(batches[1].1.len(), 1);
+        assert_eq!(batches[2].1.len(), 1);
+        let mesh = QuadGeometry::batch_mesh(&batches[0].1);
+        assert_eq!(mesh.count_vertices(), 8);
+        assert_eq!(
+            mesh.indices().map(|i| i.len()),
+            Some(12),
+            "two batched quads produce 12 triangle indices"
+        );
     }
 }
