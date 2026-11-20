@@ -166,3 +166,33 @@ fn template_makers_never_touch() {
     let mut scene = Scene::new(&world);
     assert!(touch_tick(&mut scene, &world, FAR).is_empty());
 }
+
+#[test]
+fn a_resting_npc_inside_a_trigger_multiple_triggers_it_once() {
+    // CTriggerMultiple::MultiTouch runs from Touch, which an NPC's PhysicsTouchTriggers calls
+    // only when it moves: d1_trainstation_05's NPC-only gate trigger (wait 1) opens
+    // intro_train_gate_1 once natively.
+    let mut world = touch_world("trigger_multiple", "2", 1);
+    world.entities[0] = entity(
+        "trigger_multiple",
+        "zone",
+        &[
+            ("model", "*1"),
+            ("spawnflags", "2"),
+            ("wait", "0.1"),
+            ("OnTrigger", "trg,Trigger,,1000,-1"),
+        ],
+    );
+    let mut scene = Scene::new(&world);
+    scene.queue.clear();
+    let triggers = |f: Vec<(String, usize)>| f.iter().filter(|(t, _)| t == "trg").count();
+    scene.states[1].origin = Vec3::ZERO;
+    let mut total = 0;
+    for _ in 0..40 {
+        total += triggers(touch_tick(&mut scene, &world, FAR));
+    }
+    assert_eq!(total, 1);
+    // Moving inside, it triggers again once the wait is over.
+    scene.states[1].origin = Vec3::new(1., 0., 0.);
+    assert_eq!(triggers(touch_tick(&mut scene, &world, FAR)), 1);
+}

@@ -146,8 +146,11 @@ impl Scene {
         }
     }
 
-    /// One trigger's touches this tick. Returns the OnTrigger activator while anything
-    /// touches an enabled trigger: the player first, else the longest-touching entity.
+    /// One trigger's touches this tick. Returns the OnTrigger activator: the player (its
+    /// touches are tested every tick) first, else the longest-touching NPC or object that
+    /// moved or entered this tick (CTriggerMultiple::MultiTouch runs from Touch, which an
+    /// NPC's or object's PhysicsTouchTriggers calls only when it moves: d1_trainstation_05's
+    /// NPC-only gate trigger opens its gate once natively, not every `wait`).
     pub(super) fn update_touches(&mut self, world: &World, id: usize) -> Option<usize> {
         let enabled = self.states[id].enabled;
         let armed = self.states[id].touch_armed;
@@ -178,7 +181,8 @@ impl Scene {
         if (rules.npcs || rules.objects) && !self.touch_candidates.fresh {
             self.refresh_candidates(world);
         }
-        for other in self.entering(world, id, armed, &rules) {
+        let entered = self.entering(world, id, armed, &rules);
+        for &other in &entered {
             self.states[id].touchers.push(other);
             self.fire(id, "OnStartTouch", other);
             if self.states[id].touchers.len() == 1 {
@@ -188,10 +192,12 @@ impl Scene {
         }
         self.states[id].touch_armed = true;
         let touchers = &self.states[id].touchers;
-        touchers
-            .contains(&PLAYER)
-            .then_some(PLAYER)
-            .or_else(|| touchers.first().copied())
+        touchers.contains(&PLAYER).then_some(PLAYER).or_else(|| {
+            touchers
+                .iter()
+                .copied()
+                .find(|&other| entered.contains(&other) || !self.resting(other))
+        })
     }
 
     /// Entities that start touching trigger `id` this tick and pass its filters; once
