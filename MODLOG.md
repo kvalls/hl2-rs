@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-20 — NPC hitboxes posed from their own bones only
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: posing an NPC's hitboxes each tick computes only the bones that carry a hitbox and their ancestors (`Rig::hitbox_bones`). A bone set (`animation::Bones`) now reaches frame interpolation, blend grids, SlerpBones, autoplay and fade accumulation and the model matrices (`*_of` forms; the existing functions pass every bone). Each step works bone by bone and the set holds every parent, so the hitbox bones' matrices are bit-identical to a whole-skeleton pose. A barnacle tongue keeps the whole skeleton. Bone mixing (interpolation, BlendBones, SlerpBones, the quaternion helpers) moved into `modkit-core/src/animation/mixing.rs`, bringing `animation.rs` back under 1,000 lines.
+- Why: hitbox posing was the largest remaining simulation cost after the decal index, mostly clip sampling for bones no hitbox uses (fingers, face). The owner chose this over posing on demand: about 60 trace calls read hitboxes, not just bullets.
+- Tested how: owned-install test `owned_hitbox_bones_pose_exactly_like_the_whole_skeleton`: seven NPC models (citizen, Metrocop, soldier, zombie, vortigaunt, Barney, headcrab), 12 clips each at three times, with pose parameters off their defaults and a fading second sequence: every hitbox bone equal to the full pose. Three alternating mixed-crowd A/B pairs against `c2d35a89`: fixed simulation 4.95 -> 4.84 ms per tick, whole-run mean 19.98 -> 19.52 ms; fight frame 17.59 -> 17.64 ms (within noise). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 427 s.
+- Frame time: about -0.1 ms per tick of fixed simulation; the fight frame is unchanged within run-to-run noise.
+
 ## 2026-11-20 — Merge upstream main through `c51c6d36`
 
 - Agent/model: Codex desktop (GPT-6 family, with subagents) started the merge and resolved the five conflicted files and trigger-candidate wiring; Antigravity (Claude Opus 5.5, then Gemini 4 Neon) audited the conflict resolutions and doc preservation, diagnosed the four `d1_trainstation_02` replay expectation shifts, recorded the updated expectations, ran full validation and replays, and committed the merge.

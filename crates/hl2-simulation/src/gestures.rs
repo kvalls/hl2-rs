@@ -3,7 +3,7 @@
 //! intensity. Ended layers fade like RemoveLayer (0.1 s, 0.5 s when canceled).
 //! Native layer priorities across scenes, IK and pose-parameter layers are unfinished.
 use glam::Mat4;
-use modkit_core::animation::{Clip, PoseError, Rig};
+use modkit_core::animation::{Bones, Clip, PoseError, Rig};
 use serde::Serialize;
 use source_assets::scenes::{find_tag, gesture_original_percentage, ChoreoScene, Tag};
 use std::{collections::BTreeMap, sync::Arc};
@@ -184,11 +184,26 @@ impl GestureLayers {
         params: &[f32],
         fades: &[(&str, f32, f32)],
     ) -> (Vec<Mat4>, Vec<PoseError>) {
+        self.compose_blended_of(rig, actor, (base, time), params, fades, None)
+    }
+    /// `compose_blended` for `bones` only (`Rig::hitbox_bones`); the other matrices are unspecified.
+    pub fn compose_blended_of(
+        &self,
+        rig: &Rig,
+        actor: usize,
+        (base, time): (&str, f32),
+        params: &[f32],
+        fades: &[(&str, f32, f32)],
+        bones: Bones,
+    ) -> (Vec<Mat4>, Vec<PoseError>) {
         let layers = self.layers(actor);
         if layers.is_empty() && rig.autoplay.is_empty() && fades.is_empty() {
-            return (rig.matrices(base, time), Vec::new());
+            return (
+                rig.local_matrices_of(&rig.local_pose_of(base, time, bones), bones),
+                Vec::new(),
+            );
         }
-        let mut pose = rig.local_pose(base, time);
+        let mut pose = rig.local_pose_of(base, time, bones);
         let mut errors = Vec::new();
         for (sequence, at, weight) in fades {
             let Some(clip) = rig.clips.get(&sequence.to_lowercase()) else {
@@ -199,12 +214,13 @@ impl GestureLayers {
             let frames = clip.frames.len().saturating_sub(1).max(1) as f32;
             let cycle = at.max(0.) * clip.fps / frames;
             let mut trial = pose.clone();
-            match rig.accumulate_pose_with(
+            match rig.accumulate_pose_of(
                 &mut trial,
                 &sequence.to_lowercase(),
                 cycle,
                 *weight,
                 params,
+                bones,
             ) {
                 Ok(()) => pose = trial,
                 Err(e) => errors.push(e),
@@ -218,23 +234,24 @@ impl GestureLayers {
                 continue;
             };
             let mut trial = pose.clone();
-            match rig.accumulate_pose_with(
+            match rig.accumulate_pose_of(
                 &mut trial,
                 &layer.sequence,
                 layer.cycle(clip),
                 layer.layer_weight(clip),
                 params,
+                bones,
             ) {
                 Ok(()) => pose = trial,
                 Err(e) => errors.push(e),
             }
         }
         let mut trial = pose.clone();
-        match rig.accumulate_autoplay(&mut trial, time, params) {
+        match rig.accumulate_autoplay_of(&mut trial, time, params, bones) {
             Ok(()) => pose = trial,
             Err(e) => errors.push(e),
         }
-        (rig.local_matrices(&pose), errors)
+        (rig.local_matrices_of(&pose, bones), errors)
     }
     /// Changes whenever any layer's cycle/weight changes; zero without layers.
     pub fn signature(&self, actor: usize) -> u64 {
@@ -421,5 +438,57 @@ mod tests {
         // Cycle 0.55 of 51 intervals: about frame 28 of the rotating test clip.
         assert!((rotation.to_axis_angle().1 - 0.55 * 51. * 0.01).abs() < 1e-3);
         assert_ne!(layers.signature(1), 0);
+    }
+}
+#[cfg(test)]
+mod hitbox_bone_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires owned installed HL2"]
+    fn owned_hitbox_bones_pose_exactly_like_the_whole_skeleton() {
+        let game = source_assets::install::discover().unwrap();
+        let vfs = source_assets::vpk::Vfs::mount(&game).unwrap();
+        let layers = GestureLayers::default();
+        let mut compared = 0;
+        for model in [
+            "models/humans/group01/male_07.mdl",
+            "models/police.mdl",
+            "models/combine_soldier.mdl",
+            "models/zombie/classic.mdl",
+            "models/vortigaunt.mdl",
+            "models/barney.mdl",
+            "models/headcrabclassic.mdl",
+        ] {
+            let names = source_assets::animation::sequence_names(&vfs, model).unwrap();
+            let wanted = names.iter().map(|n| n.to_lowercase()).collect();
+            let rig = source_assets::animation::load(&vfs, model, &wanted).unwrap();
+            let bones = rig.hitbox_bones();
+            assert!(bones.contains(&true) && bones.contains(&false), "{model}");
+            let clips: Vec<&String> = rig.clips.keys().take(12).collect();
+            for (k, clip) in clips.iter().enumerate() {
+                // Pose parameters off their defaults reach the blend grids; a fading second
+                // sequence goes through accumulation.
+                let params: Vec<f32> = (0..rig.pose_parameters.len())
+                    .map(|i| ((i + k) as f32 * 0.37).fract())
+                    .collect();
+                let fades = [(clips[(k + 1) % clips.len()].as_str(), 0.4, 0.6)];
+                for time in [0., 0.31, 1.7] {
+                    let base = (clip.as_str(), time);
+                    let full = layers.compose_blended_of(&rig, 0, base, &params, &fades, None);
+                    let some = Some(bones.as_slice());
+                    let part = layers.compose_blended_of(&rig, 0, base, &params, &fades, some);
+                    assert_eq!(full.1, part.1, "{model} {clip}");
+                    for (bone, _) in bones.iter().enumerate().filter(|(_, b)| **b) {
+                        assert_eq!(
+                            full.0[bone], part.0[bone],
+                            "{model} {clip} {time} bone {bone}"
+                        );
+                        compared += 1;
+                    }
+                }
+            }
+        }
+        assert!(compared > 1000, "{compared}");
     }
 }

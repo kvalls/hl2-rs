@@ -11,6 +11,15 @@ impl Scene {
     }
 
     pub fn actor_matrices(&self, rig: &modkit_core::animation::Rig, id: usize) -> Vec<glam::Mat4> {
+        self.actor_matrices_of(rig, id, None)
+    }
+    /// `actor_matrices` exact for `bones` (`Rig::hitbox_bones`), the others unspecified.
+    pub fn actor_matrices_of(
+        &self,
+        rig: &modkit_core::animation::Rig,
+        id: usize,
+        bones: modkit_core::animation::Bones,
+    ) -> Vec<glam::Mat4> {
         if let Some(ragdoll) = self.ragdoll_matrices.get(&id) {
             return ragdoll.clone();
         }
@@ -19,16 +28,11 @@ impl Scene {
         };
         let params = self.actor_pose_values(rig, id);
         let fades = self.sequence_fades(id);
-        let mut matrices = self
-            .gestures
-            .compose_blended(
-                rig,
-                id,
-                &state.animation,
-                self.animation_time(id),
-                &params,
-                &fades,
-            )
+        // A barnacle tongue reads and writes whole chains: every bone then.
+        let bones = bones.filter(|_| !self.tongues.contains_key(&id));
+        let base = (state.animation.as_str(), self.animation_time(id));
+        let mut matrices = (self.gestures)
+            .compose_blended_of(rig, id, base, &params, &fades, bones)
             .0;
         if let Some(tongue) = self.tongues.get(&id) {
             let to_model =
