@@ -330,7 +330,13 @@ impl Host for hl2_ui::console::Console {
         self.presentation.background_opacity = Some(opacity);
     }
     fn agent_status(&mut self, token: Option<&str>) {
-        self.shell.panel.status = token.map(|token| self.resources().localization.text(token));
+        match token {
+            Some(token) => {
+                let text = self.resources().localization.text(token);
+                self.log_snapshot(text);
+            }
+            None => self.clear_snapshot(),
+        }
     }
     fn focus_background(&mut self) {
         self.focus_base();

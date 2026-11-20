@@ -32,6 +32,9 @@ pub struct Remote {
     pub from_rcon: bool,
     /// Lines a remote command printed that the local console shows too (`say`).
     pub broadcast: Vec<String>,
+    /// Replaceable snapshot update (`Some(text)`) or clear (`None`) queued while a remote
+    /// command's output is redirected, applied to the local console after `finish_redirect`.
+    pub snapshot: Option<Option<String>>,
     /// Remote console commands run only with a non-empty password; never saved.
     pub rcon_password: String,
     /// `sv_rcon_log`: print each remote command.
@@ -57,6 +60,7 @@ impl Default for Remote {
             con_logfile: String::new(),
             from_rcon: false,
             broadcast: Vec::new(),
+            snapshot: None,
             rcon_password: String::new(),
             sv_rcon_log: true,
             sv_rcon_maxfailures: 10,

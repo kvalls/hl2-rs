@@ -16,7 +16,20 @@ impl Console {
 
     /// Updates the most recent live snapshot instead of growing scrollback.
     pub fn log_snapshot(&mut self, text: impl Into<String>) {
-        self.shell.panel.replace_snapshot(&self.canvas, text);
+        if self.remote.from_rcon {
+            self.remote.snapshot = Some(Some(text.into()));
+        } else {
+            self.shell.panel.replace_snapshot(&self.canvas, text);
+        }
+    }
+
+    /// Removes the current live snapshot line, if any.
+    pub fn clear_snapshot(&mut self) {
+        if self.remote.from_rcon {
+            self.remote.snapshot = Some(None);
+        } else {
+            self.shell.panel.clear_snapshot(&self.canvas);
+        }
     }
 
     /// Prints a line at `level`, stamped with the current time.

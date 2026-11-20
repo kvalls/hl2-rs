@@ -121,7 +121,7 @@ pub(super) fn say(console: &mut Console, spec: &Spec, args: &[String]) -> Outcom
     };
     let line = format!("{speaker}: {}", args.join(" "));
     if console.remote.from_rcon {
-        console.shell.panel.status = None;
+        console.clear_snapshot();
         console.remote.broadcast.push(line.clone());
     }
     console.print(level, line);

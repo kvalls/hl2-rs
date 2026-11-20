@@ -78,6 +78,11 @@ fn run(
     }
     let lines = ui.source.shell.panel.finish_redirect(redirect);
     ui.source.remote.from_rcon = false;
+    match ui.source.remote.snapshot.take() {
+        Some(Some(text)) => ui.source.log_snapshot(text),
+        Some(None) => ui.source.clear_snapshot(),
+        None => {}
+    }
     for line in std::mem::take(&mut ui.source.remote.broadcast) {
         ui.source.print(Level::ChatRemote, line);
     }

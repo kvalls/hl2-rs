@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-21 — Show `agent_status` as a replaceable console snapshot line instead of a separate status bar
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel/snapshot.rs`: added `ConsolePanel::clear_snapshot` and extended `cached_wrapping_and_ordinary_selection_follow_their_rows` to cover clearing a snapshot without disturbing ordinary output or selection.
+  - `crates/hl2-ui/src/console/{panel.rs,remote.rs,commands/remote.rs}` & `crates/hl2-bevy/src/rcon.rs`: added `Console::clear_snapshot`, queued `log_snapshot`/`clear_snapshot` across RCON redirects via `Remote::snapshot` so snapshot updates survive `finish_redirect`, and cleared any active snapshot when a remote `say` reply arrives.
+  - `plugins/hl2-debug/src/{commands.rs,ui_tests.rs}`: switched `agent_status` to use `log_snapshot` / `clear_snapshot` so `Thinking...` and `Still waiting for a reply...` render as a single self-updating line in the console log (matching viewmodel debug snapshots) and vanish when the reply prints.
+- Why: user requested the thinking indicator appear inline as a temporary self-updating message in the console log rather than in the separate footer bar.
+- Tested how: `scripts/checks/validate.sh` (including core-only and plugin-selection builds) and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime and packaged replays were **not tested** for this change.
+- Next: rebuild and relaunch when ready.
+
 ## 2026-11-21 — Draw chat speaker labels in white in the developer console
 
 - Agent/model: Antigravity (Gemini 4 Neon).

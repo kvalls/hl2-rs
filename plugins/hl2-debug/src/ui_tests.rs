@@ -164,15 +164,23 @@ fn remote_reply_clears_status_without_printing_it() {
     let mut c = console();
     let before = c.shell.panel.output.len();
     c.execute("agent_status thinking");
-    assert_eq!(c.shell.panel.status.as_deref(), Some("Thinking..."));
-    c.execute("agent_status waiting");
+    assert_eq!(c.shell.panel.output.len(), before + 1);
     assert_eq!(
-        c.shell.panel.status.as_deref(),
+        c.shell.panel.output.back().map(|l| l.text.as_str()),
+        Some("Thinking...")
+    );
+    c.execute("agent_status waiting");
+    assert_eq!(c.shell.panel.output.len(), before + 1);
+    assert_eq!(
+        c.shell.panel.output.back().map(|l| l.text.as_str()),
         Some("Still waiting for a reply...")
     );
+    c.execute("agent_status clear");
     assert_eq!(c.shell.panel.output.len(), before);
     c.remote.from_rcon = true;
+    c.execute("agent_status thinking");
+    assert_eq!(c.remote.snapshot, Some(Some("Thinking...".into())));
     c.execute("say hello");
-    assert!(c.shell.panel.status.is_none());
+    assert_eq!(c.remote.snapshot, Some(None));
     assert_eq!(c.remote.broadcast, ["Console: hello"]);
 }

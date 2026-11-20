@@ -4,6 +4,12 @@ use super::{Canvas, ConsolePanel, Level};
 impl ConsolePanel {
     /// Remove the previous snapshot and append the latest one after all ordinary output.
     pub fn replace_snapshot(&mut self, canvas: &Canvas, text: impl Into<String>) {
+        self.clear_snapshot(canvas);
+        self.print(canvas, Level::Snapshot, text);
+    }
+
+    /// Remove the current snapshot line, if any, without disturbing ordinary output or scroll.
+    pub fn clear_snapshot(&mut self, canvas: &Canvas) {
         if let Some(index) = self
             .output
             .iter()
@@ -11,7 +17,6 @@ impl ConsolePanel {
         {
             self.remove_snapshot(canvas, index);
         }
-        self.print(canvas, Level::Snapshot, text);
     }
 
     fn remove_snapshot(&mut self, canvas: &Canvas, index: usize) {
@@ -90,6 +95,8 @@ mod tests {
         assert_eq!(panel.selected_text().as_deref(), Some("a\nb\nc\ntail"));
         panel.selection = Some(Selection::at(4));
         panel.replace_snapshot(&canvas, "final");
+        panel.clear_snapshot(&canvas);
+        assert!(panel.output.iter().all(|l| l.level != Level::Snapshot));
         assert_eq!(
             panel.selection, None,
             "removed snapshot cannot select unrelated text"
