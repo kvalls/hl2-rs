@@ -244,6 +244,7 @@ pub(super) fn add_presentation_systems(app: &mut App) {
 }
 
 /// What the startup map reports; the worker replaces it after each map change.
+#[derive(Clone)]
 pub(super) struct MapSummary {
     map_name: String,
     revision: u32,
@@ -284,6 +285,35 @@ impl MapSummary {
             ),
         }
     }
+}
+
+/// The startup map's summary, for the report written in the exit frame.
+#[derive(bevy::prelude::Resource)]
+pub(super) struct ExitSummary(pub(super) MapSummary);
+
+/// The frame the app exits: writes the run's captures and report ([`finish`]) and ends the process
+/// without dropping the app. Dropping it closes the CoreAudio output, which waits for the mixing
+/// callback to let go of the device lock; after a crowd fight that wait can last forever, the
+/// window gone and a core still busy. The operating system releases the device instead. Both
+/// trace files flush as they write.
+pub(super) fn exit_process(world: &mut bevy::prelude::World) {
+    let exit = world
+        .get_resource::<bevy::ecs::message::Messages<AppExit>>()
+        .and_then(|messages| messages.iter_current_update_messages().next().cloned());
+    let Some(exit) = exit else {
+        return;
+    };
+    let status = world.resource::<Status>().clone();
+    let options = world.resource::<Options>().clone();
+    let summary = world.resource::<ExitSummary>().0.clone();
+    let code = match finish(&status, &options, summary, exit) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            1
+        }
+    };
+    std::process::exit(code);
 }
 
 pub(super) fn finish(

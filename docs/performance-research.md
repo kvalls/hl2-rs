@@ -39,8 +39,9 @@ A 10 ms stack sample of 20 s of the fight:
 
 Each frame about 190 effect-quad meshes, 27 eye meshes, 13 shadow meshes and 9 animated meshes
 (52,000 vertices) change and are uploaded again. The audio output thread is busy about one core
-mixing about 70 live sinks, muted or not. About one run in three hangs at exit: closing the
-CoreAudio output waits on the device lock while the mixing callback keeps it busy (not fixed).
+mixing about 70 live sinks, muted or not. About one run in three hung at exit: closing the
+CoreAudio output waited on the device lock while the mixing callback kept it busy. Runs now end
+from their exit frame without dropping the app (`launch::exit_process`).
 
 ## Shared actor bone matrices: rejected
 

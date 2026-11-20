@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-20 — Runs end from their exit frame (no exit hang after crowd fights)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `launch::exit_process` (Last, after the run monitor) writes the run's captures and report with `finish` in the frame the app exits and ends the process with that result's exit code, without dropping the app; the startup map's summary is kept as a resource (`ExitSummary`). `run` keeps its own `finish` after `App::run` for an exit that bypasses the system. Both trace files already flush as they write.
+- Why: about one mixed-crowd run in three never exited. Dropping the app closed the CoreAudio output (`AudioOutputUnitStop`), which waits on the device lock that the IO thread holds while mixing; the window was gone and a core stayed busy. Dropping every audio sink in the exit frame, even directly with a 50 ms drain, still hung: the mixer kept silence-generating queues with no owner in the world.
+- Tested how: 12 consecutive mixed-crowd runs exited in 22.1-22.2 s, each with its report (before: 1 in 3 hung). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 407 s (replays 405 s, against 447 s before: launches no longer tear the app down).
+- Still broken or not tested: the audio thread still mixes about one core in crowd fights; quitting a windowed game was not tried by hand.
+- Frame time: none.
+
 ## 2026-11-20 — Cheaper entity class lookups
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

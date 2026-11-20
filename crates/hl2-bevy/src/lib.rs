@@ -213,6 +213,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .insert_resource(audio::OutputMute(options.mute))
         .insert_resource(tonemap::Tonemap::new(options.tonemap_scale))
         .insert_resource(status.clone())
+        .insert_resource(launch::ExitSummary(summary.clone()))
         .insert_resource(PreparedMap(Some(loaded), target))
         .insert_resource(simulation)
         .init_resource::<campaign::Campaign>()
@@ -242,6 +243,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
     launch::limit_frame_rate(&mut app, options.max_fps);
     launch::add_video_systems(&mut app);
     launch::add_presentation_systems(&mut app);
+    app.add_systems(Last, launch::exit_process.after(monitor::monitor));
     if options.profile {
         performance::install(&mut app);
     }
