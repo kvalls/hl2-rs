@@ -1,5 +1,17 @@
 # Performance research and implementation results
 
+## Goal: frame time and total load (owner, 2026-11-20)
+
+Frame time depends on how busy the CPU and GPU are, not only on the work on the frame's own
+path: other threads (audio output, render, asset workers), GPU passes and uploads, shared caches
+and memory bandwidth, and clock and thermal limits under sustained load all slow it. So the
+performance goal is both: shorten the frame directly and cut the total CPU and GPU load. Every
+A/B or profile records busy cores (stack samples of every thread) and GPU time beside frame
+time; a change that cuts load without moving the frame in a short run is still a gain and is
+reported as one (the HL2RS mixer: audio thread 77% -> 1.6%, whole game 2.93 -> 2.18 cores in
+the mixed crowd, frame within noise). Candidates are ranked by load saved as well as frame time
+saved, and longer runs are preferred where clock and thermal effects can show.
+
 ## Indexed bullet decals in a mixed crowd (2026-11-20)
 
 The station02 mixed-crowd fight spends fixed-step time finding the surface under a shot
