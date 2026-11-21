@@ -14,8 +14,8 @@ mod set_relationship;
 #[derive(Clone, Debug, Default)]
 pub(super) struct AppliedRelationships {
     pairs: BTreeMap<usize, Vec<(usize, usize)>>,
-    /// `SetRelationship` class relationships: (subject, target class) -> disposition.
-    class_overrides: BTreeMap<(usize, crate::ai::relationships::Class), Disposition>,
+    /// `SetRelationship` class relationships: (subject, target classname) -> disposition.
+    class_overrides: BTreeMap<(usize, String), Disposition>,
     /// An NPC spawned: CAI_Relationship::OnEntitySpawned reapplies them.
     pub stale: bool,
 }

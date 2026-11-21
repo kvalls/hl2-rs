@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-21 — `SetRelationship` class targets follow the game state
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: a classname target was resolved to a class once, when the input arrived, as if the player were already a criminal, so `npc_citizen` meant PlayerAlly and missed the passive citizens of the early station levels. The override now keeps the classname and resolves it at lookup with the same precriminal state the target's class uses, as retail resolves it against the current game rules.
+- Why: found live: manhacks told `npc_citizen D_LI 99` kept attacking citizens on d1_trainstation_02 (owner report).
+- Tested how: the dispatch test now also checks a precriminal citizen; `validate.sh` passed.
+
 ## 2026-11-21 — `SetRelationship` reaches manhacks, scanners, barnacles and birds
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

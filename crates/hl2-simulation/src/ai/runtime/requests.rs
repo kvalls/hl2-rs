@@ -715,7 +715,7 @@ impl AiRuntime {
         if let Some(&d) = self.relationship_overrides.get(&(subject, target)) {
             return d;
         }
-        if let Some(d) = self.class_override(subject, class(target)) {
+        if let Some(d) = self.class_override(subject, class(target), precriminal) {
             return d;
         }
         match (

@@ -60,26 +60,31 @@ impl AiRuntime {
                 self.relationship_overrides
                     .insert((subject, PLAYER), disposition);
             } else {
-                let class = classify(&who.to_ascii_lowercase(), false);
-                if class != Class::None {
+                let classname = who.to_ascii_lowercase();
+                if classify(&classname, false) != Class::None {
                     self.applied_relationships
                         .class_overrides
-                        .insert((subject, class), disposition);
+                        .insert((subject, classname), disposition);
                 }
             }
         }
     }
 
-    /// A class relationship `SetRelationship` gave `subject` toward `target`'s class.
+    /// A class relationship `SetRelationship` gave `subject` toward `target`'s class. A
+    /// classname's class depends on the game state (a citizen is passive before the player is
+    /// a criminal), so it is resolved now, with the `precriminal` the target's class used.
     pub(in crate::ai::runtime) fn class_override(
         &self,
         subject: usize,
         target: Class,
+        precriminal: bool,
     ) -> Option<Disposition> {
         self.applied_relationships
             .class_overrides
-            .get(&(subject, target))
-            .copied()
+            .range((subject, String::new())..)
+            .take_while(|((id, _), _)| *id == subject)
+            .find(|((_, classname), _)| classify(classname, precriminal) == target)
+            .map(|(_, &disposition)| disposition)
     }
 }
 
@@ -196,5 +201,7 @@ mod dispatch_tests {
             Some(&Disposition::LI)
         );
         assert_eq!(ai.npc_disposition(&world, 0, 1, false), Disposition::LI);
+        // During the precriminal calm a citizen is CitizenPassive, not PlayerAlly: still covered.
+        assert_eq!(ai.npc_disposition(&world, 0, 1, true), Disposition::LI);
     }
 }
