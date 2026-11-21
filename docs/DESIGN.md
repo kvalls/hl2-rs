@@ -2680,8 +2680,13 @@ Layers, each opt-in so ordinary builds and runs pay nothing:
    (`actor_pose`, by id), the viewmodel pose, the weapons stage and the player's move; and a state
    timeline (`state_player`, `state_viewmodel` every frame, `state_npc` for every AI actor on
    change and every 60 frames). Repeated identical spans in one frame mark duplicate work.
-6. Deferred: a compiler-instrumented call-count build (every function, counts per run, compared
-   across scene sizes to find superlinear growth) and per-frame allocation counts.
+6. `trace-alloc` (with `trace-chrome`): a counting global allocator; `state_frame` gives heap
+   allocations and bytes per frame (about 0.6 ms of its own).
+7. Visible pacing: the Metal System Trace's displayed-surface intervals (frames per refresh).
+8. Deferred: a compiler-instrumented call-count build (every function, counts per run, compared
+   across scene sizes to find superlinear growth) and allocations per span.
+
+Findings and their status: docs/optimization-backlog.md.
 
 Validation: each layer's own overhead is measured against the same headless run without it and
 recorded in MODLOG; numbers from different layers are not compared directly. Reversible by

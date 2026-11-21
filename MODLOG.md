@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Optimization backlog, allocation counts and two profiling captures
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `docs/optimization-backlog.md` (new) lists the captures and 23 items toward the owner's goal of a steady 120 FPS at maxed native Retina on an M1 Pro. `apps/hl2rs` gains the opt-in feature `trace-alloc` (with `trace-chrome`): a counting global allocator (`alloc_count.rs`, two relaxed atomic counters, forwarding to the system allocator) whose totals reach the host through `TraceRecording::allocations`; the state timeline writes `state_frame` (allocations and bytes since the previous frame). `scripts/build-bevy.sh` accepts `trace-alloc`. `docs/DESIGN.md` lists the layers.
+- Why: owner plan: create the backlog, capture as is, add findings, add more data, capture again, add findings.
+- Tested how: capture 1 (owner play, trace build with game spans, `--profile`, process sampler, 7,058 frames) and capture 2 (plus `trace-alloc` and a 45 s Metal System Trace attached, 8,327 frames, 151,194 GPU intervals, 2,341 displayed frames). Allocation counter overhead, headless 300 frames, two runs each: `frame_total` 10.17/10.32 ms without, 10.74/10.94 ms with. `scripts/checks/validate.sh`; strict Clippy on the `trace-alloc` build.
+- Result: top findings: the diagnostic report rebuilt every 60 frames in all play (p99 7.45 ms, O19); the viewmodel motion blur pass up to 22 ms of GPU per frame (O20); 161,344 heap allocations per frame (O21); duplicate skeleton composition, 438,784 extra calls (O6); mesh and material assets re-prepared every frame (O13, O14); the render thread paces the frame and the GPU is busy 97%.
+- Still broken or not tested: capture 2's three recorders slow the game to about 51 FPS, so its absolute times are inflated; real pacing needs a capture with only the Metal trace (O22). The counting allocator is the one global static, by design, and exists only in `trace-alloc` builds. Windows **not tested**.
+- Next: fix O19 first (a real hitch for every player, smallest change), then O6 and O20.
+
 ## 2026-11-21 — Player, viewmodel and NPC spans and a state timeline in trace builds
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

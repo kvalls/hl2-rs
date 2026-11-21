@@ -12,6 +12,8 @@ use std::{
 pub struct TraceRecording {
     /// The file being written, when the application knows it.
     pub file: Option<PathBuf>,
+    /// Heap allocations and requested bytes since the start, when the application counts them.
+    pub allocations: Option<fn() -> (u64, u64)>,
 }
 
 /// The trace file's size is read at most this often: one metadata call, never per frame.
@@ -66,6 +68,13 @@ pub struct Profiling {
 impl Profiling {
     pub fn snapshot(&self) -> ProfilingSnapshot {
         self.snapshot
+    }
+    /// Heap allocations and bytes since the start, when the build counts them.
+    pub fn allocations(&self) -> Option<(u64, u64)> {
+        self.trace
+            .as_ref()
+            .and_then(|t| t.allocations)
+            .map(|totals| totals())
     }
     fn update(&mut self, now: Instant, recorded: Option<usize>) {
         let stages = self.stages.then(|| {

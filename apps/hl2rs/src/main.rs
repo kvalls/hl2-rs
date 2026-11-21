@@ -1,4 +1,6 @@
 //! Selects application extensions and injects them into the reusable host.
+#[cfg(feature = "trace-alloc")]
+mod alloc_count;
 mod plugins;
 fn main() -> anyhow::Result<()> {
     #[cfg_attr(
@@ -26,6 +28,10 @@ fn main() -> anyhow::Result<()> {
     {
         application.trace = Some(hl2_bevy::performance::status::TraceRecording {
             file: std::env::var_os("TRACE_CHROME").map(std::path::PathBuf::from),
+            #[cfg(feature = "trace-alloc")]
+            allocations: Some(alloc_count::totals),
+            #[cfg(not(feature = "trace-alloc"))]
+            allocations: None,
         });
     }
     hl2_bevy::run(application)

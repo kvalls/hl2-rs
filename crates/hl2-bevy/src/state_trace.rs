@@ -21,19 +21,33 @@ pub fn install(app: &mut App) {
     );
 }
 
-/// What was last written per NPC, as a hash of the fields that trigger a new line.
+/// What was last written per NPC, as a hash of the fields that trigger a new line, and the
+/// allocation totals at the previous frame.
 #[derive(Default)]
 struct Written {
     frame: u64,
     npcs: HashMap<usize, u64>,
+    allocations: Option<(u64, u64)>,
 }
 
 fn record(
     sim: Res<crate::simulation::Simulation>,
     game: Res<crate::gameplay::Gameplay>,
+    profiling: Option<Res<crate::performance::status::Profiling>>,
     mut written: Local<Written>,
 ) {
     record_player(&sim, &game);
+    // Heap allocations since the previous frame (all threads, the render thread included).
+    if let Some(now) = profiling.and_then(|p| p.allocations()) {
+        if let Some((count, bytes)) = written.allocations {
+            let _frame = hl2_simulation::profile_span!(
+                "state_frame",
+                allocations = now.0 - count,
+                bytes = now.1 - bytes,
+            );
+        }
+        written.allocations = Some(now);
+    }
     written.frame += 1;
     let snapshot = written.frame % NPC_SNAPSHOT_FRAMES == 1;
     let feet = sim.player.feet;
