@@ -64,7 +64,7 @@ fn run(
     from: SocketAddr,
 ) -> String {
     let commands = source_ui::console::command::tokenize(line);
-    if ui.source.remote.sv_rcon_log && !hl2_ui::console::remote::chat_only(&commands) {
+    if ui.source.remote.sv_rcon_log && !ui.source.remote_log_skips(&commands) {
         ui.source.print(
             Level::Normal,
             format!("rcon from \"{from}\": command \"{line}\""),

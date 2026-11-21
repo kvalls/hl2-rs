@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-21 — Quiet remote commands: `agent_status` stays out of the console log
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `sv_rcon_log` already left out `say`; contributors can now list further commands that are not worth a line (`Extensions::quiet_remote`, checked per command by `Console::remote_log_skips`, so a line of only chat and quiet commands logs nothing). `hl2-debug` lists `agent_status`, which the session watcher sends on every player message.
+- Why: owner request during a live session: show the agent's commands but not its status updates.
+- Tested how: core test with a fake contributor (chat, quiet, mixed and mixed-with-other lines); plugin test; `validate.sh` passed.
+- Plugin rules read: yes; exceptions: none (the hook names no plugin).
+
 ## 2026-11-21 — Retail `showconsole` and `hideconsole`; resume reopens the console with `showconsole`
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

@@ -49,6 +49,7 @@ Ordinary motion blur, flight, spawning, camera behavior and simulation mechanism
 | `hl2_ui::extensions::Extensions` | per application instance | Console commands (a duplicate name is an error), layout addenda, localization placeholders, default bindings, after-apply handlers |
 | `hl2_ui::extensions::VideoExtension` | through `VideoPolicy` | Frame and window sizing, projection, aspect and mode lists, blur selection and sliders (`CustomValue`), aspect choices (`AspectChoice`) |
 | `hl2_ui::extensions::RenderBudget` | `VideoExtension::render_budget`, `below_lowest_token`, `is_below_lowest`, `set_below_lowest` | Work a policy gives up (flat sky, unfiltered sampling, plain materials, no shadows, further mips and levels of detail) and combo items below a Video > Advanced combo's lowest |
+| `hl2_ui::extensions::Extensions::quiet_remote` | `Extensions` | Commands not logged when they arrive over the remote console (`sv_rcon_log`) |
 | `hl2_ui::extensions::StandardBackground` | `Extensions::select_standard_background` (one contributor) | Whether the menu background keeps its standard (4:3) blur artwork and field of view on wide frames |
 | `hl2_ui::extensions::FramingProfiles` | `VideoExtension::framing_profiles` | Viewmodel framing profile ids and values; without one, every aspect keeps the retail view |
 | `hl2_ui::config::StoredExtensions` | `video.extensions`, `video.advanced.extensions`, top-level `extensions` (settings of no Options section) | Plugin settings saved beside core fields; unknown keys survive, so old files keep their format |

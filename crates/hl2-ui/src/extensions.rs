@@ -40,6 +40,9 @@ pub struct Extensions {
     pub localization: Vec<(&'static str, &'static str)>,
     pub bindings: Vec<(&'static str, &'static str)>,
     pub after_apply: Vec<fn(&mut Console, &crate::config::Config)>,
+    /// Commands that are not logged when they arrive over the remote console (`sv_rcon_log`),
+    /// such as a contributor's status updates; `say` is never logged there either.
+    pub quiet_remote: Vec<&'static str>,
     pub standard_background: StandardBackground,
 }
 impl Default for Extensions {
@@ -53,6 +56,7 @@ impl Default for Extensions {
             localization: Vec::new(),
             bindings: Vec::new(),
             after_apply: Vec::new(),
+            quiet_remote: Vec::new(),
             standard_background: StandardBackground::default(),
         }
     }

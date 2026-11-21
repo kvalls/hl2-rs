@@ -15,11 +15,35 @@ pub const RCON_SPEAKER: &str = "Console";
 /// Valid chat commands print their own speaker-labelled output. Keep the input or remote
 /// log entry for malformed lines and batches that also run other commands.
 pub fn chat_only(commands: &Result<Vec<Vec<String>>, String>) -> bool {
-    commands.as_ref().is_ok_and(|commands| {
-        !commands.is_empty() && commands.iter().all(|tokens| {
-            matches!(tokens.as_slice(), [name, _, ..] if name.eq_ignore_ascii_case("say"))
+    commands
+        .as_ref()
+        .is_ok_and(|commands| !commands.is_empty() && commands.iter().all(|t| is_chat(t)))
+}
+
+/// A valid chat command: `say` with something to say.
+fn is_chat(tokens: &[String]) -> bool {
+    matches!(tokens, [name, _, ..] if name.eq_ignore_ascii_case("say"))
+}
+
+impl super::Console {
+    /// Whether `sv_rcon_log` leaves a remote command line out: chat prints its own line, and
+    /// commands a contributor marked quiet (`Extensions::quiet_remote`) are not worth one.
+    pub fn remote_log_skips(&self, commands: &Result<Vec<Vec<String>>, String>) -> bool {
+        let quiet = |tokens: &Vec<String>| {
+            tokens.first().is_some_and(|name| {
+                self.extensions
+                    .quiet_remote
+                    .iter()
+                    .any(|quiet| quiet.eq_ignore_ascii_case(name))
+            })
+        };
+        commands.as_ref().is_ok_and(|commands| {
+            !commands.is_empty()
+                && commands
+                    .iter()
+                    .all(|tokens| is_chat(tokens) || quiet(tokens))
         })
-    })
+    }
 }
 
 /// What the host reads to serve outside readers.
@@ -98,6 +122,18 @@ pub fn log_file(name: &str) -> Result<Option<PathBuf>, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_remote_log_skips_chat_and_contributed_quiet_commands_only() {
+        use source_ui::console::command::tokenize;
+        let mut console = crate::console::Console::default();
+        assert!(console.remote_log_skips(&tokenize("say hi")));
+        assert!(!console.remote_log_skips(&tokenize("fake_status busy")));
+        console.extensions.quiet_remote.push("fake_status");
+        assert!(console.remote_log_skips(&tokenize("FAKE_STATUS busy")));
+        assert!(console.remote_log_skips(&tokenize("fake_status busy; say done")));
+        assert!(!console.remote_log_skips(&tokenize("fake_status busy; getpos")));
+    }
 
     #[test]
     fn log_files_stay_in_the_settings_folder() {

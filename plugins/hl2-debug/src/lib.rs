@@ -19,6 +19,8 @@ pub fn register(extensions: &mut hl2_ui::extensions::Extensions) -> Result<(), S
     extensions.commands(&commands::specs::<hl2_ui::console::Console>())?;
     extensions.select_standard_background(standard_background::forced)?;
     extensions.bindings.extend_from_slice(DEFAULT_BINDINGS);
+    // The session watcher sets the agent status on every message: not worth a log line each.
+    extensions.quiet_remote.push("agent_status");
     Ok(())
 }
 pub fn painter(console: &hl2_ui::console::Console) -> overlay::OverlayPainter<'_> {

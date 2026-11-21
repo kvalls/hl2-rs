@@ -184,3 +184,10 @@ fn remote_reply_clears_status_without_printing_it() {
     assert_eq!(c.remote.snapshot, Some(None));
     assert_eq!(c.remote.broadcast, ["Console: hello"]);
 }
+
+#[test]
+fn agent_status_is_not_logged_from_the_remote_console() {
+    let console = console();
+    let commands = source_ui::console::command::tokenize("agent_status thinking");
+    assert!(console.remote_log_skips(&commands));
+}
