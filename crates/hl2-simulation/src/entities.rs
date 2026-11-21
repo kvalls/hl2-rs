@@ -15,6 +15,7 @@ mod io;
 mod io_trace;
 pub use io_trace::IoTrace;
 mod movers;
+mod next_script;
 mod parenting;
 mod sequences;
 pub(crate) use sequences::custom_move_walks;

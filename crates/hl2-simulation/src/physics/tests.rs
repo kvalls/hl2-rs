@@ -1238,10 +1238,11 @@ fn clip_box(contents: u32) -> World {
 }
 /// A func_brush made of NPC clip (d1_trainstation_01's turnstile box, contents
 /// DETAIL|MONSTERCLIP) does not stop the player, as the world's clip brushes do not; a solid
-/// one still does.
+/// one still does, and so does player clip (d1_trainstation_01's train car: DETAIL|PLAYERCLIP
+/// blocks over its non-solid seat props).
 #[test]
 fn a_brush_entity_of_npc_clip_does_not_block_the_player() {
-    for (contents, blocks) in [(0x8020000, false), (1, true)] {
+    for (contents, blocks) in [(0x8020000, false), (1, true), (0x8010000, true)] {
         let mut world = World {
             brush_models: vec![modkit_core::BrushModel {
                 id: 1,

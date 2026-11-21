@@ -6,7 +6,6 @@ use super::yaw_keyvalue;
 use glam::Vec3;
 use modkit_core::{Entity, World};
 use source_assets::{keyvalues, vpk::Vfs};
-use std::collections::BTreeMap;
 
 /// The info_node_hint entities the actbusy search can use.
 pub(super) fn busy_hints(world: &World) -> Vec<HintCandidate> {
@@ -48,18 +47,9 @@ pub(super) fn class_schedules() -> Schedules {
     schedules
 }
 
-/// Each ai_goal_actbusy's search range.
-pub(super) fn actbusy_ranges(world: &World) -> BTreeMap<usize, f32> {
-    world
-        .entities
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| e.class() == "ai_goal_actbusy")
-        .map(|(id, e)| {
-            let range = e.get("busysearchrange").and_then(|v| v.trim().parse().ok());
-            (id, range.unwrap_or(2048.))
-        })
-        .collect()
+/// Each ai_goal_actbusy(_queue)'s search range, and the queues.
+pub(super) fn actbusy_ranges(world: &World) -> super::goal_inputs::ActBusyGoals {
+    super::goal_inputs::ActBusyGoals::new(world)
 }
 
 /// The NPC damage values of cfg/skill.cfg.

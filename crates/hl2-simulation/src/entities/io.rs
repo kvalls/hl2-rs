@@ -525,6 +525,18 @@ fn is_ai_input(class: &str, input: &str) -> bool {
                 | "forcethisnpctoleave"
                 | "setbusysearchrange"
         ),
+        "ai_goal_actbusy_queue" => matches!(
+            input,
+            "activate"
+                | "deactivate"
+                | "forcenpctoactbusy"
+                | "forcethisnpctoactbusy"
+                | "forcethisnpctoleave"
+                | "setbusysearchrange"
+                | "movequeueup"
+                | "playerstartedblocking"
+                | "playerstoppedblocking"
+        ),
         "info_node_link" | "info_node_link_controller" => matches!(input, "turnon" | "turnoff"),
         "ai_relationship" => matches!(input, "applyrelationship" | "revertrelationship"),
         "ai_changehintgroup" => input == "activate",

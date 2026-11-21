@@ -504,7 +504,7 @@ pub struct AiRuntime {
     /// CAI_Hint::Lock: hint entity -> the NPC using it.
     pub hint_locks: BTreeMap<usize, usize>,
     /// ai_goal_actbusy busysearchrange (SetBusySearchRange changes it).
-    actbusy_ranges: BTreeMap<usize, f32>,
+    actbusy_ranges: goal_inputs::ActBusyGoals,
     /// Squad work a think asked for (applied right after it).
     #[serde(skip)]
     squad_events: Vec<SquadEvent>,

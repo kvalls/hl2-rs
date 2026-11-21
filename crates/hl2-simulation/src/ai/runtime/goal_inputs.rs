@@ -7,7 +7,9 @@ use crate::npc::Controller;
 use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
+mod actbusy_queue;
 pub(super) mod hint_groups;
+pub(super) use actbusy_queue::ActBusyGoals;
 mod set_relationship;
 
 /// The pairs each active ai_relationship applied.
@@ -20,6 +22,16 @@ pub(super) struct AppliedRelationships {
     pub stale: bool,
 }
 
+/// SCHED_ACTBUSY_TELEPORT_TO_BUSY (ForceNPCToActBusy's "teleport"): the NPC is placed on the
+/// hint, facing its angles, and goes straight into its busy animation (no walk there).
+fn teleport_to_hint(world: &World, scene: &mut Scene, place: Option<(usize, usize)>) {
+    let Some((hint, npc)) = place else {
+        return;
+    };
+    let yaw = super::yaw_keyvalue(&world.entities[hint]).to_radians();
+    scene.states[npc].origin = world.entities[hint].origin();
+    scene.states[npc].rotation = glam::Quat::from_rotation_z(yaw);
+}
 impl AiRuntime {
     /// CAI_GoalEntity::Activate at spawn for StartActive goals.
     fn start_goals(&mut self, world: &World, scene: &mut Scene) {
@@ -34,7 +46,10 @@ impl AiRuntime {
             if e.class() == "ai_relationship" {
                 self.apply_relationship(world, scene, id, true);
             }
-            if matches!(e.class(), "ai_goal_assault" | "ai_goal_actbusy") {
+            if matches!(
+                e.class(),
+                "ai_goal_assault" | "ai_goal_actbusy" | "ai_goal_actbusy_queue"
+            ) {
                 scene
                     .ai_inputs
                     .push((id, "activate".into(), String::new(), usize::MAX));
@@ -98,7 +113,10 @@ impl AiRuntime {
                 self.scripted_schedule_input(world, scene, target, &input);
                 continue;
             }
-            if class == "ai_goal_actbusy" {
+            if class == "ai_goal_actbusy_queue" && self.queue_input(scene, target, &input) {
+                continue;
+            }
+            if matches!(class, "ai_goal_actbusy" | "ai_goal_actbusy_queue") {
                 if matches!(
                     input.as_str(),
                     "forcethisnpctoactbusy" | "forcethisnpctoleave"
@@ -145,6 +163,7 @@ impl AiRuntime {
                 _ => {}
             }
         }
+        self.think_actbusy_queues(world, scene);
     }
 
     /// SetPoliceGoal: the cop polices the named ai_goal_police (CAI_PolicingBehavior::Enable
@@ -216,7 +235,7 @@ impl AiRuntime {
     fn actbusy_goal_input(
         &mut self,
         world: &World,
-        scene: &Scene,
+        scene: &mut Scene,
         goal: usize,
         input: &str,
         parameter: &str,
@@ -247,9 +266,11 @@ impl AiRuntime {
                 let mut nearest = false;
                 let mut max_time = None;
                 let mut hint = None;
+                let mut teleport = false;
                 for token in tokens {
                     match token {
                         "nearest" => nearest = true,
+                        "teleport" => teleport = true,
                         t if t.starts_with("teleport")
                             || t.starts_with('$')
                             || t.starts_with("see:") =>
@@ -300,6 +321,7 @@ impl AiRuntime {
                     busy.force(Some(goal), range, max_time, nearest, &mut actor.npc, now);
                     busy.forced_hint = hint;
                 }
+                teleport_to_hint(world, scene, hint.zip(target).filter(|_| teleport));
             }
             "setbusysearchrange" => {
                 if let Ok(v) = parameter.trim().parse() {

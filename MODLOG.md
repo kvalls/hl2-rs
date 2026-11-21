@@ -1,5 +1,24 @@
 # MODLOG
 
+## 2026-11-21 — Merge upstream main through `f4882b19`
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed: merged 12 upstream session 68 commits (`c51c6d36..f4882b19`: train car seat `DETAIL|PLAYERCLIP` collision in `physics/brush_entities.rs`, `LightingOrigin`/`LightingOriginHack` in `lighting_origins.rs` and `rendering/lighting.rs`, entity-attached static `infodecal`s in `assets/static_decals.rs`, `m_iszNextScript` hand-over in `entities/next_script.rs`, `ai_goal_actbusy_queue` in `goal_inputs/actbusy_queue.rs`, and `ForceNPCToActBusy` `teleport` in `goal_inputs.rs`) into `orbitalman/performance_research` (`c44734a5`).
+  - `crates/hl2-bevy/src/rendering/lighting.rs`: kept our `LightingContext`, `present_draw_lighting`, `next_cubemap`, `distance_squared < 16.` lightgrid resample threshold, and zero-spurious-`AssetEvent::Modified` guard while integrating upstream's `ModelLit::origins`, `lighting_point`, `lighting_basis`, and `rebase` (`<= 100` lines in `present_draw_lighting`).
+  - `crates/hl2-simulation/src/ai/runtime/goal_inputs.rs`, `crates/hl2-simulation/src/entities/tests.rs`, `crates/hl2-simulation/src/physics.rs`: kept both `mod set_relationship` / `AppliedRelationships::class_overrides` / `setrelationship` and upstream's `actbusy_queue` / `teleport_to_hint`; kept both `next_script` and `root_motion` entity test modules; kept `mod hitboxes` / `mod queries` / `BrushSet` / `is_trace_only` alongside upstream's `mod diagnostics`, `entity_player_clips`, and `trace_entity_player_clips`.
+  - `scripts/checks/architecture-baseline.json`: reconciled against our branch and tightened `crates/hl2-simulation/src/physics.rs` (`3189 -> 3148`) after `hull_contacts` moved to `physics/diagnostics.rs`.
+  - `MODLOG.md` & `STATUS.md`: preserved both parents' entries in chronological order (upstream's three 2026-11-20 session 68 entries alongside our 2026-11-20/2026-11-21 history).
+  - `test-inputs/expected/bevy-{barrier-hum,soundscapes}.json`: updated under `JOBS=1` after reviewing exact deterministic deltas (`barrier-hum` returned to `upstream/main`'s `55/40` / `56/41` after `5fdf7cff`'s steering fix; `soundscapes` `interrogation`/`hall-enter` shifted `-1 input / -1 output` at 12 s from upstream's `9bb3ea8f` `actbusy_food_queue` routing while keeping merged post-24 s counts; `monitors-breen-screen` matched post-merge with 0 differences).
+- Why: incorporate session 68 train car seats, lighting origins, static decals, cafeteria pacer, customs queue, and `ForceNPCToActBusy` teleport while preserving all UI, debug-session, and crowd-performance work on this branch.
+- Tested how:
+  - Pre-merge replay baseline (`NO_BUILD=1 python3 scripts/checks/replays.py` on `c44734a5`): `107/109` passed in `399 s` (`barrier-hum` and `monitors-breen-screen` matched `upstream/main` after `5fdf7cff`).
+  - Targeted unit tests: `lighting_origins::` (`2 passed`), `actbusy_queue::` (`1 passed`), `next_script::` (`1 passed`), `brush_solidity::` (`1 passed`), `a_brush_entity_of_npc_clip_does_not_block_the_player` (`1 passed`), `static_decals::` (`1 passed`), and `stationary_lighting_and_viewmodel_emit_no_modified_material_events_on_repeat_frames` (`1 passed`).
+  - Validation suites: `scripts/checks/validate.sh` (architecture guardrails, 74 Python tests, all 4 plugin builds, workspace Cargo tests, strict Clippy, `cargo fmt --check`) and `scripts/checks/check_windows.sh` (`x86_64-pc-windows-msvc` strict Clippy).
+  - Post-merge replays (`scripts/checks/replays.py`): initial build+run `107/109` in `403 s` (`soundscapes`, `barrier-hum` only), confirmed deterministically under `JOBS=1` (`21 s`), recorded `barrier-hum` and `soundscapes` (`UPDATE_EXPECTED=1`, `JOBS=1`, `15 s`), then full `NO_BUILD=1` rerun passed `109/109` (`0 failed`, `420 s`).
+- Result: all unit tests, validation checks, Windows cross-target Clippy, and all 109 shared packaged replays passed.
+- Still broken or not tested: Windows runtime and ordinary playthrough are **not tested**.
+- Next: none.
+
 ## 2026-11-21 — Keep active console status pinned last and accept custom `agent_status` text
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
@@ -163,6 +182,36 @@
 - Result: all checks passed.
 - Still broken or not tested: post-fix live unpaused frame time, packaged replays, and Windows runtime are **not tested** yet.
 - Next: rebuild the release binary and re-profile live unpaused `d1_trainstation_02` gameplay.
+
+## 2026-11-20 session 68, continued: ForceNPCToActBusy teleport (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation ai/runtime/goal_inputs.rs: ForceNPCToActBusy's "teleport" token places the NPC on the named hint, facing its angles (SDK TASK_ACTBUSY_TELEPORT_TO_BUSY).
+- Why: d1_trainstation_03's drinker stopped 49 units short of hint_drinker_sit; d1_trainstation_01's trigger_watchclock uses the same token.
+- Tested how: packaged runs (artifacts/s68/drink, artifacts/s68/queue/rw.json); validation artifacts/s68/validate5.sh (v5-*: artifacts/s68/validate5.sh (v5-*): strict Clippy 0, workspace tests 1764 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed (26/26, 17/17, 26/26), replays 72 of 73 with pistol-breaks-bottle-skin4's known flake, which passes alone).
+- Result: the drinker stands on his hint at 1.35 s.
+- Still broken or not tested: the drinker never starts his busy animation (OnNPCStartedBusy missing); no unit test for the teleport (an AI-runtime fixture is needed).
+- Next: the actbusy.txt lookup of drinker_sit_idle, then the items in STATUS "Current session 68".
+
+## 2026-11-20 session 68, continued: the cafeteria pacer's next scripts, the customs queue (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation entities/next_script.rs (m_iszNextScript: no post idle, the next script begins on the actor); ai/runtime/goal_inputs/actbusy_queue.rs (ai_goal_actbusy_queue: nodes, MoveQueueUp, the move-up ripple, the exit walk, its outputs); entities/io.rs routes the queue's inputs.
+- Why: owner order after the turnstile: the cafeteria pacer walking back and forth, then the queue moving up at the security pen. Ours left the pacer standing after one WatchClock and had no queue goal.
+- Tested how: unit tests (next script hand-over, queue setup); native npc_task_text/sensor and developer 2 I/O runs against packaged runs (artifacts/s68/np2, nq1, nq2; artifacts/s68/pacer, queue); validation artifacts/s68/validate3.sh (v3-*: Clippy 0, tests 1763 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed, replays 73 of 73) and validate4.sh (v4-*: Clippy 0, tests 1764 passed with the same 2, fmt 0, architecture 0, build ok, regression passed, replays 68 of 73: crowbar-surfaces, entities-weapons, footsteps, pistol-breaks-teeter-seat-chunks and soundscapes each lost one delivered input and one fired output on d1_trainstation_02, whose actbusy_food_queue now runs (its inputs were not routed to the AI before); recorded with UPDATE_EXPECTED=1 after review, 5 of 5 pass).
+- Result: the pacer loops with native's timings within 0.15 s per cycle; the queue's MoveQueueUp chain matches native's I/O and the line moves up.
+- Still broken or not tested: the pacer's arrival-to-play gap; the queue's player blocking, busy exit animation and newcomer steering; native queue positions.
+- Next: the pen's Barney scene (security_02), the turnstile per tick against native, then the I/O diffs of stations 02-06.
+
+## 2026-11-20 session 68: the train car's seats (player clips, LightingOriginHack) and litter (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The owner's PC restarted once; the interrupted build was rerun.
+- Changed: hl2-simulation physics/brush_entities.rs: brush entities' player-solid clip brushes are swept by the player's hull trace (hull_contacts moved to physics/diagnostics.rs); lighting_origins.rs: LightingOrigin and LightingOriginHack (info_lighting_relative) resolved like Activate; hl2-bevy rendering/lighting.rs: the light state sampled at the moved point and the offset as the lighting basis; assets/static_decals.rs (moved out of assets.rs): infodecals with no world face in reach attach to the solid brush entity they touch (hl2-simulation brush_solidity.rs shares the rule).
+- Why: owner playtest: the train's seats had no collision and flashed bright one by one; native keeps them shaded; native's car floor shows litter ours lacked.
+- Tested how: unit tests (clip brushes, lighting origins, entity decals); packaged views 67 s into the ride against a native view (artifacts/s68/seats); validation artifacts/s68/validate1.sh (v1-*: strict Clippy 0, workspace tests 1761 passed with the 2 known --release should_panic failures, fmt 0, architecture 0, build ok, regression passed 26/26, 17/17, 26/26, images within the usual variation against artifacts/s67-regression5, replays 72 of 73 with monitors-kleiner-scene's known gib-count flake, which passes alone) and validate2.sh (v2-*: Clippy 0, tests 1762 passed with the same 2, fmt 0, architecture 0, build ok, regression passed 26/26, 17/17, 26/26, replays 72 of 73 with the same flake, which passes alone).
+- Result: the seats block the player (unit-tested; not walked into in a packaged run), are lit by the mock car's ceiling spots like native, and the car's trash, stains and window cracks ride with it.
+- Still broken or not tested: the turnstile's resistance (the shadow pull-back was tried and changed nothing; not kept); the lighting-origin inputs; three infodecals elsewhere on the map.
+- Next: the turnstile against native per tick, the cafeteria pacer against native, the queue, the pen's Barney scene.
 
 ## 2026-11-20 — Gate player-shadow CCD by speed and avoid redundant `SourceMaterial` mutations
 
@@ -580,6 +629,7 @@
 - Changed: merged upstream main at `2b55f809`. ActBusy sends hint start and stop outputs around the authored entry, busy and exit sequences. The luggage replay checks both suitcase pushes, scene completion, the authored destination and the movement goal's tolerance.
 - Why: both parents had implemented parts of the station luggage encounter. The shared runtime now uses upstream's general script conditions, MOVETO parser and delayed sound delivery while retaining the crowd branch's animation and spatial-query work.
 - Validation: the merged simulation compiles and the architecture guard passes with tighter baselines. The animated exit test checks the two hint outputs occur once. Packaged and platform results are tracked in STATUS.
+
 ## 2026-11-20 session 67, continued: stations 03-06 against native, resting NPCs and trigger_multiple (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
