@@ -130,6 +130,20 @@ pub fn install(app: &mut App) {
             RenderSystems::CreateViews,
         ),
         (
+            "render_create_views",
+            RenderSystems::PrepareMeshes,
+            RenderSystems::CreateViews,
+            RenderSystems::Specialize,
+        ),
+        (
+            "render_specialize",
+            RenderSystems::CreateViews,
+            RenderSystems::Specialize,
+            RenderSystems::PrepareViews,
+        ),
+        // Only `PrepareViews` (view targets, lights, clusters); the name is kept so
+        // earlier recorded measurements stay comparable.
+        (
             "render_views",
             RenderSystems::Specialize,
             RenderSystems::PrepareViews,

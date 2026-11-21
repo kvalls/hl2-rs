@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Time `CreateViews` and `Specialize` under `--profile`
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `crates/hl2-bevy/src/performance.rs` adds two `--profile` render-stage scopes, `render_create_views` (`RenderSystems::CreateViews`) and `render_specialize` (`RenderSystems::Specialize`), which had no scope. A comment now records that `render_views` covers only `PrepareViews` (view targets, lights, clusters); the name is kept so earlier measurements stay comparable. No code runs without `--profile`.
+- Why: a live profiled session on d1_trainstation_02 (packaged release, Apple M1 Pro, windowed, the player running around, 4,096 frames) measured `frame_total` mean 12.34 ms, p95 24.30 ms, max 63.44 ms; `main_schedule.outside` (waiting on the render thread) mean 7.41 ms, p95 17.70 ms; `render_views` mean 4.25 ms but p95 13.09 ms and max 28.89 ms, the main uneven stage; `render_graph` max 42.71 ms on the worst frame. The two unscoped sets sit right before `render_views`, so a spike there could not be placed.
+- Tested how: `scripts/build-bevy.sh` (release); headless `bin/hl2-bevy --background --no-setup --mute --map d1_trainstation_02 --frames 300 --profile --report <file>` reports the new stages (151 samples: `render_create_views` mean 0.146 ms, `render_specialize` 0.068 ms, `render_views` 0.074 ms); `scripts/checks/validate.sh`.
+- Result: the report now splits the view stages; the cause of the windowed `render_views` spikes is not established yet.
+- Still broken or not tested: the windowed spikes were not re-measured with the new scopes; Windows **not tested**.
+- Next: re-run the windowed profiled session and attribute the `render_views` (`PrepareViews`) spikes to its systems.
+
 ## 2026-11-21 — Merge upstream main through `f4882b19`
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
