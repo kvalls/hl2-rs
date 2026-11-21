@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — The build scripts clean stale target artifacts, not only the launcher
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`); reviewed, verified, and committed by Antigravity (exact model identifier not recorded).
+- Changed: `scripts/build-bevy.sh` runs `scripts/clean-target.sh --stale` before `cargo build` (`--no-clean` skips it; a failure never stops the build); `scripts/build-bevy.ps1` runs `scripts/checks/clean_target.py --stale` through Python when it is installed (`-NoClean` skips it). `launch-bevy.sh` no longer cleans itself and passes `--no-clean` on to `build-bevy.sh`. `scripts/checks/test_clean_target.py`: a new test copies `build-bevy.sh` with a fake `cargo` and cleaner (cleans by default, not with `--no-clean`); the launcher test now checks that the opt-out is passed on. README describes the new place.
+- Why: owner report of a very large `target/debug`, and owner request to move the cleanup into the build script so builds that do not go through the launcher (the agent session's and restart's builds, manual builds) clean too.
+- Tested how: `test_clean_target` (5 tests) and the session tests; a real `scripts/build-bevy.sh` run reclaimed 26.95 GiB as the cleaner counts it (`target/debug` 20 GB -> 3.7 GB, `target/release` 5.0 GB -> 4.2 GB by `du`), then rebuilt in 54 s with third-party caches kept; `scripts/checks/validate.sh`.
+- Result: stale target artifacts are pruned before every packaged build (launcher, agent session, restart, and manual builds) while keeping third-party caches; the verification build reclaimed 26.95 GiB and all validation checks pass.
+- Still broken or not tested: `build-bevy.ps1` not run (Windows **not tested**); most of the space came from test and Clippy builds, which `validate.sh` and `cargo test` produce without going through the build scripts.
+- Next: none.
+
 ## 2026-11-21 — Profiling and tracing start with gameplay, not the launch
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

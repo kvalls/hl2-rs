@@ -134,7 +134,7 @@ cd hl2-rs
 
 `launch-bevy.sh` is an all-in-one launcher that manages builds automatically:
 - **Automatic build & freshness check**: It checks whether `bin/hl2-bevy` exists and is up to date with respect to source files (`crates/`, `plugins/`, `apps/`), `Cargo.toml`, shader assets (`crates/hl2-bevy/assets`), git branch switches, and git commits.
-- **Automatic target cleanup**: Before a required build, the launcher prunes stale workspace artifacts while preserving third-party caches. It holds Cargo-compatible debug/release locks throughout cleanup, then releases them before building. Busy targets and unsupported/network filesystems skip pruning. Use `--no-clean` to disable cleanup; `--no-build` and up-to-date launches do not clean. Manual preview: `./scripts/clean-target.sh --stale --dry-run`.
+- **Automatic target cleanup**: Before every build, `scripts/build-bevy.sh` and `scripts/build-bevy.ps1` prune stale workspace artifacts while preserving third-party caches, so the launcher, the agent session and manual builds all clean the same way. The cleaner holds Cargo-compatible debug/release locks throughout cleanup, then releases them before building. Busy targets and unsupported/network filesystems skip pruning; on Windows it also needs Python. Use `--no-clean` (`build-bevy.sh`, `launch-bevy.sh`) or `-NoClean` (`build-bevy.ps1`) to disable it; `--no-build` and up-to-date launches do not build or clean. Manual preview: `./scripts/clean-target.sh --stale --dry-run`.
 - **Direct launch**: If the build is already up to date, it launches immediately without rebuilding.
 
 Convenience launcher scripts:
@@ -147,7 +147,7 @@ Common `launch-bevy.sh` arguments:
 - `--debug` (or `-d`) — build and run the debug profile instead of release.
 - `--plugins <list>` — build and run with these comma-separated plugins (`advanced-options`, `debug-tools`) or `none`. Without it the last selection stays, also across automatic rebuilds; the first build has both.
 - `--no-build` — launch the existing executable directly without checking for updates, cleaning or compiling.
-- `--no-clean` — skip automatic stale-target cleanup when a build is needed.
+- `--no-clean` — skip the stale-target cleanup that `scripts/build-bevy.sh` runs before a needed build.
 - Any game arguments (such as `--map d1_trainstation_01`, `--setup`, `--game <path>`, `--fullscreen`, `--windowed`) are forwarded directly to the game binary.
 
 To compile and package `bin/hl2-bevy` and the `bin/bevy-assets` shader folder without immediately launching the game, run `./scripts/build-bevy.sh`. The executable and shader folder must remain together.
