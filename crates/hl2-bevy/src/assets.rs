@@ -1,10 +1,10 @@
 //! Read owned Source assets before constructing the Bevy app; no system performs file I/O.
 mod blend;
 pub(crate) mod cubemaps;
-mod faces;
+pub(crate) mod faces;
 pub(crate) mod loading;
 mod loading_auxiliary;
-mod names;
+pub(crate) mod names;
 pub(crate) mod reuse;
 pub(crate) mod work;
 #[cfg(test)]
@@ -735,7 +735,7 @@ fn reflection(
     Ok(())
 }
 
-fn load_material(
+pub(crate) fn load_material(
     vfs: &Vfs,
     name: &str,
     cache: &mut BTreeMap<String, Arc<Image>>,

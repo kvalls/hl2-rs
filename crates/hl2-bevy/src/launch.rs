@@ -1,8 +1,8 @@
 //! The default plugin set configured from the command line, the host systems and the final report.
 use super::{
     Options, Status, assets, audio, camera, campaign, canvas_renderer, console_host, effects, eyes,
-    flashlight, material_proxies, monitor, monitors, rendering, runtime_props, save_capture, setup,
-    sky, studio_decals, tonemap, video, visibility,
+    flashlight, material_proxies, monitor, monitors, rendering, runtime_npcs, runtime_props,
+    save_capture, setup, sky, studio_decals, tonemap, video, visibility,
 };
 use anyhow::{Result, bail};
 use bevy::app::PluginGroupBuilder;
@@ -173,6 +173,37 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         runtime_props::poll
             .run_if(resource_exists::<runtime_props::RuntimeProps>)
             .before(rendering::present_entities),
+    );
+    add_runtime_entity_systems(app);
+    app.add_systems(Startup, setup)
+        .add_systems(
+            PostUpdate,
+            audio::queue
+                .after(canvas_renderer::present)
+                .before(TransformSystems::Propagate),
+        )
+        .add_systems(Last, effects::observe.before(monitor::monitor))
+        .add_systems(Last, audio::observe.before(monitor::monitor))
+        .add_systems(
+            Update,
+            (
+                console_host::sync_sources,
+                console_host::drain_log,
+                console_host::save_history,
+                console_host::apply_cursor_hint,
+            ),
+        )
+        .add_systems(Last, monitor::monitor)
+        .add_systems(Last, video::skip_covered_outputs);
+}
+
+fn add_runtime_entity_systems(app: &mut App) {
+    app.add_systems(
+        PostUpdate,
+        runtime_npcs::poll
+            .run_if(resource_exists::<runtime_npcs::RuntimeNpcs>)
+            .before(rendering::spawn_runtime_draws)
+            .before(rendering::present_entities),
     )
     .add_systems(
         PostUpdate,
@@ -220,27 +251,7 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         visibility::present
             .after(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
             .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
-    )
-    .add_systems(Startup, setup)
-    .add_systems(
-        PostUpdate,
-        audio::queue
-            .after(canvas_renderer::present)
-            .before(TransformSystems::Propagate),
-    )
-    .add_systems(Last, effects::observe.before(monitor::monitor))
-    .add_systems(Last, audio::observe.before(monitor::monitor))
-    .add_systems(
-        Update,
-        (
-            console_host::sync_sources,
-            console_host::drain_log,
-            console_host::save_history,
-            console_host::apply_cursor_hint,
-        ),
-    )
-    .add_systems(Last, monitor::monitor)
-    .add_systems(Last, video::skip_covered_outputs);
+    );
 }
 
 /// What the startup map reports; the worker replaces it after each map change.

@@ -167,6 +167,7 @@ enum Layer {
     Pak(Vpk),
 }
 
+#[derive(Default)]
 pub struct Vfs {
     root: PathBuf,
     layers: Vec<Layer>,

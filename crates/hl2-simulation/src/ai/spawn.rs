@@ -220,42 +220,49 @@ pub fn pool_slots(label: &str) -> usize {
         pool_count(spawn_class(label).0)
     }
 }
+/// Build one hidden pool template entity for `label` and `slot`, or `None` when the
+/// class has no known default model.
+pub fn template_entity(label: &str, slot: usize) -> Option<modkit_core::Entity> {
+    let (class, keyvalues) = spawn_class(label);
+    let model = default_model(class)?;
+    let mut properties: Vec<(String, String)> = vec![
+        ("classname".into(), class.into()),
+        (
+            "origin".into(),
+            format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
+        ),
+        (POOL_KEY.into(), label.into()),
+    ];
+    // Plain npc_citizen keeps one template per random head: each spawn picks the
+    // least-used head like CNPC_Citizen::SelectModel (citizens::least_used_template);
+    // the variants keep POOL_PER_CLASS heads chosen at load.
+    if label == "npc_citizen" {
+        let heads = &crate::citizens::RANDOM_HEADS;
+        properties.push(("model".into(), heads[slot % heads.len()].into()));
+        return Some(modkit_core::Entity { properties });
+    }
+    // Citizens get their head from SelectModel (citizens::select_models).
+    if class != "npc_citizen" && !keyvalues.iter().any(|(k, _)| *k == "model") {
+        properties.push(("model".into(), model.into()));
+    }
+    properties.extend(keyvalues.iter().map(|(k, v)| ((*k).into(), v.clone())));
+    if class == "npc_metropolice" {
+        properties.push(("additionalequipment".into(), "weapon_stunstick".into()));
+    }
+    Some(modkit_core::Entity { properties })
+}
+/// Whether `label` can be precached on demand when no pool template is loaded yet.
+pub fn can_late_precache(label: &str) -> bool {
+    template_entity(label, 0).is_some()
+}
 /// Append the hidden spawn pool to a freshly loaded map's entities (before models
 /// load). Existing entity ids are unchanged; the pool goes at the end.
 pub fn append_pool(world: &mut modkit_core::World) {
     for label in SPAWN_CLASSES {
-        let (class, keyvalues) = spawn_class(label);
-        let Some(model) = default_model(class) else {
-            continue;
-        };
-        // Plain npc_citizen keeps one template per random head: each spawn picks the
-        // least-used head like CNPC_Citizen::SelectModel (citizens::least_used_template);
-        // the variants keep POOL_PER_CLASS heads chosen at load.
-        let heads = *label == "npc_citizen";
         for slot in 0..pool_slots(label) {
-            let mut properties: Vec<(String, String)> = vec![
-                ("classname".into(), class.into()),
-                (
-                    "origin".into(),
-                    format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
-                ),
-                (POOL_KEY.into(), (*label).into()),
-            ];
-            if heads {
-                // A fixed head: SelectModel's non-random branch adds the group folder.
-                properties.push(("model".into(), crate::citizens::RANDOM_HEADS[slot].into()));
-                world.entities.push(modkit_core::Entity { properties });
-                continue;
+            if let Some(entity) = template_entity(label, slot) {
+                world.entities.push(entity);
             }
-            // Citizens get their head from SelectModel (citizens::select_models).
-            if class != "npc_citizen" && !keyvalues.iter().any(|(k, _)| *k == "model") {
-                properties.push(("model".into(), model.into()));
-            }
-            properties.extend(keyvalues.iter().map(|(k, v)| ((*k).into(), v.clone())));
-            if class == "npc_metropolice" {
-                properties.push(("additionalequipment".into(), "weapon_stunstick".into()));
-            }
-            world.entities.push(modkit_core::Entity { properties });
         }
     }
 }
@@ -873,5 +880,20 @@ mod tests {
                 .origin,
             Vec3::ZERO
         );
+    }
+    #[test]
+    fn template_entity_matches_pool_entries_and_rejects_unknown_classes() {
+        let vort = template_entity("npc_vortigaunt", 0).unwrap();
+        assert_eq!(vort.class(), "npc_vortigaunt");
+        assert_eq!(vort.get("model"), Some("models/vortigaunt.mdl"));
+        assert_eq!(vort.get(POOL_KEY), Some("npc_vortigaunt"));
+        let cop = template_entity("npc_metropolice", 0).unwrap();
+        assert_eq!(cop.get("additionalequipment"), Some("weapon_stunstick"));
+        let elite = template_entity("npc_combine_s_elite", 0).unwrap();
+        assert_eq!(elite.class(), "npc_combine_s");
+        assert_eq!(elite.get("model"), Some("models/combine_super_soldier.mdl"));
+        assert!(can_late_precache("npc_vortigaunt"));
+        assert!(!can_late_precache("npc_not_a_real_class"));
+        assert!(template_entity("prop_physics", 0).is_none());
     }
 }

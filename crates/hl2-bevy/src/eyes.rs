@@ -93,6 +93,16 @@ impl Eyes {
             self.actors.insert(entity, actor);
         }
     }
+    /// Register a late-precached actor's gaze attachment metadata.
+    pub fn insert_actor(
+        &mut self,
+        id: usize,
+        key: String,
+        gaze: source_assets::eyes::Gaze,
+        scale: f32,
+    ) {
+        self.actors.insert(id, Actor { key, gaze, scale });
+    }
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"draws":self.draws,"pose_samples":self.pose_samples,"attachment_actors":self.attachment_actors,"origins":self.origins,"tracking_player":self.tracking_player,"tracking_npc":self.tracking_npc,"tracking_entity":self.tracking_entity,"tracking_scene":self.tracking_scene,"projections":self.projections,
             "policy":"newest valid authored LOOKAT interest, shared per actor; nearest-visible fallback outside scripted interests; animated owned eyes attachments supply actor origin/forward; native random/head/facial/PVS latch behavior remains unfinished",

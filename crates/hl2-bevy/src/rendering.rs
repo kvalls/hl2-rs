@@ -36,7 +36,7 @@ mod model_cache;
 mod npc_weapon_draws;
 mod placement;
 pub(crate) use placement::draw_hidden;
-mod runtime;
+pub(crate) mod runtime;
 mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
 use material::{alpha_mode, cube_image_filtered, image_filtered, mip_image_filtered, unfilter};

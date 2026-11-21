@@ -29,6 +29,7 @@ mod options;
 pub mod performance;
 mod rcon;
 pub mod rendering;
+pub mod runtime_npcs;
 pub mod runtime_props;
 mod setup;
 mod shadows;

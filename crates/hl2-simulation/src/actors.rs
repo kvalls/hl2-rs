@@ -215,6 +215,138 @@ fn load_graph(
         None
     })
 }
+/// VFS-derived registration data for one ground or AI actor, safe to build off the main thread.
+pub struct PreparedActor {
+    class: String,
+    ai_only: bool,
+    scale: f32,
+    ground: crate::npc_probe::GroundConfig,
+    motion: crate::npc::Locomotion,
+    variants: Option<std::collections::BTreeMap<String, crate::npc::Locomotion>>,
+    move_caps: crate::npc::MoveCaps,
+    view_offset: Option<glam::Vec3>,
+}
+/// Build `PreparedActor` and the animation clip names needed by its locomotion variants.
+fn prepare_actor_data(
+    world: &World,
+    vfs: &Vfs,
+    instance: &modkit_core::ModelInstance,
+    actor: usize,
+) -> Result<Option<(PreparedActor, std::collections::BTreeSet<String>)>> {
+    let class = world.entities[actor].class();
+    let ai_only = AI_GROUND_HUMANS.contains(&class);
+    if !GROUND_HUMANS.contains(&class) && !ai_only {
+        return Ok(None);
+    }
+    let hull = crate::ai_hull::class_hull(class).unwrap_or(crate::ai_hull::HullType::Human);
+    let ground = crate::npc::ground_for_hull(hull, instance.scale, 18., 1.)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let (motion, variants, move_caps, wanted) = if ai_only {
+        let rig = world
+            .rigs
+            .get(&instance.asset_key())
+            .ok_or_else(|| anyhow::anyhow!("no rig for {}", instance.model))?;
+        let custom = custom_moves(world, actor);
+        let variants = locomotion_variants(vfs, &instance.model, rig, &custom)?;
+        let equipment = world.entities[actor]
+            .get("additionalequipment")
+            .unwrap_or("")
+            .to_lowercase();
+        let motion = variants
+            .get(&equipment)
+            .or_else(|| variants.get(""))
+            .or_else(|| variants.values().next())
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no walk/run locomotion"))?;
+        let wanted = variants
+            .values()
+            .flat_map(|v| v.required_clips())
+            .collect::<std::collections::BTreeSet<_>>();
+        let move_caps = move_caps(vfs, &instance.model, class, rig)?;
+        (motion, Some(variants), move_caps, wanted)
+    } else {
+        let motion = crate::npc::Locomotion::load(vfs, &instance.model)?;
+        let wanted = motion.required_clips();
+        (motion, None, Default::default(), wanted)
+    };
+    let view_offset = (instance.scale == 1.)
+        .then(|| source_assets::models::read_eye_position(vfs, &instance.model))
+        .transpose()?;
+    Ok(Some((
+        PreparedActor {
+            class: class.to_owned(),
+            ai_only,
+            scale: instance.scale,
+            ground,
+            motion,
+            variants,
+            move_caps,
+            view_offset,
+        },
+        wanted,
+    )))
+}
+/// Register an already-prepared actor in `controller` using only in-memory tables.
+pub fn register_prepared_actor(
+    controller: &mut crate::npc::Controller,
+    world: &World,
+    actor: usize,
+    prepared: PreparedActor,
+) -> Result<()> {
+    let class = prepared.class.as_str();
+    if prepared.ai_only {
+        controller
+            .register_ai_actor(actor, prepared.scale, prepared.ground, prepared.motion)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        if let Some(variants) = prepared.variants {
+            controller.set_locomotion_variants(actor, variants);
+        }
+        // The zombies, crabs and birds have no bits_CAP_DOORS_GROUP (CZombie pounds on doors).
+        if crate::ai::zombie::is_zombie_class(class)
+            || crate::ai::headcrab::is_headcrab_class(class)
+            || crate::ai::bird::Kind::for_class(class).is_some()
+        {
+            controller.set_opens_doors(actor, false);
+        }
+        controller.set_headcrab(actor, crate::ai::headcrab::is_headcrab_class(class));
+        controller.set_nav_ignored(actor, world, class);
+        controller.set_hint_limit(actor, world);
+        controller.set_move_caps(actor, prepared.move_caps);
+    } else {
+        controller
+            .register_actor(actor, prepared.scale, prepared.ground, prepared.motion)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    }
+    controller.set_accel(actor, crate::npc::blended::Accel::for_class(class));
+    if let Some(eye_offset) = prepared.view_offset {
+        controller
+            .set_view_offset(actor, eye_offset)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    }
+    Ok(())
+}
+/// Prepare a single late-precached actor off the main thread and load its required clips into `world`.
+pub fn prepare_single_actor(
+    world: &mut World,
+    vfs: &Vfs,
+    actor: usize,
+) -> Result<Option<PreparedActor>> {
+    let Some(instance) = world
+        .model_instances
+        .iter()
+        .find(|instance| instance.entity == Some(actor))
+        .cloned()
+    else {
+        return Ok(None);
+    };
+    let Some((prepared, wanted)) = prepare_actor_data(world, vfs, &instance, actor)? else {
+        return Ok(None);
+    };
+    let mut clips = std::collections::BTreeMap::new();
+    clips.insert(instance.asset_key(), wanted);
+    prepare_actor_animations(world, vfs, clips);
+    Ok(Some(prepared))
+}
 pub fn prepare_npcs(
     world: &mut World,
     vfs: &Vfs,
@@ -236,73 +368,18 @@ pub fn prepare_npcs(
         let Some(actor) = instance.entity else {
             continue;
         };
-        let class = world.entities[actor].class();
-        let ai_only = AI_GROUND_HUMANS.contains(&class);
-        if !GROUND_HUMANS.contains(&class) && !ai_only {
-            continue;
-        }
-        let loaded = (|| -> anyhow::Result<_> {
-            let hull = crate::ai_hull::class_hull(class).unwrap_or(crate::ai_hull::HullType::Human);
-            let ground = crate::npc::ground_for_hull(hull, instance.scale, 18., 1.)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            let wanted = if ai_only {
-                let rig = world
-                    .rigs
-                    .get(&instance.asset_key())
-                    .ok_or_else(|| anyhow::anyhow!("no rig for {}", instance.model))?;
-                let custom = custom_moves(world, actor);
-                let variants = locomotion_variants(vfs, &instance.model, rig, &custom)?;
-                let equipment = world.entities[actor]
-                    .get("additionalequipment")
-                    .unwrap_or("")
-                    .to_lowercase();
-                let motion = variants
-                    .get(&equipment)
-                    .or_else(|| variants.get(""))
-                    .or_else(|| variants.values().next())
-                    .cloned()
-                    .ok_or_else(|| anyhow::anyhow!("no walk/run locomotion"))?;
-                let wanted = variants
-                    .values()
-                    .flat_map(|v| v.required_clips())
-                    .collect::<std::collections::BTreeSet<_>>();
-                controller
-                    .register_ai_actor(actor, instance.scale, ground, motion)
-                    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-                controller.set_locomotion_variants(actor, variants);
-                set_ai_caps(
-                    &mut controller,
-                    world,
-                    vfs,
-                    actor,
-                    (class, &instance.model),
-                    rig,
-                )?;
-                wanted
-            } else {
-                let motion = crate::npc::Locomotion::load(vfs, &instance.model)?;
-                let wanted = motion.required_clips();
-                controller
-                    .register_actor(actor, instance.scale, ground, motion)
-                    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-                wanted
-            };
-            controller.set_accel(actor, crate::npc::blended::Accel::for_class(class));
-            // Verified ordinary Barney eye offset comes from his MDL, not the player's eye.
-            if instance.scale == 1. {
-                controller
-                    .set_view_offset(
-                        actor,
-                        source_assets::models::read_eye_position(vfs, &instance.model)?,
-                    )
-                    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let loaded = prepare_actor_data(world, vfs, instance, actor).and_then(|opt| match opt {
+            Some((prepared, wanted)) => {
+                register_prepared_actor(&mut controller, world, actor, prepared)?;
+                Ok(Some(wanted))
             }
-            Ok(wanted)
-        })();
+            None => Ok(None),
+        });
         match loaded {
-            Ok(wanted) => {
+            Ok(Some(wanted)) => {
                 clips.insert(instance.asset_key(), wanted);
             }
+            Ok(None) => {}
             Err(error) => world
                 .warnings
                 .push(format!("NPC {}: {error:#}", instance.model)),
@@ -311,29 +388,6 @@ pub fn prepare_npcs(
     add_hint_sequences(world, vfs, &mut clips);
     prepare_actor_animations(world, vfs, clips);
     controller
-}
-/// An AI actor's movement capabilities by class: doors, crab exclusions, navigation
-/// exclusions, hint limits, jumps and climbs.
-fn set_ai_caps(
-    controller: &mut crate::npc::Controller,
-    world: &World,
-    vfs: &Vfs,
-    actor: usize,
-    (class, model): (&str, &str),
-    rig: &modkit_core::animation::Rig,
-) -> anyhow::Result<()> {
-    // The zombies, crabs and birds have no bits_CAP_DOORS_GROUP (CZombie pounds on doors).
-    if crate::ai::zombie::is_zombie_class(class)
-        || crate::ai::headcrab::is_headcrab_class(class)
-        || crate::ai::bird::Kind::for_class(class).is_some()
-    {
-        controller.set_opens_doors(actor, false);
-    }
-    controller.set_headcrab(actor, crate::ai::headcrab::is_headcrab_class(class));
-    controller.set_nav_ignored(actor, world, class);
-    controller.set_hint_limit(actor, world);
-    controller.set_move_caps(actor, move_caps(vfs, model, class, rig)?);
-    Ok(())
 }
 /// Every NPC model also loads the busy sequences of the map's actbusy hints
 /// (`actbusy::hint_sequences`: LineIdle01, d1_t01_BreakRoom_WatchBreen).
@@ -619,5 +673,53 @@ mod tests {
             ),
             ("firewalk".into(), "firewalk".into())
         );
+    }
+    #[test]
+    fn prepare_single_actor_skips_classes_without_ground_or_ai_controller() {
+        let vfs = Vfs::default();
+        let mut world = World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![
+                    ("classname".into(), "npc_strider".into()),
+                    ("model".into(), "models/combine_strider.mdl".into()),
+                ],
+            }],
+            model_instances: vec![modkit_core::ModelInstance {
+                background: false,
+                model: "models/combine_strider.mdl".into(),
+                origin: glam::Vec3::ZERO,
+                angles: glam::Vec3::ZERO,
+                skin: 0,
+                body: 0,
+                scale: 1.,
+                kind: "npc_strider".into(),
+                solid: true,
+                solid_mode: None,
+                entity: Some(0),
+            }],
+            ..Default::default()
+        };
+        assert!(prepare_single_actor(&mut world, &vfs, 0).unwrap().is_none());
+    }
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn owned_prepare_single_actor_loads_vortigaunt_locomotion_and_registers() {
+        let vfs = Vfs::mount(&source_assets::install::discover().unwrap()).unwrap();
+        let mut world = World {
+            entities: vec![crate::ai::spawn::template_entity("npc_vortigaunt", 0).unwrap()],
+            ..Default::default()
+        };
+        source_assets::models::append_models_lod(&mut world, &vfs, 0);
+        let prepared = prepare_single_actor(&mut world, &vfs, 0)
+            .unwrap()
+            .expect("vortigaunt is an AI_GROUND_HUMANS actor");
+        let mut controller = crate::npc::Controller::new(None, Default::default());
+        register_prepared_actor(&mut controller, &world, 0, prepared).unwrap();
+        assert!(controller.has_actor(0));
+        let rig = &world.rigs["models/vortigaunt.mdl#0"];
+        assert!(rig
+            .clips
+            .keys()
+            .any(|k| k.contains("walk") || k.contains("run")));
     }
 }

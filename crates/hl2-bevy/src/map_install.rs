@@ -2,7 +2,7 @@
 use crate::audio::mixer::MixerStream;
 use crate::{
     Status, assets, audio, canvas_renderer, console_host, effects, eyes, monitors, rendering,
-    runtime_props, shadows, sky, studio_decals, visibility,
+    runtime_npcs, runtime_props, shadows, sky, studio_decals, visibility,
 };
 use bevy::{
     asset::Assets,
@@ -120,6 +120,7 @@ pub(crate) fn install_map(
     ));
     commands.insert_resource(rendering::FlexModels(loaded.flexes.clone()));
     commands.insert_resource(runtime_props::RuntimeProps::new(loaded.vfs.clone()));
+    commands.insert_resource(runtime_npcs::RuntimeNpcs::new(loaded.vfs.clone()));
     let camera_target = monitors::install(&loaded, commands, images);
     laps.mark("monitors");
     rendering::spawn_map_filtered(

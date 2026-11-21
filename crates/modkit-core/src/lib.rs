@@ -531,6 +531,8 @@ impl World {
         merge(&mut self.illumination, loaded.illumination);
         merge(&mut self.model_physics, loaded.model_physics);
         merge(&mut self.model_mass, loaded.model_mass);
+        merge(&mut self.model_body_parts, loaded.model_body_parts);
+        merge(&mut self.model_ragdolls, loaded.model_ragdolls);
         merge(&mut self.model_prop_health, loaded.model_prop_health);
         merge(&mut self.model_prop_data, loaded.model_prop_data);
         merge(&mut self.model_breaks, loaded.model_breaks);
@@ -889,5 +891,30 @@ mod tests {
             ],
         };
         assert_eq!(e.properties.len(), 2);
+    }
+    #[test]
+    fn merge_model_tables_adds_ragdolls_and_body_parts_without_overwriting() {
+        let mut base = World::default();
+        base.model_body_parts
+            .insert("models/existing.mdl".into(), vec![(1, 1)]);
+        base.model_ragdolls.insert(
+            "models/existing.mdl#0".into(),
+            std::sync::Arc::new(RagdollModel::default()),
+        );
+        let mut incoming = World::default();
+        incoming
+            .model_body_parts
+            .insert("models/existing.mdl".into(), vec![(9, 9)]);
+        incoming
+            .model_body_parts
+            .insert("models/new.mdl".into(), vec![(2, 1)]);
+        incoming.model_ragdolls.insert(
+            "models/new.mdl#0".into(),
+            std::sync::Arc::new(RagdollModel::default()),
+        );
+        base.merge_model_tables(incoming);
+        assert_eq!(base.model_body_parts["models/existing.mdl"], vec![(1, 1)]);
+        assert_eq!(base.model_body_parts["models/new.mdl"], vec![(2, 1)]);
+        assert!(base.model_ragdolls.contains_key("models/new.mdl#0"));
     }
 }

@@ -137,7 +137,7 @@
   "fed629d3999b"
  ],
  "files": {
-  "crates/hl2-bevy/src/gameplay.rs": 1596,
+  "crates/hl2-bevy/src/gameplay.rs": 1478,
   "crates/hl2-bevy/src/rendering.rs": 1280,
   "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
