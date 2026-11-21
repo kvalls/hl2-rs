@@ -6,11 +6,12 @@
 //! The front node's NPC leaves on MoveQueueUp and walks to the exit target; each NPC that settles
 //! on its node lets the queue move up 0.3-0.5 s later, when the nearest NPC behind each empty
 //! node walks forward one gap (the others wait for the next settle, so the line ripples); every
-//! 5 s an empty front node moves the queue up too. Not in: the player blocking nodes
-//! (PlayerStartedBlocking/PlayerStoppedBlocking), the hint types and disabled nodes that steer
-//! newcomers to the back, OnQueueMoved's count value, OnNPCStartedLeavingQueue waiting for an
+//! 5 s an empty front node moves the queue up too. NPCs outside the line join at its back
+//! (steer_newcomers). Not in: the player blocking nodes (PlayerStartedBlocking/
+//! PlayerStoppedBlocking), OnQueueMoved's count value, OnNPCStartedLeavingQueue waiting for an
 //! exit animation (ours has none: it fires with MoveQueueUp).
 use super::AiRuntime;
+use crate::ai::actbusy::{HintCandidate, HINT_WORLD_WORK_POSITION};
 use crate::entities::Scene;
 use modkit_core::World;
 use serde::Serialize;
@@ -42,8 +43,28 @@ struct Queue {
     move_up_at: Option<f64>,
     next_check: f64,
     count: usize,
+    /// The count the nodes' hint types were last set for (steer_newcomers).
+    steered: Option<usize>,
     /// NPCs seen busy on their node (a new one moves the queue up).
     settled: BTreeSet<usize>,
+}
+
+/// RecalculateQueueCount: the nodes more than one past the last held node are disabled; the
+/// node just behind the line (the entry) is the only actbusy hint (HINT_WORLD_WORK_POSITION)
+/// and the held ones are HINT_NONE, so an NPC outside the queue joins at its back instead of
+/// walking to a free node inside it. Forced hints (MoveQueueUp, ForceNPCToActBusy) ignore both.
+fn steer_newcomers(hints: &mut [HintCandidate], nodes: &[Option<usize>], count: usize) {
+    for (i, node) in nodes.iter().enumerate() {
+        let Some(hint) = node.and_then(|n| hints.iter_mut().find(|h| h.entity == n)) else {
+            continue;
+        };
+        hint.disabled = i > count;
+        hint.hint_type = if i == count {
+            HINT_WORLD_WORK_POSITION
+        } else {
+            0
+        };
+    }
 }
 
 fn named(world: &World, name: &str) -> Option<usize> {
@@ -103,6 +124,7 @@ impl Queue {
             nodes,
             exit,
             must_reach_front: e.get("mustreachfront").is_some_and(|v| v.trim() == "1"),
+            steered: None,
             valid: valid && exit.is_some(),
             ..Self::default()
         }
@@ -230,9 +252,14 @@ impl AiRuntime {
                 queue.count = count;
                 scene.fire(goal, "OnQueueMoved", goal);
             }
+            let steer = (queue.steered != Some(count)).then(|| queue.nodes.clone());
+            queue.steered = Some(count);
             if queue.move_up_at.is_some_and(|at| at <= now) {
                 queue.move_up_at = None;
                 self.move_queue_up(goal, &holders, now);
+            }
+            if let Some(nodes) = steer {
+                steer_newcomers(&mut self.busy_hints, &nodes, count);
             }
         }
     }
@@ -330,6 +357,29 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         }
+    }
+
+    /// RecalculateQueueCount with two NPCs in line: only the third node takes newcomers, the
+    /// fourth is disabled, the held ones are no actbusy hints.
+    #[test]
+    fn only_the_node_behind_the_line_takes_newcomers() {
+        let mut hints: Vec<HintCandidate> = (10..14)
+            .map(|entity| HintCandidate {
+                entity,
+                origin: glam::Vec3::ZERO,
+                yaw: 0.,
+                hint_type: HINT_WORLD_WORK_POSITION,
+                group: String::new(),
+                activity: "LineIdle01".into(),
+                disabled: false,
+                min_state: 1,
+                max_state: 3,
+            })
+            .collect();
+        let nodes = [Some(10), Some(11), Some(12), Some(13)];
+        steer_newcomers(&mut hints, &nodes, 2);
+        let types: Vec<_> = hints.iter().map(|h| (h.hint_type, h.disabled)).collect();
+        assert_eq!(types, [(0, false), (0, false), (12, false), (0, true)]);
     }
 
     /// d1_trainstation_01's customs queue: nodes in node01.. order, the exit target, and a queue
