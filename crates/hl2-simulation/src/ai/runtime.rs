@@ -838,6 +838,7 @@ impl AiRuntime {
         transients: &[ActorHull],
         player: PlayerState,
     ) {
+        let _span = crate::profile_span!("npc_ai", actors = self.actors.len());
         self.take_damage_reports(world, scene, player);
         if let Some(value) = self.stunstick_damage {
             super::metropolice::STUNSTICK_DAMAGE.with(|d| d.set(value));
@@ -880,20 +881,9 @@ impl AiRuntime {
                 self.diagnostics.scripted_skips += 1;
                 continue;
             }
+            let _span = crate::profile_span!("npc", id);
             let think_at = self.actors[&id].next_think;
-            // Animation events of the AI's sequence since the last tick.
-            let current = (
-                scene.states[id].animation.clone(),
-                scene.states[id].animation_started,
-            );
-            let actor = self.actors.get_mut(&id).expect("actor");
-            let since = event_window_start(
-                actor.events_until.min(now),
-                actor.events_sequence.as_ref(),
-                &current,
-            );
-            actor.events_until = now;
-            actor.events_sequence = Some(current);
+            let since = self.advance_event_window(id, scene, now);
             let mut events = scene.ai_events(world, id, since, now);
             self.weapon_events(id, world, now, &mut events);
             if !events.is_empty() {

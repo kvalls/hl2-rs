@@ -219,6 +219,7 @@ impl Simulation {
     /// `SF_CAMERA_PLAYER_TAKECONTROL`.
     /// The player's own move, or the tongue that holds him.
     fn move_player(&mut self, input: Input, mut game: Option<&mut crate::gameplay::Gameplay>) {
+        let _span = hl2_simulation::profile_span!("player_move");
         if let Some(game) = game.as_deref_mut() {
             ride::apply(self, game);
         }

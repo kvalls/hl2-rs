@@ -2674,9 +2674,14 @@ Layers, each opt-in so ordinary builds and runs pay nothing:
 3. An external once-a-second process sampler (process and per-thread CPU, RSS, swap, free pages,
    and the GPU utilization and memory macOS publishes): no code in the game.
 4. GPU time per render pass: Instruments' Metal System Trace (`xcrun xctrace`), no code in the game.
-5. Deferred: a compiler-instrumented call-count build (every function, counts per run, compared
-   across scene sizes to find superlinear growth) and in-code waste counters (duplicate work per
-   frame, recomputed unchanged results, per-frame allocations).
+5. Game-code spans (`hl2-simulation`'s `trace` feature, owner-approved `tracing` dependency,
+   enabled by `trace-chrome`; `profile_span!` is a zero-sized marker otherwise): the AI tick
+   (`npc_ai`), each NPC's tick (`npc`, by id), route plans (`npc_route`), every skeleton pose
+   (`actor_pose`, by id), the viewmodel pose, the weapons stage and the player's move; and a state
+   timeline (`state_player`, `state_viewmodel` every frame, `state_npc` for every AI actor on
+   change and every 60 frames). Repeated identical spans in one frame mark duplicate work.
+6. Deferred: a compiler-instrumented call-count build (every function, counts per run, compared
+   across scene sizes to find superlinear growth) and per-frame allocation counts.
 
 Validation: each layer's own overhead is measured against the same headless run without it and
 recorded in MODLOG; numbers from different layers are not compared directly. Reversible by

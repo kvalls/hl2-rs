@@ -123,6 +123,8 @@ pub fn install(app: &mut App, stages: bool, trace: Option<TraceRecording>) {
         snapshot: ProfilingSnapshot::default(),
     })
     .add_systems(First, update);
+    #[cfg(feature = "trace")]
+    crate::state_trace::install(app);
 }
 
 fn update(mut profiling: ResMut<Profiling>, performance: Option<Res<Performance>>) {

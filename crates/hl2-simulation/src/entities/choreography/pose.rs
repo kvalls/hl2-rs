@@ -20,6 +20,8 @@ impl Scene {
         id: usize,
         bones: modkit_core::animation::Bones,
     ) -> Vec<glam::Mat4> {
+        // Each call composes a whole skeleton: repeated calls for one id in a frame are waste.
+        let _span = crate::profile_span!("actor_pose", id, partial = bones.is_some());
         if let Some(ragdoll) = self.ragdoll_matrices.get(&id) {
             return ragdoll.clone();
         }

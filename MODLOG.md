@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Player, viewmodel and NPC spans and a state timeline in trace builds
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `hl2-simulation` gains the optional `tracing` dependency (owner-approved, already in the build through Bevy) behind its `trace` feature, and `profiling::profile_span!`, which is a zero-sized marker without the feature (arguments not evaluated). `hl2-bevy`'s `trace` feature forwards it; the application's `trace-chrome` enables it. Spans: `npc_ai` (actor count), `npc` (each NPC's tick, by id), `npc_route` (by entity), `actor_pose` (every skeleton composition, by id, partial or whole), `viewmodel_pose`, `weapons` (active weapon), `player_move`. `crates/hl2-bevy/src/state_trace.rs` writes zero-length state spans: `state_player` and `state_viewmodel` every frame (position, speed, ground, crouch, flight, movement and attack input, health; weapon, animation and its age) and `state_npc` for every live AI actor (class, distance, AI state, schedule, task, activity, animation, visibility) when those fields change and every 60 frames. To keep the size rules, the weapons stage moved out of `Gameplay::tick` into `gameplay/weapons_stage.rs` (split into `weapons_stage` and `attack_stage`, code unchanged), and the AI's event-window update into `AiRuntime::advance_event_window`; the baseline records `Gameplay::tick` 797 -> 692 and `AiRuntime::tick` 246 -> 236 lines.
+- Why: owner request to trace player and viewmodel state and actions and nearby NPCs, to find bottlenecks, waste and culprits in that code, and to trace every actor rather than skip any.
+- Tested how: headless trace build, d1_trainstation_02, 400 frames with `--profile`: about 25,000 game spans over 585 frames. The waste report finds `actor_pose` composing the same skeleton (same id, same frame) more than once in 275 of 585 frames, 4,929 extra calls (about 31 pose calls per frame), and attributes NPC tick time by class (metropolice, citizen, scanner) and schedule. The state recorder measured 0.18 ms per frame writing every NPC every frame, 0.030 ms mean (0.20 ms p99) after switching to change-only writes with 60-frame snapshots; trace builds only. Strict Clippy on the trace build; `scripts/checks/validate.sh` (default build).
+- Result: trace builds attribute player, viewmodel, weapon and NPC cost per actor and show the state of every slow frame; ordinary builds compile the spans out.
+- Still broken or not tested: the weapons stage's internal calls (fire, carry, gravity gun) are one span; non-AI entities other than posed models (physics bodies, particles) are not traced per entity; windowed play not captured yet; Windows **not tested** (platform-neutral code).
+- Next: a windowed capture with these spans; then remove the duplicate skeleton composition.
+
 ## 2026-11-21 — Profiler status in the F1 header
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

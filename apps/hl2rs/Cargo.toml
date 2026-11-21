@@ -9,7 +9,7 @@ default = ["advanced-options", "debug-tools"]
 advanced-options = ["dep:hl2-advanced-options", "hl2-advanced-options/bevy"]
 debug-tools = ["dep:hl2-debug", "hl2-debug/bevy"]
 # Profiling builds only: a span per Bevy system written as a Chrome trace (`TRACE_CHROME=<file>`).
-trace-chrome = ["bevy/trace_chrome"]
+trace-chrome = ["bevy/trace_chrome", "hl2-bevy/trace"]
 
 [dependencies]
 anyhow.workspace = true

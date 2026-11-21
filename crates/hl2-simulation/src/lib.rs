@@ -10,6 +10,7 @@ pub mod fire;
 pub mod lighting_origins;
 pub mod npc_probe;
 pub mod physics;
+pub mod profiling;
 
 pub mod actors;
 pub mod ai;

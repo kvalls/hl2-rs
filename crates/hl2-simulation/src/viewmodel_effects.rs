@@ -157,6 +157,7 @@ impl Inventory {
     /// Posed bone matrices for the active weapon's viewmodel at the given scene time,
     /// smoothly cross-fading finishing non-looping animations into the idle sequence.
     pub fn viewmodel_matrices(&self, rig: &Rig, scene_time: f64) -> Vec<Mat4> {
+        let _span = crate::profile_span!("viewmodel_pose");
         let state = self.viewmodel_animation_state(rig, scene_time);
         viewmodel_state_matrices(rig, &state, &self.viewmodel_pose_values(rig))
     }

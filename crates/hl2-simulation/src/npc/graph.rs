@@ -439,6 +439,7 @@ impl Planner<'_> {
         from: Vec3,
         destination: Destination,
     ) -> Result<Route, GoalBlockReason> {
+        let _span = crate::profile_span!("npc_route", entity);
         let started = std::time::Instant::now();
         let mut probes = 0;
         let stale = Stale {

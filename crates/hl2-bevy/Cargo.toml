@@ -17,6 +17,10 @@ hl2-simulation = { path = "../hl2-simulation" }
 bevy.workspace = true
 rfd = "0.17.2"
 
+[features]
+# Profiling builds only: player, weapon and NPC spans and a per-frame state timeline in the trace.
+trace = ["hl2-simulation/trace"]
+
 [lib]
 path = "src/lib.rs"
 

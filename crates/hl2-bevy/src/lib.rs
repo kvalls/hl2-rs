@@ -37,6 +37,8 @@ pub mod simulation;
 mod sky;
 mod startup;
 mod startup_cameras;
+#[cfg(feature = "trace")]
+mod state_trace;
 mod studio_decals;
 mod tonemap;
 pub mod ui_host;
