@@ -487,23 +487,6 @@ impl FontFace {
     pub fn draw_cell(&self, value: &str, top_left: Vec2, cell: f32, color: Color) {
         self.draw_cell_outlined(value, top_left, cell, color, TextOutline::NONE);
     }
-    /// Baseline that centers the visible glyphs around `center_y` at unit scale.
-    pub(crate) fn centered_baseline(&self, value: &str, em: f32, center_y: f32) -> f32 {
-        let mut top = f32::INFINITY;
-        let mut bottom = f32::NEG_INFINITY;
-        for c in value.chars() {
-            let glyph = self.raster(c, em, 0, 0);
-            if let Some(texture) = glyph.texture {
-                top = top.min(glyph.y);
-                bottom = bottom.max(glyph.y + texture.size().y);
-            }
-        }
-        if top.is_finite() {
-            center_y + self.ascent_at(em) - (top + bottom) * 0.5
-        } else {
-            center_y
-        }
-    }
 
     /// Draws `value` with an outline/border along the letter edge path.
     pub fn draw_baseline_outlined(

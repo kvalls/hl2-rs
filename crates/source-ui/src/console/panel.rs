@@ -41,7 +41,6 @@ pub const WHEEL_ROWS: usize = 3;
 /// Console history and completion row height, text size and baseline distance from the row
 /// bottom, in layout units.
 pub const CONSOLE_ROW: f32 = 14.;
-const STATUS_EXTRA_HEIGHT: f32 = 3.;
 const CONSOLE_TEXT: f32 = 12.;
 const CONSOLE_DESCENT: f32 = 3.;
 /// Space between the history's border and its rows.
@@ -256,8 +255,6 @@ fn rectangle_lines(canvas: &Canvas, x: f32, y: f32, w: f32, h: f32, thickness: f
 pub struct ConsolePanel {
     scaling: Scaling,
     pub output: VecDeque<Line>,
-    /// A temporary status below the history, excluded from copied and logged output.
-    pub status: Option<String>,
     /// Line number (since start) of `output[0]`: lines dropped from the front count on.
     pub output_start: u64,
     /// Output rows selected by dragging over the history, copied by the copy shortcut.
@@ -303,7 +300,6 @@ impl ConsolePanel {
         Self {
             scaling,
             output: VecDeque::new(),
-            status: None,
             output_start: 0,
             selection: None,
             selecting: false,
@@ -537,11 +533,7 @@ impl ConsolePanel {
     pub fn dialog_layout(&self, canvas: &Canvas) -> DialogLayout {
         let frame = self.frame(canvas);
         let placed = self.placement.place(&frame);
-        let mut layout = DialogLayout::at(frame.scale, placed.origin, placed.size);
-        if self.status.is_some() {
-            layout.history.h -= CONSOLE_ROW + STATUS_EXTRA_HEIGHT;
-        }
-        layout
+        DialogLayout::at(frame.scale, placed.origin, placed.size)
     }
 
     /// The output the history shows (`con_filter_enable` 1 hides lines without
@@ -772,12 +764,6 @@ impl ConsolePanel {
         );
 
         let entry = layout.canvas(layout.entry);
-        if let (Some(status), Some(font)) = (&self.status, &self.font) {
-            let history = layout.canvas(layout.history);
-            let center = (history.y + history.h + entry.y) * 0.5;
-            let baseline = font.centered_baseline(status, em, center);
-            text(status, area.x, baseline, self.style.dev_text);
-        }
         self.draw_entry(&painter, &layout, look, time, &text);
         painter.button(
             layout.submit,

@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-21 — Remove unused console footer status bar from `source-ui`
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs` & `crates/source-ui/src/font.rs`: removed the unused `ConsolePanel::status` field, `STATUS_EXTRA_HEIGHT`, history-height shrinking in `dialog_layout`, footer drawing in `draw`, and the now-unused `FontFace::centered_baseline` helper.
+- Why: after moving `agent_status` to inline replaceable `Level::Snapshot` lines (`be3a30ff`), the non-retail footer status bar had no remaining callers and belonged out of core `source-ui`.
+- Tested how: `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime was **not tested**.
+- Next: none.
+
 ## 2026-11-21 — Show `agent_status` as a replaceable console snapshot line instead of a separate status bar
 
 - Agent/model: Antigravity (Gemini 4 Neon).
