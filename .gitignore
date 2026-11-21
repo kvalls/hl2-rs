@@ -13,6 +13,9 @@
 !/.github/workflows/rust.yml
 !/.vscode/launch.json
 !/.vscode/tasks.json
+!/.agents/skills/hl2-session/SKILL.md
+!/.agents/skills/hl2-session/scripts/*.py
+!/.claude/skills/hl2-session/SKILL.md
 !/launch*.cmd
 !/launch*.sh
 !/scripts/build-bevy.ps1

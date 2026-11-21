@@ -63,8 +63,9 @@ See the pinned [rfd backend requirements](https://docs.rs/rfd/0.17.2/rfd/#linux-
 Source builds need Git, Rust stable/Cargo, and the platform compiler tools:
 Visual Studio C++ tools/Windows SDK on Windows, Xcode command-line tools on macOS,
 and a C++ compiler plus pkg-config and development headers on Linux. Python 3,
-rustfmt and Clippy are needed for the repository's validation scripts; they are
-not game runtime dependencies. Cargo library versions are locked in `Cargo.lock`.
+rustfmt and Clippy are needed for the repository's validation scripts and the
+optional `/hl2-session` skill scripts; they are not game runtime dependencies.
+Cargo library versions are locked in `Cargo.lock`.
 
 For an Ubuntu/Debian source build, the initial dependency setup is:
 
@@ -201,6 +202,7 @@ temporary settings, and current limits.
 | Viewmodel FOV slider | Options > Video > Advanced: the weapon camera's base FOV. |
 | Viewmodel debug mode | Console: `viewmodel_debug_mode 1`; tune weapon FOV and position offsets for the current aspect profile. |
 | Menu background debug mode | Console from the main menu: `background_debug_mode 1`; compare background FOV, blur opacity and chapter artwork. |
+| Live AI debug session | Invoke `/hl2-session` in Claude Code, Codex, or Gemini (see [Live AI debug session](#live-ai-debug-session-hl2-session)). |
 
 `background_force_default_blur 1` always selects the normal menu/loading blur
 texture, even on wide frames; `0` restores aspect-based selection (the default).
@@ -208,6 +210,16 @@ Normal artwork keeps its authored 4:3 proportions by cropping the top and bottom
 on wide frames. The background camera follows the same crop while enabled;
 `0` preserves the existing camera FOV behavior. It is saved independently of debug mode. While background debug is enabled, `-`
 toggles it and the overlay shows its state.
+
+### Live AI debug session (`/hl2-session`)
+
+HL2-RS ships an in-repo `/hl2-session` skill so you can talk to an AI coding assistant from the in-game developer console, run inspection commands, and rebuild-and-restart back to where you were.
+
+- **Prerequisites**: a packaged build that includes the default `debug-tools` plugin (`.\scripts\build-bevy.ps1` on Windows, `./scripts/build-bevy.sh` on macOS/Linux) and Python 3 on `PATH` (standard library only, no third-party Python packages).
+- **Start from your assistant**: open this repository in Claude Code (`.claude/skills/hl2-session/SKILL.md`), Codex, or Gemini (`.agents/skills/hl2-session/SKILL.md` — no symlinks required on Windows) and run `/hl2-session`.
+- **Start the game manually first (optional)**: run `python .agents/skills/hl2-session/scripts/session.py launch` on Windows (or `python3 .agents/skills/hl2-session/scripts/session.py launch` on macOS/Linux; append game flags after `--`, e.g. `-- --map d1_trainstation_01`), then invoke `/hl2-session` to attach without closing or duplicating the running game.
+- **In-game workflow**: the game launches with `-condebug -usercon +ip 127.0.0.1 +con_timestamp 1 +sv_rcon_log 1 +showconsole` so the developer console opens immediately and the assistant greets you. Type `say <message>` to chat with the assistant; an inline `Thinking...` status line appears while it works and clears on its `say` reply. Remote commands other than `say` and `agent_status` print as `rcon from ...`. Built-in `hl2-debug` commands (`ui_dump`, `npc_dump`, `getpos`, `screenshot`) let the assistant inspect live state, and `.agents/skills/hl2-session/scripts/restart.py` compiles changes while the game keeps running and relaunches via `agent_resume` back to the same map, eye position, angles, and open menus.
+- **Security and platform notes**: RCON listens only on loopback (`127.0.0.1`, port `27015` by default or an automatically chosen free port) using a fresh per-session random password stored in `<temp>/hl2rs-agent-session/rcon_password` and passed via `+rcon_password` on the game's command line (visible to local process inspection). Cross-platform unit tests run on Windows and macOS in CI and a headless packaged session round-trip ran on macOS; the live Windows runtime is **not tested** yet.
 
 ## Implemented so far
 

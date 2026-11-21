@@ -154,3 +154,20 @@ ready. The FOV/opacity tools are runtime diagnostics, not saved gameplay camera 
 The standard-blur override is the saved exception: turning debug mode off does not
 reset it. Holding `-` does not repeat the toggle, and the key is inactive while the
 console is open.
+
+## Live AI debug session (agent link)
+
+When built with `hl2-debug` (`debug-tools`, on by default), HL2-RS exposes agent-link
+commands over the retail `-condebug` console log and `-usercon` Source RCON server:
+
+- `ui_dump`: prints UI state (mode, open windows, menus, pending map, loaded map, eye position, angles, paused/loading state) as one `ui_dump {json}` line.
+- `npc_dump [radius|id <entity>]`: prints nearby (default 512 units) or one entity's NPC AI, actbusy, and goal state as one `npc_dump {json}` line.
+- `agent_status <thinking|waiting|clear>`: updates or clears the replaceable inline console status snapshot line (`agent_status` is omitted from `sv_rcon_log` output).
+- `agent_resume`: prints launch arguments that restart at the current map, eye position, view angles, and open menus (`--map`, `--position`, `--yaw`, `--pitch`, `+gamemenucommand`, `+gameui_activate`, `+showconsole`).
+
+The `/hl2-session` skill and its cross-platform Python 3 helper scripts (`session.py`,
+`rcon.py`, `watch.py`, `restart.py`) live in
+`.agents/skills/hl2-session/SKILL.md`, with a
+forwarding entry at
+`.claude/skills/hl2-session/SKILL.md` for
+Claude Code.

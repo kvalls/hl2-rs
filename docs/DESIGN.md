@@ -39,7 +39,8 @@ Core (retail; each phase its own commit, tests in the owning crate):
    module, separate from the F1 overlay: `ui_dump` prints the UI state (windows, focus, menus,
    map, position, pause) as one JSON line that the log file and the remote console carry. The
    game is started with the retail switches (`-condebug -usercon +rcon_password ...`); the
-   watcher and the RCON client live outside the repository. `agent_resume` prints the launch arguments
+   cross-platform session skill and scripts live in `.agents/skills/hl2-session/` (with
+   `.claude/skills/hl2-session/SKILL.md` forwarding for Claude Code). `agent_resume` prints the launch arguments
    that restart into a new build at the same map, view and open menus (`--map`, `--position`,
    `--yaw`, `--pitch`, then retail `gameui_activate`, `gamemenucommand`, `toggleconsole`).
 

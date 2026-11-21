@@ -1,5 +1,20 @@
 # MODLOG
 
+## 2026-11-21 — Move `/hl2-session` skill into the repository with cross-platform scripts
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `.agents/skills/hl2-session/{SKILL.md,scripts/{rcon.py,session.py,watch.py,restart.py}}`: added the in-repo `/hl2-session` skill and cross-platform Python 3 stdlib helper scripts for Windows, macOS, and Linux (`session.py status|launch` with `--port auto` fallback and `build-bevy-info.json` plugin checks; `rcon.py` with `--wait` dynamic session reload and auth-error fail-fast; `watch.py` with `msvcrt.locking`/`fcntl.flock` and pure-Python tailing for both streaming and `--once` cursor modes; `restart.py` compiling with `cargo build` before quitting and deferring Windows `.exe` repackaging to `session.py`).
+  - `.claude/skills/hl2-session/SKILL.md` & `.gitignore`: added a non-symlink forwarding stub so Claude Code discovers `/hl2-session` on Windows without symlinks, and added narrow `.gitignore` whitelist exceptions.
+  - `README.md`, `docs/non-retail-features.md`, `docs/DESIGN.md`: documented how to launch and use `/hl2-session` and updated the agent-link design note.
+  - `scripts/checks/test_hl2_session.py`: added 16 cross-platform unit tests covering RCON framing/wait reload, file locks and log watching, supervisor restarts/repackaging, restart guards, and skill/script references.
+- Why: owner request to move the `/hl2-session` skill into the repository and document it in `README.md` so contributors on Windows and macOS/Linux can launch the live AI debug session directly.
+- Tested how: `python3 -m unittest discover -s scripts/checks -p 'test_*.py' -v` (74 tests), a headless packaged session smoke test on macOS (`session.py launch`/`status`, `rcon.py --wait` `say` + `ui_dump`, `watch.py --once` waking on `Player:` with quiet `agent_status`, `restart.py --no-build` with new PID + post-restart `ui_dump`, `quit`, and `AGENT_SESSION_RESTART` / `AGENT_SESSION_EXIT 0` in `game.log`), and `scripts/checks/validate.sh`.
+- Result: all 74 Python unit tests, the macOS headless packaged smoke test, and `scripts/checks/validate.sh` passed.
+- Still broken or not tested: Windows live runtime is **not tested** locally (cross-platform Python unit tests run on Windows in CI).
+- Next: none.
+- Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-21 — Quiet remote commands: `agent_status` stays out of the console log
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
