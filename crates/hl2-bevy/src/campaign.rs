@@ -274,6 +274,7 @@ mod tests {
         let options = test_options(&game);
         super::loading_owned_tests::init_map_assets(&mut app)
             .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
             .insert_resource(options)
             .insert_resource(Campaign {
                 loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),
@@ -575,6 +576,7 @@ mod tests {
         let options = test_options(&game);
         super::loading_owned_tests::init_map_assets(&mut app)
             .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
             .insert_resource(options)
             .insert_resource(Campaign {
                 loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),
@@ -710,6 +712,7 @@ mod tests {
         let options = test_options(&temp);
         super::loading_owned_tests::init_map_assets(&mut app)
             .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
             .insert_resource(options)
             .insert_resource(Campaign {
                 loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),

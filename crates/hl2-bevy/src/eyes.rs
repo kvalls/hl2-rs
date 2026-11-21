@@ -1,9 +1,10 @@
 //! Owned iris projection with authored scene interests and a visible-interest fallback.
+use crate::rendering::actor_poses::{ActorPoses, entity_stamp};
 use crate::{FlyCamera, assets::LoadedMap, bevy_to_source, rendering::SourceEntity};
 use bevy::{
     asset::uuid_handle, mesh::VertexAttributeValues, prelude::*, render::storage::ShaderBuffer,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 #[derive(Clone)]
 struct Actor {
     key: String,
@@ -114,7 +115,7 @@ fn bone_pose(
     key: &str,
     id: usize,
     bone: usize,
-    poses: &BTreeMap<usize, Vec<glam::Mat4>>,
+    poses: &BTreeMap<usize, Arc<Vec<glam::Mat4>>>,
 ) -> Option<glam::Mat4> {
     let rig = game.world.rigs.get(key)?;
     Some(*poses.get(&id)?.get(bone)? * rig.bones.get(bone)?.inverse_bind.inverse())
@@ -126,11 +127,21 @@ type EyeDrawItem<'a> = (
     &'a ViewVisibility,
 );
 
+/// The eyes' presentation assets and the actor skeletons it shares with the renderer.
+type EyeAssets<'w> = (
+    ResMut<'w, Assets<Mesh>>,
+    ResMut<'w, Assets<ShaderBuffer>>,
+    ResMut<'w, ActorPoses>,
+);
+
+/// Each eyed actor's skeleton, from the poses shared with the renderer (composed again only
+/// when the actor's pose changed); an actor whose clip its rig lacks is composed directly.
 fn collect_actor_poses<'a>(
     eyes: &'a Eyes,
     draws: impl IntoIterator<Item = EyeDrawItem<'a>>,
     game: &crate::gameplay::Gameplay,
-) -> BTreeMap<usize, Vec<glam::Mat4>> {
+    shared: &mut ActorPoses,
+) -> BTreeMap<usize, Arc<Vec<glam::Mat4>>> {
     let mut pose_keys: BTreeMap<usize, &str> = eyes
         .actors
         .iter()
@@ -147,7 +158,13 @@ fn collect_actor_poses<'a>(
                 return None;
             }
             let rig = game.world.rigs.get(key)?;
-            Some((id, game.scene.actor_matrices(rig, id)))
+            Some((
+                id,
+                match entity_stamp(game, rig, id) {
+                    Some(stamp) => shared.pose(game, (key, rig), id, &stamp),
+                    None => Arc::new(game.scene.actor_matrices(rig, id)),
+                },
+            ))
         })
         .collect()
 }
@@ -180,7 +197,7 @@ pub fn present(
     sim: Res<crate::simulation::Simulation>,
     camera: Query<&Transform, With<FlyCamera>>,
     draws: Query<(&SourceEntity, &EyeMesh, &Mesh3d, &ViewVisibility)>,
-    (mut meshes, mut buffers): (ResMut<Assets<Mesh>>, ResMut<Assets<ShaderBuffer>>),
+    (mut meshes, mut buffers, mut shared_poses): EyeAssets,
     performance: Option<Res<crate::performance::Performance>>,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "eyes");
@@ -188,7 +205,7 @@ pub fn present(
     eyes.release_gone(|mesh| meshes.contains(mesh));
     // Evaluate each visible actor once per presentation; target and iris consumers
     // share these skin transforms rather than sampling the full rig for every eye.
-    let poses = collect_actor_poses(&eyes, draws, &game);
+    let poses = collect_actor_poses(&eyes, draws, &game, &mut shared_poses);
     let mut candidates = vec![(
         None,
         glam::Vec3::from_array(bevy_to_source(camera.translation).to_array()),

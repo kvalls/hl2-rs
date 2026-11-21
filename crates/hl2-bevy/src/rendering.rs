@@ -14,11 +14,16 @@ use bevy::{
 };
 use hl2_ui::extensions::RenderBudget;
 use modkit_core::Surface;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
+pub(crate) mod actor_poses;
 mod cpu_skin;
 pub(crate) mod cubemaps;
 pub(crate) mod drawing;
+use actor_poses::entity_stamp;
 use cpu_skin::skin_on_cpu;
 mod face_flex;
 mod face_split;
@@ -44,8 +49,8 @@ pub(crate) use material::{black_cube, fallback_images, image, make_material, sam
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
 pub use runtime::{despawn_killed_runtime_draws, spawn_runtime_draws, swap_runtime_bodies};
-pub(super) use weapons::WeaponSkin;
 pub use weapons::{WeaponMesh, present_weapons};
+pub(super) use weapons::{WeaponSkin, viewmodel_sample};
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 #[bind_group_data(MaterialKey)]
@@ -392,6 +397,12 @@ pub(crate) fn entity_transform(origin: glam::Vec3, rotation: glam::Quat) -> Tran
 /// owner's active weapon.
 #[derive(Component)]
 pub struct NpcWeaponDraw(pub String);
+/// Facial flex models, the eyes and the shared actor skeletons that animation presents with.
+type AnimationInputs<'w> = (
+    Option<Res<'w, FlexModels>>,
+    Option<Res<'w, crate::eyes::Eyes>>,
+    ResMut<'w, actor_poses::ActorPoses>,
+);
 #[allow(clippy::too_many_arguments)]
 pub fn present_entities(
     game: Res<crate::gameplay::Gameplay>,
@@ -401,13 +412,12 @@ pub fn present_entities(
     mut animations: Query<(&mut AnimatedMesh, &Mesh3d, Option<&mut Aabb>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     performance: Option<Res<crate::performance::Performance>>,
-    flex_models: Option<Res<FlexModels>>,
-    eyes: Option<Res<crate::eyes::Eyes>>,
+    (flex_models, eyes, mut actor_poses): AnimationInputs,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "animation");
     placement::place_entities(&mut entities, &game, &sim);
     let mut updated_joints = std::collections::BTreeSet::new();
-    let mut poses: BTreeMap<(String, String, u32, u64), Vec<glam::Mat4>> = BTreeMap::new();
+    let mut poses: BTreeMap<(String, String, u32, u64), Arc<Vec<glam::Mat4>>> = BTreeMap::new();
     let mut flex_weights = face_flex::FlexWeights::new();
     for (mut animation, handle, aabb) in &mut animations {
         if animation.entity.is_some() && animation.weapon.is_some() {
@@ -428,49 +438,23 @@ pub fn present_entities(
             },
             &mut flex_weights,
         );
-        let (clip, key) = if let Some(id) = animation.entity {
-            let Some(state) = game.scene.states.get(id) else {
-                continue;
-            };
-            if (!state.visible || state.killed) && !game.scene.ragdoll_matrices.contains_key(&id) {
-                continue;
-            }
-            let clip = state.animation.as_str();
-            let time = game.scene.animation_time(id);
-            // A ragdoll's pose comes from its solids (pose_signature changes per ragdoll
-            // frame), so a prop_ragdoll without a clip still samples.
-            let key = match rig.clips.get(clip) {
-                Some(definition) => sample_key(definition, time),
-                None if game.scene.ragdoll_matrices.contains_key(&id) => 0,
-                None => continue,
-            };
-            (clip.to_owned(), key)
-        } else {
-            if animation.weapon.as_deref() != Some(game.inventory.active.as_str()) {
-                continue;
-            }
-            let state = game
-                .inventory
-                .viewmodel_animation_state(rig, game.scene.time);
-            state.cache_key(rig)
+        let stamp = match animation
+            .entity
+            .map(|id| (id, entity_stamp(&game, rig, id)))
+        {
+            Some((id, Some(stamp))) => Some((id, stamp)),
+            Some((_, None)) => continue,
+            None if animation.weapon.as_deref() != Some(game.inventory.active.as_str()) => continue,
+            None => None,
         };
-        // Gesture layers make the pose actor-specific; the entity id keeps cache entries apart.
-        let layers = animation
-            .entity
-            .map_or(0, |id| game.scene.pose_signature(id));
-        // Viewmodel pose parameters (the gravity gun's "active") change the pose too.
-        let viewmodel_params = animation
-            .entity
-            .is_none()
-            .then(|| game.inventory.viewmodel_pose_values(rig));
-        let layer_key = match (layers, animation.entity) {
-            (_, None) => viewmodel_params.as_ref().map_or(0, |params| {
-                params.iter().fold(0u64, |hash, v| {
-                    (hash ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3)
-                })
-            }),
-            (0, _) => 0,
-            (signature, Some(id)) => signature ^ (id as u64).rotate_left(32),
+        let (clip, key, layer_key) = match &stamp {
+            // Gesture layers make the pose actor-specific; the entity id keeps entries apart.
+            Some((id, s)) => (
+                s.clip.clone(),
+                s.key,
+                s.layers ^ (*id as u64).rotate_left(32),
+            ),
+            None => viewmodel_sample(&game, rig),
         };
         if animation
             .sampled
@@ -484,9 +468,9 @@ pub fn present_entities(
         let sampled = (clip.clone(), key, layer_key);
         let matrices = poses
             .entry((animation.key.clone(), clip, key, layer_key))
-            .or_insert_with(|| match animation.entity {
-                Some(id) => game.scene.actor_matrices(rig, id),
-                None => game.inventory.viewmodel_matrices(rig, game.scene.time),
+            .or_insert_with(|| match &stamp {
+                Some((id, s)) => actor_poses.pose(&game, (&animation.key, rig), *id, s),
+                None => Arc::new(game.inventory.viewmodel_matrices(rig, game.scene.time)),
             });
         if let Some(skeleton) = &animation.gpu {
             if updated_joints.insert(skeleton.joints[0]) {
@@ -1484,7 +1468,8 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(game)
             .insert_resource(sim)
-            .insert_resource(meshes);
+            .insert_resource(meshes)
+            .init_resource::<actor_poses::ActorPoses>();
         let entity = app
             .world_mut()
             .spawn((

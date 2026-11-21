@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Share composed actor skeletons between the renderer and the eyes (backlog O6)
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `crates/hl2-bevy/src/rendering/actor_poses.rs` (new) holds `ActorPoses`, one composed skeleton per actor and rig with its `PoseStamp` (clip, sampled animation time, `Scene::pose_signature`), reused while the stamp is equal and cleared on a map change, and `entity_stamp`, the renderer's existing pose-change test moved out of `present_entities`. `present_entities` and `eyes::present` take their actor skeletons from it; the eyes pass composes directly only for an actor whose clip its rig lacks (as before). The viewmodel's pose sample moved to `rendering/weapons.rs::viewmodel_sample`. The resource is registered with the presentation systems and in the test apps that run them.
+- Why: backlog O6. The eyes pass composed a full skeleton for every eyed actor every frame although the renderer had already composed it, or had skipped it because the pose had not changed: 438,784 extra compositions in capture 2.
+- Tested how: unit test `a_pose_is_composed_once_per_stamp_rig_and_map`; the `hl2-bevy` library tests (213 passed). Headless trace build, 600 frames at d1_trainstation_02 with `--profile`, before (the change stashed) and after: `actor_pose` 35.7 -> 22.0 calls and 0.326 -> 0.202 ms per frame; frames with a repeated composition 411 of 783 -> 100 of 834; extra calls 7,589 -> 1,786; the `eyes` stage 0.257 -> 0.059 ms mean (p95 0.318 -> 0.073); the `animation` stage 0.661 -> 0.702 ms. Packaged replays; `scripts/checks/validate.sh`.
+- Result: the eyes reuse the renderer's skeletons; about 0.16 ms per frame saved headless, more with more eyed actors in view.
+- Still broken or not tested: the shadow caster, the view attachment and impacts still compose their own skeletons (the remaining repeats); windowed play not re-captured; Windows **not tested**.
+- Next: route those callers through `ActorPoses`, or move on to O20 (viewmodel motion blur GPU spikes).
+
 ## 2026-11-21 — Build the diagnostic report only when it is read (backlog O19)
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
