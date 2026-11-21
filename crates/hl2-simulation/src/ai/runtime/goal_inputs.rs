@@ -8,11 +8,14 @@ use glam::Vec3;
 use modkit_core::World;
 use std::collections::BTreeMap;
 pub(super) mod hint_groups;
+mod set_relationship;
 
 /// The pairs each active ai_relationship applied.
 #[derive(Clone, Debug, Default)]
 pub(super) struct AppliedRelationships {
     pairs: BTreeMap<usize, Vec<(usize, usize)>>,
+    /// `SetRelationship` class relationships: (subject, target class) -> disposition.
+    class_overrides: BTreeMap<(usize, crate::ai::relationships::Class), Disposition>,
     /// An NPC spawned: CAI_Relationship::OnEntitySpawned reapplies them.
     pub stale: bool,
 }
@@ -103,6 +106,10 @@ impl AiRuntime {
             }
             if class == "ai_relationship" {
                 self.apply_relationship(world, scene, target, input == "applyrelationship");
+                continue;
+            }
+            if input == "setrelationship" {
+                self.set_relationship(world, target, &parameter);
                 continue;
             }
             if matches!(class, "info_node_link" | "info_node_link_controller") {

@@ -487,6 +487,10 @@ impl Scene {
 
 /// Whether an input belongs to the AI runtime (`Scene::ai_inputs`).
 fn is_ai_input(class: &str, input: &str) -> bool {
+    // CAI_BaseNPC's input, taken by every NPC class.
+    if input == "setrelationship" && class.starts_with("npc_") {
+        return true;
+    }
     match class {
         "npc_metropolice" => matches!(
             input,

@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-21 — NPC input `SetRelationship`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: every NPC class takes retail's `SetRelationship` input (Source SDK `game/server/ai_basenpc.cpp`, `CAI_BaseNPC::AddRelationship`): `"<who> <D_HT|D_FR|D_LI|D_NU> [priority]"`, repeated. A targetname gives entity relationships (the overrides `ai_relationship` already fills), `player`/`!player` the player, a classname a class relationship kept per NPC (`AppliedRelationships::class_overrides`, consulted after entity overrides), so NPCs of that class spawned later are covered. An unknown disposition stops the parse, as in the SDK. Priorities are parsed but not ranked yet.
+- Why: owner request in a live session: friendly manhacks the retail way (`ent_fire npc_manhack SetRelationship "player D_LI 99"`) instead of a debug-only command.
+- Tested how: unit tests (parsing, a manhack that likes the player and hates metrocops by class, a name overriding the class, one-sided); `validate.sh` passed. Live: packaged build on d1_trainstation_02, 10 manhacks from `npc_create`, `ent_fire npc_manhack SetRelationship "player D_LI 99 npc_metropolice D_HT 99"` queued and delivered; their in-game behaviour toward the player and the cops is **not yet confirmed** (the game was paused).
+- Still broken or not tested: relationship priorities; following the player (`ai_goal_follow`) is not implemented.
+
 ## 2026-11-21 — Remove unused console footer status bar from `source-ui`
 
 - Agent/model: Antigravity (Gemini 4 Neon).
