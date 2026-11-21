@@ -144,7 +144,7 @@
   "crates/hl2-bevy/src/video.rs": 1024,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2368,
-  "crates/hl2-simulation/src/entities/choreography.rs": 1225,
+  "crates/hl2-simulation/src/entities/choreography.rs": 1221,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1120,
   "crates/hl2-simulation/src/physics.rs": 3268,
@@ -240,10 +240,10 @@
    107
   ],
   "crates/hl2-simulation/src/entities/choreography.rs::tick_choreography": [
-   372
+   366
   ],
   "crates/hl2-simulation/src/entities/io.rs::deliver": [
-   173
+   150
   ],
   "crates/hl2-simulation/src/explosion_particles.rs::draw": [
    120

@@ -2,9 +2,10 @@
 //! (SDK server baseanimating.cpp CBaseAnimating::Activate, SetLightingOrigin and
 //! SetLightingOriginRelative; client c_baseanimating.cpp OnInternalDrawModel and
 //! C_InfoLightingRelative::GetLightingOffset).
-use crate::entities::State;
+use crate::entities::{Scene, State};
 use glam::{Quat, Vec3};
 use modkit_core::World;
+use std::collections::BTreeMap;
 
 /// Where a model takes its lighting from instead of its own illumination point.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -26,12 +27,31 @@ fn named(world: &World, name: &str) -> Option<usize> {
     })
 }
 
-/// Resolves entity `id`'s keys once, as Activate does: the first entity of each name. A
+/// The scene's runtime keyvalues by (entity, lowercase key).
+type Overrides = BTreeMap<(usize, String), String>;
+
+/// A key as the entity holds it now: an input's value (an empty one clears the key) before
+/// the map's.
+fn current<'a>(
+    world: &'a World,
+    overrides: &'a Overrides,
+    id: usize,
+    key: &str,
+) -> Option<&'a str> {
+    overrides
+        .get(&(id, key.to_ascii_lowercase()))
+        .map(String::as_str)
+        .or_else(|| world.entities.get(id)?.get(key))
+        .filter(|v| !v.is_empty())
+}
+
+/// Resolves entity `id`'s keys, as Activate does: the first entity of each name. A
 /// LightingOriginHack whose target is not an info_lighting_relative is ignored (the SDK only
 /// warns), and one without a landmark offsets nothing (GetLightingOffset's identity).
-pub fn resolve(world: &World, id: usize) -> Option<LightingOrigin> {
-    let entity = world.entities.get(id)?;
-    let key = |k: &str| entity.get(k).filter(|v| !v.is_empty());
+/// `overrides` holds what SetLightingOrigin/SetLightingOriginHack inputs set.
+pub fn resolve(world: &World, overrides: &Overrides, id: usize) -> Option<LightingOrigin> {
+    world.entities.get(id)?;
+    let key = |k: &str| current(world, overrides, id, k);
     let at = key("LightingOrigin").and_then(|name| named(world, name));
     let relative = key("LightingOriginHack")
         .and_then(|name| named(world, name))
@@ -41,6 +61,29 @@ pub fn resolve(world: &World, id: usize) -> Option<LightingOrigin> {
             Some((info, named(world, landmark)?))
         });
     (at.is_some() || relative.is_some()).then_some(LightingOrigin { at, relative })
+}
+
+/// CBaseAnimating::InputSetLightingOrigin and InputSetLightingOriginRelative (the
+/// SetLightingOriginHack input): an empty value clears the origin; a name that finds no
+/// entity, or for the hack no info_lighting_relative, keeps the current one (the SDK warns
+/// and returns). d1_trainstation_01's trigger at the car door clears the two passengers'
+/// hack as they step off, so they are lit by the platform, not the shaded car.
+pub(crate) fn input(scene: &mut Scene, world: &World, id: usize, input: &str, value: &str) {
+    let hack = input.eq_ignore_ascii_case("setlightingoriginhack");
+    let found = named(world, value);
+    let relative = |t: usize| world.entities[t].get("classname") == Some("info_lighting_relative");
+    if !value.is_empty() && !found.is_some_and(|t| !hack || relative(t)) {
+        return;
+    }
+    let key = if hack {
+        "lightingoriginhack"
+    } else {
+        "lightingorigin"
+    };
+    scene
+        .keyvalue_overrides
+        .insert((id, key.to_string()), value.to_string());
+    scene.lighting_origin_changes = scene.lighting_origin_changes.wrapping_add(1);
 }
 
 /// An entity's current pose, unless it is gone.
@@ -121,7 +164,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let origin = resolve(&world, 0).expect("resolved");
+        let origin = resolve(&world, &Overrides::new(), 0).expect("resolved");
         assert_eq!(origin.relative, Some((1, 2)));
         assert_eq!(origin.at, None);
         let info = Vec3::new(-6768., -6016., 24.);
@@ -173,7 +216,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let origin = resolve(&world, 0).expect("resolved");
+        let origin = resolve(&world, &Overrides::new(), 0).expect("resolved");
         assert_eq!(
             origin,
             LightingOrigin {
@@ -181,12 +224,45 @@ mod tests {
                 relative: None
             }
         );
-        assert_eq!(resolve(&world, 2), None);
+        assert_eq!(resolve(&world, &Overrides::new(), 2), None);
         let poses = [
             (Vec3::ZERO, Quat::IDENTITY),
             (Vec3::new(5., 6., 7.), Quat::IDENTITY),
         ];
         let lit = origin.point_with(|id| poses.get(id).copied(), Vec3::ONE);
         assert_eq!(lit, Vec3::new(5., 6., 7.));
+    }
+
+    /// d1_trainstation_01's car-door trigger sends the passengers SetLightingOriginHack with
+    /// an empty value; a name that is no info_lighting_relative changes nothing.
+    #[test]
+    fn set_lighting_origin_hack_inputs_clear_or_keep_the_origin() {
+        let world = World {
+            entities: vec![
+                entity(&[
+                    ("classname", "npc_citizen"),
+                    ("lightingoriginhack", "lighting_traincar"),
+                ]),
+                entity(&[
+                    ("classname", "info_lighting_relative"),
+                    ("targetname", "lighting_traincar"),
+                    ("LightingLandmark", "mark"),
+                ]),
+                entity(&[("classname", "info_target"), ("targetname", "mark")]),
+            ],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        let held = resolve(&world, &scene.keyvalue_overrides, 0);
+        assert_eq!(held.and_then(|o| o.relative), Some((1, 2)));
+        input(&mut scene, &world, 0, "setlightingoriginhack", "mark");
+        assert_eq!(scene.lighting_origin_changes, 0);
+        assert_eq!(resolve(&world, &scene.keyvalue_overrides, 0), held);
+        input(&mut scene, &world, 0, "setlightingoriginhack", "");
+        assert_eq!(scene.lighting_origin_changes, 1);
+        assert_eq!(resolve(&world, &scene.keyvalue_overrides, 0), None);
+        input(&mut scene, &world, 0, "setlightingorigin", "mark");
+        let at = resolve(&world, &scene.keyvalue_overrides, 0).and_then(|o| o.at);
+        assert_eq!(at, Some(2));
     }
 }

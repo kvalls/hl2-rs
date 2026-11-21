@@ -96,9 +96,39 @@ fn connector<W: NpcCollisionWorld>(
     let moved = npc_probe::ground_move(world, start, end, actor.ground, query);
     moved.completed && moved.end.distance(end) <= tolerance
 }
+/// CAI_Pathfinder::RouteFromNode (bits_BUILD_GET_CLOSE, bits_WP_TO_GOAL): the last stretch
+/// from a node to the goal also succeeds when the move is blocked within the goal tolerance,
+/// and the route still ends at the goal. d1_trainstation_01's luggage_guy_lean overlaps its
+/// bench for a citizen's hull.
+fn goal_connector<W: NpcCollisionWorld>(
+    world: &W,
+    actor: &Actor,
+    (node, end): (Vec3, Vec3),
+    tolerance: f32,
+    query: Query<'_>,
+) -> bool {
+    connector(world, actor, node, end, tolerance, query) || {
+        let moved = npc_probe::ground_move(world, node, end, actor.ground, query);
+        !moved.completed && moved.end.distance(end) <= tolerance
+    }
+}
+/// CPathfindNearestNodeFilter::IsValid: a node with links, none of them usable by the actor
+/// (off, or not accepting its hull's move types), is passed over. d1_trainstation_01's
+/// luggage_guy_lean stands against a bench and links only for small hulls, so a citizen's
+/// route ends at the next node and walks the last stretch to the hint.
+fn has_usable_link(graph: &Graph, actor: &Actor, node: usize, off: &BTreeSet<usize>) -> bool {
+    let mut links = graph
+        .links
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.source == node || l.destination == node)
+        .peekable();
+    links.peek().is_none()
+        || links.any(|(i, l)| !off.contains(&i) && actor.caps.link_nav(l, actor.hull).is_some())
+}
 fn candidates<W: NpcCollisionWorld>(
     world: &W,
-    graph: &Graph,
+    (graph, off): (&Graph, &BTreeSet<usize>),
     actor: &Actor,
     point: Vec3,
     view: Vec3,
@@ -107,6 +137,7 @@ fn candidates<W: NpcCollisionWorld>(
     // CAI_Network::NearestNodeToPoint passes over the NPC's unusable nodes.
     let mut nearest: Vec<_> = (0..graph.nodes.len())
         .filter(|index| super::hint_limits::usable(actor, *index))
+        .filter(|index| has_usable_link(graph, actor, *index, off))
         .filter_map(|index| {
             let feet = node_feet(graph, index, actor.hull)?;
             ((graph.nodes[index].origin - point)
@@ -204,8 +235,9 @@ fn plan<W: NpcCollisionWorld>(
     let view = actor
         .view_offset
         .ok_or(GoalBlockReason::MissingViewOffset)?;
-    let starts = candidates(world, graph, actor, start, view, query);
-    let ends = candidates(world, graph, actor, end, view, query);
+    let network = (graph, &restrictions.off_links);
+    let starts = candidates(world, network, actor, start, view, query);
+    let ends = candidates(world, network, actor, end, view, query);
     let climbs = actor.caps.climbs();
     let feet_of = |n| route_feet(graph, n, actor.hull, climbs).unwrap();
     let start_node = starts
@@ -216,7 +248,7 @@ fn plan<W: NpcCollisionWorld>(
     let end_node = ends
         .into_iter()
         .take(4)
-        .find(|n| connector(world, actor, feet_of(*n), end, tolerance, query))
+        .find(|n| goal_connector(world, actor, (feet_of(*n), end), tolerance, query))
         .ok_or(GoalBlockReason::NoRoute)?;
     // CAI_Pathfinder::IsLinkUsable: graph data only (flags and accepted move types,
     // in `search`); a stale-suggested link is unusable until it expires,

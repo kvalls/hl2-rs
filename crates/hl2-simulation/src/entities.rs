@@ -111,6 +111,7 @@ enum ScenePause {
 struct Playback {
     elapsed: f64,
     next: usize,
+    loops: choreography::control::Loops,
     completed_early: bool,
     pause: Option<ScenePause>,
     actors: Vec<Option<usize>>,
@@ -351,6 +352,9 @@ pub struct Scene {
     pub states: Vec<State>,
     /// KeyValues set at runtime by AddOutput, by (entity, lowercase key).
     pub keyvalue_overrides: BTreeMap<(usize, String), String>,
+    /// Bumped by each SetLightingOrigin/SetLightingOriginHack input that changes a model's
+    /// lighting origin: the host resolves them again (lighting_origins::resolve).
+    pub lighting_origin_changes: u32,
     pub time: f64,
     sequence: u64,
     random: u64,
@@ -701,6 +705,7 @@ impl Scene {
             phys_impacts: Vec::new(),
             thrown_hits: Vec::new(),
             keyvalue_overrides: BTreeMap::new(),
+            lighting_origin_changes: 0,
             player_dead: false,
             flashlight: Default::default(),
             screen_fades: Vec::new(),

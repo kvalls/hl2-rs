@@ -15,6 +15,7 @@ use source_assets::vpk::Vfs;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+pub(super) mod control;
 mod pose;
 
 impl Scene {
@@ -695,6 +696,7 @@ impl Scene {
             scene.playback = Some(Playback {
                 elapsed: 0.,
                 next: 0,
+                loops: Default::default(),
                 completed_early: false,
                 pause: None,
                 actors,
@@ -1127,11 +1129,7 @@ impl Scene {
                                     play.pause = Some(ScenePause::Section { blocked, automated });
                                 }
                                 EventType::Loop | EventType::SubScene => {
-                                    self.unsupported_input(
-                                        "logic_choreographed_scene",
-                                        &format!("control:{:?}", event.kind),
-                                    );
-                                    play.pause = Some(ScenePause::UnsupportedControl);
+                                    self.control_event(&mut play, &scene, index)
                                 }
                                 EventType::Interrupt
                                 | EventType::PermitResponses
@@ -1146,14 +1144,12 @@ impl Scene {
                                     &format!("actor-event:{:?}", event.kind),
                                 ),
                             }
-                            if play.pause.is_some() {
+                            if control::halted(&play) {
                                 play.elapsed = event.start as f64;
                                 break;
                             }
                         }
-                        if play.pause.is_none() {
-                            play.elapsed = end;
-                        }
+                        play.elapsed = control::advance(&mut play, end);
                     }
                     // Preserve start-dispatch order for overlapping events. Pause freezes scene
                     // elapsed time while the global actor interest lifetime continues to refresh.

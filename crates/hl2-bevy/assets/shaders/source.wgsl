@@ -218,6 +218,10 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // through cutout edges when later cameras compose the frame, creating bright rims.
     base.a = 1.0;
 #endif
+    // DecalModulate (z = 2): alpha test GREATER 0 above, then mod2x of the frame behind it
+    // (2 x texture under a Dst x Src blend) with TONEMAP_SCALE_NONE: the lit frame is the
+    // multiplicand, so neither light nor exposure applies (like effects.wgsl's studio decals).
+    if material.parameters.z > 1.5 { return vec4(srgb_to_linear(base.rgb * 2.0), 1.0); }
 
     let baked = select(textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb, vec3(1.0), material.parameters.w > 0.5);
     // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.

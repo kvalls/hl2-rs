@@ -96,6 +96,9 @@ pub struct MaterialData {
     pub iris: Option<Arc<Image>>,
     pub iris_path: Option<String>,
     pub eye_fallback: bool,
+    /// DecalModulate (decals/glass/shot*: the train's window cracks): mod2x of the frame
+    /// behind it, unlit, alpha-tested above 0.
+    pub modulate: bool,
     pub alpha_cutoff: Option<f32>,
     pub translucent: bool,
     pub additive: bool,
@@ -144,6 +147,7 @@ impl Default for MaterialData {
             iris: None,
             iris_path: None,
             eye_fallback: false,
+            modulate: false,
             alpha_cutoff: None,
             translucent: false,
             additive: false,
@@ -442,6 +446,7 @@ fn metadata(definition: &Definition) -> Result<MaterialData> {
         opacity: scalar(p, "$alpha", 1.)?.clamp(0., 1.),
         unlit: definition.shader.eq_ignore_ascii_case("unlitgeneric"),
         eye_fallback: definition.shader.eq_ignore_ascii_case("eyes_dx8"),
+        modulate: definition.shader.eq_ignore_ascii_case("decalmodulate"),
         ..Default::default()
     };
     if scalar(p, "$alphatest", 0.)?.trunc() != 0. {

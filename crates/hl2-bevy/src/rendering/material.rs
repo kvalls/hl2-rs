@@ -183,7 +183,7 @@ pub(crate) fn make_material(
     let unlit = definition.unlit
         || definition.camera
         || definition.two_texture.is_some()
-        || matches!(alpha, AlphaMode::Add);
+        || matches!(alpha, AlphaMode::Add | AlphaMode::Multiply);
     SourceMaterial {
         tint: Vec4::new(
             definition.tint[0],
@@ -200,7 +200,12 @@ pub(crate) fn make_material(
                     0.001
                 }),
             f32::from(matches!(alpha, AlphaMode::Opaque)),
-            f32::from(matches!(alpha, AlphaMode::Add)),
+            // z: 1 additive output, 2 DecalModulate's mod2x.
+            match alpha {
+                AlphaMode::Add => 1.,
+                AlphaMode::Multiply => 2.,
+                _ => 0.,
+            },
             if definition.camera {
                 if definition.camera_vertex_color {
                     -2.
@@ -254,7 +259,10 @@ pub(crate) fn make_material(
 }
 
 pub(super) fn alpha_mode(material: &MaterialData) -> AlphaMode {
-    if material.additive {
+    if material.modulate {
+        // Bevy Multiply blends Dst x Src + Dst x (1 - SrcAlpha): opaque output is Dst x Src.
+        AlphaMode::Multiply
+    } else if material.additive {
         AlphaMode::Add
     } else if let Some(cutoff) = material.alpha_cutoff {
         AlphaMode::Mask(cutoff)

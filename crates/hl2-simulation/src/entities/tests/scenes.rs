@@ -34,6 +34,40 @@ fn choreography(events: &[(EventType, f32, &str)]) -> Arc<ChoreoScene> {
     data.extend([0, 0, 0]);
     Arc::new(ChoreoScene::parse(&data, &strings).unwrap())
 }
+/// CChoreoEvent::LOOP (d1_trainstation_01's cit_pacing.vcd): the scene jumps back to the
+/// loop's time and plays its events again, forever with a count of -1, else that many times.
+#[test]
+fn a_loop_event_replays_the_scene_from_its_time() {
+    for (count, fired) in [(-1i8, 4.), (2, 3.)] {
+        let world = World {
+            entities: vec![
+                entity(
+                    "logic_choreographed_scene",
+                    "scene",
+                    &[("OnTrigger1", "count,Add,1,0,-1")],
+                ),
+                entity("math_counter", "count", &[]),
+            ],
+            ..Default::default()
+        };
+        let mut data = Arc::unwrap_or_clone(choreography(&[
+            (EventType::FireTrigger, 0.2, "1"),
+            (EventType::Loop, 0.5, "0.1"),
+        ]));
+        data.events[1].loop_count = Some(count);
+        let mut scene = Scene::new(&world);
+        scene.install_choreography(0, Arc::new(data));
+        scene.send(0, "Start", "");
+        for _ in 0..120 {
+            scene.tick(&world, Vec3::ZERO, 0.015);
+        }
+        assert_eq!(scene.states[1].value, fired, "loop count {count}");
+        assert!(!scene
+            .diagnostics
+            .unsupported
+            .contains_key("logic_choreographed_scene.control:Loop"));
+    }
+}
 #[test]
 fn scene_speech_captions_reach_the_player_through_a_microphone_speaker() {
     // ep1_background02: Kleiner speaks 6000 units away; a microphone beside him replays

@@ -3,5 +3,6 @@
   {"tick": 25, "eye": [-4560, -2048, 32], "yaw": 0, "label": "conditions-trigger"},
   {"tick": 55, "eye": [-4130, -1700, 32], "yaw": 0, "label": "facing-citizen"},
   {"tick": 350, "label": "shove"},
+  {"tick": 520, "label": "stepped"},
   {"tick": 1000, "label": "finish"}
 ]

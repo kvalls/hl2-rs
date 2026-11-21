@@ -7,6 +7,8 @@ use modkit_core::Trace;
 use modkit_core::World;
 use rapier3d::prelude::{ActiveHooks, ColliderBuilder};
 
+mod pushers;
+
 impl Physics {
     /// One collider per brush of each solid brush entity, at its spawn pose. A brush with no
     /// solid contents (clip only: the DETAIL|MONSTERCLIP func_brush around
