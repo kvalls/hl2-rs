@@ -16,10 +16,17 @@ impl Console {
 
     /// Updates the most recent live snapshot instead of growing scrollback.
     pub fn log_snapshot(&mut self, text: impl Into<String>) {
+        self.log_snapshot_with_level(Level::Snapshot, text);
+    }
+
+    /// Updates the most recent live snapshot with an explicit display level.
+    pub fn log_snapshot_with_level(&mut self, level: Level, text: impl Into<String>) {
         if self.remote.from_rcon {
-            self.remote.snapshot = Some(Some(text.into()));
+            self.remote.snapshot = Some(Some((level, text.into())));
         } else {
-            self.shell.panel.replace_snapshot(&self.canvas, text);
+            self.shell
+                .panel
+                .replace_snapshot_with_level(&self.canvas, level, text);
         }
     }
 

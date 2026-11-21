@@ -1,5 +1,22 @@
 # MODLOG
 
+## 2026-11-21 — Style `agent_status` console line with `Console:` chat styling
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`, `crates/source-ui/src/console/panel/printed.rs`, `crates/source-ui/src/console/panel/snapshot.rs`: added `ConsolePanel::replace_snapshot_with_level`, tracked the active replaceable snapshot by line number (`ConsolePanel::snapshot`) so non-`Level::Snapshot` replaceable lines can be replaced and cleared without affecting scrollback or selection, and kept replaceable snapshot pushes out of `ConsolePanel::printed` so external `con_logfile` readers do not treat transient status updates as printed chat replies (`replace_snapshot` continues to use `Level::Snapshot` with ordinary text color).
+  - `crates/hl2-ui/src/console/remote.rs`, `crates/hl2-ui/src/console/panel.rs`, `crates/hl2-bevy/src/rcon.rs`: carried the requested `Level` alongside the snapshot text through `Remote::snapshot`, `Console::log_snapshot_with_level`, and RCON post-redirect application.
+  - `plugins/hl2-debug/src/commands.rs`, `plugins/hl2-debug/src/ui_tests.rs`: formatted `Host::agent_status` with `hl2_ui::console::remote::RCON_SPEAKER` (`Console: Thinking...` / `Console: Still waiting for a reply...`) using `Level::ChatRemote`, reusing `say` chat styling (`CHAT_REMOTE_TEXT` cyan body with white `Console:` speaker label) and updating `remote_reply_clears_status_without_printing_it`.
+- Why: owner request to make the `agent_status` label render as `Console: Thinking...` in cyan reusing the remote `say` chat styling, without breaking external `con_logfile` detection of actual `Console:` replies.
+- Tested how:
+  - Unit tests: `cargo test --workspace --locked` including `styled_snapshot_uses_requested_level_and_stays_out_of_printed_log` in `source-ui` (verifying `WHITE` `Console:` label, `CHAT_REMOTE_TEXT` body, and empty `take_printed()`), `live_viewmodel_tuning_log_replaces_its_snapshot_and_keeps_other_output` and `audit_no_hardcoded_user_visible_strings_in_ui_code_outside_fallback_constants` in `hl2-ui`, and `remote_reply_clears_status_without_printing_it` in `hl2-debug`.
+  - Packaged verification (`scripts/build-bevy.sh` -> `bin/hl2-bevy` on macOS, `-usercon +con_logfile agent_status_verify.log +showconsole`): sent `say Hello from agent` and `agent_status thinking` over RCON, captured `background010000.png` confirming matching white `Console:` + cyan body rendering for `Console: Hello from agent` and `Console: Thinking...`, confirmed neither `Thinking...` nor `Still waiting` wrote to `con_logfile`, and confirmed `say Reply clears status` logged to `con_logfile`.
+  - Validation suites: `scripts/checks/validate.sh` (architecture guardrails, 74 Python tests, all 4 plugin selection builds, workspace Cargo unit tests, strict Clippy, `cargo fmt --check`), self-containment check, and `scripts/checks/check_windows.sh` (strict Clippy for `x86_64-pc-windows-msvc`).
+- Result: all unit tests, packaged macOS visual and `con_logfile` checks, validation suite, and Windows target Clippy passed.
+- Still broken or not tested: Windows live runtime **not tested** locally.
+- Next: none.
+- Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-21 — On-demand asynchronous NPC late-precaching for unpooled classes and background maps
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).

@@ -79,7 +79,7 @@ fn run(
     let lines = ui.source.shell.panel.finish_redirect(redirect);
     ui.source.remote.from_rcon = false;
     match ui.source.remote.snapshot.take() {
-        Some(Some(text)) => ui.source.log_snapshot(text),
+        Some(Some((level, text))) => ui.source.log_snapshot_with_level(level, text),
         Some(None) => ui.source.clear_snapshot(),
         None => {}
     }

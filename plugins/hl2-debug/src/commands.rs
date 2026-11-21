@@ -333,7 +333,8 @@ impl Host for hl2_ui::console::Console {
         match token {
             Some(token) => {
                 let text = self.resources().localization.text(token);
-                self.log_snapshot(text);
+                let line = format!("{}: {text}", hl2_ui::console::remote::RCON_SPEAKER);
+                self.log_snapshot_with_level(source_ui::console::panel::Level::ChatRemote, line);
             }
             None => self.clear_snapshot(),
         }

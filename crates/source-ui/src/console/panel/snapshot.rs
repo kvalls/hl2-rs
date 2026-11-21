@@ -4,17 +4,31 @@ use super::{Canvas, ConsolePanel, Level};
 impl ConsolePanel {
     /// Remove the previous snapshot and append the latest one after all ordinary output.
     pub fn replace_snapshot(&mut self, canvas: &Canvas, text: impl Into<String>) {
+        self.replace_snapshot_with_level(canvas, Level::Snapshot, text);
+    }
+
+    /// Remove the previous snapshot and append the latest one at `level` after all ordinary
+    /// output, without recording it in the kept printed lines for external log readers.
+    pub fn replace_snapshot_with_level(
+        &mut self,
+        canvas: &Canvas,
+        level: Level,
+        text: impl Into<String>,
+    ) {
         self.clear_snapshot(canvas);
-        self.print(canvas, Level::Snapshot, text);
+        self.push_output(canvas, level, text.into(), false);
+        let number = self.output_start + self.output.len() as u64 - 1;
+        self.snapshot = Some(number);
     }
 
     /// Remove the current snapshot line, if any, without disturbing ordinary output or scroll.
     pub fn clear_snapshot(&mut self, canvas: &Canvas) {
-        if let Some(index) = self
-            .output
-            .iter()
-            .rposition(|line| line.level == Level::Snapshot)
-        {
+        if let Some(index) = self.snapshot.take().and_then(|number| {
+            number
+                .checked_sub(self.output_start)
+                .and_then(|offset| usize::try_from(offset).ok())
+                .filter(|&index| index < self.output.len())
+        }) {
             self.remove_snapshot(canvas, index);
         }
     }
@@ -158,5 +172,42 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn styled_snapshot_uses_requested_level_and_stays_out_of_printed_log() {
+        let (canvas, mut panel) = panel();
+        panel.keep_printed(true);
+        panel.print(&canvas, Level::Normal, "ordinary");
+        panel.replace_snapshot_with_level(&canvas, Level::ChatRemote, "Console: Thinking...");
+        panel.replace_snapshot_with_level(&canvas, Level::ChatRemote, "Console: Waiting...");
+        assert_eq!(panel.output.len(), 2);
+        assert_eq!(panel.output[1].level, Level::ChatRemote);
+        assert_eq!(panel.output[1].text, "Console: Waiting...");
+
+        let rows = panel.history_rows(&canvas);
+        let drawn = std::cell::RefCell::new(Vec::new());
+        panel.draw_history_row(
+            &rows[1],
+            false,
+            (0., 0., 1.),
+            panel.line_color(rows[1].line),
+            &|text, _, _, color| drawn.borrow_mut().push((text.to_owned(), color)),
+        );
+        assert_eq!(
+            *drawn.borrow(),
+            vec![
+                ("Console:".into(), super::super::WHITE),
+                (" Waiting...".into(), super::super::CHAT_REMOTE_TEXT),
+            ]
+        );
+
+        let printed: Vec<_> = panel.take_printed().into_iter().map(|l| l.text).collect();
+        assert_eq!(printed, ["ordinary"]);
+
+        panel.print(&canvas, Level::ChatRemote, "Console: reply");
+        panel.clear_snapshot(&canvas);
+        let remaining: Vec<_> = panel.output.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(remaining, ["ordinary", "Console: reply"]);
     }
 }

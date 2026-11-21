@@ -2,6 +2,7 @@
 //! `-condebug`) and the remote console's cvars (`rcon_password`, `sv_rcon_*`, `hostport`,
 //! `ip`). The host opens the file and the socket; nothing here touches either.
 
+use source_ui::console::panel::Level;
 use std::path::{Component, Path, PathBuf};
 
 /// `-condebug`'s log file.
@@ -56,9 +57,9 @@ pub struct Remote {
     pub from_rcon: bool,
     /// Lines a remote command printed that the local console shows too (`say`).
     pub broadcast: Vec<String>,
-    /// Replaceable snapshot update (`Some(text)`) or clear (`None`) queued while a remote
+    /// Replaceable snapshot update (`Some((level, text))`) or clear (`None`) queued while a remote
     /// command's output is redirected, applied to the local console after `finish_redirect`.
-    pub snapshot: Option<Option<String>>,
+    pub snapshot: Option<Option<(Level, String)>>,
     /// Remote console commands run only with a non-empty password; never saved.
     pub rcon_password: String,
     /// `sv_rcon_log`: print each remote command.

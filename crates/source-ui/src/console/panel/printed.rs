@@ -8,13 +8,25 @@ use super::{
 impl ConsolePanel {
     /// Prints a line at `level`, stamped with the current time.
     pub fn print(&mut self, canvas: &Canvas, level: Level, text: impl Into<String>) {
+        self.push_output(canvas, level, text.into(), true);
+    }
+
+    pub(super) fn push_output(
+        &mut self,
+        canvas: &Canvas,
+        level: Level,
+        text: String,
+        record_printed: bool,
+    ) {
         self.output.push_back(Line {
             level,
-            text: text.into(),
+            text,
             time: self.clock,
         });
-        if let (Some(printed), Some(line)) = (&mut self.printed, self.output.back()) {
-            printed.push(line.clone());
+        if record_printed {
+            if let (Some(printed), Some(line)) = (&mut self.printed, self.output.back()) {
+                printed.push(line.clone());
+            }
         }
         if self.output.len() > OUTPUT_LINES {
             self.output.pop_front();
@@ -79,6 +91,12 @@ impl ConsolePanel {
         self.keep_printed(redirect.kept);
         let keep = self.output.len().saturating_sub(lines.len());
         self.output.truncate(keep);
+        if self
+            .snapshot
+            .is_some_and(|n| n >= self.output_start + self.output.len() as u64)
+        {
+            self.snapshot = None;
+        }
         if self.output_start == redirect.output_start {
             self.scroll = redirect.scroll;
             self.selection = redirect.selection;

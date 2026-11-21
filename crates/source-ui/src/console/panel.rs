@@ -59,8 +59,8 @@ pub enum Level {
     Normal,
     /// Developer output (`DevMsg`, mirrored engine log): scheme `Console.DevTextColor`.
     Developer,
-    /// A snapshot the app replaces at the end ([`ConsolePanel::replace_snapshot`]) instead of
-    /// growing the scrollback.
+    /// A replaceable line added by [`ConsolePanel::replace_snapshot`], styled with ordinary
+    /// text color (`replace_snapshot_with_level` picks another level such as `ChatRemote`).
     Snapshot,
     /// Local player chat line (`say` typed locally): yellow.
     ChatLocal,
@@ -281,6 +281,8 @@ pub struct ConsolePanel {
     pub con_timestamp: bool,
     /// History rows scrolled back from the newest.
     pub scroll: usize,
+    /// Line number of the active replaceable snapshot, if any.
+    snapshot: Option<u64>,
     /// Lines printed since a reader last took them (`keep_printed`); `None` keeps nothing.
     printed: Option<Vec<Line>>,
     /// Each output line's wrapped rows by line number, rebuilt when its shown text or the
@@ -315,6 +317,7 @@ impl ConsolePanel {
             con_filter_text: String::new(),
             con_timestamp: false,
             scroll: 0,
+            snapshot: None,
             printed: None,
             wrapped: Mutex::default(),
             ascii_advances: Mutex::default(),
@@ -511,6 +514,7 @@ impl ConsolePanel {
         self.output_start += self.output.len() as u64;
         self.output.clear();
         self.scroll = 0;
+        self.snapshot = None;
         self.selection = None;
         self.selecting = false;
     }

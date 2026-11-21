@@ -161,25 +161,38 @@ fn npc_dump_parses_default_radius_and_entity_id() {
 
 #[test]
 fn remote_reply_clears_status_without_printing_it() {
+    use source_ui::console::panel::Level;
+
     let mut c = console();
     let before = c.shell.panel.output.len();
     c.execute("agent_status thinking");
     assert_eq!(c.shell.panel.output.len(), before + 1);
     assert_eq!(
-        c.shell.panel.output.back().map(|l| l.text.as_str()),
-        Some("Thinking...")
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Thinking..."))
     );
     c.execute("agent_status waiting");
     assert_eq!(c.shell.panel.output.len(), before + 1);
     assert_eq!(
-        c.shell.panel.output.back().map(|l| l.text.as_str()),
-        Some("Still waiting for a reply...")
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Still waiting for a reply..."))
     );
     c.execute("agent_status clear");
     assert_eq!(c.shell.panel.output.len(), before);
     c.remote.from_rcon = true;
     c.execute("agent_status thinking");
-    assert_eq!(c.remote.snapshot, Some(Some("Thinking...".into())));
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((Level::ChatRemote, "Console: Thinking...".into())))
+    );
     c.execute("say hello");
     assert_eq!(c.remote.snapshot, Some(None));
     assert_eq!(c.remote.broadcast, ["Console: hello"]);
