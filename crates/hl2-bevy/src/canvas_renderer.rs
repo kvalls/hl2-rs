@@ -163,12 +163,9 @@ impl Hud {
     pub fn profiling(&self) -> Option<crate::performance::status::ProfilingSnapshot> {
         self.profiling
     }
-    /// Stage timings restart when the warm-up ends, so they cover the benchmark's frames.
+    /// Stage timings restart after the gameplay warm-up (`performance::status`).
     fn observe_frame(&mut self, now: f64, performance: Option<&crate::performance::Performance>) {
         self.timing.observe(now, performance.is_some());
-        if let Some(performance) = performance.filter(|_| self.timing.frames_seen == 120) {
-            performance.restart_stages();
-        }
     }
     pub fn report(&self) -> serde_json::Value {
         let captions = &self.source.captions;

@@ -77,18 +77,20 @@ fn profiling_rows(
     let Some(snapshot) = snapshot else {
         return vec![];
     };
+    let state = |state| match state {
+        RecorderState::Idle => ProfilerState::Idle,
+        RecorderState::Recording => ProfilerState::Profiling,
+        RecorderState::Finished => ProfilerState::Finished,
+    };
     crate::overlay::profiling_lines(
         snapshot.stages.map(|s| StageProfiler {
-            state: match s.state {
-                RecorderState::Idle => ProfilerState::Idle,
-                RecorderState::Recording => ProfilerState::Profiling,
-                RecorderState::Finished => ProfilerState::Finished,
-            },
+            state: state(s.state),
             elapsed: s.elapsed,
             frames: s.frames,
             limit: s.limit,
         }),
         snapshot.trace.map(|t| TraceProfiler {
+            state: state(t.state),
             elapsed: t.elapsed,
             bytes: t.bytes,
         }),

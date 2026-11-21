@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Profiling and tracing start with gameplay, not the launch
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `crates/hl2-bevy/src/performance/status.rs` starts both recorders from the first gameplay frame (the simulation not loading or paused and not a menu background level): the trace then, and the `--profile` stage samples 120 gameplay frames later (the warm-up the HUD applied 120 frames after the launch, removed from `canvas_renderer.rs`). Trace builds install the Chrome trace layer themselves (`performance/trace_writer.rs`, through `console_host::log_layer`): it writes to a sink until gameplay starts, then `tracing_chrome::FlushGuard::start_new` opens `TRACE_CHROME`; `launch::exit_process` finishes it, so the file now ends with its closing bracket (earlier traces ended mid-line because the process exits without dropping resources). The `trace-chrome` application feature now enables `bevy/trace` and `bevy/debug` instead of `bevy/trace_chrome`; `hl2-bevy`'s `trace` feature adds `tracing-chrome` 0.7.2 (already in the build). F1's trace row shows `idle ... starts with gameplay` until then.
+- Why: owner request: start profiling and tracing when gameplay resumes, not when the game loads.
+- Tested how: unit tests `stages_wait_for_gameplay_and_its_warm_up_then_record_and_freeze_their_time` and `the_trace_starts_once_with_gameplay_and_times_from_there`, and the F1 row tests (an idle row); `hl2-bevy` (213) and `hl2-debug` (46) tests. Headless trace build: 300 frames on the main menu's background map wrote no trace file and both rows read idle; 400 frames on d1_trainstation_02 started the trace with gameplay (F1 `profiling 00:00:05.862 | 770.4 MB`), recorded 249 stage samples after the warm-up, and the file ended with `]`. Strict Clippy on the trace build; packaged replays; `scripts/checks/validate.sh`.
+- Result: captures hold gameplay only; menu and loading time no longer fill the trace or the 4,096-sample window.
+- Still broken or not tested: the trace keeps recording through later pauses (it starts once); windowed play not captured yet; Windows **not tested**.
+- Next: the next owner capture.
+
 ## 2026-11-21 — Viewmodel blur trail taps read one MSAA sample (backlog O20, first step)
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

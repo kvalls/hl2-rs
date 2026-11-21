@@ -140,9 +140,22 @@ impl<S: tracing::Subscriber> Layer<S> for ToConsole {
     }
 }
 
-/// `LogPlugin::custom_layer`: queues log lines for the console.
-pub fn log_layer(_: &mut App) -> Option<BoxedLayer> {
-    Some(Box::new(ToConsole))
+/// `LogPlugin::custom_layer`: queues log lines for the console; trace builds add the Chrome trace
+/// layer, which starts writing with gameplay.
+pub fn log_layer(app: &mut App) -> Option<BoxedLayer> {
+    #[cfg(feature = "trace")]
+    {
+        let layers: Vec<BoxedLayer> = vec![
+            Box::new(ToConsole),
+            crate::performance::trace_writer::layer(app),
+        ];
+        Some(Box::new(layers))
+    }
+    #[cfg(not(feature = "trace"))]
+    {
+        let _ = app;
+        Some(Box::new(ToConsole))
+    }
 }
 
 /// The window cursor for a placement hint: resize arrows over the console's corner grips.

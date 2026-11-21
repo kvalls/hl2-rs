@@ -3,6 +3,8 @@ mod frame_stages;
 mod gpu_completion;
 mod pacing;
 pub mod status;
+#[cfg(feature = "trace")]
+pub(crate) mod trace_writer;
 use bevy::prelude::*;
 pub(crate) use pacing::background_interval;
 /// Samples kept per stage; later frames only count calls.

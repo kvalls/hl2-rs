@@ -1102,7 +1102,6 @@ dependencies = [
  "bevy_platform",
  "bevy_utils",
  "tracing",
- "tracing-chrome",
  "tracing-error",
  "tracing-log",
  "tracing-oslog",
@@ -3152,6 +3151,7 @@ dependencies = [
  "serde_json",
  "source-assets",
  "source-ui",
+ "tracing-chrome",
 ]
 
 [[package]]

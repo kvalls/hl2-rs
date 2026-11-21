@@ -318,6 +318,10 @@ pub(super) fn exit_process(world: &mut bevy::prelude::World) {
     let status = world.resource::<Status>().clone();
     let options = world.resource::<Options>().clone();
     let summary = world.resource::<ExitSummary>().0.clone();
+    // The process exits without dropping resources: finish the trace file first.
+    if let Some(switch) = world.get_resource::<crate::performance::status::TraceSwitch>() {
+        (switch.0)(crate::performance::status::TraceCommand::Finish);
+    }
     let code = match finish(&status, &options, summary, exit) {
         Ok(()) => 0,
         Err(error) => {

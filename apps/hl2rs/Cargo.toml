@@ -8,8 +8,10 @@ license = "MIT"
 default = ["advanced-options", "debug-tools"]
 advanced-options = ["dep:hl2-advanced-options", "hl2-advanced-options/bevy"]
 debug-tools = ["dep:hl2-debug", "hl2-debug/bevy"]
-# Profiling builds only: a span per Bevy system written as a Chrome trace (`TRACE_CHROME=<file>`).
-trace-chrome = ["bevy/trace_chrome", "hl2-bevy/trace"]
+# Profiling builds only: a span per Bevy system written as a Chrome trace (`TRACE_CHROME=<file>`),
+# from the first gameplay frame. Bevy's own `trace_chrome` writes from the launch, so the trace
+# layer is the host's; `debug` keeps system names.
+trace-chrome = ["bevy/trace", "bevy/debug", "hl2-bevy/trace"]
 # With trace-chrome: count heap allocations per frame (a counting global allocator).
 trace-alloc = ["trace-chrome"]
 

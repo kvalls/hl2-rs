@@ -153,7 +153,7 @@ pub fn developer_lines(frame: DeveloperFrame<'_>) -> Vec<String> {
 /// What a profiler is doing, as F1 names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfilerState {
-    /// Running, but its measurements have not started yet.
+    /// Waiting for gameplay (and, for stage samples, the warm-up after it).
     Idle,
     Profiling,
     /// Its sample buffer is full; later frames are not measured.
@@ -175,10 +175,11 @@ pub struct StageProfiler {
     pub frames: usize,
     pub limit: usize,
 }
-/// A trace written for the whole run.
+/// A trace, written from the first gameplay frame.
 pub struct TraceProfiler {
+    pub state: ProfilerState,
     pub elapsed: std::time::Duration,
-    /// Bytes written so far; `None` when the file is unknown.
+    /// Bytes written so far; `None` before it starts or when the file is unknown.
     pub bytes: Option<u64>,
 }
 /// Header rows for the profilers this run has; none when it has none.
@@ -193,13 +194,14 @@ pub fn profiling_lines(stages: Option<StageProfiler>, trace: Option<TraceProfile
         )
     });
     let trace = trace.map(|t| {
-        let size = t.bytes.map_or_else(
-            || "size unknown (TRACE_CHROME not set)".to_owned(),
-            size_text,
-        );
+        let size = match (t.state, t.bytes) {
+            (ProfilerState::Idle, _) => "starts with gameplay".to_owned(),
+            (_, Some(bytes)) => size_text(bytes),
+            (_, None) => "size unknown (TRACE_CHROME not set)".to_owned(),
+        };
         format!(
             "Trace (trace-chrome): {}  {}  |  {size}",
-            ProfilerState::Profiling.label(),
+            t.state.label(),
             elapsed_text(t.elapsed)
         )
     });
@@ -255,6 +257,7 @@ mod tests {
                 limit: 4096,
             }),
             Some(TraceProfiler {
+                state: ProfilerState::Profiling,
                 elapsed: Duration::from_millis(61_500),
                 bytes: Some(3 * 1024 * 1024 * 1024 / 2),
             }),
@@ -266,18 +269,25 @@ mod tests {
                 "Trace (trace-chrome): profiling  00:01:01.500  |  1.50 GB",
             ]
         );
-        let unknown = profiling_lines(
-            None,
-            Some(TraceProfiler {
-                elapsed: Duration::ZERO,
-                bytes: None,
-            }),
-        );
+        let trace = |state, bytes| {
+            profiling_lines(
+                None,
+                Some(TraceProfiler {
+                    state,
+                    elapsed: Duration::ZERO,
+                    bytes,
+                }),
+            )
+        };
         assert_eq!(
-            unknown,
+            trace(ProfilerState::Profiling, None),
             [
                 "Trace (trace-chrome): profiling  00:00:00.000  |  size unknown (TRACE_CHROME not set)"
             ]
+        );
+        assert_eq!(
+            trace(ProfilerState::Idle, None),
+            ["Trace (trace-chrome): idle  00:00:00.000  |  starts with gameplay"]
         );
     }
 
