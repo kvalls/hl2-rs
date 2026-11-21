@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Build the diagnostic report only when it is read (backlog O19)
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `crates/hl2-bevy/src/monitor.rs` no longer rebuilds the full diagnostic report every 60 frames. It is built on the first frame and when it is read: capture requests, script end, the `--frames` limit and quit (the exit report). The map metadata that F1's texture count reads is copied when the map name changes.
+- Why: backlog O19. In every game, not only profiled runs, the periodic rebuild took 7.45 ms at p99 and up to 11.8 ms in windowed play (capture 1), a hitch every half second at 120 FPS. Owner request to fix it.
+- Tested how: headless trace build, 600 frames at d1_trainstation_02 with `--profile`, before and after (the change stashed and restored): `monitor::monitor` mean 0.063 -> 0.018 ms, p99 4.016 -> 0.020 ms; the max (4.7-5.0 ms) is the first-frame snapshot in both. The `diagnostics` stage after the warm-up: mean 0.068 -> 0.002 ms, max 4.68 -> 0.01 ms. Packaged replays (all checks read the exit report); `scripts/checks/validate.sh`.
+- Result: the periodic hitch is gone; reports and captures are unchanged.
+- Still broken or not tested: a windowed re-capture of the hitch is not done; Windows **not tested**.
+- Next: backlog O6 (duplicate skeleton composition) or O20 (viewmodel motion blur GPU spikes).
+
 ## 2026-11-21 — Optimization backlog, allocation counts and two profiling captures
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

@@ -100,15 +100,18 @@ pub(super) fn monitor(
     control.frames += 1;
     let mut report = status.0.lock().expect("status lock");
     report.frames = control.frames;
-    // Full diagnostic serialization is sampled for play; captures and exits always get a fresh snapshot.
+    // The full diagnostic report (milliseconds of serialization) is built only when something
+    // reads it: the first frame, captures and exits. F1 reads the map's metadata, refreshed on a
+    // map change.
     let snapshot = control.frames == 1
-        || control.frames.is_multiple_of(60)
         || control.requested
         || simulation.finished
         || options.frames.is_some_and(|limit| control.frames >= limit)
         || console.quit_requested;
-    if snapshot {
+    if snapshot || report.map_metadata.get("map") != campaign.metadata.get("map") {
         report.map_metadata = campaign.metadata.clone();
+    }
+    if snapshot {
         report.simulation = simulation.report();
         report.simulation["gameplay"] = simulation.gameplay_report(&game);
         let (mismatches, owned_meshes, doors) = draw_consistency(&draws, &simulation, &game);
