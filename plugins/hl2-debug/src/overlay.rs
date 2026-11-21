@@ -232,9 +232,14 @@ fn size_text(bytes: u64) -> String {
 fn location_line(frame: &DeveloperFrame<'_>) -> String {
     let [x, y, z] = frame.eye;
     let [yaw, pitch] = frame.angles;
+    let frame_ms = if frame.frame_ms > 0. {
+        frame.frame_ms
+    } else {
+        0.
+    };
     format!(
-        "--position {x:.0} {y:.0} {z:.0} --yaw {yaw:.0} --pitch {pitch:.0}  |  {:.2} ms  |  {} materials / {} colliders / {} bodies",
-        frame.frame_ms, frame.materials, frame.colliders, frame.bodies
+        "--position {x:.0} {y:.0} {z:.0} --yaw {yaw:.0} --pitch {pitch:.0}  |  {frame_ms:05.2} ms  |  {} materials / {} colliders / {} bodies",
+        frame.materials, frame.colliders, frame.bodies
     )
 }
 
@@ -321,6 +326,49 @@ mod tests {
             "{}",
             lines[5]
         );
+    }
+
+    #[test]
+    fn frame_ms_zero_pads_single_digit_values_to_keep_footer_aligned() {
+        let footer = |frame_ms| {
+            developer_lines(DeveloperFrame {
+                map: "d1_canals_01a",
+                triangles: 1,
+                textures: 2,
+                entities: 3,
+                flying: false,
+                fps: 80.,
+                friendly_fire: false,
+                eye: [360.4, 6259.6, -33.2],
+                angles: [61.3, -4.6],
+                frame_ms,
+                materials: 4,
+                colliders: 5,
+                bodies: 6,
+            })
+            .pop()
+            .expect("footer")
+        };
+        for (value, expected) in [
+            (0.3, "  |  00.30 ms  |  "),
+            (8.33, "  |  08.33 ms  |  "),
+            (12.5, "  |  12.50 ms  |  "),
+            (0.0, "  |  00.00 ms  |  "),
+            (-0.0, "  |  00.00 ms  |  "),
+            (-5.0, "  |  00.00 ms  |  "),
+            (f64::NAN, "  |  00.00 ms  |  "),
+            (123.45, "  |  123.45 ms  |  "),
+        ] {
+            let line = footer(value);
+            assert!(
+                line.contains(expected),
+                "frame_ms={value:?}: expected {expected:?} in {line:?}"
+            );
+        }
+        let anchor = "  |  4 materials";
+        let offset = |value| footer(value).find(anchor).expect("materials offset");
+        assert_eq!(offset(0.3), offset(12.5));
+        assert_eq!(offset(8.33), offset(12.5));
     }
 }
 

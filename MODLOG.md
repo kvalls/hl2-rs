@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Zero-pad single-digit frame times in the F1 overlay footer
+
+- Agent/model: Antigravity (exact model identifier not recorded).
+- Changed: `plugins/hl2-debug/src/overlay.rs`: `location_line` formats `frame.frame_ms` with `{frame_ms:05.2} ms` (after clamping non-positive / `NaN` values to `0.`) so single-digit values render as `00.30 ms` / `08.33 ms` instead of shifting the trailing counts, and adds unit test `frame_ms_zero_pads_single_digit_values_to_keep_footer_aligned`.
+- Why: owner request to zero-pad single-digit millisecond values in the F1 footer so items to the right stop jumping when frame time crosses 10 ms.
+- Tested how: `cargo test -p hl2-debug` (23 passed) and `cargo test -p hl2-debug --features bevy` (47 passed); `scripts/checks/validate.sh`.
+- Result: single-digit frame times render at the same character width as `10.00 ms..99.99 ms` in F1's monospace font, keeping `materials / colliders / bodies` aligned; values `>= 100 ms` widen without truncation.
+- Still broken or not tested: `--position` / `--yaw` / `--pitch` integer fields on the same footer line remain variable-width when moving across digits or signs; Windows **not tested**.
+- Next: none.
+
 ## 2026-11-21 — The build scripts clean stale target artifacts, not only the launcher
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`); reviewed, verified, and committed by Antigravity (exact model identifier not recorded).
