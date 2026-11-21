@@ -16,6 +16,9 @@
 !/.agents/skills/hl2-session/SKILL.md
 !/.agents/skills/hl2-session/scripts/*.py
 !/.claude/skills/hl2-session/SKILL.md
+!/.agents/skills/hl2-performance-trace/SKILL.md
+!/.agents/skills/hl2-performance-trace/scripts/*.py
+!/.claude/skills/hl2-performance-trace/SKILL.md
 !/launch*.cmd
 !/launch*.sh
 !/scripts/build-bevy.ps1

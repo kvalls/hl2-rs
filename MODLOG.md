@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Add cross-platform /hl2-performance-trace skill and capture scripts
+
+- Agent/model: Antigravity (exact model identifier not recorded).
+- Changed: added `.agents/skills/hl2-performance-trace/SKILL.md`, forwarding stub `.claude/skills/hl2-performance-trace/SKILL.md`, six Python 3 stdlib scripts (`.agents/skills/hl2-performance-trace/scripts/{capture.py,trace_summary.py,trace_waste.py,resource_sampler.py,metal_gpu.py,sample_summary.py}`), narrow `.gitignore` entries, and 11 unit tests in `scripts/checks/test_hl2_performance_trace.py`; documented setup and modes in `README.md`, `docs/non-retail-features.md`, and `docs/DESIGN.md`.
+- Why: owner request to package the performance profiling and tracing capture/analysis workflow as a repository skill alongside `/hl2-session`.
+- Tested how: `scripts/checks/test_hl2_performance_trace.py` (11 passed); macOS smoke check `capture.py status --json` and `capture.py headless --mode stages --map d1_trainstation_02 --frames 300 --analyze` on packaged `bin/hl2-bevy` (exit 0; 149 post-warmup `frame_total` samples, mean `9.303 ms`, `p95 11.378 ms`; wrote `report_summary.*` and `summary.txt`); `scripts/checks/validate.sh`.
+- Result: live `/hl2-session` and headless captures (`stages`, `pacing`, `trace`, `trace-alloc`), CPU/waste/resource/Metal/sample summaries, safe `--delete-raw` pruning, and `restore` are available cross-platform through one skill.
+- Still broken or not tested: live Windows/Linux captures and full interactive `capture.py launch` + `metal-record` end-to-end execution through the new wrappers are **not tested** here (covered by unit tests and mocked exporters).
+- Next: none.
+
 ## 2026-11-21 — Zero-pad single-digit frame times in the F1 overlay footer
 
 - Agent/model: Antigravity (exact model identifier not recorded).

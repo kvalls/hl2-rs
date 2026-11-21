@@ -2690,7 +2690,7 @@ Layers, each opt-in so ordinary builds and runs pay nothing:
 8. Deferred: a compiler-instrumented call-count build (every function, counts per run, compared
    across scene sizes to find superlinear growth) and allocations per span.
 
-Findings and their status: docs/optimization-backlog.md.
+Findings and their status: docs/optimization-backlog.md. Capture and analysis automation lives in `.agents/skills/hl2-performance-trace/SKILL.md` (with a Claude stub at `.claude/skills/hl2-performance-trace/SKILL.md`).
 
 Validation: each layer's own overhead is measured against the same headless run without it and
 recorded in MODLOG; numbers from different layers are not compared directly. Reversible by

@@ -203,6 +203,7 @@ temporary settings, and current limits.
 | Viewmodel debug mode | Console: `viewmodel_debug_mode 1`; tune weapon FOV and position offsets for the current aspect profile. |
 | Menu background debug mode | Console from the main menu: `background_debug_mode 1`; compare background FOV, blur opacity and chapter artwork. |
 | Live AI debug session | Invoke `/hl2-session` in Claude Code, Codex, or Gemini (see [Live AI debug session](#live-ai-debug-session-hl2-session)). |
+| Performance tracing | Invoke `/hl2-performance-trace` in Claude Code, Codex, or Gemini (see [Performance tracing](#performance-tracing-hl2-performance-trace)). |
 
 `background_force_default_blur 1` always selects the normal menu/loading blur
 texture, even on wide frames; `0` restores aspect-based selection (the default).
@@ -220,6 +221,15 @@ HL2-RS ships an in-repo `/hl2-session` skill so you can talk to an AI coding ass
 - **Start the game manually first (optional)**: run `python .agents/skills/hl2-session/scripts/session.py launch` on Windows (or `python3 .agents/skills/hl2-session/scripts/session.py launch` on macOS/Linux; append game flags after `--`, e.g. `-- --map d1_trainstation_01`), then invoke `/hl2-session` to attach without closing or duplicating the running game.
 - **In-game workflow**: the game launches with `-condebug -usercon +ip 127.0.0.1 +con_timestamp 1 +sv_rcon_log 1 +showconsole` so the developer console opens immediately and the assistant greets you. Type `say <message>` to chat with the assistant; an inline `Thinking...` status line appears while it works and clears on its `say` reply. Remote commands other than `say` and `agent_status` print as `rcon from ...`. Built-in `hl2-debug` commands (`ui_dump`, `npc_dump`, `getpos`, `screenshot`) let the assistant inspect live state, and `.agents/skills/hl2-session/scripts/restart.py` compiles changes while the game keeps running and relaunches via `agent_resume` back to the same map, eye position, angles, and open menus.
 - **Security and platform notes**: RCON listens only on loopback (`127.0.0.1`, port `27015` by default or an automatically chosen free port) using a fresh per-session random password stored in `<temp>/hl2rs-agent-session/rcon_password` and passed via `+rcon_password` on the game's command line (visible to local process inspection). Cross-platform unit tests run on Windows and macOS in CI and a headless packaged session round-trip ran on macOS; the live Windows runtime is **not tested** yet.
+
+### Performance tracing (`/hl2-performance-trace`)
+
+HL2-RS ships an in-repo `/hl2-performance-trace` skill so AI assistants and contributors can orchestrate repeatable CPU, allocation, system-resource, and GPU/display-pacing captures across live `/hl2-session` and headless runs:
+
+- **Prerequisites**: Python 3 on `PATH` (standard library only). macOS Metal System Trace (`capture.py metal-record`) and CPU sampling (`capture.py sample-record`) additionally use Xcode `xcrun xctrace` and `sample` when installed.
+- **Start from your assistant**: open this repository in Claude Code (`.claude/skills/hl2-performance-trace/SKILL.md`), Codex, or Gemini (`.agents/skills/hl2-performance-trace/SKILL.md`) and run `/hl2-performance-trace`.
+- **Modes and workflow**: `scripts/capture.py` supports `stages` (`--profile` CPU stages on the everyday build), `pacing` (everyday build + `--profile` for uninflated Metal GPU and surface-pacing captures), `trace` (`trace-chrome` system/render/HL2-RS game/state spans), and `trace-alloc` (`state_frame` per-frame allocation counts/bytes). Live captures write into `artifacts/perf-traces/` through `/hl2-session` (`agent_resume` + `quit`, never `restart.py` during a trace run), `capture.py analyze --dir <dir> --delete-raw` writes summaries (`trace_summary.py`, `trace_waste.py`, `resource_sampler.py`, `metal_gpu.py`, `sample_summary.py`) and prunes multi-GB raw traces on success, and `capture.py restore` restores the everyday non-trace binary.
+- **Platform notes**: cross-platform unit tests run in CI and a macOS headless `stages` capture + analysis smoke test ran against `bin/hl2-bevy`; live `trace-alloc`/Metal workflows are macOS-tested and Windows runtime tracing is **not tested** yet.
 
 ## Implemented so far
 

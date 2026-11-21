@@ -171,3 +171,16 @@ The `/hl2-session` skill and its cross-platform Python 3 helper scripts (`sessio
 forwarding entry at
 `.claude/skills/hl2-session/SKILL.md` for
 Claude Code.
+
+## Performance tracing (`/hl2-performance-trace`)
+
+The `/hl2-performance-trace` skill and its cross-platform Python 3 scripts
+(`capture.py`, `trace_summary.py`, `trace_waste.py`, `resource_sampler.py`,
+`metal_gpu.py`, `sample_summary.py`) live in
+`.agents/skills/hl2-performance-trace/SKILL.md` (with a forwarding stub at
+`.claude/skills/hl2-performance-trace/SKILL.md`). `capture.py` wraps preflight
+checks (`status`, disk headroom, idle GPU sample), profiling builds (`stages`,
+`pacing`, `trace`, `trace-alloc`), live `/hl2-session` or `--background` headless
+captures under `artifacts/perf-traces/`, macOS `xctrace` / `sample` recording,
+automated trace/waste/resource/GPU analysis with safe raw-trace pruning, and
+restoring the everyday non-trace build (`restore`).
