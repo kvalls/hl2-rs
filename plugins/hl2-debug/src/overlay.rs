@@ -5,6 +5,9 @@ use source_ui::{
     font::FontFace,
 };
 const DEBUG_HEADER_HEIGHT: f32 = 105.;
+/// Height of one profiling row added below the header's four rows.
+const PROFILING_ROW: f32 = 20.;
+const PROFILING_COLOR: Color = Color::new(0.45, 0.85, 0.95, 1.);
 /// Height of one footer row; the footer holds the fifth and later lines, the last at the bottom.
 const FOOTER_ROW: f32 = 26.;
 pub struct OverlayPainter<'a> {
@@ -28,12 +31,14 @@ impl OverlayPainter<'_> {
     /// Four compact header rows and a footer of the remaining lines, the last at the bottom.
     /// Font data is bundled under its own MIT license, independent of installed game content.
     /// Returns the height the overlay occupies at the top of the canvas.
-    pub fn draw_debug(&self, lines: &[String]) -> f32 {
+    /// `profiling` rows extend the header below its four rows.
+    pub fn draw_debug(&self, lines: &[String], profiling: &[String]) -> f32 {
+        let header = DEBUG_HEADER_HEIGHT + PROFILING_ROW * profiling.len() as f32;
         self.canvas.rectangle(
             0.,
             0.,
             self.canvas.width(),
-            DEBUG_HEADER_HEIGHT,
+            header,
             Color::new(0.025, 0.045, 0.07, 0.88),
         );
         let rows = [
@@ -52,6 +57,10 @@ impl OverlayPainter<'_> {
         for (line, (origin, size, color)) in lines.iter().take(4).zip(rows) {
             draw(line, origin, size, color);
         }
+        for (row, line) in profiling.iter().enumerate() {
+            let baseline = DEBUG_HEADER_HEIGHT - 7. + PROFILING_ROW * (row + 1) as f32;
+            draw(line, vec2(22., baseline), 16., PROFILING_COLOR);
+        }
         let footer = lines.get(4..).unwrap_or_default();
         if !footer.is_empty() {
             let height = 12. + FOOTER_ROW * footer.len() as f32;
@@ -64,7 +73,7 @@ impl OverlayPainter<'_> {
                 draw(line, vec2(20., baseline), 18., WHITE);
             }
         }
-        DEBUG_HEADER_HEIGHT
+        header
     }
 
     fn draw_debug_lines_panel(&self, lines: &[String], top: f32, max_lines: usize) -> f32 {
@@ -141,6 +150,81 @@ pub fn developer_lines(frame: DeveloperFrame<'_>) -> Vec<String> {
         ]
 }
 
+/// What a profiler is doing, as F1 names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfilerState {
+    /// Running, but its measurements have not started yet.
+    Idle,
+    Profiling,
+    /// Its sample buffer is full; later frames are not measured.
+    Finished,
+}
+impl ProfilerState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Profiling => "profiling",
+            Self::Finished => "finished",
+        }
+    }
+}
+/// The `--profile` stage recorder.
+pub struct StageProfiler {
+    pub state: ProfilerState,
+    pub elapsed: std::time::Duration,
+    pub frames: usize,
+    pub limit: usize,
+}
+/// A trace written for the whole run.
+pub struct TraceProfiler {
+    pub elapsed: std::time::Duration,
+    /// Bytes written so far; `None` when the file is unknown.
+    pub bytes: Option<u64>,
+}
+/// Header rows for the profilers this run has; none when it has none.
+pub fn profiling_lines(stages: Option<StageProfiler>, trace: Option<TraceProfiler>) -> Vec<String> {
+    let stages = stages.map(|s| {
+        format!(
+            "Profile (--profile): {}  {}  |  {} / {} frames",
+            s.state.label(),
+            elapsed_text(s.elapsed),
+            s.frames,
+            s.limit
+        )
+    });
+    let trace = trace.map(|t| {
+        let size = t.bytes.map_or_else(
+            || "size unknown (TRACE_CHROME not set)".to_owned(),
+            size_text,
+        );
+        format!(
+            "Trace (trace-chrome): {}  {}  |  {size}",
+            ProfilerState::Profiling.label(),
+            elapsed_text(t.elapsed)
+        )
+    });
+    stages.into_iter().chain(trace).collect()
+}
+/// `hh:mm:ss.SSS`.
+fn elapsed_text(elapsed: std::time::Duration) -> String {
+    let millis = elapsed.as_millis();
+    let (hours, minutes) = (millis / 3_600_000, millis / 60_000 % 60);
+    let (seconds, millis) = (millis / 1000 % 60, millis % 1000);
+    format!("{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
+}
+/// KB below a megabyte, MB below a gigabyte, then GB (1024-based).
+fn size_text(bytes: u64) -> String {
+    const KB: f64 = 1024.;
+    let bytes = bytes as f64;
+    if bytes < KB * KB {
+        format!("{:.1} KB", bytes / KB)
+    } else if bytes < KB * KB * KB {
+        format!("{:.1} MB", bytes / (KB * KB))
+    } else {
+        format!("{:.2} GB", bytes / (KB * KB * KB))
+    }
+}
+
 /// Where the view is, written as the launch arguments that start a run there, and the frame's
 /// physics and material counts.
 fn location_line(frame: &DeveloperFrame<'_>) -> String {
@@ -154,7 +238,55 @@ fn location_line(frame: &DeveloperFrame<'_>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeveloperFrame, developer_lines};
+    use super::{
+        DeveloperFrame, ProfilerState, StageProfiler, TraceProfiler, developer_lines,
+        profiling_lines,
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn profiling_rows_show_state_time_and_size_only_for_running_profilers() {
+        assert!(profiling_lines(None, None).is_empty());
+        let lines = profiling_lines(
+            Some(StageProfiler {
+                state: ProfilerState::Finished,
+                elapsed: Duration::from_millis(3_723_045),
+                frames: 4096,
+                limit: 4096,
+            }),
+            Some(TraceProfiler {
+                elapsed: Duration::from_millis(61_500),
+                bytes: Some(3 * 1024 * 1024 * 1024 / 2),
+            }),
+        );
+        assert_eq!(
+            lines,
+            [
+                "Profile (--profile): finished  01:02:03.045  |  4096 / 4096 frames",
+                "Trace (trace-chrome): profiling  00:01:01.500  |  1.50 GB",
+            ]
+        );
+        let unknown = profiling_lines(
+            None,
+            Some(TraceProfiler {
+                elapsed: Duration::ZERO,
+                bytes: None,
+            }),
+        );
+        assert_eq!(
+            unknown,
+            [
+                "Trace (trace-chrome): profiling  00:00:00.000  |  size unknown (TRACE_CHROME not set)"
+            ]
+        );
+    }
+
+    #[test]
+    fn sizes_switch_units_at_each_1024_step() {
+        assert_eq!(super::size_text(512), "0.5 KB");
+        assert_eq!(super::size_text(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
+        assert_eq!(super::size_text(1024 * 1024 * 1024), "1.00 GB");
+    }
 
     #[test]
     fn the_last_line_names_the_view_as_launch_arguments() {

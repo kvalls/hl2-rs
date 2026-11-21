@@ -2,8 +2,13 @@
 mod frame_stages;
 mod gpu_completion;
 mod pacing;
+pub mod status;
 use bevy::prelude::*;
 pub(crate) use pacing::background_interval;
+/// Samples kept per stage; later frames only count calls.
+pub(crate) const SAMPLE_LIMIT: usize = 4096;
+/// The whole-frame stage (`frame_stages`).
+pub(crate) const FRAME_TOTAL: &str = "frame_total";
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -39,7 +44,7 @@ impl Drop for Scope<'_> {
         let mut all = performance.0.lock().expect("CPU timing");
         let samples = all.entry(self.name).or_default();
         samples.calls += 1;
-        if samples.calls > 30 && samples.values.len() < 4096 {
+        if samples.calls > 30 && samples.values.len() < SAMPLE_LIMIT {
             samples
                 .values
                 .push(self.start.elapsed().as_secs_f64() * 1000.);
@@ -308,7 +313,7 @@ impl Performance {
         for (name, milliseconds) in stages {
             let samples = all.entry(name).or_default();
             samples.calls += 1;
-            if samples.calls > 30 && samples.values.len() < 4096 {
+            if samples.calls > 30 && samples.values.len() < SAMPLE_LIMIT {
                 samples.values.push(milliseconds);
             }
         }
@@ -319,5 +324,13 @@ impl Performance {
     /// Drops the stage samples collected so far (menu, loading and warm-up frames).
     pub(crate) fn restart_stages(&self) {
         self.0.lock().expect("CPU timing").clear();
+    }
+    /// Samples kept so far for one stage.
+    pub(crate) fn recorded(&self, name: &'static str) -> usize {
+        self.0
+            .lock()
+            .expect("CPU timing")
+            .get(name)
+            .map_or(0, |samples| samples.values.len())
     }
 }

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Profiler status in the F1 header
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `crates/hl2-bevy/src/performance/status.rs` adds a `Profiling` resource, inserted only when `--profile` runs or the application declares a trace (`Application::trace`, set by `apps/hl2rs` under `trace-chrome` from `TRACE_CHROME`). Each frame it records the `--profile` state (idle until stage samples start after the warm-up, profiling, finished when the 4,096-sample buffer is full, elapsed time frozen then) and the trace's elapsed time and file size, read at most once a second. `Hud::profiling()` carries the snapshot; `plugins/hl2-debug` draws one header row per running profiler (`hh:mm:ss.SSS`, KB/MB/GB, 1024-based) below the F1 header's four rows and adds them to the HUD report. `SAMPLE_LIMIT` and `FRAME_TOTAL` now name the sample limit and the whole-frame stage once.
+- Why: owner request to see profiling status, elapsed time and live trace size in F1, and to drop any part whose reading hurts performance.
+- Tested how: unit tests for the state machine (idle, profiling, finished, frozen time, unknown trace file) and the row text, unit sizes and time format; headless trace build, 600 frames at d1_trainstation_02 with `--profile`: the report shows both rows; the status system measured 0.002 ms mean, 0.016 ms p99, 0.06 ms max per frame (830 frames), about 0.03% of an 8.33 ms frame, so nothing was dropped. `scripts/checks/validate.sh`.
+- Result: F1 shows the profilers of this run; ordinary runs add no resource or system.
+- Still broken or not tested: no state for a paused recorder (neither recorder pauses); a trace written without `TRACE_CHROME` shows its size as unknown; windowed F1 drawing not checked visually; Windows **not tested**.
+- Next: none.
+
 ## 2026-11-21 — `trace-chrome` profiling build and the first maxed-Retina capture
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

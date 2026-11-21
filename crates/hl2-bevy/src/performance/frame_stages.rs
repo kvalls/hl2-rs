@@ -15,7 +15,7 @@ use std::time::Instant;
 /// Stage recorded for the time between the last main schedule and the next frame's first one.
 const OUTSIDE: &str = "main_schedule.outside";
 /// Stage recorded for the whole frame, first marker to first marker.
-const TOTAL: &str = "frame_total";
+const TOTAL: &str = super::FRAME_TOTAL;
 
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
 struct Marker(usize);

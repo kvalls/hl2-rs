@@ -20,7 +20,9 @@ impl State {
             self.font = hud.bitmap_font().map(crate::spawn_panel::PanelFont);
         }
         self.lines.clear();
+        self.profiling_lines.clear();
         if self.dev_overlay {
+            self.profiling_lines = profiling_rows(hud.profiling());
             let (triangles, materials, textures) = status.geometry_statistics();
             let eye = sim.eye();
             let (yaw, pitch) = sim.view_angles();
@@ -42,7 +44,7 @@ impl State {
         }
         // Overlays stack down the left edge in the order F1, viewmodel tweak, F4; hidden ones leave no gap.
         {
-            let stack_top = draw_debug_overlays(self, ui, sim, &self.lines, width, height);
+            let stack_top = draw_debug_overlays(self, ui, sim, width, height);
             // F4 NPC spawn panel (ours, outside the hl2-ui menus).
             self.panel_switches = Some((game.ai.enabled, game.ai.ignore_player));
             let panel = self
@@ -66,11 +68,37 @@ impl State {
         }
     }
 }
+/// F1 header rows from the host's profiler status; none when no profiler runs.
+fn profiling_rows(
+    snapshot: Option<hl2_bevy::performance::status::ProfilingSnapshot>,
+) -> Vec<String> {
+    use crate::overlay::{ProfilerState, StageProfiler, TraceProfiler};
+    use hl2_bevy::performance::status::RecorderState;
+    let Some(snapshot) = snapshot else {
+        return vec![];
+    };
+    crate::overlay::profiling_lines(
+        snapshot.stages.map(|s| StageProfiler {
+            state: match s.state {
+                RecorderState::Idle => ProfilerState::Idle,
+                RecorderState::Recording => ProfilerState::Profiling,
+                RecorderState::Finished => ProfilerState::Finished,
+            },
+            elapsed: s.elapsed,
+            frames: s.frames,
+            limit: s.limit,
+        }),
+        snapshot.trace.map(|t| TraceProfiler {
+            elapsed: t.elapsed,
+            bytes: t.bytes,
+        }),
+    )
+}
 fn draw_debug_overlays(
     state: &State,
     ui: &hl2_bevy::ui_host::Console,
     _sim: &hl2_bevy::simulation::Simulation,
-    debug_lines: &[String],
+
     width: f32,
     height: f32,
 ) -> f32 {
@@ -79,8 +107,8 @@ fn draw_debug_overlays(
         font: ui.source.overlay_font(),
     };
     let mut stack_top = 0.;
-    if !debug_lines.is_empty() {
-        stack_top = painter.draw_debug(debug_lines) + OVERLAY_GAP;
+    if !state.lines.is_empty() {
+        stack_top = painter.draw_debug(&state.lines, &state.profiling_lines) + OVERLAY_GAP;
     }
     if state.viewmodel_debug.enabled
         && let Some(profile) = state.viewmodel_debug.profile

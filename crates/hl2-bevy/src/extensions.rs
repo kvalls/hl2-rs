@@ -107,6 +107,8 @@ pub struct Application {
     pub ui: hl2_ui::extensions::Extensions,
     pub runtime: Vec<Box<dyn RuntimeExtension>>,
     pub install: Vec<fn(&mut App)>,
+    /// Set when this build records a trace for the whole run.
+    pub trace: Option<crate::performance::status::TraceRecording>,
 }
 
 #[derive(bevy::prelude::Resource)]

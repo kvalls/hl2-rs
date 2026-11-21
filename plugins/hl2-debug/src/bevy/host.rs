@@ -21,6 +21,8 @@ pub struct State {
     hits: Vec<([f32; 4], crate::spawn::PanelTarget)>,
     rows: usize,
     lines: Vec<String>,
+    /// F1 header rows for the profilers this run has.
+    profiling_lines: Vec<String>,
     /// The artwork choice last seen in a config update; only a change resets temporary FOV.
     force_default_blur: bool,
     /// The AI and notarget switches last drawn, for the HUD report.
@@ -247,7 +249,7 @@ impl RuntimeExtension for State {
     }
     fn hud_report(&self, hud: &hl2_bevy::canvas_renderer::Hud) -> Option<serde_json::Value> {
         Some(
-            serde_json::json!({"spawn_overlay":self.overlay.open.then(||{let (ai,notarget)=self.panel_switches.unwrap_or((true,false));self.overlay.panel(ai,notarget)}),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines}}),
+            serde_json::json!({"spawn_overlay":self.overlay.open.then(||{let (ai,notarget)=self.panel_switches.unwrap_or((true,false));self.overlay.panel(ai,notarget)}),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines,"profiling":self.profiling_lines}}),
         )
     }
     fn gameplay_report(&self) -> Option<(&'static str, serde_json::Value)> {

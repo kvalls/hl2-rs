@@ -260,6 +260,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
     if options.profile {
         performance::install(&mut app);
     }
+    performance::status::install(&mut app, options.profile, application.trace.clone());
     // macOS: native full screen (green button) is Windowed (No Border) there, and windowed
     // placement uses the screen's visible frame (without the menu bar and Dock).
     #[cfg(target_os = "macos")]

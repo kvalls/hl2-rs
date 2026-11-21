@@ -156,8 +156,13 @@ pub struct Hud {
     pub quads: usize,
     timing: FrameTiming,
     diagnostic_font: Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>>,
+    /// This frame's profiler status, when a profiler runs.
+    profiling: Option<crate::performance::status::ProfilingSnapshot>,
 }
 impl Hud {
+    pub fn profiling(&self) -> Option<crate::performance::status::ProfilingSnapshot> {
+        self.profiling
+    }
     /// Stage timings restart when the warm-up ends, so they cover the benchmark's frames.
     fn observe_frame(&mut self, now: f64, performance: Option<&crate::performance::Performance>) {
         self.timing.observe(now, performance.is_some());
@@ -185,6 +190,7 @@ impl Hud {
             quads: 0,
             timing: FrameTiming::default(),
             diagnostic_font,
+            profiling: None,
         }
     }
     pub fn bitmap_font(&self) -> Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>> {
@@ -309,6 +315,7 @@ type HudResources<'w> = (
     ResMut<'w, crate::simulation::Simulation>,
     Res<'w, crate::Status>,
     Option<Res<'w, crate::performance::Performance>>,
+    Option<Res<'w, crate::performance::status::Profiling>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -316,7 +323,7 @@ pub fn present(
     mut commands: Commands,
     mut hud: ResMut<Hud>,
     mut game: ResMut<crate::gameplay::Gameplay>,
-    (mut ui, clock, mut sim, status, performance): HudResources,
+    (mut ui, clock, mut sim, status, performance, profiling): HudResources,
     windows: Query<&Window, With<PrimaryWindow>>,
     video_viewport: Option<Res<crate::video::VideoViewport>>,
     (mut images, mut materials, mut meshes): HudAssets,
@@ -374,6 +381,7 @@ pub fn present(
         draw_ai_disabled(&hud, &game, width, height);
     }
     hud.observe_frame(clock.elapsed_secs_f64(), performance.as_deref());
+    hud.profiling = profiling.map(|p| p.snapshot());
     ui.source.draw(clock.elapsed_secs_f64());
     sim.with_extensions(|extension, simulation| {
         extension.present(
