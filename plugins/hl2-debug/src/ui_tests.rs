@@ -175,8 +175,14 @@ fn remote_reply_clears_status_without_printing_it() {
             .map(|l| (l.level, l.text.as_str())),
         Some((Level::ChatRemote, "Console: Thinking..."))
     );
+    c.log("rcon from 127.0.0.1");
+    assert_eq!(
+        c.shell.panel.output.back().map(|l| l.text.as_str()),
+        Some("Console: Thinking..."),
+        "status stays pinned below ordinary log output"
+    );
     c.execute("agent_status waiting");
-    assert_eq!(c.shell.panel.output.len(), before + 1);
+    assert_eq!(c.shell.panel.output.len(), before + 2);
     assert_eq!(
         c.shell
             .panel
@@ -185,13 +191,53 @@ fn remote_reply_clears_status_without_printing_it() {
             .map(|l| (l.level, l.text.as_str())),
         Some((Level::ChatRemote, "Console: Still waiting for a reply..."))
     );
+    c.execute("agent_status Working...");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Working..."))
+    );
+    c.execute("agent_status \"Building release...\"");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Building release..."))
+    );
+    c.execute("agent_status Spawning NPCs...");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Spawning NPCs..."))
+    );
     c.execute("agent_status clear");
-    assert_eq!(c.shell.panel.output.len(), before);
+    assert_eq!(c.shell.panel.output.len(), before + 1);
+    c.execute("agent_status; agent_status \"\"; agent_status \"   \"");
+    assert_eq!(
+        c.shell.panel.output.back().map(|l| l.level),
+        Some(Level::Normal)
+    );
     c.remote.from_rcon = true;
     c.execute("agent_status thinking");
     assert_eq!(
         c.remote.snapshot,
         Some(Some((Level::ChatRemote, "Console: Thinking...".into())))
+    );
+    c.execute("agent_status \"Running tests...\"");
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((
+            Level::ChatRemote,
+            "Console: Running tests...".into()
+        )))
     );
     c.execute("say hello");
     assert_eq!(c.remote.snapshot, Some(None));
@@ -201,6 +247,12 @@ fn remote_reply_clears_status_without_printing_it() {
 #[test]
 fn agent_status_is_not_logged_from_the_remote_console() {
     let console = console();
-    let commands = source_ui::console::command::tokenize("agent_status thinking");
-    assert!(console.remote_log_skips(&commands));
+    for line in [
+        "agent_status thinking",
+        "agent_status \"Working...\"",
+        "agent_status Spawning NPCs...",
+    ] {
+        let commands = source_ui::console::command::tokenize(line);
+        assert!(console.remote_log_skips(&commands), "{line}");
+    }
 }

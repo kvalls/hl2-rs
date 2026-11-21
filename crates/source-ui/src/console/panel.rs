@@ -281,8 +281,11 @@ pub struct ConsolePanel {
     pub con_timestamp: bool,
     /// History rows scrolled back from the newest.
     pub scroll: usize,
-    /// Line number of the active replaceable snapshot, if any.
+    /// Line number of the active replaceable snapshot kept at the tail of `output`, if any.
     snapshot: Option<u64>,
+    /// Active `start_redirect` nesting count so redirected output is not repinned past the
+    /// snapshot.
+    redirecting: usize,
     /// Lines printed since a reader last took them (`keep_printed`); `None` keeps nothing.
     printed: Option<Vec<Line>>,
     /// Each output line's wrapped rows by line number, rebuilt when its shown text or the
@@ -318,6 +321,7 @@ impl ConsolePanel {
             con_timestamp: false,
             scroll: 0,
             snapshot: None,
+            redirecting: 0,
             printed: None,
             wrapped: Mutex::default(),
             ascii_advances: Mutex::default(),

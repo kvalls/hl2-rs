@@ -18,30 +18,62 @@ impl ConsolePanel {
         text: String,
         record_printed: bool,
     ) {
-        self.output.push_back(Line {
+        let line = Line {
             level,
             text,
             time: self.clock,
-        });
+        };
         if record_printed {
-            if let (Some(printed), Some(line)) = (&mut self.printed, self.output.back()) {
+            if let Some(printed) = &mut self.printed {
                 printed.push(line.clone());
             }
+        }
+        let pinned = (record_printed && self.redirecting == 0)
+            .then(|| self.active_snapshot_index())
+            .flatten()
+            .filter(|&index| index + 1 == self.output.len())
+            .and_then(|_| self.output.pop_back());
+        self.output.push_back(line);
+        let mut inserted_index = self.output.len() - 1;
+        if let Some(snapshot) = pinned {
+            let old_number = self.output_start + inserted_index as u64;
+            let new_number = old_number + 1;
+            self.output.push_back(snapshot);
+            self.move_pinned_snapshot(old_number, new_number);
         }
         if self.output.len() > OUTPUT_LINES {
             self.output.pop_front();
             self.output_start += 1;
+            inserted_index = inserted_index.saturating_sub(1);
         }
-        // Scrolled back, the view stays on its rows while new ones arrive below.
-        let number = self.output_start + self.output.len() as u64 - 1;
+        // Scrolled back, the view stays on its rows while new ones arrive above any pinned line.
+        let number = self.output_start + inserted_index as u64;
         if let Some(line) = self
             .output
-            .back()
+            .get(inserted_index)
             .filter(|line| self.scroll > 0 && (self.con_filter != 1 || self.filter_match(line)))
         {
             self.scroll += self
                 .line_rows(number, line, self.wrap_metrics(canvas))
                 .len();
+        }
+    }
+
+    fn move_pinned_snapshot(&mut self, old_number: u64, new_number: u64) {
+        self.snapshot = Some(new_number);
+        if let Some(mut selection) = self.selection {
+            if selection.anchor == old_number {
+                selection.anchor = new_number;
+            }
+            if selection.head == old_number {
+                selection.head = new_number;
+            }
+            self.selection = Some(selection);
+        }
+        if let Ok(mut wrapped) = self.wrapped.lock() {
+            if let Some(row) = wrapped.remove(&old_number) {
+                wrapped.insert(new_number, row);
+            }
         }
     }
 
@@ -73,6 +105,7 @@ impl ConsolePanel {
     pub fn start_redirect(&mut self) -> Redirect {
         let kept = self.keeps_printed();
         let before = self.printed.get_or_insert_with(Vec::new).len();
+        self.redirecting += 1;
         Redirect {
             before,
             kept,
@@ -86,6 +119,7 @@ impl ConsolePanel {
     /// lines. Preserves the user's scroll position and text selection when no earlier history
     /// lines were evicted during the redirect.
     pub fn finish_redirect(&mut self, redirect: Redirect) -> Vec<Line> {
+        self.redirecting = self.redirecting.saturating_sub(1);
         let printed = self.printed.get_or_insert_with(Vec::new);
         let lines = printed.split_off(redirect.before.min(printed.len()));
         self.keep_printed(redirect.kept);

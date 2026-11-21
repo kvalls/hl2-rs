@@ -162,7 +162,7 @@ commands over the retail `-condebug` console log and `-usercon` Source RCON serv
 
 - `ui_dump`: prints UI state (mode, open windows, menus, pending map, loaded map, eye position, angles, paused/loading state) as one `ui_dump {json}` line.
 - `npc_dump [radius|id <entity>]`: prints nearby (default 512 units) or one entity's NPC AI, actbusy, and goal state as one `npc_dump {json}` line.
-- `agent_status <thinking|waiting|clear>`: updates or clears the replaceable inline console status snapshot line (`agent_status` is omitted from `sv_rcon_log` output).
+- `agent_status <thinking|waiting|clear|text>`: updates or clears the replaceable inline console status line (`thinking` / `waiting` presets or custom status text, pinned as the last line beneath incoming console output until replaced, cleared, or superseded by a remote `say`; `agent_status` is omitted from `sv_rcon_log` output).
 - `agent_resume`: prints launch arguments that restart at the current map, eye position, view angles, and open menus (`--map`, `--position`, `--yaw`, `--pitch`, `+gamemenucommand`, `+gameui_activate`, `+showconsole`).
 
 The `/hl2-session` skill and its cross-platform Python 3 helper scripts (`session.py`,

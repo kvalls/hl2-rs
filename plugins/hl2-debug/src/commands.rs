@@ -23,6 +23,13 @@ pub enum Request {
     AgentResume,
     AiEnable(Option<bool>),
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentStatus {
+    Clear,
+    Token(&'static str),
+    Text(String),
+}
+
 pub trait Host: Context {
     fn effect(request: Request) -> Self::Effect;
     fn log(&mut self, message: impl Into<String>);
@@ -35,7 +42,7 @@ pub trait Host: Context {
     fn background_opacity(&self) -> u8;
     fn set_background_opacity(&mut self, opacity: u8);
     fn focus_background(&mut self);
-    fn agent_status(&mut self, token: Option<&str>);
+    fn agent_status(&mut self, status: AgentStatus);
 }
 const fn command<C: Host>(
     name: &'static str,
@@ -98,7 +105,7 @@ pub const fn specs<C: Host>() -> [Spec<C>; 11] {
         ),
         command(
             "agent_status",
-            "agent_status <thinking|waiting|clear>: set the temporary remote chat status",
+            "agent_status <thinking|waiting|clear|text>: set the temporary remote chat status",
             &[Arg::Values(&["thinking", "waiting", "clear"])],
             agent_status,
         ),
@@ -248,16 +255,22 @@ fn npc_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outco
 }
 
 fn agent_status<C: Host>(console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
-    let [value] = args else {
+    if args.is_empty() {
         return Err(spec.usage());
+    }
+    let status = match args {
+        [value] if value == "thinking" => AgentStatus::Token("#HL2RS_AgentThinking"),
+        [value] if value == "waiting" => AgentStatus::Token("#HL2RS_AgentWaiting"),
+        [value] if value == "clear" => AgentStatus::Clear,
+        _ => {
+            let text = args.join(" ");
+            if text.trim().is_empty() {
+                return Err(spec.usage());
+            }
+            AgentStatus::Text(text)
+        }
     };
-    let token = match value.as_str() {
-        "thinking" => Some("#HL2RS_AgentThinking"),
-        "waiting" => Some("#HL2RS_AgentWaiting"),
-        "clear" => None,
-        _ => return Err(spec.usage()),
-    };
-    console.agent_status(token);
+    console.agent_status(status);
     Ok(None)
 }
 
@@ -329,15 +342,17 @@ impl Host for hl2_ui::console::Console {
     fn set_background_opacity(&mut self, opacity: u8) {
         self.presentation.background_opacity = Some(opacity);
     }
-    fn agent_status(&mut self, token: Option<&str>) {
-        match token {
-            Some(token) => {
-                let text = self.resources().localization.text(token);
-                let line = format!("{}: {text}", hl2_ui::console::remote::RCON_SPEAKER);
-                self.log_snapshot_with_level(source_ui::console::panel::Level::ChatRemote, line);
+    fn agent_status(&mut self, status: AgentStatus) {
+        let text = match status {
+            AgentStatus::Clear => {
+                self.clear_snapshot();
+                return;
             }
-            None => self.clear_snapshot(),
-        }
+            AgentStatus::Token(token) => self.resources().localization.text(token),
+            AgentStatus::Text(text) => text,
+        };
+        let line = format!("{}: {text}", hl2_ui::console::remote::RCON_SPEAKER);
+        self.log_snapshot_with_level(source_ui::console::panel::Level::ChatRemote, line);
     }
     fn focus_background(&mut self) {
         self.focus_base();

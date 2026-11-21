@@ -21,14 +21,20 @@ impl ConsolePanel {
         self.snapshot = Some(number);
     }
 
-    /// Remove the current snapshot line, if any, without disturbing ordinary output or scroll.
-    pub fn clear_snapshot(&mut self, canvas: &Canvas) {
-        if let Some(index) = self.snapshot.take().and_then(|number| {
+    pub(super) fn active_snapshot_index(&self) -> Option<usize> {
+        self.snapshot.and_then(|number| {
             number
                 .checked_sub(self.output_start)
                 .and_then(|offset| usize::try_from(offset).ok())
                 .filter(|&index| index < self.output.len())
-        }) {
+        })
+    }
+
+    /// Remove the current snapshot line, if any, without disturbing ordinary output or scroll.
+    pub fn clear_snapshot(&mut self, canvas: &Canvas) {
+        let index = self.active_snapshot_index();
+        self.snapshot = None;
+        if let Some(index) = index {
             self.remove_snapshot(canvas, index);
         }
     }
@@ -94,7 +100,8 @@ mod tests {
         panel.print(&canvas, Level::Normal, "b");
         panel.print(&canvas, Level::Normal, "c");
         panel.history_rows(&canvas);
-        panel.selection = Some(Selection::at(2));
+        // Pinned snapshot stays last: ["a", "b", "c", "old\nsnapshot"].
+        panel.selection = Some(Selection::at(1));
         panel.replace_snapshot(&canvas, "latest");
         assert_eq!(panel.selected_text().as_deref(), Some("b"));
         let rows: Vec<_> = panel
@@ -104,11 +111,14 @@ mod tests {
             .collect();
         assert_eq!(rows, ["a", "b", "c", "latest"]);
         panel.print(&canvas, Level::Normal, "tail");
-        panel.selection = Some(Selection { anchor: 0, head: 4 });
+        // ["a", "b", "c", "tail", "latest"]
+        panel.selection = Some(Selection { anchor: 0, head: 3 });
         panel.replace_snapshot(&canvas, "newest");
         assert_eq!(panel.selected_text().as_deref(), Some("a\nb\nc\ntail"));
+        // Selecting the pinned snapshot follows it past interleaved ordinary output.
         panel.selection = Some(Selection::at(4));
-        panel.replace_snapshot(&canvas, "final");
+        panel.print(&canvas, Level::Normal, "more");
+        assert_eq!(panel.selected_text().as_deref(), Some("newest"));
         panel.clear_snapshot(&canvas);
         assert!(panel.output.iter().all(|l| l.level != Level::Snapshot));
         assert_eq!(
@@ -209,5 +219,46 @@ mod tests {
         panel.clear_snapshot(&canvas);
         let remaining: Vec<_> = panel.output.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(remaining, ["ordinary", "Console: reply"]);
+    }
+
+    #[test]
+    fn pinned_snapshot_stays_last_across_prints_redirects_and_scrolling() {
+        let (canvas, mut panel) = panel();
+        canvas.resize(1024., 768.);
+        for i in 0..30 {
+            panel.print(&canvas, Level::Normal, format!("line {i}"));
+        }
+        panel.replace_snapshot_with_level(&canvas, Level::ChatRemote, "Console: Working...");
+        panel.print(&canvas, Level::Normal, "rcon cmd 1");
+        panel.print(&canvas, Level::Normal, "rcon cmd 2");
+        assert_eq!(
+            panel.output.back().map(|l| (l.level, l.text.as_str())),
+            Some((Level::ChatRemote, "Console: Working..."))
+        );
+
+        let redirect = panel.start_redirect();
+        panel.print(&canvas, Level::Normal, "redirected output");
+        let redirected = panel.finish_redirect(redirect);
+        assert_eq!(redirected.len(), 1);
+        assert_eq!(redirected[0].text, "redirected output");
+        assert_eq!(
+            panel.output.back().map(|l| (l.level, l.text.as_str())),
+            Some((Level::ChatRemote, "Console: Working..."))
+        );
+
+        panel.print(&canvas, Level::Normal, "rcon cmd 3");
+        let len = panel.output.len();
+        assert_eq!(panel.output[len - 2].text, "rcon cmd 3");
+        assert_eq!(panel.output[len - 1].text, "Console: Working...");
+
+        panel.scroll = 10;
+        let rows = panel.history_rows(&canvas);
+        let before = &rows[rows.len() - panel.scroll - 1];
+        let bottom = panel.shown_text(before.line)[before.text.clone()].to_owned();
+        panel.print(&canvas, Level::Normal, "wrapped\ntwo rows");
+        let rows = panel.history_rows(&canvas);
+        let after = &rows[rows.len() - panel.scroll - 1];
+        assert_eq!(&panel.shown_text(after.line)[after.text.clone()], bottom);
+        assert_eq!(panel.output.back().unwrap().text, "Console: Working...");
     }
 }

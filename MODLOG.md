@@ -1,5 +1,22 @@
 # MODLOG
 
+## 2026-11-21 — Keep active console status pinned last and accept custom `agent_status` text
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`, `crates/source-ui/src/console/panel/snapshot.rs`, `crates/source-ui/src/console/panel/printed.rs`: added `ConsolePanel::redirecting` and `active_snapshot_index`, and updated `ConsolePanel::push_output` (`move_pinned_snapshot`) so ordinary printed lines insert **above** an active replaceable snapshot outside `start_redirect`/`finish_redirect`, preserving scroll position on the inserted line and keeping any snapshot selection or wrap cache aligned.
+  - `plugins/hl2-debug/src/commands.rs`, `plugins/hl2-debug/src/ui_tests.rs`: replaced the token-only `agent_status` parameter with `AgentStatus::{Clear, Token, Text}`, keeping `thinking`/`waiting`/`clear` as built-in localized keywords (and completion values) while accepting arbitrary non-empty status text (`agent_status Working...`, `agent_status "Building..."`, or unquoted multi-word text) formatted as `Console: <text>` at `Level::ChatRemote` without passing custom text through `Localization::text`.
+  - `.agents/skills/hl2-session/SKILL.md`, `docs/plugins.md`, `docs/non-retail-features.md`: updated `agent_status` usage (`<thinking|waiting|clear|text>`) and documented pinned-at-bottom custom phase status updates.
+- Why: owner request to support custom status strings (such as `Working...` or `Building...`) in addition to the automatic `thinking`/`waiting` keywords, and to keep the active status pinned as the latest console line beneath incoming RCON command logs and output.
+- Tested how:
+  - Unit tests: `cargo test --workspace --locked` including `cached_wrapping_and_ordinary_selection_follow_their_rows` and `pinned_snapshot_stays_last_across_prints_redirects_and_scrolling` in `source-ui`, plus `remote_reply_clears_status_without_printing_it` and `agent_status_is_not_logged_from_the_remote_console` in `hl2-debug`.
+  - Packaged verification (`scripts/build-bevy.sh` -> `bin/hl2-bevy` on macOS, `-usercon +con_logfile agent_status_verify.log +showconsole`): sent `agent_status "Spawning NPCs..."` followed by `echo command output line`, `ui_dump`, and `screenshot` over RCON; screenshot `background010000.png` confirmed `Console: Spawning NPCs...` rendered in cyan below the incoming `rcon from ...` lines at the bottom of the console, while `con_logfile` omitted `Spawning NPCs...` and logged the subsequent `say Done spawning` reply.
+  - Validation suites: `scripts/checks/validate.sh` (architecture guardrails, Python helper tests, all 4 plugin selection builds, workspace Cargo unit tests, strict Clippy, `cargo fmt --check`), self-containment check, and `scripts/checks/check_windows.sh` (strict Clippy for `x86_64-pc-windows-msvc`).
+- Result: all unit tests, packaged macOS visual and `con_logfile` checks, validation suite, and Windows target Clippy passed.
+- Still broken or not tested: Windows live runtime **not tested** locally.
+- Next: none.
+- Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-21 — Style `agent_status` console line with `Console:` chat styling
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
