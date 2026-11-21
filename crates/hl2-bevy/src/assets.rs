@@ -100,7 +100,8 @@ pub struct MaterialData {
     pub alpha_cutoff: Option<f32>,
     pub translucent: bool,
     pub additive: bool,
-    /// DecalModulate: the frame is multiplied by twice the texture (mod2x), grey is neutral.
+    /// DecalModulate (e.g. decals/bloodstain_*, decals/glass/shot*): the frame is multiplied by
+    /// twice the texture (mod2x), unlit and without exposure; grey leaves it unchanged.
     pub modulate: bool,
     pub two_sided: bool,
     pub opacity: f32,
@@ -444,12 +445,12 @@ fn metadata(definition: &Definition) -> Result<MaterialData> {
     let mut material = MaterialData {
         translucent: scalar(p, "$translucent", 0.)?.trunc() != 0.,
         additive: scalar(p, "$additive", 0.)?.trunc() != 0.,
-        modulate: definition.shader.eq_ignore_ascii_case("decalmodulate"),
         two_sided: scalar(p, "$nocull", 0.)?.trunc() != 0.,
         half_lambert: scalar(p, "$halflambert", 0.)?.trunc() != 0.,
         opacity: scalar(p, "$alpha", 1.)?.clamp(0., 1.),
         unlit: definition.shader.eq_ignore_ascii_case("unlitgeneric"),
         eye_fallback: definition.shader.eq_ignore_ascii_case("eyes_dx8"),
+        modulate: definition.shader.eq_ignore_ascii_case("decalmodulate"),
         ..Default::default()
     };
     if scalar(p, "$alphatest", 0.)?.trunc() != 0. {

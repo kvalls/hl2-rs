@@ -1,5 +1,26 @@
 # MODLOG
 
+## 2026-11-21 — Merge upstream main through `aa6f1aa6`
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed: merged 5 upstream session 69 commits (`f4882b19..aa6f1aa6`: `SetLightingOrigin`/`SetLightingOriginHack` inputs and re-resolution on input in `lighting_origins.rs`/`rendering/lighting.rs`, `DecalModulate` mod2x decals in `assets.rs`/`rendering/material.rs`/`source.wgsl`, pusher overlap `IntersectsPushers` in `physics/brush_entities/pushers.rs`/`simulation/ride.rs`, `CPathfindNearestNodeFilter` and `GET_CLOSE` route ends in `npc/graph.rs`, scene `Loop` control events in `entities/choreography/control.rs`, `ignite_input` extracted from `io.rs::deliver`, updated `luggage-shove` fixture/check, and session 69 `STATUS.md`/`MODLOG.md`/`docs/DESIGN.md` entries) into `orbitalman/performance_research` (`c04b3c41`).
+  - `crates/hl2-bevy/src/assets.rs` and `crates/hl2-bevy/assets/shaders/source.wgsl`: removed duplicate `MaterialData::modulate` field/default/initializer and redundant trailing `material.parameters.z > 1.5` early return introduced by auto-merge alongside our branch's existing `DecalModulate` path.
+  - `crates/hl2-bevy/src/rendering/lighting.rs`: reset `self.last = None` alongside `self.origins = None` when `scene.lighting_origin_changes` increments so both `ModelLighting` and `uniform.basis` recompute immediately even within the `< 16.` squared-unit cache threshold.
+  - `crates/hl2-bevy/src/rendering/material.rs`: kept our `MODULATE_OUTPUT` constant with upstream's `AlphaMode::Multiply` comment.
+  - `scripts/checks/replays.py`: took upstream's updated `check_luggage_shove` (verifying `luggage_stepaway` at `stepped` and `closer >= 40` toward `luggage_guy_lean` at `finish`).
+  - `scripts/checks/architecture-baseline.json`: kept our tightened branch counts and adopted upstream's shrinkages (`choreography.rs` `1225 -> 1221`, `tick_choreography` `372 -> 366`, `io.rs::deliver` `173 -> 150`).
+  - `MODLOG.md` & `STATUS.md`: preserved both parents' entries in chronological order (upstream's `## 2026-11-21 session 69` entries alongside our 2026-11-21 work).
+  - `test-inputs/expected/bevy-luggage-shove.json`: updated `finish.ray` (`576 -> null`) under `JOBS=1` after inspection: upstream's `luggage_citizen` (`576`) stopped at `luggage_cop` (`577`) inside the player's crosshair, whereas with `npc/steer.rs` he steers past the cop (`367.1` units closer toward `luggage_guy_lean`, ending at `[-4141.81, -1339.07, -31.91]`) and clears the crosshair; all other counters (`inputs_delivered: 96`, `outputs_fired: 92`, `scene_completions: 1`, `scene_events_started: 27`, `trigger_entries: 3`, `look_targets`, `gibs`) match upstream identically.
+- Why: incorporate session 69 station 01 playtest fixes (`DecalModulate` glass cracks, lighting origin inputs, pusher overlap, route ends, scene loops) while preserving all UI, debug/trace skills, and crowd-performance work on this branch.
+- Tested how:
+  - Pre-merge replay baseline (`NO_BUILD=1 python3 scripts/checks/replays.py` on `c04b3c41`): `109/109` passed in `454 s`.
+  - Targeted unit tests: `lighting_origins::` (`3 passed`), `a_node_without_links_for_the_hull_is_not_a_route_end` (`1 passed`), `entities::tests::scenes::` (`11 passed`, `1 ignored`), `physics::tests::` (`49 passed`), `decal_modulate_multiplies_the_frame_unlit` (`1 passed`), `alpha_test_takes_precedence_over_translucency_and_additive_over_both` (`1 passed`), and `stationary_lighting_and_viewmodel_emit_no_modified_material_events_on_repeat_frames` (`1 passed`).
+  - Validation suites: `scripts/checks/validate.sh` (architecture guardrails ok, 86 Python helper tests `OK`, all 4 application plugin builds `ok`, full workspace Cargo tests passed, strict Clippy clean, `cargo fmt --check` clean) and `scripts/checks/check_windows.sh` (`x86_64-pc-windows-msvc` strict Clippy passed).
+  - Post-merge replays (`scripts/checks/replays.py`): initial build+run `108/109` in `412 s` (`luggage-shove` only), confirmed deterministically under `JOBS=1`, updated `bevy-luggage-shove.json` (`UPDATE_EXPECTED=1`, `JOBS=1`) and verified serially (`5 s`), then full `NO_BUILD=1` rerun passed `109/109` (`0 failed`, `392 s`).
+- Result: all unit tests, validation checks, Windows cross-target Clippy, and all 109 shared packaged replays passed.
+- Still broken or not tested: Windows runtime and ordinary playthrough are **not tested**.
+- Next: none.
+
 ## 2026-11-21 — Add cross-platform /hl2-performance-trace skill and capture scripts
 
 - Agent/model: Antigravity (exact model identifier not recorded).
@@ -49,6 +70,16 @@
 - Result: the largest GPU spike source is cut by about a third; the trail's sampling pattern is unchanged.
 - Still broken or not tested: `check_weapon_blur.py` fails before this change too (also at `c8d59205`): its diagnostic captures show `posed bounds: 0` and no reconstructed pixels (backlog O24), so the pixel-level comparison of this change did not run; not compared in normal play by the owner; Windows **not tested**.
 - Next: owner look in play; then the tap count (O20 second step).
+
+## 2026-11-21 session 69: the owner's station 01 playtest (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation lighting_origins.rs (SetLightingOrigin/SetLightingOriginHack inputs), entities.rs (Scene::lighting_origin_changes, Playback loops), entities/io.rs (the inputs; ignite_input moved out of deliver), entities/choreography/control.rs (scene Loop events), npc/graph.rs (has_usable_link, goal_connector), physics/brush_entities/pushers.rs (hull_overlaps_entity); hl2-bevy assets.rs and rendering/material.rs (DecalModulate -> AlphaMode::Multiply), shaders/source.wgsl (mod2x output), rendering/lighting.rs (re-resolve on input), simulation/ride.rs (push an overlapped player). Unit tests for each.
+- Why: the owner's seven reports (STATUS "Current session 69"): bright train passengers, gray squares on the glass cracks, clipping out of the moving train, the luggage citizen stuck at the cop and not sitting in the breakroom, the pacer's lines stopping, the pen queue.
+- Tested how: SDK and owned files for each; packaged runs artifacts/s69/train, lugg (r3 before, r8 after), pacer; artifacts/s69/validate1.sh.
+- Result: Five of the seven reports have SDK-backed fixes with unit tests (commit f21c827; validation artifacts/s69/validate1.sh: Clippy 0, tests 1767 + the 2 known failures, fmt 0, architecture 0, build ok, regression passed, replays 71/73 with luggage-shove recorded as intended and the known Kleiner gib flake); the queue's newcomer steering (SDK RecalculateQueueCount) is on wip/session69-20261121b (9ab4679): validate2.sh changed six station replays' I/O counters, not reviewed.
+- Still broken or not tested: luggage_citizen now walks but stops at the luggage cop standing on his route (no NPC obstruction handling); the glass-crack decals not found in captures (no gray squares seen); packaged runs show the pacer's scene looping, the passengers lit like the corridor and a jumping player kept in the moving car (no before/after or native comparisons); the pen queue clumping not reproduced.
+- Next: NPC obstruction handling for luggage_citizen, the pen queue, the pre-suit walk speed branch.
 
 ## 2026-11-21 — Share composed actor skeletons between the renderer and the eyes (backlog O6)
 

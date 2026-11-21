@@ -1542,6 +1542,9 @@ mod tests {
         assert_eq!(alpha_mode(&material), AlphaMode::Mask(0.5));
         material.additive = true;
         assert_eq!(alpha_mode(&material), AlphaMode::Add);
+        // DecalModulate multiplies the frame (decals/glass/shot*).
+        material.modulate = true;
+        assert_eq!(alpha_mode(&material), AlphaMode::Multiply);
     }
 
     #[test]

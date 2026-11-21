@@ -249,34 +249,8 @@ impl Scene {
                 .push((id, input, p.parameter.clone(), p.activator));
             return;
         }
-        // CBaseAnimating::InputIgnite (Ignite(30)) / InputIgniteLifetime(seconds) on
-        // NPCs and physics props; a zombie's Ignite caps its health to about ten
-        // seconds of burning (CNPC_BaseZombie::Ignite).
-        if matches!(input.as_str(), "ignite" | "ignitelifetime")
-            && (class.starts_with("npc_") || class.starts_with("prop_physics"))
-        {
-            let lifetime = if input == "ignitelifetime" {
-                p.parameter.trim().parse::<f32>().unwrap_or(30.)
-            } else {
-                30.
-            };
-            if class.starts_with("npc_") {
-                self.ignite_npc(world, id, lifetime, true);
-                return;
-            }
-            let origin = self.states.get(id).map_or(Vec3::ZERO, |s| s.origin);
-            let now = self.time;
-            self.fires.ignite(
-                id,
-                crate::fire::Interactions {
-                    flammable: true,
-                    ..Default::default()
-                },
-                lifetime,
-                16.,
-                origin + Vec3::Z * 36.,
-                now,
-            );
+        let (npc, physics_prop) = (class.starts_with("npc_"), class.starts_with("prop_physics"));
+        if (npc || physics_prop) && self.ignite_input(world, id, npc, &input, &p.parameter) {
             return;
         }
         let delivery = inputs::Delivery {
@@ -307,6 +281,9 @@ impl Scene {
                     }
                     _ => self.unsupported_input(class, "AddOutput:malformed"),
                 }
+            }
+            "setlightingorigin" | "setlightingoriginhack" => {
+                crate::lighting_origins::input(self, world, id, &input, &p.parameter);
             }
             "kill" => {
                 self.states[id].killed = true;
@@ -388,6 +365,37 @@ impl Scene {
             }
             _ => self.unsupported_input(class, &p.input),
         }
+    }
+
+    /// CBaseAnimating::InputIgnite (Ignite(30)) / InputIgniteLifetime(seconds) on NPCs and
+    /// physics props; a zombie's Ignite caps its health to about ten seconds of burning
+    /// (CNPC_BaseZombie::Ignite). False for any other input.
+    fn ignite_input(
+        &mut self,
+        world: &World,
+        id: usize,
+        npc: bool,
+        input: &str,
+        value: &str,
+    ) -> bool {
+        let lifetime = match input {
+            "ignite" => 30.,
+            "ignitelifetime" => value.trim().parse::<f32>().unwrap_or(30.),
+            _ => return false,
+        };
+        if npc {
+            self.ignite_npc(world, id, lifetime, true);
+            return true;
+        }
+        let origin = self.states.get(id).map_or(Vec3::ZERO, |s| s.origin);
+        let now = self.time;
+        let interactions = crate::fire::Interactions {
+            flammable: true,
+            ..Default::default()
+        };
+        let at = origin + Vec3::Z * 36.;
+        self.fires.ignite(id, interactions, lifetime, 16., at, now);
+        true
     }
 
     pub(super) fn fire_value(&mut self, id: usize, name: &str, value: f32, activator: usize) {

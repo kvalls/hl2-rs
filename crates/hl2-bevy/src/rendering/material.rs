@@ -206,6 +206,7 @@ pub(crate) fn make_material(
                     0.001
                 }),
             f32::from(matches!(alpha, AlphaMode::Opaque)),
+            // z: 1 additive output, 2 DecalModulate's mod2x.
             match alpha {
                 AlphaMode::Add => 1.,
                 AlphaMode::Multiply => MODULATE_OUTPUT,
@@ -268,6 +269,7 @@ pub(crate) fn make_material(
 
 pub(super) fn alpha_mode(material: &MaterialData) -> AlphaMode {
     if material.modulate {
+        // Bevy Multiply blends Dst x Src + Dst x (1 - SrcAlpha): opaque output is Dst x Src.
         AlphaMode::Multiply
     } else if material.additive {
         AlphaMode::Add

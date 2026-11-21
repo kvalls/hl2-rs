@@ -1264,6 +1264,12 @@ fn a_brush_entity_of_npc_clip_does_not_block_the_player() {
         let sweep =
             physics.trace_hull(Vec3::new(-5., 0., 40.), Vec3::new(35., 0., 40.), mins, maxs);
         assert_eq!(sweep.fraction < 1., blocks, "contents {contents:#x}");
+        // A pusher moved into the player pushes him (CPushBlockerEnum::IntersectsPushers):
+        // only the brushes that block him count, and only that entity's.
+        let inside = Vec3::new(15., 0., 40.);
+        assert_eq!(physics.hull_overlaps_entity(inside, mins, maxs, 0), blocks);
+        assert!(!physics.hull_overlaps_entity(inside, mins, maxs, 1));
+        assert!(!physics.hull_overlaps_entity(Vec3::new(-5., 0., 40.), mins, maxs, 0));
     }
 }
 #[test]

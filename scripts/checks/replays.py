@@ -1430,7 +1430,9 @@ def check_door_inputs(run: Run) -> None:
 def check_luggage_shove(run: Run) -> None:
     """d1_trainstation_01's luggage cart (a fixture after PR #5's): the player crosses the platform
     triggers and looks at the citizen; ai_script_conditions starts the shove, both suitcase pushes
-    fire, the scene completes and the citizen steps back to luggage_stepaway."""
+    fire, the scene completes and the citizen steps back to luggage_stepaway; the scene's
+    OnCompletion then forces him onto luggage_guy_lean in the breakroom, and he walks off toward it
+    (the hint's own graph node links only small hulls: the route ends at the next node)."""
     def scene(label: str) -> dict:
         game = run.sample(label)["gameplay"]
         return next(s for s in game["choreography"] if s["targetname"] == "luggage_shove_scene")
@@ -1440,14 +1442,18 @@ def check_luggage_shove(run: Run) -> None:
     holds("the shove completes", not end["active"] and not end["completed_early"])
     game = run.sample("finish")["gameplay"]
     expect("both suitcase pushes", game["phys_explosions"]["pushes"], 2)
-    citizen = next(a for a in game["animations"] if a.get("targetname") == "luggage_citizen")
-    step_away = (-4008.45, -1766.59)
-    off = sum((a - b) ** 2 for a, b in zip(citizen["origin"][:2], step_away)) ** 0.5
+    def citizen(label: str) -> list:
+        animations = run.sample(label)["gameplay"]["animations"]
+        return next(a for a in animations if a.get("targetname") == "luggage_citizen")["origin"]
+
+    def distance(a, b) -> float:
+        return sum((p - q) ** 2 for p, q in zip(a[:2], b)) ** 0.5
+
+    step_away, bench = (-4008.45, -1766.59), (-5297.0, -598.0)
+    off = distance(citizen("stepped"), step_away)
     holds("the citizen stepped back to luggage_stepaway", off <= 48, f"{off:.1f} units away")
-    move = next(g for g in game["npc_goals"] if g["key"]["actor"] == citizen["entity"]
-                and g["key"]["scene"] == end["entity"])
-    distance_sq = sum((x - y) ** 2 for x, y in zip(citizen["origin"], move["target_feet"]))
-    holds("citizen reaches the step-away target", distance_sq <= move["tolerance"] ** 2, move)
+    closer = distance(step_away, bench) - distance(citizen("finish"), bench)
+    holds("he walks off toward luggage_guy_lean", closer >= 40, f"{closer:.1f} units closer")
 
 
 def frozen_final(run: Run) -> None:

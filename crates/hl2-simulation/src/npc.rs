@@ -1747,6 +1747,32 @@ pub(crate) mod tests {
         assert!(controller.status(key(1)).unwrap().is_arrived());
     }
     #[test]
+    fn a_node_without_links_for_the_hull_is_not_a_route_end() {
+        // CPathfindNearestNodeFilter: d1_trainstation_01's luggage_guy_lean links only for
+        // small hulls; the citizen's route ends at the next node and walks on to the hint.
+        let physical_world = world(vec![cube(
+            Vec3::new(35., -45., 0.),
+            Vec3::new(65., 45., 120.),
+        )]);
+        let physics = Physics::new(&physical_world);
+        let points = [
+            Vec3::new(0., 0., 0.),
+            Vec3::new(0., 80., 0.),
+            Vec3::new(100., 80., 0.),
+            Vec3::new(100., 0., 0.),
+        ];
+        let mut small_only = graph(&points, &[(0, 1), (1, 2), (2, 3)]);
+        small_only.links[2].accepted_move_types = [0, 0, 0, 1, 0, 0, 1, 0, 0, 0];
+        let mut controller = make_controller(Some(small_only));
+        let mut wanted = request(points[3]);
+        wanted.force_short = true;
+        assert_eq!(
+            controller.request(key(1), wanted, pose(Vec3::ZERO), &physics, &[]),
+            GoalState::Moving
+        );
+        assert_eq!(controller.snapshots()[0].route_nodes, vec![0, 1, 2]);
+    }
+    #[test]
     fn a_blocked_graph_link_turns_stale_and_the_retry_routes_around_it() {
         // The graph claims a direct link 0-3 through the wall: the search trusts link data
         // (CAI_Pathfinder::IsLinkUsable), the walk blocks, MarkCurWaypointFailedLink marks

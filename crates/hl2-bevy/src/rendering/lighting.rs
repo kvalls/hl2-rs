@@ -31,6 +31,8 @@ pub struct ModelLit {
     cell: Option<[i32; 3]>,
     /// Its entity's LightingOrigin/LightingOriginHack, resolved at its first lighting.
     origins: Option<Option<hl2_simulation::lighting_origins::LightingOrigin>>,
+    /// The scene's lighting_origin_changes when `origins` was resolved.
+    origins_changes: u32,
 }
 
 impl ModelLit {
@@ -45,6 +47,7 @@ impl ModelLit {
             cubemap: None,
             cell: None,
             origins: None,
+            origins_changes: 0,
         }
     }
     /// The point its entity is lit at: its own illumination point unless the entity names a
@@ -55,9 +58,15 @@ impl ModelLit {
         id: usize,
         point: glam::Vec3,
     ) -> glam::Vec3 {
-        let origins = *self
-            .origins
-            .get_or_insert_with(|| hl2_simulation::lighting_origins::resolve(&game.world, id));
+        let scene = &game.scene;
+        if self.origins_changes != scene.lighting_origin_changes {
+            self.origins_changes = scene.lighting_origin_changes;
+            self.origins = None;
+            self.last = None;
+        }
+        let origins = *self.origins.get_or_insert_with(|| {
+            hl2_simulation::lighting_origins::resolve(&game.world, &scene.keyvalue_overrides, id)
+        });
         origins.map_or(point, |o| o.point(&game.scene.states, point))
     }
     /// The lighting offset of a relative lighting origin as the draw-to-lighting basis (the
