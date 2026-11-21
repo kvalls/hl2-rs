@@ -280,7 +280,8 @@ fn prepare_world(
         hl2_simulation::commentary::append_world_commentary(&mut world, vfs, map);
     }
     timing.mark("world");
-    let (model_report, weapon_models) = prepare_models(&mut world, vfs, config.video.root_lod());
+    let (model_report, weapon_models) =
+        prepare_models(&mut world, vfs, config.video.root_lod(), timing);
     mode.cancel.check()?;
     timing.mark("models");
     Ok(PreparedWorld {
@@ -334,9 +335,12 @@ fn prepare_models(
     world: &mut World,
     vfs: &Vfs,
     root_lod: usize,
+    timing: &mut Timings,
 ) -> (models::ModelReport, Vec<String>) {
     let model_report = models::append_models_lod(world, vfs, root_lod);
+    timing.mark("model_props");
     let _gibs_without_physics = models::append_break_physics(world, vfs);
+    timing.mark("model_gibs");
     // NPC weapon world models: their sequence events fire NPC weapons (DESIGN 14w).
     let weapon_models: Vec<String> = hl2_simulation::npc_weapons::definitions(vfs)
         .map(|defs| {
@@ -357,6 +361,7 @@ fn prepare_models(
     ) {
         world.warnings.push(failure);
     }
+    timing.mark("model_rigs");
     // ... and drawn bone-merged in their owners' hands (CBaseCombatWeapon::Equip).
     for model in &weapon_models {
         let key = format!("{}#0", model.to_lowercase());

@@ -23,6 +23,7 @@ impl State {
         if self.dev_overlay {
             let (triangles, materials, textures) = status.geometry_statistics();
             let eye = sim.eye();
+            let (yaw, pitch) = sim.view_angles();
             self.lines = crate::overlay::developer_lines(crate::overlay::DeveloperFrame {
                 map: &game.world.name,
                 triangles,
@@ -32,6 +33,7 @@ impl State {
                 fps: hud.frame_statistics().0,
                 friendly_fire: game.scene.player_hurts_friendlies,
                 eye: eye.to_array(),
+                angles: [yaw.to_degrees(), pitch.to_degrees()],
                 frame_ms: hud.frame_statistics().1,
                 materials,
                 colliders: sim.physics.colliders.len(),
@@ -100,10 +102,10 @@ fn draw_debug_overlays(
         let lines = state.background_debug.lines(
             hl2_bevy::camera::background_fov(
                 aspect,
-                ui.source.config.video.background_force_default_blur,
+                crate::standard_background::forced(&ui.source.config.video),
             )
             .to_degrees(),
-            ui.source.config.video.background_force_default_blur,
+            crate::standard_background::forced(&ui.source.config.video),
         );
         stack_top = painter.draw_background_debug(&lines, stack_top) + OVERLAY_GAP;
     }

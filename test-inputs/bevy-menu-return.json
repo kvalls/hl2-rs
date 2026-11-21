@@ -130,7 +130,7 @@
     "ui": [
       {
         "action": "command",
-        "command": "background_map"
+        "command": "echo"
       }
     ],
     "label": "settle"

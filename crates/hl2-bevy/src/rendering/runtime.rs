@@ -129,6 +129,17 @@ struct SkeletonParams<'a, 'w, 's> {
     id: usize,
 }
 
+fn spawn_skeleton_root(commands: &mut Commands, id: usize, visibility: Visibility) -> Entity {
+    commands
+        .spawn((
+            crate::campaign::MapOwned,
+            Transform::IDENTITY,
+            visibility,
+            SourceEntity(id),
+        ))
+        .id()
+}
+
 fn runtime_gpu_skeleton(
     sp: SkeletonParams,
     animation: Option<&super::AnimatedMesh>,
@@ -139,15 +150,7 @@ fn runtime_gpu_skeleton(
         (Some(_), None) => {
             let rig = sp.rig?;
             if sp.skeleton.is_none() {
-                let root = sp
-                    .commands
-                    .spawn((
-                        crate::campaign::MapOwned,
-                        Transform::IDENTITY,
-                        Visibility::Inherited,
-                        SourceEntity(sp.id),
-                    ))
-                    .id();
+                let root = spawn_skeleton_root(sp.commands, sp.id, Visibility::Inherited);
                 *sp.skeleton = Some(crate::gpu_skinning::Skeleton::spawn(
                     sp.commands,
                     sp.inverse_binds,
@@ -355,4 +358,330 @@ pub(super) fn draw_material(
         material.envmap_mask = mask.clone();
     }
     material
+}
+
+pub(crate) struct TemplateDrawAssets<'a> {
+    pub meshes: &'a mut Assets<Mesh>,
+    pub materials: &'a mut Assets<SourceMaterial>,
+    pub inverse_binds: &'a mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+}
+
+pub(crate) struct TemplateDrawWorld<'a> {
+    pub cache: &'a ModelCache,
+    pub world: &'a modkit_core::World,
+    pub ai: &'a hl2_simulation::ai::runtime::AiRuntime,
+    pub eyes: &'a std::collections::BTreeMap<(String, String), source_assets::eyes::Eyeball>,
+    pub cpu_skinning: bool,
+}
+
+/// Build the hidden template draws (body, eyes, LODs, and usable NPC weapons) for a
+/// late-precached NPC pool template so [`spawn_runtime_draws`] can clone them onto spawns.
+pub(crate) fn build_npc_template_draws(
+    commands: &mut Commands,
+    mut assets: TemplateDrawAssets<'_>,
+    ctx: TemplateDrawWorld<'_>,
+    template_id: usize,
+) -> usize {
+    let Some(instance) = ctx
+        .world
+        .model_instances
+        .iter()
+        .find(|i| i.entity == Some(template_id))
+    else {
+        return 0;
+    };
+    let (draws, skeleton) =
+        build_template_body_draws(commands, &mut assets, &ctx, instance, template_id);
+    let weapon_draws = build_template_weapon_draws(
+        commands,
+        &mut assets,
+        &ctx,
+        (instance, template_id),
+        skeleton.as_ref(),
+    );
+    draws + weapon_draws
+}
+
+fn build_template_body_draws(
+    commands: &mut Commands,
+    assets: &mut TemplateDrawAssets<'_>,
+    ctx: &TemplateDrawWorld<'_>,
+    instance: &modkit_core::ModelInstance,
+    id: usize,
+) -> (usize, Option<crate::gpu_skinning::Skeleton>) {
+    let asset_key = instance.asset_key();
+    let Some(surfaces) = ctx.world.model_assets.get(&asset_key) else {
+        return (0, None);
+    };
+    let batches =
+        super::face_split::model_batches(surfaces, instance.scale, ctx.cache, (ctx.world, id));
+    let rig = ctx
+        .world
+        .rigs
+        .get(&asset_key)
+        .filter(|r| !r.bones.is_empty() && r.bones.len() < 256);
+    let modulation = super::entity_modulation(ctx.world, id);
+    let mut shared_levels = lod::SharedLevels::for_map(&ctx.cache.faces);
+    let mut skeleton: Option<crate::gpu_skinning::Skeleton> = None;
+    let mut draws = 0;
+    for (name, batch) in batches {
+        spawn_template_body_batch(
+            commands,
+            assets,
+            ctx,
+            BodyBatchState {
+                instance,
+                id,
+                rig,
+                modulation,
+                shared_levels: &mut shared_levels,
+                skeleton: &mut skeleton,
+            },
+            (name, batch),
+        );
+        draws += 1;
+    }
+    (draws, skeleton)
+}
+
+struct BodyBatchState<'a> {
+    instance: &'a modkit_core::ModelInstance,
+    id: usize,
+    rig: Option<&'a modkit_core::animation::Rig>,
+    modulation: bevy::math::Vec4,
+    shared_levels: &'a mut lod::SharedLevels,
+    skeleton: &'a mut Option<crate::gpu_skinning::Skeleton>,
+}
+
+fn template_material(
+    assets: &mut TemplateDrawAssets<'_>,
+    ctx: &TemplateDrawWorld<'_>,
+    name: &str,
+    batch: &super::Batch,
+    modulation: bevy::math::Vec4,
+) -> (Handle<SourceMaterial>, bool, usize) {
+    let fallback = crate::assets::MaterialData::default();
+    let definition = ctx.cache.definitions.get(name).unwrap_or(&fallback);
+    let lit = batch.model && !definition.unlit && !definition.camera;
+    let material = assets
+        .materials
+        .add(draw_material(ctx.cache, definition, lit, modulation));
+    (material, lit, batch.indices.len() / 3)
+}
+
+fn spawn_template_body_batch(
+    commands: &mut Commands,
+    assets: &mut TemplateDrawAssets<'_>,
+    ctx: &TemplateDrawWorld<'_>,
+    state: BodyBatchState<'_>,
+    (name, mut batch): (String, super::Batch),
+) {
+    let (instance, id) = (state.instance, state.id);
+    let asset_key = instance.asset_key();
+    let (material, lit, triangles) =
+        template_material(assets, ctx, &name, &batch, state.modulation);
+    let mut animation = batch.skin.iter().any(|(_, w)| w.is_some()).then(|| {
+        super::AnimatedMesh::from_batch(
+            &mut batch,
+            (Some(id), None),
+            (asset_key.clone(), instance.scale),
+            true,
+        )
+    });
+    if !ctx.cpu_skinning
+        && let (Some(animation), Some(rig)) = (&mut animation, state.rig)
+    {
+        let skel = state.skeleton.get_or_insert_with(|| {
+            let root = spawn_skeleton_root(commands, id, Visibility::Hidden);
+            crate::gpu_skinning::Skeleton::spawn(
+                commands,
+                assets.inverse_binds,
+                rig,
+                instance.scale,
+                root,
+            )
+        });
+        animation.gpu = Some(skel.clone());
+    }
+    let eye = ctx.eyes.get(&(asset_key.clone(), name.clone()));
+    let mut mesh = batch.mesh();
+    if let Some(skel) = animation.as_ref().and_then(|a| a.gpu.as_ref()) {
+        skel.attributes(&mut mesh, &animation.as_ref().unwrap().bind);
+    }
+    if animation.is_some() || eye.is_some() {
+        mesh.asset_usage = bevy::asset::RenderAssetUsages::MAIN_WORLD
+            | bevy::asset::RenderAssetUsages::RENDER_WORLD;
+    }
+    let handle = assets.meshes.add(mesh);
+    let mut draw = commands.spawn((
+        crate::campaign::MapOwned,
+        Name::new(name.clone()),
+        Mesh3d(handle.clone()),
+        MeshMaterial3d(material),
+        entity_transform(instance.origin, glam::Quat::IDENTITY),
+        Visibility::Hidden,
+        SourceEntity(id),
+        crate::visibility::PvsDraw::default(),
+        DrawTriangles(triangles),
+    ));
+    let fallback = crate::assets::MaterialData::default();
+    let definition = ctx.cache.definitions.get(&name).unwrap_or(&fallback);
+    if let Some(eye) = eye {
+        draw.insert(EyeMesh {
+            key: asset_key,
+            eye: eye.clone(),
+            scale: instance.scale,
+        });
+    } else if let Some(levels) = lod::levels_for_draw(
+        ctx.world,
+        id,
+        &name,
+        definition,
+        (&handle, animation.as_ref()),
+        (assets.meshes, state.shared_levels),
+    ) {
+        draw.insert(levels);
+    }
+    if lit {
+        draw.insert(ctx.cache.model_lit(id, instance, definition));
+    }
+    if let Some(animation) = animation {
+        if let Some(skel) = &animation.gpu {
+            draw.insert((
+                skel.component(),
+                bevy::camera::visibility::DynamicSkinnedMeshBounds,
+            ));
+        }
+        draw.insert(animation);
+    }
+}
+
+fn build_template_weapon_draws(
+    commands: &mut Commands,
+    assets: &mut TemplateDrawAssets<'_>,
+    ctx: &TemplateDrawWorld<'_>,
+    (instance, id): (&modkit_core::ModelInstance, usize),
+    skeleton: Option<&crate::gpu_skinning::Skeleton>,
+) -> usize {
+    if ctx.cpu_skinning {
+        return 0;
+    }
+    let asset_key = instance.asset_key();
+    let (Some(skeleton), Some(owner_rig)) = (skeleton, ctx.world.rigs.get(&asset_key)) else {
+        return 0;
+    };
+    let class = ctx.world.entities[id].class();
+    let mut keys: std::collections::BTreeSet<String> = ctx
+        .ai
+        .usable_weapons(class, &owner_rig.activities)
+        .into_iter()
+        .filter_map(|w| ctx.ai.weapon_model(&w))
+        .map(|m| format!("{m}#0"))
+        .collect();
+    if let Some(active) = ctx.ai.weapon_world_model(id) {
+        keys.insert(format!("{active}#0"));
+    }
+    let modulation = super::entity_modulation(ctx.world, id);
+    let scale_mat = bevy::math::Mat4::from_scale(bevy::math::Vec3::splat(instance.scale));
+    let mut draws = 0;
+    for weapon_key in keys {
+        let (Some(surfaces), Some(weapon_rig)) = (
+            ctx.world.model_assets.get(&weapon_key),
+            ctx.world.rigs.get(&weapon_key),
+        ) else {
+            continue;
+        };
+        let mut batches = std::collections::BTreeMap::<String, super::Batch>::new();
+        for s in surfaces.iter().filter(|s| !s.indices.is_empty()) {
+            let def = ctx.cache.definitions.get(&s.material);
+            batches
+                .entry(s.material.clone())
+                .or_default()
+                .append(s, scale_mat, def);
+        }
+        for (name, batch) in batches {
+            if spawn_template_weapon_batch(
+                commands,
+                assets,
+                ctx,
+                WeaponBatchState {
+                    instance,
+                    id,
+                    weapon_key: &weapon_key,
+                    owner_rig,
+                    weapon_rig,
+                    skeleton,
+                    modulation,
+                },
+                (name, batch),
+            ) {
+                draws += 1;
+            }
+        }
+    }
+    draws
+}
+
+struct WeaponBatchState<'a> {
+    instance: &'a modkit_core::ModelInstance,
+    id: usize,
+    weapon_key: &'a str,
+    owner_rig: &'a modkit_core::animation::Rig,
+    weapon_rig: &'a modkit_core::animation::Rig,
+    skeleton: &'a crate::gpu_skinning::Skeleton,
+    modulation: bevy::math::Vec4,
+}
+
+fn spawn_template_weapon_batch(
+    commands: &mut Commands,
+    assets: &mut TemplateDrawAssets<'_>,
+    ctx: &TemplateDrawWorld<'_>,
+    state: WeaponBatchState<'_>,
+    (name, mut batch): (String, super::Batch),
+) -> bool {
+    if !batch.skin.iter().any(|(_, w)| w.is_some()) {
+        return false;
+    }
+    let (material, lit, triangles) =
+        template_material(assets, ctx, &name, &batch, state.modulation);
+    let weapon_key = state.weapon_key.to_owned();
+    let mut animation = super::AnimatedMesh::from_batch(
+        &mut batch,
+        (Some(state.id), Some(weapon_key.clone())),
+        (weapon_key.clone(), state.instance.scale),
+        false,
+    );
+    let merged = crate::gpu_skinning::Skeleton::merged(
+        assets.inverse_binds,
+        state.weapon_rig,
+        state.owner_rig,
+        state.skeleton,
+        state.instance.scale,
+    );
+    let mut mesh = batch.mesh();
+    merged.attributes(&mut mesh, &animation.bind);
+    mesh.asset_usage =
+        bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD;
+    animation.gpu = Some(merged.clone());
+    let mut draw = commands.spawn((
+        crate::campaign::MapOwned,
+        Name::new(name.clone()),
+        Mesh3d(assets.meshes.add(mesh)),
+        MeshMaterial3d(material),
+        entity_transform(state.instance.origin, glam::Quat::IDENTITY),
+        Visibility::Hidden,
+        SourceEntity(state.id),
+        NpcWeaponDraw(weapon_key),
+        crate::visibility::PvsDraw::default(),
+        DrawTriangles(triangles),
+        merged.component(),
+        bevy::camera::visibility::DynamicSkinnedMeshBounds,
+        animation,
+    ));
+    if lit {
+        let fallback = crate::assets::MaterialData::default();
+        let definition = ctx.cache.definitions.get(&name).unwrap_or(&fallback);
+        draw.insert(ctx.cache.model_lit(state.id, state.instance, definition));
+    }
+    true
 }

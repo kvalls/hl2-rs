@@ -1,18 +1,22 @@
 //! Rapier collision/rigid-body adapter. This is not Valve's proprietary VPhysics solver.
 use crate::npc_probe::{ActorHull, Hull, HullTrace, NpcCollisionWorld, Query, CONTENTS_MONSTER};
 use glam::{Mat4, Quat, Vec3};
-use modkit_core::{movement::CollisionWorld, trace_brushes, Brush, Surface, Trace, World};
+use modkit_core::{
+    movement::CollisionWorld, trace_brushes, Brush, BrushSet, Surface, Trace, World,
+};
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 mod brush_entities;
 mod diagnostics;
+mod hitboxes;
 #[path = "physics_npc_trace.rs"]
 mod npc_trace;
 mod physbox;
 #[path = "player_convex.rs"]
 mod player_convex;
+mod queries;
 mod rays;
 mod shadow_push;
 #[derive(Clone, Copy, Debug, Default)]
@@ -25,14 +29,6 @@ pub struct RayHit {
     pub hitgroup: i32,
     /// The hit studio hitbox's bone (the trace's physicsbone source), when one was hit.
     pub bone: Option<usize>,
-}
-/// An NPC's studio hitboxes (hitbox set 0) as trace colliders, posed from the
-/// animated skeleton every tick (DESIGN 14b).
-#[derive(Clone, Debug)]
-struct StudioHitboxSet {
-    /// (collider, bone, box center in bone space, bind-pose bone model matrix)
-    boxes: Vec<(ColliderHandle, usize, Vec3, Mat4)>,
-    asset_key: String,
 }
 #[derive(Clone, Copy)]
 pub enum ProjectileHull {
@@ -513,11 +509,6 @@ pub struct WorldSideMaterials {
     /// held object).
     pub shadow: Vec<ColliderHandle>,
     pub shadow_excluded: Vec<RigidBodyHandle>,
-    /// Model-shaped NPC colliders of hull-box NPCs: trace hitboxes only. Rapier enables
-    /// a pair when either collider's active collision types allow it, so a dynamic prop
-    /// still generated and solved contacts against every animated hitbox (owner report:
-    /// a pallet sliding off a plaza cop dropped 46 -> 17 fps); the pair filter drops them.
-    pub hitboxes: std::collections::HashSet<ColliderHandle>,
     /// Entity pairs that never collide (logic_collision_pair with startdisabled 1:
     /// PhysDisableEntityCollisions), smaller id first.
     pub disabled_pairs: std::collections::HashSet<(usize, usize)>,
@@ -552,10 +543,6 @@ impl PhysicsHooks for WorldSideMaterials {
     /// (dynamic) bodies within the push mass limit, never world geometry, doors or
     /// the object the player holds.
     fn filter_contact_pair(&self, context: &PairFilterContext) -> Option<SolverFlags> {
-        if self.hitboxes.contains(&context.collider1) || self.hitboxes.contains(&context.collider2)
-        {
-            return None;
-        }
         if let (Some(a), Some(b)) = (context.rigid_body1, context.rigid_body2) {
             if let (Some(ra), Some(rb)) = (self.ragdoll_bodies.get(&a), self.ragdoll_bodies.get(&b))
             {
@@ -646,11 +633,11 @@ impl PhysicsHooks for WorldSideMaterials {
 pub struct Physics {
     pub bodies: RigidBodySet,
     pub colliders: ColliderSet,
-    query: QueryPipeline,
+    query: queries::Queries,
     changed_entity_colliders: Vec<ColliderHandle>,
     pipeline: PhysicsPipeline,
     islands: IslandManager,
-    broad: BroadPhaseMultiSap,
+    broad: queries::RecordingBroadPhase,
     narrow: NarrowPhase,
     impulses: ImpulseJointSet,
     multibody: MultibodyJointSet,
@@ -659,7 +646,7 @@ pub struct Physics {
     world_brush_contents: HashMap<ColliderHandle, u32>,
     pub world_sides: WorldSideMaterials,
     npc_collider_contents: HashMap<ColliderHandle, u32>,
-    player_world_brushes: Vec<Brush>,
+    player_world_brushes: BrushSet,
     player_convex_cache: Mutex<player_convex::ConvexCache>,
     pub dynamic: BTreeMap<usize, RigidBodyHandle>,
     /// Surfaceprop of each authored VPhysics prop (entity id -> lowercase name).
@@ -707,11 +694,8 @@ pub struct Physics {
     pub player_shadow: Option<(RigidBodyHandle, bool)>,
     /// NPC hull box collider and its (mins, maxs) per entity.
     npc_hulls: BTreeMap<usize, (ColliderHandle, Vec3, Vec3)>,
-    /// Model-shaped colliders of NPCs that have a hull box: hitboxes for traces only,
-    /// not solid to player movement and without contacts.
-    npc_hitboxes: std::collections::HashSet<ColliderHandle>,
     /// NPCs whose traces use their animated studio hitboxes.
-    studio_hitboxes: BTreeMap<usize, StudioHitboxSet>,
+    studio_hitboxes: BTreeMap<usize, hitboxes::StudioHitboxSet>,
     collider_hitgroups: HashMap<ColliderHandle, i32>,
     collider_hitbox_bones: HashMap<ColliderHandle, usize>,
     /// Diagnostics: wall-clock milliseconds of the last tick.
@@ -816,7 +800,7 @@ fn apply_drag(
 impl Physics {
     pub fn new(world: &World) -> Self {
         let mut p = Self {
-            player_world_brushes: world.brushes.clone(),
+            player_world_brushes: BrushSet::new(world.brushes.clone()),
             air_density: crate::drag::AIR_DENSITY,
             ..Self::default()
         };
@@ -1351,12 +1335,7 @@ impl Physics {
         // the entity origin (never rotated); the model shape stays for traces.
         if let (Some(id), Some((mins, maxs))) = (entity, npc_hull(&instance.kind)) {
             for c in self.entity_colliders.get(&id).cloned().unwrap_or_default() {
-                if let Some(collider) = self.colliders.get_mut(c) {
-                    collider.set_active_collision_types(ActiveCollisionTypes::empty());
-                    collider.set_active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS);
-                }
-                self.npc_hitboxes.insert(c);
-                self.world_sides.hitboxes.insert(c);
+                self.trace_only(c);
             }
             let half = (maxs - mins) * 0.5;
             let hull = self.colliders.insert(
@@ -1430,121 +1409,30 @@ impl Physics {
         self.npc_collider_contents.insert(handle, CONTENTS_MONSTER);
         self.changed_entity_colliders.push(handle);
     }
-    /// Replace an NPC's render-mesh trace collider with its studio hitboxes at the bind
-    /// pose (the hull box stays for movement and contacts).
-    fn use_studio_hitboxes(
-        &mut self,
-        id: usize,
-        instance: &modkit_core::ModelInstance,
-        rig: &modkit_core::animation::Rig,
-    ) {
-        for c in self.entity_colliders.remove(&id).unwrap_or_default() {
-            self.colliders
-                .remove(c, &mut self.islands, &mut self.bodies, false);
-            self.npc_hitboxes.remove(&c);
-            self.world_sides.hitboxes.remove(&c);
-            self.npc_collider_contents.remove(&c);
-            self.collider_materials.remove(&c);
-        }
-        let base = Mat4::from_rotation_translation(angles(instance.angles), instance.origin);
-        let mut boxes = Vec::new();
-        for hitbox in &rig.hitboxes {
-            let Some(bone) = rig.bones.get(hitbox.bone) else {
-                continue;
-            };
-            let half = ((hitbox.maxs - hitbox.mins) * 0.5).max(Vec3::splat(0.05));
-            let center = (hitbox.maxs + hitbox.mins) * 0.5;
-            let bind = bone.inverse_bind.inverse();
-            let collider = ColliderBuilder::cuboid(half.x * SCALE, half.y * SCALE, half.z * SCALE)
-                .position(mat4_pose(base * bind * Mat4::from_translation(center)))
-                .user_data(id as u128 + 1)
-                .collision_groups(InteractionGroups::new(NPC_GROUP, Group::ALL))
-                .active_collision_types(ActiveCollisionTypes::empty())
-                .active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS);
-            let c = self.colliders.insert(collider);
-            self.npc_hitboxes.insert(c);
-            self.world_sides.hitboxes.insert(c);
-            self.npc_collider_contents.insert(c, CONTENTS_MONSTER);
-            self.collider_hitgroups.insert(c, hitbox.group);
-            self.collider_hitbox_bones.insert(c, hitbox.bone);
-            boxes.push((c, hitbox.bone, center, bind));
-        }
-        self.studio_hitboxes.insert(
-            id,
-            StudioHitboxSet {
-                boxes,
-                asset_key: instance.asset_key(),
-            },
-        );
-    }
-    /// NPCs with studio hitbox colliders and their model asset keys.
-    pub fn studio_hitbox_entities(&self) -> Vec<(usize, String)> {
-        self.studio_hitboxes
-            .iter()
-            .map(|(id, set)| (*id, set.asset_key.clone()))
-            .collect()
-    }
-    /// Pose an NPC's hitboxes from its skinning matrices (bone pose x inverse bind, model
-    /// space) and entity frame; `enabled` follows the entity.
-    pub fn set_npc_hitboxes(&mut self, id: usize, frame: Mat4, skin: &[Mat4], enabled: bool) {
-        let Some(set) = self.studio_hitboxes.get(&id) else {
-            return;
-        };
-        for (c, bone, center, bind) in &set.boxes {
-            let Some(collider) = self.colliders.get_mut(*c) else {
-                continue;
-            };
-            if enabled {
-                let model = skin.get(*bone).map_or(*bind, |m| *m * *bind);
-                let at = mat4_pose(frame * model * Mat4::from_translation(*center));
-                if *collider.position() != at {
-                    collider.set_position(at);
-                    self.changed_entity_colliders.push(*c);
-                }
-            }
-            if collider.is_enabled() != enabled {
-                collider.set_enabled(enabled);
-                self.changed_entity_colliders.push(*c);
-            }
-        }
-    }
-    fn hitgroup(&self, handle: ColliderHandle) -> i32 {
-        self.collider_hitgroups.get(&handle).copied().unwrap_or(0)
-    }
-    fn hitbox_bone(&self, handle: ColliderHandle) -> Option<usize> {
-        self.collider_hitbox_bones.get(&handle).copied()
-    }
     pub fn set_entity(&mut self, id: usize, origin: Vec3, rotation: Quat, enabled: bool) {
-        let dynamic = self.dynamic.get(&id);
+        let dynamic = self.dynamic.get(&id).copied();
         if dynamic
-            .and_then(|h| self.bodies.get(*h))
+            .and_then(|h| self.bodies.get(h))
             .is_some_and(|body| body.is_enabled() != enabled)
         {
             self.bodies
-                .get_mut(*dynamic.unwrap())
+                .get_mut(dynamic.unwrap())
                 .unwrap()
                 .set_enabled(enabled);
         }
         if let Some(&(hull, mins, maxs)) = self.npc_hulls.get(&id) {
             let at = pose(origin + (mins + maxs) * 0.5, Quat::IDENTITY);
-            if let Some(c) = self.colliders.get_mut(hull) {
-                if *c.position() != at || c.is_enabled() != enabled {
-                    c.set_position(at);
-                    c.set_enabled(enabled);
-                    self.changed_entity_colliders.push(hull);
-                }
+            // A disabled hull is placed when it is enabled, not while it stays disabled.
+            let stale =
+                |c: &Collider| c.is_enabled() != enabled || (enabled && *c.position() != at);
+            if self.colliders.get(hull).is_some_and(stale) {
+                let c = self.colliders.get_mut(hull).expect("hull collider");
+                c.set_position(at);
+                c.set_enabled(enabled);
+                self.changed_entity_colliders.push(hull);
             }
         }
-        if let Some(set) = self.studio_hitboxes.get(&id) {
-            for (c, ..) in &set.boxes {
-                if let Some(collider) = self.colliders.get_mut(*c) {
-                    if collider.is_enabled() != enabled {
-                        collider.set_enabled(enabled);
-                        self.changed_entity_colliders.push(*c);
-                    }
-                }
-            }
-        }
+        self.enable_hitboxes(id, enabled);
         let target = dynamic.is_none().then(|| pose(origin, rotation));
         if let Some(colliders) = self.entity_colliders.get(&id) {
             for h in colliders {
@@ -1552,6 +1440,7 @@ impl Physics {
                     continue;
                 };
                 let move_pose = target.as_ref().is_some_and(|target| c.position() != target);
+                let move_pose = move_pose && (enabled || c.is_enabled());
                 let change_enabled = c.is_enabled() != enabled;
                 if !move_pose && !change_enabled {
                     continue;
@@ -1682,10 +1571,11 @@ impl Physics {
             &mut self.impulses,
             &mut self.multibody,
             &mut self.ccd,
-            Some(&mut self.query),
+            None,
             &self.world_sides,
             &(),
         );
+        self.query.apply_step(&self.colliders, &mut self.broad);
         self.time += f64::from(dt);
         // physics_performanceparams_t::Defaults (SDK performance.h; CPhysicsHook keeps
         // them): world-space speed limits of 2000 u/s and 3600 deg/s per object.
@@ -2597,8 +2487,7 @@ impl Physics {
                         .position(pose(center(feet), Quat::IDENTITY))
                         .lock_rotations()
                         .gravity_scale(0.)
-                        .additional_mass(PLAYER_SHADOW_MASS)
-                        .ccd_enabled(true),
+                        .additional_mass(PLAYER_SHADOW_MASS),
                 );
                 let collider = self.colliders.insert_with_parent(
                     ColliderBuilder::cuboid(skin.x * SCALE, skin.y * SCALE, skin.z * SCALE)
@@ -2618,6 +2507,7 @@ impl Physics {
                 );
                 self.world_sides.shadow = vec![collider];
                 self.drag_disabled.insert(body);
+                self.ccd_gated.insert(body, 0.);
                 self.player_shadow = Some((body, crouched));
                 (body, crouched)
             }
@@ -2641,8 +2531,7 @@ impl Physics {
             let shape = Cuboid::new(vector![half.x * SCALE, half.y * SCALE, half.z * SCALE]);
             let filter = Self::movable_filter();
             let (collider, _) = physics.query.cast_shape(
-                &physics.bodies,
-                &physics.colliders,
+                (&physics.bodies, &physics.colliders),
                 &pose(center(from), Quat::IDENTITY),
                 &vector(to - from),
                 &shape,
@@ -2766,8 +2655,7 @@ impl Physics {
                 .predicate(&skip);
             let delta = velocity * dt;
             if let Some((collider, hit)) = self.query.cast_shape(
-                &self.bodies,
-                &self.colliders,
+                (&self.bodies, &self.colliders),
                 &pose(position + skin_offset, Quat::IDENTITY),
                 &vector(delta),
                 &shape,
@@ -2990,8 +2878,7 @@ impl Physics {
                     .is_none_or(|contents| contents & 0x0200_400b != 0)
         };
         let (handle, hit) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
+            (&self.bodies, &self.colliders),
             &pose(start, Quat::IDENTITY),
             &vector(end - start),
             shape.as_ref(),
@@ -3089,8 +2976,7 @@ impl Physics {
             compute_impact_geometry_on_penetration: true,
         };
         let (handle, hit) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
+            (&self.bodies, &self.colliders),
             &pose(origin, Quat::IDENTITY),
             &vector(direction * distance),
             &shape,
@@ -3117,7 +3003,7 @@ impl CollisionWorld for Physics {
         let player_contents_filter = |handle: ColliderHandle, collider: &Collider| {
             collider.is_enabled()
                 && !self.world_brush_contents.contains_key(&handle)
-                && !self.npc_hitboxes.contains(&handle)
+                && !self.is_trace_only(handle)
                 && !player_convex::supported(collider)
         };
         let filter = QueryFilter::default()
@@ -3135,14 +3021,9 @@ impl CollisionWorld for Physics {
             (start.y + center.y) * SCALE,
             (start.z + center.z) * SCALE,
         );
-        let mut result = trace_brushes(
-            &self.player_world_brushes,
-            start,
-            end,
-            mins,
-            maxs,
-            PLAYER_BRUSH_MASK,
-        );
+        let mut result = self
+            .player_world_brushes
+            .trace(start, end, mins, maxs, PLAYER_BRUSH_MASK);
         // Continuous SAT for cuboids/convex polyhedra includes their face planes,
         // player box face axes, and every convex-edge/box-edge bevel axis. Cache
         // planes by current shape/pose and only query broadphase candidates.
@@ -3170,7 +3051,7 @@ impl CollisionWorld for Physics {
                             | WEAPON_GROUP
                     )
                     && !self.world_brush_contents.contains_key(handle)
-                    && !self.npc_hitboxes.contains(handle)
+                    && !self.is_trace_only(*handle)
                 {
                     if let Some(brush) = cache.brush(*handle, collider) {
                         let hit =
@@ -3233,8 +3114,7 @@ impl CollisionWorld for Physics {
             compute_impact_geometry_on_penetration: true,
         };
         if let Some((_, hit)) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
+            (&self.bodies, &self.colliders),
             &position,
             &vector(delta),
             &shape,

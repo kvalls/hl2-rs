@@ -28,46 +28,6 @@ pub(super) fn mainmenu(console: &mut Console, spec: &Spec, args: &[String]) -> O
     Ok(None)
 }
 
-pub(super) fn background_map(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
-    if args.is_empty() {
-        match console.background_map() {
-            Some(map) => console.log(format!("\"background_map\" = \"{map}\"")),
-            None => console.log("\"background_map\" is not set"),
-        }
-    } else if args.len() == 1 {
-        let map = args[0].strip_suffix(".bsp").unwrap_or(&args[0]);
-        if map.eq_ignore_ascii_case("default")
-            || map == "0"
-            || map.eq_ignore_ascii_case("none")
-            || map.is_empty()
-        {
-            console.set_background(None);
-            let _ = console.config.save();
-            console.log(format!(
-                "background_map reset to default ({})",
-                console.gameui.background_map.as_deref().unwrap_or("none")
-            ));
-        } else {
-            if map.len() > 128 || !map.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
-                return Err("background_map: use a simple installed map name".into());
-            }
-            let current = console.loaded_map.as_ref().map(|m| m.game.as_str());
-            let background = console.game_map(map, current);
-            console.set_background(Some(background));
-            let _ = console.config.save();
-            console.log(format!("background_map {map}"));
-        }
-        return Ok(Some(Effect::ApplyConfig(Box::new(console.config.clone()))));
-    } else {
-        return Err(spec.usage());
-    }
-    Ok(None)
-}
-
-pub(super) fn background_map_value(console: &Console) -> Option<String> {
-    Some(console.background_map()?.to_owned())
-}
-
 pub(super) fn map_background(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.len() != 1 {
         return Err(spec.usage());
@@ -132,4 +92,89 @@ pub(super) fn migrate_episodic_data(
     }
     console.log("migrate_episodic_data: save data migration is not implemented in this build");
     Ok(None)
+}
+
+/// `gamemenucommand <command>`: a game menu command as a menu entry runs it.
+pub(super) fn gamemenucommand(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    if args.is_empty() {
+        return Err(spec.usage());
+    }
+    let effects = console.game_menu_command(&args.join(" "));
+    console.deferred.extend(effects);
+    Ok(None)
+}
+
+/// `gameui_activate`: shows the pause menu over a game (the main menu is already shown).
+pub(super) fn gameui_activate(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    if !args.is_empty() {
+        return Err(spec.usage());
+    }
+    if console.mode() == Mode::Gameplay && !console.background_level() {
+        console.set_mode(Mode::Pause);
+    }
+    Ok(None)
+}
+
+/// `gameui_hide`: back to the game, closing the menus (not over a menu background level).
+pub(super) fn gameui_hide(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    if !args.is_empty() {
+        return Err(spec.usage());
+    }
+    if !console.background_level() {
+        console.set_mode(Mode::Gameplay);
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod game_ui_tests {
+    use crate::console::{Console, Mode};
+
+    #[test]
+    fn showconsole_and_hideconsole_open_and_close_without_toggling() {
+        let mut console = Console::default();
+        console.submit("showconsole");
+        assert!(console.console_open());
+        console.submit("showconsole");
+        assert!(console.console_open(), "a second showconsole keeps it open");
+        console.submit("hideconsole");
+        assert!(!console.console_open());
+        console.submit("hideconsole");
+        assert!(!console.console_open());
+    }
+
+    #[test]
+    fn game_ui_commands_open_the_pause_menu_and_options_and_close_them() {
+        let mut console = Console::default();
+        assert_eq!(console.mode(), Mode::Gameplay);
+        console.submit("gameui_activate");
+        assert_eq!(console.mode(), Mode::Pause);
+        console.submit("gamemenucommand OpenOptionsDialog");
+        assert_eq!(console.mode(), Mode::Options);
+        console.submit("gameui_hide");
+        assert_eq!(console.mode(), Mode::Gameplay);
+        console.submit("gamemenucommand OpenOptionsDialog");
+        assert_eq!(console.mode(), Mode::Options);
+    }
+
+    #[test]
+    fn startup_commands_wait_for_the_first_level_and_their_menus_stay_open() {
+        let mut console = Console::default();
+        console.queue_startup_commands(vec![
+            "gamemenucommand OpenOptionsDialog".into(),
+            "toggleconsole".into(),
+        ]);
+        assert!(console.startup_pending());
+        assert_eq!(console.mode(), Mode::Gameplay);
+        console.level_loaded(false);
+        assert!(!console.startup_pending());
+        assert_eq!(console.mode(), Mode::Console);
+        assert_eq!(
+            console.open_windows(),
+            [
+                crate::console::Window::Options,
+                crate::console::Window::Console
+            ]
+        );
+    }
 }

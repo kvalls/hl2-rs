@@ -1,5 +1,12 @@
 # Performance measurements - 2026-10-05
 
+## GPU shadow silhouettes (2026-11-15, default since 2026-11-19)
+
+Dirty model silhouettes are drawn into the shadow atlas on the GPU whenever a renderer exists.
+`HL2RS_GPU_SILHOUETTES=0` keeps the CPU rasterizer as the reference and fallback. The paired station02 tests,
+GPU readback and receiver-pixel comparisons are in the
+[performance research report](performance-research.md#gpu-shadow-silhouettes-on-station02).
+
 ## Dense report labels distort frame time (2026-11-12, session 55)
 
 RTX 3070, Ryzen 7 3700X, Windows 11, packaged session 55 build (c20abc1), 1920x1080 borderless on the second
@@ -204,6 +211,34 @@ The brightness prototype gives vertical fluorescent trails more coverage; still 
 do not establish reduced perceived afterimages. Keep it experimental pending controlled
 GPU reduction readback equivalence, clean idle/turn/swing comparisons and display testing.
 
+
+## Map install: shared LOD meshes (2026-11-20)
+
+The load report times the main-thread install in steps (`install_monitors`, `install_draws`,
+`install_effects`, `install_sky`, `install_rest`; `install_ms` stays the total). On
+d1_trainstation_01/02, `install_draws` took 430-510 ms; about 200 ms of it built the coarser LOD
+meshes of 400-530 entity draws, most of them repeats of the same model, material and scale.
+Every studio vertex carries a reference to its source mesh, so every studio draw counted as
+facially flexed and built private copies. Map install now builds each model, material, scale and
+skinning combination's coarser levels once and shares them (`lod::SharedLevels`), as runtime
+copies already did, unless the model's facial flexes move one of the draw's vertices (those keep
+their own meshes and per-level vertex data). Three gameplay replays (M1 Pro, one game at a time):
+`install_draws` 427-507 -> 326-330 ms, request to playable 1849-2015 -> 1758-1849 ms. Runtime
+spawns are unchanged.
+
+## Map loading: entity rigs on all cores (2026-11-20)
+
+The map worker's models phase now reports `model_props` (prop meshes, physics and rigs),
+`model_gibs` and `model_rigs` (weapon and player rigs) in `render.map_metadata.loading_ms`.
+Timing inside `model_props` on d1_trainstation_01/02 showed the entity rigs (skeletons and
+kept sequences of NPCs, props and ragdolls) took about 440-460 ms of 580-670 ms, loaded one model
+at a time; model files (already read on all cores) took 25 ms. Rigs now load on all cores
+before instances are placed, each stored at the instance that would have loaded it, so later
+steps see the same rigs; the map's sequence names are collected once instead of per rig.
+Three gameplay replays (M1 Pro, one game at a time): `model_props` 581-668 -> 268-315 ms,
+request to playable 2163-2373 -> 1848-1932 ms. All 109 packaged checks kept their outcomes;
+`monitors-kleiner-scene` missed one gib removal once with three games in parallel (also seen
+before this change) and passed alone twice.
 
 ## Background/shared map loading: parallel preparation and content reuse (2026-10-30)
 
@@ -1110,3 +1145,86 @@ A sequential900-frame1080p uncapped/profiled spawn run averages174.72FPS/5.723ms
 Station02 retains324429 triangles and743 materials, while loaded draw meshes rise921→1670. In the inspected plaza, union-of-view candidates fall69425→32011 triangles; its image is pixel-identical. These are candidates after PVS/frustum/layer checks, excluding sky/viewmodels, not GPU draw-call or fragment counts. Preliminary sequential900-frame1080p profiles measured159.74→165.91FPS at spawn and125.65→127.01FPS in the plaza; normal run variation and different autonomous scene durations prevent a robust general speed claim. A later frozen-scene diagnostic intentionally ends before its script completes and returns an incomplete-script error; it is excluded from these comparisons.
 
 An initial hall camera intersected a pillar and was rejected as visibility evidence. Area portals, occluders, native LODs and campaign-wide culling validation remain unfinished.
+
+
+## Bounded performance research: fixed-duration indoor sensitivity (2026-11-11)
+
+An isolated release package at `2208bcb618adfd3072ea5fd00553babdcb9a7866` (SHA256
+`51cf256188b5e0446165cc2dc55ad90729768143683151f9c4e5182c41895fc5`) ran on M1 Pro / Metal,
+10 logical CPUs / 16 GiB, advanced-options/debug-tools plugins. Station02 indoor spawn,
+fixed script ending tick 600, muted headless, uncapped/profiled, no capture while timing;
+1920x1080, FOV75, HDR Full, High details/shadows, no AA, trilinear, motion blur/color correction
+on. Three interleaved rounds: median of mean frame times, baseline 5.811 ms (5.751–5.879),
+720p 5.781 (5.735–5.982), no-PVS 7.736 (7.674–7.784), partition 5.775 (5.773–5.811), CPU
+skinning 12.568 (12.476–12.640), Low 5.680 (5.650–5.796). Baseline p95 bucket upper bounds
+10/9/9 ms, p99 13/11/11; exact p50 is unavailable. Full trial and tail table:
+[performance-research.md](performance-research.md).
+
+All 18 valid runs exited 0, reached tick 600 and completed; two invalid-Low config attempts
+remain rejected. Existing PVS/GPU skinning reduce median frame time substantially versus their
+disabled/fallback controls; this is no new runtime optimization. Partition cuts candidate
+triangles 52,768 to 7,257 but barely changes frame time; 720p and partition differences are within
+variation. Low changes quality and overlaps baseline variation. CPU candidates are not GPU draws.
+The untimed 1080p capture shows the indoor stairwell, not the crowd/plaza.
+
+The 120-frame warmup covers different simulation intervals at different throughput. CPU scope
+windows include setup and overlap; graph CPU wall intervals are not GPU timestamps. Existing
+compression/about 640 MiB swap qualify timings; full GPU/power/thermal counters are unavailable.
+The package omits four newer upstream-main commits, including flight/sight query improvements.
+Windows RTX 3070 matched reproduction, live presentation, local crowds, native settings and general FPS
+improvements are **not tested**. No source/build modification or installed-game write occurred.
+
+Evidence and reproduction: `artifacts/performance-research-2026-11-11/summary.json`,
+`measurements.json`, per-run reports/logs/configs, `baseline-visual.png`, environment snapshots;
+`python3 artifacts/performance-research-2026-11-11/benchmark.py` from the repository root.
+
+
+### Correction: original performance observation hardware (2026-11-11)
+
+Subsequent direct clarification of the original observation identifies RTX 3070, not the
+previously supplied RTX 5070: native station02 plaza with many colliding/sparking manhacks
+read 276 FPS, while the rewrite reportedly averaged barely 60 FPS and less with many manhacks.
+The observer reports a 16-thread CPU at 4 GHz and 64 GB RAM at 3200; exact CPU model, resolution,
+quality, view, actor count and timing method are not established. The earlier RTX 5070 account
+is conflicting/provisional. The historical Windows profile remains a separate instrumented
+session; none of the fresh Mac measurements changed. A separate contemporaneous observation
+reports M1 Pro / maximum graphics / 3456x2168 / idle plaza 65–80 FPS at `2208bcb`, not the controlled
+1080p indoor headless workload. No new runtime test or speedup follows from this correction.
+
+
+## Implemented effect/glow experiments: no established frame gain (2026-11-11)
+
+M1 Pro / Metal, 10 logical CPUs / 16 GiB, identical explicit High/HDR Full/no-AA settings and plugins,
+three paired rounds over five fixed 600-tick cases (30 launches), no capture/competing build during
+timing. Baseline 2208bcb SHA256 51cf256188b5e0446165cc2dc55ad90729768143683151f9c4e5182c41895fc5;
+candidate a22f6a0 plus source-manifest runtime edits, SHA256
+51002f989e04e2f8d72dc96bfa0fc55d1ce1c38ce17b7f776b7939f310cd07ab. Shader hashes match.
+
+Median frame ms before→after:quiet 5.5359→5.5493; frozenfire5.9949→5.9566; animated fire7.4000→7.3968;
+crowd 1080p13.5671→13.6421; crowd3456x2168 13.8773→13.8715. All 15 full gameplay-state pairs match.
+Ranges overlap, and 1080p crowd p99 bucket bounds worsen 23/23/23→24/25/26ms. Frozen contained-window
+median 5.9182→5.7931ms is secondary/mixed, not an established whole-game win. Swap 706→2339 MiB and
+~1.66 GiB system swapout traffic qualify interpretation. Complete trials/tails/methods:
+[performance-research.md](performance-research.md).
+
+The geometry helper improves ~0.242→0.0086 us, but 142 hypothetically changed quads save only ~0.033 ms;
+the frozen baseline already skipped unchanged geometry. Glow 30 actors / 1k-prefix saves ~0.0108 ms.
+These presentation helpers do not reduce NPC decisions, exact world sweeps, Rapier or draw count.
+Current crowd scopes remain millisecond-scale (median means: fixed 5.648 ms/call, graph 2.582,
+assets 1.951, prepare 1.035), overlap and include setup; the assets mean includes ~501 ms setup cost.
+
+Separate 1800-tick current-only sampled diagnostics conserve thread observations:shared static
+brush trace295quiet/710 crowd, optimized glow 10 crowd / quad pool 2 frozen. Crowd fixed-system 1527,
+physics-step 379 includes rebalance 141 / broadphase 161; do not sum ancestors/descendants or treat
+counts as milliseconds. Main 2101/2129 snapshots wait while workers run. The full brush-plane scan
+is shared by NPC/player hull traces, mostly NPC flight in this crowd. First validate/profile
+latest shared baseline including published flight/sight fixes before a new candidate-index
+experiment; preserve ordered exact plane/epsilon/start/all-solid/normal behavior and fallback
+brushes. This diagnosis is not a speedup measurement or a completed next-cycle change.
+
+All 6 fixed-exposure particle checks pass; fire/smoke images exact, ball 61 pixels / max 1 RGB remains
+unresolved. Ordinary HDR cross-build AND baseline-repeat byte checks fail; retained separately.
+No original 30 timing run was replaced by fixed-exposure timing. Evidence:
+`artifacts/performance-implementation-2026-11-11/paired-summary.json`,source/package manifest,
+raw reports/logs,controlled/regression summaries,CPU experiments and diagnostics/stack-summary.json.
+Windows/native matched timing and full-campaign/all-camera runtime parity remain **not tested**.

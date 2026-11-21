@@ -487,6 +487,7 @@ impl FontFace {
     pub fn draw_cell(&self, value: &str, top_left: Vec2, cell: f32, color: Color) {
         self.draw_cell_outlined(value, top_left, cell, color, TextOutline::NONE);
     }
+
     /// Draws `value` with an outline/border along the letter edge path.
     pub fn draw_baseline_outlined(
         &self,

@@ -226,6 +226,9 @@ impl StoredExtensions {
     pub fn set_bool(&mut self, key: &str, value: bool) {
         self.0.insert(key.to_owned(), serde_json::json!(value));
     }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 /// Video > Advanced. Detail levels (`model_detail`, `texture_detail`), `antialiasing`, `filtering`, and `vsync` affect rendering.
@@ -288,8 +291,10 @@ pub struct VideoSettings {
     pub width: u32,
     pub height: u32,
     pub display_mode: DisplayMode,
-    /// Force standard pre-blurred background artwork even on wide frames.
-    pub background_force_default_blur: bool,
+    /// A contributor's rule asking for the standard (4:3) menu background presentation on wide
+    /// frames (`Extensions::standard_background`); none keeps retail's choice by aspect.
+    #[serde(skip)]
+    pub standard_background: crate::extensions::StandardBackground,
     pub fov: f32,
     pub hdr: HdrMode,
     /// Set once the old default `hdr: none` has been replaced (see [`crate::hdr::migrate_default`]).
@@ -332,7 +337,7 @@ impl VideoSettings {
 
     /// Effective artwork variant; presentation aspect and gameplay FOV are independent.
     pub fn background_uses_widescreen(&self, widescreen: bool) -> bool {
-        widescreen && !self.background_force_default_blur
+        widescreen && !self.standard_background.0.is_some_and(|rule| rule(self))
     }
 
     pub fn render_budget(&self) -> crate::extensions::RenderBudget {
@@ -377,7 +382,7 @@ impl Default for VideoSettings {
             width: 1280,
             height: 720,
             display_mode: DisplayMode::Fullscreen,
-            background_force_default_blur: false,
+            standard_background: Default::default(),
             fov: 75.0,
             hdr: HdrMode::Full,
             hdr_migrated: None,
@@ -668,6 +673,10 @@ pub struct Config {
     pub gamepad: GamepadSettings,
     pub dialogs: DialogPlacements,
     pub keys: BTreeMap<String, String>,
+    /// Plugin settings that belong to no Options section (overlay visibility, ...); kept whether
+    /// or not those plugins are in this build.
+    #[serde(skip_serializing_if = "StoredExtensions::is_empty")]
+    pub extensions: StoredExtensions,
 }
 
 impl Default for Config {
@@ -712,17 +721,20 @@ impl Default for Config {
             keyboard: KeyboardSettings::default(),
             gamepad: GamepadSettings::default(),
             dialogs: DialogPlacements::default(),
+            extensions: StoredExtensions::default(),
             keys,
         }
     }
 }
 
 impl Config {
+    /// The settings file: the one `HL2RS_SETTINGS` names (a copied settings profile, so runs stay
+    /// isolated and can run side by side), otherwise `hl2-config.json` beside the executable.
     pub fn config_path() -> PathBuf {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("hl2-config.json")))
-            .unwrap_or_else(|| PathBuf::from("hl2-config.json"))
+        settings_path(
+            std::env::var_os("HL2RS_SETTINGS"),
+            std::env::current_exe().ok(),
+        )
     }
 
     pub fn load_or_default() -> Self {
@@ -860,9 +872,36 @@ impl Config {
     }
 }
 
+fn settings_path(chosen: Option<std::ffi::OsString>, exe: Option<PathBuf>) -> PathBuf {
+    match chosen.filter(|path| !path.is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => exe
+            .and_then(|p| p.parent().map(|d| d.join("hl2-config.json")))
+            .unwrap_or_else(|| PathBuf::from("hl2-config.json")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_file_is_chosen_or_beside_the_executable() {
+        let exe = Some(PathBuf::from("game/hl2-bevy"));
+        assert_eq!(
+            settings_path(Some("runs/a/settings.json".into()), exe.clone()),
+            PathBuf::from("runs/a/settings.json")
+        );
+        assert_eq!(
+            settings_path(Some("".into()), exe.clone()),
+            PathBuf::from("game/hl2-config.json")
+        );
+        assert_eq!(
+            settings_path(None, exe),
+            PathBuf::from("game/hl2-config.json")
+        );
+        assert_eq!(settings_path(None, None), PathBuf::from("hl2-config.json"));
+    }
 
     #[test]
     fn config_defaults_and_serialization() {

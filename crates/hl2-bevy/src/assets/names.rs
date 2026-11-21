@@ -9,7 +9,7 @@ pub(crate) fn visible_entity(world: &World, id: usize) -> bool {
     })
 }
 
-pub(super) fn rendered_material_names(world: &World) -> BTreeSet<String> {
+pub(crate) fn rendered_material_names(world: &World) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut append = |surfaces: &[modkit_core::Surface]| {
         names.extend(

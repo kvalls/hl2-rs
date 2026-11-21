@@ -2276,7 +2276,7 @@ pub fn pose_npc_hitboxes(world: &World, scene: &Scene, physics: &mut Physics) {
             world
                 .rigs
                 .get(&key)
-                .map(|rig| scene.actor_matrices(rig, id))
+                .map(|rig| scene.actor_matrices_of(rig, id, Some(&rig.hitbox_bones())))
                 .unwrap_or_default()
         } else {
             Vec::new()

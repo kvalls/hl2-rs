@@ -16,7 +16,27 @@ impl Console {
 
     /// Updates the most recent live snapshot instead of growing scrollback.
     pub fn log_snapshot(&mut self, text: impl Into<String>) {
-        self.shell.panel.replace_snapshot(&self.canvas, text);
+        self.log_snapshot_with_level(Level::Snapshot, text);
+    }
+
+    /// Updates the most recent live snapshot with an explicit display level.
+    pub fn log_snapshot_with_level(&mut self, level: Level, text: impl Into<String>) {
+        if self.remote.from_rcon {
+            self.remote.snapshot = Some(Some((level, text.into())));
+        } else {
+            self.shell
+                .panel
+                .replace_snapshot_with_level(&self.canvas, level, text);
+        }
+    }
+
+    /// Removes the current live snapshot line, if any.
+    pub fn clear_snapshot(&mut self) {
+        if self.remote.from_rcon {
+            self.remote.snapshot = Some(None);
+        } else {
+            self.shell.panel.clear_snapshot(&self.canvas);
+        }
     }
 
     /// Prints a line at `level`, stamped with the current time.
@@ -29,8 +49,22 @@ impl Console {
         if line.is_empty() {
             return Vec::new();
         }
-        self.print(Level::Input, format!("] {line}"));
-        let commands = match command::tokenize(line) {
+        let commands = command::tokenize(line);
+        if !super::remote::chat_only(&commands) {
+            self.print(Level::Input, format!("] {line}"));
+        }
+        self.execute_parsed(commands)
+    }
+
+    /// Runs a command line without echoing it (the command line's `+` commands, the remote
+    /// console).
+    pub fn execute(&mut self, line: &str) -> Vec<Effect> {
+        self.execute_parsed(command::tokenize(line))
+    }
+
+    /// Runs a line already parsed for console echo or remote logging.
+    pub fn execute_parsed(&mut self, commands: Result<Vec<Vec<String>>, String>) -> Vec<Effect> {
+        let commands = match commands {
             Ok(commands) => commands,
             Err(error) => {
                 self.log(error);
@@ -46,6 +80,30 @@ impl Console {
             }
         }
         effects
+    }
+
+    /// Queues the command line's `+` commands: like Source's command buffer they run after the
+    /// startup level loaded, so menus they open stay open.
+    pub fn queue_startup_commands(&mut self, commands: Vec<String>) {
+        self.startup_commands = commands;
+    }
+
+    /// Startup commands are still waiting for the first level.
+    pub fn startup_pending(&self) -> bool {
+        !self.startup_commands.is_empty()
+    }
+
+    /// An effect for the host with the next tick (from code outside a console command).
+    pub fn defer(&mut self, effect: Effect) {
+        self.deferred.push(effect);
+    }
+
+    /// Runs the queued startup commands; what they ask of the host comes with the next tick.
+    pub(super) fn run_startup_commands(&mut self) {
+        for line in std::mem::take(&mut self.startup_commands) {
+            let effects = self.execute(&line);
+            self.deferred.extend(effects);
+        }
     }
 
     /// Runs one command through its [`commands::Spec`] handler.

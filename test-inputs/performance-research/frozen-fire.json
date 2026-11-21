@@ -1,0 +1,60 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      -3260,
+      -2024,
+      128
+    ],
+    "yaw": 0,
+    "actions": [
+      {
+        "action": "send",
+        "target": "station_entrance",
+        "input": "Close"
+      },
+      {
+        "action": "loadout"
+      },
+      {
+        "action": "slot",
+        "slot": 2
+      },
+      {
+        "action": "confirm"
+      }
+    ]
+  },
+  {
+    "tick": 79,
+    "label": "grenade-ready"
+  },
+  {
+    "tick": 80,
+    "secondary": true,
+    "label": "grenade-launched"
+  },
+  {
+    "tick": 81
+  },
+  {
+    "tick": 85,
+    "label": "detonated"
+  },
+  {
+    "tick": 86,
+    "paused": true,
+    "eye": [
+      -3270,
+      -2240,
+      128
+    ],
+    "yaw": 77,
+    "label": "explosion-frozen"
+  },
+  {
+    "tick": 600,
+    "label": "frozen-fire-finish"
+  }
+]

@@ -24,6 +24,7 @@ pub use restrictions::NavRestrictions;
 use simplify::{simplify_path_forward, ROUTE_SIMPLIFY_DELAY};
 use tracks::checked_track;
 pub mod links;
+mod steer;
 mod tactical;
 #[cfg(test)]
 use graph::search;
@@ -334,10 +335,10 @@ struct Goal {
     paused: bool,
     /// A jump or climb in progress.
     link: links::GoalLink,
-    /// This tick's start hangs over an edge (STEP_ON_INVALID_GROUND).
     shaky: bool,
-    /// The motor's current speed (`blended`).
+    /// The motor's current speed (`blended`) and active steer commitment `(blocker, side)`.
     speed: f32,
+    steer: Option<(Option<usize>, f32)>,
 }
 impl Goal {
     fn destination(&self) -> Destination {
@@ -751,6 +752,7 @@ impl Controller {
                 self.actors.get_mut(&key.actor),
                 self.clock,
             ),
+            steer: None,
         };
         let prepared = (|| {
             self.admit(key, &pose, &goal.request)?;
@@ -1077,14 +1079,10 @@ fn advance<W: NpcCollisionWorld>(
                 npc_probe::time_to_cover(distance, remaining, forward)?,
             )
         };
-        let direction = delta / distance;
-        let desired = goal.feet + direction * amount;
-        // This tick's first step starts where `fits` and `stand` just passed.
-        let movement = if std::mem::take(&mut start_validated) {
-            npc_probe::ground_move_from_valid(world, goal.feet, desired, actor.ground, query)
-        } else {
-            npc_probe::ground_move(world, goal.feet, desired, actor.ground, query)
-        };
+        // First step starts where `fits`/`stand` passed; steer around actors (`steer`), not walls.
+        let validated = std::mem::take(&mut start_validated);
+        let heading = (delta / distance, amount);
+        let (movement, direction) = steer::step(world, actor, goal, heading, query, validated);
         let actual = (movement.end - goal.feet).truncate().length();
         goal.feet = movement.end;
         goal.contact_normal = movement.normal;
@@ -1157,6 +1155,11 @@ pub(crate) mod tests {
                 },
             ],
         }
+    }
+    /// Walls either side of the X axis, one unit clear of a human hull: no room to steer.
+    pub(super) fn corridor() -> Vec<Brush> {
+        let wall = |y0: f32, y1: f32| cube(Vec3::new(-50., y0, 0.), Vec3::new(400., y1, 100.));
+        vec![wall(14., 40.), wall(-40., -14.)]
     }
     pub(super) fn world(obstacles: Vec<Brush>) -> World {
         let mut brushes = vec![cube(
@@ -1287,6 +1290,7 @@ pub(crate) mod tests {
             link: Default::default(),
             shaky: false,
             speed: 0.,
+            steer: None,
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.
@@ -1491,8 +1495,8 @@ pub(crate) mod tests {
     #[test]
     fn headcrabs_move_through_each_other() {
         // HL2COLLISION_GROUP_HEADCRAB: a crab's move is blocked by another NPC's hull
-        // (entity 8) unless both are crabs.
-        let physics = Physics::new(&world(vec![]));
+        // (entity 8) unless both are crabs. The corridor leaves no room to steer around it.
+        let physics = Physics::new(&world(corridor()));
         let blocker = [ActorHull {
             entity: Some(8),
             feet: Vec3::X * 50.,
@@ -1520,7 +1524,8 @@ pub(crate) mod tests {
     }
     #[test]
     fn player_obstruction_holds_idle_then_retries_actual_ground_travel() {
-        let physics = Physics::new(&world(vec![]));
+        // In the open the mover steers around the player (`steer`); the corridor prevents that.
+        let physics = Physics::new(&world(corridor()));
         let mut controller = make_controller(None);
         let mut feet = Vec3::ZERO;
         controller.request(key(1), request(Vec3::X * 200.), pose(feet), &physics, &[]);

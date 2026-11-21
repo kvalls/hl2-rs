@@ -11,6 +11,19 @@ pub use confirmation::{Confirmation, ConfirmationHandler};
 pub use framing::{FramingEdits, FramingProfiles, ViewmodelFraming, STANDARD_PROFILE};
 pub use video::{RenderBudget, VideoExtension, VideoPolicy, RETAIL_VIEWMODEL_FOV};
 
+/// A contributor's rule: the menu background keeps its standard (4:3) presentation (blur
+/// artwork and field of view) on wide frames when it returns true for the video settings.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StandardBackground(pub Option<fn(&crate::config::VideoSettings) -> bool>);
+
+/// The rule is fixed for a run (installed once), so settings compare by whether one is set:
+/// function pointer addresses are not reliable identities.
+impl PartialEq for StandardBackground {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.is_some() == other.0.is_some()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Presentation {
     pub capture_menu_navigation: bool,
@@ -27,6 +40,10 @@ pub struct Extensions {
     pub localization: Vec<(&'static str, &'static str)>,
     pub bindings: Vec<(&'static str, &'static str)>,
     pub after_apply: Vec<fn(&mut Console, &crate::config::Config)>,
+    /// Commands that are not logged when they arrive over the remote console (`sv_rcon_log`),
+    /// such as a contributor's status updates; `say` is never logged there either.
+    pub quiet_remote: Vec<&'static str>,
+    pub standard_background: StandardBackground,
 }
 impl Default for Extensions {
     fn default() -> Self {
@@ -39,6 +56,8 @@ impl Default for Extensions {
             localization: Vec::new(),
             bindings: Vec::new(),
             after_apply: Vec::new(),
+            quiet_remote: Vec::new(),
+            standard_background: StandardBackground::default(),
         }
     }
 }
@@ -52,6 +71,17 @@ impl Extensions {
         }
         self.video_owner = Some(owner);
         self.video = policy;
+        Ok(())
+    }
+    /// Sets the standard-background rule; a second contributor is an error.
+    pub fn select_standard_background(
+        &mut self,
+        rule: fn(&crate::config::VideoSettings) -> bool,
+    ) -> Result<(), String> {
+        if self.standard_background.0.is_some() {
+            return Err("standard background rule already selected".into());
+        }
+        self.standard_background = StandardBackground(Some(rule));
         Ok(())
     }
     /// Reject collisions so removing a contributor never changes another command's meaning.
@@ -71,6 +101,7 @@ impl Extensions {
     }
     pub fn prepare_config(&self, config: &mut crate::config::Config) {
         config.video.policy = self.video.clone();
+        config.video.standard_background = self.standard_background;
         config.video.advanced.policy = self.video.clone();
         for &(command, key) in &self.bindings {
             if !config.keys.contains_key(command) && !config.keys.values().any(|bound| bound == key)

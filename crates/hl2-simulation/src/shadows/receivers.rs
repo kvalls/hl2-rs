@@ -33,7 +33,7 @@ pub enum Kind {
 #[derive(Clone, Debug)]
 struct Triangle {
     points: [Vec3; 3],
-    /// The receiving plane: the face plane for the world, the triangle's own for props.
+    /// The receiving plane: each triangle's geometric plane, oriented to the shading normal.
     normal: Vec3,
     dist: f32,
     kind: Kind,
@@ -131,19 +131,10 @@ impl Receivers {
                 } else {
                     Kind::World
                 };
-                let normal = match kind {
-                    Kind::World => shading,
-                    Kind::StaticProp => {
-                        let n = (points[1] - points[0])
-                            .cross(points[2] - points[0])
-                            .normalize_or_zero();
-                        if n.dot(shading) < 0. {
-                            -n
-                        } else {
-                            n
-                        }
-                    }
-                };
+                let n = (points[1] - points[0])
+                    .cross(points[2] - points[0])
+                    .normalize_or_zero();
+                let normal = if n.dot(shading) < 0. { -n } else { n };
                 if normal == Vec3::ZERO {
                     continue;
                 }

@@ -210,8 +210,7 @@ pub fn poll(
     loading::notify_finished(&job.request, &mut sim, &mut ui);
     ui.source
         .log(format!("Loaded {}/{}", loaded.game, loaded.world.name));
-    let install_started = std::time::Instant::now();
-    crate::map_install::install_loaded_map(
+    let install_times = crate::map_install::install_loaded_map(
         loaded,
         &mut commands,
         &mut assets,
@@ -220,11 +219,21 @@ pub fn poll(
         ui.source.config.video.texture_sampling(),
         frame.as_ref().map(|f| &f.image),
     );
-    campaign.metadata["loading_ms"]["install_ms"] =
-        (install_started.elapsed().as_secs_f64() * 1000.).into();
-    campaign.metadata["loading_ms"]["request_to_installed_ms"] =
-        (job.started.elapsed().as_secs_f64() * 1000.).into();
+    record_install(&mut campaign.metadata, job.started, install_times);
     crate::capture::installed_frame(&mut commands, options.capture.as_ref());
+}
+
+/// The load report's install times and the time from the load request to an installed map.
+fn record_install(
+    metadata: &mut serde_json::Value,
+    requested: std::time::Instant,
+    install: crate::map_install::InstallTimes,
+) {
+    let loading = &mut metadata["loading_ms"];
+    for (step, ms) in install {
+        loading[step] = ms.into();
+    }
+    loading["request_to_installed_ms"] = (requested.elapsed().as_secs_f64() * 1000.).into();
 }
 
 /// Player-owned transient state survives changelevel, but fresh direct loads start anew.

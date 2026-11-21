@@ -5,10 +5,10 @@ pub enum Effect {
     /// An opaque contribution event, interpreted by an application-installed handler.
     Extension(serde_json::Value),
     Loadout,
-    /// ai_enable: None toggles.
-    AiEnable(Option<bool>),
     /// ai_disable (CC_AI_Disable): toggle the AI, Source's messages.
     AiDisable,
+    /// notarget (CC_Notarget_f): toggle whether NPCs sense the player, Source's messages.
+    Notarget,
     /// npc_create / npc_create_aimed / npc_create_equipment / prop_physics_create /
     /// ent_create, the whole line.
     NpcCommand(String),
@@ -35,6 +35,8 @@ pub enum Effect {
     MainMenuMap(GameMap),
     /// `impulse 100`: the flashlight toggles (CBasePlayer::ImpulseCommands).
     Flashlight,
+    /// `screenshot`: save the next game frame (the host picks the file).
+    Screenshot,
     /// Play a UI sound cue (e.g. button hover or release activation).
     PlaySound(String),
     /// Play a full-screen video file (Bink `.bik`) with optional exit command upon completion or skip.

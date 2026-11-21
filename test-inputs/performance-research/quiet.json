@@ -1,0 +1,10 @@
+[
+  {
+    "tick": 1,
+    "label": "start"
+  },
+  {
+    "tick": 600,
+    "label": "finish"
+  }
+]

@@ -1,0 +1,1079 @@
+[
+ {
+  "tick": 1,
+  "eye": [
+   -2456,
+   -2556,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "fly": true,
+  "ui": [
+   {
+    "action": "command",
+    "command": "sv_cheats 1; notarget"
+   }
+  ]
+ },
+ {
+  "tick": 3,
+  "eye": [
+   -2456,
+   -2556,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_metropolice additionalequipment weapon_stunstick targetname mixed_000"
+   }
+  ]
+ },
+ {
+  "tick": 5,
+  "eye": [
+   -2328,
+   -2556,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_metropolice additionalequipment weapon_stunstick targetname mixed_001"
+   }
+  ]
+ },
+ {
+  "tick": 7,
+  "eye": [
+   -2136,
+   -2556,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_metropolice additionalequipment weapon_pistol targetname mixed_002"
+   }
+  ]
+ },
+ {
+  "tick": 9,
+  "eye": [
+   -1944,
+   -2556,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_metropolice additionalequipment weapon_pistol targetname mixed_003"
+   }
+  ]
+ },
+ {
+  "tick": 11,
+  "eye": [
+   -1816,
+   -2556,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s additionalequipment weapon_smg1 targetname mixed_004"
+   }
+  ]
+ },
+ {
+  "tick": 13,
+  "eye": [
+   -1624,
+   -2556,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s additionalequipment weapon_smg1 targetname mixed_005"
+   }
+  ]
+ },
+ {
+  "tick": 15,
+  "eye": [
+   -2328,
+   -2492,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s additionalequipment weapon_smg1 targetname mixed_006"
+   }
+  ]
+ },
+ {
+  "tick": 17,
+  "eye": [
+   -2200,
+   -2492,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s skin 1 additionalequipment weapon_shotgun targetname mixed_007"
+   }
+  ]
+ },
+ {
+  "tick": 19,
+  "eye": [
+   -2008,
+   -2492,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s skin 1 additionalequipment weapon_shotgun targetname mixed_008"
+   }
+  ]
+ },
+ {
+  "tick": 21,
+  "eye": [
+   -1816,
+   -2492,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s model models/combine_super_soldier.mdl additionalequipment weapon_ar2 targetname mixed_009"
+   }
+  ]
+ },
+ {
+  "tick": 23,
+  "eye": [
+   -1688,
+   -2492,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s model models/combine_super_soldier.mdl additionalequipment weapon_ar2 targetname mixed_010"
+   }
+  ]
+ },
+ {
+  "tick": 25,
+  "eye": [
+   -2392,
+   -2428,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_combine_s model models/combine_soldier_prisonguard.mdl additionalequipment weapon_smg1 targetname mixed_011"
+   }
+  ]
+ },
+ {
+  "tick": 27,
+  "eye": [
+   -2200,
+   -2428,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_manhack targetname mixed_012"
+   }
+  ]
+ },
+ {
+  "tick": 29,
+  "eye": [
+   -2072,
+   -2428,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_manhack targetname mixed_013"
+   }
+  ]
+ },
+ {
+  "tick": 31,
+  "eye": [
+   -1880,
+   -2428,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_manhack targetname mixed_014"
+   }
+  ]
+ },
+ {
+  "tick": 33,
+  "eye": [
+   -1688,
+   -2428,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_cscanner targetname mixed_015"
+   }
+  ]
+ },
+ {
+  "tick": 35,
+  "eye": [
+   -2456,
+   -2364,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_cscanner targetname mixed_016"
+   }
+  ]
+ },
+ {
+  "tick": 37,
+  "eye": [
+   -2264,
+   -2364,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_clawscanner targetname mixed_017"
+   }
+  ]
+ },
+ {
+  "tick": 39,
+  "eye": [
+   -2072,
+   -2364,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_rollermine targetname mixed_018"
+   }
+  ]
+ },
+ {
+  "tick": 41,
+  "eye": [
+   -1944,
+   -2364,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_rollermine targetname mixed_019"
+   }
+  ]
+ },
+ {
+  "tick": 43,
+  "eye": [
+   -1752,
+   -2364,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_turret_floor targetname mixed_020"
+   }
+  ]
+ },
+ {
+  "tick": 45,
+  "eye": [
+   -2456,
+   -2300,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen spawnflags 262144 targetname mixed_021"
+   }
+  ]
+ },
+ {
+  "tick": 47,
+  "eye": [
+   -2328,
+   -2300,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen spawnflags 262144 targetname mixed_022"
+   }
+  ]
+ },
+ {
+  "tick": 49,
+  "eye": [
+   -2136,
+   -2300,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen spawnflags 262144 targetname mixed_023"
+   }
+  ]
+ },
+ {
+  "tick": 51,
+  "eye": [
+   -1944,
+   -2300,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen citizentype 3 spawnflags 262144 additionalequipment weapon_smg1 targetname mixed_024"
+   }
+  ]
+ },
+ {
+  "tick": 53,
+  "eye": [
+   -1816,
+   -2300,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen citizentype 3 spawnflags 262144 additionalequipment weapon_smg1 targetname mixed_025"
+   }
+  ]
+ },
+ {
+  "tick": 55,
+  "eye": [
+   -1624,
+   -2300,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen citizentype 3 spawnflags 262144 additionalequipment weapon_smg1 targetname mixed_026"
+   }
+  ]
+ },
+ {
+  "tick": 57,
+  "eye": [
+   -2328,
+   -2236,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen citizentype 2 spawnflags 262144 targetname mixed_027"
+   }
+  ]
+ },
+ {
+  "tick": 59,
+  "eye": [
+   -2200,
+   -2236,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen citizentype 2 spawnflags 262144 targetname mixed_028"
+   }
+  ]
+ },
+ {
+  "tick": 61,
+  "eye": [
+   -2008,
+   -2236,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen citizentype 3 spawnflags 393216 additionalequipment weapon_smg1 targetname mixed_029"
+   }
+  ]
+ },
+ {
+  "tick": 63,
+  "eye": [
+   -1816,
+   -2236,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_citizen citizentype 3 spawnflags 393216 additionalequipment weapon_smg1 targetname mixed_030"
+   }
+  ]
+ },
+ {
+  "tick": 65,
+  "eye": [
+   -1688,
+   -2236,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_barney additionalequipment weapon_pistol targetname mixed_031"
+   }
+  ]
+ },
+ {
+  "tick": 67,
+  "eye": [
+   -2392,
+   -2172,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_alyx additionalequipment weapon_alyxgun targetname mixed_032"
+   }
+  ]
+ },
+ {
+  "tick": 69,
+  "eye": [
+   -2200,
+   -2172,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_vortigaunt targetname mixed_033"
+   }
+  ]
+ },
+ {
+  "tick": 71,
+  "eye": [
+   -2008,
+   -2172,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_vortigaunt targetname mixed_034"
+   }
+  ]
+ },
+ {
+  "tick": 73,
+  "eye": [
+   -1880,
+   -2172,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_dog targetname mixed_035"
+   }
+  ]
+ },
+ {
+  "tick": 75,
+  "eye": [
+   -1688,
+   -2172,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_monk additionalequipment weapon_annabelle targetname mixed_036"
+   }
+  ]
+ },
+ {
+  "tick": 77,
+  "eye": [
+   -2392,
+   -2108,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_zombie targetname mixed_037"
+   }
+  ]
+ },
+ {
+  "tick": 79,
+  "eye": [
+   -2264,
+   -2108,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_zombie targetname mixed_038"
+   }
+  ]
+ },
+ {
+  "tick": 81,
+  "eye": [
+   -2072,
+   -2108,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_zombie targetname mixed_039"
+   }
+  ]
+ },
+ {
+  "tick": 83,
+  "eye": [
+   -1880,
+   -2108,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_zombie_torso targetname mixed_040"
+   }
+  ]
+ },
+ {
+  "tick": 85,
+  "eye": [
+   -1752,
+   -2108,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_fastzombie targetname mixed_041"
+   }
+  ]
+ },
+ {
+  "tick": 87,
+  "eye": [
+   -2456,
+   -2044,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_fastzombie targetname mixed_042"
+   }
+  ]
+ },
+ {
+  "tick": 89,
+  "eye": [
+   -2264,
+   -2044,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_poisonzombie targetname mixed_043"
+   }
+  ]
+ },
+ {
+  "tick": 91,
+  "eye": [
+   -2136,
+   -2044,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_headcrab targetname mixed_044"
+   }
+  ]
+ },
+ {
+  "tick": 93,
+  "eye": [
+   -1944,
+   -2044,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_headcrab targetname mixed_045"
+   }
+  ]
+ },
+ {
+  "tick": 95,
+  "eye": [
+   -1752,
+   -2044,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_headcrab_fast targetname mixed_046"
+   }
+  ]
+ },
+ {
+  "tick": 97,
+  "eye": [
+   -1624,
+   -2044,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_headcrab_black targetname mixed_047"
+   }
+  ]
+ },
+ {
+  "tick": 99,
+  "eye": [
+   -2328,
+   -1980,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_headcrab_poison targetname mixed_048"
+   }
+  ]
+ },
+ {
+  "tick": 101,
+  "eye": [
+   -2136,
+   -1980,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_antlion targetname mixed_049"
+   }
+  ]
+ },
+ {
+  "tick": 103,
+  "eye": [
+   -2008,
+   -1980,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_antlion targetname mixed_050"
+   }
+  ]
+ },
+ {
+  "tick": 105,
+  "eye": [
+   -1816,
+   -1980,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_antlion targetname mixed_051"
+   }
+  ]
+ },
+ {
+  "tick": 107,
+  "eye": [
+   -1624,
+   -1980,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_antlionguard targetname mixed_052"
+   }
+  ]
+ },
+ {
+  "tick": 109,
+  "eye": [
+   -2392,
+   -1916,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_stalker targetname mixed_053"
+   }
+  ]
+ },
+ {
+  "tick": 111,
+  "eye": [
+   -2200,
+   -1916,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_kleiner targetname mixed_054"
+   }
+  ]
+ },
+ {
+  "tick": 113,
+  "eye": [
+   -2008,
+   -1916,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_eli targetname mixed_055"
+   }
+  ]
+ },
+ {
+  "tick": 115,
+  "eye": [
+   -1880,
+   -1916,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_mossman targetname mixed_056"
+   }
+  ]
+ },
+ {
+  "tick": 117,
+  "eye": [
+   -1688,
+   -1916,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_breen targetname mixed_057"
+   }
+  ]
+ },
+ {
+  "tick": 119,
+  "eye": [
+   -2392,
+   -1852,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_gman targetname mixed_058"
+   }
+  ]
+ },
+ {
+  "tick": 121,
+  "eye": [
+   -2264,
+   -1852,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_crow targetname mixed_059"
+   }
+  ]
+ },
+ {
+  "tick": 123,
+  "eye": [
+   -2072,
+   -1852,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_crow targetname mixed_060"
+   }
+  ]
+ },
+ {
+  "tick": 125,
+  "eye": [
+   -1624,
+   -1852,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_pigeon targetname mixed_061"
+   }
+  ]
+ },
+ {
+  "tick": 127,
+  "eye": [
+   -2392,
+   -1788,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_pigeon targetname mixed_062"
+   }
+  ]
+ },
+ {
+  "tick": 129,
+  "eye": [
+   -2200,
+   -1788,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_seagull targetname mixed_063"
+   }
+  ]
+ },
+ {
+  "tick": 131,
+  "eye": [
+   -1752,
+   -1788,
+   128
+  ],
+  "pitch": -89,
+  "yaw": 0,
+  "ui": [
+   {
+    "action": "command",
+    "command": "ent_create npc_seagull targetname mixed_064"
+   }
+  ]
+ },
+ {
+  "tick": 141,
+  "fly": true,
+  "eye": [
+   -2020,
+   -2680,
+   158
+  ],
+  "yaw": 90,
+  "pitch": -14,
+  "label": "mixed-ready"
+ },
+ {
+  "tick": 670,
+  "label": "mixed-fight"
+ },
+ {
+  "tick": 1200,
+  "label": "mixed-end"
+ }
+]

@@ -21,6 +21,7 @@ pub(crate) mod cubemaps;
 pub(crate) mod drawing;
 use cpu_skin::skin_on_cpu;
 mod face_flex;
+mod face_split;
 pub use face_flex::FlexModels;
 mod lighting;
 use lighting::ModelLit;
@@ -35,20 +36,24 @@ mod model_cache;
 mod npc_weapon_draws;
 mod placement;
 pub(crate) use placement::draw_hidden;
-mod runtime;
+pub(crate) mod runtime;
+mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
 use material::{alpha_mode, cube_image_filtered, image_filtered, mip_image_filtered, unfilter};
 pub(crate) use material::{black_cube, fallback_images, image, make_material, sampler_descriptor};
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
 pub use runtime::{despawn_killed_runtime_draws, spawn_runtime_draws, swap_runtime_bodies};
+pub(super) use weapons::WeaponSkin;
+pub use weapons::{WeaponMesh, present_weapons};
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 #[bind_group_data(MaterialKey)]
 pub struct SourceMaterial {
     #[uniform(0)]
     pub(crate) tint: Vec4,
-    // x = alpha cutoff, y = ignore base alpha, z = additive output.
+    // x = alpha cutoff, y = ignore base alpha, z = output (1 additive, 2 mod2x), w = second slot
+    // (1 iris, 2 WorldVertexTransition base by vertex alpha, -1/-2 camera, -3 two-texture, 0 none).
     #[uniform(0)]
     pub(crate) parameters: Vec4,
     #[texture(1)]
@@ -93,6 +98,9 @@ pub struct SourceMaterial {
     pub(crate) flashlight: Handle<Image>,
     #[uniform(0)]
     pub(crate) viewmodel_flashlight: crate::flashlight::ViewmodelLight,
+    /// Every eye's iris projection rows ([`crate::eyes::EYE_ROWS`]).
+    #[storage(20, read_only)]
+    pub(crate) eye_rows: Handle<bevy::render::storage::ShaderBuffer>,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
 }
@@ -186,14 +194,7 @@ impl Batch {
     fn spatial_chunks(self) -> Vec<Self> {
         const CELL: f64 = 1024.;
         const MAX_CHUNKS: usize = 64;
-        if !self.indices.len().is_multiple_of(3)
-            || self.positions.iter().flatten().any(|v| !v.is_finite())
-            || self.uvs.len() != self.positions.len()
-            || self.light_uvs.len() != self.positions.len()
-            || self.colors.len() != self.positions.len()
-            || self.normals.len() != self.positions.len()
-            || self.skin.len() != self.positions.len()
-        {
+        if !self.consistent() || self.positions.iter().flatten().any(|v| !v.is_finite()) {
             return vec![self];
         }
         let mut groups = BTreeMap::<[i32; 3], Vec<u32>>::new();
@@ -215,28 +216,7 @@ impl Batch {
         if groups.len() <= 1 {
             return vec![self];
         }
-        groups
-            .into_values()
-            .map(|indices| {
-                let mut batch = Self::default();
-                let mut remap = std::collections::HashMap::new();
-                for index in indices {
-                    let new = *remap.entry(index).or_insert_with(|| {
-                        let new = batch.positions.len() as u32;
-                        let index = index as usize;
-                        batch.positions.push(self.positions[index]);
-                        batch.uvs.push(self.uvs[index]);
-                        batch.light_uvs.push(self.light_uvs[index]);
-                        batch.colors.push(self.colors[index]);
-                        batch.normals.push(self.normals[index]);
-                        batch.skin.push(self.skin[index].clone());
-                        new
-                    });
-                    batch.indices.push(new);
-                }
-                batch
-            })
-            .collect()
+        self.regroup(groups.into_values().collect())
     }
     fn append(&mut self, surface: &Surface, transform: Mat4, material: Option<&MaterialData>) {
         let offset = self.positions.len() as u32;
@@ -314,12 +294,7 @@ impl Batch {
 pub struct SourceEntity(pub usize);
 #[derive(Component)]
 pub struct DrawTriangles(pub usize);
-#[derive(Component)]
-pub struct EyeMesh {
-    pub key: String,
-    pub eye: source_assets::eyes::Eyeball,
-    pub scale: f32,
-}
+pub use crate::eyes::EyeMesh;
 fn sample_key(clip: &modkit_core::animation::Clip, time: f32) -> u32 {
     if clip.frames.len() <= 1 {
         0
@@ -551,12 +526,12 @@ pub fn present_ragdoll_fades(
     if game.ragdolls.fading() == 0 {
         return;
     }
-    for (lit, material) in &draws {
+    for (lit, MeshMaterial3d(mat)) in &draws {
         let Some(alpha) = lit.entity.and_then(|id| game.ragdolls.fade_alpha(id)) else {
             continue;
         };
-        if let Some(mut m) = materials.get_mut(&material.0)
-            && m.tint.w != alpha
+        if materials.get(mat).is_some_and(|m| m.tint.w != alpha)
+            && let Some(mut m) = materials.get_mut(mat)
         {
             m.tint.w = alpha;
             m.alpha = AlphaMode::Blend;
@@ -575,48 +550,23 @@ pub fn present_render_colors(
     if game.scene.render_colors.is_empty() {
         return;
     }
-    for (lit, material) in &draws {
-        let Some(color) = lit.entity.and_then(|id| game.scene.render_colors.get(&id)) else {
+    for (lit, MeshMaterial3d(mat)) in &draws {
+        let Some(id) = lit.entity else { continue };
+        let (Some(color), Some(m)) = (game.scene.render_colors.get(&id), materials.get(mat)) else {
             continue;
         };
-        let Some(mut m) = materials.get_mut(&material.0) else {
-            continue;
-        };
-        let original = *base.entry(material.0.id()).or_insert(m.tint);
+        let original = *base.entry(mat.id()).or_insert(m.tint);
         // The runtime color replaces the keyvalue color the material was built with.
-        let keyvalue = lit
-            .entity
-            .map_or(Vec4::ONE, |id| entity_modulation(&game.world, id))
+        let keyvalue = entity_modulation(&game.world, id)
             .truncate()
             .max(Vec3::splat(1e-3));
         let rgb = Vec3::from_array(color.map(|c| f32::from(c) / 255.));
         let tint = (original.truncate() / keyvalue * rgb).extend(m.tint.w);
-        if m.tint != tint {
+        if m.tint != tint
+            && let Some(mut m) = materials.get_mut(mat)
+        {
             m.tint = tint;
         }
-    }
-}
-#[derive(Component)]
-pub struct WeaponMesh(pub String);
-/// A viewmodel draw that belongs to one skin only (surfaces whose material differs
-/// between skins 0 and 1).
-#[derive(Component)]
-pub struct WeaponSkin(u8);
-pub fn present_weapons(
-    game: Res<crate::gameplay::Gameplay>,
-    mut draws: Query<(&WeaponMesh, Option<&WeaponSkin>, &mut Visibility)>,
-) {
-    let skin = game.inventory.viewmodel_skin();
-    for (weapon, variant, mut visibility) in &mut draws {
-        // The +USE carry holsters the weapon (CPlayerPickupController::Init).
-        *visibility = if weapon.0 == game.inventory.active
-            && !game.inventory.carrying()
-            && variant.is_none_or(|v| v.0 == skin)
-        {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
     }
 }
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -695,21 +645,28 @@ pub fn spawn_map_filtered(
                 camera_target.clone()
             } else {
                 match (&material.base, &material.base_path) {
-                    (Some(base), Some(path)) => texture_handles
-                        .entry(path.clone())
-                        .or_insert_with(|| {
-                            images.add(image_filtered(
-                                base.width,
-                                base.height,
-                                base.rgba.clone(),
-                                true,
-                                filtering,
-                            ))
-                        })
-                        .clone(),
+                    (Some(base), Some(path)) => material::texture_handle(
+                        &mut texture_handles,
+                        images,
+                        (path, base, true),
+                        filtering,
+                    ),
                     _ => missing.clone(),
                 }
             };
+            (name.clone(), handle)
+        })
+        .collect();
+    // WorldVertexTransition's $basetexture2, bound in the second texture slot.
+    let seconds: BTreeMap<_, _> = (loaded.materials.iter())
+        .filter_map(|(name, m)| m.base2.as_ref().map(|(path, image)| (name, path, image)))
+        .map(|(name, path, image)| {
+            let handle = material::texture_handle(
+                &mut texture_handles,
+                images,
+                (path, image, true),
+                filtering,
+            );
             (name.clone(), handle)
         })
         .collect();
@@ -717,24 +674,10 @@ pub fn spawn_map_filtered(
         .materials
         .iter()
         .filter_map(|(name, m)| {
-            m.iris
-                .as_ref()
-                .zip(m.iris_path.as_ref())
-                .map(|(image, path)| {
-                    let handle = texture_handles
-                        .entry(path.clone())
-                        .or_insert_with(|| {
-                            images.add(self::image_filtered(
-                                image.width,
-                                image.height,
-                                image.rgba.clone(),
-                                false,
-                                filtering,
-                            ))
-                        })
-                        .clone();
-                    (name.clone(), handle)
-                })
+            let (image, path) = m.iris.as_ref().zip(m.iris_path.as_ref())?;
+            let iris = (path.as_str(), &**image, false);
+            let handle = material::texture_handle(&mut texture_handles, images, iris, filtering);
+            Some((name.clone(), handle))
         })
         .collect();
     let overlays: BTreeMap<_, _> = loaded
@@ -924,10 +867,12 @@ pub fn spawn_map_filtered(
                 && loaded.materials.get(&key.1).is_none_or(|m| {
                     matches!(alpha_mode(m), AlphaMode::Opaque | AlphaMode::Mask(_))
                 });
-            let chunks = if partition {
-                batch.spatial_chunks()
-            } else {
-                vec![batch]
+            let chunks = match &key.0 {
+                _ if partition => batch.spatial_chunks(),
+                Owner::Entity(id) => {
+                    face_split::split_entity_batch(batch, world, &loaded.flexes, *id)
+                }
+                _ => vec![batch],
             };
             if chunks.len() > 1 {
                 stats.partitioned_world_batches += 1;
@@ -947,6 +892,7 @@ pub fn spawn_map_filtered(
         plain: plain_materials,
     };
     let mut material_handles = BTreeMap::new();
+    let mut shared_levels = lod::SharedLevels::for_map(&loaded.flexes);
     let mut skeletons = BTreeMap::<Owner, crate::gpu_skinning::Skeleton>::new();
     for ((owner, name, lm, _), mut batch) in batches {
         let fallback = MaterialData::default();
@@ -980,7 +926,9 @@ pub fn spawn_map_filtered(
                     lm.and_then(|index| lightmaps.get(index))
                         .unwrap_or(&white)
                         .clone(),
-                    irises.get(&name).or_else(|| overlays.get(&name)).cloned(),
+                    (irises.get(&name).or_else(|| overlays.get(&name)))
+                        .or_else(|| seconds.get(&name))
+                        .cloned(),
                     (&white, &black_cube, &flashlight),
                 );
                 material.tint *= modulation;
@@ -1142,36 +1090,10 @@ pub fn spawn_map_filtered(
             two_textures: &two_textures,
             weapon_skins: &weapon_skins,
         };
-        insert_map_draw_components(&mut draw, &cx, &handle, animation.as_ref(), meshes);
-        if lit {
-            let (entity, key, scale) = match &owner {
-                Owner::Entity(id) => {
-                    let instance = world.model_instances.iter().find(|i| i.entity == Some(*id));
-                    (
-                        Some(*id),
-                        instance.map(|i| i.asset_key()).unwrap_or_default(),
-                        instance.map_or(1., |i| i.scale),
-                    )
-                }
-                Owner::Weapon(weapon) => (
-                    None,
-                    format!(
-                        "{}#0",
-                        loaded.gameplay.weapons[weapon].viewmodel.to_lowercase()
-                    ),
-                    1.,
-                ),
-                // The weapon is lit at its owner (bone-merged entities share the light state).
-                Owner::NpcWeapon(id, _) => {
-                    let instance = world.model_instances.iter().find(|i| i.entity == Some(*id));
-                    (
-                        Some(*id),
-                        instance.map(|i| i.asset_key()).unwrap_or_default(),
-                        instance.map_or(1., |i| i.scale),
-                    )
-                }
-                Owner::World | Owner::SkyWorld => unreachable!("lit draws are model owned"),
-            };
+        let lit_draw = lit.then(|| map_draw::lit_target(&cx));
+        let lods = (&mut *meshes, &mut shared_levels);
+        insert_map_draw_components(&mut draw, &cx, &handle, animation.as_ref(), lods);
+        if let Some((entity, key, scale)) = lit_draw {
             draw.insert(
                 ModelLit::new(entity, key, scale, definition.half_lambert)
                     .reflecting(definition.model_envmap && !plain_materials),
@@ -1210,6 +1132,7 @@ pub fn spawn_map_filtered(
         flashlight,
         missing,
         plain: plain_materials,
+        faces: loaded.flexes.clone(),
     });
 }
 
@@ -1245,15 +1168,7 @@ pub(crate) fn build_model_draws(
     let Some(surfaces) = world.model_assets.get(&surface_key) else {
         return 0;
     };
-    let scale = Mat4::from_scale(Vec3::splat(instance.scale));
-    let mut batches: BTreeMap<String, Batch> = BTreeMap::new();
-    for surface in surfaces.iter().filter(|s| !s.indices.is_empty()) {
-        batches.entry(surface.material.clone()).or_default().append(
-            surface,
-            scale,
-            cache.definitions.get(&surface.material),
-        );
-    }
+    let batches = face_split::model_batches(surfaces, instance.scale, cache, (world, id));
     let rig = world
         .rigs
         .get(&instance.asset_key())
@@ -1317,7 +1232,7 @@ pub(crate) fn build_model_draws(
             &name,
             definition,
             (&handle, animation.as_ref()),
-            meshes,
+            (&mut *meshes, &mut lod::SharedLevels::default()),
         ) {
             draw.insert(levels);
         }

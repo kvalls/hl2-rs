@@ -2,6 +2,7 @@
 mod ai_results;
 mod empty;
 mod npc_death;
+mod npc_spawn;
 mod player_outcome;
 mod shot_effect;
 mod zombies;
@@ -21,6 +22,7 @@ use modkit_core::{
     World,
     movement::{Player, TICK},
 };
+pub use npc_spawn::{PendingNpcSpawn, spawn_usable_weapons};
 use serde::Deserialize;
 pub use shot_effect::ShotEffect;
 use source_assets::vpk::Vfs;
@@ -117,7 +119,7 @@ impl Action {
         }
     }
 }
-/// The `ai_enable` switch across map loads: on like Source (ai_disabled 0); `--no-ai`
+/// The NPC AI switch (`ai_disable`) across map loads: on like Source (ai_disabled 0); `--no-ai`
 /// turns it off at startup, the console and the F4 overlay switch it.
 pub static AI_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 #[derive(Resource)]
@@ -163,7 +165,7 @@ pub struct Gameplay {
     skill: u32,
     /// The installed `cfg/skill.cfg`, kept to re-evaluate skill-dependent values.
     skill_config: Option<String>,
-    /// Step 14 NPC AI (on unless `--no-ai` / `ai_enable 0`).
+    /// Step 14 NPC AI (on unless `--no-ai` or `ai_disable`).
     pub ai: hl2_simulation::ai::runtime::AiRuntime,
     /// Velocity impulses on the player from NPC hits (ApplyAbsVelocityImpulse), applied
     /// before the next player move.
@@ -212,32 +214,10 @@ pub struct Gameplay {
     pub launch_impacts: Vec<serde_json::Value>,
     /// prop_physics_create requests (model, eye, aim) for the host's model loader.
     pub prop_requests: Vec<(String, Vec3, Vec3)>,
+    /// npc_create / ent_create requests waiting for asynchronous NPC late precaching.
+    pub npc_requests: Vec<PendingNpcSpawn>,
     /// Runtime entities whose model draws the host builds next frame (dropped weapons).
     pub model_draws: Vec<usize>,
-}
-/// The weapons each F4 class can be given: Weapon_CanUse on its pooled spawn's
-/// loaded model (every activity of the model, loaded or not).
-pub fn spawn_usable_weapons(
-    world: &World,
-    ai: &hl2_simulation::ai::runtime::AiRuntime,
-) -> BTreeMap<String, Vec<String>> {
-    use hl2_simulation::ai::spawn;
-    spawn::SPAWN_CLASSES
-        .iter()
-        .filter_map(|class| {
-            let id = spawn::free_slot(world, class, &Default::default())?;
-            let class_name = spawn::spawn_class(class).0;
-            let instance = world
-                .model_instances
-                .iter()
-                .find(|i| i.entity == Some(id))?;
-            let rig = world.rigs.get(&instance.asset_key())?;
-            Some((
-                (*class).to_owned(),
-                ai.usable_weapons(class_name, &rig.activities),
-            ))
-        })
-        .collect()
 }
 
 impl Gameplay {
@@ -389,49 +369,6 @@ impl Gameplay {
                 npcs,
             },
         ))
-    }
-    /// An npc_create request (F4 Enter or the console): CC_NPC_Create placement from
-    /// the eye along the aim, then a new entity copied from the class's hidden template
-    /// (DESIGN 14r part A: the template made the map load every asset of the class).
-    pub fn request_spawn(
-        &mut self,
-        request: hl2_simulation::ai::spawn::SpawnRequest,
-        physics: &mut Physics,
-        eye: Vec3,
-        forward: Vec3,
-    ) -> String {
-        use hl2_simulation::ai::spawn;
-        let placement = spawn::place(
-            &request,
-            eye,
-            forward,
-            &hl2_simulation::ai::host::PhysicsPlacement { physics },
-        );
-        let mut entity = None;
-        let message = match &placement {
-            Ok(p) => match self.spawn_from_template(&request, p.origin, p.yaw, physics) {
-                Ok(id) => {
-                    entity = Some(id);
-                    format!(
-                        "Created {} ({}) at {:.0} {:.0} {:.0} yaw {:.0} (entity {id})",
-                        request.classname,
-                        if request.equipment.is_empty() {
-                            "no weapon"
-                        } else {
-                            &request.equipment
-                        },
-                        p.origin.x,
-                        p.origin.y,
-                        p.origin.z,
-                        p.yaw
-                    )
-                }
-                Err(e) => e,
-            },
-            Err(e) => e.clone(),
-        };
-        self.spawn_log.push(serde_json::json!({"request":request,"placement":placement.ok(),"entity":entity,"message":message}));
-        message
     }
     /// CreateEntityByName + DispatchSpawn + Activate of a copy of a loaded entity (an F4
     /// class template or a maker's template NPC; DESIGN 14r part A): the template's
@@ -664,61 +601,6 @@ impl Gameplay {
             self.world_copies += 1;
         }
         Arc::make_mut(&mut self.world).merge_model_tables(loaded);
-    }
-    /// The F4/npc_create part: a class template, then the request's weapon, side and
-    /// grenades.
-    fn spawn_from_template(
-        &mut self,
-        request: &hl2_simulation::ai::spawn::SpawnRequest,
-        origin: Vec3,
-        yaw: f32,
-        physics: &mut Physics,
-    ) -> Result<usize, String> {
-        use hl2_simulation::ai::spawn;
-        let label = request.pool_label().to_owned();
-        let templates = spawn::templates(&self.world, &label);
-        if templates.is_empty() {
-            return Err(format!(
-                "Can't create {}: the class was not loaded on this map",
-                request.classname
-            ));
-        }
-        let template = if label == "npc_citizen" {
-            // CNPC_Citizen::SelectModel: the least-used head among living citizens.
-            let roll = self.ai.uniform() * 0.5 + 0.5;
-            let states = &self.scene.states;
-            hl2_simulation::citizens::least_used_template(
-                &self.world,
-                &templates,
-                spawn::POOL_KEY,
-                |id| states.get(id).is_some_and(|s| !s.killed),
-                roll,
-            )
-            .unwrap_or(templates[0])
-        } else {
-            let count = self.spawn_counts.entry(label).or_default();
-            let template = templates[*count % templates.len()];
-            *count += 1;
-            template
-        };
-        let id = self
-            .create_from_template(template, origin, yaw, &request.keyvalues(), physics)
-            .map_err(|e| format!("Can't create {}: {e}", request.classname))?;
-        self.ai
-            .set_equipment(id, &request.classname, &request.equipment);
-        // Its walk/run follow the new weapon (preloaded variants).
-        self.npcs.set_locomotion(id, &request.equipment);
-        self.ai
-            .set_player_disposition(id, request.allegiance.disposition());
-        if let Some(grenades) = request.grenades {
-            self.ai.set_grenades(id, grenades);
-        }
-        // The new weapon's idle (Weapon_TranslateActivity of ACT_IDLE); the AI picks its
-        // own activities from here when it runs this class.
-        let idle = hl2_simulation::entities::weapon_idle_activity(&request.equipment);
-        let world = self.world.clone();
-        self.scene.ai_set_activity(&world, id, idle);
-        Ok(id)
     }
     fn push_shot_effect(&mut self, effect: ShotEffect) {
         self.shot_serial += 1;

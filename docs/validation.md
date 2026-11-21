@@ -1,5 +1,88 @@
 # Local validation — 2026-10-05
 
+## GPU shadow silhouette experiment (2026-11-15)
+
+Run the adapter test with
+`cargo test --locked -p hl2-bevy --lib gpu_shadow_atlas_matches_cpu_on_motion_alpha_and_cell_reuse -- --ignored --nocapture`.
+It reads back a real R8 attachment after four partial updates. It compares opaque and
+texture-alpha triangles in both windings, negative and repeating UVs, changed positions,
+and byte-exact preservation of the neighbouring cell. For the active cell the test allows
+one R8 rounding step in the interior. A larger difference must lie within 1/128 texel of
+the triangle outline. It also reports what sixteen overlapping sub-LSB alpha layers produce.
+
+The packaged camera fixture is `test-inputs/performance-research/shadow-plaza.json`.
+Use `--background --no-setup --mute --map d1_trainstation_02 --width 1280 --height 720
+--tonemap-scale 1.0 --frames 2400` with `--movement-script`, `--capture` and `--report`.
+Compare High shadows from the CPU path (`HL2RS_GPU_SILHOUETTES=0`) and the default GPU path, a second CPU High
+capture and a CPU Low (blob) control. Repeat with the actor's Y changed from -2180 to -2132.
+Require a paused, completed script at tick 440 and GPU cell submissions in the candidate.
+See [the performance research report](performance-research.md#gpu-shadow-silhouettes-on-station02)
+for the pixel counts and paired timings. Fixed camera and scripted gameplay on Metal were tested.
+Windows rendering, other graphics backends and an ordinary campaign playthrough are **not tested**.
+Workspace tests, strict Clippy, formatting, architecture, repository isolation, all plugin
+selections and the Windows cross-target strict Clippy check passed.
+With the GPU path enabled, all 107 shared packaged checks passed on macOS in 1,436 seconds,
+including flashlight shadows, the viewmodel and the campaign gameplay fixtures. Reproduce
+with `NO_BUILD=1 JOBS=2 python3 scripts/checks/replays.py` (GPU silhouettes are the default) after
+building the package. The final build resolves the same embedded shader relative to the
+crate root. Its machine instructions and shader bytes match the timed and replayed package.
+Of the Mach-O sections only the constant data differed, at three source line numbers.
+
+## Exact brush candidate rejection (2026-11-11)
+
+`cargo test --locked -p modkit-core brush_set` passes six synthetic exactness tests.
+`cargo test --locked -p source-assets owned_campaign_brush_set_matches_ordered_full_scan -- --ignored --nocapture`
+passes 18,000 installed-map comparisons across station02, canals01 and coast01. Fraction and
+normal compare by floating-point bits; both solid flags compare exactly. See
+[performance-research.md](performance-research.md) for candidate counts and fallback coverage.
+The owned-file test belongs to the asset crate, keeping core independent of file-system access.
+
+Full validation passes on both the fresh upstream merge and the candidate: architecture,
+55 Python helper tests, all four plugin selections, workspace tests, strict Clippy, formatting
+and repository isolation. Candidate Windows cross-target strict Clippy passes. Windows runtime
+and matched native performance are **not tested**. Packaged benchmark and replay results follow
+in the performance report.
+
+## Effect geometry/glow implementation validation (2026-11-11)
+
+Four effect-pool tests verify exact positions/UV/color/index/normal/UV1 output, storage reuse,
+invalid-storage fallback, material-handle remapping and pool bounds/layers/show-hide behavior.
+Three glow tests compare ordered current attachment output with the old first-model lookup,
+including duplicates, missing records/rigs/attachments, scaled animated poses and hidden/killed/
+corpse/stunned/AI-disabled cases. The 24-case isolated glow timing asserts equivalent output;
+small-case overhead remains reported. `scripts/checks/validate.sh` passes architecture, existing
+Python checks, plugin combinations, crate tests, strict Clippy and fmt.
+`scripts/checks/check_windows.sh` passes cross-target strict Clippy; Windows runtime is not tested.
+
+All 30 paired packaged launches finish host 600 with intended workloads and no GPU/texture/sprite/
+model/pose/missing-particle/capacity errors. All 15 paired full inventory/AI/projectile digests and
+reduced outcomes match. Quiet/frozen/active/crowd/retina cases check actual frames and completed
+scripts. All 6 original particle replays pass assertions, as do 3 baseline-repeat controls and 6
+fixed-exposure controls. Ordinary HDR images are not byte-stable (including same-baseline
+repeats) and report different exposure; failures are retained. Fixed `--tonemap-scale 1.0`
+with 400 host-tick prewarm yields identical fire/smoke images; ball differs 61 pixels / max 1 RGB in
+[1257,841,1286,854]. Exact ball pixel parity and full-campaign/all-camera equivalence remain
+unproven; no tolerance/extra flags promote the failure. Original timing settings are unchanged.
+
+The source-only measurement driver and 11 authored tests cover workload rejection, actual internal
+resolution, weighted complete windows, config restoration/path confinement, config symlink
+rejection and full paired gameplay-state mismatch. Fixture whitelist admits only five JSON
+sources. Root-level final helper/document checks are recorded with the checkpoint; runtime
+binaries/assets and generated reports remain ignored, not distributed.
+
+Separate current-only 1800-tick diagnostic runs finish (crowd 30 Combat, frozen 142 sprites); built-in
+sampled stacks and conservation parser are attribution evidence, not a throughput comparison.
+An overlapping keyword union is not a frame budget; waits/unresolved states are explicit.
+No new third-party patch or runtime prerequisite is introduced. Rejected initial authored test
+setups, invalid-Low config, empty-grenade pilot and failed NPC placement are retained in
+`artifacts/performance-implementation-2026-11-11/rejections.md` and original logs.
+
+Methods/source/package identity/trials/tails/visual limits and reproduction:
+[performance-research.md](performance-research.md). Candidate release SHA256
+51002f989e04e2f8d72dc96bfa0fc55d1ce1c38ce17b7f776b7939f310cd07ab; a22f6a0 plus pinned runtime
+source edits, not an unchanged a22f6a0 build. No end-to-end FPS gain is established.
+
+
 ## Integrated current-count observer (2026-11-03 HH)
 
 Caps1/12/36:debugger26872/54416/29420 andhosts50100/51096/54980 exit0.49samples/196count reads/686nested reads/196parent-side reads/588model reads/49caller-FP pairs and23new controls pass. Full36 covers local1/virtual2/virtual24 routes. Same stopped identity, model-wrapper prefix, code/file/path/two-generation/cap/cleanup checks pass. Independent review finds no material issue. HH is checked separately from the frozen HF35-root inventory. Native nested/current count/getter history andRust parity **not tested**; no additional native launch orgameplay rebuild.
@@ -288,6 +371,8 @@ packaging is rebuilt. No dependencies added. The architecture baseline shrinks t
 110 long functions/19 large files, with no growth accepted.
 
 ```sh
+scripts/checks/all.sh   # every local check: package build, then validation and the Windows check beside the replays
+
 scripts/checks/validate.sh
 scripts/checks/check_windows.sh
 scripts/build-bevy.sh
@@ -1566,15 +1651,24 @@ The packaged checks are one cross-platform Python script, `scripts/checks/replay
 It builds once (`scripts/build-bevy.sh`, `scripts/build-bevy.ps1` on Windows), copies the packaged
 game to `artifacts/replays/game/`, runs each check as bounded launches of that copy with their own
 `--report`, and asserts on what the reports record. One ok/FAIL line per check; logs, reports and
-captures in `artifacts/replays/`. The copy keeps its own settings next to it, so every check starts
-from default settings and `bin/hl2-config.json` (and a game running from `bin/`) is never touched.
+captures in `artifacts/replays/` (unfiltered, uncompressed RGB PNGs from `source_assets::png`, which the
+suite reads row by row). Each check gets its own settings file (`HL2RS_SETTINGS`, started from `profiles/test.json`), so
+UI and gameplay checks run side by side and `bin/hl2-config.json` (and a game running from `bin/`)
+is never touched. `JOBS` checks run at once, longest first by the previous run's durations
+(`artifacts/replays/durations.json`); checks that edit the staged game's shaders each run their own copy of it. Gameplay replays run
+with `--timescale` (`TIMESCALE`, default 8): the same 15 ms ticks, eight times faster than real time.
+Other launches run `--uncapped --max-fps 240 --timescale 4` (`UI_TIMESCALE`, default 4): frames about
+four times as fast, each covering the game time of a 60 fps frame, capped so a fast game never
+starves the one beside it. Checks marked `real_time` (countdowns, frame-timed blur, sway and HUD
+sampling) never fast-forward; mark a new check that measures real time the same way.
 Environment instead of arguments: `ONLY="console movement"` runs those checks, `GROUP=ui` or
-`GROUP=gameplay` one group, `JOBS=4` up to four gameplay replays at once (never more games than fit in
-physical memory: `GAME_MEMORY_GB` per game, default 6, plus 4 GB for the system; a packaged game
-measured 4.9-5.8 GB on the station maps on 2026-10-23, so a 16 GB machine runs two; the
-`parallel_jobs` check covers the rule), `WINDOWED=1` adds the
-windowed ones of this platform, `NO_BUILD=1` keeps `bin/` as it is, `UPDATE_EXPECTED=1` records the
-gameplay outcomes (below).
+`GROUP=gameplay` one group, `JOBS=4` four checks at once (without `JOBS`: one game per 3 CPU cores
+and per 4 GB of memory beyond 4 GB for the system, three on a 10-core 16 GB Mac, where all checks
+took 444 s with three games and 491 s with four on one build (2026-11-20; two games took 696 s on
+an earlier one; letting only one game load a map at a time queued every launch); the
+`parallel_jobs` check covers the rule),
+`WINDOWED=1` adds the windowed ones of this platform, `NO_BUILD=1` keeps `bin/` as it is,
+`UPDATE_EXPECTED=1` records the gameplay outcomes (below).
 
 UI group: the labelled UI states (console mode and output, the Options dialog's tab / focused
 control / pending changes / sub-dialog), loaded maps, saved settings and captures.
@@ -1598,9 +1692,13 @@ three layers:
    cancel and tail).
 3. Expected outcomes: each labelled sample's I/O counters, inventory, active scenes, gesture and
    look targets, projectile, gib and impact counters, the player's feet (within 1 unit), state and
-   clock, console mode and forward ray, compared with `test-inputs/expected/<fixture>.json`. Two
-   fields that vary between runs of the same build are left out for two pallet fixtures, and
-   `occluded_blast_targets` everywhere. A difference is either a regression or an intended change;
+   clock, console mode and forward ray, compared with `test-inputs/expected/<fixture>.json`. Fields
+   that vary between runs of the same build are left out for three pallet fixtures, and
+   `occluded_blast_targets` everywhere; `field.counter` leaves out one counter (`gibs.removed` in
+   `pallet-gibs-fade` and `monitors-kleiner-scene`: tick-exact gib removal shifts with frame
+   timing under load). Gib rules hold instead: in every replay gib counters only grow and never
+   more gibs go than came; `pallet-gibs-fade` checks the debris design (one stable set of 7 gibs,
+   none vanishes while in view or before its fade delay, all gone by the end). A difference is either a regression or an intended change;
    after reviewing it, `UPDATE_EXPECTED=1` records the new outcomes (review the diff of the expected
    files). The outcomes were recorded on macOS; physics on another platform may differ slightly.
 

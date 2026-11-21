@@ -5,6 +5,8 @@
 //! command table, and turns the panel's [`Action`]s into what they do.
 
 mod entry;
+mod printed;
+pub use printed::Redirect;
 mod snapshot;
 use super::command::{self, Context, Spec};
 use super::complete::{self, Completer};
@@ -27,9 +29,11 @@ use std::sync::Mutex;
 
 /// Output lines kept for scrollback.
 pub const OUTPUT_LINES: usize = 1024;
-/// Warning and error lines (not in the scheme; the toolkit's own colors).
+/// Warning, error and chat lines (not in the scheme; the toolkit's own colors).
 const WARNING_TEXT: Color = Color::new(1.0, 0.8, 0.3, 1.0);
 const ERROR_TEXT: Color = Color::new(1.0, 0.4, 0.35, 1.0);
+const CHAT_LOCAL_TEXT: Color = Color::new(1.0, 0.92, 0.35, 1.0);
+const CHAT_REMOTE_TEXT: Color = Color::new(0.45, 0.9, 1.0, 1.0);
 /// SDK `CConsolePanel` shows at most this many completion rows, the last one `...` when more.
 const COMPLETION_ROWS: usize = 10;
 /// History rows scrolled per mouse wheel notch.
@@ -55,9 +59,13 @@ pub enum Level {
     Normal,
     /// Developer output (`DevMsg`, mirrored engine log): scheme `Console.DevTextColor`.
     Developer,
-    /// A snapshot the app replaces at the end ([`ConsolePanel::replace_snapshot`]) instead of
-    /// growing the scrollback.
+    /// A replaceable line added by [`ConsolePanel::replace_snapshot`], styled with ordinary
+    /// text color (`replace_snapshot_with_level` picks another level such as `ChatRemote`).
     Snapshot,
+    /// Local player chat line (`say` typed locally): yellow.
+    ChatLocal,
+    /// Remote console chat line (`say` from RCON): cyan.
+    ChatRemote,
     Warning,
     Error,
 }
@@ -273,6 +281,13 @@ pub struct ConsolePanel {
     pub con_timestamp: bool,
     /// History rows scrolled back from the newest.
     pub scroll: usize,
+    /// Line number of the active replaceable snapshot kept at the tail of `output`, if any.
+    snapshot: Option<u64>,
+    /// Active `start_redirect` nesting count so redirected output is not repinned past the
+    /// snapshot.
+    redirecting: usize,
+    /// Lines printed since a reader last took them (`keep_printed`); `None` keeps nothing.
+    printed: Option<Vec<Line>>,
     /// Each output line's wrapped rows by line number, rebuilt when its shown text or the
     /// history width changes.
     wrapped: Mutex<HashMap<u64, Wrapped>>,
@@ -305,34 +320,13 @@ impl ConsolePanel {
             con_filter_text: String::new(),
             con_timestamp: false,
             scroll: 0,
+            snapshot: None,
+            redirecting: 0,
+            printed: None,
             wrapped: Mutex::default(),
             ascii_advances: Mutex::default(),
             font: None,
             style: Style::default(),
-        }
-    }
-
-    /// Prints a line at `level`, stamped with the current time.
-    pub fn print(&mut self, canvas: &Canvas, level: Level, text: impl Into<String>) {
-        self.output.push_back(Line {
-            level,
-            text: text.into(),
-            time: self.clock,
-        });
-        if self.output.len() > OUTPUT_LINES {
-            self.output.pop_front();
-            self.output_start += 1;
-        }
-        // Scrolled back, the view stays on its rows while new ones arrive below.
-        let number = self.output_start + self.output.len() as u64 - 1;
-        if let Some(line) = self
-            .output
-            .back()
-            .filter(|line| self.scroll > 0 && (self.con_filter != 1 || self.filter_match(line)))
-        {
-            self.scroll += self
-                .line_rows(number, line, self.wrap_metrics(canvas))
-                .len();
         }
     }
 
@@ -524,6 +518,7 @@ impl ConsolePanel {
         self.output_start += self.output.len() as u64;
         self.output.clear();
         self.scroll = 0;
+        self.snapshot = None;
         self.selection = None;
         self.selecting = false;
     }
@@ -699,6 +694,8 @@ impl ConsolePanel {
             Level::Input | Level::Normal => self.style.text,
             Level::Developer => self.style.dev_text,
             Level::Snapshot => self.style.text,
+            Level::ChatLocal => CHAT_LOCAL_TEXT,
+            Level::ChatRemote => CHAT_REMOTE_TEXT,
             Level::Warning => WARNING_TEXT,
             Level::Error => ERROR_TEXT,
         }
@@ -763,9 +760,8 @@ impl ConsolePanel {
             } else {
                 self.line_color(shown.line)
             };
-            let content = self.shown_text(shown.line)[shown.text.clone()]
-                .replace('\t', &" ".repeat(TAB_SPACES));
-            text(&content, area.x, top + row - CONSOLE_DESCENT * scale, color);
+            let baseline = top + row - CONSOLE_DESCENT * scale;
+            self.draw_history_row(shown, selected, (area.x, baseline, scale), color, &text);
         }
         painter.scroll_bar(
             view.bar,
@@ -775,8 +771,8 @@ impl ConsolePanel {
             self.history_bar.pressed(),
         );
 
-        self.draw_entry(&painter, &layout, look, time, &text);
         let entry = layout.canvas(layout.entry);
+        self.draw_entry(&painter, &layout, look, time, &text);
         painter.button(
             layout.submit,
             look.submit,
@@ -998,7 +994,7 @@ mod tests {
         canvas.y
     }
 
-    const SCALING: Scaling = Scaling {
+    pub(super) const SCALING: Scaling = Scaling {
         dialog_scale,
         design_height,
     };
@@ -1295,5 +1291,29 @@ mod tests {
             scaled_caret.is_some(),
             "scaled caret quad at 1440p (scale 2.0) must have width 2.0"
         );
+    }
+
+    #[test]
+    fn chat_levels_use_distinct_colors() {
+        let panel = ConsolePanel::new(SCALING);
+        let line = |level| Line {
+            level,
+            text: String::new(),
+            time: 0.0,
+        };
+        assert_eq!(panel.line_color(&line(Level::ChatLocal)), CHAT_LOCAL_TEXT);
+        assert_eq!(panel.line_color(&line(Level::ChatRemote)), CHAT_REMOTE_TEXT);
+        assert_ne!(CHAT_LOCAL_TEXT, CHAT_REMOTE_TEXT);
+        assert_ne!(CHAT_LOCAL_TEXT, panel.style.text);
+        assert_ne!(CHAT_REMOTE_TEXT, panel.style.text);
+        assert_eq!(
+            printed::chat_label_end(Level::ChatLocal, "[ 12.34] Player: hi"),
+            Some("[ 12.34] Player:".len())
+        );
+        assert_eq!(
+            printed::chat_label_end(Level::ChatRemote, "Console: hello"),
+            Some("Console:".len())
+        );
+        assert_eq!(printed::chat_label_end(Level::Normal, "Player: hi"), None);
     }
 }

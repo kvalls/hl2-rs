@@ -163,7 +163,7 @@ pub fn present(
                         MeshMaterial3d(material.clone()),
                         skin.clone(),
                         bevy::camera::visibility::DynamicSkinnedMeshBounds,
-                        Transform::IDENTITY,
+                        (Transform::IDENTITY, bevy::light::NotShadowCaster),
                         Visibility::Visible,
                         StudioDecalDraw {
                             entity: request.entity,

@@ -12,6 +12,7 @@ mod developer;
 mod map;
 mod mouse;
 mod movie;
+mod remote;
 mod video;
 
 use super::{Console, Effect};
@@ -181,13 +182,6 @@ pub const COMMANDS: &[Spec] = &[
         BOOLEAN,
         cheats::noclip,
     ),
-    setting(
-        "background_force_default_blur",
-        "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios",
-        BOOLEAN,
-        video::background_force_default_blur_value,
-        video::set_background_force_default_blur,
-    ),
     command(
         "getpos",
         "getpos: print camera position and Source pitch/yaw/roll in degrees; getpos 2 is not implemented",
@@ -261,10 +255,10 @@ pub const COMMANDS: &[Spec] = &[
         cheats::ai_disable,
     ),
     command(
-        "ai_enable",
-        "ai_enable [0|1]: switch the NPC AI think loop (ours, default 1; Source uses ai_disable)",
-        BOOLEAN,
-        cheats::ai_enable,
+        "notarget",
+        "notarget: toggle whether NPCs sense the player (cheat, Source command)",
+        &[],
+        cheats::notarget,
     ),
     command(
         "clear",
@@ -285,10 +279,34 @@ pub const COMMANDS: &[Spec] = &[
         developer::echo,
     ),
     command(
+        "screenshot",
+        "screenshot: save the next frame as a PNG in the screenshots folder beside the settings file",
+        &[],
+        remote::screenshot,
+    ),
+    command(
+        "say",
+        "say <text>: show a chat line from the player (from the remote console: from Console)",
+        &[Arg::Free],
+        remote::say,
+    ),
+    command(
         "toggleconsole",
         "toggleconsole: close or open the console",
         &[],
         developer::toggleconsole,
+    ),
+    command(
+        "showconsole",
+        "showconsole: open the console",
+        &[],
+        developer::showconsole,
+    ),
+    command(
+        "hideconsole",
+        "hideconsole: close the console",
+        &[],
+        developer::hideconsole,
     ),
     command(
         "quit",
@@ -577,17 +595,28 @@ pub const COMMANDS: &[Spec] = &[
         video::mat_setvideomode,
     ),
     command(
+        "gamemenucommand",
+        "gamemenucommand <command>: run a game menu command (OpenOptionsDialog, ResumeGame, OpenNewGameDialog [game], ...)",
+        &[Arg::Free],
+        map::gamemenucommand,
+    ),
+    command(
+        "gameui_activate",
+        "gameui_activate: show the pause menu over the game",
+        &[],
+        map::gameui_activate,
+    ),
+    command(
+        "gameui_hide",
+        "gameui_hide: close the menus and return to the game",
+        &[],
+        map::gameui_hide,
+    ),
+    command(
         "mainmenu",
         "mainmenu: show the main menu",
         &[],
         map::mainmenu,
-    ),
-    cvar(
-        "background_map",
-        "background_map [name|default]: query or set the persistent main-menu background map",
-        &[Arg::Names(Names::Map)],
-        map::background_map,
-        map::background_map_value,
     ),
     command(
         "map_background",
@@ -615,6 +644,76 @@ pub const COMMANDS: &[Spec] = &[
         BOOLEAN,
         developer::con_timestamp,
         developer::con_timestamp_value,
+    ),
+    cvar(
+        "con_logfile",
+        "con_logfile [file]: append console output to this file in the settings folder (empty stops)",
+        &[Arg::Free],
+        remote::con_logfile,
+        remote::con_logfile_value,
+    ),
+    cvar(
+        "rcon_password",
+        "rcon_password [password]: remote console password (empty refuses every client; never saved)",
+        &[Arg::Free],
+        remote::rcon_password,
+        remote::rcon_password_value,
+    ),
+    cvar(
+        "sv_rcon_log",
+        "sv_rcon_log [0|1]: print each remote console command",
+        BOOLEAN,
+        remote::sv_rcon_log,
+        remote::sv_rcon_log_value,
+    ),
+    cvar(
+        "sv_rcon_maxfailures",
+        "sv_rcon_maxfailures [count]: failed remote console logins before the address is banned",
+        &[Arg::Free],
+        remote::sv_rcon_maxfailures,
+        remote::sv_rcon_maxfailures_value,
+    ),
+    cvar(
+        "sv_rcon_minfailures",
+        "sv_rcon_minfailures [count]: failed logins within sv_rcon_minfailuretime before a ban",
+        &[Arg::Free],
+        remote::sv_rcon_minfailures,
+        remote::sv_rcon_minfailures_value,
+    ),
+    cvar(
+        "sv_rcon_minfailuretime",
+        "sv_rcon_minfailuretime [seconds]: how long failed logins count for sv_rcon_minfailures",
+        &[Arg::Free],
+        remote::sv_rcon_minfailuretime,
+        remote::sv_rcon_minfailuretime_value,
+    ),
+    cvar(
+        "sv_rcon_banpenalty",
+        "sv_rcon_banpenalty [minutes]: how long a remote console ban lasts (0: until quit)",
+        &[Arg::Free],
+        remote::sv_rcon_banpenalty,
+        remote::sv_rcon_banpenalty_value,
+    ),
+    cvar(
+        "sv_rcon_maxpacketsize",
+        "sv_rcon_maxpacketsize [bytes]: larger remote console packets ban their address",
+        &[Arg::Free],
+        remote::sv_rcon_maxpacketsize,
+        remote::sv_rcon_maxpacketsize_value,
+    ),
+    cvar(
+        "ip",
+        "ip [address]: the address the remote console listens on (read at startup)",
+        &[Arg::Free],
+        remote::ip,
+        remote::ip_value,
+    ),
+    cvar(
+        "hostport",
+        "hostport [port]: the port the remote console listens on (read at startup)",
+        &[Arg::Free],
+        remote::hostport,
+        remote::hostport_value,
     ),
     setting(
         "skill",
@@ -680,6 +779,8 @@ mod tests {
         // Commands that take any arguments: the rest of the line or the host's NPC console.
         let free = [
             "echo",
+            "say",
+            "gamemenucommand",
             "npc_create",
             "npc_create_aimed",
             "npc_create_equipment",
@@ -713,7 +814,7 @@ mod tests {
                 Ok(Some(Effect::NpcCommand(line))) if free.contains(&spec.name) => {
                     assert!(line.starts_with(&format!("{} x", spec.name)), "{line}");
                 }
-                Ok(None) if spec.name == "echo" => {}
+                Ok(None) if matches!(spec.name, "echo" | "say" | "gamemenucommand") => {}
                 Ok(Some(Effect::PlayVideo {
                     exit_command: Some(_),
                     ..
@@ -751,7 +852,13 @@ mod tests {
             "sk_autoaim_scale1" | "m_autoaim_scale" => "1.5",
             "fov" | "fov_desired" => "100",
             "con_filter_text" => "bridge",
-            "background_map" => "background02",
+            "con_logfile" => "session",
+            "rcon_password" => "golden",
+            "sv_rcon_maxfailures" | "sv_rcon_minfailures" => "3",
+            "sv_rcon_minfailuretime" | "sv_rcon_banpenalty" => "60",
+            "sv_rcon_maxpacketsize" => "4096",
+            "ip" => "127.0.0.1",
+            "hostport" => "27016",
             other => panic!("{other}: no golden value"),
         }
         .to_owned()
@@ -803,17 +910,13 @@ mod tests {
         for spec in COMMANDS.iter().filter(|spec| spec.is_cvar()) {
             let value = spec.value.expect("a cvar");
             let current = value(&Console::default()).unwrap_or_default();
-            let mut cases = vec![
+            let cases = vec![
                 Vec::new(),
                 vec![golden_value(spec, &current)],
                 vec!["x".to_owned()],
                 vec!["9".to_owned()],
                 vec!["1".to_owned(), "1".to_owned()],
             ];
-            if spec.name == "background_map" {
-                // `default` resets the background instead of naming a map.
-                cases.insert(2, vec!["default".to_owned()]);
-            }
             transcript += &format!("{}\n", spec.name);
             for args in cases {
                 let mut console = Console::default();

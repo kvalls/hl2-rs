@@ -21,18 +21,31 @@ pub(crate) fn monitor_capture_complete(event: On<ScreenshotCaptured>, status: Re
     report.monitor_image = Some(event.image.clone());
 }
 
+/// Saves a screenshot as an unfiltered, uncompressed RGB PNG (`source_assets::png`): quick to
+/// write and for the checks to read; returns the error, if any.
 pub(crate) fn save_capture(image: Option<Image>, path: Option<&PathBuf>) -> Option<String> {
     let path = path?;
-    match image {
-        Some(image) => match image.try_into_dynamic() {
-            Ok(image) => image
-                .to_rgb8()
-                .save(path)
-                .err()
-                .map(|error| error.to_string()),
-            Err(error) => Some(format!("screenshot conversion: {error}")),
-        },
-        None => Some("screenshot readback did not finish".into()),
+    let Some(image) = image else {
+        return Some("screenshot readback did not finish".into());
+    };
+    let rgb = match image.try_into_dynamic() {
+        Ok(image) => image.to_rgb8(),
+        Err(error) => return Some(format!("screenshot conversion: {error}")),
+    };
+    match source_assets::png::encode_rgb(rgb.width(), rgb.height(), rgb.as_raw()) {
+        Ok(png) => std::fs::write(path, png)
+            .err()
+            .map(|error| error.to_string()),
+        Err(error) => Some(error),
+    }
+}
+
+/// An observer saving its screenshot to `path` like `--capture` (see [`save_capture`]).
+pub(crate) fn save_to(path: PathBuf) -> impl FnMut(On<ScreenshotCaptured>) {
+    move |event: On<ScreenshotCaptured>| {
+        if let Some(error) = save_capture(Some(event.image.clone()), Some(&path)) {
+            bevy::log::error!("capture {}: {error}", path.display());
+        }
     }
 }
 
@@ -61,9 +74,7 @@ pub(crate) fn timelapse(
     } else {
         path.with_file_name(format!("{name}-{at:09.3}s.png"))
     };
-    commands
-        .spawn(source())
-        .observe(bevy::render::view::screenshot::save_to_disk(file));
+    commands.spawn(source()).observe(save_to(file));
 }
 
 /// Diagnostic captures include the actual install frame, before any fixed simulation tick.
@@ -82,10 +93,55 @@ pub(crate) fn installed_frame(commands: &mut bevy::prelude::Commands, capture: O
         let frame = frame.image.clone();
         world
             .spawn(bevy::render::view::screenshot::Screenshot::image(frame))
-            .observe(move |event: On<ScreenshotCaptured>| {
-                if let Some(error) = save_capture(Some(event.image.clone()), Some(&path)) {
-                    bevy::log::error!("Map installation capture: {error}");
-                }
-            });
+            .observe(save_to(path));
     });
+}
+
+/// `screenshot`: captures the next game frame (the window without one) and saves it on a
+/// thread as `<map>NNNN.png` in `screenshots/` beside the settings file (retail writes into the
+/// game folder, which stays read-only here).
+pub(crate) fn console_screenshot(
+    mut commands: bevy::prelude::Commands,
+    ui: Option<bevy::prelude::ResMut<crate::ui_host::Console>>,
+    frame: Option<Res<crate::video::GameFrame>>,
+) {
+    let Some(mut ui) = ui.filter(|ui| ui.screenshot_requested) else {
+        return;
+    };
+    ui.screenshot_requested = false;
+    let stem = ui
+        .source
+        .loaded_map
+        .as_ref()
+        .map_or_else(|| "screenshot".to_owned(), |map| map.map.clone());
+    let source = frame.map_or_else(
+        bevy::render::view::screenshot::Screenshot::primary_window,
+        |frame| bevy::render::view::screenshot::Screenshot::image(frame.image.clone()),
+    );
+    let folder = crate::console_log::settings_folder().join("screenshots");
+    commands
+        .spawn(source)
+        .observe(move |event: On<ScreenshotCaptured>| {
+            let (image, folder, stem) = (event.image.clone(), folder.clone(), stem.clone());
+            std::thread::spawn(move || save_numbered(image, &folder, &stem));
+        });
+}
+
+/// Saves `image` as the first free `<stem>NNNN.png` in `folder`.
+fn save_numbered(image: Image, folder: &std::path::Path, stem: &str) {
+    if let Err(error) = std::fs::create_dir_all(folder) {
+        bevy::log::warn!("screenshot: {error}");
+        return;
+    }
+    let Some(path) = (0..10_000)
+        .map(|n| folder.join(format!("{stem}{n:04}.png")))
+        .find(|path| !path.exists())
+    else {
+        bevy::log::warn!("screenshot: {} is full", folder.display());
+        return;
+    };
+    match save_capture(Some(image), Some(&path)) {
+        Some(error) => bevy::log::warn!("screenshot {}: {error}", path.display()),
+        None => bevy::log::info!("Wrote {}", path.display()),
+    }
 }

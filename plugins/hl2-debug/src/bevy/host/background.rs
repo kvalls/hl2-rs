@@ -9,7 +9,7 @@ pub fn aspect_changed(
 ) {
     let fov = hl2_bevy::camera::background_fov(
         aspect,
-        console.config.video.background_force_default_blur,
+        crate::standard_background::forced(&console.config.video),
     )
     .to_degrees();
     if debug.check_aspect_change(aspect, fov) {

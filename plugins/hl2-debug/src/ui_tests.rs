@@ -111,3 +111,148 @@ fn viewmodel_debug_name_is_registered_and_old_mode_name_is_not() {
     assert!(names.contains(&"viewmodel_debug_mode"));
     assert!(!names.contains(&"viewmodel_tweak_mode"));
 }
+
+#[test]
+fn ai_enable_comes_from_the_debug_plugin() {
+    let mut console = console();
+    assert_eq!(
+        console.submit("ai_enable 0"),
+        vec![effect(Request::AiEnable(Some(false)))]
+    );
+    assert_eq!(
+        console.submit("ai_enable"),
+        vec![effect(Request::AiEnable(None))]
+    );
+    assert!(console.submit("ai_enable 2").is_empty());
+    assert!(
+        Console::default().submit("ai_enable 0").is_empty(),
+        "core has no ai_enable"
+    );
+}
+
+#[test]
+fn npc_dump_parses_default_radius_and_entity_id() {
+    use crate::commands::{DEFAULT_NPC_DUMP_RADIUS, NpcDumpQuery};
+    let mut console = console();
+    assert_eq!(
+        console.submit("npc_dump"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Nearby(
+            DEFAULT_NPC_DUMP_RADIUS
+        )))]
+    );
+    assert_eq!(
+        console.submit("npc_dump 250"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Nearby(250.0)))]
+    );
+    assert_eq!(
+        console.submit("npc_dump id 1297"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Entity(1297)))]
+    );
+    assert!(
+        console
+            .submit("npc_dump 0; npc_dump -5; npc_dump foo; npc_dump id abc")
+            .is_empty()
+    );
+    assert!(
+        Console::default().submit("npc_dump").is_empty(),
+        "core has no npc_dump"
+    );
+}
+
+#[test]
+fn remote_reply_clears_status_without_printing_it() {
+    use source_ui::console::panel::Level;
+
+    let mut c = console();
+    let before = c.shell.panel.output.len();
+    c.execute("agent_status thinking");
+    assert_eq!(c.shell.panel.output.len(), before + 1);
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Thinking..."))
+    );
+    c.log("rcon from 127.0.0.1");
+    assert_eq!(
+        c.shell.panel.output.back().map(|l| l.text.as_str()),
+        Some("Console: Thinking..."),
+        "status stays pinned below ordinary log output"
+    );
+    c.execute("agent_status waiting");
+    assert_eq!(c.shell.panel.output.len(), before + 2);
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Still waiting for a reply..."))
+    );
+    c.execute("agent_status Working...");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Working..."))
+    );
+    c.execute("agent_status \"Building release...\"");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Building release..."))
+    );
+    c.execute("agent_status Spawning NPCs...");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Spawning NPCs..."))
+    );
+    c.execute("agent_status clear");
+    assert_eq!(c.shell.panel.output.len(), before + 1);
+    c.execute("agent_status; agent_status \"\"; agent_status \"   \"");
+    assert_eq!(
+        c.shell.panel.output.back().map(|l| l.level),
+        Some(Level::Normal)
+    );
+    c.remote.from_rcon = true;
+    c.execute("agent_status thinking");
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((Level::ChatRemote, "Console: Thinking...".into())))
+    );
+    c.execute("agent_status \"Running tests...\"");
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((
+            Level::ChatRemote,
+            "Console: Running tests...".into()
+        )))
+    );
+    c.execute("say hello");
+    assert_eq!(c.remote.snapshot, Some(None));
+    assert_eq!(c.remote.broadcast, ["Console: hello"]);
+}
+
+#[test]
+fn agent_status_is_not_logged_from_the_remote_console() {
+    let console = console();
+    for line in [
+        "agent_status thinking",
+        "agent_status \"Working...\"",
+        "agent_status Spawning NPCs...",
+    ] {
+        let commands = source_ui::console::command::tokenize(line);
+        assert!(console.remote_log_skips(&commands), "{line}");
+    }
+}

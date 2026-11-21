@@ -1,4 +1,5 @@
 //! Optional Bevy adapter; no dependency on the application host.
+pub mod agent;
 pub mod background;
 pub mod host;
 pub mod input;

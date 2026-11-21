@@ -159,6 +159,19 @@ impl Motor for SceneMotor<'_> {
             self.weapon_follows(activity);
         }
     }
+    fn try_set_activity(&mut self, activity: &str) -> bool {
+        let activity = self.translate_activity(activity);
+        let ok = self
+            .scene
+            .ai_set_activity(self.world, self.entity, &activity);
+        if ok {
+            self.weapon_follows(activity);
+        }
+        ok
+    }
+    fn auto_movement(&mut self, finish: bool) -> bool {
+        self.scene.ai_auto_movement(self.world, self.entity, finish)
+    }
     fn reselect_activity(&mut self, activity: &str) {
         let activity = self.translate_activity(activity);
         if self

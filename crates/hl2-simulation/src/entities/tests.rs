@@ -14,6 +14,7 @@ use source_assets::scenes::EventType;
 use source_assets::vpk::Vfs;
 mod lifecycle;
 mod next_script;
+mod root_motion;
 mod scenes;
 mod touch;
 mod trains;
@@ -652,11 +653,14 @@ fn trigger_hurt_hurts_npc_touchers_and_respects_filters() {
                 ],
             ),
             entity("npc_metropolice", "cop", &[("origin", "0 0 0")]),
+            entity("npc_antlion_maker", "maker", &[("origin", "0 0 0")]),
         ],
         brush_models: vec![cube],
         ..Default::default()
     };
     let mut scene = Scene::new(&world);
+    // Damage considers live NPCs even when hidden. A maker shares the prefix only.
+    scene.states[1].visible = false;
     let fired = scene.diagnostics.outputs_fired;
     scene.tick(&world, Vec3::ZERO, 0.015);
     assert!(scene.player_damage.is_empty());
@@ -1847,6 +1851,7 @@ fn a_kill_sent_to_an_npc_weapon_name_removes_that_weapon() {
         .iter()
         .any(|(id, input, ..)| *id == 0 && input == "killweapon"));
 }
+
 #[test]
 fn a_playback_rate_slows_the_sequence_clock_and_its_end() {
     let world = World {

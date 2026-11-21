@@ -11,19 +11,6 @@ sv_cheats
     value Some("0")
   1 1: error "sv_cheats [0|1]: query or enable local cheat commands"
     value Some("0")
-background_force_default_blur
-  query: no effect
-    | "background_force_default_blur" = "0"
-    value Some("0")
-  1: ApplyConfig [video.background_force_default_blur: false -> true]
-    | background_force_default_blur 1
-    value Some("1")
-  x: error "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios"
-    value Some("0")
-  9: error "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios"
-    value Some("0")
-  1 1: error "background_force_default_blur [0|1]: query or force standard background blur artwork on all aspect ratios"
-    value Some("0")
 volume
   query: no effect
     | "volume" = "1.00"
@@ -542,24 +529,6 @@ r_waterforcereflectentities
     value Some("0")
   1 1: error "r_waterforcereflectentities [0|1]: query or toggle water entity reflections (0=world only, 1=all)"
     value Some("0")
-background_map
-  query: no effect
-    | "background_map" is not set
-    value None
-  background02: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "background02"]
-    | background_map background02
-    value Some("background02")
-  default: ApplyConfig []
-    | background_map reset to default (none)
-    value None
-  x: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "x"]
-    | background_map x
-    value Some("x")
-  9: ApplyConfig [gameplay.background_game: - -> "hl2", gameplay.background_map: - -> "9"]
-    | background_map 9
-    value Some("9")
-  1 1: error "background_map [name|default]: query or set the persistent main-menu background map"
-    value None
 con_filter_enable
   query: no effect
     | "con_filter_enable" = "0"
@@ -596,6 +565,126 @@ con_timestamp
     value Some("0")
   1 1: error "con_timestamp [0|1]: prefix console output with the time it was printed"
     value Some("0")
+con_logfile
+  query: no effect
+    | "con_logfile" = ""
+    value Some("")
+  session: no effect
+    value Some("session")
+  x: no effect
+    value Some("x")
+  9: no effect
+    value Some("9")
+  1 1: error "con_logfile [file]: append console output to this file in the settings folder (empty stops)"
+    value Some("")
+rcon_password
+  query: no effect
+    | "rcon_password" = ""
+    value Some("")
+  golden: no effect
+    value Some("golden")
+  x: no effect
+    value Some("x")
+  9: no effect
+    value Some("9")
+  1 1: error "rcon_password [password]: remote console password (empty refuses every client; never saved)"
+    value Some("")
+sv_rcon_log
+  query: no effect
+    | "sv_rcon_log" = "1"
+    value Some("1")
+  0: no effect
+    value Some("0")
+  x: error "sv_rcon_log [0|1]: print each remote console command"
+    value Some("1")
+  9: error "sv_rcon_log [0|1]: print each remote console command"
+    value Some("1")
+  1 1: error "sv_rcon_log [0|1]: print each remote console command"
+    value Some("1")
+sv_rcon_maxfailures
+  query: no effect
+    | "sv_rcon_maxfailures" = "10"
+    value Some("10")
+  3: no effect
+    value Some("3")
+  x: error "sv_rcon_maxfailures [count]: failed remote console logins before the address is banned"
+    value Some("10")
+  9: no effect
+    value Some("9")
+  1 1: error "sv_rcon_maxfailures [count]: failed remote console logins before the address is banned"
+    value Some("10")
+sv_rcon_minfailures
+  query: no effect
+    | "sv_rcon_minfailures" = "5"
+    value Some("5")
+  3: no effect
+    value Some("3")
+  x: error "sv_rcon_minfailures [count]: failed logins within sv_rcon_minfailuretime before a ban"
+    value Some("5")
+  9: no effect
+    value Some("9")
+  1 1: error "sv_rcon_minfailures [count]: failed logins within sv_rcon_minfailuretime before a ban"
+    value Some("5")
+sv_rcon_minfailuretime
+  query: no effect
+    | "sv_rcon_minfailuretime" = "30"
+    value Some("30")
+  60: no effect
+    value Some("60")
+  x: error "sv_rcon_minfailuretime [seconds]: how long failed logins count for sv_rcon_minfailures"
+    value Some("30")
+  9: no effect
+    value Some("9")
+  1 1: error "sv_rcon_minfailuretime [seconds]: how long failed logins count for sv_rcon_minfailures"
+    value Some("30")
+sv_rcon_banpenalty
+  query: no effect
+    | "sv_rcon_banpenalty" = "0"
+    value Some("0")
+  60: no effect
+    value Some("60")
+  x: error "sv_rcon_banpenalty [minutes]: how long a remote console ban lasts (0: until quit)"
+    value Some("0")
+  9: no effect
+    value Some("9")
+  1 1: error "sv_rcon_banpenalty [minutes]: how long a remote console ban lasts (0: until quit)"
+    value Some("0")
+sv_rcon_maxpacketsize
+  query: no effect
+    | "sv_rcon_maxpacketsize" = "1024"
+    value Some("1024")
+  4096: no effect
+    value Some("4096")
+  x: error "sv_rcon_maxpacketsize [bytes]: larger remote console packets ban their address"
+    value Some("1024")
+  9: no effect
+    value Some("9")
+  1 1: error "sv_rcon_maxpacketsize [bytes]: larger remote console packets ban their address"
+    value Some("1024")
+ip
+  query: no effect
+    | "ip" = "localhost"
+    value Some("localhost")
+  127.0.0.1: no effect
+    value Some("127.0.0.1")
+  x: no effect
+    value Some("x")
+  9: no effect
+    value Some("9")
+  1 1: error "ip [address]: the address the remote console listens on (read at startup)"
+    value Some("localhost")
+hostport
+  query: no effect
+    | "hostport" = "27015"
+    value Some("27015")
+  27016: no effect
+    value Some("27016")
+  x: error "hostport [port]: the port the remote console listens on (read at startup)"
+    value Some("27015")
+  9: no effect
+    value Some("9")
+  1 1: error "hostport [port]: the port the remote console listens on (read at startup)"
+    value Some("27015")
 skill
   query: no effect
     | "skill" = "2"

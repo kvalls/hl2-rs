@@ -328,6 +328,8 @@ pub struct ScriptParams {
     /// Interval bounds (low, high) that each emission draws from.
     pub volume_range: (f32, f32),
     pub pitch_range: (f32, f32),
+    /// The script's `channel` (SDK soundflags.h `CHAN_*`; `CHAN_AUTO` 0 when unset).
+    pub channel: i32,
 }
 impl Default for ScriptParams {
     fn default() -> Self {
@@ -337,8 +339,26 @@ impl Default for ScriptParams {
             soundlevel: 75.,
             volume_range: (1., 1.),
             pitch_range: (100., 100.),
+            channel: 0,
         }
     }
+}
+/// A script `channel`: an SDK soundflags.h name (`CHAN_WEAPON`) or a number.
+fn channel_value(text: &str) -> Option<i32> {
+    const NAMES: [&str; 8] = [
+        "CHAN_AUTO",
+        "CHAN_WEAPON",
+        "CHAN_VOICE",
+        "CHAN_ITEM",
+        "CHAN_BODY",
+        "CHAN_STREAM",
+        "CHAN_STATIC",
+        "CHAN_VOICE2",
+    ];
+    let text = text.trim();
+    (NAMES.iter().position(|n| n.eq_ignore_ascii_case(text)))
+        .map(|i| i as i32)
+        .or_else(|| text.parse().ok())
 }
 fn interval_bounds(text: &str) -> Option<(f32, f32)> {
     let values = text
@@ -425,6 +445,7 @@ fn script_params(entry: &source_assets::keyvalues::Entry) -> ScriptParams {
             "attenuation" => {
                 params.soundlevel = attenuation_soundlevel(text).unwrap_or(params.soundlevel)
             }
+            "channel" => params.channel = channel_value(text).unwrap_or(params.channel),
             _ => {}
         }
     }
@@ -1442,8 +1463,8 @@ mod tests {
     #[test]
     fn script_params_read_names_intervals_and_attenuation() {
         let entries = source_assets::keyvalues::parse(
-            r#"a { volume VOL_NORM pitch "95,105" soundlevel SNDLVL_75dB wave x.wav }
-               b { volume 0.32 pitch PITCH_HIGH attenuation ATTN_STATIC wave y.wav }
+            r#"a { volume VOL_NORM pitch "95,105" soundlevel SNDLVL_75dB channel CHAN_WEAPON wave x.wav }
+               b { volume 0.32 pitch PITCH_HIGH attenuation ATTN_STATIC channel 6 wave y.wav }
                c { soundlevel SNDLVL_NONE wave z.wav }"#,
         )
         .unwrap();
@@ -1456,6 +1477,7 @@ mod tests {
                 soundlevel: 75.,
                 volume_range: (1., 1.),
                 pitch_range: (95., 105.),
+                channel: 1,
             }
         );
         assert_eq!(
@@ -1466,9 +1488,11 @@ mod tests {
                 soundlevel: 66.,
                 volume_range: (0.32, 0.32),
                 pitch_range: (120., 120.),
+                channel: 6,
             }
         );
         assert_eq!(p[2].soundlevel, 0.);
+        assert_eq!(p[2].channel, 0);
         assert_eq!(soundlevel_value("SNDLVL_TALKING"), Some(80.));
     }
     #[test]

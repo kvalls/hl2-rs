@@ -30,13 +30,17 @@ pub(super) struct Textures {
     /// The blob shadows' material, made with the first shadow.
     pub blob: Option<Handle<ShadowMaterial>>,
     pub page: Allocator,
-    atlas_image: Option<Handle<Image>>,
+    pub(super) atlas_image: Option<Handle<Image>>,
+    pub(super) batch: Option<super::gpu::Batch>,
+    pub(super) submitted: Option<Arc<std::sync::atomic::AtomicU64>>,
     /// The render-to-texture shadows' material, made with the first silhouette.
     pub atlas_material: Option<Handle<ShadowMaterial>>,
     /// Base texture and opacity of the translucent and alpha-tested materials: their silhouettes
     /// take the texture's alpha; every other material covers fully.
     alphas: BTreeMap<String, (Arc<vtf::Image>, f32)>,
     cell: Vec<f32>,
+    /// A surface's vertices in cell texels, while its silhouette is drawn.
+    points: Vec<glam::Vec2>,
     /// A silhouette was drawn since the atlas material was last refreshed.
     dirty: bool,
     color: Vec4,
@@ -52,6 +56,8 @@ impl Textures {
             blob: None,
             page: Allocator::new(),
             atlas_image: None,
+            batch: None,
+            submitted: None,
             atlas_material: None,
             alphas: loaded
                 .materials
@@ -60,8 +66,17 @@ impl Textures {
                 .filter_map(|(name, m)| Some((name.clone(), (m.base.clone()?, m.opacity))))
                 .collect(),
             cell: Vec::new(),
+            points: Vec::new(),
             dirty: false,
             color: Vec4::new(color[0], color[1], color[2], 1.),
+        }
+    }
+
+    /// Hands silhouette drawing to the GPU pass; called before the atlas exists.
+    pub(super) fn use_gpu(&mut self) {
+        if self.batch.is_none() {
+            self.batch = Some(super::gpu::Batch::default());
+            self.submitted = Some(Arc::default());
         }
     }
 
@@ -91,6 +106,10 @@ impl Textures {
                 TextureFormat::R8Unorm,
                 RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
             );
+            if self.batch.is_some() {
+                image.texture_descriptor.usage |=
+                    bevy::render::render_resource::TextureUsages::RENDER_ATTACHMENT;
+            }
             image.sampler = ImageSampler::Descriptor(crate::rendering::sampler_descriptor(
                 false,
                 hl2_ui::config::Filtering::Bilinear,
@@ -132,20 +151,29 @@ impl Textures {
         frame: &Frame,
         (surfaces, place): (&[Surface], Place),
     ) {
+        if let Some(batch) = &mut self.batch {
+            batch.cell(n, at, frame, (surfaces, place), &self.alphas);
+            return;
+        }
         silhouette::clear(&mut self.cell, n);
         for surface in surfaces {
             let alpha = self
                 .alphas
                 .get(&surface.material)
                 .map(|(picture, opacity)| move |uv: glam::Vec2| texel_alpha(picture, uv) * opacity);
+            // Each vertex is placed (skinned) and projected once, not once per triangle corner.
+            self.points.clear();
+            let project = |v: &Vertex| silhouette::project(frame, n, place(v));
+            self.points.extend(surface.vertices.iter().map(project));
+            let points = &self.points;
+            let corner = |i: u32| Some((*points.get(i as usize)?, surface.vertices[i as usize].uv));
             for t in surface.indices.as_chunks::<3>().0 {
-                let [Some(a), Some(b), Some(c)] = t.map(|i| surface.vertices.get(i as usize))
-                else {
+                let [Some(a), Some(b), Some(c)] = t.map(corner) else {
                     continue;
                 };
-                let triangle = ([a, b, c].map(place), [a.uv, b.uv, c.uv]);
+                let triangle = ([a.0, b.0, c.0], [a.1, b.1, c.1]);
                 let alpha = alpha.as_ref().map(|f| f as &dyn Fn(glam::Vec2) -> f32);
-                silhouette::draw(&mut self.cell, n, frame, triangle, alpha);
+                silhouette::draw_projected(&mut self.cell, n, triangle, alpha);
             }
         }
         let Some(mut image) = self.atlas_image.as_ref().and_then(|h| images.get_mut(h)) else {
@@ -165,7 +193,7 @@ impl Textures {
 }
 
 /// A texture's alpha at a repeating texture coordinate (nearest texel).
-fn texel_alpha(picture: &vtf::Image, uv: glam::Vec2) -> f32 {
+pub(super) fn texel_alpha(picture: &vtf::Image, uv: glam::Vec2) -> f32 {
     let (w, h) = (
         u32::from(picture.width).max(1),
         u32::from(picture.height).max(1),

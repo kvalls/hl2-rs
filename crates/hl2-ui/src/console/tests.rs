@@ -72,15 +72,6 @@ fn prop_physics_create_and_ent_create_are_cheats_routed_with_npc_create() {
     );
 }
 #[test]
-fn ai_disable_is_a_cheat_toggle_without_arguments() {
-    let mut console = Console::default();
-    assert_eq!(console.submit("ai_disable"), vec![]);
-    assert_eq!(
-        console.submit("sv_cheats 1; ai_disable; ai_disable 1"),
-        vec![Effect::AiDisable]
-    );
-}
-#[test]
 fn quoted_separators_are_text_and_bad_quotes_execute_nothing() {
     let mut console = Console::default();
     console.submit("echo \"hello; world\"; echo done");
@@ -1551,33 +1542,12 @@ fn a_held_escape_presses_confirmation_cancel_button_and_release_cancels_it() {
 }
 
 #[test]
-fn background_map_and_map_background_console_commands() {
+fn map_background_console_command() {
     let mut console = installed_console();
-    // Query default background map
-    let effects = console.submit("background_map");
-    assert!(effects.is_empty());
-    assert!(console
-        .shell
-        .panel
-        .output
-        .iter()
-        .any(|line| line.contains("\"background_map\" = \"background01\"")));
-
-    // Set persistent background map
-    let effects = console.submit("background_map background03");
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(effects[0], Effect::ApplyConfig(_)));
-    assert_eq!(
-        console.config.gameplay.background_map.as_deref(),
-        Some("background03")
+    assert!(
+        console.submit("background_map background03").is_empty(),
+        "removed: not retail"
     );
-    assert_eq!(console.background_map(), Some("background03"));
-
-    // Reset to default
-    let effects = console.submit("background_map default");
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(effects[0], Effect::ApplyConfig(_)));
-    assert_eq!(console.config.gameplay.background_map, None);
     assert_eq!(console.background_map(), Some("background01"));
 
     // map_background loads as background map and persists to config

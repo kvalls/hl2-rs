@@ -255,7 +255,7 @@ fn advance_capture(
                 info!("capture burst {index} scene_time {:.4}", game.scene.time);
                 commands
                     .spawn(capture_source())
-                    .observe(bevy::render::view::screenshot::save_to_disk(burst));
+                    .observe(crate::capture::save_to(burst));
             }
         }
         if control.completed_frame.is_some_and(|frame| {

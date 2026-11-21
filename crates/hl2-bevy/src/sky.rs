@@ -71,6 +71,7 @@ pub fn install(
             Camera {
                 order,
                 is_active: false,
+                msaa_writeback: bevy::camera::MsaaWriteback::Off,
                 ..default()
             },
             target_comp.clone(),
@@ -246,6 +247,7 @@ fn face_material(
         },
         flashlight: white.clone(),
         viewmodel_flashlight: Default::default(),
+        eye_rows: crate::eyes::EYE_ROWS,
         envmap: black_cube.clone(),
         envmap_tint: Vec4::ZERO,
         envmap_contrast: Vec4::ZERO,

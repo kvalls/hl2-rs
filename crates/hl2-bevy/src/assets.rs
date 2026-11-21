@@ -1,9 +1,10 @@
 //! Read owned Source assets before constructing the Bevy app; no system performs file I/O.
+mod blend;
 pub(crate) mod cubemaps;
-mod faces;
+pub(crate) mod faces;
 pub(crate) mod loading;
 mod loading_auxiliary;
-mod names;
+pub(crate) mod names;
 pub(crate) mod reuse;
 mod static_decals;
 pub(crate) mod work;
@@ -82,7 +83,7 @@ pub fn map_metadata(loaded: &LoadedMap) -> serde_json::Value {
                 .map(|(k, i)| (k.clone(), i.rgba.len()))
         })
         .collect();
-    serde_json::json!({"loading_ms":loaded.load_timings,"map":loaded.world.name,"bsp_revision":loaded.revision,"models":loaded.models,"texture_errors":loaded.texture_errors,"asset_warnings":loaded.world.warnings,
+    serde_json::json!({"loading_ms":loaded.load_timings,"decal_index":loaded.gameplay.impacts.decal_index_report(),"map":loaded.world.name,"bsp_revision":loaded.revision,"models":loaded.models,"texture_errors":loaded.texture_errors,"asset_warnings":loaded.world.warnings,
         "spawn_sky_visibility":format!("{:?}",loaded.bsp.sky_visibility(loaded.world.spawn().0)),
         "textures":{"source_materials":loaded.materials.len(),"unique_base_textures":unique.len(),"decoded_base_bytes":unique.values().sum::<usize>(),"decoded_base_budget":512*1024*1024,
             "owned_eye_dx8_fallbacks":loaded.materials.iter().filter(|(_,m)|m.eye_fallback).map(|(n,_)|n).collect::<Vec<_>>()}})
@@ -99,6 +100,8 @@ pub struct MaterialData {
     pub alpha_cutoff: Option<f32>,
     pub translucent: bool,
     pub additive: bool,
+    /// DecalModulate: the frame is multiplied by twice the texture (mod2x), grey is neutral.
+    pub modulate: bool,
     pub two_sided: bool,
     pub opacity: f32,
     pub tint: [f32; 3],
@@ -134,6 +137,8 @@ pub struct MaterialData {
     /// $selfillum with $selfillumtint: diffuse = lerp(diffuse, tint * albedo, base alpha).
     pub self_illum: Option<[f32; 3]>,
     pub two_texture: Option<TwoTexture>,
+    /// WorldVertexTransition `$basetexture2`, blended in by vertex alpha (`blend`).
+    pub base2: Option<(String, Arc<Image>)>,
 }
 
 impl Default for MaterialData {
@@ -147,6 +152,7 @@ impl Default for MaterialData {
             alpha_cutoff: None,
             translucent: false,
             additive: false,
+            modulate: false,
             two_sided: false,
             opacity: 1.,
             tint: [1.; 3],
@@ -173,6 +179,7 @@ impl Default for MaterialData {
             envmap_bump: false,
             self_illum: None,
             two_texture: None,
+            base2: None,
         }
     }
 }
@@ -437,6 +444,7 @@ fn metadata(definition: &Definition) -> Result<MaterialData> {
     let mut material = MaterialData {
         translucent: scalar(p, "$translucent", 0.)?.trunc() != 0.,
         additive: scalar(p, "$additive", 0.)?.trunc() != 0.,
+        modulate: definition.shader.eq_ignore_ascii_case("decalmodulate"),
         two_sided: scalar(p, "$nocull", 0.)?.trunc() != 0.,
         half_lambert: scalar(p, "$halflambert", 0.)?.trunc() != 0.,
         opacity: scalar(p, "$alpha", 1.)?.clamp(0., 1.),
@@ -670,7 +678,7 @@ fn reflection(
     Ok(())
 }
 
-fn load_material(
+pub(crate) fn load_material(
     vfs: &Vfs,
     name: &str,
     cache: &mut BTreeMap<String, Arc<Image>>,
@@ -834,6 +842,10 @@ fn load_material(
         }
         Err(error) => errors.push(format!("{name}: {error:#}")),
     }
+    let textures = (&mut *cache, &mut *decoded_bytes);
+    if let Err(e) = blend::load_second_base(vfs, &definition, &mut material, textures, picmip) {
+        errors.push(format!("{name}: $basetexture2: {e:#}"));
+    }
     match self_illum(&definition, material.base.as_deref()) {
         Ok(tint) => material.self_illum = tint,
         Err(error) => errors.push(format!("{name}: selfillum: {error:#}")),
@@ -850,24 +862,12 @@ fn load_material(
         errors.push(format!("{name}: envmap: {error:#}"));
     }
     if definition.shader.eq_ignore_ascii_case("eyes") || material.eye_fallback {
-        let iris = (|| -> Result<(String, Arc<Image>)> {
-            let path = asset_path(
-                definition
-                    .properties
-                    .get("$iris")
-                    .context("Eyes VMT missing $iris")?,
-                ".vtf",
-            )?;
-            let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
-                vfs.read(&path)?.context("owned iris VTF absent")
-            })?;
-            Ok((path, image))
-        })();
-        match iris {
-            Ok((path, image)) => {
-                material.iris_path = Some(path);
-                material.iris = Some(image);
+        let textures = (&mut *cache, &mut *decoded_bytes);
+        match blend::named_texture(vfs, &definition, "$iris", textures, picmip) {
+            Ok(Some((path, image))) => {
+                (material.iris_path, material.iris) = (Some(path), Some(image))
             }
+            Ok(None) => errors.push(format!("{name}: iris: Eyes VMT missing $iris")),
             Err(e) => errors.push(format!("{name}: iris: {e:#}")),
         }
     }

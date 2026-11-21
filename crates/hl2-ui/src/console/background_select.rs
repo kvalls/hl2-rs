@@ -30,13 +30,6 @@ impl Console {
         base_map.to_owned()
     }
 
-    /// Use the stored cvar path for debug hotkeys, including normal save/apply behavior.
-    pub fn toggle_background_force_default_blur(&mut self) {
-        let value = u8::from(!self.config.video.background_force_default_blur);
-        let effects = self.submit(&format!("background_force_default_blur {value}"));
-        self.deferred.extend(effects);
-    }
-
     /// Whether the current canvas aspect ratio is widescreen (> 4:3).
     pub fn is_widescreen(&self) -> bool {
         self.canvas.width() / self.canvas.height().max(1.0) > 4. / 3. + 1e-3

@@ -16,6 +16,8 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(16) var envmap_mask_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(18) var flashlight_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(19) var flashlight_sampler: sampler;
+// Iris projections, two world-space rows per eye mesh; the mesh's second UV holds its slot.
+@group(#{MATERIAL_BIND_GROUP}) @binding(20) var<storage, read> eye_rows: array<vec4<f32>>;
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
@@ -193,13 +195,33 @@ fn flashlight(world_position: vec4<f32>, n: vec3<f32>, frag_coord: vec2<f32>) ->
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var base = textureSample(base_texture, base_sampler, mesh.uv);
+    // DecalModulate (SDK decalmodulate_dx9.cpp): alpha test, then the frame times twice the
+    // texture (DST_COLOR, SRC_COLOR): grey leaves it unchanged. Unlit and without the tonemap scale.
+    if material.parameters.z > 1.5 {
+        if base.a < material.parameters.x { discard; }
+        return vec4(srgb_to_linear(base.rgb * 2.0), 1.0);
+    }
+    let eye =material.parameters.w > 0.5 && material.parameters.w < 1.5;
+    if material.parameters.w > 1.5 {
+        // WorldVertexTransition (SDK lightmappedgeneric_ps2_3_x.h): the second base, at the
+        // same coordinates, by the vertex alpha a displacement vertex carries; alpha too.
+        base = mix(base, textureSample(iris_texture, iris_sampler, mesh.uv), mesh.color.a);
+    }
     let base_alpha = base.a;
-    if material.parameters.w > 0.5 {
-        let iris = textureSample(iris_texture, iris_sampler, mesh.uv_b);
+    if eye {
+        let slot = u32(mesh.uv_b.x + 0.5) * 2u;
+        let at = vec4(mesh.world_position.xyz, 1.0);
+        var iris_uv = vec2(0.0);
+        if slot + 1u < arrayLength(&eye_rows) {
+            iris_uv = vec2(dot(eye_rows[slot], at), dot(eye_rows[slot + 1u], at));
+        }
+        let iris = textureSample(iris_texture, iris_sampler, iris_uv);
         base = vec4(mix(base.rgb, iris.rgb, iris.a), base.a);
     }
     base.a = select(base.a, 1.0, material.parameters.y > 0.5);
     var vertex_color = mesh.color;
+    // Vertex alpha is a blend weight there, never opacity (camera materials use it below).
+    if material.parameters.w > -0.5 { vertex_color.a = 1.0; }
     let lit = material.lighting.params.x > 0.5;
     if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
     if material.parameters.w < -0.5 {
@@ -219,7 +241,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     base.a = 1.0;
 #endif
 
-    let baked = select(textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb, vec3(1.0), material.parameters.w > 0.5);
+    let baked = select(textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb, vec3(1.0), eye);
     // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
     // Procedural camera images are sampled through an sRGB view and are already linear.
     var rgb = select(srgb_to_linear(base.rgb) * baked, base.rgb, material.parameters.w < -0.5);

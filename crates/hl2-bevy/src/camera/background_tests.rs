@@ -114,13 +114,16 @@ fn config_toggle_updates_background_camera_and_preserves_gameplay() {
     let mut ui = crate::ui_host::Console::new(Default::default());
     let aspect = 16. / 9.;
     sim.background_level = true;
+    fn by_flag(video: &hl2_ui::config::VideoSettings) -> bool {
+        video.extensions.bool("standard_flag").unwrap_or(false)
+    }
     for force in [true, false, true, false] {
-        let effects = ui.source.submit(&format!(
-            "background_force_default_blur {}",
-            u8::from(force)
-        ));
+        let mut config = ui.source.config.clone();
+        config.video.standard_background = hl2_ui::extensions::StandardBackground(Some(by_flag));
+        config.video.extensions.set_bool("standard_flag", force);
+        let effects = vec![hl2_ui::console::Effect::ApplyConfig(Box::new(config))];
         sim.console_effects(&mut ui, &mut game, effects);
-        assert_eq!(sim.background_force_default_blur, force);
+        assert_eq!(sim.standard_background, force);
         let expected = super::background_fov(aspect, force);
         assert_eq!(sim.world_camera_fov(110., aspect), expected);
         sim.background_level = false;

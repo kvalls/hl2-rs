@@ -2,7 +2,7 @@
 //! GatherConditions (sight of the player and hated NPCs, hearing, enemy memory and
 //! COND_NEW_ENEMY/SEE_ENEMY/ENEMY_OCCLUDED/LOST_ENEMY), SelectIdealState and
 //! MaintainSchedule through the class behavior. Switched by `enabled` (the host's
-//! `ai_enable`, on by default like Source's ai_disabled 0). NPCs owned by a
+//! `ai_disable`, on by default like Source's ai_disabled 0). NPCs owned by a
 //! scripted_sequence or a choreographed scene are NPC_STATE_SCRIPT and the AI leaves
 //! them alone. Simplified from the SDK: every NPC thinks every 0.1 s (no PVS/efficiency
 //! throttling, no think staggering). Class layers: npc_metropolice and the humanoids
@@ -372,7 +372,7 @@ pub struct Diagnostics {
 }
 #[derive(Serialize)]
 pub struct AiRuntime {
-    /// The `ai_enable` switch (the host turns it on by default, like Source).
+    /// The AI switch (`ai_disable`; the host turns it on by default, like Source).
     pub enabled: bool,
     #[serde(skip)]
     schedules: Schedules,
@@ -448,7 +448,6 @@ pub struct AiRuntime {
     /// schedules a machine gun's second sound ahead of the next think).
     #[serde(skip)]
     delayed_sounds: Vec<(f64, crate::sounds::SoundRequest)>,
-    /// The enabled ai_script_conditions entities (script_conditions.rs).
     #[serde(skip)]
     script_conditions: script_conditions::ScriptConditions,
     pub diagnostics: Diagnostics,
@@ -1221,18 +1220,14 @@ impl AiRuntime {
         let fvisible = !player.noclip && sight.visible(eye, player.center(), &[id]);
         // NPC-vs-NPC sight (DESIGN 14n step 1): hated, live NPCs in the view cone and look
         // distance with LOS to their center.
-        let npc_ids = self
-            .npc_ids
-            .get_or_insert_with(|| {
-                world
-                    .entities
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, e)| e.class().starts_with("npc_"))
-                    .map(|(i, _)| i)
-                    .collect()
-            })
-            .clone();
+        self.npc_ids.get_or_insert_with(|| {
+            world
+                .entities
+                .iter()
+                .enumerate()
+                .filter_map(|(id, entity)| entity.class().starts_with("npc_").then_some(id))
+                .collect()
+        });
         let viewer = Viewer {
             entity: id,
             class: my_class,
@@ -1241,8 +1236,12 @@ impl AiRuntime {
             field_of_view,
             look_distance: senses::LOOK_DISTANCE,
         };
-        let seen_npcs: Vec<(usize, Vec3)> = npc_ids
-            .into_iter()
+        let seen_npcs: Vec<(usize, Vec3)> = self
+            .npc_ids
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .copied()
             .filter(|&other| {
                 let Some(state) = scene.states.get(other) else {
                     return false;
@@ -1252,9 +1251,9 @@ impl AiRuntime {
                     && !state.dead()
                     && state.visible
                     && sees_height(state.origin.z)
-                    && center.distance(eye) <= senses::LOOK_DISTANCE
-                    && self.npc_disposition(world, id, other, precriminal) == Disposition::HT
+                    && center.distance_squared(eye) <= senses::LOOK_DISTANCE * senses::LOOK_DISTANCE
                     && senses::in_view_cone(&viewer, center)
+                    && self.npc_disposition(world, id, other, precriminal) == Disposition::HT
                     && sight.visible(eye, center, &[id, other])
             })
             .map(|other| (other, scene.states[other].origin))

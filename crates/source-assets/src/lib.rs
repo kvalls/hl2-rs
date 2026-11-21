@@ -14,6 +14,7 @@ pub mod overlays;
 pub mod pcf;
 pub mod phy;
 pub mod physcollide;
+pub mod png;
 pub mod proximity_material;
 pub mod scenes;
 pub mod sky;

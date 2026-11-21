@@ -365,6 +365,15 @@ pub fn entities(data: &[u8]) -> Result<Vec<Entity>> {
             bail!("unclosed entity");
         }
         i += 1;
+        // Classname first, so Entity::class reads it without scanning; the other keys keep their
+        // order (outputs fire in it).
+        if let Some(at) = p
+            .iter()
+            .position(|(k, _)| k.eq_ignore_ascii_case("classname"))
+        {
+            let classname = p.remove(at);
+            p.insert(0, classname);
+        }
         out.push(Entity { properties: p });
     }
     Ok(out)

@@ -151,6 +151,9 @@ impl AiRuntime {
 impl AiRuntime {
     /// WeaponSoundRealtime's later sounds whose delay has run go to the scene.
     pub(super) fn play_delayed_sounds(&mut self, scene: &mut Scene) {
+        if self.delayed_sounds.is_empty() {
+            return;
+        }
         let due = scene.time + 1e-9;
         let (now_due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.delayed_sounds)
             .into_iter()

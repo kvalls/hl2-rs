@@ -156,38 +156,37 @@ impl Skeleton {
             .expect("validated Source skin influences");
     }
 }
-/// Eye UVs are evaluated from the same pose while the GPU retains bind positions.
-pub fn skin_vertex(
-    mesh: &Mesh,
-    vertex: usize,
-    position: glam::Vec3,
-    matrices: &[glam::Mat4],
-) -> glam::Vec3 {
-    let Some(VertexAttributeValues::Uint16x4(indices)) =
-        mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
-    else {
-        return position;
-    };
-    let Some(VertexAttributeValues::Float32x4(weights)) =
-        mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
-    else {
-        return position;
-    };
-    indices[vertex]
-        .iter()
-        .zip(&weights[vertex])
-        .map(|(&bone, &weight)| {
-            matrices
-                .get(usize::from(bone))
-                .map_or(position, |m| m.transform_point3(position))
-                * weight
-        })
-        .sum()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// The CPU reference of a skinned vertex, from the attributes the GPU reads.
+    fn skin_vertex(
+        mesh: &Mesh,
+        vertex: usize,
+        position: glam::Vec3,
+        matrices: &[glam::Mat4],
+    ) -> glam::Vec3 {
+        let Some(VertexAttributeValues::Uint16x4(indices)) =
+            mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
+        else {
+            return position;
+        };
+        let Some(VertexAttributeValues::Float32x4(weights)) =
+            mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
+        else {
+            return position;
+        };
+        indices[vertex]
+            .iter()
+            .zip(&weights[vertex])
+            .map(|(&bone, &weight)| {
+                matrices
+                    .get(usize::from(bone))
+                    .map_or(position, |m| m.transform_point3(position))
+                    * weight
+            })
+            .sum()
+    }
     #[test]
     fn animated_joint_bounds_enclose_vertices_without_mutating_bind_mesh() {
         use bevy::{

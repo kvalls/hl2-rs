@@ -1,5 +1,188 @@
 # MODLOG
 
+## 2026-11-21 — Merge upstream main through `f4882b19`
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed: merged 12 upstream session 68 commits (`c51c6d36..f4882b19`: train car seat `DETAIL|PLAYERCLIP` collision in `physics/brush_entities.rs`, `LightingOrigin`/`LightingOriginHack` in `lighting_origins.rs` and `rendering/lighting.rs`, entity-attached static `infodecal`s in `assets/static_decals.rs`, `m_iszNextScript` hand-over in `entities/next_script.rs`, `ai_goal_actbusy_queue` in `goal_inputs/actbusy_queue.rs`, and `ForceNPCToActBusy` `teleport` in `goal_inputs.rs`) into `orbitalman/performance_research` (`c44734a5`).
+  - `crates/hl2-bevy/src/rendering/lighting.rs`: kept our `LightingContext`, `present_draw_lighting`, `next_cubemap`, `distance_squared < 16.` lightgrid resample threshold, and zero-spurious-`AssetEvent::Modified` guard while integrating upstream's `ModelLit::origins`, `lighting_point`, `lighting_basis`, and `rebase` (`<= 100` lines in `present_draw_lighting`).
+  - `crates/hl2-simulation/src/ai/runtime/goal_inputs.rs`, `crates/hl2-simulation/src/entities/tests.rs`, `crates/hl2-simulation/src/physics.rs`: kept both `mod set_relationship` / `AppliedRelationships::class_overrides` / `setrelationship` and upstream's `actbusy_queue` / `teleport_to_hint`; kept both `next_script` and `root_motion` entity test modules; kept `mod hitboxes` / `mod queries` / `BrushSet` / `is_trace_only` alongside upstream's `mod diagnostics`, `entity_player_clips`, and `trace_entity_player_clips`.
+  - `scripts/checks/architecture-baseline.json`: reconciled against our branch and tightened `crates/hl2-simulation/src/physics.rs` (`3189 -> 3148`) after `hull_contacts` moved to `physics/diagnostics.rs`.
+  - `MODLOG.md` & `STATUS.md`: preserved both parents' entries in chronological order (upstream's three 2026-11-20 session 68 entries alongside our 2026-11-20/2026-11-21 history).
+  - `test-inputs/expected/bevy-{barrier-hum,soundscapes}.json`: updated under `JOBS=1` after reviewing exact deterministic deltas (`barrier-hum` returned to `upstream/main`'s `55/40` / `56/41` after `5fdf7cff`'s steering fix; `soundscapes` `interrogation`/`hall-enter` shifted `-1 input / -1 output` at 12 s from upstream's `9bb3ea8f` `actbusy_food_queue` routing while keeping merged post-24 s counts; `monitors-breen-screen` matched post-merge with 0 differences).
+- Why: incorporate session 68 train car seats, lighting origins, static decals, cafeteria pacer, customs queue, and `ForceNPCToActBusy` teleport while preserving all UI, debug-session, and crowd-performance work on this branch.
+- Tested how:
+  - Pre-merge replay baseline (`NO_BUILD=1 python3 scripts/checks/replays.py` on `c44734a5`): `107/109` passed in `399 s` (`barrier-hum` and `monitors-breen-screen` matched `upstream/main` after `5fdf7cff`).
+  - Targeted unit tests: `lighting_origins::` (`2 passed`), `actbusy_queue::` (`1 passed`), `next_script::` (`1 passed`), `brush_solidity::` (`1 passed`), `a_brush_entity_of_npc_clip_does_not_block_the_player` (`1 passed`), `static_decals::` (`1 passed`), and `stationary_lighting_and_viewmodel_emit_no_modified_material_events_on_repeat_frames` (`1 passed`).
+  - Validation suites: `scripts/checks/validate.sh` (architecture guardrails, 74 Python tests, all 4 plugin builds, workspace Cargo tests, strict Clippy, `cargo fmt --check`) and `scripts/checks/check_windows.sh` (`x86_64-pc-windows-msvc` strict Clippy).
+  - Post-merge replays (`scripts/checks/replays.py`): initial build+run `107/109` in `403 s` (`soundscapes`, `barrier-hum` only), confirmed deterministically under `JOBS=1` (`21 s`), recorded `barrier-hum` and `soundscapes` (`UPDATE_EXPECTED=1`, `JOBS=1`, `15 s`), then full `NO_BUILD=1` rerun passed `109/109` (`0 failed`, `420 s`).
+- Result: all unit tests, validation checks, Windows cross-target Clippy, and all 109 shared packaged replays passed.
+- Still broken or not tested: Windows runtime and ordinary playthrough are **not tested**.
+- Next: none.
+
+## 2026-11-21 — Keep active console status pinned last and accept custom `agent_status` text
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`, `crates/source-ui/src/console/panel/snapshot.rs`, `crates/source-ui/src/console/panel/printed.rs`: added `ConsolePanel::redirecting` and `active_snapshot_index`, and updated `ConsolePanel::push_output` (`move_pinned_snapshot`) so ordinary printed lines insert **above** an active replaceable snapshot outside `start_redirect`/`finish_redirect`, preserving scroll position on the inserted line and keeping any snapshot selection or wrap cache aligned.
+  - `plugins/hl2-debug/src/commands.rs`, `plugins/hl2-debug/src/ui_tests.rs`: replaced the token-only `agent_status` parameter with `AgentStatus::{Clear, Token, Text}`, keeping `thinking`/`waiting`/`clear` as built-in localized keywords (and completion values) while accepting arbitrary non-empty status text (`agent_status Working...`, `agent_status "Building..."`, or unquoted multi-word text) formatted as `Console: <text>` at `Level::ChatRemote` without passing custom text through `Localization::text`.
+  - `.agents/skills/hl2-session/SKILL.md`, `docs/plugins.md`, `docs/non-retail-features.md`: updated `agent_status` usage (`<thinking|waiting|clear|text>`) and documented pinned-at-bottom custom phase status updates.
+- Why: owner request to support custom status strings (such as `Working...` or `Building...`) in addition to the automatic `thinking`/`waiting` keywords, and to keep the active status pinned as the latest console line beneath incoming RCON command logs and output.
+- Tested how:
+  - Unit tests: `cargo test --workspace --locked` including `cached_wrapping_and_ordinary_selection_follow_their_rows` and `pinned_snapshot_stays_last_across_prints_redirects_and_scrolling` in `source-ui`, plus `remote_reply_clears_status_without_printing_it` and `agent_status_is_not_logged_from_the_remote_console` in `hl2-debug`.
+  - Packaged verification (`scripts/build-bevy.sh` -> `bin/hl2-bevy` on macOS, `-usercon +con_logfile agent_status_verify.log +showconsole`): sent `agent_status "Spawning NPCs..."` followed by `echo command output line`, `ui_dump`, and `screenshot` over RCON; screenshot `background010000.png` confirmed `Console: Spawning NPCs...` rendered in cyan below the incoming `rcon from ...` lines at the bottom of the console, while `con_logfile` omitted `Spawning NPCs...` and logged the subsequent `say Done spawning` reply.
+  - Validation suites: `scripts/checks/validate.sh` (architecture guardrails, Python helper tests, all 4 plugin selection builds, workspace Cargo unit tests, strict Clippy, `cargo fmt --check`), self-containment check, and `scripts/checks/check_windows.sh` (strict Clippy for `x86_64-pc-windows-msvc`).
+- Result: all unit tests, packaged macOS visual and `con_logfile` checks, validation suite, and Windows target Clippy passed.
+- Still broken or not tested: Windows live runtime **not tested** locally.
+- Next: none.
+- Plugin rules read: yes; exceptions: none.
+
+## 2026-11-21 — Style `agent_status` console line with `Console:` chat styling
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`, `crates/source-ui/src/console/panel/printed.rs`, `crates/source-ui/src/console/panel/snapshot.rs`: added `ConsolePanel::replace_snapshot_with_level`, tracked the active replaceable snapshot by line number (`ConsolePanel::snapshot`) so non-`Level::Snapshot` replaceable lines can be replaced and cleared without affecting scrollback or selection, and kept replaceable snapshot pushes out of `ConsolePanel::printed` so external `con_logfile` readers do not treat transient status updates as printed chat replies (`replace_snapshot` continues to use `Level::Snapshot` with ordinary text color).
+  - `crates/hl2-ui/src/console/remote.rs`, `crates/hl2-ui/src/console/panel.rs`, `crates/hl2-bevy/src/rcon.rs`: carried the requested `Level` alongside the snapshot text through `Remote::snapshot`, `Console::log_snapshot_with_level`, and RCON post-redirect application.
+  - `plugins/hl2-debug/src/commands.rs`, `plugins/hl2-debug/src/ui_tests.rs`: formatted `Host::agent_status` with `hl2_ui::console::remote::RCON_SPEAKER` (`Console: Thinking...` / `Console: Still waiting for a reply...`) using `Level::ChatRemote`, reusing `say` chat styling (`CHAT_REMOTE_TEXT` cyan body with white `Console:` speaker label) and updating `remote_reply_clears_status_without_printing_it`.
+- Why: owner request to make the `agent_status` label render as `Console: Thinking...` in cyan reusing the remote `say` chat styling, without breaking external `con_logfile` detection of actual `Console:` replies.
+- Tested how:
+  - Unit tests: `cargo test --workspace --locked` including `styled_snapshot_uses_requested_level_and_stays_out_of_printed_log` in `source-ui` (verifying `WHITE` `Console:` label, `CHAT_REMOTE_TEXT` body, and empty `take_printed()`), `live_viewmodel_tuning_log_replaces_its_snapshot_and_keeps_other_output` and `audit_no_hardcoded_user_visible_strings_in_ui_code_outside_fallback_constants` in `hl2-ui`, and `remote_reply_clears_status_without_printing_it` in `hl2-debug`.
+  - Packaged verification (`scripts/build-bevy.sh` -> `bin/hl2-bevy` on macOS, `-usercon +con_logfile agent_status_verify.log +showconsole`): sent `say Hello from agent` and `agent_status thinking` over RCON, captured `background010000.png` confirming matching white `Console:` + cyan body rendering for `Console: Hello from agent` and `Console: Thinking...`, confirmed neither `Thinking...` nor `Still waiting` wrote to `con_logfile`, and confirmed `say Reply clears status` logged to `con_logfile`.
+  - Validation suites: `scripts/checks/validate.sh` (architecture guardrails, 74 Python tests, all 4 plugin selection builds, workspace Cargo unit tests, strict Clippy, `cargo fmt --check`), self-containment check, and `scripts/checks/check_windows.sh` (strict Clippy for `x86_64-pc-windows-msvc`).
+- Result: all unit tests, packaged macOS visual and `con_logfile` checks, validation suite, and Windows target Clippy passed.
+- Still broken or not tested: Windows live runtime **not tested** locally.
+- Next: none.
+- Plugin rules read: yes; exceptions: none.
+
+## 2026-11-21 — On-demand asynchronous NPC late-precaching for unpooled classes and background maps
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/hl2-bevy/src/runtime_npcs.rs`, `crates/hl2-bevy/src/launch.rs`, `crates/hl2-bevy/src/map_install.rs`, `crates/hl2-bevy/src/lib.rs`: added `RuntimeNpcs` worker queue and `poll` system (short-circuiting immediately when `npc_requests` and `jobs` are both empty, with zero background-map startup cost and zero change to pre-pooled gameplay spawns). On first `npc_create`, `npc_create_aimed`, or `ent_create` of an unpooled NPC class (such as on main-menu background maps where `append_pool` is skipped), loads the class's model, LODs, rig, ragdoll, locomotion clips, gibs, missing textures/materials, and face/eye metadata off the main thread, coalesces concurrent requests per class, installs a hidden pool template plus body/eye/LOD/weapon-merge draws, and spawns waiting entities so subsequent spawns use the synchronous template path.
+  - `crates/hl2-bevy/src/gameplay/npc_spawn.rs`, `crates/hl2-bevy/src/gameplay.rs`, `crates/hl2-bevy/src/gameplay/empty.rs`: extracted `npc_spawn.rs` out of `gameplay.rs` (reducing `gameplay.rs` from 1,596 to 1,478 production lines, recorded in `scripts/checks/architecture-baseline.json`), added `Gameplay::npc_requests`, `install_pool_template`, and `finish_late_spawn`, and updated `request_spawn` to validate placement first and queue late precaching for known spawnable classes (`can_late_precache`).
+  - `crates/hl2-bevy/src/rendering/runtime.rs`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/eyes.rs`, `crates/hl2-bevy/src/assets.rs`, `crates/hl2-bevy/src/assets/{faces,names}.rs`: added `build_npc_template_draws` (`build_template_body_draws`, `build_template_weapon_draws`) and `Eyes::insert_actor`, and exposed internal helpers as `pub(crate)`.
+  - `crates/hl2-simulation/src/ai/spawn.rs`, `crates/hl2-simulation/src/actors.rs`, `crates/modkit-core/src/lib.rs`, `crates/source-assets/src/vpk.rs`: extracted shared `template_entity`, `PreparedActor` / `prepare_actor_data` / `register_prepared_actor` / `prepare_single_actor` (zero VFS I/O on the main thread when registering), merged `model_body_parts` and `model_ragdolls` in `World::merge_model_tables`, and derived `Default` on `Vfs`.
+- Why: retail HL2 (`Source SDK game/server/ai_concommands.cpp`: `CC_NPC_Create`, `CC_NPC_Create_Aimed`, `CBaseEntity::SetAllowPrecache(true)`) allows `sv_cheats 1` + `npc_create*` / `ent_create` / `ent_fire` on main-menu background maps (`map_background`) and late-precaches unpooled NPC classes on demand; previously `spawn_from_template` returned `the class was not loaded on this map` when `mode.background` skipped `append_pool`.
+- Tested how:
+  - Unit tests: `cargo test -p modkit-core -p source-assets -p hl2-simulation` and `cargo test -p hl2-bevy runtime_npcs` (including synthetic Bevy `App` test confirming template installation + `spawn_runtime_draws` in one update with `world_copies == 0`, concurrent request coalescing, worker failure logging, and unknown-class rejection).
+  - Owned-install tests: `cargo test -p hl2-simulation -- --ignored owned_prepare_single_actor_loads_vortigaunt_locomotion_and_registers` (0.05 s) and `cargo test -p hl2-bevy -- --ignored owned_prepare_npc_template_loads_vortigaunt_and_combine_without_errors` (0.07 s).
+  - Packaged headless verification (`bin/hl2-bevy` via `scripts/build-bevy.sh` on macOS, `--background-map background02`): `npc_create_aimed npc_vortigaunt menu_vort` (`Loading npc_vortigaunt...` -> `Created npc_vortigaunt (no weapon) at 6002 7969 -505 yaw -102 (entity 176, 20 ms)`), synchronous second spawn `npc_create npc_vortigaunt menu_vort2` (`Created npc_vortigaunt ... (entity 177)`), armed `npc_combine_s` with `weapon_smg1` (`19 ms`, active AI combat shooting `menu_vort`), `ent_fire menu_vort Toggle`, `npc_dump 3000` (all 3 alive, visible, active animations `idle01` / `shootsmg1s`), and visual screenshot inspection confirming textures, lighting, pose, and bone-merged `weapon_smg1`.
+  - Validation suites: workspace validation (architecture guardrails, 74 Python tests, all 4 plugin builds, workspace Cargo unit tests, strict Clippy, `cargo fmt --check`, self-containment check) and Windows target strict Clippy (`check_windows`).
+- Result: all unit tests, owned-install tests, macOS packaged `background02` verification, validation suite, and Windows target Clippy passed. No frame-time regression when idle (`poll` returns immediately while `npc_requests` and `jobs` are empty).
+- Still broken or not tested: Windows live runtime **not tested** locally; packaged campaign replay suite (`scripts/checks/replays.py`) not re-run in this turn (no changes to `mode.background == false` pre-pooled loading paths).
+- Next: none.
+
+## 2026-11-21 — Move `/hl2-session` skill into the repository with cross-platform scripts
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `.agents/skills/hl2-session/{SKILL.md,scripts/{rcon.py,session.py,watch.py,restart.py}}`: added the in-repo `/hl2-session` skill and cross-platform Python 3 stdlib helper scripts for Windows, macOS, and Linux (`session.py status|launch` with `--port auto` fallback and `build-bevy-info.json` plugin checks; `rcon.py` with `--wait` dynamic session reload and auth-error fail-fast; `watch.py` with `msvcrt.locking`/`fcntl.flock` and pure-Python tailing for both streaming and `--once` cursor modes; `restart.py` compiling with `cargo build` before quitting and deferring Windows `.exe` repackaging to `session.py`).
+  - `.claude/skills/hl2-session/SKILL.md` & `.gitignore`: added a non-symlink forwarding stub so Claude Code discovers `/hl2-session` on Windows without symlinks, and added narrow `.gitignore` whitelist exceptions.
+  - `README.md`, `docs/non-retail-features.md`, `docs/DESIGN.md`: documented how to launch and use `/hl2-session` and updated the agent-link design note.
+  - `scripts/checks/test_hl2_session.py`: added 16 cross-platform unit tests covering RCON framing/wait reload, file locks and log watching, supervisor restarts/repackaging, restart guards, and skill/script references.
+- Why: owner request to move the `/hl2-session` skill into the repository and document it in `README.md` so contributors on Windows and macOS/Linux can launch the live AI debug session directly.
+- Tested how: `python3 -m unittest discover -s scripts/checks -p 'test_*.py' -v` (74 tests), a headless packaged session smoke test on macOS (`session.py launch`/`status`, `rcon.py --wait` `say` + `ui_dump`, `watch.py --once` waking on `Player:` with quiet `agent_status`, `restart.py --no-build` with new PID + post-restart `ui_dump`, `quit`, and `AGENT_SESSION_RESTART` / `AGENT_SESSION_EXIT 0` in `game.log`), and `scripts/checks/validate.sh`.
+- Result: all 74 Python unit tests, the macOS headless packaged smoke test, and `scripts/checks/validate.sh` passed.
+- Still broken or not tested: Windows live runtime is **not tested** locally (cross-platform Python unit tests run on Windows in CI).
+- Next: none.
+- Plugin rules read: yes; exceptions: none.
+
+## 2026-11-21 — Quiet remote commands: `agent_status` stays out of the console log
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `sv_rcon_log` already left out `say`; contributors can now list further commands that are not worth a line (`Extensions::quiet_remote`, checked per command by `Console::remote_log_skips`, so a line of only chat and quiet commands logs nothing). `hl2-debug` lists `agent_status`, which the session watcher sends on every player message.
+- Why: owner request during a live session: show the agent's commands but not its status updates.
+- Tested how: core test with a fake contributor (chat, quiet, mixed and mixed-with-other lines); plugin test; `validate.sh` passed.
+- Plugin rules read: yes; exceptions: none (the hook names no plugin).
+
+## 2026-11-21 — Retail `showconsole` and `hideconsole`; resume reopens the console with `showconsole`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: retail's `showconsole` and `hideconsole` (engine.dll) open or close the console only when it is not already so, through the same toggle (modal dialogs and `con_enable` still block). `hl2-debug`'s `agent_resume` reopens the console with `+showconsole`, so a launch that already opens it cannot toggle it shut.
+- Why: owner request: the console opens when a game starts with the remote console for a live session (the session launcher passes `+showconsole`), and remote commands other than `say` show in it (`sv_rcon_log 1`).
+- Tested how: unit test (show and hide twice each); resume argument test; `validate.sh` passed.
+- Plugin rules read: yes; exceptions: none.
+
+## 2026-11-21 — `SetRelationship` class targets follow the game state
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: a classname target was resolved to a class once, when the input arrived, as if the player were already a criminal, so `npc_citizen` meant PlayerAlly and missed the passive citizens of the early station levels. The override now keeps the classname and resolves it at lookup with the same precriminal state the target's class uses, as retail resolves it against the current game rules.
+- Why: found live: manhacks told `npc_citizen D_LI 99` kept attacking citizens on d1_trainstation_02 (owner report).
+- Tested how: the dispatch test now also checks a precriminal citizen; `validate.sh` passed.
+
+## 2026-11-21 — `SetRelationship` reaches manhacks, scanners, barnacles and birds
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the AI input dispatch handled `SetRelationship` after the class branches for `npc_manhack`, `npc_cscanner`, `npc_barnacle` and the birds, which take every input of their class, so those NPCs never saw it. It now runs first.
+- Why: found live: manhacks given `SetRelationship "player D_LI 99 npc_metropolice D_HT 99"` kept attacking the player (owner report). The earlier unit test called the handler directly and missed the dispatch.
+- Tested how: new test through `AiRuntime::inputs` with a manhack; `validate.sh` passed. Live check after the fix: see the next entry or STATUS.
+
+## 2026-11-21 — NPC input `SetRelationship`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: every NPC class takes retail's `SetRelationship` input (Source SDK `game/server/ai_basenpc.cpp`, `CAI_BaseNPC::AddRelationship`): `"<who> <D_HT|D_FR|D_LI|D_NU> [priority]"`, repeated. A targetname gives entity relationships (the overrides `ai_relationship` already fills), `player`/`!player` the player, a classname a class relationship kept per NPC (`AppliedRelationships::class_overrides`, consulted after entity overrides), so NPCs of that class spawned later are covered. An unknown disposition stops the parse, as in the SDK. Priorities are parsed but not ranked yet.
+- Why: owner request in a live session: friendly manhacks the retail way (`ent_fire npc_manhack SetRelationship "player D_LI 99"`) instead of a debug-only command.
+- Tested how: unit tests (parsing, a manhack that likes the player and hates metrocops by class, a name overriding the class, one-sided); `validate.sh` passed. Live: packaged build on d1_trainstation_02, 10 manhacks from `npc_create`, `ent_fire npc_manhack SetRelationship "player D_LI 99 npc_metropolice D_HT 99"` queued and delivered; their in-game behaviour toward the player and the cops is **not yet confirmed** (the game was paused).
+- Still broken or not tested: relationship priorities; following the player (`ai_goal_follow`) is not implemented.
+
+## 2026-11-21 — Remove unused console footer status bar from `source-ui`
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs` & `crates/source-ui/src/font.rs`: removed the unused `ConsolePanel::status` field, `STATUS_EXTRA_HEIGHT`, history-height shrinking in `dialog_layout`, footer drawing in `draw`, and the now-unused `FontFace::centered_baseline` helper.
+- Why: after moving `agent_status` to inline replaceable `Level::Snapshot` lines (`be3a30ff`), the non-retail footer status bar had no remaining callers and belonged out of core `source-ui`.
+- Tested how: `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime was **not tested**.
+- Next: none.
+
+## 2026-11-21 — Show `agent_status` as a replaceable console snapshot line instead of a separate status bar
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel/snapshot.rs`: added `ConsolePanel::clear_snapshot` and extended `cached_wrapping_and_ordinary_selection_follow_their_rows` to cover clearing a snapshot without disturbing ordinary output or selection.
+  - `crates/hl2-ui/src/console/{panel.rs,remote.rs,commands/remote.rs}` & `crates/hl2-bevy/src/rcon.rs`: added `Console::clear_snapshot`, queued `log_snapshot`/`clear_snapshot` across RCON redirects via `Remote::snapshot` so snapshot updates survive `finish_redirect`, and cleared any active snapshot when a remote `say` reply arrives.
+  - `plugins/hl2-debug/src/{commands.rs,ui_tests.rs}`: switched `agent_status` to use `log_snapshot` / `clear_snapshot` so `Thinking...` and `Still waiting for a reply...` render as a single self-updating line in the console log (matching viewmodel debug snapshots) and vanish when the reply prints.
+- Why: user requested the thinking indicator appear inline as a temporary self-updating message in the console log rather than in the separate footer bar.
+- Tested how: `scripts/checks/validate.sh` (including core-only and plugin-selection builds) and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime and packaged replays were **not tested** for this change.
+- Next: rebuild and relaunch when ready.
+
+## 2026-11-21 — Draw chat speaker labels in white in the developer console
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`: on the first wrapped row of unselected `Level::ChatLocal` and `Level::ChatRemote` lines, split at the speaker label (`chat_label_end`, e.g. `[ 12.34] Player:` or `Console:`) and draw the label in white ahead of the yellow/cyan message body. Extended `chat_levels_use_distinct_colors` to assert `chat_label_end` with and without timestamps.
+- Why: makes back-to-back messages from the same speaker and wrapped continuation lines immediately distinguishable at a glance.
+- Tested how: `cargo test -p source-ui chat_levels_use_distinct_colors`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime and packaged replays were **not tested** for this change.
+- Next: rebuild and relaunch when ready.
+
+## 2026-11-21 — Batch consecutive same-material 2D UI quads in `canvas_renderer`
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-bevy/src/canvas_renderer.rs`: grouped consecutive 2D quads sharing the same `Handle<HudMaterial>` into a single pooled `Mesh` (`batch_quads` + `QuadGeometry::batch_mesh`) while preserving exact painter's order across interleaved materials. Added unit test `consecutive_same_material_quads_batch_while_preserving_order`.
+- Why: a 4-second live profile while scrolling the developer console at `3456 × 2168` (`mean 19.42 ms` / `51.5 fps`, `p50 13.53 ms`, `p95 35.11 ms`, `max 75.68 ms`, vs paused idle `8.38 ms` / `119.3 fps`) showed `canvas_renderer::sync_quads` (`269` samples), `wgpu create_buffer` (`296`), and `MeshSlab` (`73`) saturating the frame because every glyph was a separate `Mesh2d` entity (~1,500–2,700 meshes mutated per scroll tick).
+- Tested how: `cargo test -p hl2-bevy canvas_renderer`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: post-fix live console scrolling frame time, packaged replays, and Windows runtime are **not tested** yet.
+- Next: rebuild the release binary, relaunch the live session, and re-profile console scrolling and unpaused gameplay.
+
+## 2026-11-21 — Reuse bloom uniform buffers, defer monitor sample JSON, and throttle model lightgrid resamples
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-bevy/src/bloom.rs`: pre-allocated reusable `constant_uniform`, `blur_h_uniform`, and `blur_v_uniform` buffers in `Pipelines` (`init_pipelines`) and updated `blur_h`/`blur_v` via `RenderQueue::write_buffer`, eliminating 5 per-frame `device.create_buffer_with_data` calls in `Pass::draw`.
+  - `crates/hl2-bevy/src/monitors.rs`: stored plain `MaterialSample` structs per frame instead of allocating `serde_json::Value` maps and formatted handle strings every frame; serialize to JSON only inside `Monitors::report`.
+  - `crates/hl2-bevy/src/rendering/lighting.rs`: raised the moving-model lightgrid resample threshold from `1.` to `16.` squared Source units (4 units, still 8× finer than Source's 32-unit lightgrid) so walking NPCs do not re-trace BSP lighting and trigger `SourceMaterial` GPU buffer reallocation on every frame.
+- Why: follow-up 4-second live unpaused profile on `d1_trainstation_02` after `4932da08` (`p50` dropped from `22.64 ms` to `11.53 ms`, `Qbvh::build` `620 -> 0`) showed per-frame `wgpu::Device::create_buffer` (including `bloom::Pass::draw` and `SourceMaterial::as_bind_group`), `LightingData::trace_node`, and `serde_json::Value` serialize/drop as top remaining CPU hotspots.
+- Tested how: `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: post-fix live unpaused frame time, packaged replays, and Windows runtime are **not tested** yet.
+- Next: rebuild the release binary and re-profile live unpaused `d1_trainstation_02` gameplay.
+
 ## 2026-11-20 session 68, continued: ForceNPCToActBusy teleport (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
@@ -30,6 +213,423 @@
 - Still broken or not tested: the turnstile's resistance (the shadow pull-back was tried and changed nothing; not kept); the lighting-origin inputs; three infodecals elsewhere on the map.
 - Next: the turnstile against native per tick, the cafeteria pacer against native, the queue, the pen's Barney scene.
 
+## 2026-11-20 — Gate player-shadow CCD by speed and avoid redundant `SourceMaterial` mutations
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-simulation/src/physics.rs`: replaced unconditional `.ccd_enabled(true)` on `player_shadow` with `self.ccd_gated.insert(body, 0.)` so the 32-unit player hull only turns on Rapier3D CCD when moving faster than its own thickness per tick (matching dynamic props), instead of triggering `CCDSolver::predict_impacts_at_next_positions` (`Qbvh::build`) on every walking tick. Added unit test `player_shadow_ccd_stays_off_at_walk_speed_and_enables_when_fast` in `crates/hl2-simulation/src/physics/tests.rs`.
+  - `crates/hl2-bevy/src/rendering.rs`: checked `materials.get(&material.0)` before `materials.get_mut(&material.0)` in `present_ragdoll_fades` and `present_render_colors` so unchanged materials do not emit `AssetEvent::Modified` and trigger per-frame GPU buffer reallocation.
+- Why: a live 5-second unpaused profile on `d1_trainstation_02` (mean `23.38 ms` / `42.8 fps`, `p50 22.64 ms`, `p95 47.96 ms`, `max 74.91 ms`, versus paused `8.38 ms` / `119.3 fps`) showed `Qbvh::build` inside `CCDSolver::predict_impacts_at_next_positions` as the largest CPU hotspot (620 samples) and `SourceMaterial::as_bind_group` -> `wgpu::Device::create_buffer` as the second largest (443 samples).
+- Tested how: `cargo test -p hl2-simulation physics::tests`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: post-fix live unpaused frame time, packaged replays, and Windows runtime are **not tested** yet.
+- Next: rebuild and re-profile live unpaused `d1_trainstation_02` gameplay to measure the frame-time improvement.
+
+## 2026-11-20 — Color-code `Player:` and `Console:` chat lines in the developer console
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/source-ui/src/console/panel.rs`: added `Level::ChatLocal` (yellow, `CHAT_LOCAL_TEXT`) and `Level::ChatRemote` (cyan, `CHAT_REMOTE_TEXT`) to `ConsolePanel::line_color`, with unit test `chat_levels_use_distinct_colors`.
+  - `crates/hl2-ui/src/console/commands/remote.rs`: `say` now prints local `Player:` lines with `Level::ChatLocal` and remote `Console:` lines with `Level::ChatRemote`; extended `say_names_the_player_or_the_remote_console` to assert both levels.
+  - `crates/hl2-bevy/src/rcon.rs`: mirrored remote `say` broadcasts now print with `Level::ChatRemote`.
+- Why: make player and remote console chat lines easier to distinguish at a glance during live RCON sessions.
+- Tested how: `cargo test -p source-ui chat_levels_use_distinct_colors`, `cargo test -p hl2-ui say_names_the_player_or_the_remote_console`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime and packaged replays were **not tested** for this change.
+- Next: rebuild the release binary and launch a live session to verify chat colors and the NPC steering fix in-game.
+
+## 2026-11-20 — Fix NPC steering oscillation and zero-speed stall under blended motor
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed:
+  - `crates/hl2-simulation/src/npc.rs` & `npc/steer.rs`: added per-goal steer-side commitment (`Goal::steer: Option<(Option<usize>, f32)>`) so an NPC blocked by a stationary player or NPC keeps trying turns on its committed side before flipping, and added the obstruction's surface tangent (`dot(normal) == 0`) on that side as a fallback so a tilted goal heading never pokes back into the blocker's flat face.
+  - `crates/hl2-simulation/src/npc/blended.rs`: while `goal.steer.is_some()`, keep `plan.heading` aligned with the path leg so a 90° sidestep does not multiply `nodes[0].speed` by `cos(90°) = 0` every tick.
+  - Added unit tests `a_committed_side_tries_all_its_turns_before_flipping` and `blended_human_passes_stationary_player_without_stalling_or_oscillating`.
+- Why: live `npc_dump` on `d1_trainstation_02` caught citizen `#1298` stuck and oscillating ±90° at near-zero speed against a stationary player (and a citizen stuck against a standing Metrocop).
+- Tested how: `cargo test -p hl2-simulation npc::steer` (7 passed), `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: packaged replays and Windows runtime were **not tested** yet for this change.
+- Next: run the affected `d1_trainstation_02` replays (or full suite) and hot-restart the live session to verify in-game.
+
+## 2026-11-20 — Preserve console scroll and selection across RCON redirects
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed: `ConsolePanel::start_redirect` / `finish_redirect` in `crates/source-ui/src/console/panel/printed.rs` now save and restore `scroll` and `selection` when no earlier history lines were evicted during the redirect (`output_start` unchanged), instead of unconditionally resetting `scroll = 0` and `selection = None`. Added unit test `a_redirect_preserves_scroll_and_selection`.
+- Why: remote RCON commands (such as `getpos`, `ui_dump`, `npc_dump`, or a background monitor) snapped the player's console scroll back to the bottom and cleared text selection on every command.
+- Tested how: `cargo test -p source-ui printed`, `scripts/checks/validate.sh`, and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime was **not tested**.
+- Next: rebuild and restart the live session to verify smooth scrolling under active RCON commands.
+
+## 2026-11-20 — Add `npc_dump` live NPC inspector to `hl2-debug`
+
+- Agent/model: Antigravity (Gemini 4 Neon).
+- Changed: added `npc_dump [radius|id <entity>]` to `plugins/hl2-debug` (`commands.rs`, `agent.rs`, `bevy/agent.rs`, `bevy/host.rs`, `ui_tests.rs`, `docs/plugins.md`). Prints one JSON line (`npc_dump {...}`) with live AI schedule, task, activity, conditions, `last_failed_task`, `actbusy` state/hint, and `GoalSnapshot` (state/block reason, target, waypoint, route length, contact normal) for up to 12 nearby visible live NPCs (default 512 units, nearest first) or a specific entity ID. No changes to core crates (`crates/`).
+- Why: allow live RCON inspection of stuck NPCs and AI state during interactive sessions without scraping screenshots.
+- Tested how: `cargo test -p hl2-debug --features bevy`, `cargo test -p hl2-debug`, `scripts/checks/validate.sh` (including plugin selection builds, architecture, strict Clippy, `rustfmt`), and `scripts/checks/check_windows.sh`.
+- Result: all checks passed.
+- Still broken or not tested: Windows runtime was **not tested**.
+- Next: rebuild and restart the live session to inspect live NPCs with `npc_dump`.
+
+## 2026-11-20 — Remove per-frame eye debug output
+
+- Agent/model: Codex desktop (GPT-6 family) removed the `eprintln!` and rebuilt the package; Antigravity (Gemini 4 Neon) tightened the architecture baseline, ran validation and replay checks, and committed.
+- Changed: removed the leftover per-frame `EYEPROBE draws ... slots ...` stderr print from `crates/hl2-bevy/src/eyes.rs::present` and tightened `scripts/checks/architecture-baseline.json` (`eyes.rs::present`: `269 -> 268`). Eye draw counts remain available in the runtime report.
+- Why: remove stray debug stderr spam on every frame with visible NPC eyes.
+- Tested how: `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and `NO_BUILD=1 ONLY=attention python3 scripts/checks/replays.py` on the rebuilt release package.
+- Result: all checks passed; `attention` passed with zero `EYEPROBE` lines in its game log.
+- Still broken or not tested: Windows runtime and interactive gameplay were **not tested**.
+- Next: none for this change.
+
+## 2026-11-20 — Center the temporary console status
+
+- Agent/model: Codex desktop, `gpt-6.2-sol`.
+- Changed: Center the visible status glyphs vertically between the history border and the input field.
+- Why: The player observed less space above the Thinking label than below it.
+- Verification: All 145 toolkit tests passed, along with strict toolkit Clippy, formatting and architecture checks. The live macOS capture at 1,000 pixels wide shows five pixels of space on each side of the label. Windows runtime was not tested.
+
+## 2026-11-20 — Temporary console status for agent replies
+
+- Agent/model: Codex desktop, `gpt-6.2-sol` for final verification.
+- Changed: `hl2-debug` supplies a temporary, localized console status. A remote chat reply clears it before the reply appears in history. The session watcher sets the status after receipt and switches to waiting after 60 seconds without a reply.
+- Why: Show that a reply is pending while keeping chat history and the console log readable.
+- Verification: 187 toolkit and debug-plugin tests passed. All four plugin selections compiled. Architecture, formatting and strict Clippy on macOS and the Windows target passed. Captures from the live macOS package show the status while waiting, then the reply after it clears. A follow-up live capture verifies three console layout units of extra space above the status after player feedback. All 15 console panel tests passed with the padding change. The Windows runtime and live timeout rendering were not tested.
+
+## 2026-11-20 — Show each chat message once
+
+- Agent/model: Codex desktop, GPT-6 family.
+- Changed and why: A valid chat-only submission prints one speaker-labelled line per message in the developer console and its log, as requested. Other commands, mixed batches and syntax errors retain their input or RCON trace.
+- Verification: Chat tests cover local and remote speakers, batches and quoted separators. A packaged macOS replay logged one player chat line and preserved a regular command echo. A live RCON message on the restarted build logged once. Strict Clippy passed on macOS and the Windows target. Windows runtime was not tested.
+
+## 2026-11-20 — `background_map` command removed
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the non-retail `background_map [name|default]` command is gone. It only printed, set or reset the saved menu background by hand, which retail `map_background` also sets (and loads). The saved value itself (`gameplay.background_map`/`background_game`) stays: the menu remembers the chapter background through it. Three menu replays typed the command only as a query at their settle step; they now type retail `echo`, and their checks read the saved settings as before.
+- Why: owner decision: no non-retail console commands in core; this one overlapped with `map_background`.
+- Tested how: `map_background` test (and a console refusing `background_map`); golden cvar transcript rewritten; `validate.sh` passed; replays `submenus`, `return_menu`, `chapter_menu` passed (packaged).
+
+## 2026-11-20 — `background_force_default_blur` moves to `hl2-debug`; plugin settings survive Options
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: core no longer has the `background_force_default_blur` setting or command (not retail). It gains a generic hook instead: a plugin registers one standard-background rule (`Extensions::select_standard_background`, carried in `VideoSettings::standard_background`), and `background_uses_widescreen`, the blur artwork lookup and the background field of view ask it; without a plugin the choice is retail's, by aspect. `hl2-debug` registers the rule, owns the command and its `-` debug key, and keeps the value under the same name among the video settings' plugin values, so existing settings files keep it. The Options dialog's hidden-setting sync became generic (`OptionsDialog::sync_extension`), so a plugin setting changed while Options is open is not undone by applying it; the F1 overlay flag now uses it too. `Console::defer` hands an effect to the host from outside a console command.
+- Why: owner decision: non-retail console commands live in `hl2-debug`; owner request that F1 is stored the same way.
+- Tested how: core tests with a fake contributor (rule decides, one rule only, retail without one), Options sync for video and general plugin values, host camera FOV through applied settings; plugin tests (old files keep the choice, the `-` key toggles and saves); `validate.sh` passed. Packaged headless run with an old-style settings file (`video.background_force_default_blur: true`): the plugin command reported 1, `background_force_default_blur 0` saved `false`, `ai_enable 0` answered over RCON.
+- Plugin rules read: yes; exceptions: none (the hook names no plugin and works with none).
+
+## 2026-11-20 — `ai_enable` moves to `hl2-debug`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `ai_enable [0|1]` is not a retail command (retail has only the `ai_disable` toggle, which stays in core), so it left core (command, handler, `Effect::AiEnable`) for the `hl2-debug` plugin. Core keeps the AI switch as `simulation::set_ai_enabled`, used by `ai_disable`, `--no-ai` and the plugin.
+- Why: owner decision: non-retail console commands live in `hl2-debug`.
+- Tested how: plugin test (the command and its request; a console without the plugin refuses it); `validate.sh` passed.
+- Plugin rules read: yes; exceptions: none.
+
+## 2026-11-20 — F1 overlay stays on across runs
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: pressing F1 saves whether the developer overlay is shown (`extensions.developer_overlay` in the settings file) and the next run starts with it as left. `Config` gains a top-level `extensions` store for plugin settings that belong to no Options section (written only when non-empty, unknown keys kept); scripted overlay toggles in replays do not save.
+- Why: owner request: the overlay stays on until F1 is pressed again, like an Options setting.
+- Tested how: unit test (setting survives save and load; files without it unchanged); `validate.sh` passed; packaged headless runs reported the overlay on with `developer_overlay: true` saved and off without it.
+- Frame time: none (read at startup, written on F1).
+- Plugin rules read: yes; exceptions: none (the store is generic and names no plugin).
+
+## 2026-11-20 — Restart where the player was: `agent_resume`, `gamemenucommand`, `+commands` after the first level
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: retail `gamemenucommand <command>` runs a game menu command (`OpenOptionsDialog`, `ResumeGame`, `OpenNewGameDialog`, ...) through the same outcome code as a menu entry; retail `gameui_activate` and `gameui_hide` show and hide the pause menu. Command-line `+` commands now wait for the first level (loaded or failed), like Source's command buffer after the startup map, so menus they open stay open; the remote console starts after them, so `+rcon_password`/`+hostport` apply. `hl2-debug`'s agent link adds `agent_resume`: the launch arguments that restart at the same map, eye position, view and open windows.
+- Why: owner request: code fixes need a rebuild and restart; the restart puts the player back where they were.
+- Tested how: unit tests (game UI commands, queued startup commands keep their menus, resume arguments for game, pause and menu background); `validate.sh` passed. Packaged headless session on d1_trainstation_02: moved the player, opened the pause menu, Options and the console, restarted through the session loop; after the restart `ui_dump` showed the same map, eye, angles and windows.
+- Still broken or not tested: d1_trainstation_01's train intro moves the player regardless of `--position`; Options' open tab, sub-dialogs, scripted-sequence state and inventory are not restored (no save/load yet); windowed restart **not tested**.
+- Plugin rules read: yes; exceptions: none (`gamemenucommand`, `gameui_*` and the startup command order are retail and live in core).
+
+## 2026-11-20 — Agent link in `hl2-debug`: `ui_dump`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `hl2-debug` gains an `agent` module, separate from the F1 overlay: `ui_dump` prints the console's UI report (mode, windows, menus, dialogs, pending map) without its output history, plus the map, eye position, angles and pause/loading state, as one `ui_dump {json}` line. With the retail log file and remote console a debugging agent reads it without screenshots. No core change.
+- Why: owner request: agent-only pieces go to the debug plugin; retail pieces stay in core.
+- Tested how: unit test (one line, no history, world fields); `validate.sh` passed; a packaged headless run answered `ui_dump` over the remote console with the expected JSON.
+- Frame time: none (runs only when the command is entered).
+- Plugin rules read: yes; exceptions: none.
+
+## 2026-11-20 — `screenshot` into the settings folder
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the retail `screenshot` command captures the next game frame (the window when there is none) through the `--capture` readback and saves it on a thread as `<map>NNNN.png` in `screenshots/` beside the settings file, then prints the path. Retail writes into the game folder, which HL2RS keeps read-only. `jpeg` is not implemented.
+- Why: owner request: a remote observer sees what the player sees (DESIGN "Console log file, `say`, remote console and screenshots").
+- Tested how: `validate.sh` passed; a packaged headless run on d1_trainstation_01 took `screenshot` over the remote console and wrote `d1_trainstation_010000.png` (the train interior, as rendered).
+- Frame time: no work unless requested (one flag check per frame); encoding and writing run off the game thread.
+- Still broken or not tested: a windowed run **not tested**; Windows **not tested**.
+
+## 2026-11-20 — Console log file, `say`, remote console and startup commands
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: retail features for following the game from outside (DESIGN "Console log file, `say`, remote console and screenshots"). `con_logfile` and `-condebug` append everything the console prints (with `con_timestamp` stamps) to a file beside the settings file; the console panel keeps printed lines only while a reader asked for them (`keep_printed`). `say` prints `Player: <text>` (`Console: <text>` from the remote console). `-usercon` starts the remote console: Valve's RCON packets on `ip`:`hostport`, socket threads that never block a frame, authentication with `sv_rcon_maxfailures`/`minfailures`/`minfailuretime`/`banpenalty` bans, oversized packets (`sv_rcon_maxpacketsize`) banned, output redirected to the client, `sv_rcon_log` lines. Source's `+command` words run at startup without an echo (`Console::execute`, `run_startup_command`).
+- Why: owner request: a developer or a debugging agent follows a running game and answers the player through the console.
+- Tested how: unit tests (log paths, kept and redirected lines, `say`, startup command splitting, packet framing and splitting, authentication, failure windows, ban expiry, oversized packets, one real-socket round trip); `scripts/checks/validate.sh` passed. Packaged headless run on d1_trainstation_01 with `-condebug -usercon`: a wrong password was refused, `getpos`, a cvar query and `say` returned their output to an RCON client, `Console: ...` showed locally, and `console.log` recorded each remote command.
+- Frame time (packaged, headless, uncapped, d1_trainstation_01, 1,500 frames, alternating): off 4.268 / 4.243 / 4.245 ms, with `-condebug -usercon` 4.260 / 4.215 / 4.266 ms: no measurable cost. Load average 6.3 during the runs.
+- Still broken or not tested: retail's `sv_rcon_*` defaults and single-player `say` name are remembered, not verified against the installed engine; headless runs stamp lines 0.00 (the console clock advances with UI input); Windows **not tested**; a windowed session with a player typing **not tested**.
+- Next: `screenshot` into the settings folder; the agent link in `hl2-debug`.
+
+## 2026-11-20 — Eye irises projected on the GPU, visible eyes only
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: like retail (Source SDK `materialsystem/stdshaders/eye_refract_vs20.fxc` takes the iris coordinates as the world position's dot products with two per-eyeball projection vectors that `eyes_dx8_dx9_helper.cpp` sets as shader constants), the source shader computes an eye's iris coordinates from the fragment's world position and two world-space rows. Each eye mesh's second UV holds a slot, written once; one storage buffer (`eyes::EYE_ROWS`, a fixed handle every source material binds at 20) holds the rows of up to 1,024 eye meshes, uploaded once a frame when they change. Its size never changes: a resized buffer is a new GPU buffer the materials' bind groups would not see (the first attempt's misplaced irises). Rows come from the model-space projection through the pose the draws are placed at; slots of eye meshes that no longer exist are reused. Like retail, only eyes drawn last frame get projections (owner request); gaze targets stay per actor. The CPU skin of eye vertices moved into the GPU-skinning tests as their reference.
+- Why: the CPU rewrote every eye vertex's iris coordinates each frame and re-uploaded about 30 eye meshes a frame in the mixed crowd.
+- Tested how: a unit test of the world rows against the model projection; a frame-matched front-facing close-up of a spawned citizen on station02's plaza, before and after: the same centred gaze. A probe (removed) found the GPU draws an eye vertex within 0.03 units of the mapping and the CPU and GPU iris coordinates of one vertex within 0.02. Three alternating mixed-crowd A/B pairs against `aa32e58e` with another session's game running (load 6-10), every new run faster: fight frame 16.77 -> 15.21 ms (-9.3%), whole-run mean 18.57 -> 16.60 ms, fixed simulation 4.69 -> 4.65 ms. Full `all.sh` under that load: validation (after locking the improved baseline), the Windows check and 108 of 109 replays passed; `viewmodel_motion_blur` lost one capture-burst frame and passed when run again.
+- Frame time: -1.6 ms (-9.3%) in the crowd fight, measured on a shared, busy machine.
+- Still broken or not tested: no automated check frames an eye from the front (the close-up is a playground script); an eye that comes into view shows its last projection for one frame.
+
+## 2026-11-20 — Faces split into the triangles flexes move and the rest
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: an entity's face batch (a model with facial flexes) is drawn as two meshes: the triangles touching a vertex some flex of the model can move, and the rigid rest (`rendering/face_split.rs`), for map entities and runtime spawns alike (`ModelCache::faces`). A changed mesh is uploaded whole, so a talking or blinking face now re-uploads only its movable part. The rigid draw keeps its flex references (the same LOD rules), but none of its vertices ever moves, so it is never uploaded again. The vertices both draws share are ones no flex moves, so there is no seam. `spatial_chunks` and the split share one triangle regrouping (`Batch::regroup`, `consistent`); `build_model_draws` 121 -> 113 lines, `rendering.rs` 1,316 -> 1,284.
+- Why: in the mixed crowd about 170 meshes changed each frame. The render thread's mesh uploads were mostly byte copies, and faces carried almost all the bytes (9.5 meshes, 53,000 vertices a frame) while an update moved about 130 of a face's 2,800 vertices.
+- Tested how: unit tests for the split (rigid and moving triangles, every attribute and flex reference moved with its vertex, faces with nothing or everything movable and inconsistent batches stay whole); host tests (196). Mesh changes measured with a temporary probe (not committed): animated-face vertices uploaded 53,000 -> 30,000 a frame (each movable part is still about 2,000 vertices: most face vertices can travel a quarter unit or more, so a size threshold would not help). Three alternating mixed-crowd A/B pairs against `3b1bdae7`, every new run faster: fight frame 18.04 -> 16.46 ms (-8.8%), whole-run mean 19.60 -> 18.15 ms, fixed simulation 4.59 -> 4.69 ms (unchanged). Stack samples: mesh uploads 25.6% -> 21.4% of wall time; busy cores 2.18 -> 2.17 while drawing more frames per second (uncapped). Full `all.sh`: all 109 replays passed; validation and the Windows check passed after a refactor that only moved code.
+- Frame time: -1.6 ms (-8.8%) in the crowd fight.
+- Next: GPU flex deltas (only weights per frame) would remove face uploads entirely; eye iris projections (30 meshes a frame) and effect runs (about 120 small meshes) are the other per-frame uploads.
+
+## 2026-11-20 — One HL2RS mixer for every sound
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: sounds no longer get one audio-library player each. `audio::mixer` (DESIGN I) is one source the host plays per map: it mixes every voice into 256-frame stereo blocks at 48 kHz under one lock and hands them out sample by sample. A voice reads its backend WAV's 16-bit PCM in place (the preloaded bytes, no copy or decode), steps through it at its speed with linear interpolation, plays mono on both channels and ramps gain changes across one block. Sound entities carry a `mixer::Voice` instead of an `AudioPlayer`: volume, speed and pause are set on it each frame as on the old sink, its position and end are read for traces and counters, dropping it (the entity despawning) stops it, and a finished one-shot despawns its entity as the library's despawn mode did. The stream plays at unity because each voice carries the global volume. Retail channels, captions, lip sync, patches and soundscapes are unchanged; the channel-claim code moved into `audio/channels.rs` to keep `audio.rs` under 1,000 lines. The report adds `mixer_voices`.
+- Why: owner request. Each library player ran about ten nested sources per output sample plus span conversions, allocations and locks: about 1% of a core per playing sound, 77% of the audio thread mid-fight.
+- Tested how: seven mixer unit tests (WAV parsing, mono on both channels at its gain, stereo channels and summing, gain ramp, half and double speed with interpolation, loops, pause, silent one-shots reaching their end, stop on drop); host tests (192). Mixed crowd, 10 ms stack samples mid-fight: audio output thread 77% -> 1.6% busy, the whole game 2.93 -> 2.18 cores; 69 voices at the end, no wave failed to load, failed requests unchanged (162 of 2,185). Three alternating A/B pairs against the previous build: fight frame 17.61 -> 17.78 ms, fixed simulation 4.64 -> 4.59 ms (no change). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 365 s.
+- Listening check (owner, 2026-11-20): the mixed-crowd fight played unmuted from the packaged build (1,877 sounds started, at most 82 at once, peak voice gain 1.0) "sounds about right" by ear.
+- Still broken or not tested: Windows playback; a longer by-ear session (plaza ambience, pause and resume) not done.
+- Energy: about 0.75 core less in crowd fights; frame time unchanged (mixing runs on its own thread).
+
+## 2026-11-20 — Why the audio thread stays busy in fights
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the report's audio section adds `peak_sinks` (the most sinks alive in one frame) and `peak_empty_sinks` (the most of them with nothing left to play), to show a sink that outlives its sound.
+- Why: after the retail channel limits the crowd fight still kept the audio output thread about 77% busy.
+- Result: no leak. In the mixed crowd at most 84 sinks were alive and at most 4 had finished; a dropped sink stops its source within the library's 5 ms poll. The load follows the sounds playing: 4% for 13 sounds in the quiet plaza, about 20% as a stretched fight dies down, 77% mid-fight (97% before the retail channels and earlier fixes). The cost is the audio library's per-sound path: every playing sound runs its own chain of about ten nested sources for every output sample, with a sample-rate converter rebuilt per span and an allocation and lock each time a sound's queue moves on, about 1% of a core per sound.
+- Tested how: 10 ms stack samples of the audio thread (mixed crowd, current build); one crowd run with the new counters; `validate.sh` passed.
+- Next (owner decision): mixing all sounds in one HL2RS source (block processing, its own pitch resampling and volume ramps) instead of one library sink per sound would remove most of this; it replaces the host's playback path.
+
+## 2026-11-20 — Retail sound channel limits
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: sounds start on retail's channels (`audio/channels.rs`) instead of under a flat cap of 256 players. 64 dynamic channels for entity sounds: a sound takes over the channel its emitter already plays on (same emitter and script channel, not `CHAN_AUTO`), else the lowest free channel, else the lowest busy one that is not `CHAN_VOICE`, `CHAN_STREAM` or `CHAN_VOICE2` and not the player's own (unless the new sound is the player's). 64 static channels for ambient_generic, soundscape sounds and `CHAN_STATIC` scripts: a static sound that finds none does not play. UI sounds stay outside the channels. Sound scripts' `channel` is now read (`ScriptParams::channel`, SDK `public/soundflags.h` names or numbers); VOX sentences use `CHAN_VOICE`. The report's audio section shows the channels in use (`channels`).
+- Why: owner choice, to match retail. The installed engine (`bin/engine.dll`) allocates 64 dynamic channels before its static ones and refuses a static sound once all 128 are taken (`total_channels == MAX_CHANNELS`). In the mixed crowd HL2RS kept 256 sounds playing and turned 575 away; the mixer works on every playing sound.
+- Not reproduced: the engine's optional duplicate-sound limit and "nearest the end" stealing, behind a console variable whose name and default were not identified; with it off, the engine steals the lowest stealable channel, as here.
+- Tested how: unit tests for replacement, free channels, stealing (never voices, streams or another's player sound) and the 65th static sound; the script-parameter test reads `channel`. Mixed crowd: 84 sounds playing at the end instead of 256, 138 refused instead of 575. Three alternating A/B pairs against `7ab2e858`: fight frame 17.42 -> 17.45 ms, fixed simulation 4.64 -> 4.60 ms (no change). Full `all.sh`: replays (109/109) and the Windows check passed; validation passed after `cargo fmt`.
+- Still broken or not tested: the audio thread stays about 77% busy in the crowd fight (4% in the quiet plaza with 13 sounds). Most of it is rodio's per-sink sample-rate conversion (pitch other than 100); the mixer seems to hold more sources than the playing sounds, which was not established. Not listened to by hand.
+
+## 2026-11-20 — Attachment frames posed from their own bone chains
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the simulation's attachment frames (`Scene::attachment_frames_for_instance`: eyes for head control and look targets, muzzles, entities parented to an attachment) and bone-merged weapon frames (`merged_attachment_frame`, `merged_model_frame`) pose only the bones they read and their ancestors (`Rig::bone_chains`, which `hitbox_bones` now uses) instead of the whole skeleton. The frames are bit-identical. Renderer poses are unchanged.
+- Why: in the mixed crowd, eye and look-target attachments posed every flex actor's whole skeleton several times a tick, about 14% of the fixed step.
+- Tested how: the owned-install pose test (renamed `owned_hitbox_and_attachment_bones_pose_like_the_whole_skeleton`) also compares every attachment of the seven NPC models with the full-skeleton frame: all equal. Mixed-crowd A/B against `cbde563c`, three alternating pairs, twice. On a hot machine right after the build (load 12 -> 6): fixed simulation 4.80 -> 4.67 ms, fight frame 16.99 -> 17.45 ms. Repeated at load 4-5, every new run faster: fixed simulation 4.91 -> 4.57 ms (-7%), fight frame 17.69 -> 17.23 ms (-2.6%), whole-run mean 19.78 -> 19.16 ms. Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 437 s.
+- Frame time: -0.3 ms per tick of fixed simulation; fight frame -0.46 ms in the quiet-machine pairs (the first pairs, on a hot machine, did not show it).
+
+## 2026-11-20 — AGENTS.md size check ignores line endings
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `scripts/checks/architecture.py` measures AGENTS.md with LF line ends (`text_bytes`) instead of its size on disk.
+- Why: the pull request's Windows job failed with "AGENTS.md is 20063 bytes": the checkout writes CRLF, one extra byte on each of its 116 lines, while the file holds 19,947 bytes in the repository. The limit is about the rules' length, not the platform's line ends.
+- Tested how: new `test_architecture.TextBytes` (the same size for LF and CRLF text); `python3 scripts/checks/architecture.py` passes locally. The Windows CI job itself was **not rerun** (needs a push).
+
+## 2026-11-20 — NPC hitboxes posed from their own bones only
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: posing an NPC's hitboxes each tick computes only the bones that carry a hitbox and their ancestors (`Rig::hitbox_bones`). A bone set (`animation::Bones`) now reaches frame interpolation, blend grids, SlerpBones, autoplay and fade accumulation and the model matrices (`*_of` forms; the existing functions pass every bone). Each step works bone by bone and the set holds every parent, so the hitbox bones' matrices are bit-identical to a whole-skeleton pose. A barnacle tongue keeps the whole skeleton. Bone mixing (interpolation, BlendBones, SlerpBones, the quaternion helpers) moved into `modkit-core/src/animation/mixing.rs`, bringing `animation.rs` back under 1,000 lines.
+- Why: hitbox posing was the largest remaining simulation cost after the decal index, mostly clip sampling for bones no hitbox uses (fingers, face). The owner chose this over posing on demand: about 60 trace calls read hitboxes, not just bullets.
+- Tested how: owned-install test `owned_hitbox_bones_pose_exactly_like_the_whole_skeleton`: seven NPC models (citizen, Metrocop, soldier, zombie, vortigaunt, Barney, headcrab), 12 clips each at three times, with pose parameters off their defaults and a fading second sequence: every hitbox bone equal to the full pose. Three alternating mixed-crowd A/B pairs against `c2d35a89`: fixed simulation 4.95 -> 4.84 ms per tick, whole-run mean 19.98 -> 19.52 ms; fight frame 17.59 -> 17.64 ms (within noise). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 427 s.
+- Frame time: about -0.1 ms per tick of fixed simulation; the fight frame is unchanged within run-to-run noise.
+
+## 2026-11-20 — Merge upstream main through `c51c6d36`
+
+- Agent/model: Codex desktop (GPT-6 family, with subagents) started the merge and resolved the five conflicted files and trigger-candidate wiring; Antigravity (Claude Opus 5.5, then Gemini 4 Neon) audited the conflict resolutions and doc preservation, diagnosed the four `d1_trainstation_02` replay expectation shifts, recorded the updated expectations, ran full validation and replays, and committed the merge.
+- Changed: merged 30 upstream commits (`2b55f809..c51c6d36`, sessions 66–67: per-entity trigger touches, resting-NPC/object trigger filtering, triangulated NPC detours, `SimplifyPath` for ground moves, blended motor speed planning and scripted plant wait) into `orbitalman/performance_research` (`35e4bd17`).
+  - `crates/modkit-core/src/decals.rs` and `crates/hl2-simulation/src/impacts.rs`: kept the branch's static decal triangle index and single-search surface locator; upstream's only change since the merge base (`171f3958`) was already cherry-picked from this branch (`788d623f`).
+  - `crates/hl2-simulation/src/entities.rs`, `entities/touch.rs`, `entities/triggers.rs`, `entities/tests.rs`: kept upstream's per-entity `tick_trigger` / `touch.rs` model and reused `touch_candidates.npcs` for `trigger_hurt` (caching all real NPCs via `is_npc_class` while letting `entering` check `visible` and `trigger_hurt` hurt hidden live NPCs as before); removed the superseded `TouchCandidates` / `touch_trigger` in `triggers.rs` and extended `trigger_hurt_hurts_npc_touchers_and_respects_filters` to cover a hidden NPC and an `npc_antlion_maker`.
+  - `scripts/checks/architecture-baseline.json`: reconciled both parents' tightened baselines, taking upstream's `crates/hl2-simulation/src/entities.rs::tick` (`105 -> 107`, matching `main`'s `107`) and tightening `crates/hl2-simulation/src/npc.rs::advance` (`121 -> 120`).
+  - `MODLOG.md`: kept both parents' entries and removed the duplicate `2026-11-15: stop ground_property` entry brought in from the cherry-pick.
+  - `test-inputs/expected/bevy-{barrier-hum,monitors-breen-screen,pallet-gibs-fade,soundscapes}.json`: recorded updated `d1_trainstation_02` expectations under `JOBS=1`.
+- Why: keep `orbitalman/performance_research` current with upstream `main` while retaining the branch's optimizations and NPC steering. Under upstream's new blended motor (`f7846cd3`), `d1_trainstation_02` citizen `1297` meets citizen `1299` at `(-2049.4, -5131.6)` and plaza metrocops `425`/`427` meet at `(-2267.6, -1786.5)`. Without `npc/steer.rs`, `1297` fails `TASK_WAIT_FOR_MOVEMENT` twice (consuming extra shared AI RNG rolls) and `425` stalls in `SCHED_FAIL`; with `npc/steer.rs` active, both pairs pass cleanly with zero movement failures, shifting the RNG roll when maker `442`'s citizen `1300` picks its random exit hint (`438` vs `384`) and moving those four fixtures' `io` counters by 1–4 inputs after ~21 s (verified by bypassing `steer::step`, which made all four pass against `main`'s expectations 4/4).
+- Tested how: pre-merge baseline at `35e4bd17` (109/109 shared replays), `cargo test -q -p hl2-simulation impacts:: --locked -- --include-ignored` (9 passed), `cargo test -q -p hl2-simulation entities::tests::touch --locked` (7 passed), `cargo test -q -p hl2-simulation entities::tests::trigger_hurt --locked` (2 passed), `scripts/checks/validate.sh` (architecture, workspace tests, strict Clippy, rustfmt), `scripts/checks/check_windows.sh` (Windows cross-target Clippy), and `NO_BUILD=1 python3 scripts/checks/replays.py` on the merged release package.
+- Result: all checks passed — `validate.sh`, `check_windows.sh`, targeted/owned simulation tests, and 109/109 shared packaged replays (0 failed, 391 s).
+- Post-merge frame time (Claude Code, `claude-opus-5-5`): three alternating mixed-crowd pairs against the pre-merge `35e4bd17` package, 1080p, every merged run faster: fight frame 18.85 -> 17.94 ms, fixed simulation 5.14 -> 4.89 ms (medians, load 2.5-3.9): no regression.
+- Still broken or not tested: Windows runtime and an interactive campaign playthrough were **not tested**.
+- Next: resume profiling and optimization from `docs/performance-research.md` (next candidate: on-demand NPC hitbox posing) or benchmark the merged branch on the mixed-crowd workload.
+
+## 2026-11-20 — Index the world triangles a bullet decal can reach
+
+- Agent/model: Claude Code desktop (`claude-opus-5-5`) implemented the index, equivalence sweep and first A/B. Codex desktop (GPT-6 family) finished the batch-layout check, projection bounds, map-load diagnostics, measurements and validation.
+- Changed: static-world impacts query a tree of triangle boxes before the existing receiver, clip and lightmap tests. Candidates retain surface and triangle order. Model and posed geometry keep their original search.
+- Why: profiles of the 65-NPC mixed fight found repeated clipping against distant geometry. All six final launches produced 319 world marks, 368 studio marks and 17 unclippable hits.
+- Frame time: three alternating 1080p M1 Pro/Metal pairs against `a88dadd0`: median 20.68 → 18.51 ms (48.3 → 54.0 FPS), fixed simulation 6.57 → 5.40 ms. Station02 builds the index once in 20.5 ms and holds 15.16 MiB of index payload. Full pair and load data in docs/performance-research.md.
+- Tested how: `cargo test -p hl2-simulation impacts:: --locked -- --include-ignored` (9 passed, including the owned map and door), `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and `NO_BUILD=1 python3 -u scripts/checks/replays.py` on the final release package (109/109). Frozen 1080p door and stone-wall marks retained their visible placement and shape.
+- Result: the core index passed its first packaged batch. An intermediate load-report change failed Clippy compilation because the simulation crate did not link the JSON serializer. Returning a typed serializable report fixed both host and Windows checks without a dependency change.
+- Not tested: Windows GPU runtime and ordinary campaign play. Next profiling candidate from the crowd session is NPC hitbox posing.
+
+## 2026-11-20 — NPC hitboxes kept out of the physics broad phase
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: trace-only colliders (NPC studio hitboxes, and the model-shaped colliders of hull-box NPCs whose model has no hitboxes) stay in the collider set and in our query tree, but out of Rapier's broad phase: `RecordingBroadPhase` hands the step's modified and removed lists on without them (`trace_only`), so they form no contact pairs. Every trace sees them as before. The contact filter's hitbox rule, its two copies of the set (`npc_hitboxes`, `WorldSideMaterials::hitboxes`) and the hitboxes' contact flags are gone. The hitbox code moved from `physics.rs` (3,300 -> 3,189 lines) into `physics/hitboxes.rs`.
+- Why: in the mixed-crowd benchmark the broad phase (`SAPLayer::update_regions`) took about 15% of the fixed step, sorting about 1,000 hitboxes that move every tick and whose every pair the contact filter then dropped. A moving hitbox also woke every body whose box overlapped it (Rapier wakes the bodies paired with a modified collider), although hitboxes never touch anything; Source never makes hitboxes physics objects.
+- Behavior: a body resting against an animated NPC's hitboxes, not its hull, can now fall asleep. Rapier's continuous collision still tests hitboxes as obstacles (it searches colliders directly, by collision groups only); unchanged.
+- Tested how: new test `traces_hit_posed_hitboxes_that_never_touch_or_wake_a_body`: shots hit the posed hitbox with its hitgroup and bone right after a refresh, after each step and after a full rebuild; a killed NPC's hitboxes take no shot until enabled again, then at that tick's pose; a resting box inside an animated hitbox's reach sleeps on, unmoved, in no contact pair. On the previous code it fails (the moving hitbox wakes the box). The hull test now asserts no contact pair at all. Three alternating A/B pairs on the mixed crowd, every new run faster than its pair: fight frame 21.87 -> 20.67 ms, whole-run mean 25.05 -> 23.38 ms, fixed simulation 7.11 -> 6.45 ms per tick (medians; load 3.7-5.5). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 456 s.
+- Frame time: -1.2 ms (-5.5%) in the crowd fight; fixed simulation -9.3%.
+- Next: posing hitboxes on demand (DESIGN 14s step 1); posing is now about 6% of the crowd's fixed step.
+
+## 2026-11-20 — One surface search per bullet impact
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `Impacts::add_along` locates the hit surface once and uses the result for both the surfaceprop (sound, particles, decal family) and the decal (`place_decal`); only a hit moved onto a static prop's drawn mesh is located again (`add_decal`). `located_prop` keeps `hit_surfaceprop`'s static-prop fallback and unclippable count; `hit_surfaceprop` is gone (its test calls `locate` and `located_prop`).
+- Why: every world or prop hit searched the receiving surface twice; each search clips the surfaces' triangles against the decal frame (`decals::touches`), in the mixed crowd about 1.8 ms of shot work per frame.
+- Tested how: hl2-simulation impact tests; three alternating A/B pairs on the mixed crowd (every pair faster): fight frame 21.84 -> 21.15 ms, fixed simulation 7.14 -> 6.93 ms (medians). Full `all.sh`: all 109 checks passed in 392 s.
+- Frame time: -0.7 ms (-3.2%) in the crowd fight.
+
+## 2026-11-20 — Alpha sprites drawn as input-order runs
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `effects::quads` draws the quads of non-additive materials as runs: consecutive quads of one material share a mesh (`batch::Batch`, which additive batches already used), in input order. Run draws keep identity transforms, so they tie in the transparent sort and keep their entity order: the draw order and blending are those of one draw per quad. The layer tracks the most quads its runs drew, so `pooled_quads` keeps its meaning. Single-quad meshes (`QuadDraw`, `fill`, `quad_mesh`) are gone; their geometry and storage tests use the batch mesh functions; a new test checks runs and their order.
+- Why: in the mixed-crowd benchmark about 190 sprite meshes changed every frame, each re-uploaded by the renderer (`allocate_and_free_meshes`, 5.7 ms per frame).
+- Tested how: hl2-bevy effects tests (12); three alternating A/B pairs on the mixed crowd: fight frame 23.83 -> 21.83 ms median (every B run faster: 21.4-21.9 against 23.7-24.0 ms), whole-run mean 26.31 -> 25.10 ms, fixed simulation unchanged. Full `all.sh`: all 109 checks passed in 384 s.
+- Frame time: -2.0 ms (-8.4%) in the crowd fight; none in quiet scenes (few sprites).
+
+## 2026-11-20 — Runs end from their exit frame (no exit hang after crowd fights)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `launch::exit_process` (Last, after the run monitor) writes the run's captures and report with `finish` in the frame the app exits and ends the process with that result's exit code, without dropping the app; the startup map's summary is kept as a resource (`ExitSummary`). `run` keeps its own `finish` after `App::run` for an exit that bypasses the system. Both trace files already flush as they write.
+- Why: about one mixed-crowd run in three never exited. Dropping the app closed the CoreAudio output (`AudioOutputUnitStop`), which waits on the device lock that the IO thread holds while mixing; the window was gone and a core stayed busy. Dropping every audio sink in the exit frame, even directly with a 50 ms drain, still hung: the mixer kept silence-generating queues with no owner in the world.
+- Tested how: 12 consecutive mixed-crowd runs exited in 22.1-22.2 s, each with its report (before: 1 in 3 hung). Full `all.sh`: build, validation, the Windows check and all 109 checks passed in 407 s (replays 405 s, against 447 s before: launches no longer tear the app down).
+- Still broken or not tested: the audio thread still mixes about one core in crowd fights; quitting a windowed game was not tried by hand.
+- Frame time: none.
+
+## 2026-11-20 — Cheaper entity class lookups
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: parsed map entities keep `classname` as their first key (`keyvalues::entities`; other keys keep their order) and `Entity::class` reads it there before scanning. Each tick, the touch triggers that NPCs or physics objects can fire gather their candidates once, in entity order, instead of every such trigger testing the class of every entity; trigger_hurt uses the same NPC list. The trigger-touch code moved from `Scene::tick` (192 -> 105 lines) into `entities/triggers.rs` (`touch_trigger`, `hurt_touching`, `TouchCandidates`).
+- Why: in the mixed-crowd benchmark `Entity::class` took about 7% of the fixed step, most of it in that per-trigger scan of all ~1,300 entities.
+- Tested how: modkit-core, source-assets and hl2-simulation tests; full `all.sh`: all 109 checks passed in 495 s. Two A/B pairs on the mixed crowd (load averages 4.6-6.8): fixed simulation 7.71 / 7.50 -> 7.41 / 7.00 ms, fight frame 24.38 / 24.43 -> 24.23 / 23.35 ms.
+- Frame time: lower, as above (two pairs only).
+
+## 2026-11-20 — notarget and a mixed-NPC crowd benchmark
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the console has Source's `notarget` cheat (CC_Notarget_f: toggles whether NPCs sense the player, "notarget ON" / "notarget OFF"), applied to the AI's existing ignore-player switch; `ai_enable`, `ai_disable` and `notarget` share one host function (`console_effects` stays within 100 lines) and one console helper. New benchmark `test-inputs/performance-research/mixed-crowd.json`: 65 NPCs of every spawnable class with their retail weapons fighting on station02's plaza (docs/performance-research.md).
+- Why: a mixed crowd only fights itself when NPCs ignore the player; the benchmark measures crowds of every NPC type and their combat.
+- Tested how: console tests (the cheat gating and arguments); full `all.sh` with the entity class change below: all 109 checks passed in 495 s. The benchmark's spawn records: all 65 spawns created, 43 actors fighting another NPC at the end.
+- Still broken or not tested: about one benchmark run in three hangs at exit (CoreAudio output close; see docs/performance-research.md).
+- Frame time: none.
+
+## 2026-11-20 — Captures the checks read in milliseconds
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: every screenshot (`--capture`, its install frame, `--capture-burst` and `--capture-every` frames) is written by `source_assets::png::encode_rgb`: 8-bit RGB, every row unfiltered and stored in uncompressed deflate blocks, no new dependency (`crc32fast` was already there). The replay suite's `images.py` takes unfiltered rows as stored, skips identical rows when comparing, and counts colour ranges with whole-buffer byte operations (`pixel_mask`, used by `viewmodel_motion_blur`).
+- Why: the game wrote Paeth-filtered rows, which the suite's pure-Python reader undid byte by byte: 2.2 s per 1080p capture, 6.3 s to compare a pair; about 230 s of a full run's 1,343 s of work was outside the games, mostly this.
+- Tested how: `source-assets` PNG tests (stored blocks, CRCs, Adler-32, multi-block images); the Python image tests (57); a 1080p capture now decodes in about 0 s and a pair compares in 0.30 s; `viewmodel_motion_blur` 157 -> 72 s, `flashlight_viewmodel` 154 -> 59 s, `flashlight_shadows` 101 -> 48 s; full `all.sh`: build, validation, the Windows check and all 109 checks passed in 480 s, with validation recompiling for 132 s beside the replays (the image-heavy checks there: 121, 97 and 49 s).
+- Still broken or not tested: captures are the size of their pixels (a 1080p capture 6.2 MB instead of about 1.6 MB; a full run about 1.4 GB instead of 0.36 GB). A compressed, unfiltered encoder would need the image or deflate crate as a direct dependency (owner's call).
+- Frame time: none in play (captures only in unattended runs; writing them is faster than before).
+
+## 2026-11-20 — JOBS is the replay suite's only parallelism setting
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `replays.py` runs `JOBS` checks at once as given; without `JOBS`, one game per 3 CPU cores and per 4 GB of memory beyond a 4 GB reserve (three on a 10-core 16 GB Mac), so `all.sh` no longer sets it. Removed `GAME_MEMORY_GB` (it capped an explicit `JOBS`) and the `LOADING_AT_ONCE` gate with its memory polling and `loading_settled` check (one game loading at a time queued every launch: 722 s against 537 s). Launches use `subprocess.run` with output streamed to the game log. `pallet-gibs-fade` checks where its gibs end: a gib clearly outside the player's view cone (FInViewCone, from the fixture's eye and yaw) must be gone by the end, one in view may stay; `ray` joins `hits` among its fields that vary between runs.
+- Why: the owner asked for one setting instead of overlapping ones. In a three-game run one pallet gib flew east and landed in view at tick 100, so it correctly never faded and the aim ray met it; the old "all gone" rule assumed every gib lands behind the player.
+- Tested how: on one build, full `all.sh` with four games 491 s (all passed) and with three games 444 s (one failure, the pallet gib that landed in view; its report passes the new rule); the gib checks and self-tests passed twice with the default; final `all.sh` with no settings (three games): build, validation, the Windows check and all 109 checks passed in 451 s.
+- Still broken or not tested: why pallet gibs land differently between runs is not found (the pallet fixtures already left `hits` and `ray` out for the same reason).
+- Frame time: none (checks only).
+
+## 2026-11-20 — Map install shares LOD meshes between identical draws
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the load report times each main-thread install step (`install_monitors`, `install_draws`, `install_effects`, `install_sky`, `install_rest`; `install_ms` stays the total, now measured inside the install). Map install builds an entity draw's coarser LOD meshes once per model, material, scale and skinning and shares them between draws (`lod::SharedLevels`), unless the model's facial flexes move one of the draw's vertices: every studio vertex carries a reference to its source mesh, so every studio draw counted as flexed and built private copies. Runtime spawns keep building their own. `campaign::poll` (108 -> 104 lines) and `rendering.rs` (1341 -> 1316) shrank: the lit-draw target moved to `map_draw::lit_target`.
+- Why: `install_draws` took 430-510 ms of the main-thread install; about 200 ms of it built LOD meshes for 400-530 entity draws, most of them repeats.
+- Tested how: strict Clippy for hl2-bevy; three gameplay replays one at a time: `install_draws` 427-507 -> 326-330 ms, request to playable 1849-2015 -> 1758-1849 ms. Full `all.sh` with four games at once: build, validation, the Windows check and all 110 checks passed in 501 s (three games on the previous build: 545 s of replays, 584 s in all).
+- Still broken or not tested: facial flex faces were checked only through the existing replays (no image comparison).
+- Frame time: none (loading only; fewer duplicate meshes in memory).
+
+## 2026-11-20 — Gib checks test the debris rules, not tick-exact removal
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `replays.py` checks gibs by their design. Every replay: gib counters only grow and never more gibs are removed than spawned. `pallet-gibs-fade`: one stable set of 7 gibs, none vanishes while the player looks at them or before the fade delay, all gone by the end, each with seconds of margin. Expected-outcome comparison can leave out one counter of a field (`field.counter`); `gibs.removed` is left out for `pallet-gibs-fade` and `monitors-kleiner-scene`, whose spawn counts are still compared exactly. The `unstable_counter` check covers the comparison.
+- Why: with three games at once, one gib was sometimes removed a few ticks later than recorded, failing full runs over a difference no player sees.
+- Tested how: both fixtures and four other gameplay checks passed with three games at once; full `all.sh` with three games: build, validation, the Windows check and all 110 checks passed (replays 545 s, all checks 584 s).
+- Still broken or not tested: the frame-timing dependency that shifts gib removal under load is not found.
+- Frame time: none (checks only).
+
+## 2026-11-20 — Entity rigs load on all cores
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `source-assets` loads every placed entity model's rig in parallel (`models/entity_rigs.rs`, sharing `prefetch::parallel_map` with the model reads) before the instance loop, which stores each rig at the instance that would have loaded it. The map's sequence names are collected once instead of once per rig. The map worker reports `model_props`, `model_gibs` and `model_rigs` timings. `models.rs` is now within the size limit (baseline tightened).
+- Why: rigs were about 450 ms of the 600 ms models phase, one model at a time.
+- Tested how: strict Clippy for source-assets; three gameplay replays one at a time: `model_props` 581-668 -> 268-315 ms, request to playable 2163-2373 -> 1848-1932 ms. `all.sh`: windows ok, 108/109 replays with unchanged outcomes in 525 s; validation stopped only on the improved size baseline (locked in, rerun before commit).
+- Still broken or not tested: `monitors-kleiner-scene` and `pallet-gibs-fade` sometimes miss one gib removal when games run in parallel (seen before this change; both pass alone).
+- Frame time: none (loading only).
+
+## 2026-11-20 — Three replay games at once
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `all.sh` runs three replay games at once by default and `GAME_MEMORY_GB` defaults to 4, so a 16 GB machine runs three. Launches stream their output to the game log instead of a pipe. `LOADING_AT_ONCE=N` (off by default) lets only N games load a map at once, holding a slot until the game's memory stops growing; the `loading_settled` check covers its rule.
+- Tested how: full `all.sh` runs on a 16 GB M1 Pro, judged by total time only: two games 696 s; three games loading one map at a time 722 s (every launch queued); three games loading freely 537 s, 109/109 passed; four games 595 s with two load-sensitive failures (`pallet-gibs-fade`, `monitors-kleiner-scene`).
+- Frame time: none.
+
+## 2026-11-19 — One command for every local check
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `scripts/checks/all.sh` builds the package once, then runs `validate.sh` and `check_windows.sh` at lower CPU priority beside `replays.py` (`NO_BUILD=1`, `JOBS` default 2), and prints each step's result and time (logs in `artifacts/check-all/`). `console` is marked `real_time`: sound plays in real time, so its pause/resume check failed twice under UI fast-forward. AGENTS.md and docs/validation.md name the script.
+- Tested how: `all.sh` passed build, validation and the Windows check and ran all 108 replays in 696 s total (one failure, `console`, now real-time; it passed alone twice).
+- Frame time: none.
+- Still broken or not tested: the total is about 11.6 minutes with two games; the replays' 1,378 s of work bounds two games near 11.5 minutes. Three games did not fit beside the apps open today. Windows has no equivalent script.
+
+## 2026-11-19 — Read a map's models on all cores; gameplay replays at 8×
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `source-assets/src/models/prefetch.rs` reads a map's unique (model, skin, body) keys on all cores, each worker taking the next key; `append_models_lod` then places instances from the filled cache. Errors keep first-seen order; a reader panic stays one model's error. `models.rs` shrank (baseline 1,060 → 1,053 lines). Gameplay replays default to `TIMESCALE=8`.
+- Why: model reading was the largest loading phase and ran one model at a time; the replay suite launches the game 178 times.
+- Tested how: `source-assets` tests (128) and Clippy, workspace validation, Windows cross-target Clippy; the gameplay group at 8× passed 73/73 in 249 s (4×: 268 s). Load phases over the 69 repeated gameplay runs, old loader → new: models 998 → 696 ms, request to playable 3,446 → 2,597 ms. Phases this change cannot touch also fell (main-thread install 990 → 595 ms), so the machine was busier for the old runs; the models gain of about 0.3 s per load is the attributable part.
+- Frame time: none; loading only. The prefetch uses every core briefly while a map loads.
+- Rejected: three games at once on this 16 GB Mac with other apps open (about 14.6 GB in use) pushed swap from 3.7 to 12.1 GB and was stopped.
+- Still broken or not tested: other model-phase work (rigs, physics, prop data) is still serial; a quiet-machine load comparison is not done.
+
+## 2026-11-19 — Fast-forward the UI checks
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `--max-fps N` (10–1000, `launch::limit_frame_rate`, installed only when given). `scripts/checks/replays.py`: launches other than gameplay replays add `--uncapped --max-fps 240 --timescale 4` (`UI_TIMESCALE`, default 4; 1 turns it off); `real_time` checks opt out: `video_keep`, `viewmodel_motion_blur`, `flashlight_viewmodel`, `hud_aspect`, `flashlight_availability`.
+- Why: after the previous step the suite still spent most of its time on UI checks paced at 60 fps.
+- Tested how: UI group at 4×: 30 of 35 kept their outcomes, and the five that changed measure real time (the 15 s keep countdown, frame-timed blur and sway, HUD and suit-light sampling) and now opt out. Uncapped without a limit: 108/108 in 740 s, the real-time checks slowed by the unbounded game beside them. With `--max-fps`: 108/108 in 702 s (previous step 778 s, original 1,451 s). Workspace validation and Windows cross-target Clippy pass.
+- Frame time: none in play; `--max-fps` and `--timescale` are off unless given.
+- Still broken or not tested: the 740 s and 702 s runs may have shared the GPU with a browser game the owner was playing, so their times are not quiet-machine numbers; the four real-time checks (60–115 s each) now set the suite's floor.
+
+## 2026-11-19 — Settings profiles and a faster replay suite
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `HL2RS_SETTINGS` names the settings file (`Config::config_path`, unit-tested), defaulting to `hl2-config.json` beside the executable. Reviewed partial profiles in `profiles/` (`test.json` baseline, `shadows-{low,medium,high}.json`, README). `--timescale N` (1–16) runs the fixed 15 ms ticks N times faster on the virtual clock (`launch::apply_timescale`). `scripts/checks/replays.py`: each check gets its own settings file from `profiles/test.json`; all checks share one pool of `JOBS`, longest first by `artifacts/replays/durations.json`; shader-editing checks run a private copy of the staged game; gameplay replays pass `--timescale` (`TIMESCALE`, default 4). Scripts that drive `replays.py` directly keep `CONFIG` as their settings file.
+- Why: the suite took 24 minutes, mostly because UI checks ran one at a time over one shared settings file and every replay played in real time.
+- Tested how: workspace validation, Windows cross-target Clippy, check-script unit tests (55), and full replay suites at `JOBS=2`: serial baseline 1,451 s; profiles and one pool 1,111 s (108/108); everything together 778 s (108/108). The gameplay group at 4× took 268 s against about 500 s; one bottle replay broke a third bottle once under two-game load and passed alone twice at 4× and at 1×.
+- Frame time: none in play; `--timescale` defaults to 1.
+- Still broken or not tested: UI checks still run in real time; Windows replays with the new pool are **not tested**.
+
+## 2026-11-19 — GPU shadow silhouettes by default
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: `shadows/gpu.rs` installs the GPU silhouette pass whenever a render sub-app exists, unless `HL2RS_GPU_SILHOUETTES=0`, and marks it with a `GpuSilhouettes` resource; `shadows.rs` hands drawing to the GPU through `Textures::use_gpu` when that resource is present (`texture.rs` no longer reads the environment). AGENTS.md: visual fidelity is judged as a player sees normal play; differences found only in amplified or magnified comparisons never keep a measured speedup off by default.
+- Why: owner decision. The GPU path's only difference from the CPU path is a few pixels a few levels apart, invisible at normal size, while 30-NPC crowds ran 21–55% faster.
+- Tested how: workspace validation, Windows cross-target Clippy and the full packaged replay suite with the new default: 107 of 108 passed; `flashlight_viewmodel` failed on 12 pixels and passed alone with both paths. Its "no light" checks now count pixels brighter by 8+ levels against a 50-pixel limit (the lit case needs over 500) instead of failing on 10 single pixels. Timings and captures come from the earlier opt-in measurements of the same pass (docs/performance-research.md).
+- Frame time: 30 citizens 18.31 → 14.31 ms, 30 G-Men 21.26 → 13.64 ms, 30 dropships 24.00 → 11.21 ms, empty plaza 6.88 → 6.75 ms (M1 Pro, 1080p, High shadows).
+- Still broken or not tested: Windows and other graphics backends are **not tested** with the GPU path; faint overlapping translucent layers can come out lighter than on the CPU.
+
+## 2026-11-19 — Let an occupied destination end a crowd exit
+
+- Agent/model: Codex desktop, GPT-6 family (fix and trace comparison); Claude Code desktop, `claude-opus-5-5` (final replay rerun, cost repeat, commit). No subagents.
+- Changed: `npc/steer.rs` returns the original actor collision when the blocking actor's hull contains the move's target feet, instead of trying detours; `npc.rs` passes the goal to `steer::step`. New test: an occupied goal reports contact, then arrives once the blocker leaves.
+- Why: the merged station02 soundscape replay showed citizen 439 sidestepping around citizen 387, who stood on its exit point, until the replay ended. Upstream reports the obstruction, lets ActBusy finish the departure and spawns the next passerby.
+- Tested how: unit tests (head-on passing, occupied goal); the packaged entity I/O trace matches upstream byte for byte through tick 2800 (departure 35.92 s, replacement order 36.30 s); workspace validation, strict Clippy and Windows cross-target Clippy; 73 gameplay replays: 72 passed, and `monitors-kleiner-scene` failed on the known gib-removal timing (7 of 8 removed) and passed alone.
+- Frame time: one hull containment test per actor collision, only when a step is blocked by an actor. Three alternating pairs (station02, 30 citizens, 1920×1080, CPU silhouettes): median 18.83 → 18.48 ms, per pair +0.2%, +3.1%, −3.9%; control 6.72 → 6.73 ms. No measurable cost.
+- Still broken or not tested: none known for this change.
+
+## 2026-11-19 — Integrate station gameplay and crowd rendering
+
+- Agent/model: Codex desktop, GPT-6 family.
+- Changed: merged upstream main at `2b55f809`. ActBusy sends hint start and stop outputs around the authored entry, busy and exit sequences. The luggage replay checks both suitcase pushes, scene completion, the authored destination and the movement goal's tolerance.
+- Why: both parents had implemented parts of the station luggage encounter. The shared runtime now uses upstream's general script conditions, MOVETO parser and delayed sound delivery while retaining the crowd branch's animation and spatial-query work.
+- Validation: the merged simulation compiles and the architecture guard passes with tighter baselines. The animated exit test checks the two hint outputs occur once. Packaged and platform results are tracked in STATUS.
+
 ## 2026-11-20 session 67, continued: stations 03-06 against native, resting NPCs and trigger_multiple (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
@@ -59,28 +659,6 @@
 - Result: (A) 73 of 73 replays, CI 44652049354 passed, main fast-forwarded to 171f395. (B) the vortigaunt's ss_VortSweep4 walk 9.02 -> about 9.66 s (native 9.60 s); native's spawn-to-ss_VortSweep2 motion 5.36 s against the motor's 5.34 s. Validation: artifacts/s67/validate3.sh (v3-*): strict Clippy 0, workspace tests 1757 passed with the 2 known --release should_panic failures (rendering::tests), fmt 0, architecture 0 (npc.rs 1204 -> 1121 locked in), build ok, regression passed (26/26, 17/17, 26/26; images against artifacts/s67-regression2 within about 1 except the Kleiner feed's difference image, 9.7: its scene timing), replays 62 of 73: the 11 others changed only outcomes the motor's timing moves (artifacts/s67/outcomes-v3.txt: d1_trainstation_02's I/O counters by 1-4, the security room's I/O counters and trigger entries, three fixtures' center rays now on Barney or the metrocop, more studio decals on the cop), the same 11 as before the re-path carry (validate2.sh, v2-*), reviewed and recorded with UPDATE_EXPECTED=1 one job at a time (artifacts/s67/v4-update.log: 11 of 11; monitors-kleiner-scene keeps its 8 gibs). Commits f7846cd (code) and b3a7eeb (replays); CI 44659281515 on b3a7eeb started (result: gh run view 44659281515).
 - Still broken or not tested: the turn script and facing apart from motion, the idle layer by speed, the schedule's start at the next think, obstruction and slope slowdowns; the passengers' walk (one 0.2 s ahead, one 0.6-0.7 s behind on another way out of the car); macOS not run locally.
 - Next: the passengers' routes and start times; the turn script with move_yaw blending; SimplifyPath for choreography moves after a native security_02 comparison.
-
-## 2026-11-15: stop `ground_property` full-world decal projection freezes and guard transient `.try_despawn()` commands
-
-**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
-
-- **Changed:**
-  - `crates/modkit-core/src/decals.rs`: extracted `Frame` (`new`, stack-backed `clip` writing into `&mut [DecalVertex; 16]` via `EMPTY_POLYGON` with zero per-triangle heap allocation) and added `decals::touches` to test whether a mark reaches any non-background triangle of a `Surface` without allocating decal output vertices. Extended `impact_is_clipped_at_surface_edge_and_never_spills_to_parallel_wall` with `touches` assertions.
-  - `crates/hl2-simulation/src/impacts.rs`: updated `Impacts::ground_property` to return `physics.prop_materials` or `physics.static_surfaceprop(&hit)` directly before calling `self.locate(...)` (extended `static_prop_hull_hits_keep_their_surfaceprop_and_reach_the_mesh` with `ground_property` checks on and past the drawn mesh boundary); updated `receiver` Pass 1 to call `decals::touches` and immediately return `None` when `gap <= 0.`, and updated Pass 2 (bounded gap search for entities/static props) to use `decals::touches`.
-  - `crates/hl2-bevy/src/{audio.rs,effects.rs,effects/gibs.rs,flashlight.rs,intro_view.rs,rendering/runtime.rs,studio_decals.rs,tonemap.rs}`: replaced deferred entity `.despawn()` calls on transient audio/effect/decal/camera entities with `.try_despawn()` so entities already despawned earlier in the same schedule (such as `PlaybackSettings::DESPAWN` one-shots) do not log `Entity despawned` ECS command errors.
-  - `scripts/checks/architecture-baseline.json`: tightened 2 removed duplicated blocks (`115 -> 113`).
-- **Why:** On `d1_canals_01a` (notably approaching the blue van near the canal bank), every grounded fixed tick calls `Impacts::ground_property` (`Simulation::step`), which previously ran `Impacts::locate` -> `receiver(&world.surfaces, ...)`, allocating `Vec` polygons while running full `decals::project` across all world surfaces and repeating $O(N^2)$ surface scans in Pass 2 whenever the ground trace hit a prop hull or a surface with `gap == 0.`. Separately, racing `.despawn()` commands against `PlaybackSettings::DESPAWN` / multi-system cleanup logged `Entity despawned` warnings during gameplay.
-- **Tested how:**
-  - Validation & cross-target checks: `scripts/checks/validate.sh` (`architecture.py`, Python check unit tests, `check_plugin_selection.py`, `cargo test --workspace --locked --no-fail-fast`, strict workspace `cargo clippy`, `cargo fmt --check`) and `scripts/checks/check_windows.sh` (`x86_64-pc-windows-msvc` strict Clippy).
-  - Owned-install tests: `cargo test -q -p hl2-simulation impacts -- --ignored` (`2 passed; 0 failed`).
-  - Packaged verification on macOS arm64 (`bin/hl2-bevy`, 365-tick `d1_canals_01a` 8-angle van-approach `--movement-script` / `--report` runs and `scripts/checks/replays.py` with `JOBS=2` + rerun `ONLY=flashlight_viewmodel`).
-- **Result:**
-  - `d1_canals_01a` 8-angle approach (`-000`..`-315`): `d1_canals_01a-000` `frame_total` dropped from `mean 531.76 ms` / `max 667.85 ms` to `mean 6.81 ms` / `p95 9.16 ms` / `max 13.57 ms`, `fixed_simulation` from `mean 159.79 ms` (`p95 162.55 ms`, `max 184.29 ms`) to `mean 3.71 ms` (`p95 4.87 ms`, `max 7.51 ms`), and max sampled `step_ms` from `157.03 ms` to `3.17 ms`. `d1_canals_01a-270` `frame_total` dropped from `mean 10.11 ms` / `max 386.45 ms` to `mean 6.59 ms` / `max 13.55 ms` (`fixed_simulation` max `129.04 ms` -> `7.67 ms`). Across all 8 angles, `fixed_simulation` max stayed `6.59–9.53 ms` and `Entity despawned` log warnings dropped from `89` total to `0`.
-  - Packaged replay suite: `106 of 107` shared checks passed on the full `JOBS=2` run (including `pistol-breaks-teeter-seat-chunks` and all `70` gameplay checks) with `0` `Entity despawned` warnings across all `.log` / `.game.log` files; the single failure was `flashlight_viewmodel` (`off has no weapon light`, `13 px` diff — the intermittent control check noted in `STATUS.md`), which passed on rerun (`ONLY=flashlight_viewmodel`, `84 s`).
-  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` passed.
-- **Still broken or not tested:**
-  - Windows runtime and windowed replay checks (`WINDOWED=1`) **not tested** here.
-- **Next:** Review `orbitalman/performance_research` diff and manual gameplay on `d1_canals_01a` and `d1_trainstation_02`.
 
 ## 2026-11-19 session 66: the bench FPS drop traced (fix in PR #5), per-entity trigger touches, NPC route detours (Claude Code desktop, claude-opus-5-5)
 
@@ -149,6 +727,73 @@
 - Still broken or not tested: citizen_train_1 reaches the car's door trigger 0.30 s early (citizen_train_2 not measured); busyactor is not modeled; our scanner's later cycles are not compared with native; the input-trace commit (82cd1ec) changes nothing while the trace is off and was checked by unit tests, Clippy and a confirming replay run (see STATUS).
 - Next: see STATUS "Current session 63".
 
+## 2026-11-18 — Align frame profiler samples and verify the F4 roster
+
+Codex desktop, GPT-6 family. The macOS CI frame-accounting assertion measured
+11.991 ms in summed stage means and 12.288 ms in whole frames. The stages included
+an unfinished frame. Buffer schedule intervals and publish them together at the
+next frame boundary. The test now requires identical sample counts and checks the
+sum to floating-point precision. This applies only with profiling enabled.
+
+Packaged macOS station02 plaza replay on 505adb21: all 47 presets produced entity
+IDs with both F4 and the aimed console command. On each path the barnacle, City
+Scanner, strider, gunship and helicopter first hit the placement guard and spawned on
+clear ground. An unknown console NPC class was rejected. The game logged unsupported
+idle animation requests for both turrets, the Combine camera and the dropship.
+Per-class combat, movement and visual fidelity were not tested. Workspace validation
+and Windows cross-target Clippy passed. Windows runtime was not tested.
+
+## 2026-11-18 — Station luggage choreography and NPC crowd cost
+
+Codex desktop, GPT-6 family. The luggage inspection in station01 now starts from the
+authored player approach. NPC script conditions evaluate a single named actor's state,
+player distance, view cone, LOS and hold time at quarter-second intervals. The scene
+motor accepts the installed walk-to-a-fixed-target qualifier. The original package
+spawned the two actors but started zero scene events on the same approach.
+
+StartNPC now indexes newly appended entities once, retaining spawn order and delayed
+activation. NPC sight borrows its map candidate list and checks the view cone before
+relationship lookup. Ground steering evaluates alternate headings on demand, and actor
+hull probes use the brush contact rules with six stack-allocated planes.
+
+Checked with `scripts/checks/validate.sh` (1,764 Rust tests, 55 Python tests, four plugin
+selections, strict Clippy and formatting) and `scripts/checks/check_windows.sh`.
+`NO_BUILD=1 JOBS=3 python3 scripts/checks/replays.py` passed 107/108 on the first run.
+The flashlight-off control differed at 11 pixels against a limit of fewer than 10.
+`NO_BUILD=1 ONLY=flashlight_viewmodel python3 scripts/checks/replays.py` passed unchanged
+with 8 differing pixels. The new luggage replay verifies the active shove, completion,
+both suitcase pushes and the citizen's arrival. A separate packaged run after the train
+intro showed both actors playing the shove at 119.25 s and clear of the cart by 129 s.
+
+Two series of three alternating packaged pairs used default CPU shadows and the same
+1080p Metal settings. In the quieter series, median mean frame time before/after was
+5.448/5.231 ms quiet, 11.238/10.928 ms for 30 zombies and 9.436/9.340 ms for 30 manhacks.
+Ground-crowd p95 went from 15 to 16 ms; manhack p95 stayed at 14 ms.
+The busier series measured 8.364/7.823, 13.527/13.332 and 13.680/13.427 ms respectively.
+Ground actors still reported failed chase/wander tasks on both packages. See the
+[workload and limits](docs/performance-research.md#station-plaza-ground-crowd).
+
+Windows runtime, native comparison and an ordinary playthrough were **not tested**.
+Target-based, multiple-actor and timeout script conditions remain outside the implemented
+subset. Next crowd investigation: trace failed ground-route requests in the plaza workload.
+
+## 2026-11-17 — Merge main into the performance research branch
+
+Codex desktop, GPT-6 family. Merged main at `b82e2f8e` with the performance branch at
+`bee44bd5`. All eight Rust files edited by both branches retained both parents' patches.
+Kept both development histories and tightened the architecture baseline for the merged NPC module.
+
+Verified with `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, the owned
+`owned_chaser_cops_take_their_limited_group` test, and `JOBS=3 python3 scripts/checks/replays.py`
+on both packages. All 107 shared replays passed before and after with the same expectations.
+Matched canal captures retained the blended terrain and blood decal. Across three alternating
+1080p Metal pairs, median mean frame times before and after were 5.364 and 5.288 ms on quiet
+station02, 9.311 and 9.307 ms with 30 manhacks, and 8.677 and 8.710 ms with the optional GPU
+silhouettes in the same crowd. The GPU pair differences changed direction across runs.
+
+Windows runtime, interactive playthrough and native comparison were **not tested**.
+Next validation on Windows can use the same packaged replays and station02 workloads.
+
 ## 2026-11-17 session 62: the HDR dlight minlight floor (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
@@ -170,6 +815,363 @@
 - Frame time: light_dynamic adds up to four entity lights to models within their reach (the existing per-frame dynamic path; maps without light_dynamic allocate nothing). Light styles: 29 recompositions in 4.5 s of d3_c17_02's flicker each below the scope timer's resolution, frames 15.9 ms (--profile); no work while no used style changes.
 - Still broken or not tested: light_dynamic's world illumination and style; the mouth shot's peak brightness; model lighting ignores light styles (DESIGN 14z-e step 3).
 - Next: see STATUS "Current session 61".
+
+## 2026-11-15: DecalModulate world decals multiply the frame (no grey boxes)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `MaterialData::modulate` (DecalModulate shader); such materials get
+`AlphaMode::Multiply`, `parameters.z = MODULATE_OUTPUT` and no flashlight; `source.wgsl` alpha-tests
+them and returns twice the texture, so the multiply blend leaves grey unchanged.
+
+**Why:** owner: blood decals on d1_canals_01a showed grey opaque rectangles. Map infodecals become
+world surfaces drawn with the world material; DecalModulate needs the mod2x blend (SDK
+`decalmodulate_dx9.cpp`: DST_COLOR, SRC_COLOR). Impact decals already used it.
+
+**Tested how / Result:** unit test of the material mode; packaged capture at the canal view shows
+the blood without the box. Validation and the Windows cross-target check pass. Packaged replays 107 of 107. Frame
+time not measured: a handful of decal draws move to the transparent phase; no new pass.
+
+**Still broken or not tested:** other modulate decals on other maps not captured.
+
+**Next:** owner's choice.
+
+## 2026-11-15: blended displacement textures (WorldVertexTransition)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `source-assets` `bsp.rs`: displacement vertices carry their dispvert alpha in the
+colour alpha (`disp_alpha`). `assets/blend.rs`: `named_texture` (shared by `$iris`, which it
+replaces in `load_material`, and `$basetexture2`); `MaterialData::base2`. Rendering: textures
+upload through one helper (`material::texture_handle`, bases, irises and second bases); a material
+with a second base gets `parameters.w = BLEND_SECOND_BASE` and the second base in its second slot;
+`source.wgsl` lerps the bases by vertex alpha right after sampling, keeps the lightmap, and ignores
+vertex alpha as opacity outside the camera and two-texture materials. DESIGN plan H.
+
+**Why:** owner's retail screenshot of d1_canals_01a: the straw texture blended into the mud was
+missing.
+
+**Tested how / Result:** unit tests (dispvert alpha, the blend mode and slot); owned test: the
+canal's patched mud material has `nature/mudfloor002a` as its second base. Packaged capture at
+the owner's view shows the straw like retail. Frame time, interleaved against the previous build,
+load average 5.1 to 9.2 recorded: canal view 5.78 to 6.01 ms (medians of 3; ranges 5.72-6.05
+and 5.72-6.03 overlap),
+plaza quiet 5.51 to 5.53 ms and crowd 9.81 to 9.81 ms (2 pairs each). Validation and the Windows
+cross-target check pass. Packaged replays 107 of 107.
+
+**Still broken or not tested:** `$blendmodulatetexture`, `$bumpmap2`; other blended maps not
+captured.
+
+**Next:** owner's choice.
+
+## 2026-11-15: displacement cells alternate their diagonal (canal dark wedge)
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `source-assets` `bsp.rs`: `disp_cell_triangles` splits each displacement cell along
+the diagonal its first vertex's parity picks (Source SDK `public/builddisp.cpp`
+GetTriangleIndicesForDispBBox); the render surfaces and `world.terrain` (collision, shadow
+receivers) use it.
+
+**Why:** owner screenshot of a sharp dark wedge on d1_canals_01a's mud bank. A flat brush top at
+z = -96 lies under the displacement; with one diagonal everywhere, our terrain dipped below it
+between vertices where the engine's does not, exposing luxels the compiler baked black. The
+owner's retail screenshot at the same place shows no wedge.
+
+**Tested how / Result:** 2 unit tests (checkerboard order, both splits keep the winding).
+Packaged captures at the owner's view and from above: no wedge (before: wedge, see
+`artifacts/shadows/canal-high.png`). Validation and the Windows cross-target check pass.
+Packaged replays 106 of 107; the failure was flashlight_viewmodel's off-light image check, which passed when rerun alone (the known unstable check).
+
+**Still broken or not tested:** the WorldVertexTransition blend texture on displacements (the
+straw in the retail screenshot) is not drawn.
+
+**Next:** the displacement blend texture, on the owner's word.
+
+## 2026-11-15: NPCs steer around each other; canal dark wedge located
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** `npc/steer.rs`: a ground step blocked by another NPC or the player tries the
+deflection along the obstruction's surface (within 0.7 of the heading), then turns of 30, 60 and
+90 degrees, the free side first (right when head-on), and takes the first that covers half the
+wanted distance. `GroundMove::by_actor` carries the hull trace's actor flag. `advance` calls
+`steer::step` (3 lines shorter). Two controller tests now run in a corridor, where steering has no
+room, to keep testing what they test. DESIGN plan G.
+
+**Why:** owner report: two plaza citizens stood face to face; Source steers before failing a
+move blocked by an NPC (OnObstructionPreSteer, CAI_PlaneSolver).
+
+**Tested how / Result:** 4 new unit tests (deflection order, head-on order, head-on humans pass
+and arrive, a wall still blocks); the passing test fails with steering disabled. Validation and
+the Windows cross-target check pass. Packaged replays 107 of 107 with steering.
+
+**Still broken or not tested:** a plaza capture at the owner's position; look-ahead avoidance
+before contact; give-way schedules. Canal wedge: located (a flat WorldVertexTransition brush top
+under the displacement, dark lightmap where barely exposed), not fixed and not compared with
+retail.
+
+**Next:** native screenshot of the canal position; plaza capture.
+
+## 2026-11-15: sprites, particles and decals cast no flashlight shadow
+
+**Agent/model:** Claude Code desktop, claude-opus-5-5. No subagents.
+
+**Changed:** effect sprite and particle quads (pooled and batched), impact decals, studio decals
+and projected shadow decals are spawned with `NotShadowCaster`.
+
+**Why:** with the flashlight's shadow depth on (Shadow detail High), impact smoke drew sharp
+silhouettes on floors and walls (owner screenshots, d1_trainstation_02). The effect depth shader
+alpha-tests a translucent puff into an opaque cutout. Source renders only opaque world and models
+into the flashlight's shadow depth; sprites, particles and decals never cast.
+
+**Tested how / Result:** the quad pool and batch unit tests assert the component (8 passed).
+Packaged visual check **not done**; replays not run for this change alone.
+
+**Still broken or not tested:** a packaged capture of smoke under the flashlight.
+
+**Next:** canal displacement shadows, plaza NPC blocking.
+
+## 2026-11-15: stop `ground_property` full-world decal projection freezes and guard transient `.try_despawn()` commands
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+- **Changed:**
+  - `crates/modkit-core/src/decals.rs`: extracted `Frame` (`new`, stack-backed `clip` writing into `&mut [DecalVertex; 16]` via `EMPTY_POLYGON` with zero per-triangle heap allocation) and added `decals::touches` to test whether a mark reaches any non-background triangle of a `Surface` without allocating decal output vertices. Extended `impact_is_clipped_at_surface_edge_and_never_spills_to_parallel_wall` with `touches` assertions.
+  - `crates/hl2-simulation/src/impacts.rs`: updated `Impacts::ground_property` to return `physics.prop_materials` or `physics.static_surfaceprop(&hit)` directly before calling `self.locate(...)` (extended `static_prop_hull_hits_keep_their_surfaceprop_and_reach_the_mesh` with `ground_property` checks on and past the drawn mesh boundary); updated `receiver` Pass 1 to call `decals::touches` and immediately return `None` when `gap <= 0.`, and updated Pass 2 (bounded gap search for entities/static props) to use `decals::touches`.
+  - `crates/hl2-bevy/src/{audio.rs,effects.rs,effects/gibs.rs,flashlight.rs,intro_view.rs,rendering/runtime.rs,studio_decals.rs,tonemap.rs}`: replaced deferred entity `.despawn()` calls on transient audio/effect/decal/camera entities with `.try_despawn()` so entities already despawned earlier in the same schedule (such as `PlaybackSettings::DESPAWN` one-shots) do not log `Entity despawned` ECS command errors.
+  - `scripts/checks/architecture-baseline.json`: tightened 2 removed duplicated blocks (`115 -> 113`).
+- **Why:** On `d1_canals_01a` (notably approaching the blue van near the canal bank), every grounded fixed tick calls `Impacts::ground_property` (`Simulation::step`), which previously ran `Impacts::locate` -> `receiver(&world.surfaces, ...)`, allocating `Vec` polygons while running full `decals::project` across all world surfaces and repeating $O(N^2)$ surface scans in Pass 2 whenever the ground trace hit a prop hull or a surface with `gap == 0.`. Separately, racing `.despawn()` commands against `PlaybackSettings::DESPAWN` / multi-system cleanup logged `Entity despawned` warnings during gameplay.
+- **Tested how:**
+  - Validation & cross-target checks: `scripts/checks/validate.sh` (`architecture.py`, Python check unit tests, `check_plugin_selection.py`, `cargo test --workspace --locked --no-fail-fast`, strict workspace `cargo clippy`, `cargo fmt --check`) and `scripts/checks/check_windows.sh` (`x86_64-pc-windows-msvc` strict Clippy).
+  - Owned-install tests: `cargo test -q -p hl2-simulation impacts -- --ignored` (`2 passed; 0 failed`).
+  - Packaged verification on macOS arm64 (`bin/hl2-bevy`, 365-tick `d1_canals_01a` 8-angle van-approach `--movement-script` / `--report` runs and `scripts/checks/replays.py` with `JOBS=2` + rerun `ONLY=flashlight_viewmodel`).
+- **Result:**
+  - `d1_canals_01a` 8-angle approach (`-000`..`-315`): `d1_canals_01a-000` `frame_total` dropped from `mean 531.76 ms` / `max 667.85 ms` to `mean 6.81 ms` / `p95 9.16 ms` / `max 13.57 ms`, `fixed_simulation` from `mean 159.79 ms` (`p95 162.55 ms`, `max 184.29 ms`) to `mean 3.71 ms` (`p95 4.87 ms`, `max 7.51 ms`), and max sampled `step_ms` from `157.03 ms` to `3.17 ms`. `d1_canals_01a-270` `frame_total` dropped from `mean 10.11 ms` / `max 386.45 ms` to `mean 6.59 ms` / `max 13.55 ms` (`fixed_simulation` max `129.04 ms` -> `7.67 ms`). Across all 8 angles, `fixed_simulation` max stayed `6.59–9.53 ms` and `Entity despawned` log warnings dropped from `89` total to `0`.
+  - Packaged replay suite: `106 of 107` shared checks passed on the full `JOBS=2` run (including `pistol-breaks-teeter-seat-chunks` and all `70` gameplay checks) with `0` `Entity despawned` warnings across all `.log` / `.game.log` files; the single failure was `flashlight_viewmodel` (`off has no weapon light`, `13 px` diff — the intermittent control check noted in `STATUS.md`), which passed on rerun (`ONLY=flashlight_viewmodel`, `84 s`).
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` passed.
+- **Still broken or not tested:**
+  - Windows runtime and windowed replay checks (`WINDOWED=1`) **not tested** here.
+- **Next:** Review `orbitalman/performance_research` diff and manual gameplay on `d1_canals_01a` and `d1_trainstation_02`.
+
+## 2026-11-15: play actbusy entry/exit animations and apply MDL root motion so bench NPCs seat cleanly
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+**Plugin rules read:** yes; exceptions: none
+
+- **Changed:**
+  - `crates/modkit-core/src/animation.rs`: derived `PartialEq` on `MovementRecord` and `RootMotion`, added optional `ClipLayer::root_motion`, and added `RootMotion::position_clamped`, `RootMotion::movement_clamped`, and `Clip::movement` to integrate frame-to-frame linear and yaw root motion across a cycle range.
+  - `crates/source-assets/src/models/root_motion.rs`, `crates/source-assets/src/models.rs`, `crates/source-assets/src/animation.rs`, `crates/source-assets/src/models/ai_activities.rs`: extracted MDL v48 `mstudioanimdesc_t` / `mstudiomovement_t` root-motion decoding into `models::root_motion` (refactoring `sequence_motion` and `AnimationTable`), populated `ClipLayer::root_motion` via `with_sequence_layer`, and added `ACT_BUSY_SIT_CHAIR*`, `ACT_BUSY_SIT_GROUND*`, and `ACT_BUSY_LEAN_*` to `HUMANOID_AI_ACTIVITIES` so actbusy entry/exit/busy sequences preload on humanoid rigs. Tightened `scripts/checks/architecture-baseline.json` (`models.rs`: `1276 -> 1060`, `animation.rs::load_sequences`: `208 -> 203`).
+  - `crates/hl2-simulation/src/entities.rs`, `crates/hl2-simulation/src/entities/sequences.rs`, `crates/hl2-simulation/src/entities/tests.rs`, `crates/hl2-simulation/src/ai/schedule.rs`, `crates/hl2-simulation/src/ai/host.rs`, `crates/hl2-simulation/src/ai/actbusy.rs`: parsed `entry_anim`/`entry_sequence`/`exit_anim`/`exit_sequence` from `scripts/actbusy.txt` in `BusyAnim` and preloaded them in `actbusy::hint_sequences`; added `Scene::ai_auto_movement`, `Motor::try_set_activity`, and `Motor::auto_movement` (tracking per-entity `ai_auto_motion_time` in `Scene`); updated `ActBusy` `TASK_ACTBUSY_PLAY_ENTRY`, `TASK_ACTBUSY_PLAY_BUSY_ANIM`, and `TASK_ACTBUSY_PLAY_EXIT` to play the entry/exit animations and drive entity origin/yaw through `auto_movement` (clamping non-looping entry/exit clips at `1.0` on completion). Added `entry_and_exit_anims_parse_preload_and_drive_auto_movement` and `ai_auto_movement_rotates_root_motion_by_yaw_and_clamps_on_finish`.
+- **Why:** Plaza bench hint nodes (`hint_sit_chair_*`) are placed ~24 units in front of the bench seats. Without `scripts/actbusy.txt` entry/exit sequences (`Idle_to_d1_t01_BreakRoom_Sit01`, `d1_t01_BreakRoom_Sit02_Entry`) and `Studio_SeqMovement` root-motion translation back onto the slats, citizens started sitting in midair ~25 units in front of the benches.
+- **Tested how:**
+  - Unit tests: `cargo test -p modkit-core --lib`, `cargo test -p source-assets --lib`, `cargo test -p hl2-simulation --lib` (owned-install `source-assets` tests run previously with `-- --ignored` before the static/binary checks).
+  - Static checks & build: `cargo fmt --all -- --check`, `python3 scripts/checks/architecture.py`, `cargo clippy -p modkit-core -p source-assets -p hl2-simulation --all-targets --all-features -- -D warnings`, `bash scripts/build-bevy.sh`.
+  - Packaged verification on macOS arm64: `./bin/hl2-bevy --no-setup --novid --windowed --no-focus --width 1280 --height 720 --mute --map d1_trainstation_02 --movement-script artifacts/nov15-regressions/freeze/bench_sit_verify.json --capture artifacts/nov15-regressions/benches_after.png --frames 1000 --report artifacts/nov15-regressions/freeze/bench_sit_verify.json.out` (spawning two citizens near `hint_sit_chair_1` and `hint_sit_chair_2` and sending `ForceNPCToActBusy`).
+- **Result:**
+  - `modkit-core --lib`: `74 passed; 0 failed`.
+  - `source-assets --lib`: `122 passed; 0 failed; 59 ignored`.
+  - `hl2-simulation --lib`: `812 passed; 0 failed; 34 ignored`.
+  - `cargo fmt`, `architecture.py`, strict Clippy across the three crates, and `build-bevy.sh` passed.
+  - Packaged capture `benches_after.png` and report (`actor 1298`: `d1_t02_Plaza_Sit01_Idle`, `actor 1299`: `d1_t02_Plaza_Sit02`) confirmed both citizens walked to the hint nodes, played entry root motion back onto the benches, and sat cleanly on the wooden bench slats.
+- **Still broken or not tested:**
+  - Windows build/checks (`check_windows.sh`) and full workspace `validate.sh` deferred to final cleanup step.
+  - `d1_canals_01a` freeze spikes and Bevy `Entity despawned` command warnings not addressed in this commit.
+- **Next:** Diagnose and fix `d1_canals_01a` van-door freezes and Bevy `Entity despawned` command warnings, then run full validation and Windows check.
+
+## 2026-11-15: eliminate per-frame material dirtying, visibility churn, and redundant MSAA writeback passes on weapon cameras
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+**Changed:** `crates/hl2-bevy/src/rendering/lighting.rs`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/rendering/weapons.rs`, `crates/hl2-bevy/src/startup_cameras.rs`, `crates/hl2-bevy/src/sky.rs`, `scripts/checks/architecture-baseline.json`. Replaced `ModelLit::reflect` with `ModelLit::next_cubemap`, split `present_draw_lighting` from `present_lighting` to inspect `materials.get` before calling `materials.get_mut` (only emitting `AssetEvent::Modified<SourceMaterial>` when `lighting`, `viewmodel_flashlight`, or `envmap` changes, and skipping redundant `state_at` lookups for stationary viewmodels), moved `WeaponMesh`/`WeaponSkin`/`present_weapons` into `rendering/weapons.rs` and guarded `Visibility` writes (tightening `rendering.rs` baseline `1365 -> 1345`), added unit test `stationary_lighting_and_viewmodel_emit_no_modified_material_events_on_repeat_frames`, and set `MsaaWriteback::Off` on `SkyCamera` (`order: -2, -1`), `FlyCamera` (`order: 0`), and `ViewmodelCamera` (`order: 1`) so the shared `Msaa::Sample4` color attachment preserves earlier passes via `StoreOp::Store` without intermediate MSAA resolve/writeback passes between ordered 3D cameras.
+
+**Why:** Calling `Assets::get_mut` unconditionally queued `AssetEvent::Modified<SourceMaterial>` every frame even when stationary viewmodels/props had unchanged lighting, triggering redundant asset/bind-group preparation; unconditional `Visibility` mutation caused false change-detection churn on weapon entities; and default `MsaaWriteback::Auto` resolved and wrote back the fullscreen MSAA color buffer across the multi-camera pipeline (most visibly when wielding a viewmodel or rendering 4x MSAA at `3456x2168`).
+
+**Tested how / Result:** `cargo fmt --all -- --check`, `cargo clippy -p hl2-bevy --all-targets --all-features -- -D warnings`, `cargo test -p hl2-bevy --lib` (`179 passed; 0 failed; 23 ignored`), `python3 scripts/checks/architecture.py`, and `./scripts/build-bevy.sh` passed; packaged `hl2-bevy` `d1_trainstation_02` benchmarks (`3456x2168`, `4x MSAA`, `hdr=full`, `2`-run medians) improved from `9.257 ms` (`108.03 fps`) to `8.018 ms` (`124.73 fps`) unarmed, `9.783 ms` (`102.22 fps`) to `8.422 ms` (`118.74 fps`) with crowbar (`model lighting` `0.1494 -> 0.0954 ms`, `render_graph` `6.0261 -> 4.7329 ms`), `9.826 ms` (`101.77 fps`) to `8.473 ms` (`118.02 fps`) with pistol, and `10.680 ms` (`93.64 fps`) to `9.415 ms` (`106.21 fps`) with physcannon; packaged visual capture of `d1_trainstation_02` with crowbar (`1500` frames) verified crowbar viewmodel, HUD, plaza, and skybox render cleanly under `4x MSAA`.
+
+**Still broken or not tested:** Owned-install `#[ignore]` tests, full replay suite, and Windows build **not tested**; `4x MSAA` GPU rasterization on `ViewmodelCamera` still adds ~0.4 ms (`~0.11 ms` crowbar / `~0.07 ms` pistol without MSAA), and `physcannon`'s 8 active viewmodel sprites add ~1.0 ms further.
+
+**Next:** Fix NPC actbusy sitting alignment on `d1_trainstation_02` plaza benches (`crates/hl2-simulation/src/ai/actbusy.rs`, `crates/source-assets/src/animation.rs`).
+
+## 2026-11-15: fix displacement lightmap UVs and sloped displacement shadow receiver normals
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+**Changed:** `crates/source-assets/src/lighting.rs`, `crates/source-assets/src/bsp.rs`, `crates/hl2-simulation/src/shadows/receivers.rs`, `crates/hl2-simulation/src/shadows/tests.rs`. Added `FaceLight::disp_uv(fx, fy)` mapping displacement lightmap coordinates across the rotated base quad `(fx, fy)` instead of planar `texinfo` world projection (Source SDK `public/builddisp.cpp`: `CalcLuxelCoords` / `CalcDispSurfCoords`), and switched `bsp::model_world` displacement vertices to use `disp_uv`. Updated `Receivers::new` so `Kind::World` receiver triangles also use their geometric triangle normal oriented to the shading normal rather than copying the flat base face normal on displaced surfaces. Added unit tests `disp_uv_follows_rotated_grid` and `displaced_world_surface_uses_geometric_triangle_normal`.
+
+**Why:** On `d1_canals_01a` (`face 7257`, `disp 29`, `startPosition = (1024, 6464)` at rotated corner 2), planar `light_uv(p)` mirrored the X axis of the lightmap atlas block, projecting zero-luxel cliff regions onto the open canal mud bank as large jagged pitch-black polygons; additionally, displaced world shadow receivers reused the flat base-face normal on sloped triangles. Note that the remaining small dark notch at `(832, 6080)` comes from the BSP's underlying flat `Z = -96` world faces intersecting `face 7257` where its vertex dips to `Z = -111` (zero luxels in VRAD).
+
+**Tested how / Result:** `cargo fmt --all -- --check`, `cargo clippy -p source-assets -p hl2-simulation --all-targets --all-features -- -D warnings`, `cargo test -p source-assets -p hl2-simulation --all-features` (`source-assets`: 122 passed, 0 failed, 58 ignored; `hl2-simulation`: 810 passed, 0 failed, 34 ignored), `python3 scripts/checks/architecture.py` passed; rebuilt release `bin/hl2-bevy` and captured `d1_canals_01a` (`--position 560 6030 -30 --yaw 50 --pitch -8` and `615 6020 -30`) visually confirming the large foreground/bank jagged black shadows are eliminated.
+
+**Still broken or not tested:** Owned-install `#[ignore]` tests in `source-assets`/`hl2-simulation` and Windows build **not tested**.
+
+**Next:** Investigate and fix weapon-wielding FPS drop (`present_lighting`, `present_weapons`, `ViewmodelCamera`).
+
+## 2026-11-15: restore viewmodel motion blur when viewmodel sway/shake moves `ViewmodelCamera`
+
+**Agent/model:** Antigravity (exact model identifier not exposed). No subagents.
+
+**Changed:** `plugins/hl2-advanced-options/src/bevy/viewmodel_blur.rs`, `crates/hl2-bevy/assets/shaders/source_depth.wgsl`. Stopped tracking `ViewmodelCamera`'s `Transform` in `viewmodel_blur::History.view` (keeping `(lens, map)` only) so continuous `viewmodel_sway` / `screen_shake` updates no longer reset the 3-frame warmup counter every frame; updated the viewmodel (`params.w > 1.5`) branch in `source_depth.wgsl` to project `mesh.previous_world_position` with `view.unjittered_clip_from_world` so camera sway/shake does not inject false velocity into viewmodel animation blur. Added regression unit test `sway_on_camera_transform_keeps_history_warm_while_lens_or_map_resets`.
+
+**Why:** `viewmodel_sway` and `screen_shake` move `ViewmodelCamera`'s `Transform` on every walk/turn/shake frame, which kept `viewmodel_blur`'s warm counter stuck at `0` so `WeaponBlur.max` stayed `0.0` on Advanced and Ultra settings.
+
+**Tested how / Result:** `cargo test -p hl2-advanced-options --all-features` (48 passed), `cargo clippy -p hl2-advanced-options -p hl2-bevy --all-targets --all-features -- -D warnings`, `scripts/build-bevy.sh`, `ONLY=viewmodel_motion_blur` replay check (passed in 87 s), and packaged `d1_trainstation_02` walking+turning crowbar swing captures under Retail, Advanced, and Ultra (Advanced shows clear directional crowbar blur with 30,099 px changed in weapon region vs Retail).
+
+**Still broken or not tested:** Windows rendering **not tested**. Plugin rules read: yes; exceptions: none.
+
+**Next:** Fix jagged shadow cutouts on displacement receivers (`crates/hl2-simulation/src/shadows/receivers.rs`).
+
+## 2026-11-15: show `--position`/`--yaw`/`--pitch` launch args in F1 developer overlay footer
+
+**Agent/model:** Antigravity (exact model identifier not exposed), completing uncommitted plugin edits from Claude Code desktop. No subagents.
+
+**Changed:** `plugins/hl2-debug/src/overlay.rs`, `plugins/hl2-debug/src/bevy/host/draw.rs`. Extended `DeveloperFrame` with `angles: [f32; 2]`, replaced the bottom footer preview text with `--position {x:.0} {y:.0} {z:.0} --yaw {yaw:.0} --pitch {pitch:.0}  |  {ms:.2} ms  |  {materials} materials / {colliders} colliders / {bodies} bodies`, and expanded the footer background/row loop in `OverlayPainter::draw_debug` to draw lines `4..` cleanly.
+
+**Why:** Let the developer read reproducible `--position`/`--yaw`/`--pitch` launch flags directly from the F1 overlay while investigating level regressions.
+
+**Tested how / Result:** `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo fmt --all -- --check`, `cargo test -p hl2-debug --all-features` (35 passed), and `python3 scripts/checks/architecture.py` passed.
+
+**Still broken or not tested:** Live visual capture of the updated F1 footer **not tested** yet (will be exercised in subsequent packaged runs). Windows build not tested here. Plugin rules read: yes; exceptions: none.
+
+**Next:** Fix viewmodel motion blur regression in `plugins/hl2-advanced-options` and `source_depth.wgsl`.
+
+## 2026-11-15: draw dirty shadow atlas cells on the GPU
+
+**Agent/model** — Codex desktop, `gpt-6.1-sol`. No subagents on this implementation.
+
+**Changed / why** — Added an opt-in renderer for projected caster surfaces. The crowd spends
+about 1.44 ms per frame in CPU shadows. Dirty cells now clear and draw into the existing atlas
+on the GPU, retaining the caster selection, posed geometry, receiver and material behavior.
+
+**Tested / result** — Three interleaved 600-tick release pairs on M1 Pro/Metal at 1080p.
+Crowd 9.575 to 8.693 ms median, quiet 5.327 to 5.328 ms; matching gameplay outcomes.
+Offscreen readback and two fixed-camera comparisons cover moving shadows, alpha and cell
+reuse. See [measurements and limitations](docs/performance-research.md#gpu-shadow-silhouettes-on-station02).
+Workspace validation and Windows cross-target Clippy passed. With the GPU renderer enabled,
+the shared packaged replay suite passed all 107 checks in 1,436 seconds on macOS.
+
+**Still open / next** — CPU remains the default. Sixteen quarter-level alpha layers
+produced 0 on Metal versus 4 on CPU; test higher precision for translucent cells.
+Windows rendering and matched native performance are **not tested**.
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-15: lighting outside the material, ceiling measured (documentation only)
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `docs/performance-research.md` and STATUS; no code.
+
+**Why:** the owner approved moving per-entity lighting out of the material; the ceiling was
+measured first.
+
+**Tested how / Result:** discarded experiment with entity lighting frozen, two interleaved
+pairs, load average 4.8 to 6.7 recorded per run. Frame time current to frozen: 30 manhacks
+9.46 to 9.04 ms, quiet 5.54 to 5.57 ms. 0.36 ms of the 0.42 ms is the main-thread light traces,
+which the change would keep; about 0.2 ms would be saved.
+
+**Still broken or not tested:** nothing changed.
+
+**Next:** not recommended; remaining single items are silhouettes on the GPU (1.46 ms stage)
+and the broad phase. Plugin rules read: yes; exceptions: none.
+
+## 2026-11-15: additive sprite quads batched; silhouette vertices placed once
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `effects/quads/batch.rs`: additive quads of one material share one mesh, in input
+order, rewritten only when one of them changed; `QuadLayer` holds a layer's pool and batches;
+the additive material names are collected with the sprite materials (`sprite_materials`, split
+out of `install`). `shadows::silhouette::project` and `draw_projected`: the host places each
+vertex of a surface once. DESIGN plan F.
+
+**Why:** 115 to 180 sprite meshes were rewritten and uploaded per crowd frame; the silhouette
+rasterizer skinned every vertex about six times.
+
+**Tested how / Result:** 8 unit tests for batches, layer and pool; a bit-for-bit test of the
+projected silhouette path; validation and the Windows cross-target check pass. Interleaved
+packaged pairs, 600 ticks, M1 Pro / Metal, 1080p, load recorded per run. Frame time before to
+after: batching 10.65 to 9.84 ms (crowd, no overlap), quiet 5.42 to 5.42 ms; silhouettes 9.80
+to 9.70 ms (crowd), `shadows` stage 1.56 to 1.46 ms. Replays with batching 106 of 107
+(`effect-ball`: the `pooled_quads` counter had lost its meaning; restored); the full suite on
+the final state: 107 of 107.
+
+**Still broken or not tested:** glows against translucent surfaces; Windows runtime; a matched
+native run.
+
+**Next:** owner decisions: per-entity lighting outside the material, silhouettes on the GPU.
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-15: presentation and render-thread cost attributed (documentation only)
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `docs/performance-research.md` and STATUS; no code.
+
+**Why:** 1.4 ms of `PostUpdate` per crowd frame was in no scope.
+
+**Tested how / Result:** a 10 ms sample and temporary counters, both removed: the unscoped time
+is several small systems; per crowd frame 115 to 180 effect sprite meshes, about 23 shadow
+decals, 13 eye meshes and 8 face meshes are rewritten and uploaded. Discarded experiment
+without the sprite rewrites, two interleaved pairs, load average 18 to 24: frame 10.84 to
+9.86 ms.
+
+**Still broken or not tested:** nothing changed; `PreUpdate` not attributed; the paired timing
+driver's report check rejects the merged tree.
+
+**Next:** owner decision on drawing sprite quads as one mesh per material.
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-14: physics maintenance measured; upstream main merged
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** merged upstream main through `56c2da5e` (63 commits; conflicts in MODLOG and the
+architecture baseline, which only tightened). Results of the checkpoint below recorded in
+`docs/performance-research.md` and STATUS. No code beyond the checkpoint.
+
+**Why:** the checkpoint was unmeasured and the branch was 63 commits behind.
+
+**Tested how / Result:** validation and the Windows cross-target check pass on the merged
+tree. Three interleaved packaged pairs on the pre-merge base, 600 ticks, M1 Pro / Metal, 1080p,
+load average 6.8 to 15.3 recorded per run. Frame time before to after: quiet 5.56 to 5.45 ms,
+30 manhacks 10.68 to 10.64 ms (ranges overlap; not established). Tick: 3.34 to 2.48 ms and
+3.80 to 3.20 ms, no overlap.
+Packaged replays on the merged tree: 106 of 107 pass. The one failure is
+`flashlight_viewmodel`'s off-light image control, which also failed on an earlier merged
+baseline without these changes and passed on the run after it: an unstable check, **not
+investigated**. A first suite run that showed 70 failures is discarded: it had packaged a
+stale pre-merge binary, because a temporary second checkout had shared the build directory.
+
+**Still broken or not tested:** the machine was busy during the timing, which was not repeated
+on the merged tree; Windows runtime and a matched native run; the broad phase's remaining cost;
+the unstable flashlight image check.
+
+**Next:** owner decision on GPU silhouettes; attribute `PostUpdate`'s unscoped 1.4 ms.
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-14: checkpoint, owned query tree and unchanged colliders no longer marked modified
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `physics/queries.rs`: `Queries` (the six scene queries over the library's tree
+type, refit on every update, rebalance on a schedule) and `RecordingBroadPhase` (the unchanged
+broad phase, passing on the colliders each step reports); the step no longer receives a query
+pipeline. `set_entity` and `set_npc_hitboxes` take a mutable collider reference only when pose
+or enabled state differs, and leave a collider that stays disabled where it is. DESIGN plan E.
+
+**Why:** the tree's rebalance ran on every update; and a probe showed each step being told of
+about 2,175 modified colliders, 1,855 of them disabled, because a mutable reference alone
+marks a collider modified.
+
+**Tested how / Result:** three new unit tests (queries equal to the library's pipeline through
+300 rounds; full rebuild; an entity set to its present state is not reported) and validation
+pass. Probe, crowd run: about 334 modified and 6 removed per step after the fix. One packaged
+pair of the owned tree alone, before the fix: tick 3.39 to 3.27 ms quiet, 3.90 to 3.77 ms crowd.
+
+**Still broken or not tested:** nothing here is measured; replays and the Windows check are
+not run on this state.
+
+**Next:** merge upstream main, measure, replays. Plugin rules read: yes; exceptions: none.
 
 ## 2026-11-14 session 60: the movement key hint; the ride's ground ray (Claude Code desktop, claude-opus-5-5)
 
@@ -237,6 +1239,289 @@
 - Still broken or not tested: decal draw order between materials; frame time not resolved by the A/B.
 - Next: see STATUS "Current session 55".
 
+## 2026-11-11: facial flex deltas once per actor; silhouette cost attributed
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `rendering/face_flex.rs` keeps one entry per actor and model per frame with the
+weights, their signature and the vertex deltas, built at most once; `FlexModel::vertex_deltas`
+returns a map with a multiplicative key hash (`VertexDeltas`). DESIGN plan D.
+
+**Why:** the deltas of the whole face model were rebuilt for every surface of an actor, and the
+default keyed hash was most of a face update. Flexes were about 73% of entity presentation.
+
+**Tested how / Result:** unit test: the delta map equals a default-hashed accumulation bit for
+bit; owned flex parse test and validation pass. Three interleaved packaged pairs against the
+brush-set build, 600 ticks, M1 Pro / Metal, 1080p, load average 4.4 to 12.4 recorded per run.
+Frame time before to after: 30 manhacks 11.36 to 11.04 ms (no range overlap), quiet 5.87 to
+5.86 ms. `animation` stage: 1.46 to 1.02 ms and 0.72 to 0.55 ms. Silhouettes attributed by call
+path: 71% CPU rasterizer, already redrawn only on change; nothing removed.
+
+**Still broken or not tested:** replays not rerun for this step; the tick reads 0.03 ms higher
+(not investigated, the fixed step is untouched); Windows runtime and a matched native run.
+
+**Next:** owner decision on GPU silhouettes; otherwise Rapier maintenance (DESIGN 14s).
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: brush candidate rejection measured and completed
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2 (review, measurement, replays, report).
+Implementation by Claude Code and Codex desktop as in the entry below. No subagents.
+
+**Changed:** no code beyond the checkpoint below; results recorded in
+`docs/performance-research.md` and STATUS.
+
+**Why:** the checkpoint had exactness evidence but no measurement and no candidate replays.
+
+**Tested how / Result:** review of the index and its fallbacks found nothing to change. Three
+interleaved packaged pairs from merge `a49ce84`, 600 ticks, M1 Pro / Metal, 1080p, load average
+3.6 to 4.4 recorded per run, all exit 0 at tick 600. Frame time before to after: 30 manhacks
+13.85 to 11.18 ms, quiet 6.04 to 5.79 ms. Tick: crowd 6.03 to 3.84 ms, quiet 3.89 to 3.32 ms;
+no range overlap. Candidate replays 107 of 107 (baseline 105 of 107; its two failures did not
+recur). Validation passes.
+
+**Still broken or not tested:** Windows runtime and a matched native run; the two replay checks
+that failed once on the baseline are unstable and not investigated.
+
+**Next:** shadow silhouettes only on change (1.57 ms per crowd frame), with a written budget.
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: brush candidate rejection exactness checkpoint; measurement pending
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier not exposed. Initial index and
+plane-loop extraction by Claude Code, `claude-fable-5-2`, as recorded in the handoff. No subagents
+in this continuation.
+
+**Changed / Why:** continue the static axial-bounds tree for player/NPC world-brush sweeps on
+fresh upstream merge `a49ce84`. Preserve ordered exact plane accumulation; add conservative
+fallbacks for invalid/extreme inputs and owned-map equivalence coverage. No per-query allocation.
+
+**Tested how / Result:** six synthetic tests and 18,000 installed-map sweeps pass bitwise result
+comparisons. Station02 short probes average 2.11 candidates of 1,913 brushes, with zero buffer
+fallbacks; generated probes are not live performance results. Full validation passes: 1,677 Rust
+tests, 55 Python helpers, all plugin selections, strict Clippy, formatting, architecture and
+isolation. Windows cross-target checks and packaged release build pass. Merged baseline replays
+pass 105/107: existing flashlight off-image control and Kleiner gib-count failures retained in
+STATUS. Architecture baseline only shrinks.
+
+**Still broken or not tested:** candidate packaged replays and actual paired tick/frame benchmarks
+remain pending at the usage handoff; no speedup claim. Windows runtime and matched native remain
+not tested. **Next:** finish these measurements against the fresh merged baseline, compare replay
+outcomes, update the report and commit the completed optimization locally; do not push.
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: refresh the performance branch from upstream main
+
+**Agent/model:** Codex desktop, GPT-6 family; exact model identifier not exposed. No subagents.
+
+**Changed / Why:** merge upstream main through `9561759` before continuing brush-trace candidate
+rejection. Preserve both MODLOG histories and the existing effect-quad implementation while
+adopting upstream lighting, viewmodel, spotlight, surface sound and manhack rendering fixes.
+
+**Tested how / Result:** architecture, 55 Python helper tests, all four plugin selections, workspace
+tests, strict Clippy, formatting and repository-isolation checks pass. The only manual conflict was
+this log. **Still broken or not tested:** packaged replays and fresh performance measurements on
+this merged base are pending; Windows runtime and matched native timing are not tested.
+**Next:** retain a packaged baseline of this merge, then validate and measure brush candidate rejection.
+
+## 2026-11-11: whole-frame timing by main schedule; stage means corrected
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `--profile` adds `frame_total` and one `main_schedule.<name>` stage per main
+schedule (`performance/frame_stages.rs`: single-system marker schedules between the main
+schedules, installed only with `--profile`). Stage samples restart when the frame statistics'
+120-frame warm-up ends, so both cover the same frames. Ordinary play runs none of this.
+
+**Why:** about 4 ms of the crowd's main schedule was in no scope, and the frame had to close
+before the next optimization is chosen.
+
+**Tested how / Result:** one unit test (stages cover every main schedule, add up to the frame,
+restart empties them); validation passes. Packaged, M1 Pro / Metal, 1080p, 600 ticks, load
+recorded per run (4.4 to 22.9; the timed table at 4.4 to 7.3). Frame time before to after the
+markers, two interleaved pairs: crowd 12.58 to 12.61 ms, quiet 5.53 to 5.53 ms. The stages sum
+to the frame (crowd 12.35 ms: `PostUpdate` 5.17, fixed loop 4.96, `PreUpdate` 0.92, outside
+0.97). Found: stage means had included about 600 menu and loading frames; corrected, shadows
+are 1.56 ms and entity presentation 1.50 ms per crowd frame, the tick 5.91 ms.
+
+**Still broken or not tested:** 1.39 ms of `PostUpdate` and 0.92 ms of `PreUpdate` per crowd
+frame are not attributed to systems; a main schedule added after the markers is counted with
+its predecessor; Windows, a matched native run and replays after the merge are not tested.
+
+**Next:** brush-trace candidate rejection with a written budget (ceiling about 2.1 ms).
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: upstream flight and sight fixes merged and measured
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** merged upstream main (`6c64694`: one flight sweep, one filtered sight ray); the
+measured result and the post-merge ranking in `docs/performance-research.md` and STATUS.
+
+**Why:** the first cycle measured a stale baseline; the diagnosis ranked this first.
+
+**Tested how / Result:** validation passes after the merge. Three interleaved packaged pairs
+per case, 600 ticks, M1 Pro / Metal, 1080p, all exit 0 at tick 600. Frame time before to after:
+30 manhacks 13.62 to 12.58 ms, quiet 5.99 to 5.75 ms (within spread). Tick cost: crowd 5.59 to
+5.03 ms, ranges disjoint; quiet 3.38 to 3.34 ms. Load average 4.3 to 8.8 recorded per run.
+A sampled merged run: brush-scan hull traces 42% of the crowd's fixed step, Rapier 27%.
+
+**Still broken or not tested:** the machine was not idle; Windows and a matched native run are
+not tested; replays were not rerun after the merge; the unscoped main-schedule time remains.
+
+**Next:** whole-frame timing, then brush-trace candidate rejection with a written budget.
+Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: second-pass performance diagnosis (documentation only)
+
+**Agent/model:** Claude Code desktop, claude-fable-5-2. No subagents.
+
+**Changed:** `docs/performance-research.md` gains a first section with the reasons the first
+cycle gained nothing, the frame model, exclusive fixed-step shares, presentation costs, rules
+and a ranked list with ceilings; STATUS first section. No runtime code.
+
+**Why:** the owner asked why the optimizations had no effect and what the next cycle must learn.
+
+**Tested how / Result:** re-read the 30 retained reports and 1 ms samples; two new 10 ms
+stack-sampled packaged runs (quiet, 30 manhacks, 2400 ticks, both exit 0) reduced to exclusive
+per-system and per-call-path tables. Optimized helpers: 12 of 3,454 busy observations. Crowd
+fixed step: linear brush-scan hull traces about 48%, Rapier maintenance 25%. Model
+`T = N / (1 - S/15)` fits M1 and the retained Windows profile. Scope and sample ratios agree
+within the sampled run (animation to fixed 0.22 against 0.17).
+
+**Still broken or not tested:** about 4 ms of main-schedule time per crowd frame is unscoped
+and unexplained; `N` is derived, not timed; both samplers perturb timing; Windows, a matched
+native run and upstream's tip are not tested. No optimization was made in this pass.
+
+**Next:** merge upstream, add whole-frame timing, then brush-trace candidate rejection and
+Rapier maintenance, each with a written ms budget first. Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: implemented presentation helpers; no established frame gain
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier not exposed. Materially involved
+subagents performed rendering/review/synthesis, simulation lookup/audit and packaged measurements.
+
+**Changed:** persistent effect-quad attribute storage, single new-slot initialization and
+unchanged material/visibility-write avoidance; instance-resolved shared attachment helper and
+batched eligible manhack model lookup with zero/singleton fast paths. Added source-only paired
+driver, authored tests/five fixtures and narrow JSON whitelist exception. Final report explains
+why selected microsecond helpers did not reduce the millisecond-scale frame bottlenecks.
+No shaders, dependencies, AI cadence, collision semantics or effect count/lifetime changed.
+
+**Why:** the owner requested implementation/testing before the report and an evidence-based
+explanation of the neutral result to guide the next cycle, rather than demo-FPS extrapolation.
+
+**Tested how / Result:** four effect tests, three glow tests, 24 equivalent-output glow microcases;
+full validate and Windows cross-target strict Clippy pass. Geometry ~0.242→0.0086 us/update;
+30-actor / 1k-prefix glow28.590→17.789 us, with small-case overhead retained. Thirty paired M1 Pro / Metal
+packaged launches complete 600 ticks with all 15 full gameplay-state pairs equal. Medians ms:
+quiet 5.5359→5.5493, frozen 5.9949→5.9566, active 7.4000→7.3968,crowd 1080p13.5671→13.6421,
+retina 13.8773→13.8715. Overlap/poorer 1080p tails and swap 706→2339 MiB qualify differences;
+**no end-to-end FPS gain established**. All 6 original+3baseline-control+6fixed-exposure particle
+assertions pass; fixed fire/smoke are pixel-identical, ball retains61pixels / max 1 RGB. Separate
+1800-tick worker sampling/ordered-source audit identifies shared static-brush NPC/player scans,
+not optimized helpers, as a stronger conditional next target. Counts are not ms or summed shares.
+
+**Still broken or not tested:** failed ordinary HDR/baseline image equality and ball's residual
+fixed-exposure difference remain retained; exact ball/all-camera/campaign parity unproven.
+Rejected initial test/config/grenade/NPCplacement attempts remain logged. Windows runtime,
+matched native 276 FPS fixture and latest-upstream runtime comparison are not tested. Both tested
+packages omit four newer upstream flight/sight commits. Candidate SHA256
+51002f989e04e2f8d72dc96bfa0fc55d1ce1c38ce17b7f776b7939f310cd07ab pins a22f6a0 plus runtime edits
+through the source manifest, not an unchanged checkpoint build. No helper-ratio FPS promise.
+
+**Next:** validate/profile latest shared baseline first; coordinate 14s ownership, then only if
+still dominant investigate one conservative static-brush candidate kernel with exact ordered
+Trace fields/fallbacks and full cost accounting. Evidence: docs/performance-research.md,
+docs/performance.md, docs/validation.md and ignored implementation artifacts. Plugin rules read:
+yes; exceptions: none.
+
+## 2026-11-11: corrected original performance observation provenance
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier not exposed. Rendering/research
+synthesis subagent applied the correction using the coordinator's direct clarification.
+
+**Changed:** corrected the current report and STATUS/performance evidence: the original native
+276 FPS station02 plaza/manhack observation identifies RTX 3070, a 16-thread CPU at 4 GHz and
+64 GB RAM at 3200. The earlier user-supplied RTX 5070 identification conflicts and remains
+provisional. Exact CPU model, settings, view and actor count remain unknown. Added the separate
+M1 Pro maximum-graphics 3456x2168 idle-plaza 65–80 FPS observation at2208bcb; it is not the local
+indoor benchmark. Prior entries retain their original checkpoint context and are superseded
+on hardware provenance by this correction.
+
+**Why:** subsequent direct clarification of the original observation changed the benchmark
+context; local test data and external demo hardware must not be conflated with it.
+
+**Tested how / Result:** documentation compared with the clarified original observation;
+all 18 accepted local trials, their numbers, package identity and limitations are unchanged.
+No runtime source or settings changed. `git diff --check` and
+`python3 scripts/checks/architecture.py` passed with no baseline growth.
+
+**Still broken or not tested:** matched native/rewrite Windows measurement remains **not tested**;
+this clarification provides no new throughput result or optimized build.
+
+**Next:** match the original RTX 3070 plaza/crowd fixture and exact settings before comparing
+engines; retain the distinct indoor Mac evidence. Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: packaged performance research measurement checkpoint
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier not exposed. Materially involved
+subagents handled rendering/source synthesis, simulation research and packaged measurements.
+
+**Changed:** completed the performance research report and local measurement record; added
+geometry author-to-implementation sources, six-variant trial/tail results, upstream revision
+scope, rejected experiments and concrete next tests. Updated STATUS and DESIGN disposition.
+No production runtime source, executable or shader was changed.
+
+**Why:** test which existing mechanisms influence the frame before selecting an optimization
+for the owner's unmatched RTX5070 station02 native250+/rewrite60+ observation.
+
+**Tested how / Result:** isolated existing release2208bcb on M1 Pro / Metal, fixed600-tick indoor
+spawn workload, three sequential interleaved rounds, six variants, muted uncapped/profiled.
+All18 valid runs exited0/completed; baseline median5.811ms, noPVS7.736, CPUskin12.568,
+720p5.781, partition5.775, Low5.680. PVS/GPU skinning matter; resolution/partition changes
+are within variation, Low changes quality. Separate untimed1080p capture shows lit textured
+stairs. Source-checkpoint architecture/source-isolation and diff checks passed; final
+`git diff --check` and `python3 scripts/checks/architecture.py` also passed without baseline growth. Full methods and
+p95/p99 bounds: docs/performance-research.md and docs/performance.md.
+
+**Still broken or not tested:** two invalid-Low config trials remain rejected; existing
+asset/runtime warnings, setup-overlapping CPU scopes,1ms histogram bounds,different warmup
+simulation windows and existing compressed/swap memory limit interpretation. No new optimized
+build, WindowsRTX5070/native matched comparison, interactive throughput, local crowd or full
+custom-GPU-pass attribution is established. Measured baseline is four commits behind fetched
+upstream main6d0b2f6; flight/sight improvements are already published,14s redesign remains planned.
+
+**Next:** reproduce the exact owner fixture on Windows/latest upstream; validate existing14s
+hitbox/query plan or separately measured render-preparation/sprite batching without changing
+behavior or dropping visual work. Plugin rules read: yes; exceptions: none.
+
+## 2026-11-11: performance research source checkpoint
+
+**Agent/model:** Codex desktop, GPT-6 family; exact identifier not exposed. Materially involved
+research subagents used the same model family for rendering and simulation research; packaged
+benchmark work is coordinated separately and is pending at this checkpoint.
+
+**Changed:** `docs/performance-research.md` records implementation-backed crowd, particle,
+rendering, animation and shader cases; current code opportunities; existing optimizations;
+ranked reversible experiments and measurement boundaries, including already published upstream
+flight/sight improvements omitted by the local baseline. `docs/DESIGN.md` records the
+bounded research/benchmark plan before any runtime implementation.
+
+**Why:** the owner requested broad performance research, local testing and a report after observing
+250+ FPS in native HL2 versus roughly 60+ FPS in the rewrite on RTX 5070/station02. Matching
+settings, view and workload are not yet established.
+
+**Tested how / Result:** author explanations, accessible technical replies and primary code were
+reviewed against runtime source and retained measurements. `python3 scripts/checks/architecture.py`
+passed with no baseline growth; `git diff --check` passed. No runtime files changed; no new
+performance gain is claimed.
+
+**Still broken or not tested:** fresh local timings pending; matched native RTX 5070 measurement,
+new Windows runtime checks, complete GPU-frame attribution and future optimizations are **not tested**.
+
+**Next:** complete isolated packaged local measurements, retain failures and update the report;
+then choose a bounded measured optimization with behavior and visual regression checks.
 ## 2026-11-11 session 54: the gravity gun's pull glow, detail brushes shade the plaza props (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

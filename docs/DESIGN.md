@@ -1,5 +1,373 @@
 # Design
 
+## Console log file, `say`, remote console and screenshots; agent link (2026-11-20, bounded plan; owner request)
+
+Goal: a developer (or a debugging agent) follows a running game live and talks to its player
+through the console. The installed engine already has the pieces (engine.dll strings:
+`-condebug`, `con_logfile`, `con_timestamp`, `-usercon`, `rcon_password`, `hostport`, `ip`,
+`sv_rcon_*`, `screenshot`, `jpeg`; server.dll: `say`), so core rebuilds those as retail
+features. Everything about following the stream on the other side (the agent link) is a
+`hl2-debug` feature, separate from the F1 overlay.
+
+Core (retail; each phase its own commit, tests in the owning crate):
+1. **Console log file.** `con_logfile <file>` and `-condebug` (`console.log`) append everything
+   the console prints, including `] command` echoes; `con_timestamp 1` prefixes each line as the
+   history shows it. Files go next to the settings file (never into the installation: a
+   deviation from retail, which writes into the game folder); a path may not be absolute or
+   climb with `..`. `ConsolePanel` numbers lines (`output_start`), so the host keeps a cursor and
+   writes the lines printed since; off, the system compares two integers and returns. On, one
+   buffered write and flush per frame that printed something. Frame time with logging on and
+   off is recorded in MODLOG.
+2. **`say <text>`.** Prints `<name>: <text>` (server.dll's `%s: %s`); the player's name is
+   `Player` until a `name` cvar exists (retail's exact single-player name **not verified**).
+   From the remote console the name is `Console`.
+3. **Remote console.** `-usercon` starts a listener thread on `ip` (default `127.0.0.1`) and
+   `hostport` (default 27015) speaking Valve's documented RCON packets (auth, exec, response).
+   Commands run only while `rcon_password` is non-empty; it is never saved. Failed
+   authentications follow `sv_rcon_maxfailures`/`sv_rcon_minfailures`/`sv_rcon_minfailuretime`
+   (the client is dropped and its address banned for the run). A frame system drains a channel
+   with `try_recv`; each command runs through the console like a typed one, and the lines it
+   prints are returned to the client and taken out of the local history (retail redirects them),
+   except `say`, whose labelled chat line the player sees once. For commands other than chat-only lines, `sv_rcon_log 1` (default) logs
+   `rcon from "<address>": command "<line>"`. Without `-usercon` no thread or system exists.
+4. **`screenshot`.** Saves the next presented frame as PNG through the `--capture` readback into
+   `screenshots/` next to the settings file (retail writes into the game folder) and prints the
+   path. `jpeg` is not implemented.
+
+`hl2-debug` (non-retail, application feature `debug-tools`):
+5. **Agent link.** Everything only a debugging agent needs lives in `hl2-debug`'s `agent`
+   module, separate from the F1 overlay: `ui_dump` prints the UI state (windows, focus, menus,
+   map, position, pause) as one JSON line that the log file and the remote console carry. The
+   game is started with the retail switches (`-condebug -usercon +rcon_password ...`); the
+   cross-platform session skill and scripts live in `.agents/skills/hl2-session/` (with
+   `.claude/skills/hl2-session/SKILL.md` forwarding for Claude Code). `agent_resume` prints the launch arguments
+   that restart into a new build at the same map, view and open menus (`--map`, `--position`,
+   `--yaw`, `--pitch`, then retail `gameui_activate`, `gamemenucommand`, `toggleconsole`).
+
+Validation: unit tests for path rules, the line cursor (including lines dropped from a full
+history), packet framing, authentication and bans, output redirection, `say`; one packaged run
+with `-condebug -usercon` driven by an RCON client (`getpos`, `say`, `screenshot`), and the
+frame-time pair. Not in scope: `jpeg`, `log on` server logs, remote access beyond the bind
+address the owner chooses.
+
+## Station luggage encounter and 30-NPC workloads (2026-11-18)
+
+The installed station01 trigger enables an actor condition with a 500-unit range, a 50-degree
+true view cone and required player LOS. The compiled shove scene asks the citizen to walk to
+its third target with the close-distance-once qualifier. Private retail server function
+100cffb0 contains separate satisfaction and timeout output paths. SDK
+`game/server/ai_scriptconditions.cpp` evaluates every quarter second, with distance and
+view gates before player LOS. Implement the named-actor condition subset used here, keep
+unsupported predicates inactive, and test the actor's movement and the scene completion
+through map I/O. Keep runtime work proportional to authored conditions.
+Measure a quiet scene and 30 ground and flying NPCs using matched packaged builds. Reduce
+repeated perception work without changing think rates, target selection or collision.
+
+## GPU silhouette experiment (2026-11-15)
+
+On station02, omitting CPU triangle coverage took the 30-manhack frame from 9.69 to 9.04 ms.
+Test whether a real GPU pass can recover a measurable part of that budget. Retain the production
+CPU renderer as the reference. On the experimental path keep the same poses, dirty-cell decisions,
+cell allocator, receiver geometry and shadow material. Draw the projected surfaces into the existing
+R8 page before the camera pass, clearing just the updated cells. Reuse upload buffers. Include
+opaque, two-sided and texture-alpha coverage, as well as a moving caster and an untouched neighbour,
+in GPU readback comparisons. Compare packaged fixed-view images, then run three alternating quiet
+and crowd pairs with machine telemetry. Report whole-frame and tail costs alongside the CPU stage.
+Enable by default only if the visual evidence and sustained frame-time results support it.
+
+## Performance implementation and validation phase (2026-11-11)
+
+The owner clarified that techniques must be implemented and tested before the final report.
+Existing research and sensitivity results are preliminary. No new speedup is established.
+Keep the clarified RTX 3070 / station02 plaza / native 276 FPS observation distinct from the
+local M1 Pro indoor workload; native/rewrite settings and exact CPU model remain unknown.
+
+### A. Reuse effect-quad storage and avoid unchanged ECS writes
+
+Implement a bounded host-adapter change in the existing effects quad pool, without a new
+graphics pipeline, dependency or crate edge. Reuse the shadow draw module's existing pattern
+for persistent mesh attribute storage rather than constructing replacement vectors/meshes on
+every changed quad. Search and reuse shared buffer helpers where suitable. A newly allocated
+pool slot must receive its quad geometry once, rather than creating a mesh and immediately
+replacing it again. Keep mesh handles and ECS entities pooled; skip redundant material,
+visibility and bounds commands when their values are unchanged. Do not expand files already
+over architecture size limits: place the concern in a child module as needed.
+
+Preserve exact vertex/index order, UVs/colors, blend/material semantics, alpha sorting,
+render layers, camera eligibility, AABBs and show/hide transitions. No particle simulation,
+RNG, clocks, lifetimes, Source behavior or graphics quality changes belong to this step.
+Moving cameras and monitor/viewmodel paths must retain current geometry and visibility.
+
+Validate geometry arrays and final images against the retained baseline; cover new slots,
+changed/unchanged quads, material changes, shrinking/growing/empty pools and reuse after hiding.
+Use meaningful assertions on exact output and state, not tests that mirror setter calls.
+Run relevant crate tests, strict Clippy, formatting and architecture checks; packaged effects
+replays must complete with expected gameplay outcomes and no pose/visibility mismatches.
+Retain rejected attempts and actual captures alongside accepted results.
+
+Measure isolated packaged baseline/current builds in at least three interleaved rounds for
+both zero-effects and dense-effects completed fixed-duration workloads. Keep settings, scene
+time/view, plugins, warmup and profiling status explicit; separate screenshot readback from
+timing. Record total frame mean/tails, effects CPU, render-asset preparation and allocation/
+upload work where available. CPU wall scopes are not GPU timestamps. A zero-effects regression
+is not excused by a dense-effects win. Report variation and any unavailable counters; claim a
+speedup only after the before/after evidence supports it, with visual/behavior checks passing.
+Keep each validated change independently reversible and reviewable.
+
+### B. Resolve manhack glow model instances once per presentation
+
+The current glow iterator calls the shared attachment helper for each eligible manhack;
+that helper scans all model instances for the actor's first match. Replace repeated scans
+with one scoped pass: collect eligible actors in their existing sorted order, find their
+first matching instances through binary search into that list, then evaluate the same
+shared attachment math. Extract a crate-private instance-resolved attachment entry point;
+keep the existing public helper and its first-match behavior. No persistent index, public
+World contract, simulation timing, pose sampling or cache lifetime changes are introduced.
+No eligible actors means no model scan or allocation; one eligible actor uses the original
+lookup without temporary storage. This fast path addresses the measured small-population
+overhead in the first isolated CPU experiment. Preserve visibility, corpse/killed,
+strobe, AI-disabled, missing rig/attachment and current animation/scale behavior.
+
+Before qualification, compare ordered outputs against the existing public attachment helper
+for arbitrary instance order, duplicate instances, missing data, hidden/killed/corpse actors,
+stunned frames, AI-disabled state and scaled animated attachments. Add an ignored isolated
+CPU benchmark with unrelated-instance counts and output equivalence, then use packaged
+crowd timing/visual evidence. Report measured overhead as well as wins; avoid claiming a
+whole-frame improvement from a lookup-only result. Preserve upstream trace improvements
+and the existing 14s hitbox/query-maintenance ownership; do not combine hypothetical savings.
+
+### Completed disposition and conditional next cycle
+
+A and B are implemented. Four effect tests and three glow equivalence tests pass; full local
+validation and Windows cross-target Clippy pass. Thirty paired packaged runs preserve all 15
+full gameplay-state pairs but establish no frame-rate improvement; isolated helper savings
+were too small to target the millisecond-scale critical work. The original frozen path already
+skipped unchanged geometry. Fixed-exposure fire/smoke image checks pass exactly; ball retains
+61pixels / max 1 RGB, so no full pixel-parity claim. Retain the failed ordinary HDR and baseline-repeat
+comparisons. Detailed timings, memory drift, tails and source/package identity are in
+performance-research.md and performance.md.
+
+Current-only worker sampling identifies the shared full static-brush hull trace as a stronger
+conditional candidate, especially NPC flight/sweep paths. First validate and profile a shared
+baseline with existing 4805c93 / 7f0e9ff fixes (published main 6d0b2f6): this cycle's base omits them,
+so observed repeated static scans can be stale/amplified. Check unprofiled throughput separately
+from profiling fences. Coordinate existing 14s hitbox/query ownership; do not duplicate it.
+
+Only if that kernel remains dominant, bound ONE experiment around conservative static-brush
+candidate rejection. Count actual queries/brushes/planes/candidates by consumer before coding;
+reuse existing swept-AABB query traversal with a represented-collider→original-brush mapping
+and exact fallback set for failed/unproven conversions. PVS is not a collision index. Keep one
+exact plane accumulator in original brush order, preserving epsilon, contents, equal-hit normal
+ownership, start_solid and all_solid: per-brush minimum merging is not equivalent. Dynamic doors/
+props retain their separate pose-aware path. Validate tangent/overlap/escape/all-solid/corner,
+clip-mask/large-hull/fallback cases and owned-map sweeps against the full-scan oracle. Include
+candidate sorting, scratch allocation and maintenance cost in before/after measurements. No new
+index, API/contract change, persistent memory note or projected FPS is part of this cycle.
+
+### C. Exact candidate rejection for world brush traces (2026-11-11, bounded plan)
+
+Budget (timed frame, M1 Pro, 30 manhacks): world brush hull traces are about 42% of a 5.91 ms
+tick, about 2.1 ms per 12.35 ms frame; each call scans every world brush and most of their
+planes. Expected saving: most of that share in the crowd, about 0.3 ms per quiet frame.
+
+Design: `modkit_core::BrushSet` owns the world brushes with a static bounds tree built once at
+map load, and `BrushSet::trace` replaces the full scan for the player hull and NPC hull traces.
+A brush's box comes only from its own axis-aligned planes (BSP bevel planes); a brush lacking
+one of the six is checked individually against the axial sides it does have. A brush is skipped only when the swept hull's box is
+farther than a slack well above the 1/32 collision epsilon from that box on some axis: then one
+of the brush's own axial planes has the hull outside it by more than the epsilon at both ends,
+for which the plane loop itself yields no hit and no solid flag. Candidates run through the one
+existing plane accumulator in ascending brush order, so epsilon, contents, equal-hit normal
+ownership, start_solid and all_solid are unchanged. Candidates are gathered into a fixed stack
+buffer and sorted; overflow, invalid hull ordering, non-finite inputs or sweep coordinates/hull
+extents beyond magnitude 65,536 fall back to the full scan. Non-finite brush planes or distances
+beyond that limit stay in the unconditional candidate list. This bounds axial arithmetic rounding
+well below the 0.125-unit slack; no claim of exact rejection is made outside that domain. No allocation
+per trace, no new dependency, no change to the collision contract.
+
+This replaces the earlier idea of reusing the physics query tree with a collider-to-brush map:
+that tree's boxes come from converted hulls, not from the brush's planes, so skipping by them
+is not provably exact, it needs a fallback set for unconverted brushes, and plan 14s intends
+to take static colliders out of its per-step maintenance.
+
+Validation: unit tests compare `BrushSet::trace` with the full scan bit for bit on generated
+brush fields (touching, overlapping, start-solid, all-solid, corner, mask, large-hull, overflow
+and unbounded-brush cases) and, as an owned-install test, on sweeps through a campaign map.
+Measurement: tick cost at a fixed tick count, interleaved pairs, load recorded. Reversible by
+restoring the two call sites.
+
+### D. Facial flex deltas once per actor (2026-11-11, bounded plan)
+
+Budget (sampled crowd, M1 Pro): entity presentation is 1.45 ms of an 11.1 ms crowd frame and
+0.70 ms of a 5.8 ms quiet frame; facial flexes are about 73% of its samples (the per-vertex
+loop 43%, `vertex_deltas` 24%, descriptor weights 7%). The deformation is already skipped while
+an actor's quantized weights are unchanged, so the cost is paid by faces that are moving.
+
+Waste found: the vertex deltas of the whole face model are rebuilt for every surface of the
+actor in the same frame, although all its surfaces share one set of weights; and both building
+and reading them hash every vertex key with the default keyed hash.
+
+Design: the frame's per-actor entry keeps the weights, their signature and the deltas, built at
+most once and only when a surface's signature differs. The delta map keeps its key and its
+accumulation order (so sums are bit-identical) and uses a plain multiplicative hash of the
+three 16-bit key parts. Not part of this step: moving flexes to the GPU, changing the
+quantization, or changing which vertices are written to the mesh.
+
+Validation: a unit test that the delta map equals the default-hashed one entry for entry on
+generated flex data; the existing owned-file flex tests; packaged replays (face and scene
+checks). Measurement: frame time and the `animation` stage, interleaved pairs, load recorded.
+Reversible by restoring `face_flex.rs` and the map's hasher.
+
+### E. Query tree owned by the game (2026-11-11, bounded plan; replaces 14s performance step 2)
+
+Budget (10 ms samples, M1 Pro): the query tree update inside the physics step is about 0.6 ms
+per tick and `refresh_entity_queries` about 0.1 ms, of a 3.3 ms quiet and a 3.8 ms crowd tick,
+with about four bodies awake. The cost is the tree's rebalance, which rebuilds every node above
+depth 5 on each call; rapier3d's query pipeline only offers it together with the refit.
+
+Design: `physics::queries::Queries` holds the same tree type (`Qbvh<ColliderHandle>` from the
+physics library's geometry crate, already a dependency) and offers the six queries the game
+uses with their present signatures: ray, ray with normal, shape cast, shape intersections,
+point projection and box overlap. The step no longer receives a query pipeline. A recording
+wrapper around the unchanged broad phase collects the colliders each step reports as modified
+or removed, and `Physics` applies them after the step. Every update removes, inserts and
+refits exactly as before, so the tree always holds current boxes; the rebalance runs when a
+collider was inserted or removed, or after 64 refits that changed something. Full rebuilds
+(`refresh_queries`) are unchanged.
+
+What can differ: only the tree's shape between rebalances, hence the order candidates are
+visited in. Query contents are the same; a tie between equally near hits could resolve
+differently. Not part of this step: the broad phase, hitboxes on demand.
+
+Validation: unit tests that every query returns the same result as the physics library's own
+pipeline over the same colliders through moves, inserts, removals and skipped rebalances; the
+existing physics tests; all packaged replays. Measurement: tick cost at a fixed tick count,
+interleaved pairs, load recorded. Reversible: `Physics::query` goes back to the library type.
+
+### F. Additive sprite quads drawn as one mesh per material (2026-11-15, bounded plan)
+
+Budget (merged tree, M1 Pro, 30 manhacks): 115 to 180 sprite quad meshes are rewritten and
+uploaded again per frame, one mesh asset each; the render thread's mesh allocation is about
+2.7 ms per frame and the main schedule waits about 1.7 ms on it. A discarded experiment
+without the rewrites took the frame from 10.84 to 9.86 ms: the ceiling for all quads.
+
+Design: quads whose material blends by pure addition (source alpha, one: kind 3, with or
+without the glow depth mode) are gathered per material and layer into one mesh, in their
+input order, rewritten only when a quad of that material changed, in place while the quad
+count is unchanged. Every other quad keeps its own mesh and draw exactly as now. Additive
+quads commute among themselves, so their order inside a batch cannot change the image.
+
+What can differ: a batch is sorted against other translucent draws as one object, by the
+centre of its bounds, where each quad was sorted by its own centre. A glow in front of or
+behind a translucent surface (glass, smoke) may be drawn on the other side of it than before.
+Per-view visibility is tested per batch, not per quad. Alpha-blended, alpha-add and modulate
+quads are not batched because their order matters.
+
+Validation: unit tests for batch contents, input order, rewrite only on change, show and
+hide, material and layer; the existing pool tests unchanged in meaning; packaged replays,
+whose image checks cover muzzle flashes, glows and env_sprite. Measurement: frame time and the
+render thread's asset stage, interleaved pairs, load recorded. Reversible: an empty additive
+set restores one draw per quad.
+
+### G. NPCs steer around each other instead of stopping (2026-11-15, bounded plan)
+
+Owner report: on d1_trainstation_02's plaza two citizens meet head-on on a sidewalk and stand
+facing each other (F1: `--position -2375 -1481 60 --yaw 6 --pitch -28`). Ours: a ground move
+that meets another NPC or the player stops the goal (`GoalState::Blocked(Collision)`), waits
+1.5 s and replans the same graph route, so two NPCs walking at each other block for good.
+
+Source (SDK `ai_navigator.cpp`, `ai_localnavigator.cpp`, `ai_planesolver.cpp`): a move blocked
+by an NPC (AIMR_BLOCKED_NPC) is steered before it is failed. OnObstructionPreSteer deflects along
+the obstruction's surface (CalculateDeflection: the heading projected onto the hit plane) when
+that keeps within 0.7 of the heading; the plane solver probes an arc either side of the heading
+(270 degrees, 5 probes; 340 when very close) with nearby NPCs and the player as circular
+obstacles; PrependLocalAvoidance triangulates a waypoint around. Player companions also tell an
+idle ally that blocks them to move away (SCHED_MOVE_AWAY).
+
+Step 1, this change: when a ground step is blocked by an actor (the hull trace's transient
+flag, now carried in `GroundMove::by_actor`), `npc::steer` tries the deflection, then
+directions 30, 60 and 90 degrees either side of the heading, the side away from the
+obstruction first; head-on, where neither side is freer, it takes the right (our tie-break,
+so two NPCs meeting head-on pass each other). The first direction whose step covers at least
+half the wanted distance is taken for this step; the route is unchanged, so the next step heads
+for the waypoint again. World obstructions keep today's handling.
+
+Not in this step: the full plane solver (weighted suggestions, look-ahead before contact),
+triangulated waypoints, give-way schedules.
+
+Validation: unit tests (head-on actors pass each other and both arrive; a world wall is not
+steered around; deflection along a slanted actor surface), the packaged plaza replays and
+gameplay replays, a plaza capture at the owner's position.
+
+### H. Blended displacement textures (WorldVertexTransition, 2026-11-15, bounded plan)
+
+Owner's retail screenshot of d1_canals_01a: the mud bank shows a second, straw-covered texture
+blended into the mud; ours draws the first texture only. The map's displacement materials use
+WorldVertexTransition (`nature/blendmudmud001a`: `$basetexture` mudfloor001a, `$basetexture2`
+mudfloor002a). Source SDK `lightmappedgeneric_ps2_3_x.h`: `blendfactor` is the vertex colour
+alpha, and `baseColor = lerp(baseColor, baseColor2, blendfactor)`, alpha too; a displacement
+vertex's alpha is its dispvert alpha (0..255).
+
+Steps: (1) the BSP loader puts each displacement vertex's alpha into its colour alpha; (2) the
+material loader reads `$basetexture2` (cubemap-patched map materials included); (3) the second
+base is uploaded like the first and bound in the material's second texture slot, with a new
+`parameters.w` mode (2) that lerps the bases by vertex alpha right after sampling; (4) the world
+shader ignores vertex alpha as output alpha for these surfaces, so terrain stays opaque. Not in:
+`$blendmodulatetexture`, `$bumpmap2` (not used by HL2's materials here).
+
+Validation: unit tests for the dispvert alpha and the parameter mode; an owned test that the
+canal's patched material has its second base; captures against the retail screenshot; frame
+time A/B on d1_trainstation_02 and d1_canals_01a; replays (eye and face checks guard the shared
+texture slot).
+
+### I. One HL2RS mixer for every sound (2026-11-20, bounded plan; owner request)
+
+Budget (mixed crowd, M1 Pro): the audio output thread is about 77% busy mid-fight with up to 84
+sounds playing, 4% with 13 in the quiet plaza: about 1% of a core per sound. Each sound is its own
+audio-library player whose source chain (about ten nested sources) runs per output sample, with a
+sample-rate converter rebuilt per span and an allocation and lock whenever its queue moves on.
+
+Design: the host plays one source for the whole game, `audio::mixer`: it mixes every voice into a
+block of 256 stereo frames at the backend rate (48 kHz) under one lock, then hands the block out
+sample by sample. A voice reads the 16-bit PCM of an already loaded backend WAV in place (no copy,
+no decode), steps through it at its speed (pitch / 100) with linear interpolation (mono to both
+channels), and applies its volume ramped linearly over the block. Sound entities keep their
+`SoundPlayer` and carry a `Voice` handle instead of a library player; the handle sets volume,
+speed and pause, reads position and end, and stops the voice when the entity despawns. Finished
+one-shot voices despawn their entity as the library's despawn mode did. The retail channel rules,
+captions, lip sync, patches and soundscapes are unchanged.
+
+What can differ: interpolation details of pitch shifting (both are linear), volume changes ramp
+over 5 ms instead of stepping, and a sound starts at the next block instead of the library's next
+poll; no audible difference is expected.
+
+Validation: unit tests for block mixing (volume, ramp, pitch step, mono to stereo, loop, pause,
+end, stop on drop) and WAV parsing; the existing audio tests; packaged replays; a listening check
+of station02's plaza and a crowd fight. Measurement: audio thread busy share in the mixed crowd
+before and after, frame time A/B. Reversible as one commit; the library player path is not
+kept beside it.
+
+## Performance research and benchmark plan (2026-11-11)
+
+Before runtime implementation, map author-documented crowd, particle and renderer techniques to
+current costs and existing optimizations; record sources, applicability and rejection reasons in
+`docs/performance-research.md`. Keep the existing 14s on-demand hitbox/query-maintenance plan
+as the first measured implementation candidate. Upstream `4805c93` and `7f0e9ff` already remove
+repeated flight/sight queries; validate and reuse that work rather than duplicate it. Research
+claims are not HL2-RS gains.
+
+Establish isolated packaged release measurements with declared settings, view, workload, warmup,
+completed scripts and repeated alternating trials. Separate fresh contributor results from retained
+Windows profiles and the observer's unmatched RTX 3070 station02 observation. Attribute fixed ticks,
+render preparation, per-view work and custom GPU passes without adding overlapping scopes.
+Preserve source behavior, current bounds, monitor views and exact trace results. Any later runtime
+experiment receives its own bounded design, regression checks and before/after frame-time evidence;
+this checkpoint changes documentation only. Fresh timing disposition: 18 valid fixed-600-tick
+packaged sensitivity runs at station02 indoor spawn are complete; existing PVS/GPU skinning
+matter, while resolution/partition changes are within variation. Methods, rejected Low trials
+and limits are recorded in docs/performance-research.md. No new optimized build or matched
+RTX 3070/native result is established.
+
 ## Current-count integration disposition (2026-11-03 HH)
 
 HH admits the integration described below through authored full/partial-cap andFP controls. Count identity uses the same active stopped event/lifetime/generation andnested sidecar, with both wrapper words joined to each independent current model-wrapper read. The remaining bounded action is a fresh-root native observation after ownership clears, preserving current-count versus earlier-getter history andstatic type-candidate versus entity identity. HF's earlier cutoff stays frozen; HH has a separate seal.
@@ -2045,6 +2413,8 @@ Result (fast zombie step 2, session 44; fcef36a, 023b17c): as planned, in npc/li
 14p session 50 npc_manhack step 6, OnTakeDamage_Alive's reactions (SDK hl2/npc_manhack.cpp 669-810, retail 103972e0, same constants). `entities::NpcDamage` replaces the damage tuple: victim, by the player, damage, force (kg in/s; the entity damage path carries only its direction) and kind; `hits::report_hit` reports bullets and clubs with their force and fires OnDamaged; `AiClass::hurt` hands it to the class; ai/manhack/damage.rs `Manhack::hurt`: a club (x 1.5 in `hits::club_damage`) bats it along the swing by damage x 200 / 3.69 kg plus damage x 0.5, NPC_Manhack.Bat, a 0.5 s stall, StopBurst and the stunned eye; any other hit adds its own force over its mass (VPhysicsTakeDamage gets the unscaled info) and damage x 20, with a 0.25 s stall; both replace a longer stall; DMG_PHYSGUN is left to the punt and DMG_GENERIC has no force. The push runs along the attack (CNPC_Manhack::TraceAttack sets g_vecAttackDir). Not in: the club's turn toward a light physics object within 128 units ahead, CorpseGib's club gibs, DMG_AIRBOAT. Step 6b: the smoke trail at half health (SDK CreateSmokeTrail values) through `explosion_particles::bullet::SmokeTrail`, shared with the scanner's, and `EffectKind::ManhackSmoke`; `AiClass::hurt` reads the health after the hit from the scene. Step 6c: a club's knock waits in `Manhack::batted` until the flight stage, which has the physics, aims it (`manhack::club_aim` over the light props' middles and masses) and applies it (`Manhack::bat`). Step 6d: `Manhack::club_kill` and `gib_motion` give CorpseGib's velocity and spin to `break_body`, which now takes a spin (the scanner passes none).
 14s performance step 1 plan for session 53 (owner's request 2026-11-10; evidence docs/performance.md "Owner's manhack plaza on Windows"). Two independent, reversible changes, each measured on artifacts/s52/make_walk.py's plaza scene before and after. (1) Hitboxes on demand, as Source tests hitboxes only when a trace reaches an NPC: `pose_npc_hitboxes` stops posing every NPC every tick; NPC hitboxes are marked stale each tick and posed (with a query refresh) only for NPCs whose bounds a hitbox-capable query (bullet, melee, tracer, impact and decal rays) touches, before that query runs. First list every query that reads hitboxes (`hitgroup`, `hitbox_bone`, studio hitbox colliders). Expected about 2 ms a tick off the crowd scene. (2) Our query pipeline out of `PhysicsPipeline::step`: pass None and update it ourselves after the step with the colliders of awake bodies plus the changed, inserted and removed colliders we track (every insert/remove site must report), refit every tick and rebalance only every N ticks or after large changes. Expected about 1 ms a tick. The Rapier inserts and removals are all inside `Physics` (about ten collider inserts in physics.rs and its body-removal path); route them through two helpers that queue the tree's changes. Not in this step: the broad phase (1 ms; a test with the hitboxes in their own collider set and query tree comes after), the AI's per-manhack cost, the render CPU. Validation: unit tests for staleness and for trace results equal before and after on fixed poses; all replays; the plaza profile.
 
+14s broad phase (2026-11-20): done without a collider set of its own. Trace-only colliders (NPC studio hitboxes, and hull-box NPCs' model shapes) stay in the collider set and our query tree, so every trace keeps its candidates and order, but never reach Rapier's broad phase: `RecordingBroadPhase` hands the step's lists on without them (`trace_only`). They form no contact pairs, so they neither touch nor wake bodies; Rapier's continuous collision still tests them (it searches colliders directly). Mixed crowd: fixed simulation 7.11 -> 6.45 ms per tick, fight frame 21.87 -> 20.67 ms. Step (1), hitboxes on demand, is still open: posing is about 6% of the crowd's fixed step.
+
 14t session 53, owner playtest findings (2026-11-11). (a) Manhack rotor, result. Native from straight above on a fixed 15 ms clock (artifacts/s53/native_top.py): at full speed only the BladeBlur cards show, a faint translucent three-lobed swirl; below blade speed 40 the solid blade (SpinBlades, spawn speed 20). Ours drew the solid blade at every speed: RUNTIME_BODYGROUPS listed only group 1, so the blur bodies were never built (`body_swap_failures`: "not preloaded"), and once built their material (Blur01) was missing because map material names covered only each instance's starting body. Fixed in d93c7f0 (owned: manhack.mdl's BladeBlur cards ride Blade, -48 degrees a frame of the 100 fps fly, and Blade1, -12). Not in: SpinBlades' m_flPlaybackRate (blade speed / 100) on the flyer's cycle; the lighting in (e). (b) Static prop hits, result. Owner: a bench's back and the plaza trees take no sound, effect or decal. Cause: an impact found its surfaceprop only through the drawn triangle under the hit (zero gap on world surfaces), and a static prop's VPhysics hull sits off curved drawn faces. Now the loader keeps each static prop's .phy surfaceprop (`World::model_surfaceprops`, source-assets models/collision.rs; owned: bench_indoor001a wood_crate, tree_deciduous_01a wood_solid), static colliders carry it (`collider_materials`), `Physics::static_surfaceprop` names it for a hit, and the decal takes the drawn face within STATIC_PROP_GAP (4 units, our bound). Packaged: the bench from the east 7 decals and 0 unclippable (3 and 4 before), from the west 5 and 2; the tree plays Wood_Solid.BulletImpact on every hit but places 1 decal of 7 (its trunk lies further inside the hull; next: project along the shot onto the drawn mesh, as studio decals do). Static colliders' surfaceprops now also reach physics contact sounds (intended; the replays decide). (c) `--borderless --window-at` opened on the primary monitor (startup_mode's MonitorSelection::Primary, GetWindowRect 0,0,1920,1080); a placed borderless window now starts windowed there and goes borderless on its own monitor (-1920,0,0,1080). (d) point_spotlight plan. Owner: lamps cast no light; native shows the spawn lamp's volumetric cone at d1_trainstation_02 (artifacts/s53/lamp-compare.png); no code names point_spotlight (11 in that map, e.g. width 64, length 256, rendercolor 254 216 146, HDRColorScale 0.7, angles 90 0 0, spawnflags 3). SDK point_spotlight.cpp: an unparented spotlight is made once at Activate (CreateEfficientSpotlight): a trace along its angles (MASK_SOLID_BRUSHONLY, twice SpotlightLength, none with IgnoreSolid), a CBeam glow_test02 from its origin to the hit with width SpotlightWidth, end width width x reached / length (MAX_BEAM_WIDTH), fade length min(reached, length), FBEAM_SHADEOUT|NOTILE, brightness 64, rendercolor, HDRColorScale, halo light_glow03 at scale 60; LightOn/LightOff; spawnflag 1 starts on, 2 no dynamic light. Reuse the scanner's `spotlight::Beam` (view-facing quads, halo, dimming near the line) with per-beam color, end width, brightness and halo size; the beams are made once per map in hl2-simulation and drawn with the scanner beams; the inputs go in `entities::inputs::HANDLERS`. Steps, each tested: (1) the Beam fields (scanner beams unchanged); (2) point_spotlight beams and inputs; (3) a packaged A/B with native at the spawn lamp. Out: parented (moving) spotlights, spotlight_end's dynamic light. (e) Found, not fixed: props are lit about twice native's brightness and warmer at the plaza (an identical wood pallet spawned in both, artifacts/s53/pallet-compare.png; the bench likewise; world lightmaps match). This map's static props have no baked .vhv lighting, so static and dynamic props both go through `LightState::state_at`: the next lighting step compares its ambient cube and local lights with native at that spot. The dprp game lump's detail props (the plaza's leaf litter) are not drawn.
 
 14t session 53 results. (d) point_spotlight: in (8c46470, SDK point_spotlight.cpp; packaged): lamps draw their spotlight beams (one MASK_SOLID_BRUSHONLY trace a spotlight, `Physics::brush_ray`; the scanner's `spotlight::Beam` with color, end width, brightness and halo size), LightOn/LightOff. At d1_trainstation_02's spawn lamp a beam now falls from it, but narrower, fainter and cooler than native's warm haze (artifacts/s53/lamp-compare3.png); with its halo (scale 60) a large white glow showed that native does not (lamp-compare2.png: Source fades the halo by an occlusion query, which hides it inside the shade), so the halo is off. Not matched to native. (e) The plaza lighting, located (owned map data; packaged probe artifacts/s53/light_probe.rs, an examples/ program not committed): no point or spot light reaches the pallet or the bench; their light is the leaf ambient cube (top face 0.15, 0.16, 0.19) plus light_environment as a directional light (HDR 1.87, 1.56, 0.62, not flagged in the ambient cube), which our sky test passes, adding about 1.07 warm on a top face: about 8 times the ambient. Native's pallet measures (79, 78, 75) on screen against ours (206, 191, 122), the pavement 63 against 60, and is neutral: native evidently does not apply the sky light there. Next: retail's sky visibility test for model lighting (what its trace may hit: static props such as the tree canopy, displacements) and a native A/B of a model under fully open sky. Sky trace probes (artifacts/s53/sky_probe.rs, line_probe.rs): from the pallet our trace along the sun runs 2334 units through empty leaves only (contents 0, all with the sky leaf flag) to the sky brush; no brush entity box and no static prop lies on that line. By retail's rule (a trace along the sun that hits a SURF_SKY surface) the sun counts there in native too, so the visibility test is probably not the cause (an earlier note that vrad left the pavement unsunlit was an inference from its color, not a measurement: withdrawn). Next: how strong the sun and the texture come out on models (the HDR world-light scale, our base-texture linearization): a native mat_fullbright A/B of the pallet's albedo, then the lit A/B.
@@ -2054,6 +2424,8 @@ Result (fast zombie step 2, session 44; fcef36a, 023b17c): as planned, in npc/li
 14v session 55. (a) Static decals. CDecal::StaticDecal (SDK game/server/world.cpp) traces from the origin minus (5,5,5) to plus (5,5,5) and hands the engine the entity it hits (a brush entity's model, the world otherwise); none of d1_trainstation_02's checked decals hit a brush entity (probe artifacts/s55/decal55.rs). Our placement (`static_decal`, one surface per receiving surface) was right; the loss was later: `append_models_lod` keyed the world's surfaces by (material, lightmap page, skybox) with `collect()`, dropping all but the last decal surface of a key. `Surface::batch` appends instead. The decals of one material on one lightmap page now form one draw (as before for faces), whose bounds span every such decal on the map; the world's translucent draws all sit at the origin, so Bevy's order between overlapping decals of different materials is not native's placement order (not seen to matter yet).
 
 14v session 55 (b) point_spotlight halo. Native on/off at the spawn (spotlights off by `ent_fire point_spotlight lightoff`, an event whose target is taken as a classname) isolates the beam and halo: a warm glow around the lamp, strongest 40-200 pixels from the shade. SDK view_beams.cpp: the halo's color is the beam color x clamp((2 x dot(beam dir, dir to view))^2) x PixelVisibility_FractionVisible, drawn by DrawHalo (a view-facing quad of half-size scale, 1 to 2 times by distance to the beam line) with the sprite's $hdrcolorscale set to the beam's HDR scale; the sprite shader's kRenderGlow draws without a depth test; c_pixel_visibility.cpp's proxy is a square, its corners `proxy` from its center, moved `proxy` toward the view, its visible pixel share approached over 0.0625 s. Ours samples the square's center and corners with projectile rays (colliders, not drawn meshes; five samples, so the 0.95 rule never applies; no frustum clip share or 5-pixel minimum). The lampbeam proxy (lampbeamproxy.cpp) is in. SDK sprite_dx9.cpp: $nosrgb defaults to 1 (no sRGB read or write), and sprite_ps2x.fxc outputs texture x vertex color x $hdrcolorscale through FinalOutput(TONEMAP_SCALE_GAMMA): sprites add in gamma space after tonemapping. Ours blend additive sprites in linear HDR light before tonemapping; the dim-beam path (w = -1) only approximates that for faint beams. Next: a plan for gamma-space additive sprites (composited after the tonemap, costed as a render pass), checked with an env_sprite of light_glow03 against native, then the point_spotlight halo at scale 60.
+
+14v follow-up (2026-11-20): Build a triangle bounding-box index for static world impact receivers during map preparation. Keep the existing exact clipping and lightmap math and preserve triangle order. Compare indexed and exhaustive results for receiver selection, clipped positions and UVs, and light samples. Record the index build time and live data size in the map report alongside the mixed-crowd frame measurement. Exercise moving and skeletal receivers through their existing local-space paths.
 
 14v session 55 (c) Static prop decals. SDK fx_impact.cpp Impact: for a static prop (entity 0, hitbox != 0) AddDecalToStaticProp(start, start + (length + 8) x dir, ...), whose studio AddDecal projects the decal along that ray onto the model's triangles. Ours: impacts' `add_along`, given the shot direction and a hit that `static_surfaceprop` places on a static prop's hull, calls `static_prop_decals::on_mesh`, which tests the front-facing triangles (modkit-core `studio_decals::ray_distance`) of every static prop within 1024 units of the hit, placed by `physics::angles` like their colliders, from 4 units before the hit (STATIC_PROP_GAP) to 8 past it, and moves the hit there with that triangle's normal; `locate` then finds the baked receiving face at once. Shots without a direction (melee, explosions) keep the old receiver search.
 
@@ -2079,9 +2451,9 @@ Result (fast zombie step 2, session 44; fcef36a, 023b17c): as planned, in npc/li
 
 14z-g session 62: the dlight minlight floor under HDR (d1_trainstation_01's mouth shot, prompt item 1 a2). Evidence: a fixed-clock native run printing `mat_hdr_tonemapscale` (SDK viewpostprocess.cpp SetToneMapScale stores the averaged exposure goal there) every 0.3 s of game time from map load (artifacts/s62/native_tm.py, native-tm1.txt): 2.0, the maximum, from load to 80 s, so through the whole intro; it drops only at the station (131-155 s, down to 0.8) and at 238-247 s. Ours dropped to 0.6 in the mouth shot (a temporary trace, not committed). Splitting our intro composite with a temporary mode override (not committed; artifacts/s62/split-26s.png): the camera view (`hl1room_brush`, a func_brush riding hl1room_rotator) renders the HL1 room like native; the G-Man view alone was blown out to white. Retail engine.dll 0x101d7e30 (CMapLoadHelper::Init) first calls MaterialSystemHardwareConfig012 slot 54 (vtable +0xd8); the SDK header's slot 54 is GetHDRType, and retail's `_rt_TeenyFB` creation picks format 0x18 (RGBA16161616F) when that slot returns 2, as the SDK does for GetHDRType() == HDR_TYPE_FLOAT. So with HDR on, the dlight minlight floor is 1/256 (0x3b800000) on every map; the LUMP_MAP_FLAGS floors (0x100: 0.078125, 0x200: 0.01953125) apply only without HDR. The conversion itself (0x101d9920) re-read: intensity = byte x table[exponent], table[0] = 1/255 (power2_n, SDK mathlib color_conversion.cpp), radius at least 0.1, quadratic 1 / (radius^2 x max(minlight, floor)). Change (4f1eb0c): modkit-core `dynamic_minlight_floor(version, flags, hdr)`; source-assets passes the lighting copy it chose (`choose_hdr`). With HDR every dlight and elight on a model is 5 times weaker on HL2's 0x200 maps: muzzle flashes, the Combine flash, light_dynamic. Packaged (artifacts/s62/fix1 against mouth1, native D:/hl2-rs-work/moved-off-C/s61-native-intro1, frame means 0-255): the G-Man close-up at 17-22 s 110 -> 67 before, 66 -> 41 after, native 70 -> 41; the face's centre at 19 s (197,172,144) before, (131,104,89) after, native (146,114,98); the mouth shot's peak 155 before, 118 after, native 133. artifacts/s62/fix1-ab.png (native left): at 19 s the warm key, the shadowed side and the cyan rim like native; the mouth shot shows native's double exposure of the HL1 room. Still different: our exposure dips to about 1.45 in the mouth shot where native's goal stays 2.0 (check which frame our histogram reads: the SDK measures in DoEnginePostProcessing, after the intro composite and the fade), a brighter patch on the face's right side, and the framing at 26 s (compare the zoom within one native run). Not checked: muzzle-flash elights against native frames; the order of CMapLoadHelper::Init against the per-map HDR enable on a map without HDR lighting (ours takes the LDR floor there).
 
-14z-h session 62: ai_changehintgroup and the NPC's runtime hint group (prompt item 6; SDK; owned; unit). Checked: SDK triggers.cpp CAI_ChangeHintGroup (keyvalues SearchType, SearchName, NewHintGroup, Radius, hintlimiting; InputActivate calls SetHintGroup(NewHintGroup, hintlimiting) on every NPC FindQualifiedNPC returns: SearchType 0 FindEntityByNameWithin, 1 FindEntityByClassnameWithin, both with no distance test for Radius 0 (entitylist.cpp) and strictly inside otherwise, 2 FindEntityInSphere (FLT_MAX for 0) whose current hint group equals SearchName), ai_basenpc.cpp SetHintGroup (group and limiting; the base OnChangeHintGroup does nothing). Installed (artifacts/s62/chg_scan.py): 34 changers on 17 maps, names with a trailing `*`, empty NewHintGroup (clears), radii 0-2000, several without SearchType (0). Ours: entities/io.rs routes Activate to the AI; ai/runtime/goal_inputs/hint_groups.rs searches the AI's NPCs and writes the group and limiting into the scene's keyvalue overrides (where AddOutput's keyvalue form writes), and `Controller::limit_to_hint_group` recomputes the usable graph nodes; actbusy's hint search reads the runtime group. d1_trainstation_06: no hint node belongs to chaser_cop_4_hint, so after the changer the chaser cops (limited) have no usable graph node, as IsUnusableNode gives in the SDK. Not modeled: the sphere test against the NPC's collision box (ours: its origin), `!caller` and other procedural names than `!activator`, assault points' and npc makers' SetHintGroup, npc_antlion's IsUnusableNode. 
+14z-h session 62: ai_changehintgroup and the NPC's runtime hint group (prompt item 6; SDK; owned; unit). Checked: SDK triggers.cpp CAI_ChangeHintGroup (keyvalues SearchType, SearchName, NewHintGroup, Radius, hintlimiting; InputActivate calls SetHintGroup(NewHintGroup, hintlimiting) on every NPC FindQualifiedNPC returns: SearchType 0 FindEntityByNameWithin, 1 FindEntityByClassnameWithin, both with no distance test for Radius 0 (entitylist.cpp) and strictly inside otherwise, 2 FindEntityInSphere (FLT_MAX for 0) whose current hint group equals SearchName), ai_basenpc.cpp SetHintGroup (group and limiting; the base OnChangeHintGroup does nothing). Installed (artifacts/s62/chg_scan.py): 34 changers on 17 maps, names with a trailing `*`, empty NewHintGroup (clears), radii 0-2000, several without SearchType (0). Ours: entities/io.rs routes Activate to the AI; ai/runtime/goal_inputs/hint_groups.rs searches the AI's NPCs and writes the group and limiting into the scene's keyvalue overrides (where AddOutput's keyvalue form writes), and `Controller::limit_to_hint_group` recomputes the usable graph nodes; actbusy's hint search reads the runtime group. d1_trainstation_06: no hint node belongs to chaser_cop_4_hint, so after the changer the chaser cops (limited) have no usable graph node, as IsUnusableNode gives in the SDK. Not modeled: the sphere test against the NPC's collision box (ours: its origin), `!caller` and other procedural names than `!activator`, assault points' and npc makers' SetHintGroup, npc_antlion's IsUnusableNode.
 
-14z-i session 62: Native's exposure during the intro (follow-up of 14z-g): native's mouth-shot frames run through our histogram target (artifacts/s62/target_of.py) would give 1.2-1.5, yet native's goal stays 2.0, so native does not measure the composited intro frame; SDK DoEnginePostProcessing would (integer HDR: DoPreBloomTonemapping copies the back buffer when its flag is clear). Two explanations fit every native sample so far: the histogram reads `_rt_FullFrameFB` as the intro left it (the camera entity's view: black until 22.4 s, then the dark HL1 room), or nothing is measured while the intro is active. Our camera view stays dark to 30 s (mode 7 means 0-16), so a bright camera view later in the intro (36-62 s: background_train, camera_train) is the test. Not changed yet. 
+14z-i session 62: Native's exposure during the intro (follow-up of 14z-g): native's mouth-shot frames run through our histogram target (artifacts/s62/target_of.py) would give 1.2-1.5, yet native's goal stays 2.0, so native does not measure the composited intro frame; SDK DoEnginePostProcessing would (integer HDR: DoPreBloomTonemapping copies the back buffer when its flag is clear). Two explanations fit every native sample so far: the histogram reads `_rt_FullFrameFB` as the intro left it (the camera entity's view: black until 22.4 s, then the dark HL1 room), or nothing is measured while the intro is active. Our camera view stays dark to 30 s (mode 7 means 0-16), so a bright camera view later in the intro (36-62 s: background_train, camera_train) is the test. Not changed yet.
 
 14z-j session 62: The arrival's platform scanner (prompt item 1b; SDK; owned; native; packaged; efab36d). Our time-lapse every 2 s against session 61's single native run every 4 s (artifacts/s58/native-credits-s61, the player left alone in the car; artifacts/s62/walk-ab1.png, rows of two native/ours pairs): the passengers leave the player's view by about 102 s in both; native's screen goes white at about 126.7 s and a city scanner hovers in the aisle in front of the player at 130.7 s; ours showed neither. Owned: relay_train_reached_station ForceSpawns train_platform_scanner_template (npc_cscanner train_platform_scanner above the car) and a trigger_once in the car sends it InspectTargetPhoto !player. Ours failed TASK_CSCANNER_GET_PATH_TO_INSPECT_TARGET (report: SCHED_CSCANNER_MOVE_TO_INSPECT failed, then patrol): no clear leg from the air network into the car. SDK ai_pathfinder.cpp: RouteFromNode builds the last leg with bits_BUILD_GET_CLOSE, and BuildComplexRoute takes a move whose flDistObstructed is within the goal tolerance; the scanner's schedule sets 128 (TASK_SET_TOLERANCE_DISTANCE) just before. Change: the controller's fly_route takes the share of a leg a hull can fly and a goal tolerance; end legs blocked within the tolerance are taken; the scanner's inspect path passes its tolerance; birds and the enemy path pass 0 (identical to before). Unit test (a last leg blocked 31 units short: refused with tolerance 0 and 20, taken with 128). Packaged (artifacts/s62/scan1, scan2): the scanner now inspects and photographs the player (photo_taken, inspect ending 109.5 s) but about 17 s earlier than native and without entering the car (at 110 s it patrols 1160 units east of the player). Not matched: native's approach into the aisle and its timing (about 30 s after the arrival); the SDK tries end nodes nearest first and triangulates around obstacles, ours takes the shortest route over every acceptable end leg; native positions of the scanner over time are not recorded (ent_dump has no origin). SDK photo conditions (npc_scanner.cpp GatherConditions, COND_CSCANNER_CAN_PHOTOGRAPH): past the next photograph time, an inspect target, speed below 64, a 2D distance of 64-128 from InspectTargetPosition (the target's eyes), facing within 4 degrees and a clear MASK_BLOCKLOS line, which windows do not block; ours checks the same, so it most likely shot through a car window from outside where native came in through the door. A second native run with the player left in the car (artifacts/s62/native_scan.py, native-scan1: a frame every 2-3 s from 95 to 155 s; its setang under ORACLE_RAW with !keep did not turn the view, so these are aisle views again) beside ours turned 25 degrees right (artifacts/s62/door1, door-ab1.png, rows of two native/ours pairs): native's scanner is inside the aisle near the ceiling from about 124 s (not there at 118 s), flashes at about 126 s and is still there at 134 s; ours is never in view. SDK MoveToPhotograph flies straight to IdealGoalForMovement(the target's eyes, its own origin, the goal distance, 32), a point on the line from the target toward the scanner, so native's hover in the aisle means its route came in through the car's openings. The node graph (artifacts/s62/air_near.py): only four air nodes around the arrived car (88-91 at z 108 along y -1980 and -2108, south of the car); the last leg from node 91 to the player's eye crosses the car's south wall about 77 units short, inside the 128 tolerance, so both the SDK and ours accept it. The SDK's route then ends at the goal itself and the scanner flies on toward it (blocked moves slide in the SDK's fly motor), which fits native getting in; our thrust flight stays at the window. Next: compare the SDK's MoveFlyExecute/MoveLimit sliding with our flight against a wall, then native positions. A third native run turned toward the door (native-scan2: setang and fov are cheats, which ORACLE_RAW's setup leaves off, so native_scan.py now passes ORACLE_SETUP=sv_cheats 1; artifacts/s62/door-ab2.png) shows neither the scanner nor its flash from 95 to 150 s at 2-3 s sampling (frame means flat at 44), while native-scan1's aisle view brightens from 45 to 49-50 at 124-129 s (the scanner's light); its way into the car is still unseen.
 
@@ -2265,3 +2637,22 @@ browser frame time and record the limits of static retail evidence.
 Validation: unit tests, a packaged background run reporting citizens that spawn, walk and are removed, and the gameplay replays. Reversible by dropping the commit.
 
 Known cost: removed entities keep their slot (`Scene::spawn_entity` only appends), so an endless maker grows the entity list by one per spawn. Reusing dead copies is a separate step if the measured growth matters.
+
+### Occupied crowd destinations
+
+The station02 soundscape replay distinguishes an actor blocking the route from an actor occupying the destination. On direct contact in the latter case, return the original collision so the owning schedule can retry or complete its exit-distance check. Check the existing head-on passing test, add an occupied-goal test, and compare the passerby departure and replacement to the upstream entity I/O trace.
+
+### Settings profiles and parallel replays (2026-11-19)
+
+Every run of one executable shares `hl2-config.json` beside it, so the replay suite runs its UI
+checks one at a time (939 of the suite's 1,466 s) and capture scripts copy the whole game folder
+to change one setting. `HL2RS_SETTINGS` names the settings file instead; without it nothing
+changes. The console history follows that file. Reviewed partial profiles live in `profiles/`
+(each section fills missing fields with defaults); `test.json` is the empty baseline every
+check starts from. Runs copy a profile and never write to it. The replay suite gives each check
+its own settings file, runs UI and gameplay checks in one pool of `JOBS`, longest first by the
+previous run's durations, and gives the checks that edit staged shaders their own copy of the
+game. `--timescale N` runs the fixed ticks N times faster than real time (virtual clock speed and
+per-frame tick allowance); gameplay replays use 4, since they end when their tick script ends.
+Validation: a unit test of the path choice, the full replay suite at `JOBS=2` against the
+serial outcomes, and its wall time before and after. Reversible by dropping the commit.

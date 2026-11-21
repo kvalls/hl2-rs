@@ -90,8 +90,7 @@ impl State {
             }
             Effect::BackgroundMapFov(None) => {
                 let fov = self.background_debug.fov(
-                    hl2_bevy::camera::background_fov(aspect, sim.background_force_default_blur)
-                        .to_degrees(),
+                    hl2_bevy::camera::background_fov(aspect, sim.standard_background).to_degrees(),
                 );
                 self.background_debug.fov = None;
                 ui.source

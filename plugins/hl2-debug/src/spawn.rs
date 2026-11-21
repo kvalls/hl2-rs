@@ -32,7 +32,7 @@ pub enum OverlayCommand {
     SpawnProp(String),
     /// Toggle notarget (the AI does not sense the player).
     ToggleNotarget,
-    /// Toggle the AI think loop (ai_enable).
+    /// Toggle the AI think loop (ai_disable).
     ToggleAi,
     ToggleFriendlyFire,
 }

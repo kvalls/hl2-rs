@@ -4,12 +4,12 @@ mod gibs;
 mod initial;
 mod material;
 mod model_reading;
+mod quads;
 mod shots;
 mod sprite_modes;
 use crate::{assets::LoadedMap, gameplay::Gameplay, rendering, simulation::Simulation};
 use bevy::{
     asset::RenderAssetUsages,
-    camera::primitives::MeshAabb,
     mesh::Indices,
     prelude::*,
     render::render_resource::{AsBindGroup, PrimitiveTopology},
@@ -18,6 +18,7 @@ pub use gibs::{gib_models, present_gibs};
 use hl2_simulation::{projectile_visuals::ProjectileVisuals, projectiles::ProjectileKind};
 pub(crate) use model_reading::read_effect_model_lod;
 use modkit_core::Surface;
+use quads::QuadLayer;
 use source_assets::vpk::Vfs;
 use sprite_modes::{glows, shading};
 use std::collections::BTreeMap;
@@ -105,11 +106,6 @@ pub(crate) struct DecalDraw {
 pub(crate) struct GrenadeDraw {
     id: u64,
 }
-struct QuadDraw {
-    entity: Entity,
-    mesh: Handle<Mesh>,
-    previous: Option<hl2_simulation::projectile_visuals::Quad>,
-}
 /// One projectile model surface: mesh and material.
 pub(crate) type ModelPart = (Handle<Mesh>, Handle<rendering::SourceMaterial>);
 impl Effects {
@@ -161,7 +157,9 @@ impl Effects {
 pub struct Effects {
     source: ProjectileVisuals,
     materials: BTreeMap<String, Handle<EffectMaterial>>,
-    quads: Vec<QuadDraw>,
+    /// Names of the materials that blend by pure addition: their quads share a mesh.
+    additive: std::collections::BTreeSet<String>,
+    quads: QuadLayer,
     marks: BTreeMap<usize, (Entity, Handle<Mesh>)>,
     grenade_meshes: BTreeMap<String, Vec<ModelPart>>,
     /// Gib draws by gib id: entity, its own material (lighting and fade alpha) and the
@@ -174,7 +172,7 @@ pub struct Effects {
     /// Stuck crossbow bolt model instances by StuckBolt id.
     stuck: BTreeMap<u64, Vec<Entity>>,
     /// Viewmodel-space sprite/beam quads on the viewmodel camera's layer.
-    viewmodel_quads: Vec<QuadDraw>,
+    viewmodel_quads: QuadLayer,
     viewmodel_draws: usize,
     rng: u64,
     /// The viewmodel's bob and lag, and the viewmodel camera's position in viewmodel space
@@ -207,7 +205,7 @@ impl Effects {
         self.materials.get(name).cloned()
     }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"sprite_draws":self.draws,"pooled_quads":self.quads.len(),
+        serde_json::json!({"sprite_draws":self.draws,"pooled_quads":self.quads.counts().0,"batched_quads":self.quads.counts().1,
             "viewmodel_sprite_draws":self.viewmodel_draws,"stuck_bolt_draws":self.stuck.len(),
             "grenade_draws":self.grenade_draws,"gib_draws":self.gib_draws,"decal_draws":self.mark_draws,"pose_mismatches":self.pose_mismatches, "observed_decals":self.observed_decals,"observed_grenades":self.observed_grenades,
             "muzzle_flashes":self.source.muzzle.flashes,"tracers":self.source.muzzle.tracers_made,
@@ -217,15 +215,17 @@ impl Effects {
             "limitations":"owned smoke/fire/ember/debris/electric emitters and shock rings; native RNG, ambient cubes, soft depth blending, beam tessellation, particle-manager scheduling, animated receivers and exact shading remain unfinished"})
     }
 }
-pub fn install(
+/// The sprite materials by name, with the names of those that blend by pure addition.
+fn sprite_materials(
     loaded: &LoadedMap,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<rendering::SourceMaterial>,
     effects: &mut Assets<EffectMaterial>,
     images: &mut Assets<Image>,
+) -> (
+    BTreeMap<String, Handle<EffectMaterial>>,
+    std::collections::BTreeSet<String>,
 ) {
     let mut handles = BTreeMap::new();
+    let mut additive = std::collections::BTreeSet::new();
     for (name, sprite) in &loaded.effects.sprites.sprites {
         let texture = images.add(rendering::image(
             sprite.image.width,
@@ -252,6 +252,9 @@ pub fn install(
                 ignore_z: false,
             }),
         );
+        if sprite.kind == material::ADDITIVE {
+            additive.insert(name.clone());
+        }
         // These draw in kRenderGlow mode (no depth test).
         if glows(name) {
             let glow = EffectMaterial {
@@ -261,12 +264,24 @@ pub fn install(
                     .cloned()
                     .expect("material just added")
             };
-            handles.insert(
-                format!("{name}{}", hl2_simulation::projectile_visuals::GLOW_SUFFIX),
-                effects.add(glow),
-            );
+            let glow_name = format!("{name}{}", hl2_simulation::projectile_visuals::GLOW_SUFFIX);
+            if sprite.kind == material::ADDITIVE {
+                additive.insert(glow_name.clone());
+            }
+            handles.insert(glow_name, effects.add(glow));
         }
     }
+    (handles, additive)
+}
+pub fn install(
+    loaded: &LoadedMap,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<rendering::SourceMaterial>,
+    effects: &mut Assets<EffectMaterial>,
+    images: &mut Assets<Image>,
+) {
+    let (mut handles, additive) = sprite_materials(loaded, effects, images);
     for (name, decal) in &loaded.gameplay.impacts.textures {
         let texture = images.add(rendering::image(
             decal.image.width,
@@ -331,7 +346,7 @@ pub fn install(
     }
     // Move CPU sprite state out of PreparedMap after all owned images are uploaded.
     commands.insert_resource(Effects::new(
-        handles,
+        (handles, additive),
         grenade_meshes,
         loaded.effects.model_errors.clone(),
     ));
@@ -372,73 +387,6 @@ fn mesh(
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
     mesh.insert_indices(Indices::U32(indices));
     mesh
-}
-fn quad_mesh(quad: &hl2_simulation::projectile_visuals::Quad) -> Mesh {
-    mesh(
-        quad.positions
-            .iter()
-            .map(|p| crate::source_to_bevy(Vec3::from_array(p.to_array())).to_array())
-            .collect(),
-        quad.uv.to_vec(),
-        vec![quad.color.map(|c| f32::from(c) / 255.); 4],
-        vec![0, 1, 2, 0, 2, 3],
-        true,
-    )
-}
-/// Fill a pool of quad draws with this frame's quads (materials must hold each
-/// quad's material); `layer` puts them on another camera's render layer.
-fn draw_pool(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    pool: &mut Vec<QuadDraw>,
-    quads: &[hl2_simulation::projectile_visuals::Quad],
-    materials: &BTreeMap<String, Handle<EffectMaterial>>,
-    layer: Option<usize>,
-) {
-    let mut used = 0;
-    for quad in quads {
-        let Some(material) = materials.get(&quad.material).cloned() else {
-            continue;
-        };
-        if used == pool.len() {
-            let mesh = meshes.add(quad_mesh(quad));
-            let mut entity = commands.spawn((
-                crate::campaign::MapOwned,
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::IDENTITY,
-            ));
-            if let Some(layer) = layer {
-                entity.insert(bevy::camera::visibility::RenderLayers::layer(layer));
-            }
-            pool.push(QuadDraw {
-                entity: entity.id(),
-                mesh,
-                previous: None,
-            });
-        }
-        let slot = &mut pool[used];
-        used += 1;
-        if slot.previous.as_ref() != Some(quad) {
-            let mesh = quad_mesh(quad);
-            let bounds = mesh.compute_aabb();
-            if let Some(mut old) = meshes.get_mut(&slot.mesh) {
-                *old = mesh;
-            }
-            if let (Some(bounds), Ok(mut cmd)) = (bounds, commands.get_entity(slot.entity)) {
-                cmd.insert(bounds);
-            }
-            slot.previous = Some(quad.clone());
-        }
-        if let Ok(mut cmd) = commands.get_entity(slot.entity) {
-            cmd.insert((MeshMaterial3d(material), Visibility::Visible));
-        }
-    }
-    for slot in pool.iter().skip(used) {
-        if let Ok(mut cmd) = commands.get_entity(slot.entity) {
-            cmd.insert(Visibility::Hidden);
-        }
-    }
 }
 /// The active viewmodel's posed rig (same clip choice as rendering::animate) and the
 /// SDK viewmodel sprites/beams as viewmodel-space quads.
@@ -713,10 +661,12 @@ pub fn present(
     let quads = std::mem::take(&mut effects.source.quads);
     let Effects {
         materials,
-        quads: pool,
+        additive,
+        quads: layer,
         ..
     } = &mut *effects;
-    draw_pool(&mut commands, &mut meshes, pool, &quads, materials, None);
+    let world_materials = (&*materials, &*additive);
+    layer.draw(&mut commands, &mut meshes, &quads, world_materials, None);
     effects.source.quads = quads;
     // Sprites and beams on the viewmodel (CSprite/CBeam viewmodel attachments).
     let aspect = crate::video::frame_aspect(frame.as_deref());
@@ -724,17 +674,12 @@ pub fn present(
     effects.viewmodel_draws = viewmodel.len();
     let Effects {
         materials,
-        viewmodel_quads: pool,
+        viewmodel_quads: layer,
         ..
     } = &mut *effects;
-    draw_pool(
-        &mut commands,
-        &mut meshes,
-        pool,
-        &viewmodel,
-        materials,
-        Some(1),
-    );
+    // Viewmodel quads (placed against the gun) are never batched by material, only run.
+    let unbatched = (&*materials, &Default::default());
+    layer.draw(&mut commands, &mut meshes, &viewmodel, unbatched, Some(1));
     let dead: Vec<_> = effects
         .marks
         .keys()
@@ -789,7 +734,7 @@ pub fn present(
                     Mesh3d(mesh.clone()),
                     MeshMaterial3d(material),
                     transform,
-                    DecalDraw { id: mark.id },
+                    (DecalDraw { id: mark.id }, bevy::light::NotShadowCaster),
                 ))
                 .id();
             effects.marks.insert(mark.id, (entity, mesh));

@@ -1,8 +1,8 @@
 //! The default plugin set configured from the command line, the host systems and the final report.
 use super::{
     Options, Status, assets, audio, camera, campaign, canvas_renderer, console_host, effects, eyes,
-    flashlight, material_proxies, monitor, monitors, rendering, runtime_props, save_capture, setup,
-    sky, studio_decals, tonemap, video, visibility,
+    flashlight, material_proxies, monitor, monitors, rendering, runtime_npcs, runtime_props,
+    save_capture, setup, sky, studio_decals, tonemap, video, visibility,
 };
 use anyhow::{Result, bail};
 use bevy::app::PluginGroupBuilder;
@@ -173,6 +173,37 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         runtime_props::poll
             .run_if(resource_exists::<runtime_props::RuntimeProps>)
             .before(rendering::present_entities),
+    );
+    add_runtime_entity_systems(app);
+    app.add_systems(Startup, setup)
+        .add_systems(
+            PostUpdate,
+            audio::queue
+                .after(canvas_renderer::present)
+                .before(TransformSystems::Propagate),
+        )
+        .add_systems(Last, effects::observe.before(monitor::monitor))
+        .add_systems(Last, audio::observe.before(monitor::monitor))
+        .add_systems(
+            Update,
+            (
+                console_host::sync_sources,
+                console_host::drain_log,
+                console_host::save_history,
+                console_host::apply_cursor_hint,
+            ),
+        )
+        .add_systems(Last, monitor::monitor)
+        .add_systems(Last, video::skip_covered_outputs);
+}
+
+fn add_runtime_entity_systems(app: &mut App) {
+    app.add_systems(
+        PostUpdate,
+        runtime_npcs::poll
+            .run_if(resource_exists::<runtime_npcs::RuntimeNpcs>)
+            .before(rendering::spawn_runtime_draws)
+            .before(rendering::present_entities),
     )
     .add_systems(
         PostUpdate,
@@ -220,30 +251,11 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         visibility::present
             .after(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
             .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
-    )
-    .add_systems(Startup, setup)
-    .add_systems(
-        PostUpdate,
-        audio::queue
-            .after(canvas_renderer::present)
-            .before(TransformSystems::Propagate),
-    )
-    .add_systems(Last, effects::observe.before(monitor::monitor))
-    .add_systems(Last, audio::observe.before(monitor::monitor))
-    .add_systems(
-        Update,
-        (
-            console_host::sync_sources,
-            console_host::drain_log,
-            console_host::save_history,
-            console_host::apply_cursor_hint,
-        ),
-    )
-    .add_systems(Last, monitor::monitor)
-    .add_systems(Last, video::skip_covered_outputs);
+    );
 }
 
 /// What the startup map reports; the worker replaces it after each map change.
+#[derive(Clone)]
 pub(super) struct MapSummary {
     map_name: String,
     revision: u32,
@@ -284,6 +296,35 @@ impl MapSummary {
             ),
         }
     }
+}
+
+/// The startup map's summary, for the report written in the exit frame.
+#[derive(bevy::prelude::Resource)]
+pub(super) struct ExitSummary(pub(super) MapSummary);
+
+/// The frame the app exits: writes the run's captures and report ([`finish`]) and ends the process
+/// without dropping the app. Dropping it closes the CoreAudio output, which waits for the mixing
+/// callback to let go of the device lock; after a crowd fight that wait can last forever, the
+/// window gone and a core still busy. The operating system releases the device instead. Both
+/// trace files flush as they write.
+pub(super) fn exit_process(world: &mut bevy::prelude::World) {
+    let exit = world
+        .get_resource::<bevy::ecs::message::Messages<AppExit>>()
+        .and_then(|messages| messages.iter_current_update_messages().next().cloned());
+    let Some(exit) = exit else {
+        return;
+    };
+    let status = world.resource::<Status>().clone();
+    let options = world.resource::<Options>().clone();
+    let summary = world.resource::<ExitSummary>().0.clone();
+    let code = match finish(&status, &options, summary, exit) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            1
+        }
+    };
+    std::process::exit(code);
 }
 
 pub(super) fn finish(
@@ -356,4 +397,34 @@ pub(super) fn finish(
         bail!("requested monitor screenshot did not complete; inspect report/log");
     }
     Ok(())
+}
+
+/// `--timescale`: the virtual clock runs `scale` times faster, so the fixed 15 ms ticks (and
+/// everything on virtual time) come due that much sooner; one frame may run up to `scale` times
+/// the normal 50 ms of ticks. The ticks themselves, and their order, do not change.
+pub(crate) fn apply_timescale(app: &mut App, scale: f32) {
+    if scale == 1. {
+        return;
+    }
+    let mut time = app
+        .world_mut()
+        .resource_mut::<bevy::time::Time<bevy::time::Virtual>>();
+    time.set_relative_speed(scale);
+    time.set_max_delta(std::time::Duration::from_secs_f32(0.05 * scale));
+}
+
+/// `--max-fps`: each frame waits out the rest of its share of a second before the next begins.
+/// Added only when asked for; play never runs it.
+pub(crate) fn limit_frame_rate(app: &mut App, max_fps: Option<u32>) {
+    let Some(fps) = max_fps else { return };
+    let period = std::time::Duration::from_secs_f64(1. / f64::from(fps));
+    let mut last = std::time::Instant::now();
+    app.add_systems(bevy::app::Last, move || {
+        let due = last + period;
+        let now = std::time::Instant::now();
+        if due > now {
+            std::thread::sleep(due - now);
+        }
+        last = std::time::Instant::now();
+    });
 }

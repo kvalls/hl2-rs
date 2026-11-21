@@ -6,7 +6,7 @@ use bevy::{
     math::Vec3,
     mesh::{Mesh, Mesh3d},
 };
-use source_assets::flexes::FaceModel;
+use source_assets::flexes::{FaceModel, VertexDeltas};
 use std::collections::HashMap;
 
 /// Facial flex and eyeball data per model asset key (setup-loaded; no frame IO).
@@ -15,8 +15,14 @@ pub struct FlexModels(
     pub std::collections::BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>,
 );
 
-/// One frame's descriptor weights per actor and model: all of an actor's surfaces share them.
-pub(super) type FlexWeights = HashMap<(usize, *const FaceModel), Vec<f32>>;
+/// One frame's face state of an actor and model, shared by all of the actor's surfaces.
+pub(super) struct ActorFlex {
+    weights: Vec<f32>,
+    signature: u64,
+    /// Built when the first surface whose deformation is out of date asks for them.
+    deltas: Option<VertexDeltas>,
+}
+pub(super) type FlexWeights = HashMap<(usize, *const FaceModel), ActorFlex>;
 
 /// What the draws of this frame deform from.
 pub(super) struct FaceInputs<'a> {
@@ -48,20 +54,27 @@ pub(super) fn apply_facial_flexes(
     ) else {
         return;
     };
-    let weights = flex_weights
+    let actor = flex_weights
         .entry((id, std::sync::Arc::as_ptr(model)))
         .or_insert_with(|| {
             let values = game.scene.actor_flex_values(id);
-            model.descriptor_weights(&values, |eye| {
+            let weights = model.descriptor_weights(&values, |eye| {
                 eyes.and_then(|e| e.lid_bases.get(&(id, eye.surface)))
                     .copied()
-            })
+            });
+            ActorFlex {
+                signature: flex_signature(&weights),
+                weights,
+                deltas: None,
+            }
         });
-    let signature = flex_signature(weights);
+    let signature = actor.signature;
     if signature == animation.flex_signature {
         return;
     }
-    let deltas = model.flex.vertex_deltas(weights);
+    let deltas = actor
+        .deltas
+        .get_or_insert_with(|| model.flex.vertex_deltas(&actor.weights));
     let scale = animation.scale;
     let mut changed = Vec::new();
     for (i, key) in animation

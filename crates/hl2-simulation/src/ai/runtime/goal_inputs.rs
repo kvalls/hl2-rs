@@ -10,11 +10,14 @@ use std::collections::BTreeMap;
 mod actbusy_queue;
 pub(super) mod hint_groups;
 pub(super) use actbusy_queue::ActBusyGoals;
+mod set_relationship;
 
 /// The pairs each active ai_relationship applied.
 #[derive(Clone, Debug, Default)]
 pub(super) struct AppliedRelationships {
     pairs: BTreeMap<usize, Vec<(usize, usize)>>,
+    /// `SetRelationship` class relationships: (subject, target classname) -> disposition.
+    class_overrides: BTreeMap<(usize, String), Disposition>,
     /// An NPC spawned: CAI_Relationship::OnEntitySpawned reapplies them.
     pub stale: bool,
 }
@@ -80,6 +83,11 @@ impl AiRuntime {
         self.refresh_relationships(world, scene);
         for (target, input, parameter, activator) in std::mem::take(&mut scene.ai_inputs) {
             let class = world.entities.get(target).map_or("", |e| e.class());
+            // CAI_BaseNPC's input: before the class branches that take all of their class's inputs.
+            if input == "setrelationship" {
+                self.set_relationship(world, target, &parameter);
+                continue;
+            }
             if class == "ai_goal_assault" {
                 self.assault_goal_input(world, scene, target, &input);
                 continue;

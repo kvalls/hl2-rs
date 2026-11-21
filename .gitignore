@@ -13,6 +13,9 @@
 !/.github/workflows/rust.yml
 !/.vscode/launch.json
 !/.vscode/tasks.json
+!/.agents/skills/hl2-session/SKILL.md
+!/.agents/skills/hl2-session/scripts/*.py
+!/.claude/skills/hl2-session/SKILL.md
 !/launch*.cmd
 !/launch*.sh
 !/scripts/build-bevy.ps1
@@ -21,8 +24,11 @@
 !/scripts/checks/*.sh
 !/scripts/checks/*.py
 !/scripts/checks/architecture-baseline.json
+!/profiles/*.json
+!/profiles/README.md
 !/test-inputs/*.json
 !/test-inputs/expected/*.json
+!/test-inputs/performance-research/*.json
 !/docs/*.md
 !/docs/images/hl2-rs-trainstation.png
 !/plugins/*/Cargo.toml

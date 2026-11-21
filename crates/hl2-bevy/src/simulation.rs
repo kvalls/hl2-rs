@@ -102,8 +102,9 @@ pub struct Simulation {
     pub projection_parameter: f32,
     pub video_policy: hl2_ui::extensions::VideoPolicy,
     pub viewmodel_fov: f32,
-    /// Saved menu artwork policy, applied independently of background debug mode.
-    pub background_force_default_blur: bool,
+    /// The menu background keeps its standard (4:3) blur artwork and field of view on wide
+    /// frames (a contributor's `standard_background` rule).
+    pub standard_background: bool,
     /// PlayerDeathThink: every button must be released before one press respawns.
     death_buttons_released: bool,
     /// `impulse 100` presses and commands since the flashlight last read them.
@@ -156,7 +157,7 @@ impl Simulation {
             camera_fov: None,
             projection_parameter: 0.,
             video_policy: Default::default(),
-            background_force_default_blur: false,
+            standard_background: false,
             viewmodel_fov: hl2_simulation::viewmodel_effects::VIEWMODEL_FOV,
             death_buttons_released: true,
             flashlight_toggles: 0,
@@ -244,7 +245,7 @@ impl Simulation {
         self.video_policy = options.config.video.policy.clone();
         self.fov = options.config.video.fov;
         self.projection_parameter = options.config.video.projection_parameter();
-        self.background_force_default_blur = options.config.video.background_force_default_blur;
+        self.standard_background = !options.config.video.background_uses_widescreen(true);
         self.viewmodel_fov = options.config.video.effective_viewmodel_fov();
         self.applied_detail = Some(options.config.video.load_detail());
         self.applied_window = Some(
@@ -402,15 +403,8 @@ impl Simulation {
                     }
                 }
                 Effect::Loadout => grant_loadout(ui, game),
-                Effect::AiEnable(value) => {
-                    let on = set_ai(game, value.unwrap_or(!game.ai.enabled));
-                    ui.source.log(format!("ai_enable {}", u8::from(on)));
-                }
-                // CC_AI_Disable: a toggle; DevMsg "AI Disabled." / "AI Enabled.".
-                Effect::AiDisable => {
-                    let on = set_ai(game, !game.ai.enabled);
-                    ui.source
-                        .log(if on { "AI Enabled." } else { "AI Disabled." });
+                effect @ (Effect::AiDisable | Effect::Notarget) => {
+                    ai_effect(game, ui, effect);
                 }
                 Effect::Noclip(value) => {
                     self.fly = value.unwrap_or(!self.fly);
@@ -453,6 +447,7 @@ impl Simulation {
                 }
                 Effect::NpcCommand(line) => self.apply_npc_command(ui, game, &line),
                 Effect::Quit => ui.quit_requested = true,
+                Effect::Screenshot => ui.screenshot_requested = true,
                 Effect::ApplyConfig(cfg) => self.apply_config_effect(ui, game, &cfg),
                 Effect::PlaySound(sound) => {
                     game.sound_requests
@@ -479,7 +474,7 @@ impl Simulation {
         self.video_policy = cfg.video.policy.clone();
         self.fov = cfg.video.fov;
         self.projection_parameter = cfg.video.projection_parameter();
-        self.background_force_default_blur = cfg.video.background_force_default_blur;
+        self.standard_background = !cfg.video.background_uses_widescreen(true);
         self.viewmodel_fov = cfg.video.effective_viewmodel_fov();
         let target = WindowSettings::of(&cfg.video);
         if self.applied_window != Some(target) {
@@ -867,8 +862,33 @@ impl WindowSettings {
     }
 }
 
-/// Turns the AI on or off; returns the new state.
-fn set_ai(game: &mut crate::gameplay::Gameplay, on: bool) -> bool {
+/// The console's AI switches and their messages: ai_disable (CC_AI_Disable's DevMsg
+/// "AI Disabled." / "AI Enabled.") and notarget (CC_Notarget_f: FL_NOTARGET hides the player
+/// from NPC senses).
+fn ai_effect(
+    game: &mut crate::gameplay::Gameplay,
+    ui: &mut crate::ui_host::Console,
+    effect: hl2_ui::console::Effect,
+) {
+    use hl2_ui::console::Effect;
+    let message = match effect {
+        Effect::AiDisable => {
+            let on = set_ai_enabled(game, !game.ai.enabled);
+            (if on { "AI Enabled." } else { "AI Disabled." }).to_owned()
+        }
+        Effect::Notarget => {
+            game.ai.ignore_player = !game.ai.ignore_player;
+            let on = game.ai.ignore_player;
+            (if on { "notarget ON" } else { "notarget OFF" }).to_owned()
+        }
+        _ => return,
+    };
+    ui.source.log(message);
+}
+
+/// Turns the NPC AI think loop on or off (`ai_disable`, `--no-ai`, plugins); returns the new
+/// state.
+pub fn set_ai_enabled(game: &mut crate::gameplay::Gameplay, on: bool) -> bool {
     game.ai.enabled = on;
     crate::gameplay::AI_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
     on

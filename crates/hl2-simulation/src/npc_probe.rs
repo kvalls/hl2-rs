@@ -128,6 +128,8 @@ pub struct GroundMove {
     pub blocker: Option<usize>,
     pub normal: Vec3,
     pub reason: Option<BlockReason>,
+    /// Blocked by another NPC or the player (AIMR_BLOCKED_NPC), not by the world.
+    pub by_actor: bool,
 }
 
 // Pinned ai_moveprobe.cpp: CheckStep/TestGroundMove, not invented motor tuning.
@@ -222,6 +224,7 @@ fn failure(end: Vec3, reason: BlockReason, hit: HullTrace) -> GroundMove {
         blocker: hit.entity,
         normal: hit.trace.normal,
         reason: Some(reason),
+        by_actor: hit.transient,
     }
 }
 
@@ -341,5 +344,6 @@ fn ground_steps<W: NpcCollisionWorld>(
         blocker: None,
         normal: Vec3::ZERO,
         reason: None,
+        by_actor: false,
     }
 }

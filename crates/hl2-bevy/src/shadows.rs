@@ -17,6 +17,7 @@
 //! render-to-texture detail.
 mod caster;
 mod draw;
+mod gpu;
 pub mod material;
 #[cfg(test)]
 mod owned_tests;
@@ -91,6 +92,7 @@ pub struct ShadowPlugin;
 
 impl Plugin for ShadowPlugin {
     fn build(&self, app: &mut App) {
+        gpu::install(app);
         app.add_plugins(MaterialPlugin::<ShadowMaterial>::default())
             .add_systems(
                 PostUpdate,
@@ -168,6 +170,8 @@ impl MapShadows {
             "textured": cells.count(),
             "rebuilds": self.rebuilds,
             "silhouettes": self.silhouettes,
+            "gpu_cells_submitted": self.textures.submitted.as_ref().map(|count|
+                count.load(std::sync::atomic::Ordering::Relaxed)),
             "control": {"direction": self.control.direction.to_array(), "color": self.control.color,
                 "distance": self.control.distance, "disabled": self.control.disabled},
         })
@@ -196,6 +200,12 @@ type CameraView<'w, 's> = (
     Option<Res<'w, GameFrame>>,
 );
 type EntityDraws<'w, 's> = Query<'w, 's, (&'static SourceEntity, &'static PvsDraw)>;
+/// Profiling, the frame budget and whether silhouettes go to the GPU pass.
+type FrameOptions<'w> = (
+    Option<Res<'w, crate::performance::Performance>>,
+    Option<Res<'w, crate::video::GameFrame>>,
+    Option<Res<'w, gpu::GpuSilhouettes>>,
+);
 
 /// The world camera, for screen areas: origin and forward in Source axes, and pixels per unit of
 /// size at unit depth (viewport height over the tangent of half the vertical field of view).
@@ -253,16 +263,15 @@ pub(crate) fn update(
     shadows: Option<ResMut<MapShadows>>,
     (mut meshes, mut materials, mut images): ShadowAssets,
     mut draws: Draws,
-    (camera, entity_draws, performance, frame): (
-        CameraView,
-        EntityDraws,
-        Option<Res<crate::performance::Performance>>,
-        Option<Res<crate::video::GameFrame>>,
-    ),
+    (camera, entity_draws): (CameraView, EntityDraws),
+    (performance, frame, gpu): FrameOptions,
 ) {
     let Some(mut shadows) = shadows else {
         return;
     };
+    if gpu.is_some() {
+        shadows.textures.use_gpu();
+    }
     let _timing = crate::performance::scope(performance.as_deref(), "shadows");
     let detail = ui.map(|ui| ui.source.config.video.advanced.shadow_detail);
     if detail != shadows.detail {
