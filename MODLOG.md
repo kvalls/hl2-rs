@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — Viewmodel blur trail taps read one MSAA sample (backlog O20, first step)
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl`: the Advanced weapon composite's trail taps use `weapon_tap`, which reads one sample of the weapon's depth and motion, as the world gather's taps have since 2026-10-30. The pixel's own surface still reads every MSAA sample; the tap count (16-96) and positions are unchanged.
+- Why: backlog O20. Capture 2's Metal trace showed `viewmodel_animation_blur` at 4.6 ms of GPU when it runs, p99 18.2 ms, max 22.4 ms. Each of up to 96 taps per moving pixel read all four depth and motion samples. Owner request to fix it.
+- Tested how: `BLUR_SCENES="swing turn" scripts/checks/check_blur_performance.py` before and after (3456x2168, 4x MSAA, three alternating runs per mode): crowbar swings with Advanced, mean 15.0-15.5 -> 12.8 ms, p95 24-26 -> 16-17 ms, max 25.9-27.2 -> 17.0-17.3 ms, retail Enabled 9.5-9.8 ms in both; turns unchanged within noise; no render errors. The check's p95 guard now passes for swings; its mean guard still fails (Advanced about 3 ms over retail), as before. Replays `viewmodel_motion_blur`, `motion_blur_options`, `entities-weapons`, `flashlight_viewmodel` pass; `scripts/checks/validate.sh`.
+- Result: the largest GPU spike source is cut by about a third; the trail's sampling pattern is unchanged.
+- Still broken or not tested: `check_weapon_blur.py` fails before this change too (also at `c8d59205`): its diagnostic captures show `posed bounds: 0` and no reconstructed pixels (backlog O24), so the pixel-level comparison of this change did not run; not compared in normal play by the owner; Windows **not tested**.
+- Next: owner look in play; then the tap count (O20 second step).
+
 ## 2026-11-21 — Share composed actor skeletons between the renderer and the eyes (backlog O6)
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

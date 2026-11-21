@@ -161,6 +161,13 @@ fn weapon(uv: vec2<f32>) -> vec3<f32> {
     return vec3(textureLoad(motion,p,0).xy, select(0.0,1.0,textureLoad(depth,p,0)>0.0));
 #endif
 }
+// Trail taps read one sample, as the world gather's do: the gather already averages up to 96
+// taps, and reading every MSAA sample on every tap made fast swings cost up to 22 ms of GPU.
+fn weapon_tap(uv: vec2<f32>) -> vec3<f32> {
+    let p = clamp(vec2<i32>(uv * data.params.zw),vec2(0),vec2<i32>(data.params.zw)-vec2(1));
+    let covered = textureLoad(depth,p,0) > 0.0;
+    return vec3(select(vec2(0.0),textureLoad(motion,p,0).xy,covered), select(0.0,1.0,covered));
+}
 #ifndef WORLD_RECONSTRUCTION
 @fragment
 fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
@@ -189,7 +196,7 @@ fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let uv = in.uv + offset;
         if any(uv < vec2(0.0)) || any(uv > vec2(1.0)) { continue; }
         valid_taps += 1.0;
-        let sample = weapon(uv);
+        let sample = weapon_tap(uv);
         let exposure = sample.xy * data.params.y;
         let distance = length(offset * data.params.zw);
         let reach = length(exposure * data.params.zw) * 0.5;
