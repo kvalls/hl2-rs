@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-21 — Retail `showconsole` and `hideconsole`; resume reopens the console with `showconsole`
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: retail's `showconsole` and `hideconsole` (engine.dll) open or close the console only when it is not already so, through the same toggle (modal dialogs and `con_enable` still block). `hl2-debug`'s `agent_resume` reopens the console with `+showconsole`, so a launch that already opens it cannot toggle it shut.
+- Why: owner request: the console opens when a game starts with the remote console for a live session (the session launcher passes `+showconsole`), and remote commands other than `say` show in it (`sv_rcon_log 1`).
+- Tested how: unit test (show and hide twice each); resume argument test; `validate.sh` passed.
+- Plugin rules read: yes; exceptions: none.
+
 ## 2026-11-21 — `SetRelationship` class targets follow the game state
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

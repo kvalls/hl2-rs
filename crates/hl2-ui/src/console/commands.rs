@@ -297,6 +297,18 @@ pub const COMMANDS: &[Spec] = &[
         developer::toggleconsole,
     ),
     command(
+        "showconsole",
+        "showconsole: open the console",
+        &[],
+        developer::showconsole,
+    ),
+    command(
+        "hideconsole",
+        "hideconsole: close the console",
+        &[],
+        developer::hideconsole,
+    ),
+    command(
         "quit",
         "quit: exit and save the runtime report",
         &[],

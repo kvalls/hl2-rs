@@ -131,6 +131,19 @@ mod game_ui_tests {
     use crate::console::{Console, Mode};
 
     #[test]
+    fn showconsole_and_hideconsole_open_and_close_without_toggling() {
+        let mut console = Console::default();
+        console.submit("showconsole");
+        assert!(console.console_open());
+        console.submit("showconsole");
+        assert!(console.console_open(), "a second showconsole keeps it open");
+        console.submit("hideconsole");
+        assert!(!console.console_open());
+        console.submit("hideconsole");
+        assert!(!console.console_open());
+    }
+
+    #[test]
     fn game_ui_commands_open_the_pause_menu_and_options_and_close_them() {
         let mut console = Console::default();
         assert_eq!(console.mode(), Mode::Gameplay);

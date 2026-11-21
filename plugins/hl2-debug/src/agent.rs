@@ -64,7 +64,7 @@ pub struct Resume<'a> {
 }
 
 /// The command line that restarts into `resume`: the map and view, then the console commands
-/// that reopen its menus (retail `gameui_activate`, `gamemenucommand`, `toggleconsole`).
+/// that reopen its menus (retail `gameui_activate`, `gamemenucommand`, `showconsole`).
 pub fn resume_args(resume: &Resume<'_>) -> Vec<String> {
     use hl2_ui::console::{Mode, Window};
     let mut args = Vec::new();
@@ -92,7 +92,7 @@ pub fn resume_args(resume: &Resume<'_>) -> Vec<String> {
         match window {
             Window::Options => args.extend(["+gamemenucommand".into(), "OpenOptionsDialog".into()]),
             Window::NewGame => args.extend(["+gamemenucommand".into(), "OpenNewGameDialog".into()]),
-            Window::Console => args.push("+toggleconsole".to_owned()),
+            Window::Console => args.push("+showconsole".to_owned()),
             Window::SubDialog | Window::Confirmation => {}
         }
     }
@@ -152,7 +152,7 @@ mod resume_tests {
         assert_eq!(
             args.join(" "),
             "--map d1_trainstation_02 --position 1.000 -2.500 64.000 --yaw 90.000 --pitch -10.000 \
-             +gamemenucommand OpenOptionsDialog +toggleconsole"
+             +gamemenucommand OpenOptionsDialog +showconsole"
         );
         let paused = resume_args(&resume(Mode::Pause, vec![], false));
         assert_eq!(paused.last().map(String::as_str), Some("+gameui_activate"));
