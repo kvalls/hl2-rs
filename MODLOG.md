@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 session 69: the owner's station 01 playtest (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation lighting_origins.rs (SetLightingOrigin/SetLightingOriginHack inputs), entities.rs (Scene::lighting_origin_changes, Playback loops), entities/io.rs (the inputs; ignite_input moved out of deliver), entities/choreography/control.rs (scene Loop events), npc/graph.rs (has_usable_link, goal_connector), physics/brush_entities/pushers.rs (hull_overlaps_entity); hl2-bevy assets.rs and rendering/material.rs (DecalModulate -> AlphaMode::Multiply), shaders/source.wgsl (mod2x output), rendering/lighting.rs (re-resolve on input), simulation/ride.rs (push an overlapped player). Unit tests for each.
+- Why: the owner's seven reports (STATUS "Current session 69"): bright train passengers, gray squares on the glass cracks, clipping out of the moving train, the luggage citizen stuck at the cop and not sitting in the breakroom, the pacer's lines stopping, the pen queue.
+- Tested how: SDK and owned files for each; packaged runs artifacts/s69/train, lugg (r3 before, r8 after), pacer; artifacts/s69/validate1.sh.
+- Result: Five of the seven reports have SDK-backed fixes with unit tests (commit f21c827; validation artifacts/s69/validate1.sh: Clippy 0, tests 1767 + the 2 known failures, fmt 0, architecture 0, build ok, regression passed, replays 71/73 with luggage-shove recorded as intended and the known Kleiner gib flake); the queue's newcomer steering (SDK RecalculateQueueCount) is on wip/session69-20261121b (9ab4679): validate2.sh changed six station replays' I/O counters, not reviewed.
+- Still broken or not tested: luggage_citizen now walks but stops at the luggage cop standing on his route (no NPC obstruction handling); the decals, the train push, the scene loop and the passengers' brightness are not verified in packaged captures; the pen queue not investigated.
+- Next: NPC obstruction handling for luggage_citizen, the pen queue, the pre-suit walk speed branch.
+
 ## 2026-11-20 session 68, continued: ForceNPCToActBusy teleport (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
