@@ -156,3 +156,45 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::super::super::{AiRuntime, PLAYER};
+    use crate::ai::relationships::Disposition;
+    use crate::entities::Scene;
+    use crate::npc::Controller;
+
+    /// Classes with their own input branch (manhacks, scanners, barnacles, birds) still take
+    /// SetRelationship: it is dispatched before those branches.
+    #[test]
+    fn the_input_reaches_a_manhack_through_the_ai_input_dispatch() {
+        let entity = |pairs: &[(&str, &str)]| modkit_core::Entity {
+            properties: pairs
+                .iter()
+                .map(|(k, v)| ((*k).into(), (*v).into()))
+                .collect(),
+        };
+        let world = modkit_core::World {
+            entities: vec![
+                entity(&[("classname", "npc_manhack"), ("origin", "0 0 64")]),
+                entity(&[("classname", "npc_citizen"), ("origin", "300 0 0")]),
+            ],
+            ..Default::default()
+        };
+        let mut scene = Scene::new(&world);
+        let mut controller = Controller::new(None, Default::default());
+        let mut ai = AiRuntime::new(&world, None);
+        scene.ai_inputs.push((
+            0,
+            "setrelationship".into(),
+            "player D_LI 99 npc_citizen D_LI 99".into(),
+            usize::MAX,
+        ));
+        ai.inputs(&world, &mut scene, &mut controller);
+        assert_eq!(
+            ai.relationship_overrides.get(&(0, PLAYER)),
+            Some(&Disposition::LI)
+        );
+        assert_eq!(ai.npc_disposition(&world, 0, 1, false), Disposition::LI);
+    }
+}

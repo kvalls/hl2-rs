@@ -68,6 +68,11 @@ impl AiRuntime {
         self.refresh_relationships(world, scene);
         for (target, input, parameter, activator) in std::mem::take(&mut scene.ai_inputs) {
             let class = world.entities.get(target).map_or("", |e| e.class());
+            // CAI_BaseNPC's input: before the class branches that take all of their class's inputs.
+            if input == "setrelationship" {
+                self.set_relationship(world, target, &parameter);
+                continue;
+            }
             if class == "ai_goal_assault" {
                 self.assault_goal_input(world, scene, target, &input);
                 continue;
@@ -106,10 +111,6 @@ impl AiRuntime {
             }
             if class == "ai_relationship" {
                 self.apply_relationship(world, scene, target, input == "applyrelationship");
-                continue;
-            }
-            if input == "setrelationship" {
-                self.set_relationship(world, target, &parameter);
                 continue;
             }
             if matches!(class, "info_node_link" | "info_node_link_controller") {

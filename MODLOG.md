@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-21 — `SetRelationship` reaches manhacks, scanners, barnacles and birds
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: the AI input dispatch handled `SetRelationship` after the class branches for `npc_manhack`, `npc_cscanner`, `npc_barnacle` and the birds, which take every input of their class, so those NPCs never saw it. It now runs first.
+- Why: found live: manhacks given `SetRelationship "player D_LI 99 npc_metropolice D_HT 99"` kept attacking the player (owner report). The earlier unit test called the handler directly and missed the dispatch.
+- Tested how: new test through `AiRuntime::inputs` with a manhack; `validate.sh` passed. Live check after the fix: see the next entry or STATUS.
+
 ## 2026-11-21 — NPC input `SetRelationship`
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
