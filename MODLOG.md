@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-21 — `trace-chrome` profiling build and the first maxed-Retina capture
+
+- Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).
+- Changed: `apps/hl2rs/Cargo.toml` adds the application feature `trace-chrome` (`bevy/trace_chrome`), selectable through `scripts/build-bevy.sh --plugins ...,trace-chrome` (the PowerShell script passes the list through unchanged); `Cargo.lock` gains `tracing-chrome` 0.7.2 and `tracing-error` 0.2.1 only. `docs/DESIGN.md` records the profiling plan toward the owner's goal (steady 120 FPS, maxed settings, native Retina, M1 Pro); `docs/performance.md` records the first capture.
+- Why: owner request to collect all the data one run can give ("hoard all possible data out of this run"); the owner approved an opt-in profiling build. Tracy was not used because its capture tools are not installed here; the Chrome trace needs no external tool.
+- Tested how: headless `--profile` 300-frame d1_trainstation_02 run with and without the feature: `frame_total` mean 8.55 -> 8.81 ms, p95 9.51 -> 10.36 ms (about 3%), with a 1.07 GB trace. Windowed owner run (about two minutes): 17 GB trace, 7,224 frames summarized; findings in `docs/performance.md`. The everyday binary was rebuilt without the feature afterwards (`plugins=advanced-options,debug-tools`). `scripts/checks/validate.sh`.
+- Result: at maxed Retina settings the GPU is busy 97% (median) and the render thread waits on the swapchain; five 3D camera passes run per frame.
+- Still broken or not tested: GPU time per pass is not measured yet; the trace inflates windowed frame times; Windows **not tested** (the feature is platform-neutral).
+- Next: a Metal System Trace capture of the same path for GPU time per pass and camera.
+
 ## 2026-11-21 — Time `CreateViews` and `Specialize` under `--profile`
 
 - Agent/model: Claude Code desktop, Claude Opus 5.5 (`claude-opus-5-5`).

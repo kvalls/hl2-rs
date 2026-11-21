@@ -1,5 +1,31 @@
 # Performance measurements - 2026-10-05
 
+## Maxed Retina on M1 Pro: GPU-bound, render thread second (2026-11-21)
+
+Owner run, packaged release with `trace-chrome`, windowed d1_trainstation_02 at 3456x2168, 4x MSAA,
+full HDR, motion blur, anisotropic 8x, VSync, the player running for about two minutes, with
+`--profile`, a Chrome trace and an external once-a-second sampler. Writing the trace (17 GB) inflates
+absolute times; use this run for structure, not budgets.
+
+- GPU: Device/Renderer/Tiler utilization median 97%, mean 89%, max 100% (macOS driver statistics);
+  driver memory in use median 1.99 GB. The GPU is the first limit at these settings.
+- CPU: process 244% mean; the busiest thread 54% mean, 92% max; no thread saturated.
+- Render thread (trace, 7,224 frames): `Render` 15.5 ms mean, p99 32.7 ms; inside it the render
+  graph 6.5 ms, `camera_driver` 4.9 ms and `prepare_windows` 4.5 ms mean (p99 21.6 ms, max 193 ms):
+  the wait for the next swapchain image, which is how the GPU limit reaches the CPU. Main app 8.3 ms
+  mean, p99 18.5 ms. Five 3D camera passes per frame (`Core3d` 4.9 per frame) and two 2D.
+- `--profile` stages: `frame_total` 16.3 ms mean, p95 26.2, max 138; `render_views` (`PrepareViews`)
+  4.6 ms mean, p95 13.9; the new `render_create_views` 0.17 ms and `render_specialize` 0.15 ms mean,
+  so the view-stage spikes are in `PrepareViews`.
+- Spikes: a fixed step of 32 ms (frame 2074), a 29 ms `prepare_windows` (frame 2663), and
+  `allocate_and_free_meshes` up to 598 ms during loading.
+- Memory: RSS 1.6 GB median, 4.7 GB peak; the 16 GB machine kept about 70 MB of free pages, with
+  swap unchanged at 932 MB.
+
+Next: GPU time per pass and per camera with Instruments' Metal System Trace (`xcrun xctrace record
+--template 'Metal System Trace'`), to see which of the five 3D passes and the post-processing at
+Retina use the GPU.
+
 ## GPU shadow silhouettes (2026-11-15, default since 2026-11-19)
 
 Dirty model silhouettes are drawn into the shadow atlas on the GPU whenever a renderer exists.

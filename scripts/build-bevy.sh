@@ -41,9 +41,9 @@ PLUGINS="$(printf '%s' "$PLUGINS" | tr ',' '\n' | sed '/^$/d' | sort -u | paste 
 if [[ "$PLUGINS" != "none" ]]; then
     for plugin in ${PLUGINS//,/ }; do
         case "$plugin" in
-            advanced-options|debug-tools) ;;
+            advanced-options|debug-tools|trace-chrome) ;;
             *)
-                echo "Unknown plugin: $plugin (known: advanced-options, debug-tools, or none)" >&2
+                echo "Unknown plugin: $plugin (known: advanced-options, debug-tools, trace-chrome, or none)" >&2
                 exit 1
                 ;;
         esac

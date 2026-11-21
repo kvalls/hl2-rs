@@ -2656,3 +2656,28 @@ game. `--timescale N` runs the fixed ticks N times faster than real time (virtua
 per-frame tick allowance); gameplay replays use 4, since they end when their tick script ends.
 Validation: a unit test of the path choice, the full replay suite at `JOBS=2` against the
 serial outcomes, and its wall time before and after. Reversible by dropping the commit.
+
+## Profiling toward a steady 120 FPS (owner goal, 2026-11-21)
+
+Goal (owner): maxed settings at native Retina (3456x2168, 4x MSAA, full HDR, motion blur,
+anisotropic 8x, VSync) on an Apple M1 Pro at a steady 120 FPS, so the slowest 1% of frames
+stays under 8.33 ms. Owner instruction for the first step: collect all the data one run can give,
+then iterate (measure, fix the largest or most frequent cost, re-measure on the same path).
+
+Layers, each opt-in so ordinary builds and runs pay nothing:
+1. `--profile` frame stages (existing), now with `render_create_views` and `render_specialize`.
+2. `trace-chrome` application feature (profiling builds only, `scripts/build-bevy.sh --plugins
+   advanced-options,debug-tools,trace-chrome`): Bevy's per-system and per-render-node spans written
+   as a Chrome trace to `TRACE_CHROME=<file>`; call counts per frame and the systems inside each
+   slow frame. Volume is about 1.8 MB per frame (17 GB for a 45 s windowed run), so captures stay
+   short and the trace build is never left as the everyday binary.
+3. An external once-a-second process sampler (process and per-thread CPU, RSS, swap, free pages,
+   and the GPU utilization and memory macOS publishes): no code in the game.
+4. GPU time per render pass: Instruments' Metal System Trace (`xcrun xctrace`), no code in the game.
+5. Deferred: a compiler-instrumented call-count build (every function, counts per run, compared
+   across scene sizes to find superlinear growth) and in-code waste counters (duplicate work per
+   frame, recomputed unchanged results, per-frame allocations).
+
+Validation: each layer's own overhead is measured against the same headless run without it and
+recorded in MODLOG; numbers from different layers are not compared directly. Reversible by
+dropping the feature and the scope entries.
