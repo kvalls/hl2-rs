@@ -33,7 +33,8 @@
 - Why: in the crowd firefight a temporary mesh-owner probe found about 207 effect-quad run meshes rewritten per frame: the global sort interleaved smoke, debris and spark quads, so consecutive same-material runs held about one quad each and each became its own mesh upload. Source sorts a particle effect as one translucent object and draws its particles per material, so the grouped order is also the retail one.
 - Tested how: `cargo test -p hl2-simulation --lib explosion_particles` (10 passed); three alternating crowd `stages` runs per side; end-of-script captures compared by eye; mesh-owner probe before and after; `scripts/checks/validate.sh`, Windows-target Clippy, packaged replay suite.
 - Result: run meshes rewritten 207 -> 88 per frame; crowd `frame_total` 19.65 -> 17.77 ms mean (p95 27.1 -> 24.7), `render_assets` 5.59 -> 4.13 ms.
-- Still broken or not tested: overlapping effects of different materials now draw effect by effect rather than particle by particle, as retail does; a frame-matched particle capture against the old order is **not tested** (the crowd script is not frame-deterministic). Eye meshes (22/frame), animated models and shadow decals still rewrite meshes every frame.
+- Fidelity follow-up (same day): frame-matched `particles-smoke` replay captures with live smoke and debris, two per build: old vs new 0.48 mean per channel, two new-build runs 0.51, two old-build runs 0.27; by eye the same frame.
+- Still broken or not tested: overlapping effects of different materials now draw effect by effect rather than particle by particle, as retail does. Eye meshes (22/frame), animated models and shadow decals still rewrite meshes every frame.
 - Next: eye meshes rewritten every frame; O14 step 1 (animated material values in a shared buffer).
 
 ## 2026-11-22 — HUD canvas atlas: text and rectangles batch together (`O13`, `O8`)

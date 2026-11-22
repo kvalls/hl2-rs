@@ -2724,3 +2724,14 @@ Step 1 (per-frame proxy values only):
 
 Step 2 (after step 1's numbers): one lighting slot per lit entity shared by its materials, which
 also covers the viewmodel's per-view basis. Reversible by dropping the slot field and buffer.
+
+### Canvas texture atlas (O13/O8, done 2026-11-22)
+
+The HUD canvas draws consecutive quads of one material as one mesh. Each glyph had a texture
+(and so a material) of its own, so text made one mesh and draw per glyph. `canvas_renderer/atlas.rs`
+copies canvas textures up to 128 px once into shared 512 px pages per filter mode (2 px
+edge-replicated padding, so sampling matches a clamp-to-edge texture of its own; no mipmaps) with a
+white block for untextured quads, and remaps the quad's texture coordinates into the page.
+Modulate quads, larger textures and quads sampling outside their texture keep their own material.
+A new texture rewrites its 1 MiB page once. Reversible by removing the atlas lookup in
+`Hud::material`.
