@@ -28,9 +28,9 @@ Run from the HL2-RS repository root with Python 3 stdlib scripts under `.agents/
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py launch --mode <mode> --out <dir> -- <resume args e.g. --map d1_trainstation_02>`
    - Wait for RCON via `.agents/skills/hl2-session/scripts/rcon.py --wait 60 ...`. Once connected, attach the external sampler in the background:
      `python3 .agents/skills/hl2-performance-trace/scripts/resource_sampler.py record --out <dir>/resources.jsonl`
-   - Optionally on macOS, attach Metal System Trace (`45s` window produces `~13 GB`, delete raw `.trace` after export) or CPU `sample` (works on any already-running build without rebuilding):
-     - `python3 .agents/skills/hl2-performance-trace/scripts/capture.py metal-record --out <dir> --seconds 45`
-     - `python3 .agents/skills/hl2-performance-trace/scripts/capture.py sample-record --out <dir> --seconds 60`
+   - Optionally on macOS, attach Metal System Trace (`45s` window produces `~13 GB`, delete raw `.trace` after export) or CPU `sample` (works on any already-running build without rebuilding; pass `--wait-gameplay` to wait until the player closes the console and enters gameplay before attaching):
+     - `python3 .agents/skills/hl2-performance-trace/scripts/capture.py metal-record --out <dir> --seconds 45 --wait-gameplay`
+     - `python3 .agents/skills/hl2-performance-trace/scripts/capture.py sample-record --out <dir> --seconds 60 --wait-gameplay`
    - Instruct the player in game via `rcon.py "say ..."` (never put `;` inside `say` text): confirm which layers are recording, ask them to **close the developer console** (open console skews UI/font/quad costs) and play the scenario for 30–60 seconds, then type `say done` (note: both `--profile` and `TRACE_CHROME` start only once gameplay resumes, not on the menu/loading screen).
    - Start `.agents/skills/hl2-session/scripts/watch.py` (streaming) or `watch.py --once` (turn-based wakeup) to detect `say done` (or user exit).
 

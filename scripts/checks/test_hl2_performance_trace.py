@@ -357,6 +357,41 @@ class TestCaptureOrchestrator(unittest.TestCase):
         self.assertIn("minimum", err)
         self.assertEqual(capture.compute_trace_max_mb(50.0, explicit_env="4096"), (None, None))
 
+    def test_wait_for_gameplay_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game_log = Path(tmp) / "game.log"
+            game_log.write_text("Using Half-Life 2\n", encoding="utf-8")
+
+            polls = 0
+
+            def alive_after_two(_pid: int) -> bool:
+                nonlocal polls
+                polls += 1
+                if polls == 2:
+                    with game_log.open("a", encoding="utf-8") as handle:
+                        handle.write(f"2026-11-22 INFO {capture.GAMEPLAY_STARTED_MARKER}\n")
+                return True
+
+            self.assertTrue(
+                capture.wait_for_gameplay_start(
+                    game_log,
+                    pid=42,
+                    poll_interval=0.0,
+                    is_alive=alive_after_two,
+                )
+            )
+            self.assertGreaterEqual(polls, 2)
+
+            empty_log = Path(tmp) / "missing.log"
+            self.assertFalse(
+                capture.wait_for_gameplay_start(
+                    empty_log,
+                    pid=99,
+                    poll_interval=0.0,
+                    is_alive=lambda _pid: False,
+                )
+            )
+
 
 class TestSkillDocs(unittest.TestCase):
     def test_skill_files_and_referenced_scripts_exist(self):

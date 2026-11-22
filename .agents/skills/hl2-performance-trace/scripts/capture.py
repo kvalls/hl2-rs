@@ -15,6 +15,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any, Callable, Optional
 
 _SKILL_SCRIPTS = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ for _path in (_SKILL_SCRIPTS, _SESSION_SCRIPTS):
         sys.path.insert(0, str(_path))
 
 import metal_gpu  # noqa: E402
+import rcon  # noqa: E402
 import resource_sampler  # noqa: E402
 import sample_summary  # noqa: E402
 import session  # noqa: E402
@@ -34,6 +36,7 @@ import trace_waste  # noqa: E402
 LOW_DISK_WARN_GIB = 30.0
 MIN_TRACE_DISK_GIB = 10.0
 DEFAULT_TRACE_MAX_MIB = 20 * 1024
+GAMEPLAY_STARTED_MARKER = "profiling: gameplay started"
 
 MODES: dict[str, dict[str, Any]] = {
     "stages": {
@@ -475,6 +478,70 @@ def _resolve_target_pid(explicit_pid: Optional[int]) -> Optional[int]:
     return None
 
 
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        return any(
+            int(g["pid"]) == pid
+            for g in session.find_running_games()
+            if isinstance(g.get("pid"), int)
+        )
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def wait_for_gameplay_start(
+    game_log: Path,
+    pid: Optional[int],
+    poll_interval: float = 0.1,
+    is_alive: Callable[[int], bool] = _pid_alive,
+) -> bool:
+    """Poll `game_log` from byte 0 until gameplay starts or `pid` exits."""
+    offset = 0
+    buf = b""
+    marker = GAMEPLAY_STARTED_MARKER.encode("utf-8")
+    while True:
+        if game_log.is_file():
+            try:
+                size = game_log.stat().st_size
+                if size < offset:
+                    offset = 0
+                    buf = b""
+                if size > offset:
+                    with game_log.open("rb") as handle:
+                        handle.seek(offset)
+                        chunk = handle.read()
+                    offset += len(chunk)
+                    buf += chunk
+                    if marker in buf:
+                        return True
+                    if b"\n" in buf:
+                        buf = buf.rsplit(b"\n", 1)[-1]
+            except OSError:
+                pass
+        if pid is not None and not is_alive(pid):
+            return False
+        time.sleep(poll_interval)
+
+
+def _maybe_wait_for_gameplay(args: argparse.Namespace, pid: int) -> bool:
+    if not getattr(args, "wait_gameplay", False):
+        return True
+    session_dir = args.session if args.session else rcon.default_session_dir()
+    print("Waiting for gameplay to start before attaching...", flush=True)
+    if not wait_for_gameplay_start(session_dir / "game.log", pid):
+        print("capture: hl2-bevy exited before gameplay started.", file=sys.stderr)
+        return False
+    print("Gameplay started; attaching...", flush=True)
+    return True
+
+
 def export_metal_trace(out_dir: Path, runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run) -> list[str]:
     """Export GPU interval and displayed-surface XML tables from `gpu.trace`; return error messages."""
     trace_bundle = out_dir / "gpu.trace"
@@ -691,6 +758,8 @@ def cmd_metal_record(args: argparse.Namespace) -> int:
     pid = _resolve_target_pid(args.pid)
     if pid is None:
         return 1
+    if not _maybe_wait_for_gameplay(args, pid):
+        return 1
 
     out_dir = args.out.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -727,6 +796,8 @@ def cmd_sample_record(args: argparse.Namespace) -> int:
         return 1
     pid = _resolve_target_pid(args.pid)
     if pid is None:
+        return 1
+    if not _maybe_wait_for_gameplay(args, pid):
         return 1
 
     out_dir = args.out.resolve()
@@ -827,6 +898,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p_sample.add_argument("--seconds", type=int, default=60, help="Sampling duration in seconds (default: 60).")
     p_sample.add_argument("--interval-ms", type=int, default=1, help="Sampling interval in ms (default: 1).")
     p_sample.add_argument("--top", type=int, default=40, help="Rows in sample summary.")
+
+    for p_rec in (p_metal, p_sample):
+        p_rec.add_argument("--wait-gameplay", action="store_true", help="Wait for gameplay start log marker before attaching.")
+        p_rec.add_argument("--session", type=Path, default=None, help="Session directory containing game.log (with --wait-gameplay).")
 
     p_analyze = sub.add_parser("analyze", help="Analyze all captured files in a directory.")
     p_analyze.add_argument("--dir", type=Path, required=True, help="Capture directory to analyze.")

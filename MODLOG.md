@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-22 — Auto-attach external Metal/sample profilers when gameplay starts
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/hl2-bevy/src/performance/status.rs`: added `Actions::gameplay_started` so `performance::status::update` emits a one-time `profiling: gameplay started` info line when unpaused gameplay actually begins.
+  - `.agents/skills/hl2-performance-trace/scripts/capture.py` and `.agents/skills/hl2-performance-trace/SKILL.md`: added `--wait-gameplay` and `--session` to `metal-record` and `sample-record`, backed by `wait_for_gameplay_start` polling `game.log` from byte 0 until `profiling: gameplay started` arrives (or returning non-zero if `hl2-bevy` exits earlier).
+  - `scripts/checks/test_hl2_performance_trace.py`: added `test_wait_for_gameplay_start` covering delayed log arrival and early process exit.
+- Why: when profiling uninflated `pacing` runs interactively, requiring a manual `say go` command before attaching `metal-record` caused missed Metal captures when the player closed the console directly into gameplay.
+- Tested how:
+  - `python3 -m unittest discover -s scripts/checks -p "test_hl2_performance_trace.py" -v` (`13` tests OK).
+  - `cargo test -p hl2-bevy --lib performance::status` (`5 passed`).
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`: architecture check (`0` growth), `88` Python helper tests OK, all `4` plugin builds ok, full workspace Cargo tests passed, strict Clippy clean on host and Windows targets, `cargo fmt --check` clean, and repository isolation check passed.
+- Result: all unit, architecture, plugin-selection, formatting, isolation, and Clippy checks pass.
+- Still broken or not tested: live packaged `metal-record --wait-gameplay` capture on `d1_trainstation_02` and Windows runtime execution are **not tested** here (live capture runs next).
+- Next: rebuild the everyday binary and capture an uninflated `pacing` + 45 s Metal System Trace run on `d1_trainstation_02`.
+
 ## 2026-11-22 — Record Capture 3 (`trace-alloc`, `d1_trainstation_02`) findings in optimization backlog
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).

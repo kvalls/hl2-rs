@@ -93,6 +93,7 @@ pub struct ProfilingSnapshot {
 /// What one frame asks of the recorders.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Actions {
+    gameplay_started: bool,
     start_trace: bool,
     finish_trace: bool,
     restart_stages: bool,
@@ -151,6 +152,7 @@ impl Profiling {
         if gameplay {
             if self.gameplay_started.is_none() {
                 self.gameplay_started = Some(now);
+                actions.gameplay_started = true;
                 actions.start_trace = self.trace.is_some();
             }
             self.gameplay_frames += 1;
@@ -264,6 +266,9 @@ fn update(
         && !ui.is_some_and(|ui| ui.source.paused());
     let recorded = performance.as_deref().map(|p| p.recorded(FRAME_TOTAL));
     let actions = profiling.update(Instant::now(), gameplay, recorded);
+    if actions.gameplay_started {
+        bevy::log::info!("profiling: gameplay started");
+    }
     if actions.restart_stages
         && let Some(performance) = performance.as_deref()
     {
@@ -308,11 +313,12 @@ mod tests {
         }
         assert_eq!(p.snapshot().stages.unwrap().state, RecorderState::Idle);
         for frame in 1..STAGE_WARM_UP_FRAMES {
-            p.update(t0 + Duration::from_secs(1), true, Some(frame as usize));
+            let step = p.update(t0 + Duration::from_secs(1), true, Some(frame as usize));
+            assert_eq!(step.gameplay_started, frame == 1);
         }
         assert_eq!(p.snapshot().stages.unwrap().state, RecorderState::Idle);
         let actions = p.update(t0 + Duration::from_secs(2), true, Some(200));
-        assert!(actions.restart_stages && !actions.start_trace);
+        assert!(actions.restart_stages && !actions.start_trace && !actions.gameplay_started);
         let s = p.snapshot().stages.unwrap();
         assert_eq!((s.state, s.frames), (RecorderState::Recording, 0));
         p.update(t0 + Duration::from_secs(5), false, Some(SAMPLE_LIMIT));
@@ -331,10 +337,10 @@ mod tests {
         let trace = p.snapshot().trace.unwrap();
         assert_eq!((trace.state, trace.bytes), (RecorderState::Idle, None));
         let actions = p.update(t0 + Duration::from_secs(4), true, None);
-        assert!(actions.start_trace && !actions.restart_stages);
+        assert!(actions.gameplay_started && actions.start_trace && !actions.restart_stages);
         assert!(
             !p.update(t0 + Duration::from_secs(5), false, None)
-                .start_trace
+                .gameplay_started
         );
         assert!(
             !p.update(t0 + Duration::from_secs(6), true, None)
