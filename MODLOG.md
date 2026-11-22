@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-22 — Backlog: review of crowd-scaling suggestions (O15, O18, O31-O33)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed: `docs/optimization-backlog.md` only. Rated an outside review that drew crowd-scaling lessons from a large-battle game mod (coordinated resource budgets, costly visibility checks, idle work) against this branch's measurements and code:
+  - Sight checks: valid direction, already measured here (about half of AI think, rays only after distance, cone and disposition filters; thinks already on the 0.1 s interval): recorded in O18, no new work.
+  - Hitbox posing on demand: valid and closer to retail (`TestHitboxes` poses bones when traced): new O31.
+  - Decision scheduling: the claim that the efficiency intervals only drive idle decisions is correct (`THINK_INTERVAL` is a fixed 0.1 s); Source SDK `CAI_BaseNPC::UpdateEfficiency` thins decisions for efficient and dormant NPCs: new O33 (a gameplay change following retail).
+  - Simulation catch-up: already O15; updated with the O6 numbers.
+  - NPC-count scaling benchmark (0-100 NPCs): new O32.
+  - Larger resource pools and render capacities: not applicable (no saturation counters fire here); not recorded.
+- Why: the owner asked to rate the review's findings and update the backlog.
+- Tested how: claims checked against the code (`ai/runtime.rs`, `ai/efficiency.rs`), the SDK and this branch's uninflated crowd sample; documentation only.
+- Result: three new items, two annotated.
+- Still broken or not tested: none of O31-O33 is implemented or measured.
+- Next: O31 (in scope of the crowd frame cost) or the owner's choice among the rendering architecture items.
+
 ## 2026-11-22 — Model lighting slots (`O14` step 2)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.
