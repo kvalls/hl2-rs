@@ -1,5 +1,20 @@
 # MODLOG
 
+## 2026-11-22 — Reuse `ActorPoses` cache in render-to-texture shadow silhouettes (`O6`)
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/hl2-bevy/src/shadows.rs` and `crates/hl2-bevy/src/shadows/caster.rs`: threaded `Option<ResMut<ActorPoses>>` through `shadows::update` -> `rank` -> `Caster::silhouette` (preserving `<= 7` system parameters and reusing the `ActorPoses` skeletons already composed by `present_entities` whenever `entity_stamp` matches).
+  - `crates/hl2-bevy/src/shadows/texture.rs` and `crates/hl2-bevy/src/shadows/caster.rs`: added a test-only `Textures::batch_only` helper and unit test `silhouette_reuses_shared_actor_pose_until_stamp_changes` verifying zero recomposition when `entity_stamp` is unchanged and recomposition when animation time advances.
+- Why: Capture 3 (`48100633`) and headless `mixed-crowd.json` profiling showed `shadows::update` calling `Scene::actor_matrices` independently after `present_entities`, repeating full skeleton composition (`7,308` duplicate `present_entities + update` groups in 300 crowd frames; `24,400` in Capture 3 live play).
+- Tested how:
+  - `cargo test -p hl2-bevy --lib shadows` (`2 passed, 2 ignored`, including `silhouette_reuses_shared_actor_pose_until_stamp_changes`) and `cargo test -p hl2-bevy --lib rendering::actor_poses` (`1 passed`).
+  - Paired 300-frame headless `trace` benchmark on `d1_trainstation_02` with `test-inputs/performance-research/mixed-crowd.json` (`--delete-raw`, raw trace deleted).
+  - `cargo fmt`, full workspace validation suite, and Windows cross-target Clippy.
+- Result: `present_entities + update` duplicate `actor_pose` groups dropped `7,308 -> 0`; `shadows::update` fell `1.048 -> 0.617 ms` mean (`p99 2.439 -> 1.119`, `max 4.21 -> 1.38`); `--profile` `shadows` stage fell `1.244 -> 0.811 ms` mean (`p95 1.504 -> 1.004`, `max 3.82 -> 1.37`); total `actor_pose` dropped `597.7 -> 463.4` calls/frame (`4.460 -> 2.729 ms/frame`).
+- Still broken or not tested: `fixed_step` multi-tick catch-up repeats (`O15`/`O6`), windowed live Retina pacing, and Windows runtime execution are **not tested** here (more Batch 1 items run next; packaged replay suite runs at batch end).
+- Next: implement `O28` (cached per-draw BSP clusters + O(1) `PvsRow` bitset in `visibility.rs`).
+
 ## 2026-11-22 — Record Capture 4 (15 s uninflated `pacing` + Metal System Trace)
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).

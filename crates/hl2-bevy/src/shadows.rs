@@ -260,7 +260,10 @@ impl View {
 pub(crate) fn update(
     mut commands: Commands,
     (ui, game, sim): (Option<Res<Console>>, Res<Gameplay>, Res<Simulation>),
-    shadows: Option<ResMut<MapShadows>>,
+    (shadows, mut actor_poses): (
+        Option<ResMut<MapShadows>>,
+        Option<ResMut<crate::rendering::actor_poses::ActorPoses>>,
+    ),
     (mut meshes, mut materials, mut images): ShadowAssets,
     mut draws: Draws,
     (camera, entity_draws): (CameraView, EntityDraws),
@@ -300,7 +303,7 @@ pub(crate) fn update(
     );
     if mode == Mode::Texture {
         shadows.textures.page.advance_frame();
-        shadows.silhouettes += rank(shadows, &game, &mut images);
+        shadows.silhouettes += rank(shadows, &game, &mut images, actor_poses.as_deref_mut());
     }
     for (caster, shown) in shadows.casters.iter_mut().zip(shown) {
         if !shown {
@@ -402,7 +405,12 @@ fn place(
 /// Ranks the casters in view by screen area: the first [`MAX_RENDERED`] get page fragments, their
 /// silhouettes drawn when new, moved or animating; the rest take the blob look. Returns how many
 /// silhouettes were drawn.
-fn rank(shadows: &mut MapShadows, game: &Gameplay, images: &mut Assets<Image>) -> u64 {
+fn rank(
+    shadows: &mut MapShadows,
+    game: &Gameplay,
+    images: &mut Assets<Image>,
+    mut actor_poses: Option<&mut crate::rendering::actor_poses::ActorPoses>,
+) -> u64 {
     let MapShadows {
         casters,
         order,
@@ -435,7 +443,12 @@ fn rank(shadows: &mut MapShadows, game: &Gameplay, images: &mut Assets<Image>) -
             continue;
         };
         if fresh || caster.dirty {
-            caster.silhouette(game, (textures, images), (n, corner));
+            caster.silhouette(
+                game,
+                (textures, images),
+                (n, corner),
+                actor_poses.as_deref_mut(),
+            );
             caster.dirty = caster.dynamic;
             drawn += 1;
         }

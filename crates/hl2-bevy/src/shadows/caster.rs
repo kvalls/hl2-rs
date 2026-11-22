@@ -1,7 +1,11 @@
 //! One shadow caster: which entities cast, their render bounds, where their shadow frame is, how
 //! big it is on screen, and their posed silhouette.
 use super::{MOVE, TURN, texture::Textures};
-use crate::{gameplay::Gameplay, simulation::Simulation};
+use crate::{
+    gameplay::Gameplay,
+    rendering::actor_poses::{ActorPoses, entity_stamp},
+    simulation::Simulation,
+};
 use bevy::{
     asset::{Assets, Handle},
     ecs::entity::Entity,
@@ -168,6 +172,7 @@ impl Caster {
         game: &Gameplay,
         (textures, images): (&mut Textures, &mut Assets<Image>),
         cell: (u32, UVec2),
+        actor_poses: Option<&mut ActorPoses>,
     ) {
         let (world, scale, at) = (&game.world, self.scale, &self.at);
         let (Some(frame), Some(surfaces)) = (
@@ -185,7 +190,14 @@ impl Caster {
             .rigs
             .get(&self.key)
             .filter(|rig| !rig.clips.is_empty())
-            .map(|rig| game.scene.actor_matrices(rig, self.id));
+            .map(
+                |rig| match (actor_poses, entity_stamp(game, rig, self.id)) {
+                    (Some(poses), Some(stamp)) => {
+                        poses.pose(game, (&self.key, rig), self.id, &stamp)
+                    }
+                    _ => std::sync::Arc::new(game.scene.actor_matrices(rig, self.id)),
+                },
+            );
         let place = |v: &modkit_core::Vertex| {
             let p = match (&matrices, &v.skin) {
                 (Some(m), Some(w)) => modkit_core::animation::skin(v.position, w, m),
@@ -220,4 +232,132 @@ pub(super) fn under_caster(game: &Gameplay, casters: &[Caster], id: usize) -> bo
         depth += 1;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::{Mat4, Quat, Vec2};
+    use modkit_core::{
+        Entity, Surface, Vertex,
+        animation::{Bone, Clip, ClipLayer, Pose, Rig, Weights},
+    };
+
+    #[test]
+    fn silhouette_reuses_shared_actor_pose_until_stamp_changes() {
+        let mut rig = Rig {
+            bones: vec![Bone {
+                name: "root".into(),
+                parent: None,
+                bind: Pose {
+                    position: Vec3::ZERO,
+                    rotation: Quat::IDENTITY,
+                },
+                inverse_bind: Mat4::IDENTITY,
+            }],
+            view_bounds: (Vec3::splat(-16.), Vec3::splat(16.)),
+            ..Rig::default()
+        };
+        rig.clips.insert(
+            "idle".into(),
+            Clip {
+                events: Vec::new(),
+                fps: 10.,
+                looping: true,
+                frames: vec![
+                    vec![Pose {
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    }],
+                    vec![Pose {
+                        position: Vec3::new(0., 0., 1.),
+                        rotation: Quat::IDENTITY,
+                    }],
+                ],
+                layer: ClipLayer::default(),
+            },
+        );
+        let surface = Surface {
+            background: false,
+            material: "models/test".into(),
+            vertices: [
+                Vec3::new(-4., -4., 0.),
+                Vec3::new(4., -4., 0.),
+                Vec3::new(0., 4., 0.),
+            ]
+            .into_iter()
+            .map(|position| Vertex {
+                position,
+                uv: Vec2::ZERO,
+                color: [255; 4],
+                light_uv: Vec2::ZERO,
+                skin: Some(Weights {
+                    bones: [0, 0, 0],
+                    weights: [1., 0., 0.],
+                }),
+                normal: Vec3::Z,
+            })
+            .collect(),
+            indices: vec![0, 1, 2],
+            lightmap: None,
+            flex_source: None,
+        };
+        let mut world = World {
+            name: "d1_trainstation_02".into(),
+            entities: vec![Entity {
+                properties: vec![("classname".into(), "npc_citizen".into())],
+            }],
+            ..World::default()
+        };
+        world.rigs.insert("hero.mdl#0".into(), rig.clone());
+        world
+            .model_assets
+            .insert("hero.mdl#0".into(), vec![surface]);
+
+        let mut game = Gameplay::synthetic(world);
+        game.scene.states[0].animation = "idle".into();
+        game.scene.states[0].visible = true;
+
+        let mut caster = Caster::of(&game.world, 0, ("hero.mdl#0".into(), 1.)).unwrap();
+        let at = Placement::new(Vec3::ZERO, Quat::IDENTITY);
+        caster.at = at;
+        caster.frame = Some(Frame::render_to_texture(
+            (Vec3::splat(-16.), Vec3::splat(16.)),
+            &at,
+            Vec3::NEG_Z,
+            75.,
+        ));
+
+        let mut poses = ActorPoses::default();
+        let stamp = entity_stamp(&game, &rig, 0).expect("visible animated entity");
+        poses.pose(&game, ("hero.mdl#0", &rig), 0, &stamp);
+        assert_eq!((poses.composed, poses.reused), (1, 0));
+
+        let mut textures = Textures::batch_only();
+        let mut images = Assets::<Image>::default();
+        caster.silhouette(
+            &game,
+            (&mut textures, &mut images),
+            (16, UVec2::ZERO),
+            Some(&mut poses),
+        );
+        assert_eq!(
+            (poses.composed, poses.reused),
+            (1, 1),
+            "shadow silhouette must reuse present_entities' pose for unchanged stamp"
+        );
+
+        game.scene.time += 0.1;
+        caster.silhouette(
+            &game,
+            (&mut textures, &mut images),
+            (16, UVec2::ZERO),
+            Some(&mut poses),
+        );
+        assert_eq!(
+            (poses.composed, poses.reused),
+            (2, 1),
+            "advancing animation stamp composes and caches the updated pose"
+        );
+    }
 }

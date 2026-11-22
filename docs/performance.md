@@ -1,5 +1,16 @@
 # Performance measurements - 2026-10-05
 
+## Batch 1 CPU optimizations (`O6`, headless `trace` on `mixed-crowd.json`, M1 Pro, 2026-11-22)
+
+Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn frames at `4278c1ee`, `300` frames running `test-inputs/performance-research/mixed-crowd.json` at `4278c1ee` vs each change; absolute trace times include `trace-chrome` instrumentation, compare like with like):
+
+- **Baseline at `4278c1ee`:**
+  - Everyday `stages` (`d1_trainstation_02` static, 400 frames, 249 post-warmup samples): `frame_total` `9.826 ms` mean (`p95 13.169`, `max 17.22`), `render_graph` `5.641 ms`, `render_assets` `1.506 ms`, `PostUpdate` `2.832 ms`, `PreUpdate` `0.598 ms`, `fixed_simulation` `2.131 ms`, `animation` `0.662 ms`, `hud` `0.225 ms`.
+  - Static `trace` (`d1_trainstation_02`, 400 frames): `allocate_and_free_meshes` `1.795 ms` mean, `prepare_erased_assets<SourceMaterial>` `0.824 ms` mean; `0` `present_entities + update` duplicate `actor_pose` groups because static spawn holds no animating rigged casters continuously in view (`silhouettes: 34` total).
+  - Crowd `trace` (`mixed-crowd.json`, 300 frames, `65` spawned NPCs in the plaza): `frame_total` `58.136 ms` mean (`main app` `43.111 ms`), `shadows::update` `1.048 ms` mean (`p99 2.439`, `max 4.21`), `--profile` `shadows` stage `1.244 ms` mean (`p95 1.504`, `max 3.82`), `actor_pose` `597.7` calls/frame (`4.460 ms/frame`), **`7,308` duplicate `actor_pose` groups by `present_entities + update`**, `visibility::present` `0.407 ms` (`p99 1.834`, `max 2.26`), `rendering::lod::switch_levels` `0.052 ms` (`max 8.77`).
+- **`O6` — Share `ActorPoses` in `shadows::update` (`shadows/caster.rs`):**
+  - Crowd `trace` (`mixed-crowd.json`, 300 frames): **`present_entities + update` duplicate `actor_pose` groups `7,308 -> 0`**, `shadows::update` **`1.048 -> 0.617 ms`** mean (`p99 2.439 -> 1.119`, `max 4.21 -> 1.38`), `--profile` `shadows` stage **`1.244 -> 0.811 ms`** mean (`p95 1.504 -> 1.004`, `max 3.82 -> 1.37`), total `actor_pose` **`597.7 -> 463.4`** calls/frame (**`4.460 -> 2.729 ms/frame`**), `frame_total` `58.136 -> 43.030 ms` mean.
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed

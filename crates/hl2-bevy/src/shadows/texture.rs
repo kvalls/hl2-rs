@@ -72,6 +72,24 @@ impl Textures {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn batch_only() -> Self {
+        Self {
+            picture: None,
+            blob: None,
+            page: Allocator::new(),
+            atlas_image: None,
+            batch: Some(super::gpu::Batch::default()),
+            submitted: None,
+            atlas_material: None,
+            alphas: BTreeMap::new(),
+            cell: Vec::new(),
+            points: Vec::new(),
+            dirty: false,
+            color: Vec4::ONE,
+        }
+    }
+
     /// Hands silhouette drawing to the GPU pass; called before the atlas exists.
     pub(super) fn use_gpu(&mut self) {
         if self.batch.is_none() {
