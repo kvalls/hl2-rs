@@ -49,6 +49,7 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
   - Under load (ten `yes` processes on the ten-core M1 Pro, two alternating runs per side): `frame_total` `41.21 / 37.89 -> 33.92 / 31.21 ms` mean (p95 `65.5 / 63.2 -> 60.6 / 49.8`, max `99.5 / 94.1 -> 75.3 / 70.4`, p99 bounds `85 / 81 -> 81 / 66`), `fixed_simulation` `7.42 / 7.17 -> 6.65 / 6.11 ms`.
   - Without load (six alternating runs per side): `frame_total` median `16.30 -> 16.28 ms` (`15.93-16.62` against `15.93-17.14`, one slow run on the new side), p99 bounds `27-32` against `25-38`: no change.
   - Game Mode: macOS labels the game and turns Game Mode on only when it runs full screen from an application bundle (O35); the embedded Info.plist alone is not enough.
+  - Game Mode A/B (full screen, same binary bare and from a scratch bundle, maxed saved settings, crowd script, ten `yes` processes, six alternating pairs, Game Mode state confirmed per run in the system log): mean frame `20.03 -> 20.30 ms` (off -> on), p95 `26.1 -> 27.4`, p99 bound `33.0 -> 34.5`, simulation `5.47 -> 5.51`; first three pairs `20.62 -> 20.42` mean, second three `19.45 -> 20.18`. No measurable gain once the frame threads have user-interactive QoS.
 
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 

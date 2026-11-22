@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-22 — macOS Game Mode measured: no gain on top of thread priority (O35 rejected)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed: documentation only (backlog O35 closed as rejected with the numbers, performance, README).
+- Why: the owner asked whether Game Mode adds real performance or is cosmetic, and to measure it.
+- Tested how: the `0503c27f` binary run full screen with the maxed saved settings (a fresh copy per run), the mixed-crowd script and `--profile`, alternately as the bare `bin/hl2-bevy` and from a scratch application bundle, under ten CPU-bound `yes` processes; six pairs; the system log confirmed Game Mode on for every bundle run and off for every bare run.
+- Result: mean frame 20.03 ms off against 20.30 on, p95 26.1 against 27.4, p99 bound 33.0 against 34.5, simulation unchanged; the first three pairs favoured Game Mode slightly (mean 20.62 against 20.42, lower worst frames), the second three did not (19.45 against 20.18). With the frame threads already at user-interactive QoS, Game Mode gives no measurable frame-time gain, so packaging the game as a bundle is not worth it for performance.
+- Still broken or not tested: Bluetooth controller latency (Game Mode's other effect) not measured; Game Mode without background load not measured.
+- Next: O34 (Windows priority) when Windows testing is available.
+
 ## 2026-11-22 — Thread priority and macOS application metadata for every build
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.
