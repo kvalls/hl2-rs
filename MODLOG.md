@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-22 — Record Capture 3 (`trace-alloc`, `d1_trainstation_02`) findings in optimization backlog
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `docs/optimization-backlog.md`: added Capture 3 (`trace-chrome` + `trace-alloc` + `--profile` + external sampler on `48100633`, `d1_trainstation_02`, 120.5 s, 5,610 traced frames), updated `O4`, `O6` (reopened to `partly done` after 24,400 live `present_entities + update` `actor_pose` repeats), `O13` (`Mesh3d` invalidation ripple), `O19` (confirmed solved live at 0.003 ms mean `diagnostics`), `O21` (149,306 allocs / 20.2 MB mean), `O22` (next capture pointer updated to `pacing` mode), and `O23` (+0.0 MB swap), and added new items `O25`–`O29` (`update_mesh_previous_global_transforms` `PreUpdate` spikes, multi-camera `weapon_blur::reconstruct`/`source_bloom` fan-out, first-gameplay-frame `PipelineCache`/`fixed_step` hitch, `visibility::present` p99 spikes, and `rendering::lod::switch_levels` 12.20 ms max spike).
+- Why: capture live post-O19/O6/merge performance baseline on `d1_trainstation_02` and track newly surfaced CPU, render-graph, and hitch bottlenecks before fixing the next item.
+- Tested how: live `trace-alloc` capture (`capture.py` on `48100633`, `d1_trainstation_02`, raw 13.50 GiB trace analyzed and pruned, everyday `advanced-options,debug-tools` binary restored); documentation verified with `scripts/checks/architecture.py` and the repository isolation check.
+- Result: Capture 3 summaries archived cleanly in `artifacts/perf-traces/`, `docs/optimization-backlog.md` updated, and documentation checks pass.
+- Still broken or not tested: uninflated `pacing` (Metal System Trace on everyday build) and fixes for `O6`/`O13`/`O20`/`O21`/`O25`–`O29` remain open (**not tested**).
+- Next: run an uninflated `pacing` capture for 120 Hz GPU/surface intervals or tackle one of `O6` (`shadows/caster.rs`), `O26`, `O13`, or `O20`.
+
 ## 2026-11-22 — Prevent idle Chrome tracing on startup pause and cap trace disk growth
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
