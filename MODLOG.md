@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-22 — Backlog: a Measure column per item, enforced by a check
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed:
+  - `docs/optimization-backlog.md`: a "Measuring an item" section (decide before fixing an item how its gain will show: the metric its area moves, the scene that stresses that area, which bound limits the frame there, repeats and noise) with a table of scenes per area, and a Measure column in the items table, filled for all 41 items. O13's row, split into an extra cell by an earlier edit, is whole again.
+  - New `scripts/checks/backlog.py`, called by `architecture.py` (so by `validate.sh`, CI and the pre-commit hook): the items table keeps its six columns, every row exactly six cells, unique `O<n>` ids, a known status, non-empty Finding, Measure and Next; only a rejected item may leave Measure as "-"; the measuring section stays. New `scripts/checks/test_backlog.py` (6 tests, including the repository's backlog).
+  - `.agents/skills/hl2-performance-trace/SKILL.md`: headless A/B captures choose their scene and measure from the item's area and record it in the Measure column first.
+- Why: the owner noted that many optimizations cannot be justified by the crowd benchmark alone (map materials, sprites, particles and other areas it does not cover), and asked for the rule to be reliable rather than advisory.
+- Tested how: the check passes on the backlog and fails on an invalid status, a missing or skipped Measure, wrong cell counts, duplicate or malformed ids and a missing section (unit tests; a deliberately broken row failed `architecture.py`); `scripts/checks/validate.sh`.
+- Result: every backlog item must say how its gain is measured, or the build checks fail.
+- Still broken or not tested: the check enforces that a measure is named, not that it is the right one; several scenes in the table do not exist yet as scripted fixtures (an LOD fly-through, a PVS cluster walk, entity-heavy and areaportal maps, the O32 sweep). HL2RS AGENTS.md has no line for this rule (it is 53 bytes under its size limit).
+- Next: O2 with its Measure column.
+
 ## 2026-11-22 — Backlog: techniques from four game performance optimizers (O36-O41)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5` (with web-reading subagents).

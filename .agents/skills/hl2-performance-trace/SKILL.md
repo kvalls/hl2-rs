@@ -52,6 +52,7 @@ Run from the HL2-RS repository root with Python 3 stdlib scripts under `.agents/
    - **Always update `docs/optimization-backlog.md`, `docs/performance.md`, and `MODLOG.md` after every completed capture** (once doc checks pass, commit the doc updates cleanly) and optionally relaunch at the captured `agent_resume` position/map if continuing a live `/hl2-session`.
 
 6. **Headless A/B or regression captures:**
+   - Choose the scene and the measure from the area the change touches, not by habit: the crowd fight covers NPC AI, animation and firefight effects only. Map materials, sprites, particles, shadows, monitors, the HUD, map loading or GPU passes each need the scene and measure listed in `docs/optimization-backlog.md` "Measuring an item" (or a new scene under `test-inputs/performance-research/`). Record it in the item's Measure column before fixing it.
    - Run repeatable scripted/static captures without a window (validates build features match `--mode`, runs `--background --no-setup --mute`, writes `run.log` and `report.json`, optionally analyzes and deletes raw trace):
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py headless --mode <mode> --map <map> --frames 400 --out <dir> --analyze --delete-raw`
    - Always update `docs/optimization-backlog.md`, `docs/performance.md`, and `MODLOG.md` with verified numbers when closing or measuring items.

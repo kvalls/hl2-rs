@@ -11,6 +11,8 @@ Fails when a change:
 - raises a counted smell of a crate (mutable statics, `too_many_arguments` and `dead_code`
   allowances, glob imports in production code);
 - makes AGENTS.md longer than AGENTS_BYTES (it holds rules, one line each).
+- breaks the structure of docs/optimization-backlog.md (backlog.py: every item states how its gain
+  is measured).
 
 Existing offenders are in architecture-baseline.json and may only shrink. After shrinking one,
 run `UPDATE_BASELINE=1 python3 scripts/checks/architecture.py`: it only lowers or removes entries.
@@ -24,6 +26,8 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+import backlog
 
 REPO = Path(__file__).resolve().parents[2]
 BASELINE = Path(__file__).with_name("architecture-baseline.json")
@@ -292,6 +296,7 @@ def measure():
     for block, places in windows.items():
         if len(places) > 1:
             duplicates[hashlib.sha1(block.encode()).hexdigest()[:12]] = places
+    problems += [f"docs/optimization-backlog.md: {p}" for p in backlog.check(backlog.PATH.read_text(encoding="utf-8"))]
     agents = REPO / "AGENTS.md"
     if agents.exists() and text_bytes(agents) > AGENTS_BYTES:
         problems.append(f"AGENTS.md is {text_bytes(agents)} bytes (limit {AGENTS_BYTES}): it holds "
