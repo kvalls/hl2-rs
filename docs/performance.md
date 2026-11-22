@@ -1,5 +1,37 @@
 # Performance measurements - 2026-10-05
 
+## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
+
+Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed
+`d1_trainstation_02` at native Retina `(3456, 2234)` / 120 Hz, 4x MSAA, full HDR, motion blur,
+anisotropic 8x, VSync, with `--profile`, external once-a-second process sampler, and a 15 s macOS
+`Metal System Trace` auto-attached when gameplay started (`58%` idle GPU, `879 MB` swap before
+launch). Compare against Capture 3 (`48100633`, `trace-alloc`, 5,610 traced frames) in
+`docs/optimization-backlog.md` for CPU/allocation culprits (`O6`, `O13`, `O25`–`O29`).
+
+- **Visible display pacing (`displayed-surfaces-interval`, 962 frames at 120 Hz):** **62.0 FPS effective**
+  (899 repeated refreshes): 1 refresh `186` frames (19.3%), 2 refreshes (60 Hz) `723` (75.2%),
+  3 refreshes `47` (4.9%), 4–6 refreshes `5` (0.5%), and `1` frame at 64 refreshes (0.1%).
+- **Metal GPU intervals (63,095 intervals over 817 frames):** GPU busy **6.00 ms mean**, p50 `5.30`,
+  p95 `14.31`, p99 `20.10`, max `29.69` ms; `183/817` frames (22.4%) exceeded 8.33 ms. Top
+  per-frame passes (ms/frame across all frames): `main_transparent_pass_3d` Fragment `1.520`
+  (1.7/frame, p99 `3.618`, max `4.11`), `main_opaque_pass_3d` Fragment `1.099` + Vertex `0.542`,
+  `source_bloom` Fragment `0.565` + Vertex `0.084` (2.3 Fragment passes/frame), `early prepass`
+  Fragment `0.467`, `msaa_writeback` Fragment `0.406` + Vertex `0.040`, world motion blur
+  (`world_motion_blur` `0.390` + `world_blur_composite` `0.208` + downsample/env `0.064` + vertex
+  `0.049`, `world_object_gather` `0.049` avg / p99 `2.138`), 2D Fragment `0.147 + 0.098`,
+  `upscaling` `0.143 + 0.050`. Weapon motion blur was mostly idle in this 15 s window
+  (`weapon_reduce_4` `0.100` at 0.2/frame, `weapon_reduce_32` `0.098`, `weapon_motion_dilate` `0.068`).
+- **`--profile` CPU stages (4,096 post-warmup of 10,518 frames):** `frame_total` **13.350 ms mean**
+  (p95 `18.305`, max `94.46`), `render_graph` **7.091 ms** (p95 `9.995`, max `72.48`),
+  `main_schedule.outside` **6.809 ms** (p95 `11.228`, max `86.39`), `main_schedule.PostUpdate`
+  `3.966 ms`, `render_assets` `2.141 ms` (p95 `4.607`), `fixed_simulation` `1.939 ms`,
+  `render_prepare` `1.513 ms`, `render_views` `1.047 ms` (p95 `5.316`), `animation` `0.924 ms`,
+  `diagnostics` `0.003 ms`.
+- **Process resources (132 samples, 131.5 s):** GPU `84.1%` mean (`max 99.0%`), `gpu_mem` `1941.1 MB`
+  mean (`max 2377.0 MB`), CPU `165.5%` mean (`top_thread 34.3%`), RSS `1472.1 MB` mean (`max
+  2622.2 MB`), `swap 878.6 -> 995.1 MB` (`+116.5 MB`).
+
 ## Maxed Retina on M1 Pro: GPU-bound, render thread second (2026-11-21)
 
 Owner run, packaged release with `trace-chrome`, windowed d1_trainstation_02 at 3456x2168, 4x MSAA,

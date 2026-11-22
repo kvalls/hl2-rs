@@ -28,17 +28,17 @@ Run from the HL2-RS repository root with Python 3 stdlib scripts under `.agents/
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py launch --mode <mode> --out <dir> -- <resume args e.g. --map d1_trainstation_02>`
    - Wait for RCON via `.agents/skills/hl2-session/scripts/rcon.py --wait 60 ...`. Once connected, attach the external sampler in the background:
      `python3 .agents/skills/hl2-performance-trace/scripts/resource_sampler.py record --out <dir>/resources.jsonl`
-   - Optionally on macOS, attach Metal System Trace (`45s` window produces `~13 GB`, delete raw `.trace` after export) or CPU `sample` (works on any already-running build without rebuilding; pass `--wait-gameplay` to wait until the player closes the console and enters gameplay before attaching):
-     - `python3 .agents/skills/hl2-performance-trace/scripts/capture.py metal-record --out <dir> --seconds 45 --wait-gameplay`
+   - Optionally on macOS, attach Metal System Trace (`--seconds 15` is recommended for everyday `pacing` runs — `~5 GB`, flushes fast on a 16 GB Mac — vs `45s` `~15 GB`; delete raw `.trace` after export) or CPU `sample` (works on any already-running build without rebuilding; pass `--wait-gameplay` to wait until the player closes the console and enters gameplay before attaching):
+     - `python3 .agents/skills/hl2-performance-trace/scripts/capture.py metal-record --out <dir> --seconds 15 --wait-gameplay`
      - `python3 .agents/skills/hl2-performance-trace/scripts/capture.py sample-record --out <dir> --seconds 60 --wait-gameplay`
    - Instruct the player in game via `rcon.py "say ..."` (never put `;` inside `say` text): confirm which layers are recording, ask them to **close the developer console** (open console skews UI/font/quad costs) and play the scenario for 30–60 seconds, then type `say done` (note: both `--profile` and `TRACE_CHROME` start only once gameplay resumes, not on the menu/loading screen).
    - Start `.agents/skills/hl2-session/scripts/watch.py` (streaming) or `watch.py --once` (turn-based wakeup) to detect `say done` (or user exit).
 
 4. **Finish cleanly without losing the trace:**
-   - When the player says `done`, capture `rcon.py "agent_resume"`, tell them via `rcon.py "say ..."` that you are closing the game to finalize `trace.json` and `report.json`, and send `rcon.py "quit"` cleanly (do **not** use `restart.py` during a trace run, because relaunching overwrites `TRACE_CHROME`).
+   - When the player says `done`, capture `rcon.py "agent_resume"`, tell them via `rcon.py "say ..."` that you are closing the game to finalize `trace.json` and `report.json`, and send `rcon.py "quit"` cleanly (do **not** use `restart.py` during a trace run, because relaunching overwrites `TRACE_CHROME`). On macOS with an active `metal-record`, wait until `xctrace.log` shows `"Reached specified time limit, ending recording..."` before sending `quit`, then let `xctrace` finish flushing `gpu.trace` rather than killing it (`quit` lets `report.json` write and unblocks fast bundle finalization).
    - Verify the game exited cleanly (`TRACE_CHROME` closes with its trailing `]`) and the resource sampler finished.
 
-5. **Analyze, prune raw multi-GB traces, and restore the everyday build:**
+5. **Analyze, prune raw multi-GB traces, restore the everyday build, and update docs:**
    - Run the all-in-one analyzer (`--delete-raw` removes `trace.json` and `gpu.trace` automatically once every analyzer and XML export finishes without errors; use `cleanup` only if needed later):
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py analyze --dir <dir> --delete-raw`
    - Individual standalone analyzers are also directly callable:
@@ -49,9 +49,9 @@ Run from the HL2-RS repository root with Python 3 stdlib scripts under `.agents/
      - `.agents/skills/hl2-performance-trace/scripts/sample_summary.py --file <dir>/sample.txt`
    - **Always restore the everyday non-trace build** (`advanced-options,debug-tools`) when finished so normal play and replays are never left on a trace build:
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py restore`
-   - Optionally relaunch at the captured `agent_resume` position/map if continuing a live `/hl2-session`.
+   - **Always update `docs/optimization-backlog.md`, `docs/performance.md`, and `MODLOG.md` after every completed capture** (once doc checks pass, commit the doc updates cleanly) and optionally relaunch at the captured `agent_resume` position/map if continuing a live `/hl2-session`.
 
 6. **Headless A/B or regression captures:**
    - Run repeatable scripted/static captures without a window (validates build features match `--mode`, runs `--background --no-setup --mute`, writes `run.log` and `report.json`, optionally analyzes and deletes raw trace):
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py headless --mode <mode> --map <map> --frames 400 --out <dir> --analyze --delete-raw`
-   - Record findings in `docs/optimization-backlog.md` and `docs/performance.md` when investigating or closing backlog items.
+   - Always update `docs/optimization-backlog.md`, `docs/performance.md`, and `MODLOG.md` with verified numbers when closing or measuring items.

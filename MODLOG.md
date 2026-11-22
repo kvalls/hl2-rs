@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-22 — Record Capture 4 (15 s uninflated `pacing` + Metal System Trace)
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `docs/optimization-backlog.md`: added Capture 4 (`22332865`, everyday `advanced-options,debug-tools`, `d1_trainstation_02`, 15 s auto-attached Metal System Trace + `--profile` + external sampler) and updated `O1` (GPU busy 6.00 ms mean / p95 14.31 / p99 20.10, `183/817` frames > 8.33 ms, top passes transparent 3D 1.52 ms and opaque 3D 1.10 + 0.54 ms), `O4` (uninflated `frame_total` 13.35 ms, `render_graph` 7.09 ms, `outside` 6.81 ms), `O20` (light weapon motion in window), and `O22` (real 120 Hz pacing: 62.0 FPS effective, 19.3% 1-refresh, 75.2% 2-refresh / 60 Hz across 962 displayed frames).
+  - `docs/performance.md`: added Capture 4 section summarizing uninflated Retina pacing, Metal GPU pass breakdown, `--profile` CPU stages, and process resource usage alongside a pointer to Capture 3 (`48100633`).
+  - `.agents/skills/hl2-performance-trace/SKILL.md`: defaulted interactive `metal-record` guidance to `--seconds 15` with clean `quit` timing after the time limit, and required updating `docs/optimization-backlog.md`, `docs/performance.md`, and `MODLOG.md` after every completed capture.
+- Why: establish the uninflated everyday-build 120 Hz display pacing and Metal pass baseline requested under `O22` / `O1`, and keep performance docs synchronized after every capture.
+- Tested how: live 15 s `pacing` + `metal-record --wait-gameplay` capture on `d1_trainstation_02` (exported `gpu_intervals.xml` and `displayed_surfaces.xml`, pruned raw `gpu.trace`, verified `trace_build=False`); `python3 -m unittest discover -s scripts/checks -p "test_hl2_performance_trace.py" -v`, `scripts/checks/architecture.py`, and the repository isolation check.
+- Result: Capture 4 findings recorded cleanly and documentation/skill tests pass.
+- Still broken or not tested: active crowbar-swing Metal GPU cost (`O20`) and fixes for `O1`/`O4`/`O6`/`O13`/`O25`–`O29` remain open (**not tested**).
+- Next: tackle one of the top frame-budget items (`O6` shadow `ActorPoses`, `O26` multi-camera blur/bloom fan-out, `O13` mesh churn, or `O1`/`O2`/`O20` GPU pass cost).
+
 ## 2026-11-22 — Auto-attach external Metal/sample profilers when gameplay starts
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
