@@ -432,6 +432,7 @@ pub struct Scene {
     player_feet: Vec3,
     /// Duration of the latest tick (NPC movement turning runs after the scene tick).
     tick_dt: f32,
+    pose_memo: choreography::pose::PoseMemo,
     /// Inputs for the AI (step 14): (target entity, lowercase input, parameter,
     /// activator). The AI runtime drains them; without it they are dropped.
     pub ai_inputs: Vec<(usize, String, String, usize)>,
@@ -764,6 +765,7 @@ impl Scene {
             templates: BTreeMap::new(),
             player_feet: Vec3::ZERO,
             tick_dt: 0.,
+            pose_memo: Default::default(),
             ai_auto_motion_time: BTreeMap::new(),
         };
         scene.spawn_entities(world, new_game);
@@ -777,8 +779,7 @@ impl Scene {
             .any(|(child, ..)| *child == id)
     }
     pub fn tick(&mut self, world: &World, player_feet: Vec3, dt: f32) {
-        self.time += dt as f64;
-        self.tick_dt = dt;
+        self.begin_tick(dt);
         if let Some(camera) = self.view_control.expired(world, self.time) {
             self.view_control.disable(camera);
             self.fire(camera, "OnEndFollow", usize::MAX);

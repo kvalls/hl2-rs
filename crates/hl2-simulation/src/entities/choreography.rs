@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(super) mod control;
-mod pose;
+pub(super) mod pose;
 
 impl Scene {
     /// Preload map choreography before simulation; no blocking asset reads in tick.

@@ -20,18 +20,27 @@ impl Scene {
         id: usize,
         bones: modkit_core::animation::Bones,
     ) -> Vec<glam::Mat4> {
-        // Each call composes a whole skeleton: repeated calls for one id in a frame are waste.
-        let _span = crate::profile_span!("actor_pose", id, partial = bones.is_some());
         if let Some(ragdoll) = self.ragdoll_matrices.get(&id) {
             return ragdoll.clone();
         }
         let Some(state) = self.states.get(id) else {
             return rig.matrices("", 0.);
         };
-        let params = self.actor_pose_values(rig, id);
         let fades = self.sequence_fades(id);
         // A barnacle tongue reads and writes whole chains: every bone then.
         let bones = bones.filter(|_| !self.tongues.contains_key(&id));
+        // Within a tick the same partial pose is asked for many times (hitboxes, eye and hand
+        // attachments, merged weapons): composed once per set of inputs. Whole skeletons are
+        // asked for once each (the host's presentation, after the tick) and skip the memo.
+        let rig_key = std::ptr::from_ref(rig) as usize;
+        let inputs = bones.map(|_| self.pose_inputs(id, &state.animation, &fades));
+        if let Some(matrices) =
+            inputs.and_then(|inputs| self.pose_memo.get(id, rig_key, bones, inputs))
+        {
+            return matrices;
+        }
+        let _span = crate::profile_span!("actor_pose", id, partial = bones.is_some());
+        let params = self.actor_pose_values(rig, id);
         let base = (state.animation.as_str(), self.animation_time(id));
         let mut matrices = (self.gestures)
             .compose_blended_of(rig, id, base, &params, &fades, bones)
@@ -41,7 +50,38 @@ impl Scene {
                 glam::Mat4::from_rotation_translation(state.rotation, state.origin).inverse();
             crate::ai::barnacle::pose_tongue(rig, tongue, to_model, &mut matrices);
         }
+        if let Some(inputs) = inputs {
+            self.pose_memo.put(id, rig_key, bones, inputs, &matrices);
+        }
         matrices
+    }
+    /// Advances the clock by one tick of `dt` seconds and forgets the previous tick's poses.
+    pub(in crate::entities) fn begin_tick(&mut self, dt: f32) {
+        self.time += f64::from(dt);
+        self.tick_dt = dt;
+        self.pose_memo.clear();
+    }
+    /// Everything an actor's composed pose depends on besides its rig and requested bones:
+    /// the base sequence and its exact time, the sequence fades, and [`Self::pose_signature`]
+    /// (gesture layers, head goals, pose-parameter flexes, movement yaw, tongue frame).
+    fn pose_inputs(&self, id: usize, animation: &str, fades: &[(&str, f32, f32)]) -> u64 {
+        let mix = |hash: u64, v: u64| (hash ^ v).wrapping_mul(0x100000001b3).rotate_left(11);
+        let text = |hash: u64, s: &str| {
+            s.bytes()
+                .fold(mix(hash, s.len() as u64), |h, b| mix(h, b.into()))
+        };
+        let mut hash = mix(
+            self.pose_signature(id),
+            self.animation_time(id).to_bits().into(),
+        );
+        hash = text(hash, animation);
+        for (sequence, time, weight) in fades {
+            hash = mix(
+                mix(text(hash, sequence), time.to_bits().into()),
+                weight.to_bits().into(),
+            );
+        }
+        hash
     }
     /// Previous base sequences to blend now, newest first: (sequence, time, weight).
     pub fn sequence_fades(&self, id: usize) -> Vec<(&str, f32, f32)> {
@@ -221,3 +261,58 @@ impl Scene {
         hash
     }
 }
+
+/// Partial skeletons composed since the tick began, by (actor, rig, requested bones): a request
+/// whose inputs ([`Scene::pose_inputs`]) match a stored skeleton reuses it. Cleared at the start of each tick; an AI change to a
+/// sequence mid-tick changes the inputs, so it is composed again.
+#[derive(Default)]
+pub struct PoseMemo(std::sync::Mutex<PoseEntries>);
+type PoseEntries =
+    std::collections::HashMap<(usize, usize, u64), (u64, std::sync::Arc<Vec<glam::Mat4>>)>;
+impl PoseMemo {
+    /// The requested bones as part of the key.
+    fn bones_key(bones: modkit_core::animation::Bones) -> u64 {
+        bones.map_or(0, |bones| {
+            bones.iter().fold(0x9e37_79b9u64, |h, &b| {
+                (h ^ u64::from(b))
+                    .wrapping_mul(0x100000001b3)
+                    .rotate_left(5)
+            }) | 1
+        })
+    }
+    fn get(
+        &self,
+        id: usize,
+        rig: usize,
+        bones: modkit_core::animation::Bones,
+        inputs: u64,
+    ) -> Option<Vec<glam::Mat4>> {
+        let entries = self.0.lock().ok()?;
+        entries
+            .get(&(id, rig, Self::bones_key(bones)))
+            .filter(|(stored, _)| *stored == inputs)
+            .map(|(_, matrices)| matrices.as_ref().clone())
+    }
+    fn put(
+        &self,
+        id: usize,
+        rig: usize,
+        bones: modkit_core::animation::Bones,
+        inputs: u64,
+        matrices: &[glam::Mat4],
+    ) {
+        if let Ok(mut entries) = self.0.lock() {
+            let value = (inputs, std::sync::Arc::new(matrices.to_vec()));
+            entries.insert((id, rig, Self::bones_key(bones)), value);
+        }
+    }
+    /// Forgets the previous tick's skeletons.
+    pub fn clear(&mut self) {
+        if let Ok(entries) = self.0.get_mut() {
+            entries.clear();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

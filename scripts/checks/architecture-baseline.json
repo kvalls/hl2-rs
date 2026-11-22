@@ -219,7 +219,7 @@
    101
   ],
   "crates/hl2-simulation/src/entities.rs::tick": [
-   107
+   106
   ],
   "crates/hl2-simulation/src/entities/choreography.rs::tick_choreography": [
    366

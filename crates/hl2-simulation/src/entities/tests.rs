@@ -1647,13 +1647,13 @@ fn runtime_bodygroups_change_the_scene_body() {
     assert!(!scene.set_bodygroup(&world, 0, 9, 1));
 }
 
-#[test]
-fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
+/// A police model on a one-bone rig whose idle turns 0.01 rad per frame, looping over 300 frames
+/// (10 s); also used by the pose memo tests.
+pub(super) fn turning_police_world() -> World {
     use modkit_core::{
         animation::{Bone, Clip, Pose, Rig, Sequence},
         ModelInstance,
     };
-    // A one-bone idle turning 0.01 rad per frame, looping over 300 frames (10 s).
     let clip = || Clip {
         layer: modkit_core::animation::ClipLayer {
             flags: modkit_core::animation::sequence_flags::LOOPING,
@@ -1673,7 +1673,7 @@ fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
             })
             .collect(),
     };
-    let w = World {
+    World {
         entities: vec![entity("npc_metropolice", "cop", &[])],
         model_instances: vec![ModelInstance {
             background: false,
@@ -1706,7 +1706,12 @@ fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
             },
         )]),
         ..Default::default()
-    };
+    }
+}
+
+#[test]
+fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
+    let w = turning_police_world();
     let mut scene = Scene::new(&w);
     let rig = &w.rigs["police.mdl#0"];
     let angle = |scene: &Scene| {

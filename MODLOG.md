@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-22 — Per-tick memo of partial actor poses (`O6`, owner-approved)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed:
+  - `crates/hl2-simulation/src/entities/choreography/pose.rs`: `Scene::actor_matrices_of` keeps partial skeletons (hitbox bones, attachment chains) composed since the tick began in a `PoseMemo` (a mutex-guarded map by actor, rig and requested bones), each with a hash of its inputs: the base sequence and its exact time, the sequence fades (names, times, weights) and `pose_signature` (gesture layers, head goals, pose-parameter flexes, movement yaw, tongue frame). A request with the same inputs reuses the skeleton; changed inputs (an AI restart mid-tick, a new head goal) compose again. Whole skeletons skip the memo. `Scene::begin_tick` advances the clock and clears it (`Scene::tick` one line shorter).
+  - Tests: the one-bone police world of `entities/tests.rs` is a shared `turning_police_world()`; new `pose/tests.rs` checks memoized partial poses against freshly composed ones across repeated requests, a mid-tick restart, a head goal change and the tick clear.
+- Why: the owner approved the per-tick pose memo recorded in O6. A crowd sample showed hitbox and attachment poses composing the same skeletons several times per tick.
+- Tested how: `cargo test -p hl2-simulation` (881 passed); crowd `stages` A/B, three alternating runs per side, for both versions; `scripts/checks/validate.sh`, Windows-target Clippy, packaged replay suite (gameplay outcomes, hitboxes, AI).
+- Result: crowd `fixed_simulation` 5.64 -> 5.45 ms mean, p95 8.30 -> 7.21, max 11.7 -> 10.2; `frame_total` 16.32 -> 16.09 ms, p99 bound 28.7 -> 26.3; host `animation` unchanged. A first version that also memoized whole skeletons cost the host 0.08 ms per frame and was narrowed.
+- Still broken or not tested: the memo trusts `pose_signature` to cover the gesture layers' state, as the host's pose cache already does; live windowed play **not tested**.
+- Next: O30 GPU morph targets or the GPU passes (O1/O2) with a live capture.
+
 ## 2026-11-22 — Dense facial flex deltas (`O30` CPU side)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.
