@@ -46,6 +46,21 @@ def executable_path(repo: Path) -> Path:
     return repo / "bin" / name
 
 
+def executable_sha256(exe: Path) -> Optional[str]:
+    """The executable's sha256: the build a run measured, which HEAD alone does not show (bin/ may
+    hold an experiment or a stale build)."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    try:
+        with exe.open("rb") as stream:
+            while chunk := stream.read(65536):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
 def console_log_path(repo: Path, env: Optional[dict[str, str]] = None) -> Path:
     source = os.environ if env is None else env
     settings = source.get("HL2RS_SETTINGS", "").strip()

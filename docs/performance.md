@@ -1,5 +1,30 @@
 # Performance measurements - 2026-10-05
 
+## A/A noise floor and stashed lockstep control (2026-11-22)
+
+Measured at `6c680b59` (`bin/hl2-bevy`, everyday `stages` release build, `--uncapped --profile`,
+three alternating A/A pairs of the same binary after one discarded cold warm-up run) on
+`d1_trainstation_02` with `test-inputs/performance-research/quiet.json`:
+
+- **Wall clock (`1,923–1,942` frames/run):** `frame_total` median A `4.57` vs B `4.58 ms` (`+0.2%`,
+  A spread `0.06 ms` over `4.56–4.62`, B spread `0.03 ms` over `4.57–4.59`), `fixed_simulation`
+  median `1.98` vs `1.98 ms` (`-0.2%`), `fight_ms` median `4.58` vs `4.60 ms`.
+- **Stashed `--lockstep` experiment (one 15 ms fixed tick per rendered frame and synchronous
+  runtime loads; `601` frames/run):** `frame_total` median A `5.11` vs B `5.14 ms` (`+0.5%`, A
+  spread `0.07 ms` over `5.07–5.13`, B spread `0.15 ms` over `5.09–5.24`), `fixed_simulation` median
+  `1.88` vs `1.90 ms` (`+0.7%`), `fight_ms` median `5.12` vs `5.17 ms`.
+- **Crowd and physics determinism notes:** on `mixed-crowd.json`, two `--lockstep` runs matched
+  workload totals (`1,201` frames, `73/73` spawns, `43` Combat / `4` Alert / `0` dead) while
+  differing in `1,585` of `88,249` simulated float values (`frame_total` `13.93 ms` cold with a
+  `140 ms` hitch vs `13.16 ms` warm). In-process `Physics::new` stepped twice on
+  `d1_trainstation_02` diverged on tick 0 because `parry3d` keeps composite-shape contact manifolds
+  in a randomly seeded `hashbrown` map unless Rapier's `enhanced-determinism` feature is on.
+- **Outcome:** `--lockstep` did not lower run-to-run timing noise on the quiet scene and altered the
+  simulation-to-render ratio (`~0.31` ticks/frame on wall clock vs `1.0` under lockstep). The
+  `--lockstep` code and its two failing determinism tests remain stashed (not committed); the
+  retained tooling stamps `executable_sha256`, `args`, `backlog_item`, and `backlog_measure` into
+  `capture_meta.json` (`capture.py` / `session.py`).
+
 ## Batch 1 CPU optimizations (`O6`, headless `trace` on `mixed-crowd.json`, M1 Pro, 2026-11-22)
 
 Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn frames at `4278c1ee`, `300` frames running `test-inputs/performance-research/mixed-crowd.json` at `4278c1ee` vs each change; absolute trace times include `trace-chrome` instrumentation, compare like with like):

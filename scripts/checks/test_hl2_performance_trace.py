@@ -2,6 +2,7 @@
 
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -9,6 +10,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[2]
 SKILL_DIR = REPO / ".agents" / "skills" / "hl2-performance-trace"
@@ -391,6 +393,89 @@ class TestCaptureOrchestrator(unittest.TestCase):
                     is_alive=lambda _pid: False,
                 )
             )
+
+    def test_lookup_backlog_item_and_status_hash(self):
+        item = capture.lookup_backlog_item(REPO, "o2")
+        self.assertIsNotNone(item)
+        self.assertEqual(item["id"], "O2")
+        self.assertIn("Breen-screen", item["measure"])
+        self.assertIsNone(capture.lookup_backlog_item(REPO, "O9999"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            missing = capture.collect_status(repo, include_idle_sample=False)
+            self.assertFalse(missing["executable_exists"])
+            self.assertIsNone(missing["executable_sha256"])
+
+            exe = capture.session.executable_path(repo)
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b"fake-exe")
+            (repo / "bin" / "build-bevy-info.json").write_text(
+                json.dumps({"profile": "release", "plugins": "advanced-options,debug-tools"}),
+                encoding="utf-8",
+            )
+            ready = capture.collect_status(repo, include_idle_sample=False)
+            self.assertTrue(ready["executable_exists"])
+            self.assertEqual(ready["executable_sha256"], hashlib.sha256(b"fake-exe").hexdigest())
+
+    def test_headless_stamps_sha256_args_and_backlog_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            exe = capture.session.executable_path(repo)
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b"headless-binary")
+            (repo / "bin" / "build-bevy-info.json").write_text(
+                json.dumps({"profile": "release", "plugins": "advanced-options,debug-tools"}),
+                encoding="utf-8",
+            )
+            docs = repo / "docs"
+            docs.mkdir()
+            (docs / "optimization-backlog.md").write_text(
+                "| ID | Area | Status | Finding | Measure | Next |\n"
+                "|---|---|---|---|---|---|\n"
+                "| O2 | GPU | open | Five cameras | Static spawn: `render_graph` | Split passes |\n",
+                encoding="utf-8",
+            )
+            out_dir = repo / "out"
+            args = argparse.Namespace(
+                mode="stages",
+                map="d1_trainstation_02",
+                frames=10,
+                repo=repo,
+                out=out_dir,
+                name=None,
+                item="o2",
+                analyze=False,
+                delete_raw=False,
+                allow_mismatch=False,
+                trailing=["--", "--uncapped"],
+            )
+            with (
+                mock.patch.object(capture, "_git_head", return_value="deadbeef"),
+                mock.patch.object(
+                    capture.subprocess,
+                    "run",
+                    return_value=capture.subprocess.CompletedProcess(args=[], returncode=0),
+                ) as mocked_run,
+                mock.patch.object(capture.resource_sampler, "collect_once", return_value={}),
+                contextlib.redirect_stdout(io.StringIO()) as out_buf,
+            ):
+                rc = capture.cmd_headless(args)
+            self.assertEqual(rc, 0)
+            self.assertIn("Backlog O2 (GPU, open) Measure: Static spawn: `render_graph`", out_buf.getvalue())
+            mocked_run.assert_called_once()
+            meta = json.loads((out_dir / "capture_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["executable_sha256"], hashlib.sha256(b"headless-binary").hexdigest())
+            self.assertEqual(meta["args"], ["--uncapped"])
+            self.assertEqual(meta["backlog_item"], "O2")
+            self.assertEqual(meta["backlog_measure"], "Static spawn: `render_graph`")
+            self.assertEqual(meta["exit_code"], 0)
+
+            bad_args = argparse.Namespace(**{**vars(args), "item": "O999"})
+            with contextlib.redirect_stderr(io.StringIO()) as err_buf:
+                rc_bad = capture.cmd_headless(bad_args)
+            self.assertEqual(rc_bad, 1)
+            self.assertIn("unknown backlog item", err_buf.getvalue())
 
 
 class TestSkillDocs(unittest.TestCase):

@@ -1,5 +1,6 @@
 """Cross-platform unit tests for the in-repo /hl2-session skill scripts and docs."""
 
+import hashlib
 import io
 import json
 import os
@@ -416,6 +417,17 @@ class TestSession(unittest.TestCase):
             self.assertEqual(pw_path.read_text(encoding="utf-8"), "secret\n")
             if os.name != "nt":
                 self.assertEqual(pw_path.stat().st_mode & 0o777, 0o600)
+
+    def test_executable_sha256_hashes_file_and_handles_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = Path(tmp) / "hl2-bevy"
+            self.assertIsNone(session.executable_sha256(exe))
+            payload = b"hl2rs-binary-payload" * 4096
+            exe.write_bytes(payload)
+            self.assertEqual(
+                session.executable_sha256(exe),
+                hashlib.sha256(payload).hexdigest(),
+            )
 
     def test_supervisor_handles_resume_empty_resume_and_repackage(self):
         fake_script = (

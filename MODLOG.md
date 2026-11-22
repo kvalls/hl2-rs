@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-22 — Measure-column validation rules, binary hash stamping, and A/A noise-floor findings
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh), continuing from Claude Code desktop (`claude-opus-5-5`).
+- Changed:
+  - `AGENTS.md`, `docs/optimization-backlog.md`, `.agents/skills/hl2-performance-trace/SKILL.md`: require reading and running every scene and metric in an optimization item's `Measure` column before marking it `done` (never defaulting to the crowd test for unrelated areas, and never forcing bit-determinism on chaotic NPC crowds); flag any unrun measure as **not tested**.
+  - `docs/optimization-backlog.md`: explicitly marked O2's unrun Breen-screen monitor replay and O41's unrun static-spawn lit-props check as **not tested**.
+  - `.agents/skills/hl2-session/scripts/session.py`, `.agents/skills/hl2-performance-trace/scripts/capture.py`: stamp `executable_sha256` (chunked `hashlib.sha256` for Python 3.8+ compatibility), `args`, and optional `--item <ID>` (`backlog_item`, `backlog_measure`) into `capture_meta.json`, and surface `executable_sha256` in `capture.py status`.
+  - `scripts/checks/backlog.py`, `scripts/checks/test_backlog.py`: reject `TODO`/`TBD` placeholders in non-rejected `Measure` cells.
+  - `scripts/checks/test_hl2_session.py`, `scripts/checks/test_hl2_performance_trace.py`: unit tests for `executable_sha256`, `lookup_backlog_item`, `collect_status`, and `cmd_headless` metadata stamping / unknown `--item` failure.
+  - `docs/performance.md`: recorded quiet-scene wall-clock vs stashed `--lockstep` A/A noise-floor runs and `parry3d` random-seed hash-map findings; `--lockstep` and its two failing in-process physics determinism tests stay stashed rather than committed.
+- Why: the previous session left `--lockstep` and two failing determinism tests stashed after finding `quiet.json` wall-clock A/A noise already lower than `--lockstep`, omitted O41's static-spawn measure and O2's Breen-screen measure, and needed stronger enforcement so backlog validation always executes the `Measure` column and verifies binary hashes per run.
+- Tested how: unit tests in `test_backlog.py`, `test_hl2_session.py`, `test_hl2_performance_trace.py`; `capture.py status --no-sample` and a 30-frame headless `--item O2` smoke capture verifying `executable_sha256`, `backlog_item`, and `backlog_measure` in `capture_meta.json`; full `scripts/checks/validate.sh`.
+- Result: `validate.sh` (architecture/backlog checks, Python unit tests, plugin checks, Cargo workspace tests, strict Clippy, rustfmt) passed; `capture_meta.json` stamps match `bin/build-bevy-info.json`.
+- Still broken or not tested: `--lockstep` remains stashed; `parry3d` composite-shape contact manifolds remain order-dependent across processes without Rapier `enhanced-determinism`; O2 Breen-screen monitor replay and O41 static-spawn lit-props check remain **not tested**; Windows runtime **not tested**.
+- Next: follow each item's `Measure` column on the next optimization item (e.g. O41 shared material / `MeshTag`, O30 morph targets, or O2 sky camera GPU regression on static spawn + Breen-screen replay).
+
 ## 2026-11-22 — Backlog: a Measure column per item, enforced by a check
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.

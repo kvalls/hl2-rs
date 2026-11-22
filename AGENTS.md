@@ -17,7 +17,6 @@ HL2-RS is an experimental Rust rewrite of Half-Life 2 and relevant Source behavi
 9. Never patch third-party crates (Bevy, winit, Rapier...). Read their code only after their docs and this codebase fail to explain something; adapt on the HL2-RS side.
 10. This repository is self-contained: its files and commit messages never name anything outside it (no workspace folders, scripts, notes, `../` or machine paths); a check that lives elsewhere is described by what it does. The installed game is described by its layout (`hl2/resource/...`), the Source SDK by SDK-relative paths (Source SDK `game/client/...`).
 11. Never slow the game through careless code or a poor design (owner, 2026-10-24): a requested feature or fidelity change may cost frame time, waste may not (work done while its option is off, per-frame allocation or file access, repeated work that could be cached, a heavier solution than needed); measure hot paths and new render passes, record frame time before and after in MODLOG, and reduce a cost larger than the design needs instead of dropping the feature.
-
 12. Keep the runtime cross-platform and document every separately installed runtime prerequisite in README.md before introducing it; never silently depend on external applications or research tools.
 
 ## How to work
@@ -27,6 +26,7 @@ HL2-RS is an experimental Rust rewrite of Half-Life 2 and relevant Source behavi
 - Shared work: STATUS.md "Claims" lists items owned by other contributors (GitHub issue assignments and open PRs). Before starting an item, check open issues/PRs and that list; skip claimed items and avoid editing the files they touch. Ask the owner before claiming new items publicly.
 - For substantial changes, record a bounded design/validation plan in docs/DESIGN.md before coding. Keep steps independently reviewable and reversible.
 - Use instrumentation and visual evidence together. The owner explicitly authorizes testing, screenshots and computer use. Record positions, timings, state transitions and image comparisons. Test packaged executables. Do not close user-launched games or send input to unrelated apps.
+- Backlog items (docs/optimization-backlog.md): validate with every scene and metric in the item's Measure column (never default to the crowd test); never mark an item done with an unrun measure, and flag any skipped one **not tested**.
 - Reuse shared implementations: see "Architecture rules" below. No blocking asset reads/font rasterization in frame systems; runtime loads (late precache for spawned entities, map changes) go through asynchronous workers and are inserted when ready. Entities can be created at runtime (owner, 2026-10-12): Source creates them freely (CreateEntityByName, CC_NPC_Create, npc_maker), and mods/sandbox play need it.
 - HL2-RS is a Bevy Rust rewrite. Owner decision 2026-10-07: bevy-migration merged into main and the former Macroquad host (hl2-runtime) was removed; continue on main. Ask before materially different large refactors. Preserve the macroquad-prototype (historical host), bevy-migration (frozen at the merge) and unverified wip/scripted-scenes branches.
 - Preserve 15 ms order: sample input first; scene -> weapons -> entity collider poses/query refresh -> NPC/projectiles -> rigid physics -> player. Publish presentation before transform propagation and current animation bounds before visibility. Preserve held input, pause and selection semantics.
@@ -88,7 +88,7 @@ Read docs/gameui.md section 0 before UI work; in one line each:
 
 ## Keep these files updated
 
-- MODLOG.md: newest first; Agent/model / Changed / Why / Tested how / Result / Still broken or not tested / Next. Record the agent application and exact model identifier when available; distinguish contributor work and materially involved subagents. Never guess a model from the date or the current chat. Use "not recorded" for historical entries without evidence, and state when only a model family is known.
+- MODLOG.md: newest first; Agent/model / Changed / Why / Tested how / Result / Still broken or not tested / Next. Record agent app and exact model id when known (contributors and subagents too); never guess; write "not recorded" when absent, or note when only a family is known.
 - STATUS.md: verified revision/builds, current problems, evidence, rejected approaches, reproduction commands and next work.
 - docs/DESIGN.md: architecture and substantial plans. README.md: tested capabilities/limitations. docs/validation.md and docs/performance.md: detailed evidence.
 - Private work/publishing/continuation.md: precise local checkpoint before quota exhaustion or handoff. When the owner requests a fresh chat, finish the handoff and await further instructions here instead of continuing implementation in this chat.
@@ -96,7 +96,7 @@ Read docs/gameui.md section 0 before UI work; in one line each:
 
 ## Environment
 
-- Windows 11 Pro 64-bit, observed version 10.0.26200, is the primary tested platform. macOS Apple Silicon (aarch64, Metal) was tested by a contributor (@OrbitalMan, PR #1: build, tests and the packaged build running d1_trainstation_02 with its scripted dispenser, Metrocop and queue sequences on an M1 Pro); other platforms **not tested**.
+- Windows 11 Pro 64-bit (10.0.26200) is the primary tested platform; macOS Apple Silicon (aarch64/Metal, M1 Pro: build, tests, packaged d1_trainstation_02) tested by @OrbitalMan (PR #1); other platforms **not tested**.
 - Owned Steam Half-Life 2 app220, tested build19307283/patch9912070; other versions **not tested**. Default installation: C:/Program Files (x86)/Steam/steamapps/common/Half-Life 2; discover another library or use HL2_ROOT.
 - Rust1.99.0 stable MSVC, Visual Studio C++ tools/Windows SDK. Bevy0.19.1/wgpu and direct Rapier0.26.1. Switching to Avian was not requested; comparative physics performance is not tested.
 - Loader: none. Game owning the player: not applicable; Rust simulation owns state and the installation supplies content.
@@ -113,4 +113,4 @@ Read docs/gameui.md section 0 before UI work; in one line each:
 - Door use carries opener origin, opens linked leaves away and honors explicit direction. Blocked reversal/arbitrary spawn/native linkage remain incomplete.
 - Native HL2 intentionally skips d2_coast_02: the campaign goes from d2_coast_01 to d2_coast_03 (owner confirmed 2026-10-16; native console loading d2_coast_02 also errors). The local zero-byte d2_coast_02.bsp is an expected rejected stub, not a missing campaign level or rewrite regression; exclude it from campaign-completion denominators and do not reconstruct it. Keep station03's known materials distinct from new regressions. Research references are not integrated iw4L crossovers.
 
-Template basis: [AGENTS starter](https://github.com/trevaintdead/ai-game-modding-guides/blob/main/templates/AGENTS-starter.md), adapted to existing owner authorization and this rewrite.
+Template: [AGENTS starter](https://github.com/trevaintdead/ai-game-modding-guides/blob/main/templates/AGENTS-starter.md), adapted for this rewrite.

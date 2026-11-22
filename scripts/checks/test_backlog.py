@@ -33,6 +33,10 @@ class Backlog(unittest.TestCase):
         self.assertTrue(any("empty Measure" in p for p in problems), problems)
         problems = check(with_row("| O3 | UI | open | Slow console | - | Cache rows |"))
         self.assertTrue(any("only a rejected item" in p for p in problems), problems)
+        problems = check(with_row("| O3 | UI | open | Slow console | TBD | Cache rows |"))
+        self.assertTrue(any("placeholder" in p for p in problems), problems)
+        problems = check(with_row("| O3 | UI | done | Slow console | todo | Cache rows |"))
+        self.assertTrue(any("placeholder" in p for p in problems), problems)
 
     def test_rows_must_keep_the_columns(self):
         problems = check(with_row("| O3 | UI | open | Slow | split | Hud stage | Cache |"))

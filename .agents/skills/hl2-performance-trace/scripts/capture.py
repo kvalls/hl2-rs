@@ -239,6 +239,40 @@ def _delete_path(path: Path) -> int:
     return size
 
 
+def lookup_backlog_item(repo: Path, item_id: str) -> Optional[dict[str, str]]:
+    """Return `{id, area, status, measure}` for `item_id` in `docs/optimization-backlog.md`, if present."""
+    target = item_id.strip().upper()
+    if not target:
+        return None
+    backlog_path = repo / "docs" / "optimization-backlog.md"
+    try:
+        lines = backlog_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    header = next((i for i, line in enumerate(lines) if line.startswith("| ID |")), None)
+    if header is None:
+        return None
+    for line in lines[header + 2 :]:
+        if not line.startswith("|"):
+            break
+        row = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(row) >= 6 and row[0].upper() == target:
+            return {"id": row[0], "area": row[1], "status": row[2], "measure": row[4]}
+    return None
+
+
+def _resolve_backlog_item(
+    repo: Path,
+    item_arg: Optional[str],
+) -> tuple[Optional[dict[str, str]], Optional[str]]:
+    if not item_arg:
+        return None, None
+    found = lookup_backlog_item(repo, item_arg)
+    if found is None:
+        return None, f"unknown backlog item {item_arg!r} in docs/optimization-backlog.md"
+    return found, None
+
+
 def collect_status(
     repo: Path,
     out_root: Optional[Path] = None,
@@ -262,6 +296,7 @@ def collect_status(
         "git_head": _git_head(repo),
         "executable": str(exe),
         "executable_exists": exe.is_file(),
+        "executable_sha256": session.executable_sha256(exe) if exe.is_file() else None,
         "build_info": {
             "profile": info.get("profile"),
             "plugins": info.get("plugins"),
@@ -292,7 +327,12 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     b = status["build_info"]
     print(f"Repo: {status['repo']} (HEAD {status['git_head']})")
-    print(f"Executable: {status['executable']} ({'ready' if status['executable_exists'] else 'missing'})")
+    if status["executable_exists"]:
+        sha = status.get("executable_sha256")
+        exe_state = f"ready, sha256={sha[:16]}" if sha else "ready"
+    else:
+        exe_state = "missing"
+    print(f"Executable: {status['executable']} ({exe_state})")
     print(f"Build info: profile={b['profile']} plugins={b['plugins']} (trace_build={b['is_trace_build']})")
     if b["is_trace_build"]:
         print("Reminder: a trace build is currently packaged; run `capture.py restore` after profiling.")
@@ -350,6 +390,10 @@ def cmd_launch(args: argparse.Namespace) -> int:
     if session.find_running_games():
         print("capture: hl2-bevy is already running; capture `agent_resume` and close it before launching a trace run.", file=sys.stderr)
         return 1
+    backlog_item, item_err = _resolve_backlog_item(repo, getattr(args, "item", None))
+    if item_err:
+        print(f"capture: {item_err}", file=sys.stderr)
+        return 1
 
     out_dir = args.out.resolve() if args.out else default_capture_dir(repo, args.mode, name=args.name)
     env = dict(os.environ)
@@ -358,6 +402,9 @@ def cmd_launch(args: argparse.Namespace) -> int:
         print(f"capture: {err}", file=sys.stderr)
         return 1
 
+    trailing = _split_trailing(args.trailing)
+    if backlog_item:
+        print(f"Backlog {backlog_item['id']} ({backlog_item['area']}, {backlog_item['status']}) Measure: {backlog_item['measure']}")
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "report.json"
     trace_path = out_dir / "trace.json"
@@ -368,6 +415,10 @@ def cmd_launch(args: argparse.Namespace) -> int:
             "mode": args.mode,
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "git_head": _git_head(repo),
+            "executable_sha256": session.executable_sha256(exe),
+            "args": trailing,
+            "backlog_item": backlog_item["id"] if backlog_item else None,
+            "backlog_measure": backlog_item["measure"] if backlog_item else None,
             "build_info": {"profile": info.get("profile"), "plugins": info.get("plugins")},
             "idle_baseline": resource_sampler.collect_once(),
             "report_path": str(report_path),
@@ -388,7 +439,7 @@ def cmd_launch(args: argparse.Namespace) -> int:
         "--profile",
         "--report",
         str(report_path),
-        *_split_trailing(args.trailing),
+        *trailing,
     ]
     print(f"Capture dir: {out_dir}")
     proc = subprocess.run(cmd, cwd=str(repo), env=env, check=False)
@@ -407,6 +458,10 @@ def cmd_headless(args: argparse.Namespace) -> int:
         if not ok:
             print(f"capture: {reason}", file=sys.stderr)
             return 1
+    backlog_item, item_err = _resolve_backlog_item(repo, getattr(args, "item", None))
+    if item_err:
+        print(f"capture: {item_err}", file=sys.stderr)
+        return 1
 
     out_dir = args.out.resolve() if args.out else default_capture_dir(repo, args.mode, name=args.name)
     env = dict(os.environ)
@@ -415,6 +470,9 @@ def cmd_headless(args: argparse.Namespace) -> int:
         print(f"capture: {err}", file=sys.stderr)
         return 1
 
+    trailing = _split_trailing(args.trailing)
+    if backlog_item:
+        print(f"Backlog {backlog_item['id']} ({backlog_item['area']}, {backlog_item['status']}) Measure: {backlog_item['measure']}")
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "report.json"
     trace_path = out_dir / "trace.json"
@@ -432,7 +490,7 @@ def cmd_headless(args: argparse.Namespace) -> int:
         "--profile",
         "--report",
         str(report_path),
-        *_split_trailing(args.trailing),
+        *trailing,
     ]
     meta = {
         "kind": "headless",
@@ -441,6 +499,10 @@ def cmd_headless(args: argparse.Namespace) -> int:
         "frames": args.frames,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "git_head": _git_head(repo),
+        "executable_sha256": session.executable_sha256(exe),
+        "args": trailing,
+        "backlog_item": backlog_item["id"] if backlog_item else None,
+        "backlog_measure": backlog_item["measure"] if backlog_item else None,
         "build_info": {"profile": info.get("profile"), "plugins": info.get("plugins")},
         "idle_baseline": resource_sampler.collect_once(),
         "report_path": str(report_path),
@@ -871,6 +933,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p_launch.add_argument("--out", type=Path, default=None, help="Capture output directory.")
     p_launch.add_argument("--name", default=None, help="Short label for auto-created capture directory.")
     p_launch.add_argument("--port", default="auto", help="Loopback RCON port or 'auto'.")
+    p_launch.add_argument("--item", default=None, help="Optimization backlog ID (e.g. O2); prints and records its Measure column.")
     p_launch.add_argument("trailing", nargs=argparse.REMAINDER, help="Extra game arguments after `--`.")
 
     p_head = sub.add_parser("headless", help="Run a repeatable headless capture with --profile / TRACE_CHROME.")
@@ -880,6 +943,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p_head.add_argument("--repo", type=Path, default=None, help="HL2-RS repository root.")
     p_head.add_argument("--out", type=Path, default=None, help="Capture output directory.")
     p_head.add_argument("--name", default=None, help="Short label for auto-created capture directory.")
+    p_head.add_argument("--item", default=None, help="Optimization backlog ID (e.g. O2); prints and records its Measure column.")
     p_head.add_argument("--analyze", action="store_true", help="Run `analyze` right after capture completes.")
     p_head.add_argument("--delete-raw", action="store_true", help="With --analyze, delete raw trace on success.")
     p_head.add_argument("--allow-mismatch", action="store_true", help="Skip verifying build plugins match --mode.")

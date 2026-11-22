@@ -16,6 +16,7 @@ HEADER = ["ID", "Area", "Status", "Finding", "Measure", "Next"]
 STATUSES = {"open", "measuring", "fixing", "partly done", "done", "rejected"}
 RULES = "## Measuring an item"
 ITEM = re.compile(r"O\d+")
+PLACEHOLDER = re.compile(r"\b(todo|tbd)\b", re.I)
 
 
 def cells(line):
@@ -58,6 +59,8 @@ def check(text):
         if values["Measure"] == "-" and values["Status"] != "rejected":
             problems.append(f"{where}: only a rejected item may skip its Measure; name the scene "
                             "and metric its gain shows in")
+        elif values["Status"] != "rejected" and PLACEHOLDER.search(values["Measure"]):
+            problems.append(f"{where}: Measure cannot be a placeholder ({values['Measure']!r})")
     if not seen:
         problems.append("the items table has no items")
     return problems
