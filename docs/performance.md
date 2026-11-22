@@ -22,6 +22,11 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
   - Headless `trace` (400 frames, same spawn) per frame: `allocate_and_free_meshes` `1.71 -> 0.23 ms`, `main_transparent_pass_2d` encode `0.34 + 0.23 -> 0.05 + 0.02 ms`, `submit_pending_command_buffers` `0.82 -> 0.31 ms`, `render_system` `6.18 -> 5.56 ms`, `specialize_material2d_meshes<HudMaterial>` `0.032 -> 0.008 ms`.
   - Fidelity: full-frame captures differ in 65 pixels, the overlay's elapsed-time digits; text and panels match.
 
+- **`O13` crowd — particles drawn per effect and material (`hl2-simulation/src/explosion_particles.rs`):** headless `d1_trainstation_02` running `mixed-crowd.json` to the end (a firefight: about 970 effect quads, 325 debris and 112 smoke particles live), everyday `stages` build, three runs per side alternating, at `4a0d9e35` against the change:
+  - Effect-quad run meshes rewritten per frame `207 -> 88` (temporary mesh-owner probe, frames 300-700); other rewritten meshes unchanged (22 eye meshes, 20 shadow decals, 11 animated models).
+  - `frame_total` mean `19.58 / 19.37 / 19.99 -> 17.63 / 17.92 / 17.76 ms` (p95 `27.98 / 26.96 / 26.49 -> 24.49 / 24.99 / 24.83`), `render_assets` `5.58 / 5.37 / 5.81 -> 4.12 / 4.21 / 4.06 ms`, `render_graph` `7.32 / 7.21 / 7.24 -> 6.76 / 6.74 / 6.77 ms`; about 10% more frames rendered over the same script.
+  - Fidelity: the end-of-script frames show the same scene (ragdoll poses differ between any two runs of this script); the order change is per effect, as Source sorts a particle effect as one translucent object and draws it per material.
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed

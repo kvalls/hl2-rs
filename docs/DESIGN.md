@@ -2698,3 +2698,29 @@ Findings and their status: docs/optimization-backlog.md. Capture and analysis au
 Validation: each layer's own overhead is measured against the same headless run without it and
 recorded in MODLOG; numbers from different layers are not compared directly. Reversible by
 dropping the feature and the scope entries.
+
+### Animated material values outside the material asset (O14, bounded plan, 2026-11-22)
+
+Problem: any change to a `SourceMaterial` field rebuilds its whole bind group in the render world
+(`prepare_erased_assets`). Measured re-prepares per frame: about 25 at the station spawn (texture
+scroll `secondary_uv` on two-texture and monitor materials), about 80 in the crowd firefight (plus
+model lighting as NPCs move); 1.66 ms per frame in the crowd trace.
+
+Step 1 (per-frame proxy values only):
+- A fixed-size shared storage buffer (`ShaderBuffer` with a uuid handle, the `eyes::EYE_ROWS`
+  pattern; its size never changes, so bound materials keep seeing it) holds four `vec4` per slot:
+  `tint` and the three columns of `secondary_uv`. A CPU mirror uploads only when it differs.
+- A material driven every frame (monitor `present_materials`, two-texture `material_proxies`)
+  gets a slot once; its index is a new uniform field (`-1` = none), written once. The writers
+  then update the slot instead of the asset. Values stay computed on the CPU from the scene clock,
+  so pause and scene-time behaviour do not change. Base/iris frame swaps and ragdoll fades keep
+  the asset path (texture handles and `AlphaMode` are part of the bind group or pipeline key).
+- Shaders (`source.wgsl`, `source_depth.wgsl`) read `tint` and `secondary_uv` from the slot when
+  the index is set. Reports read the mirror. Slots are released with the map; when they run out,
+  the asset path is used, as now.
+- Validation: material probe re-prepares from about 25 to about 0 per frame at the spawn; frame-
+  matched captures of a scrolling surface identical on both builds; crowd and spawn `stages` A/B;
+  replay suite.
+
+Step 2 (after step 1's numbers): one lighting slot per lit entity shared by its materials, which
+also covers the viewmodel's per-view basis. Reversible by dropping the slot field and buffer.

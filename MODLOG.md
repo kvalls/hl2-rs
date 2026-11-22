@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-22 — Particles draw per effect and material (`O13` crowd)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed: `crates/hl2-simulation/src/explosion_particles.rs`: particles record the effect that emitted them and its origin; `draw` orders them by effect origin (far to near), then effect, then material, then particle depth (far to near), instead of one global back-to-front sort across every effect and material. New test `effects_draw_far_to_near_with_each_material_contiguous_and_back_to_front`.
+- Why: in the crowd firefight a temporary mesh-owner probe found about 207 effect-quad run meshes rewritten per frame: the global sort interleaved smoke, debris and spark quads, so consecutive same-material runs held about one quad each and each became its own mesh upload. Source sorts a particle effect as one translucent object and draws its particles per material, so the grouped order is also the retail one.
+- Tested how: `cargo test -p hl2-simulation --lib explosion_particles` (10 passed); three alternating crowd `stages` runs per side; end-of-script captures compared by eye; mesh-owner probe before and after; `scripts/checks/validate.sh`, Windows-target Clippy, packaged replay suite.
+- Result: run meshes rewritten 207 -> 88 per frame; crowd `frame_total` 19.65 -> 17.77 ms mean (p95 27.1 -> 24.7), `render_assets` 5.59 -> 4.13 ms.
+- Still broken or not tested: overlapping effects of different materials now draw effect by effect rather than particle by particle, as retail does; a frame-matched particle capture against the old order is **not tested** (the crowd script is not frame-deterministic). Eye meshes (22/frame), animated models and shadow decals still rewrite meshes every frame.
+- Next: eye meshes rewritten every frame; O14 step 1 (animated material values in a shared buffer).
+
 ## 2026-11-22 — HUD canvas atlas: text and rectangles batch together (`O13`, `O8`)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.
