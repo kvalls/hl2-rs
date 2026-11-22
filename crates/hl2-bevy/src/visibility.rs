@@ -3,21 +3,32 @@ use bevy::{
     camera::{primitives::Aabb, visibility::RenderLayers},
     prelude::*,
 };
-use source_assets::visibility::VisibilityIndex;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use source_assets::visibility::{PvsRow, VisibilityIndex};
+use std::{collections::BTreeMap, sync::Arc};
 
+/// The last PVS test of one draw. `clusters` lists the leaf clusters its padded bounds touch,
+/// filled on the first view change while the bounds stay put, so later view changes cost only
+/// bitset lookups instead of a tree walk; it keeps its capacity when the bounds move.
+#[derive(Default)]
+struct Tested {
+    epoch: u64,
+    center: glam::Vec3,
+    extent: glam::Vec3,
+    culled: bool,
+    listed: bool,
+    clusters: Vec<i16>,
+}
 #[derive(Component, Default)]
 pub struct PvsDraw {
     pub culled: bool,
-    tested: Option<(u64, glam::Vec3, glam::Vec3, bool)>,
+    tested: Option<Tested>,
 }
 #[derive(Resource)]
 pub struct SourceVisibility {
     index: Option<VisibilityIndex>,
-    rows: BTreeMap<i16, Option<Arc<BTreeSet<i16>>>>,
+    rows: BTreeMap<i16, Option<Arc<PvsRow>>>,
+    views: Vec<Arc<PvsRow>>,
+    stack: Vec<i32>,
     error: Option<String>,
     checked: usize,
     culled: usize,
@@ -26,6 +37,7 @@ pub struct SourceVisibility {
     view_epoch: u64,
     unrestricted: bool,
     reused: usize,
+    listed: usize,
 }
 impl SourceVisibility {
     pub fn new(index: anyhow::Result<VisibilityIndex>, disabled: bool) -> Self {
@@ -36,6 +48,8 @@ impl SourceVisibility {
         Self {
             index,
             rows: BTreeMap::new(),
+            views: vec![],
+            stack: vec![],
             error,
             checked: 0,
             culled: 0,
@@ -44,9 +58,10 @@ impl SourceVisibility {
             view_epoch: 0,
             unrestricted: true,
             reused: 0,
+            listed: 0,
         }
     }
-    fn row(&mut self, eye: glam::Vec3) -> anyhow::Result<Option<Arc<BTreeSet<i16>>>> {
+    fn row(&mut self, eye: glam::Vec3) -> anyhow::Result<Option<Arc<PvsRow>>> {
         let Some(index) = &self.index else {
             return Ok(None);
         };
@@ -63,8 +78,65 @@ impl SourceVisibility {
         Ok(row)
     }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"enabled":!self.disabled,"index_available":self.index.is_some(),"view_clusters":self.clusters,"cached_rows":self.rows.len(),"checked_draws":self.checked,"culled_draws":self.culled,"reused_bounds_tests":self.reused,"error":self.error,"policy":"current animated bounds; union of active world/monitor views, fail open without valid PVS; sky/viewmodels excluded; area portals and occluders remain incomplete"})
+        serde_json::json!({"enabled":!self.disabled,"index_available":self.index.is_some(),"view_clusters":self.clusters,"cached_rows":self.rows.len(),"checked_draws":self.checked,"culled_draws":self.culled,"reused_bounds_tests":self.reused,"listed_bounds_tests":self.listed,"error":self.error,"policy":"current animated bounds; union of active world/monitor views, fail open without valid PVS; sky/viewmodels excluded; area portals and occluders remain incomplete"})
     }
+}
+
+/// How a draw's PVS answer was found this frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Answer {
+    /// Same bounds and views as last frame.
+    Reused,
+    /// Same bounds, new views: the cached cluster list against the new rows.
+    Listed,
+    /// New bounds: an early-exit tree walk.
+    Walked,
+}
+
+/// Whether a draw with bounds `center ± extent` (Source units) is outside every view row.
+fn test_draw(
+    tested: &mut Option<Tested>,
+    (center, extent): (glam::Vec3, glam::Vec3),
+    (index, views, epoch): (&VisibilityIndex, &[Arc<PvsRow>], u64),
+    stack: &mut Vec<i32>,
+) -> anyhow::Result<(bool, Answer)> {
+    // Keep coplanar surfaces and compensate float basis/bounds rounding.
+    let padding = glam::Vec3::splat(1. / 32.);
+    let (mins, maxs) = (center - extent - padding, center + extent + padding);
+    let same = tested
+        .as_ref()
+        .is_some_and(|t| t.center == center && t.extent == extent);
+    let mut last = tested.take().unwrap_or_default();
+    let answer = if same && last.epoch == epoch {
+        Answer::Reused
+    } else if same {
+        if !last.listed {
+            index.bounds_clusters(mins, maxs, stack, &mut last.clusters)?;
+            last.listed = true;
+        }
+        let visible = views
+            .iter()
+            .any(|row| last.clusters.iter().any(|&c| row.contains(c)));
+        last.culled = !visible;
+        Answer::Listed
+    } else {
+        let mut visible = false;
+        for row in views {
+            if index.bounds_visible(mins, maxs, row, stack)? {
+                visible = true;
+                break;
+            }
+        }
+        last.listed = false;
+        last.culled = !visible;
+        Answer::Walked
+    };
+    last.epoch = epoch;
+    last.center = center;
+    last.extent = extent;
+    let culled = last.culled;
+    *tested = Some(last);
+    Ok((culled, answer))
 }
 type DrawItem = (
     &'static mut PvsDraw,
@@ -86,11 +158,13 @@ pub fn present(
     visibility.culled = 0;
     let previous_clusters = std::mem::take(&mut visibility.clusters);
     visibility.reused = 0;
+    visibility.listed = 0;
     if visibility.index.is_some() {
         visibility.error = None;
     }
     let world_layers = RenderLayers::layer(0).with(5);
-    let mut rows = Vec::new();
+    let mut rows = std::mem::take(&mut visibility.views);
+    rows.clear();
     let mut unrestricted = visibility.disabled || visibility.index.is_none();
     if !unrestricted {
         for (camera, transform, layers) in &cameras {
@@ -120,65 +194,39 @@ pub fn present(
         visibility.view_epoch = visibility.view_epoch.wrapping_add(1);
     }
     visibility.unrestricted = unrestricted;
+    let state = &mut *visibility;
     for (mut pvs, mut draw, transform, aabb, owner, weapon) in &mut draws {
         let scene_hidden =
             owner.is_some_and(|owner| crate::rendering::draw_hidden(&game, owner.0, weapon));
-        visibility.checked += 1;
+        state.checked += 1;
         let culled = if unrestricted || scene_hidden {
             false
         } else {
-            let affine = transform.affine();
-            let center = affine.transform_point3a(aabb.center);
-            let matrix = affine.matrix3;
-            let extent = matrix.x_axis.abs() * aabb.half_extents.x
-                + matrix.y_axis.abs() * aabb.half_extents.y
-                + matrix.z_axis.abs() * aabb.half_extents.z;
-            let center =
-                glam::Vec3::from_array(crate::bevy_to_source(Vec3::from(center)).to_array());
-            let extent =
-                glam::Vec3::from_array(crate::bevy_to_source(Vec3::from(extent)).abs().to_array());
-            if let Some((epoch, old_center, old_extent, culled)) = pvs.tested
-                && epoch == visibility.view_epoch
-                && center == old_center
-                && extent == old_extent
-            {
-                visibility.reused += 1;
-                culled
-            } else {
-                let index = visibility
-                    .index
-                    .as_ref()
-                    .expect("restricted views have an index");
-                let mut visible = false;
-                let mut valid = true;
-                for row in &rows {
-                    // Keep coplanar surfaces and compensate float basis/bounds rounding.
-                    let padding = glam::Vec3::splat(1. / 32.);
-                    match index.bounds_visible(
-                        center - extent - padding,
-                        center + extent + padding,
-                        row,
-                    ) {
-                        Ok(found) => visible |= found,
-                        Err(error) => {
-                            valid = false;
-                            visibility.error = Some(format!("{error:#}"));
-                            visible = true;
-                            break;
-                        }
-                    }
-                    if visible {
-                        break;
-                    }
+            let index = state
+                .index
+                .as_ref()
+                .expect("restricted views have an index");
+            match test_draw(
+                &mut pvs.bypass_change_detection().tested,
+                source_bounds(transform, aabb),
+                (index, &rows, state.view_epoch),
+                &mut state.stack,
+            ) {
+                Ok((culled, answer)) => {
+                    state.reused += usize::from(answer == Answer::Reused);
+                    state.listed += usize::from(answer == Answer::Listed);
+                    culled
                 }
-                pvs.tested = valid.then_some((visibility.view_epoch, center, extent, !visible));
-                !visible
+                Err(error) => {
+                    state.error = Some(format!("{error:#}"));
+                    false
+                }
             }
         };
         if pvs.culled != culled {
             pvs.culled = culled;
         }
-        visibility.culled += usize::from(culled);
+        state.culled += usize::from(culled);
         let desired = if scene_hidden || culled {
             Visibility::Hidden
         } else {
@@ -188,6 +236,21 @@ pub fn present(
             *draw = desired;
         }
     }
+    state.views = rows;
+}
+
+/// World-space bounds of a draw's current `Aabb`, as a Source-space center and half extent.
+fn source_bounds(transform: &GlobalTransform, aabb: &Aabb) -> (glam::Vec3, glam::Vec3) {
+    let affine = transform.affine();
+    let center = affine.transform_point3a(aabb.center);
+    let matrix = affine.matrix3;
+    let extent = matrix.x_axis.abs() * aabb.half_extents.x
+        + matrix.y_axis.abs() * aabb.half_extents.y
+        + matrix.z_axis.abs() * aabb.half_extents.z;
+    (
+        glam::Vec3::from_array(crate::bevy_to_source(Vec3::from(center)).to_array()),
+        glam::Vec3::from_array(crate::bevy_to_source(Vec3::from(extent)).abs().to_array()),
+    )
 }
 
 #[cfg(test)]
@@ -296,7 +359,9 @@ mod tests {
             .unwrap()
             .is_active = true;
         app.world_mut().run_system_once(present).unwrap();
+        // New views, unchanged bounds: cached cluster lists instead of tree walks.
         assert_eq!(app.world().resource::<SourceVisibility>().reused, 0);
+        assert_eq!(app.world().resource::<SourceVisibility>().listed, 3);
         assert_eq!(
             *app.world().get::<Visibility>(back).unwrap(),
             Visibility::Inherited

@@ -20,7 +20,7 @@ pub fn bounds_in_pvs(
     if !mins.is_finite() || !maxs.is_finite() || mins.cmpgt(maxs).any() {
         bail!("invalid BSP visibility bounds");
     }
-    let visible = pvs(
+    let visible = pvs_bits(
         lumps.get(4).context("BSP missing visibility")?,
         cluster(lumps, leaf_version, eye)?,
     )?;
@@ -33,11 +33,14 @@ pub fn bounds_in_pvs(
         36,
     )?;
     walk_bounds(
-        root,
-        mins,
-        maxs,
-        &visible,
-        true,
+        Walk {
+            root,
+            mins,
+            maxs,
+            visible: &visible,
+            check_cycles: true,
+        },
+        &mut Vec::new(),
         |node| {
             let record = bytes(nodes, index(node, nodes.len() / 32)? * 32, 32)?;
             let plane = bytes(
@@ -64,21 +67,7 @@ pub fn bounds_in_pvs(
     )
 }
 
-#[derive(Clone, Copy)]
-struct Node {
-    normal: Vec3,
-    distance: f32,
-    children: [i32; 2],
-}
-fn walk_bounds(
-    root: i32,
-    mins: Vec3,
-    maxs: Vec3,
-    visible: &BTreeSet<i16>,
-    check_cycles: bool,
-    mut node: impl FnMut(i32) -> Result<Node>,
-    mut leaf: impl FnMut(i32) -> Result<i16>,
-) -> Result<bool> {
+fn validate_bounds(mins: Vec3, maxs: Vec3) -> Result<(Vec3, Vec3)> {
     if !mins.is_finite() || !maxs.is_finite() || mins.cmpgt(maxs).any() {
         bail!("invalid BSP visibility bounds")
     }
@@ -87,11 +76,52 @@ fn walk_bounds(
     if !center.is_finite() || !extent.is_finite() {
         bail!("BSP visibility bounds overflow")
     }
-    let mut pending = vec![root];
-    let mut visited = check_cycles.then(BTreeSet::new);
+    Ok((center, extent))
+}
+
+#[derive(Clone, Copy)]
+struct Node {
+    normal: Vec3,
+    distance: f32,
+    children: [i32; 2],
+}
+/// Push the children of `node` that the box `center ± extent` overlaps.
+fn push_overlapped(node: Node, center: Vec3, extent: Vec3, pending: &mut Vec<i32>) {
+    let distance = node.normal.dot(center) - node.distance;
+    let radius = node.normal.abs().dot(extent);
+    if distance + radius >= 0. {
+        pending.push(node.children[0]);
+    }
+    if distance - radius < 0. {
+        pending.push(node.children[1]);
+    }
+}
+
+struct Walk<'a> {
+    root: i32,
+    mins: Vec3,
+    maxs: Vec3,
+    visible: &'a PvsRow,
+    check_cycles: bool,
+}
+
+/// Whether any leaf overlapped by the bounds is in `visible`; stops at the first one.
+fn walk_bounds(
+    walk: Walk,
+    pending: &mut Vec<i32>,
+    mut node: impl FnMut(i32) -> Result<Node>,
+    mut leaf: impl FnMut(i32) -> Result<i16>,
+) -> Result<bool> {
+    let (center, extent) = validate_bounds(walk.mins, walk.maxs)?;
+    pending.clear();
+    pending.push(walk.root);
+    let mut visited = walk.check_cycles.then(BTreeSet::new);
     while let Some(id) = pending.pop() {
         if id < 0 {
-            if visible.contains(&leaf(id.checked_neg().context("leaf overflow")? - 1)?) {
+            if walk
+                .visible
+                .contains(leaf(id.checked_neg().context("leaf overflow")? - 1)?)
+            {
                 return Ok(true);
             }
             continue;
@@ -99,15 +129,7 @@ fn walk_bounds(
         if visited.as_mut().is_some_and(|visited| !visited.insert(id)) {
             bail!("cyclic BSP visibility tree")
         }
-        let node = node(id)?;
-        let distance = node.normal.dot(center) - node.distance;
-        let radius = node.normal.abs().dot(extent);
-        if distance + radius >= 0. {
-            pending.push(node.children[0]);
-        }
-        if distance - radius < 0. {
-            pending.push(node.children[1]);
-        }
+        push_overlapped(node(id)?, center, extent, pending);
     }
     Ok(false)
 }
@@ -212,23 +234,98 @@ impl VisibilityIndex {
         }
         Ok(self.clusters[(-id - 1) as usize])
     }
-    /// No valid PVS row means the renderer must conservatively keep geometry.
-    pub fn row(&self, cluster: i16) -> Result<Option<BTreeSet<i16>>> {
+    /// The decoded PVS row of `cluster` as a bitset; `None` (no valid row) when the map lacks
+    /// PVS or `cluster < 0`, so the renderer must conservatively keep geometry.
+    pub fn row(&self, cluster: i16) -> Result<Option<PvsRow>> {
         if cluster < 0 || self.visibility.is_empty() {
             return Ok(None);
         }
-        Ok(Some(pvs(&self.visibility, cluster)?))
+        Ok(Some(pvs_bits(&self.visibility, cluster)?))
     }
-    pub fn bounds_visible(&self, mins: Vec3, maxs: Vec3, visible: &BTreeSet<i16>) -> Result<bool> {
+    /// Whether any leaf overlapped by `mins..=maxs` is in `visible`, reusing `stack`.
+    pub fn bounds_visible(
+        &self,
+        mins: Vec3,
+        maxs: Vec3,
+        visible: &PvsRow,
+        stack: &mut Vec<i32>,
+    ) -> Result<bool> {
         walk_bounds(
-            self.root,
-            mins,
-            maxs,
-            visible,
-            false,
+            Walk {
+                root: self.root,
+                mins,
+                maxs,
+                visible,
+                check_cycles: false,
+            },
+            stack,
             |id| Ok(self.nodes[id as usize]),
             |id| Ok(self.clusters[id as usize]),
         )
+    }
+    /// Collect sorted deduplicated non-negative leaf clusters touched by `mins..=maxs`,
+    /// reusing `stack` and `out` across calls.
+    pub fn bounds_clusters(
+        &self,
+        mins: Vec3,
+        maxs: Vec3,
+        stack: &mut Vec<i32>,
+        out: &mut Vec<i16>,
+    ) -> Result<()> {
+        let (center, extent) = validate_bounds(mins, maxs)?;
+        stack.clear();
+        out.clear();
+        stack.push(self.root);
+        while let Some(id) = stack.pop() {
+            if id < 0 {
+                let leaf = id.checked_neg().context("leaf overflow")? - 1;
+                let cluster = self.clusters[leaf as usize];
+                if cluster >= 0 {
+                    out.push(cluster);
+                }
+                continue;
+            }
+            push_overlapped(self.nodes[id as usize], center, extent, stack);
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(())
+    }
+}
+
+/// Unpacked PVS cluster visibility bitset for one view cluster (`O(1)` lookup).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PvsRow {
+    bits: Vec<u8>,
+    count: usize,
+    all: bool,
+}
+
+impl PvsRow {
+    /// Empty row matching no clusters.
+    pub fn empty() -> Self {
+        Self {
+            bits: Vec::new(),
+            count: 0,
+            all: false,
+        }
+    }
+
+    /// Full row matching every cluster in `0..count`.
+    pub fn all(count: usize) -> Self {
+        Self {
+            bits: Vec::new(),
+            count,
+            all: true,
+        }
+    }
+
+    /// Whether `cluster` is potentially visible in this row.
+    pub fn contains(&self, cluster: i16) -> bool {
+        let Ok(c) = usize::try_from(cluster) else {
+            return false;
+        };
+        c < self.count && (self.all || (self.bits[c / 8] & (1 << (c % 8))) != 0)
     }
 }
 
@@ -273,9 +370,9 @@ pub(crate) fn leaf(lumps: &[Vec<u8>], leaf_version: u32, point: Vec3) -> Result<
     bail!("cyclic BSP node tree")
 }
 
-pub fn pvs(data: &[u8], cluster: i16) -> Result<BTreeSet<i16>> {
+pub fn pvs_bits(data: &[u8], cluster: i16) -> Result<PvsRow> {
     if cluster < 0 || data.is_empty() {
-        return Ok(BTreeSet::new());
+        return Ok(PvsRow::empty());
     }
     let count = usize::try_from(i32le(data, 0)?)?;
     if count > 32768 {
@@ -284,12 +381,21 @@ pub fn pvs(data: &[u8], cluster: i16) -> Result<BTreeSet<i16>> {
     let id = index(cluster as i32, count)?;
     let offset = i32le(data, 4 + id * 8)?;
     if offset < 0 {
-        return Ok((0..count).map(|i| i as i16).collect());
+        return Ok(PvsRow::all(count));
     }
     let mut i = offset as usize;
-    let row = decompress(data, &mut i, count.div_ceil(8))?;
-    Ok((0..count)
-        .filter(|&c| row[c / 8] & (1 << (c % 8)) != 0)
+    let bits = decompress(data, &mut i, count.div_ceil(8))?;
+    Ok(PvsRow {
+        bits,
+        count,
+        all: false,
+    })
+}
+
+pub fn pvs(data: &[u8], cluster: i16) -> Result<BTreeSet<i16>> {
+    let row = pvs_bits(data, cluster)?;
+    Ok((0..row.count)
+        .filter(|&c| row.contains(c as i16))
         .map(|c| c as i16)
         .collect())
 }
@@ -366,15 +472,17 @@ mod tests {
         assert_eq!(cached.cluster(-eye).unwrap(), 1);
         let row = cached.row(cached.cluster(eye).unwrap()).unwrap().unwrap();
         assert!(cached
-            .bounds_visible(Vec3::X, Vec3::splat(2.), &row)
+            .bounds_visible(Vec3::X, Vec3::splat(2.), &row, &mut Vec::new())
             .unwrap());
         assert!(!cached
-            .bounds_visible(Vec3::splat(-2.), -Vec3::X, &row)
+            .bounds_visible(Vec3::splat(-2.), -Vec3::X, &row, &mut Vec::new())
             .unwrap());
         assert!(cached
-            .bounds_visible(Vec3::splat(-1.), Vec3::splat(1.), &row)
+            .bounds_visible(Vec3::splat(-1.), Vec3::splat(1.), &row, &mut Vec::new())
             .unwrap());
-        assert!(cached.bounds_visible(Vec3::ONE, Vec3::ZERO, &row).is_err());
+        assert!(cached
+            .bounds_visible(Vec3::ONE, Vec3::ZERO, &row, &mut Vec::new())
+            .is_err());
         assert!(cached.row(-1).unwrap().is_none());
         assert!(bounds_in_pvs(&lumps, 1, eye, Vec3::X, Vec3::splat(2.)).unwrap());
         assert!(!bounds_in_pvs(&lumps, 1, eye, Vec3::splat(-2.), -Vec3::X).unwrap());
@@ -384,6 +492,59 @@ mod tests {
         lumps[5][4..8].copy_from_slice(&0i32.to_le_bytes());
         assert!(bounds_in_pvs(&lumps, 1, eye, Vec3::ZERO, Vec3::ONE).is_err());
         assert!(VisibilityIndex::new(&lumps, 1).is_err());
+    }
+    #[test]
+    fn pvs_row_and_bounds_clusters_match_set_queries_and_reuse_scratch() {
+        let mut lumps = vec![vec![]; 64];
+        lumps[1] = vec![0; 20];
+        lumps[1][0..4].copy_from_slice(&1f32.to_le_bytes());
+        lumps[5] = vec![0; 32];
+        lumps[5][4..8].copy_from_slice(&(-1i32).to_le_bytes());
+        lumps[5][8..12].copy_from_slice(&(-2i32).to_le_bytes());
+        lumps[10] = vec![0; 64];
+        lumps[10][36..38].copy_from_slice(&1i16.to_le_bytes());
+        lumps[14] = vec![0; 48];
+        // Two clusters: cluster 0 sees {0}, cluster 1 sees {0, 1} via offset = -1 ("all").
+        lumps[4] = vec![0; 21];
+        lumps[4][0..4].copy_from_slice(&2i32.to_le_bytes());
+        lumps[4][4..8].copy_from_slice(&20i32.to_le_bytes());
+        lumps[4][12..16].copy_from_slice(&(-1i32).to_le_bytes());
+        lumps[4][20] = 1;
+
+        let index = VisibilityIndex::new(&lumps, 1).unwrap();
+        for cluster in [0, 1] {
+            let row = index.row(cluster).unwrap().unwrap();
+            let set = pvs(&lumps[4], cluster).unwrap();
+            for c in -2i16..=4 {
+                assert_eq!(
+                    row.contains(c),
+                    set.contains(&c),
+                    "row {cluster} cluster {c}"
+                );
+            }
+        }
+        assert!(index.row(-1).unwrap().is_none());
+
+        let mut stack = Vec::new();
+        let mut out = Vec::new();
+        index
+            .bounds_clusters(Vec3::X, Vec3::splat(2.), &mut stack, &mut out)
+            .unwrap();
+        assert_eq!(out, [0]);
+        let stack_cap = stack.capacity();
+        let out_ptr = out.as_ptr();
+        index
+            .bounds_clusters(Vec3::splat(-1.), Vec3::splat(1.), &mut stack, &mut out)
+            .unwrap();
+        assert_eq!(out, [0, 1]);
+        assert_eq!(out.as_ptr(), out_ptr);
+        assert!(stack.capacity() >= stack_cap);
+        assert!(index
+            .bounds_clusters(Vec3::ONE, Vec3::ZERO, &mut stack, &mut out)
+            .is_err());
+        assert!(index
+            .bounds_clusters(Vec3::splat(f32::NAN), Vec3::ZERO, &mut stack, &mut out)
+            .is_err());
     }
     #[test]
     #[ignore = "requires the user's installed HL2 content"]
@@ -399,30 +560,45 @@ mod tests {
                     .unwrap();
             let index = bsp.visibility_index().unwrap();
             let world = bsp.world(map).unwrap();
-            let eye = world.spawn().0;
-            let cluster = index.cluster(eye).unwrap();
-            let row = index.row(cluster).unwrap().unwrap();
-            for i in 0..400 {
-                let center = eye
-                    + Vec3::new(
-                        (i % 20) as f32 * 83. - 830.,
-                        (i / 20) as f32 * 57. - 570.,
-                        (i % 7) as f32 * 19. - 57.,
+            let spawn = world.spawn().0;
+            let (mut stack, mut clusters) = (Vec::new(), Vec::new());
+            let mut checked_views = 0;
+            // Several view clusters around the spawn; boxes reach across their leaf planes.
+            for offset in [
+                Vec3::ZERO,
+                Vec3::X * 384.,
+                -Vec3::Y * 512.,
+                Vec3::new(-640., 256., 0.),
+            ] {
+                let eye = spawn + offset;
+                let Some(row) = index.row(index.cluster(eye).unwrap()).unwrap() else {
+                    continue;
+                };
+                checked_views += 1;
+                for i in 0..400 {
+                    let center = eye
+                        + Vec3::new(
+                            (i % 20) as f32 * 83. - 830.,
+                            (i / 20) as f32 * 57. - 570.,
+                            (i % 7) as f32 * 19. - 57.,
+                        );
+                    let radius = Vec3::new(
+                        (i % 5) as f32 * 13.,
+                        (i % 9) as f32 * 17.,
+                        (i % 3) as f32 * 41.,
                     );
-                let radius = Vec3::new(
-                    (i % 5) as f32 * 13.,
-                    (i % 9) as f32 * 17.,
-                    (i % 3) as f32 * 41.,
-                );
-                assert_eq!(
+                    let (mins, maxs) = (center - radius, center + radius);
+                    let raw = bsp.bounds_in_pvs(eye, mins, maxs).unwrap();
+                    let walked = index.bounds_visible(mins, maxs, &row, &mut stack).unwrap();
                     index
-                        .bounds_visible(center - radius, center + radius, &row)
-                        .unwrap(),
-                    bsp.bounds_in_pvs(eye, center - radius, center + radius)
-                        .unwrap(),
-                    "{map} bound {i}"
-                );
+                        .bounds_clusters(mins, maxs, &mut stack, &mut clusters)
+                        .unwrap();
+                    let listed = clusters.iter().any(|&c| row.contains(c));
+                    assert_eq!(walked, raw, "{map} view {offset} bound {i}");
+                    assert_eq!(listed, raw, "{map} view {offset} listed bound {i}");
+                }
             }
+            assert!(checked_views > 0, "{map} has no valid view cluster");
         }
     }
 }

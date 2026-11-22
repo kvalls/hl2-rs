@@ -11,6 +11,11 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
 - **`O6` — Share `ActorPoses` in `shadows::update` (`shadows/caster.rs`):**
   - Crowd `trace` (`mixed-crowd.json`, 300 frames): **`present_entities + update` duplicate `actor_pose` groups `7,308 -> 0`**, `shadows::update` **`1.048 -> 0.617 ms`** mean (`p99 2.439 -> 1.119`, `max 4.21 -> 1.38`), `--profile` `shadows` stage **`1.244 -> 0.811 ms`** mean (`p95 1.504 -> 1.004`, `max 3.82 -> 1.37`), total `actor_pose` **`597.7 -> 463.4`** calls/frame (**`4.460 -> 2.729 ms/frame`**), `frame_total` `58.136 -> 43.030 ms` mean.
 
+- **`O28` — PVS bitset rows and per-draw cluster lists (`hl2-bevy/src/visibility.rs`, `source-assets/src/visibility.rs`):** everyday `stages` build, headless `d1_trainstation_02` with the whole `mixed-crowd.json` run (`--frames 2000`, the script ends first; about 740-770 post-warmup samples), three runs each side, one at a time, at `3283ac47` against the change:
+  - `source_pvs` stage mean `0.180 / 0.181 / 0.180 -> 0.156 / 0.160 / 0.157 ms` (about `-12%`), `p95 0.216 / 0.215 / 0.214 -> 0.189 / 0.190 / 0.187`, `max 0.263 / 0.261 / 0.265 -> 0.256 / 0.239 / 0.234`.
+  - Same culling: `checked_draws 2396`, `culled_draws 468` in every run on both sides; `reused_bounds_tests` 886-894 both sides (the remaining ~1,500 per frame are crowd draws whose animated bounds move every frame and keep the early-exit tree walk).
+  - `frame_total` unchanged within noise (`21.13-21.37 -> 20.72-21.72 ms` mean); this headless path never shows capture 3's live `1.8 ms` p99 spike, so the transition gain (whole-scene re-walks on a view-cluster change now cost bitset lookups for draws whose bounds stay put) needs the next live capture to confirm.
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed

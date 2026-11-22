@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-22 — PVS bitset rows and per-draw cluster lists (`O28`)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`; continues groundwork an Antigravity session left uncommitted in `source-assets/src/visibility.rs` (bitset row, cluster listing), reviewed and finished here.
+- Changed:
+  - `crates/source-assets/src/visibility.rs`: `VisibilityIndex::row` returns a `PvsRow` bitset (O(1) `contains`) instead of a `BTreeSet`; `bounds_visible` takes the bitset and a reusable stack; new `bounds_clusters` lists the sorted clusters a box touches; both walks and `bounds_in_pvs` share one plane-split step (`push_overlapped`).
+  - `crates/hl2-bevy/src/visibility.rs`: each `PvsDraw` keeps its last bounds and, after the first view change with unchanged bounds, the clusters they touch; later view changes test that list against the new rows instead of re-walking the tree. Moved bounds keep the early-exit walk. The per-draw test and bounds conversion moved out of `present` (now under the 100-line limit; architecture baseline tightened). The report adds `listed_bounds_tests`.
+- Why: capture 3 showed `source_pvs` p99 `1.804 ms` (13.5x its mean) when crossing areas: every view-cluster change invalidated every draw's cached answer and re-walked the BSP with tree-set lookups.
+- Tested how: `cargo test -p source-assets --lib visibility` (6 passed), the owned-install `owned_station_cached_visibility_matches_raw_tree_queries` (`--ignored`, now four view clusters per station map, 400 boxes each, walk and cluster list both equal to the raw-lump query), `cargo test -p hl2-bevy --lib visibility` (2 passed; asserts 3 listed tests after a monitor view activates); three headless `stages` runs per side of `mixed-crowd.json` on `d1_trainstation_02`; `scripts/checks/validate.sh` (architecture, tests, strict Clippy, fmt) and the Windows-target Clippy check.
+- Result: `source_pvs` mean `0.180 -> 0.158 ms` (-12%), p95 `0.215 -> 0.189`, max `0.263 -> 0.243`; `culled_draws` 468 and `checked_draws` 2396 identical on both sides.
+- Still broken or not tested: the live transition spike is not reproduced headless, so its p99 change is **not tested** until the next live capture; ~1,500 crowd draws per frame with moving bounds still walk the tree; `bounds_in_pvs` callers (eyes, monitors, sky) still decode a row per call.
+- Next: `O26` (bloom and viewmodel blur nodes on cameras that do not use them).
+
 ## 2026-11-22 — Reuse `ActorPoses` cache in render-to-texture shadow silhouettes (`O6`)
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).

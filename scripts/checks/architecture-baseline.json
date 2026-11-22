@@ -188,9 +188,6 @@
   "crates/hl2-bevy/src/ui_system.rs::update_ui": [
    219
   ],
-  "crates/hl2-bevy/src/visibility.rs::present": [
-   115
-  ],
   "crates/hl2-simulation/src/ai/ally_speech.rs::speak": [
    119
   ],
