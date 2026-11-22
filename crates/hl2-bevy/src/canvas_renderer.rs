@@ -1,4 +1,5 @@
 //! Bevy presentation and WGPU 2D batch rendering for the shared Source UI Canvas.
+mod atlas;
 mod frame_distribution;
 mod frame_windows;
 mod game_hud;
@@ -152,6 +153,7 @@ pub struct Hud {
     textures: HashMap<usize, GpuTexture>,
     white: Option<(Handle<HudMaterial>, Handle<HudMaterial>)>,
     modulate: Option<Handle<HudMaterial>>,
+    atlas: atlas::Atlas,
     pool: Vec<(Entity, Handle<Mesh>, Vec<QuadGeometry>)>,
     pub quads: usize,
     timing: FrameTiming,
@@ -172,7 +174,7 @@ impl Hud {
         let state = captions.state.borrow();
         let captions = serde_json::json!({"dictionaries":captions.captions.dictionaries.iter().map(|d| d.len()).collect::<Vec<_>>(),
             "errors":captions.errors,"processed":state.processed,"queued":state.streams().collect::<Vec<_>>(),"recent":state.recent,"missing":state.missing});
-        let report = serde_json::json!({"quads":self.quads,"pooled_meshes":self.pool.len(),"owned_textures":self.textures.len(),"viewport":[self.source.canvas.width(),self.source.canvas.height()], "frame":self.source.frame(), "panels":self.source.panel_rects(), "power":self.source.power_report(), "captions":captions});
+        let report = serde_json::json!({"quads":self.quads,"pooled_meshes":self.pool.len(),"owned_textures":self.textures.len(),"atlas_pages":self.atlas.pages(),"viewport":[self.source.canvas.width(),self.source.canvas.height()], "frame":self.source.frame(), "panels":self.source.panel_rects(), "power":self.source.power_report(), "captions":captions});
         report
     }
     pub fn new(source: hl2_ui::hud::WeaponHud) -> Self {
@@ -183,6 +185,7 @@ impl Hud {
             textures: HashMap::new(),
             white: None,
             modulate: None,
+            atlas: atlas::Atlas::default(),
             pool: vec![],
             quads: 0,
             timing: FrameTiming::default(),
@@ -205,7 +208,7 @@ impl Hud {
         quad: &Quad,
         images: &mut Assets<Image>,
         materials: &mut Assets<HudMaterial>,
-    ) -> Handle<HudMaterial> {
+    ) -> (Handle<HudMaterial>, atlas::UvMap) {
         fn upload(
             texture: &Texture2D,
             images: &mut Assets<Image>,
@@ -241,7 +244,7 @@ impl Hud {
             )
         }
         if quad.modulate {
-            return self
+            let material = self
                 .modulate
                 .get_or_insert_with(|| {
                     let white = Texture2D::from_rgba8(1, 1, &[255; 4]);
@@ -264,6 +267,10 @@ impl Hud {
                     })
                 })
                 .clone();
+            return (material, atlas::UvMap::Own);
+        }
+        if let Some(found) = self.atlas.material(quad, images, materials) {
+            return found;
         }
         let handles = if let Some(cpu) = &quad.texture {
             let texture = self.textures.entry(cpu.id()).or_insert_with(|| {
@@ -281,11 +288,12 @@ impl Hud {
             });
             (&handles.0, &handles.1)
         };
-        if quad.additive {
+        let material = if quad.additive {
             handles.1.clone()
         } else {
             handles.0.clone()
-        }
+        };
+        (material, atlas::UvMap::Own)
     }
 }
 #[derive(Component)]
@@ -429,10 +437,10 @@ fn batch_quads(
     materials: &mut Assets<HudMaterial>,
 ) -> Vec<(Handle<HudMaterial>, Vec<QuadGeometry>)> {
     group_quad_batches(quads.iter().map(|quad| {
-        (
-            hud.material(quad, images, materials),
-            QuadGeometry::of(quad, viewport),
-        )
+        let (material, uvs) = hud.material(quad, images, materials);
+        let mut geometry = QuadGeometry::of(quad, viewport);
+        uvs.apply(&mut geometry.uvs);
+        (material, geometry)
     }))
 }
 
@@ -499,7 +507,7 @@ fn draw_quads(
     }
 }
 /// The vertex data of one canvas quad.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 struct QuadGeometry {
     positions: [[f32; 3]; 4],
     colors: [[f32; 4]; 4],

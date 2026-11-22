@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-22 — HUD canvas atlas: text and rectangles batch together (`O13`, `O8`)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed: new `crates/hl2-bevy/src/canvas_renderer/atlas.rs`: canvas textures up to 128 px are copied once into shared 512 px pages (one per filter mode, 2 px edge-replicated padding, a white block for untextured quads); `Hud::material` returns the page material and a texture-coordinate map that `batch_quads` applies. Modulate quads, larger textures and quads sampling outside their texture keep their own material. The HUD report adds `atlas_pages`.
+- Why: a temporary mesh-event probe showed 52 HUD batch meshes rewritten every frame: each glyph had its own texture, so the HUD made one batch, mesh and draw per glyph (432 for 446 quads), and the F1 overlay's frame-time line shifted every later batch each frame. This was most of `allocate_and_free_meshes` (O13) and the 2D pass cost (O8).
+- Tested how: `cargo test -p hl2-bevy --lib canvas_renderer` (11 passed, two new atlas tests: shared page, texel-exact mapping, padding equals clamp-to-edge, white block, large/wrapping textures excluded, filter modes and full pages); three static `stages` runs per side, two `--uncapped` runs per side alternating, a headless `trace` against the same-commit baseline trace; full-frame captures compared; `scripts/checks/validate.sh`, Windows-target Clippy; packaged replay suite.
+- Result: HUD batch meshes 432 -> 4; `render_assets` 1.14 -> 0.56 ms mean; per-frame trace: `allocate_and_free_meshes` 1.71 -> 0.23 ms, 2D pass encode 0.57 -> 0.07 ms, command-buffer submission 0.82 -> 0.31 ms, `render_system` 6.18 -> 5.56 ms. Frame time unchanged headless (GPU-bound); captures identical but for the overlay timer digits.
+- Still broken or not tested: live windowed play and crowd scenes with the atlas are **not tested**; a new glyph re-uploads its 1 MiB page once; shadow decals still rewrite about 4 meshes per frame.
+- Next: O14 (`SourceMaterial` re-prepared every frame) or O25.
+
 ## 2026-11-22 — PVS bitset rows and per-draw cluster lists (`O28`)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`; continues groundwork an Antigravity session left uncommitted in `source-assets/src/visibility.rs` (bitset row, cluster listing), reviewed and finished here.

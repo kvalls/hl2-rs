@@ -16,6 +16,12 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
   - Same culling: `checked_draws 2396`, `culled_draws 468` in every run on both sides; `reused_bounds_tests` 886-894 both sides (the remaining ~1,500 per frame are crowd draws whose animated bounds move every frame and keep the early-exit tree walk).
   - `frame_total` unchanged within noise (`21.13-21.37 -> 20.72-21.72 ms` mean); this headless path never shows capture 3's live `1.8 ms` p99 spike, so the transition gain (whole-scene re-walks on a view-cluster change now cost bitset lookups for draws whose bounds stay put) needs the next live capture to confirm.
 
+- **`O13` / `O8` — HUD canvas atlas (`hl2-bevy/src/canvas_renderer/atlas.rs`):** static `d1_trainstation_02` spawn, 1,000 frames, everyday `stages` build with the F1 overlay shown (saved setting), three runs each side at `6c97a6c5` against the change:
+  - HUD: `446` quads in `432 -> 4` pooled batch meshes (2 atlas pages); before, about 52 batch meshes were rewritten per frame because the overlay's frame-time line shifted every later glyph batch.
+  - `render_assets` mean `1.160 / 1.127 / 1.137 -> 0.555 / 0.568 / 0.570 ms` (p95 `2.19 / 2.16 / 2.13 -> 0.91 / 0.92 / 0.93`), `PostUpdate` `2.60 -> 2.51 ms`; `frame_total` `8.57 -> 8.58 ms` (unchanged: headless at maxed settings is GPU-bound here, also with `--uncapped`), `render_graph` `4.93 -> 5.61 ms` (the freed render-thread time becomes swapchain wait).
+  - Headless `trace` (400 frames, same spawn) per frame: `allocate_and_free_meshes` `1.71 -> 0.23 ms`, `main_transparent_pass_2d` encode `0.34 + 0.23 -> 0.05 + 0.02 ms`, `submit_pending_command_buffers` `0.82 -> 0.31 ms`, `render_system` `6.18 -> 5.56 ms`, `specialize_material2d_meshes<HudMaterial>` `0.032 -> 0.008 ms`.
+  - Fidelity: full-frame captures differ in 65 pixels, the overlay's elapsed-time digits; text and panels match.
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed
