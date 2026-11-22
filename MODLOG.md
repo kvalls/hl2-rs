@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-22 — Backlog: techniques from four game performance optimizers (O36-O41)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5` (with web-reading subagents).
+- Changed: `docs/optimization-backlog.md` only. Surveyed four open-source optimizers of a block-building game (a rendering engine replacement, a game-logic optimizer, a memory optimizer and an immediate-mode batching optimizer: their READMEs, configuration documentation and, for the renderer, its chunk rendering source) and mapped each technique to this project's measured costs:
+  - New: O36 compact vertex format (their 20-byte vertex against our 56; our opaque vertex stage is about 2 ms per frame), O37 facing-grouped static world draws (skip back-facing groups before vertex shading), O38 areaportal culling on top of the PVS (retail; their analogue is a per-section visibility graph), O39 a host-owned arena for per-frame geometry (their region arenas with multi-draw; ours reallocates every modified mesh), O40 awake-entity lists for `Scene::tick` (their sleeping block entities; low priority), O41 shared materials with a per-draw lighting slot (`MeshTag`) instead of per-entity copies (their entity batching).
+  - Notes: O7 (glyph lookup caching, static text buffering), O10 (deduplicating identical immutable data, interning), O13 (an Apple GPU buffer-upload regression one optimizer reverts).
+  - Already done or not applicable: HUD and text batching (the canvas atlas), animated-texture updates (material slots), allocation-free hot paths and lookup by exact type (already the pattern here), their engine-specific chunk palettes, hoppers and voxel shapes.
+- Why: the owner asked whether their tricks apply here and to update the backlog.
+- Tested how: claims checked against this code (vertex attributes in `rendering.rs`, material copies in `rendering/runtime.rs`, `MeshTag` in Bevy 0.19) and this branch's measurements; documentation only.
+- Result: six new items, three annotated.
+- Still broken or not tested: none of O36-O41 is implemented or measured.
+- Next: O41 and O37 look like the best value for the render-thread and GPU vertex costs; O39 is an owner decision.
+
 ## 2026-11-22 — macOS Game Mode measured: no gain on top of thread priority (O35 rejected)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.
