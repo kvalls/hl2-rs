@@ -28,6 +28,7 @@ mod monitor;
 mod monitors;
 mod options;
 pub mod performance;
+pub mod priority;
 mod rcon;
 pub mod rendering;
 pub mod runtime_npcs;

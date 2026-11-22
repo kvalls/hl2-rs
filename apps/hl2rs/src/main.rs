@@ -3,6 +3,8 @@
 mod alloc_count;
 mod plugins;
 fn main() -> anyhow::Result<()> {
+    // The main thread runs the frame; Bevy's pool threads take theirs as they spawn.
+    hl2_bevy::priority::set_current_thread(hl2_bevy::priority::Priority::Frame);
     #[cfg_attr(
         not(any(
             feature = "advanced-options",

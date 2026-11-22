@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-22 — Thread priority and macOS application metadata for every build
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed:
+  - New `crates/hl2-bevy/src/priority.rs`, declared once: `Priority::{Frame, Background}`, `set_current_thread` (macOS `pthread_set_qos_class_self_np`: user-interactive and user-initiated; other platforms no-ops) and `task_pools()`, Bevy's `TaskPoolPlugin` whose spawn hooks give compute threads `Frame` and async/IO threads `Background`, pool sizes unchanged. The game (`launch.rs`) and the setup helper (`setup.rs`) both build their plugins with it; `apps/hl2rs/src/main.rs` gives the main thread `Frame`.
+  - New `apps/hl2rs/Info.plist` (bundle id, games category, `LSSupportsGameMode`, `LSAppNapIsDisabled`, high resolution) embedded into every `hl2-bevy` build (all profiles and features) by new `apps/hl2rs/build.rs` (`__TEXT,__info_plist`, macOS only); `.gitignore` whitelists both.
+  - Docs: README, DESIGN, performance, backlog O34 (Windows) and O35 (Game Mode packaging).
+- Why: the owner asked for Game Mode and performance priority in every mode, to make benchmarks under load more reliable.
+- Tested how: `cargo test -p hl2-bevy --lib priority` (pool hooks; on macOS the scheduler reports user-interactive and user-initiated on spawned threads); `otool` shows the embedded section; system log (`gamepolicyd`) for full-screen runs of the bare binary and of the same binary inside a scratch `.app`; crowd `stages` A/B under ten CPU-bound processes (two runs per side) and without load (six per side); `scripts/checks/validate.sh`, Windows-target Clippy, packaged replay suite.
+- Result: under load crowd `frame_total` 39.5 -> 32.6 ms mean, p95 64.3 -> 55.2; without load unchanged (median 16.30 -> 16.28). The embedded Info.plist is read (the process reports bundle id `dev.hl2rs.game`), but Game Mode labels and enables the game only when it runs from an application bundle: the bare binary is an anonymous process to `gamepolicyd`; from a bundle, "Game mode enabled ... status is now on" while full screen.
+- Still broken or not tested: Game Mode in normal launches (O35, needs the owner's packaging decision); App Nap opt-out not measured separately; Windows priority (O34) **not implemented**; live windowed play **not tested**.
+- Next: O35 packaging if the owner wants it; O34 on Windows.
+
 ## 2026-11-22 — Backlog: review of crowd-scaling suggestions (O15, O18, O31-O33)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.

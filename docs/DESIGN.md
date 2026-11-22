@@ -2735,3 +2735,13 @@ white block for untextured quads, and remaps the quad's texture coordinates into
 Modulate quads, larger textures and quads sampling outside their texture keep their own material.
 A new texture rewrites its 1 MiB page once. Reversible by removing the atlas lookup in
 `Hud::material`.
+
+### Scheduling priority and application metadata (2026-11-22)
+
+Declared once each. `hl2-bevy::priority` sets thread priority: the application's `main` gives
+the main thread `Priority::Frame` and every launch builds Bevy's task pools with
+`priority::task_pools()`, whose spawn hooks give compute threads `Frame` and async/IO threads
+`Background`. macOS maps them to user-interactive and user-initiated QoS (performance cores
+under load); other platforms are no-ops until O34. `apps/hl2rs/Info.plist` (games category,
+`LSSupportsGameMode`, `LSAppNapIsDisabled`) is embedded into every `hl2-bevy` build by
+`apps/hl2rs/build.rs`; Game Mode itself also needs an application bundle (O35, owner decision).

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macOS application metadata, embedded into every hl2-bevy build (debug, release, profiling and
+     tracing) by build.rs: the system recognizes the game for Game Mode (full screen, frontmost)
+     and never puts it in App Nap. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.hl2rs.game</string>
+	<key>CFBundleName</key>
+	<string>HL2-RS</string>
+	<key>CFBundleExecutable</key>
+	<string>hl2-bevy</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category-action-games</string>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>LSAppNapIsDisabled</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>

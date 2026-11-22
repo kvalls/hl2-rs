@@ -18,6 +18,7 @@ pub(super) fn default_plugins(
     asset_root: &std::path::Path,
 ) -> PluginGroupBuilder {
     let default_plugins = DefaultPlugins
+        .set(crate::priority::task_pools())
         .set(bevy::log::LogPlugin {
             custom_layer: console_host::log_layer,
             ..default()

@@ -60,5 +60,7 @@
 !apps/
 !apps/hl2rs/
 !apps/hl2rs/Cargo.toml
+!apps/hl2rs/build.rs
+!apps/hl2rs/Info.plist
 !apps/hl2rs/src/
 !apps/hl2rs/src/*.rs

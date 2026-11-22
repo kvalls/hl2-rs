@@ -45,6 +45,11 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
   - Crowd GPU (headless Metal System Trace, 8 s attached 3 s after gameplay starts, 3456x2234): opaque fragment `1.70 / 1.69 / 1.67 -> 1.68 / 1.71 / 1.82 ms` per frame, transparent fragment `1.42 / 1.24 / 1.43 -> 1.47 / 1.41 / 1.32`, GPU busy mean `8.15 / 7.61 / 8.12 -> 8.43 / 8.08 / 7.99 ms`; the opaque vertex pass, whose shader did not change, moved `2.02 / 1.92 / 2.11 -> 2.19 / 2.12 / 2.00`, so differences of a few percent are this scene's run-to-run noise.
   - Fidelity: frame-matched replay captures (`face-security-1805`, `gestures-security-1805`, the flashlight-lit pistol and SMG viewmodels) differ from the old build no more than two runs of one build differ; the SMG pair's only steady difference is the HUD ammo digits' glow.
 
+- **Thread priority (`hl2-bevy/src/priority.rs`) and application metadata (`apps/hl2rs/Info.plist`):** frame threads (main and Bevy's compute pool) ask for user-interactive QoS, asset/IO pools for user-initiated; App Nap off; crowd `stages` A/B at `2b23906a`:
+  - Under load (ten `yes` processes on the ten-core M1 Pro, two alternating runs per side): `frame_total` `41.21 / 37.89 -> 33.92 / 31.21 ms` mean (p95 `65.5 / 63.2 -> 60.6 / 49.8`, max `99.5 / 94.1 -> 75.3 / 70.4`, p99 bounds `85 / 81 -> 81 / 66`), `fixed_simulation` `7.42 / 7.17 -> 6.65 / 6.11 ms`.
+  - Without load (six alternating runs per side): `frame_total` median `16.30 -> 16.28 ms` (`15.93-16.62` against `15.93-17.14`, one slow run on the new side), p99 bounds `27-32` against `25-38`: no change.
+  - Game Mode: macOS labels the game and turns Game Mode on only when it runs full screen from an application bundle (O35); the embedded Info.plist alone is not enough.
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed
