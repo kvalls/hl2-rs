@@ -161,9 +161,6 @@
   "crates/hl2-bevy/src/bloom.rs::source_bloom": [
    111
   ],
-  "crates/hl2-bevy/src/campaign.rs::poll": [
-   104
-  ],
   "crates/hl2-bevy/src/effects.rs::present": [
    156
   ],

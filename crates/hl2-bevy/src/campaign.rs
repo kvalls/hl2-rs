@@ -2,7 +2,7 @@
 use crate::{Options, StartupAssets, Status, assets, gameplay, simulation, ui_host};
 use bevy::{
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorOptions, PrimaryWindow},
 };
 
 #[derive(Component)]
@@ -194,19 +194,14 @@ pub fn poll(
         commands.entity(entity).try_despawn();
     }
     loading::install_view(&job.request, &options, &mut loaded, &mut sim, eye);
-    if job.request.direct {
-        ui.source
-            .level_loaded_for_map(&loaded.game, &loaded.world.name, job.request.background);
-        if !job.request.background
-            && let Ok(mut cursor) = windows.single_mut()
-        {
-            cursor.grab_mode = CursorGrabMode::Locked;
-            cursor.visible = false;
-        }
-    } else {
-        ui.source
-            .level_loaded_for_map(&loaded.game, &loaded.world.name, false);
-    }
+    loading::finish_level_ui(
+        &job.request,
+        &loaded.game,
+        &loaded.world.name,
+        &mut ui,
+        &mut sim,
+        windows.single_mut().ok().as_deref_mut(),
+    );
     loading::notify_finished(&job.request, &mut sim, &mut ui);
     ui.source
         .log(format!("Loaded {}/{}", loaded.game, loaded.world.name));

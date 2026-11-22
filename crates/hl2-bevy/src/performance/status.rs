@@ -4,19 +4,39 @@
 //! loading, paused or a menu background level starts the trace, and the `--profile` stage
 //! samples restart `STAGE_WARM_UP_FRAMES` gameplay frames later.
 use super::{FRAME_TOTAL, Performance, SAMPLE_LIMIT};
-use bevy::prelude::{App, First, Res, ResMut, Resource};
+use bevy::prelude::{App, IntoScheduleConfigs, Res, ResMut, Resource};
 use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+
+/// Default trace size ceiling (`TRACE_CHROME_MAX_MB` override; `0` disables the ceiling).
+pub const DEFAULT_TRACE_MAX_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 
 /// A build that records a trace (selected by the application).
 #[derive(Clone, Debug, Default)]
 pub struct TraceRecording {
     /// The file being written, when the application knows it.
     pub file: Option<PathBuf>,
+    /// Stop tracing cleanly once the output reaches this many bytes (`None` is unlimited).
+    pub max_bytes: Option<u64>,
     /// Heap allocations and requested bytes since the start, when the application counts them.
     pub allocations: Option<fn() -> (u64, u64)>,
+}
+
+impl TraceRecording {
+    /// Parses a trace ceiling in MiB (as from `TRACE_CHROME_MAX_MB`), where `"0"` is unlimited
+    /// and omitted or invalid values select [`DEFAULT_TRACE_MAX_BYTES`].
+    pub fn max_bytes_from_mb(raw: Option<&str>) -> Option<u64> {
+        let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+            return Some(DEFAULT_TRACE_MAX_BYTES);
+        };
+        match raw.parse::<u64>() {
+            Ok(0) => None,
+            Ok(mb) => Some(mb.saturating_mul(1024 * 1024)),
+            Err(_) => Some(DEFAULT_TRACE_MAX_BYTES),
+        }
+    }
 }
 
 /// Starts and finishes the trace file; installed by builds that write one.
@@ -74,6 +94,7 @@ pub struct ProfilingSnapshot {
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Actions {
     start_trace: bool,
+    finish_trace: bool,
     restart_stages: bool,
 }
 
@@ -85,6 +106,7 @@ pub struct Profiling {
     stages_started: Option<Instant>,
     stages_finished: Option<Instant>,
     trace: Option<TraceRecording>,
+    trace_finished: Option<Instant>,
     trace_bytes: Option<u64>,
     trace_read: Option<Instant>,
     snapshot: ProfilingSnapshot,
@@ -99,6 +121,7 @@ impl Profiling {
             stages_started: None,
             stages_finished: None,
             trace,
+            trace_finished: None,
             trace_bytes: None,
             trace_read: None,
             snapshot: ProfilingSnapshot::default(),
@@ -106,6 +129,13 @@ impl Profiling {
     }
     pub fn snapshot(&self) -> ProfilingSnapshot {
         self.snapshot
+    }
+    /// Whether the trace file is actively recording gameplay (neither waiting nor stopped).
+    pub fn trace_recording(&self) -> bool {
+        matches!(
+            self.snapshot.trace,
+            Some(trace) if trace.state == RecorderState::Recording
+        )
     }
     /// Heap allocations and bytes since the start, when the build counts them.
     pub fn allocations(&self) -> Option<(u64, u64)> {
@@ -135,7 +165,7 @@ impl Profiling {
         let stages = self
             .stages
             .then(|| self.stage_recorder(now, recorded, &actions));
-        let trace = self.trace_recorder(now);
+        let trace = self.trace_recorder(now, &mut actions);
         self.snapshot = ProfilingSnapshot { stages, trace };
         actions
     }
@@ -168,7 +198,7 @@ impl Profiling {
             limit: SAMPLE_LIMIT,
         }
     }
-    fn trace_recorder(&mut self, now: Instant) -> Option<TraceRecorder> {
+    fn trace_recorder(&mut self, now: Instant, actions: &mut Actions) -> Option<TraceRecorder> {
         let trace = self.trace.as_ref()?;
         let Some(started) = self.gameplay_started else {
             return Some(TraceRecorder {
@@ -177,7 +207,8 @@ impl Profiling {
                 bytes: None,
             });
         };
-        if let Some(file) = trace.file.as_ref()
+        if self.trace_finished.is_none()
+            && let Some(file) = trace.file.as_ref()
             && self
                 .trace_read
                 .is_none_or(|read| now.duration_since(read) >= TRACE_SIZE_INTERVAL)
@@ -185,9 +216,22 @@ impl Profiling {
             self.trace_read = Some(now);
             self.trace_bytes = std::fs::metadata(file).ok().map(|m| m.len());
         }
+        if self.trace_finished.is_none()
+            && let (Some(limit), Some(bytes)) = (trace.max_bytes, self.trace_bytes)
+            && bytes >= limit
+        {
+            self.trace_finished = Some(now);
+            actions.finish_trace = true;
+        }
+        let state = if self.trace_finished.is_some() {
+            RecorderState::Finished
+        } else {
+            RecorderState::Recording
+        };
+        let elapsed = self.trace_finished.unwrap_or(now).duration_since(started);
         Some(TraceRecorder {
-            state: RecorderState::Recording,
-            elapsed: now.duration_since(started),
+            state,
+            elapsed,
             bytes: self.trace_bytes,
         })
     }
@@ -199,7 +243,12 @@ pub fn install(app: &mut App, stages: bool, trace: Option<TraceRecording>) {
         return;
     }
     app.insert_resource(Profiling::new(stages, trace))
-        .add_systems(First, update);
+        .add_systems(
+            bevy::app::RunFixedMainLoop,
+            update
+                .in_set(bevy::app::RunFixedMainLoopSystems::BeforeFixedMainLoop)
+                .after(crate::ui_system::UiInputSet),
+        );
     #[cfg(feature = "trace")]
     crate::state_trace::install(app);
 }
@@ -208,9 +257,11 @@ fn update(
     mut profiling: ResMut<Profiling>,
     performance: Option<Res<Performance>>,
     sim: Option<Res<crate::simulation::Simulation>>,
+    ui: Option<Res<crate::ui_host::Console>>,
     switch: Option<Res<TraceSwitch>>,
 ) {
-    let gameplay = sim.is_some_and(|sim| !sim.paused() && !sim.background_level);
+    let gameplay = sim.is_some_and(|sim| !sim.paused() && !sim.background_level)
+        && !ui.is_some_and(|ui| ui.source.paused());
     let recorded = performance.as_deref().map(|p| p.recorded(FRAME_TOTAL));
     let actions = profiling.update(Instant::now(), gameplay, recorded);
     if actions.restart_stages
@@ -223,6 +274,20 @@ fn update(
     {
         let file = profiling.trace.as_ref().and_then(|t| t.file.as_deref());
         (switch.0)(TraceCommand::Start(file));
+    }
+    if actions.finish_trace
+        && let Some(switch) = switch.as_deref()
+    {
+        let bytes = profiling
+            .snapshot()
+            .trace
+            .and_then(|t| t.bytes)
+            .unwrap_or(0);
+        bevy::log::warn!(
+            "trace reached size limit ({:.2} GB); finishing trace cleanly",
+            bytes as f64 / (1024. * 1024. * 1024.)
+        );
+        (switch.0)(TraceCommand::Finish);
     }
 }
 
@@ -279,5 +344,188 @@ mod tests {
         assert_eq!(trace.state, RecorderState::Recording);
         assert_eq!(trace.elapsed, Duration::from_secs(2));
         assert!(p.snapshot().stages.is_none());
+    }
+
+    #[test]
+    fn trace_stays_idle_while_ui_paused_or_window_unfocused_and_starts_on_gameplay() {
+        use bevy::prelude::*;
+        use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution};
+        use std::sync::{Arc, Mutex};
+
+        let mut app = App::new();
+        let events: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorded = events.clone();
+
+        app.add_plugins((MinimalPlugins, crate::ui_system::UiPlugin))
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_message::<AppExit>()
+            .add_message::<bevy::input::keyboard::KeyboardInput>()
+            .add_message::<bevy::input::mouse::MouseWheel>()
+            .insert_resource(crate::simulation::Simulation::new(
+                &modkit_core::World::default(),
+                glam::Vec3::ZERO,
+                0.,
+                0.,
+                false,
+                vec![],
+            ))
+            .insert_resource(crate::gameplay::Gameplay::synthetic(
+                modkit_core::World::default(),
+            ))
+            .insert_resource(crate::ui_host::Console::new(Default::default()))
+            .insert_resource(super::TraceSwitch(Box::new(move |cmd| {
+                let tag = match cmd {
+                    super::TraceCommand::Start(_) => "start",
+                    super::TraceCommand::Finish => "finish",
+                };
+                recorded.lock().unwrap().push(tag);
+            })));
+        super::install(&mut app, false, Some(TraceRecording::default()));
+
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: WindowResolution::new(1024, 768),
+                    focused: false,
+                    ..default()
+                },
+                CursorOptions {
+                    grab_mode: CursorGrabMode::None,
+                    visible: true,
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+
+        // Unfocused window: `update_ui` pauses before `status::update` inspects gameplay.
+        app.update();
+        assert!(events.lock().unwrap().is_empty());
+        assert_eq!(
+            app.world()
+                .resource::<Profiling>()
+                .snapshot()
+                .trace
+                .unwrap()
+                .state,
+            RecorderState::Idle
+        );
+
+        // Focused window with console open: trace still stays idle.
+        app.world_mut()
+            .entity_mut(window)
+            .get_mut::<Window>()
+            .unwrap()
+            .focused = true;
+        app.world_mut()
+            .resource_mut::<crate::ui_host::Console>()
+            .source
+            .set_mode(hl2_ui::console::Mode::Console);
+        app.update();
+        assert!(events.lock().unwrap().is_empty());
+        assert_eq!(
+            app.world()
+                .resource::<Profiling>()
+                .snapshot()
+                .trace
+                .unwrap()
+                .state,
+            RecorderState::Idle
+        );
+
+        // Console closed into gameplay: trace starts cleanly once.
+        app.world_mut()
+            .resource_mut::<crate::ui_host::Console>()
+            .source
+            .set_mode(hl2_ui::console::Mode::Gameplay);
+        app.update();
+        assert_eq!(*events.lock().unwrap(), vec!["start"]);
+        assert_eq!(
+            app.world()
+                .resource::<Profiling>()
+                .snapshot()
+                .trace
+                .unwrap()
+                .state,
+            RecorderState::Recording
+        );
+    }
+
+    #[test]
+    fn trace_finishes_cleanly_at_max_bytes_and_freezes_elapsed() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("hl2rs-trace-cap-{nanos}.json"));
+        std::fs::write(&path, [b'a'; 32]).unwrap();
+
+        let t0 = Instant::now();
+        let mut p = Profiling::new(
+            false,
+            Some(TraceRecording {
+                file: Some(path.clone()),
+                max_bytes: Some(16),
+                allocations: None,
+            }),
+        );
+        let first = p.update(t0, true, None);
+        assert!(first.start_trace && first.finish_trace);
+        assert!(!p.trace_recording());
+        let snap = p.snapshot().trace.unwrap();
+        assert_eq!(snap.state, RecorderState::Finished);
+        assert_eq!(snap.bytes, Some(32));
+        assert_eq!(snap.elapsed, Duration::ZERO);
+
+        // Second check using a post-start size growth past max_bytes after TRACE_SIZE_INTERVAL.
+        let mut p2 = Profiling::new(
+            false,
+            Some(TraceRecording {
+                file: Some(path.clone()),
+                max_bytes: Some(64),
+                allocations: None,
+            }),
+        );
+        let a0 = p2.update(t0, true, None);
+        assert!(a0.start_trace && !a0.finish_trace);
+        assert!(p2.trace_recording());
+
+        std::fs::write(&path, [b'b'; 80]).unwrap();
+        let a1 = p2.update(t0 + Duration::from_secs(1), true, None);
+        assert!(a1.finish_trace);
+        assert!(!p2.trace_recording());
+        let s1 = p2.snapshot().trace.unwrap();
+        assert_eq!(s1.state, RecorderState::Finished);
+        assert_eq!(s1.bytes, Some(80));
+        assert_eq!(s1.elapsed, Duration::from_secs(1));
+
+        let a2 = p2.update(t0 + Duration::from_secs(5), true, None);
+        assert!(!a2.finish_trace);
+        assert_eq!(p2.snapshot().trace.unwrap().elapsed, Duration::from_secs(1));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn trace_max_bytes_parses_default_zero_and_explicit_mib() {
+        assert_eq!(
+            TraceRecording::max_bytes_from_mb(None),
+            Some(super::DEFAULT_TRACE_MAX_BYTES)
+        );
+        assert_eq!(
+            TraceRecording::max_bytes_from_mb(Some("")),
+            Some(super::DEFAULT_TRACE_MAX_BYTES)
+        );
+        assert_eq!(
+            TraceRecording::max_bytes_from_mb(Some("bad")),
+            Some(super::DEFAULT_TRACE_MAX_BYTES)
+        );
+        assert_eq!(TraceRecording::max_bytes_from_mb(Some("0")), None);
+        assert_eq!(
+            TraceRecording::max_bytes_from_mb(Some(" 512 ")),
+            Some(512 * 1024 * 1024)
+        );
     }
 }

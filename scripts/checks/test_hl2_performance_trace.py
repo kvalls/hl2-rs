@@ -348,6 +348,15 @@ class TestCaptureOrchestrator(unittest.TestCase):
                 capture.cmd_cleanup(argparse.Namespace(dir=cap, force=True))
             self.assertFalse(raw_trace.exists())
 
+    def test_compute_trace_max_mb(self):
+        self.assertEqual(capture.compute_trace_max_mb(90.0), (20480, None))
+        self.assertEqual(capture.compute_trace_max_mb(18.0), (8192, None))
+        cap_mb, err = capture.compute_trace_max_mb(8.5)
+        self.assertIsNone(cap_mb)
+        self.assertIsNotNone(err)
+        self.assertIn("minimum", err)
+        self.assertEqual(capture.compute_trace_max_mb(50.0, explicit_env="4096"), (None, None))
+
 
 class TestSkillDocs(unittest.TestCase):
     def test_skill_files_and_referenced_scripts_exist(self):

@@ -2673,9 +2673,11 @@ Layers, each opt-in so ordinary builds and runs pay nothing:
    slow frame. Volume is about 1.8 MB per frame (17 GB for a 45 s windowed run), so captures stay
    short and the trace build is never left as the everyday binary. Since 2026-11-21 the host
    installs the trace layer itself (`performance/trace_writer.rs`, Bevy's own writes from the
-   launch): it writes nothing until the first gameplay frame (not loading, paused or a menu
-   background level) and finishes the file before the process exits. `--profile` stage samples
-   restart 120 gameplay frames after that start, not 120 frames after the launch.
+   launch): `performance::status::update` runs after `UiInputSet`, waiting until the first gameplay
+   frame (not loading, UI-paused or a menu background level) and finishing the file cleanly once
+   `TRACE_CHROME_MAX_MB` is reached (default `20 GiB`, `0` for unlimited) or before process exit,
+   writing the closing bracket before exhausting disk. `--profile` stage samples restart 120
+   gameplay frames after that start, not 120 frames after the launch.
 3. An external once-a-second process sampler (process and per-thread CPU, RSS, swap, free pages,
    and the GPU utilization and memory macOS publishes): no code in the game.
 4. GPU time per render pass: Instruments' Metal System Trace (`xcrun xctrace`), no code in the game.

@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-22 — Prevent idle Chrome tracing on startup pause and cap trace disk growth
+
+- Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).
+- Changed:
+  - `crates/hl2-bevy/src/campaign/loading.rs` and `crates/hl2-bevy/src/campaign.rs`: extracted `finish_level_ui` (shrinking `campaign::poll` below the 100-line limit in `scripts/checks/architecture-baseline.json`) so map-load UI completion syncs `sim.paused = ui.source.paused()` after startup commands (`+showconsole`, `+gamemenucommand`) and only locks/hides the cursor when gameplay is unpaused.
+  - `crates/hl2-bevy/src/performance/status.rs`, `crates/hl2-bevy/src/state_trace.rs`, and `apps/hl2rs/src/main.rs`: moved `performance::status::update` from `First` to `RunFixedMainLoopSystems::BeforeFixedMainLoop` after `UiInputSet`, required `!ui.source.paused()` alongside `!sim.paused() && !sim.background_level`, added `Profiling::trace_recording()` gating in `state_trace::record`, and added a clean `TraceCommand::Finish` size ceiling (`DEFAULT_TRACE_MAX_BYTES` = 20 GiB, configurable in MiB via `TRACE_CHROME_MAX_MB` with `0` for unlimited).
+  - `.agents/skills/hl2-performance-trace/scripts/capture.py`, `scripts/checks/test_hl2_performance_trace.py`, and `docs/DESIGN.md` / `.agents/skills/hl2-performance-trace/SKILL.md`: added `compute_trace_max_mb` to refuse `trace`/`trace-alloc` launches below 10 GiB free, clamp `TRACE_CHROME_MAX_MB` to leave 10 GiB free unless overridden, and record `trace_max_mb` in `capture_meta.json`.
+- Why: during a live `trace-alloc` launch with `+showconsole`, `sim.change_map` cleared `sim.paused` right before `+showconsole` paused the UI and `status::update` ran before `update_ui` could re-sync it, starting `TRACE_CHROME` while paused/AFK until `tracing-chrome` ran out of disk space at 106 GB.
+- Tested how:
+  - `python3 -m unittest discover -s scripts/checks -p "test_hl2_performance_trace.py" -v` (12 tests OK, including `test_compute_trace_max_mb`).
+  - Targeted tests (`cargo test -p hl2-bevy --lib performance::status`: 5 passed; `cargo test -p hl2-bevy --lib campaign::loading`: 6 passed, 1 ignored; `cargo test -p hl2-app --features trace-chrome --no-run` and `trace-alloc --no-run`: both compiled).
+  - Full validation suite and Windows cross-target Clippy (`scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` after `cargo fmt`): architecture check (`campaign::poll` removed from baseline, 0 growth), 87 Python helper tests OK, all 4 application plugin builds ok, full workspace Cargo tests passed, strict Clippy clean on host and Windows targets, `cargo fmt --check` clean, and repository isolation check passed.
+- Result: all unit tests, formatting, architecture, plugin builds, isolation, and Clippy checks pass.
+- Still broken or not tested: live packaged `trace-alloc` retry on `d1_trainstation_02` and Windows runtime execution are **not tested** here (live retry runs immediately next).
+- Next: rebuild `trace-alloc` and verify live that `trace.json` stays absent until the console closes into gameplay.
+
 ## 2026-11-21 — Merge upstream main through `aa6f1aa6`
 
 - Agent/model: Antigravity (exact model identifier not recorded; two-phase planning/execution turn).

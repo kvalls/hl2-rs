@@ -28,6 +28,9 @@ fn main() -> anyhow::Result<()> {
     {
         application.trace = Some(hl2_bevy::performance::status::TraceRecording {
             file: std::env::var_os("TRACE_CHROME").map(std::path::PathBuf::from),
+            max_bytes: hl2_bevy::performance::status::TraceRecording::max_bytes_from_mb(
+                std::env::var("TRACE_CHROME_MAX_MB").ok().as_deref(),
+            ),
             #[cfg(feature = "trace-alloc")]
             allocations: Some(alloc_count::totals),
             #[cfg(not(feature = "trace-alloc"))]

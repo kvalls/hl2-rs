@@ -11,7 +11,7 @@ Run from the HL2-RS repository root with Python 3 stdlib scripts under `.agents/
 1. **Preflight (`status` and disk headroom):**
    - Inspect build features, free disk space, running games, OS profilers, and the idle GPU/memory baseline:
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py status`
-   - Trace captures write `~1.8 MB/frame` (`~15–25 GB` for 45–90 seconds); keep at least `30 GiB` free before using `trace` or `trace-alloc`, and note idle GPU load before drawing conclusions (`docs/optimization-backlog.md` O12).
+   - Trace captures write `~1.8 MB/frame` (`~15–25 GB` for 45–90 seconds); keep at least `30 GiB` free before using `trace` or `trace-alloc`, and note idle GPU load before drawing conclusions (`docs/optimization-backlog.md` O12). `capture.py` refuses `trace` / `trace-alloc` launches below `10 GiB` free and sets `TRACE_CHROME_MAX_MB` (default `20 GiB` / `20480` MiB, clamped to leave at least `10 GiB` free unless already set; `0` disables) so unattended traces finish cleanly instead of filling the disk.
 
 2. **Choose the lightest capture mode that answers the question:**
    - `stages`: everyday build (`advanced-options,debug-tools`) with `--profile` CPU stage timers. Lowest overhead.

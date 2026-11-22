@@ -36,6 +36,9 @@ fn record(
     profiling: Option<Res<crate::performance::status::Profiling>>,
     mut written: Local<Written>,
 ) {
+    if profiling.as_deref().is_some_and(|p| !p.trace_recording()) {
+        return;
+    }
     record_player(&sim, &game);
     // Heap allocations since the previous frame (all threads, the render thread included).
     if let Some(now) = profiling.and_then(|p| p.allocations()) {

@@ -32,6 +32,8 @@ import trace_summary  # noqa: E402
 import trace_waste  # noqa: E402
 
 LOW_DISK_WARN_GIB = 30.0
+MIN_TRACE_DISK_GIB = 10.0
+DEFAULT_TRACE_MAX_MIB = 20 * 1024
 
 MODES: dict[str, dict[str, Any]] = {
     "stages": {
@@ -153,6 +155,44 @@ def _free_gib(path: Path) -> Optional[float]:
         return round(usage.free / float(1 << 30), 2)
     except OSError:
         return None
+
+
+def compute_trace_max_mb(
+    free_gib: Optional[float],
+    explicit_env: Optional[str] = None,
+) -> tuple[Optional[int], Optional[str]]:
+    """Return a safe `TRACE_CHROME_MAX_MB` ceiling or a low-disk error message."""
+    if free_gib is not None and free_gib < MIN_TRACE_DISK_GIB:
+        return (
+            None,
+            f"only {free_gib:.2f} GiB free (< {MIN_TRACE_DISK_GIB:.0f} GiB minimum for trace capture); free disk space before tracing.",
+        )
+    if isinstance(explicit_env, str) and explicit_env.strip():
+        return None, None
+    cap_mb = (
+        min(DEFAULT_TRACE_MAX_MIB, max(1024, int((free_gib - MIN_TRACE_DISK_GIB) * 1024)))
+        if free_gib is not None
+        else DEFAULT_TRACE_MAX_MIB
+    )
+    return cap_mb, None
+
+
+def _prepare_trace_env(
+    mode: str,
+    out_dir: Path,
+    env: dict[str, str],
+) -> tuple[Optional[int], Optional[str]]:
+    trace_path = out_dir / "trace.json"
+    if not MODES[mode]["trace_chrome"]:
+        env.pop("TRACE_CHROME", None)
+        return None, None
+    cap_mb, err = compute_trace_max_mb(_free_gib(out_dir), env.get("TRACE_CHROME_MAX_MB"))
+    if err:
+        return None, err
+    if cap_mb is not None:
+        env["TRACE_CHROME_MAX_MB"] = str(cap_mb)
+    env["TRACE_CHROME"] = str(trace_path)
+    return cap_mb, None
 
 
 def _git_head(repo: Path) -> str:
@@ -309,6 +349,12 @@ def cmd_launch(args: argparse.Namespace) -> int:
         return 1
 
     out_dir = args.out.resolve() if args.out else default_capture_dir(repo, args.mode, name=args.name)
+    env = dict(os.environ)
+    trace_max_mb, err = _prepare_trace_env(args.mode, out_dir, env)
+    if err:
+        print(f"capture: {err}", file=sys.stderr)
+        return 1
+
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "report.json"
     trace_path = out_dir / "trace.json"
@@ -323,14 +369,9 @@ def cmd_launch(args: argparse.Namespace) -> int:
             "idle_baseline": resource_sampler.collect_once(),
             "report_path": str(report_path),
             "trace_path": str(trace_path) if MODES[args.mode]["trace_chrome"] else None,
+            "trace_max_mb": trace_max_mb,
         },
     )
-
-    env = dict(os.environ)
-    if MODES[args.mode]["trace_chrome"]:
-        env["TRACE_CHROME"] = str(trace_path)
-    else:
-        env.pop("TRACE_CHROME", None)
 
     cmd = [
         sys.executable,
@@ -365,16 +406,16 @@ def cmd_headless(args: argparse.Namespace) -> int:
             return 1
 
     out_dir = args.out.resolve() if args.out else default_capture_dir(repo, args.mode, name=args.name)
+    env = dict(os.environ)
+    trace_max_mb, err = _prepare_trace_env(args.mode, out_dir, env)
+    if err:
+        print(f"capture: {err}", file=sys.stderr)
+        return 1
+
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "report.json"
     trace_path = out_dir / "trace.json"
     run_log = out_dir / "run.log"
-
-    env = dict(os.environ)
-    if MODES[args.mode]["trace_chrome"]:
-        env["TRACE_CHROME"] = str(trace_path)
-    else:
-        env.pop("TRACE_CHROME", None)
 
     cmd = [
         str(exe),
@@ -401,6 +442,7 @@ def cmd_headless(args: argparse.Namespace) -> int:
         "idle_baseline": resource_sampler.collect_once(),
         "report_path": str(report_path),
         "trace_path": str(trace_path) if MODES[args.mode]["trace_chrome"] else None,
+        "trace_max_mb": trace_max_mb,
     }
     _write_meta(out_dir, meta)
 

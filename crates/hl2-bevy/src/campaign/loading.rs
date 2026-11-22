@@ -130,6 +130,29 @@ pub(super) fn notify_finished(
     sim.notify_loading(ui, &request.map, request.background, Some(true));
 }
 
+/// Completes the UI transition for a loaded map, keeping simulation pause and cursor lock in
+/// sync with any startup commands (`+showconsole`, `+gamemenucommand`) opened on load.
+pub(super) fn finish_level_ui(
+    request: &Request,
+    game: &str,
+    map: &str,
+    ui: &mut ui_host::Console,
+    sim: &mut crate::simulation::Simulation,
+    cursor: Option<&mut bevy::window::CursorOptions>,
+) {
+    let background = request.direct && request.background;
+    ui.source.level_loaded_for_map(game, map, background);
+    sim.paused = ui.source.paused();
+    if request.direct
+        && !request.background
+        && !sim.paused
+        && let Some(cursor) = cursor
+    {
+        cursor.grab_mode = bevy::window::CursorGrabMode::Locked;
+        cursor.visible = false;
+    }
+}
+
 pub(super) fn start(request: &Request, ui: &mut ui_host::Console) {
     if request.background {
         ui.source
@@ -432,5 +455,59 @@ mod tests {
             assert_eq!(ui.map_request.as_deref(), Some("ep2_background01"));
             assert!(campaign.failures.is_empty());
         }
+    }
+    #[test]
+    fn direct_load_with_showconsole_keeps_simulation_paused_and_cursor_unlocked() {
+        use bevy::window::{CursorGrabMode, CursorOptions};
+        let mut gameplay_req = request(false);
+        gameplay_req.map = "d1_trainstation_02".into();
+
+        let mut ui = ui_host::Console::new(Default::default());
+        ui.source
+            .queue_startup_commands(vec!["showconsole".to_owned()]);
+        let mut sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let mut cursor = CursorOptions::default();
+        super::finish_level_ui(
+            &gameplay_req,
+            "hl2",
+            "d1_trainstation_02",
+            &mut ui,
+            &mut sim,
+            Some(&mut cursor),
+        );
+        assert!(ui.source.console_open());
+        assert!(ui.source.paused());
+        assert!(sim.paused());
+        assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+        assert!(cursor.visible);
+
+        let mut plain_ui = ui_host::Console::new(Default::default());
+        let mut plain_sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let mut plain_cursor = CursorOptions::default();
+        super::finish_level_ui(
+            &gameplay_req,
+            "hl2",
+            "d1_trainstation_02",
+            &mut plain_ui,
+            &mut plain_sim,
+            Some(&mut plain_cursor),
+        );
+        assert!(!plain_sim.paused());
+        assert_eq!(plain_cursor.grab_mode, CursorGrabMode::Locked);
+        assert!(!plain_cursor.visible);
     }
 }
