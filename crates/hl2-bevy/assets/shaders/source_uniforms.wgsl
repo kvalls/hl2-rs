@@ -24,5 +24,7 @@ struct SourceUniforms {
     envmap_saturation: vec4<f32>,
     self_illum: vec4<f32>,
     viewmodel_flashlight: ViewmodelLight,
+    // x = per-frame slot in material_rows (-1 none), y = 1 when the slot holds the tint colour.
+    dynamic: vec4<f32>,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> material: SourceUniforms;

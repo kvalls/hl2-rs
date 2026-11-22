@@ -1084,7 +1084,7 @@ def check_lamp_emission():
     holds("completed", normal.report["render"]["simulation"]["script_finished"])
     shader = game_dir() / "bevy-assets/shaders/source.wgsl"
     original = shader.read_text(encoding="utf-8")
-    marker = "srgb_to_linear(material_albedo * material.tint.rgb), base_alpha"
+    marker = "srgb_to_linear(material_albedo * material_tint().rgb), base_alpha"
     holds("emissive albedo control exists", marker in original)
     try:
         shader.write_text(original.replace(marker, "srgb_to_linear(base.rgb), base_alpha"),

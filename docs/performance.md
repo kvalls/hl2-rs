@@ -27,6 +27,12 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
   - `frame_total` mean `19.58 / 19.37 / 19.99 -> 17.63 / 17.92 / 17.76 ms` (p95 `27.98 / 26.96 / 26.49 -> 24.49 / 24.99 / 24.83`), `render_assets` `5.58 / 5.37 / 5.81 -> 4.12 / 4.21 / 4.06 ms`, `render_graph` `7.32 / 7.21 / 7.24 -> 6.76 / 6.74 / 6.77 ms`; about 10% more frames rendered over the same script.
   - Fidelity: the end-of-script frames show the same scene (ragdoll poses differ between any two runs of this script); the order change is per effect, as Source sorts a particle effect as one translucent object and draws it per material.
 
+- **`O14` step 1 — per-frame material values in a shared buffer (`hl2-bevy/src/material_slots.rs`):** everyday `stages` build, three alternating runs per side at `a3f9a390` against the change; static spawn 1,000 frames, crowd `mixed-crowd.json` to the end:
+  - Static spawn: `render_assets` mean `0.558 / 0.561 / 0.560 -> 0.192 / 0.192 / 0.191 ms` (p95 `0.91 -> 0.25`), `render_prepare` `1.11 / 1.10 / 1.10 -> 0.96 / 0.96 / 0.96 ms`; `frame_total` unchanged (8.56 -> 8.60 ms, GPU-bound headless).
+  - Crowd: `frame_total` `17.26 / 17.52 / 17.23 -> 16.72 / 16.87 / 16.57 ms` (p95 `23.5 / 24.8 / 23.7 -> 23.3 / 23.4 / 22.5`), `render_assets` `4.08 / 4.08 / 4.02 -> 3.65 / 3.71 / 3.59 ms`, `render_prepare` `1.58 / 1.57 / 1.58 -> 1.36 / 1.35 / 1.36 ms`.
+  - Before (temporary material probe): about 25 `SourceMaterial` re-prepares per frame at the spawn and 43 + 2 in the crowd from texture-scroll and monitor tint; these now update slot rows only.
+  - Fidelity: the frame-matched `bevy-monitors-breen-screen` replay capture differs from the old build by 0.31 mean per channel, less than two runs of the old build differ from each other (0.59).
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed

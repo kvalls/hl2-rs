@@ -23,6 +23,7 @@ mod io_trace;
 mod launch;
 mod map_install;
 mod material_proxies;
+mod material_slots;
 mod monitor;
 mod monitors;
 mod options;

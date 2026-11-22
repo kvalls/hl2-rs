@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-22 — Per-frame material values in a shared buffer (`O14` step 1)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed:
+  - New `crates/hl2-bevy/src/material_slots.rs`: a fixed 1,024-slot storage buffer (`MATERIAL_ROWS`, the `EYE_ROWS` pattern: its size never changes, so bound materials keep seeing it) with four rows per slot (tint colour, texture-transform columns) and a CPU mirror uploaded only when it differs. A material gets a slot the first time its animated values differ from its own; it then changes once (`SourceMaterial::dynamic`: x slot, y tint flag) and later frames only change rows. Out of slots, the asset path is used as before; slots of removed materials are freed.
+  - `monitors::present_materials` writes tint and transform through slots; `material_proxies::present` writes the transform (texture frame swaps stay on the material). Reports read the slot values; the run report adds `material_slots`.
+  - `source.wgsl` reads tint colour and transform from the slot when set (binding 21); `source_uniforms.wgsl` gains `dynamic`. Tint alpha stays in the material, so the depth shader is unchanged.
+  - `ModelLighting` moved from `rendering.rs` to `rendering/model_lighting.rs` (pure move, keeps the over-limit file from growing); the lighting test uses the shared `material_slots::test_material`.
+- Why: every change of a `SourceMaterial` field rebuilds its bind group in the render world; texture-scroll and monitor proxies changed about 25 materials per frame at the spawn and 45 in the crowd (O14 attribution).
+- Tested how: `cargo test -p hl2-bevy --lib` (222 passed, two new slot tests); three alternating `stages` runs per side at the spawn and in the crowd; frame-matched `bevy-monitors-breen-screen` replay captured twice on each build; `scripts/checks/validate.sh`, Windows-target Clippy, packaged replay suite. The suite's `lamp_emission` check patches the shader line by text; its marker follows the line (`material_tint().rgb`). `pallet-launched-into-wall` failed once in the full suite (one extra kill and gibs) and passed alone on the same build: a physics outcome under load, unrelated to rendering.
+- Result: spawn `render_assets` 0.56 -> 0.19 ms; crowd `frame_total` 17.34 -> 16.72 ms mean, `render_assets` 4.06 -> 3.65 ms; captures within run-to-run variance.
+- Still broken or not tested: model lighting (20-28 re-prepares per frame in the crowd, every viewmodel material on a view change in live play) still goes through the material asset (step 2); live windowed play **not tested**.
+- Next: O14 step 2 or O30.
+
 ## 2026-11-22 — Particles draw per effect and material (`O13` crowd)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.

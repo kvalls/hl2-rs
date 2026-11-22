@@ -215,6 +215,7 @@ pub fn present_materials(
         &MeshMaterial3d<crate::rendering::SourceMaterial>,
     )>,
     mut materials: ResMut<Assets<crate::rendering::SourceMaterial>>,
+    mut slots: ResMut<crate::material_slots::MaterialSlots>,
 ) {
     // Shared materials use one authored proxy and scene clock on every draw.
     let mut updated = std::collections::HashSet::new();
@@ -231,20 +232,18 @@ pub fn present_materials(
             linear_modulation(color[i] * definition.color2[i])
         }));
         let secondary_uv = uv_matrix(uv);
-        if materials
-            .get(&handle.0)
-            .is_some_and(|m| m.tint.truncate() != tint || m.secondary_uv != secondary_uv)
-            && let Some(mut material) = materials.get_mut(&handle.0)
-        {
-            material.tint = tint.extend(material.tint.w);
-            material.secondary_uv = secondary_uv;
-        }
+        slots.write(
+            &mut materials,
+            &handle.0,
+            crate::material_slots::Animated::TintAndTransform(tint, secondary_uv),
+        );
         if let Some(material) = materials.get(&handle.0) {
+            let (color, secondary_uv) = slots.values(material, handle.0.id());
             monitors.material_samples.push(MaterialSample {
                 material: definition.name.clone(),
                 handle: handle.0.id(),
-                color: material.tint.to_array(),
-                secondary_uv: material.secondary_uv.to_cols_array_2d(),
+                color: color.to_array(),
+                secondary_uv: secondary_uv.to_cols_array_2d(),
             });
         }
     }

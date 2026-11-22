@@ -10,7 +10,7 @@ use bevy::{
     mesh::Indices,
     prelude::*,
     reflect::TypePath,
-    render::render_resource::{AsBindGroup, PrimitiveTopology, ShaderType, TextureFormat},
+    render::render_resource::{AsBindGroup, PrimitiveTopology, TextureFormat},
 };
 use hl2_ui::extensions::RenderBudget;
 use modkit_core::Surface;
@@ -38,6 +38,8 @@ mod material;
 pub use lighting::present_lighting;
 pub use material::MaterialKey;
 mod model_cache;
+mod model_lighting;
+pub use model_lighting::ModelLighting;
 mod npc_weapon_draws;
 mod placement;
 pub(crate) use placement::draw_hidden;
@@ -103,79 +105,17 @@ pub struct SourceMaterial {
     pub(crate) flashlight: Handle<Image>,
     #[uniform(0)]
     pub(crate) viewmodel_flashlight: crate::flashlight::ViewmodelLight,
+    /// x = its `material_slots` slot (-1 none), y = 1 when the slot also holds the tint colour.
+    #[uniform(0)]
+    pub(crate) dynamic: Vec4,
     /// Every eye's iris projection rows ([`crate::eyes::EYE_ROWS`]).
     #[storage(20, read_only)]
     pub(crate) eye_rows: Handle<bevy::render::storage::ShaderBuffer>,
+    /// Per-frame material values ([`crate::material_slots`]).
+    #[storage(21, read_only)]
+    pub(crate) material_rows: Handle<bevy::render::storage::ShaderBuffer>,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
-}
-/// Source model lighting for one entity: ambient cube plus up to four local
-/// lights, positions/directions in Bevy space and colors linear.
-#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType)]
-pub struct ModelLighting {
-    /// x = lit model, y = local light count, z = half-Lambert, w = 1 when the flashlight does not light
-    /// it (unlit, camera, additive and sky materials); 2 for the viewmodel beam path.
-    pub params: Vec4,
-    /// Draw space to Bevy world space (Mat4 default is identity), except for the
-    /// view model, which is drawn by a fixed camera at the origin.
-    pub basis: Mat4,
-    /// Source cube faces +X, -X, +Y, -Y, +Z, -Z.
-    pub ambient: [Vec4; 6],
-    /// w = 0 point, 1 spot, 2 directional.
-    pub position: [Vec4; 4],
-    pub color: [Vec4; 4],
-    pub direction: [Vec4; 4],
-    /// Constant, linear, quadratic.
-    pub attenuation: [Vec4; 4],
-    /// Exponent, outer cosine, 1 / (inner - outer).
-    pub spot: [Vec4; 4],
-}
-impl ModelLighting {
-    /// Shared CPU light state converted for the shader.
-    pub fn from_state(state: &modkit_core::lighting::LightState, half_lambert: bool) -> Self {
-        use modkit_core::lighting::ShaderLightKind;
-        let mut out = Self {
-            params: Vec4::new(
-                1.,
-                state.lights.len().min(4) as f32,
-                f32::from(half_lambert),
-                0.,
-            ),
-            ..Default::default()
-        };
-        for (face, color) in out.ambient.iter_mut().zip(&state.ambient) {
-            *face = Vec3::from_array(color.to_array()).extend(0.);
-        }
-        for (i, light) in state.lights.iter().take(4).enumerate() {
-            let kind = match light.kind {
-                ShaderLightKind::Point => 0.,
-                ShaderLightKind::Spot => 1.,
-                ShaderLightKind::Directional => 2.,
-            };
-            out.position[i] =
-                source_to_bevy(Vec3::from_array(light.position.to_array())).extend(kind);
-            out.color[i] = Vec3::from_array(light.color.to_array()).extend(0.);
-            out.direction[i] =
-                source_to_bevy(Vec3::from_array(light.direction.to_array())).extend(0.);
-            out.attenuation[i] = Vec3::from_array(light.attenuation).extend(0.);
-            let scale = if light.inner > light.outer {
-                1. / (light.inner - light.outer)
-            } else {
-                1.
-            };
-            out.spot[i] = Vec4::new(light.exponent, light.outer, scale, 0.);
-        }
-        out
-    }
-    /// Unlit-data fallback: the former constant 180/255 gamma gray.
-    fn fallback(half_lambert: bool) -> Self {
-        let gray = (180f32 / 255.).powf(2.2);
-        Self {
-            params: Vec4::new(1., 0., f32::from(half_lambert), 0.),
-            ambient: [Vec4::new(gray, gray, gray, 0.); 6],
-            ..Default::default()
-        }
-    }
 }
 /// A model draw lit from its entity's (or the view's) illumination origin.
 #[derive(Default)]

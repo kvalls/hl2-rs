@@ -308,33 +308,8 @@ mod tests {
             app::{App, TaskPoolPlugin, Update},
             asset::{AssetApp, AssetEvent, AssetPlugin},
             ecs::message::{MessageCursor, Messages},
-            math::{Mat3, Vec4},
-            prelude::AlphaMode,
         };
         use std::sync::Arc;
-
-        fn dummy_material() -> SourceMaterial {
-            SourceMaterial {
-                tint: Vec4::ONE,
-                parameters: Vec4::ZERO,
-                base: Handle::default(),
-                lightmap: Handle::default(),
-                iris: Handle::default(),
-                secondary_uv: Mat3::IDENTITY,
-                lighting: ModelLighting::default(),
-                envmap: Handle::default(),
-                envmap_tint: Vec4::ZERO,
-                envmap_contrast: Vec4::ZERO,
-                envmap_saturation: Vec4::ZERO,
-                envmap_mask: Handle::default(),
-                self_illum: Vec4::ZERO,
-                flashlight: Handle::default(),
-                viewmodel_flashlight: crate::flashlight::ViewmodelLight::default(),
-                alpha: AlphaMode::Opaque,
-                two_sided: false,
-                eye_rows: crate::eyes::EYE_ROWS,
-            }
-        }
 
         let mut app = App::new();
         app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
@@ -362,11 +337,11 @@ mod tests {
         let vm_handle = app
             .world_mut()
             .resource_mut::<Assets<SourceMaterial>>()
-            .add(dummy_material());
+            .add(crate::material_slots::test_material());
         let world_handle = app
             .world_mut()
             .resource_mut::<Assets<SourceMaterial>>()
-            .add(dummy_material());
+            .add(crate::material_slots::test_material());
 
         app.insert_resource(game)
             .insert_resource(sim)

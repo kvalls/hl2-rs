@@ -61,6 +61,7 @@ type RenderResources<'w> = (
     Res<'w, visibility::SourceVisibility>,
     Res<'w, tonemap::Tonemap>,
     Res<'w, Assets<rendering::SourceMaterial>>,
+    Res<'w, crate::material_slots::MaterialSlots>,
 );
 /// Exit writer and optional diagnostics read by `monitor`.
 type ExitResources<'w> = (
@@ -89,7 +90,7 @@ pub(super) fn monitor(
     ): HostResources,
     mut control: ResMut<CaptureControl>,
     status: Res<Status>,
-    (adapter, pvs, tonemap, source_materials): RenderResources,
+    (adapter, pvs, tonemap, source_materials, material_slots): RenderResources,
     (cameras, draws, map_entities, all_cameras, meshes, images, geometry, two_textures): DiagnosticQueries,
     (mut exit, performance, render_diagnostics, studio, frame): ExitResources,
 ) {
@@ -116,9 +117,12 @@ pub(super) fn monitor(
         report.simulation["gameplay"] = simulation.gameplay_report(&game);
         let (mismatches, owned_meshes, doors) = draw_consistency(&draws, &simulation, &game);
         report.presentation = serde_json::json!({"source_visibility":pvs.report(),"owned_meshes":owned_meshes,"pose_or_visibility_mismatches":mismatches,"station_entrance_draws":doors,"hud":simulation.hud_report(&hud),"audio":audio.report(),"sky":sky.report(),"monitors":monitors.report(&game),"eyes":eyes.report(),"effects":effects.report(),"studio_decals":studio.report(),"console":console.report(),"campaign":campaign.report(),"tonemap":tonemap.report(),"shadows":shadows.as_deref().map(shadows::MapShadows::report),"flashlight":flashlight.report(game.scene.flashlight.state()),
-        "lifecycle":{"map_entities":map_entities.iter().count(),"cameras":all_cameras.iter().count(),"live_mesh_assets":meshes.len(),"live_image_assets":images.len()}});
-        report.presentation["two_texture_materials"] =
-            material_proxies::report(two_textures.iter(), &source_materials, game.scene.time);
+        "lifecycle":{"map_entities":map_entities.iter().count(),"cameras":all_cameras.iter().count(),"live_mesh_assets":meshes.len(),"live_image_assets":images.len(),"material_slots":material_slots.len()}});
+        report.presentation["two_texture_materials"] = material_proxies::report(
+            two_textures.iter(),
+            (&source_materials, &material_slots),
+            game.scene.time,
+        );
         report.presentation["render_candidates"] = performance::render_candidates(geometry.iter());
         if let Some(performance) = performance.as_deref() {
             performance.write_report(&mut report.presentation, render_diagnostics.as_deref());

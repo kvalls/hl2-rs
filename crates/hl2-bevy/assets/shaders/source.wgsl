@@ -18,6 +18,17 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(19) var flashlight_sampler: sampler;
 // Iris projections, two world-space rows per eye mesh; the mesh's second UV holds its slot.
 @group(#{MATERIAL_BIND_GROUP}) @binding(20) var<storage, read> eye_rows: array<vec4<f32>>;
+// Per-frame material values (tint colour, texture transform columns), four rows per slot.
+@group(#{MATERIAL_BIND_GROUP}) @binding(21) var<storage, read> material_rows: array<vec4<f32>>;
+fn material_tint() -> vec4<f32> {
+    if material.dynamic.x < 0.0 || material.dynamic.y < 0.5 { return material.tint; }
+    return vec4(material_rows[u32(material.dynamic.x) * 4u].rgb, material.tint.a);
+}
+fn material_secondary_uv() -> mat3x3<f32> {
+    if material.dynamic.x < 0.0 { return material.secondary_uv; }
+    let row = u32(material.dynamic.x) * 4u;
+    return mat3x3(material_rows[row + 1u].xyz, material_rows[row + 2u].xyz, material_rows[row + 3u].xyz);
+}
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
@@ -225,7 +236,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let lit = material.lighting.params.x > 0.5;
     if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
     if material.parameters.w < -0.5 {
-        let uv = (material.secondary_uv * vec3(mesh.uv, 1.0)).xy;
+        let uv = (material_secondary_uv() * vec3(mesh.uv, 1.0)).xy;
         base = vec4(base.rgb * textureSample(iris_texture, iris_sampler, uv).rgb, base.a);
         if material.parameters.w > -1.5 || material.parameters.w < -2.5 { vertex_color = vec4(1.0); }
         // SDK UnlitTwoTexture returns alpha 1; distance fade lives in the VTF frames.
@@ -233,7 +244,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     }
     // Static-prop vertex colour is baked illumination, not emissive albedo.
     let material_albedo = base.rgb;
-    base *= material.tint * vertex_color;
+    base *= material_tint() * vertex_color;
     if base.a < material.parameters.x { discard; }
 #ifdef MAY_DISCARD
     // Alpha-test survivors are opaque. Retaining texture alpha blends the sky back
@@ -257,7 +268,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     }
     // SDK $selfillum: diffuse = lerp(diffuse, material.tint * albedo, base alpha), before specular.
     if material.self_illum.w > 0.5 {
-        rgb = mix(rgb, material.self_illum.xyz * srgb_to_linear(material_albedo * material.tint.rgb), base_alpha);
+        rgb = mix(rgb, material.self_illum.xyz * srgb_to_linear(material_albedo * material_tint().rgb), base_alpha);
     }
     if material.envmap_tint.w > 0.5 {
         rgb += envmap_specular(mesh, base_alpha);
