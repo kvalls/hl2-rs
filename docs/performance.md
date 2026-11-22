@@ -40,6 +40,11 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
   - First version also memoized whole skeletons: `fixed_simulation` `5.53 -> 5.44 ms` mean (p95 `8.17 -> 7.17`) but host `animation` `2.12 -> 2.20 ms` (hashing inputs and copying every presented skeleton into a memo cleared before reuse), so whole skeletons now skip it.
   - Partial skeletons only: `fixed_simulation` `5.66 / 5.62 / 5.63 -> 5.42 / 5.48 / 5.43 ms` (p95 `8.38 / 8.25 / 8.27 -> 7.23 / 7.15 / 7.25`, max `11.7 / 11.8 / 11.7 -> 10.9 / 9.7 / 9.8`), `animation` `2.10 / 2.09 / 2.12 -> 2.10 / 2.09 / 2.09 ms`, `frame_total` `16.26 / 16.31 / 16.39 -> 16.09 / 15.99 / 16.18 ms`, p99 bound `30 / 29 / 27 -> 27 / 26 / 26 ms`.
 
+- **`O14` step 2 — model lighting slots (`hl2-bevy/src/material_slots/lighting.rs`):** at `be5e4927` against the change, three alternating runs per side each:
+  - Crowd `stages`: `render_prepare` `1.414 / 1.423 / 1.398 -> 1.289 / 1.293 / 1.296 ms`, `render_assets` `3.85 / 3.75 / 3.80 -> 3.67 / 3.80 / 3.68 ms`, `frame_total` `16.10 / 15.96 / 16.20 -> 15.78 / 16.00 / 15.84 ms`; p99 bounds `26 / 25 / 26 -> 25 / 26 / 27`.
+  - Crowd GPU (headless Metal System Trace, 8 s attached 3 s after gameplay starts, 3456x2234): opaque fragment `1.70 / 1.69 / 1.67 -> 1.68 / 1.71 / 1.82 ms` per frame, transparent fragment `1.42 / 1.24 / 1.43 -> 1.47 / 1.41 / 1.32`, GPU busy mean `8.15 / 7.61 / 8.12 -> 8.43 / 8.08 / 7.99 ms`; the opaque vertex pass, whose shader did not change, moved `2.02 / 1.92 / 2.11 -> 2.19 / 2.12 / 2.00`, so differences of a few percent are this scene's run-to-run noise.
+  - Fidelity: frame-matched replay captures (`face-security-1805`, `gestures-security-1805`, the flashlight-lit pistol and SMG viewmodels) differ from the old build no more than two runs of one build differ; the SMG pair's only steady difference is the HUD ammo digits' glow.
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed

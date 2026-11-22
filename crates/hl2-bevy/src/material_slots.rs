@@ -4,6 +4,8 @@
 //! name its slot) and afterwards only its rows here change, uploaded together once per frame.
 //! The values are still computed on the CPU from the scene clock, so pause and scene time behave
 //! as before. When the slots run out, a material keeps the asset path.
+//! Model lighting ([`lighting`]) shares the buffer: one slot per lit entity, after the material slots.
+mod lighting;
 use crate::rendering::SourceMaterial;
 use bevy::{
     asset::uuid_handle,
@@ -20,6 +22,8 @@ pub const MATERIAL_ROWS: Handle<ShaderBuffer> =
 const SLOTS: usize = 1024;
 /// `tint` (rgb; alpha stays in the material), then the three columns of `secondary_uv`.
 const ROWS: usize = 4;
+/// All rows: the material slots, then the lighting slots.
+const TOTAL_ROWS: usize = SLOTS * ROWS + lighting::SLOTS * lighting::ROWS;
 
 /// What a material takes from its slot (`SourceMaterial::dynamic`: x slot, y tint flag).
 #[derive(Clone, Copy, PartialEq)]
@@ -36,7 +40,9 @@ pub struct MaterialSlots {
     free: Vec<u32>,
     next: u32,
     rows: Vec<Vec4>,
-    uploaded: Vec<Vec4>,
+    /// A row changed since the last upload.
+    dirty: bool,
+    lights: lighting::LightSlots,
 }
 impl Default for MaterialSlots {
     fn default() -> Self {
@@ -44,8 +50,9 @@ impl Default for MaterialSlots {
             by_material: HashMap::default(),
             free: Vec::new(),
             next: 0,
-            rows: vec![Vec4::ZERO; SLOTS * ROWS],
-            uploaded: Vec::new(),
+            rows: vec![Vec4::ZERO; TOTAL_ROWS],
+            dirty: false,
+            lights: lighting::LightSlots::default(),
         }
     }
 }
@@ -87,11 +94,13 @@ impl MaterialSlots {
             }
             return;
         };
-        let base = slot as usize * ROWS;
-        self.rows[base] = color.unwrap_or(Vec3::ONE).extend(0.);
-        self.rows[base + 1] = transform.x_axis.extend(0.);
-        self.rows[base + 2] = transform.y_axis.extend(0.);
-        self.rows[base + 3] = transform.z_axis.extend(0.);
+        let rows = [
+            color.unwrap_or(Vec3::ONE).extend(0.),
+            transform.x_axis.extend(0.),
+            transform.y_axis.extend(0.),
+            transform.z_axis.extend(0.),
+        ];
+        self.set_rows(slot as usize * ROWS, &rows);
     }
     /// The values a material draws with: its slot's when it has one, else the asset's.
     pub fn values(&self, material: &SourceMaterial, id: AssetId<SourceMaterial>) -> (Vec4, Mat3) {
@@ -107,6 +116,14 @@ impl MaterialSlots {
         let transform = Mat3::from_cols(row[1].truncate(), row[2].truncate(), row[3].truncate());
         (tint, transform)
     }
+    /// Writes `rows` at `start`, marking the buffer for upload when any differs.
+    fn set_rows(&mut self, start: usize, rows: &[Vec4]) {
+        let target = &mut self.rows[start..start + rows.len()];
+        if target != rows {
+            target.copy_from_slice(rows);
+            self.dirty = true;
+        }
+    }
     fn assign(
         &mut self,
         materials: &mut Assets<SourceMaterial>,
@@ -121,7 +138,8 @@ impl MaterialSlots {
             })
         })?;
         let mut material = materials.get_mut(id)?;
-        material.dynamic = Vec4::new(slot as f32, f32::from(u8::from(tint)), 0., 0.);
+        material.dynamic.x = slot as f32;
+        material.dynamic.y = f32::from(u8::from(tint));
         self.by_material.insert(id, slot);
         Some(slot)
     }
@@ -144,7 +162,7 @@ pub fn plugin(app: &mut bevy::app::App) {
 /// Creates the buffer before any material reads it.
 pub fn install(mut buffers: ResMut<Assets<ShaderBuffer>>) {
     let mut buffer = ShaderBuffer::default();
-    buffer.set_data(vec![Vec4::ZERO; SLOTS * ROWS]);
+    buffer.set_data(vec![Vec4::ZERO; TOTAL_ROWS]);
     let _ = buffers.insert(MATERIAL_ROWS.id(), buffer);
 }
 
@@ -155,18 +173,18 @@ pub fn upload(
     mut events: MessageReader<AssetEvent<SourceMaterial>>,
 ) {
     for event in events.read() {
-        if let AssetEvent::Removed { id } = event
-            && let Some(slot) = slots.by_material.remove(id)
-        {
-            slots.free.push(slot);
+        if let AssetEvent::Removed { id } = event {
+            if let Some(slot) = slots.by_material.remove(id) {
+                slots.free.push(slot);
+            }
+            slots.lights.release(*id);
         }
     }
-    if slots.rows != slots.uploaded
+    if slots.dirty
         && let Some(mut buffer) = buffers.get_mut(&MATERIAL_ROWS)
     {
         buffer.set_data(slots.rows.clone());
-        let rows = slots.rows.clone();
-        slots.uploaded = rows;
+        slots.dirty = false;
     }
 }
 
@@ -190,7 +208,7 @@ pub(crate) fn test_material() -> SourceMaterial {
         self_illum: Vec4::ZERO,
         flashlight: Handle::default(),
         viewmodel_flashlight: crate::flashlight::ViewmodelLight::default(),
-        dynamic: Vec4::new(-1., 0., 0., 0.),
+        dynamic: Vec4::new(-1., 0., -1., 0.),
         alpha: AlphaMode::Opaque,
         two_sided: false,
         eye_rows: crate::eyes::EYE_ROWS,
@@ -225,8 +243,8 @@ mod tests {
             Animated::TintAndTransform(Vec3::new(0.5, 0.25, 1.), Mat3::IDENTITY),
         );
         let (a, b) = (assets.get(&scroll).unwrap(), assets.get(&monitor).unwrap());
-        assert_eq!(a.dynamic, Vec4::new(0., 0., 0., 0.));
-        assert_eq!(b.dynamic, Vec4::new(1., 1., 0., 0.));
+        assert_eq!(a.dynamic, Vec4::new(0., 0., -1., 0.));
+        assert_eq!(b.dynamic, Vec4::new(1., 1., -1., 0.));
         // The material keeps its own tint and transform; draws read the slot.
         assert_eq!(a.secondary_uv, Mat3::IDENTITY);
         assert_eq!(slots.values(a, scroll.id()), (a.tint, uv));

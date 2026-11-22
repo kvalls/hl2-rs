@@ -1,5 +1,19 @@
 # MODLOG
 
+## 2026-11-22 — Model lighting slots (`O14` step 2)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed:
+  - New `crates/hl2-bevy/src/material_slots/lighting.rs`: one slot of 31 rows per lit entity (keyed by entity and half-Lambert; the viewmodel is the entity-less key) in the shared material rows buffer, after the 1,024 material slots, up to 512 entities. A material's first lighting stays in the material; when its lighting changes again it changes once (`SourceMaterial::dynamic.z` names the slot) and every later change rewrites only the slot's rows, shared by all of the entity's materials. Static models take no slot; out of slots, the asset path. Slots are freed when their last material is removed.
+  - `material_slots.rs`: the buffer holds both kinds of rows and uploads on a dirty flag instead of comparing a mirror copy; step 1's slot assignment keeps `dynamic.z`.
+  - `rendering/lighting.rs`: `present_draw_lighting` and `ModelLit::rebase` read the drawn lighting through the slots and write it through them; beam and cubemap changes stay on the material.
+  - `source.wgsl`: lighting fields come through accessors (`light_params`, `light_basis`, `light_ambient`, ...) that read the slot when `dynamic.z` names one; a unit test ties the shader's offset and stride to the Rust constants.
+- Why: in the crowd 20-28 materials were re-prepared every frame as NPCs moved through the light cache (several per NPC), and in live play every viewmodel material on each view change. Step 2 was gated on a GPU A/B because it moves lighting reads into storage.
+- Tested how: `cargo test -p hl2-bevy --lib` (slot tests, layout test, lighting test); three alternating crowd `stages` runs per side; three alternating headless Metal System Traces per side; frame-matched replay captures of faces, gestures and flashlight-lit viewmodels, two per build; `scripts/checks/validate.sh`, Windows-target Clippy, packaged replay suite.
+- Result: crowd `render_prepare` 1.41 -> 1.29 ms, `frame_total` 16.09 -> 15.87 ms; GPU passes within the scene's run-to-run noise (an unchanged pass varied about 5%); captures within run-to-run variance.
+- Still broken or not tested: a GPU cost below about 3% of the lit passes cannot be excluded from these traces; live windowed play **not tested**.
+- Next: allocate_and_free_meshes (flex meshes, O30 morph targets) or render encoding (O4).
+
 ## 2026-11-22 — Per-tick memo of partial actor poses (`O6`, owner-approved)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.

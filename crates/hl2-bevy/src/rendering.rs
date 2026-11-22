@@ -105,7 +105,7 @@ pub struct SourceMaterial {
     pub(crate) flashlight: Handle<Image>,
     #[uniform(0)]
     pub(crate) viewmodel_flashlight: crate::flashlight::ViewmodelLight,
-    /// x = its `material_slots` slot (-1 none), y = 1 when the slot also holds the tint colour.
+    /// `material_slots`: x material slot, y 1 when it holds the tint colour, z lighting slot (-1 none).
     #[uniform(0)]
     pub(crate) dynamic: Vec4,
     /// Every eye's iris projection rows ([`crate::eyes::EYE_ROWS`]).

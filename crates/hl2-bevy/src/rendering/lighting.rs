@@ -84,18 +84,25 @@ impl ModelLit {
     fn rebase(
         &self,
         game: &crate::gameplay::Gameplay,
-        materials: &mut Assets<SourceMaterial>,
+        (materials, slots): (
+            &mut Assets<SourceMaterial>,
+            &mut crate::material_slots::MaterialSlots,
+        ),
         handle: &bevy::asset::Handle<SourceMaterial>,
     ) {
         let Some(basis) = self.lighting_basis(game) else {
             return;
         };
-        if materials
+        let Some(mut lighting) = materials
             .get(handle)
-            .is_some_and(|m| m.lighting.basis != basis)
-            && let Some(mut material) = materials.get_mut(handle)
-        {
-            material.lighting.basis = basis;
+            .map(|m| slots.lighting(m, handle.id()))
+        else {
+            return;
+        };
+        if lighting.basis != basis {
+            lighting.basis = basis;
+            let key = (self.entity, self.half_lambert);
+            slots.write_lighting(materials, handle, key, lighting);
         }
     }
     /// Its material reflects the cubemap sample near it. A model loaded late has no mask for it
@@ -145,9 +152,10 @@ pub fn present_lighting(
         &InheritedVisibility,
     )>,
     mut materials: ResMut<Assets<SourceMaterial>>,
-    (performance, cubemaps): (
+    (performance, cubemaps, mut slots): (
         Option<Res<crate::performance::Performance>>,
         Option<Res<super::cubemaps::ModelCubemaps>>,
+        ResMut<crate::material_slots::MaterialSlots>,
     ),
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "model lighting");
@@ -174,7 +182,8 @@ pub fn present_lighting(
         if !visible.get() && lit.last.is_some() {
             continue;
         }
-        present_draw_lighting(&ctx, &mut lit, &material.0, &mut states, &mut materials);
+        let assets = (&mut *materials, &mut *slots);
+        present_draw_lighting(&ctx, &mut lit, &material.0, &mut states, assets);
     }
 }
 
@@ -183,7 +192,10 @@ fn present_draw_lighting(
     lit: &mut ModelLit,
     material: &Handle<SourceMaterial>,
     states: &mut BTreeMap<Option<usize>, (glam::Vec3, modkit_core::lighting::LightState)>,
-    materials: &mut Assets<SourceMaterial>,
+    (materials, slots): (
+        &mut Assets<SourceMaterial>,
+        &mut crate::material_slots::MaterialSlots,
+    ),
 ) {
     let illumination = ctx
         .game
@@ -218,15 +230,16 @@ fn present_draw_lighting(
         });
     if lit.entity.is_some() && same_light {
         if lit.origins.flatten().is_some_and(|o| o.relative.is_some()) {
-            lit.rebase(ctx.game, materials, material);
+            lit.rebase(ctx.game, (materials, slots), material);
         }
         return;
     }
     let Some(existing) = materials.get(material) else {
         return;
     };
-    let uniform = if lit.entity.is_none() && same_light && existing.lighting.params.w == 2. {
-        let mut uniform = existing.lighting;
+    let current = slots.lighting(existing, material.id());
+    let uniform = if lit.entity.is_none() && same_light && current.params.w == 2. {
+        let mut uniform = current;
         uniform.basis = ctx.view;
         uniform
     } else {
@@ -248,19 +261,20 @@ fn present_draw_lighting(
         }
         uniform
     };
-    let lighting_changed = existing.lighting != uniform;
+    let lighting_changed = current != uniform;
     let beam_changed = lit.entity.is_none() && existing.viewmodel_flashlight != ctx.beam;
     let env_update = lit.next_cubemap(origin, ctx.data, ctx.cubemaps);
     lit.dynamic = lit_dynamic;
     lit.last = Some((origin, lit.half_lambert));
-    if !lighting_changed && !beam_changed && env_update.is_none() {
+    if lighting_changed {
+        let key = (lit.entity, lit.half_lambert);
+        slots.write_lighting(materials, material, key, uniform);
+    }
+    if !beam_changed && env_update.is_none() {
         return;
     }
     // Only borrow mutably when fields change so unchanged materials emit no AssetEvent::Modified.
     if let Some(mut mat) = materials.get_mut(material) {
-        if lighting_changed {
-            mat.lighting = uniform;
-        }
         if beam_changed {
             mat.viewmodel_flashlight = ctx.beam;
         }
@@ -314,6 +328,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
             .init_asset::<SourceMaterial>()
+            .init_resource::<crate::material_slots::MaterialSlots>()
             .add_systems(Update, present_lighting);
 
         let mut lighting = modkit_core::lighting::LightingData::default();

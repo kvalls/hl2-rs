@@ -29,6 +29,43 @@ fn material_secondary_uv() -> mat3x3<f32> {
     let row = u32(material.dynamic.x) * 4u;
     return mat3x3(material_rows[row + 1u].xyz, material_rows[row + 2u].xyz, material_rows[row + 3u].xyz);
 }
+// Model lighting from its entity's slot (material_slots::lighting, 31 rows after the 1024 x 4
+// material rows) when material.dynamic.z names one, else the material's own.
+const LIGHT_BASE: u32 = 4096u;
+fn light_slot() -> bool { return material.dynamic.z >= 0.0; }
+fn light_row(i: u32) -> vec4<f32> { return material_rows[LIGHT_BASE + u32(material.dynamic.z) * 31u + i]; }
+fn light_params() -> vec4<f32> {
+    if light_slot() { return light_row(0u); }
+    return material.lighting.params;
+}
+fn light_basis() -> mat4x4<f32> {
+    if light_slot() { return mat4x4(light_row(1u), light_row(2u), light_row(3u), light_row(4u)); }
+    return material.lighting.basis;
+}
+fn light_ambient(i: u32) -> vec4<f32> {
+    if light_slot() { return light_row(5u + i); }
+    return material.lighting.ambient[i];
+}
+fn light_position(i: u32) -> vec4<f32> {
+    if light_slot() { return light_row(11u + i); }
+    return material.lighting.position[i];
+}
+fn light_color(i: u32) -> vec4<f32> {
+    if light_slot() { return light_row(15u + i); }
+    return material.lighting.color[i];
+}
+fn light_direction(i: u32) -> vec4<f32> {
+    if light_slot() { return light_row(19u + i); }
+    return material.lighting.direction[i];
+}
+fn light_attenuation(i: u32) -> vec4<f32> {
+    if light_slot() { return light_row(23u + i); }
+    return material.lighting.attenuation[i];
+}
+fn light_spot(i: u32) -> vec4<f32> {
+    if light_slot() { return light_row(27u + i); }
+    return material.lighting.spot[i];
+}
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
@@ -76,42 +113,42 @@ fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
 fn ambient_light(n: vec3<f32>) -> vec3<f32> {
     let s = vec3(n.x, -n.z, n.y);
     let n2 = s * s;
-    let x = select(material.lighting.ambient[0].xyz, material.lighting.ambient[1].xyz, s.x < 0.0);
-    let y = select(material.lighting.ambient[2].xyz, material.lighting.ambient[3].xyz, s.y < 0.0);
-    let z = select(material.lighting.ambient[4].xyz, material.lighting.ambient[5].xyz, s.z < 0.0);
+    let x = select(light_ambient(0u).xyz, light_ambient(1u).xyz, s.x < 0.0);
+    let y = select(light_ambient(2u).xyz, light_ambient(3u).xyz, s.y < 0.0);
+    let z = select(light_ambient(4u).xyz, light_ambient(5u).xyz, s.z < 0.0);
     return n2.x * x + n2.y * y + n2.z * z;
 }
 // SDK DoLighting: per light color * cosine (or half-Lambert) * distance/spot attenuation.
 fn model_light(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     var sum = ambient_light(n);
-    let count = i32(material.lighting.params.y);
+    let count = i32(light_params().y);
     for (var i = 0; i < 4; i++) {
         if i >= count { break; }
-        let kind = material.lighting.position[i].w;
-        let to_light = material.lighting.position[i].xyz - p;
+        let kind = light_position(u32(i)).w;
+        let to_light = light_position(u32(i)).xyz - p;
         let d2 = max(dot(to_light, to_light), 1e-6);
         let d = sqrt(d2);
         var l = to_light / d;
         var atten = 1.0;
         if kind > 1.5 {
-            l = -material.lighting.direction[i].xyz;
+            l = -light_direction(u32(i)).xyz;
         } else {
-            atten = 1.0 / dot(material.lighting.attenuation[i].xyz, vec3(1.0, d, d2));
+            atten = 1.0 / dot(light_attenuation(u32(i)).xyz, vec3(1.0, d, d2));
             if kind > 0.5 {
-                let cos_theta = dot(material.lighting.direction[i].xyz, -l);
-                var spot = max((cos_theta - material.lighting.spot[i].y) * material.lighting.spot[i].z, 0.0001);
-                spot = clamp(pow(spot, material.lighting.spot[i].x), 0.0, 1.0);
+                let cos_theta = dot(light_direction(u32(i)).xyz, -l);
+                var spot = max((cos_theta - light_spot(u32(i)).y) * light_spot(u32(i)).z, 0.0001);
+                spot = clamp(pow(spot, light_spot(u32(i)).x), 0.0, 1.0);
                 atten *= spot;
             }
         }
         var cosine = dot(n, l);
-        if material.lighting.params.z > 0.5 {
+        if light_params().z > 0.5 {
             let h = cosine * 0.5 + 0.5;
             cosine = h * h;
         } else {
             cosine = max(cosine, 0.0);
         }
-        sum += material.lighting.color[i].xyz * cosine * atten;
+        sum += light_color(u32(i)).xyz * cosine * atten;
     }
     return sum;
 }
@@ -132,8 +169,8 @@ fn flashlight_base(to: vec3<f32>, n: vec3<f32>, projected: vec3<f32>, near: f32,
 }
 fn viewmodel_flashlight_color(position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
     if material.viewmodel_flashlight.limits.z < 0.5 { return vec3(0.0); }
-    let p = material.lighting.basis * vec4(position, 1.0);
-    let n = normalize((material.lighting.basis * vec4(normal, 0.0)).xyz);
+    let p = light_basis() * vec4(position, 1.0);
+    let n = normalize((light_basis() * vec4(normal, 0.0)).xyz);
     return flashlight_base(p.xyz - material.viewmodel_flashlight.origin_linear.xyz, n,
         (material.viewmodel_flashlight.world_to_beam * p).xyz,
         material.viewmodel_flashlight.limits.x, material.viewmodel_flashlight.limits.y,
@@ -233,7 +270,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var vertex_color = mesh.color;
     // Vertex alpha is a blend weight there, never opacity (camera materials use it below).
     if material.parameters.w > -0.5 { vertex_color.a = 1.0; }
-    let lit = material.lighting.params.x > 0.5;
+    let lit = light_params().x > 0.5;
     if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
     if material.parameters.w < -0.5 {
         let uv = (material_secondary_uv() * vec3(mesh.uv, 1.0)).xy;
@@ -257,13 +294,13 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Procedural camera images are sampled through an sRGB view and are already linear.
     var rgb = select(srgb_to_linear(base.rgb) * baked, base.rgb, material.parameters.w < -0.5);
     if lit {
-        let p = (material.lighting.basis * vec4(mesh.world_position.xyz, 1.0)).xyz;
-        let n = normalize((material.lighting.basis * vec4(mesh.world_normal, 0.0)).xyz);
+        let p = (light_basis() * vec4(mesh.world_position.xyz, 1.0)).xyz;
+        let n = normalize((light_basis() * vec4(mesh.world_normal, 0.0)).xyz);
         rgb = srgb_to_linear(base.rgb) * model_light(p, n);
     }
-    if material.lighting.params.w > 1.5 && material.parameters.z < 0.5 && material.parameters.w > -0.5 {
+    if light_params().w > 1.5 && material.parameters.z < 0.5 && material.parameters.w > -0.5 {
         rgb += srgb_to_linear(base.rgb) * viewmodel_flashlight_color(mesh.world_position.xyz, mesh.world_normal);
-    } else if material.lighting.params.w < 0.5 {
+    } else if light_params().w < 0.5 {
         rgb += srgb_to_linear(base.rgb) * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
     }
     // SDK $selfillum: diffuse = lerp(diffuse, material.tint * albedo, base alpha), before specular.
