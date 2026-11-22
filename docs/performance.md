@@ -33,6 +33,9 @@ Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn fr
   - Before (temporary material probe): about 25 `SourceMaterial` re-prepares per frame at the spawn and 43 + 2 in the crowd from texture-scroll and monitor tint; these now update slot rows only.
   - Fidelity: the frame-matched `bevy-monitors-breen-screen` replay capture differs from the old build by 0.31 mean per channel, less than two runs of the old build differ from each other (0.59).
 
+- **Crowd ranking by macOS `sample` (2026-11-22, everyday build at `f3d2b5a1`, 20 s sampled at 10 ms once the crowd fights, fight frame 10.4 ms):** `fixed_step` 3.36 ms/frame (Rapier step 32% of it, AI think 10%, hitbox poses 6%, attachment poses 5%), `allocate_and_free_meshes` 2.15, `present_entities` 1.83 (of which `apply_facial_flexes` about 63%), `camera_driver` 1.53, `submit_pending_command_buffers` 0.91, HUD `present` 0.84 ms. The trace build had inflated the partial-pose cost (1.86 ms/frame from about 355 small spans).
+- **`O30` CPU side — dense facial flex deltas (`source-assets/src/flexes.rs`, `hl2-bevy/src/rendering/face_flex.rs`):** crowd `stages` A/B, three alternating runs per side at `f3d2b5a1` against the change: `animation` stage mean `3.50 / 3.41 / 3.51 -> 2.11 / 2.13 / 2.10 ms` (p95 `4.77 / 4.64 / 4.78 -> 2.62 / 2.61 / 2.59`), `PostUpdate` `8.02 / 7.93 / 8.08 -> 6.74 / 6.62 / 6.67 ms`, `frame_total` `16.92 / 16.55 / 17.19 -> 16.04 / 15.92 / 15.76 ms` (p95 `23.4 / 23.7 / 23.9 -> 21.5 / 20.4 / 20.9`). Frame-matched `face-security-1805` replay captures: old vs new 0.47-1.63 mean per channel, two old-build runs 1.75.
+
 ## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
 
 Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed

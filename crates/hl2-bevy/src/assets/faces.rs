@@ -48,6 +48,7 @@ pub(crate) fn load(vfs: &Vfs, world: &World, errors: &mut Vec<String>) -> Faces 
                     out.flexes.insert(
                         key.clone(),
                         Arc::new(flexes::FaceModel {
+                            slots: flex.vertex_slots(),
                             flex,
                             eyes: records.clone(),
                         }),

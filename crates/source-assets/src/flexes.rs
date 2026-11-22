@@ -61,6 +61,8 @@ pub struct FlexModel {
 pub struct FaceModel {
     pub flex: FlexModel,
     pub eyes: Vec<crate::eyes::Eyeball>,
+    /// `flex.vertex_slots()`, built with the model.
+    pub slots: VertexSlots,
 }
 impl FaceModel {
     /// Descriptor weights with each eye's bone-local basis, or its rest basis when the
@@ -268,22 +270,40 @@ impl FlexModel {
         }
         weights
     }
-    /// Bind-space position deltas keyed by (bodypart, mesh, mesh-local vertex) for the
-    /// first model of each bodypart, with retail vertex weighting (no delayed weights).
-    pub fn vertex_deltas(&self, descriptors: &[f32]) -> VertexDeltas {
-        let mut deltas = VertexDeltas::default();
+    /// A dense slot for each vertex the first model of each bodypart flexes, keyed by
+    /// (bodypart, mesh, mesh-local vertex): built once per model.
+    pub fn vertex_slots(&self) -> VertexSlots {
+        let mut slots = VertexSlots::default();
         for mesh in self.meshes.iter().filter(|m| m.model == 0) {
             for flex in &mesh.flexes {
-                let Some(weights) = flex.weights(descriptors) else {
-                    continue;
-                };
                 for v in &flex.vertices {
                     let key = [mesh.bodypart as u16, mesh.mesh as u16, v.index];
-                    *deltas.entry(key).or_insert(Vec3::ZERO) += v.delta * v.weight(weights);
+                    let next = slots.by_key.len() as u32;
+                    let slot = *slots.by_key.entry(key).or_insert(next);
+                    slots.flex_vertices.push(slot);
                 }
             }
         }
-        deltas
+        slots
+    }
+    /// Bind-space position deltas by `slots` slot for the first model of each bodypart, with
+    /// retail vertex weighting (no delayed weights), written into `out` (resized, reused).
+    pub fn vertex_deltas(&self, slots: &VertexSlots, descriptors: &[f32], out: &mut Vec<Vec3>) {
+        out.clear();
+        out.resize(slots.len(), Vec3::ZERO);
+        let mut cursor = 0;
+        for mesh in self.meshes.iter().filter(|m| m.model == 0) {
+            for flex in &mesh.flexes {
+                let these = &slots.flex_vertices[cursor..cursor + flex.vertices.len()];
+                cursor += flex.vertices.len();
+                let Some(weights) = flex.weights(descriptors) else {
+                    continue;
+                };
+                for (v, &slot) in flex.vertices.iter().zip(these) {
+                    out[slot as usize] += v.delta * v.weight(weights);
+                }
+            }
+        }
     }
     /// CStudioHdr::RunFlexRules: controller values (in each controller's own range, model
     /// order) to descriptor weights. Invalid ops are skipped as the SDK CHECK macros do.
@@ -464,8 +484,29 @@ impl VertAnim {
     }
 }
 /// Position deltas by (bodypart, mesh, mesh-local vertex).
-pub type VertexDeltas =
-    std::collections::HashMap<[u16; 3], Vec3, std::hash::BuildHasherDefault<VertexKeyHasher>>;
+/// Dense slots of a model's flexed vertices ([`FlexModel::vertex_slots`]): deltas are summed
+/// into an array by slot, and each draw maps its vertices to slots once, so a face update does
+/// no hashing per vertex.
+#[derive(Clone, Debug, Default)]
+pub struct VertexSlots {
+    by_key:
+        std::collections::HashMap<[u16; 3], u32, std::hash::BuildHasherDefault<VertexKeyHasher>>,
+    /// The slot of every vertex of every model-0 mesh flex, in the meshes' and flexes' order.
+    flex_vertices: Vec<u32>,
+}
+impl VertexSlots {
+    /// Distinct flexed vertices.
+    pub fn len(&self) -> usize {
+        self.by_key.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.by_key.is_empty()
+    }
+    /// The slot of (bodypart, mesh, mesh-local vertex), when a flex moves it.
+    pub fn slot(&self, key: [u16; 3]) -> Option<u32> {
+        self.by_key.get(&key).copied()
+    }
+}
 
 /// Hash of a vertex key: its bytes mixed by multiplication. The keys are small dense indices
 /// read from the model, so a keyed hash buys nothing and costs most of a face update.
@@ -557,16 +598,22 @@ mod tests {
                     }
                 }
             }
-            let deltas = flexes.vertex_deltas(&descriptors);
-            assert_eq!(deltas.len(), expected.len());
+            let slots = flexes.vertex_slots();
+            let mut deltas = vec![Vec3::NAN; 3];
+            flexes.vertex_deltas(&slots, &descriptors, &mut deltas);
+            assert_eq!(deltas.len(), slots.len());
+            // Every slot of an untouched vertex stays zero; touched ones sum in the same order.
+            let nonzero = deltas.iter().filter(|d| **d != Vec3::ZERO).count();
+            assert!(nonzero <= expected.len());
             for (key, delta) in &expected {
+                let slot = slots.slot(*key).unwrap() as usize;
                 assert_eq!(
-                    deltas[key].to_array().map(f32::to_bits),
+                    deltas[slot].to_array().map(f32::to_bits),
                     delta.to_array().map(f32::to_bits)
                 );
             }
         }
-        assert!(flexes.vertex_deltas(&[0.5, 0.3]).len() > 2000);
+        assert!(flexes.vertex_slots().len() > 2000);
     }
     #[test]
     fn rules_evaluate_sdk_stack_ops() {
@@ -663,18 +710,19 @@ mod tests {
             let face = FaceModel {
                 flex: flexes.clone(),
                 eyes: crate::eyes::load(&vfs, path).unwrap(),
+                slots: flexes.vertex_slots(),
             };
+            let mut deltas = Vec::new();
             assert!(face.eyes.iter().all(|e| e.lids.is_some()), "{path}");
             let rest = face.descriptor_weights(&Default::default(), |_| None);
+            face.flex.vertex_deltas(&face.slots, &rest, &mut deltas);
             assert!(
-                face.flex
-                    .vertex_deltas(&rest)
-                    .values()
-                    .all(|d| d.length() < 0.05),
+                deltas.iter().all(|d| d.length() < 0.05),
                 "{path}: neutral face deforms"
             );
             // Without FACS eyelids the same descriptors would half-close the upper lids.
-            assert!(!flexes.vertex_deltas(&neutral).is_empty());
+            flexes.vertex_deltas(&face.slots, &neutral, &mut deltas);
+            assert!(deltas.iter().any(|d| *d != Vec3::ZERO));
             let jaw = flexes
                 .controllers
                 .iter()

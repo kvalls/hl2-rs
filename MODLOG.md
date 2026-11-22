@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-22 — Dense facial flex deltas (`O30` CPU side)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`.
+- Changed:
+  - `crates/source-assets/src/flexes.rs`: `FlexModel::vertex_slots` gives each vertex the first model's flexes move a dense slot (built once, stored as `FaceModel::slots`); `vertex_deltas` sums into a reused `Vec<Vec3>` by slot instead of a hash map keyed per vertex. The `VertexDeltas` map type is gone; tests compare the dense sums bit for bit with a hashed accumulation.
+  - `crates/hl2-bevy/src/rendering/face_flex.rs`: a draw maps its flexed vertices to slots once (`FlexState`, which replaces `AnimatedMesh::flex_signature` and is reset on a LOD switch) and reads deltas by index.
+- Why: an uninflated `sample` of the crowd fight showed `apply_facial_flexes` at about 63% of `present_entities` (1.83 ms per frame): every face update hashed each flexed vertex twice (building and reading the deltas). The same sample put repeated partial poses at about 0.35 ms per frame, so the gameplay-side pose memo was recorded in O6 and not done.
+- Tested how: `cargo test -p source-assets --lib flexes -- --include-ignored` (4 passed, including the owned-install face test), `cargo test -p hl2-bevy --lib` (222 passed); three alternating crowd `stages` runs per side; frame-matched `face-security-1805` replay captured twice on each build; `scripts/checks/validate.sh`, Windows-target Clippy, packaged replay suite.
+- Result: crowd `animation` stage 3.47 -> 2.11 ms mean, `frame_total` 16.89 -> 15.91 ms (p95 23.7 -> 20.9); face captures within run-to-run variance.
+- Still broken or not tested: flexed head and eye meshes still re-upload when a weight changes (GPU morph targets, O30); live windowed play **not tested**.
+- Next: remaining mesh churn or another host-side item from the sample ranking.
+
 ## 2026-11-22 — Per-frame material values in a shared buffer (`O14` step 1)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`.

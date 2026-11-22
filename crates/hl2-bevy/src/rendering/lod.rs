@@ -345,7 +345,7 @@ pub(crate) fn switch_levels(
             animation.flex = vertices.flex.clone();
             animation.flex_base = vertices.flex_base.clone();
             // The new mesh starts undeformed: rebuild its flexes.
-            animation.flex_signature = 0;
+            animation.flex_state = Default::default();
         }
     }
 }

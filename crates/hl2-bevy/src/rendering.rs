@@ -263,7 +263,7 @@ pub struct AnimatedMesh {
     /// Facial flex vertex references and the undeformed bind positions they start from.
     flex: Vec<Option<[u16; 3]>>,
     flex_base: Vec<glam::Vec3>,
-    flex_signature: u64,
+    flex_state: face_flex::FlexState,
 }
 impl AnimatedMesh {
     /// A batch's animation data (its skin taken; facial flexes only for an entity's own model).
@@ -292,7 +292,7 @@ impl AnimatedMesh {
             } else {
                 Vec::new()
             },
-            flex_signature: 0,
+            flex_state: Default::default(),
         }
     }
     /// A template draw's animation for another entity on its own skeleton.
@@ -308,7 +308,7 @@ impl AnimatedMesh {
             normals: self.normals.clone(),
             flex: self.flex.clone(),
             flex_base: self.flex_base.clone(),
-            flex_signature: 0,
+            flex_state: Default::default(),
         }
     }
 }
@@ -1427,7 +1427,7 @@ mod tests {
                     normals: Vec::new(),
                     flex: Vec::new(),
                     flex_base: Vec::new(),
-                    flex_signature: 0,
+                    flex_state: Default::default(),
                     bind: vec![(
                         glam::Vec3::X,
                         Some(Weights {

@@ -6,7 +6,7 @@ use bevy::{
     math::Vec3,
     mesh::{Mesh, Mesh3d},
 };
-use source_assets::flexes::{FaceModel, VertexDeltas};
+use source_assets::flexes::FaceModel;
 use std::collections::HashMap;
 
 /// Facial flex and eyeball data per model asset key (setup-loaded; no frame IO).
@@ -19,10 +19,20 @@ pub struct FlexModels(
 pub(super) struct ActorFlex {
     weights: Vec<f32>,
     signature: u64,
-    /// Built when the first surface whose deformation is out of date asks for them.
-    deltas: Option<VertexDeltas>,
+    /// Deltas by vertex slot, built when the first surface whose deformation is out of date
+    /// asks for them.
+    deltas: Option<Vec<glam::Vec3>>,
 }
 pub(super) type FlexWeights = HashMap<(usize, *const FaceModel), ActorFlex>;
+
+/// A draw's face state: the signature its bind positions were last deformed for, and the
+/// vertex slot ([`source_assets::flexes::VertexSlots`]) of each of its flexed vertices, mapped
+/// once (empty until then; reset when the draw's vertices change, as on a LOD switch).
+#[derive(Clone, Default)]
+pub(super) struct FlexState {
+    signature: u64,
+    slots: Vec<Option<u32>>,
+}
 
 /// What the draws of this frame deform from.
 pub(super) struct FaceInputs<'a> {
@@ -69,27 +79,34 @@ pub(super) fn apply_facial_flexes(
             }
         });
     let signature = actor.signature;
-    if signature == animation.flex_signature {
+    if signature == animation.flex_state.signature {
         return;
     }
-    let deltas = actor
-        .deltas
-        .get_or_insert_with(|| model.flex.vertex_deltas(&actor.weights));
+    let deltas = actor.deltas.get_or_insert_with(|| {
+        let mut deltas = Vec::new();
+        model
+            .flex
+            .vertex_deltas(&model.slots, &actor.weights, &mut deltas);
+        deltas
+    });
+    if animation.flex_state.slots.len() != animation.flex.len() {
+        // Vertices no flex moves keep their undeformed bind position: no slot.
+        animation.flex_state.slots = (animation.flex.iter())
+            .map(|key| key.and_then(|key| model.slots.slot(key)))
+            .collect();
+    }
     let scale = animation.scale;
     let mut changed = Vec::new();
-    for (i, key) in animation
-        .flex
-        .iter()
-        .enumerate()
-        .filter_map(|(i, k)| k.as_ref().map(|k| (i, k)))
+    for (i, slot) in (animation.flex_state.slots.iter().enumerate())
+        .filter_map(|(i, slot)| slot.map(|slot| (i, slot as usize)))
     {
-        let target = animation.flex_base[i] + deltas.get(key).copied().unwrap_or(glam::Vec3::ZERO);
+        let target = animation.flex_base[i] + deltas[slot];
         if animation.bind[i].0 != target {
             animation.bind[i].0 = target;
             changed.push(i);
         }
     }
-    animation.flex_signature = signature;
+    animation.flex_state.signature = signature;
     if changed.is_empty() {
         return;
     }
