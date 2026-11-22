@@ -1,5 +1,28 @@
 # MODLOG
 
+## 2026-11-22 — Surface audit of optimization backlog (ranked shortlist, weak items dropped, probes scrubbed to branches)
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh), with 5 parallel audit subagents (`audit-worker` / `research`).
+- Changed: documentation only (`docs/optimization-backlog.md`, `MODLOG.md`); throwaway probes and fixes scrubbed onto isolated branches (`audit/gpu-cameras`, `audit/render-views`, `audit/mesh-churn`).
+- Why: the owner requested a fast parallel surface audit across open/partly-done backlog items to drop weak items early, isolate throwaway A/B probes onto branches/stashes, and rank the strongest candidates for deep-dive implementation.
+- Tested how:
+  - Fixed `metal_gpu.py`'s `depth == 0` interval filter bug in a scrubbed branch (`43e54197` on `audit/gpu-cameras`) and re-analyzed existing 2026-11-22 O2 Metal XMLs (`o2gpu-head*` vs `o2gpu-sky1*`).
+  - Measured stacked HUD `Camera2d` `Msaa::Off` (`Hud2d` schedule, `2e6eadd9` on `audit/gpu-cameras`) on `d1_trainstation_02` `quiet.json` maxed Retina (headless Metal System Trace + `--profile`).
+  - Built and measured idle motion-blur skip (`7fb7576a` on `audit/gpu-cameras`) on `quiet.json` maxed Retina.
+  - Measured `O5` `ClusterConfig::Single` on non-lit cameras + dynamic `FlyCamera` toggle (`0a5127fb` on `audit/render-views`) on `quiet.json` (`2` alternating runs/side) and `bevy-flashlight-depth-actor.json` (`1` run/side) against `HEAD` (`9847c6b5`), verifying distinct `executable_sha256`.
+  - Compile-checked `O29` `Arc<lod::Vertices>` (`8a9764e8` on `audit/mesh-churn`) with `cargo check --release`.
+  - Code-audited remaining open/partly-done items against Bevy 0.19.1, Rapier 0.26.1, installed BSP lumps (`d1_trainstation_02`, `d1_canals_01`), and existing Capture 3/4/crowd reports; fast doc/isolation checks (`scripts/checks/architecture.py` and workspace isolation check) only (slow validation/tests/clippy/replays skipped per owner instruction).
+- Result:
+  - **O2 (`metal_gpu.py` bug found):** dropping `depth == 0` intervals had hidden `early prepass` and `upscaling` markers; re-analysis proves O2 single-sky-camera merge (`1ba1e794`) cut GPU busy `8.91 / 8.69 / 8.71 -> 8.11 / 8.10 / 8.14 ms` (`100% -> 26%` of frames > 8.33 ms), `main_opaque_pass_3d` Fragment `3.10 -> 2.50 ms`, CPU `frame_total` `8.89 -> 8.32 ms`.
+  - **O1/O2 HUD `Msaa::Off` (`2e6eadd9`):** eliminated `msaa_writeback` (`0.493 -> 0.000 ms/f`), cut 2D HUD pass `0.597 -> 0.168 ms` Frag + `0.040 ms` Vert, GPU busy `7.82 ms` mean (`p50 7.30 ms`), lifting 120 Hz displayed frames on `quiet.json` from `2.9–6.1%` (`~33 FPS`) to `69.0%` (`74.6 FPS`). Also found `video::sync_antialiasing` overwrites `Msaa::Off` back to `Sample4` on `MonitorCamera`/`IntroCamera`/`SkyCamera`.
+  - **O1/O20 idle blur (`7fb7576a`):** `weapon_reduce_4` (`0.77 ms`), `world_blur_composite` (`0.26 ms`), `weapon_motion_dilate` (`0.14 ms`), `weapon_reduce_32` (`0.12 ms`), and `world_object_gather` (`0.10 ms`) still ran `1.0/frame` on `quiet.json` because the probe gated on *all* visible `Mesh3d`s (including animated plaza NPCs in view) rather than camera + viewmodel motion.
+  - **O5 (`0a5127fb`):** `quiet.json` `render_prepare` `1.060 -> 0.785 ms` (`-0.28 ms`), `PostUpdate` `2.266 -> 2.151 ms`, `frame_total` `5.16 -> 5.01 ms`; flashlight view `render_prepare` `1.806 -> 1.526 ms` (`-0.28 ms`), `PostUpdate` `2.802 -> 2.526 ms`, `frame_total` `7.522 -> 6.947 ms`.
+  - **Other top candidates:** **O30** GPU flexes (`~95%` of crowd rewritten vertices = `38,048 / 40,060 verts/f`: `11.58` heads + `22.21` `EyeMesh`es/f from `face_flex.rs`), **O25** (`update_mesh_previous_global_transforms` `0.42 ms` mean / `4.39 ms` p99 / `18.52 ms` max replaceable in `PreUpdate`), **O41** (`MeshTag` eliminates `919` map-load + `~400–650` runtime lit materials), **O16** (Rapier `BroadPhaseMultiSap` re-sweeps ~5k static colliders twice/tick = `~1.08 ms/f` crowd), **O29** (`Arc<lod::Vertices>` compiled cleanly), **O21** (`eyes::present` per-frame `json!`, `material_slots` `312 KiB` clone, `Canvas`/`Rig::accumulate` allocs).
+  - **Rejected:** **O36** (`< 0.05–0.15 ms/f` normal-play ceiling vs high shader/seam risk; crowd `2.0 ms/f` vertex cost is GPU skinning) and **O37** (net negative: `< 0.05–0.1 ms` GPU vs 6x CPU draw/entity explosion on `NoIndirectDrawing`).
+  - **Deferred:** **O38** (`10/10` portals in `d1_trainstation_02` and `6/6` in `d1_canals_01` start open), **O39** (behind O30), **O17** (`~0.1–0.3 ms` post-O13), **O40** (`~0.10 ms/f`), **O31** (`~0.20 ms/f` + high risk), **O18/O33** (`0.23–0.55 ms/f`), **O7** (zero when closed), **O8** (`0.07 ms` 2D pass), **O28** (`0.16 ms` mean).
+- Still broken or not tested: `O2` Breen-screen monitor replay and `O41` static-spawn lit-props check **not tested**; `audit/*` probe branches were not merged to main (`validate.sh`, Cargo test/clippy, replay suite skipped per owner instruction for surface audit); Windows runtime **not tested**.
+- Next: deep-dive and implement top candidates in priority order starting from #1 (`metal_gpu.py` fix + O2 sky merge + `Hud2d` `Msaa::Off` + `sync_antialiasing` + O1/O20 idle/active motion blur + `SkyCamera` transparent pass).
+
 ## 2026-11-22 — Measure-column validation rules, binary hash stamping, and A/A noise-floor findings
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh), continuing from Claude Code desktop (`claude-opus-5-5`).
