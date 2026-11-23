@@ -1,5 +1,34 @@
 # Performance measurements - 2026-10-05
 
+## `O1` / `O20` — Moving-mesh `MotionRegion` scissoring across world and weapon motion blur and 25-tap jittered viewmodel gather (2026-11-23)
+
+Measured on Apple M1 Pro at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur, anisotropic 8x; everyday `stages` release build, baseline `c8f8e9ea` from `d8208f77` vs `365827f5` / `a14a1f8a`):
+
+- **Root causes fixed:**
+  1. `crates/hl2-bevy/assets/shaders/object_motion.wgsl` (`if all(current == previous) { return vec2(0.0); }`) exports zero object velocity for any mesh whose world vertex positions did not change between frames, even while the camera turns. However, `plugins/hl2-advanced-options/src/bevy/weapon_blur/region.rs` only computed `MotionRegion` for `WeaponCamera` (`!blur.world`) and only scissored `weapon_reduce_4` on `!blur.world`, leaving `FlyCamera` (`blur.world`) to run full-screen `weapon_reduce_4` (`0.700 ms/frame`), `weapon_reduce_32` (`0.116 ms/frame`), `weapon_motion_dilate` (`0.139 ms/frame`), and `world_object_gather` (`0.112 ms/frame`) across `3456x2168` every frame.
+  2. Using Bevy's raw `Changed<GlobalTransform>` boolean on `SkinnedMesh` `Joint` entities triggered on every tick of sub-pixel idle breathing animations (`"idle01"` on the crowbar and `"idle_subtle"` on plaza citizens). `region.rs` (`mesh_world_displacement`) now multiplies changed joint `GlobalTransform`s by `SkinnedMeshInverseBindposes` to cancel bone-origin lever arms, bounds the maximum world-space displacement across the mesh's `Aabb`, projects it to physical screen pixels at the mesh's camera distance, and filters at `MIN_PIXEL_MOTION = 0.8` pixels (below the shader's hard `1.0` pixel early-out where `smoothstep(1.0, 3.0, pixel_motion) == 0.0`).
+  3. When `MotionRegion` is empty and the camera is stationary, `snapshot` (full-screen `3456x2168` `Rgba16Float` copy on `WeaponCamera`) and `reconstruct` skip all passes. Otherwise, `weapon_reduce_4`, `weapon_reduce_32`, `weapon_motion_dilate`, and `world_object_gather` (`world.rs`) are all scissored to the moving region (`pass_scissor` / `tile_scissor` / `gather_scissor`) while `LoadOp::Clear` clears the full intermediate targets.
+  4. `plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl` (`viewmodel_animation_blur`) caps viewmodel trail taps at `15..25` odd taps (`i32(clamp(ceil(length(vector * data.params.zw) * 0.5), 15.0, 25.0)) | 1`), keeping `phase = 0.5` on `center_tap = count / 2` so thin surfaces never lose coverage while jittering non-center taps with interleaved gradient noise.
+- **Headless Metal System Trace (`d1_trainstation_02`, maxed Retina `3456x2168`, `c8f8e9ea` vs `365827f5` / `a14a1f8a`):**
+  - **Static spawn (no script, `20261123-o2-after-static-1` vs `20261123-o20-after-static-1`):**
+    - GPU busy per frame: **`8.07 -> 6.97 ms` mean** (`p50 8.47 -> 6.50`, `p95 9.01 -> 7.99`, `p99 10.08 -> 9.16`, `max 10.42 -> 9.58`; frames > 8.33 ms: `410/763` [`53.7%`] -> `11/874` [`1.3%`]).
+    - `weapon_reduce_4` Fragment: **`0.707 -> 0.015 ms/frame`** (`-97.9%`).
+    - `weapon_reduce_32` Fragment: **`0.117 -> 0.017 ms/frame`** (`-85.5%`).
+    - `weapon_motion_dilate` Fragment: **`0.142 -> 0.041 ms/frame`** (`-71.1%`).
+    - `world_object_gather` Fragment: **`0.116 -> 0.018 ms/frame`** (`-84.5%`).
+    - `--profile` stages (`2,849` post-warmup samples): `frame_total` **`8.693 -> 7.111 ms` mean** (`p95 10.336 -> 8.936 ms`), `render_graph` **`5.874 -> 4.310 ms` mean** (`p95 7.752 -> 6.246 ms`).
+  - **`quiet.json` (`20261123-o2-after-quiet-1` vs `20261123-o20-after-quiet-1` and `20261123-o20-after-quiet-2`):**
+    - GPU busy per frame: **`7.88 -> 6.73 / 7.31 ms` mean** (`p50 7.40 -> 6.27 / 7.74`, `p95 8.91 -> 8.01 / 8.20`, `p99 10.11 -> 8.15 / 9.34`; frames > 8.33 ms: `176/435` [`40.5%`] -> `2/509` [`0.4%`] / `11/378` [`2.9%`]).
+    - `weapon_reduce_4` Fragment: **`0.700 -> 0.014 / 0.013 ms/frame`** (`-98.1%`).
+    - `weapon_reduce_32` Fragment: **`0.116 -> 0.015 / 0.017 ms/frame`** (`-86.2%`).
+    - `weapon_motion_dilate` Fragment: **`0.139 -> 0.034 / 0.045 ms/frame`** (`-71.6%`).
+    - `world_object_gather` Fragment: **`0.112 -> 0.017 / 0.015 ms/frame`** (`-85.7%`).
+    - `--profile` stages: `frame_total` **`8.419 -> 7.001 / 7.822 ms` mean** (`p95 10.498 -> 9.002 / 9.712 ms`), `render_graph` **`5.879 -> 4.448 / 5.137 ms` mean** (`p95 7.866 -> 6.425 / 7.154 ms`).
+- **`check_blur_performance.py` (`3456x2168`, 4x MSAA, 3 alternating pairs per scene):**
+  - `still`: `raw_weapon` processed texels `37.2M -> 18.2M` (`24.6% -> 11.8%`), `raw_world` processed texels `150.8M -> 78.2M` (`100% -> 51.4%`, bounding the walking citizens and flying scanners across the plaza), `still` Advanced/Ultra mean frame time `12.08 -> 11.51 ms`.
+  - `swing`: `raw_weapon` processed texels `31.9M -> 20.2–21.2M`, `swing` Advanced/Ultra mean frame time `12.78 -> 12.32 ms`, `p95` upper bound `18.0 -> 16.0 ms` (`p95` performance guard passes), `max` frame time `20.20 -> 16.39–17.20 ms` (retail Enabled `9.18 ms` median, which omits the full-scene 4x MSAA `MotionVectorPrepass` + `DepthPrepass` and post-process composites).
+- **Fidelity:** `motion_blur_options` and `viewmodel_motion_blur` replay checks (including `viewmodel_blur_swing`, `viewmodel_blur_sharp`, `viewmodel_vectors_none`, `viewmodel_vectors_x4`, `viewmodel_silhouette_trail`, `still`, `paused`, `switch`, `off`, `retail`) pass with 0 failures.
+
 ## `O2` / `O1` — Single sky camera merge, direct 1x `Hud2d` pass (`Msaa::Off`), `OwnTarget` MSAA exclusion, and `metal_gpu.py` `depth == 0` fix (2026-11-23)
 
 Measured on Apple M1 Pro at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur, anisotropic 8x; everyday `stages` release build, baseline `45fa0eaf` vs `c8f8e9ea`):

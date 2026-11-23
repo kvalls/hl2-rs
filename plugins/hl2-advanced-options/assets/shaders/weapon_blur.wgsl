@@ -184,15 +184,18 @@ fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let pixel_motion = length(velocity * data.params.zw);
     if pixel_motion < 1.0 || data.params.x == 0.0 { return base; }
     let vector = velocity * min(1.0,data.params.x / max(length(velocity),0.00001));
-    // Odd tap counts always include the current pixel: thin/slow surfaces cannot
-    // lose all coverage merely because even taps straddle their narrow footprint.
-    let count = i32(clamp(ceil(length(vector * data.params.zw)),16.0,96.0)) | 1;
+    // Odd tap counts always include the current pixel at count / 2: thin/slow surfaces cannot
+    // lose all coverage, while per-pixel phase on the other taps prevents banding within 25 taps.
+    let count = i32(clamp(ceil(length(vector * data.params.zw) * 0.5),15.0,25.0)) | 1;
+    let center_tap = count / 2;
+    let jitter = fract(52.9829189*fract(dot(in.position.xy,vec2(0.06711056,0.00583715))));
     let world = textureSampleLevel(background,linear_sampler,in.uv,0.0);
     var sum = vec3(0.0);
     var coverage = 0.0;
     var valid_taps = 0.0;
     for (var i = 0; i < count; i++) {
-        let offset = vector * ((f32(i)+0.5)/f32(count)-0.5);
+        let phase = select(jitter,0.5,i == center_tap);
+        let offset = vector * ((f32(i)+phase)/f32(count)-0.5);
         let uv = in.uv + offset;
         if any(uv < vec2(0.0)) || any(uv > vec2(1.0)) { continue; }
         valid_taps += 1.0;

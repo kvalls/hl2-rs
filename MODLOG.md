@@ -1,5 +1,28 @@
 # MODLOG
 
+## 2026-11-23 — `O1` / `O20`: Moving-mesh `MotionRegion` scissoring across world and weapon motion blur and 25-tap jittered viewmodel gather
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
+- Changed:
+  - `plugins/hl2-advanced-options/src/bevy/weapon_blur/region.rs`: extend `MotionRegion` collection to all cameras with `WeaponBlur` (`!blur.world` and `blur.world`); compute each visible mesh's actual world-space vertex displacement upper bound (`mesh_world_displacement` using `GlobalTransform` and `SkinnedMesh` joint matrices multiplied by `SkinnedMeshInverseBindposes` to cancel bone-origin lever arms) and project it to physical screen pixels at the mesh's camera distance, ignoring sub-pixel idle drift below `MIN_PIXEL_MOTION = 0.8` pixels (below the shader's `1.0` pixel early-out); add `is_empty`, `dilation_radius`, `tile_scissor`, `gather_scissor`, `pass_scissor`, and unit test `tile_and_gather_scissors_bound_reduced_and_dilated_extents`.
+  - `plugins/hl2-advanced-options/src/bevy/weapon_blur.rs`, `plugins/hl2-advanced-options/src/bevy/weapon_blur/world.rs`: skip `snapshot` and `reconstruct` when `MotionRegion` is empty and the camera is stationary; scissor `weapon_reduce_4`, `weapon_reduce_32`, `weapon_motion_dilate`, and `world_object_gather` to `MotionRegion` across both world and weapon cameras.
+  - `plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl`: cap `viewmodel_animation_blur` trail taps at `15..25` odd taps (`i32(clamp(ceil(length(vector * data.params.zw) * 0.5), 15.0, 25.0)) | 1`), keeping `phase = 0.5` on `center_tap = count / 2` so thin surfaces never lose coverage while jittering non-center taps with interleaved gradient noise.
+  - `docs/optimization-backlog.md`, `docs/performance.md`: record `O1` and `O20` Metal GPU and `check_blur_performance.py` results.
+- Why: on `FlyCamera` (`blur.world`), `weapon_reduce_4` (`0.700 ms/frame`), `weapon_reduce_32` (`0.116 ms/frame`), `weapon_motion_dilate` (`0.139 ms/frame`), and `world_object_gather` (`0.112 ms/frame`) previously scanned `100%` of `3456x2168` every frame even though static geometry writes zero object velocity (`object_motion.wgsl`), while raw `Changed<GlobalTransform>` on `Joint` entities triggered every tick on sub-pixel idle animations (`"idle01"`, `"idle_subtle"`), and active viewmodel swings executed up to `97` taps per pixel.
+- Tested how:
+  - `cargo test -p hl2-advanced-options --features bevy --locked` (`49` unit tests).
+  - Headless Metal System Trace at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur; baseline `c8f8e9ea` vs `365827f5` / `a14a1f8a`) on static spawn and `quiet.json`.
+  - `NO_BUILD=1 ONLY='motion_blur_options viewmodel_motion_blur' python3 scripts/checks/replays.py`.
+  - `NO_BUILD=1 BLUR_SCENES='still turn swing' BLUR_RUNS=3 python3 scripts/checks/check_blur_performance.py` (`3456x2168`, 4x MSAA).
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result:
+  - Static-spawn Metal GPU busy: `8.07 -> 6.97 ms` mean (`p50 8.47 -> 6.50`, `p95 9.01 -> 7.99`, `p99 10.08 -> 9.16`, frames > 8.33 ms: `53.7% -> 1.3%` [`11/874`]); `--profile` `frame_total` `8.69 -> 7.11 ms` (`p95 10.34 -> 8.94`), `render_graph` `5.87 -> 4.31 ms`.
+  - `quiet.json` Metal GPU busy: `7.88 -> 6.73 / 7.31 ms` mean (`p50 7.40 -> 6.27 / 7.74`, `p95 8.91 -> 8.01 / 8.20`, `p99 10.11 -> 8.15 / 9.34`, frames > 8.33 ms: `40.5% -> 0.4% / 2.9%`); `weapon_reduce_4` Fragment `0.700 -> 0.013–0.014 ms/frame` (`-98%`), `weapon_reduce_32` Fragment `0.116 -> 0.015–0.017 ms/frame`, `weapon_motion_dilate` Fragment `0.139 -> 0.034–0.045 ms/frame`, `world_object_gather` Fragment `0.112 -> 0.015–0.017 ms/frame`; `--profile` `frame_total` `8.42 -> 7.00 / 7.82 ms`, `render_graph` `5.88 -> 4.45 / 5.14 ms`.
+  - `check_blur_performance.py`: `still` `raw_weapon` processed texels `37.2M -> 18.2M` (`11.8%`), `raw_world` processed texels `150.8M -> 78.2M` (`51.4%`), `still` mean `12.08 -> 11.51 ms`; `swing` mean `12.78 -> 12.32 ms`, `p95` `18.0 -> 16.0 ms` (`p95` guard passes), `max` `20.20 -> 16.39–17.20 ms`.
+  - `motion_blur_options`, `viewmodel_motion_blur`, `validate.sh`, and `check_windows.sh` pass.
+- Still broken or not tested: `check_world_blur.py`'s 100-tick camera turn script finishes in 19 rendered frames during post-install fixed-step catch-up (`capture burst 1` starts at `scene_time 1.7700` = tick 118 after the turn script ends at `1.5000`, the same timing issue as `O24`/`O27`); `check_blur_performance.py`'s Ultra mean ratio (`~1.34x` over retail Enabled `9.18 ms`, which runs no motion-vector/depth prepass or post-process composites) still exceeds the `1.2x + 0.25 ms` guard; interactive live `pacing` and Windows runtime **not tested**.
+- Next: implement `O5` `ClusterConfig::Single` on non-lit cameras and dynamic `FlyCamera` toggle in `flashlight.rs`.
+
 ## 2026-11-23 — `O2` / `O1`: Single sky camera merge, direct 1x `Hud2d` pass (`Msaa::Off`), `OwnTarget` MSAA exclusion, and `metal_gpu.py` `depth == 0` fix
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).

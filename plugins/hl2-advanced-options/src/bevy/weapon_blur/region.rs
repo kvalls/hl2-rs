@@ -1,4 +1,4 @@
-//! Conservative weapon raster coverage for the first reduction; later dilation stays full.
+//! Conservative moving-mesh raster coverage for motion reductions and object gather.
 use super::WeaponBlur;
 use bevy::{
     camera::{
@@ -6,19 +6,39 @@ use bevy::{
         visibility::{VisibilitySystems, VisibleEntities},
     },
     ecs::schedule::IntoScheduleConfigs,
+    math::Affine3A,
+    mesh::{
+        Mesh3d,
+        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+    },
     prelude::{
-        App, Camera, Commands, Component, Entity, GlobalTransform, Mat4, Mesh3d, PostUpdate, Query,
-        Res, UVec2, Vec2, Vec3A, Vec4, With, Without,
+        App, Assets, Camera, Commands, Component, DetectChanges, Entity, GlobalTransform, Local,
+        Mat4, PostUpdate, Query, Ref, Res, UVec2, Vec2, Vec3, Vec3A, Vec4, With, Without,
     },
     render::extract_component::{ExtractComponent, ExtractComponentPlugin},
 };
-use std::any::TypeId;
+use std::{any::TypeId, collections::HashMap};
 
 const FULL: Vec4 = Vec4::new(0., 0., 1., 1.);
+const EMPTY: Vec4 = Vec4::new(1., 1., 0., 0.);
+/// Consecutive frames a mesh stays active in `MotionRegion` so 1-frame velocity history settles.
+const QUIET_FRAMES: u64 = 2;
+/// Minimum screen-space motion (in physical pixels) before a mesh enters `MotionRegion`.
+/// The shader early-outs below 1.0 pixel (`smoothstep(1.0, 3.0, pixel_motion) == 0.0`).
+const MIN_PIXEL_MOTION: f32 = 0.8;
+
 #[derive(Component, Clone, Copy, PartialEq, ExtractComponent)]
 pub(super) struct MotionRegion(Vec4);
 
+fn div_ceil(size: UVec2, factor: u32) -> UVec2 {
+    UVec2::new(size.x.div_ceil(factor), size.y.div_ceil(factor))
+}
+
 impl MotionRegion {
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.z <= self.0.x || self.0.w <= self.0.y
+    }
+
     pub(super) fn scissor(&self, size: UVec2) -> [u32; 4] {
         let r = self.0;
         if r.z <= r.x || r.w <= r.y || size.x == 0 || size.y == 0 {
@@ -39,6 +59,49 @@ impl MotionRegion {
                 .div_ceil(4),
         );
         [low.x, low.y, high.x - low.x, high.y - low.y]
+    }
+
+    pub(super) fn dilation_radius(size: UVec2, max_blur: f32) -> u32 {
+        ((max_blur.max(0.) * size.max_element() as f32 * 0.5 / 32.).ceil() as u32) + 2
+    }
+
+    pub(super) fn tile_scissor(&self, size: UVec2, pad_tiles: u32) -> [u32; 4] {
+        let s4 = self.scissor(size);
+        if s4[2] == 0 || s4[3] == 0 {
+            return [0; 4];
+        }
+        let tiles = div_ceil(size, 32);
+        let pad = UVec2::splat(pad_tiles);
+        let low = UVec2::new(s4[0] / 8, s4[1] / 8).saturating_sub(pad);
+        let high =
+            (UVec2::new((s4[0] + s4[2]).div_ceil(8), (s4[1] + s4[3]).div_ceil(8)) + pad).min(tiles);
+        [low.x, low.y, high.x - low.x, high.y - low.y]
+    }
+
+    pub(super) fn gather_scissor(&self, size: UVec2, max_blur: f32) -> [u32; 4] {
+        let ts = self.tile_scissor(size, Self::dilation_radius(size, max_blur));
+        if ts[2] == 0 || ts[3] == 0 {
+            return [0; 4];
+        }
+        let tiles = div_ceil(size, 32).max(UVec2::ONE).as_vec2();
+        let qsize = div_ceil(size, 4);
+        let low_tile = UVec2::new(ts[0], ts[1]).as_vec2();
+        let high_tile = UVec2::new(ts[0] + ts[2], ts[1] + ts[3]).as_vec2();
+        let low = ((low_tile / tiles) * qsize.as_vec2())
+            .floor()
+            .as_uvec2()
+            .saturating_sub(UVec2::ONE);
+        let high =
+            (((high_tile / tiles) * qsize.as_vec2()).ceil().as_uvec2() + UVec2::ONE).min(qsize);
+        [low.x, low.y, high.x - low.x, high.y - low.y]
+    }
+
+    pub(super) fn pass_scissor(&self, pass: usize, size: UVec2, max_blur: f32) -> [u32; 4] {
+        match pass {
+            0 => self.scissor(size),
+            1 => self.tile_scissor(size, 0),
+            _ => self.tile_scissor(size, Self::dilation_radius(size, max_blur)),
+        }
     }
 }
 
@@ -92,17 +155,118 @@ type Cameras<'w, 's> = Query<
         &'static Camera,
         &'static GlobalTransform,
         &'static VisibleEntities,
-        &'static WeaponBlur,
+        Ref<'static, WeaponBlur>,
         Option<&'static mut MotionRegion>,
     ),
-    With<crate::bevy::WeaponCamera>,
 >;
+type Meshes<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Ref<'static, Mesh3d>,
+        Ref<'static, GlobalTransform>,
+        Option<&'static Aabb>,
+        Option<Ref<'static, SkinnedMesh>>,
+    ),
+>;
+
+#[derive(Default)]
+struct RegionState {
+    frame: u64,
+    last_moved_mesh: HashMap<Entity, u64>,
+    prev_transforms: HashMap<Entity, Affine3A>,
+    prev_joints: HashMap<Entity, Affine3A>,
+    frame_mesh_motion: HashMap<Entity, f32>,
+    prev_raw: HashMap<Entity, Vec4>,
+}
+
+fn affine_point_motion(curr: Affine3A, prev: Affine3A, center: Vec3, half: Vec3) -> f32 {
+    let dc = (curr.transform_point3(center) - prev.transform_point3(center)).length();
+    let dx = (curr.matrix3.x_axis - prev.matrix3.x_axis).length() * half.x;
+    let dy = (curr.matrix3.y_axis - prev.matrix3.y_axis).length() * half.y;
+    let dz = (curr.matrix3.z_axis - prev.matrix3.z_axis).length() * half.z;
+    dc + dx + dy + dz
+}
+
+type MeshItem<'a> = (
+    Ref<'a, Mesh3d>,
+    Ref<'a, GlobalTransform>,
+    Option<&'a Aabb>,
+    Option<Ref<'a, SkinnedMesh>>,
+);
+type SkinInputs<'w, 's> = (
+    Query<'w, 's, Ref<'static, GlobalTransform>>,
+    Option<Res<'w, Assets<SkinnedMeshInverseBindposes>>>,
+);
+
+fn mesh_world_displacement(
+    mesh_entity: Entity,
+    (mesh, mesh_transform, aabb, skin): &MeshItem<'_>,
+    joints: &Query<Ref<GlobalTransform>>,
+    inverse_binds: Option<&Assets<SkinnedMeshInverseBindposes>>,
+    state: &mut RegionState,
+) -> f32 {
+    if let Some(&cached) = state.frame_mesh_motion.get(&mesh_entity) {
+        return cached;
+    }
+    let center = aabb.map_or(Vec3::ZERO, |a| Vec3::from(a.center));
+    let half = aabb.map_or(Vec3::splat(32.), |a| {
+        Vec3::from(a.half_extents).max(Vec3::ONE)
+    });
+    let curr_tf = mesh_transform.affine();
+    let prev_tf = state.prev_transforms.insert(mesh_entity, curr_tf);
+    let mut motion = if mesh.is_changed() {
+        f32::INFINITY
+    } else if mesh_transform.is_changed() {
+        prev_tf.map_or(0., |prev| affine_point_motion(curr_tf, prev, center, half))
+    } else {
+        0.
+    };
+    if let Some(skin) = skin {
+        let binds = inverse_binds.and_then(|assets| assets.get(&skin.inverse_bindposes));
+        let force_check = skin.is_changed() || mesh_transform.is_changed();
+        for (idx, &joint_entity) in skin.joints.iter().enumerate() {
+            let Ok(joint_tf) = joints.get(joint_entity) else {
+                continue;
+            };
+            if !force_check
+                && !joint_tf.is_changed()
+                && state.prev_joints.contains_key(&joint_entity)
+            {
+                continue;
+            }
+            let skin_affine = binds.and_then(|b| b.get(idx)).map_or_else(
+                || joint_tf.affine(),
+                |bind| joint_tf.affine() * Affine3A::from_mat4(*bind),
+            );
+            if let Some(prev) = state.prev_joints.insert(joint_entity, skin_affine) {
+                motion = motion.max(affine_point_motion(skin_affine, prev, center, half));
+            }
+        }
+    }
+    state.frame_mesh_motion.insert(mesh_entity, motion);
+    motion
+}
+
+fn union_rect(a: Vec4, b: Vec4) -> Vec4 {
+    let a_valid = a.z > a.x && a.w > a.y;
+    let b_valid = b.z > b.x && b.w > b.y;
+    match (a_valid, b_valid) {
+        (true, true) => Vec4::new(a.x.min(b.x), a.y.min(b.y), a.z.max(b.z), a.w.max(b.w)),
+        (true, false) => a,
+        (false, true) => b,
+        (false, false) => EMPTY,
+    }
+}
+
 fn collect(
     mut commands: Commands,
     mut cameras: Cameras,
-    meshes: Query<(&GlobalTransform, Option<&Aabb>), With<Mesh3d>>,
+    meshes: Meshes,
+    (joints, inverse_binds): SkinInputs,
     stale: Query<Entity, (With<MotionRegion>, Without<WeaponBlur>)>,
     performance: Option<Res<crate::bevy::diagnostics::Diagnostics>>,
+    mut state: Local<RegionState>,
 ) {
     for entity in &stale {
         commands.entity(entity).remove::<MotionRegion>();
@@ -111,17 +275,47 @@ fn collect(
         return;
     }
     let _timing = performance.as_deref().map(|p| p.scope("motion_region"));
+    state.frame = state.frame.wrapping_add(1);
+    state.frame_mesh_motion.clear();
+    let frame = state.frame;
+    let inverse_binds = inverse_binds.as_deref();
     for (entity, camera, transform, visible, blur, previous) in &mut cameras {
-        let clip_from_world = camera.clip_from_view() * transform.to_matrix().inverse();
+        let clip = camera.clip_from_view();
+        let clip_from_world = clip * transform.to_matrix().inverse();
+        let viewport = camera
+            .physical_viewport_size()
+            .unwrap_or(UVec2::new(3456, 2168));
+        let focal_px = (clip.x_axis.x.abs() * viewport.x as f32)
+            .max(clip.y_axis.y.abs() * viewport.y as f32)
+            * 0.5;
         let mut low = Vec2::ONE;
         let mut high = Vec2::ZERO;
         if camera.is_active && blur.max > 0. {
-            for mesh in visible.get(TypeId::of::<Mesh3d>()) {
-                let Ok((transform, aabb)) = meshes.get(*mesh) else {
+            for &mesh_entity in visible.get(TypeId::of::<Mesh3d>()) {
+                let Ok(item) = meshes.get(mesh_entity) else {
                     continue;
                 };
+                let world_motion =
+                    mesh_world_displacement(mesh_entity, &item, &joints, inverse_binds, &mut state);
+                let (_, mesh_transform, aabb, _) = &item;
+                let center = aabb.map_or(Vec3::ZERO, |a| Vec3::from(a.center));
+                let half_radius = aabb.map_or(32., |a| Vec3::from(a.half_extents).length());
+                let world_center = mesh_transform.affine().transform_point3(center);
+                let dist =
+                    ((world_center - transform.translation()).length() - half_radius).max(8.);
+                let pixel_motion = (world_motion * focal_px / dist) * blur.scale;
+                if pixel_motion >= MIN_PIXEL_MOTION {
+                    state.last_moved_mesh.insert(mesh_entity, frame);
+                }
+                let mesh_active = state
+                    .last_moved_mesh
+                    .get(&mesh_entity)
+                    .is_some_and(|&f| frame.saturating_sub(f) < QUIET_FRAMES);
+                if !mesh_active {
+                    continue;
+                }
                 let r = aabb.map_or(FULL, |aabb| {
-                    project(clip_from_world * transform.to_matrix(), aabb)
+                    project(clip_from_world * mesh_transform.to_matrix(), aabb)
                 });
                 if r.z > r.x && r.w > r.y {
                     low = low.min(r.truncate().truncate());
@@ -129,7 +323,14 @@ fn collect(
                 }
             }
         }
-        let current = MotionRegion(Vec4::new(low.x, low.y, high.x, high.y));
+        let raw = Vec4::new(low.x, low.y, high.x, high.y);
+        let prev = state.prev_raw.insert(entity, raw).unwrap_or(EMPTY);
+        let combined = if raw.z > raw.x && raw.w > raw.y {
+            union_rect(raw, prev)
+        } else {
+            EMPTY
+        };
+        let current = MotionRegion(combined);
         if let Some(mut previous) = previous {
             if *previous != current {
                 *previous = current;
@@ -213,5 +414,29 @@ mod tests {
             [0, 0, 258, 194]
         );
         assert_eq!(MotionRegion(FULL).scissor(UVec2::ZERO), [0; 4]);
+    }
+
+    #[test]
+    fn tile_and_gather_scissors_bound_reduced_and_dilated_extents() {
+        let empty = MotionRegion(EMPTY);
+        assert!(empty.is_empty());
+        assert_eq!(empty.tile_scissor(UVec2::new(3456, 2168), 3), [0; 4]);
+        assert_eq!(empty.gather_scissor(UVec2::new(3456, 2168), 0.08), [0; 4]);
+
+        let region = MotionRegion(Vec4::new(0.25, 0.25, 0.5, 0.5));
+        assert!(!region.is_empty());
+        for size in [UVec2::new(1031, 773), UVec2::new(3456, 2168)] {
+            let s4 = region.scissor(size);
+            let t0 = region.tile_scissor(size, 0);
+            let td = region.tile_scissor(size, MotionRegion::dilation_radius(size, 0.08));
+            let g4 = region.gather_scissor(size, 0.08);
+            assert!(t0[2] > 0 && t0[3] > 0);
+            assert!(td[0] <= t0[0] && td[1] <= t0[1]);
+            assert!(td[0] + td[2] >= t0[0] + t0[2] && td[1] + td[3] >= t0[1] + t0[3]);
+            assert!(g4[0] <= s4[0] && g4[1] <= s4[1]);
+            assert!(g4[0] + g4[2] >= s4[0] + s4[2] && g4[1] + g4[3] >= s4[1] + s4[3]);
+            assert!(g4[0] + g4[2] <= size.x.div_ceil(4));
+            assert!(g4[1] + g4[3] <= size.y.div_ceil(4));
+        }
     }
 }

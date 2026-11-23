@@ -271,9 +271,17 @@ struct FrameGroups {
     world: Option<world::Prepared>,
 }
 
-fn snapshot(view: ViewQuery<(&ViewTarget, &Textures, &WeaponBlur)>, mut ctx: RenderContext) {
-    let (target, textures, blur) = view.into_inner();
-    if blur.max == 0. || blur.world {
+fn snapshot(
+    view: ViewQuery<(
+        &ViewTarget,
+        &Textures,
+        &WeaponBlur,
+        Option<&region::MotionRegion>,
+    )>,
+    mut ctx: RenderContext,
+) {
+    let (target, textures, blur, region) = view.into_inner();
+    if blur.max == 0. || blur.world || region.is_some_and(|r| r.is_empty()) {
         return;
     }
     ctx.command_encoder().copy_texture_to_texture(
@@ -374,10 +382,19 @@ fn reconstruct(
     {
         world::prepare_images(&mut ctx, &cache, textures, world);
     }
+    if region.is_some_and(|r| r.is_empty()) && (!blur.world || !blur.camera_moving) {
+        if let Some(performance) = performance.as_deref() {
+            let size = textures.reduced[0].texture.size();
+            performance.record_reduction(
+                blur.world,
+                0,
+                u64::from(size.width) * u64::from(size.height),
+            );
+        }
+        return;
+    }
     for i in 0..3 {
-        let scissor = (i == 0 && !blur.world)
-            .then(|| region.map(|r| r.scissor(textures.size)))
-            .flatten();
+        let scissor = region.map(|r| r.pass_scissor(i, textures.size, blur.max));
         if i == 0
             && let Some(performance) = performance.as_deref()
         {
@@ -410,8 +427,8 @@ fn reconstruct(
             target,
             textures,
             prepared,
-            world,
-            &frame.composite,
+            (world, &frame.composite),
+            region.map(|r| r.gather_scissor(textures.size, blur.max)),
         );
         return;
     }
