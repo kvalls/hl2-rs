@@ -248,7 +248,7 @@ fn spawn_runtime_instance_draw(
                 bevy::camera::visibility::DynamicSkinnedMeshBounds,
             ));
         }
-        draw.insert(animation.copy_for(id, gpu.cloned()));
+        animation.copy_for(id, gpu.cloned()).insert_into(&mut draw);
     }
 }
 
@@ -300,9 +300,9 @@ pub fn spawn_runtime_draws(
             };
             let gpu = runtime_gpu_skeleton(sp, draw.9, draw.6);
             let private_mesh = draw.7.is_some()
-                || draw
-                    .9
-                    .is_some_and(|a| a.gpu.is_none() || !a.vertices.flex.is_empty());
+                || draw.9.is_some_and(|a| {
+                    a.gpu.is_none() || (a.morph.is_none() && !a.vertices.flex.is_empty())
+                });
             let levels = draw.11.and_then(|l| l.copy_for(&mut meshes, private_mesh));
             let mesh = match (&levels, private_mesh) {
                 (Some(levels), _) => Some(levels.root()),
@@ -434,8 +434,13 @@ fn build_template_body_draws(
     let Some(surfaces) = ctx.world.model_assets.get(&asset_key) else {
         return (0, None);
     };
-    let batches =
-        super::face_split::model_batches(surfaces, instance.scale, ctx.cache, (ctx.world, id));
+    let batches = super::face_split::model_batches(
+        surfaces,
+        instance.scale,
+        ctx.cache,
+        (ctx.world, id),
+        ctx.cpu_skinning,
+    );
     let rig = ctx
         .world
         .rigs
@@ -525,15 +530,13 @@ fn spawn_template_body_batch(
         animation.gpu = Some(skel.clone());
     }
     let eye = ctx.eyes.get(&(asset_key.clone(), name.clone()));
-    let mut mesh = batch.mesh();
-    if let Some(skel) = animation.as_ref().and_then(|a| a.gpu.as_ref()) {
-        skel.attributes(&mut mesh, &animation.as_ref().unwrap().vertices.bind);
-    }
-    if animation.is_some() || eye.is_some() {
-        mesh.asset_usage = bevy::asset::RenderAssetUsages::MAIN_WORLD
-            | bevy::asset::RenderAssetUsages::RENDER_WORLD;
-    }
-    let handle = assets.meshes.add(mesh);
+    let handle = state.shared_levels.mesh_for_draw(
+        batch,
+        &name,
+        animation.as_mut(),
+        assets.meshes,
+        eye.is_some(),
+    );
     let mut draw = commands.spawn((
         crate::campaign::MapOwned,
         Name::new(name.clone()),
@@ -573,7 +576,7 @@ fn spawn_template_body_batch(
                 bevy::camera::visibility::DynamicSkinnedMeshBounds,
             ));
         }
-        draw.insert(animation);
+        animation.insert_into(&mut draw);
     }
 }
 

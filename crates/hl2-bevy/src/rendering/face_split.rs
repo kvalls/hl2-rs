@@ -41,12 +41,16 @@ pub(super) fn model_batches(
     scale: f32,
     cache: &super::ModelCache,
     (world, id): (&modkit_core::World, usize),
+    split_faces: bool,
 ) -> Vec<(String, Batch)> {
     let scale = bevy::math::Mat4::from_scale(bevy::math::Vec3::splat(scale));
     let mut batches = std::collections::BTreeMap::<String, Batch>::new();
     for surface in surfaces.iter().filter(|s| !s.indices.is_empty()) {
         let material = cache.definitions.get(&surface.material);
         (batches.entry(surface.material.clone()).or_default()).append(surface, scale, material);
+    }
+    if !split_faces {
+        return batches.into_iter().collect();
     }
     let split = |(name, batch): (String, Batch)| {
         let parts = split_entity_batch(batch, world, &cache.faces, id);

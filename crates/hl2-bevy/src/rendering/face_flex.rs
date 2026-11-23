@@ -1,4 +1,5 @@
 //! Facial flexes on the bind positions of an actor's draws, before skinning (GPU and CPU paths).
+mod morph;
 use super::AnimatedMesh;
 use crate::source_to_bevy;
 use bevy::{
@@ -6,6 +7,7 @@ use bevy::{
     math::Vec3,
     mesh::{Mesh, Mesh3d},
 };
+pub(super) use morph::{MorphChannels, apply_morph_channels, build_morph_targets};
 use source_assets::flexes::FaceModel;
 use std::collections::HashMap;
 
@@ -84,6 +86,7 @@ pub(super) fn apply_facial_flexes(
     meshes: &mut Assets<Mesh>,
     inputs: &FaceInputs,
     flex_weights: &mut FlexWeights,
+    morph_weights: Option<bevy::prelude::Mut<'_, bevy::mesh::morph::MeshMorphWeights>>,
 ) {
     let FaceInputs { game, models, eyes } = *inputs;
     let (Some(id), Some(model)) = (
@@ -110,6 +113,15 @@ pub(super) fn apply_facial_flexes(
         });
     let signature = actor.signature;
     if signature == animation.flex_state.signature {
+        return;
+    }
+    if let Some(channels) = &animation.morph {
+        if let Some(mut morph_weights) = morph_weights
+            && let bevy::mesh::morph::MeshMorphWeights::Value { weights } = &mut *morph_weights
+        {
+            channels.write_weights(&actor.weights, weights);
+        }
+        animation.flex_state.signature = signature;
         return;
     }
     let deltas = actor.deltas.get_or_insert_with(|| {

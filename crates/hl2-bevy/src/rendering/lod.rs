@@ -99,24 +99,100 @@ fn nothing(surface: &Surface) -> Surface {
 /// Coarser levels already built, by model asset, material, scale and skinning: map entity draws
 /// of one model share these meshes, as runtime copies do, unless facial flexes deform them. The
 /// skin attributes depend only on the model's weights and its rig's bone count.
+/// A model asset, material, scale (bits), whether the draw is skinned, and whether GPU morphs
+/// are attached.
+type LevelsKey = (String, String, u32, bool, bool);
+type RootKey = (String, String, u32, usize, usize, usize);
+type FaceModels = BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>;
+
 #[derive(Default)]
 pub(super) struct SharedLevels {
     built: BTreeMap<LevelsKey, Vec<(f32, Level)>>,
+    roots: BTreeMap<RootKey, (Handle<Mesh>, Option<Arc<super::face_flex::MorphChannels>>)>,
     /// The map's face models; without them every draw with flex references keeps its own levels.
     faces: Option<FaceModels>,
 }
-
-/// A model asset, material, scale (bits) and whether the draw is skinned.
-type LevelsKey = (String, String, u32, bool);
-type FaceModels = BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>;
 
 impl SharedLevels {
     /// Sharing for a map's draws, given its face models.
     pub(super) fn for_map(faces: &FaceModels) -> Self {
         Self {
             built: BTreeMap::new(),
+            roots: BTreeMap::new(),
             faces: Some(faces.clone()),
         }
+    }
+
+    fn face(&self, key: &str) -> Option<&source_assets::flexes::FaceModel> {
+        self.faces.as_ref()?.get(key).map(Arc::as_ref)
+    }
+
+    fn face_arc(&self, key: &str) -> Option<Arc<source_assets::flexes::FaceModel>> {
+        self.faces.as_ref()?.get(key).cloned()
+    }
+
+    /// Build or share a root draw's mesh, attaching GPU skinning and GPU facial morph targets.
+    pub(super) fn mesh_for_draw(
+        &mut self,
+        batch: Batch,
+        name: &str,
+        animation: Option<&mut AnimatedMesh>,
+        meshes: &mut Assets<Mesh>,
+        private_mesh: bool,
+    ) -> Handle<Mesh> {
+        let index_count = batch.indices.len();
+        let root_key = (!private_mesh)
+            .then(|| {
+                let anim = animation.as_deref()?;
+                let skeleton = anim.gpu.as_ref()?;
+                Some((
+                    anim.key.clone(),
+                    name.to_owned(),
+                    anim.scale.to_bits(),
+                    anim.vertices.bind.len(),
+                    index_count,
+                    skeleton.joints.len(),
+                ))
+            })
+            .flatten();
+        if let Some(key) = &root_key
+            && let Some((handle, morph)) = self.roots.get(key)
+        {
+            if let Some(anim) = animation {
+                anim.morph = morph.clone();
+            }
+            return handle.clone();
+        }
+        let mut mesh = batch.mesh();
+        let mut built_morph = None;
+        let mut cpu_flex = false;
+        if let Some(anim) = animation {
+            if let Some(skeleton) = &anim.gpu {
+                skeleton.attributes(&mut mesh, &anim.vertices.bind);
+                if !anim.vertices.flex.is_empty()
+                    && let Some(face) = self.face(&anim.key)
+                {
+                    built_morph = super::face_flex::build_morph_targets(
+                        &mut mesh,
+                        face,
+                        &anim.vertices.flex,
+                        anim.scale,
+                    )
+                    .map(Arc::new);
+                    anim.morph = built_morph.clone();
+                    cpu_flex = built_morph.is_none() && self.deforms(anim);
+                }
+            }
+            mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+        } else if private_mesh {
+            mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+        }
+        let handle = meshes.add(mesh);
+        // CPU flexes mutate mesh positions independently for each actor.
+        if let Some(key) = root_key.filter(|_| !cpu_flex) {
+            self.roots.insert(key, (handle.clone(), built_morph));
+        }
+        handle
     }
 
     /// Whether facial flexes deform the draw: its model's flexes move a studio mesh one of its
@@ -162,7 +238,9 @@ pub(super) fn levels_for_draw(
         .get(&instance.asset_key())?
         .iter()
         .find(|s| s.material == material && !s.vertices.is_empty())?;
-    let flexes = animation.is_some_and(|a| shared.deforms(a));
+    let morph = animation.and_then(|a| a.morph.as_deref());
+    let flexes = morph.is_none() && animation.is_some_and(|a| shared.deforms(a));
+    let face = morph.and_then(|_| animation.and_then(|a| shared.face_arc(&a.key)));
     let root_vertices = animation
         .filter(|_| flexes)
         .map(|a| Arc::clone(&a.vertices));
@@ -189,6 +267,8 @@ pub(super) fn levels_for_draw(
         scale: instance.scale,
         animation,
         flexes,
+        morph,
+        face: face.as_deref(),
     };
     let built = if flexes {
         coarser.build(meshes)
@@ -198,6 +278,7 @@ pub(super) fn levels_for_draw(
             material.to_owned(),
             instance.scale.to_bits(),
             animation.is_some(),
+            morph.is_some(),
         );
         (shared.built.entry(key))
             .or_insert_with(|| coarser.build(meshes))
@@ -220,6 +301,8 @@ struct Coarser<'a> {
     scale: f32,
     animation: Option<&'a AnimatedMesh>,
     flexes: bool,
+    morph: Option<&'a super::face_flex::MorphChannels>,
+    face: Option<&'a source_assets::flexes::FaceModel>,
 }
 
 impl Coarser<'_> {
@@ -243,12 +326,17 @@ impl Coarser<'_> {
                 if let Some(skeleton) = &animation.gpu {
                     skeleton.attributes(&mut mesh, &skin);
                 }
+                if let Some(channels) = self.morph {
+                    super::face_flex::apply_morph_channels(
+                        &mut mesh, channels, self.face, &flex, self.scale,
+                    );
+                }
                 mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
             }
             Level {
                 mesh: meshes.add(mesh),
                 triangles,
-                vertices: self.flexes.then(|| {
+                vertices: (self.flexes && self.morph.is_none()).then(|| {
                     Arc::new(Vertices {
                         bind: skin,
                         normals,

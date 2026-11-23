@@ -6,7 +6,6 @@ use crate::{
 };
 use bevy::{
     asset::RenderAssetUsages,
-    camera::primitives::{Aabb, MeshAabb},
     mesh::Indices,
     prelude::*,
     reflect::TypePath,
@@ -14,17 +13,14 @@ use bevy::{
 };
 use hl2_ui::extensions::RenderBudget;
 use modkit_core::Surface;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) mod actor_poses;
+mod animated;
+pub use animated::{AnimatedMesh, present_entities};
 mod cpu_skin;
 pub(crate) mod cubemaps;
 pub(crate) mod drawing;
-use actor_poses::entity_stamp;
-use cpu_skin::skin_on_cpu;
 mod face_flex;
 mod face_split;
 pub use face_flex::FlexModels;
@@ -253,63 +249,6 @@ fn sample_key(clip: &modkit_core::animation::Clip, time: f32) -> u32 {
         time.to_bits()
     }
 }
-#[derive(Component)]
-pub struct AnimatedMesh {
-    sampled: Option<(String, u32, u64)>,
-    gpu: Option<crate::gpu_skinning::Skeleton>,
-    entity: Option<usize>,
-    weapon: Option<String>,
-    key: String,
-    scale: f32,
-    /// Shared immutable bind positions, normals and facial flex vertex references.
-    vertices: Arc<lod::Vertices>,
-    /// Deformed bind positions for the CPU skinning path when facial flexes are active.
-    deformed: Option<Vec<glam::Vec3>>,
-    flex_state: face_flex::FlexState,
-}
-impl AnimatedMesh {
-    /// A batch's animation data (its skin taken; facial flexes only for an entity's own model).
-    fn from_batch(
-        batch: &mut Batch,
-        (entity, weapon): (Option<usize>, Option<String>),
-        (key, scale): (String, f32),
-        flexes: bool,
-    ) -> Self {
-        Self {
-            sampled: None,
-            gpu: None,
-            entity,
-            weapon,
-            key,
-            scale,
-            vertices: Arc::new(lod::Vertices {
-                bind: std::mem::take(&mut batch.skin),
-                normals: batch.normals.clone(),
-                flex: if flexes {
-                    std::mem::take(&mut batch.flex)
-                } else {
-                    Vec::new()
-                },
-            }),
-            deformed: None,
-            flex_state: Default::default(),
-        }
-    }
-    /// A template draw's animation for another entity on its own skeleton.
-    fn copy_for(&self, entity: usize, gpu: Option<crate::gpu_skinning::Skeleton>) -> Self {
-        Self {
-            sampled: None,
-            gpu,
-            entity: Some(entity),
-            weapon: self.weapon.clone(),
-            key: self.key.clone(),
-            scale: self.scale,
-            vertices: Arc::clone(&self.vertices),
-            deformed: None,
-            flex_state: Default::default(),
-        }
-    }
-}
 /// A private copy of an asset (a mesh or material an entity changes on its own).
 pub(crate) fn copy_asset<A: Asset + Clone>(
     assets: &mut Assets<A>,
@@ -335,109 +274,6 @@ pub(crate) fn entity_transform(origin: glam::Vec3, rotation: glam::Quat) -> Tran
 /// owner's active weapon.
 #[derive(Component)]
 pub struct NpcWeaponDraw(pub String);
-/// Facial flex models, the eyes and the shared actor skeletons that animation presents with.
-type AnimationInputs<'w> = (
-    Option<Res<'w, FlexModels>>,
-    Option<Res<'w, crate::eyes::Eyes>>,
-    ResMut<'w, actor_poses::ActorPoses>,
-);
-#[allow(clippy::too_many_arguments)]
-pub fn present_entities(
-    game: Res<crate::gameplay::Gameplay>,
-    sim: Res<crate::simulation::Simulation>,
-    mut entities: placement::EntityPlacements,
-    mut joints: Query<&mut Transform, (With<crate::gpu_skinning::Joint>, Without<SourceEntity>)>,
-    mut animations: Query<(&mut AnimatedMesh, &Mesh3d, Option<&mut Aabb>)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    performance: Option<Res<crate::performance::Performance>>,
-    (flex_models, eyes, mut actor_poses): AnimationInputs,
-) {
-    let _timing = crate::performance::scope(performance.as_deref(), "animation");
-    placement::place_entities(&mut entities, &game, &sim);
-    let mut updated_joints = std::collections::BTreeSet::new();
-    let mut poses: BTreeMap<(String, String, u32, u64), Arc<Vec<glam::Mat4>>> = BTreeMap::new();
-    let mut flex_weights = face_flex::FlexWeights::new();
-    for (mut animation, handle, aabb) in &mut animations {
-        if animation.entity.is_some() && animation.weapon.is_some() {
-            continue;
-        }
-        let Some(rig) = game.world.rigs.get(&animation.key) else {
-            continue;
-        };
-        // Facial flexes deform the bind positions before skinning (both GPU and CPU paths).
-        face_flex::apply_facial_flexes(
-            &mut animation,
-            handle,
-            &mut meshes,
-            &face_flex::FaceInputs {
-                game: &game,
-                models: flex_models.as_deref(),
-                eyes: eyes.as_deref(),
-            },
-            &mut flex_weights,
-        );
-        let stamp = match animation
-            .entity
-            .map(|id| (id, entity_stamp(&game, rig, id)))
-        {
-            Some((id, Some(stamp))) => Some((id, stamp)),
-            Some((_, None)) => continue,
-            None if animation.weapon.as_deref() != Some(game.inventory.active.as_str()) => continue,
-            None => None,
-        };
-        let (clip, key, layer_key) = match &stamp {
-            // Gesture layers make the pose actor-specific; the entity id keeps entries apart.
-            Some((id, s)) => (
-                s.clip.clone(),
-                s.key,
-                s.layers ^ (*id as u64).rotate_left(32),
-            ),
-            None => viewmodel_sample(&game, rig),
-        };
-        if animation
-            .sampled
-            .as_ref()
-            .is_some_and(|(name, previous, layered)| {
-                name == &clip && *previous == key && *layered == layer_key
-            })
-        {
-            continue;
-        }
-        let sampled = (clip.clone(), key, layer_key);
-        let matrices = poses
-            .entry((animation.key.clone(), clip, key, layer_key))
-            .or_insert_with(|| match &stamp {
-                Some((id, s)) => actor_poses.pose(&game, (&animation.key, rig), *id, s),
-                None => Arc::new(game.inventory.viewmodel_matrices(rig, game.scene.time)),
-            });
-        if let Some(skeleton) = &animation.gpu {
-            if updated_joints.insert(skeleton.joints[0]) {
-                for ((joint, matrix), bone) in
-                    skeleton.joints.iter().zip(matrices.iter()).zip(&rig.bones)
-                {
-                    if let Ok(mut transform) = joints.get_mut(*joint) {
-                        let pose = Transform::from_matrix(crate::gpu_skinning::convert(
-                            *matrix * bone.inverse_bind.inverse(),
-                            animation.scale,
-                        ));
-                        if *transform != pose {
-                            *transform = pose;
-                        }
-                    }
-                }
-            }
-            animation.sampled = Some(sampled);
-            continue;
-        }
-        if let Some(mut mesh) = meshes.get_mut(&handle.0) {
-            skin_on_cpu(&mut mesh, &animation, matrices);
-            if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.compute_aabb()) {
-                *aabb = bounds;
-            }
-            animation.sampled = Some(sampled);
-        }
-    }
-}
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Owner {
@@ -717,7 +553,7 @@ pub fn spawn_map_filtered(
                 });
             let chunks = match &key.0 {
                 _ if partition => batch.spatial_chunks(),
-                Owner::Entity(id) => {
+                Owner::Entity(id) if cpu_skinning => {
                     face_split::split_entity_batch(batch, world, &loaded.flexes, *id)
                 }
                 _ => vec![batch],
@@ -916,22 +752,19 @@ pub fn spawn_map_filtered(
             });
             animation.gpu = Some(skeleton.clone());
         }
-        // CPU assets retain bounds and eye projection data; GPU skinning keeps their positions immutable.
-        let animated = animation.is_some() || irises.contains_key(&name);
-        let mut mesh = batch.mesh();
-        if let Some(skeleton) = animation.as_ref().and_then(|a| a.gpu.as_ref()) {
-            skeleton.attributes(&mut mesh, &animation.as_ref().unwrap().vertices.bind);
-        }
-        if animated {
-            mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
-        }
+        let handle = shared_levels.mesh_for_draw(
+            batch,
+            &name,
+            animation.as_mut(),
+            meshes,
+            irises.contains_key(&name),
+        );
         let state = owner
             .entity()
             .and_then(|id| loaded.gameplay.scene.states.get(id));
         let transform = state.map_or(Transform::IDENTITY, |s| {
             entity_transform(s.origin, s.rotation)
         });
-        let handle = meshes.add(mesh);
         let mut draw = commands.spawn((
             crate::campaign::MapOwned,
             Name::new(name.clone()),
@@ -973,7 +806,7 @@ pub fn spawn_map_filtered(
             if animation.gpu.is_none() {
                 stats.cpu_skinned_meshes += 1;
             }
-            draw.insert(animation);
+            animation.insert_into(&mut draw);
         }
     }
     stats.skin_joints = skeletons.values().map(|s| s.joints.len()).sum();
@@ -1031,13 +864,15 @@ pub(crate) fn build_model_draws(
     let Some(surfaces) = world.model_assets.get(&surface_key) else {
         return 0;
     };
-    let batches = face_split::model_batches(surfaces, instance.scale, cache, (world, id));
     let rig = world
         .rigs
         .get(&instance.asset_key())
         .filter(|rig| !rig.bones.is_empty() && rig.bones.len() < 256);
+    let batches =
+        face_split::model_batches(surfaces, instance.scale, cache, (world, id), rig.is_none());
     let modulation = entity_modulation(world, id);
     let mut skeleton: Option<crate::gpu_skinning::Skeleton> = None;
+    let mut shared_levels = lod::SharedLevels::for_map(&cache.faces);
     let mut draws = 0;
     for (name, mut batch) in batches {
         let fallback = MaterialData::default();
@@ -1069,16 +904,7 @@ pub(crate) fn build_model_draws(
             }
             animation.gpu = skeleton.clone();
         }
-        let mut mesh = batch.mesh();
-        if let Some(animation) = &animation
-            && let Some(skeleton) = &animation.gpu
-        {
-            skeleton.attributes(&mut mesh, &animation.vertices.bind);
-        }
-        if animation.is_some() {
-            mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
-        }
-        let handle = meshes.add(mesh);
+        let handle = shared_levels.mesh_for_draw(batch, &name, animation.as_mut(), meshes, false);
         let mut draw = commands.spawn((
             crate::campaign::MapOwned,
             Name::new(name.clone()),
@@ -1095,7 +921,7 @@ pub(crate) fn build_model_draws(
             &name,
             definition,
             (&handle, animation.as_ref()),
-            (&mut *meshes, &mut lod::SharedLevels::default()),
+            (&mut *meshes, &mut shared_levels),
         ) {
             draw.insert(levels);
         }
@@ -1109,7 +935,7 @@ pub(crate) fn build_model_draws(
                     bevy::camera::visibility::DynamicSkinnedMeshBounds,
                 ));
             }
-            draw.insert(animation);
+            animation.insert_into(&mut draw);
         }
         draws += 1;
     }
@@ -1144,7 +970,9 @@ pub(crate) fn mesh_from_surface(surface: &Surface, definition: &MaterialData) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::camera::primitives::{Aabb, MeshAabb};
     use bevy::render::render_resource::{Extent3d, TextureDimension};
+    use std::sync::Arc;
     fn partition_fixture() -> Batch {
         let positions = vec![
             [-2048., 0., 0.],
@@ -1375,6 +1203,7 @@ mod tests {
                         )],
                     }),
                     deformed: None,
+                    morph: None,
                     flex_state: Default::default(),
                 },
                 Mesh3d(handle.clone()),

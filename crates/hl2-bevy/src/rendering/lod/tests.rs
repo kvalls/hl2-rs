@@ -54,6 +54,7 @@ fn level_switches_and_template_copies_share_immutable_vertex_tables() {
         scale: 1.0,
         vertices: Arc::clone(&root_vertices),
         deformed: Some(vec![glam::Vec3::X]),
+        morph: None,
         flex_state: Default::default(),
     };
     let copied = template.copy_for(2, None);
@@ -105,4 +106,59 @@ fn level_switches_and_template_copies_share_immutable_vertex_tables() {
     world.run_system_once(switch_levels).unwrap();
     let animation = world.get::<AnimatedMesh>(draw).unwrap();
     assert!(Arc::ptr_eq(&animation.vertices, &root_vertices));
+}
+
+#[test]
+fn actors_with_too_many_morph_channels_keep_private_meshes() {
+    use source_assets::flexes::{FaceModel, FlexModel, MeshFlex, MeshFlexes, VertAnim};
+
+    let key = String::from("test");
+    let flex = FlexModel {
+        meshes: vec![MeshFlexes {
+            bodypart: 0,
+            model: 0,
+            mesh: 0,
+            flexes: (0..=bevy::mesh::morph::MAX_MORPH_WEIGHTS)
+                .map(|descriptor| MeshFlex {
+                    descriptor,
+                    pair: 0,
+                    targets: [0., 1., 1., 2.],
+                    vertices: vec![VertAnim {
+                        index: 0,
+                        speed: 0,
+                        side: 0,
+                        delta: glam::Vec3::Y,
+                        normal: glam::Vec3::ZERO,
+                    }],
+                })
+                .collect(),
+        }],
+        ..Default::default()
+    };
+    let face = FaceModel {
+        slots: flex.vertex_slots(),
+        flex,
+        eyes: vec![],
+    };
+    let mut shared = SharedLevels::for_map(&BTreeMap::from([(key.clone(), Arc::new(face))]));
+    let mut meshes = Assets::default();
+    let mut spawn = |id| {
+        let mut batch = Batch {
+            positions: vec![[0.; 3]],
+            normals: vec![glam::Vec3::Y],
+            skin: vec![(glam::Vec3::ZERO, None)],
+            flex: vec![Some([0, 0, 0])],
+            ..Default::default()
+        };
+        let mut anim =
+            AnimatedMesh::from_batch(&mut batch, (Some(id), None), (key.clone(), 1.), true);
+        anim.gpu = Some(crate::gpu_skinning::Skeleton {
+            joints: vec![bevy::prelude::Entity::PLACEHOLDER],
+            inverse_bindposes: Handle::default(),
+        });
+        let mesh = shared.mesh_for_draw(batch, "face", Some(&mut anim), &mut meshes, false);
+        assert!(anim.morph.is_none());
+        mesh
+    };
+    assert_ne!(spawn(1), spawn(2));
 }

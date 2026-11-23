@@ -4,7 +4,7 @@
    "dead_code allowances": 11,
    "glob imports": 27,
    "mutable statics": 4,
-   "too_many_arguments allowances": 7
+   "too_many_arguments allowances": 6
   },
   "hl2-simulation": {
    "glob imports": 13,
@@ -136,7 +136,6 @@
  ],
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1374,
-  "crates/hl2-bevy/src/rendering.rs": 1143,
   "crates/hl2-bevy/src/video.rs": 1006,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2357,
@@ -175,7 +174,7 @@
    103
   ],
   "crates/hl2-bevy/src/rendering.rs::build_model_draws": [
-   113
+   106
   ],
   "crates/hl2-bevy/src/simulation.rs::step": [
    167

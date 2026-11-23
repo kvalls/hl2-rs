@@ -452,8 +452,8 @@ impl FlexModel {
     }
 }
 impl MeshFlex {
-    fn ramp(&self, v: f32) -> f32 {
-        let [t0, t1, t2, t3] = self.targets;
+    /// Evaluate a piecewise-linear HL2 flex ramp curve `[t0, t1, t2, t3]` at `v`.
+    pub fn ramp_value(v: f32, [t0, t1, t2, t3]: [f32; 4]) -> f32 {
         if !(t0 < v && v < t3) {
             0.
         } else if v < t1 {
@@ -463,6 +463,10 @@ impl MeshFlex {
         } else {
             1.
         }
+    }
+
+    fn ramp(&self, v: f32) -> f32 {
+        Self::ramp_value(v, self.targets)
     }
     /// Retail R_StudioFlexVerts weights for (descriptor, pair) without delayed smoothing:
     /// returns `None` when the flex has no influence.
