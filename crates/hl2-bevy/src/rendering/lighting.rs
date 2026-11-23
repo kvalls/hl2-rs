@@ -6,10 +6,12 @@ use bevy::{
     camera::visibility::InheritedVisibility,
     ecs::{
         component::Component,
+        entity::Entity,
         system::{Query, Res, ResMut},
     },
     image::Image,
     math::{Mat4, Vec3},
+    mesh::MeshTag,
     pbr::MeshMaterial3d,
     transform::components::Transform,
 };
@@ -83,6 +85,7 @@ impl ModelLit {
     /// in the mock car while the car (and its landmark) moves.
     fn rebase(
         &self,
+        tag: u32,
         game: &crate::gameplay::Gameplay,
         (materials, slots): (
             &mut Assets<SourceMaterial>,
@@ -95,14 +98,18 @@ impl ModelLit {
         };
         let Some(mut lighting) = materials
             .get(handle)
-            .map(|m| slots.lighting(m, handle.id()))
+            .map(|m| slots.draw_lighting(tag, m, handle.id()))
         else {
             return;
         };
         if lighting.basis != basis {
             lighting.basis = basis;
-            let key = (self.entity, self.half_lambert);
-            slots.write_lighting(materials, handle, key, lighting);
+            if tag > 0 {
+                slots.write_tagged_lighting(tag, lighting);
+            } else {
+                let key = (self.entity, self.half_lambert);
+                slots.write_lighting(materials, handle, key, lighting);
+            }
         }
     }
     /// Its material reflects the cubemap sample near it. A model loaded late has no mask for it
@@ -110,6 +117,10 @@ impl ModelLit {
     pub(super) fn reflecting(mut self, reflects: bool) -> Self {
         self.cubemap = reflects.then_some(usize::MAX);
         self
+    }
+    /// Whether this draw chooses a dynamic per-location cubemap reflection sample.
+    pub(super) fn reflects(&self) -> bool {
+        self.cubemap.is_some()
     }
     /// Returns the new cubemap index and texture if moving into `origin`'s light cache cell changes
     /// this model's reflection sample; updates the tracked cell without touching `Assets`.
@@ -138,6 +149,17 @@ struct LightingContext<'a> {
     view: Mat4,
 }
 
+type LitDraws<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut ModelLit,
+        &'static MeshMaterial3d<SourceMaterial>,
+        Option<&'static MeshTag>,
+        &'static InheritedVisibility,
+    ),
+>;
+
 /// Recompute each lit model's light state when its illumination origin moves
 /// (retail light cache at origin + rotation * illumposition * scale), and every frame
 /// while an entity light (muzzle elight) reaches it (ComputeDynamicLighting).
@@ -146,11 +168,7 @@ pub fn present_lighting(
     sim: Res<crate::simulation::Simulation>,
     effects: Option<Res<crate::effects::Effects>>,
     flashlight: Res<crate::flashlight::HostFlashlight>,
-    mut draws: Query<(
-        &mut ModelLit,
-        &MeshMaterial3d<SourceMaterial>,
-        &InheritedVisibility,
-    )>,
+    mut draws: LitDraws,
     mut materials: ResMut<Assets<SourceMaterial>>,
     (performance, cubemaps, mut slots): (
         Option<Res<crate::performance::Performance>>,
@@ -178,19 +196,19 @@ pub fn present_lighting(
         beam: crate::flashlight::ViewmodelLight::from_light(flashlight.light()),
         view: viewmodel_basis(sim.view_origin(), yaw, pitch),
     };
-    for (mut lit, material, visible) in &mut draws {
+    for (mut lit, material, tag, visible) in &mut draws {
         if !visible.get() && lit.last.is_some() {
             continue;
         }
         let assets = (&mut *materials, &mut *slots);
-        present_draw_lighting(&ctx, &mut lit, &material.0, &mut states, assets);
+        let tag_val = tag.map_or(0, |t| t.0);
+        present_draw_lighting(&ctx, (&mut lit, &material.0, tag_val), &mut states, assets);
     }
 }
 
 fn present_draw_lighting(
     ctx: &LightingContext<'_>,
-    lit: &mut ModelLit,
-    material: &Handle<SourceMaterial>,
+    (lit, material, tag): (&mut ModelLit, &Handle<SourceMaterial>, u32),
     states: &mut BTreeMap<Option<usize>, (glam::Vec3, modkit_core::lighting::LightState)>,
     (materials, slots): (
         &mut Assets<SourceMaterial>,
@@ -230,14 +248,14 @@ fn present_draw_lighting(
         });
     if lit.entity.is_some() && same_light {
         if lit.origins.flatten().is_some_and(|o| o.relative.is_some()) {
-            lit.rebase(ctx.game, (materials, slots), material);
+            lit.rebase(tag, ctx.game, (materials, slots), material);
         }
         return;
     }
     let Some(existing) = materials.get(material) else {
         return;
     };
-    let current = slots.lighting(existing, material.id());
+    let current = slots.draw_lighting(tag, existing, material.id());
     let uniform = if lit.entity.is_none() && same_light && current.params.w == 2. {
         let mut uniform = current;
         uniform.basis = ctx.view;
@@ -263,25 +281,146 @@ fn present_draw_lighting(
     };
     let lighting_changed = current != uniform;
     let beam_changed = lit.entity.is_none() && existing.viewmodel_flashlight != ctx.beam;
+    let (existing_envmap, existing_envmap_w) = (existing.envmap.clone(), existing.envmap_tint.w);
     let env_update = lit.next_cubemap(origin, ctx.data, ctx.cubemaps);
     lit.dynamic = lit_dynamic;
     lit.last = Some((origin, lit.half_lambert));
     if lighting_changed {
-        let key = (lit.entity, lit.half_lambert);
-        slots.write_lighting(materials, material, key, uniform);
+        if tag > 0 {
+            slots.write_tagged_lighting(tag, uniform);
+        } else {
+            let key = (lit.entity, lit.half_lambert);
+            slots.write_lighting(materials, material, key, uniform);
+        }
     }
+    apply_material_lighting_updates(
+        lit,
+        material,
+        materials,
+        (beam_changed, ctx.beam),
+        (env_update, existing_envmap, existing_envmap_w),
+    );
+}
+
+type EnvmapState = (Option<(usize, Handle<Image>)>, Handle<Image>, f32);
+
+fn apply_material_lighting_updates(
+    lit: &mut ModelLit,
+    material: &Handle<SourceMaterial>,
+    materials: &mut Assets<SourceMaterial>,
+    (beam_changed, beam): (bool, crate::flashlight::ViewmodelLight),
+    (env_update, existing_envmap, existing_envmap_w): EnvmapState,
+) {
+    let env_update = env_update.filter(|&(index, ref cube)| {
+        lit.cubemap = Some(index);
+        existing_envmap != *cube || existing_envmap_w != 1.
+    });
     if !beam_changed && env_update.is_none() {
         return;
     }
     // Only borrow mutably when fields change so unchanged materials emit no AssetEvent::Modified.
     if let Some(mut mat) = materials.get_mut(material) {
         if beam_changed {
-            mat.viewmodel_flashlight = ctx.beam;
+            mat.viewmodel_flashlight = beam;
         }
-        if let Some((index, cube)) = env_update {
+        if let Some((_, cube)) = env_update {
             mat.envmap = cube;
             mat.envmap_tint.w = 1.;
-            lit.cubemap = Some(index);
+        }
+    }
+}
+
+fn detach_tagged_material(
+    commands: &mut bevy::prelude::Commands,
+    materials: &mut Assets<SourceMaterial>,
+    draw: Entity,
+    mat: &Handle<SourceMaterial>,
+    tag: Option<&MeshTag>,
+) -> Handle<SourceMaterial> {
+    if tag.is_some_and(|t| t.0 > 0)
+        && materials.get(mat).is_some_and(|m| m.dynamic.w < 0.5)
+        && let Some(copy) = super::copy_asset(materials, mat)
+    {
+        if let Some(mut cloned) = materials.get_mut(&copy) {
+            cloned.dynamic.w = 1.;
+        }
+        commands.entity(draw).insert(MeshMaterial3d(copy.clone()));
+        copy
+    } else {
+        mat.clone()
+    }
+}
+
+type TaggedLitDraws<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static ModelLit,
+        &'static MeshMaterial3d<SourceMaterial>,
+        Option<&'static MeshTag>,
+    ),
+>;
+
+/// C_ClientRagdoll::FadeOut: a retired ragdoll's model blends out (kRenderTransAlpha).
+pub fn present_ragdoll_fades(
+    mut commands: bevy::prelude::Commands,
+    game: Res<crate::gameplay::Gameplay>,
+    draws: TaggedLitDraws,
+    mut materials: ResMut<Assets<SourceMaterial>>,
+) {
+    if game.ragdolls.fading() == 0 {
+        return;
+    }
+    for (draw, lit, MeshMaterial3d(mat), tag) in &draws {
+        let Some(alpha) = lit.entity.and_then(|id| game.ragdolls.fade_alpha(id)) else {
+            continue;
+        };
+        if !materials.get(mat).is_some_and(|m| m.tint.w != alpha) {
+            continue;
+        }
+        let target = detach_tagged_material(&mut commands, &mut materials, draw, mat, tag);
+        if let Some(mut m) = materials.get_mut(&target) {
+            m.tint.w = alpha;
+            m.alpha = bevy::prelude::AlphaMode::Blend;
+        }
+    }
+}
+
+/// SetRenderColor at runtime (Scene::render_colors, e.g. a burning zombie's Scorch): the
+/// entity's model materials take the color in place of their keyvalue modulation; its
+/// client ragdoll keeps the entity id and so the color (C_ClientRagdoll copies it).
+pub fn present_render_colors(
+    mut commands: bevy::prelude::Commands,
+    game: Res<crate::gameplay::Gameplay>,
+    draws: TaggedLitDraws,
+    mut materials: ResMut<Assets<SourceMaterial>>,
+    mut base: bevy::ecs::system::Local<
+        std::collections::HashMap<bevy::asset::AssetId<SourceMaterial>, bevy::math::Vec4>,
+    >,
+) {
+    if game.scene.render_colors.is_empty() {
+        return;
+    }
+    for (draw, lit, MeshMaterial3d(mat), tag) in &draws {
+        let Some(id) = lit.entity else { continue };
+        let (Some(color), Some(m)) = (game.scene.render_colors.get(&id), materials.get(mat)) else {
+            continue;
+        };
+        let original = *base.entry(mat.id()).or_insert(m.tint);
+        // The runtime color replaces the keyvalue color the material was built with.
+        let keyvalue = super::entity_modulation(&game.world, id)
+            .truncate()
+            .max(Vec3::splat(1e-3));
+        let rgb = Vec3::from_array(color.map(|c| f32::from(c) / 255.));
+        let tint = (original.truncate() / keyvalue * rgb).extend(m.tint.w);
+        if m.tint == tint {
+            continue;
+        }
+        let target = detach_tagged_material(&mut commands, &mut materials, draw, mat, tag);
+        base.entry(target.id()).or_insert(original);
+        if let Some(mut m) = materials.get_mut(&target) {
+            m.tint = tint;
         }
     }
 }

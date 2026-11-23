@@ -381,6 +381,7 @@ mod tests {
         app.insert_resource(Assets::<SourceMaterial>::default());
         app.insert_resource(Assets::<Image>::default());
         app.insert_resource(Assets::<SkinnedMeshInverseBindposes>::default());
+        app.insert_resource(crate::material_slots::MaterialSlots::default());
         app.insert_resource(ModelCache::default());
         app.insert_resource(FlexModels::default());
         app.insert_resource(Eyes::default());

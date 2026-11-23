@@ -17,13 +17,14 @@ use bevy::{
 
 pub const MATERIAL_ROWS: Handle<ShaderBuffer> =
     uuid_handle!("1e7cec58-7516-4d6b-879e-0784ed801107");
-/// Materials the buffer holds. Its size never changes: a resized buffer is a new GPU buffer the
-/// materials' bind groups would not see.
-const SLOTS: usize = 1024;
+pub const LIGHT_ROWS: Handle<ShaderBuffer> = uuid_handle!("8b4c9e21-3f7a-4d12-9c6e-5a1b8f042d93");
+/// Animated materials the buffer holds. Its size never changes: a resized buffer is a new GPU
+/// buffer the materials' bind groups would not see.
+const SLOTS: usize = 256;
 /// `tint` (rgb; alpha stays in the material), then the three columns of `secondary_uv`.
 const ROWS: usize = 4;
-/// All rows: the material slots, then the lighting slots.
-const TOTAL_ROWS: usize = SLOTS * ROWS + lighting::SLOTS * lighting::ROWS;
+const MATERIAL_TOTAL_ROWS: usize = SLOTS * ROWS;
+const LIGHT_TOTAL_ROWS: usize = lighting::SLOTS * lighting::ROWS;
 
 /// What a material takes from its slot (`SourceMaterial::dynamic`: x slot, y tint flag).
 #[derive(Clone, Copy, PartialEq)]
@@ -40,8 +41,11 @@ pub struct MaterialSlots {
     free: Vec<u32>,
     next: u32,
     rows: Vec<Vec4>,
-    /// A row changed since the last upload.
-    dirty: bool,
+    /// Dirty row range `[lo, hi)` since the last material-buffer upload.
+    dirty: Option<(usize, usize)>,
+    light_rows: Vec<Vec4>,
+    /// Dirty row range `[lo, hi)` since the last lighting-buffer upload.
+    light_dirty: Option<(usize, usize)>,
     lights: lighting::LightSlots,
 }
 impl Default for MaterialSlots {
@@ -50,8 +54,10 @@ impl Default for MaterialSlots {
             by_material: HashMap::default(),
             free: Vec::new(),
             next: 0,
-            rows: vec![Vec4::ZERO; TOTAL_ROWS],
-            dirty: false,
+            rows: vec![Vec4::ZERO; MATERIAL_TOTAL_ROWS],
+            dirty: None,
+            light_rows: vec![Vec4::ZERO; LIGHT_TOTAL_ROWS],
+            light_dirty: None,
             lights: lighting::LightSlots::default(),
         }
     }
@@ -116,12 +122,20 @@ impl MaterialSlots {
         let transform = Mat3::from_cols(row[1].truncate(), row[2].truncate(), row[3].truncate());
         (tint, transform)
     }
-    /// Writes `rows` at `start`, marking the buffer for upload when any differs.
+    /// Writes `rows` at `start`, marking `[start, start + rows.len())` dirty when any differs.
     fn set_rows(&mut self, start: usize, rows: &[Vec4]) {
         let target = &mut self.rows[start..start + rows.len()];
         if target != rows {
             target.copy_from_slice(rows);
-            self.dirty = true;
+            mark_dirty(&mut self.dirty, start, start + rows.len());
+        }
+    }
+    /// Writes lighting `rows` at `start`, marking `[start, start + rows.len())` dirty when any differs.
+    fn set_light_rows(&mut self, start: usize, rows: &[Vec4]) {
+        let target = &mut self.light_rows[start..start + rows.len()];
+        if target != rows {
+            target.copy_from_slice(rows);
+            mark_dirty(&mut self.light_dirty, start, start + rows.len());
         }
     }
     fn assign(
@@ -145,6 +159,13 @@ impl MaterialSlots {
     }
 }
 
+fn mark_dirty(range: &mut Option<(usize, usize)>, start: usize, end: usize) {
+    *range = Some(match *range {
+        Some((lo, hi)) => (lo.min(start), hi.max(end)),
+        None => (start, end),
+    });
+}
+
 /// Registers the slots, their buffer and the upload after this frame's writers.
 pub fn plugin(app: &mut bevy::app::App) {
     use bevy::prelude::{IntoScheduleConfigs, PostUpdate, Startup, TransformSystems};
@@ -155,31 +176,58 @@ pub fn plugin(app: &mut bevy::app::App) {
             upload
                 .after(crate::monitors::present_materials)
                 .after(crate::material_proxies::present)
+                .after(crate::rendering::present_lighting)
                 .before(TransformSystems::Propagate),
         );
 }
 
-/// Creates the buffer before any material reads it.
+/// Creates the buffers before any material reads them.
 pub fn install(mut buffers: ResMut<Assets<ShaderBuffer>>) {
-    let mut buffer = ShaderBuffer::default();
-    buffer.set_data(vec![Vec4::ZERO; TOTAL_ROWS]);
-    let _ = buffers.insert(MATERIAL_ROWS.id(), buffer);
+    let mut materials = ShaderBuffer::default();
+    materials.set_data(vec![Vec4::ZERO; MATERIAL_TOTAL_ROWS]);
+    let _ = buffers.insert(MATERIAL_ROWS.id(), materials);
+    let mut lights = ShaderBuffer::default();
+    lights.set_data(vec![Vec4::ZERO; LIGHT_TOTAL_ROWS]);
+    let _ = buffers.insert(LIGHT_ROWS.id(), lights);
+}
+
+/// Writes `rows[range]` into `buffer.data`, reusing the existing byte buffer allocation.
+pub(crate) fn write_rows_range(
+    buffer: &mut ShaderBuffer,
+    rows: &[Vec4],
+    range: std::ops::Range<usize>,
+) {
+    let total_bytes = rows.len() * 16;
+    let bytes = buffer.data.get_or_insert_with(|| vec![0; total_bytes]);
+    let range = if bytes.len() != total_bytes {
+        bytes.resize(total_bytes, 0);
+        0..rows.len()
+    } else {
+        range.start.min(rows.len())..range.end.min(rows.len())
+    };
+    for (dst, row) in bytes[range.start * 16..range.end * 16]
+        .as_chunks_mut::<16>()
+        .0
+        .iter_mut()
+        .zip(&rows[range])
+    {
+        for (chunk, value) in dst.as_chunks_mut::<4>().0.iter_mut().zip(row.to_array()) {
+            *chunk = value.to_le_bytes();
+        }
+    }
 }
 
 /// Writes `rows` into `buffer.data`, reusing the existing byte buffer allocation when present.
 pub(crate) fn write_rows(buffer: &mut ShaderBuffer, rows: &[Vec4]) {
-    use bevy::render::render_resource::encase::StorageBuffer;
-    let mut bytes = buffer.data.take().unwrap_or_default();
-    let mut storage = StorageBuffer::new(&mut bytes);
-    storage.write(&rows).expect("Vec4 rows fit ShaderBuffer");
-    buffer.data = Some(bytes);
+    write_rows_range(buffer, rows, 0..rows.len());
 }
 
-/// Uploads the rows when a slot changed this frame; frees the slots of removed materials.
+/// Uploads the changed row ranges when a slot changed this frame; frees removed materials and draws.
 pub fn upload(
     mut slots: ResMut<MaterialSlots>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut events: MessageReader<AssetEvent<SourceMaterial>>,
+    mut removed_lit: bevy::ecs::lifecycle::RemovedComponents<crate::rendering::ModelLit>,
 ) {
     for event in events.read() {
         if let AssetEvent::Removed { id } = event {
@@ -189,11 +237,18 @@ pub fn upload(
             slots.lights.release(*id);
         }
     }
-    if slots.dirty
+    for draw in removed_lit.read() {
+        slots.lights.release_draw(draw);
+    }
+    if let Some((lo, hi)) = slots.dirty.take()
         && let Some(mut buffer) = buffers.get_mut(&MATERIAL_ROWS)
     {
-        write_rows(&mut buffer, &slots.rows);
-        slots.dirty = false;
+        write_rows_range(&mut buffer, &slots.rows, lo..hi);
+    }
+    if let Some((lo, hi)) = slots.light_dirty.take()
+        && let Some(mut buffer) = buffers.get_mut(&LIGHT_ROWS)
+    {
+        write_rows_range(&mut buffer, &slots.light_rows, lo..hi);
     }
 }
 
@@ -222,6 +277,7 @@ pub(crate) fn test_material() -> SourceMaterial {
         two_sided: false,
         eye_rows: crate::eyes::EYE_ROWS,
         material_rows: MATERIAL_ROWS,
+        light_rows: LIGHT_ROWS,
     }
 }
 
@@ -293,14 +349,30 @@ mod tests {
 
     #[test]
     fn write_rows_reuses_the_existing_shader_buffer_allocation() {
+        use bevy::render::render_resource::encase::StorageBuffer;
         use bevy::render::storage::ShaderBuffer;
         let mut buffer = ShaderBuffer::default();
-        let rows = [Vec4::new(1., 2., 3., 4.), Vec4::new(5., 6., 7., 8.)];
+        let rows = [
+            Vec4::new(1., 2., 3., 4.),
+            Vec4::new(5., 6., 7., 8.),
+            Vec4::new(-1.5, 0.25, 42., -0.),
+        ];
         super::write_rows(&mut buffer, &rows);
+        let mut expected = Vec::new();
+        StorageBuffer::new(&mut expected).write(&rows).unwrap();
+        assert_eq!(buffer.data.as_deref(), Some(expected.as_slice()));
+
         let first_ptr = buffer.data.as_ref().unwrap().as_ptr();
-        let updated = [Vec4::splat(9.), Vec4::splat(10.)];
-        super::write_rows(&mut buffer, &updated);
+        let updated = [Vec4::new(1., 2., 3., 4.), Vec4::splat(9.), Vec4::splat(10.)];
+        super::write_rows_range(&mut buffer, &updated, 1..2);
         let second_ptr = buffer.data.as_ref().unwrap().as_ptr();
         assert_eq!(first_ptr, second_ptr);
+
+        let mixed = [rows[0], updated[1], rows[2]];
+        let mut expected_mixed = Vec::new();
+        StorageBuffer::new(&mut expected_mixed)
+            .write(&mixed)
+            .unwrap();
+        assert_eq!(buffer.data.as_deref(), Some(expected_mixed.as_slice()));
     }
 }

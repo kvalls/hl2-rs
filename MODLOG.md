@@ -1,5 +1,28 @@
 # MODLOG
 
+## 2026-11-23 — `O41`: Share lit `SourceMaterial`s via `MeshTag` lighting slots and split `LIGHT_ROWS` storage buffer
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
+- Changed:
+  - `crates/hl2-bevy/assets/shaders/source.wgsl`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/rendering/material.rs`, `crates/hl2-bevy/src/sky.rs`: split `LIGHT_ROWS` (`@binding(22)`) from animated `MATERIAL_ROWS` (`@binding(21)`, `SLOTS = 256`), and index per-entity lighting slots in `source.wgsl` `@fragment` via `mesh_functions::get_tag(instance_index)` before falling back to `material.dynamic.z` and `material.lighting`.
+  - `crates/hl2-bevy/src/material_slots.rs`, `crates/hl2-bevy/src/material_slots/lighting.rs`: increase lighting slots to `1024`, initialize new tagged slots with `ModelLighting::fallback` (making `ModelLighting::fallback` `pub(crate)` in `crates/hl2-bevy/src/rendering/model_lighting.rs`), release despawned draw tags on `RemovedComponents<ModelLit>`, add `has_slot_for` and `clear_lights`, remove unused `write_draw_lighting`, schedule `material_slots::upload` `.after(rendering::present_lighting)`, and replace full-buffer `encase` serialization with in-place dirty-range `write_rows_range`.
+  - `crates/hl2-bevy/src/map_install.rs`, `crates/hl2-bevy/src/rendering/lighting.rs`, `crates/hl2-bevy/src/rendering/runtime.rs`: thread `MaterialSlots` through map install (`clear_lights` on map load), share non-reflective, non-two-texture, non-commentary lit materials at map load and runtime spawn via spawn-time `MeshTag` (removing dead `rendering::spawn_map`), keep `present_lighting`, `present_ragdoll_fades` (moved from `rendering.rs`), and `present_render_colors` read-only on `MeshMaterial3d` and `MeshTag` with copy-on-write `detach_tagged_material` (`dynamic.w = 1`), and fall back to `copy_asset` for reflective draws (`ModelLit::reflects`) or slot overflow.
+  - `scripts/checks/architecture-baseline.json`: tighten `crates/hl2-bevy/src/rendering.rs` (`1198 -> 1143`), `hl2-bevy dead_code allowances` (`12 -> 11`), and remove 2 resolved duplicate blocks.
+  - `docs/optimization-backlog.md`, `docs/performance.md`: mark `O41` `done` and record dual-scene `--profile` A/B results (`mixed-crowd.json` and `quiet.json`) and replay verification.
+- Why: Per-entity `SourceMaterial` cloning at map load and runtime spawn forced redundant material bind groups and `render_graph` work (`1,886` map-load materials plus runtime crowd copies), while storing `1024` lighting slots in the combined `MATERIAL_ROWS` buffer caused animated materials to copy `560 KiB` every frame. Splitting `LIGHT_ROWS` (`496 KiB`) from `MATERIAL_ROWS` (`16 KiB`) with dirty-range uploads and read-only `PostUpdate` `MeshTag` queries avoids both regressions.
+- Tested how:
+  - `cargo test -p hl2-bevy --lib --locked -- lighting` (`7/7` passed) and `cargo test -p hl2-bevy --lib --locked -- material_slots` (`8/8` passed).
+  - 3 alternating `--profile` release A/B pairs (`28078e30` `sha256 5a7f0038` vs `O41` `sha256 c8c336b4`) on `d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json` and `test-inputs/performance-research/quiet.json`.
+  - `NO_BUILD=1 ONLY="flashlight_shadows flashlight_viewmodel lamp_emission campaign commentary pallet-gibs-fade entities-weapons" python3 scripts/checks/replays.py`.
+  - `cargo fmt --all`, full validation suite, and cross-compile check for Windows.
+- Result:
+  - Map-load `render.materials`: `1,886 -> 1,267` (`-619`, `-32.8%`).
+  - `mixed-crowd.json` (3-pair median): `render_graph` `4.765 -> 4.600 ms` (`-3.5%`, no A/B overlap), `frame_total` `12.24 -> 12.16 ms` (`-0.7%`), `fight_ms` `11.77 -> 11.66 ms` (`-0.9%`), `PostUpdate` `5.413 -> 5.388 ms` (`-0.5%`).
+  - `quiet.json` (3-pair median, `0.03–0.07 ms` spread): `frame_total` `4.382 -> 4.343 ms` (`-0.9%`), `fight_ms` `4.37 -> 4.33 ms` (`-0.9%`), `render_graph` `1.964 -> 1.936 ms` (`-1.4%`), `render_assets` `0.1239 -> 0.1155 ms` (`-6.8%`, `p95 0.2368 -> 0.2057`), `render_prepare` `0.6985 -> 0.6944 ms` (`-0.6%`), `PostUpdate` `1.9824 -> 1.9994 ms` (`+0.017 ms`).
+  - Replays (`7/7`), validation suite, and Windows cross-check pass.
+- Still broken or not tested: Windows runtime **not tested**.
+- Next: implement `O30` (GPU facial flexes via Bevy `MorphTargets` and `MeshMorphWeights`).
+
 ## 2026-11-23 — `O25`: Replace `update_mesh_previous_global_transforms` in `PreUpdate` to filter movable meshes and active motion-vector views
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).

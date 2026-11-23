@@ -29,13 +29,13 @@ mod face_flex;
 mod face_split;
 pub use face_flex::FlexModels;
 mod lighting;
-use lighting::ModelLit;
+pub(crate) use lighting::ModelLit;
+pub use lighting::{present_lighting, present_ragdoll_fades, present_render_colors};
 mod lightstyles;
 pub use lightstyles::{LightmapPages, LightmapWritesPlugin, apply_lightstyles};
 pub(crate) mod lod;
 mod map_draw;
 mod material;
-pub use lighting::present_lighting;
 pub use material::MaterialKey;
 mod model_cache;
 mod model_lighting;
@@ -105,7 +105,8 @@ pub struct SourceMaterial {
     pub(crate) flashlight: Handle<Image>,
     #[uniform(0)]
     pub(crate) viewmodel_flashlight: crate::flashlight::ViewmodelLight,
-    /// `material_slots`: x material slot, y 1 when it holds the tint colour, z lighting slot (-1 none).
+    /// `material_slots`: x material slot, y 1 when it holds the tint colour, z lighting slot (-1 none),
+    /// w 1 when detached from a shared lit material for per-draw fade or render color.
     #[uniform(0)]
     pub(crate) dynamic: Vec4,
     /// Every eye's iris projection rows ([`crate::eyes::EYE_ROWS`]).
@@ -114,6 +115,9 @@ pub struct SourceMaterial {
     /// Per-frame material values ([`crate::material_slots`]).
     #[storage(21, read_only)]
     pub(crate) material_rows: Handle<bevy::render::storage::ShaderBuffer>,
+    /// Per-entity model lighting rows ([`crate::material_slots`]).
+    #[storage(22, read_only)]
+    pub(crate) light_rows: Handle<bevy::render::storage::ShaderBuffer>,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
 }
@@ -435,58 +439,6 @@ pub fn present_entities(
     }
 }
 
-/// C_ClientRagdoll::FadeOut: a retired ragdoll's model blends out (kRenderTransAlpha).
-pub fn present_ragdoll_fades(
-    game: Res<crate::gameplay::Gameplay>,
-    draws: Query<(&ModelLit, &MeshMaterial3d<SourceMaterial>)>,
-    mut materials: ResMut<Assets<SourceMaterial>>,
-) {
-    if game.ragdolls.fading() == 0 {
-        return;
-    }
-    for (lit, MeshMaterial3d(mat)) in &draws {
-        let Some(alpha) = lit.entity.and_then(|id| game.ragdolls.fade_alpha(id)) else {
-            continue;
-        };
-        if materials.get(mat).is_some_and(|m| m.tint.w != alpha)
-            && let Some(mut m) = materials.get_mut(mat)
-        {
-            m.tint.w = alpha;
-            m.alpha = AlphaMode::Blend;
-        }
-    }
-}
-/// SetRenderColor at runtime (Scene::render_colors, e.g. a burning zombie's Scorch): the
-/// entity's model materials take the color in place of their keyvalue modulation; its
-/// client ragdoll keeps the entity id and so the color (C_ClientRagdoll copies it).
-pub fn present_render_colors(
-    game: Res<crate::gameplay::Gameplay>,
-    draws: Query<(&ModelLit, &MeshMaterial3d<SourceMaterial>)>,
-    mut materials: ResMut<Assets<SourceMaterial>>,
-    mut base: Local<std::collections::HashMap<AssetId<SourceMaterial>, Vec4>>,
-) {
-    if game.scene.render_colors.is_empty() {
-        return;
-    }
-    for (lit, MeshMaterial3d(mat)) in &draws {
-        let Some(id) = lit.entity else { continue };
-        let (Some(color), Some(m)) = (game.scene.render_colors.get(&id), materials.get(mat)) else {
-            continue;
-        };
-        let original = *base.entry(mat.id()).or_insert(m.tint);
-        // The runtime color replaces the keyvalue color the material was built with.
-        let keyvalue = entity_modulation(&game.world, id)
-            .truncate()
-            .max(Vec3::splat(1e-3));
-        let rgb = Vec3::from_array(color.map(|c| f32::from(c) / 255.));
-        let tint = (original.truncate() / keyvalue * rgb).extend(m.tint.w);
-        if m.tint != tint
-            && let Some(mut m) = materials.get_mut(mat)
-        {
-            m.tint = tint;
-        }
-    }
-}
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Owner {
     World,
@@ -505,31 +457,6 @@ impl Owner {
     }
 }
 
-#[allow(dead_code)]
-pub fn spawn_map(
-    loaded: &LoadedMap,
-    commands: &mut Commands,
-    (meshes, inverse_binds): (
-        &mut Assets<Mesh>,
-        &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
-    ),
-    materials: &mut Assets<SourceMaterial>,
-    images: &mut Assets<Image>,
-    status: &Status,
-    (camera_target, cpu_skinning, world_partition): (&Handle<Image>, bool, bool),
-) {
-    spawn_map_filtered(
-        loaded,
-        commands,
-        (meshes, inverse_binds),
-        materials,
-        images,
-        status,
-        (camera_target, cpu_skinning, world_partition),
-        (hl2_ui::config::Filtering::Trilinear, Default::default()),
-    );
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_map_filtered(
     loaded: &LoadedMap,
@@ -538,7 +465,10 @@ pub fn spawn_map_filtered(
         &mut Assets<Mesh>,
         &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
     ),
-    materials: &mut Assets<SourceMaterial>,
+    (materials, slots): (
+        &mut Assets<SourceMaterial>,
+        &mut crate::material_slots::MaterialSlots,
+    ),
     images: &mut Assets<Image>,
     status: &Status,
     (camera_target, cpu_skinning, world_partition): (&Handle<Image>, bool, bool),
@@ -822,7 +752,9 @@ pub fn spawn_map_filtered(
         let modulation = owner
             .entity()
             .map_or(Vec4::ONE, |id| entity_modulation(world, id));
-        // Studio models carry per-entity light state, so their materials are not shared.
+        // Non-reflective lit draws share one material handle per (name, lightmap, modulation) and
+        // read per-entity lighting from `MaterialSlots` via `MeshTag`; reflective, viewmodel,
+        // commentary-node, and two-texture draws keep their own material handle.
         let lit = batch.model
             && matches!(
                 owner,
@@ -830,12 +762,26 @@ pub fn spawn_map_filtered(
             )
             && !definition.unlit
             && !definition.camera;
+        let reflects = lit && definition.model_envmap && !plain_materials;
+        let commentary = owner.entity().is_some_and(|id| {
+            world
+                .entities
+                .get(id)
+                .is_some_and(|e| e.class() == "point_commentary_node")
+        });
+        let shared_lit_key = owner
+            .entity()
+            .filter(|_| lit && !reflects && !commentary && definition.two_texture.is_none())
+            .map(|id| (Some(id), definition.half_lambert))
+            .filter(|&key| slots.has_slot_for(key));
         let material = material_handles
             .entry((
                 name.clone(),
                 lm,
+                lit,
                 modulation.to_array().map(f32::to_bits),
-                (lit || definition.two_texture.is_some()).then(|| owner.clone()),
+                ((lit && shared_lit_key.is_none()) || definition.two_texture.is_some())
+                    .then(|| owner.clone()),
             ))
             .or_insert_with(|| {
                 let mut material = make_material(
@@ -861,12 +807,7 @@ pub fn spawn_map_filtered(
                     }))
                     .extend(1.);
                 }
-                reflections.bind(
-                    &mut material,
-                    &name,
-                    batch.model,
-                    lit && definition.model_envmap,
-                );
+                reflections.bind(&mut material, &name, batch.model, reflects);
                 if lit {
                     material.lighting = ModelLighting::fallback(definition.half_lambert);
                 }
@@ -1012,9 +953,13 @@ pub fn spawn_map_filtered(
         let lods = (&mut *meshes, &mut shared_levels);
         insert_map_draw_components(&mut draw, &cx, &handle, animation.as_ref(), lods);
         if let Some((entity, key, scale)) = lit_draw {
+            if let Some(slot_key) = shared_lit_key
+                && let Some(tag) = slots.assign_draw_tag(draw.id(), slot_key)
+            {
+                draw.insert(bevy::mesh::MeshTag(tag));
+            }
             draw.insert(
-                ModelLit::new(entity, key, scale, definition.half_lambert)
-                    .reflecting(definition.model_envmap && !plain_materials),
+                ModelLit::new(entity, key, scale, definition.half_lambert).reflecting(reflects),
             );
         }
         if let Some(animation) = animation {

@@ -184,14 +184,15 @@ struct RuntimeDrawParts<'a> {
     weapon: Option<&'a NpcWeaponDraw>,
     eye: Option<&'a EyeMesh>,
     lit: Option<&'a ModelLit>,
+    tag_lit: bool,
     animation: Option<&'a super::AnimatedMesh>,
     pvs: bool,
 }
 
 fn spawn_runtime_instance_draw(
     commands: &mut Commands,
-    id: usize,
-    transform: Transform,
+    slots: &mut crate::material_slots::MaterialSlots,
+    (id, transform): (usize, Transform),
     gpu: Option<&crate::gpu_skinning::Skeleton>,
     parts: RuntimeDrawParts,
     levels: Option<super::lod::ModelLevels>,
@@ -229,12 +230,16 @@ fn spawn_runtime_instance_draw(
         });
     }
     if let Some(lit) = parts.lit {
-        draw.insert(ModelLit::new(
-            Some(id),
-            lit.key.clone(),
-            lit.scale,
-            lit.half_lambert,
-        ));
+        let draw_entity = draw.id();
+        if parts.tag_lit
+            && let Some(tag) = slots.assign_draw_tag(draw_entity, (Some(id), lit.half_lambert))
+        {
+            draw.insert(bevy::mesh::MeshTag(tag));
+        }
+        draw.insert(
+            ModelLit::new(Some(id), lit.key.clone(), lit.scale, lit.half_lambert)
+                .reflecting(lit.reflects()),
+        );
     }
     if let Some(animation) = parts.animation {
         if let Some(skeleton) = gpu {
@@ -247,14 +252,19 @@ fn spawn_runtime_instance_draw(
     }
 }
 
+type RuntimeAssets<'w> = (
+    ResMut<'w, Assets<Mesh>>,
+    ResMut<'w, Assets<SourceMaterial>>,
+    ResMut<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+);
+
 pub fn spawn_runtime_draws(
     mut commands: Commands,
     mut game: ResMut<crate::gameplay::Gameplay>,
     mut eyes: ResMut<crate::eyes::Eyes>,
     draws: Query<TemplateDraw>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<SourceMaterial>>,
-    mut inverse_binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    (mut meshes, mut materials, mut inverse_binds): RuntimeAssets,
+    mut slots: ResMut<crate::material_slots::MaterialSlots>,
 ) {
     if game.render_spawns.is_empty() {
         return;
@@ -299,9 +309,12 @@ pub fn spawn_runtime_draws(
                 (None, true) => copy_asset(&mut meshes, &draw.1.0),
                 (None, false) => Some(draw.1.0.clone()),
             };
+            let tag_lit = draw.8.is_some_and(|lit| {
+                !lit.reflects() && slots.has_slot_for((Some(id), lit.half_lambert))
+            });
             let material = match draw.8 {
-                Some(_) => copy_asset(&mut materials, &draw.2.0),
-                None => Some(draw.2.0.clone()),
+                Some(_) if !tag_lit => copy_asset(&mut materials, &draw.2.0),
+                _ => Some(draw.2.0.clone()),
             };
             let (Some(mesh), Some(material)) = (mesh, material) else {
                 continue;
@@ -315,10 +328,18 @@ pub fn spawn_runtime_draws(
                 weapon: draw.6,
                 eye: draw.7,
                 lit: draw.8,
+                tag_lit,
                 animation: draw.9,
                 pvs: draw.10,
             };
-            spawn_runtime_instance_draw(&mut commands, id, transform, gpu.as_ref(), parts, levels);
+            spawn_runtime_instance_draw(
+                &mut commands,
+                &mut slots,
+                (id, transform),
+                gpu.as_ref(),
+                parts,
+                levels,
+            );
         }
     }
 }

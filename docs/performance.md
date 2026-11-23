@@ -1,5 +1,28 @@
 # Performance measurements - 2026-10-05
 
+## `O41` — Share non-reflective lit `SourceMaterial`s via `MeshTag` and split `LIGHT_ROWS` storage buffer (2026-11-23)
+
+Measured on Apple M1 Pro across 3 alternating `--profile` release pairs per scene (`28078e30` `sha256 5a7f0038` vs `O41` `sha256 c8c336b4`):
+
+- **Changes:**
+  - `crates/hl2-bevy/assets/shaders/source.wgsl`, `crates/hl2-bevy/src/material_slots/lighting.rs`, `crates/hl2-bevy/src/rendering/lighting.rs`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/rendering/runtime.rs`, `crates/hl2-bevy/src/map_install.rs`: read per-draw `MeshTag` via `mesh_functions::get_tag(instance_index)` in `@fragment` (`tag > 0` -> `slot = tag - 1`), assign `MeshTag` at spawn time (`1024` slots, initialized with `ModelLighting::fallback`, cleared on map install via `slots.clear_lights()`, released on `RemovedComponents<ModelLit>`) so non-reflective, non-two-texture, non-commentary lit models share `SourceMaterial` handles across entities at both map load and runtime spawns while keeping `present_lighting`, `present_ragdoll_fades`, and `present_render_colors` read-only on `MeshMaterial3d` and `MeshTag` (with `detach_tagged_material` copy-on-write `dynamic.w = 1` on fade/rendercolor, and `copy_asset` fallback for reflective models or slot overflow).
+  - `crates/hl2-bevy/src/material_slots.rs`, `crates/hl2-bevy/src/rendering/material.rs`, `crates/hl2-bevy/src/sky.rs`: move lighting slots into a dedicated `@binding(22)` `LIGHT_ROWS` buffer (`1024 x 31` rows = `496 KiB`) separate from animated `MATERIAL_ROWS` (`@binding(21)`, `256 x 4` rows = `16 KiB`), upload `material_slots::upload` `.after(rendering::present_lighting)`, and replace full-buffer `encase` serialization with in-place dirty-range `write_rows_range`.
+  - Earlier iterations measured on the way here: an initial prototype using `&mut MeshMaterial3d` / `&mut MeshTag` in `present_lighting` with `2048` slots in the combined buffer regressed `PostUpdate` parallel scheduling (`5.44 -> 6.31 ms` crowd), and putting `1024` lighting slots in the combined buffer (`560 KiB`) regressed `quiet.json` `render_assets` (`0.125 -> 0.136 ms`, `+8.3%`) because animated monitors triggered a `560 KiB` buffer copy every frame; splitting `LIGHT_ROWS` and writing dirty slices eliminated that overhead.
+- **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json` (`O25` `5a7f0038` vs `O41` `c8c336b4`, 3 pairs):**
+  - Map-load `render.materials`: **`1,886 -> 1,267` (`-619`, `-32.8%`)**.
+  - `render_graph` mean (median): **`4.7654 -> 4.5998 ms` (`-3.5%`, `-0.166 ms`)** (`A: 4.7447 / 4.8287 / 4.7654`, `B: 4.6141 / 4.5884 / 4.5998`; `p95 5.7434 -> 5.5496`).
+  - `frame_total` mean (median): **`12.2437 -> 12.1551 ms` (`-0.7%`)** (`A: 12.2437 / 12.2796 / 12.1088`, `B: 12.1809 / 12.0420 / 12.1551`).
+  - `fight_ms` median: **`11.77 -> 11.66 ms` (`-0.9%`)**; `run_ms` median: **`12.14 -> 12.08 ms` (`-0.5%`)**.
+  - `main_schedule.PostUpdate` mean (median): **`5.4131 -> 5.3878 ms` (`-0.5%`)**; `render_prepare`: `0.9561 -> 0.9571 ms`.
+- **`d1_trainstation_02` `test-inputs/performance-research/quiet.json` (static spawn with lit props, 3 pairs, `0.03–0.07 ms` spread):**
+  - `frame_total` mean (median): **`4.3820 -> 4.3430 ms` (`-0.9%`)** (`A: 4.3835 / 4.3820 / 4.3579`, `B: 4.3911 / 4.3195 / 4.3430`).
+  - `fight_ms` median: **`4.37 -> 4.33 ms` (`-0.9%`)**; `run_ms` median: **`4.38 -> 4.35 ms` (`-0.7%`)**.
+  - `render_graph` mean (median): **`1.9639 -> 1.9358 ms` (`-1.4%`)**.
+  - `render_assets` mean (median): **`0.1239 -> 0.1155 ms` (`-6.8%`**, `p95 0.2368 -> 0.2057 ms` [`-13.1%`]).
+  - `render_prepare` mean (median): **`0.6985 -> 0.6944 ms` (`-0.6%`)**.
+  - `main_schedule.PostUpdate` mean (median): `1.9824 -> 1.9994 ms` (`+0.017 ms`, offset by `-28 us` `render_graph` + `-8 us` `render_assets`).
+- **Fidelity:** `flashlight_shadows`, `flashlight_viewmodel`, `lamp_emission`, `campaign`, `commentary`, `pallet-gibs-fade`, and `entities-weapons` packaged replay checks all pass (`7/7`, 0 failed); `lighting` (`7/7`) and `material_slots` (`8/8`) unit tests pass.
+
 ## `O25` — Replace `update_mesh_previous_global_transforms` in `PreUpdate` to skip inactive motion views and static world meshes (2026-11-23)
 
 Measured on Apple M1 Pro (400-frame headless `--mode trace` A/B capture on `d1_trainstation_02` with `test-inputs/performance-research/quiet.json` and Ultra motion vectors active, baseline `1177db81` vs `O25`):

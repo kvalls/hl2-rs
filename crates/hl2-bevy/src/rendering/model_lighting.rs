@@ -64,7 +64,7 @@ impl ModelLighting {
         out
     }
     /// Unlit-data fallback: the former constant 180/255 gamma gray.
-    pub(super) fn fallback(half_lambert: bool) -> Self {
+    pub(crate) fn fallback(half_lambert: bool) -> Self {
         let gray = (180f32 / 255.).powf(2.2);
         Self {
             params: Vec4::new(1., 0., f32::from(half_lambert), 0.),

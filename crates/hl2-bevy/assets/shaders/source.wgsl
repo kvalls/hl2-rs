@@ -1,5 +1,6 @@
 #import "shaders/source_uniforms.wgsl"::material
 #import bevy_pbr::forward_io::VertexOutput
+#import bevy_pbr::mesh_functions
 #import bevy_pbr::mesh_view_bindings::{view, clustered_lights, lights, directional_shadow_textures, directional_shadow_textures_comparison_sampler}
 #import bevy_render::maths::orthonormalize
 #import bevy_pbr::clustered_forward
@@ -20,6 +21,8 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(20) var<storage, read> eye_rows: array<vec4<f32>>;
 // Per-frame material values (tint colour, texture transform columns), four rows per slot.
 @group(#{MATERIAL_BIND_GROUP}) @binding(21) var<storage, read> material_rows: array<vec4<f32>>;
+// Model lighting rows (material_slots::lighting, 31 rows per slot).
+@group(#{MATERIAL_BIND_GROUP}) @binding(22) var<storage, read> light_rows: array<vec4<f32>>;
 fn material_tint() -> vec4<f32> {
     if material.dynamic.x < 0.0 || material.dynamic.y < 0.5 { return material.tint; }
     return vec4(material_rows[u32(material.dynamic.x) * 4u].rgb, material.tint.a);
@@ -29,41 +32,44 @@ fn material_secondary_uv() -> mat3x3<f32> {
     let row = u32(material.dynamic.x) * 4u;
     return mat3x3(material_rows[row + 1u].xyz, material_rows[row + 2u].xyz, material_rows[row + 3u].xyz);
 }
-// Model lighting from its entity's slot (material_slots::lighting, 31 rows after the 1024 x 4
-// material rows) when material.dynamic.z names one, else the material's own.
-const LIGHT_BASE: u32 = 4096u;
-fn light_slot() -> bool { return material.dynamic.z >= 0.0; }
-fn light_row(i: u32) -> vec4<f32> { return material_rows[LIGHT_BASE + u32(material.dynamic.z) * 31u + i]; }
-fn light_params() -> vec4<f32> {
-    if light_slot() { return light_row(0u); }
+// Model lighting from its entity's slot when the draw's MeshTag (> 0) or material.dynamic.z
+// names one, else the material's own.
+fn light_slot_index(instance_index: u32) -> i32 {
+    let tag = mesh_functions::get_tag(instance_index);
+    if tag > 0u { return i32(tag - 1u); }
+    return select(-1, i32(material.dynamic.z), material.dynamic.z >= 0.0);
+}
+fn light_row(slot: i32, i: u32) -> vec4<f32> { return light_rows[u32(slot) * 31u + i]; }
+fn light_params(slot: i32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 0u); }
     return material.lighting.params;
 }
-fn light_basis() -> mat4x4<f32> {
-    if light_slot() { return mat4x4(light_row(1u), light_row(2u), light_row(3u), light_row(4u)); }
+fn light_basis(slot: i32) -> mat4x4<f32> {
+    if slot >= 0 { return mat4x4(light_row(slot, 1u), light_row(slot, 2u), light_row(slot, 3u), light_row(slot, 4u)); }
     return material.lighting.basis;
 }
-fn light_ambient(i: u32) -> vec4<f32> {
-    if light_slot() { return light_row(5u + i); }
+fn light_ambient(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 5u + i); }
     return material.lighting.ambient[i];
 }
-fn light_position(i: u32) -> vec4<f32> {
-    if light_slot() { return light_row(11u + i); }
+fn light_position(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 11u + i); }
     return material.lighting.position[i];
 }
-fn light_color(i: u32) -> vec4<f32> {
-    if light_slot() { return light_row(15u + i); }
+fn light_color(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 15u + i); }
     return material.lighting.color[i];
 }
-fn light_direction(i: u32) -> vec4<f32> {
-    if light_slot() { return light_row(19u + i); }
+fn light_direction(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 19u + i); }
     return material.lighting.direction[i];
 }
-fn light_attenuation(i: u32) -> vec4<f32> {
-    if light_slot() { return light_row(23u + i); }
+fn light_attenuation(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 23u + i); }
     return material.lighting.attenuation[i];
 }
-fn light_spot(i: u32) -> vec4<f32> {
-    if light_slot() { return light_row(27u + i); }
+fn light_spot(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 27u + i); }
     return material.lighting.spot[i];
 }
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
@@ -110,45 +116,49 @@ fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     return select(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, color <= vec3(0.04045));
 }
 // Source ambient cube (faces in Source axes) with squared-normal weighting.
-fn ambient_light(n: vec3<f32>) -> vec3<f32> {
+fn ambient_light(slot: i32, n: vec3<f32>) -> vec3<f32> {
     let s = vec3(n.x, -n.z, n.y);
     let n2 = s * s;
-    let x = select(light_ambient(0u).xyz, light_ambient(1u).xyz, s.x < 0.0);
-    let y = select(light_ambient(2u).xyz, light_ambient(3u).xyz, s.y < 0.0);
-    let z = select(light_ambient(4u).xyz, light_ambient(5u).xyz, s.z < 0.0);
+    let x = select(light_ambient(slot, 0u).xyz, light_ambient(slot, 1u).xyz, s.x < 0.0);
+    let y = select(light_ambient(slot, 2u).xyz, light_ambient(slot, 3u).xyz, s.y < 0.0);
+    let z = select(light_ambient(slot, 4u).xyz, light_ambient(slot, 5u).xyz, s.z < 0.0);
     return n2.x * x + n2.y * y + n2.z * z;
 }
 // SDK DoLighting: per light color * cosine (or half-Lambert) * distance/spot attenuation.
-fn model_light(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
-    var sum = ambient_light(n);
-    let count = i32(light_params().y);
+fn model_light(slot: i32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    var sum = ambient_light(slot, n);
+    let params = light_params(slot);
+    let count = i32(params.y);
     for (var i = 0; i < 4; i++) {
         if i >= count { break; }
-        let kind = light_position(u32(i)).w;
-        let to_light = light_position(u32(i)).xyz - p;
+        let pos = light_position(slot, u32(i));
+        let kind = pos.w;
+        let to_light = pos.xyz - p;
         let d2 = max(dot(to_light, to_light), 1e-6);
         let d = sqrt(d2);
         var l = to_light / d;
         var atten = 1.0;
+        let dir = light_direction(slot, u32(i)).xyz;
         if kind > 1.5 {
-            l = -light_direction(u32(i)).xyz;
+            l = -dir;
         } else {
-            atten = 1.0 / dot(light_attenuation(u32(i)).xyz, vec3(1.0, d, d2));
+            atten = 1.0 / dot(light_attenuation(slot, u32(i)).xyz, vec3(1.0, d, d2));
             if kind > 0.5 {
-                let cos_theta = dot(light_direction(u32(i)).xyz, -l);
-                var spot = max((cos_theta - light_spot(u32(i)).y) * light_spot(u32(i)).z, 0.0001);
-                spot = clamp(pow(spot, light_spot(u32(i)).x), 0.0, 1.0);
+                let spot_terms = light_spot(slot, u32(i));
+                let cos_theta = dot(dir, -l);
+                var spot = max((cos_theta - spot_terms.y) * spot_terms.z, 0.0001);
+                spot = clamp(pow(spot, spot_terms.x), 0.0, 1.0);
                 atten *= spot;
             }
         }
         var cosine = dot(n, l);
-        if light_params().z > 0.5 {
+        if params.z > 0.5 {
             let h = cosine * 0.5 + 0.5;
             cosine = h * h;
         } else {
             cosine = max(cosine, 0.0);
         }
-        sum += light_color(u32(i)).xyz * cosine * atten;
+        sum += light_color(slot, u32(i)).xyz * cosine * atten;
     }
     return sum;
 }
@@ -167,10 +177,11 @@ fn flashlight_base(to: vec3<f32>, n: vec3<f32>, projected: vec3<f32>, near: f32,
     let lambert = saturate(dot(n, -to / dist));
     return vec4(cookie * atten * lambert * fade, atten);
 }
-fn viewmodel_flashlight_color(position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+fn viewmodel_flashlight_color(slot: i32, position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
     if material.viewmodel_flashlight.limits.z < 0.5 { return vec3(0.0); }
-    let p = light_basis() * vec4(position, 1.0);
-    let n = normalize((light_basis() * vec4(normal, 0.0)).xyz);
+    let basis = light_basis(slot);
+    let p = basis * vec4(position, 1.0);
+    let n = normalize((basis * vec4(normal, 0.0)).xyz);
     return flashlight_base(p.xyz - material.viewmodel_flashlight.origin_linear.xyz, n,
         (material.viewmodel_flashlight.world_to_beam * p).xyz,
         material.viewmodel_flashlight.limits.x, material.viewmodel_flashlight.limits.y,
@@ -270,7 +281,9 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var vertex_color = mesh.color;
     // Vertex alpha is a blend weight there, never opacity (camera materials use it below).
     if material.parameters.w > -0.5 { vertex_color.a = 1.0; }
-    let lit = light_params().x > 0.5;
+    let lslot = light_slot_index(mesh.instance_index);
+    let lparams = light_params(lslot);
+    let lit = lparams.x > 0.5;
     if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
     if material.parameters.w < -0.5 {
         let uv = (material_secondary_uv() * vec3(mesh.uv, 1.0)).xy;
@@ -294,13 +307,14 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Procedural camera images are sampled through an sRGB view and are already linear.
     var rgb = select(srgb_to_linear(base.rgb) * baked, base.rgb, material.parameters.w < -0.5);
     if lit {
-        let p = (light_basis() * vec4(mesh.world_position.xyz, 1.0)).xyz;
-        let n = normalize((light_basis() * vec4(mesh.world_normal, 0.0)).xyz);
-        rgb = srgb_to_linear(base.rgb) * model_light(p, n);
+        let basis = light_basis(lslot);
+        let p = (basis * vec4(mesh.world_position.xyz, 1.0)).xyz;
+        let n = normalize((basis * vec4(mesh.world_normal, 0.0)).xyz);
+        rgb = srgb_to_linear(base.rgb) * model_light(lslot, p, n);
     }
-    if light_params().w > 1.5 && material.parameters.z < 0.5 && material.parameters.w > -0.5 {
-        rgb += srgb_to_linear(base.rgb) * viewmodel_flashlight_color(mesh.world_position.xyz, mesh.world_normal);
-    } else if light_params().w < 0.5 {
+    if lparams.w > 1.5 && material.parameters.z < 0.5 && material.parameters.w > -0.5 {
+        rgb += srgb_to_linear(base.rgb) * viewmodel_flashlight_color(lslot, mesh.world_position.xyz, mesh.world_normal);
+    } else if lparams.w < 0.5 {
         rgb += srgb_to_linear(base.rgb) * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
     }
     // SDK $selfillum: diffuse = lerp(diffuse, material.tint * albedo, base alpha), before specular.

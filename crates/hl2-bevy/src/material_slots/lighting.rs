@@ -9,11 +9,11 @@ use crate::rendering::{ModelLighting, SourceMaterial};
 use bevy::{
     math::{Mat4, Vec4},
     platform::collections::HashMap,
-    prelude::{AssetId, Assets, Handle},
+    prelude::{AssetId, Assets, Entity, Handle},
 };
 
 /// Lit entities the buffer holds.
-pub(super) const SLOTS: usize = 512;
+pub(super) const SLOTS: usize = 1024;
 /// A [`ModelLighting`] as rows: params, the basis columns, the six ambient faces, then the four
 /// lights' positions, colours, directions, attenuations and spot terms (as in `source.wgsl`).
 pub(super) const ROWS: usize = 31;
@@ -25,17 +25,26 @@ pub type LightKey = (Option<usize>, bool);
 pub(super) struct LightSlots {
     by_key: HashMap<LightKey, u32>,
     by_material: HashMap<AssetId<SourceMaterial>, u32>,
-    /// Each slot's owner and how many materials draw from it.
+    by_draw: HashMap<Entity, u32>,
+    /// Each slot's owner and how many materials or tagged draws draw from it.
     users: HashMap<u32, (LightKey, u32)>,
     free: Vec<u32>,
     next: u32,
 }
 impl LightSlots {
-    /// A removed material stops drawing from its slot; the last one frees it.
+    /// A removed material stops drawing from its slot; the last user frees it.
     pub(super) fn release(&mut self, id: AssetId<SourceMaterial>) {
-        let Some(slot) = self.by_material.remove(&id) else {
-            return;
-        };
+        if let Some(slot) = self.by_material.remove(&id) {
+            self.release_slot(slot);
+        }
+    }
+    /// A despawned lit draw stops drawing from its slot; the last user frees it.
+    pub(super) fn release_draw(&mut self, draw: Entity) {
+        if let Some(slot) = self.by_draw.remove(&draw) {
+            self.release_slot(slot);
+        }
+    }
+    fn release_slot(&mut self, slot: u32) {
         if let Some((key, count)) = self.users.get_mut(&slot) {
             *count = count.saturating_sub(1);
             if *count == 0 {
@@ -46,9 +55,17 @@ impl LightSlots {
             }
         }
     }
-    fn slot_for(&mut self, key: LightKey) -> Option<u32> {
+    /// Whether `key` already has a lighting slot or a slot is still available for it.
+    pub(super) fn has_slot_for(&self, key: LightKey) -> bool {
+        self.by_key.contains_key(&key) || !self.free.is_empty() || (self.next as usize) < SLOTS
+    }
+    /// Drops all lighting-slot assignments when installing a new map.
+    pub(super) fn clear(&mut self) {
+        *self = Self::default();
+    }
+    fn slot_for_with_status(&mut self, key: LightKey) -> Option<(u32, bool)> {
         if let Some(&slot) = self.by_key.get(&key) {
-            return Some(slot);
+            return Some((slot, false));
         }
         let slot = self.free.pop().or_else(|| {
             (self.next < SLOTS as u32).then(|| {
@@ -58,13 +75,17 @@ impl LightSlots {
         })?;
         self.by_key.insert(key, slot);
         self.users.insert(slot, (key, 0));
-        Some(slot)
+        Some((slot, true))
+    }
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn slot_for(&mut self, key: LightKey) -> Option<u32> {
+        self.slot_for_with_status(key).map(|(slot, _)| slot)
     }
 }
 
-/// The first row of lighting slot `slot` in the buffer.
+/// The first row of lighting slot `slot` in [`super::LIGHT_ROWS`].
 fn start(slot: u32) -> usize {
-    super::SLOTS * super::ROWS + slot as usize * ROWS
+    slot as usize * ROWS
 }
 
 fn rows_of(l: &ModelLighting) -> [Vec4; ROWS] {
@@ -103,8 +124,53 @@ impl MaterialSlots {
         id: AssetId<SourceMaterial>,
     ) -> ModelLighting {
         match self.lights.by_material.get(&id) {
-            Some(&slot) => from_rows(&self.rows[start(slot)..][..ROWS]),
+            Some(&slot) => from_rows(&self.light_rows[start(slot)..][..ROWS]),
             None => material.lighting,
+        }
+    }
+    /// The lighting a draw with `MeshTag(tag)` draws with: its tag's slot when `tag > 0`, else the material's.
+    pub fn draw_lighting(
+        &self,
+        tag: u32,
+        material: &SourceMaterial,
+        id: AssetId<SourceMaterial>,
+    ) -> ModelLighting {
+        if tag > 0 && ((tag - 1) as usize) < SLOTS {
+            from_rows(&self.light_rows[start(tag - 1)..][..ROWS])
+        } else {
+            self.lighting(material, id)
+        }
+    }
+    /// Whether a draw of `key` can take a shared per-entity lighting slot without mutating its
+    /// material asset.
+    pub fn has_slot_for(&self, key: LightKey) -> bool {
+        self.lights.has_slot_for(key)
+    }
+    /// Drops per-entity lighting slot assignments before spawning a newly loaded map.
+    pub fn clear_lights(&mut self) {
+        self.lights.clear();
+    }
+    /// Allocates or reuses a per-entity lighting slot for a tagged draw `draw` of `key`,
+    /// returning its `MeshTag` value (`slot + 1`). Newly created slots start with fallback lighting
+    /// so tagged draws never sample uninitialized rows before `present_lighting` writes them.
+    pub fn assign_draw_tag(&mut self, draw: Entity, key: LightKey) -> Option<u32> {
+        if let Some(&slot) = self.lights.by_draw.get(&draw) {
+            return Some(slot + 1);
+        }
+        let (slot, fresh) = self.lights.slot_for_with_status(key)?;
+        self.lights.by_draw.insert(draw, slot);
+        if let Some((_, count)) = self.lights.users.get_mut(&slot) {
+            *count += 1;
+        }
+        if fresh {
+            self.set_light_rows(start(slot), &rows_of(&ModelLighting::fallback(key.1)));
+        }
+        Some(slot + 1)
+    }
+    /// Writes `lighting` into the slot named by `MeshTag(tag)` (`tag > 0`).
+    pub fn write_tagged_lighting(&mut self, tag: u32, lighting: ModelLighting) {
+        if tag > 0 && ((tag - 1) as usize) < SLOTS {
+            self.set_light_rows(start(tag - 1), &rows_of(&lighting));
         }
     }
     /// Sets the lighting `handle`'s material draws with (the caller found it changed), shared
@@ -129,7 +195,7 @@ impl MaterialSlots {
             None => self.assign_lighting(materials, handle.id(), key),
         };
         match slot {
-            Some(slot) => self.set_rows(start(slot), &rows_of(&lighting)),
+            Some(slot) => self.set_light_rows(start(slot), &rows_of(&lighting)),
             None => {
                 if let Some(mut material) = materials.get_mut(handle) {
                     material.lighting = lighting;
@@ -235,19 +301,79 @@ mod tests {
         let m = assets.get(&handle).unwrap();
         assert_eq!((m.dynamic.z, m.lighting), (-1., lit(0.4)));
     }
+
+    #[test]
+    fn tagged_draws_share_one_material_and_release_their_slot_when_removed() {
+        use bevy::prelude::Entity;
+        let mut assets = Assets::<SourceMaterial>::default();
+        let mut slots = MaterialSlots::default();
+        let mut shared_material = test_material();
+        shared_material.lighting = lit(0.1);
+        let shared = assets.add(shared_material);
+        let draw_a1 = Entity::from_bits(10);
+        let draw_a2 = Entity::from_bits(11);
+        let draw_b = Entity::from_bits(20);
+        let key_a: LightKey = (Some(1), true);
+        let key_b: LightKey = (Some(2), false);
+        assert!(slots.has_slot_for(key_a));
+
+        let tag_a1 = slots.assign_draw_tag(draw_a1, key_a).unwrap();
+        // Fresh slots start with fallback lighting so frame-0 draws never sample zeros.
+        let m = assets.get(&shared).unwrap();
+        assert_eq!(m.dynamic.z, -1.);
+        assert_eq!(
+            slots.draw_lighting(tag_a1, m, shared.id()),
+            ModelLighting::fallback(true)
+        );
+        slots.write_tagged_lighting(tag_a1, lit(0.3));
+
+        // Another draw on the same entity reuses the tag without overwriting written lighting.
+        let tag_a2 = slots.assign_draw_tag(draw_a2, key_a).unwrap();
+        assert_eq!(tag_a2, tag_a1);
+        assert_eq!(slots.draw_lighting(tag_a2, m, shared.id()), lit(0.3));
+
+        // Another entity gets its own slot while sharing the same material asset.
+        let tag_b = slots.assign_draw_tag(draw_b, key_b).unwrap();
+        assert_ne!(tag_a1, tag_b);
+        slots.write_tagged_lighting(tag_b, lit(0.7));
+        assert_eq!(slots.draw_lighting(tag_a1, m, shared.id()), lit(0.3));
+        assert_eq!(slots.draw_lighting(tag_b, m, shared.id()), lit(0.7));
+
+        // Removing one draw of entity 1 keeps its slot live until the second draw is removed.
+        slots.lights.release_draw(draw_a1);
+        assert!(slots.lights.users.contains_key(&(tag_a1 - 1)));
+        slots.lights.release_draw(draw_a2);
+        assert_eq!(slots.lights.slot_for((Some(3), false)), Some(tag_a1 - 1));
+
+        // Overflow reports no free slots, and clear_lights resets for a new map.
+        slots.lights.free.clear();
+        slots.lights.next = SLOTS as u32;
+        assert!(!slots.has_slot_for((Some(4), false)));
+        assert_eq!(
+            slots.assign_draw_tag(Entity::from_bits(30), (Some(4), false)),
+            None
+        );
+
+        slots.clear_lights();
+        assert!(slots.has_slot_for((Some(4), false)));
+        assert_eq!(
+            slots.assign_draw_tag(Entity::from_bits(30), (Some(4), false)),
+            Some(1)
+        );
+    }
 }
 
 #[cfg(test)]
 mod shader_layout {
-    /// `source.wgsl` reads lighting slots at the same offset and stride as these rows.
+    /// `source.wgsl` reads lighting slots at the same binding and stride as [`super::LIGHT_ROWS`].
     #[test]
     fn the_shader_reads_lighting_rows_where_they_are_written() {
         let shader = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/assets/shaders/source.wgsl"
         ));
-        let base = super::super::SLOTS * super::super::ROWS;
-        assert!(shader.contains(&format!("const LIGHT_BASE: u32 = {base}u;")));
-        assert!(shader.contains(&format!("u32(material.dynamic.z) * {}u", super::ROWS)));
+        assert!(shader.contains("@binding(22) var<storage, read> light_rows: array<vec4<f32>>;"));
+        assert!(shader.contains(&format!("light_rows[u32(slot) * {}u + i]", super::ROWS)));
+        assert!(shader.contains("mesh_functions::get_tag(instance_index)"));
     }
 }

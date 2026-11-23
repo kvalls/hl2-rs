@@ -18,6 +18,7 @@ pub(crate) type StartupAssets<'w> = (
     bevy::ecs::system::ResMut<'w, Assets<MixerStream>>,
     bevy::ecs::system::ResMut<'w, Assets<effects::EffectMaterial>>,
     bevy::ecs::system::ResMut<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    bevy::ecs::system::ResMut<'w, crate::material_slots::MaterialSlots>,
 );
 
 pub(crate) type MapAssets<'a> = (
@@ -27,6 +28,7 @@ pub(crate) type MapAssets<'a> = (
     &'a mut Assets<MixerStream>,
     &'a mut Assets<effects::EffectMaterial>,
     &'a mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+    &'a mut crate::material_slots::MaterialSlots,
 );
 
 /// Milliseconds for the load report: the whole install (`install_ms`) and each step
@@ -70,7 +72,7 @@ pub(crate) fn install_loaded_map(
     filtering: hl2_ui::config::TextureSampling,
     target: Option<&bevy::asset::Handle<Image>>,
 ) -> InstallTimes {
-    let (meshes, materials, images, sounds, effect_materials, inverse_binds) = assets;
+    let (meshes, materials, images, sounds, effect_materials, inverse_binds, slots) = assets;
     install_map(
         loaded,
         commands,
@@ -81,6 +83,7 @@ pub(crate) fn install_loaded_map(
             &mut **sounds,
             &mut **effect_materials,
             &mut **inverse_binds,
+            &mut **slots,
         ),
         status,
         (
@@ -96,7 +99,7 @@ pub(crate) fn install_loaded_map(
 pub(crate) fn install_map(
     loaded: assets::LoadedMap,
     commands: &mut Commands,
-    (meshes, materials, images, sounds, effect_materials, inverse_binds): MapAssets,
+    (meshes, materials, images, sounds, effect_materials, inverse_binds, slots): MapAssets,
     status: &Status,
     (cpu_skinning, no_pvs, world_partition): (bool, bool, bool),
     (filtering, mute): (hl2_ui::config::TextureSampling, bool),
@@ -123,11 +126,12 @@ pub(crate) fn install_map(
     commands.insert_resource(runtime_npcs::RuntimeNpcs::new(loaded.vfs.clone()));
     let camera_target = monitors::install(&loaded, commands, images);
     laps.mark("monitors");
+    slots.clear_lights();
     rendering::spawn_map_filtered(
         &loaded,
         commands,
         (meshes, inverse_binds),
-        materials,
+        (materials, slots),
         images,
         status,
         (&camera_target, cpu_skinning, world_partition),

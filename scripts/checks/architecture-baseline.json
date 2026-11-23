@@ -1,7 +1,7 @@
 {
  "counts": {
   "hl2-bevy": {
-   "dead_code allowances": 12,
+   "dead_code allowances": 11,
    "glob imports": 27,
    "mutable statics": 4,
    "too_many_arguments allowances": 7
@@ -94,9 +94,7 @@
   "993d94d596d0",
   "9b232cd1417f",
   "9d080727a538",
-  "9ec8a216cb40",
   "9f0ef0916d4c",
-  "a4c21639b055",
   "a9113a641cb5",
   "aa8e8d1e0bf9",
   "ab26a1c4ce2b",
@@ -138,7 +136,7 @@
  ],
  "files": {
   "crates/hl2-bevy/src/gameplay.rs": 1374,
-  "crates/hl2-bevy/src/rendering.rs": 1198,
+  "crates/hl2-bevy/src/rendering.rs": 1143,
   "crates/hl2-bevy/src/video.rs": 1006,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2357,

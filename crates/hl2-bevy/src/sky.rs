@@ -288,6 +288,7 @@ fn face_material(
         viewmodel_flashlight: Default::default(),
         eye_rows: crate::eyes::EYE_ROWS,
         material_rows: crate::material_slots::MATERIAL_ROWS,
+        light_rows: crate::material_slots::LIGHT_ROWS,
         dynamic: bevy::math::Vec4::new(-1., 0., -1., 0.),
         envmap: black_cube.clone(),
         envmap_tint: Vec4::ZERO,
