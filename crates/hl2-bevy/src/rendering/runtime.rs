@@ -292,7 +292,7 @@ pub fn spawn_runtime_draws(
             let private_mesh = draw.7.is_some()
                 || draw
                     .9
-                    .is_some_and(|a| a.gpu.is_none() || !a.flex.is_empty());
+                    .is_some_and(|a| a.gpu.is_none() || !a.vertices.flex.is_empty());
             let levels = draw.11.and_then(|l| l.copy_for(&mut meshes, private_mesh));
             let mesh = match (&levels, private_mesh) {
                 (Some(levels), _) => Some(levels.root()),
@@ -506,7 +506,7 @@ fn spawn_template_body_batch(
     let eye = ctx.eyes.get(&(asset_key.clone(), name.clone()));
     let mut mesh = batch.mesh();
     if let Some(skel) = animation.as_ref().and_then(|a| a.gpu.as_ref()) {
-        skel.attributes(&mut mesh, &animation.as_ref().unwrap().bind);
+        skel.attributes(&mut mesh, &animation.as_ref().unwrap().vertices.bind);
     }
     if animation.is_some() || eye.is_some() {
         mesh.asset_usage = bevy::asset::RenderAssetUsages::MAIN_WORLD
@@ -659,7 +659,7 @@ fn spawn_template_weapon_batch(
         state.instance.scale,
     );
     let mut mesh = batch.mesh();
-    merged.attributes(&mut mesh, &animation.bind);
+    merged.attributes(&mut mesh, &animation.vertices.bind);
     mesh.asset_usage =
         bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD;
     animation.gpu = Some(merged.clone());

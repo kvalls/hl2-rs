@@ -257,12 +257,10 @@ pub struct AnimatedMesh {
     weapon: Option<String>,
     key: String,
     scale: f32,
-    bind: Vec<(glam::Vec3, Option<modkit_core::animation::Weights>)>,
-    /// Source-space bind normals for the CPU skinning path.
-    normals: Vec<glam::Vec3>,
-    /// Facial flex vertex references and the undeformed bind positions they start from.
-    flex: Vec<Option<[u16; 3]>>,
-    flex_base: Vec<glam::Vec3>,
+    /// Shared immutable bind positions, normals and facial flex vertex references.
+    vertices: Arc<lod::Vertices>,
+    /// Deformed bind positions for the CPU skinning path when facial flexes are active.
+    deformed: Option<Vec<glam::Vec3>>,
     flex_state: face_flex::FlexState,
 }
 impl AnimatedMesh {
@@ -280,18 +278,16 @@ impl AnimatedMesh {
             weapon,
             key,
             scale,
-            flex_base: if flexes {
-                batch.skin.iter().map(|(p, _)| *p).collect()
-            } else {
-                Vec::new()
-            },
-            normals: batch.normals.clone(),
-            bind: std::mem::take(&mut batch.skin),
-            flex: if flexes {
-                std::mem::take(&mut batch.flex)
-            } else {
-                Vec::new()
-            },
+            vertices: Arc::new(lod::Vertices {
+                bind: std::mem::take(&mut batch.skin),
+                normals: batch.normals.clone(),
+                flex: if flexes {
+                    std::mem::take(&mut batch.flex)
+                } else {
+                    Vec::new()
+                },
+            }),
+            deformed: None,
             flex_state: Default::default(),
         }
     }
@@ -304,10 +300,8 @@ impl AnimatedMesh {
             weapon: self.weapon.clone(),
             key: self.key.clone(),
             scale: self.scale,
-            bind: self.bind.clone(),
-            normals: self.normals.clone(),
-            flex: self.flex.clone(),
-            flex_base: self.flex_base.clone(),
+            vertices: Arc::clone(&self.vertices),
+            deformed: None,
             flex_state: Default::default(),
         }
     }
@@ -985,7 +979,7 @@ pub fn spawn_map_filtered(
         let animated = animation.is_some() || irises.contains_key(&name);
         let mut mesh = batch.mesh();
         if let Some(skeleton) = animation.as_ref().and_then(|a| a.gpu.as_ref()) {
-            skeleton.attributes(&mut mesh, &animation.as_ref().unwrap().bind);
+            skeleton.attributes(&mut mesh, &animation.as_ref().unwrap().vertices.bind);
         }
         if animated {
             mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
@@ -1134,7 +1128,7 @@ pub(crate) fn build_model_draws(
         if let Some(animation) = &animation
             && let Some(skeleton) = &animation.gpu
         {
-            skeleton.attributes(&mut mesh, &animation.bind);
+            skeleton.attributes(&mut mesh, &animation.vertices.bind);
         }
         if animation.is_some() {
             mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
@@ -1424,17 +1418,19 @@ mod tests {
                     weapon: None,
                     key,
                     scale: 2.,
-                    normals: Vec::new(),
-                    flex: Vec::new(),
-                    flex_base: Vec::new(),
+                    vertices: Arc::new(lod::Vertices {
+                        normals: Vec::new(),
+                        flex: Vec::new(),
+                        bind: vec![(
+                            glam::Vec3::X,
+                            Some(Weights {
+                                bones: [0; 3],
+                                weights: [1., 0., 0.],
+                            }),
+                        )],
+                    }),
+                    deformed: None,
                     flex_state: Default::default(),
-                    bind: vec![(
-                        glam::Vec3::X,
-                        Some(Weights {
-                            bones: [0; 3],
-                            weights: [1., 0., 0.],
-                        }),
-                    )],
                 },
                 Mesh3d(handle.clone()),
                 Aabb::default(),

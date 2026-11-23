@@ -4,22 +4,24 @@ use bevy::prelude::{Mesh, Vec3};
 
 /// The CPU skinning path: a mesh's positions and normals in this pose.
 pub(super) fn skin_on_cpu(mesh: &mut Mesh, animation: &AnimatedMesh, matrices: &[glam::Mat4]) {
-    let positions: Vec<_> = animation
-        .bind
+    let bind = &animation.vertices.bind;
+    let deformed = animation.deformed.as_deref();
+    let positions: Vec<_> = bind
         .iter()
-        .map(|(bind, weights)| {
+        .enumerate()
+        .map(|(i, (pos, weights))| {
+            let base = deformed.and_then(|d| d.get(i).copied()).unwrap_or(*pos);
             let p = weights
                 .as_ref()
-                .map_or(*bind, |w| modkit_core::animation::skin(*bind, w, matrices));
+                .map_or(base, |w| modkit_core::animation::skin(base, w, matrices));
             source_to_bevy(Vec3::from_array((p * animation.scale).to_array())).to_array()
         })
         .collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    if animation.normals.len() == animation.bind.len() {
-        let normals: Vec<_> = animation
-            .bind
+    if animation.vertices.normals.len() == bind.len() {
+        let normals: Vec<_> = bind
             .iter()
-            .zip(&animation.normals)
+            .zip(&animation.vertices.normals)
             .map(|((_, weights), normal)| {
                 let n = weights.as_ref().map_or(*normal, |w| {
                     skin_normal(*normal, w, matrices).normalize_or_zero()

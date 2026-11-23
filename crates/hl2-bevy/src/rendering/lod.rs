@@ -25,7 +25,7 @@ use bevy::{
     transform::components::Transform,
 };
 use modkit_core::{Surface, World};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// The LOD metric of a point at view depth `depth` (units along the view direction) for a view
 /// with `tan_half_fov` (tangent of half the vertical field of view) and `height` pixels: the
@@ -41,19 +41,17 @@ pub fn level_for(switches: &[f32], metric: f32) -> usize {
         .unwrap_or(switches.len().saturating_sub(1))
 }
 
-/// The per-vertex data a facial-flex draw's [`AnimatedMesh`] deforms, for one level.
-#[derive(Clone)]
-struct Vertices {
-    bind: Vec<(glam::Vec3, Option<modkit_core::animation::Weights>)>,
-    normals: Vec<glam::Vec3>,
-    flex: Vec<Option<[u16; 3]>>,
-    flex_base: Vec<glam::Vec3>,
+/// The immutable per-vertex data a facial-flex draw's [`AnimatedMesh`] reads, for one level.
+pub(super) struct Vertices {
+    pub(super) bind: Vec<(glam::Vec3, Option<modkit_core::animation::Weights>)>,
+    pub(super) normals: Vec<glam::Vec3>,
+    pub(super) flex: Vec<Option<[u16; 3]>>,
 }
 
 #[derive(Clone)]
 struct Level {
     mesh: Handle<Mesh>,
-    vertices: Option<Vertices>,
+    vertices: Option<Arc<Vertices>>,
     /// Triangles drawn at this level (render statistics).
     triangles: usize,
 }
@@ -124,7 +122,7 @@ impl SharedLevels {
     /// Whether facial flexes deform the draw: its model's flexes move a studio mesh one of its
     /// vertices comes from (every studio vertex carries a reference to its source mesh).
     fn deforms(&self, animation: &AnimatedMesh) -> bool {
-        if animation.flex.is_empty() {
+        if animation.vertices.flex.is_empty() {
             return false;
         }
         let Some(faces) = &self.faces else {
@@ -136,7 +134,7 @@ impl SharedLevels {
         let flexed: std::collections::BTreeSet<(usize, usize)> = (face.flex.meshes.iter())
             .map(|m| (m.bodypart, m.mesh))
             .collect();
-        (animation.flex.iter().flatten())
+        (animation.vertices.flex.iter().flatten())
             .any(|[bodypart, mesh, _]| flexed.contains(&((*bodypart).into(), (*mesh).into())))
     }
 }
@@ -165,12 +163,9 @@ pub(super) fn levels_for_draw(
         .iter()
         .find(|s| s.material == material && !s.vertices.is_empty())?;
     let flexes = animation.is_some_and(|a| shared.deforms(a));
-    let root_vertices = animation.filter(|_| flexes).map(|a| Vertices {
-        bind: a.bind.clone(),
-        normals: a.normals.clone(),
-        flex: a.flex.clone(),
-        flex_base: a.flex_base.clone(),
-    });
+    let root_vertices = animation
+        .filter(|_| flexes)
+        .map(|a| Arc::clone(&a.vertices));
     let mut levels = ModelLevels {
         switches: vec![0.],
         levels: vec![Level {
@@ -253,11 +248,12 @@ impl Coarser<'_> {
             Level {
                 mesh: meshes.add(mesh),
                 triangles,
-                vertices: self.flexes.then(|| Vertices {
-                    flex_base: skin.iter().map(|(p, _)| *p).collect(),
-                    bind: skin,
-                    normals,
-                    flex,
+                vertices: self.flexes.then(|| {
+                    Arc::new(Vertices {
+                        bind: skin,
+                        normals,
+                        flex,
+                    })
                 }),
             }
         };
@@ -340,10 +336,8 @@ pub(crate) fn switch_levels(
             triangles.0 = level.triangles;
         }
         if let (Some(mut animation), Some(vertices)) = (animation, &level.vertices) {
-            animation.bind = vertices.bind.clone();
-            animation.normals = vertices.normals.clone();
-            animation.flex = vertices.flex.clone();
-            animation.flex_base = vertices.flex_base.clone();
+            animation.vertices = Arc::clone(vertices);
+            animation.deformed = None;
             // The new mesh starts undeformed: rebuild its flexes.
             animation.flex_state = Default::default();
         }

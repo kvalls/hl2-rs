@@ -29,3 +29,80 @@ fn the_level_is_the_last_whose_switch_point_the_metric_reached() {
     assert_eq!(level_for(&[0., 30., 40.], 25.), 0);
     assert_eq!(level_for(&[0., 30., 40.], 35.), 1);
 }
+
+#[test]
+fn level_switches_and_template_copies_share_immutable_vertex_tables() {
+    use bevy::camera::PerspectiveProjection;
+    use bevy::ecs::{system::RunSystemOnce, world::World as BevyWorld};
+
+    let root_vertices = Arc::new(Vertices {
+        bind: vec![(glam::Vec3::ONE, None)],
+        normals: vec![glam::Vec3::Z],
+        flex: vec![Some([0, 0, 1])],
+    });
+    let coarser_vertices = Arc::new(Vertices {
+        bind: vec![(glam::Vec3::ZERO, None)],
+        normals: vec![glam::Vec3::Y],
+        flex: vec![Some([0, 0, 2])],
+    });
+    let template = AnimatedMesh {
+        sampled: None,
+        gpu: None,
+        entity: Some(1),
+        weapon: None,
+        key: "models/alyx.mdl".to_owned(),
+        scale: 1.0,
+        vertices: Arc::clone(&root_vertices),
+        deformed: Some(vec![glam::Vec3::X]),
+        flex_state: Default::default(),
+    };
+    let copied = template.copy_for(2, None);
+    assert!(Arc::ptr_eq(&template.vertices, &copied.vertices));
+
+    let mut world = BevyWorld::new();
+    let camera = world
+        .spawn((
+            crate::FlyCamera,
+            Transform::from_xyz(0., 0., 0.).looking_to(Vec3::NEG_Z, Vec3::Y),
+            Projection::Perspective(PerspectiveProjection {
+                fov: std::f32::consts::FRAC_PI_2,
+                ..Default::default()
+            }),
+        ))
+        .id();
+    let draw = world
+        .spawn((
+            Transform::from_xyz(0., 0., -500.),
+            ModelLevels {
+                switches: vec![0., 20.],
+                levels: vec![
+                    Level {
+                        mesh: Handle::default(),
+                        vertices: Some(Arc::clone(&root_vertices)),
+                        triangles: 100,
+                    },
+                    Level {
+                        mesh: Handle::default(),
+                        vertices: Some(Arc::clone(&coarser_vertices)),
+                        triangles: 40,
+                    },
+                ],
+                current: 0,
+            },
+            Mesh3d(Handle::default()),
+            template,
+        ))
+        .id();
+
+    world.run_system_once(switch_levels).unwrap();
+    let animation = world.get::<AnimatedMesh>(draw).unwrap();
+    assert!(Arc::ptr_eq(&animation.vertices, &coarser_vertices));
+    assert!(animation.deformed.is_none());
+
+    world
+        .entity_mut(camera)
+        .insert(Transform::from_xyz(0., 0., -490.).looking_to(Vec3::NEG_Z, Vec3::Y));
+    world.run_system_once(switch_levels).unwrap();
+    let animation = world.get::<AnimatedMesh>(draw).unwrap();
+    assert!(Arc::ptr_eq(&animation.vertices, &root_vertices));
+}

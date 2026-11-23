@@ -25,13 +25,14 @@ pub(super) struct ActorFlex {
 }
 pub(super) type FlexWeights = HashMap<(usize, *const FaceModel), ActorFlex>;
 
-/// A draw's face state: the signature its bind positions were last deformed for, and the
-/// vertex slot ([`source_assets::flexes::VertexSlots`]) of each of its flexed vertices, mapped
-/// once (empty until then; reset when the draw's vertices change, as on a LOD switch).
+/// A draw's face state: the signature it was last deformed for, its `(vertex, flex_slot)` pairs
+/// mapped once, and the last deformed bind positions (empty while at bind pose; reset on LOD switch).
 #[derive(Clone, Default)]
 pub(super) struct FlexState {
     signature: u64,
-    slots: Vec<Option<u32>>,
+    mapped: bool,
+    slots: Vec<(usize, usize)>,
+    applied: Vec<glam::Vec3>,
 }
 
 /// What the draws of this frame deform from.
@@ -48,6 +49,35 @@ fn flex_signature(weights: &[f32]) -> u64 {
     })
 }
 
+fn changed_vertices(
+    state: &mut FlexState,
+    bind: &[(glam::Vec3, Option<modkit_core::animation::Weights>)],
+    deltas: &[glam::Vec3],
+) -> Vec<(usize, glam::Vec3)> {
+    let mut changed = Vec::new();
+    if state.applied.is_empty() {
+        for (idx, &(i, slot)) in state.slots.iter().enumerate() {
+            let target = bind[i].0 + deltas[slot];
+            if bind[i].0 != target {
+                if state.applied.is_empty() {
+                    state.applied = state.slots.iter().map(|&(v, _)| bind[v].0).collect();
+                }
+                state.applied[idx] = target;
+                changed.push((i, target));
+            }
+        }
+    } else {
+        for (idx, &(i, slot)) in state.slots.iter().enumerate() {
+            let target = bind[i].0 + deltas[slot];
+            if state.applied[idx] != target {
+                state.applied[idx] = target;
+                changed.push((i, target));
+            }
+        }
+    }
+    changed
+}
+
 pub(super) fn apply_facial_flexes(
     animation: &mut AnimatedMesh,
     handle: &Mesh3d,
@@ -60,7 +90,7 @@ pub(super) fn apply_facial_flexes(
         animation.entity,
         models
             .and_then(|f| f.0.get(&animation.key))
-            .filter(|_| !animation.flex.is_empty()),
+            .filter(|_| !animation.vertices.flex.is_empty()),
     ) else {
         return;
     };
@@ -89,41 +119,45 @@ pub(super) fn apply_facial_flexes(
             .vertex_deltas(&model.slots, &actor.weights, &mut deltas);
         deltas
     });
-    if animation.flex_state.slots.len() != animation.flex.len() {
+    if !animation.flex_state.mapped {
         // Vertices no flex moves keep their undeformed bind position: no slot.
-        animation.flex_state.slots = (animation.flex.iter())
-            .map(|key| key.and_then(|key| model.slots.slot(key)))
+        animation.flex_state.slots = animation
+            .vertices
+            .flex
+            .iter()
+            .enumerate()
+            .filter_map(|(i, key)| {
+                let slot = (*key).and_then(|key| model.slots.slot(key))?;
+                Some((i, slot as usize))
+            })
             .collect();
+        animation.flex_state.mapped = true;
     }
-    let scale = animation.scale;
-    let mut changed = Vec::new();
-    for (i, slot) in (animation.flex_state.slots.iter().enumerate())
-        .filter_map(|(i, slot)| slot.map(|slot| (i, slot as usize)))
-    {
-        let target = animation.flex_base[i] + deltas[slot];
-        if animation.bind[i].0 != target {
-            animation.bind[i].0 = target;
-            changed.push(i);
-        }
-    }
+    let changed = changed_vertices(&mut animation.flex_state, &animation.vertices.bind, deltas);
     animation.flex_state.signature = signature;
     if changed.is_empty() {
         return;
     }
+    let scale = animation.scale;
     if animation.gpu.is_some() {
         let mut mesh = meshes.get_mut(&handle.0);
         let positions = mesh
             .as_deref_mut()
             .and_then(|m| m.attribute_mut(Mesh::ATTRIBUTE_POSITION));
         if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) = positions {
-            for &i in &changed {
+            for &(i, target) in &changed {
                 if let Some(p) = positions.get_mut(i) {
-                    *p = source_to_bevy(Vec3::from_array((animation.bind[i].0 * scale).to_array()))
-                        .to_array();
+                    *p = source_to_bevy(Vec3::from_array((target * scale).to_array())).to_array();
                 }
             }
         }
     } else {
+        let deformed = animation
+            .deformed
+            .get_or_insert_with(|| animation.vertices.bind.iter().map(|(p, _)| *p).collect());
+        for &(i, target) in &changed {
+            deformed[i] = target;
+        }
         // Force the CPU skinning path to rebuild from the deformed bind.
         animation.sampled = None;
     }

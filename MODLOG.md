@@ -1,5 +1,26 @@
 # MODLOG
 
+## 2026-11-23 — `O29`: Share immutable LOD flex vertex data via `Arc<lod::Vertices>`
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
+- Changed:
+  - `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/rendering/lod.rs`, `crates/hl2-bevy/src/rendering/face_flex.rs`, `crates/hl2-bevy/src/rendering/cpu_skin.rs`, `crates/hl2-bevy/src/rendering/runtime.rs`: wrap immutable per-level vertex tables (`bind`, `normals`, `flex`) in `Arc<lod::Vertices>` on `AnimatedMesh` and `lod::Level`, replace the redundant `flex_base` table with `deformed: Option<Vec<glam::Vec3>>` for CPU skinning when facial flexes are active, and share `Arc<lod::Vertices>` across `switch_levels` and `AnimatedMesh::copy_for`.
+  - `crates/hl2-bevy/src/rendering/lod/tests.rs`: add `level_switches_and_template_copies_share_immutable_vertex_tables` verifying pointer identity across `AnimatedMesh::copy_for` and `switch_levels` transitions.
+  - `scripts/checks/architecture-baseline.json`: tighten `crates/hl2-bevy/src/rendering.rs` (`1204 -> 1198`).
+  - `docs/optimization-backlog.md`, `docs/performance.md`: mark `O29` `done` and record `--mode trace` and 3-pair alternating `--profile` stage results on `mixed-crowd.json`.
+- Why: facial-flex LOD switches in `switch_levels` and runtime template copies in `AnimatedMesh::copy_for` previously cloned `bind`, `normals`, `flex`, and `flex_base` `Vec`s per draw, causing `switch_levels` spikes when spawned or moving actors crossed LOD thresholds.
+- Tested how:
+  - `cargo test -p hl2-bevy level_switches_and_template_copies_share_immutable_vertex_tables`.
+  - 400-frame headless `--mode trace` A/B capture on `d1_trainstation_02` with `test-inputs/performance-research/mixed-crowd.json`.
+  - Three alternating `--profile` stage pairs (`808989b5` vs `1a9830af` after warm-up) on `d1_trainstation_02` with `test-inputs/performance-research/mixed-crowd.json`.
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result:
+  - `hl2_bevy::rendering::lod::switch_levels` (400-frame `mixed-crowd.json` trace): `max` `0.6614 -> 0.0536 ms` (`-91.9%`, 12.3x lower max spike), `mean` `0.0219 -> 0.0183 ms` (`-16.5%`), `p99` `0.0431 -> 0.0400 ms`.
+  - `mixed-crowd.json` (3 alternating `--profile` stage pairs): `animation` median `1.685 -> 1.637 ms` (`-2.9%`, `p95 2.178 -> 2.096 ms` [`-3.8%`]), `main_schedule.PostUpdate` `5.641 -> 5.565 ms` (`-1.4%`), `frame_total` `13.02 -> 12.89 ms` (`-1.0%`).
+  - Unit tests, `validate.sh`, and `check_windows.sh` pass.
+- Still broken or not tested: Windows runtime **not tested**.
+- Next: implement `O21` per-frame heap-allocation reductions (`eyes.rs`, `material_slots.rs`, `canvas.rs`, `animation.rs`).
+
 ## 2026-11-23 — `O5`: `ClusterConfig::Single` on non-lit 3D cameras and dynamic `FlyCamera` clustering
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).

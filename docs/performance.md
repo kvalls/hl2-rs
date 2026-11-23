@@ -1,5 +1,21 @@
 # Performance measurements - 2026-10-05
 
+## `O29` — Share immutable LOD flex vertex data via `Arc<lod::Vertices>` (2026-11-23)
+
+Measured on Apple M1 Pro (`d1_trainstation_02`, `test-inputs/performance-research/mixed-crowd.json`, baseline `808989b5` from `6fe185eb` vs `1a9830af`):
+
+- **Root cause fixed:** `AnimatedMesh` and `lod::Level` stored separate heap `Vec` copies of immutable per-vertex `bind`, `normals`, `flex`, and `flex_base` tables. Every `AnimatedMesh::copy_for` (runtime NPC spawn from a template) and every facial-flex LOD switch in `hl2_bevy::rendering::lod::switch_levels` cloned all three/four `Vec`s (bursting on spawn frames when distant NPCs step off `LOD0`).
+- **Change:** `AnimatedMesh` and `lod::Level` share `Arc<lod::Vertices>` (`bind`, `normals`, `flex`), and `AnimatedMesh` replaces the duplicate `flex_base` table with `deformed: Option<Vec<glam::Vec3>>` populated only for the CPU skinning fallback when facial flexes are active. `switch_levels` and `AnimatedMesh::copy_for` clone the `Arc` pointer in $O(1)$ without heap allocation (`level_switches_and_template_copies_share_immutable_vertex_tables`).
+- **400-frame `--mode trace` A/B capture (`mixed-crowd.json`, covering spawn burst and movement across LOD switch distances):**
+  - `hl2_bevy::rendering::lod::switch_levels`:
+    - `max`: **`0.6614 -> 0.0536 ms` (`-91.9%`, 12.3x lower max spike)**.
+    - `mean`: **`0.0219 -> 0.0183 ms` (`-16.5%`)**.
+    - `p99`: `0.0431 -> 0.0400 ms` (`total 8.74 -> 7.30 ms` over 399 calls).
+- **Three alternating `--profile` stage pairs on `mixed-crowd.json` (`808989b5` vs `1a9830af`):**
+  - `animation`: **`1.685 -> 1.637 ms` median (`-2.9%`**, A `1.721 / 1.685 / 1.684`, B `1.665 / 1.637 / 1.626`; `p95` **`2.178 -> 2.096 ms`, `-3.8%`**).
+  - `main_schedule.PostUpdate`: **`5.641 -> 5.565 ms` median (`-1.4%`**, A `5.766 / 5.569 / 5.641`, B `5.694 / 5.565 / 5.550`; `p95` `6.998 -> 6.910 ms`).
+  - `frame_total`: **`13.02 -> 12.89 ms` median (`-1.0%`**, A `13.27 / 12.95 / 13.02`, B `13.31 / 12.89 / 12.84`).
+
 ## `O5` — `ClusterConfig::Single` on non-lit 3D cameras and dynamic `FlyCamera` clustering (2026-11-23)
 
 Measured on Apple M1 Pro (everyday `stages` release build, `--uncapped --profile`, three alternating A/B pairs after one discarded warm-up run, baseline `0e02e9b1` from `5d7950c5` vs `808989b5`):
