@@ -75,6 +75,7 @@ pub fn install(
     commands.spawn((
         crate::campaign::MapOwned,
         Camera3d::default(),
+        bevy::light::cluster::ClusterConfig::Single,
         Camera {
             order: -1,
             is_active: false,

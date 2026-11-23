@@ -1,5 +1,21 @@
 # Performance measurements - 2026-10-05
 
+## `O5` — `ClusterConfig::Single` on non-lit 3D cameras and dynamic `FlyCamera` clustering (2026-11-23)
+
+Measured on Apple M1 Pro (everyday `stages` release build, `--uncapped --profile`, three alternating A/B pairs after one discarded warm-up run, baseline `0e02e9b1` from `5d7950c5` vs `808989b5`):
+
+- **Root cause fixed:** all `Camera3d` entities (`FlyCamera`, `ViewmodelCamera`, `SkyCamera`, `MonitorCamera`, `IntroCamera`) defaulted to `ClusterConfig::FixedZ` (4,096 light clusters per view), running `assign_objects_to_clusters` (`main_schedule.PostUpdate`) and `prepare_clusters_for_cpu_clustering` (`render_prepare`) across thousands of clusters on views that never use clustered dynamic lights, and on `FlyCamera` even while the player's flashlight `SpotLight` is off.
+- **Change:** `ViewmodelCamera`, `SkyCamera`, `MonitorCamera`, and `IntroCamera` spawn with `ClusterConfig::Single`; `FlyCamera` spawns with `ClusterConfig::Single` and `flashlight::update` (`sync_camera_clusters`) toggles `FlyCamera` to `ClusterConfig::FixedZ` only while `host.light.is_some()`.
+- **Three alternating `--profile` stage pairs (`0e02e9b1` vs `808989b5`):**
+  - **`quiet.json` (flashlight off):**
+    - `render_prepare`: **`0.908 -> 0.681 ms` median (`-25.0%`**, A `0.903 / 0.908 / 0.908`, B `0.681 / 0.678 / 0.682`; `p95` **`1.141 -> 0.873 ms`, `-23.5%`**).
+    - `main_schedule.PostUpdate`: **`2.065 -> 1.958 ms` median (`-5.2%`**, A `2.065 / 2.058 / 2.075`, B `1.953 / 1.958 / 1.961`; `p95` `2.401 -> 2.298 ms`).
+    - `frame_total`: **`4.54 -> 4.32 ms` median (`-4.8%`**, A spread `0.04 ms`, B spread `0.03 ms`).
+  - **`test-inputs/bevy-flashlight-depth-actor.json` (`--capture-live --frames 450`, flashlight on):**
+    - `render_prepare`: **`1.526 -> 1.464 ms` median (`-4.1%`**, A `1.536 / 1.526 / 1.505`, B `1.431 / 1.464 / 1.496`), while `FlyCamera` uses `ClusterConfig::FixedZ` and the non-lit cameras stay on `ClusterConfig::Single`.
+    - `frame_total`: `6.01 -> 6.01 ms` median.
+- **Fidelity:** `flashlight_shadows` packaged replay check and `fly_camera_uses_single_cluster_only_while_flashlight_is_off` unit test pass with 0 failures.
+
 ## `O1` / `O20` — Moving-mesh `MotionRegion` scissoring across world and weapon motion blur and 25-tap jittered viewmodel gather (2026-11-23)
 
 Measured on Apple M1 Pro at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur, anisotropic 8x; everyday `stages` release build, baseline `c8f8e9ea` from `d8208f77` vs `365827f5` / `a14a1f8a`):

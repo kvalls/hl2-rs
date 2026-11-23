@@ -75,6 +75,7 @@ pub fn install(
         MonitorCamera,
         crate::video::OwnTarget,
         Camera3d::default(),
+        bevy::light::cluster::ClusterConfig::Single,
         Camera {
             order: -3,
             is_active: false,

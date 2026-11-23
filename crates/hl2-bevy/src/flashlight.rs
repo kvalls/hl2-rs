@@ -19,7 +19,7 @@ use bevy::{
         resource::Resource,
         system::{Commands, Query, Res, ResMut},
     },
-    light::SpotLight,
+    light::{SpotLight, cluster::ClusterConfig},
     math::Vec3,
     time::{Time, Virtual},
     transform::components::Transform,
@@ -82,13 +82,24 @@ type Scene<'w> = (
     ResMut<'w, Simulation>,
 );
 
+type FlyCameraQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static Transform,
+        Option<&'static mut ClusterConfig>,
+    ),
+    With<FlyCamera>,
+>;
+
 /// Applies toggles, runs the power and places the light.
 pub(crate) fn update(
     mut commands: Commands,
     time: Res<Time<Virtual>>,
     (ui, campaign, game, mut sim): Scene,
     mut host: ResMut<HostFlashlight>,
-    camera: Query<&Transform, With<FlyCamera>>,
+    mut camera: FlyCameraQuery,
     mut lights: Query<(&mut Transform, &mut SpotLight), Without<FlyCamera>>,
 ) {
     let Some(mut game) = game else {
@@ -128,7 +139,7 @@ pub(crate) fn update(
     for sound in state.sounds.drain(..) {
         sound_requests.push(sound.into());
     }
-    let placed = camera.single().ok().filter(|_| on).map(|camera| {
+    let placed = camera.single().ok().filter(|_| on).map(|(_, camera, _)| {
         let physics = &sim.physics;
         let trace = |from: glam::Vec3, to: glam::Vec3| {
             let delta = to - from;
@@ -151,6 +162,7 @@ pub(crate) fn update(
         .map(|ui| ui.source.config.video.advanced.shadow_detail);
     host.depth_shadows = depth::enabled(placed, detail == Some(hl2_ui::config::ShadowDetail::High));
     show(&mut commands, host, &mut lights);
+    sync_camera_clusters(&mut commands, &mut camera, host.light.is_some());
 }
 
 /// Spawns, moves or removes the flashlight's spot light.
@@ -175,6 +187,32 @@ fn show(
             *current_spot = spot;
         }
         None => host.entity = Some(commands.spawn((transform, spot)).id()),
+    }
+}
+
+fn sync_camera_clusters(commands: &mut Commands, camera: &mut FlyCameraQuery, lit: bool) {
+    let Ok((entity, _, existing)) = camera.single_mut() else {
+        return;
+    };
+    let want = if lit {
+        ClusterConfig::default()
+    } else {
+        ClusterConfig::Single
+    };
+    match existing {
+        Some(mut current) => {
+            let keep = if lit {
+                matches!(*current, ClusterConfig::FixedZ { .. })
+            } else {
+                matches!(*current, ClusterConfig::Single)
+            };
+            if !keep {
+                *current = want;
+            }
+        }
+        None => {
+            commands.entity(entity).insert(want);
+        }
     }
 }
 
@@ -232,5 +270,45 @@ mod tests {
             outside_circle <= 1,
             "the cookie fits the matching spotlight cone: {outside_circle}"
         );
+    }
+
+    #[test]
+    fn fly_camera_uses_single_cluster_only_while_flashlight_is_off() {
+        use bevy::app::{App, Update};
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut app = App::new();
+        let cam = app.world_mut().spawn((FlyCamera, Transform::IDENTITY)).id();
+
+        app.world_mut()
+            .run_system_once(|mut commands: Commands, mut camera: FlyCameraQuery| {
+                sync_camera_clusters(&mut commands, &mut camera, false);
+            })
+            .unwrap();
+        assert!(matches!(
+            app.world().get::<ClusterConfig>(cam),
+            Some(ClusterConfig::Single)
+        ));
+
+        app.world_mut()
+            .run_system_once(|mut commands: Commands, mut camera: FlyCameraQuery| {
+                sync_camera_clusters(&mut commands, &mut camera, true);
+            })
+            .unwrap();
+        assert!(matches!(
+            app.world().get::<ClusterConfig>(cam),
+            Some(ClusterConfig::FixedZ { .. })
+        ));
+
+        app.world_mut()
+            .run_system_once(|mut commands: Commands, mut camera: FlyCameraQuery| {
+                sync_camera_clusters(&mut commands, &mut camera, false);
+            })
+            .unwrap();
+        assert!(matches!(
+            app.world().get::<ClusterConfig>(cam),
+            Some(ClusterConfig::Single)
+        ));
+        let _ = Update;
     }
 }

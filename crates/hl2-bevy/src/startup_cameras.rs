@@ -2,6 +2,7 @@
 use super::{FlyCamera, Options, bloom, camera, source_direction, source_to_bevy, tonemap, video};
 use bevy::camera::MsaaWriteback;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::light::cluster::ClusterConfig;
 use bevy::prelude::{
     Camera, Camera2d, Camera3d, ClearColorConfig, Commands, Msaa, PerspectiveProjection,
     Projection, Transform, Vec3, default,
@@ -35,6 +36,7 @@ pub(super) fn spawn(
     ));
     commands.spawn((
         Camera3d::default(),
+        ClusterConfig::Single,
         Camera {
             order: 1,
             clear_color: ClearColorConfig::None,
@@ -66,6 +68,7 @@ pub(super) fn spawn(
     ));
     commands.spawn((
         Camera3d::default(),
+        ClusterConfig::Single,
         Camera {
             msaa_writeback: MsaaWriteback::Off,
             ..default()

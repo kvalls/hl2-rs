@@ -1,5 +1,25 @@
 # MODLOG
 
+## 2026-11-23 — `O5`: `ClusterConfig::Single` on non-lit 3D cameras and dynamic `FlyCamera` clustering
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
+- Changed:
+  - `crates/hl2-bevy/src/startup_cameras.rs`, `crates/hl2-bevy/src/sky.rs`, `crates/hl2-bevy/src/monitors.rs`, `crates/hl2-bevy/src/intro_view.rs`: assign `ClusterConfig::Single` to `ViewmodelCamera`, `SkyCamera`, `MonitorCamera`, and `IntroCamera` (and extract `spawn_intro_camera` in `intro_view.rs` to keep `update` under 100 lines), and initialize `FlyCamera` with `ClusterConfig::Single`.
+  - `crates/hl2-bevy/src/flashlight.rs`: add `sync_camera_clusters` (and `FlyCameraQuery` type alias) so `FlyCamera` uses `ClusterConfig::Single` while the flashlight `SpotLight` is inactive (`host.light.is_none()`) and switches to `ClusterConfig::FixedZ` only while `host.light.is_some()`; add unit test `fly_camera_uses_single_cluster_only_while_flashlight_is_off`.
+  - `docs/optimization-backlog.md`, `docs/performance.md`: mark `O5` `done` and record 3 alternating A/B `--profile` stage pairs on `quiet.json` and `bevy-flashlight-depth-actor.json`.
+- Why: every `Camera3d` defaulted to `ClusterConfig::FixedZ` (4,096 light clusters per view), paying per-frame `assign_objects_to_clusters` (`PostUpdate`) and `prepare_clusters_for_cpu_clustering` (`render_prepare`) costs on non-lit cameras and on `FlyCamera` while the flashlight was off.
+- Tested how:
+  - `cargo test -p hl2-bevy --lib --locked -- fly_camera_uses_single_cluster`.
+  - `NO_BUILD=1 ONLY='flashlight_shadows' python3 scripts/checks/replays.py`.
+  - Three alternating `--profile` stage pairs (`0e02e9b1` vs `808989b5` after warm-up) on `d1_trainstation_02` with `test-inputs/performance-research/quiet.json` (flashlight off) and `test-inputs/bevy-flashlight-depth-actor.json` (`--capture-live --frames 450`, flashlight on).
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result:
+  - `quiet.json` (3 alternating pairs): `render_prepare` median `0.908 -> 0.681 ms` (`-25.0%`, `p95 1.141 -> 0.873 ms`), `main_schedule.PostUpdate` `2.065 -> 1.958 ms` (`-5.2%`), `frame_total` `4.54 -> 4.32 ms` (`-4.8%`, spread `0.03–0.04 ms`).
+  - `bevy-flashlight-depth-actor.json` (3 alternating pairs, flashlight on): `render_prepare` median `1.526 -> 1.464 ms` (`-4.1%`), `frame_total` `6.01 -> 6.01 ms`.
+  - `flashlight_shadows`, unit tests, `validate.sh`, and `check_windows.sh` pass.
+- Still broken or not tested: Windows runtime **not tested**.
+- Next: implement `O29` `Arc<lod::Vertices>` sharing for zero-clone LOD/flex switching.
+
 ## 2026-11-23 — `O1` / `O20`: Moving-mesh `MotionRegion` scissoring across world and weapon motion blur and 25-tap jittered viewmodel gather
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
