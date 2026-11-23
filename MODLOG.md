@@ -1,5 +1,26 @@
 # MODLOG
 
+## 2026-11-23 — Fix shared-skeleton submesh omission in viewmodel motion blur
+- Agent/model: Antigravity (model ID not recorded).
+- Changed:
+  - Updated `plugins/hl2-advanced-options/src/bevy/weapon_blur/region.rs`: dropped `SkinnedMeshInverseBindposes` / `Assets` usage, added reusable `pending_joints: HashMap<Entity, Affine3A>` flushed once at the end of `collect()`, computed `prev_world = prev_joint * curr_joint.inverse() * curr_tf` (with `det.abs() < 1e-12` singular guard), refreshed pose history on `camera.is_active && blur.max == 0.` warmup frames, extracted `camera_region`, and added 3 Bevy ECS unit tests.
+- Why:
+  - `mesh_world_displacement` previously overwrote `state.prev_joints` mid-frame on submesh 0 of shared-`Skeleton` viewmodels and NPCs (`v_crowbar`, `v_bugbait`, etc.), causing submeshes 1..N to compute `0.0` displacement and get dropped from the `MotionRegion` scissor (`weapon_reduce_4` / `32` / `dilate`); it also evaluated bind-space `joint * inverse_bind` against animated mesh-local `DynamicSkinnedMeshBounds` `Aabb`.
+- Tested how:
+  - `cargo fmt --all` and `python3 scripts/checks/architecture.py` (checking `git diff -- crates/` is empty).
+  - `cargo test --locked -p hl2-advanced-options --features bevy region`.
+  - `scripts/build-bevy.sh` and `NO_BUILD=1 ONLY='motion_blur_options viewmodel_motion_blur' python3 scripts/checks/replays.py`.
+  - Packaged daylight `d1_trainstation_02` Ultra blur `--capture-burst 4` PNG inspections for `weapon_crowbar` (`misscenter1`), `weapon_bugbait` (`throw` and `squeeze`), and `weapon_smg1` (`fire01`).
+  - `BLUR_SCENES='still swing' BLUR_RUNS=1 NO_BUILD=1 python3 scripts/checks/check_blur_performance.py` (`3456x2168`, 4x MSAA, Apple M1 Pro Metal).
+  - Repo validation and Windows cross-check scripts after doc updates.
+- Result:
+  - `region` unit tests passed (`7/7`); replays passed (`2/2`, `5 s` and `62 s`); architecture check passed with zero grown violations (`74` long functions, `12` large files, `109` duplicated blocks known); captures confirmed unclipped blade/pod/arm blur on `v_crowbar`, `v_bugbait`, and `v_smg1`.
+  - `check_blur_performance.py`: `still-retail-0` mean `8.26 ms` (`p95 <= 11.0 ms`, `max 11.21 ms`) vs `still-advanced-0` (`blur_tier: ultra`) mean `10.90 ms` (`p95 <= 13.0 ms`, `max 12.55 ms`, `raw_weapon` `19.45%` / `30,515,562` texels, `raw_world` `44.46%` / `69,744,724` texels); `swing-retail-0` mean `8.33 ms` (`p95 <= 11.0 ms`, `max 11.21 ms`) vs `swing-advanced-0` mean `11.06 ms` (`p95 <= 13.0 ms`, `max 13.84 ms`, `raw_weapon` `21.20%` / `34,452,856` texels, `raw_world` `46.41%` / `75,413,122` texels). Improves on `docs/performance.md`'s prior Ultra baseline (`11.51` / `12.32 ms`, `p95 16.0 ms`) while retaining moving submeshes; script exited 1 solely on the pre-existing Ultra-vs-retail-Enabled `mean` guard and `< 3` 1s samples during 2.5s runs.
+- Still broken or not tested:
+  - Windows runtime, interactive live playthrough (`citizen_queue_start_1`, `crowbar`, `bugbait`), and `check_blur_performance.py` `turn` / `door` scenes **not tested** here.
+- Next:
+  - Commit viewmodel motion blur coverage fix and docs.
+
 ## 2026-11-23 — Clamp NPC eye deflection cone and smooth gaze transitions
 
 - Agent/model: Antigravity (model ID not recorded).

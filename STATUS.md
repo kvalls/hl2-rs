@@ -1,5 +1,9 @@
 # STATUS
 
+## Viewmodel motion blur shared-skeleton coverage (2026-11-23)
+- Fixed `plugins/hl2-advanced-options/src/bevy/weapon_blur/region.rs` so `mesh_world_displacement` reads `state.prev_joints` without mid-frame overwrite (flushing `pending_joints` once at the end of `collect()`), transforms animated `Aabb` corners via `prev_joint * curr_joint.inverse() * curr_tf`, and refreshes pose history on `camera.is_active && blur.max == 0.` warmup frames (`camera_region` extracted).
+- Verified `cargo test --locked -p hl2-advanced-options --features bevy region` (`7/7`), packaged rebuild, `motion_blur_options` + `viewmodel_motion_blur` replays (`2/2`), Ultra blur captures (`weapon_crowbar` `misscenter1`, `weapon_bugbait` `throw`/`squeeze`, `weapon_smg1` `fire01`), and `check_blur_performance.py` (`still` `10.90 ms`, `swing` `11.06 ms` on Metal `3456x2168` 4x MSAA). Windows runtime, live interactive play, and `turn`/`door` blur benchmark scenes **not tested** here.
+
 ## NPC eyeball gaze clamping and smoothing (2026-11-23)
 
 Fixed abrupt single-frame NPC eye gaze snapping and extreme corner deflection: `crates/source-assets/src/eyes.rs` now decodes `studiohdr2_t::flMaxEyeDeflection` (default `0.866`, cos 30 deg) and provides `clamp_view_target`, while `crates/hl2-bevy/src/eyes.rs` clamps and smoothly slews the rendered gaze once per visible actor per frame (`GAZE_TAU = 0.045`, freezing on pause, snapping on first sight, zero per-frame allocations) and shrinks `eyes::present` (`229 -> 119` baseline lines). Verified with 8 unit tests, the owned actor MDL test (`barney`, `kleiner`, `male_07`, `gman_high`, `police`), 10/10 face/gesture/monitor/attention replays, workspace validation, and Windows-target Clippy on macOS; interactive queue-citizen playthrough and Windows runtime are **not tested**.

@@ -7,13 +7,10 @@ use bevy::{
     },
     ecs::schedule::IntoScheduleConfigs,
     math::Affine3A,
-    mesh::{
-        Mesh3d,
-        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-    },
+    mesh::{Mesh3d, skinning::SkinnedMesh},
     prelude::{
-        App, Assets, Camera, Commands, Component, DetectChanges, Entity, GlobalTransform, Local,
-        Mat4, PostUpdate, Query, Ref, Res, UVec2, Vec2, Vec3, Vec3A, Vec4, With, Without,
+        App, Camera, Commands, Component, DetectChanges, Entity, GlobalTransform, Local, Mat4,
+        PostUpdate, Query, Ref, Res, UVec2, Vec2, Vec3, Vec3A, Vec4, With, Without,
     },
     render::extract_component::{ExtractComponent, ExtractComponentPlugin},
 };
@@ -176,6 +173,7 @@ struct RegionState {
     last_moved_mesh: HashMap<Entity, u64>,
     prev_transforms: HashMap<Entity, Affine3A>,
     prev_joints: HashMap<Entity, Affine3A>,
+    pending_joints: HashMap<Entity, Affine3A>,
     frame_mesh_motion: HashMap<Entity, f32>,
     prev_raw: HashMap<Entity, Vec4>,
 }
@@ -194,16 +192,11 @@ type MeshItem<'a> = (
     Option<&'a Aabb>,
     Option<Ref<'a, SkinnedMesh>>,
 );
-type SkinInputs<'w, 's> = (
-    Query<'w, 's, Ref<'static, GlobalTransform>>,
-    Option<Res<'w, Assets<SkinnedMeshInverseBindposes>>>,
-);
 
 fn mesh_world_displacement(
     mesh_entity: Entity,
     (mesh, mesh_transform, aabb, skin): &MeshItem<'_>,
     joints: &Query<Ref<GlobalTransform>>,
-    inverse_binds: Option<&Assets<SkinnedMeshInverseBindposes>>,
     state: &mut RegionState,
 ) -> f32 {
     if let Some(&cached) = state.frame_mesh_motion.get(&mesh_entity) {
@@ -223,9 +216,8 @@ fn mesh_world_displacement(
         0.
     };
     if let Some(skin) = skin {
-        let binds = inverse_binds.and_then(|assets| assets.get(&skin.inverse_bindposes));
         let force_check = skin.is_changed() || mesh_transform.is_changed();
-        for (idx, &joint_entity) in skin.joints.iter().enumerate() {
+        for &joint_entity in &skin.joints {
             let Ok(joint_tf) = joints.get(joint_entity) else {
                 continue;
             };
@@ -235,13 +227,24 @@ fn mesh_world_displacement(
             {
                 continue;
             }
-            let skin_affine = binds.and_then(|b| b.get(idx)).map_or_else(
-                || joint_tf.affine(),
-                |bind| joint_tf.affine() * Affine3A::from_mat4(*bind),
-            );
-            if let Some(prev) = state.prev_joints.insert(joint_entity, skin_affine) {
-                motion = motion.max(affine_point_motion(skin_affine, prev, center, half));
+            let curr_joint = joint_tf.affine();
+            // Defer prev_joints updates until frame end so shared skeletons move all submeshes.
+            state.pending_joints.insert(joint_entity, curr_joint);
+            let Some(&prev_joint) = state.prev_joints.get(&joint_entity) else {
+                continue;
+            };
+            if prev_joint == curr_joint {
+                continue;
             }
+            if curr_joint.matrix3.determinant().abs() < 1e-12 {
+                if prev_joint.matrix3.determinant().abs() >= 1e-12 {
+                    motion = f32::INFINITY;
+                }
+                continue;
+            }
+            // Inverse-bind cancels when mapping animated mesh-local Aabb back through the joint delta.
+            let prev_world = prev_joint * curr_joint.inverse() * curr_tf;
+            motion = motion.max(affine_point_motion(curr_tf, prev_world, center, half));
         }
     }
     state.frame_mesh_motion.insert(mesh_entity, motion);
@@ -259,11 +262,81 @@ fn union_rect(a: Vec4, b: Vec4) -> Vec4 {
     }
 }
 
+fn camera_region(
+    entity: Entity,
+    (camera, transform, visible, blur): (&Camera, &GlobalTransform, &VisibleEntities, &WeaponBlur),
+    meshes: &Meshes,
+    joints: &Query<Ref<GlobalTransform>>,
+    state: &mut RegionState,
+) -> MotionRegion {
+    let frame = state.frame;
+    if !camera.is_active {
+        state.prev_raw.insert(entity, EMPTY);
+        return MotionRegion(EMPTY);
+    }
+    if blur.max == 0. {
+        for &mesh_entity in visible.get(TypeId::of::<Mesh3d>()) {
+            if let Ok(item) = meshes.get(mesh_entity) {
+                mesh_world_displacement(mesh_entity, &item, joints, state);
+            }
+        }
+        state.prev_raw.insert(entity, EMPTY);
+        return MotionRegion(EMPTY);
+    }
+    let clip = camera.clip_from_view();
+    let clip_from_world = clip * transform.to_matrix().inverse();
+    let viewport = camera
+        .physical_viewport_size()
+        .unwrap_or(UVec2::new(3456, 2168));
+    let focal_px = (clip.x_axis.x.abs() * viewport.x as f32)
+        .max(clip.y_axis.y.abs() * viewport.y as f32)
+        * 0.5;
+    let mut low = Vec2::ONE;
+    let mut high = Vec2::ZERO;
+    for &mesh_entity in visible.get(TypeId::of::<Mesh3d>()) {
+        let Ok(item) = meshes.get(mesh_entity) else {
+            continue;
+        };
+        let world_motion = mesh_world_displacement(mesh_entity, &item, joints, state);
+        let (_, mesh_transform, aabb, _) = &item;
+        let center = aabb.map_or(Vec3::ZERO, |a| Vec3::from(a.center));
+        let half_radius = aabb.map_or(32., |a| Vec3::from(a.half_extents).length());
+        let world_center = mesh_transform.affine().transform_point3(center);
+        let dist = ((world_center - transform.translation()).length() - half_radius).max(8.);
+        let pixel_motion = (world_motion * focal_px / dist) * blur.scale;
+        if pixel_motion >= MIN_PIXEL_MOTION {
+            state.last_moved_mesh.insert(mesh_entity, frame);
+        }
+        let mesh_active = state
+            .last_moved_mesh
+            .get(&mesh_entity)
+            .is_some_and(|&f| frame.saturating_sub(f) < QUIET_FRAMES);
+        if !mesh_active {
+            continue;
+        }
+        let r = aabb.map_or(FULL, |aabb| {
+            project(clip_from_world * mesh_transform.to_matrix(), aabb)
+        });
+        if r.z > r.x && r.w > r.y {
+            low = low.min(r.truncate().truncate());
+            high = high.max(Vec2::new(r.z, r.w));
+        }
+    }
+    let raw = Vec4::new(low.x, low.y, high.x, high.y);
+    let prev = state.prev_raw.insert(entity, raw).unwrap_or(EMPTY);
+    let combined = if raw.z > raw.x && raw.w > raw.y {
+        union_rect(raw, prev)
+    } else {
+        EMPTY
+    };
+    MotionRegion(combined)
+}
+
 fn collect(
     mut commands: Commands,
     mut cameras: Cameras,
     meshes: Meshes,
-    (joints, inverse_binds): SkinInputs,
+    joints: Query<Ref<GlobalTransform>>,
     stale: Query<Entity, (With<MotionRegion>, Without<WeaponBlur>)>,
     performance: Option<Res<crate::bevy::diagnostics::Diagnostics>>,
     mut state: Local<RegionState>,
@@ -277,60 +350,15 @@ fn collect(
     let _timing = performance.as_deref().map(|p| p.scope("motion_region"));
     state.frame = state.frame.wrapping_add(1);
     state.frame_mesh_motion.clear();
-    let frame = state.frame;
-    let inverse_binds = inverse_binds.as_deref();
+    state.pending_joints.clear();
     for (entity, camera, transform, visible, blur, previous) in &mut cameras {
-        let clip = camera.clip_from_view();
-        let clip_from_world = clip * transform.to_matrix().inverse();
-        let viewport = camera
-            .physical_viewport_size()
-            .unwrap_or(UVec2::new(3456, 2168));
-        let focal_px = (clip.x_axis.x.abs() * viewport.x as f32)
-            .max(clip.y_axis.y.abs() * viewport.y as f32)
-            * 0.5;
-        let mut low = Vec2::ONE;
-        let mut high = Vec2::ZERO;
-        if camera.is_active && blur.max > 0. {
-            for &mesh_entity in visible.get(TypeId::of::<Mesh3d>()) {
-                let Ok(item) = meshes.get(mesh_entity) else {
-                    continue;
-                };
-                let world_motion =
-                    mesh_world_displacement(mesh_entity, &item, &joints, inverse_binds, &mut state);
-                let (_, mesh_transform, aabb, _) = &item;
-                let center = aabb.map_or(Vec3::ZERO, |a| Vec3::from(a.center));
-                let half_radius = aabb.map_or(32., |a| Vec3::from(a.half_extents).length());
-                let world_center = mesh_transform.affine().transform_point3(center);
-                let dist =
-                    ((world_center - transform.translation()).length() - half_radius).max(8.);
-                let pixel_motion = (world_motion * focal_px / dist) * blur.scale;
-                if pixel_motion >= MIN_PIXEL_MOTION {
-                    state.last_moved_mesh.insert(mesh_entity, frame);
-                }
-                let mesh_active = state
-                    .last_moved_mesh
-                    .get(&mesh_entity)
-                    .is_some_and(|&f| frame.saturating_sub(f) < QUIET_FRAMES);
-                if !mesh_active {
-                    continue;
-                }
-                let r = aabb.map_or(FULL, |aabb| {
-                    project(clip_from_world * mesh_transform.to_matrix(), aabb)
-                });
-                if r.z > r.x && r.w > r.y {
-                    low = low.min(r.truncate().truncate());
-                    high = high.max(Vec2::new(r.z, r.w));
-                }
-            }
-        }
-        let raw = Vec4::new(low.x, low.y, high.x, high.y);
-        let prev = state.prev_raw.insert(entity, raw).unwrap_or(EMPTY);
-        let combined = if raw.z > raw.x && raw.w > raw.y {
-            union_rect(raw, prev)
-        } else {
-            EMPTY
-        };
-        let current = MotionRegion(combined);
+        let current = camera_region(
+            entity,
+            (camera, transform, visible, &blur),
+            &meshes,
+            &joints,
+            &mut state,
+        );
         if let Some(mut previous) = previous {
             if *previous != current {
                 *previous = current;
@@ -339,6 +367,8 @@ fn collect(
             commands.entity(entity).insert(current);
         }
     }
+    let state = &mut *state;
+    state.prev_joints.extend(state.pending_joints.drain());
 }
 
 pub(super) fn install(app: &mut App) {
@@ -438,5 +468,141 @@ mod tests {
             assert!(g4[0] + g4[2] <= size.x.div_ceil(4));
             assert!(g4[1] + g4[3] <= size.y.div_ceil(4));
         }
+    }
+
+    fn setup_shared_skeleton_app(blur_max: f32) -> (App, Entity, Entity, Vec4, Vec4) {
+        use bevy::{
+            camera::RenderTargetInfo,
+            prelude::{Transform, TransformPlugin, TransformSystems},
+        };
+        let mut app = App::new();
+        app.add_plugins(TransformPlugin)
+            .add_systems(PostUpdate, collect.after(TransformSystems::Propagate));
+
+        let joint = app.world_mut().spawn(Transform::IDENTITY).id();
+        let bounds = Aabb {
+            center: Vec3A::ZERO,
+            half_extents: Vec3A::splat(0.5),
+        };
+        let pos_left = Transform::from_xyz(-2.0, 0.0, -8.0);
+        let pos_right = Transform::from_xyz(2.0, 0.0, -8.0);
+        let mesh_left = app
+            .world_mut()
+            .spawn((
+                Mesh3d::default(),
+                pos_left,
+                bounds,
+                SkinnedMesh {
+                    inverse_bindposes: Default::default(),
+                    joints: vec![joint],
+                },
+            ))
+            .id();
+        let mesh_right = app
+            .world_mut()
+            .spawn((
+                Mesh3d::default(),
+                pos_right,
+                bounds,
+                SkinnedMesh {
+                    inverse_bindposes: Default::default(),
+                    joints: vec![joint],
+                },
+            ))
+            .id();
+
+        let mut camera = Camera::default();
+        let proj = Mat4::perspective_infinite_reverse_rh(1.0, 1.5, 0.1);
+        camera.computed.clip_from_view = proj;
+        camera.computed.target_info = Some(RenderTargetInfo {
+            physical_size: UVec2::new(1000, 1000),
+            scale_factor: 1.0,
+        });
+        let mut visible = VisibleEntities::default();
+        visible
+            .entities
+            .insert(TypeId::of::<Mesh3d>(), vec![mesh_left, mesh_right]);
+        let cam_entity = app
+            .world_mut()
+            .spawn((
+                camera,
+                Transform::IDENTITY,
+                visible,
+                WeaponBlur {
+                    max: blur_max,
+                    scale: 1.0,
+                    world: false,
+                    camera_moving: false,
+                },
+            ))
+            .id();
+        let rect_left = project(proj * pos_left.to_matrix(), &bounds);
+        let rect_right = project(proj * pos_right.to_matrix(), &bounds);
+        (app, cam_entity, joint, rect_left, rect_right)
+    }
+
+    #[test]
+    fn shared_skeleton_motion_covers_all_moving_submeshes_and_clears_when_still() {
+        use bevy::prelude::Transform;
+        let (mut app, cam, joint, rect_left, rect_right) = setup_shared_skeleton_app(0.12);
+        // Spawned Mesh3d starts marked changed; let QUIET_FRAMES settle before testing joint motion.
+        for _ in 0..=QUIET_FRAMES {
+            app.update();
+        }
+        assert!(app.world().get::<MotionRegion>(cam).unwrap().is_empty());
+
+        app.world_mut()
+            .get_mut::<Transform>(joint)
+            .unwrap()
+            .translation
+            .x = 0.5;
+        app.update();
+        let region = app.world().get::<MotionRegion>(cam).unwrap().0;
+        let both = union_rect(rect_left, rect_right);
+        assert!(
+            region.x <= both.x + 1e-4
+                && region.y <= both.y + 1e-4
+                && region.z >= both.z - 1e-4
+                && region.w >= both.w - 1e-4,
+            "expected shared skeleton to cover both submeshes {both:?}, got {region:?}"
+        );
+
+        for _ in 0..QUIET_FRAMES {
+            app.update();
+        }
+        assert!(app.world().get::<MotionRegion>(cam).unwrap().is_empty());
+    }
+
+    #[test]
+    fn warmup_frames_keep_region_empty_and_seed_shared_joint_history() {
+        use bevy::prelude::Transform;
+        let (mut app, cam, joint, rect_left, rect_right) = setup_shared_skeleton_app(0.0);
+        app.update();
+        assert!(app.world().get::<MotionRegion>(cam).unwrap().is_empty());
+
+        app.world_mut()
+            .get_mut::<Transform>(joint)
+            .unwrap()
+            .translation
+            .x = 0.5;
+        app.world_mut().get_mut::<WeaponBlur>(cam).unwrap().max = 0.12;
+        app.update();
+        let region = app.world().get::<MotionRegion>(cam).unwrap().0;
+        let both = union_rect(rect_left, rect_right);
+        assert!(
+            region.x <= both.x + 1e-4 && region.z >= both.z - 1e-4,
+            "expected warmup frame history to cover both submeshes {both:?}, got {region:?}"
+        );
+    }
+
+    #[test]
+    fn singular_zero_scale_joint_does_not_nan_or_panic() {
+        use bevy::prelude::Transform;
+        let (mut app, cam, joint, _, _) = setup_shared_skeleton_app(0.12);
+        app.update();
+        app.world_mut().get_mut::<Transform>(joint).unwrap().scale = Vec3::ZERO;
+        app.update();
+        let region = app.world().get::<MotionRegion>(cam).unwrap().0;
+        assert!(region.is_finite());
     }
 }
