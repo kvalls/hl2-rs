@@ -42,6 +42,15 @@ struct ProjectionRecord {
     world_target: Option<[f32; 3]>,
     scripted_interest: Option<hl2_simulation::attention::Interest>,
 }
+const GAZE_TAU: f32 = 0.045;
+
+#[derive(Clone, Copy)]
+struct RenderedGaze {
+    dir: glam::Vec3,
+    dist: f32,
+    time: f64,
+}
+
 #[derive(Resource, Default)]
 pub struct Eyes {
     actors: BTreeMap<usize, Actor>,
@@ -56,6 +65,8 @@ pub struct Eyes {
     projections: Vec<ProjectionRecord>,
     /// SDK CBaseFlex m_viewtarget: the last eye target persists per actor while valid.
     view_targets: BTreeMap<usize, glam::Vec3>,
+    /// Clamped and smoothly slewed rendered eye gaze per actor.
+    rendered_gaze: BTreeMap<usize, RenderedGaze>,
     /// Bone-local eye forward/up per (entity, eyeball surface) for FACS eyelids; flexes
     /// consume the previous presentation's basis.
     pub lid_bases: BTreeMap<(usize, usize), (glam::Vec3, glam::Vec3)>,
@@ -310,6 +321,199 @@ fn collect_candidates(
     candidates
 }
 
+#[derive(Clone)]
+struct Selected {
+    rendered: glam::Vec3,
+    label: TargetLabel,
+    interest: Option<hl2_simulation::attention::Interest>,
+}
+
+struct ActorEyeCtx {
+    actor: usize,
+    eye: glam::Vec3,
+    forward: glam::Vec3,
+}
+
+fn slerp_unit(from: glam::Vec3, to: glam::Vec3, t: f32) -> glam::Vec3 {
+    let dot = from.dot(to).clamp(-1., 1.);
+    if dot > 0.9995 {
+        return from.lerp(to, t).normalize_or(to);
+    }
+    if dot < -0.9995 {
+        let perp = if from.x.abs() < 0.9 {
+            glam::Vec3::X
+        } else {
+            glam::Vec3::Y
+        };
+        let axis = from.cross(perp).normalize_or(glam::Vec3::Z);
+        return (glam::Quat::from_axis_angle(axis, std::f32::consts::PI * t) * from)
+            .normalize_or(to);
+    }
+    let theta = dot.acos();
+    let sin_t = theta.sin();
+    ((from * ((1. - t) * theta).sin() + to * (t * theta).sin()) / sin_t).normalize_or(to)
+}
+
+fn smooth_gaze(
+    rendered: &mut BTreeMap<usize, RenderedGaze>,
+    ctx: &ActorEyeCtx,
+    target: glam::Vec3,
+    max_deflection: f32,
+    time: f64,
+) -> glam::Vec3 {
+    let (actor, eye, forward) = (ctx.actor, ctx.eye, ctx.forward);
+    let desired = source_assets::eyes::clamp_view_target(eye, forward, target, max_deflection);
+    let desired_vec = desired - eye;
+    let desired_dist = desired_vec.length().max(6.);
+    let desired_dir = (desired_vec / desired_dist).normalize_or(forward);
+    if let Some(prev) = rendered.get_mut(&actor)
+        && time >= prev.time
+        && time - prev.time <= 0.5
+    {
+        if time == prev.time {
+            return source_assets::eyes::clamp_view_target(
+                eye,
+                forward,
+                eye + prev.dir * prev.dist,
+                max_deflection,
+            );
+        }
+        let alpha = 1. - (-((time - prev.time) as f32) / GAZE_TAU).exp();
+        let dir = slerp_unit(prev.dir, desired_dir, alpha);
+        let dist = prev.dist + (desired_dist - prev.dist) * alpha;
+        let point =
+            source_assets::eyes::clamp_view_target(eye, forward, eye + dir * dist, max_deflection);
+        let clamped_vec = point - eye;
+        let clamped_dist = clamped_vec.length().max(6.);
+        let clamped_dir = (clamped_vec / clamped_dist).normalize_or(forward);
+        *prev = RenderedGaze {
+            dir: clamped_dir,
+            dist: clamped_dist,
+            time,
+        };
+        return point;
+    }
+    rendered.insert(
+        actor,
+        RenderedGaze {
+            dir: desired_dir,
+            dist: desired_dist,
+            time,
+        },
+    );
+    desired
+}
+
+fn select_raw_target(
+    eyes: &Eyes,
+    game: &crate::gameplay::Gameplay,
+    sim: &crate::simulation::Simulation,
+    ctx: &ActorEyeCtx,
+    candidates: &[(Option<usize>, glam::Vec3, glam::Vec3)],
+) -> (
+    glam::Vec3,
+    TargetLabel,
+    Option<hl2_simulation::attention::Interest>,
+) {
+    use hl2_simulation::attention::Target;
+    let has_face = game
+        .scene
+        .entity(&game.world, ctx.actor)
+        .is_some_and(|e| hl2_simulation::attention::has_animated_face(e.class()));
+    if !game.scene.look_targets.in_pvs(ctx.actor)
+        && has_face
+        && let Some(&point) = eyes.view_targets.get(&ctx.actor)
+    {
+        return (point, TargetLabel::View, None);
+    }
+    let position = |target| match target {
+        Target::Player => Some(candidates[0].1),
+        Target::Position(p) => Some(p),
+        Target::Entity(id) => game.scene.states.get(id).filter(|s| !s.killed).map(|s| {
+            candidates
+                .iter()
+                .find(|(candidate, _, _)| *candidate == Some(id))
+                .map_or(s.origin, |(_, p, _)| *p)
+        }),
+    };
+    if let Some((interest, point)) =
+        game.scene
+            .look_targets
+            .eye_target(ctx.actor, ctx.eye, ctx.forward, position)
+    {
+        let label = match interest.target {
+            Target::Player => TargetLabel::Player,
+            Target::Entity(id) => TargetLabel::Entity(id),
+            Target::Position(_) => TargetLabel::View,
+        };
+        return (
+            point,
+            label,
+            (interest.ramp == 0.).then(|| interest.clone()),
+        );
+    }
+    if !has_face
+        && let Some((id, point, _)) = candidates
+            .iter()
+            .filter_map(|&(id, p, _)| {
+                if id == Some(ctx.actor) {
+                    return None;
+                }
+                let distance = p.distance(ctx.eye);
+                if !(1. ..=1024.).contains(&distance)
+                    || (p - ctx.eye).normalize().dot(ctx.forward) <= 0.259
+                {
+                    return None;
+                }
+                let excluded = [ctx.actor, id.unwrap_or(usize::MAX)];
+                sim.physics
+                    .projectile_ray(ctx.eye, p, &excluded)
+                    .is_none()
+                    .then_some((id, p, distance))
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+    {
+        let label = id.map_or(TargetLabel::Player, TargetLabel::Entity);
+        return (point, label, None);
+    }
+    let point = eyes
+        .view_targets
+        .get(&ctx.actor)
+        .copied()
+        .filter(|&p| valid_eye_target(ctx.eye, ctx.forward, p))
+        .unwrap_or_else(|| random_view_target(ctx.eye, ctx.forward, ctx.actor, game.scene.time));
+    (point, TargetLabel::View, None)
+}
+
+fn select_actor_target(
+    eyes: &mut Eyes,
+    game: &crate::gameplay::Gameplay,
+    sim: &crate::simulation::Simulation,
+    ctx: &ActorEyeCtx,
+    candidates: &[(Option<usize>, glam::Vec3, glam::Vec3)],
+) -> Selected {
+    let (point, label, interest) = select_raw_target(eyes, game, sim, ctx, candidates);
+    eyes.view_targets.insert(ctx.actor, point);
+    let max_deflection = eyes
+        .actors
+        .get(&ctx.actor)
+        .map_or(source_assets::eyes::DEFAULT_MAX_EYE_DEFLECTION, |a| {
+            a.gaze.max_eye_deflection
+        });
+    let rendered = smooth_gaze(
+        &mut eyes.rendered_gaze,
+        ctx,
+        point,
+        max_deflection,
+        game.scene.time,
+    );
+    Selected {
+        rendered,
+        label,
+        interest,
+    }
+}
+
 pub fn present(
     mut eyes: ResMut<Eyes>,
     game: Res<crate::gameplay::Gameplay>,
@@ -333,13 +537,7 @@ pub fn present(
     eyes.tracking_npc = 0;
     eyes.tracking_entity = 0;
     eyes.tracking_scene = 0;
-    #[derive(Clone)]
-    struct Selected {
-        point: glam::Vec3,
-        label: TargetLabel,
-        interest: Option<hl2_simulation::attention::Interest>,
-    }
-    let mut actor_targets = BTreeMap::<usize, Option<Selected>>::new();
+    let mut actor_targets = BTreeMap::<usize, Selected>::new();
     for (owner, mesh_eye, handle, visibility) in &draws {
         // Like retail, only an eye being drawn gets its iris projection (it was culled last frame
         // otherwise); gaze targets stay per actor.
@@ -355,128 +553,26 @@ pub fn present(
         let Some(bone) = bone_pose(&game, &mesh_eye.key, owner.0, mesh_eye.eye.bone, &poses) else {
             continue;
         };
-        let origin = bone.transform_point3(mesh_eye.eye.origin);
-        let head_forward = -bone.transform_vector3(mesh_eye.eye.forward).normalize();
-        let world_origin = state.origin + state.rotation * (origin * mesh_eye.scale);
-        // SetViewtarget is per actor; both eyes consume the same world target. Outside the
-        // player's PVS an animated-face actor keeps its last view target.
-        let frozen = !game.scene.look_targets.in_pvs(owner.0)
-            && game
-                .scene
-                .entity(&game.world, owner.0)
-                .is_some_and(|e| hl2_simulation::attention::has_animated_face(e.class()));
-        let latched = frozen
-            .then(|| eyes.view_targets.get(&owner.0).copied())
-            .flatten();
         let selected = actor_targets.entry(owner.0).or_insert_with(|| {
-            if let Some(point) = latched {
-                return Some(Selected {
-                    point,
-                    label: TargetLabel::View,
-                    interest: None,
-                });
-            }
-            use hl2_simulation::attention::Target;
-            let actor_eye = candidates.iter().find(|(id, _, _)| *id == Some(owner.0));
-            let (actor_eye, forward) = actor_eye.map_or(
-                (world_origin, state.rotation * head_forward),
-                |(_, p, f)| (*p, *f),
-            );
-            let position = |target| match target {
-                Target::Player => Some(candidates[0].1),
-                Target::Position(p) => Some(p),
-                Target::Entity(id) => game.scene.states.get(id).filter(|s| !s.killed).map(|s| {
-                    candidates
-                        .iter()
-                        .find(|(candidate, _, _)| *candidate == Some(id))
-                        .map_or(s.origin, |(_, p, _)| *p)
-                }),
-            };
-            // Explicit (scene/AI) and random (MaintainLookTargets glance) interests.
-            if let Some((interest, point)) = game
-                .scene
-                .look_targets
-                .eye_target(owner.0, actor_eye, forward, position)
-            {
-                let label = match interest.target {
-                    Target::Player => TargetLabel::Player,
-                    Target::Entity(id) => TargetLabel::Entity(id),
-                    Target::Position(_) => TargetLabel::View,
-                };
-                return Some(Selected {
-                    point,
-                    label,
-                    // Random glances carry a ramp; only explicit interests count as scene.
-                    interest: (interest.ramp == 0.).then(|| interest.clone()),
-                });
-            }
-            // Actors with an animated face rely on their look queues (no target: the
-            // latched/random view point below); others (cyclers) keep the nearest-visible
-            // fallback.
-            if game
-                .scene
-                .entity(&game.world, owner.0)
-                .is_some_and(|e| hl2_simulation::attention::has_animated_face(e.class()))
-            {
-                return None;
-            }
-            candidates
-                .iter()
-                .filter_map(|&(id, p, _)| {
-                    if id == Some(owner.0) {
-                        return None;
-                    }
-                    let distance = p.distance(actor_eye);
-                    if !(1. ..=1024.).contains(&distance)
-                        || (p - actor_eye).normalize().dot(forward) <= 0.259
-                    {
-                        return None;
-                    }
-                    let excluded = [owner.0, id.unwrap_or(usize::MAX)];
-                    if sim
-                        .physics
-                        .projectile_ray(actor_eye, p, &excluded)
-                        .is_some()
-                    {
-                        return None;
-                    }
-                    Some((id, p, distance))
-                })
-                .min_by(|a, b| a.2.total_cmp(&b.2))
-                .map(|(id, point, _)| Selected {
-                    point,
-                    label: id.map_or(TargetLabel::Player, TargetLabel::Entity),
-                    interest: None,
-                })
-        });
-        if selected.is_none() {
-            // CAI_BaseActor::MaintainLookTargets: without a target, keep the latched view
-            // target while ValidEyeTarget holds, else look 128 units ahead with jitter.
-            let (eye, forward) = candidates
+            let origin = bone.transform_point3(mesh_eye.eye.origin);
+            let head_forward = -bone.transform_vector3(mesh_eye.eye.forward).normalize();
+            let world_origin = state.origin + state.rotation * (origin * mesh_eye.scale);
+            let (actor_eye, forward) = candidates
                 .iter()
                 .find(|(id, _, _)| *id == Some(owner.0))
                 .map_or(
                     (world_origin, state.rotation * head_forward),
                     |(_, p, f)| (*p, *f),
                 );
-            let point = eyes
-                .view_targets
-                .get(&owner.0)
-                .copied()
-                .filter(|&p| valid_eye_target(eye, forward, p))
-                .unwrap_or_else(|| random_view_target(eye, forward, owner.0, game.scene.time));
-            *selected = Some(Selected {
-                point,
-                label: TargetLabel::View,
-                interest: None,
-            });
-        }
-        if let Some(selected) = selected.as_ref() {
-            eyes.view_targets.insert(owner.0, selected.point);
-        }
-        let local_target = selected
-            .as_ref()
-            .map(|s| state.rotation.inverse() * (s.point - state.origin) / mesh_eye.scale);
+            let ctx = ActorEyeCtx {
+                actor: owner.0,
+                eye: actor_eye,
+                forward,
+            };
+            select_actor_target(&mut eyes, &game, &sim, &ctx, &candidates)
+        });
+        let local_target =
+            Some(state.rotation.inverse() * (selected.rendered - state.origin) / mesh_eye.scale);
         let projection = source_assets::eyes::projection(&mesh_eye.eye, bone, local_target);
         eyes.lid_bases.insert(
             (owner.0, mesh_eye.eye.surface),
@@ -485,22 +581,20 @@ pub fn present(
                 source_assets::eyes::basis(&mesh_eye.eye, bone, local_target),
             ),
         );
-        if let Some(selected) = selected {
-            if selected.interest.is_some() {
-                eyes.tracking_scene += 1;
-            }
-            match selected.label {
-                TargetLabel::Player => eyes.tracking_player += 1,
-                TargetLabel::View => {}
-                TargetLabel::Entity(id) => {
-                    eyes.tracking_entity += 1;
-                    if game
-                        .scene
-                        .entity(&game.world, id)
-                        .is_some_and(|e| hl2_simulation::attention::is_flex_actor(e.class()))
-                    {
-                        eyes.tracking_npc += 1;
-                    }
+        if selected.interest.is_some() {
+            eyes.tracking_scene += 1;
+        }
+        match selected.label {
+            TargetLabel::Player => eyes.tracking_player += 1,
+            TargetLabel::View => {}
+            TargetLabel::Entity(id) => {
+                eyes.tracking_entity += 1;
+                if game
+                    .scene
+                    .entity(&game.world, id)
+                    .is_some_and(|e| hl2_simulation::attention::is_flex_actor(e.class()))
+                {
+                    eyes.tracking_npc += 1;
                 }
             }
         }
@@ -508,9 +602,9 @@ pub fn present(
             entity: owner.0,
             surface: mesh_eye.eye.surface,
             rows: [projection[0].to_array(), projection[1].to_array()],
-            target: selected.as_ref().map(|s| s.label),
-            world_target: selected.as_ref().map(|s| s.point.to_array()),
-            scripted_interest: selected.as_ref().and_then(|s| s.interest.clone()),
+            target: Some(selected.label),
+            world_target: Some(selected.rendered.to_array()),
+            scripted_interest: selected.interest.clone(),
         });
         // The shader projects each fragment's world position through this eye's rows; the
         // mesh's second UV names its slot, written once.
@@ -700,5 +794,69 @@ mod tests {
             glam::Vec3::X,
             eye + glam::Vec3::X * 0.5
         ));
+    }
+
+    #[test]
+    fn smooth_gaze_snaps_on_first_sight_clamps_cone_and_slews_without_teleports() {
+        let eye = glam::Vec3::new(0., 0., 64.);
+        let forward = glam::Vec3::X;
+        let ctx = ActorEyeCtx {
+            actor: 7,
+            eye,
+            forward,
+        };
+        let mut rendered = BTreeMap::new();
+        let left = eye
+            + glam::Vec3::new(
+                100. * 25f32.to_radians().cos(),
+                100. * 25f32.to_radians().sin(),
+                0.,
+            );
+        let right = eye
+            + glam::Vec3::new(
+                100. * 25f32.to_radians().cos(),
+                -100. * 25f32.to_radians().sin(),
+                0.,
+            );
+
+        // First sight snaps immediately to the target with zero warm-up lag.
+        let p0 = smooth_gaze(&mut rendered, &ctx, left, 0.866, 1.0);
+        assert!((p0 - left).length() < 1e-4, "{p0}");
+
+        // Switching across to +25 deg rotates smoothly without a 1-frame teleport, and freezes when paused.
+        let mut prev_y = (p0 - eye).normalize().y;
+        let p_paused = smooth_gaze(&mut rendered, &ctx, right, 0.866, 1.0);
+        assert!((p_paused - p0).length() < 1e-4, "{p_paused}");
+
+        let mut p_last = p0;
+        for step in 1..=14 {
+            let t = 1.0 + f64::from(step) * 0.015;
+            p_last = smooth_gaze(&mut rendered, &ctx, right, 0.866, t);
+            let dir = (p_last - eye).normalize();
+            assert!(
+                dir.y < prev_y,
+                "expected monotonic slew at step {step}: {dir:?}"
+            );
+            assert!(
+                dir.dot(forward) >= 0.865,
+                "slew violated cone at step {step}"
+            );
+            prev_y = dir.y;
+        }
+        let right_dir = (right - eye).normalize();
+        assert!(
+            (p_last - eye)
+                .normalize()
+                .angle_between(right_dir)
+                .to_degrees()
+                < 1.0
+        );
+
+        // Extreme 70 deg target stays clamped to max_eye_deflection both mid-saccade and steady-state.
+        let extreme = eye + glam::Vec3::new(34.2, -94.0, 0.);
+        let p_mid = smooth_gaze(&mut rendered, &ctx, extreme, 0.866, 1.25);
+        assert!((p_mid - eye).normalize().dot(forward) >= 0.865);
+        let p_end = smooth_gaze(&mut rendered, &ctx, extreme, 0.866, 2.0);
+        assert!(((p_end - eye).normalize().dot(forward) - 0.866).abs() < 1e-3);
     }
 }

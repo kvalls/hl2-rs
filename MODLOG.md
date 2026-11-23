@@ -1,5 +1,20 @@
 # MODLOG
 
+## 2026-11-23 — Clamp NPC eye deflection cone and smooth gaze transitions
+
+- Agent/model: Antigravity (model ID not recorded).
+- Changed:
+  - `crates/source-assets/src/eyes.rs`: decodes `studiohdr2_t::flMaxEyeDeflection` (`studiohdr2index` at offset 400, `+12`, defaulting to `DEFAULT_MAX_EYE_DEFLECTION = 0.866` when omitted or zero) into `Gaze::max_eye_deflection`, and adds `clamp_view_target` (matching SDK `C_BaseFlex::SetViewTarget`'s `local.x >= 6` and cone clamp).
+  - `crates/hl2-bevy/src/eyes.rs`: extracts per-actor target selection (`select_raw_target`, `select_actor_target`) and smooths rendered gaze once per visible actor per frame (`smooth_gaze` / `slerp_unit` with `GAZE_TAU = 0.045`, zero steady-frame allocations) while keeping raw `Eyes::view_targets` latched for `ValidEyeTarget` and PVS freeze; passes the clamped, smoothed target to both eyeball projections and FACS `lid_bases`, snapping on first sight / map resets and freezing when paused (`dt == 0.0`).
+  - `scripts/checks/architecture-baseline.json`: tightens `crates/hl2-bevy/src/eyes.rs::present` (`229 -> 119`).
+- Why: `ValidEyeTarget` retains targets out to 75 degrees (`dot > 0.259`), while `eyes::present` fed un-clamped targets directly to `source_assets::eyes::projection` and switched targets instantaneously in one frame, rolling irises deep into eye corners and snapping visibly on look-target transitions.
+- Tested how and result:
+  - `cargo test --locked -p source-assets eyes` (5/5 passed, 2 ignored), `cargo test --locked -p source-assets -- --ignored owned_actor_gaze_attachments_match_bone_skeletons` (1/1 passed across `barney`, `kleiner`, `male_07`, `gman_high`, `police`), and `cargo test --locked -p hl2-bevy eyes` (3/3 passed).
+  - Packaged release (`scripts/build-bevy.sh`): `NO_BUILD=1 ONLY='attention face-security-1805 face-security-2100 face-security-2130 face-security-2245 monitors-breen-screen monitors-breen-slate gestures-security-1805 gestures-security-2245 gestures-timeline' python3 scripts/checks/replays.py` passed 10/10 on macOS (`73 s`).
+  - Full `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` on macOS.
+- Still broken or not tested: Live interactive `citizen_queue_start_1` playthrough and Windows runtime are **not tested**.
+- Next: Fix multi-submesh shared-skeleton viewmodel motion blur coverage in `hl2-advanced-options`.
+
 ## 2026-11-23 — Clear gravity-gun launch beam and rebase weapon state across `changelevel`
 
 - Agent/model: Antigravity (model ID not recorded).

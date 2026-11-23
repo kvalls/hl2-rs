@@ -1,5 +1,9 @@
 # STATUS
 
+## NPC eyeball gaze clamping and smoothing (2026-11-23)
+
+Fixed abrupt single-frame NPC eye gaze snapping and extreme corner deflection: `crates/source-assets/src/eyes.rs` now decodes `studiohdr2_t::flMaxEyeDeflection` (default `0.866`, cos 30 deg) and provides `clamp_view_target`, while `crates/hl2-bevy/src/eyes.rs` clamps and smoothly slews the rendered gaze once per visible actor per frame (`GAZE_TAU = 0.045`, freezing on pause, snapping on first sight, zero per-frame allocations) and shrinks `eyes::present` (`229 -> 119` baseline lines). Verified with 8 unit tests, the owned actor MDL test (`barney`, `kleiner`, `male_07`, `gman_high`, `police`), 10/10 face/gesture/monitor/attention replays, workspace validation, and Windows-target Clippy on macOS; interactive queue-citizen playthrough and Windows runtime are **not tested**.
+
 ## Gravity-gun launch beam across `changelevel` fixed (2026-11-23)
 
 Resolved the stuck orange gravity-gun launch beam across level transitions (`d1_canals_03` -> `d1_canals_02` and reverse): `Inventory::rebase_clock` (moved into `crates/hl2-simulation/src/gameplay/rebase.rs`) now clears `physcannon.last_launch`, held/launched/world-local weapon handles, and transient effect queues while rebasing active weapon/ramp timers, and `crates/hl2-bevy/src/effects.rs` gates launch beam and spark emission on `(0.0..0.1).contains(&(time - at))`. Verified with 7 unit tests, 4/4 replays (`campaign`, `entities-weapons`, `physcannon`, `physcannon-props`), packaged `d1_canals_03 -> d1_canals_02` punt capture/report (`viewmodel_sprite_draws: 8`), workspace validation, and Windows-target Clippy on macOS; Windows runtime is **not tested**.
