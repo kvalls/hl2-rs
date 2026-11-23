@@ -166,6 +166,15 @@ pub fn install(mut buffers: ResMut<Assets<ShaderBuffer>>) {
     let _ = buffers.insert(MATERIAL_ROWS.id(), buffer);
 }
 
+/// Writes `rows` into `buffer.data`, reusing the existing byte buffer allocation when present.
+pub(crate) fn write_rows(buffer: &mut ShaderBuffer, rows: &[Vec4]) {
+    use bevy::render::render_resource::encase::StorageBuffer;
+    let mut bytes = buffer.data.take().unwrap_or_default();
+    let mut storage = StorageBuffer::new(&mut bytes);
+    storage.write(&rows).expect("Vec4 rows fit ShaderBuffer");
+    buffer.data = Some(bytes);
+}
+
 /// Uploads the rows when a slot changed this frame; frees the slots of removed materials.
 pub fn upload(
     mut slots: ResMut<MaterialSlots>,
@@ -183,7 +192,7 @@ pub fn upload(
     if slots.dirty
         && let Some(mut buffer) = buffers.get_mut(&MATERIAL_ROWS)
     {
-        buffer.set_data(slots.rows.clone());
+        write_rows(&mut buffer, &slots.rows);
         slots.dirty = false;
     }
 }
@@ -280,5 +289,18 @@ mod tests {
         assert_eq!(m.dynamic.x, -1.);
         assert_eq!((m.secondary_uv, m.tint.truncate()), (uv, Vec3::splat(0.5)));
         assert_eq!(slots.len(), 0);
+    }
+
+    #[test]
+    fn write_rows_reuses_the_existing_shader_buffer_allocation() {
+        use bevy::render::storage::ShaderBuffer;
+        let mut buffer = ShaderBuffer::default();
+        let rows = [Vec4::new(1., 2., 3., 4.), Vec4::new(5., 6., 7., 8.)];
+        super::write_rows(&mut buffer, &rows);
+        let first_ptr = buffer.data.as_ref().unwrap().as_ptr();
+        let updated = [Vec4::splat(9.), Vec4::splat(10.)];
+        super::write_rows(&mut buffer, &updated);
+        let second_ptr = buffer.data.as_ref().unwrap().as_ptr();
+        assert_eq!(first_ptr, second_ptr);
     }
 }

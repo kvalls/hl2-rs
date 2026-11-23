@@ -1,5 +1,28 @@
 # MODLOG
 
+## 2026-11-23 — `O21`: Eliminate per-frame heap allocations in `eyes`, `material_slots`, `Canvas`, and `Rig`
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
+- Changed:
+  - `crates/hl2-bevy/src/eyes.rs`: replace per-frame `serde_json::json!` map and `String` target-label allocations in `eyes::present` with typed `OriginRecord`, `ProjectionRecord`, and `TargetLabel` structs (reusing `Vec` capacity across frames and building JSON only in `Eyes::report`), extract `collect_candidates`, and replace `eyes.uploaded: Vec<Vec4>` with `dirty: bool` + `material_slots::write_rows`.
+  - `crates/hl2-bevy/src/material_slots.rs`: add `write_rows` (with unit test `write_rows_reuses_the_existing_shader_buffer_allocation`) writing `Vec4` rows directly into `ShaderBuffer.data`'s existing `Vec<u8>` capacity via `encase::StorageBuffer` without `slots.rows.clone()`.
+  - `crates/source-ui/src/canvas.rs`, `crates/hl2-bevy/src/canvas_renderer.rs`: add `Canvas::drain_into` and `Hud::scratch_quads` to swap HUD command buffers and preserve capacity across frames.
+  - `crates/modkit-core/src/animation.rs`: add `Rig::clip` to check already-lowercase clip names without allocating `to_lowercase()` on every `lookup_sequence`, `accumulate`, and `local_pose_of` lookup.
+  - `crates/hl2-simulation/src/physics/hitboxes.rs`: push each modified hitbox collider once in `set_npc_hitboxes`.
+  - `scripts/checks/architecture-baseline.json`: tighten `crates/hl2-bevy/src/eyes.rs::present` (`268 -> 229`).
+  - `docs/optimization-backlog.md`, `docs/performance.md`: record `O21` `--mode trace-alloc` A/B measurements on static spawn and the crowd.
+- Why: `eyes::present` allocated `serde_json::Value` maps and target `String`s for every visible actor and eye draw on every frame and cloned `eyes.rows` (`32 KiB`) twice on dirty frames; `material_slots::upload` cloned `slots.rows` (`312 KiB`) and allocated a new `312 KiB` `Vec<u8>` on every dirty frame; `Canvas::drain` dropped its `Vec<Quad>` capacity every frame; and `Rig::accumulate` allocated `sequence.to_lowercase()` even when sequence keys were already lowercase.
+- Tested how:
+  - `cargo test -p hl2-bevy write_rows_reuses_the_existing_shader_buffer_allocation`.
+  - Headless `--mode trace-alloc` A/B captures (`e6563cd7` vs `O21`) on `d1_trainstation_02` static spawn (`300` frames) and `test-inputs/performance-research/mixed-crowd.json` (`400` frames).
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result:
+  - Static spawn (`300` frames, `trace-alloc`): mean allocations `108,983 -> 108,056/frame` (`-927/frame`, `p99 192,301 -> 181,004` [`-11,297/frame`, `-5.9%`]), bytes `11,754 -> 11,160 KB/frame` (`-594 KB/frame`, `-5.1%`), `RenderExtractApp` `4.237 -> 3.884 ms` (`-8.3%`).
+  - Crowd (`400` frames on `mixed-crowd.json`, `trace-alloc`): mean allocations `418,338 -> 412,528/frame` (`-5,810/frame`, `p99 1,413,298 -> 1,392,403` [`-20,895/frame`]), bytes `47,965 -> 46,560 KB/frame` (`-1,405 KB/frame`, `-2.9%`), `eyes` stage `0.781 -> 0.609 ms` mean (`-22.0%`, `p95 1.104 -> 0.841 ms` [`-23.8%`]).
+  - Unit tests, `validate.sh`, and `check_windows.sh` pass.
+- Still broken or not tested: remaining render-world mesh-rewrite allocations belong to `O30` (flexed heads/eyes) and `O39` (particles/shadows); Windows runtime **not tested**.
+- Next: implement `O25` (`update_mesh_previous_global_transforms` replacement in `PreUpdate`).
+
 ## 2026-11-23 — `O29`: Share immutable LOD flex vertex data via `Arc<lod::Vertices>`
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).

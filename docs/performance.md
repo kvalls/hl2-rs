@@ -1,5 +1,25 @@
 # Performance measurements - 2026-10-05
 
+## `O21` — Eliminate pure-waste per-frame heap allocations in `eyes`, `material_slots`, `Canvas`, and `Rig` (2026-11-23)
+
+Measured on Apple M1 Pro (`--mode trace-alloc` A/B captures on `d1_trainstation_02`, baseline `e6563cd7` vs `O21`):
+
+- **Root causes fixed:**
+  1. `crates/hl2-bevy/src/eyes.rs`: `eyes::present` built `serde_json::json!` maps and formatted target-label `String`s (`"player"`, `"view"`, `format!("#{id}")`) inside per-actor and per-eye-draw loops on every frame even when no report was generated, and cloned `eyes.rows` (`32 KiB`) twice on dirty frames (`buffer.set_data(eyes.rows.clone())` and `eyes.uploaded = eyes.rows.clone()`). Replaced with typed `OriginRecord`, `ProjectionRecord`, and `TargetLabel` structs that reuse `Vec` capacity across frames and serialize only inside `Eyes::report`, plus a `dirty: bool` flag in `Eyes::set_rows`.
+  2. `crates/hl2-bevy/src/material_slots.rs`: `material_slots::upload` called `buffer.set_data(slots.rows.clone())`, cloning `19,968 Vec4` (`312 KiB`) and allocating a new `312 KiB` `Vec<u8>` inside `ShaderBuffer::set_data` on every dirty frame. Added `material_slots::write_rows` (reused by `eyes::present`), which writes directly into `buffer.data`'s existing `Vec<u8>` buffer via `encase::StorageBuffer::new(&mut bytes)` (`write_rows_reuses_the_existing_shader_buffer_allocation`).
+  3. `crates/source-ui/src/canvas.rs` and `crates/hl2-bevy/src/canvas_renderer.rs`: `Canvas::drain` took `state.commands` with `std::mem::take`, dropping capacity every frame so the next frame's HUD drawing reallocated `0 -> 4 -> ... -> 512` `Quad`s. Added `Canvas::drain_into` and `Hud::scratch_quads` to swap buffers and retain capacity.
+  4. `crates/modkit-core/src/animation.rs` and `crates/hl2-simulation/src/physics/hitboxes.rs`: added `Rig::clip` to check already-lowercase clip keys before allocating `to_lowercase()`, and deduplicated changed collider pushes in `Physics::set_npc_hitboxes`.
+- **`--mode trace-alloc` (`state_frame`) A/B results (`d1_trainstation_02`):**
+  - **Static spawn (`300` frames, `o21-alloc-static-a` vs `o21-alloc-static-b`):**
+    - Heap allocations per frame: **`108,983 -> 108,056` mean (`-927/frame`)**, `p99` **`192,301 -> 181,004` (`-11,297/frame`, `-5.9%`)**.
+    - Bytes requested per frame: **`11,754 -> 11,160 KB` mean (`-594 KB/frame`, `-5.1%`)**.
+    - `RenderExtractApp`: **`4.237 -> 3.884 ms` mean (`-8.3%`**, `p99 5.372 -> 4.828 ms`); `main app` `7.089 -> 6.690 ms` mean (`-5.6%`).
+  - **Crowd (`400` frames on `test-inputs/performance-research/mixed-crowd.json`, `o21-alloc-crowd-a` vs `o21-alloc-crowd-b`):**
+    - Heap allocations per frame: **`418,338 -> 412,528` mean (`-5,810/frame`)**, `p99` **`1,413,298 -> 1,392,403` (`-20,895/frame`)**.
+    - Bytes requested per frame: **`47,965 -> 46,560 KB` mean (`-1,405 KB/frame`, `-2.9%`)**.
+    - **`eyes` stage**: **`0.781 -> 0.609 ms` mean (`-22.0%`**, `p95` **`1.104 -> 0.841 ms`, `-23.8%`**, `max 1.25 -> 0.99 ms`).
+    - `main_schedule.PostUpdate`: `9.209 -> 9.006 ms` mean (`p95 11.715 -> 11.456 ms`, `max 21.94 -> 18.56 ms`).
+
 ## `O29` — Share immutable LOD flex vertex data via `Arc<lod::Vertices>` (2026-11-23)
 
 Measured on Apple M1 Pro (`d1_trainstation_02`, `test-inputs/performance-research/mixed-crowd.json`, baseline `808989b5` from `6fe185eb` vs `1a9830af`):

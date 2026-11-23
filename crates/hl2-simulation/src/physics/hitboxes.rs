@@ -90,12 +90,11 @@ impl Physics {
                 .filter(|at| collider.position() != at);
             let toggle = collider.is_enabled() != enabled;
             // A mutable borrow marks the collider modified for the next step: only for a change.
-            let changes = usize::from(at.is_some()) + usize::from(toggle);
-            if changes > 0 {
+            if at.is_some() || toggle {
                 let collider = self.colliders.get_mut(*c).expect("hitbox collider");
                 at.into_iter().for_each(|at| collider.set_position(at));
                 collider.set_enabled(enabled);
-                (self.changed_entity_colliders).extend(std::iter::repeat_n(*c, changes));
+                self.changed_entity_colliders.push(*c);
             }
         }
     }

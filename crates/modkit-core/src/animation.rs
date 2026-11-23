@@ -647,6 +647,16 @@ impl Rig {
         }
         self.sequences.sort_by_key(|s| s.order);
     }
+    fn clip(&self, name: &str) -> Option<(&String, &Clip)> {
+        if let Some(entry) = self.clips.get_key_value(name) {
+            return Some(entry);
+        }
+        if !name.chars().all(char::is_lowercase) {
+            return self.clips.get_key_value(&name.to_lowercase());
+        }
+        None
+    }
+
     /// Label first, then model-authored activity. The caller supplies a bounded
     /// integer in 0..total_weight; native RNG/prediction stream parity is separate.
     /// Pass no current sequence for native LookupSequence semantics; activity selection
@@ -664,10 +674,10 @@ impl Rig {
             .iter()
             .find(|s| s.name.eq_ignore_ascii_case(name))
         {
-            let clip = self.clips.get_key_value(&sequence.name.to_lowercase());
+            let clip = self.clip(&sequence.name);
             return Some(clip.map_or(sequence.name.as_str(), |(key, _)| key.as_str()));
         }
-        if let Some((label, _)) = self.clips.get_key_value(&name.to_lowercase()) {
+        if let Some((label, _)) = self.clip(name) {
             return Some(label);
         }
         if let Some(sequence) = self.sequences.iter().find(|s| {
@@ -812,9 +822,8 @@ impl Rig {
         if depth > 8 {
             return Err(PoseError::Depth);
         }
-        let clip = self
-            .clips
-            .get(&sequence.to_lowercase())
+        let (_, clip) = self
+            .clip(sequence)
             .ok_or_else(|| PoseError::MissingSequence(sequence.into()))?;
         if clip.layer.flags & sequence_flags::LOCAL != 0 {
             return Err(PoseError::Unsupported("local-context sequence"));
@@ -847,7 +856,7 @@ impl Rig {
     }
     /// `local_pose` on `bones` only.
     pub fn local_pose_of(&self, name: &str, time: f32, bones: Bones) -> Vec<Pose> {
-        let Some(clip) = self.clips.get(&name.to_lowercase()) else {
+        let Some((_, clip)) = self.clip(name) else {
             return self.bind_pose();
         };
         let Some(last) = clip.frames.len().checked_sub(1) else {

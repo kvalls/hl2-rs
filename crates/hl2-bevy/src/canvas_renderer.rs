@@ -156,6 +156,7 @@ pub struct Hud {
     modulate: Option<Handle<HudMaterial>>,
     atlas: atlas::Atlas,
     pool: Vec<(Entity, Handle<Mesh>, Vec<QuadGeometry>)>,
+    scratch_quads: Vec<Quad>,
     pub quads: usize,
     timing: FrameTiming,
     diagnostic_font: Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>>,
@@ -188,6 +189,7 @@ impl Hud {
             modulate: None,
             atlas: atlas::Atlas::default(),
             pool: vec![],
+            scratch_quads: vec![],
             quads: 0,
             timing: FrameTiming::default(),
             diagnostic_font,
@@ -403,7 +405,8 @@ pub fn present(
     game.scene
         .sounds
         .extend(hud.source.drain_sounds().into_iter().map(Into::into));
-    let quads = hud.source.canvas.drain();
+    let mut quads = std::mem::take(&mut hud.scratch_quads);
+    hud.source.canvas.drain_into(&mut quads);
     hud.quads = quads.len();
     draw_quads(
         &mut commands,
@@ -413,6 +416,7 @@ pub fn present(
         (&mut images, &mut materials, &mut meshes),
         &mut draws,
     );
+    hud.scratch_quads = quads;
 }
 /// Groups consecutive quads sharing the same material so painter's order is preserved while
 /// collapsing thousands of glyphs and solid rectangles into a handful of draw calls.
