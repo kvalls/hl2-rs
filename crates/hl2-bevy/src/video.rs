@@ -27,9 +27,10 @@ pub(crate) use fov::vertical_fov_4_3;
 pub(crate) use fov::{vertical_fov_for, vertical_fov_with};
 mod msaa;
 mod outputs;
+pub(crate) use msaa::sync_antialiasing;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
-pub use outputs::frame_image;
 pub(crate) use outputs::{FrameCameras, OwnTarget, apply_video_settings, skip_covered_outputs};
+pub use outputs::{HudCamera, frame_image};
 pub mod mode {
     use super::*;
     use hl2_ui::config::DisplayMode;
@@ -499,25 +500,6 @@ pub(crate) fn sync_present_mode(
         && window.present_mode != mode
     {
         window.present_mode = mode;
-    }
-}
-
-/// Keeps every scene camera's `Msaa` in sync with the configured antialiasing mode.
-/// The 2D presentation camera remains `Msaa::Off` because it displays the resolved frame quad.
-pub(crate) fn sync_antialiasing(
-    ui: Option<Res<crate::ui_host::Console>>,
-    adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
-    mut cameras: Query<&mut Msaa, (With<Camera>, Without<PresentCamera>)>,
-) {
-    let Some(ui) = ui else {
-        return;
-    };
-    let max_samples = adapter_max_msaa_samples(adapter.as_deref());
-    let want = msaa_for_hardware(ui.source.config.video.advanced.antialiasing, max_samples);
-    for mut msaa in &mut cameras {
-        if *msaa != want {
-            *msaa = want;
-        }
     }
 }
 
@@ -1686,6 +1668,11 @@ mod tests {
             .world_mut()
             .spawn((PresentCamera, Camera2d, Msaa::Off))
             .id();
+        let hud_cam = app.world_mut().spawn((HudCamera, Camera2d, Msaa::Off)).id();
+        let own_target_cam = app
+            .world_mut()
+            .spawn((OwnTarget, Camera3d::default(), Msaa::Off))
+            .id();
 
         app.world_mut().run_system_once(sync_antialiasing).unwrap();
 
@@ -1695,6 +1682,8 @@ mod tests {
             Msaa::Sample4
         );
         assert_eq!(*app.world().get::<Msaa>(present_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(hud_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(own_target_cam).unwrap(), Msaa::Off);
 
         // Update config to 8X: with default adapter limit (4), clamps safely to Sample4
         app.world_mut()
@@ -1713,6 +1702,8 @@ mod tests {
             Msaa::Sample4
         );
         assert_eq!(*app.world().get::<Msaa>(present_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(hud_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(own_target_cam).unwrap(), Msaa::Off);
 
         // Update config to 2X
         app.world_mut()
@@ -1731,6 +1722,8 @@ mod tests {
             Msaa::Sample2
         );
         assert_eq!(*app.world().get::<Msaa>(present_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(hud_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(own_target_cam).unwrap(), Msaa::Off);
     }
 
     #[test]

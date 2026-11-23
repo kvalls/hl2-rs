@@ -2,15 +2,20 @@
 //! earlier camera's copy would be overwritten by the next one.
 use super::{GameFrame, PresentCamera, apply_video_config_to_window};
 use bevy::asset::Assets;
+use bevy::ecs::query::Has;
 use bevy::image::{Image, ImageSampler, ImageSamplerDescriptor};
 use bevy::render::render_resource::TextureFormat;
 use bevy::window::{PrimaryWindow, Window};
 use bevy::{
     camera::{Camera, CameraOutputMode, ClearColorConfig, RenderTarget},
-    prelude::{Query, Res, ResMut, UVec2, With, Without},
+    prelude::{Color, Query, Res, ResMut, UVec2, With, Without},
     render::render_resource::BlendState,
 };
 use hl2_ui::extensions::RenderBudget;
+
+/// The 2D HUD/menu camera composited onto the game frame without MSAA.
+#[derive(bevy::ecs::component::Component)]
+pub struct HudCamera;
 
 /// A camera that renders into its own image (a monitor's or the intro's camera view), not
 /// into the game frame.
@@ -86,25 +91,63 @@ fn writes_frame(order: isize, last: isize) -> bool {
     order == last
 }
 
+pub(crate) type OutputCameras<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Camera, &'static RenderTarget, Has<HudCamera>),
+    (Without<OwnTarget>, Without<PresentCamera>),
+>;
+
 /// Runs after everything that turns game cameras on and off.
-pub(crate) fn skip_covered_outputs(mut cameras: FrameCameras, frame: Option<Res<GameFrame>>) {
+pub(crate) fn skip_covered_outputs(mut cameras: OutputCameras, frame: Option<Res<GameFrame>>) {
     let Some(frame) = frame else {
         return;
     };
     let routed =
         |target: &RenderTarget| matches!(target, RenderTarget::Image(t) if t.handle == frame.image);
+    // Hud2d draws directly onto the game frame after the last 3D pass copies into it.
     let last = cameras
         .iter()
-        .filter(|(camera, target)| camera.is_active && routed(target))
-        .map(|(camera, _)| camera.order)
+        .filter(|(camera, target, is_hud)| !*is_hud && camera.is_active && routed(target))
+        .map(|(camera, _, _)| camera.order)
         .max();
-    let Some(last) = last else {
-        return;
-    };
-    for (mut camera, target) in &mut cameras {
-        if !camera.is_active || !routed(&target) {
+    for (mut camera, target, is_hud) in &mut cameras {
+        if !camera.is_active || !routed(target) {
             continue;
         }
+        if is_hud {
+            let clear_color = if last.is_some() {
+                ClearColorConfig::None
+            } else {
+                ClearColorConfig::Custom(Color::BLACK)
+            };
+            let same = matches!(
+                (&camera.output_mode, &clear_color),
+                (
+                    CameraOutputMode::Write {
+                        blend_state: None,
+                        clear_color: ClearColorConfig::None,
+                    },
+                    ClearColorConfig::None
+                ) | (
+                    CameraOutputMode::Write {
+                        blend_state: None,
+                        clear_color: ClearColorConfig::Custom(_),
+                    },
+                    ClearColorConfig::Custom(_)
+                )
+            );
+            if !same {
+                camera.output_mode = CameraOutputMode::Write {
+                    blend_state: None,
+                    clear_color,
+                };
+            }
+            continue;
+        }
+        let Some(last) = last else {
+            continue;
+        };
         let writes = writes_frame(camera.order, last);
         if writes == matches!(camera.output_mode, CameraOutputMode::Skip) {
             camera.output_mode = if writes {

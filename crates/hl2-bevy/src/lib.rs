@@ -250,9 +250,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .add_plugins((bloom::SourceBloomPlugin, ShadowPlugin, FlashlightPlugin))
         .add_plugins(intro_view::IntroViewPlugin)
         .add_plugins(rendering::LightmapWritesPlugin)
-        .add_plugins(bevy::sprite_render::Material2dPlugin::<
-            canvas_renderer::HudMaterial,
-        >::default())
+        .add_plugins(canvas_renderer::hud_pass::HudPassPlugin)
         .add_plugins(ui_system::UiPlugin)
         .add_plugins(simulation::MovementPlugin);
     launch::apply_timescale(&mut app, options.timescale);

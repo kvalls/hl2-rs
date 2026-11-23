@@ -3,9 +3,10 @@ use super::{FlyCamera, Options, bloom, camera, source_direction, source_to_bevy,
 use bevy::camera::MsaaWriteback;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::{
-    Camera, Camera2d, Camera3d, ClearColorConfig, Commands, PerspectiveProjection, Projection,
-    Transform, Vec3, default,
+    Camera, Camera2d, Camera3d, ClearColorConfig, Commands, Msaa, PerspectiveProjection,
+    Projection, Transform, Vec3, default,
 };
+use bevy::render::camera::CameraRenderGraph;
 use bevy::render::renderer::RenderAdapterInfo;
 
 pub(super) fn spawn(
@@ -20,13 +21,16 @@ pub(super) fn spawn(
     let msaa = video::msaa_for_hardware(options.config.video.advanced.antialiasing, max_samples);
     commands.spawn((
         Camera2d,
+        CameraRenderGraph::new(crate::canvas_renderer::hud_pass::Hud2d),
+        video::HudCamera,
         Camera {
             order: 2,
             clear_color: ClearColorConfig::None,
+            msaa_writeback: MsaaWriteback::Off,
             ..default()
         },
         Tonemapping::None,
-        msaa,
+        Msaa::Off,
         bevy::camera::visibility::RenderLayers::layer(2),
     ));
     commands.spawn((

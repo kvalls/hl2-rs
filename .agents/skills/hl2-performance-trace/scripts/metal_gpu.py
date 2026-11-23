@@ -76,17 +76,18 @@ def analyze_gpu_intervals(
         except (AssertionError, TypeError, ValueError, AttributeError):
             continue
 
+    # Include all depths: Instruments' metal-nesting-level counts concurrent channel/process
+    # overlap on the GPU timeline rather than parent/child containment.
     boundaries = sorted(
         row["start"]
         for row in rows
-        if row["depth"] >= 1 and row["label"].startswith(ref_label) and row["channel"] == "Fragment"
+        if row["label"].startswith(ref_label) and row["channel"] == "Fragment"
     )
     n_frames = max(len(boundaries), 1)
 
     groups: dict[tuple[str, str], list[float]] = defaultdict(list)
     for row in rows:
-        if row["depth"] >= 1:
-            groups[(row["label"], row["channel"])].append(row["dur"])
+        groups[(row["label"], row["channel"])].append(row["dur"])
 
     passes: list[dict[str, Any]] = []
     for (label, channel), durs in groups.items():
@@ -106,7 +107,7 @@ def analyze_gpu_intervals(
 
     per_frame: dict[int, list[tuple[int, int]]] = defaultdict(list)
     for row in rows:
-        if row["depth"] >= 1 and boundaries:
+        if boundaries:
             idx = bisect.bisect_left(boundaries, row["start"])
             if idx < len(boundaries):
                 per_frame[idx].append((row["start"], row["start"] + int(row["dur"] * 1e6)))

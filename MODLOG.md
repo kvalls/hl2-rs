@@ -1,5 +1,30 @@
 # MODLOG
 
+## 2026-11-23 — `O2` / `O1`: Single sky camera merge, direct 1x `Hud2d` pass (`Msaa::Off`), `OwnTarget` MSAA exclusion, and `metal_gpu.py` `depth == 0` fix
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
+- Changed:
+  - `.agents/skills/hl2-performance-trace/scripts/metal_gpu.py`, `scripts/checks/test_hl2_performance_trace.py`: keep `depth == 0` Metal GPU intervals in `parse_intervals` so non-overlapping `early prepass` and `upscaling` frame-marker intervals are no longer discarded during XML analysis.
+  - `crates/hl2-bevy/src/sky.rs`, `crates/source-assets/src/sky.rs`: merge the 2D skybox face camera (`order: -2`, layer 3) and 3D miniature sky camera (`order: -1`, layer 4) into a single `SkyCamera` (`order: -1`), centering the six `SkyFace` quads on the sky camera at `FACE_DISTANCE = 16,000` units (`far: 32,000`); add unit test `the_sky_pass_draws_only_the_skies_the_bsp_allows` and owned-install test `owned_sky_depth::miniature_sky_geometry_stays_inside_the_2d_sky_faces` across 15 campaign maps.
+  - `crates/hl2-bevy/src/canvas_renderer/hud_pass.rs`, `crates/hl2-bevy/src/canvas_renderer.rs`, `crates/hl2-bevy/src/lib.rs`, `crates/hl2-bevy/src/startup_cameras.rs`, `crates/hl2-bevy/src/video/outputs.rs`: add custom `Hud2d` schedule (`HudPassPlugin`) and `HudCamera` component so the 2D HUD/menu camera renders `Transparent2d` directly onto `target.out_texture_color_attachment(clear)` (`GameFrame`) at 1x (`Msaa::Off`, `MsaaWriteback::Off`) after the last active 3D camera resolves into `GameFrame`, eliminating `msaa_writeback` and 4x MSAA 2D HUD rasterization.
+  - `crates/hl2-bevy/src/video/msaa.rs`, `crates/hl2-bevy/src/video.rs`, `scripts/checks/architecture-baseline.json`: move `sync_antialiasing` into `video/msaa.rs`, exclude `Without<OwnTarget>` alongside `Without<PresentCamera>` and `Without<HudCamera>` so `MonitorCamera` and `IntroCamera` remain `Msaa::Off` on their standalone 1x render targets, extend `test_sync_antialiasing_updates_scene_cameras_and_leaves_present_camera_off`, and tighten `video.rs` in `architecture-baseline.json` (`1024 -> 1006`).
+  - `docs/optimization-backlog.md`, `docs/performance.md`: mark `O2` `done` and record static-spawn Metal GPU, `quiet.json` Metal GPU and `--profile` stage pairs, and `bevy-monitors-breen-screen.json` `--profile` stage pairs.
+- Why: `O2` and `O1` were the #1 ranked GPU/render bottlenecks at maxed Retina (`3456x2168`, 4x MSAA): two separate sky cameras paid a full 3D pass for six sky quads, `HudCamera` triggered a 4x MSAA writeback blit (`~0.50 ms/frame`) plus 4x MSAA 2D rendering (`~0.60 ms/frame`), `sync_antialiasing` overwrote `Msaa::Off` on `OwnTarget` cameras (`MonitorCamera`, `IntroCamera`), and `metal_gpu.py` dropped `depth == 0` intervals.
+- Tested how:
+  - `cargo test -p source-assets owned_sky_depth --locked -- --ignored --nocapture` across 15 owned HL2 campaign maps.
+  - `NO_BUILD=1 ONLY='monitors-breen-screen hud dev_overlay' python3 scripts/checks/replays.py`.
+  - Headless Metal System Trace at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur; baseline `45fa0eaf` vs `c8f8e9ea`) on static spawn and `quiet.json`.
+  - Three alternating `--profile` stage pairs (`A-B-B-A-A-B` after warm-up) at maxed Retina (`3456x2168`) on `quiet.json` and `test-inputs/bevy-monitors-breen-screen.json`.
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result:
+  - Static-spawn Metal GPU busy: `9.15 -> 8.07 ms` mean (`p95 10.22 -> 9.01`, `p99 11.57 -> 10.08`, frames > 8.33 ms: `99.5% -> 53.7%`); `quiet.json` Metal GPU busy: `9.82 -> 7.88 / 7.82 ms` mean (`p50 9.99 -> 7.40 / 7.30`, `p95 11.45 -> 8.91`, frames > 8.33 ms: `100% -> 40.5% / 37.4%`).
+  - `msaa_writeback`: `0.485–0.509 -> 0.000 ms/frame` (`1.0 -> 0/frame`); 2D HUD pass: `0.600–0.635 ms/frame` (`main_transparent_pass_2d` 4x MSAA) -> `0.178–0.185 ms/frame` Fragment + `0.035–0.038 ms/frame` Vertex (`hud_pass_2d` 1x); `main_opaque_pass_3d` Fragment: `3.202–3.370 -> 2.640–2.712 ms/frame` (`3.0 -> 2.0/frame`).
+  - `quiet.json` 3 alternating `--profile` pairs at maxed Retina: `frame_total` median `10.16 -> 8.37 ms` (`-17.6%`, `p95 13.21 -> 10.87`), `render_graph` `7.77 -> 6.07 ms` (`-21.9%`, `p95 10.53 -> 8.55`), `render_prepare` `1.06 -> 0.95 ms` (`-10.4%`).
+  - `bevy-monitors-breen-screen.json` 3 alternating `--profile` pairs at maxed Retina: `frame_total` median `17.53 -> 15.93 ms` (`-9.1%`, `p95 22.19 -> 18.97`), `render_graph` `15.17 -> 13.63 ms` (`-10.2%`, `p95 19.67 -> 16.66`), `render_prepare` `1.02 -> 0.94 ms` (`-7.8%`).
+  - All 15 owned campaign maps pass `owned_sky_depth` (max miniature sky reach `14,320 < 16,000` in `d1_canals_05`); `monitors-breen-screen`, `hud`, `dev_overlay`, `validate.sh`, and `check_windows.sh` pass.
+- Still broken or not tested: interactive live `pacing` capture and Windows GPU runtime **not tested**; stationary/moving-object motion blur (`O1`/`O20`, `~1.29 ms/frame` GPU on `quiet.json`) remains open for the next step.
+- Next: implement `O1`/`O20` moving-mesh `MotionRegion` bounding and idle skip across world and weapon motion blur passes.
+
 ## 2026-11-22 — Surface audit of optimization backlog (ranked shortlist, weak items dropped, probes scrubbed to branches)
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh), with 5 parallel audit subagents (`audit-worker` / `research`).

@@ -202,6 +202,28 @@ class TestMetalGpu(unittest.TestCase):
             self.assertEqual(data["busy_stats"]["over_8_33"], 1)
             self.assertIn("GPU busy per frame", metal_gpu.format_gpu_intervals(data))
 
+    def test_analyze_gpu_intervals_includes_depth_zero(self):
+        xml = """<trace-query-result>
+  <node><row>
+    <start>1000000</start><duration>500000</duration><channel fmt="Fragment"/><frame>1</frame><lat>0</lat><depth>0</depth>
+    <label><string>early prepass:early prepass</string></label><state/><conn/><col/><proc id="p1" fmt="hl2-bevy (1)"/>
+  </row></node>
+  <node><row>
+    <start>2000000</start><duration>200000</duration><channel fmt="Fragment"/><frame>1</frame><lat>0</lat><depth>0</depth>
+    <label><string>upscaling:upscaling</string></label><state/><conn/><col/><proc ref="p1"/>
+  </row></node>
+</trace-query-result>
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "gpu0.xml"
+            p.write_text(xml, encoding="utf-8")
+            data = metal_gpu.analyze_gpu_intervals(p)
+            self.assertEqual(data["frames"], 1)
+            by_label = {item["label"]: item for item in data["passes"]}
+            self.assertIn("early prepass:early prepass", by_label)
+            self.assertAlmostEqual(by_label["early prepass:early prepass"]["ms_per_frame"], 0.5, places=3)
+            self.assertAlmostEqual(data["busy_stats"]["mean"], 0.7, places=3)
+
     def test_analyze_display_pacing(self):
         row = lambda dur_ns, fmt: (
             "<row>" + "<c/>" + f"<dur>{dur_ns}</dur>" + "<c/>" * 11 + f'<res fmt="{fmt}"/>' + "</row>"

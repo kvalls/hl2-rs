@@ -14,7 +14,12 @@ use source_assets::{
 };
 
 #[derive(Component)]
-pub struct SkyCamera(bool);
+pub struct SkyCamera;
+/// A 2D sky face; it follows the sky camera at FACE_DISTANCE.
+#[derive(Component)]
+pub struct SkyFace;
+/// How far out the 2D sky faces are from the sky camera (Source units).
+const FACE_DISTANCE: f32 = 16000.;
 #[derive(Resource)]
 pub struct Sky {
     bsp: Bsp,
@@ -64,33 +69,34 @@ pub fn install(
     let target_comp = target
         .map(|t| RenderTarget::Image(t.clone().into()))
         .unwrap_or_default();
-    for (is_2d, layer, order) in [(true, 3, -2), (false, 4, -1)] {
-        commands.spawn((
-            crate::campaign::MapOwned,
-            Camera3d::default(),
-            Camera {
-                order,
-                is_active: false,
-                msaa_writeback: bevy::camera::MsaaWriteback::Off,
-                ..default()
-            },
-            target_comp.clone(),
-            RenderLayers::layer(layer),
-            SkyCamera(is_2d),
-            Tonemapping::None,
-            // Sky_HDR_DX9 and the miniature 3D skybox both end in TONEMAP_SCALE_LINEAR.
-            bevy::camera::Exposure::default(),
-            crate::tonemap::ToneMapped,
-            Msaa::Off,
-            Projection::Perspective(PerspectiveProjection {
-                fov: 2. * ((75f32.to_radians() / 2.).tan() / (4. / 3.)).atan(),
-                near: 0.1,
-                far: 32000.,
-                ..default()
-            }),
-            Transform::IDENTITY,
-        ));
-    }
+    // One camera draws the 2D sky faces (layer 3) and the miniature sky (layer 4) in one pass:
+    // the faces sit FACE_DISTANCE out around it, behind every miniature-sky surface (checked by
+    // source_assets' owned sky test), so a camera's whole fixed cost is not paid for six quads.
+    commands.spawn((
+        crate::campaign::MapOwned,
+        Camera3d::default(),
+        Camera {
+            order: -1,
+            is_active: false,
+            msaa_writeback: bevy::camera::MsaaWriteback::Off,
+            ..default()
+        },
+        target_comp,
+        RenderLayers::layer(4),
+        SkyCamera,
+        Tonemapping::None,
+        // Sky_HDR_DX9 and the miniature 3D skybox both end in TONEMAP_SCALE_LINEAR.
+        bevy::camera::Exposure::default(),
+        crate::tonemap::ToneMapped,
+        Msaa::Off,
+        Projection::Perspective(PerspectiveProjection {
+            fov: 2. * ((75f32.to_radians() / 2.).tan() / (4. / 3.)).atan(),
+            near: 0.1,
+            far: 32000.,
+            ..default()
+        }),
+        Transform::IDENTITY,
+    ));
 }
 
 fn spawn_skybox_faces(
@@ -115,7 +121,7 @@ fn spawn_skybox_faces(
                 .map(|&(s, t)| {
                     source_to_bevy(
                         Vec3::from_array(source_assets::sky::face_vector(face, s, t).to_array())
-                            * 16000.,
+                            * FACE_DISTANCE,
                     )
                     .to_array()
                 })
@@ -162,17 +168,30 @@ fn spawn_skybox_faces(
             MeshMaterial3d(materials.add(face_material(base, linear, (&white, &black_cube)))),
             Transform::IDENTITY,
             RenderLayers::layer(3),
+            SkyFace,
         ));
     }
 }
+type SkyCameras<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut Transform,
+        &'static mut Camera,
+        &'static mut Projection,
+        &'static mut RenderLayers,
+    ),
+    (With<SkyCamera>, Without<FlyCamera>),
+>;
+type SkyFaces<'w, 's> =
+    Query<'w, 's, &'static mut Transform, (With<SkyFace>, Without<SkyCamera>, Without<FlyCamera>)>;
+
 pub fn present(
     mut sky: ResMut<Sky>,
     frame: Option<Res<crate::video::GameFrame>>,
     mut world: Query<(&Transform, &mut Camera, &Projection), With<FlyCamera>>,
-    mut backgrounds: Query<
-        (&SkyCamera, &mut Transform, &mut Camera, &mut Projection),
-        (Without<FlyCamera>,),
-    >,
+    mut backgrounds: SkyCameras,
+    mut faces: SkyFaces,
 ) {
     let Ok((world_transform, mut world_camera, world_projection)) = world.single_mut() else {
         return;
@@ -199,7 +218,7 @@ pub fn present(
     };
     sky.frames_2d += u64::from(visible_2d);
     sky.frames_3d += u64::from(visible_3d);
-    for (kind, mut transform, mut camera, mut projection) in &mut backgrounds {
+    for (mut transform, mut camera, mut projection, mut layers) in &mut backgrounds {
         // Follow scripted world FOV changes; keep the sky's own clip planes.
         if let (Projection::Perspective(sky_p), Projection::Perspective(world_p)) =
             (&mut *projection, world_projection)
@@ -211,21 +230,40 @@ pub fn present(
             camera.is_active = false;
             continue;
         }
-        camera.is_active = if kind.0 { visible_2d } else { visible_3d };
-        camera.clear_color = if !kind.0 && visible_2d {
-            ClearColorConfig::None
-        } else {
-            ClearColorConfig::Default
-        };
+        // Each sky draws only while the BSP says it is eligible: 2D faces on layer 3, the
+        // miniature sky on layer 4, behind them nothing (the pass clears).
+        camera.is_active = visible_2d || visible_3d;
+        let wanted = sky_layers(visible_2d, visible_3d);
+        if *layers != wanted {
+            *layers = wanted;
+        }
         transform.rotation = world_transform.rotation;
-        transform.translation = if kind.0 {
-            Vec3::ZERO
-        } else {
-            sky.background.as_ref().map_or(Vec3::ZERO, |b| {
+        let at = match (&sky.background, visible_3d) {
+            (Some(b), true) => {
                 source_to_bevy(Vec3::from_array((b.origin + eye / b.scale).to_array()))
-            })
+            }
+            _ => Vec3::ZERO,
         };
+        transform.translation = at;
+        // The faces stay centred on the camera, so they sit FACE_DISTANCE out in every view.
+        for mut face in &mut faces {
+            if face.translation != at {
+                face.translation = at;
+            }
+        }
     }
+}
+
+/// The sky camera's layers for the skies the BSP allows this frame.
+fn sky_layers(visible_2d: bool, visible_3d: bool) -> RenderLayers {
+    let mut layers = RenderLayers::none();
+    if visible_2d {
+        layers = layers.with(3);
+    }
+    if visible_3d {
+        layers = layers.with(4);
+    }
+    layers
 }
 
 /// A 2D sky face's material: its texture unlit (`linear`: already linear HDR), no flashlight.
@@ -258,5 +296,18 @@ fn face_material(
         self_illum: Vec4::ZERO,
         alpha: AlphaMode::Opaque,
         two_sided: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RenderLayers, sky_layers};
+
+    #[test]
+    fn the_sky_pass_draws_only_the_skies_the_bsp_allows() {
+        assert_eq!(sky_layers(true, true), RenderLayers::from_layers(&[3, 4]));
+        assert_eq!(sky_layers(true, false), RenderLayers::layer(3));
+        assert_eq!(sky_layers(false, true), RenderLayers::layer(4));
+        assert_eq!(sky_layers(false, false), RenderLayers::none());
     }
 }

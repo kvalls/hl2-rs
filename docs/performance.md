@@ -1,5 +1,30 @@
 # Performance measurements - 2026-10-05
 
+## `O2` / `O1` — Single sky camera merge, direct 1x `Hud2d` pass (`Msaa::Off`), `OwnTarget` MSAA exclusion, and `metal_gpu.py` `depth == 0` fix (2026-11-23)
+
+Measured on Apple M1 Pro at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur, anisotropic 8x; everyday `stages` release build, baseline `45fa0eaf` vs `c8f8e9ea`):
+
+- **Root causes fixed:**
+  1. `.agents/skills/hl2-performance-trace/scripts/metal_gpu.py` previously filtered `if row["depth"] >= 1:`, dropping non-overlapping `depth == 0` Metal GPU intervals (including `upscaling` frame markers and `early prepass` intervals), which had made the earlier 2026-11-22 single-sky-camera test appear to regress on GPU.
+  2. `crates/hl2-bevy/src/sky.rs` spawned two full-Retina 4x MSAA `Camera3d` entities (`order: -2` for six 2D sky quads on layer 3 and `order: -1` for miniature 3D sky on layer 4). A single `SkyCamera` (`order: -1`) now draws both layer 3 and layer 4, keeping the six `SkyFace` quads centred on the active sky camera at `FACE_DISTANCE = 16,000` units (`far: 32,000`, `32,000 * sqrt(3) < 65,504` FP16 limit; verified across all 15 owned HL2 campaign maps by `source_assets::sky::owned_sky_depth`, max miniature sky reach `14,320` units in `d1_canals_05`).
+  3. Because Bevy 0.19 keys `MainTargetTextures` on `(target, usage, format, msaa)`, `HudCamera` (`Camera2d`, `order: 2`) previously either had to use `Msaa::Sample4` (paying a full-Retina 4x `msaa_writeback` blit of `~0.50 ms/frame` plus a 4x MSAA `main_transparent_pass_2d` of `~0.60 ms/frame`) or allocate a separate target texture that discarded the 3D scene. `crates/hl2-bevy/src/canvas_renderer/hud_pass.rs` (`Hud2d` schedule) now renders `Transparent2d` directly onto `target.out_texture_color_attachment(clear)` (`GameFrame`) at `Msaa::Off` and `MsaaWriteback::Off` after the last active 3D camera resolves into `GameFrame` (`video/outputs.rs` `skip_covered_outputs`).
+  4. `crates/hl2-bevy/src/video/msaa.rs` (`sync_antialiasing`) now excludes `Without<OwnTarget>` alongside `Without<PresentCamera>` and `Without<HudCamera>` so `MonitorCamera` (`256x256`) and `IntroCamera` keep `Msaa::Off` on their standalone 1x render targets.
+- **Headless Metal System Trace (`d1_trainstation_02`, maxed Retina `3456x2168`):**
+  - **Static spawn (no script, `20261123-o2-head-static-1` vs `20261123-o2-after-static-1`):**
+    - GPU busy per frame: **`9.15 -> 8.07 ms` mean** (`p50 8.95 -> 8.47`, `p95 10.22 -> 9.01`, `p99 11.57 -> 10.08`, `max 17.41 -> 10.42`; frames > 8.33 ms: `649/652` [`99.5%`] -> `410/763` [`53.7%`]).
+    - `main_opaque_pass_3d` Fragment: **`3.202 -> 2.712 ms/frame`** (`3.0 -> 2.0` passes/frame).
+    - `msaa_writeback` Fragment: **`0.485 -> 0.000 ms/frame`** (`1.0 -> 0` passes/frame).
+    - 2D HUD pass: `main_transparent_pass_2d` **`0.600 ms/frame` (4x MSAA) -> `hud_pass_2d` `0.185 ms/frame` Fragment + `0.035 ms/frame` Vertex (1x)**.
+  - **`quiet.json` (`20261123-o2-head-quiet-1` vs `20261123-o2-after-quiet-1` and `audit-hud2d-1`):**
+    - GPU busy per frame: **`9.82 -> 7.88 / 7.82 ms` mean** (`p50 9.99 -> 7.40 / 7.30`, `p95 11.45 -> 8.91 / 8.94`, `p99 11.80 -> 10.11 / 10.22`; frames > 8.33 ms: `352/352` [`100%`] -> `176/435` [`40.5%`] / `271/724` [`37.4%`]).
+    - `main_opaque_pass_3d` Fragment: **`3.370 -> 2.640 / 2.625 ms/frame`** (`3.0 -> 2.0` passes/frame).
+    - `msaa_writeback` Fragment: **`0.509 -> 0.000 ms/frame`** (`1.0 -> 0` passes/frame).
+    - 2D HUD pass: `main_transparent_pass_2d` **`0.635 ms/frame` -> `hud_pass_2d` `0.178 / 0.168 ms/frame` Fragment + `0.038 / 0.040 ms/frame` Vertex**.
+- **Three alternating `--profile` stage pairs at maxed Retina (`3456x2168`, `A-B-B-A-A-B` after warm-up, `45fa0eaf` vs `c8f8e9ea`):**
+  - **`quiet.json`:** `frame_total` median **`10.16 -> 8.37 ms` (`-17.6%`**, A `10.38 / 10.16 / 9.94`, B `8.42 / 8.21 / 8.37`, `p95 13.21 -> 10.87 ms`), `render_graph` **`7.77 -> 6.07 ms` (`-21.9%`**, `p95 10.53 -> 8.55 ms`), `render_prepare` **`1.06 -> 0.95 ms` (`-10.4%`)**, `PostUpdate` `2.60 -> 2.52 ms`.
+  - **`bevy-monitors-breen-screen.json` (`--frames 600`):** `frame_total` median **`17.53 -> 15.93 ms` (`-9.1%`**, A `17.58 / 17.51 / 17.53`, B `15.94 / 15.75 / 15.93`, `p95 22.19 -> 18.97 ms`), `render_graph` **`15.17 -> 13.63 ms` (`-10.2%`**, `p95 19.67 -> 16.66 ms`), `render_prepare` **`1.02 -> 0.94 ms` (`-7.8%`)**.
+- **Fidelity:** `monitors-breen-screen`, `hud`, and `dev_overlay` packaged replay checks and `owned_sky_depth` (15 campaign maps) pass with 0 failures.
+
 ## A/A noise floor and stashed lockstep control (2026-11-22)
 
 Measured at `6c680b59` (`bin/hl2-bevy`, everyday `stages` release build, `--uncapped --profile`,
