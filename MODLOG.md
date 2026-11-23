@@ -1,5 +1,20 @@
 # MODLOG
 
+## 2026-11-24 — Prune unused Bevy 0.19.1 features (build & binary size track, Phase 1A)
+- Agent/model: Antigravity (model ID not recorded).
+- Changed:
+  - `Cargo.toml`, `Cargo.lock`: replaced umbrella Bevy features (`3d`, `2d_bevy_render`, `ui`) with the explicit minimal Bevy 0.19.1 feature set required by `hl2-bevy`, `apps/hl2rs`, and plugins (`std`, `async_executor`, `multi_threaded`, `bevy_asset`, `bevy_log`, `reflect_auto_register`, `bevy_winit`, `bevy_window`, `custom_cursor`, `x11`, `wayland`, `system_clipboard`, `keyboard`, `mouse`, `bevy_color`, `bevy_camera`, `bevy_image`, `bevy_mesh`, `bevy_shader`, `bevy_material`, `bevy_light`, `bevy_render`, `bevy_core_pipeline`, `bevy_pbr`, `bevy_sprite`, `bevy_sprite_render`, `morph`, `png`, `bevy_audio`, `wav`, `bevy_text`, `bevy_input_focus`, `bevy_ui`, `bevy_ui_render`, `ui_picking`).
+  - Drops unused `bevy_gltf`, `gltf_animation`, `bevy_animation`, `morph_animation`, `bevy_gizmos`, `bevy_gizmos_render`, `bevy_gilrs`, `bevy_scene`, `bevy_world_serialization`, `bevy_state`, `bevy_anti_alias` (`smaa_luts`), `bevy_post_process`, `bevy_mikktspace`, `bevy_ui_widgets`, `tonemapping_luts`/`ktx2`/`zstd_rust`, `sysinfo_plugin`, `default_font`, `mesh_picking`/`sprite_picking`, `hdr`, `webgl2`.
+- Why: Reduce workspace crate count, clean/CI build scope, release binary size, and unused startup plugins/threads (e.g., `gilrs`, KTX2/zstd tonemapping LUT decompression).
+- Tested how and result:
+  - `cargo tree -p hl2-app`: `570 -> 529` crates (`-41`, `-7.2%`).
+  - `cargo check --locked -p hl2-app --features trace-chrome` and `--features trace-alloc`: passed.
+  - `scripts/checks/validate.sh` (architecture guardrails, 99 Python helper tests, all 4 plugin selections, workspace `cargo test --locked`, `cargo clippy -- -D warnings`, `cargo fmt --check`) and Windows cross-target Clippy (`x86_64-pc-windows-msvc`): passed on macOS.
+  - `scripts/build-bevy.sh` release build (`3m 29s` full after feature change): `bin/hl2-bevy` shrank `147 MiB -> 123 MiB` (`128,666,672` B); 1-file `crates/hl2-bevy/src/startup/app.rs` release rebuild `44.45s` (`real 45.61s`) -> `42.02s` (`real 43.07s`, `-5.6%`).
+  - `./bin/hl2-bevy --setup-preview` exited `0` (rendered `960x700` layout cleanly); `--background --no-setup --mute --frames 30 --uncapped --profile` menu (`real 1.77s`, `request_to_installed_ms: 537.7 ms`, `total: 430.8 ms`) and `--map d1_trainstation_02` (`real 6.11s`, `request_to_installed_ms: 2487.3 ms`) ran without errors.
+- Still broken or not tested: Windows runtime linking/execution **not tested** here.
+- Next: Phase 1B Cargo profile incremental/build-override optimizations with mandatory steady-state runtime A/B gate.
+
 ## 2026-11-23 — Fix shared-skeleton submesh omission in viewmodel motion blur
 - Agent/model: Antigravity (model ID not recorded).
 - Changed:

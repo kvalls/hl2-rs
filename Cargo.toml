@@ -3,7 +3,43 @@ members = ["crates/modkit-core", "crates/source-assets", "crates/source-ui", "cr
 resolver = "2"
 
 [workspace.dependencies]
-bevy = { version = "=0.19.1", default-features = false, features = ["3d", "2d_bevy_render", "bevy_audio", "wav", "bevy_log", "ui", "system_clipboard"] }
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "multi_threaded",
+    "bevy_asset",
+    "bevy_log",
+    "reflect_auto_register",
+    "bevy_winit",
+    "bevy_window",
+    "custom_cursor",
+    "x11",
+    "wayland",
+    "system_clipboard",
+    "keyboard",
+    "mouse",
+    "bevy_color",
+    "bevy_camera",
+    "bevy_image",
+    "bevy_mesh",
+    "bevy_shader",
+    "bevy_material",
+    "bevy_light",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_sprite",
+    "bevy_sprite_render",
+    "morph",
+    "png",
+    "bevy_audio",
+    "wav",
+    "bevy_text",
+    "bevy_input_focus",
+    "bevy_ui",
+    "bevy_ui_render",
+    "ui_picking",
+] }
 hl2-debug = { path = "plugins/hl2-debug", default-features = false }
 hl2-advanced-options = { path = "plugins/hl2-advanced-options", default-features = false }
 anyhow = "1"
