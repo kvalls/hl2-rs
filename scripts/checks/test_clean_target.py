@@ -31,17 +31,18 @@ class CleanTargetTests(unittest.TestCase):
                                         dry_run=dry_run))
 
     def test_incremental_pruning_preserves_third_party_and_newest_workspace_cache(self):
-        old = self.artifact("debug/incremental/hl2_ui-aaa/cache", 100)
-        newest = self.artifact("debug/incremental/hl2_ui-bbb/cache", 200)
-        unrelated = [self.artifact(f"debug/incremental/third_party-{h}/cache", t)
-                     for h, t in (("aaa", 100), ("bbb", 200))]
-        self.clean()
-        self.assertFalse(old.exists())
-        for path in [newest, *unrelated]:
-            self.assertEqual(path.read_bytes(), b"cache fixture")
+        for profile in ("debug", "release"):
+            old = self.artifact(f"{profile}/incremental/hl2_ui-aaa/cache", 100)
+            newest = self.artifact(f"{profile}/incremental/hl2_ui-bbb/cache", 200)
+            unrelated = [self.artifact(f"{profile}/incremental/third_party-{h}/cache", t)
+                         for h, t in (("aaa", 100), ("bbb", 200))]
+            self.clean()
+            self.assertFalse(old.exists())
+            for path in [newest, *unrelated]:
+                self.assertEqual(path.read_bytes(), b"cache fixture")
 
     def test_dependency_pruning_preserves_third_party_and_profile_retention(self):
-        for profile, retained in (("debug", 2), ("release", 1)):
+        for profile, retained in (("debug", 2), ("release", 2), ("dist", 1)):
             workspace, unrelated = [], []
             for index in range(3):
                 suffix = f"{index:016x}.rlib"

@@ -83,9 +83,11 @@ def clean_workspace(repo_root, crates, dry_run=False):
 def incremental_candidates(target_dir, crate_underscores):
     """Find superseded workspace caches; dependencies are never candidates."""
     dirs_to_remove = []
-    inc_dir = os.path.join(target_dir, "debug", "incremental")
-    if os.path.isdir(inc_dir):
-        inc_pattern = re.compile(r"^([a-zA-Z0-9_]+)-([0-9a-zA-Z]+)$")
+    inc_pattern = re.compile(r"^([a-zA-Z0-9_]+)-([0-9a-zA-Z]+)$")
+    for profile in ("debug", "release"):
+        inc_dir = os.path.join(target_dir, profile, "incremental")
+        if not os.path.isdir(inc_dir):
+            continue
         by_crate = collections.defaultdict(list)
         for entry in os.listdir(inc_dir):
             full_path = os.path.join(inc_dir, entry)
@@ -177,7 +179,7 @@ def _prune_stale(repo_root, target_dir, crates, keep_active_versions=2, dry_run=
                 hash_stats.append((h, max_mt, tot_sz, flist))
             hash_stats.sort(key=lambda x: x[1], reverse=True)
 
-            keep_count = keep_active_versions if profile == "debug" else 1
+            keep_count = keep_active_versions if profile in ("debug", "release") else 1
             for h, max_mt, tot_sz, flist in hash_stats[keep_count:]:
                 for fpath, sz, mt in flist:
                     files_to_remove.append((fpath, sz, crate_name, profile))

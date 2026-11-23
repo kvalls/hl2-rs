@@ -1,5 +1,18 @@
 # MODLOG
 
+## 2026-11-24 — Cargo profile overrides, target cleaner retention, and CoW packaging (Phase 1B)
+- Agent/model: Antigravity (model ID not recorded).
+- Changed:
+  - `Cargo.toml`: set `lto = "off"` under `[profile.dev]` and added `[profile.dev.build-override]` (`opt-level = 2`, `debug = false`) to speed up proc-macro/build-script compilation and shrink debug artifacts.
+  - Tested and rejected `[profile.release] incremental = true`: 1-file `crates/hl2-bevy/src/startup/app.rs` release rebuild dropped only `42.02s -> 39.86s` (`real 43.07s -> 40.77s`, `-5.2%`), while disabling thin-local LTO regressed steady-state simulation and frame times across 3 alternating A/B pairs each on `d1_trainstation_02` (`quiet.json` `fixed_simulation` median `1.940 -> 2.322 ms` [`+19.7%`], `frame_total` `3.808 -> 7.183 ms`; `mixed-crowd.json` `fixed_simulation` `4.994 -> 5.793 ms` [`+16.0%`], `frame_total` `10.059 -> 14.307 ms`). Reverted `incremental = true` from `[profile.release]`.
+  - `scripts/checks/clean_target.py`, `scripts/checks/test_clean_target.py`: extend stale `incremental/` pruning across both `debug/` and `release/`, retain `2` active workspace versions in `release/deps/` (matching `debug/deps/`) while keeping `dist` at `1`, and cover `release/incremental` + `dist` retention in unit tests.
+  - `scripts/build-bevy.sh`: copy `bin/hl2-bevy` via `cp -c` with portable `cp` fallback (APFS copy-on-write on macOS).
+- Why: Faster dev/test rebuilds and packaging without regressing steady-state release frame time.
+- Tested how and result:
+  - `scripts/checks/validate.sh` (including 100 Python helper tests, all 4 plugin selections, workspace `cargo test --locked`, `cargo clippy -- -D warnings`, `cargo fmt --check`), `scripts/checks/check_windows.sh`, and `scripts/build-bevy.sh` (`45.72s`) all passed on macOS after reverting `[profile.release] incremental = true`.
+- Still broken or not tested: Windows build/runtime and `cp -c` fallback behavior on Linux/Windows **not tested** here.
+- Next: Track 2 startup and map-load optimization across `source-assets`, audio decoding, startup/loading, and GPU install.
+
 ## 2026-11-24 — Prune unused Bevy 0.19.1 features (build & binary size track, Phase 1A)
 - Agent/model: Antigravity (model ID not recorded).
 - Changed:

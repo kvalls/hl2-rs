@@ -150,7 +150,7 @@ PACKAGE_EXECUTABLE="$PACKAGE_ROOT/hl2-bevy"
 # Replace the file instead of overwriting it in place: macOS kills new launches of an executable
 # whose signed pages were rewritten (exit 137), e.g. while a previous build is still running.
 rm -f "$PACKAGE_EXECUTABLE"
-cp "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
+cp -c "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE" 2>/dev/null || cp "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
 chmod +x "$PACKAGE_EXECUTABLE"
 
 compute_sha256() {
