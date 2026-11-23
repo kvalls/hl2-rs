@@ -1,5 +1,9 @@
 # STATUS
 
+## O30 GPU facial flexes complete (2026-11-23, `337b8260`)
+
+The revised release (`db6ecd38`) passed all nine packaged face, gesture and monitor checks on Apple M1 Pro / Metal. Against O41, median release frame time fell from 11.203 to 10.037 ms in the mixed crowd and from 3.733 to 3.582 ms in the security face replay. Both revised traces recorded active morph weights and zero flex mesh uploads. The Breen comparison matched host tick 1704 and render frame 1339 in the first pair. All four previously blocked loopback checks passed outside the sandbox. Raw pairs, allocator spans and visual controls are in docs/performance.md. Windows runtime and ordinary campaign play are **not tested**.
+
 ## Optimization backlog pass (2026-11-22, `804adadb`..`382fd37e`)
 
 Five measured changes on `orbitalman/performance_research` and one rejected item, each change with stages A/B (three alternating headless runs per side), frame-matched or visual captures, `scripts/checks/validate.sh`, Windows-target Clippy and the packaged replay suite (`109` checks; one run had a single load-only `pallet-launched-into-wall` outcome failure that passes alone): O28 PVS bitset rows and per-draw cluster lists (`source_pvs` -12%, identical culling), O13/O8 HUD canvas atlas (432 -> 4 HUD meshes, `render_assets` halved at the spawn), particles drawn per effect and material (crowd `frame_total` 19.65 -> 17.77 ms), O14 step 1 per-frame material values in a shared buffer (crowd 17.34 -> 16.72 ms; spawn `render_assets` 0.56 -> 0.19), O30 CPU side dense facial flex deltas (crowd 16.89 -> 15.91 ms, `animation` 3.47 -> 2.11). O26 rejected with evidence (the post-process nodes work on one camera only). Numbers in docs/performance.md and docs/optimization-backlog.md.

@@ -1,5 +1,22 @@
 # Performance measurements - 2026-10-05
 
+## O30 GPU facial flexes (2026-11-23)
+
+The packaged O41 release (`c8c336b4`, A) and the revised GPU morph release (`db6ecd38`, B) ran on the Apple M1 Pro with the Metal backend. Both used the advanced-options and debug-tools plugins. The 1280×720 uncapped stage runs used the same default settings and tick scripts. Each scene had one discarded A warm-up followed by three pairs in AB, BA, AB order. Frame and stage times are median run means in milliseconds.
+
+| Scene | Frame total | Animation | Render assets | Flex mesh rewrites/frame | Mesh allocator ms/frame |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mixed crowd, station 02 | 11.203 → 10.037 | 1.409 → 1.177 | 2.540 → 1.004 | 51.015 → 0.000 | 4.565 → 2.096 |
+| Security face, station 01 | 3.733 → 3.582 | 0.563 → 0.529 | 0.296 → 0.159 | 13.385 → 0.000 | 0.613 → 0.181 |
+
+Release frame means per pair (A/B, ms) were crowd 10.990/10.043, 11.866/10.037, 11.203/9.986, face 3.733/3.582, 3.716/3.587, 3.734/3.564.
+
+The last two columns use separate trace builds of the same sources (`c181954b` / `97c8e5fa`). Each ran the full script at 2×. The middle half of complete gameplay frames excludes startup and exit. Crowd contributed 65/72 frames and face 756/761. A temporary span counted each flex-driven position-buffer rewrite, with separate spans for CPU reskinning and GPU weight updates. Neither revised scene took the CPU fallback. B updated weights 76.35 times/frame in the crowd and 12.75 in the face replay. The allocator column sums Bevy’s `allocate_and_free_meshes` duration per frame across all meshes.
+
+All four security-face, three gesture and two Breen monitor replay checks passed on B. At normal speed, two captures per build used camera `camera_tv_breen`, froze at tick 1674 and ended at tick 1704. Mean absolute RGB differences (0–255) for the matched AB and BA pairs were 0.048 / 0.232 in the player view and 0.000 / 0.083 in the monitor texture. The first pair also matched render frame 1339 and differed by 0.00005 per monitor RGB channel. The within-build A/A and B/B controls measured 0.004 / 0.180 and 0.000 / 0.083, respectively. Accelerated player-view captures had greater exposure variation (A/A 14.970).
+
+The initial GPU release (`8cad383f`) measured 11.94 → 11.05 ms in the crowd and 4.25 → 4.17 ms on the face replay before the CPU fallback, runtime-template and bodygroup fixes. An initial sandboxed O41 visual capture failed before gameplay because it had no GPU. Windows runtime and ordinary campaign play are **not tested**.
+
 ## `O41` — Share non-reflective lit `SourceMaterial`s via `MeshTag` and split `LIGHT_ROWS` storage buffer (2026-11-23)
 
 Measured on Apple M1 Pro across 3 alternating `--profile` release pairs per scene (`28078e30` `sha256 5a7f0038` vs `O41` `sha256 c8c336b4`):

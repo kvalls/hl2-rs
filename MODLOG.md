@@ -1,5 +1,16 @@
 # MODLOG
 
+## 2026-11-23 — O30 GPU facial flexes verified on Metal (`337b8260`)
+
+- Agent/model: Antigravity (exact implementation model not recorded), Codex (GPT-6 family, exact model ID not recorded).
+- Changed: GPU-skinned faces use model-space morph targets and actor-local weights. Compatible draws reuse geometry across instances and LODs. CPU skinning and over-budget face draws retain CPU deformation. All draw creation paths attach weights, CPU fallback draws keep independent mesh positions, and morph target generation uses the same bodygroup model as CPU flex evaluation.
+- Why: Blinking and speech previously rewrote head and eye mesh positions and triggered render-asset uploads.
+- Tested how: Nine packaged face, gesture and monitor replay checks on the initial build. On revised source, `cargo test --workspace --locked -- --skip packets_arrive_and_replies_go_back_over_a_real_socket`, `cargo test --locked -p hl2-bevy owned_hl2_face_models_fit_morph_channel_budget -- --ignored`, architecture, fmt, strict workspace Clippy and Windows-target Clippy passed. Regression coverage includes two actors above the channel limit and overlapping vertex indices in different bodygroup models.
+- Verification on the revised package: `NO_BUILD=1 JOBS=1 ONLY='face-security-1805 face-security-2100 face-security-2130 face-security-2245 monitors-breen-screen monitors-breen-slate gestures-security-1805 gestures-security-2245 gestures-timeline' python3 scripts/checks/replays.py` (run in two batches, 9/9 passed). Replay logs identified the Apple M1 Pro Metal adapter. `python3 -m unittest discover -s scripts/checks -p test_hl2_session.py` passed all 17 tests. `cargo test --locked -p hl2-bevy packets_arrive_and_replies_go_back_over_a_real_socket` passed the real-socket test.
+- Result: Three release pairs per scene reduced median frame time from 11.203 to 10.037 ms in the crowd and from 3.733 to 3.582 ms on the security face. Trace flex mesh uploads fell from 51.02 and 13.38 per frame to zero, respectively. Mesh allocator spans fell from 4.565 to 2.096 and 0.613 to 0.181 ms/frame. Breen’s monitor feed matched within 0.00005 per RGB channel on the pair at render frame 1339. Measurements and repeat controls are in docs/performance.md.
+- Still broken or not tested: Windows runtime and ordinary campaign play are **not tested**.
+- Next: O30 closed.
+
 ## 2026-11-23 — `O41`: Share lit `SourceMaterial`s via `MeshTag` lighting slots and split `LIGHT_ROWS` storage buffer
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
