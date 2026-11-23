@@ -44,6 +44,10 @@ impl Sprite {
         let brightness = self.brightness.value(now);
         (self.on && brightness > 0.).then(|| (self.scale.value(now), brightness))
     }
+    fn rebase_clock(&mut self, delta: f64) {
+        self.scale.rebase(delta);
+        self.brightness.rebase(delta);
+    }
 }
 
 /// m_hCenterSprite and m_hBlastSprite.
@@ -55,6 +59,10 @@ pub struct Glow {
     blast: Sprite,
 }
 impl Glow {
+    pub(crate) fn rebase_clock(&mut self, delta: f64) {
+        self.core.rebase_clock(delta);
+        self.blast.rebase_clock(delta);
+    }
     /// DoEffect: StartEffects makes the sprites at 0.1 and 255 the first time, then the effect
     /// asks for its own values. Asking again for the same value restarts nothing.
     pub fn show(&mut self, effect: Effect, now: f64) {
@@ -81,6 +89,25 @@ impl Glow {
 }
 
 impl PhyscannonState {
+    /// Drop map-local grabs and launch beam/sparks across changelevel and shift clocks.
+    pub(crate) fn rebase_clock(&mut self, delta: f64) {
+        self.held = None;
+        self.grab = None;
+        self.holds_npc = false;
+        self.holding_effect = false;
+        self.npc_events.clear();
+        self.launches.clear();
+        self.last_launch = None;
+        self.buttons = (false, false);
+        self.secondary_held = false;
+        self.attack2_debounce = false;
+        self.next_primary += delta;
+        self.next_secondary += delta;
+        self.idle_at += delta;
+        self.check_suppress += delta;
+        self.element_debounce += delta;
+        self.glow.rebase_clock(delta);
+    }
     /// The effect the gun shows now: holding with something held or attack2 down, else ready.
     /// ItemPostFrame asks for EFFECT_READY every frame while attack2 is up and nothing is held
     /// (retail's too), open prongs or not, so CloseElements' EFFECT_CLOSED never outlasts its
@@ -222,5 +249,48 @@ mod tests {
         assert_eq!(core_at(&glow, 1.3), (0.15, 128.));
         glow.show(Effect::Holding, 2.);
         assert!(glow.blast.drawn(2.).is_none());
+    }
+
+    #[test]
+    fn physcannon_rebase_clock_clears_world_state_and_shifts_timers() {
+        let mut state = PhyscannonState {
+            held: Some(42),
+            holds_npc: true,
+            holding_effect: true,
+            buttons: (true, true),
+            secondary_held: true,
+            attack2_debounce: true,
+            next_primary: 40.5,
+            next_secondary: 40.4,
+            idle_at: 42.0,
+            check_suppress: 40.25,
+            element_debounce: 40.1,
+            launches: vec![glam::Vec3::X],
+            last_launch: Some((39.95, glam::Vec3::new(10., 20., 30.))),
+            ..Default::default()
+        };
+        state.glow.show(Effect::Closed, 38.0);
+        state.glow.show(Effect::Holding, 39.9);
+
+        state.rebase_clock(-40.);
+
+        assert!(state.held.is_none());
+        assert!(state.grab.is_none());
+        assert!(!state.holds_npc);
+        assert!(!state.holding_effect);
+        assert!(state.npc_events.is_empty());
+        assert!(state.launches.is_empty());
+        assert!(state.last_launch.is_none());
+        assert_eq!(state.buttons, (false, false));
+        assert!(!state.secondary_held);
+        assert!(!state.attack2_debounce);
+        assert!((state.next_primary - 0.5).abs() < 1e-9);
+        assert!((state.next_secondary - 0.4).abs() < 1e-9);
+        assert!((state.idle_at - 2.0).abs() < 1e-9);
+        assert!((state.check_suppress - 0.25).abs() < 1e-9);
+        assert!((state.element_debounce - 0.1).abs() < 1e-9);
+        // Glow ramp at t=39.9 (-40 -> -0.1) is halfway through at t=0.0 (-0.1 + 0.1).
+        let (scale, brightness) = core_at(&state.glow, 0.0);
+        assert!((scale - 0.1).abs() < 1e-4 && (brightness - 255.).abs() < 0.1);
     }
 }

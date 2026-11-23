@@ -388,6 +388,74 @@ fn mesh(
     mesh.insert_indices(Indices::U32(indices));
     mesh
 }
+/// Launch beams and sparks stay active only inside `[0.0, 0.1)` seconds after the launch.
+fn launch_beam_active(time: f64, at: f64) -> bool {
+    (0. ..0.1).contains(&(time - at))
+}
+
+struct LaunchView {
+    eye: glam::Vec3,
+    forward: glam::Vec3,
+    right: glam::Vec3,
+    up: glam::Vec3,
+    factor: f32,
+    offset: glam::Vec3,
+    raw_viewmodel_fov: f32,
+}
+
+fn push_physcannon_launch(
+    effects: &mut Effects,
+    game: &Gameplay,
+    view: &LaunchView,
+    described: &mut hl2_simulation::viewmodel_effects::ViewmodelEffects,
+) {
+    // DoEffectLaunch: te GaussExplosion 4 units before the end point (random direction)
+    // once, and for 0.1 s a CBeam orangelight1 from the end point to attachment 1 (width
+    // 6.4 -> 12.8, brightness 255, noise 2). The world end point is moved into viewmodel
+    // space by the inverse of FormatViewModelAttachment so it projects where it is.
+    if game.inventory.active != "weapon_physcannon" {
+        return;
+    }
+    let Some((at, end)) = game.inventory.physcannon.last_launch else {
+        return;
+    };
+    if !launch_beam_active(game.scene.time, at) {
+        return;
+    }
+    let shot = (end - view.eye).normalize_or(view.forward);
+    if at > effects.launch_sparks {
+        effects.launch_sparks = at;
+        let r = &mut effects.rng;
+        let mut unit = || shots::next_random(r) * 2. - 1.;
+        let direction = glam::Vec3::new(unit(), unit(), unit());
+        effects
+            .source
+            .spawn_gauss_sparks(end - shot * 4., direction, game.scene.time);
+    }
+    if view.raw_viewmodel_fov > 0. {
+        let d = end - view.eye;
+        described
+            .beams
+            .push(hl2_simulation::viewmodel_effects::ViewmodelBeam {
+                start: hl2_simulation::viewmodel_effects::Anchor::Local(
+                    glam::Vec3::new(
+                        d.dot(view.forward),
+                        -d.dot(view.right) / view.factor,
+                        d.dot(view.up) / view.factor,
+                    ) - view.offset,
+                ),
+                end: hl2_simulation::viewmodel_effects::Anchor::Index(1),
+                material: "sprites/orangelight1",
+                width: 6.4,
+                end_width: (12.8, 12.8),
+                brightness: 255.,
+                color: [255, 255, 255],
+                noise: (2., 2.),
+                shade_in: false,
+            });
+    }
+}
+
 /// The active viewmodel's posed rig (same clip choice as rendering::animate) and the
 /// SDK viewmodel sprites/beams as viewmodel-space quads.
 fn viewmodel_quads(
@@ -407,7 +475,7 @@ fn viewmodel_quads(
                 .copied()
                 .fold(f64::NEG_INFINITY, f64::max)
         })
-        .filter(|at| *at > effects.load_sparks);
+        .filter(|at| *at > effects.load_sparks && *at <= game.scene.time);
     // AE_MUZZLEFLASH on the viewmodel's fire sequence (cycle 0 in the owned models).
     let elapsed_fire = (game.scene.time - game.inventory.animation_at).max(0.) as f32;
     let flash_due = (game.inventory.animation_at > effects.player_flash)
@@ -508,41 +576,20 @@ fn viewmodel_quads(
             effects.source.spawn_sparks(world, game.scene.time);
         }
     }
-    // DoEffectLaunch: te GaussExplosion 4 units before the end point (random direction)
-    // once, and for 0.1 s a CBeam orangelight1 from the end point to attachment 1 (width
-    // 6.4 -> 12.8, brightness 255, noise 2). The world end point is moved into viewmodel
-    // space by the inverse of FormatViewModelAttachment so it projects where it is.
-    if game.inventory.active == "weapon_physcannon"
-        && let Some((at, end)) = game.inventory.physcannon.last_launch
-    {
-        let shot = (end - eye).normalize_or(forward);
-        if at > effects.launch_sparks {
-            effects.launch_sparks = at;
-            let r = &mut effects.rng;
-            let mut unit = || shots::next_random(r) * 2. - 1.;
-            let direction = glam::Vec3::new(unit(), unit(), unit());
-            effects
-                .source
-                .spawn_gauss_sparks(end - shot * 4., direction, game.scene.time);
-        }
-        if game.scene.time - at < 0.1 && raw_viewmodel_fov > 0. {
-            let d = end - eye;
-            described.beams.push(vm::ViewmodelBeam {
-                start: vm::Anchor::Local(
-                    glam::Vec3::new(d.dot(forward), -d.dot(right) / factor, d.dot(up) / factor)
-                        - offset,
-                ),
-                end: vm::Anchor::Index(1),
-                material: "sprites/orangelight1",
-                width: 6.4,
-                end_width: (12.8, 12.8),
-                brightness: 255.,
-                color: [255, 255, 255],
-                noise: (2., 2.),
-                shade_in: false,
-            });
-        }
-    }
+    push_physcannon_launch(
+        effects,
+        game,
+        &LaunchView {
+            eye,
+            forward,
+            right,
+            up,
+            factor,
+            offset,
+            raw_viewmodel_fov,
+        },
+        &mut described,
+    );
     if let Some((kind, attachment)) = flash_due {
         effects.player_flash = game.inventory.animation_at;
         if let Some(frame) = rig
@@ -916,4 +963,18 @@ pub fn observe(
     effects.pose_mismatches = mismatches;
     effects.observed_decals = decals.iter().count();
     effects.observed_grenades = grenades.iter().count();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_beam_active;
+
+    #[test]
+    fn launch_beam_requires_nonnegative_elapsed_time_within_window() {
+        assert!(!launch_beam_active(0.0, 40.0));
+        assert!(!launch_beam_active(39.99, 40.0));
+        assert!(launch_beam_active(40.0, 40.0));
+        assert!(launch_beam_active(40.05, 40.0));
+        assert!(!launch_beam_active(40.1, 40.0));
+    }
 }

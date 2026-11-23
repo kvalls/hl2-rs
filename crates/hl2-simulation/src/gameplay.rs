@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 
 mod health;
 mod hits;
+mod rebase;
 pub use health::{npc_health, npc_max_health, npc_spawn_health};
 pub use hits::{breakable_health, prop_data_of};
 
@@ -506,34 +507,6 @@ impl Default for Inventory {
     }
 }
 impl Inventory {
-    /// Retain remaining weapon deadlines when the destination map resets scene time.
-    /// Transient hit/spawn queues and held input belong to the old world.
-    pub fn rebase_clock(&mut self, old: f64, new: f64) {
-        let delta = new - old;
-        self.animation_at += delta;
-        self.next_attack += delta;
-        self.owner_attack_until += delta;
-        self.soonest_attack += delta;
-        self.last_shot += delta;
-        for time in self.next_secondary.values_mut() {
-            *time += delta;
-        }
-        for empty in self.empty_fire.values_mut() {
-            empty.next_sound += delta;
-        }
-        if let Some(time) = &mut self.ar2_charge_until {
-            *time += delta;
-        }
-        if let Some(reload) = &mut self.reload {
-            reload.at += delta;
-        }
-        self.impacts.clear();
-        self.blood.clear();
-        self.projectile_spawns.clear();
-        self.attack_input = None;
-        self.holding_attack = false;
-    }
-
     pub fn reserve_for(&self, class: &str, weapons: &BTreeMap<String, Weapon>) -> i32 {
         weapons
             .get(class)

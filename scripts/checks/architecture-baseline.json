@@ -140,7 +140,7 @@
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2357,
   "crates/hl2-simulation/src/entities/choreography.rs": 1221,
-  "crates/hl2-simulation/src/gameplay.rs": 2825,
+  "crates/hl2-simulation/src/gameplay.rs": 2798,
   "crates/hl2-simulation/src/npc.rs": 1118,
   "crates/hl2-simulation/src/physics.rs": 3148,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
@@ -162,7 +162,7 @@
    156
   ],
   "crates/hl2-bevy/src/effects.rs::viewmodel_quads": [
-   193
+   172
   ],
   "crates/hl2-bevy/src/eyes.rs::present": [
    229

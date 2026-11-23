@@ -1,5 +1,20 @@
 # MODLOG
 
+## 2026-11-23 — Clear gravity-gun launch beam and rebase weapon state across `changelevel`
+
+- Agent/model: Antigravity (model ID not recorded).
+- Changed:
+  - `crates/hl2-simulation/src/gameplay/rebase.rs` (moved `Inventory::rebase_clock` out of `crates/hl2-simulation/src/gameplay.rs`) plus `rebase_clock` helpers in `crates/hl2-simulation/src/weapon_physcannon/glow.rs`, `crates/hl2-simulation/src/weapon_crossbow.rs` (`SpriteRamp::rebase`, `FovRamp::rebase_clock`, `CrossbowState::rebase_clock`), `crates/hl2-simulation/src/weapon_bugbait.rs`, and `crates/hl2-simulation/src/weapon_rpg.rs`: rebases all weapon timers, ramps, and animation cursors to the destination map clock and drops map-local state (`physcannon.held`/`grab`/`holds_npc`/`holding_effect`/`npc_events`/`launches`/`last_launch`, `crossbow.load_effects`, `rpg.dot`/`missile_out`, `frag.pending`, `carry`, and transient shot/event queues).
+  - `crates/hl2-bevy/src/effects.rs`: extracts `push_physcannon_launch` from `viewmodel_quads` and gates both `launch_sparks` and the `orangelight1` beam on `launch_beam_active(time, at)` (`(0.0..0.1).contains(&(time - at))`), and guards `crossbow.load_effects` sparks with `*at <= game.scene.time`.
+  - `scripts/checks/architecture-baseline.json`: tightens `crates/hl2-bevy/src/effects.rs::viewmodel_quads` (`193 -> 172`) and `crates/hl2-simulation/src/gameplay.rs` (`2825 -> 2798`).
+- Why: Crossing a `changelevel` resets `scene.time` to `0.0` while carrying `Inventory`; leaving `physcannon.last_launch` (`(T, old_world_hit)`) un-rebased and checking `game.scene.time - at < 0.1` without a non-negative lower bound kept a stale launch beam aimed at the old map's coordinates (e.g. `(157, -1281, -736)` in `d1_canals_03` -> `d1_canals_02`) until the new clock caught up.
+- Tested how and result:
+  - Unit tests: `cargo test --locked -p hl2-simulation rebase` (5/5 passed), `cargo test --locked -p hl2-simulation map_clock_transfer` (1/1 passed), `cargo test --locked -p hl2-bevy launch_beam` (1/1 passed).
+  - Packaged release (`scripts/build-bevy.sh`): `NO_BUILD=1 ONLY='campaign entities-weapons physcannon physcannon-props' python3 scripts/checks/replays.py` passed 4/4 on macOS; scripted `d1_canals_03` prop punt (`entity 1108`, `altfire`) followed by `ChangeLevel` (`#1105`) into `d1_canals_02` confirmed `viewmodel_sprite_draws == 8` (no beam) and a clean capture frame at `t = 0.405 s`.
+  - Full `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` on macOS.
+- Still broken or not tested: Windows runtime and ordinary campaign play are **not tested**.
+- Next: Fix NPC eyeball gaze clamping and smoothing.
+
 ## 2026-11-23 — Inspect map entity origins through the debug console
 
 - Agent/model: Codex, GPT-6 family (exact model ID not recorded); live packaged verification by Antigravity.

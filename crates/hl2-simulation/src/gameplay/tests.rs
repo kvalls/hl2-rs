@@ -399,6 +399,62 @@ fn map_clock_transfer_preserves_remaining_cooldown_reload_and_charge() {
     assert!(inv.suit && inv.health == 42.);
 }
 
+#[test]
+fn changelevel_rebases_weapon_states_and_clears_old_world_launch() {
+    use super::*;
+    use crate::weapon_rpg::LaserDot;
+    let mut inv = Inventory {
+        active: "weapon_physcannon".into(),
+        ..Default::default()
+    };
+    inv.physcannon.held = Some(17);
+    inv.physcannon.holds_npc = true;
+    inv.physcannon.holding_effect = true;
+    inv.physcannon.launches.push(Vec3::new(1., 2., 3.));
+    inv.physcannon.last_launch = Some((39.95, Vec3::new(157., -1281., -736.)));
+    inv.crossbow.load_effects.push(39.8);
+    inv.crossbow.idle_at = 42.5;
+    inv.fov.set(20, 0.2, 39.9);
+    inv.rpg.dot = Some(LaserDot::npc(Vec3::new(5., 6., 7.), Vec3::ZERO));
+    inv.rpg.missile_out = true;
+    inv.rpg.idle_at = 41.2;
+    inv.frag.cursor = Some(("throw".into(), 39.7, 0.1));
+    inv.frag.pending.push(FragThrow::Throw);
+    inv.bugbait_events
+        .push(crate::weapon_bugbait::BugBaitEvent {
+            position: Vec3::X,
+            squeezed: true,
+            call: false,
+            combine: Vec::new(),
+        });
+    inv.tracer_requests
+        .push((Vec3::ZERO, Vec3::X, Vec3::Y, false));
+    inv.ar2_impacts.push((Vec3::ZERO, Vec3::Z));
+    inv.deferred_sounds
+        .push(crate::sounds::SoundRequest::ui("Weapon_Pistol.Single"));
+
+    inv.rebase_clock(40., 0.);
+
+    assert!(inv.physcannon.last_launch.is_none());
+    assert!(inv.physcannon.launches.is_empty());
+    assert!(inv.physcannon.held.is_none());
+    assert!(!inv.physcannon.holds_npc);
+    assert!(!inv.physcannon.holding_effect);
+    assert!(inv.crossbow.load_effects.is_empty());
+    assert!((inv.crossbow.idle_at - 2.5).abs() < 1e-9);
+    assert!((inv.fov.time - (-0.1)).abs() < 1e-9);
+    assert!(inv.rpg.dot.is_none());
+    assert!(!inv.rpg.missile_out);
+    assert!((inv.rpg.idle_at - 1.2).abs() < 1e-9);
+    assert!((inv.frag.cursor.as_ref().unwrap().1 - (-0.3)).abs() < 1e-9);
+    assert!(inv.frag.pending.is_empty());
+    assert!(inv.bugbait_events.is_empty());
+    assert!(inv.tracer_requests.is_empty());
+    assert!(inv.ar2_impacts.is_empty());
+    assert!(inv.deferred_sounds.is_empty());
+    assert!(inv.carry.is_none());
+}
+
 use super::*;
 fn melee_target(origin: Vec3) -> (Physics, Scene) {
     use rapier3d::prelude::*;
