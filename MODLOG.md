@@ -1,5 +1,14 @@
 # MODLOG
 
+## 2026-11-23 — Restrict `SourceMaterial` storage buffers 20–22 to fragment stage
+
+- Agent/model: Antigravity (exact implementation model not recorded; verified and committed by current session).
+- Changed: `crates/hl2-bevy/src/rendering.rs` marks `SourceMaterial`'s `@storage(20..22, read_only)` bindings (`eye_rows`, `material_rows`, `light_rows`) with `visibility(fragment)`.
+- Why: `assets/shaders/source.wgsl` reads `eye_rows`, `material_rows`, and `light_rows` only in `@fragment` and never in `@vertex` or `source_depth.wgsl`; reserving those storage buffers in the vertex stage consumed Metal buffer slots needed when skinned morph prepasses run alongside motion vectors.
+- Tested how and result: `validate` (`scripts/checks/validate.sh`) and Windows-target Clippy (`scripts/checks/check_windows.sh`) passed on macOS, and packaged macOS/Metal play on `d1_trainstation_02` (with 60 spawned NPCs and debug/advanced-options plugins) rendered without Metal buffer-slot errors.
+- Still broken or not tested: Windows runtime is **not tested**.
+- Next: Commit the verified `hl2-session` and `map_dump` baseline, then fix gameplay/presentation regressions in order.
+
 ## 2026-11-23 — O30 GPU facial flexes verified on Metal (`337b8260`)
 
 - Agent/model: Antigravity (exact implementation model not recorded), Codex (GPT-6 family, exact model ID not recorded).

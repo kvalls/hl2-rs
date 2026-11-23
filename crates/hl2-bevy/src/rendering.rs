@@ -105,14 +105,16 @@ pub struct SourceMaterial {
     /// w 1 when detached from a shared lit material for per-draw fade or render color.
     #[uniform(0)]
     pub(crate) dynamic: Vec4,
+    // The source fragment shader owns these buffers. Reserving them in the vertex stage
+    // consumes Metal slots needed by skinned morph prepasses.
     /// Every eye's iris projection rows ([`crate::eyes::EYE_ROWS`]).
-    #[storage(20, read_only)]
+    #[storage(20, read_only, visibility(fragment))]
     pub(crate) eye_rows: Handle<bevy::render::storage::ShaderBuffer>,
     /// Per-frame material values ([`crate::material_slots`]).
-    #[storage(21, read_only)]
+    #[storage(21, read_only, visibility(fragment))]
     pub(crate) material_rows: Handle<bevy::render::storage::ShaderBuffer>,
     /// Per-entity model lighting rows ([`crate::material_slots`]).
-    #[storage(22, read_only)]
+    #[storage(22, read_only, visibility(fragment))]
     pub(crate) light_rows: Handle<bevy::render::storage::ShaderBuffer>,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
