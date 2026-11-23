@@ -115,6 +115,9 @@ impl RuntimeExtension for State {
                 self.viewmodel_tweak_reset(context.simulation, ui)
             }
             crate::commands::Request::UiDump => super::agent::ui_dump(context.simulation, ui),
+            crate::commands::Request::MapDump(query) => {
+                super::map_dump::dump(context.simulation, context.gameplay.as_deref(), ui, query)
+            }
             crate::commands::Request::NpcDump(query) => {
                 super::agent::npc_dump(context.simulation, context.gameplay.as_deref(), ui, query)
             }

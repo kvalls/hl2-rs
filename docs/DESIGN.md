@@ -1,5 +1,9 @@
 # Design
 
+## Debug map entity dump (2026-11-23)
+
+Add an on-demand command to the debug plugin using the existing console extension and loaded world. Page through entity IDs or search live origins around a Source coordinate. Preserve absent origin keys in the output. Include map identity and expose result limits. Validate parsing, plugin omission, and an actual packaged query in the canal map.
+
 ## Console log file, `say`, remote console and screenshots; agent link (2026-11-20, bounded plan; owner request)
 
 Goal: a developer (or a debugging agent) follows a running game live and talks to its player

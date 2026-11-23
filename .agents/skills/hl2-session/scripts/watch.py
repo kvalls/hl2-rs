@@ -198,6 +198,7 @@ def watch_once(
     cursor_file = session / "watch.cursor"
     cursors = load_cursors(cursor_file, paths)
     save_cursors(cursor_file, cursors)
+    print("WATCH_READY", file=sys.stderr, flush=True)
     while True:
         updated = False
         for p in paths:
@@ -257,6 +258,7 @@ def watch_stream(
 ) -> int:
     stream = sys.stdout if out is None else out
     cursors = init_eof_cursors(paths)
+    print("WATCH_READY", file=sys.stderr, flush=True)
     deadline: Optional[float] = None
     while True:
         for line in read_complete_lines(paths, cursors):

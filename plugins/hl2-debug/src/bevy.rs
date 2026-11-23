@@ -3,6 +3,7 @@ pub mod agent;
 pub mod background;
 pub mod host;
 pub mod input;
+mod map_dump;
 pub mod repeat;
 /// The developer runtime; the application injects it before startup settings are applied.
 pub fn runtime() -> Box<dyn hl2_bevy::extensions::RuntimeExtension> {

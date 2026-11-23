@@ -1,5 +1,21 @@
 # MODLOG
 
+## 2026-11-23 — Inspect map entity origins through the debug console
+
+- Agent/model: Codex, GPT-6 family (exact model ID not recorded); live packaged verification by Antigravity.
+- Changed: The debug plugin registers `map_dump` with 12-entity ID pages and a nearest-origin query at an explicit Source coordinate. Both include live and initial origins, with absent positions represented as null.
+- Why: Inspect a suspicious effect endpoint against map and runtime entity positions while the game is running. Nearby results exclude removed entities. Distance is to the entity origin, regardless of its extent.
+- Tested how and result: `cargo test --locked -p hl2-debug --features bevy` passed 48 tests, `scripts/checks/validate.sh` (all four plugin selections, workspace tests, strict Clippy, fmt) and Windows-target Clippy passed on macOS, and packaged `bin/hl2-bevy` (`profile=release`, `plugins=advanced-options,debug-tools`) verified `map_dump` on `d1_trainstation_02` (`total: 1297`, `next_id: 12`, null origins for `worldspawn`; `total: 1368` post-spawn) and `map_dump near` (`matches: 20` around `-2483 -2326 60 400`, `matches: 284` around `-2040 -2200 60 1200`, sorted by distance).
+- Still broken or not tested: Windows runtime is **not tested**.
+- Next: Fix the canals gravity-gun launch beam `changelevel` persistence, NPC eyeball gaze snapping, and viewmodel motion blur coverage bugs.
+
+## 2026-11-23 — First console reply in live debug sessions
+
+- Agent/model: Codex, GPT-6 family (exact model ID not recorded); live handshake verified by Antigravity.
+- Changed and why: The watcher signals readiness after recording log offsets. The session skill waits for that signal before greeting the player and directs polling clients to keep reading while connected. Previously a completed host turn left the first player message unanswered.
+- Tested how and result: `python3 -B scripts/checks/test_hl2_session.py` passed all 18 tests on macOS, and a live packaged interactive `hl2-session` handshake confirmed `watch.py --once` emits `WATCH_READY`, delivers consecutive `Player:` messages immediately across turns, and exits with `AGENT_SESSION_EXIT 0` when closed.
+- Still broken or not tested: Windows runtime is **not tested**.
+
 ## 2026-11-23 — Restrict `SourceMaterial` storage buffers 20–22 to fragment stage
 
 - Agent/model: Antigravity (exact implementation model not recorded; verified and committed by current session).

@@ -10,6 +10,12 @@ pub enum NpcDumpQuery {
     Entity(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum MapDumpQuery {
+    Page(usize),
+    Near { point: [f32; 3], radius: f32 },
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Request {
@@ -20,6 +26,7 @@ pub enum Request {
     BackgroundMapFov(Option<f32>),
     UiDump,
     NpcDump(NpcDumpQuery),
+    MapDump(MapDumpQuery),
     AgentResume,
     AiEnable(Option<bool>),
 }
@@ -59,7 +66,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 11] {
+pub const fn specs<C: Host>() -> [Spec<C>; 12] {
     [
         command(
             "viewmodel_debug_mode",
@@ -96,6 +103,18 @@ pub const fn specs<C: Host>() -> [Spec<C>; 11] {
             "ui_dump: print the UI state (windows, focus, menus, map, position) as one JSON line",
             &[],
             ui_dump,
+        ),
+        command(
+            "map_dump",
+            "map_dump [page <first_id>|near <x> <y> <z> <radius>]: list map entities by ID or nearest live origin",
+            &[
+                Arg::Values(&["page", "near"]),
+                Arg::Free,
+                Arg::Free,
+                Arg::Free,
+                Arg::Free,
+            ],
+            map_dump,
         ),
         command(
             "npc_dump",
@@ -233,6 +252,26 @@ fn ui_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcom
     } else {
         Err(spec.usage())
     }
+}
+
+fn map_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    let query = match args {
+        [] => MapDumpQuery::Page(0),
+        [page, id] if page.eq_ignore_ascii_case("page") => {
+            MapDumpQuery::Page(parse(id).map_err(|_| spec.usage())?)
+        }
+        [near, x, y, z, radius] if near.eq_ignore_ascii_case("near") => {
+            let number = |v: &str| parse::<f32>(v).map_err(|_| spec.usage());
+            let point = [number(x)?, number(y)?, number(z)?];
+            let radius = number(radius)?;
+            if !point.iter().all(|v| v.is_finite()) || !radius.is_finite() || radius <= 0. {
+                return Err(spec.usage());
+            }
+            MapDumpQuery::Near { point, radius }
+        }
+        _ => return Err(spec.usage()),
+    };
+    Ok(Some(C::effect(Request::MapDump(query))))
 }
 
 fn npc_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {

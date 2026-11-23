@@ -316,6 +316,25 @@ class TestWatch(unittest.TestCase):
             self.assertEqual(notices, [])
             self.assertEqual(out3.getvalue().strip(), "ERROR fatal failure")
 
+    def test_stream_receives_immediate_reply_to_greeting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = Path(tmp)
+            log = session_dir / "console.log"
+            log.write_text("Player: old session\n", encoding="utf-8")
+
+            def greet_after_ready(marker, **kwargs):
+                self.assertEqual(marker, "WATCH_READY")
+                self.assertTrue(kwargs["flush"])
+                with log.open("a", encoding="utf-8") as stream:
+                    stream.write("Console: connected\nPlayer: first\nPlayer: second\nAGENT_SESSION_EXIT 0\n")
+
+            output = io.StringIO()
+            with mock.patch("builtins.print", side_effect=greet_after_ready):
+                watch.watch_stream(session_dir, [str(log)], send=mock.Mock(),
+                                   sleep=lambda _: self.fail("missed immediate chat"), out=output)
+            self.assertEqual(output.getvalue().splitlines(),
+                             ["Player: first", "Player: second", "AGENT_SESSION_EXIT 0"])
+
     def test_watch_stream_thinking_reply_timeout_and_exit(self):
         with tempfile.TemporaryDirectory() as tmp:
             sess = Path(tmp)

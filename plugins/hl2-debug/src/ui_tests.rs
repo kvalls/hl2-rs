@@ -256,3 +256,31 @@ fn agent_status_is_not_logged_from_the_remote_console() {
         assert!(console.remote_log_skips(&commands), "{line}");
     }
 }
+
+#[test]
+fn map_dump_accepts_coordinates_and_pages_only_with_debug_tools() {
+    use crate::commands::MapDumpQuery;
+    let mut c = console();
+    for (command, query) in [
+        ("map_dump", MapDumpQuery::Page(0)),
+        ("map_dump page 12", MapDumpQuery::Page(12)),
+        (
+            "map_dump near 158 -1258 -738 200",
+            MapDumpQuery::Near {
+                point: [158., -1258., -738.],
+                radius: 200.,
+            },
+        ),
+    ] {
+        assert_eq!(c.submit(command), vec![effect(Request::MapDump(query))]);
+        assert!(Console::default().submit(command).is_empty());
+    }
+    for bad in [
+        "map_dump page -1",
+        "map_dump near 1 2 3 0",
+        "map_dump near NaN 0 0 1",
+        "map_dump near 1 2",
+    ] {
+        assert!(c.submit(bad).is_empty());
+    }
+}

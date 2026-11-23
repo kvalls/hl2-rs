@@ -1,5 +1,13 @@
 # STATUS
 
+## Live map entity inspection (2026-11-23)
+
+The debug plugin exposes `map_dump`, `map_dump page <first_id>`, and `map_dump near <x> <y> <z> <radius>`. Packaged `bin/hl2-bevy` (`profile=release`, `plugins=advanced-options,debug-tools`) on `d1_trainstation_02` verified `map_dump` (`total: 1297`, `next_id: 12`, null origins for `worldspawn`; `total: 1368` after spawning NPCs) and `map_dump near` (`matches: 20` around `-2483 -2326 60 400`, `matches: 284` around `-2040 -2200 60 1200`, sorted by distance); Windows runtime is **not tested**. For the canals beam investigation, four close gameplay captures triangulate the visible beam tip near (157, -1281, -736), with a three-unit difference in depth between stereo pairs. The closest authored entity origin is a soundscape about 119 units away. Switching away and re-equipping cleared the beam during play. Deploy resets the stored launch. Its original endpoint and timestamp were unavailable in the running build. Shortest player reproduction: load d1_canals_03, press F3, equip the gravity gun, punt a nearby prop such as the wooden plank, and walk through the tunnel into d1_canals_02 without holstering. The reverse transition after punting the barrel in d1_canals_02 also reproduces it for the player.
+
+## Live console watcher (2026-11-23)
+
+The first player message reached the one-shot watcher but was left unanswered after the assistant ended its turn. The session skill now starts the watcher before greeting and keeps polling throughout a live session. All 18 session tests passed on macOS, and a live packaged interactive handshake verified `watch.py --once` emits `WATCH_READY`, delivers consecutive `Player:` messages immediately across turns, and exits with `AGENT_SESSION_EXIT 0` on clean exit. Windows runtime is **not tested**.
+
 ## O30 GPU facial flexes complete (2026-11-23, `337b8260`)
 
 The revised release (`db6ecd38`) passed all nine packaged face, gesture and monitor checks on Apple M1 Pro / Metal. Against O41, median release frame time fell from 11.203 to 10.037 ms in the mixed crowd and from 3.733 to 3.582 ms in the security face replay. Both revised traces recorded active morph weights and zero flex mesh uploads. The Breen comparison matched host tick 1704 and render frame 1339 in the first pair. All four previously blocked loopback checks passed outside the sandbox. Raw pairs, allocator spans and visual controls are in docs/performance.md. Windows runtime and ordinary campaign play are **not tested**.
