@@ -1,9 +1,88 @@
 //! Startup-only drawing selection; automatic direct mode is limited to measured hardware.
 use bevy::{
+    camera::Camera,
+    core_pipeline::prepass::MotionVectorPrepass,
+    ecs::{
+        change_detection::DetectChanges,
+        schedule::{ScheduleCleanupPolicy, Schedules},
+    },
     light::cluster::GlobalClusterSettings,
-    prelude::{Camera3d, World},
+    mesh::Mesh3d,
+    pbr::PreviousGlobalTransform,
+    prelude::{
+        App, Camera3d, Commands, Entity, GlobalTransform, Mut, Or, PreUpdate, Query, Ref, With,
+        Without, World,
+    },
     render::{renderer::RenderAdapterInfo, view::NoIndirectDrawing},
 };
+
+type MovableMeshFilter = (
+    With<Mesh3d>,
+    Or<(
+        With<crate::rendering::SourceEntity>,
+        With<crate::rendering::WeaponMesh>,
+    )>,
+);
+
+type MotionCameras<'w, 's> =
+    Query<'w, 's, &'static Camera, (With<Camera3d>, With<MotionVectorPrepass>)>;
+
+type NewMovableMeshes<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static GlobalTransform),
+    (MovableMeshFilter, Without<PreviousGlobalTransform>),
+>;
+
+type TrackedMovableMeshes<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Ref<'static, GlobalTransform>,
+        &'static mut PreviousGlobalTransform,
+    ),
+    MovableMeshFilter,
+>;
+
+/// Replaces Bevy's unfiltered [`bevy::pbr::update_mesh_previous_global_transforms`] in
+/// [`PreUpdate`] with [`update_mesh_previous_global_transforms`], which runs only while an active
+/// camera carries [`MotionVectorPrepass`] and tracks only movable entity/weapon meshes.
+pub(crate) fn install_previous_transforms(app: &mut App) {
+    app.world_mut()
+        .resource_scope(|world, mut schedules: Mut<Schedules>| {
+            let _ = schedules.remove_systems_in_set(
+                PreUpdate,
+                bevy::pbr::update_mesh_previous_global_transforms,
+                world,
+                ScheduleCleanupPolicy::RemoveSystemsOnly,
+            );
+        });
+    app.add_systems(PreUpdate, update_mesh_previous_global_transforms);
+}
+
+pub(crate) fn update_mesh_previous_global_transforms(
+    mut commands: Commands,
+    views: MotionCameras,
+    new_meshes: NewMovableMeshes,
+    mut meshes: TrackedMovableMeshes,
+) {
+    if !views.iter().any(|camera| camera.is_active) {
+        return;
+    }
+    for (entity, transform) in &new_meshes {
+        commands
+            .entity(entity)
+            .try_insert(PreviousGlobalTransform(transform.affine()));
+    }
+    for (transform, mut previous) in &mut meshes {
+        if transform.is_changed_after(previous.last_changed()) {
+            let affine = transform.affine();
+            if previous.0 != affine {
+                *previous = PreviousGlobalTransform(affine);
+            }
+        }
+    }
+}
 
 fn selected(macos: bool, adapter: &str, metal: bool, requested: Option<&str>) -> bool {
     match requested {
@@ -75,5 +154,66 @@ mod tests {
         assert_eq!(requested(false, Some("0"), Some("1")), Some("0"));
         assert_eq!(requested(true, Some("0"), Some("1")), Some("1"));
         assert_eq!(requested(true, Some("0"), None), Some("0"));
+    }
+
+    #[test]
+    fn previous_transforms_track_only_movable_meshes_when_motion_vectors_are_active() {
+        use bevy::{
+            asset::Handle, ecs::system::RunSystemOnce, math::Vec3, transform::components::Transform,
+        };
+
+        let mut world = World::new();
+        let camera = world
+            .spawn((
+                Camera3d::default(),
+                Camera {
+                    is_active: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        let world_mesh = world
+            .spawn((
+                Mesh3d(Handle::default()),
+                GlobalTransform::from(Transform::from_xyz(1.0, 2.0, 3.0)),
+            ))
+            .id();
+        let entity_mesh = world
+            .spawn((
+                Mesh3d(Handle::default()),
+                crate::rendering::SourceEntity(7),
+                GlobalTransform::from(Transform::from_xyz(4.0, 5.0, 6.0)),
+            ))
+            .id();
+
+        // Without MotionVectorPrepass on an active camera, nothing is inserted.
+        world
+            .run_system_once(update_mesh_previous_global_transforms)
+            .unwrap();
+        assert!(world.get::<PreviousGlobalTransform>(world_mesh).is_none());
+        assert!(world.get::<PreviousGlobalTransform>(entity_mesh).is_none());
+
+        // With MotionVectorPrepass on the active camera, only the movable entity mesh is tracked.
+        world.entity_mut(camera).insert(MotionVectorPrepass);
+        world
+            .run_system_once(update_mesh_previous_global_transforms)
+            .unwrap();
+        assert!(world.get::<PreviousGlobalTransform>(world_mesh).is_none());
+        assert_eq!(
+            world.get::<PreviousGlobalTransform>(entity_mesh).unwrap().0,
+            GlobalTransform::from(Transform::from_xyz(4.0, 5.0, 6.0)).affine()
+        );
+
+        // Moving the entity mesh updates its PreviousGlobalTransform on the next PreUpdate pass.
+        world.increment_change_tick();
+        let moved = GlobalTransform::from(Transform::from_translation(Vec3::new(10.0, 20.0, 30.0)));
+        world.entity_mut(entity_mesh).insert(moved);
+        world
+            .run_system_once(update_mesh_previous_global_transforms)
+            .unwrap();
+        assert_eq!(
+            world.get::<PreviousGlobalTransform>(entity_mesh).unwrap().0,
+            moved.affine()
+        );
     }
 }

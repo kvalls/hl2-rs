@@ -1,5 +1,24 @@
 # MODLOG
 
+## 2026-11-23 — `O25`: Replace `update_mesh_previous_global_transforms` in `PreUpdate` to filter movable meshes and active motion-vector views
+
+- Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).
+- Changed:
+  - `crates/hl2-bevy/src/rendering/drawing.rs`, `crates/hl2-bevy/src/launch.rs`: add `install_previous_transforms` and `update_mesh_previous_global_transforms`, replacing Bevy's unfiltered `bevy::pbr::update_mesh_previous_global_transforms` in `PreUpdate` via `Schedules::remove_systems_in_set` (`ScheduleCleanupPolicy::RemoveSystemsOnly`); skip when no active `Camera3d` has `MotionVectorPrepass`, restrict `PreviousGlobalTransform` tracking to movable entity/weapon meshes (`With<Mesh3d>, Or<(With<SourceEntity>, With<WeaponMesh>)>`), and add unit test `previous_transforms_track_only_movable_meshes_when_motion_vectors_are_active`.
+  - `docs/optimization-backlog.md`, `docs/performance.md`: mark `O25` `done` and record the 400-frame `--mode trace` A/B measurements on `quiet.json`.
+- Why: Bevy's default `update_mesh_previous_global_transforms` ran whenever any `Camera3d` was active, inserted `PreviousGlobalTransform` via `Commands` onto all static world/prop/effect/sky `Mesh3d` entities, and ran `par_iter_mut()` across the entire `Mesh3d` table every frame, driving `PreUpdate` p99 spikes.
+- Tested how:
+  - `cargo test -p hl2-bevy previous_transforms_track_only_movable_meshes_when_motion_vectors_are_active`.
+  - 400-frame headless `--mode trace` A/B capture (`1177db81` vs `O25`) on `d1_trainstation_02` walking the static spawn (`test-inputs/performance-research/quiet.json`) with motion vectors on.
+  - `NO_BUILD=1 ONLY='motion_blur_options viewmodel_motion_blur' python3 scripts/checks/replays.py`.
+  - `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh`.
+- Result:
+  - `update_mesh_previous_global_transforms` (400-frame `quiet.json` trace): `mean` `0.0796 -> 0.0079 ms` (`-90.0%`), `p99` `0.4770 -> 0.0210 ms` (`-95.6%`, 22.8x lower), `max` `0.5453 -> 0.0425 ms` (`-92.2%`), `total` `31.67 -> 3.16 ms`.
+  - `--profile` `main_schedule.PreUpdate`: `mean` `0.452 -> 0.412 ms` (`-8.8%`), `p95` `0.632 -> 0.537 ms` (`-15.0%`), `max` `0.89 -> 0.70 ms` (`-21.3%`); trace `schedule: name=PreUpdate` `p99` `0.8010 -> 0.6505 ms` (`-18.8%`).
+  - `motion_blur_options`, `viewmodel_motion_blur`, `validate.sh`, and `check_windows.sh` pass.
+- Still broken or not tested: Windows runtime **not tested**.
+- Next: implement `O41` (`MeshTag` per-draw lighting slot for shared runtime lit materials).
+
 ## 2026-11-23 — `O21`: Eliminate per-frame heap allocations in `eyes`, `material_slots`, `Canvas`, and `Rig`
 
 - Agent/model: Antigravity (`Gemini 4 Neon`, XHigh).

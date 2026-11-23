@@ -1,5 +1,24 @@
 # Performance measurements - 2026-10-05
 
+## `O25` — Replace `update_mesh_previous_global_transforms` in `PreUpdate` to skip inactive motion views and static world meshes (2026-11-23)
+
+Measured on Apple M1 Pro (400-frame headless `--mode trace` A/B capture on `d1_trainstation_02` with `test-inputs/performance-research/quiet.json` and Ultra motion vectors active, baseline `1177db81` vs `O25`):
+
+- **Root cause fixed:** Bevy's default `bevy_pbr::prepass::update_mesh_previous_global_transforms` ran whenever any `Camera3d` was active (even when `MotionVectorPrepass` was disabled), inserted `PreviousGlobalTransform` via `Commands` onto every `With<Mesh3d>` entity (including ~1,000–2,000 static world geometry batches, sky faces, effect quads, and shadow decals), and ran `meshes.par_iter_mut()` across the full `Mesh3d` table every frame.
+- **Change:** `rendering::drawing::install_previous_transforms` (`crates/hl2-bevy/src/rendering/drawing.rs`, wired in `launch::add_presentation_systems`) removes Bevy's system from `PreUpdate` via `Schedules::remove_systems_in_set` (`ScheduleCleanupPolicy::RemoveSystemsOnly`) and registers `hl2_bevy::rendering::drawing::update_mesh_previous_global_transforms`, which returns immediately unless an active `Camera3d` carries `MotionVectorPrepass`, filters to movable entity and weapon meshes (`With<Mesh3d>, Or<(With<SourceEntity>, With<WeaponMesh>)>`) so static world meshes keep `HAS_PREVIOUS_TRANSFORM = false` in `mesh_preprocess.wgsl`, and writes `PreviousGlobalTransform` only when `previous.0 != transform.affine()` (`previous_transforms_track_only_movable_meshes_when_motion_vectors_are_active`).
+- **400-frame `--mode trace` A/B capture (`quiet.json`, walking the static spawn with motion vectors on, `o25-trace-a` vs `o25-trace-b`):**
+  - `update_mesh_previous_global_transforms` (`398` calls):
+    - `mean`: **`0.0796 -> 0.0079 ms` (`-90.0%`, 10.0x faster)**.
+    - `p99`: **`0.4770 -> 0.0210 ms` (`-95.6%`, 22.8x lower p99)**.
+    - `max`: **`0.5453 -> 0.0425 ms` (`-92.2%`, 12.8x lower max)**.
+    - `total`: **`31.67 -> 3.16 ms` (`-90.0%`)**.
+  - `main_schedule.PreUpdate` (`--profile` stage, `249` post-warmup samples):
+    - `mean`: **`0.452 -> 0.412 ms` (`-8.8%`)**.
+    - `p95`: **`0.632 -> 0.537 ms` (`-15.0%`)**.
+    - `max`: **`0.89 -> 0.70 ms` (`-21.3%`)**.
+  - `schedule: name=PreUpdate` (trace): `mean` `0.4419 -> 0.4080 ms` (`-7.7%`), `p99` **`0.8010 -> 0.6505 ms` (`-18.8%`)**.
+- **Fidelity:** `motion_blur_options` and `viewmodel_motion_blur` replay checks pass with 0 failures.
+
 ## `O21` — Eliminate pure-waste per-frame heap allocations in `eyes`, `material_slots`, `Canvas`, and `Rig` (2026-11-23)
 
 Measured on Apple M1 Pro (`--mode trace-alloc` A/B captures on `d1_trainstation_02`, baseline `e6563cd7` vs `O21`):

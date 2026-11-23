@@ -144,6 +144,7 @@ pub(super) fn add_video_systems(app: &mut App) {
 }
 
 pub(super) fn add_presentation_systems(app: &mut App) {
+    rendering::drawing::install_previous_transforms(app);
     app.init_resource::<rendering::actor_poses::ActorPoses>();
     app.add_systems(
         RunFixedMainLoop,
