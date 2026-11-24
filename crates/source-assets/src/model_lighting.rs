@@ -114,7 +114,7 @@ pub fn read_with(lumps: &[Vec<u8>], versions: &[u32], hdr: bool) -> Result<Light
         .collect::<Result<Vec<_>>>()?;
     add_sky_faces(lumps, hdr, &raw_leaves, &mut leaves)?;
     let brushes = add_leaf_brushes(lumps, &raw_leaves, &mut leaves, &planes)?;
-    Ok(LightingData {
+    let mut data = LightingData {
         root,
         nodes,
         leaves,
@@ -122,7 +122,10 @@ pub fn read_with(lumps: &[Vec<u8>], versions: &[u32], hdr: bool) -> Result<Light
         lights: world_lights(lump(if hdr { 54 } else { 15 }))?,
         dynamic_minlight: 1.,
         brushes,
-    })
+        index: None,
+    };
+    data.build_index();
+    Ok(data)
 }
 
 /// dworldlight_t records (84 bytes, or 88 with flags).
@@ -330,5 +333,81 @@ mod tests {
         assert!(!sun(Vec3::new(-2231., -2250., 8.)), "pallet");
         assert!(!sun(Vec3::new(-2205., -2120., 36.)), "bench");
         assert!(sun(Vec3::new(-2231., -2250., 900.)), "above the roofs");
+    }
+    #[test]
+    #[ignore = "requires owned HL2 installation"]
+    fn owned_station02_indexed_lighting_matches_unindexed_and_benchmarks() {
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
+        let bytes = vfs.read("maps/d1_trainstation_02.bsp").unwrap().unwrap();
+        let indexed = crate::bsp::Bsp::parse_with(&bytes, true)
+            .unwrap()
+            .model_lighting_with(true)
+            .unwrap();
+        let mut unindexed = indexed.clone();
+        unindexed.index = None;
+
+        let mut points = Vec::with_capacity(200);
+        for ix in 0..5 {
+            for iy in 0..8 {
+                for iz in 0..5 {
+                    points.push(Vec3::new(
+                        -3400. + ix as f32 * 380.,
+                        -3100. + iy as f32 * 220.,
+                        20. + iz as f32 * 65.,
+                    ));
+                }
+            }
+        }
+        assert_eq!(points.len(), 200);
+        for &p in &points {
+            assert_eq!(
+                indexed.state_at(p),
+                unindexed.state_at(p),
+                "state_at mismatch at {p:?}"
+            );
+        }
+
+        let iterations = 500usize;
+        let t0 = std::time::Instant::now();
+        let mut sink_a = 0usize;
+        for i in 0..iterations {
+            let s = unindexed.state_at(points[i % points.len()]);
+            sink_a = sink_a.wrapping_add(s.lights.len());
+        }
+        let unindexed_us = t0.elapsed().as_secs_f64() * 1e6;
+
+        let t1 = std::time::Instant::now();
+        let mut sink_b = 0usize;
+        for i in 0..iterations {
+            let s = indexed.state_at(points[i % points.len()]);
+            sink_b = sink_b.wrapping_add(s.lights.len());
+        }
+        let indexed_us = t1.elapsed().as_secs_f64() * 1e6;
+        assert_eq!(sink_a, sink_b);
+        let mut by_kind = [0usize; 6];
+        let mut active_count = 0usize;
+        let mut inf_range = 0usize;
+        for l in &indexed.lights {
+            by_kind[l.kind as usize] += 1;
+            if l.flags & 1 == 0 && l.kind != EmitType::SkyAmbient {
+                active_count += 1;
+                if l.radius == 0. && matches!(l.kind, EmitType::Surface | EmitType::Sky) {
+                    inf_range += 1;
+                }
+            }
+        }
+        println!(
+            "d1_trainstation_02 lighting: lights={} active={} inf_surface_or_sky={} by_kind(surf,pt,spot,sky,quake,skyamb)={:?} brushes={} unindexed={:.2}ms ({:.2}us/call) indexed={:.2}ms ({:.2}us/call) speedup={:.2}x",
+            indexed.lights.len(),
+            active_count,
+            inf_range,
+            by_kind,
+            indexed.brushes.len(),
+            unindexed_us / 1000.,
+            unindexed_us / iterations as f64,
+            indexed_us / 1000.,
+            indexed_us / iterations as f64,
+            unindexed_us / indexed_us.max(1e-9),
+        );
     }
 }

@@ -10,7 +10,9 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+mod accel;
 mod brushes;
+pub use accel::LightingIndex;
 
 /// Retail cvar defaults (r_worldlights, r_worldlightmin, r_ambientmin,
 /// r_ambientfraction) and the literal boost clamp.
@@ -118,10 +120,15 @@ pub struct LightingData {
     /// The opaque world brushes leaves list ([`LightLeaf::brushes`]).
     #[serde(default)]
     pub brushes: Vec<crate::Brush>,
+    /// Pre-filtered light ranges and brush bounds preserving exact `state_at` output.
+    #[serde(skip)]
+    pub index: Option<LightingIndex>,
 }
 /// One visibility trace's segment, its last open leaf and its node budget.
 struct Walk {
     segment: (Vec3, Vec3),
+    seg_min: Vec3,
+    seg_max: Vec3,
     last: Option<usize>,
     budget: usize,
     /// Whether the walk has reached an open leaf: until then it is in the solid it started in.
@@ -294,6 +301,10 @@ pub fn cache_cell(point: Vec3) -> [i32; 3] {
 }
 
 impl LightingData {
+    /// Builds conservative spatial/range lookup tables preserving exact `state_at` results.
+    pub fn build_index(&mut self) {
+        self.index = Some(LightingIndex::build(&self.lights, &self.brushes));
+    }
     /// Where the light cache reads the world for `point` (r_lightcachecenter, on by default): the
     /// middle of its cell, then that at the point's own height, whichever the point can reach
     /// past opaque leaves, else the point itself.
@@ -328,6 +339,8 @@ impl LightingData {
     pub fn trace(&self, start: Vec3, end: Vec3) -> Option<(f32, Option<usize>)> {
         let mut walk = Walk {
             segment: (start, end),
+            seg_min: start.min(end),
+            seg_max: start.max(end),
             last: None,
             budget: 4 * self.nodes.len() + 64,
             opened: false,
@@ -351,7 +364,8 @@ impl LightingData {
             let Some(record) = self.leaves.get(leaf) else {
                 return Some(f1);
             };
-            let hit = self.leaf_brush_hit(record, walk.segment, (f1, f2));
+            let hit =
+                self.leaf_brush_hit(record, walk.segment, (walk.seg_min, walk.seg_max), (f1, f2));
             if record.contents & MASK_OPAQUE != 0 {
                 // Entered from open space, a solid leaf stops it even where no brush is listed;
                 // without brushes to say where the solid ends, one it starts in stops it too.
@@ -476,60 +490,110 @@ impl LightingData {
         if let Some(leaf) = leaf {
             state.ambient = self.leaf_ambient(leaf, point);
         }
-        let mut kept: Vec<(usize, f32)> = Vec::new();
+        let mut kept = [(0usize, 0f32); MAX_LOCAL_LIGHTS];
+        let mut kept_len = 0usize;
         let mut sky_seen = false;
-        for (index, light) in self.lights.iter().enumerate() {
-            if leaf_ambient && light.flags & DWL_FLAGS_INAMBIENTCUBE != 0 {
-                continue;
-            }
-            if light.kind == EmitType::Sky && sky_seen {
-                continue;
-            }
-            let Some((ratio, direction)) = self.intensity_at(light, point) else {
-                continue;
+        if let Some(idx) = &self.index {
+            let candidates = if leaf_ambient {
+                &idx.active_lights
+            } else {
+                &idx.all_lights
             };
-            if light.kind == EmitType::Sky {
-                sky_seen = true;
-            }
-            let lum = luminance(light.intensity) * ratio;
-            let mut ambient = Some((index, ratio, direction));
-            if light.kind == EmitType::Surface || lum >= WORLD_LIGHT_MIN {
-                if kept.len() < MAX_LOCAL_LIGHTS {
-                    kept.push((index, lum));
-                    ambient = None;
-                } else if let Some(weakest) = kept
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (_, l))| *l < lum)
-                    .min_by(|a, b| a.1 .1.total_cmp(&b.1 .1))
-                    .map(|(i, _)| i)
-                {
-                    let (evicted, evicted_lum) =
-                        std::mem::replace(&mut kept[weakest], (index, lum));
-                    let old = &self.lights[evicted];
-                    let ratio = evicted_lum / luminance(old.intensity);
-                    let direction = if old.kind == EmitType::Sky {
-                        -old.normal
-                    } else {
-                        (old.origin - point).normalize_or_zero()
-                    };
-                    ambient = Some((evicted, ratio, direction));
+            for cand in candidates {
+                if cand.is_sky {
+                    if sky_seen {
+                        continue;
+                    }
+                } else if (cand.origin - point).length_squared() > cand.max_dist_sq {
+                    continue;
                 }
+                self.accumulate_light(
+                    point,
+                    cand.index,
+                    &mut state,
+                    &mut kept,
+                    &mut kept_len,
+                    &mut sky_seen,
+                );
             }
-            if let Some((index, ratio, direction)) = ambient {
-                let light = &self.lights[index];
-                let scale = angular(light, direction) * ratio;
-                add_to_cube(&mut state.ambient, light.intensity, direction, scale);
+        } else {
+            for (index, light) in self.lights.iter().enumerate() {
+                if leaf_ambient && light.flags & DWL_FLAGS_INAMBIENTCUBE != 0 {
+                    continue;
+                }
+                if light.kind == EmitType::Sky && sky_seen {
+                    continue;
+                }
+                self.accumulate_light(
+                    point,
+                    index,
+                    &mut state,
+                    &mut kept,
+                    &mut kept_len,
+                    &mut sky_seen,
+                );
             }
         }
-        for (index, lum) in kept {
-            if let Some(shader) = shader_light(&self.lights[index]) {
-                state.lights.push(shader);
-                state.sources.push(index);
-                state.importance.push(lum);
+        if kept_len > 0 {
+            state.lights.reserve_exact(kept_len);
+            state.sources.reserve_exact(kept_len);
+            state.importance.reserve_exact(kept_len);
+            for &(index, lum) in &kept[..kept_len] {
+                if let Some(shader) = shader_light(&self.lights[index]) {
+                    state.lights.push(shader);
+                    state.sources.push(index);
+                    state.importance.push(lum);
+                }
             }
         }
         state
+    }
+    fn accumulate_light(
+        &self,
+        point: Vec3,
+        index: usize,
+        state: &mut LightState,
+        kept: &mut [(usize, f32); MAX_LOCAL_LIGHTS],
+        kept_len: &mut usize,
+        sky_seen: &mut bool,
+    ) {
+        let light = &self.lights[index];
+        let Some((ratio, direction)) = self.intensity_at(light, point) else {
+            return;
+        };
+        if light.kind == EmitType::Sky {
+            *sky_seen = true;
+        }
+        let lum = luminance(light.intensity) * ratio;
+        let mut ambient = Some((index, ratio, direction));
+        if light.kind == EmitType::Surface || lum >= WORLD_LIGHT_MIN {
+            if *kept_len < MAX_LOCAL_LIGHTS {
+                kept[*kept_len] = (index, lum);
+                *kept_len += 1;
+                ambient = None;
+            } else if let Some(weakest) = kept[..*kept_len]
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, l))| *l < lum)
+                .min_by(|a, b| a.1 .1.total_cmp(&b.1 .1))
+                .map(|(i, _)| i)
+            {
+                let (evicted, evicted_lum) = std::mem::replace(&mut kept[weakest], (index, lum));
+                let old = &self.lights[evicted];
+                let ratio = evicted_lum / luminance(old.intensity);
+                let direction = if old.kind == EmitType::Sky {
+                    -old.normal
+                } else {
+                    (old.origin - point).normalize_or_zero()
+                };
+                ambient = Some((evicted, ratio, direction));
+            }
+        }
+        if let Some((index, ratio, direction)) = ambient {
+            let light = &self.lights[index];
+            let scale = angular(light, direction) * ratio;
+            add_to_cube(&mut state.ambient, light.intensity, direction, scale);
+        }
     }
     /// Retail ComputeDynamicLighting for one entity light (engine.dll 0x101d54a0 ->
     /// 0x101d5cf0 with the dynamic flags): skipped when the light is farther than its
@@ -822,6 +886,7 @@ mod tests {
             lights: Vec::new(),
             dynamic_minlight: 1.,
             brushes: Vec::new(),
+            index: None,
         }
     }
     pub(super) fn point_light(origin: Vec3, intensity: f32) -> WorldLight {

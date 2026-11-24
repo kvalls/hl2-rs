@@ -1,5 +1,29 @@
 # Performance measurements - 2026-10-05
 
+## `O42` — `LightingIndex`, `32 x 32 x 128` light-cache cell sharing, and `MeshTag` lighting deduplication (2026-11-24)
+
+Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools`, everyday release baseline `sha256 fa4db9f9` vs `O42` `sha256 f8f85a8d`):
+
+- **Changes:**
+  - `crates/modkit-core/src/lighting/{accel.rs,brushes.rs}`, `crates/modkit-core/src/lighting.rs`, `crates/source-assets/src/model_lighting.rs`: added `LightingIndex` preserving exact `state_at` output (`active_lights` pre-filters baked `DWL_FLAGS_INAMBIENTCUBE` and `SkyAmbient` lights and tightens conservative `max_dist_sq`, keeping `51` of `1,941` lights on `d1_trainstation_02`), replaced per-call `kept: Vec` heap allocations with fixed stack storage, moved `brushes::entry` to a single pass, added conservative brush AABBs + exact axial `entry_aabb`, and built the index inside `model_lighting::read_with`.
+  - `crates/hl2-bevy/src/rendering/lighting.rs`: added `StaticLightCache` caching map-scoped `32 x 32 x 128` `cache_cell` centers (`4,096`-entry cap with retail center-trace occlusion fallback), preserving static post-boost `LightState` across transient dynamic `elights`, caching `ModelIllumination` on `ModelLit`, skipping non-reflective `envmap` clones/lookups, and deduplicating shared `MeshTag` draws across both updated and skipped paths.
+- **Owned-map bit-exact parity & microbenchmark (`cargo test --release -p source-assets --locked owned_station02_indexed_lighting_matches_unindexed_and_benchmarks -- --ignored --nocapture`):**
+  - `d1_trainstation_02` (`1,941` world lights: `1,907` surface, `10` point, `22` spot, `1` sky, `1` sky-ambient, `51` active; `1,903` brushes): `200/200` sample points matched `unindexed.state_at(p) == indexed.state_at(p)` bit-for-bit; `500` calls `20.90 -> 15.13 us/call` (`1.38x`).
+- **Headless `--uncapped --profile` A/B (1 discarded warm-up + 3 alternating `A-B-B-A-A-B` pairs per scene, `fa4db9f9` vs `f8f85a8d`, medians & spreads in ms):**
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json` (maxed Retina `3456x2168`):**
+    - `model lighting` mean (median): **`0.419 -> 0.082 ms` (`-80.49%`, `-0.337 ms`)** (`spread 0.022` / `0.005`), `p95` **`0.851 -> 0.163 ms` (`-80.84%`)**.
+    - `main_schedule.PostUpdate` mean: `6.236 -> 6.202 ms` (`-0.54%`, `p95 7.793 -> 7.733 ms`); `frame_total` mean (GPU-bound): `12.772 -> 12.942 ms` (`+1.33%`, `p95 15.122 -> 15.260 ms`, `p99 18.0 -> 21.0 ms`).
+    - Stamped `--item O42` `capture.py` run (`1,388` frames): `frame_total 13.528 ms`, `PostUpdate 6.347 ms`.
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json` (`320x240` Potato CPU-isolated):**
+    - `model lighting` mean (median): **`1.000 -> 0.086 ms` (`-91.38%`, `-0.914 ms`)** (`spread 0.044` / `0.005`), `p95` **`2.526 -> 0.327 ms` (`-87.06%`)**.
+    - `main_schedule.PostUpdate` mean: **`3.937 -> 3.175 ms` (`-19.35%`)**, `p95` **`6.462 -> 4.636 ms` (`-28.26%`)**.
+    - `frame_total` mean (median): **`7.668 -> 6.757 ms` (`-11.88%`, `-0.911 ms`)**, `p95` **`11.966 -> 10.367 ms` (`-13.36%`)**, `p99` **`16.0 -> 14.0 ms` (`-12.50%`)**.
+  - **`d1_trainstation_02` `test-inputs/performance-research/animated-fire.json` (maxed Retina):**
+    - `model lighting` mean (median): **`0.054 -> 0.018 ms` (`-66.45%`)** (`spread 0.003` / `0.001`), `p95` **`0.128 -> 0.064 ms` (`-50.20%`)**; `frame_total`: `12.491 -> 12.366 ms` (`-1.00%`, `p95 16.949 -> 16.783 ms`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/quiet.json` (maxed Retina):**
+    - `model lighting`: `0.007 -> 0.007 ms` (`-3.00%`, `p95 0.010 -> 0.009 ms`); `frame_total`: `6.435 -> 6.438 ms` (`+0.05%`, `p95 7.633 -> 7.610 ms`).
+- **Verification & replays:** `hl2-bevy` (`10` lighting tests), `modkit-core` (`15` lighting tests), `source-assets` (`5` + `2` owned `#[ignore]` tests), `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and **`7/7`** targeted lighting/effect packaged replays (`lamp_emission`, `flashlight_shadows`, `flashlight_viewmodel`, `pallet-gibs-fade`, `entities-weapons`, `face-security-1805`, `particles-smoke`, `33 s`) passed; Windows runtime/linking **not tested**.
+
 ## `O39` — GPU storage-buffer quads (`QUAD_ROWS`) and pooled shadow vertex batches (`SHADOW_VERTS`) (2026-11-24)
 
 Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools`, everyday release `O16` `sha256 20136538` vs `O39` `sha256 0560458f`; `--mode trace` `sha256 e3032d13` vs `79573cd7`):

@@ -9,19 +9,14 @@ use glam::Vec3;
 /// that starts inside only marks the trace startsolid and is not stopped, unless it never gets
 /// out (allsolid, fraction 0): a prop whose lighting origin sits in a curb or planter still sees.
 pub(super) fn entry(brush: &Brush, start: Vec3, end: Vec3) -> Option<f32> {
-    let outside = |p: Vec3| {
-        brush
-            .planes
-            .iter()
-            .any(|plane| plane.normal.dot(p) > plane.distance)
-    };
-    if !outside(start) {
-        return (!outside(end)).then_some(0.);
-    }
     let delta = end - start;
+    let mut start_outside = false;
     let (mut enter, mut leave) = (0f32, 1f32);
     for plane in &brush.planes {
         let from = plane.normal.dot(start) - plane.distance;
+        if from > 0. {
+            start_outside = true;
+        }
         let along = plane.normal.dot(delta);
         if along == 0. {
             if from > 0. {
@@ -39,7 +34,14 @@ pub(super) fn entry(brush: &Brush, start: Vec3, end: Vec3) -> Option<f32> {
             return None;
         }
     }
-    Some(enter)
+    if start_outside {
+        return Some(enter);
+    }
+    (!brush
+        .planes
+        .iter()
+        .any(|plane| plane.normal.dot(end) > plane.distance))
+    .then_some(0.)
 }
 
 impl LightingData {
@@ -49,15 +51,38 @@ impl LightingData {
         &self,
         leaf: &LightLeaf,
         (start, end): (Vec3, Vec3),
+        (seg_min, seg_max): (Vec3, Vec3),
         (f1, f2): (f32, f32),
     ) -> Option<f32> {
-        leaf.brushes
-            .iter()
-            .filter_map(|&id| self.brushes.get(id as usize))
-            .filter_map(|brush| entry(brush, start, end))
-            .filter(|&f| f <= f2)
-            .min_by(f32::total_cmp)
-            .map(|f| f.max(f1))
+        if leaf.brushes.is_empty() {
+            return None;
+        }
+        let bounds = self.index.as_ref().map(|idx| idx.brush_bounds.as_slice());
+        let mut best: Option<f32> = None;
+        for &id in &leaf.brushes {
+            let idx = id as usize;
+            let Some(brush) = self.brushes.get(idx) else {
+                continue;
+            };
+            let hit = if let Some(b) = bounds.and_then(|slice| slice.get(idx)) {
+                if !super::accel::segment_overlaps_bounds(seg_min, seg_max, b) {
+                    continue;
+                }
+                if b.axial_only {
+                    super::accel::entry_aabb(b.mins, b.maxs, start, end)
+                } else {
+                    entry(brush, start, end)
+                }
+            } else {
+                entry(brush, start, end)
+            };
+            if let Some(f) = hit {
+                if f <= f2 {
+                    best = Some(best.map_or(f, |prev| prev.min(f)));
+                }
+            }
+        }
+        best.map(|f| f.max(f1))
     }
 }
 
