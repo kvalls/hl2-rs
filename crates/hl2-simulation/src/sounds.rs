@@ -455,6 +455,7 @@ fn script_params(entry: &source_assets::keyvalues::Entry) -> ScriptParams {
 mod library_state;
 mod wav;
 pub use library_state::Library;
+pub use wav::decode_pcm;
 use wav::playback_bytes;
 pub use wav::AudioSummary;
 #[cfg(test)]

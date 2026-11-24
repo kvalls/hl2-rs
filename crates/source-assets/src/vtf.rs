@@ -198,6 +198,82 @@ pub fn decode_picmip(data: &[u8], max_dimension: usize, picmip: i32) -> Result<I
     let l = layout_picmip(data, max_dimension, picmip)?;
     decode_face(data, &l, 0)
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GpuFormat {
+    Rgba8,
+    Bc1,
+    Bc2,
+    Bc3,
+}
+#[derive(Clone, Debug)]
+pub struct GpuImage {
+    pub width: u16,
+    pub height: u16,
+    pub data: Vec<u8>,
+    pub pixel_format: GpuFormat,
+    pub vtf_format: u32,
+    pub translucent: bool,
+}
+impl From<Image> for GpuImage {
+    fn from(image: Image) -> Self {
+        Self {
+            width: image.width,
+            height: image.height,
+            data: image.rgba,
+            pixel_format: GpuFormat::Rgba8,
+            vtf_format: image.format,
+            translucent: image.translucent,
+        }
+    }
+}
+impl GpuImage {
+    /// Decodes compressed GPU texture bytes to RGBA8 for CPU-side texel inspection.
+    pub fn to_rgba8(&self) -> Vec<u8> {
+        let format = match self.pixel_format {
+            GpuFormat::Rgba8 => return self.data.clone(),
+            GpuFormat::Bc1 => 13,
+            GpuFormat::Bc2 => 14,
+            GpuFormat::Bc3 => 15,
+        };
+        let (w, h) = (usize::from(self.width), usize::from(self.height));
+        decode_dxt_rgba(format, w, h, &self.data)
+            .unwrap_or_else(|_| vec![0; w.saturating_mul(h).saturating_mul(4)])
+    }
+}
+pub fn decode_gpu_picmip(
+    data: &[u8],
+    max_dimension: usize,
+    picmip: i32,
+    allow_bc: bool,
+) -> Result<GpuImage> {
+    let l = layout_picmip(data, max_dimension, picmip)?;
+    let bc_format = match l.format {
+        13 | 20 => Some(GpuFormat::Bc1),
+        14 => Some(GpuFormat::Bc2),
+        15 => Some(GpuFormat::Bc3),
+        _ => None,
+    };
+    if allow_bc
+        && l.width >= 4
+        && l.height >= 4
+        && l.width.is_multiple_of(4)
+        && l.height.is_multiple_of(4)
+    {
+        if let Some(pixel_format) = bc_format {
+            let byte_len = size(l.format, l.width, l.height)?;
+            let raw = bytes(data, l.offset, byte_len)?;
+            return Ok(GpuImage {
+                width: u16::try_from(l.width)?,
+                height: u16::try_from(l.height)?,
+                data: raw.to_vec(),
+                pixel_format,
+                vtf_format: l.format,
+                translucent: l.flags & (0x1000 | 0x2000) != 0,
+            });
+        }
+    }
+    decode_face(data, &l, 0).map(GpuImage::from)
+}
 /// All frames of a 2D texture at one mip, checked against the caller's decoded budget
 /// before allocating. VTF storage orders each mip by frame, then cube face.
 pub fn decode_frames(data: &[u8], max_dimension: usize, byte_budget: usize) -> Result<Vec<Image>> {
@@ -294,14 +370,14 @@ pub struct Cube {
 impl Cube {
     /// Every level of every face, one face after another, as a GPU upload takes them.
     pub fn layers(&self) -> Vec<u8> {
-        (0..6)
-            .flat_map(|face| {
-                let lower = self.mips.iter().map(move |level| &level[face]);
-                std::iter::once(&self.faces[face]).chain(lower)
-            })
-            .flatten()
-            .copied()
-            .collect()
+        let mut out = Vec::with_capacity(self.bytes());
+        for face in 0..6 {
+            out.extend_from_slice(&self.faces[face]);
+            for level in &self.mips {
+                out.extend_from_slice(&level[face]);
+            }
+        }
+        out
     }
     /// How many levels the chain has, the largest included.
     pub fn levels(&self) -> u32 {
@@ -355,9 +431,9 @@ fn decode_face(data: &[u8], l: &Layout, face: usize) -> Result<Image> {
     let (format, w, h) = (l.format, l.width, l.height);
     let offset = l.offset + face * size(format, w, h)?;
     let image = bytes(data, offset, size(format, w, h)?)?;
-    let mut rgba = vec![0; w * h * 4];
-    match format {
+    let rgba = match format {
         0 | 1 | 12 | 16 | 2 | 3 | 4 => {
+            let mut rgba = vec![0; w * h * 4];
             let stride = match format {
                 2 | 3 => 3,
                 4 => 2,
@@ -377,59 +453,11 @@ fn decode_face(data: &[u8], l: &Layout, face: usize) -> Result<Image> {
                 };
                 rgba[i * 4..i * 4 + 4].copy_from_slice(&v);
             }
+            rgba
         }
-        13 | 20 | 14 | 15 => {
-            let blocksize = if format == 13 || format == 20 { 8 } else { 16 };
-            for by in 0..h.div_ceil(4) {
-                for bx in 0..w.div_ceil(4) {
-                    let b = &image[(by * w.div_ceil(4) + bx) * blocksize..][..blocksize];
-                    let mut pixels =
-                        color_block(if blocksize == 8 { b } else { &b[8..] }, blocksize == 16)?;
-                    if format == 14 {
-                        for i in 0..16 {
-                            pixels[i][3] = ((b[i / 2] >> (4 * (i % 2))) & 15) * 17;
-                        }
-                    }
-                    if format == 15 {
-                        let mut a = [0u8; 8];
-                        a[0] = b[0];
-                        a[1] = b[1];
-                        if a[0] > a[1] {
-                            for i in 2..8 {
-                                a[i] =
-                                    (((8 - i) * a[0] as usize + (i - 1) * a[1] as usize) / 7) as u8;
-                            }
-                        } else {
-                            for i in 2..6 {
-                                a[i] =
-                                    (((6 - i) * a[0] as usize + (i - 1) * a[1] as usize) / 5) as u8;
-                            }
-                            a[6] = 0;
-                            a[7] = 255;
-                        }
-                        let mut bits = 0u64;
-                        for i in 0..6 {
-                            bits |= (b[i + 2] as u64) << (8 * i);
-                        }
-                        for i in 0..16 {
-                            pixels[i][3] = a[((bits >> (3 * i)) & 7) as usize];
-                        }
-                    }
-                    for dy in 0..4 {
-                        for dx in 0..4 {
-                            let x = bx * 4 + dx;
-                            let y = by * 4 + dy;
-                            if x < w && y < h {
-                                rgba[(y * w + x) * 4..(y * w + x) * 4 + 4]
-                                    .copy_from_slice(&pixels[dy * 4 + dx]);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        13 | 20 | 14 | 15 => decode_dxt_rgba(format, w, h, image)?,
         _ => bail!("unsupported VTF format {format}"),
-    }
+    };
     Ok(Image {
         width: w as u16,
         height: h as u16,
@@ -437,6 +465,61 @@ fn decode_face(data: &[u8], l: &Layout, face: usize) -> Result<Image> {
         format,
         translucent: l.flags & (0x1000 | 0x2000) != 0,
     })
+}
+
+fn decode_dxt_rgba(format: u32, w: usize, h: usize, image: &[u8]) -> Result<Vec<u8>> {
+    let expected = size(format, w, h)?;
+    if image.len() < expected {
+        bail!("truncated DXT image data");
+    }
+    let mut rgba = vec![0; w * h * 4];
+    let blocksize = if format == 13 || format == 20 { 8 } else { 16 };
+    for by in 0..h.div_ceil(4) {
+        for bx in 0..w.div_ceil(4) {
+            let b = &image[(by * w.div_ceil(4) + bx) * blocksize..][..blocksize];
+            let mut pixels =
+                color_block(if blocksize == 8 { b } else { &b[8..] }, blocksize == 16)?;
+            if format == 14 {
+                for i in 0..16 {
+                    pixels[i][3] = ((b[i / 2] >> (4 * (i % 2))) & 15) * 17;
+                }
+            }
+            if format == 15 {
+                let mut a = [0u8; 8];
+                a[0] = b[0];
+                a[1] = b[1];
+                if a[0] > a[1] {
+                    for i in 2..8 {
+                        a[i] = (((8 - i) * a[0] as usize + (i - 1) * a[1] as usize) / 7) as u8;
+                    }
+                } else {
+                    for i in 2..6 {
+                        a[i] = (((6 - i) * a[0] as usize + (i - 1) * a[1] as usize) / 5) as u8;
+                    }
+                    a[6] = 0;
+                    a[7] = 255;
+                }
+                let mut bits = 0u64;
+                for i in 0..6 {
+                    bits |= (b[i + 2] as u64) << (8 * i);
+                }
+                for i in 0..16 {
+                    pixels[i][3] = a[((bits >> (3 * i)) & 7) as usize];
+                }
+            }
+            for dy in 0..4 {
+                for dx in 0..4 {
+                    let x = bx * 4 + dx;
+                    let y = by * 4 + dy;
+                    if x < w && y < h {
+                        rgba[(y * w + x) * 4..(y * w + x) * 4 + 4]
+                            .copy_from_slice(&pixels[dy * 4 + dx]);
+                    }
+                }
+            }
+        }
+    }
+    Ok(rgba)
 }
 /// One frame of a sheet sequence: its duration and up to four images' texture
 /// rectangles (u0, v0, u1, v1).
@@ -870,5 +953,62 @@ mod tests {
         } else {
             (1. + mantissa / 1024.) * 2f32.powi(exponent - 15)
         }
+    }
+
+    fn dxt_vtf(format: u32, w: u16, h: u16, block: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let mut d = header(w, h, 1, 1);
+        d[52..56].copy_from_slice(&format.to_le_bytes());
+        let blocks = usize::from(w).div_ceil(4) * usize::from(h).div_ceil(4);
+        let mut raw = Vec::with_capacity(blocks * block.len());
+        for i in 0..blocks {
+            let mut b = block.to_vec();
+            b[0] = b[0].wrapping_add(i as u8);
+            raw.extend_from_slice(&b);
+        }
+        d.extend_from_slice(&raw);
+        (d, raw)
+    }
+
+    #[test]
+    fn gpu_picmip_passes_through_bc1_bc2_bc3_when_aligned() {
+        let b8 = [0x00, 0xf8, 0x1f, 0x00, 0x11, 0x22, 0x33, 0x44];
+        let b16 = [
+            0xff, 0x80, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0x00, 0xf8, 0x1f, 0x00, 0x11, 0x22,
+            0x33, 0x44,
+        ];
+        for (format, expected_fmt, block) in [
+            (13, GpuFormat::Bc1, &b8[..]),
+            (20, GpuFormat::Bc1, &b8[..]),
+            (14, GpuFormat::Bc2, &b16[..]),
+            (15, GpuFormat::Bc3, &b16[..]),
+        ] {
+            let (vtf, raw) = dxt_vtf(format, 8, 4, block);
+            let gpu = decode_gpu_picmip(&vtf, 512, 0, true).unwrap();
+            assert_eq!(gpu.pixel_format, expected_fmt);
+            assert_eq!(gpu.vtf_format, format);
+            assert_eq!((gpu.width, gpu.height), (8, 4));
+            assert_eq!(gpu.data, raw);
+            let cpu = decode_picmip(&vtf, 512, 0).unwrap();
+            assert_eq!(gpu.to_rgba8(), cpu.rgba);
+
+            // allow_bc == false decodes directly to Rgba8.
+            let decoded = decode_gpu_picmip(&vtf, 512, 0, false).unwrap();
+            assert_eq!(decoded.pixel_format, GpuFormat::Rgba8);
+            assert_eq!(decoded.data, cpu.rgba);
+        }
+    }
+
+    #[test]
+    fn gpu_picmip_falls_back_to_rgba8_for_small_or_unaligned_dxt() {
+        let b8 = [0x00, 0xf8, 0x1f, 0x00, 0x11, 0x22, 0x33, 0x44];
+        for (w, h) in [(2, 2), (1, 4), (4, 2), (6, 4), (4, 5)] {
+            let (vtf, _) = dxt_vtf(13, w, h, &b8);
+            let gpu = decode_gpu_picmip(&vtf, 512, 0, true).unwrap();
+            assert_eq!(gpu.pixel_format, GpuFormat::Rgba8, "{w}x{h}");
+            assert_eq!(gpu.data, decode_picmip(&vtf, 512, 0).unwrap().rgba);
+        }
+        // Truncated block payload is rejected before copying.
+        let (vtf, _) = dxt_vtf(13, 4, 4, &b8);
+        assert!(decode_gpu_picmip(&vtf[..vtf.len() - 1], 512, 0, true).is_err());
     }
 }

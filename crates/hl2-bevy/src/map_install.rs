@@ -97,7 +97,7 @@ pub(crate) fn install_loaded_map(
 }
 
 pub(crate) fn install_map(
-    loaded: assets::LoadedMap,
+    mut loaded: assets::LoadedMap,
     commands: &mut Commands,
     (meshes, materials, images, sounds, effect_materials, inverse_binds, slots): MapAssets,
     status: &Status,
@@ -126,18 +126,6 @@ pub(crate) fn install_map(
     commands.insert_resource(runtime_npcs::RuntimeNpcs::new(loaded.vfs.clone()));
     let camera_target = monitors::install(&loaded, commands, images);
     laps.mark("monitors");
-    slots.clear_lights();
-    rendering::spawn_map_filtered(
-        &loaded,
-        commands,
-        (meshes, inverse_binds),
-        (materials, slots),
-        images,
-        status,
-        (&camera_target, cpu_skinning, world_partition),
-        filtering,
-    );
-    laps.mark("draws");
     effects::install(
         &loaded,
         commands,
@@ -147,8 +135,20 @@ pub(crate) fn install_map(
         images,
     );
     laps.mark("effects");
-    commands.insert_resource(eyes::Eyes::new(&loaded));
     commands.insert_resource(shadows::MapShadows::new(&loaded));
+    slots.clear_lights();
+    rendering::spawn_map_filtered(
+        &mut loaded,
+        commands,
+        (meshes, inverse_binds),
+        (materials, slots),
+        images,
+        status,
+        (&camera_target, cpu_skinning, world_partition),
+        filtering,
+    );
+    laps.mark("draws");
+    commands.insert_resource(eyes::Eyes::new(&loaded));
     commands.insert_resource(console_host::MapEntityNames::of(&loaded.world.entities));
     sky::install(&loaded, commands, meshes, materials, images, target);
     laps.mark("sky");
@@ -178,7 +178,7 @@ pub(crate) fn install_map(
             decals.new_map();
         }
     });
-    commands.insert_resource(canvas_renderer::Hud::new(loaded.hud));
+    commands.insert_resource(canvas_renderer::Hud::new(loaded.canvas, loaded.hud));
     audio::install(commands, sounds, loaded.audio, mute);
     laps.mark("rest");
     laps.finish()

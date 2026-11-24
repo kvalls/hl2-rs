@@ -587,12 +587,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                 .is_some_and(|e| e.class().starts_with("npc_"))
         }) && !world.model_mass.contains_key(&instance.asset_key())
         {
-            if let Some(mass) = vfs
-                .read(&instance.model)
-                .ok()
-                .flatten()
-                .and_then(|mdl| studio_mass(&mdl).ok())
-            {
+            if let Some(mass) = model.mass {
                 world.model_mass.insert(instance.asset_key(), mass);
             }
         }
@@ -600,12 +595,10 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         if instance.kind.starts_with("prop_physics")
             && !world.model_prop_health.contains_key(&instance.asset_key())
         {
-            if let Some(data) = vfs
-                .read(&instance.model)
-                .ok()
-                .flatten()
-                .and_then(|mdl| studio_keyvalues(&mdl).ok().flatten())
-                .and_then(|text| resolve_prop_data(&prop_data, &text))
+            if let Some(data) = model
+                .keyvalues
+                .as_deref()
+                .and_then(|text| resolve_prop_data(&prop_data, text))
             {
                 let health = data.health;
                 world.model_prop_health.insert(instance.asset_key(), health);
@@ -694,7 +687,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         let illumination = *world
             .illumination
             .entry(instance.asset_key())
-            .or_insert_with(|| read_illumination(vfs, &instance.model).unwrap_or_default());
+            .or_insert(model.illumination);
         if instance.entity.is_some() {
             continue;
         }
@@ -768,13 +761,7 @@ pub fn read_illumination(
     model: &str,
 ) -> Result<modkit_core::lighting::ModelIllumination> {
     let mdl = vfs.read(model)?.context("model missing")?;
-    if mdl.get(..4) != Some(b"IDST") {
-        bail!("not a studio model");
-    }
-    Ok(modkit_core::lighting::ModelIllumination {
-        position: crate::vec3(&mdl, 92)?,
-        flags: u32le(&mdl, 152)?,
-    })
+    geometry::studio_illumination(&mdl)
 }
 /// Preloads every listed gib model's .phy (skin-0 key) so breaking a prop reads nothing.
 /// Gibs the PHY adapter cannot read (e.g. the cardboard_box00*_gib01 non-identity roots)

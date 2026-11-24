@@ -23,6 +23,47 @@ use std::sync::{Mutex, OnceLock};
 #[derive(Resource, Default)]
 pub struct InstalledMaps(pub Vec<String>);
 
+/// Receiver for background installed-map discovery; cleared once received.
+#[derive(Resource, Default)]
+pub struct PendingInstalledMaps(Option<Mutex<std::sync::mpsc::Receiver<Vec<String>>>>);
+
+/// Discovers installed maps on a background thread without delaying startup.
+pub fn spawn_installed_maps(root: std::path::PathBuf) -> PendingInstalledMaps {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let _ = std::thread::Builder::new()
+        .name("hl2-installed-maps".into())
+        .spawn(move || {
+            crate::priority::set_current_thread(crate::priority::Priority::Background);
+            let _ = tx.send(source_assets::install::installed_maps(&root));
+        });
+    PendingInstalledMaps(Some(Mutex::new(rx)))
+}
+
+/// Applies the background installed-map scan once ready, then stops polling.
+pub fn poll_installed_maps(
+    mut pending: ResMut<PendingInstalledMaps>,
+    mut installed: ResMut<InstalledMaps>,
+) {
+    let Some(recv) = pending.0.as_ref().map(|rx| {
+        rx.lock()
+            .map_or(Err(std::sync::mpsc::TryRecvError::Disconnected), |guard| {
+                guard.try_recv()
+            })
+    }) else {
+        return;
+    };
+    match recv {
+        Ok(maps) => {
+            installed.0 = maps;
+            pending.0 = None;
+        }
+        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            pending.0 = None;
+        }
+    }
+}
+
 /// The loaded map's entity targetnames and the inputs its connections fire, sorted, each once.
 #[derive(Resource, Default, Debug, PartialEq)]
 pub struct MapEntityNames {
@@ -226,5 +267,30 @@ mod tests {
         ]);
         assert_eq!(names.targets, ["lab_door", "relay"]);
         assert_eq!(names.inputs, ["Trigger", "TurnOn"]);
+    }
+
+    #[test]
+    fn poll_installed_maps_applies_once_and_clears_receiver() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(vec![
+            "d1_trainstation_01".into(),
+            "d1_trainstation_02".into(),
+        ])
+        .unwrap();
+        let mut world = World::default();
+        world.insert_resource(InstalledMaps::default());
+        world.insert_resource(PendingInstalledMaps(Some(Mutex::new(rx))));
+        world.run_system_once(poll_installed_maps).unwrap();
+        assert_eq!(
+            world.resource::<InstalledMaps>().0,
+            ["d1_trainstation_01", "d1_trainstation_02"]
+        );
+        assert!(world.resource::<PendingInstalledMaps>().0.is_none());
+        world.run_system_once(poll_installed_maps).unwrap();
+        assert_eq!(
+            world.resource::<InstalledMaps>().0,
+            ["d1_trainstation_01", "d1_trainstation_02"]
+        );
     }
 }

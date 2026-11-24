@@ -280,7 +280,7 @@ impl MapSummary {
                     .base_path
                     .as_ref()
                     .zip(material.base.as_ref())
-                    .map(|(key, image)| (key.clone(), image.rgba.len()))
+                    .map(|(key, image)| (key.clone(), image.data.len()))
             })
             .collect();
         Self {

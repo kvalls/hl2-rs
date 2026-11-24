@@ -77,7 +77,7 @@ fn load_gibs_and_materials(
     mini_world: &mut modkit_core::World,
     vfs: &source_assets::vpk::Vfs,
     known: &BTreeSet<String>,
-    (root_lod, picmip, hdr): (usize, i32, bool),
+    (root_lod, picmip, hdr, allow_bc): (usize, i32, bool, bool),
 ) -> (
     BTreeMap<String, Vec<modkit_core::Surface>>,
     BTreeMap<String, MaterialData>,
@@ -107,7 +107,7 @@ fn load_gibs_and_materials(
             &mut frame_cache,
             &mut decoded,
             &mut errors,
-            (picmip, hdr),
+            (picmip, hdr, allow_bc),
         );
         materials.insert(name, material);
     }
@@ -123,6 +123,7 @@ pub(crate) fn prepare_npc_template(
     label: &str,
     known: &BTreeSet<String>,
     config: &hl2_ui::config::Config,
+    allow_bc: bool,
 ) -> anyhow::Result<PreparedNpc> {
     let template = hl2_simulation::ai::spawn::template_entity(label, 0)
         .with_context(|| format!("unknown NPC class {label}"))?;
@@ -149,7 +150,12 @@ pub(crate) fn prepare_npc_template(
         &mut mini_world,
         vfs,
         known,
-        (root_lod, config.video.picmip(), config.video.hdr.is_hdr()),
+        (
+            root_lod,
+            config.video.picmip(),
+            config.video.hdr.is_hdr(),
+            allow_bc,
+        ),
     );
     let mut face_errors = Vec::new();
     let faces = faces::load(vfs, &mini_world, &mut face_errors);
@@ -173,6 +179,7 @@ pub struct HostState<'w> {
     sim: ResMut<'w, Simulation>,
     console: ResMut<'w, Console>,
     options: Option<Res<'w, crate::Options>>,
+    texture_caps: Option<Res<'w, crate::TextureCaps>>,
 }
 
 #[derive(SystemParam)]
@@ -206,11 +213,13 @@ fn enqueue_requests(npcs: &mut RuntimeNpcs, host: &mut HostState<'_>, render: &R
         let map_name = host.game.world.name.clone();
         let known: BTreeSet<String> = render.cache.definitions.keys().cloned().collect();
         let config = host.console.source.config.clone();
+        let allow_bc = host.texture_caps.as_deref().is_some_and(|c| c.bc);
         let class_label = label.clone();
         let out = slot.clone();
         std::thread::spawn(move || {
-            let result = prepare_npc_template(&vfs, &map_name, &class_label, &known, &config)
-                .map_err(|e| format!("{e:#}"));
+            let result =
+                prepare_npc_template(&vfs, &map_name, &class_label, &known, &config, allow_bc)
+                    .map_err(|e| format!("{e:#}"));
             *out.lock().expect("npc precache slot") = Some(result);
         });
         npcs.jobs.insert(
@@ -598,7 +607,7 @@ mod tests {
         let known = BTreeSet::new();
         for class in ["npc_vortigaunt", "npc_combine_s"] {
             let prepared =
-                prepare_npc_template(&vfs, "background02", class, &known, &config).unwrap();
+                prepare_npc_template(&vfs, "background02", class, &known, &config, false).unwrap();
             assert!(!prepared.world.model_assets.is_empty(), "{class}: meshes");
             assert!(!prepared.world.rigs.is_empty(), "{class}: rig");
             assert!(!prepared.materials.is_empty(), "{class}: materials");

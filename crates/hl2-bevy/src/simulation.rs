@@ -266,7 +266,17 @@ impl Simulation {
     }
 
     pub fn change_map(&mut self, world: &World, eye: glam::Vec3, direct: bool) {
-        self.physics = Physics::new(world);
+        self.change_map_with_physics(world, None, eye, direct);
+    }
+
+    pub fn change_map_with_physics(
+        &mut self,
+        world: &World,
+        physics: Option<Physics>,
+        eye: glam::Vec3,
+        direct: bool,
+    ) {
+        self.physics = physics.unwrap_or_else(|| Physics::new(world));
         self.eye = eye;
         self.player = Player::new(eye);
         self.view_control = None;

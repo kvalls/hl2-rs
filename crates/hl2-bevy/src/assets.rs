@@ -4,6 +4,7 @@ pub(crate) mod cubemaps;
 pub(crate) mod faces;
 pub(crate) mod loading;
 mod loading_auxiliary;
+mod loading_materials;
 pub(crate) mod names;
 pub(crate) mod reuse;
 mod static_decals;
@@ -21,15 +22,15 @@ use source_assets::{
     models,
     sky::UvTransform,
     vpk::{self, Vfs},
-    vtf::{self, Image},
+    vtf::{self, GpuImage, Image},
 };
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use vmt_vars::{direct_properties, material_properties};
 
-const MAX_TEXTURE_DIMENSION: usize = 2048;
-const MAX_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
-const MAX_DECODED_BYTES: usize = 512 * 1024 * 1024;
-const MAX_MATERIALS: usize = 16384;
+pub(super) const MAX_TEXTURE_DIMENSION: usize = 2048;
+pub(super) const MAX_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_DECODED_BYTES: usize = 512 * 1024 * 1024;
+pub(super) const MAX_MATERIALS: usize = 16384;
 /// Animation frames, each with its authored mip chain (largest first).
 pub type TextureFrames = Arc<Vec<Arc<Vec<Image>>>>;
 
@@ -47,7 +48,9 @@ pub struct LoadedMap {
     pub game: String,
     pub world: Arc<World>,
     pub gameplay: crate::gameplay::Gameplay,
-    pub hud: hl2_ui::hud::WeaponHud,
+    pub hud: Option<hl2_ui::hud::WeaponHud>,
+    pub canvas: source_ui::canvas::Canvas,
+    pub physics: Option<hl2_simulation::physics::Physics>,
     pub audio: crate::audio::PreparedAudio,
     pub(crate) pending_audio: Option<work::Work<crate::audio::PreparedAudio>>,
     pub sky: Option<source_assets::sky::Skybox>,
@@ -80,7 +83,7 @@ pub fn map_metadata(loaded: &LoadedMap) -> serde_json::Value {
             m.base_path
                 .as_ref()
                 .zip(m.base.as_ref())
-                .map(|(k, i)| (k.clone(), i.rgba.len()))
+                .map(|(k, i)| (k.clone(), i.data.len()))
         })
         .collect();
     serde_json::json!({"loading_ms":loaded.load_timings,"decal_index":loaded.gameplay.impacts.decal_index_report(),"map":loaded.world.name,"bsp_revision":loaded.revision,"models":loaded.models,"texture_errors":loaded.texture_errors,"asset_warnings":loaded.world.warnings,
@@ -91,10 +94,10 @@ pub fn map_metadata(loaded: &LoadedMap) -> serde_json::Value {
 
 #[derive(Clone, Debug)]
 pub struct MaterialData {
-    pub base: Option<Arc<Image>>,
+    pub base: Option<Arc<GpuImage>>,
     /// Normalized VTF key shared by both decoded textures and GPU image handles.
     pub base_path: Option<String>,
-    pub iris: Option<Arc<Image>>,
+    pub iris: Option<Arc<GpuImage>>,
     pub iris_path: Option<String>,
     pub eye_fallback: bool,
     pub alpha_cutoff: Option<f32>,
@@ -108,7 +111,7 @@ pub struct MaterialData {
     pub tint: [f32; 3],
     pub unlit: bool,
     pub camera: bool,
-    pub camera_overlay: Option<Arc<Image>>,
+    pub camera_overlay: Option<Arc<GpuImage>>,
     pub camera_overlay_path: Option<String>,
     pub camera_vertex_color: bool,
     pub camera_animation: source_assets::monitor_material::Animation,
@@ -131,7 +134,7 @@ pub struct MaterialData {
     /// $envmapmask texture (RGB mask), or the $bumpmap: its normals perturb the reflection
     /// (`envmap_bump`) and, with $normalmapalphaenvmapmask, its alpha masks it
     /// (`envmap_mask_alpha`).
-    pub envmap_mask: Option<Arc<Image>>,
+    pub envmap_mask: Option<Arc<GpuImage>>,
     pub envmap_mask_path: Option<String>,
     pub envmap_mask_alpha: bool,
     pub envmap_bump: bool,
@@ -139,7 +142,7 @@ pub struct MaterialData {
     pub self_illum: Option<[f32; 3]>,
     pub two_texture: Option<TwoTexture>,
     /// WorldVertexTransition `$basetexture2`, blended in by vertex alpha (`blend`).
-    pub base2: Option<(String, Arc<Image>)>,
+    pub base2: Option<(String, Arc<GpuImage>)>,
 }
 
 impl Default for MaterialData {
@@ -298,7 +301,7 @@ pub fn prepare_model_with_config(
             &mut frames,
             &mut decoded,
             &mut errors,
-            (picmip, hdr),
+            (picmip, hdr, false),
         );
         materials.insert(name, material);
     }
@@ -328,10 +331,10 @@ fn normalize_bsp_render_winding(world: &mut World) {
 }
 
 /// Initial static visibility only. Runtime I/O and animated render effects are separate.
-struct Definition {
-    shader: String,
-    properties: BTreeMap<String, String>,
-    proxies: Vec<Entry>,
+pub(super) struct Definition {
+    pub(super) shader: String,
+    pub(super) properties: BTreeMap<String, String>,
+    pub(super) proxies: Vec<Entry>,
 }
 
 /// The 2D sky; an LDR frame (below `mat_hdr_level` 2) keeps only the plain faces.
@@ -356,7 +359,7 @@ fn load_sky(
     Some(sky)
 }
 
-fn asset_path(name: &str, extension: &str) -> Result<String> {
+pub(super) fn asset_path(name: &str, extension: &str) -> Result<String> {
     if name.is_empty() || name.len() > 1024 {
         bail!("material asset name must contain 1..1024 bytes");
     }
@@ -371,7 +374,7 @@ fn asset_path(name: &str, extension: &str) -> Result<String> {
 // Patch insert/replace semantics. DX-level blocks are evaluated for level 95; the authored
 // Eyes_dx8 fallback is selected for EyeRefract; other shader fallbacks/proxies remain
 // unsupported.
-fn definition(vfs: &Vfs, name: &str, depth: usize, hdr: bool) -> Result<Definition> {
+pub(super) fn definition(vfs: &Vfs, name: &str, depth: usize, hdr: bool) -> Result<Definition> {
     if depth > 8 {
         bail!("VMT include cycle/depth limit");
     }
@@ -427,7 +430,11 @@ fn definition(vfs: &Vfs, name: &str, depth: usize, hdr: bool) -> Result<Definiti
     Ok(inherited)
 }
 
-fn scalar(properties: &BTreeMap<String, String>, key: &str, default: f32) -> Result<f32> {
+pub(super) fn scalar(
+    properties: &BTreeMap<String, String>,
+    key: &str,
+    default: f32,
+) -> Result<f32> {
     let Some(value) = properties.get(key) else {
         return Ok(default);
     };
@@ -440,7 +447,7 @@ fn scalar(properties: &BTreeMap<String, String>, key: &str, default: f32) -> Res
     Ok(number)
 }
 
-fn metadata(definition: &Definition) -> Result<MaterialData> {
+pub(super) fn metadata(definition: &Definition) -> Result<MaterialData> {
     let p = &definition.properties;
     let mut material = MaterialData {
         translucent: scalar(p, "$translucent", 0.)?.trunc() != 0.,
@@ -480,7 +487,10 @@ fn metadata(definition: &Definition) -> Result<MaterialData> {
 /// Envmap parameters with SDK lightmappedgeneric_dx9_helper.cpp defaults. Contrast and
 /// saturation are float3 in the shader (one value fills all channels); the tint is used as
 /// authored (not gamma-converted).
-fn envmap_parameters(definition: &Definition, material: &mut MaterialData) -> Result<()> {
+pub(super) fn envmap_parameters(
+    definition: &Definition,
+    material: &mut MaterialData,
+) -> Result<()> {
     let p = &definition.properties;
     let vector = |key: &str, default: f32| -> Result<[f32; 3]> {
         p.get(key).map_or(Ok([default; 3]), |v| {
@@ -518,7 +528,10 @@ fn vector3(value: &str) -> Result<[f32; 3]> {
 /// $selfillum tint for LightmappedGeneric/VertexLitGeneric (SDK dx9 helpers): the base alpha
 /// selects self-illumination, so an opaque base texture clears the flag. $selfillummask and
 /// $selfillumfresnel (alternate VertexLitGeneric modes) are not supported.
-fn self_illum(definition: &Definition, base: Option<&Image>) -> Result<Option<[f32; 3]>> {
+pub(super) fn self_illum(
+    definition: &Definition,
+    base: Option<&GpuImage>,
+) -> Result<Option<[f32; 3]>> {
     let p = &definition.properties;
     let shader = definition.shader.to_ascii_lowercase();
     if !matches!(shader.as_str(), "lightmappedgeneric" | "vertexlitgeneric")
@@ -536,16 +549,16 @@ fn self_illum(definition: &Definition, base: Option<&Image>) -> Result<Option<[f
 
 /// How a texture shapes a LightmappedGeneric envmap (SDK lightmappedgeneric_dx9_helper.cpp).
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct EnvmapMask {
+pub(super) struct EnvmapMask {
     /// The texture's alpha masks the envmap ($normalmapalphaenvmapmask).
-    alpha: bool,
+    pub(super) alpha: bool,
     /// The texture is the $bumpmap; its normals perturb the reflection.
-    bump: bool,
+    pub(super) bump: bool,
 }
 
 /// A $bumpmap undefines $envmapmask; its normals then shape the reflection (except $ssbump,
 /// whose encoding is not decoded yet) and only $normalmapalphaenvmapmask masks by its alpha.
-fn envmap_mask(definition: &Definition) -> Option<(&str, EnvmapMask)> {
+pub(super) fn envmap_mask(definition: &Definition) -> Option<(&str, EnvmapMask)> {
     let p = &definition.properties;
     let flag = |key: &str| scalar(p, key, 0.).is_ok_and(|v| v.trunc() != 0.);
     match p.get("$bumpmap") {
@@ -569,7 +582,7 @@ fn envmap_mask(definition: &Definition) -> Option<(&str, EnvmapMask)> {
 }
 
 /// Whether a material reflects the cubemap sample near its model.
-fn reflects_sample(definition: &Definition) -> bool {
+pub(super) fn reflects_sample(definition: &Definition) -> bool {
     definition.shader.eq_ignore_ascii_case("vertexlitgeneric")
         && definition
             .properties
@@ -586,37 +599,12 @@ fn load_envmap(
     decoded_bytes: &mut usize,
     (picmip, hdr): (i32, bool),
 ) -> Result<Option<(String, source_assets::vtf::Cube)>> {
-    if !definition.shader.eq_ignore_ascii_case("lightmappedgeneric") {
-        return Ok(None);
-    }
-    let Some(name) = definition.properties.get("$envmap") else {
+    let Some((plain, preferred, fallback)) = loading_materials::envmap_candidates(definition, hdr)?
+    else {
         return Ok(None);
     };
-    if name.eq_ignore_ascii_case("env_cubemap") {
-        return Ok(None);
-    }
-    let path = asset_path(name, ".vtf")?;
-    let hdr_path = format!("{}.hdr.vtf", path.trim_end_matches(".vtf"));
-    // An LDR frame reads the plain cubemap and keeps the HDR copy only as a fallback.
-    let preferred = if hdr { hdr_path.clone() } else { path.clone() };
-    let (path, data) = match vfs.read(&preferred)? {
-        Some(data) => (preferred, data),
-        None if !hdr => match vfs.read(&hdr_path)? {
-            Some(data) => (hdr_path, data),
-            None => bail!("envmap absent: {path}"),
-        },
-        None => {
-            let data = vfs
-                .read(&path)?
-                .with_context(|| format!("envmap absent: {path}"))?;
-            (path, data)
-        }
-    };
-    if data.len() > MAX_TEXTURE_BYTES {
-        bail!("encoded envmap exceeds 64 MiB limit: {path}");
-    }
-    let cube = source_assets::vtf::decode_cube_picmip(&data, MAX_TEXTURE_DIMENSION, picmip)
-        .with_context(|| format!("decode {path}"))?;
+    let (path, cube) =
+        loading_materials::decode_envmap_cube(vfs, &plain, &preferred, &fallback, picmip)?;
     let total = decoded_bytes
         .checked_add(cube.bytes())
         .context("decoded VTF byte count overflow")?;
@@ -632,12 +620,12 @@ fn reflection(
     vfs: &Vfs,
     definition: &Definition,
     material: &mut MaterialData,
-    cache: &mut BTreeMap<String, Arc<Image>>,
+    cache: &mut BTreeMap<String, Arc<GpuImage>>,
     decoded_bytes: &mut usize,
-    quality: (i32, bool),
+    (picmip, hdr, allow_bc): (i32, bool, bool),
 ) -> Result<()> {
     let envmap = envmap_parameters(definition, material)
-        .and_then(|()| load_envmap(vfs, definition, decoded_bytes, quality));
+        .and_then(|()| load_envmap(vfs, definition, decoded_bytes, (picmip, hdr)));
     let from_sample = reflects_sample(definition);
     let envmap = envmap.and_then(|cube| {
         if cube.is_none() && !from_sample {
@@ -646,10 +634,11 @@ fn reflection(
         let mask = envmap_mask(definition)
             .map(|(texture, kind)| -> Result<_> {
                 let path = asset_path(texture, ".vtf")?;
-                let image = cached_texture(cache, decoded_bytes, &path, quality.0, || {
-                    vfs.read(&path)?
-                        .with_context(|| format!("envmap mask absent: {path}"))
-                })?;
+                let image =
+                    cached_texture(cache, decoded_bytes, &path, (picmip, allow_bc), || {
+                        vfs.read(&path)?
+                            .with_context(|| format!("envmap mask absent: {path}"))
+                    })?;
                 Ok((path, image, kind))
             })
             .transpose()?;
@@ -682,11 +671,11 @@ fn reflection(
 pub(crate) fn load_material(
     vfs: &Vfs,
     name: &str,
-    cache: &mut BTreeMap<String, Arc<Image>>,
+    cache: &mut BTreeMap<String, Arc<GpuImage>>,
     frame_cache: &mut BTreeMap<String, TextureFrames>,
     decoded_bytes: &mut usize,
     errors: &mut Vec<String>,
-    (picmip, hdr): (i32, bool),
+    (picmip, hdr, allow_bc): (i32, bool, bool),
 ) -> MaterialData {
     let definition = match definition(vfs, name, 0, hdr) {
         Ok(definition) => definition,
@@ -734,9 +723,10 @@ pub(crate) fn load_material(
         if let Some(second) = definition.properties.get("$texture2") {
             let texture = (|| -> Result<_> {
                 let path = asset_path(second, ".vtf")?;
-                let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
-                    vfs.read(&path)?.context("owned monitor overlay absent")
-                })?;
+                let image =
+                    cached_texture(cache, decoded_bytes, &path, (picmip, allow_bc), || {
+                        vfs.read(&path)?.context("owned monitor overlay absent")
+                    })?;
                 Ok((path, image))
             })();
             match texture {
@@ -750,87 +740,23 @@ pub(crate) fn load_material(
         return material;
     }
     if definition.shader.eq_ignore_ascii_case("UnlitTwoTexture") {
-        let textures = (|| -> Result<_> {
-            let frames = source_assets::proximity_material::Frames::parse(
-                &definition.proxies,
-                &definition.properties,
-            )?;
-            let mut load = |key: &str| -> Result<(String, TextureFrames)> {
-                let path = asset_path(
-                    definition
-                        .properties
-                        .get(key)
-                        .context("two-texture material texture absent")?,
-                    ".vtf",
-                )?;
-                let cache_key = format!(
-                    "{path}#{}",
-                    if frames.active() { "frames" } else { "single" }
-                );
-                if let Some(images) = frame_cache.get(&cache_key) {
-                    return Ok((path, images.clone()));
-                }
-                let data = vfs.read(&path)?.context("two-texture VTF absent")?;
-                if data.len() > MAX_TEXTURE_BYTES {
-                    bail!("encoded VTF exceeds 64 MiB");
-                }
-                // Source samples the authored mips with distance; the shield frames'
-                // smaller mips are part of their far look.
-                let mut images = vtf::decode_frame_mips_picmip(
-                    &data,
-                    MAX_TEXTURE_DIMENSION,
-                    picmip,
-                    MAX_DECODED_BYTES.saturating_sub(*decoded_bytes),
-                )?;
-                if !frames.active() {
-                    images.truncate(1);
-                }
-                let bytes = images.iter().flatten().map(|i| i.rgba.len()).sum::<usize>();
-                if bytes > MAX_DECODED_BYTES.saturating_sub(*decoded_bytes) {
-                    bail!("map decoded texture budget exceeds 512 MiB");
-                }
-                *decoded_bytes += bytes;
-                let images = Arc::new(images.into_iter().map(Arc::new).collect::<Vec<_>>());
-                frame_cache.insert(cache_key, images.clone());
-                Ok((path, images))
-            };
-            let (base_path, base_frames) = load("$basetexture")?;
-            let (second_path, second_frames) = load("$texture2")?;
-            let scroll = source_assets::monitor_material::Animation::parse(&definition.proxies);
-            Ok((
-                base_path,
-                TwoTexture {
-                    base_frames,
-                    second_frames,
-                    second_path,
-                    frames,
-                    scroll,
-                },
-            ))
-        })();
-        match textures {
-            Ok((path, textures)) => {
-                material.base_path = Some(path);
-                material.base = textures
-                    .base_frames
-                    .first()
-                    .and_then(|chain| chain.first())
-                    .map(|top| Arc::new(top.clone()));
-                material.two_texture = Some(textures);
-                material.unlit = true;
-            }
-            Err(error) => errors.push(format!("{name}: two-texture: {error:#}")),
-        }
+        load_two_texture_material(
+            vfs,
+            &definition,
+            name,
+            &mut material,
+            (frame_cache, decoded_bytes, errors, picmip),
+        );
         return material;
     }
-    let image = (|| -> Result<(String, Arc<Image>)> {
+    let image = (|| -> Result<(String, Arc<GpuImage>)> {
         let base = definition
             .properties
             .get("$basetexture")
             .or_else(|| definition.properties.get("$refracttinttexture"))
             .context("VMT has no supported base texture")?;
         let path = asset_path(base, ".vtf")?;
-        let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
+        let image = cached_texture(cache, decoded_bytes, &path, (picmip, allow_bc), || {
             vfs.read(&path)?
                 .with_context(|| format!("VTF absent: {path}"))
         })?;
@@ -844,7 +770,13 @@ pub(crate) fn load_material(
         Err(error) => errors.push(format!("{name}: {error:#}")),
     }
     let textures = (&mut *cache, &mut *decoded_bytes);
-    if let Err(e) = blend::load_second_base(vfs, &definition, &mut material, textures, picmip) {
+    if let Err(e) = blend::load_second_base(
+        vfs,
+        &definition,
+        &mut material,
+        textures,
+        (picmip, allow_bc),
+    ) {
         errors.push(format!("{name}: $basetexture2: {e:#}"));
     }
     match self_illum(&definition, material.base.as_deref()) {
@@ -857,14 +789,14 @@ pub(crate) fn load_material(
         &mut material,
         cache,
         decoded_bytes,
-        (picmip, hdr),
+        (picmip, hdr, allow_bc),
     ) {
         // Without its mask an envmap would be far too strong, so it is dropped entirely.
         errors.push(format!("{name}: envmap: {error:#}"));
     }
     if definition.shader.eq_ignore_ascii_case("eyes") || material.eye_fallback {
         let textures = (&mut *cache, &mut *decoded_bytes);
-        match blend::named_texture(vfs, &definition, "$iris", textures, picmip) {
+        match blend::named_texture(vfs, &definition, "$iris", textures, (picmip, allow_bc)) {
             Ok(Some((path, image))) => {
                 (material.iris_path, material.iris) = (Some(path), Some(image))
             }
@@ -875,43 +807,96 @@ pub(crate) fn load_material(
     material
 }
 
+fn load_two_texture_material(
+    vfs: &Vfs,
+    definition: &Definition,
+    name: &str,
+    material: &mut MaterialData,
+    (frame_cache, decoded_bytes, errors, picmip): (
+        &mut BTreeMap<String, TextureFrames>,
+        &mut usize,
+        &mut Vec<String>,
+        i32,
+    ),
+) {
+    let textures = (|| -> Result<_> {
+        let frames = source_assets::proximity_material::Frames::parse(
+            &definition.proxies,
+            &definition.properties,
+        )?;
+        let mut load = |key: &str| -> Result<(String, TextureFrames)> {
+            let path = asset_path(
+                definition
+                    .properties
+                    .get(key)
+                    .context("two-texture material texture absent")?,
+                ".vtf",
+            )?;
+            let cache_key = format!(
+                "{path}#{}",
+                if frames.active() { "frames" } else { "single" }
+            );
+            if let Some(images) = frame_cache.get(&cache_key) {
+                return Ok((path, images.clone()));
+            }
+            let data = vfs.read(&path)?.context("two-texture VTF absent")?;
+            if data.len() > MAX_TEXTURE_BYTES {
+                bail!("encoded VTF exceeds 64 MiB");
+            }
+            // Source samples the authored mips with distance; the shield frames'
+            // smaller mips are part of their far look.
+            let mut images = vtf::decode_frame_mips_picmip(
+                &data,
+                MAX_TEXTURE_DIMENSION,
+                picmip,
+                MAX_DECODED_BYTES.saturating_sub(*decoded_bytes),
+            )?;
+            if !frames.active() {
+                images.truncate(1);
+            }
+            let bytes = images.iter().flatten().map(|i| i.rgba.len()).sum::<usize>();
+            if bytes > MAX_DECODED_BYTES.saturating_sub(*decoded_bytes) {
+                bail!("map decoded texture budget exceeds 512 MiB");
+            }
+            *decoded_bytes += bytes;
+            let images = Arc::new(images.into_iter().map(Arc::new).collect::<Vec<_>>());
+            frame_cache.insert(cache_key, images.clone());
+            Ok((path, images))
+        };
+        let (base_path, base_frames) = load("$basetexture")?;
+        let (second_path, second_frames) = load("$texture2")?;
+        let scroll = source_assets::monitor_material::Animation::parse(&definition.proxies);
+        Ok((
+            base_path,
+            TwoTexture {
+                base_frames,
+                second_frames,
+                second_path,
+                frames,
+                scroll,
+            },
+        ))
+    })();
+    match textures {
+        Ok((path, textures)) => loading_materials::apply_two_texture(material, path, textures),
+        Err(error) => errors.push(format!("{name}: two-texture: {error:#}")),
+    }
+}
+
 fn cached_texture(
-    cache: &mut BTreeMap<String, Arc<Image>>,
+    cache: &mut BTreeMap<String, Arc<GpuImage>>,
     decoded_bytes: &mut usize,
     path: &str,
-    picmip: i32,
+    (picmip, allow_bc): (i32, bool),
     read: impl FnOnce() -> Result<Vec<u8>>,
-) -> Result<Arc<Image>> {
+) -> Result<Arc<GpuImage>> {
     if let Some(image) = cache.get(path) {
         return Ok(Arc::clone(image));
     }
     let data = read()?;
-    if data.len() > MAX_TEXTURE_BYTES {
-        bail!("encoded VTF exceeds 64 MiB limit: {path}");
-    }
-    // The VTF adapter picks an existing mip rather than resampling. Reject
-    // a texture with no mip within our cap before allocating its RGBA pixels.
-    let width = usize::from(u16::from_le_bytes(
-        data.get(16..18)
-            .context("truncated VTF width")?
-            .try_into()?,
-    ));
-    let height = usize::from(u16::from_le_bytes(
-        data.get(18..20)
-            .context("truncated VTF height")?
-            .try_into()?,
-    ));
-    let mips = usize::from(*data.get(56).context("truncated VTF mip count")?);
-    if !(1..=15).contains(&mips) {
-        bail!("invalid VTF mip count: {path}");
-    }
-    if (width.max(height) >> (mips - 1)) > MAX_TEXTURE_DIMENSION {
-        bail!("VTF has no mip within the 2048 dimension limit: {path}");
-    }
-    let image = vtf::decode_picmip(&data, MAX_TEXTURE_DIMENSION, picmip)
-        .with_context(|| format!("decode {path}"))?;
+    let image = loading_materials::decode_2d_vtf(path, &data, picmip, allow_bc)?;
     let total = decoded_bytes
-        .checked_add(image.rgba.len())
+        .checked_add(image.data.len())
         .context("decoded VTF byte count overflow")?;
     if total > MAX_DECODED_BYTES {
         bail!("map decoded texture budget exceeds 512 MiB");
@@ -937,11 +922,12 @@ mod tests {
                 .collect(),
             proxies: Vec::new(),
         };
-        let image = |translucent| Image {
+        let image = |translucent| GpuImage {
             width: 1,
             height: 1,
-            rgba: vec![0; 4],
-            format: 15,
+            data: vec![0; 4],
+            pixel_format: vtf::GpuFormat::Rgba8,
+            vtf_format: 15,
             translucent,
         };
         let lit = definition("LightmappedGeneric", &[("$selfillum", "1")]);
@@ -1063,20 +1049,26 @@ mod tests {
         let first_key = asset_path("Materials\\Shared.VTF", ".vtf").unwrap();
         let alias_key = asset_path("shared", ".vtf").unwrap();
         assert_eq!(first_key, alias_key);
-        let first =
-            cached_texture(&mut cache, &mut used, &first_key, 0, || Ok(tiny_vtf())).unwrap();
-        assert_eq!(first.rgba, [2, 4, 8, 16]);
+        let first = cached_texture(&mut cache, &mut used, &first_key, (0, false), || {
+            Ok(tiny_vtf())
+        })
+        .unwrap();
+        assert_eq!(first.data, [2, 4, 8, 16]);
         assert_eq!(used, MAX_DECODED_BYTES);
-        let alias = cached_texture(&mut cache, &mut used, &alias_key, 0, || {
+        let alias = cached_texture(&mut cache, &mut used, &alias_key, (0, false), || {
             panic!("an alias must not read or decode its existing texture again")
         })
         .unwrap();
         assert!(Arc::ptr_eq(&first, &alias));
         assert_eq!(used, MAX_DECODED_BYTES);
         assert!(
-            cached_texture(&mut cache, &mut used, "materials/new.vtf", 0, || {
-                Ok(tiny_vtf())
-            })
+            cached_texture(
+                &mut cache,
+                &mut used,
+                "materials/new.vtf",
+                (0, false),
+                || { Ok(tiny_vtf()) }
+            )
             .is_err()
         );
         assert_eq!(used, MAX_DECODED_BYTES);
@@ -1319,14 +1311,14 @@ mod owned_frag_replay {
             .materials
             .values()
             .filter_map(|m| m.base.as_ref())
-            .map(|img| img.rgba.len())
+            .map(|img| img.data.len())
             .sum();
 
         let low_tex_bytes: usize = loaded_low
             .materials
             .values()
             .filter_map(|m| m.base.as_ref())
-            .map(|img| img.rgba.len())
+            .map(|img| img.data.len())
             .sum();
 
         eprintln!(

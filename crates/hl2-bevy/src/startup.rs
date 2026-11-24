@@ -39,21 +39,28 @@ pub(crate) struct StartupTarget {
 }
 
 /// Resolves the startup map target without loading map geometry or heavy assets.
-pub(crate) fn target_map(options: &crate::Options) -> Result<StartupTarget> {
+/// When no `--map` was given, returns the already-mounted base VFS so [`load_stub`] can reuse it.
+pub(crate) fn target_map(
+    options: &crate::Options,
+) -> Result<(StartupTarget, Option<Arc<source_assets::vpk::Vfs>>)> {
     let base_game = source_assets::install::BASE_GAME;
     let config = hl2_ui::config::Config::load_or_default();
     if let Some(map) = options.map.as_ref() {
         let is_bg = options.main_menu;
         let game = source_assets::install::game_for_map(&options.game, map, None)
             .unwrap_or_else(|| base_game.to_owned());
-        return Ok(StartupTarget {
-            game,
-            map: map.clone(),
-            background: is_bg,
-        });
+        return Ok((
+            StartupTarget {
+                game,
+                map: map.clone(),
+                background: is_bg,
+            },
+            None,
+        ));
     }
-    let vfs =
-        source_assets::vpk::Vfs::mount(&options.game).context("mount installed owned content")?;
+    let vfs = Arc::new(
+        source_assets::vpk::Vfs::mount(&options.game).context("mount installed owned content")?,
+    );
     let default_background = hl2_ui::gameui::resources::startup_background_map(&vfs);
     let (game, map) = match (&options.background_map, &config.gameplay.background_map) {
         (Some(map), _) => (
@@ -77,26 +84,35 @@ pub(crate) fn target_map(options: &crate::Options) -> Result<StartupTarget> {
             )?,
         ),
     };
-    Ok(StartupTarget {
-        game,
-        map,
-        background: true,
-    })
+    Ok((
+        StartupTarget {
+            game,
+            map,
+            background: true,
+        },
+        Some(vfs),
+    ))
 }
 
 /// Creates a lightweight stub [`crate::assets::LoadedMap`] for instant window presentation
 /// before asynchronous map loading begins in the worker thread.
-pub(crate) fn load_stub(root: &std::path::Path, game: &str) -> Result<crate::assets::LoadedMap> {
-    let vfs = Arc::new(
-        source_assets::vpk::Vfs::mount_game(root, game)
-            .context("mount installed owned content for startup stub")?,
-    );
+pub(crate) fn load_stub(
+    root: &std::path::Path,
+    game: &str,
+    mounted_vfs: Option<Arc<source_assets::vpk::Vfs>>,
+) -> Result<crate::assets::LoadedMap> {
+    let vfs = match mounted_vfs {
+        Some(vfs) if game == source_assets::install::BASE_GAME => vfs,
+        _ => Arc::new(
+            source_assets::vpk::Vfs::mount_game(root, game)
+                .context("mount installed owned content for startup stub")?,
+        ),
+    };
     let canvas = source_ui::canvas::Canvas::default();
-    let hud = hl2_ui::hud::WeaponHud::load(&vfs, canvas)?;
     let world = Arc::new(modkit_core::World::default());
     let gameplay = crate::gameplay::Gameplay::synthetic(modkit_core::World::default());
     let audio = crate::audio::PreparedAudio::silent();
-    let effects = crate::effects::PreparedEffects::load(&vfs, &world);
+    let effects = crate::effects::PreparedEffects::empty();
     let bsp = source_assets::bsp::Bsp::empty();
     let shadow_receivers = Arc::new(hl2_simulation::shadows::receivers::Receivers::new(
         &[],
@@ -108,7 +124,9 @@ pub(crate) fn load_stub(root: &std::path::Path, game: &str) -> Result<crate::ass
         cubemaps: Vec::new(),
         world,
         gameplay,
-        hud,
+        hud: None,
+        canvas,
+        physics: None,
         audio,
         pending_audio: None,
         sky: None,
@@ -285,14 +303,16 @@ mod tests {
             Default::default(),
         )
         .unwrap();
-        let target = target_map(&gameplay_opt).unwrap();
+        let (target, vfs) = target_map(&gameplay_opt).unwrap();
+        assert!(vfs.is_none());
         assert_eq!(target.map, "d1_trainstation_01");
         assert!(!target.background);
 
         let (bg_opt, _) =
             Options::parse_from(["--map".into(), "background01".into()], Default::default())
                 .unwrap();
-        let bg_target = target_map(&bg_opt).unwrap();
+        let (bg_target, bg_vfs) = target_map(&bg_opt).unwrap();
+        assert!(bg_vfs.is_none());
         assert_eq!(bg_target.map, "background01");
         assert!(!bg_target.background);
 
@@ -305,7 +325,8 @@ mod tests {
             Default::default(),
         )
         .unwrap();
-        let menu_target = target_map(&menu_opt).unwrap();
+        let (menu_target, menu_vfs) = target_map(&menu_opt).unwrap();
+        assert!(menu_vfs.is_none());
         assert_eq!(menu_target.map, "d1_trainstation_01");
         assert!(menu_target.background);
     }
@@ -314,8 +335,10 @@ mod tests {
     #[ignore = "requires owned HL2 installation"]
     fn startup_stub_creates_empty_world_and_mounted_vfs() {
         let root = source_assets::install::discover().expect("owned install");
-        let stub = load_stub(&root, "hl2").expect("startup stub");
+        let stub = load_stub(&root, "hl2", None).expect("startup stub");
         assert_eq!(stub.game, "hl2");
+        assert!(stub.hud.is_none());
+        assert!(stub.physics.is_none());
         assert!(stub.world.surfaces.is_empty());
         assert!(stub.world.entities.is_empty());
         assert!(stub.bsp.lump(0).is_empty());

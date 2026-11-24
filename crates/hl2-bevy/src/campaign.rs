@@ -81,6 +81,7 @@ type Host<'w> = (
     ResMut<'w, simulation::Simulation>,
     Option<Res<'w, crate::audio::deferred::PendingAudio>>,
     Option<Res<'w, crate::audio::Audio>>,
+    Option<Res<'w, crate::TextureCaps>>,
 );
 fn next_map_request(
     options: &Options,
@@ -120,7 +121,7 @@ fn next_map_request(
 
 pub fn poll(
     mut commands: Commands,
-    (options, mut campaign, mut ui, mut game, mut sim, pending_audio, audio): Host,
+    (options, mut campaign, mut ui, mut game, mut sim, pending_audio, audio, texture_caps): Host,
     mut assets: StartupAssets,
     old_draws: Query<Entity, With<MapOwned>>,
     mut windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
@@ -133,13 +134,14 @@ pub fn poll(
         let Some(request) = next_map_request(&options, &campaign, &mut ui, &mut game) else {
             return;
         };
+        let allow_bc = texture_caps.as_deref().is_some_and(|c| c.bc);
         if !loading::activate_request(
             request,
             &options,
             &mut campaign,
             &mut ui,
             &mut sim,
-            (audio.as_deref(), pending_audio.as_deref()),
+            (audio.as_deref(), pending_audio.as_deref(), allow_bc),
         ) {
             return;
         }

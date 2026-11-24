@@ -2,10 +2,11 @@
 use crate::{bytes, keyvalues, u16le, u32le};
 use anyhow::{bail, Context, Result};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs::File,
-    io::{Read, Seek, SeekFrom},
+    io::Read,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 #[derive(Debug)]
@@ -21,6 +22,7 @@ pub struct Vpk {
     pub version: u32,
     pub entries: BTreeMap<String, Entry>,
     data_start: usize,
+    archives: Mutex<HashMap<u16, Arc<(File, u64)>>>,
 }
 pub fn normalize(path: &str) -> Result<String> {
     let p = path.replace('\\', "/").to_lowercase();
@@ -29,15 +31,77 @@ pub fn normalize(path: &str) -> Result<String> {
     }
     Ok(p)
 }
-fn cstr(data: &[u8], pos: &mut usize) -> Result<String> {
+fn cstr<'a>(data: &'a [u8], pos: &mut usize) -> Result<&'a str> {
     let tail = data.get(*pos..).context("string offset outside tree")?;
     let len = tail
         .iter()
         .position(|b| *b == 0)
         .context("unterminated VPK string")?;
-    let s = std::str::from_utf8(&tail[..len])?.to_string();
+    let s = std::str::from_utf8(&tail[..len])?;
     *pos += len + 1;
     Ok(s)
+}
+fn build_vpk_path(directory: &str, stem: &str, extension: &str) -> Result<String> {
+    let has_dir = directory != " ";
+    let has_ext = extension != " ";
+    let cap = (if has_dir { directory.len() + 1 } else { 0 })
+        + stem.len()
+        + (if has_ext { extension.len() + 1 } else { 0 });
+    let mut out = String::with_capacity(cap);
+    if has_dir {
+        out.push_str(directory);
+        out.push('/');
+    }
+    out.push_str(stem);
+    if has_ext {
+        out.push('.');
+        out.push_str(extension);
+    }
+    if !out.is_ascii() || out.as_bytes().contains(&b'\\') {
+        return normalize(&out);
+    }
+    if out.starts_with('/') || out.contains(':') || out.split('/').any(|s| s == ".." || s == ".") {
+        bail!("unsafe asset path: {out}");
+    }
+    out.make_ascii_lowercase();
+    Ok(out)
+}
+fn read_exact_at(file: &File, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_exact_at(buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        let mut pos = offset;
+        let mut rem = buf;
+        while !rem.is_empty() {
+            match file.seek_read(rem, pos) {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "failed to fill whole buffer",
+                    ));
+                }
+                Ok(n) => {
+                    pos += n as u64;
+                    rem = &mut rem[n..];
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        use std::io::{Seek, SeekFrom};
+        let mut clone = file.try_clone()?;
+        clone.seek(SeekFrom::Start(offset))?;
+        clone.read_exact(buf)
+    }
 }
 impl Vpk {
     pub fn open(path: &Path) -> Result<Self> {
@@ -81,22 +145,8 @@ impl Vpk {
                     p += 18;
                     let preload = bytes(tree, p, preload)?.to_vec();
                     p += preload.len();
-                    let name = format!(
-                        "{}{}{}",
-                        if directory == " " {
-                            String::new()
-                        } else {
-                            format!("{directory}/")
-                        },
-                        stem,
-                        if extension == " " {
-                            String::new()
-                        } else {
-                            format!(".{extension}")
-                        }
-                    );
                     entries.insert(
-                        normalize(&name)?,
+                        build_vpk_path(directory, stem, extension)?,
                         Entry {
                             crc,
                             archive,
@@ -113,48 +163,77 @@ impl Vpk {
             version,
             entries,
             data_start: header + tree_size,
+            archives: Mutex::default(),
         })
     }
+    fn archive_handle(&self, archive_index: u16) -> Result<Arc<(File, u64)>> {
+        if let Some(cached) = self
+            .archives
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&archive_index)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+        let archive = if archive_index == 0x7fff {
+            self.path.clone()
+        } else {
+            let name = self
+                .path
+                .file_name()
+                .context("VPK filename")?
+                .to_string_lossy();
+            let base = name
+                .strip_suffix("_dir.vpk")
+                .context("VPK directory filename must end in _dir.vpk")?;
+            self.path
+                .with_file_name(format!("{base}_{archive_index:03}.vpk"))
+        };
+        let file = File::open(&archive).with_context(|| format!("open {}", archive.display()))?;
+        let len = file.metadata()?.len();
+        let handle = Arc::new((file, len));
+        let mut guard = self.archives.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(guard.entry(archive_index).or_insert(handle).clone())
+    }
     pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        self.read_entry(name, None)
+    }
+    pub fn read_prefix(&self, name: &str, max_bytes: usize) -> Result<Option<Vec<u8>>> {
+        self.read_entry(name, Some(max_bytes))
+    }
+    fn read_entry(&self, name: &str, max_bytes: Option<usize>) -> Result<Option<Vec<u8>>> {
         let Some(e) = self.entries.get(&normalize(name)?) else {
             return Ok(None);
         };
         if e.size as u64 + e.preload.len() as u64 > 512 * 1024 * 1024 {
             bail!("asset exceeds 512 MiB limit");
         }
-        let mut data = e.preload.clone();
-        if e.size > 0 {
-            let (archive, offset) = if e.archive == 0x7fff {
-                (self.path.clone(), self.data_start as u64 + e.offset as u64)
+        let limit = max_bytes.unwrap_or(usize::MAX);
+        let preload_take = e.preload.len().min(limit);
+        let mut data = e.preload[..preload_take].to_vec();
+        let need = limit.saturating_sub(data.len()).min(e.size as usize);
+        if e.size > 0 && need > 0 {
+            let archive = self.archive_handle(e.archive)?;
+            let base = if e.archive == 0x7fff {
+                self.data_start as u64
             } else {
-                let name = self
-                    .path
-                    .file_name()
-                    .context("VPK filename")?
-                    .to_string_lossy();
-                let base = name
-                    .strip_suffix("_dir.vpk")
-                    .context("VPK directory filename must end in _dir.vpk")?;
-                (
-                    self.path
-                        .with_file_name(format!("{base}_{:03}.vpk", e.archive)),
-                    e.offset as u64,
-                )
+                0
             };
-            let mut file =
-                File::open(&archive).with_context(|| format!("open {}", archive.display()))?;
+            let offset = base
+                .checked_add(e.offset as u64)
+                .context("entry offset overflow")?;
             let end = offset
                 .checked_add(e.size as u64)
                 .context("entry offset overflow")?;
-            if end > file.metadata()?.len() {
+            if end > archive.1 {
                 bail!("truncated VPK archive entry {name}");
             }
-            file.seek(SeekFrom::Start(offset))?;
             let old = data.len();
-            data.resize(old + e.size as usize, 0);
-            file.read_exact(&mut data[old..])?;
+            data.resize(old + need, 0);
+            read_exact_at(&archive.0, offset, &mut data[old..])?;
         }
-        if crc32fast::hash(&data) != e.crc {
+        if max_bytes.is_none() && crc32fast::hash(&data) != e.crc {
             bail!("VPK CRC mismatch for {name}");
         }
         Ok(Some(data))
@@ -172,6 +251,7 @@ pub struct Vfs {
     root: PathBuf,
     layers: Vec<Layer>,
     embedded: BTreeMap<String, Vec<u8>>,
+    material_index: OnceLock<HashMap<String, Vec<String>>>,
     pub warnings: Vec<String>,
 }
 
@@ -227,6 +307,35 @@ fn vpk_data_file(path: &Path) -> bool {
         .is_some_and(|(_, n)| n.len() == 3 && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
+fn collect_loose_files(
+    root: &Path,
+    start: PathBuf,
+    prefix: &str,
+    suffix: &str,
+    found: &mut BTreeSet<String>,
+) {
+    let mut stack = vec![start];
+    while let Some(dir) = stack.pop() {
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if entry.metadata().is_ok_and(|m| m.len() > 0) {
+                let name = path
+                    .strip_prefix(root)
+                    .ok()
+                    .and_then(|p| normalize(&p.to_string_lossy()).ok());
+                if let Some(name) = name.filter(|n| n.starts_with(prefix) && n.ends_with(suffix)) {
+                    found.insert(name);
+                }
+            }
+        }
+    }
+}
+
 impl Vfs {
     /// Mounts the base Half-Life 2 search path of the installation.
     pub fn mount(root: &Path) -> Result<Self> {
@@ -242,6 +351,7 @@ impl Vfs {
             root: root.to_path_buf(),
             layers: Vec::new(),
             embedded: BTreeMap::new(),
+            material_index: OnceLock::new(),
             warnings: Vec::new(),
         };
         let mut mounted = std::collections::BTreeSet::new();
@@ -315,10 +425,40 @@ impl Vfs {
             f.read_to_end(&mut bytes)?;
             self.embedded.insert(name, bytes);
         }
+        self.material_index = OnceLock::new();
         Ok(())
     }
     pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
         self.read_layer_file(name, None)
+    }
+
+    pub fn read_prefix(&self, path: &str, max_bytes: usize) -> Result<Option<Vec<u8>>> {
+        let name = normalize(path)?;
+        if let Some(d) = self.embedded.get(&name) {
+            return Ok(Some(d[..d.len().min(max_bytes)].to_vec()));
+        }
+        for layer in &self.layers {
+            match layer {
+                Layer::Dir(folder) => {
+                    let p = folder.join(&name);
+                    if p.is_file() {
+                        let file = File::open(p)?;
+                        let cap = file
+                            .metadata()
+                            .map_or(0, |m| (m.len() as usize).min(max_bytes));
+                        let mut buf = Vec::with_capacity(cap);
+                        file.take(max_bytes as u64).read_to_end(&mut buf)?;
+                        return Ok(Some(buf));
+                    }
+                }
+                Layer::Pak(vpk) => {
+                    if let Some(d) = vpk.read_prefix(&name, max_bytes)? {
+                        return Ok(Some(d));
+                    }
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// Read a MOD-owned file, excluding inherited games and map-embedded resources.
@@ -470,26 +610,7 @@ impl Vfs {
                     }
                 }
                 Layer::Dir(folder) => {
-                    let mut stack = vec![folder.join(prefix)];
-                    while let Some(dir) = stack.pop() {
-                        let Ok(read) = std::fs::read_dir(&dir) else {
-                            continue;
-                        };
-                        for entry in read.flatten() {
-                            let path = entry.path();
-                            if path.is_dir() {
-                                stack.push(path);
-                            } else if entry.metadata().is_ok_and(|m| m.len() > 0) {
-                                let name = path
-                                    .strip_prefix(folder)
-                                    .ok()
-                                    .and_then(|p| normalize(&p.to_string_lossy()).ok());
-                                if let Some(name) = name.filter(|n| wanted(n)) {
-                                    found.insert(name);
-                                }
-                            }
-                        }
-                    }
+                    collect_loose_files(folder, folder.join(prefix), prefix, suffix, &mut found);
                 }
             }
         }
@@ -514,22 +635,69 @@ impl Vfs {
         }
         folders
     }
+    fn material_index(&self) -> &HashMap<String, Vec<String>> {
+        self.material_index.get_or_init(|| {
+            let mut index: HashMap<String, Vec<String>> = HashMap::new();
+            let mut push_entry = |entry: &str| {
+                let Some(material) = entry
+                    .strip_prefix("materials/")
+                    .and_then(|rest| rest.strip_suffix(".vmt"))
+                else {
+                    return;
+                };
+                let stem = material.rsplit('/').next().unwrap_or(material);
+                let list = index.entry(stem.to_owned()).or_default();
+                if !list.iter().any(|existing| existing == material) {
+                    list.push(material.to_owned());
+                }
+            };
+            for entry in self.embedded.keys() {
+                push_entry(entry);
+            }
+            for layer in &self.layers {
+                match layer {
+                    Layer::Pak(vpk) => {
+                        for entry in vpk.entries.keys() {
+                            push_entry(entry);
+                        }
+                    }
+                    Layer::Dir(folder) => {
+                        let mut found = BTreeSet::new();
+                        collect_loose_files(
+                            folder,
+                            folder.join("materials"),
+                            "materials/",
+                            ".vmt",
+                            &mut found,
+                        );
+                        for entry in found {
+                            push_entry(&entry);
+                        }
+                    }
+                }
+            }
+            index
+        })
+    }
     pub fn resolve_material_name(&self, name: &str) -> Option<String> {
-        let suffix = format!("/{}.vmt", name.to_lowercase());
-        let mut found = self
-            .archives()
-            .flat_map(|a| a.entries.keys())
-            .filter(|p| p.starts_with("materials/") && p.ends_with(&suffix));
-        let first = found.next()?;
-        if found.next().is_some() {
+        let lower = name.replace('\\', "/").to_lowercase();
+        let trimmed = lower
+            .trim_start_matches("materials/")
+            .trim_end_matches(".vmt");
+        if trimmed.is_empty() {
             return None;
         }
-        Some(
-            first
-                .trim_start_matches("materials/")
-                .trim_end_matches(".vmt")
-                .into(),
-        )
+        let stem = trimmed.rsplit('/').next().unwrap_or(trimmed);
+        let candidates = self.material_index().get(stem)?;
+        if trimmed.contains('/') {
+            let suffix = format!("/{trimmed}");
+            candidates
+                .iter()
+                .find(|m| *m == trimmed || m.ends_with(&suffix))
+                .cloned()
+        } else {
+            candidates.first().cloned()
+        }
     }
     fn material_texture(&self, material: &str, depth: usize) -> Result<Option<String>> {
         if depth > 8 {
@@ -592,6 +760,7 @@ mod tests {
                 path: root.join(game).join("test_dir.vpk"),
                 version: 2,
                 data_start: 0,
+                archives: Mutex::default(),
                 entries: [(
                     name.to_owned(),
                     Entry {
@@ -619,6 +788,7 @@ mod tests {
                 ("cfg/chapter1.cfg".into(), b"map embedded".to_vec()),
             ]
             .into(),
+            material_index: OnceLock::new(),
             warnings: Vec::new(),
         };
         assert_eq!(
@@ -775,5 +945,202 @@ mod tests {
                 "{model} resolved to an empty placeholder"
             );
         }
+    }
+
+    type VpkFixtureEntry<'a> = (&'a str, &'a str, &'a str, u16, &'a [u8], &'a [u8]);
+
+    fn write_vpk_fixture(dir_path: &Path, archive_path: &Path, entries: &[VpkFixtureEntry<'_>]) {
+        let mut tree = Vec::new();
+        let mut embedded_data = Vec::new();
+        let mut archive_data = Vec::new();
+        for &(ext, dir, stem, archive, preload, body) in entries {
+            let mut full = Vec::with_capacity(preload.len() + body.len());
+            full.extend_from_slice(preload);
+            full.extend_from_slice(body);
+            let crc = crc32fast::hash(&full);
+            let offset = if archive == 0x7fff {
+                let o = embedded_data.len() as u32;
+                embedded_data.extend_from_slice(body);
+                o
+            } else {
+                let o = archive_data.len() as u32;
+                archive_data.extend_from_slice(body);
+                o
+            };
+            for part in [ext, dir, stem] {
+                tree.extend_from_slice(part.as_bytes());
+                tree.push(0);
+            }
+            tree.extend_from_slice(&crc.to_le_bytes());
+            tree.extend_from_slice(&(preload.len() as u16).to_le_bytes());
+            tree.extend_from_slice(&archive.to_le_bytes());
+            tree.extend_from_slice(&offset.to_le_bytes());
+            tree.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            tree.extend_from_slice(&0xffffu16.to_le_bytes());
+            tree.extend_from_slice(preload);
+            tree.push(0);
+            tree.push(0);
+        }
+        tree.push(0);
+        let mut dir_bytes = Vec::new();
+        dir_bytes.extend_from_slice(&0x55aa1234u32.to_le_bytes());
+        dir_bytes.extend_from_slice(&1u32.to_le_bytes());
+        dir_bytes.extend_from_slice(&(tree.len() as u32).to_le_bytes());
+        dir_bytes.extend_from_slice(&tree);
+        dir_bytes.extend_from_slice(&embedded_data);
+        std::fs::write(dir_path, dir_bytes).unwrap();
+        std::fs::write(archive_path, archive_data).unwrap();
+    }
+
+    #[test]
+    fn read_prefix_caches_handles_checks_bounds_and_respects_overrides() {
+        let root = std::env::temp_dir().join(format!("hl2-rs-vpk-prefix-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("hl2/maps")).unwrap();
+        let dir_vpk = root.join("hl2/test_dir.vpk");
+        let data_vpk = root.join("hl2/test_000.vpk");
+        write_vpk_fixture(
+            &dir_vpk,
+            &data_vpk,
+            &[
+                ("bsp", "maps", "arc", 0, b"VB", b"SP_ARCHIVE_REST"),
+                ("bsp", "maps", "emb", 0x7fff, b"", b"VBSP_EMBEDDED"),
+                ("txt", " ", "readme", 0, b"PRELOAD_ONLY", b""),
+            ],
+        );
+        let vpk = Vpk::open(&dir_vpk).unwrap();
+        assert_eq!(
+            vpk.read_prefix("maps/arc.bsp", 4).unwrap().unwrap(),
+            b"VBSP"
+        );
+        assert_eq!(
+            vpk.read_prefix("maps/emb.bsp", 4).unwrap().unwrap(),
+            b"VBSP"
+        );
+        assert_eq!(
+            vpk.read_prefix("readme.txt", 7).unwrap().unwrap(),
+            b"PRELOAD"
+        );
+        // Both archive 0 and 0x7fff handles are cached once after reads.
+        assert_eq!(vpk.archives.lock().unwrap().len(), 2);
+        assert_eq!(
+            vpk.read("maps/arc.bsp").unwrap().unwrap(),
+            b"VBSP_ARCHIVE_REST"
+        );
+        assert_eq!(vpk.read("maps/emb.bsp").unwrap().unwrap(), b"VBSP_EMBEDDED");
+        assert_eq!(vpk.archives.lock().unwrap().len(), 2);
+
+        // Truncated archive still fails bounds validation in read_prefix.
+        let trunc_dir = root.join("hl2/trunc_dir.vpk");
+        let trunc_data = root.join("hl2/trunc_000.vpk");
+        write_vpk_fixture(
+            &trunc_dir,
+            &trunc_data,
+            &[("bsp", "maps", "bad", 0, b"", b"VBSP_LONG_DATA")],
+        );
+        std::fs::write(&trunc_data, b"VBSP").unwrap();
+        let trunc_vpk = Vpk::open(&trunc_dir).unwrap();
+        assert!(trunc_vpk.read_prefix("maps/bad.bsp", 4).is_err());
+
+        // Vfs::read_prefix respects loose override and embedded pak override.
+        std::fs::write(root.join("hl2/maps/arc.bsp"), b"LOOSE_FILE").unwrap();
+        let vfs = Vfs {
+            root: root.clone(),
+            layers: vec![Layer::Dir(root.join("hl2")), Layer::Pak(vpk)],
+            embedded: [("maps/emb.bsp".into(), b"PAK_OVERRIDE".to_vec())].into(),
+            material_index: OnceLock::new(),
+            warnings: Vec::new(),
+        };
+        assert_eq!(
+            vfs.read_prefix("maps/arc.bsp", 5).unwrap().unwrap(),
+            b"LOOSE"
+        );
+        assert_eq!(vfs.read_prefix("maps/emb.bsp", 3).unwrap().unwrap(), b"PAK");
+        assert_eq!(
+            vfs.read_prefix("readme.txt", 7).unwrap().unwrap(),
+            b"PRELOAD"
+        );
+        assert!(vfs.read_prefix("missing.bin", 4).unwrap().is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolve_material_name_preserves_precedence_and_pak_override() {
+        let root = std::env::temp_dir().join(format!("hl2-rs-mat-idx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("hl2/materials/loose_dir")).unwrap();
+        std::fs::write(root.join("hl2/materials/loose_dir/target.vmt"), b"VMT").unwrap();
+        std::fs::write(root.join("hl2/materials/loose_dir/empty.vmt"), b"").unwrap();
+
+        let dir_vpk1 = root.join("hl2/pak1_dir.vpk");
+        let data_vpk1 = root.join("hl2/pak1_000.vpk");
+        write_vpk_fixture(
+            &dir_vpk1,
+            &data_vpk1,
+            &[
+                ("vmt", "materials/vpk1", "shared", 0, b"1", b""),
+                ("vmt", "materials/vpk1/sub", "nested", 0, b"1", b""),
+                ("vmt", "materials/vpk1", "empty", 0, b"1", b""),
+            ],
+        );
+        let dir_vpk2 = root.join("hl2/pak2_dir.vpk");
+        let data_vpk2 = root.join("hl2/pak2_000.vpk");
+        write_vpk_fixture(
+            &dir_vpk2,
+            &data_vpk2,
+            &[
+                ("vmt", "materials/vpk2", "shared", 0, b"2", b""),
+                ("vmt", "materials/vpk2", "target", 0, b"2", b""),
+            ],
+        );
+
+        let mut vfs = Vfs {
+            root: root.clone(),
+            layers: vec![
+                Layer::Pak(Vpk::open(&dir_vpk1).unwrap()),
+                Layer::Dir(root.join("hl2")),
+                Layer::Pak(Vpk::open(&dir_vpk2).unwrap()),
+            ],
+            embedded: BTreeMap::new(),
+            material_index: OnceLock::new(),
+            warnings: Vec::new(),
+        };
+        // Earlier VPK wins over later VPK; loose dir wins over later VPK; zero-byte loose skipped.
+        assert_eq!(
+            vfs.resolve_material_name("shared").as_deref(),
+            Some("vpk1/shared")
+        );
+        assert_eq!(
+            vfs.resolve_material_name("target").as_deref(),
+            Some("loose_dir/target")
+        );
+        assert_eq!(
+            vfs.resolve_material_name("empty").as_deref(),
+            Some("vpk1/empty")
+        );
+        assert_eq!(
+            vfs.resolve_material_name("sub/nested").as_deref(),
+            Some("vpk1/sub/nested")
+        );
+
+        // mount_pak invalidates cached material_index and takes highest precedence.
+        let mut pak_bytes = Vec::new();
+        {
+            use std::io::Write;
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut pak_bytes));
+            zip.start_file(
+                "materials/pak_override/shared.vmt",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.write_all(b"\"LightmappedGeneric\" {}").unwrap();
+            zip.finish().unwrap();
+        }
+        vfs.mount_pak(&pak_bytes).unwrap();
+        assert_eq!(
+            vfs.resolve_material_name("shared").as_deref(),
+            Some("pak_override/shared")
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

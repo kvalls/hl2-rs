@@ -25,7 +25,10 @@ use bevy::{
     transform::components::Transform,
 };
 use modkit_core::{Surface, World};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+};
 
 /// The LOD metric of a point at view depth `depth` (units along the view direction) for a view
 /// with `tan_half_fov` (tangent of half the vertical field of view) and `height` pixels: the
@@ -101,9 +104,144 @@ fn nothing(surface: &Surface) -> Surface {
 /// skin attributes depend only on the model's weights and its rig's bone count.
 /// A model asset, material, scale (bits), whether the draw is skinned, and whether GPU morphs
 /// are attached.
-type LevelsKey = (String, String, u32, bool, bool);
-type RootKey = (String, String, u32, usize, usize, usize);
+pub(super) type LevelsKey = (String, String, u32, bool, bool);
+pub(super) type RootKey = (String, String, u32, usize, usize, usize);
 type FaceModels = BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>;
+
+pub(super) struct BuiltRoot {
+    pub(super) mesh: Mesh,
+    pub(super) morph: Option<Arc<super::face_flex::MorphChannels>>,
+    pub(super) cpu_flex: bool,
+}
+
+pub(super) struct RootBuildInput<'a> {
+    pub(super) batch: Batch,
+    pub(super) joint_count: Option<usize>,
+    pub(super) vertices: Option<&'a Vertices>,
+    pub(super) scale: f32,
+    pub(super) face: Option<&'a source_assets::flexes::FaceModel>,
+    pub(super) has_animation: bool,
+    pub(super) private_mesh: bool,
+}
+
+pub(super) struct BuiltLevel {
+    pub(super) mesh: Mesh,
+    pub(super) vertices: Option<Arc<Vertices>>,
+    pub(super) triangles: usize,
+}
+
+pub(super) type BuiltLevels = Vec<(f32, BuiltLevel)>;
+pub(super) type PrivateBuiltLevels = VecDeque<(usize, String, BuiltLevels)>;
+
+pub(super) struct PrebuiltMeshes {
+    pub(super) roots_shared: BTreeMap<RootKey, (BuiltRoot, usize)>,
+    pub(super) roots_private: VecDeque<BuiltRoot>,
+    pub(super) levels_shared: BTreeMap<LevelsKey, BuiltLevels>,
+    pub(super) levels_private: PrivateBuiltLevels,
+}
+
+pub(super) fn root_key(
+    name: &str,
+    index_count: usize,
+    animation: Option<&AnimatedMesh>,
+    private_mesh: bool,
+) -> Option<RootKey> {
+    (!private_mesh).then(|| {
+        let anim = animation?;
+        let skeleton = anim.gpu.as_ref()?;
+        Some((
+            anim.key.clone(),
+            name.to_owned(),
+            anim.scale.to_bits(),
+            anim.vertices.bind.len(),
+            index_count,
+            skeleton.joints.len(),
+        ))
+    })?
+}
+
+pub(super) fn levels_key(
+    asset_key: String,
+    material: String,
+    scale: f32,
+    has_animation: bool,
+    has_morph: bool,
+) -> LevelsKey {
+    (
+        asset_key,
+        material,
+        scale.to_bits(),
+        has_animation,
+        has_morph,
+    )
+}
+
+pub(super) fn apply_skin_attributes(
+    mesh: &mut Mesh,
+    vertices: &[(glam::Vec3, Option<modkit_core::animation::Weights>)],
+    joint_count: usize,
+) {
+    let (indices, weights): (Vec<_>, Vec<_>) = vertices
+        .iter()
+        .map(|(_, weights)| crate::gpu_skinning::influences(weights.as_ref(), joint_count - 1))
+        .unzip();
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_INDEX,
+        bevy::mesh::VertexAttributeValues::Uint16x4(indices),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
+    mesh.generate_skinned_mesh_bounds()
+        .expect("validated Source skin influences");
+}
+
+pub(super) fn face_deforms(
+    face: &source_assets::flexes::FaceModel,
+    flex: &[Option<[u16; 3]>],
+) -> bool {
+    if flex.is_empty() {
+        return false;
+    }
+    let flexed: std::collections::BTreeSet<(usize, usize)> = face
+        .flex
+        .meshes
+        .iter()
+        .map(|m| (m.bodypart, m.mesh))
+        .collect();
+    flex.iter()
+        .flatten()
+        .any(|[bodypart, mesh, _]| flexed.contains(&((*bodypart).into(), (*mesh).into())))
+}
+
+pub(super) fn build_root_mesh(input: RootBuildInput<'_>) -> BuiltRoot {
+    let mut mesh = input.batch.mesh();
+    let mut built_morph = None;
+    let mut cpu_flex = false;
+    if input.has_animation {
+        if let (Some(joint_count), Some(vertices)) = (input.joint_count, input.vertices) {
+            apply_skin_attributes(&mut mesh, &vertices.bind, joint_count);
+            if !vertices.flex.is_empty()
+                && let Some(face) = input.face
+            {
+                built_morph = super::face_flex::build_morph_targets(
+                    &mut mesh,
+                    face,
+                    &vertices.flex,
+                    input.scale,
+                )
+                .map(Arc::new);
+                cpu_flex = built_morph.is_none() && face_deforms(face, &vertices.flex);
+            }
+        }
+        mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+    } else if input.private_mesh {
+        mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+    }
+    BuiltRoot {
+        mesh,
+        morph: built_morph,
+        cpu_flex,
+    }
+}
 
 #[derive(Default)]
 pub(super) struct SharedLevels {
@@ -111,6 +249,7 @@ pub(super) struct SharedLevels {
     roots: BTreeMap<RootKey, (Handle<Mesh>, Option<Arc<super::face_flex::MorphChannels>>)>,
     /// The map's face models; without them every draw with flex references keeps its own levels.
     faces: Option<FaceModels>,
+    prebuilt: Option<PrebuiltMeshes>,
 }
 
 impl SharedLevels {
@@ -120,15 +259,73 @@ impl SharedLevels {
             built: BTreeMap::new(),
             roots: BTreeMap::new(),
             faces: Some(faces.clone()),
+            prebuilt: None,
         }
+    }
+
+    pub(super) fn set_prebuilt(&mut self, prebuilt: PrebuiltMeshes) {
+        self.prebuilt = Some(prebuilt);
     }
 
     fn face(&self, key: &str) -> Option<&source_assets::flexes::FaceModel> {
         self.faces.as_ref()?.get(key).map(Arc::as_ref)
     }
 
-    fn face_arc(&self, key: &str) -> Option<Arc<source_assets::flexes::FaceModel>> {
+    pub(super) fn face_arc(&self, key: &str) -> Option<Arc<source_assets::flexes::FaceModel>> {
         self.faces.as_ref()?.get(key).cloned()
+    }
+
+    pub(super) fn take_prebuilt_root(
+        &mut self,
+        root_key: Option<RootKey>,
+        animation: Option<&mut AnimatedMesh>,
+        meshes: &mut Assets<Mesh>,
+    ) -> Handle<Mesh> {
+        if let Some(key) = &root_key
+            && let Some((handle, morph)) = self.roots.get(key)
+        {
+            if let Some(anim) = animation {
+                anim.morph = morph.clone();
+            }
+            return handle.clone();
+        }
+        let prebuilt = self
+            .prebuilt
+            .as_mut()
+            .expect("prebuilt meshes populated before map spawn");
+        let built = if let Some(key) = &root_key {
+            let clone_needed = {
+                let entry = prebuilt
+                    .roots_shared
+                    .get_mut(key)
+                    .expect("prebuilt shared root entry");
+                entry.1 -= 1;
+                entry.0.cpu_flex && entry.1 > 0
+            };
+            if clone_needed {
+                let (src, _) = &prebuilt.roots_shared[key];
+                BuiltRoot {
+                    mesh: src.mesh.clone(),
+                    morph: src.morph.clone(),
+                    cpu_flex: src.cpu_flex,
+                }
+            } else {
+                prebuilt.roots_shared.remove(key).unwrap().0
+            }
+        } else {
+            prebuilt
+                .roots_private
+                .pop_front()
+                .expect("prebuilt private root entry")
+        };
+        let handle = meshes.add(built.mesh);
+        if let Some(anim) = animation {
+            anim.morph = built.morph.clone();
+        }
+        if let Some(key) = root_key.filter(|_| !built.cpu_flex) {
+            self.roots.insert(key, (handle.clone(), built.morph));
+        }
+        handle
     }
 
     /// Build or share a root draw's mesh, attaching GPU skinning and GPU facial morph targets.
@@ -140,21 +337,12 @@ impl SharedLevels {
         meshes: &mut Assets<Mesh>,
         private_mesh: bool,
     ) -> Handle<Mesh> {
-        let index_count = batch.indices.len();
-        let root_key = (!private_mesh)
-            .then(|| {
-                let anim = animation.as_deref()?;
-                let skeleton = anim.gpu.as_ref()?;
-                Some((
-                    anim.key.clone(),
-                    name.to_owned(),
-                    anim.scale.to_bits(),
-                    anim.vertices.bind.len(),
-                    index_count,
-                    skeleton.joints.len(),
-                ))
-            })
-            .flatten();
+        let root_key = root_key(
+            name,
+            batch.indices.len(),
+            animation.as_deref(),
+            private_mesh,
+        );
         if let Some(key) = &root_key
             && let Some((handle, morph)) = self.roots.get(key)
         {
@@ -163,56 +351,111 @@ impl SharedLevels {
             }
             return handle.clone();
         }
-        let mut mesh = batch.mesh();
-        let mut built_morph = None;
-        let mut cpu_flex = false;
+        let (has_animation, joint_count, vertices, scale, face) = match animation.as_deref() {
+            Some(anim) => (
+                true,
+                anim.gpu.as_ref().map(|s| s.joints.len()),
+                Some(Arc::clone(&anim.vertices)),
+                anim.scale,
+                self.face_arc(&anim.key),
+            ),
+            None => (false, None, None, 1., None),
+        };
+        let built = build_root_mesh(RootBuildInput {
+            batch,
+            joint_count,
+            vertices: vertices.as_deref(),
+            scale,
+            face: face.as_deref(),
+            has_animation,
+            private_mesh,
+        });
+        let cpu_flex = built.cpu_flex
+            || (has_animation
+                && built.morph.is_none()
+                && self.faces.is_none()
+                && vertices.as_ref().is_some_and(|v| !v.flex.is_empty()));
+        let handle = meshes.add(built.mesh);
         if let Some(anim) = animation {
-            if let Some(skeleton) = &anim.gpu {
-                skeleton.attributes(&mut mesh, &anim.vertices.bind);
-                if !anim.vertices.flex.is_empty()
-                    && let Some(face) = self.face(&anim.key)
-                {
-                    built_morph = super::face_flex::build_morph_targets(
-                        &mut mesh,
-                        face,
-                        &anim.vertices.flex,
-                        anim.scale,
-                    )
-                    .map(Arc::new);
-                    anim.morph = built_morph.clone();
-                    cpu_flex = built_morph.is_none() && self.deforms(anim);
-                }
-            }
-            mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
-        } else if private_mesh {
-            mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+            anim.morph = built.morph.clone();
         }
-        let handle = meshes.add(mesh);
         // CPU flexes mutate mesh positions independently for each actor.
         if let Some(key) = root_key.filter(|_| !cpu_flex) {
-            self.roots.insert(key, (handle.clone(), built_morph));
+            self.roots.insert(key, (handle.clone(), built.morph));
         }
         handle
     }
 
     /// Whether facial flexes deform the draw: its model's flexes move a studio mesh one of its
     /// vertices comes from (every studio vertex carries a reference to its source mesh).
-    fn deforms(&self, animation: &AnimatedMesh) -> bool {
+    pub(super) fn deforms(&self, animation: &AnimatedMesh) -> bool {
         if animation.vertices.flex.is_empty() {
             return false;
         }
-        let Some(faces) = &self.faces else {
-            return true;
+        let Some(face) = self.face(&animation.key) else {
+            return self.faces.is_none();
         };
-        let Some(face) = faces.get(&animation.key) else {
-            return false;
-        };
-        let flexed: std::collections::BTreeSet<(usize, usize)> = (face.flex.meshes.iter())
-            .map(|m| (m.bodypart, m.mesh))
-            .collect();
-        (animation.vertices.flex.iter().flatten())
-            .any(|[bodypart, mesh, _]| flexed.contains(&((*bodypart).into(), (*mesh).into())))
+        face_deforms(face, &animation.vertices.flex)
     }
+}
+
+fn upload_levels(built: Vec<(f32, BuiltLevel)>, meshes: &mut Assets<Mesh>) -> Vec<(f32, Level)> {
+    built
+        .into_iter()
+        .map(|(switch, level)| {
+            (
+                switch,
+                Level {
+                    mesh: meshes.add(level.mesh),
+                    vertices: level.vertices,
+                    triangles: level.triangles,
+                },
+            )
+        })
+        .collect()
+}
+
+fn resolve_coarser_levels(
+    id: usize,
+    asset_key: String,
+    coarser: Coarser<'_>,
+    meshes: &mut Assets<Mesh>,
+    shared: &mut SharedLevels,
+) -> Vec<(f32, Level)> {
+    if coarser.flexes {
+        let raw = if let Some(prebuilt) = shared.prebuilt.as_mut() {
+            let (expected_id, expected_mat, levels) = prebuilt
+                .levels_private
+                .pop_front()
+                .expect("prebuilt private levels entry");
+            debug_assert_eq!((expected_id, expected_mat.as_str()), (id, coarser.material));
+            levels
+        } else {
+            coarser.build_meshes()
+        };
+        return upload_levels(raw, meshes);
+    }
+    let key = levels_key(
+        asset_key,
+        coarser.material.to_owned(),
+        coarser.scale,
+        coarser.has_animation,
+        coarser.morph.is_some(),
+    );
+    if let Some(cached) = shared.built.get(&key) {
+        return cached.clone();
+    }
+    let raw = if let Some(prebuilt) = shared.prebuilt.as_mut() {
+        prebuilt
+            .levels_shared
+            .remove(&key)
+            .expect("prebuilt shared levels entry")
+    } else {
+        coarser.build_meshes()
+    };
+    let built = upload_levels(raw, meshes);
+    shared.built.insert(key, built.clone());
+    built
 }
 
 /// The coarser levels of an entity's draw of `material`, `root` being the draw's mesh and its
@@ -232,10 +475,10 @@ pub(super) fn levels_for_draw(
         .model_instances
         .iter()
         .find(|i| i.entity == Some(id))?;
-    let lods = world.model_lods.get(&instance.asset_key())?;
-    let first = world
-        .model_assets
-        .get(&instance.asset_key())?
+    let asset_key = instance.asset_key();
+    let lods = world.model_lods.get(&asset_key)?;
+    let surfaces = world.model_assets.get(&asset_key)?;
+    let first = surfaces
         .iter()
         .find(|s| s.material == material && !s.vertices.is_empty())?;
     let morph = animation.and_then(|a| a.morph.as_deref());
@@ -249,9 +492,7 @@ pub(super) fn levels_for_draw(
         levels: vec![Level {
             mesh: root.clone(),
             vertices: root_vertices,
-            triangles: world
-                .model_assets
-                .get(&instance.asset_key())?
+            triangles: surfaces
                 .iter()
                 .filter(|s| s.material == material)
                 .map(|s| s.indices.len() / 3)
@@ -265,26 +506,13 @@ pub(super) fn levels_for_draw(
         definition,
         first,
         scale: instance.scale,
-        animation,
+        joint_count: animation.and_then(|a| a.gpu.as_ref().map(|s| s.joints.len())),
+        has_animation: animation.is_some(),
         flexes,
         morph,
         face: face.as_deref(),
     };
-    let built = if flexes {
-        coarser.build(meshes)
-    } else {
-        let key = (
-            instance.asset_key(),
-            material.to_owned(),
-            instance.scale.to_bits(),
-            animation.is_some(),
-            morph.is_some(),
-        );
-        (shared.built.entry(key))
-            .or_insert_with(|| coarser.build(meshes))
-            .clone()
-    };
-    for (switch, level) in built {
+    for (switch, level) in resolve_coarser_levels(id, asset_key, coarser, meshes, shared) {
         levels.switches.push(switch);
         levels.levels.push(level);
     }
@@ -292,24 +520,25 @@ pub(super) fn levels_for_draw(
 }
 
 /// What a draw's coarser levels are built from.
-struct Coarser<'a> {
-    lods: &'a [modkit_core::ModelLod],
-    material: &'a str,
-    definition: &'a MaterialData,
+pub(super) struct Coarser<'a> {
+    pub(super) lods: &'a [modkit_core::ModelLod],
+    pub(super) material: &'a str,
+    pub(super) definition: &'a MaterialData,
     /// A surface of the material, shown collapsed at a level without its triangles.
-    first: &'a Surface,
-    scale: f32,
-    animation: Option<&'a AnimatedMesh>,
-    flexes: bool,
-    morph: Option<&'a super::face_flex::MorphChannels>,
-    face: Option<&'a source_assets::flexes::FaceModel>,
+    pub(super) first: &'a Surface,
+    pub(super) scale: f32,
+    pub(super) joint_count: Option<usize>,
+    pub(super) has_animation: bool,
+    pub(super) flexes: bool,
+    pub(super) morph: Option<&'a super::face_flex::MorphChannels>,
+    pub(super) face: Option<&'a source_assets::flexes::FaceModel>,
 }
 
 impl Coarser<'_> {
     /// Each coarser level's switch point and level, finest first.
-    fn build(&self, meshes: &mut Assets<Mesh>) -> Vec<(f32, Level)> {
+    pub(super) fn build_meshes(&self) -> Vec<(f32, BuiltLevel)> {
         let scale = Mat4::from_scale(Vec3::splat(self.scale));
-        let level = |lod: &modkit_core::ModelLod, meshes: &mut Assets<Mesh>| {
+        let level = |lod: &modkit_core::ModelLod| {
             let mut batch = Batch::default();
             for surface in lod.surfaces.iter().filter(|s| s.material == self.material) {
                 batch.append(surface, scale, Some(self.definition));
@@ -322,9 +551,9 @@ impl Coarser<'_> {
             let flex = std::mem::take(&mut batch.flex);
             let normals = batch.normals.clone();
             let mut mesh = batch.mesh();
-            if let Some(animation) = self.animation {
-                if let Some(skeleton) = &animation.gpu {
-                    skeleton.attributes(&mut mesh, &skin);
+            if self.has_animation {
+                if let Some(joint_count) = self.joint_count {
+                    apply_skin_attributes(&mut mesh, &skin, joint_count);
                 }
                 if let Some(channels) = self.morph {
                     super::face_flex::apply_morph_channels(
@@ -333,8 +562,8 @@ impl Coarser<'_> {
                 }
                 mesh.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
             }
-            Level {
-                mesh: meshes.add(mesh),
+            BuiltLevel {
+                mesh,
                 triangles,
                 vertices: (self.flexes && self.morph.is_none()).then(|| {
                     Arc::new(Vertices {
@@ -346,7 +575,7 @@ impl Coarser<'_> {
             }
         };
         (self.lods.iter())
-            .map(|lod| (lod.switch_point, level(lod, meshes)))
+            .map(|lod| (lod.switch_point, level(lod)))
             .collect()
     }
 }

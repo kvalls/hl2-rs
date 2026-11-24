@@ -181,6 +181,69 @@ struct CaptureControl {
 }
 use coords::{bevy_to_source, source_direction, source_to_bevy};
 
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct TextureCaps {
+    pub bc: bool,
+}
+
+struct TextureCapsPlugin;
+impl Plugin for TextureCapsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<TextureCaps>();
+    }
+    fn finish(&self, app: &mut App) {
+        let bc = app
+            .get_sub_app(bevy::render::RenderApp)
+            .and_then(|r| {
+                r.world()
+                    .get_resource::<bevy::render::renderer::RenderDevice>()
+            })
+            .is_some_and(|d| {
+                d.features()
+                    .contains(bevy::render::render_resource::WgpuFeatures::TEXTURE_COMPRESSION_BC)
+            });
+        app.insert_resource(TextureCaps { bc });
+    }
+}
+
+const PRELOADED_SHADER_PATHS: [&str; 6] = [
+    "shaders/source_uniforms.wgsl",
+    "shaders/source.wgsl",
+    "shaders/source_depth.wgsl",
+    "shaders/effects.wgsl",
+    "shaders/effects_depth.wgsl",
+    "shaders/shadow.wgsl",
+];
+
+#[derive(Resource)]
+pub struct PreloadedShaders(pub Vec<Handle<bevy::shader::Shader>>);
+
+fn preload_material_shaders(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let handles = PRELOADED_SHADER_PATHS
+        .into_iter()
+        .map(|path| asset_server.load::<bevy::shader::Shader>(path))
+        .collect();
+    commands.insert_resource(PreloadedShaders(handles));
+}
+
+fn add_runtime_plugins(app: &mut App) {
+    app.add_audio_source::<audio::mixer::MixerStream>()
+        .add_systems(Startup, (eyes::install_rows, preload_material_shaders))
+        .add_plugins((
+            MaterialPlugin::<rendering::SourceMaterial>::default(),
+            bevy::sprite_render::Material2dPlugin::<video::PresentMaterial>::default(),
+            MaterialPlugin::<effects::EffectMaterial>::default(),
+            bloom::SourceBloomPlugin,
+            ShadowPlugin,
+            FlashlightPlugin,
+            intro_view::IntroViewPlugin,
+            rendering::LightmapWritesPlugin,
+            canvas_renderer::hud_pass::HudPassPlugin,
+            ui_system::UiPlugin,
+            simulation::MovementPlugin,
+        ));
+}
+
 pub fn run(application: extensions::Application) -> Result<()> {
     if setup::run_helper()? {
         return Ok(());
@@ -188,8 +251,8 @@ pub fn run(application: extensions::Application) -> Result<()> {
     let mut config = hl2_ui::config::Config::load_or_default();
     application.ui.prepare_config(&mut config);
     let options = Options::parse(config)?;
-    let target = startup::target_map(&options)?;
-    let loaded = startup::load_stub(&options.game, &target.game)?;
+    let (target, mounted_vfs) = startup::target_map(&options)?;
+    let loaded = startup::load_stub(&options.game, &target.game, mounted_vfs)?;
     let summary = launch::MapSummary::of(&loaded);
     let (spawn, spawn_yaw) = loaded.world.spawn();
     let movement_commands = options
@@ -232,31 +295,22 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .init_resource::<campaign::Campaign>()
         .init_resource::<CaptureControl>()
         .init_resource::<studio_decals::StudioDecals>()
-        .insert_resource(console_host::InstalledMaps(
-            source_assets::install::installed_maps(&options.game),
-        ))
+        .init_resource::<console_host::InstalledMaps>()
+        .insert_resource(console_host::spawn_installed_maps(options.game.clone()))
         .init_resource::<console_host::MapEntityNames>()
         .init_resource::<crate::video::VideoViewport>()
         .insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(default_plugins)
-        // Every game sound plays through one mixer stream (DESIGN I).
-        .add_audio_source::<audio::mixer::MixerStream>()
-        .add_systems(Startup, eyes::install_rows)
-        .add_plugins(MaterialPlugin::<rendering::SourceMaterial>::default())
-        .add_plugins(bevy::sprite_render::Material2dPlugin::<
-            video::PresentMaterial,
-        >::default())
-        .add_plugins(MaterialPlugin::<effects::EffectMaterial>::default())
-        .add_plugins((bloom::SourceBloomPlugin, ShadowPlugin, FlashlightPlugin))
-        .add_plugins(intro_view::IntroViewPlugin)
-        .add_plugins(rendering::LightmapWritesPlugin)
-        .add_plugins(canvas_renderer::hud_pass::HudPassPlugin)
-        .add_plugins(ui_system::UiPlugin)
-        .add_plugins(simulation::MovementPlugin);
+        .add_plugins((default_plugins, TextureCapsPlugin));
+    // Every game sound plays through one mixer stream (DESIGN I).
+    add_runtime_plugins(&mut app);
     launch::apply_timescale(&mut app, options.timescale);
     launch::limit_frame_rate(&mut app, options.max_fps);
     launch::add_video_systems(&mut app);
     launch::add_presentation_systems(&mut app);
+    app.add_systems(
+        Update,
+        console_host::poll_installed_maps.before(console_host::sync_sources),
+    );
     console_log::install(&mut app, options.usercon);
     app.add_systems(Last, launch::exit_process.after(monitor::monitor));
     if options.profile {
@@ -298,7 +352,7 @@ fn setup(
         .position
         .unwrap_or_else(|| Vec3::from_array(spawn.to_array()));
     let yaw = options.yaw.unwrap_or(yaw);
-    let mut ui = hl2_ui::console::Console::load(&loaded.vfs, loaded.hud.canvas.clone());
+    let mut ui = hl2_ui::console::Console::load(&loaded.vfs, loaded.canvas.clone());
     contributions.0.install(&mut ui);
     install_loaded_map(
         loaded,
@@ -647,5 +701,12 @@ mod tests {
             assert!(!console.is_loading());
             assert_eq!(console.mode(), hl2_ui::console::Mode::Gameplay);
         }
+    }
+
+    #[test]
+    fn preloaded_shader_paths_cover_material_pipelines() {
+        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source.wgsl"));
+        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source_depth.wgsl"));
+        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source_uniforms.wgsl"));
     }
 }

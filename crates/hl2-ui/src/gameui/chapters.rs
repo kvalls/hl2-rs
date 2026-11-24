@@ -70,8 +70,8 @@ pub fn map_links(root: &Path, game: &str) -> BTreeMap<String, BTreeSet<String>> 
             let path = entry.path();
             let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
             let map = name.strip_suffix(".bsp")?.to_owned();
-            let entities = source_assets::bsp::read_entities(&path).ok()?;
-            Some((map, changelevel_targets(&entities)))
+            let targets = source_assets::bsp::read_changelevel_targets(&path).ok()?;
+            Some((map, targets))
         })
         .collect()
 }

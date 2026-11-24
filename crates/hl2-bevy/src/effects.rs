@@ -34,6 +34,16 @@ pub struct PreparedEffects {
 }
 
 impl PreparedEffects {
+    pub fn empty() -> Self {
+        let mut sprites = ProjectileVisuals::new(&Vfs::default());
+        sprites.errors.clear();
+        Self {
+            sprites,
+            models: BTreeMap::new(),
+            model_errors: Vec::new(),
+        }
+    }
+
     #[allow(dead_code)]
     pub fn load(vfs: &Vfs, world: &modkit_core::World) -> Self {
         Self::load_with_lod(vfs, world, 0)
@@ -328,7 +338,14 @@ pub fn install(
             .or_insert_with(|| {
                 definition.base.as_ref().map_or_else(
                     || white.clone(),
-                    |i| images.add(rendering::image(i.width, i.height, i.rgba.clone(), true)),
+                    |i| {
+                        images.add(rendering::gpu_image_filtered(
+                            i.as_ref().clone(),
+                            true,
+                            false,
+                            TRILINEAR,
+                        ))
+                    },
                 )
             })
             .clone();

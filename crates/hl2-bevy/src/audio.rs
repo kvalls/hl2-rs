@@ -14,8 +14,11 @@ mod channels;
 mod cues;
 pub(crate) mod mixer;
 mod wav;
+#[cfg(test)]
+use wav::backend_wav;
 use wav::{
-    BACKEND_RATE, backend_wav, distance_variant_key, distance_variant_mixes, resample, wav_bytes,
+    BACKEND_RATE, backend_wav_from_pcm, distance_variant_key, distance_variant_mixes_from_pcm,
+    resample, wav_bytes,
 };
 mod vox;
 use vox::Vox;

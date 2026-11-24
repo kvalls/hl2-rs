@@ -26,7 +26,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(super) type Place<'a> = &'a dyn Fn(&Vertex) -> glam::Vec3;
 
 pub(super) struct Textures {
-    picture: Option<Arc<vtf::Image>>,
+    picture: Option<Arc<vtf::GpuImage>>,
     /// The blob shadows' material, made with the first shadow.
     pub blob: Option<Handle<ShadowMaterial>>,
     pub page: Allocator,
@@ -37,7 +37,7 @@ pub(super) struct Textures {
     pub atlas_material: Option<Handle<ShadowMaterial>>,
     /// Base texture and opacity of the translucent and alpha-tested materials: their silhouettes
     /// take the texture's alpha; every other material covers fully.
-    alphas: BTreeMap<String, (Arc<vtf::Image>, f32)>,
+    alphas: BTreeMap<String, (Arc<vtf::GpuImage>, f32)>,
     cell: Vec<f32>,
     /// A surface's vertices in cell texels, while its silhouette is drawn.
     points: Vec<glam::Vec2>,
@@ -103,11 +103,11 @@ impl Textures {
         if self.blob.is_none()
             && let Some(picture) = &self.picture
         {
-            let texture = images.add(crate::rendering::image(
-                picture.width,
-                picture.height,
-                picture.rgba.clone(),
+            let texture = images.add(crate::rendering::gpu_image_filtered(
+                picture.as_ref().clone(),
                 false,
+                false,
+                hl2_ui::config::Filtering::Trilinear,
             ));
             let size = Vec2::new(f32::from(picture.width), f32::from(picture.height));
             self.blob = Some(materials.add(self.material(texture, size, Vec4::W)));
@@ -175,10 +175,21 @@ impl Textures {
         }
         silhouette::clear(&mut self.cell, n);
         for surface in surfaces {
-            let alpha = self
+            let decoded = self
                 .alphas
                 .get(&surface.material)
-                .map(|(picture, opacity)| move |uv: glam::Vec2| texel_alpha(picture, uv) * opacity);
+                .map(|(picture, opacity)| {
+                    let rgba = match picture.pixel_format {
+                        vtf::GpuFormat::Rgba8 => {
+                            std::borrow::Cow::Borrowed(picture.data.as_slice())
+                        }
+                        _ => std::borrow::Cow::Owned(picture.to_rgba8()),
+                    };
+                    (picture.width, picture.height, rgba, *opacity)
+                });
+            let alpha = decoded.as_ref().map(|(w, h, rgba, opacity)| {
+                move |uv: glam::Vec2| sample_rgba_alpha(*w, *h, rgba, uv) * *opacity
+            });
             // Each vertex is placed (skinned) and projected once, not once per triangle corner.
             self.points.clear();
             let project = |v: &Vertex| silhouette::project(frame, n, place(v));
@@ -210,16 +221,20 @@ impl Textures {
     }
 }
 
-/// A texture's alpha at a repeating texture coordinate (nearest texel).
-pub(super) fn texel_alpha(picture: &vtf::Image, uv: glam::Vec2) -> f32 {
-    let (w, h) = (
-        u32::from(picture.width).max(1),
-        u32::from(picture.height).max(1),
-    );
+fn sample_rgba_alpha(width: u16, height: u16, rgba: &[u8], uv: glam::Vec2) -> f32 {
+    let (w, h) = (u32::from(width).max(1), u32::from(height).max(1));
     let x = (uv.x.rem_euclid(1.) * w as f32) as u32 % w;
     let y = (uv.y.rem_euclid(1.) * h as f32) as u32 % h;
-    picture
-        .rgba
-        .get(((y * w + x) * 4 + 3) as usize)
+    rgba.get(((y * w + x) * 4 + 3) as usize)
         .map_or(1., |a| f32::from(*a) / 255.)
+}
+
+/// A texture's alpha at a repeating texture coordinate (nearest texel).
+#[cfg(test)]
+pub(super) fn texel_alpha(picture: &vtf::GpuImage, uv: glam::Vec2) -> f32 {
+    let rgba = match picture.pixel_format {
+        vtf::GpuFormat::Rgba8 => std::borrow::Cow::Borrowed(picture.data.as_slice()),
+        _ => std::borrow::Cow::Owned(picture.to_rgba8()),
+    };
+    sample_rgba_alpha(picture.width, picture.height, &rgba, uv)
 }

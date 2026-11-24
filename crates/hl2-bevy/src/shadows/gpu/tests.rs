@@ -176,7 +176,7 @@ fn compare(device: Res<RenderDevice>, queue: Res<RenderQueue>, done: Res<Done>) 
         Vec3::NEG_Z,
         80.,
     );
-    let picture = Arc::new(vtf::Image {
+    let picture = Arc::new(vtf::GpuImage::from(vtf::Image {
         width: 2,
         height: 2,
         rgba: [0u8, 64, 100, 255]
@@ -185,7 +185,7 @@ fn compare(device: Res<RenderDevice>, queue: Res<RenderQueue>, done: Res<Done>) 
             .collect(),
         format: 0,
         translucent: true,
-    });
+    }));
     let alphas = BTreeMap::from([("cutout".to_owned(), (picture.clone(), 0.5))]);
     let mut page = vec![0; 64 * 32];
     let mut last = page.clone();
@@ -258,13 +258,13 @@ fn measure_faint_layers(
     atlas: &Texture,
     frame: &Frame,
 ) {
-    let picture = Arc::new(vtf::Image {
+    let picture = Arc::new(vtf::GpuImage::from(vtf::Image {
         width: 1,
         height: 1,
         rgba: vec![255, 255, 255, 1],
         format: 0,
         translucent: true,
-    });
+    }));
     let alphas = BTreeMap::from([("faint".to_owned(), (picture, 0.25))]);
     let mut surface = shape("faint");
     surface.indices = [0, 1, 2].repeat(16);

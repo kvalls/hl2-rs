@@ -150,7 +150,7 @@
  },
  "functions": {
   "crates/hl2-bevy/src/assets.rs::load_material": [
-   195
+   138
   ],
   "crates/hl2-bevy/src/audio.rs::queue": [
    259
@@ -347,9 +347,6 @@
   "crates/source-assets/src/animation.rs::load_sequences": [
    203
   ],
-  "crates/source-assets/src/bsp.rs::model_world": [
-   454
-  ],
   "crates/source-assets/src/flexes.rs::read_flexes": [
    130
   ],
@@ -357,7 +354,7 @@
    143
   ],
   "crates/source-assets/src/models.rs::append_models_lod": [
-   254
+   247
   ],
   "crates/source-assets/src/phy.rs::read_solid": [
    160

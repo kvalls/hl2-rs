@@ -1,5 +1,5 @@
 //! Cache only immutable decoded content, never entity IDs, cue RNG, soundscape playback or sinks.
-use super::{BACKEND_RATE, backend_wav, distance_variant_mixes, resample};
+use super::{BACKEND_RATE, backend_wav_from_pcm, distance_variant_mixes_from_pcm, resample};
 use crate::assets::{reuse::Reuse, work::Cancellation};
 use anyhow::{Context, Result};
 use source_assets::vpk::Vfs;
@@ -47,15 +47,19 @@ impl AudioReuse {
             _ => None,
         };
         let identity: Arc<[u8]> = encoded.clone().into();
-        let (data, summary) = hl2_simulation::sounds::decode(path, encoded)?;
+        let (channels, rate, samples, summary) = hl2_simulation::sounds::decode_pcm(path, encoded)?;
         let mixes = if distance {
-            distance_variant_mixes(&data)?
+            distance_variant_mixes_from_pcm(channels, rate, &samples)?
         } else {
             None
         };
+        let raw_pcm_wav = (summary.codec == "wav").then_some(identity.as_ref());
         let waves = match mixes {
             Some(waves) => waves,
-            None => vec![(path.to_owned(), backend_wav(data, looped)?)],
+            None => vec![(
+                path.to_owned(),
+                backend_wav_from_pcm(channels, rate, &samples, raw_pcm_wav, looped)?,
+            )],
         };
         let size = waves.iter().map(|(_, bytes)| bytes.len()).sum();
         let value = Arc::new(Decoded {
@@ -79,14 +83,17 @@ impl AudioReuse {
             return Ok(value.samples.clone());
         }
         let identity: Arc<[u8]> = encoded.clone().into();
-        let (data, _) = hl2_simulation::sounds::decode(path, encoded)?;
-        let (channels, rate, samples) = hl2_simulation::sounds::wav_samples(&data)?;
-        let channels = usize::from(channels.max(1));
-        let mono: Vec<f32> = samples
-            .chunks(channels)
-            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-            .collect();
-        let samples: Arc<[f32]> = resample(&mono, 1, rate, BACKEND_RATE).into();
+        let (channels, rate, samples, _) = hl2_simulation::sounds::decode_pcm(path, encoded)?;
+        let samples: Arc<[f32]> = if channels <= 1 {
+            resample(&samples, 1, rate, BACKEND_RATE).into()
+        } else {
+            let channels = usize::from(channels);
+            let mono: Vec<f32> = samples
+                .chunks(channels)
+                .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+                .collect();
+            resample(&mono, 1, rate, BACKEND_RATE).into()
+        };
         cancel.check()?;
         self.mono.insert(
             path,
@@ -153,6 +160,68 @@ mod tests {
                 .wave(&base_vfs, "shared.wav", false, false, &cancel)
                 .is_err()
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ms_adpcm_at_backend_rate_does_not_bypass_pcm_conversion() {
+        let root = std::env::temp_dir().join(format!(
+            "hl2-audio-adpcm-reuse-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("hl2/sound")).unwrap();
+        let coeffs: [(i16, i16); 7] = [
+            (256, 0),
+            (512, -256),
+            (0, 0),
+            (192, 64),
+            (240, 0),
+            (460, -208),
+            (392, -232),
+        ];
+        let block = [0u8, 16, 0, 232, 3, 132, 3, 0x12, 0xf8, 0x00];
+        let block_size = block.len() as u16;
+        let per_block = (block_size - 7) * 2 + 2;
+        let mut fmt = Vec::new();
+        fmt.extend(2u16.to_le_bytes());
+        fmt.extend(1u16.to_le_bytes());
+        fmt.extend(48000u32.to_le_bytes());
+        fmt.extend((48000u32 * u32::from(block_size) / u32::from(per_block)).to_le_bytes());
+        fmt.extend(block_size.to_le_bytes());
+        fmt.extend(4u16.to_le_bytes());
+        fmt.extend(32u16.to_le_bytes());
+        fmt.extend(per_block.to_le_bytes());
+        fmt.extend(7u16.to_le_bytes());
+        for (a, b) in coeffs {
+            fmt.extend(a.to_le_bytes());
+            fmt.extend(b.to_le_bytes());
+        }
+        let mut adpcm = b"RIFF\0\0\0\0WAVE".to_vec();
+        for (id, chunk) in [
+            (b"fmt ", fmt),
+            (b"fact", 6u32.to_le_bytes().to_vec()),
+            (b"data", block.to_vec()),
+        ] {
+            adpcm.extend(id);
+            adpcm.extend((chunk.len() as u32).to_le_bytes());
+            adpcm.extend(&chunk);
+        }
+        let riff_len = adpcm.len() as u32 - 8;
+        adpcm[4..8].copy_from_slice(&riff_len.to_le_bytes());
+        fs::write(root.join("hl2/sound/adpcm48k.wav"), &adpcm).unwrap();
+        let vfs = Vfs::mount_game(&root, "hl2").unwrap();
+        let decoded = AudioReuse::default()
+            .wave(&vfs, "adpcm48k.wav", false, false, &Cancellation::default())
+            .unwrap();
+        assert_eq!(decoded.summary.codec, "ms-adpcm");
+        assert_ne!(decoded.waves[0].1.as_ref(), adpcm.as_slice());
+        let (channels, rate, samples) =
+            hl2_simulation::sounds::wav_samples(&decoded.waves[0].1).unwrap();
+        assert_eq!((channels, rate, samples.len()), (1, 48000, 6));
         fs::remove_dir_all(root).unwrap();
     }
 }

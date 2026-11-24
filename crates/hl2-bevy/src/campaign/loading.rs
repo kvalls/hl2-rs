@@ -11,7 +11,7 @@ pub(super) fn install_view(
     sim: &mut crate::simulation::Simulation,
     eye: glam::Vec3,
 ) {
-    sim.change_map(&loaded.world, eye, request.direct);
+    sim.change_map_with_physics(&loaded.world, loaded.physics.take(), eye, request.direct);
     sim.background_level = request.background;
     sim.background_audio_pending = loaded.pending_audio.is_some();
     if request.direct {
@@ -36,9 +36,10 @@ pub(super) fn activate_request(
     campaign: &mut super::Campaign,
     ui: &mut ui_host::Console,
     sim: &mut crate::simulation::Simulation,
-    (audio, pending): (
+    (audio, pending, allow_bc_textures): (
         Option<&crate::audio::Audio>,
         Option<&crate::audio::deferred::PendingAudio>,
+        bool,
     ),
 ) -> bool {
     if reuse_background(
@@ -53,7 +54,13 @@ pub(super) fn activate_request(
     if let Some(pending) = pending {
         pending.cancel();
     }
-    match begin(request, options, ui, sim, campaign.audio_reuse.clone()) {
+    match begin(
+        request,
+        options,
+        ui,
+        sim,
+        (campaign.audio_reuse.clone(), allow_bc_textures),
+    ) {
         Ok(job) => {
             campaign.job = Some(job);
             true
@@ -73,11 +80,11 @@ pub(super) fn begin(
     options: &crate::Options,
     ui: &mut ui_host::Console,
     sim: &mut crate::simulation::Simulation,
-    reuse: std::sync::Arc<crate::audio::reuse::AudioReuse>,
+    (reuse, allow_bc_textures): (std::sync::Arc<crate::audio::reuse::AudioReuse>, bool),
 ) -> Result<super::Job, String> {
     sim.background_audio_pending = false;
     let started = std::time::Instant::now();
-    let result = spawn_worker(&request, options, ui, reuse)?;
+    let result = spawn_worker(&request, options, ui, reuse, allow_bc_textures)?;
     sim.notify_loading(ui, &request.map, request.background, None);
     start(&request, ui);
     sim.loading = true;
@@ -93,6 +100,7 @@ pub(super) fn spawn_worker(
     options: &crate::Options,
     ui: &ui_host::Console,
     audio_reuse: std::sync::Arc<crate::audio::reuse::AudioReuse>,
+    allow_bc_textures: bool,
 ) -> Result<super::ResultSlot, String> {
     let map = request.map.clone();
     let map_game = request.game.clone();
@@ -117,6 +125,7 @@ pub(super) fn spawn_worker(
                 background,
                 cancel,
                 audio_reuse,
+                allow_bc_textures,
             },
         )
     })

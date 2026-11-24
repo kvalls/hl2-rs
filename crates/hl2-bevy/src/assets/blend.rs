@@ -3,11 +3,11 @@
 //! vertex alpha; displacements carry that alpha per vertex).
 use super::{Definition, MaterialData, asset_path, cached_texture};
 use anyhow::{Context, Result};
-use source_assets::{vpk::Vfs, vtf::Image};
+use source_assets::{vpk::Vfs, vtf::GpuImage};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// The texture cache and the map's decoded-byte budget.
-pub(super) type Textures<'a> = (&'a mut BTreeMap<String, Arc<Image>>, &'a mut usize);
+pub(super) type Textures<'a> = (&'a mut BTreeMap<String, Arc<GpuImage>>, &'a mut usize);
 
 /// The texture the definition names under `key`, or `None` when it names none.
 pub(super) fn named_texture(
@@ -15,13 +15,13 @@ pub(super) fn named_texture(
     definition: &Definition,
     key: &str,
     (cache, decoded_bytes): Textures,
-    picmip: i32,
-) -> Result<Option<(String, Arc<Image>)>> {
+    quality: (i32, bool),
+) -> Result<Option<(String, Arc<GpuImage>)>> {
     let Some(name) = definition.properties.get(key) else {
         return Ok(None);
     };
     let path = asset_path(name, ".vtf")?;
-    let image = cached_texture(cache, decoded_bytes, &path, picmip, || {
+    let image = cached_texture(cache, decoded_bytes, &path, quality, || {
         vfs.read(&path)?
             .with_context(|| format!("VTF absent: {path}"))
     })?;
@@ -34,9 +34,9 @@ pub(super) fn load_second_base(
     definition: &Definition,
     material: &mut MaterialData,
     textures: Textures,
-    picmip: i32,
+    quality: (i32, bool),
 ) -> Result<()> {
-    material.base2 = named_texture(vfs, definition, "$basetexture2", textures, picmip)?;
+    material.base2 = named_texture(vfs, definition, "$basetexture2", textures, quality)?;
     Ok(())
 }
 

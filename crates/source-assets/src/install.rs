@@ -173,17 +173,23 @@ pub fn installed_maps(root: &Path) -> Vec<String> {
 /// requested on the command line, if any; without one only the shared content is checked.
 pub fn validate_content(path: PathBuf, map: Option<&str>) -> Result<PathBuf> {
     let root = validate(path)?;
-    if let Some(map) = map {
-        validate_map(&root, map)?;
-    }
-    let vfs = crate::vpk::Vfs::mount(&root).context("read game content archives")?;
+    let vfs = if let Some(map) = map {
+        let (game, map_vfs) = validate_map(&root, map)?;
+        if game == BASE_GAME {
+            map_vfs
+        } else {
+            crate::vpk::Vfs::mount(&root).context("read game content archives")?
+        }
+    } else {
+        crate::vpk::Vfs::mount(&root).context("read game content archives")?
+    };
     for file in [
         "scripts/game_sounds_manifest.txt",
         "resource/ClientScheme.res",
         "models/weapons/v_pistol.mdl",
     ] {
         if vfs
-            .read(file)
+            .read_prefix(file, 1)
             .with_context(|| {
                 format!("Cannot read required content {file}; verify the game files in Steam")
             })?
@@ -204,7 +210,7 @@ pub fn maps(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// The requested map exists in some installed game and is a BSP file.
-fn validate_map(root: &Path, map: &str) -> Result<()> {
+fn validate_map(root: &Path, map: &str) -> Result<(String, crate::vpk::Vfs)> {
     if map.is_empty() || !map.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
         bail!("Use a simple map name, for example d1_trainstation_02");
     }
@@ -215,14 +221,14 @@ fn validate_map(root: &Path, map: &str) -> Result<()> {
     })?;
     let vfs = crate::vpk::Vfs::mount_game(root, &game).context("read game content archives")?;
     let map_ok = vfs
-        .read(&format!("maps/{map}.bsp"))
+        .read_prefix(&format!("maps/{map}.bsp"), 4)
         .ok()
         .flatten()
-        .is_some_and(|bytes| bytes.starts_with(b"VBSP"));
+        .is_some_and(|bytes| bytes == b"VBSP");
     if !map_ok {
         bail!("Invalid map {game}/maps/{map}.bsp. Verify the game files in Steam.");
     }
-    Ok(())
+    Ok((game, vfs))
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@ pub(super) struct Cell {
 }
 
 pub(super) struct Draw {
-    pub picture: Option<Arc<vtf::Image>>,
+    pub picture: Option<Arc<vtf::GpuImage>>,
     pub indices: Range<u32>,
 }
 
@@ -38,7 +38,7 @@ impl Batch {
         at: UVec2,
         frame: &Frame,
         (surfaces, place): (&[Surface], Place),
-        alphas: &BTreeMap<String, (Arc<vtf::Image>, f32)>,
+        alphas: &BTreeMap<String, (Arc<vtf::GpuImage>, f32)>,
     ) {
         let first_draw = self.draws.len();
         for surface in surfaces {

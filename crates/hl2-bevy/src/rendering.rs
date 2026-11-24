@@ -1,7 +1,7 @@
 //! Baked-lightmap material, independent of Bevy's PBR lighting model.
 use crate::{
     Status,
-    assets::{LoadedMap, MaterialData, visible_entity},
+    assets::{LoadedMap, MaterialData},
     source_to_bevy,
 };
 use bevy::{
@@ -9,11 +9,11 @@ use bevy::{
     mesh::Indices,
     prelude::*,
     reflect::TypePath,
-    render::render_resource::{AsBindGroup, PrimitiveTopology, TextureFormat},
+    render::render_resource::{AsBindGroup, PrimitiveTopology},
 };
 use hl2_ui::extensions::RenderBudget;
 use modkit_core::Surface;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 pub(crate) mod actor_poses;
 mod animated;
@@ -33,6 +33,7 @@ pub(crate) mod lod;
 mod map_draw;
 mod material;
 pub use material::MaterialKey;
+mod mesh_build;
 mod model_cache;
 mod model_lighting;
 pub use model_lighting::ModelLighting;
@@ -42,8 +43,11 @@ pub(crate) use placement::draw_hidden;
 pub(crate) mod runtime;
 mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
-use material::{alpha_mode, cube_image_filtered, image_filtered, mip_image_filtered, unfilter};
-pub(crate) use material::{black_cube, fallback_images, image, make_material, sampler_descriptor};
+#[cfg(test)]
+use material::alpha_mode;
+pub(crate) use material::{
+    black_cube, fallback_images, gpu_image_filtered, image, make_material, sampler_descriptor,
+};
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
 pub use runtime::{despawn_killed_runtime_draws, spawn_runtime_draws, swap_runtime_bodies};
@@ -165,7 +169,19 @@ impl Batch {
         }
         self.regroup(groups.into_values().collect())
     }
+    fn reserve_for(&mut self, surface: &Surface) {
+        let verts = surface.vertices.len();
+        self.positions.reserve(verts);
+        self.uvs.reserve(verts);
+        self.light_uvs.reserve(verts);
+        self.colors.reserve(verts);
+        self.normals.reserve(verts);
+        self.skin.reserve(verts);
+        self.flex.reserve(verts);
+        self.indices.reserve(surface.indices.len());
+    }
     fn append(&mut self, surface: &Surface, transform: Mat4, material: Option<&MaterialData>) {
+        self.reserve_for(surface);
         let offset = self.positions.len() as u32;
         self.model |= surface.flex_source.is_some();
         let rotation = Mat3::from_mat4(transform);
@@ -297,7 +313,7 @@ impl Owner {
 
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_map_filtered(
-    loaded: &LoadedMap,
+    loaded: &mut LoadedMap,
     commands: &mut Commands,
     (meshes, inverse_binds): (
         &mut Assets<Mesh>,
@@ -319,503 +335,57 @@ pub fn spawn_map_filtered(
         },
     ): hl2_ui::config::TextureSampling,
 ) {
-    let world = &loaded.world;
     let (white, black_cube, flashlight, missing) =
         fallback_images(images, loaded.flashlight_cookie.as_deref(), filtering);
-    let mut texture_handles: BTreeMap<String, Handle<Image>> = BTreeMap::new();
-    let bases: BTreeMap<_, _> = loaded
-        .materials
-        .iter()
-        .map(|(name, material)| {
-            let handle = if material.camera {
-                camera_target.clone()
-            } else {
-                match (&material.base, &material.base_path) {
-                    (Some(base), Some(path)) => material::texture_handle(
-                        &mut texture_handles,
-                        images,
-                        (path, base, true),
-                        filtering,
-                    ),
-                    _ => missing.clone(),
-                }
-            };
-            (name.clone(), handle)
-        })
-        .collect();
-    // WorldVertexTransition's $basetexture2, bound in the second texture slot.
-    let seconds: BTreeMap<_, _> = (loaded.materials.iter())
-        .filter_map(|(name, m)| m.base2.as_ref().map(|(path, image)| (name, path, image)))
-        .map(|(name, path, image)| {
-            let handle = material::texture_handle(
-                &mut texture_handles,
-                images,
-                (path, image, true),
-                filtering,
-            );
-            (name.clone(), handle)
-        })
-        .collect();
-    let irises: BTreeMap<_, _> = loaded
-        .materials
-        .iter()
-        .filter_map(|(name, m)| {
-            let (image, path) = m.iris.as_ref().zip(m.iris_path.as_ref())?;
-            let iris = (path.as_str(), &**image, false);
-            let handle = material::texture_handle(&mut texture_handles, images, iris, filtering);
-            Some((name.clone(), handle))
-        })
-        .collect();
-    let overlays: BTreeMap<_, _> = loaded
-        .materials
-        .iter()
-        .filter_map(|(name, m)| {
-            m.camera_overlay
-                .as_ref()
-                .zip(m.camera_overlay_path.as_ref())
-                .map(|(overlay, path)| {
-                    // UnlitTwoTexture reads $texture2 through an sRGB view (SDK
-                    // EnableSRGBRead), so the camera branch multiplies linear colors.
-                    let handle = texture_handles
-                        .entry(format!("{path}#srgb"))
-                        .or_insert_with(|| {
-                            let mut overlay = image_filtered(
-                                overlay.width,
-                                overlay.height,
-                                overlay.rgba.clone(),
-                                true,
-                                filtering,
-                            );
-                            overlay.texture_descriptor.format = TextureFormat::Rgba8UnormSrgb;
-                            images.add(overlay)
-                        })
-                        .clone();
-                    (name.clone(), handle)
-                })
-        })
-        .collect();
-    let two_textures: BTreeMap<_, _> = loaded
-        .materials
-        .iter()
-        .filter_map(|(name, m)| {
-            let textures = m.two_texture.as_ref()?;
-            let mut upload = |path: &str, frames: &crate::assets::TextureFrames| {
-                frames
-                    .iter()
-                    .enumerate()
-                    .map(|(i, chain)| {
-                        texture_handles
-                            .entry(format!("{path}#frame{i}#mips#srgb"))
-                            .or_insert_with(|| images.add(mip_image_filtered(chain, filtering)))
-                            .clone()
-                    })
-                    .collect::<Vec<_>>()
-            };
-            let base = upload(m.base_path.as_deref()?, &textures.base_frames);
-            let second = upload(&textures.second_path, &textures.second_frames);
-            Some((name.clone(), (base, second)))
-        })
-        .collect();
-    let envmaps: BTreeMap<_, _> = loaded
-        .materials
-        .iter()
-        .filter_map(|(name, m)| {
-            let (cube, path) = m.envmap.as_ref().zip(m.envmap_path.as_ref())?;
-            let handle = texture_handles
-                .entry(format!("{path}#cube"))
-                .or_insert_with(|| images.add(cube_image_filtered(cube, filtering)))
-                .clone();
-            Some((name.clone(), handle))
-        })
-        .collect();
-    // Masks are linear data, sampled with the base UVs (repeat), like base textures.
-    let envmap_masks: BTreeMap<_, _> = loaded
-        .materials
-        .iter()
-        .filter_map(|(name, m)| {
-            let (mask, path) = m.envmap_mask.as_ref().zip(m.envmap_mask_path.as_ref())?;
-            let handle = texture_handles
-                .entry(path.clone())
-                .or_insert_with(|| {
-                    images.add(image_filtered(
-                        mask.width,
-                        mask.height,
-                        mask.rgba.clone(),
-                        true,
-                        filtering,
-                    ))
-                })
-                .clone();
-            Some((name.clone(), handle))
-        })
-        .collect();
-    unfilter(images, texture_handles.values(), nearest);
-    let pages = lightstyles::upload(world, images);
+    let mut uploaded = material::upload_map_textures(
+        loaded,
+        images,
+        camera_target,
+        (filtering, nearest),
+        &missing,
+    );
+    let pages = lightstyles::upload(&loaded.world, images);
     let lightmaps = pages.handles().to_vec();
     commands.insert_resource(pages);
-    let mut batches: BTreeMap<(Owner, String, Option<usize>, usize), Batch> = BTreeMap::new();
-    let skipped = 0usize;
-    let mut transparent_id = 0usize;
-    let mut append = |surface: &Surface, transform: Mat4, owner: Owner| {
-        let owner = if surface.background && owner == Owner::World {
-            Owner::SkyWorld
-        } else {
-            owner
-        };
-        if surface.indices.is_empty() {
-            return;
-        }
-        let definition = loaded.materials.get(&surface.material);
-        let draw_id = if definition
-            .is_some_and(|m| matches!(alpha_mode(m), AlphaMode::Blend | AlphaMode::Add))
-        {
-            transparent_id += 1;
-            transparent_id
-        } else {
-            0
-        };
-        batches
-            .entry((owner, surface.material.clone(), surface.lightmap, draw_id))
-            .or_default()
-            .append(surface, transform, loaded.materials.get(&surface.material));
-    };
-    // BSP::world includes displacements here; terrain is the collision copy.
-    for surface in &world.surfaces {
-        append(surface, Mat4::IDENTITY, Owner::World);
-    }
-    for surface in &world.overlays {
-        append(surface, Mat4::IDENTITY, Owner::World);
-    }
-    for (id, entity) in world.entities.iter().enumerate() {
-        if !visible_entity(world, id) {
-            continue;
-        }
-        let brush = entity
-            .get("model")
-            .and_then(|s| s.strip_prefix('*'))
-            .and_then(|s| s.parse::<usize>().ok())
-            .and_then(|id| world.brush_models.iter().find(|model| model.id == id));
-        if let Some(brush) = brush {
-            for surface in &brush.surfaces {
-                append(surface, Mat4::IDENTITY, Owner::Entity(id));
-            }
-        }
-    }
-    for instance in &world.model_instances {
-        // append_models already baked entity=None static props into surfaces.
-        if instance.entity.is_none_or(|id| !visible_entity(world, id)) {
-            continue;
-        }
-        if let Some(surfaces) = world.model_assets.get(&instance.asset_key()) {
-            let transform = Mat4::from_scale(Vec3::splat(instance.scale));
-            for surface in surfaces {
-                append(surface, transform, Owner::Entity(instance.entity.unwrap()));
-            }
-        }
-    }
-    // NPC weapons: their world models follow their owners (npc_weapon_draws).
-    for (id, key, scale) in npc_weapon_draws::npc_weapon_draws(world, &loaded.gameplay.ai) {
-        if let Some(surfaces) = world.model_assets.get(&key) {
-            let transform = Mat4::from_scale(Vec3::splat(scale));
-            for surface in surfaces {
-                append(surface, transform, Owner::NpcWeapon(id, key.clone()));
-            }
-        }
-    }
-    // Skin-only materials per weapon: (skin 0 set, skin 1 set).
-    let mut weapon_skins: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
-    for (name, weapon) in &loaded.gameplay.weapons {
-        let model = weapon.viewmodel.to_lowercase();
-        if let Some(surfaces) = world.model_assets.get(&format!("{model}#0")) {
-            for surface in surfaces {
-                append(surface, Mat4::IDENTITY, Owner::Weapon(name.clone()));
-            }
-            if let Some(alternate) = world.model_assets.get(&format!("{model}#1")) {
-                for (a, b) in surfaces.iter().zip(alternate) {
-                    if a.material != b.material {
-                        let sets = weapon_skins.entry(name.clone()).or_default();
-                        sets.0.insert(a.material.clone());
-                        sets.1.insert(b.material.clone());
-                        append(b, Mat4::IDENTITY, Owner::Weapon(name.clone()));
-                    }
-                }
-            }
-        }
-    }
-    let mut stats = status.0.lock().expect("status lock");
-    stats.skipped_background_surfaces = skipped;
-    stats.world_partition = world_partition;
-    let batches = batches
-        .into_iter()
-        .flat_map(|(key, batch)| {
-            let partition = world_partition
-                && key.0 == Owner::World
-                && loaded.materials.get(&key.1).is_none_or(|m| {
-                    matches!(alpha_mode(m), AlphaMode::Opaque | AlphaMode::Mask(_))
-                });
-            let chunks = match &key.0 {
-                _ if partition => batch.spatial_chunks(),
-                Owner::Entity(id) if cpu_skinning => {
-                    face_split::split_entity_batch(batch, world, &loaded.flexes, *id)
-                }
-                _ => vec![batch],
-            };
-            if chunks.len() > 1 {
-                stats.partitioned_world_batches += 1;
-            }
-            chunks.into_iter().map(move |batch| (key.clone(), batch))
-        })
-        .collect::<Vec<_>>();
+    let (batches, weapon_skins) =
+        mesh_build::collect_map_batches(loaded, status, cpu_skinning, world_partition);
     commands.insert_resource(cubemaps::upload(
         &loaded.cubemaps,
         images,
-        &mut texture_handles,
+        &mut uploaded.handles,
         filtering,
     ));
-    let reflections = cubemaps::Envmaps {
-        world: &envmaps,
-        masks: &envmap_masks,
-        plain: plain_materials,
+    let prepare_cx = mesh_build::PrepareContext {
+        loaded,
+        uploaded: &uploaded,
+        lightmaps: &lightmaps,
+        white: &white,
+        black_cube: &black_cube,
+        flashlight: &flashlight,
+        missing: &missing,
+        plain_materials,
+        cpu_skinning,
     };
-    let mut material_handles = BTreeMap::new();
+    let (mut prepared, _skeletons) = mesh_build::prepare_draws(
+        batches,
+        &prepare_cx,
+        commands,
+        (materials, slots),
+        inverse_binds,
+        status,
+    );
     let mut shared_levels = lod::SharedLevels::for_map(&loaded.flexes);
-    let mut skeletons = BTreeMap::<Owner, crate::gpu_skinning::Skeleton>::new();
-    for ((owner, name, lm, _), mut batch) in batches {
-        let fallback = MaterialData::default();
-        let definition = loaded.materials.get(&name).unwrap_or(&fallback);
-        // Uniforms and proxy clocks belong to this material/lightmap pair, not its owner.
-        // Eye projection remains per-mesh UV data, so sharing this handle cannot share gaze.
-        // Entity color modulation: rendercolor tints the model; renderamt is its alpha
-        // outside kRenderNormal (e.g. the trainstation's dim additive vol_light shafts).
-        let modulation = owner
-            .entity()
-            .map_or(Vec4::ONE, |id| entity_modulation(world, id));
-        // Non-reflective lit draws share one material handle per (name, lightmap, modulation) and
-        // read per-entity lighting from `MaterialSlots` via `MeshTag`; reflective, viewmodel,
-        // commentary-node, and two-texture draws keep their own material handle.
-        let lit = batch.model
-            && matches!(
-                owner,
-                Owner::Entity(_) | Owner::Weapon(_) | Owner::NpcWeapon(..)
-            )
-            && !definition.unlit
-            && !definition.camera;
-        let reflects = lit && definition.model_envmap && !plain_materials;
-        let commentary = owner.entity().is_some_and(|id| {
-            world
-                .entities
-                .get(id)
-                .is_some_and(|e| e.class() == "point_commentary_node")
-        });
-        let shared_lit_key = owner
-            .entity()
-            .filter(|_| lit && !reflects && !commentary && definition.two_texture.is_none())
-            .map(|id| (Some(id), definition.half_lambert))
-            .filter(|&key| slots.has_slot_for(key));
-        let material = material_handles
-            .entry((
-                name.clone(),
-                lm,
-                lit,
-                modulation.to_array().map(f32::to_bits),
-                ((lit && shared_lit_key.is_none()) || definition.two_texture.is_some())
-                    .then(|| owner.clone()),
-            ))
-            .or_insert_with(|| {
-                let mut material = make_material(
-                    definition,
-                    bases.get(&name).unwrap_or(&missing).clone(),
-                    lm.and_then(|index| lightmaps.get(index))
-                        .unwrap_or(&white)
-                        .clone(),
-                    (irises.get(&name).or_else(|| overlays.get(&name)))
-                        .or_else(|| seconds.get(&name))
-                        .cloned(),
-                    (&white, &black_cube, &flashlight),
-                );
-                material.tint *= modulation;
-                if let Some((base, second)) = two_textures.get(&name) {
-                    material.base = base[0].clone();
-                    material.iris = second[0].clone();
-                    // SDK SetModulationPixelShaderDynamicState_LinearColorSpace: $color times
-                    // the entity's color modulation (rendercolor, e.g. the dim vol_light
-                    // shafts), then GammaToLinear per channel. The shader returns alpha 1.
-                    material.tint = Vec3::from_array(std::array::from_fn(|i| {
-                        crate::monitors::linear_modulation(definition.tint[i] * modulation[i])
-                    }))
-                    .extend(1.);
-                }
-                reflections.bind(&mut material, &name, batch.model, reflects);
-                if lit {
-                    material.lighting = ModelLighting::fallback(definition.half_lambert);
-                }
-                materials.add(material)
-            })
-            .clone();
-        stats.meshes += 1;
-        let triangles = batch.indices.len() / 3;
-        stats.triangles += triangles;
-        let mut animation = if batch.skin.iter().any(|(_, w)| w.is_some()) {
-            match &owner {
-                Owner::Entity(id) => world
-                    .model_instances
-                    .iter()
-                    .find(|i| i.entity == Some(*id))
-                    .map(|instance| {
-                        let model = (instance.asset_key(), instance.scale);
-                        AnimatedMesh::from_batch(&mut batch, (Some(*id), None), model, true)
-                    }),
-                // `weapon` with an entity marks a bone-merged mesh: its joints are the
-                // owner's, posed by the owner's own AnimatedMesh.
-                Owner::NpcWeapon(id, key) => {
-                    let scale = world
-                        .model_instances
-                        .iter()
-                        .find(|i| i.entity == Some(*id))
-                        .map_or(1., |i| i.scale);
-                    let owner = (Some(*id), Some(key.clone()));
-                    Some(AnimatedMesh::from_batch(
-                        &mut batch,
-                        owner,
-                        (key.clone(), scale),
-                        false,
-                    ))
-                }
-                Owner::Weapon(name) => {
-                    let key = loaded.gameplay.weapons[name].viewmodel.to_lowercase();
-                    let owner = (None, Some(name.clone()));
-                    Some(AnimatedMesh::from_batch(
-                        &mut batch,
-                        owner,
-                        (format!("{key}#0"), 1.),
-                        false,
-                    ))
-                }
-                Owner::World | Owner::SkyWorld => None,
-            }
-        } else {
-            None
-        };
-        // Bone merge: the weapon's bones follow the owner's same-named joints.
-        let mut merged = false;
-        if let (Owner::NpcWeapon(id, key), Some(animation)) = (&owner, &mut animation) {
-            merged = true;
-            let npc = skeletons.get(&Owner::Entity(*id)).cloned();
-            let npc_rig = world
-                .model_instances
-                .iter()
-                .find(|i| i.entity == Some(*id))
-                .and_then(|i| world.rigs.get(&i.asset_key()));
-            match (cpu_skinning, npc, npc_rig, world.rigs.get(key)) {
-                (false, Some(npc), Some(npc_rig), Some(rig)) => {
-                    animation.gpu = Some(crate::gpu_skinning::Skeleton::merged(
-                        inverse_binds,
-                        rig,
-                        npc_rig,
-                        &npc,
-                        animation.scale,
-                    ));
-                }
-                // CPU skinning or a missing skeleton: not drawn.
-                _ => continue,
-            }
-        }
-        if !cpu_skinning
-            && !merged
-            && let Some(animation) = &mut animation
-            && let Some(rig) = world
-                .rigs
-                .get(&animation.key)
-                .filter(|rig| !rig.bones.is_empty() && rig.bones.len() < 256)
-        {
-            let skeleton = skeletons.entry(owner.clone()).or_insert_with(|| {
-                let mut root = commands.spawn((
-                    crate::campaign::MapOwned,
-                    Transform::IDENTITY,
-                    Visibility::Inherited,
-                ));
-                match &owner {
-                    Owner::Entity(id) => {
-                        root.insert(SourceEntity(*id));
-                    }
-                    Owner::Weapon(name) => {
-                        root.insert(WeaponMesh(name.clone()));
-                    }
-                    _ => unreachable!("only owned model meshes animate"),
-                }
-                let root = root.id();
-                crate::gpu_skinning::Skeleton::spawn(
-                    commands,
-                    inverse_binds,
-                    rig,
-                    animation.scale,
-                    root,
-                )
-            });
-            animation.gpu = Some(skeleton.clone());
-        }
-        let handle = shared_levels.mesh_for_draw(
-            batch,
-            &name,
-            animation.as_mut(),
-            meshes,
-            irises.contains_key(&name),
-        );
-        let state = owner
-            .entity()
-            .and_then(|id| loaded.gameplay.scene.states.get(id));
-        let transform = state.map_or(Transform::IDENTITY, |s| {
-            entity_transform(s.origin, s.rotation)
-        });
-        let mut draw = commands.spawn((
-            crate::campaign::MapOwned,
-            Name::new(name.clone()),
-            Mesh3d(handle.clone()),
-            MeshMaterial3d(material),
-            transform,
-        ));
-        let cx = MapDrawContext {
-            owner: &owner,
-            name: &name,
-            triangles,
-            definition,
-            world,
-            loaded,
-            two_textures: &two_textures,
-            weapon_skins: &weapon_skins,
-        };
-        let lit_draw = lit.then(|| map_draw::lit_target(&cx));
-        let lods = (&mut *meshes, &mut shared_levels);
-        insert_map_draw_components(&mut draw, &cx, &handle, animation.as_ref(), lods);
-        if let Some((entity, key, scale)) = lit_draw {
-            if let Some(slot_key) = shared_lit_key
-                && let Some(tag) = slots.assign_draw_tag(draw.id(), slot_key)
-            {
-                draw.insert(bevy::mesh::MeshTag(tag));
-            }
-            draw.insert(
-                ModelLit::new(entity, key, scale, definition.half_lambert).reflecting(reflects),
-            );
-        }
-        if let Some(animation) = animation {
-            if let Some(skeleton) = &animation.gpu {
-                stats.gpu_skinned_meshes += 1;
-                draw.insert((
-                    skeleton.component(),
-                    bevy::camera::visibility::DynamicSkinnedMeshBounds,
-                ));
-            }
-            if animation.gpu.is_none() {
-                stats.cpu_skinned_meshes += 1;
-            }
-            animation.insert_into(&mut draw);
-        }
-    }
-    stats.skin_joints = skeletons.values().map(|s| s.joints.len()).sum();
-    stats.materials = material_handles.len();
-    drop(stats);
+    mesh_build::build_map_meshes(&mut prepared, loaded, &mut shared_levels);
+    spawn_prepared_draws(
+        prepared,
+        loaded,
+        commands,
+        (meshes, slots),
+        &mut shared_levels,
+        (&uploaded.two_textures, &weapon_skins, status),
+    );
     commands.insert_resource(ModelCache {
-        textures: texture_handles,
+        textures: uploaded.handles,
         definitions: loaded
             .materials
             .iter()
@@ -832,6 +402,81 @@ pub fn spawn_map_filtered(
         plain: plain_materials,
         faces: loaded.flexes.clone(),
     });
+}
+
+fn spawn_prepared_draws(
+    prepared: Vec<mesh_build::PreparedDraw>,
+    loaded: &LoadedMap,
+    commands: &mut Commands,
+    (meshes, slots): (&mut Assets<Mesh>, &mut crate::material_slots::MaterialSlots),
+    shared_levels: &mut lod::SharedLevels,
+    (two_textures, weapon_skins, status): (
+        &map_draw::TwoTextures,
+        &mesh_build::WeaponSkins,
+        &Status,
+    ),
+) {
+    let world = &loaded.world;
+    let fallback = MaterialData::default();
+    let (mut gpu_skinned, mut cpu_skinned) = (0usize, 0usize);
+    for mut item in prepared {
+        let handle =
+            shared_levels.take_prebuilt_root(item.root_key.take(), item.animation.as_mut(), meshes);
+        let definition = loaded.materials.get(&item.name).unwrap_or(&fallback);
+        let state = item
+            .owner
+            .entity()
+            .and_then(|id| loaded.gameplay.scene.states.get(id));
+        let transform = state.map_or(Transform::IDENTITY, |s| {
+            entity_transform(s.origin, s.rotation)
+        });
+        let mut draw = commands.spawn((
+            crate::campaign::MapOwned,
+            Name::new(item.name.clone()),
+            Mesh3d(handle.clone()),
+            MeshMaterial3d(item.material),
+            transform,
+        ));
+        let cx = MapDrawContext {
+            owner: &item.owner,
+            name: &item.name,
+            triangles: item.triangles,
+            definition,
+            world,
+            loaded,
+            two_textures,
+            weapon_skins,
+        };
+        let lit_draw = item.lit.then(|| map_draw::lit_target(&cx));
+        let lods = (&mut *meshes, &mut *shared_levels);
+        insert_map_draw_components(&mut draw, &cx, &handle, item.animation.as_ref(), lods);
+        if let Some((entity, key, scale)) = lit_draw {
+            if let Some(slot_key) = item.shared_lit_key
+                && let Some(tag) = slots.assign_draw_tag(draw.id(), slot_key)
+            {
+                draw.insert(bevy::mesh::MeshTag(tag));
+            }
+            draw.insert(
+                ModelLit::new(entity, key, scale, definition.half_lambert)
+                    .reflecting(item.reflects),
+            );
+        }
+        if let Some(animation) = item.animation {
+            if let Some(skeleton) = &animation.gpu {
+                gpu_skinned += 1;
+                draw.insert((
+                    skeleton.component(),
+                    bevy::camera::visibility::DynamicSkinnedMeshBounds,
+                ));
+            } else {
+                cpu_skinned += 1;
+            }
+            animation.insert_into(&mut draw);
+        }
+    }
+    let mut stats = status.0.lock().expect("status lock");
+    stats.gpu_skinned_meshes += gpu_skinned;
+    stats.cpu_skinned_meshes += cpu_skinned;
 }
 
 /// One runtime entity's studio-model draws (DESIGN 14r part B: models loaded after the
@@ -973,7 +618,7 @@ pub(crate) fn mesh_from_surface(surface: &Surface, definition: &MaterialData) ->
 mod tests {
     use super::*;
     use bevy::camera::primitives::{Aabb, MeshAabb};
-    use bevy::render::render_resource::{Extent3d, TextureDimension};
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
     use std::sync::Arc;
     fn partition_fixture() -> Batch {
         let positions = vec![

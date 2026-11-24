@@ -75,13 +75,13 @@ pub(super) fn load(
         out.vox = Vox::load(vfs, reuse, cancel)?;
         return Ok(out);
     }
-    // At most two wave decoders plus one VOX decoder, irrespective of map size.
-    let workers = if cores >= 6 { 2 } else { 1 };
+    // Scale wave decoders with available cores, leaving headroom for VOX and the host.
+    let workers = cores.saturating_sub(2).clamp(2, 6);
     std::thread::scope(|scope| {
         let vox = scope.spawn(|| Vox::load(vfs, reuse, cancel));
         let mut receivers = Vec::with_capacity(workers);
         for id in 0..workers {
-            let (sender, receiver) = mpsc::sync_channel(1);
+            let (sender, receiver) = mpsc::sync_channel(4);
             receivers.push(receiver);
             scope.spawn(move || {
                 for (path, looped, distance) in specs.iter().skip(id).step_by(workers) {

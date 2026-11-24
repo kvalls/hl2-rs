@@ -26,7 +26,7 @@ pub(super) struct Raster {
     indices: Option<Buffer>,
     zeros: Buffer,
     // Keep the source owner alive for as long as its pointer is a cache key.
-    groups: HashMap<usize, (Option<Arc<vtf::Image>>, BindGroup)>,
+    groups: HashMap<usize, (Option<Arc<vtf::GpuImage>>, BindGroup)>,
 }
 
 impl Raster {
@@ -212,7 +212,7 @@ impl Raster {
     }
 }
 
-fn key(image: Option<&Arc<vtf::Image>>) -> usize {
+fn key(image: Option<&Arc<vtf::GpuImage>>) -> usize {
     image.map_or(0, |p| Arc::as_ptr(p) as usize)
 }
 
@@ -241,11 +241,20 @@ fn alpha_group(
     device: &RenderDevice,
     queue: &RenderQueue,
     layout: &BindGroupLayout,
-    image: Option<&vtf::Image>,
+    image: Option<&vtf::GpuImage>,
 ) -> BindGroup {
-    let (w, h, rgba) = image.map_or((1, 1, &[255u8; 4][..]), |i| {
-        (u32::from(i.width), u32::from(i.height), i.rgba.as_slice())
-    });
+    let (w, h, format, bytes_per_row, data) =
+        image.map_or((1, 1, TextureFormat::Rgba8Unorm, 4, &[255u8; 4][..]), |i| {
+            let w = u32::from(i.width);
+            let h = u32::from(i.height);
+            let (format, bytes_per_row) = match i.pixel_format {
+                vtf::GpuFormat::Rgba8 => (TextureFormat::Rgba8Unorm, 4 * w),
+                vtf::GpuFormat::Bc1 => (TextureFormat::Bc1RgbaUnorm, 8 * w.div_ceil(4)),
+                vtf::GpuFormat::Bc2 => (TextureFormat::Bc2RgbaUnorm, 16 * w.div_ceil(4)),
+                vtf::GpuFormat::Bc3 => (TextureFormat::Bc3RgbaUnorm, 16 * w.div_ceil(4)),
+            };
+            (w, h, format, bytes_per_row, i.data.as_slice())
+        });
     let size = Extent3d {
         width: w,
         height: h,
@@ -257,16 +266,16 @@ fn alpha_group(
         mip_level_count: 1,
         sample_count: 1,
         dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba8Unorm,
+        format,
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         view_formats: &[],
     });
     queue.write_texture(
         texture.as_image_copy(),
-        rgba,
+        data,
         TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(4 * w),
+            bytes_per_row: Some(bytes_per_row),
             rows_per_image: None,
         },
         size,

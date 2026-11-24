@@ -26,10 +26,13 @@ fn view_lods(switch_points: &[f32]) -> usize {
 }
 
 /// A model's levels of detail from the root LOD down: the root's surfaces and each coarser
-/// level with its switch point.
+/// level with its switch point, plus MDL header metadata extracted during the same read.
 pub struct ModelLevels {
     pub root: Vec<Surface>,
     pub lower: Vec<ModelLod>,
+    pub(super) mass: Option<f32>,
+    pub(super) keyvalues: Option<String>,
+    pub(super) illumination: modkit_core::lighting::ModelIllumination,
 }
 
 /// A world's root surfaces and coarser levels per model asset key.
@@ -87,7 +90,24 @@ pub fn read_model_levels(
             surfaces: model.surfaces(vfs, skin, level, &mut materials)?,
         });
     }
-    Ok(ModelLevels { root, lower })
+    Ok(ModelLevels {
+        root,
+        lower,
+        mass: model.mass,
+        keyvalues: model.keyvalues,
+        illumination: model.illumination,
+    })
+}
+
+/// studiohdr_t illumposition (offset 92) and flags (offset 152).
+pub(super) fn studio_illumination(mdl: &[u8]) -> Result<modkit_core::lighting::ModelIllumination> {
+    if mdl.get(..4) != Some(b"IDST") {
+        bail!("not a studio model");
+    }
+    Ok(modkit_core::lighting::ModelIllumination {
+        position: crate::vec3(mdl, 92)?,
+        flags: u32le(mdl, 152)?,
+    })
 }
 
 /// The coarsest root level of a model with a face: Model Detail Low. Coarser levels are authored for
@@ -102,6 +122,9 @@ struct Parsed {
     selection: Vec<usize>,
     submodels: Vec<Vec<super::StudioSubmodel>>,
     skin_reference_count: usize,
+    mass: Option<f32>,
+    keyvalues: Option<String>,
+    illumination: modkit_core::lighting::ModelIllumination,
 }
 
 impl Parsed {
@@ -143,6 +166,9 @@ impl Parsed {
         if checksum != u32le(&vvd_bytes, 8)? || checksum != u32le(&vtx_bytes, 16)? {
             bail!("model companion checksum mismatch");
         }
+        let mass = super::studio_mass(&mdl_bytes).ok();
+        let keyvalues = super::studio_keyvalues(&mdl_bytes).ok().flatten();
+        let illumination = studio_illumination(&mdl_bytes).unwrap_or_default();
         // Geometry loading must not enter vmdl's unimplemented external animation-block path.
         let mut geometry_bytes = mdl_bytes.clone();
         bytes(&geometry_bytes, 180, 4)?;
@@ -158,6 +184,9 @@ impl Parsed {
                 body_selection(&body_parts(&mdl_bytes)?, body)
             },
             submodels: studio_submodels(&mdl_bytes)?,
+            mass,
+            keyvalues,
+            illumination,
         })
     }
 
@@ -355,5 +384,29 @@ impl Parsed {
             });
         }
         Ok(surface)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn studio_illumination_reads_position_and_flags() {
+        let mut mdl = vec![0u8; 200];
+        mdl[..4].copy_from_slice(b"IDST");
+        mdl[92..96].copy_from_slice(&1.5f32.to_le_bytes());
+        mdl[96..100].copy_from_slice(&(-2.25f32).to_le_bytes());
+        mdl[100..104].copy_from_slice(&3.0f32.to_le_bytes());
+        mdl[152..156].copy_from_slice(
+            &modkit_core::lighting::ModelIllumination::AMBIENT_BOOST.to_le_bytes(),
+        );
+
+        let illum = studio_illumination(&mdl).unwrap();
+        assert_eq!(illum.position, Vec3::new(1.5, -2.25, 3.0));
+        assert!(illum.ambient_boost());
+
+        mdl[..4].copy_from_slice(b"BAD!");
+        assert!(studio_illumination(&mdl).is_err());
     }
 }

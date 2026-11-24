@@ -8,7 +8,6 @@ use bevy::{
     },
 };
 use source_assets::flexes::{FaceModel, MeshFlex};
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct MorphChannel {
@@ -56,7 +55,8 @@ pub(crate) fn build_morph_targets(
         return None;
     }
     let mut channels = Vec::new();
-    let mut channel_index = HashMap::<(usize, [u32; 4]), usize>::new();
+    let mut first = vec![None::<([u32; 4], usize)>; face.flex.descriptors.len()];
+    let mut extra = Vec::<(usize, [u32; 4], usize)>::new();
     let mut deltas = Vec::<(usize, usize, Vec3)>::new();
     for_each_flex_delta(
         face,
@@ -64,15 +64,26 @@ pub(crate) fn build_morph_targets(
         scale,
         vertex_count,
         |descriptor, targets, v_idx, delta| {
-            let key = (descriptor, targets.map(f32::to_bits));
-            let ch_idx = *channel_index.entry(key).or_insert_with(|| {
-                let idx = channels.len();
-                channels.push(MorphChannel {
-                    descriptor,
-                    targets,
-                });
-                idx
-            });
+            let bits = targets.map(f32::to_bits);
+            let ch_idx = if let Some(slot) = first.get_mut(descriptor) {
+                match slot {
+                    Some((b, idx)) if *b == bits => *idx,
+                    Some(_) => {
+                        push_extra_channel(&mut extra, &mut channels, descriptor, targets, bits)
+                    }
+                    None => {
+                        let idx = channels.len();
+                        channels.push(MorphChannel {
+                            descriptor,
+                            targets,
+                        });
+                        *slot = Some((bits, idx));
+                        idx
+                    }
+                }
+            } else {
+                push_extra_channel(&mut extra, &mut channels, descriptor, targets, bits)
+            };
             deltas.push((ch_idx, v_idx, delta));
         },
     );
@@ -85,6 +96,77 @@ pub(crate) fn build_morph_targets(
     }
     mesh.set_morph_targets(targets);
     Some(MorphChannels { channels })
+}
+
+fn push_extra_channel(
+    extra: &mut Vec<(usize, [u32; 4], usize)>,
+    channels: &mut Vec<MorphChannel>,
+    descriptor: usize,
+    targets: [f32; 4],
+    bits: [u32; 4],
+) -> usize {
+    if let Some(&(_, _, idx)) = extra
+        .iter()
+        .find(|&&(d, b, _)| d == descriptor && b == bits)
+    {
+        return idx;
+    }
+    let idx = channels.len();
+    channels.push(MorphChannel {
+        descriptor,
+        targets,
+    });
+    extra.push((descriptor, bits, idx));
+    idx
+}
+
+struct ChannelTable {
+    ranges: Vec<(u32, u32)>,
+    entries: Vec<(usize, [u32; 4], usize)>,
+}
+
+impl ChannelTable {
+    fn new(channels: &[MorphChannel]) -> Self {
+        let mut entries: Vec<(usize, [u32; 4], usize)> = channels
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.descriptor, c.targets.map(f32::to_bits), i))
+            .collect();
+        entries.sort_unstable_by_key(|&(desc, _, idx)| (desc, idx));
+        let max_desc = entries.last().map_or(0, |&(d, _, _)| d);
+        let ranges = if !entries.is_empty() && max_desc <= 4096 {
+            let mut ranges = vec![(0u32, 0u32); max_desc + 1];
+            let mut start = 0usize;
+            while start < entries.len() {
+                let desc = entries[start].0;
+                let mut end = start + 1;
+                while end < entries.len() && entries[end].0 == desc {
+                    end += 1;
+                }
+                ranges[desc] = (start as u32, (end - start) as u32);
+                start = end;
+            }
+            ranges
+        } else {
+            Vec::new()
+        };
+        Self { ranges, entries }
+    }
+
+    fn get(&self, descriptor: usize, ramp_bits: [u32; 4]) -> Option<usize> {
+        let slice = if !self.ranges.is_empty() {
+            let &(start, len) = self.ranges.get(descriptor)?;
+            &self.entries[start as usize..(start + len) as usize]
+        } else {
+            let start = self.entries.partition_point(|&(d, _, _)| d < descriptor);
+            let end = start + self.entries[start..].partition_point(|&(d, _, _)| d == descriptor);
+            &self.entries[start..end]
+        };
+        slice
+            .iter()
+            .find(|&&(_, bits, _)| bits == ramp_bits)
+            .map(|&(_, _, idx)| idx)
+    }
 }
 
 /// Populate morph targets for a coarser (or collapsed) LOD mesh using LOD0's channel list.
@@ -101,19 +183,14 @@ pub(crate) fn apply_morph_channels(
         && let Some(face) = face
         && flex.iter().any(Option::is_some)
     {
-        let channel_index: HashMap<(usize, [u32; 4]), usize> = channels
-            .channels
-            .iter()
-            .enumerate()
-            .map(|(i, c)| ((c.descriptor, c.targets.map(f32::to_bits)), i))
-            .collect();
+        let channel_index = ChannelTable::new(&channels.channels);
         for_each_flex_delta(
             face,
             flex,
             scale,
             vertex_count,
             |descriptor, ramp, v_idx, delta| {
-                if let Some(&ch_idx) = channel_index.get(&(descriptor, ramp.map(f32::to_bits))) {
+                if let Some(ch_idx) = channel_index.get(descriptor, ramp.map(f32::to_bits)) {
                     targets[ch_idx * vertex_count + v_idx].position += delta;
                 }
             },
@@ -122,14 +199,15 @@ pub(crate) fn apply_morph_channels(
     mesh.set_morph_targets(targets);
 }
 
-fn vertices_by_key(flex: &[Option<[u16; 3]>]) -> HashMap<[u16; 3], Vec<usize>> {
-    let mut map: HashMap<[u16; 3], Vec<usize>> = HashMap::new();
+fn vertices_by_key(flex: &[Option<[u16; 3]>]) -> Vec<([u16; 3], u32)> {
+    let mut entries = Vec::with_capacity(flex.len());
     for (vertex, entry) in flex.iter().enumerate() {
         if let Some(key) = entry {
-            map.entry(*key).or_default().push(vertex);
+            entries.push((*key, vertex as u32));
         }
     }
-    map
+    entries.sort_unstable_by_key(|&(key, vertex)| (key, vertex));
+    entries
 }
 
 fn for_each_flex_delta(
@@ -144,16 +222,28 @@ fn for_each_flex_delta(
         return;
     }
     for mesh_flexes in face.flex.meshes.iter().filter(|mesh| mesh.model == 0) {
+        let (Ok(bp), Ok(m)) = (
+            u16::try_from(mesh_flexes.bodypart),
+            u16::try_from(mesh_flexes.mesh),
+        ) else {
+            continue;
+        };
+        let pair_start = by_key.partition_point(|&(k, _)| (k[0], k[1]) < (bp, m));
+        let pair_end =
+            pair_start + by_key[pair_start..].partition_point(|&(k, _)| (k[0], k[1]) == (bp, m));
+        let mesh_by_key = &by_key[pair_start..pair_end];
+        if mesh_by_key.is_empty() {
+            continue;
+        }
         for mesh_flex in &mesh_flexes.flexes {
             for vert in &mesh_flex.vertices {
-                let key = [
-                    mesh_flexes.bodypart as u16,
-                    mesh_flexes.mesh as u16,
-                    vert.index,
-                ];
-                let Some(mesh_vertices) = by_key.get(&key) else {
+                let start = mesh_by_key.partition_point(|&(k, _)| k[2] < vert.index);
+                if start >= mesh_by_key.len() || mesh_by_key[start].0[2] != vert.index {
                     continue;
-                };
+                }
+                let end =
+                    start + mesh_by_key[start..].partition_point(|&(k, _)| k[2] == vert.index);
+                let mesh_vertices = &mesh_by_key[start..end];
                 let delta = source_to_bevy(Vec3::from_array((vert.delta * scale).to_array()));
                 if delta == Vec3::ZERO {
                     continue;
@@ -192,7 +282,7 @@ fn for_each_flex_delta(
 }
 
 fn emit_for_vertices(
-    mesh_vertices: &[usize],
+    mesh_vertices: &[([u16; 3], u32)],
     vertex_count: usize,
     descriptor: usize,
     targets: [f32; 4],
@@ -202,7 +292,8 @@ fn emit_for_vertices(
     if delta == Vec3::ZERO {
         return;
     }
-    for &v_idx in mesh_vertices {
+    for &(_, v_idx) in mesh_vertices {
+        let v_idx = v_idx as usize;
         if v_idx < vertex_count {
             emit(descriptor, targets, v_idx, delta);
         }
@@ -323,6 +414,76 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn apply_morph_channels_skips_absent_bodypart_mesh_pairs_and_matches_targets() {
+        let scale = 1.0;
+        let flex_model = FlexModel {
+            descriptors: vec!["a".into(), "b".into()],
+            controllers: Vec::new(),
+            rules: Vec::new(),
+            meshes: vec![
+                MeshFlexes {
+                    bodypart: 0,
+                    model: 0,
+                    mesh: 0,
+                    flexes: vec![MeshFlex {
+                        descriptor: 0,
+                        targets: [0.0, 0.0, 1.0, 1.0],
+                        pair: 0,
+                        vertices: vec![VertAnim {
+                            index: 5,
+                            speed: 0,
+                            side: 0,
+                            delta: glam::Vec3::new(0.0, 2.0, 0.0),
+                            normal: glam::Vec3::Z,
+                        }],
+                    }],
+                },
+                MeshFlexes {
+                    bodypart: 1,
+                    model: 0,
+                    mesh: 2,
+                    flexes: vec![MeshFlex {
+                        descriptor: 1,
+                        targets: [0.0, 0.0, 1.0, 1.0],
+                        pair: 0,
+                        vertices: vec![VertAnim {
+                            index: 5,
+                            speed: 0,
+                            side: 0,
+                            delta: glam::Vec3::new(4.0, 0.0, 0.0),
+                            normal: glam::Vec3::Z,
+                        }],
+                    }],
+                },
+            ],
+        };
+        let face = FaceModel {
+            slots: flex_model.vertex_slots(),
+            flex: flex_model,
+            eyes: Vec::new(),
+        };
+        let mut lod0 = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+        lod0.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 1]);
+        let channels = build_morph_targets(&mut lod0, &face, &[Some([0, 0, 5])], scale).unwrap();
+        assert_eq!(channels.len(), 1);
+        let mut lod1 = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+        lod1.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 2]);
+        apply_morph_channels(
+            &mut lod1,
+            &channels,
+            Some(&face),
+            &[None, Some([0, 0, 5])],
+            scale,
+        );
+        let targets = lod1.morph_targets().expect("lod1 morph targets");
+        assert_eq!(targets[0].position, Vec3::ZERO);
+        assert_eq!(
+            targets[1].position,
+            source_to_bevy(Vec3::new(0.0, 2.0, 0.0))
+        );
     }
 
     #[ignore]

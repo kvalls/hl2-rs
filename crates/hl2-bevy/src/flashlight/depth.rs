@@ -99,9 +99,9 @@ mod tests {
             let Some(base) = &material.base else {
                 continue;
             };
+            let rgba = base.to_rgba8();
             let alpha = || {
-                base.rgba
-                    .as_chunks::<4>()
+                rgba.as_chunks::<4>()
                     .0
                     .iter()
                     .map(|p| f32::from(p[3]) / 255.)
