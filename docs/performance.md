@@ -1,5 +1,30 @@
 # Performance measurements - 2026-10-05
 
+## `O16` — Split static/dynamic `SplitBroadPhase`, player-shadow rest guard, and zero-alloc hitbox posing (2026-11-24)
+
+Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools` release build, `7a3a53e4` `sha256 ad387905` vs `O16` `sha256 20136538`):
+
+- **Changes:**
+  - `crates/hl2-simulation/src/physics/broad_phase.rs`, `crates/hl2-simulation/src/physics/queries.rs`, `crates/hl2-simulation/src/physics.rs`: implemented `SplitBroadPhase` (`impl BroadPhase`) wired into `RecordingBroadPhase`, partitioning fixed colliders without `FIXED_FIXED` into a lazy `static_tree: Qbvh<ColliderHandle>` and keeping only dynamic/kinematic/promoting colliders in `moving_tree: Qbvh<ColliderHandle>`. Active pairs are maintained in sorted per-collider lists for exact two-pointer `AddPair`/`DeletePair` parity (including seamless `Static -> Moving` promotion when a door/brush moves), prediction-distance growth rebuilds, non-finite AABB guards, and zero steady-state per-tick allocations; covered by 7 randomized parity and `PhysicsPipeline::step` tests (`broad_phase/tests.rs`).
+  - `crates/hl2-simulation/src/physics/shadow_push.rs`, `crates/hl2-simulation/src/physics.rs`, `crates/hl2-simulation/src/physics/tests/shadow.rs`: extracted `clip_shadow_sweep_velocity` (early-returning without cloning `world_sides.shadow` or running `cast_shape` when `velocity` is zero) and `sync_player_shadow_body` (skipping mutable body borrows and `wake_up = true` calls when translation and zero velocity are unchanged), shrinking `physics.rs` (`3148 -> 3106` lines) and `update_player_shadow` (`238 -> 195` lines) and covered by 2 shadow sleep/wake tests.
+  - `crates/hl2-simulation/src/physics/hitboxes.rs`, `crates/hl2-simulation/src/gameplay.rs`: replaced per-tick `studio_hitbox_entities()` `Vec<(usize, String)>` + `String` clones in `pose_npc_hitboxes` with `Physics::pose_studio_hitboxes` sharing `apply_npc_hitboxes`.
+- **macOS `sample` (`test-inputs/performance-research/mixed-crowd.json`, 12s @ 1ms, call-graph counts under `simulation::fixed_step`):**
+  - `simulation::fixed_step` denominator: `2,219` (A) vs `2,221` (B).
+  - `PhysicsPipeline::step`: **`568` (`25.60%`) -> `196` (`8.82%`, `-16.78 pp`)**.
+  - `broad_phase` (`BroadPhaseMultiSap` -> `SplitBroadPhase`): **`304` (`13.70%`) -> `24` (`1.08%`, `-12.62 pp`, 12.7x lower)**.
+  - `narrow_phase`: **`133` (`5.99%`) -> `43` (`1.94%`, `-4.05 pp`)**.
+  - `island_solver`: `99` (`4.46%`) -> `100` (`4.50%`, `+0.04 pp`).
+  - `pose_npc_hitboxes`: **`223` (`10.05%`) -> `176` (`7.92%`, `-2.13 pp`)**.
+- **Headless `--uncapped --profile` A/B (1 discarded warm-up + 3 alternating `AB/BA/AB` pairs per scene, `ad387905` vs `20136538`):**
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json`:**
+    - `fixed_simulation` mean (median): **`5.199 -> 4.347 ms` (`-16.39%`, `-0.852 ms`)** (`A: 5.151 / 5.220 / 5.199`, `B: 4.469 / 4.347 / 4.318`), `p95` **`7.113 -> 6.175 ms` (`-13.19%`)**.
+    - `main_schedule.RunFixedMainLoop` mean (median): **`4.875 -> 4.048 ms` (`-16.96%`)**, `p95` **`7.434 -> 6.382 ms` (`-14.15%`)**.
+    - `frame_total` mean (median): `13.792 -> 13.729 ms` (`-0.46%`, `A: 12.962 / 13.945 / 13.792`, `B: 12.873 / 13.767 / 13.729`), `p95` **`16.813 -> 16.278 ms` (`-3.18%`)**, `p99` **`19.0 -> 18.0 ms` (`-5.26%`)**; official `--item O16` `capture.py` run: `fixed_simulation` `4.257 ms` (`p95 5.973 ms`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/quiet.json` (idle static spawn):**
+    - `fixed_simulation` mean (median): **`1.927 -> 1.088 ms` (`-43.55%`, `-0.839 ms`)** (`A: 1.931 / 1.927 / 1.924`, `B: 1.088 / 1.082 / 1.092`), `p95` **`2.291 -> 1.423 ms` (`-37.88%`)**.
+    - `main_schedule.RunFixedMainLoop` mean (median): **`0.965 -> 0.567 ms` (`-41.26%`)**; headless GPU-bound `frame_total` remained flat (`7.069 -> 7.085 ms`), shifting freed main-thread time into `main_schedule.outside` (`3.802 -> 4.259 ms`).
+- **Correctness & replays:** `hl2-simulation` unit suite (`899 passed; 0 failed; 40 ignored`), `scripts/checks/validate.sh`, Windows-target Clippy, `15/15` targeted physics packaged replays, and all **`109/109`** shared packaged replays (`206 s`, `0` failed) passed; Windows runtime **not tested**.
+
 ## O30 GPU facial flexes (2026-11-23)
 
 The packaged O41 release (`c8c336b4`, A) and the revised GPU morph release (`db6ecd38`, B) ran on the Apple M1 Pro with the Metal backend. Both used the advanced-options and debug-tools plugins. The 1280×720 uncapped stage runs used the same default settings and tick scripts. Each scene had one discarded A warm-up followed by three pairs in AB, BA, AB order. Frame and stage times are median run means in milliseconds.

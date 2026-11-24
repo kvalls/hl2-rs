@@ -2240,27 +2240,24 @@ pub struct NpcHitReport {
 /// Studio hitbox poses for this tick (the entity collider pose stage): every NPC with
 /// hitboxes takes its animated skeleton; dead/hidden ones are disabled.
 pub fn pose_npc_hitboxes(world: &World, scene: &Scene, physics: &mut Physics) {
-    for (id, key) in physics.studio_hitbox_entities() {
-        let Some(state) = scene.states.get(id) else {
-            continue;
-        };
+    physics.pose_studio_hitboxes(|id, key| {
+        let state = scene.states.get(id)?;
         let enabled = state.collides();
         let skin = if enabled {
             world
                 .rigs
-                .get(&key)
+                .get(key)
                 .map(|rig| scene.actor_matrices_of(rig, id, Some(&rig.hitbox_bones())))
                 .unwrap_or_default()
         } else {
             Vec::new()
         };
-        physics.set_npc_hitboxes(
-            id,
+        Some((
             glam::Mat4::from_rotation_translation(state.rotation, state.origin),
-            &skin,
             enabled,
-        );
-    }
+            skin,
+        ))
+    });
 }
 /// CBaseEntity::TraceBleed for a bullet/club hit on an NPC: 1/2/4 traces (damage
 /// < 10 / < 25 / more) continuing the shot direction with +/-0.1/0.2/0.3 noise per

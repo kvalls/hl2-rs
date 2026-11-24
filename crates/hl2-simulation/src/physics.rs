@@ -8,6 +8,7 @@ use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
+mod broad_phase;
 mod brush_entities;
 mod diagnostics;
 mod hitboxes;
@@ -2630,61 +2631,18 @@ impl Physics {
                     velocity -= *normal * (into - limit);
                 }
             }
-            // The same limits ahead of contact: the shadow follows a falling or
-            // walking player several units per tick, so a first contact found only
-            // after the step was already deep (a landing rammed a 5 kg box ~1.7 units
-            // into the floor, and its rebound filled the player's hull).
-            let shape = Cuboid::new(vector(skin));
-            let shadow_colliders = self.world_sides.shadow.clone();
-            let skip = |c: ColliderHandle, collider: &Collider| {
-                !shadow_colliders.contains(&c)
-                    && collider.parent().is_some_and(|h| {
-                        Some(h) != excluded && self.bodies.get(h).is_some_and(|b| b.is_dynamic())
-                    })
-            };
-            let filter = QueryFilter::default()
-                .groups(InteractionGroups::new(
-                    SHADOW_GROUP,
-                    Group::ALL
-                        .difference(PROJECTILE_GROUP)
-                        .difference(NPC_GROUP)
-                        .difference(SHADOW_GROUP)
-                        .difference(RAGDOLL_GROUP),
-                ))
-                .exclude_sensors()
-                .predicate(&skip);
-            let delta = velocity * dt;
-            if let Some((collider, hit)) = self.query.cast_shape(
-                (&self.bodies, &self.colliders),
-                &pose(position + skin_offset, Quat::IDENTITY),
-                &vector(delta),
-                &shape,
-                ShapeCastOptions::with_max_time_of_impact(1.),
-                filter,
-            ) {
-                let n = Vec3::new(hit.normal1.x, hit.normal1.y, hit.normal1.z);
-                let other = self.colliders.get(collider).and_then(|c| c.parent());
-                let pushable = other
-                    .and_then(|b| self.bodies.get(b))
-                    .is_some_and(|b| b.mass() <= PLAYER_PUSH_MASS_LIMIT)
-                    && other.is_some_and(|b| !self.blocked_along(b, n));
-                let limit = if pushable {
-                    PLAYER_PUSH_SPEED_LIMIT
-                } else {
-                    0.
-                };
-                let into = velocity.dot(n);
-                let allowed = (delta * hit.time_of_impact).dot(n) / dt + limit;
-                if into > allowed {
-                    velocity -= n * (into - allowed.max(0.));
-                }
-            }
-            velocity
+            self.clip_shadow_sweep_velocity(
+                shadow_push::ShadowSweep {
+                    position,
+                    skin,
+                    skin_offset,
+                    velocity,
+                    dt,
+                },
+                excluded,
+            )
         };
-        if let Some(body) = self.bodies.get_mut(handle) {
-            body.set_translation(vector(position), true);
-            body.set_linvel(vector(velocity), true);
-        }
+        self.sync_player_shadow_body(handle, position, velocity);
         // No explicit weight on movable ground: the retail shadow has no gravity (the
         // controller's Update clears it) and light supports are not rideable. An 85 kg
         // impulse here sank a 5 kg box ~1.5 units into the floor and its rebound filled

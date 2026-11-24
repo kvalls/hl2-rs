@@ -21,9 +21,8 @@ use rapier3d::parry::{
     shape::{Shape, TypedSimdCompositeShape},
 };
 use rapier3d::prelude::{
-    Aabb, BroadPhase, BroadPhaseMultiSap, BroadPhasePairEvent, ColliderHandle, ColliderSet,
-    Isometry, Point, PointProjection, QueryFilter, Ray, RayIntersection, Real, RigidBodySet,
-    Vector,
+    Aabb, BroadPhase, BroadPhasePairEvent, ColliderHandle, ColliderSet, Isometry, Point,
+    PointProjection, QueryFilter, Ray, RayIntersection, Real, RigidBodySet, Vector,
 };
 use std::collections::HashSet;
 
@@ -259,11 +258,11 @@ impl Queries {
     }
 }
 
-/// rapier3d's broad phase, noting the colliders each step reports as modified or removed (the
+/// Broad phase wrapper that records the colliders each step reports as modified or removed (the
 /// same lists the step would hand to a query pipeline), with trace-only colliders kept out.
 #[derive(Default)]
 pub(crate) struct RecordingBroadPhase {
-    inner: BroadPhaseMultiSap,
+    inner: super::broad_phase::SplitBroadPhase,
     pub modified: Vec<ColliderHandle>,
     pub removed: Vec<ColliderHandle>,
     /// Colliders only traces see (NPC hitboxes). The inner broad phase never holds them, so

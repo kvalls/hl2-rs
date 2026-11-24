@@ -5,7 +5,7 @@
 use super::{angles, mat4_pose, Physics, NPC_GROUP, SCALE};
 use crate::npc_probe::CONTENTS_MONSTER;
 use glam::{Mat4, Vec3};
-use rapier3d::prelude::{ColliderBuilder, ColliderHandle, Group, InteractionGroups};
+use rapier3d::prelude::{ColliderBuilder, ColliderHandle, ColliderSet, Group, InteractionGroups};
 
 /// An NPC's studio hitboxes (hitbox set 0) as trace colliders.
 #[derive(Clone, Debug)]
@@ -67,12 +67,23 @@ impl Physics {
             },
         );
     }
-    /// NPCs with studio hitbox colliders and their model asset keys.
-    pub fn studio_hitbox_entities(&self) -> Vec<(usize, String)> {
-        self.studio_hitboxes
-            .iter()
-            .map(|(id, set)| (*id, set.asset_key.clone()))
-            .collect()
+    /// Pose every NPC with studio hitboxes in place, avoiding key/list allocations.
+    pub fn pose_studio_hitboxes(
+        &mut self,
+        mut pose_for: impl FnMut(usize, &str) -> Option<(Mat4, bool, Vec<Mat4>)>,
+    ) {
+        for (id, set) in &self.studio_hitboxes {
+            if let Some((frame, enabled, skin)) = pose_for(*id, &set.asset_key) {
+                apply_npc_hitboxes(
+                    &set.boxes,
+                    &mut self.colliders,
+                    &mut self.changed_entity_colliders,
+                    frame,
+                    &skin,
+                    enabled,
+                );
+            }
+        }
     }
     /// Pose an NPC's hitboxes from its skinning matrices (bone pose x inverse bind, model
     /// space) and entity frame; `enabled` follows the entity.
@@ -80,23 +91,14 @@ impl Physics {
         let Some(set) = self.studio_hitboxes.get(&id) else {
             return;
         };
-        for (c, bone, center, bind) in &set.boxes {
-            let Some(collider) = self.colliders.get(*c) else {
-                continue;
-            };
-            let model = || skin.get(*bone).map_or(*bind, |m| *m * *bind);
-            let at = enabled
-                .then(|| mat4_pose(frame * model() * Mat4::from_translation(*center)))
-                .filter(|at| collider.position() != at);
-            let toggle = collider.is_enabled() != enabled;
-            // A mutable borrow marks the collider modified for the next step: only for a change.
-            if at.is_some() || toggle {
-                let collider = self.colliders.get_mut(*c).expect("hitbox collider");
-                at.into_iter().for_each(|at| collider.set_position(at));
-                collider.set_enabled(enabled);
-                self.changed_entity_colliders.push(*c);
-            }
-        }
+        apply_npc_hitboxes(
+            &set.boxes,
+            &mut self.colliders,
+            &mut self.changed_entity_colliders,
+            frame,
+            skin,
+            enabled,
+        );
     }
     /// Enables or disables an NPC's hitboxes with the entity, leaving their pose.
     pub(super) fn enable_hitboxes(&mut self, id: usize, enabled: bool) {
@@ -109,6 +111,34 @@ impl Physics {
                 collider.set_enabled(enabled);
                 self.changed_entity_colliders.push(*c);
             }
+        }
+    }
+}
+
+/// Applies animated skinning poses and enabled state to an NPC's studio hitbox colliders.
+fn apply_npc_hitboxes(
+    boxes: &[(ColliderHandle, usize, Vec3, Mat4)],
+    colliders: &mut ColliderSet,
+    changed: &mut Vec<ColliderHandle>,
+    frame: Mat4,
+    skin: &[Mat4],
+    enabled: bool,
+) {
+    for (c, bone, center, bind) in boxes {
+        let Some(collider) = colliders.get(*c) else {
+            continue;
+        };
+        let model = || skin.get(*bone).map_or(*bind, |m| *m * *bind);
+        let at = enabled
+            .then(|| mat4_pose(frame * model() * Mat4::from_translation(*center)))
+            .filter(|at| collider.position() != at);
+        let toggle = collider.is_enabled() != enabled;
+        // A mutable borrow marks the collider modified for the next step: only for a change.
+        if at.is_some() || toggle {
+            let collider = colliders.get_mut(*c).expect("hitbox collider");
+            at.into_iter().for_each(|at| collider.set_position(at));
+            collider.set_enabled(enabled);
+            changed.push(*c);
         }
     }
 }

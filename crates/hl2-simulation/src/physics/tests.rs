@@ -1,5 +1,6 @@
 mod hitboxes;
 mod ragdolls;
+mod shadow;
 use super::*;
 #[test]
 fn a_spawned_npc_hull_blocks_rays_and_follows_its_state() {
@@ -1741,7 +1742,7 @@ fn npc_ground_probe_rejects_embedded_nan_and_excessive_travel() {
     }
 }
 /// A free box resting on a floor plate (synthetic values, not game data).
-fn shadow_scene(mass: f32, gravity: bool, z: f32) -> (Physics, RigidBodyHandle) {
+pub(super) fn shadow_scene(mass: f32, gravity: bool, z: f32) -> (Physics, RigidBodyHandle) {
     let mut physics = Physics::new(&World::default());
     physics.colliders.insert(
         ColliderBuilder::cuboid(2000. / 39.37, 2000. / 39.37, 8. / 39.37)

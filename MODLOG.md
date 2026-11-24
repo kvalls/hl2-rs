@@ -1,5 +1,22 @@
 # MODLOG
 
+## 2026-11-24 — `O16`: Split static/dynamic broad-phase, player-shadow rest guard, and zero-alloc hitbox posing
+- Agent/model: Antigravity (`Gemini 4 Hydrogen (High)` coordinator and 3 swarm workers).
+- Changed:
+  - `crates/hl2-simulation/src/physics/broad_phase.rs`, `crates/hl2-simulation/src/physics/broad_phase/tests.rs`: added `SplitBroadPhase` (`impl rapier3d::prelude::BroadPhase`) partitioning fixed static colliders into a lazy `static_tree: Qbvh<ColliderHandle>` (rebuilt once on init / prediction growth and refitted only on rare static edits/promotions) and tracking active moving/dynamic pairs in sorted per-collider lists for exact `AddPair`/`DeletePair` parity and seamless `Static -> Moving` promotion with zero steady-state per-tick allocations; added 7 randomized differential parity and `PhysicsPipeline::step` unit tests.
+  - `crates/hl2-simulation/src/physics/queries.rs`, `crates/hl2-simulation/src/physics.rs`: added `mod broad_phase;` and wired `RecordingBroadPhase` to wrap `SplitBroadPhase`.
+  - `crates/hl2-simulation/src/physics/shadow_push.rs`, `crates/hl2-simulation/src/physics/tests{.rs,/shadow.rs}`: extracted `ShadowSweep`, `clip_shadow_sweep_velocity` (early-returning at zero velocity without cloning `world_sides.shadow` or sweeping), and `sync_player_shadow_body` (skipping `wake_up = true` / mutable body access when stationary), shrinking `physics.rs` (`3148 -> 3106` lines) and `update_player_shadow` (`238 -> 195` lines) in `scripts/checks/architecture-baseline.json`; added 2 shadow sleep/wake tests.
+  - `crates/hl2-simulation/src/physics/hitboxes.rs`, `crates/hl2-simulation/src/gameplay.rs`: extracted `apply_npc_hitboxes` and added `Physics::pose_studio_hitboxes` so `gameplay::pose_npc_hitboxes` no longer allocates `Vec<(usize, String)>` or clones model key strings every tick (`gameplay.rs` `2798 -> 2795` lines).
+  - `docs/{optimization-backlog.md,performance.md}`, `STATUS.md`, `MODLOG.md`: marked `O16` `done` with measured macOS `sample`, A/B stage, and replay results.
+- Why: Eliminate per-tick double `BroadPhaseMultiSap` re-sweeps over ~5k static map colliders, avoid waking a stationary player physics shadow or cloning hitbox model keys each tick, without patching third-party crates.
+- Tested how and result:
+  - Unit, lint & cross-check: `cargo test -p hl2-simulation --locked` (`899 passed; 0 failed; 40 ignored`, including 7 `broad_phase` parity/pipeline tests and 2 `shadow` sleep/wake tests), `scripts/checks/validate.sh` (architecture guardrails with tightened baseline, 99 Python tests, all 4 plugin builds, workspace tests, strict Clippy, `rustfmt --check`, repo isolation check), and `scripts/checks/check_windows.sh` (`x86_64-pc-windows-msvc` Clippy) all passed on macOS.
+  - Packaged replays (`bin/hl2-bevy` release `sha256 20136538` vs `7a3a53e4` `ad387905`): `15/15` targeted physics replays (`crate*`, `pallet*`, `physcannon*`, `player*`, `playground-constraints`, `15 s`) and **`109/109`** shared replays (`206 s`, `0` failed) passed.
+  - macOS `sample` (`mixed-crowd.json`, 12s @ 1ms): `PhysicsPipeline::step` share of `simulation::fixed_step` fell **`568 -> 196` (`25.60% -> 8.82%`, `-16.78 pp`)**, `broad_phase` **`304 -> 24` (`13.70% -> 1.08%`, `-12.62 pp`)**, `narrow_phase` `133 -> 43` (`5.99% -> 1.94%`), `pose_npc_hitboxes` `223 -> 176` (`10.05% -> 7.92%`, `island_solver` `99 -> 100`).
+  - Alternating `--uncapped --profile` A/B (1 discarded warmup + 3 pairs `AB/BA/AB` per scene, matched `hl2-config.json`): `mixed-crowd.json` `fixed_simulation` **`5.199 -> 4.347 ms` (`-16.39%`**, `p95 7.113 -> 6.175 ms` [`-13.19%`]), `frame_total` `13.792 -> 13.729 ms` (`p95 16.813 -> 16.278 ms`, `p99 19.0 -> 18.0 ms`); `quiet.json` `fixed_simulation` **`1.927 -> 1.088 ms` (`-43.55%`**, `p95 2.291 -> 1.423 ms`); official `--item O16` `capture.py` run measured `fixed_simulation` `4.257 ms` (`p95 5.973 ms`).
+- Still broken or not tested: Windows build, linking, and runtime execution **not tested** here (only cross-target `cargo clippy` ran).
+- Next: Continue remaining open performance backlog items (`O39` particle/shadow mesh rewrites or `O27` unpause/startup pipeline hitch).
+
 ## 2026-11-24 — Selective map-required NPC pool, full on-demand late-precaching, and async F4 usable weapons
 - Agent/model: Antigravity (`Gemini 4 Hydrogen (High)` coordinator and 4 swarm workers).
 - Changed:
