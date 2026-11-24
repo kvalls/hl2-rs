@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-24 — Unused-code guardrails in architecture checks
+- Agent/model: Antigravity (`Gemini 4 Hydrogen (High)` planning & execution).
+- Changed:
+  - `scripts/checks/unused.py`, `scripts/checks/architecture.py`, `scripts/checks/test_unused.py`: added stdlib-only CI guardrails covering single- and multiline `dead_code` / `unused*` / `unreachable_code` lint allowances (including `cfg_attr`, while allowing feature-gated `cfg_attr(..., allow(unused_mut))`), orphaned `.rs` files under `src/` (`mod`, `#[path]`, `include!`, and manifest entry points), orphaned `.wgsl` shaders under `assets/`, and unreferenced `Cargo.toml` / `[workspace.dependencies]` entries (with explicit `# feature-unification:` exemptions), plus cross-platform unit tests.
+  - `crates/hl2-bevy/src/material_slots/lighting.rs`: removed stale `#[cfg_attr(not(test), allow(dead_code))]` on `slot_for` (already called unconditionally by `assign_lighting`).
+  - `crates/hl2-bevy/Cargo.toml`: annotated `objc2-foundation` with `# feature-unification: enables NSGeometry for objc2-app-kit` so the manifest dependency check keeps it explicitly documented.
+- Why: Catch unreferenced Rust modules, shaders, Cargo dependencies, and lint-suppressed dead code automatically in CI and pre-commit checks without external tooling.
+- Tested how and result:
+  - `scripts/checks/validate.sh` (`architecture: ok`, `105` Python helper tests OK, all 4 plugin selections OK, workspace unit tests `0` failed, strict `cargo clippy -- -D warnings`, `cargo fmt --check`), isolation check, and Windows cross-target `cargo clippy` (`x86_64-pc-windows-msvc`) all passed (`architecture.py` and isolation check re-run after this log entry).
+- Still broken or not tested: Windows build, linking, and runtime execution **not tested** here (cross-target `cargo clippy` only).
+- Next: Resume `O43` / `O32` isolated re-audits across the optimization backlog.
+
 ## 2026-11-24 — `O42`: `LightingIndex`, retail `32 x 32 x 128` light-cache cell sharing, and `O43` backlog audit note
 - Agent/model: Antigravity (`Gemini 4 Hydrogen (High)` planning & execution).
 - Changed:

@@ -77,7 +77,6 @@ impl LightSlots {
         self.users.insert(slot, (key, 0));
         Some((slot, true))
     }
-    #[cfg_attr(not(test), allow(dead_code))]
     fn slot_for(&mut self, key: LightKey) -> Option<u32> {
         self.slot_for_with_status(key).map(|(slot, _)| slot)
     }

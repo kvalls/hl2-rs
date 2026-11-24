@@ -31,5 +31,5 @@ path = "src/lib.rs"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSResponder", "NSScreen", "NSView", "NSWindow"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSGeometry"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSGeometry"] } # feature-unification: enables NSGeometry for objc2-app-kit
 raw-window-handle = "0.6"

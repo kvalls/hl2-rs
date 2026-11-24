@@ -8,8 +8,10 @@ Fails when a change:
   outside the crate that owns it (ONLY_IN), reads files in a crate that must not (NO_FILE_IO), or
   names HL2 code in the toolkit;
 - repeats DUPLICATE_WINDOW significant lines of production code that already exist elsewhere;
-- raises a counted smell of a crate (mutable statics, `too_many_arguments` and `dead_code`
-  allowances, glob imports in production code);
+- raises a counted smell of a crate (mutable statics, `too_many_arguments`, `dead_code` and
+  `unused*` allowances, glob imports in production code);
+- leaves orphaned `.rs` files under `src/`, orphaned `.wgsl` shaders under `assets/`, or unused
+  dependencies in `Cargo.toml`;
 - makes AGENTS.md longer than AGENTS_BYTES (it holds rules, one line each).
 - breaks the structure of docs/optimization-backlog.md (backlog.py: every item states how its gain
   is measured).
@@ -28,6 +30,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import backlog
+import unused
 
 REPO = Path(__file__).resolve().parents[2]
 BASELINE = Path(__file__).with_name("architecture-baseline.json")
@@ -267,6 +270,11 @@ def measure():
                 if length > FUNCTION_LINES:
                     state["functions"][f"{rel}::{name}"].append(length)
             counts = state["counts"][crate]
+            dead_code_count, unused_count = unused.unused_lint_allowances(code, mask)
+            if dead_code_count:
+                counts["dead_code allowances"] += dead_code_count
+            if unused_count:
+                counts["unused allowances"] += unused_count
             significant = []
             for i, line in enumerate(code):
                 if mask[i]:
@@ -282,8 +290,6 @@ def measure():
                     counts["mutable statics"] += 1
                 if "clippy::too_many_arguments" in line:
                     counts["too_many_arguments allowances"] += 1
-                if re.search(r"#\[(allow|expect)\([^)]*\bdead_code\b", line):
-                    counts["dead_code allowances"] += 1
                 counts["glob imports"] += len(GLOB.findall(line))
                 text = re.sub(r"\s+", " ", plain[i]).strip()
                 if len(text) > 3 and not re.fullmatch(r"[{}()\[\];,.]*", text) \
@@ -296,6 +302,9 @@ def measure():
     for block, places in windows.items():
         if len(places) > 1:
             duplicates[hashlib.sha1(block.encode()).hexdigest()[:12]] = places
+    problems += unused.find_orphan_rust_files(REPO, packages, scan)
+    problems += unused.find_orphan_shaders(REPO, packages, scan)
+    problems += unused.find_unused_dependencies(REPO, packages, scan)
     problems += [f"docs/optimization-backlog.md: {p}" for p in backlog.check(backlog.PATH.read_text(encoding="utf-8"))]
     agents = REPO / "AGENTS.md"
     if agents.exists() and text_bytes(agents) > AGENTS_BYTES:
