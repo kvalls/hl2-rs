@@ -66,8 +66,10 @@ Source builds need Git, Rust stable/Cargo, and the platform compiler tools:
 Visual Studio C++ tools/Windows SDK on Windows, Xcode command-line tools on macOS,
 and a C++ compiler plus pkg-config and development headers on Linux. Python 3,
 rustfmt and Clippy are needed for the repository's validation scripts and the
-optional `/hl2-session` skill scripts; they are not game runtime dependencies.
-Cargo library versions are locked in `Cargo.lock`.
+optional `/hl2-session` skill scripts; `python3 scripts/checks/coverage.py`
+optionally uses `rustup component add llvm-tools` (`llvm-profdata`, `llvm-cov`)
+for on-demand line coverage of Bevy-free crates; none of these are game runtime
+dependencies. Cargo library versions are locked in `Cargo.lock`.
 
 For an Ubuntu/Debian source build, the initial dependency setup is:
 

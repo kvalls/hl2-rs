@@ -12,6 +12,8 @@ Fails when a change:
   `unused*` allowances, glob imports in production code);
 - leaves orphaned `.rs` files under `src/`, orphaned `.wgsl` shaders under `assets/`, or unused
   dependencies in `Cargo.toml`;
+- lowers a crate's active unit-test floor (`min_tests`) or adds an untested pure-crate module
+  (`untested_modules`);
 - makes AGENTS.md longer than AGENTS_BYTES (it holds rules, one line each).
 - breaks the structure of docs/optimization-backlog.md (backlog.py: every item states how its gain
   is measured).
@@ -30,6 +32,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import backlog
+import unit_tests
 import unused
 
 REPO = Path(__file__).resolve().parents[2]
@@ -313,6 +316,8 @@ def measure():
     state["functions"] = {k: sorted(v, reverse=True) for k, v in state["functions"].items()}
     state["counts"] = {c: dict(v) for c, v in state["counts"].items()}
     state["duplicates"] = sorted(duplicates)
+    state["min_tests"] = unit_tests.active_tests_by_crate(packages, scan)
+    state["untested_modules"] = unit_tests.find_untested_pure_modules(REPO, packages, scan)
     return state, problems, duplicates
 
 
@@ -359,6 +364,22 @@ def compare(state, baseline, duplicates):
     gone = old_dups - set(state["duplicates"])
     if gone:
         shrunk.append(f"{len(gone)} duplicated blocks gone")
+    for crate, old_min in sorted(baseline.get("min_tests", {}).items()):
+        now = state.get("min_tests", {}).get(crate, 0)
+        if now < old_min:
+            failures.append(
+                f"{crate}: {now} active unit tests, was at least {old_min}: "
+                f"restore the tests instead of deleting or ignoring them"
+            )
+    old_untested = set(baseline.get("untested_modules", []))
+    now_untested = set(state.get("untested_modules", []))
+    for rel in sorted(now_untested - old_untested):
+        failures.append(
+            f"{rel}: new pure-crate module has no active unit tests; "
+            f"add regression tests before landing"
+        )
+    for rel in sorted(old_untested - now_untested):
+        shrunk.append(f"{rel}: now has unit tests")
     return failures, shrunk
 
 
@@ -378,6 +399,14 @@ def lowered(baseline, state):
         if kept:
             out["counts"][crate] = kept
     out["duplicates"] = sorted(set(baseline.get("duplicates", [])) & set(state["duplicates"]))
+    out["min_tests"] = {
+        crate: max(baseline.get("min_tests", {}).get(crate, 0), count)
+        for crate, count in sorted(state.get("min_tests", {}).items())
+        if count
+    }
+    out["untested_modules"] = sorted(
+        set(baseline.get("untested_modules", [])) & set(state.get("untested_modules", []))
+    )
     return out
 
 

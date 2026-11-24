@@ -27,6 +27,7 @@
 !/scripts/checks/*.sh
 !/scripts/checks/*.py
 !/scripts/checks/architecture-baseline.json
+!/scripts/checks/coverage-baseline.json
 !/profiles/*.json
 !/profiles/README.md
 !/test-inputs/*.json

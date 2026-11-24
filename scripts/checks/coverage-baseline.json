@@ -1,0 +1,39 @@
+{
+ "crates": {
+  "hl2-advanced-options": {
+   "count": 955,
+   "covered": 852,
+   "percent": 89.21
+  },
+  "hl2-debug": {
+   "count": 1427,
+   "covered": 1232,
+   "percent": 86.33
+  },
+  "hl2-simulation": {
+   "count": 64621,
+   "covered": 50001,
+   "percent": 77.38
+  },
+  "hl2-ui": {
+   "count": 17236,
+   "covered": 12959,
+   "percent": 75.19
+  },
+  "modkit-core": {
+   "count": 4802,
+   "covered": 4513,
+   "percent": 93.98
+  },
+  "source-assets": {
+   "count": 14827,
+   "covered": 8677,
+   "percent": 58.52
+  },
+  "source-ui": {
+   "count": 9725,
+   "covered": 9154,
+   "percent": 94.13
+  }
+ }
+}

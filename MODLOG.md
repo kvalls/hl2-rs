@@ -1,5 +1,17 @@
 # MODLOG
 
+## 2026-11-24 — Unit-test coverage guardrails (`architecture.py` + `coverage.py`)
+- Agent/model: Antigravity (`Gemini 4 Hydrogen (High)` planning & execution).
+- Changed:
+  - `scripts/checks/unit_tests.py`, `scripts/checks/architecture.py`, `scripts/checks/architecture-baseline.json`, `scripts/checks/test_unit_tests.py`: added always-on structural coverage ratchets checking active (non-`#[ignore]`) unit-test counts per crate (`min_tests`: never fails when tests are added, fails if tests are deleted or newly `#[ignore]`d) and requiring new top-level modules in Bevy-free crates (`modkit-core`, `source-assets`, `source-ui`, `hl2-simulation`, `hl2-ui`, and non-`bevy/` modules of `hl2-advanced-options`/`hl2-debug`) to have active unit tests while keeping `hl2-bevy`, `apps/hl2rs`, and plugin `src/bevy/` adapters under packaged replays.
+  - `scripts/checks/coverage.py`, `scripts/checks/coverage-baseline.json`, `scripts/checks/test_coverage.py`, `.gitignore`, `README.md`: added an on-demand LLVM line-coverage checker (`target/coverage/`, stdlib + `rustup component add llvm-tools`) across Bevy-free crates with a `2.0%` crate-level regression tolerance and top-uncovered-file reporting (documented in `README.md`), plus unit tests for export summarization and baseline ratcheting.
+- Why: Prevent test deletion/ignoring regressions and untested new pure modules in CI without forcing brittle 100%-coverage mocks or recompiling Bevy with coverage instrumentation on every `validate.sh` run.
+- Tested how and result:
+  - `scripts/checks/coverage.py --record` & `scripts/checks/coverage.py` (macOS Apple Silicon, `llvm-tools`): `modkit-core 93.98%` (`4513/4802`), `source-assets 58.52%` (`8677/14827`), `source-ui 94.13%` (`9154/9725`), `hl2-simulation 77.38%` (`50001/64621`), `hl2-ui 75.19%` (`12959/17236`), `hl2-advanced-options 89.21%` (`852/955`), `hl2-debug 86.33%` (`1232/1427`); passed within `2.00%` tolerance.
+  - `scripts/checks/validate.sh` & workspace isolation check — verified after this entry.
+- Still broken or not tested: Windows `coverage.py` execution and Windows CI run **not tested** here (Python checks normalize `/` vs `\` and CRLF and are covered by cross-platform unit tests).
+- Next: Resume `O43` / `O32` isolated re-audits across the optimization backlog.
+
 ## 2026-11-24 — Unused-code guardrails in architecture checks
 - Agent/model: Antigravity (`Gemini 4 Hydrogen (High)` planning & execution).
 - Changed:
