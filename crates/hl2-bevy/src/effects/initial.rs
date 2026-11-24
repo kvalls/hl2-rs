@@ -23,6 +23,7 @@ impl Effects {
             grenades: BTreeMap::new(),
             stuck: BTreeMap::new(),
             viewmodel_quads: Default::default(),
+            quad_gpu: Default::default(),
             viewmodel_draws: 0,
             rng: 0x2545_f491_4f6c_dd1d,
             viewmodel_sway: Default::default(),

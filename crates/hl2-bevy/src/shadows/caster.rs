@@ -6,12 +6,7 @@ use crate::{
     rendering::actor_poses::{ActorPoses, entity_stamp},
     simulation::Simulation,
 };
-use bevy::{
-    asset::{Assets, Handle},
-    ecs::entity::Entity,
-    image::Image,
-    mesh::Mesh,
-};
+use bevy::{asset::Assets, image::Image, math::Vec2};
 use glam::{UVec2, Vec3};
 use hl2_simulation::shadows::{
     ShadowControl,
@@ -59,7 +54,9 @@ pub(super) struct Caster {
     pub wanted: Look,
     pub look: Option<Look>,
     pub decal: Decal,
-    pub draw: Option<(Entity, Handle<Mesh>)>,
+    pub shown: bool,
+    pub use_atlas: bool,
+    pub rect: (Vec2, Vec2),
 }
 
 impl Caster {
@@ -90,8 +87,41 @@ impl Caster {
             wanted: Look::Lod,
             look: None,
             decal: Decal::default(),
-            draw: None,
+            shown: false,
+            use_atlas: false,
+            rect: (Vec2::ZERO, Vec2::ONE),
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn synthetic(
+        shown: bool,
+        use_atlas: bool,
+        rect: (Vec2, Vec2),
+        decal: Decal,
+    ) -> Self {
+        Self {
+            id: 0,
+            key: String::new(),
+            scale: 1.,
+            npc: false,
+            dynamic: false,
+            sequence: None,
+            placed: None,
+            at: Placement::new(Vec3::ZERO, glam::Quat::IDENTITY),
+            frame: None,
+            moved: false,
+            dirty: false,
+            texture: None,
+            size: 0,
+            area: None,
+            wanted: Look::Lod,
+            look: None,
+            decal,
+            shown,
+            use_atlas,
+            rect,
+        }
     }
 
     /// Forgets where the frame was built, so the next update rebuilds it.

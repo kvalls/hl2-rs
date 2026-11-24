@@ -3,8 +3,13 @@
 //! transforms, so they tie in the transparent sort and keep their entity order: they draw in input
 //! order, as one draw per quad did, at one upload per changed run instead of one per sprite.
 mod batch;
+mod gpu;
 use super::EffectMaterial;
-use bevy::prelude::{Assets, Commands, Handle, Mesh, Vec3};
+use bevy::{
+    prelude::{Assets, Commands, Handle, Mesh, Vec3},
+    render::storage::ShaderBuffer,
+};
+pub use gpu::{QUAD_ROWS, QuadDraw, QuadDraws, QuadGpu, install_quad_buffer};
 use hl2_simulation::projectile_visuals::Quad;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -68,21 +73,76 @@ impl QuadLayer {
         &mut self,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
+        (gpu, quad_draws): (&mut QuadGpu, &mut QuadDraws),
         quads: &[Quad],
         materials: Materials,
         layer: Option<usize>,
     ) {
-        (self.batches).draw((&mut *commands, &mut *meshes), quads, materials, layer);
-        let drawn = draw_runs(commands, meshes, &mut self.runs, quads, materials, layer);
+        (self.batches).draw(
+            (&mut *commands, &mut *meshes),
+            (&mut *gpu, &mut *quad_draws),
+            quads,
+            materials,
+            layer,
+        );
+        let drawn = draw_runs(
+            commands,
+            meshes,
+            (gpu, quad_draws),
+            &mut self.runs,
+            quads,
+            materials,
+            layer,
+        );
         self.most_in_runs = self.most_in_runs.max(drawn);
     }
 }
 
+/// Presents both the world quad layer and the viewmodel quad layer, flushing dirty GPU rows once.
+pub(super) fn present_layers(
+    commands: &mut Commands,
+    (meshes, buffers): (&mut Assets<Mesh>, &mut Assets<ShaderBuffer>),
+    quad_draws: &mut QuadDraws,
+    effects: &mut super::Effects,
+    viewmodel: &[Quad],
+) {
+    let super::Effects {
+        source,
+        materials,
+        additive,
+        quads,
+        viewmodel_quads,
+        quad_gpu,
+        ..
+    } = effects;
+    quad_gpu.begin_frame();
+    quads.draw(
+        commands,
+        meshes,
+        (quad_gpu, quad_draws),
+        &source.quads,
+        (materials, additive),
+        None,
+    );
+    // Viewmodel quads (placed against the gun) are never batched by material, only run.
+    let unbatched = BTreeSet::new();
+    viewmodel_quads.draw(
+        commands,
+        meshes,
+        (quad_gpu, quad_draws),
+        viewmodel,
+        (materials, &unbatched),
+        Some(1),
+    );
+    quad_gpu.flush(buffers);
+}
+
 /// Draws the quads whose material is not in `batched`, consecutive quads of one material sharing
-/// a draw, in input order; returns how many quads it drew. Unused runs are hidden.
+/// a draw (split at [`gpu::MAX_BUCKET`]), in input order; returns how many quads it drew.
 fn draw_runs(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
+    (gpu, quad_draws): (&mut QuadGpu, &mut QuadDraws),
     runs: &mut Vec<batch::Batch>,
     quads: &[Quad],
     (materials, batched): Materials,
@@ -94,11 +154,11 @@ fn draw_runs(
         let Some(material) = materials.get(&quad.material) else {
             continue;
         };
-        if current != Some(quad.material.as_str()) {
+        if current != Some(quad.material.as_str()) || runs[used - 1].is_full() {
             if used == runs.len() {
-                runs.push(batch::Batch::spawn(commands, meshes, material, layer));
+                runs.push(batch::Batch::spawn(commands, material, layer));
             }
-            runs[used].start(commands, material);
+            runs[used].start(material);
             used += 1;
             current = Some(&quad.material);
         }
@@ -109,7 +169,7 @@ fn draw_runs(
         run.empty();
     }
     for run in runs.iter_mut() {
-        run.present(commands, meshes);
+        run.present(commands, meshes, gpu, quad_draws);
     }
     drawn
 }

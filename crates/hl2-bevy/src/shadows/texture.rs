@@ -157,6 +157,7 @@ impl Textures {
                 jitter: (Vec2::ONE / size).extend(0.).extend(0.),
                 channel,
             },
+            verts: super::draw::SHADOW_VERTS,
         }
     }
 

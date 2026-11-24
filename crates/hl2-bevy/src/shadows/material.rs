@@ -10,9 +10,12 @@ use bevy::{
     mesh::MeshVertexBufferLayoutRef,
     pbr::{Material, MaterialPipeline, MaterialPipelineKey},
     reflect::TypePath,
-    render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState,
-        RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+    render::{
+        render_resource::{
+            AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState,
+            RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+        },
+        storage::ShaderBuffer,
     },
     shader::ShaderRef,
 };
@@ -35,9 +38,15 @@ pub struct ShadowMaterial {
     pub texture: Handle<Image>,
     #[uniform(2)]
     pub parameters: ShadowParameters,
+    #[storage(3, read_only, visibility(vertex))]
+    pub verts: Handle<ShaderBuffer>,
 }
 
 impl Material for ShadowMaterial {
+    fn vertex_shader() -> ShaderRef {
+        "shaders/shadow.wgsl".into()
+    }
+
     fn fragment_shader() -> ShaderRef {
         "shaders/shadow.wgsl".into()
     }

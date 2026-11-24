@@ -6,10 +6,10 @@
 //! addition commute, so those of one material can share a mesh without changing the image
 //! among themselves; such a batch is sorted against other translucent draws as one object. A run
 //! keeps its quads in input order inside one draw.
-use super::{EffectMaterial, Geometry};
+use super::{EffectMaterial, Geometry, gpu};
 use bevy::{
-    camera::primitives::MeshAabb,
-    mesh::VertexAttributeValues,
+    camera::primitives::{Aabb, MeshAabb},
+    mesh::{MeshTag, VertexAttributeValues},
     prelude::{
         Assets, Commands, Entity, Handle, Mesh, Mesh3d, MeshMaterial3d, Transform, Visibility,
     },
@@ -20,11 +20,16 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct Batch {
     pub(super) entity: Entity,
     pub(super) mesh: Handle<Mesh>,
+    tag: u32,
+    bounds: Aabb,
     material: Handle<EffectMaterial>,
-    /// The quads in the mesh, and those of the frame being gathered.
-    drawn: Vec<Geometry>,
+    pending_material: Handle<EffectMaterial>,
+    /// Quads gathered for the current frame.
     next: Vec<Geometry>,
     visible: bool,
+    quad_count: usize,
+    pub(super) cpu_mesh: Option<Handle<Mesh>>,
+    cpu_drawn: Vec<Geometry>,
 }
 
 /// The batches of one layer, by material name.
@@ -97,16 +102,20 @@ impl Batches {
     pub fn most(&self) -> usize {
         self.most
     }
-    /// Quads in the batch meshes.
+    /// Quads in the visible batches.
     pub fn quads(&self) -> usize {
-        let shown = self.by_material.values().filter(|batch| batch.visible);
-        shown.map(|batch| batch.drawn.len()).sum()
+        self.by_material
+            .values()
+            .filter(|batch| batch.visible)
+            .map(|batch| batch.quad_count)
+            .sum()
     }
-    /// Draws the quads whose material is in `additive`, one mesh per material in input order.
-    /// Returns how many meshes were rewritten.
+    /// Draws the quads whose material is in `additive`, one draw per material in input order.
+    /// Returns how many CPU fallback meshes were rewritten.
     pub fn draw(
         &mut self,
         (commands, meshes): (&mut Commands, &mut Assets<Mesh>),
+        (gpu, quad_draws): (&mut gpu::QuadGpu, &mut gpu::QuadDraws),
         quads: &[Quad],
         (materials, additive): (&BTreeMap<String, Handle<EffectMaterial>>, &BTreeSet<String>),
         layer: Option<usize>,
@@ -119,7 +128,7 @@ impl Batches {
                 continue;
             };
             if !self.by_material.contains_key(&quad.material) {
-                let batch = Batch::spawn(commands, meshes, material, layer);
+                let batch = Batch::spawn(commands, material, layer);
                 self.by_material.insert(quad.material.clone(), batch);
             }
             let batch = self
@@ -127,20 +136,34 @@ impl Batches {
                 .get_mut(&quad.material)
                 .expect("batch just ensured");
             batch.push(quad);
-            batch.set_material(commands, material);
+            batch.set_material(material);
         }
-        let batches = self.by_material.values_mut();
-        let rewritten = batches.map(|batch| batch.present(commands, meshes)).sum();
+        let rewritten = self
+            .by_material
+            .values_mut()
+            .map(|batch| batch.present(commands, meshes, gpu, quad_draws))
+            .sum();
         self.most = self.most.max(self.quads());
         rewritten
     }
 }
 
+fn has_valid_storage(mesh: &Mesh, quad_count: usize) -> bool {
+    let expected = quad_count * 4;
+    [
+        Mesh::ATTRIBUTE_POSITION,
+        Mesh::ATTRIBUTE_UV_0,
+        Mesh::ATTRIBUTE_COLOR,
+    ]
+    .into_iter()
+    .all(|attr| mesh.attribute(attr).is_some_and(|v| v.len() == expected))
+}
+
 impl Batch {
     /// Starts gathering a frame's quads with `material`.
-    pub(super) fn start(&mut self, commands: &mut Commands, material: &Handle<EffectMaterial>) {
+    pub(super) fn start(&mut self, material: &Handle<EffectMaterial>) {
         self.next.clear();
-        self.set_material(commands, material);
+        self.set_material(material);
     }
     /// Draws nothing this frame (hidden by [`Self::present`]).
     pub(super) fn empty(&mut self) {
@@ -149,26 +172,29 @@ impl Batch {
     pub(super) fn push(&mut self, quad: &Quad) {
         self.next.push(quad.into());
     }
-    fn set_material(&mut self, commands: &mut Commands, material: &Handle<EffectMaterial>) {
-        if self.material != *material {
-            self.material.clone_from(material);
-            if let Ok(mut entity) = commands.get_entity(self.entity) {
-                entity.insert(MeshMaterial3d(material.clone()));
-            }
+    pub(super) fn is_full(&self) -> bool {
+        self.next.len() >= gpu::MAX_BUCKET
+    }
+    fn set_material(&mut self, material: &Handle<EffectMaterial>) {
+        if self.pending_material != *material {
+            self.pending_material.clone_from(material);
         }
     }
     pub(super) fn spawn(
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         material: &Handle<EffectMaterial>,
         layer: Option<usize>,
     ) -> Self {
-        let mesh = meshes.add(batch_mesh(&[]));
+        let empty = Handle::<Mesh>::default();
         let mut entity = commands.spawn((
             crate::campaign::MapOwned,
-            Mesh3d(mesh.clone()),
+            gpu::QuadDraw,
+            Mesh3d(empty.clone()),
+            MeshTag(0),
             MeshMaterial3d(material.clone()),
             Transform::IDENTITY,
+            Aabb::default(),
+            bevy::camera::visibility::NoAutoAabb,
             bevy::light::NotShadowCaster,
             Visibility::Hidden,
         ));
@@ -177,40 +203,140 @@ impl Batch {
         }
         Self {
             entity: entity.id(),
-            mesh,
+            mesh: empty,
+            tag: 0,
+            bounds: Aabb::default(),
             material: material.clone(),
-            drawn: Vec::new(),
+            pending_material: material.clone(),
             next: Vec::new(),
             visible: false,
+            quad_count: 0,
+            cpu_mesh: None,
+            cpu_drawn: Vec::new(),
         }
     }
-    /// Shows the gathered quads; 1 if the mesh was rewritten. A batch without quads is hidden
-    /// and keeps its mesh, so the same quads returning cost no upload.
-    pub(super) fn present(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) -> usize {
-        let visible = !self.next.is_empty();
-        let rewrite = visible && self.next != self.drawn;
-        if rewrite && let Some(mut mesh) = meshes.get_mut(&self.mesh) {
-            if !patch(&mut mesh, &self.next) {
-                *mesh = batch_mesh(&self.next);
+    fn present_cpu(&mut self, meshes: &mut Assets<Mesh>) -> (Handle<Mesh>, u32, Aabb, bool) {
+        if let Some(handle) = self.cpu_mesh.as_ref().cloned()
+            && let Some(mut mesh) = meshes.get_mut(&handle)
+        {
+            let needs_write =
+                self.cpu_drawn != self.next || !has_valid_storage(&mesh, self.next.len());
+            if needs_write {
+                if !patch(&mut mesh, &self.next) {
+                    *mesh = batch_mesh(&self.next);
+                }
+                self.cpu_drawn.clear();
+                self.cpu_drawn.extend_from_slice(&self.next);
             }
-            if let (Some(bounds), Ok(mut entity)) =
-                (mesh.compute_aabb(), commands.get_entity(self.entity))
-            {
-                entity.insert(bounds);
-            }
-            std::mem::swap(&mut self.drawn, &mut self.next);
+            let bounds = if needs_write {
+                mesh.compute_aabb().unwrap_or_default()
+            } else {
+                self.bounds
+            };
+            return (handle, 0, bounds, needs_write);
         }
-        if visible != self.visible {
-            self.visible = visible;
-            if let Ok(mut entity) = commands.get_entity(self.entity) {
-                entity.insert(if visible {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                });
+        let built = batch_mesh(&self.next);
+        let bounds = built.compute_aabb().unwrap_or_default();
+        let handle = meshes.add(built);
+        self.cpu_mesh = Some(handle.clone());
+        self.cpu_drawn.clear();
+        self.cpu_drawn.extend_from_slice(&self.next);
+        (handle, 0, bounds, true)
+    }
+    fn apply_target(
+        &mut self,
+        commands: &mut Commands,
+        quad_draws: &mut gpu::QuadDraws,
+        target: Option<(Handle<Mesh>, u32, Aabb)>,
+        visible: bool,
+    ) {
+        let vis_value = if visible {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        let mat_changed = target.is_some() && self.material != self.pending_material;
+        if let Ok((mut vis, mut aabb, mut mesh3d, mut mesh_tag, mut mat)) =
+            quad_draws.get_mut(self.entity)
+        {
+            if self.visible != visible {
+                self.visible = visible;
+                *vis = vis_value;
+            }
+            if let Some((mesh, tag, bounds)) = target {
+                if self.mesh != mesh {
+                    self.mesh.clone_from(&mesh);
+                    mesh3d.0 = mesh;
+                }
+                if self.tag != tag {
+                    self.tag = tag;
+                    mesh_tag.0 = tag;
+                }
+                if self.bounds != bounds {
+                    self.bounds = bounds;
+                    *aabb = bounds;
+                }
+                if mat_changed {
+                    self.material.clone_from(&self.pending_material);
+                    mat.0 = self.pending_material.clone();
+                }
+            }
+        } else if let Ok(mut cmd) = commands.get_entity(self.entity) {
+            if self.visible != visible {
+                self.visible = visible;
+                cmd.insert(vis_value);
+            }
+            if let Some((mesh, tag, bounds)) = target {
+                if self.mesh != mesh {
+                    self.mesh.clone_from(&mesh);
+                    cmd.insert(Mesh3d(mesh));
+                }
+                if self.tag != tag {
+                    self.tag = tag;
+                    cmd.insert(MeshTag(tag));
+                }
+                if self.bounds != bounds {
+                    self.bounds = bounds;
+                    cmd.insert(bounds);
+                }
+                if mat_changed {
+                    self.material.clone_from(&self.pending_material);
+                    cmd.insert(MeshMaterial3d(self.pending_material.clone()));
+                }
             }
         }
-        usize::from(rewrite)
+    }
+    /// Shows the gathered quads on the GPU path, or falls back to a CPU mesh on overflow.
+    /// Returns 1 if a CPU fallback mesh was rewritten.
+    pub(super) fn present(
+        &mut self,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        gpu: &mut gpu::QuadGpu,
+        quad_draws: &mut gpu::QuadDraws,
+    ) -> usize {
+        if self.next.is_empty() {
+            if let Some(old) = self.cpu_mesh.take() {
+                meshes.remove(&old);
+                self.cpu_drawn.clear();
+            }
+            self.apply_target(commands, quad_draws, None, false);
+            return 0;
+        }
+        self.quad_count = self.next.len();
+        let (mesh, tag, bounds, rewritten) = if let Some((tag, aabb)) = gpu.pack(&self.next)
+            && let Some(template) = gpu.template(self.next.len(), meshes)
+        {
+            if let Some(old) = self.cpu_mesh.take() {
+                meshes.remove(&old);
+                self.cpu_drawn.clear();
+            }
+            (template, tag, aabb, false)
+        } else {
+            self.present_cpu(meshes)
+        };
+        self.apply_target(commands, quad_draws, Some((mesh, tag, bounds)), true);
+        usize::from(rewritten)
     }
 }
 

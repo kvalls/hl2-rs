@@ -11,8 +11,14 @@ use bevy::{
     shader::ShaderRef,
 };
 impl Material for EffectMaterial {
+    fn vertex_shader() -> ShaderRef {
+        "shaders/effects.wgsl".into()
+    }
     fn fragment_shader() -> ShaderRef {
         "shaders/effects.wgsl".into()
+    }
+    fn prepass_vertex_shader() -> ShaderRef {
+        "shaders/effects_depth.wgsl".into()
     }
     fn prepass_fragment_shader() -> ShaderRef {
         "shaders/effects_depth.wgsl".into()

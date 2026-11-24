@@ -1,5 +1,32 @@
 # Performance measurements - 2026-10-05
 
+## `O39` — GPU storage-buffer quads (`QUAD_ROWS`) and pooled shadow vertex batches (`SHADOW_VERTS`) (2026-11-24)
+
+Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools`, everyday release `O16` `sha256 20136538` vs `O39` `sha256 0560458f`; `--mode trace` `sha256 e3032d13` vs `79573cd7`):
+
+- **Changes:**
+  - `crates/hl2-bevy/src/effects/quads/gpu.rs`, `effects/quads{.rs,/batch.rs}`, `effects/material.rs`, `effects{.rs,/initial.rs}`, `lib.rs`, `assets/shaders/{effects,effects_depth}.wgsl`: allocate `QUAD_ROWS` (`4,096 x 6` `Vec4` rows) once at `Startup` (`install_quad_buffer`), cache immutable `RENDER_WORLD` bucket template meshes (`[1, 2, 4, 8, 16, 32, 64, 128, 256, 512]` quads with `[quad, corner, 0.0]` in `ATTRIBUTE_POSITION` and `NoAutoAabb` on `QuadDraw`), pack quad geometry/UVs/color once per frame into `QUAD_ROWS` via `write_rows_range` on dirty ranges, split runs at `512` quads, index slices in `@vertex` via `MeshTag` (`(start << 16) | count`, preserving depth/motion prepass in `effects_depth.wgsl`), keep `QuadDraws` disjoint from `GrenadeDraw` (`Without<quads::QuadDraw>`), and fall back to `MeshTag(0)` CPU meshes on overflow (releasing `cpu_mesh` on GPU recovery or empty batch).
+  - `crates/hl2-bevy/src/shadows/draw.rs`, `shadows{.rs,/caster.rs,/material.rs,/texture.rs}`, `assets/shaders/shadow.wgsl`: allocate `SHADOW_VERTS` (`8,192` triangles x `3` verts x `2` `Vec4` rows) once at `Startup` (`install_shadow_buffer`), consolidate visible shadow decals onto two pooled `ShadowDraw` entities (`atlas` and `blob`) with immutable `[64..=8192]` bucket templates and `NoAutoAabb`, re-sync only when `shown`/`rebuilt`/`use_atlas`/`rect` changes, and fall back to `MeshTag(0)` CPU meshes above `8,192` triangles or if `SHADOW_VERTS` is absent.
+- **Headless `--uncapped --profile` A/B (1 discarded warm-up + 3 alternating `A-B-B-A-A-B` pairs per scene, `20136538` vs `0560458f`, medians & spreads in ms):**
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json`:**
+    - `render_assets` mean (median): **`1.466 -> 0.539 ms` (`-63.25%`, `-0.927 ms`)** (`A: 1.466 / 1.472 / 1.459`, `B: 0.541 / 0.535 / 0.539`; spread `0.013` / `0.005`), `p95` **`2.583 -> 0.849 ms` (`-67.14%`)**.
+    - `frame_total` mean (median): **`13.906 -> 13.706 ms` (`-1.44%`)** (`A: 13.906 / 13.909 / 13.829`, `B: 13.686 / 13.766 / 13.706`), `p95` `16.855 -> 16.744 ms` (`-0.66%`), `p99` `18.0 -> 18.0 ms`.
+    - `main_schedule.PostUpdate` mean: **`6.396 -> 6.242 ms` (`-2.41%`)**, `p95` **`8.028 -> 7.641 ms` (`-4.82%`)**; `render_prepare`: **`1.062 -> 1.001 ms` (`-5.79%`)**; `shadows`: `0.832 -> 0.845 ms` (`+1.50%`); `render_graph`: `9.344 -> 10.370 ms` (`+10.98%`, pipelined wait shift while `frame_total` improved).
+    - Official stamped `--item O39` `capture.py` run (`1,237` frames): `render_assets` `0.567 ms` mean (`p95 0.876 ms`), `frame_total` `15.128 ms` mean (`p95 18.173 ms`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/animated-fire.json`:**
+    - `frame_total` mean (median): **`14.144 -> 13.487 ms` (`-4.64%`, `-0.657 ms`)** (`A: 14.144 / 14.386 / 14.081`, `B: 13.421 / 13.487 / 13.488`), `p95` **`19.254 -> 18.625 ms` (`-3.27%`)**, `render_graph` **`11.996 -> 11.191 ms` (`-6.71%`)**.
+    - `render_assets` mean (median): `0.314 -> 0.385 ms` (`+0.071 ms`, `+22.56%`; `p95 0.423 -> 0.518 ms`) due to whole-buffer `ShaderBuffer` updates (`QUAD_ROWS` `384 KiB` / `SHADOW_VERTS` `768 KiB`) when active emitters/casters tick; `shadows` `0.183 -> 0.206 ms`.
+  - **`d1_trainstation_02` `test-inputs/performance-research/shadow-plaza.json`:**
+    - `frame_total` mean (median): `7.238 -> 7.206 ms` (`-0.44%`), `p95` `9.031 -> 8.922 ms` (`-1.21%`); `render_assets` `0.341 -> 0.347 ms` (`+1.83%`, `p95 0.232 -> 0.228`); `shadows` `0.044 -> 0.043 ms` (`-2.62%`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/quiet.json`:**
+    - `frame_total` mean (median): **`7.161 -> 6.957 ms` (`-2.86%`)**, `p95` **`8.954 -> 8.658 ms` (`-3.31%`)**, `render_graph` `5.153 -> 5.044 ms` (`-2.11%`), `PostUpdate` `1.919 -> 1.863 ms` (`-2.91%`); `render_assets` `0.191 -> 0.232 ms` (`+0.041 ms` from `ShaderBuffer` updates).
+- **Headless `--mode trace` A/B (`allocate_and_free_meshes` + `render_assets`, full script, `e3032d13` vs `79573cd7`):**
+  - **`mixed-crowd.json` (`867` vs `921` observed trace frames):** `allocate_and_free_meshes` mean **`1.454 -> 0.310 ms` (`-78.71%`)**, `p99` **`3.365 -> 2.332 ms` (`-30.70%`)**, total **`1261.72 -> 285.39 ms` (`-77.38%`)** (`max 4.670 -> 13.899 ms` from initial bucket-template allocation at spawn); `render_assets` mean **`1.658 -> 0.633 ms` (`-61.81%`, `p95 2.678 -> 0.945 ms`)**; `frame_total` mean **`22.157 -> 21.309 ms` (`-3.83%`)**.
+  - **`animated-fire.json`:** `allocate_and_free_meshes` mean **`0.282 -> 0.239 ms` (`-15.07%`)**, `p99` **`0.740 -> 0.639 ms` (`-13.64%`)**, total **`177.01 -> 158.95 ms` (`-10.21%`)** (`max 1.276 -> 4.447 ms`); `render_assets` `0.333 -> 0.454 ms`; `frame_total` mean **`14.463 -> 13.720 ms` (`-5.14%`, `p95 20.448 -> 19.017 ms`)**.
+- **Visual parity & replays:**
+  - Frame-matched `--tonemap-scale 1.0` `1280x720` captures (`20136538` vs `0560458f`): `particles-smoke` `mean_abs_rgb=0.1951 (0.0765%)`, `shadow-plaza` `mean_abs_rgb=0.0173 (0.0068%)` (`67` changed pixels >2 from the F1 overlay frame timing text; visual inspection confirmed identical smoke/embers and Metrocops sidewalk shadow decal).
+  - Restored everyday release build (`0560458f`) passed `hl2-bevy` unit tests (`265 passed; 0 failed`), `validate.sh`, Windows-target Clippy, `10/10` targeted effect/shadow replays (`22 s`), and **`109/109`** shared packaged replays (`211 s`, `0` failed). Windows runtime **not tested**.
+
 ## `O16` — Split static/dynamic `SplitBroadPhase`, player-shadow rest guard, and zero-alloc hitbox posing (2026-11-24)
 
 Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools` release build, `7a3a53e4` `sha256 ad387905` vs `O16` `sha256 20136538`):

@@ -19,6 +19,7 @@ use hl2_simulation::{projectile_visuals::ProjectileVisuals, projectiles::Project
 pub(crate) use model_reading::read_effect_model_lod;
 use modkit_core::Surface;
 use quads::QuadLayer;
+pub use quads::install_quad_buffer;
 use source_assets::vpk::Vfs;
 use sprite_modes::{glows, shading};
 use std::collections::BTreeMap;
@@ -91,6 +92,8 @@ pub struct EffectMaterial {
     texture: Handle<Image>,
     #[uniform(2)]
     parameters: Vec4,
+    #[storage(3, read_only, visibility(vertex))]
+    quad_rows: Handle<bevy::render::storage::ShaderBuffer>,
     kind: usize,
     /// kRenderGlow: no depth test or write.
     ignore_z: bool,
@@ -183,6 +186,7 @@ pub struct Effects {
     stuck: BTreeMap<u64, Vec<Entity>>,
     /// Viewmodel-space sprite/beam quads on the viewmodel camera's layer.
     viewmodel_quads: QuadLayer,
+    quad_gpu: quads::QuadGpu,
     viewmodel_draws: usize,
     rng: u64,
     /// The viewmodel's bob and lag, and the viewmodel camera's position in viewmodel space
@@ -258,6 +262,7 @@ fn sprite_materials(
                     1.,
                     shading(name),
                 ),
+                quad_rows: quads::QUAD_ROWS,
                 kind: sprite.kind,
                 ignore_z: false,
             }),
@@ -307,6 +312,7 @@ pub fn install(
                 EffectMaterial {
                     texture,
                     parameters: Vec4::new(0.001, 0., 1., 1.),
+                    quad_rows: quads::QUAD_ROWS,
                     kind: 2,
                     ignore_z: false,
                 }
@@ -315,6 +321,7 @@ pub fn install(
                 EffectMaterial {
                     texture,
                     parameters: Vec4::new(0.001, 0., 2., 2.),
+                    quad_rows: quads::QUAD_ROWS,
                     kind: 4,
                     ignore_z: false,
                 }
@@ -661,14 +668,23 @@ impl Effects {
             .collect()
     }
 }
+type GrenadeDraws<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Transform, &'static mut Visibility),
+    (With<GrenadeDraw>, Without<quads::QuadDraw>),
+>;
 pub fn present(
     mut commands: Commands,
     mut effects: ResMut<Effects>,
     game: Res<Gameplay>,
     sim: Res<Simulation>,
     frame: Option<Res<crate::video::GameFrame>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut draws: Query<(&mut Transform, &mut Visibility)>,
+    (mut meshes, mut buffers): (
+        ResMut<Assets<Mesh>>,
+        ResMut<Assets<bevy::render::storage::ShaderBuffer>>,
+    ),
+    (mut quad_draws, mut draws): (quads::QuadDraws, GrenadeDraws),
 ) {
     let (yaw, pitch) = sim.view_angles();
     let direction = glam::Vec3::from_array(crate::source_direction(yaw, pitch).to_array());
@@ -722,28 +738,16 @@ pub fn present(
     }
     frame_quads::stunstick_glows(&game, &mut effects, direction);
     effects.draws = effects.source.quads.len();
-    let quads = std::mem::take(&mut effects.source.quads);
-    let Effects {
-        materials,
-        additive,
-        quads: layer,
-        ..
-    } = &mut *effects;
-    let world_materials = (&*materials, &*additive);
-    layer.draw(&mut commands, &mut meshes, &quads, world_materials, None);
-    effects.source.quads = quads;
-    // Sprites and beams on the viewmodel (CSprite/CBeam viewmodel attachments).
     let aspect = crate::video::frame_aspect(frame.as_deref());
     let viewmodel = viewmodel_quads(&game, &mut effects, &sim, aspect);
     effects.viewmodel_draws = viewmodel.len();
-    let Effects {
-        materials,
-        viewmodel_quads: layer,
-        ..
-    } = &mut *effects;
-    // Viewmodel quads (placed against the gun) are never batched by material, only run.
-    let unbatched = (&*materials, &Default::default());
-    layer.draw(&mut commands, &mut meshes, &viewmodel, unbatched, Some(1));
+    quads::present_layers(
+        &mut commands,
+        (&mut meshes, &mut buffers),
+        &mut quad_draws,
+        &mut effects,
+        &viewmodel,
+    );
     let dead: Vec<_> = effects
         .marks
         .keys()
@@ -822,7 +826,7 @@ fn present_grenades(
     commands: &mut Commands,
     effects: &mut Effects,
     game: &Gameplay,
-    draws: &mut Query<(&mut Transform, &mut Visibility)>,
+    draws: &mut GrenadeDraws,
 ) {
     let dead: Vec<_> = effects
         .grenades

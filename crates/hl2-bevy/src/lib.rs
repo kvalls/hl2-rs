@@ -230,7 +230,14 @@ fn preload_material_shaders(mut commands: Commands, asset_server: Res<AssetServe
 
 fn add_runtime_plugins(app: &mut App) {
     app.add_audio_source::<audio::mixer::MixerStream>()
-        .add_systems(Startup, (eyes::install_rows, preload_material_shaders))
+        .add_systems(
+            Startup,
+            (
+                eyes::install_rows,
+                effects::install_quad_buffer,
+                preload_material_shaders,
+            ),
+        )
         .add_plugins((
             MaterialPlugin::<rendering::SourceMaterial>::default(),
             bevy::sprite_render::Material2dPlugin::<video::PresentMaterial>::default(),

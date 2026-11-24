@@ -34,7 +34,7 @@ use crate::{
     visibility::PvsDraw,
 };
 use bevy::{
-    app::{App, Plugin, PostUpdate},
+    app::{App, Plugin, PostUpdate, Startup},
     asset::Assets,
     camera::Projection,
     ecs::{
@@ -48,6 +48,7 @@ use bevy::{
     math::Vec2,
     mesh::Mesh,
     pbr::MaterialPlugin,
+    render::storage::ShaderBuffer,
     transform::{TransformSystems, components::Transform},
 };
 use caster::{Caster, Look};
@@ -94,6 +95,7 @@ impl Plugin for ShadowPlugin {
     fn build(&self, app: &mut App) {
         gpu::install(app);
         app.add_plugins(MaterialPlugin::<ShadowMaterial>::default())
+            .add_systems(Startup, draw::install_shadow_buffer)
             .add_systems(
                 PostUpdate,
                 update
@@ -130,6 +132,7 @@ pub struct MapShadows {
     /// Entities with a draw the view's PVS kept last frame, by entity index.
     potentially_visible: Vec<bool>,
     detail: Option<ShadowDetail>,
+    batches: draw::ShadowBatches,
     /// Decals rebuilt and silhouettes drawn since the map was installed.
     rebuilds: u64,
     silhouettes: u64,
@@ -148,6 +151,7 @@ impl MapShadows {
             order: Vec::new(),
             potentially_visible: Vec::new(),
             detail: None,
+            batches: draw::ShadowBatches::default(),
             rebuilds: 0,
             silhouettes: 0,
         }
@@ -194,6 +198,7 @@ type ShadowAssets<'w> = (
     ResMut<'w, Assets<Mesh>>,
     ResMut<'w, Assets<ShadowMaterial>>,
     ResMut<'w, Assets<Image>>,
+    ResMut<'w, Assets<ShaderBuffer>>,
 );
 type CameraView<'w, 's> = (
     Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
@@ -264,7 +269,7 @@ pub(crate) fn update(
         Option<ResMut<MapShadows>>,
         Option<ResMut<crate::rendering::actor_poses::ActorPoses>>,
     ),
-    (mut meshes, mut materials, mut images): ShadowAssets,
+    (mut meshes, mut materials, mut images, mut buffers): ShadowAssets,
     mut draws: Draws,
     (camera, entity_draws): (CameraView, EntityDraws),
     (performance, frame, gpu): FrameOptions,
@@ -305,34 +310,41 @@ pub(crate) fn update(
         shadows.textures.page.advance_frame();
         shadows.silhouettes += rank(shadows, &game, &mut images, actor_poses.as_deref_mut());
     }
-    for (caster, shown) in shadows.casters.iter_mut().zip(shown) {
-        if !shown {
-            draw::show(caster, &mut draws, false);
+    let mut any_changed = !shadows.batches.is_synced();
+    for (caster, is_shown) in shadows.casters.iter_mut().zip(shown) {
+        if caster.shown != is_shown {
+            caster.shown = is_shown;
+            any_changed = true;
+        }
+        if !is_shown {
             continue;
         }
         if caster.look != Some(caster.wanted) || caster.moved {
             lay(caster, (&shadows.receivers, &mut shadows.scratch));
             shadows.rebuilds += 1;
-            let rect = match caster.wanted {
-                Look::Cell(corner, n) => to_bevy(uv_rect((corner, n))),
-                _ => (Vec2::ZERO, Vec2::ONE),
-            };
-            let material = match caster.wanted {
-                Look::Cell(..) => shadows.textures.atlas_material.clone(),
-                _ => shadows.textures.blob.clone(),
-            };
-            if let Some(material) = material.filter(|_| !caster.decal.is_empty()) {
-                draw::write(
-                    caster,
-                    (&mut commands, &mut meshes),
-                    (material, rect),
-                    &mut draws,
-                );
-            }
             caster.look = Some(caster.wanted);
+            any_changed = true;
         }
-        let visible = !caster.decal.is_empty();
-        draw::show(caster, &mut draws, visible);
+        let (use_atlas, rect) = match caster.wanted {
+            Look::Cell(corner, n) => (true, to_bevy(uv_rect((corner, n)))),
+            Look::Blob | Look::Lod => (false, (Vec2::ZERO, Vec2::ONE)),
+        };
+        if caster.use_atlas != use_atlas || caster.rect != rect {
+            caster.use_atlas = use_atlas;
+            caster.rect = rect;
+            any_changed = true;
+        }
+    }
+    if any_changed {
+        shadows.batches.sync(
+            &shadows.casters,
+            (
+                shadows.textures.atlas_material.clone(),
+                shadows.textures.blob.clone(),
+            ),
+            (&mut commands, &mut meshes, &mut buffers),
+            &mut draws,
+        );
     }
     shadows.textures.refresh(&mut materials);
 }
