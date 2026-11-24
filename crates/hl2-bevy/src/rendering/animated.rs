@@ -6,7 +6,7 @@ use super::{
 use bevy::{
     camera::primitives::{Aabb, MeshAabb},
     mesh::{Mesh, Mesh3d, morph::MeshMorphWeights},
-    prelude::{Assets, Component, Entity, Query, Res, ResMut, Transform, With, Without},
+    prelude::{Assets, Component, Entity, Mut, Query, Res, ResMut, Transform, With, Without},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -128,6 +128,40 @@ fn update_gpu_joints(
     }
 }
 
+fn apply_skin_pose(
+    animation: &mut AnimatedMesh,
+    handle: &Mesh3d,
+    aabb: Option<Mut<'_, Aabb>>,
+    rig: &modkit_core::animation::Rig,
+    matrices: &[glam::Mat4],
+    (sampled, joints, updated_joints, meshes): (
+        (String, u32, u64),
+        &mut JointTransforms,
+        &mut BTreeSet<Entity>,
+        &mut Assets<Mesh>,
+    ),
+) {
+    if let Some(skeleton) = &animation.gpu {
+        update_gpu_joints(
+            skeleton,
+            rig,
+            matrices,
+            animation.scale,
+            joints,
+            updated_joints,
+        );
+        animation.sampled = Some(sampled);
+        return;
+    }
+    if let Some(mut mesh) = meshes.get_mut(&handle.0) {
+        cpu_skin::skin_on_cpu(&mut mesh, animation, matrices);
+        if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.compute_aabb()) {
+            *aabb = bounds;
+        }
+        animation.sampled = Some(sampled);
+    }
+}
+
 pub fn present_entities(
     game: Res<crate::gameplay::Gameplay>,
     sim: Res<crate::simulation::Simulation>,
@@ -139,7 +173,10 @@ pub fn present_entities(
         Option<&mut Aabb>,
         Option<&mut MeshMorphWeights>,
     )>,
-    performance: Option<Res<crate::performance::Performance>>,
+    (performance, isolation): (
+        Option<Res<crate::performance::Performance>>,
+        Option<Res<crate::isolation::Isolation>>,
+    ),
     (flex_models, eyes, mut actor_poses, mut meshes): AnimationInputs,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "animation");
@@ -147,6 +184,8 @@ pub fn present_entities(
     let mut updated_joints = BTreeSet::new();
     let mut poses: BTreeMap<(String, String, u32, u64), Arc<Vec<glam::Mat4>>> = BTreeMap::new();
     let mut flex_weights = face_flex::FlexWeights::new();
+    let run_flexes = !isolation.as_deref().is_some_and(|i| i.no_flexes);
+    let mut flex_duration = std::time::Duration::ZERO;
     for (mut animation, handle, aabb, morph_weights) in &mut animations {
         if animation.entity.is_some() && animation.weapon.is_some() {
             continue;
@@ -155,18 +194,24 @@ pub fn present_entities(
             continue;
         };
         // Facial flexes deform the bind positions before skinning (both GPU and CPU paths).
-        face_flex::apply_facial_flexes(
-            &mut animation,
-            handle,
-            &mut meshes,
-            &face_flex::FaceInputs {
-                game: &game,
-                models: flex_models.as_deref(),
-                eyes: eyes.as_deref(),
-            },
-            &mut flex_weights,
-            morph_weights,
-        );
+        if run_flexes {
+            let flex_start = performance.as_ref().map(|_| std::time::Instant::now());
+            face_flex::apply_facial_flexes(
+                &mut animation,
+                handle,
+                &mut meshes,
+                &face_flex::FaceInputs {
+                    game: &game,
+                    models: flex_models.as_deref(),
+                    eyes: eyes.as_deref(),
+                },
+                &mut flex_weights,
+                morph_weights,
+            );
+            if let Some(started) = flex_start {
+                flex_duration += started.elapsed();
+            }
+        }
         let stamp = match animation
             .entity
             .map(|id| (id, actor_poses::entity_stamp(&game, rig, id)))
@@ -201,24 +246,16 @@ pub fn present_entities(
                 Some((id, s)) => actor_poses.pose(&game, (&animation.key, rig), *id, s),
                 None => Arc::new(game.inventory.viewmodel_matrices(rig, game.scene.time)),
             });
-        if let Some(skeleton) = &animation.gpu {
-            update_gpu_joints(
-                skeleton,
-                rig,
-                matrices,
-                animation.scale,
-                &mut joints,
-                &mut updated_joints,
-            );
-            animation.sampled = Some(sampled);
-            continue;
-        }
-        if let Some(mut mesh) = meshes.get_mut(&handle.0) {
-            cpu_skin::skin_on_cpu(&mut mesh, &animation, matrices);
-            if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.compute_aabb()) {
-                *aabb = bounds;
-            }
-            animation.sampled = Some(sampled);
-        }
+        apply_skin_pose(
+            &mut animation,
+            handle,
+            aabb,
+            rig,
+            matrices,
+            (sampled, &mut joints, &mut updated_joints, &mut meshes),
+        );
+    }
+    if let Some(p) = performance.as_deref() {
+        p.record_ms("face_flex", flex_duration.as_secs_f64() * 1000.);
     }
 }

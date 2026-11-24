@@ -135,7 +135,6 @@
   "fed629d3999b"
  ],
  "files": {
-  "crates/hl2-bevy/src/gameplay.rs": 1374,
   "crates/hl2-bevy/src/video.rs": 1006,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2357,
@@ -158,26 +157,17 @@
   "crates/hl2-bevy/src/bloom.rs::source_bloom": [
    111
   ],
-  "crates/hl2-bevy/src/effects.rs::present": [
-   147
-  ],
   "crates/hl2-bevy/src/effects.rs::viewmodel_quads": [
    172
   ],
   "crates/hl2-bevy/src/eyes.rs::present": [
    119
   ],
-  "crates/hl2-bevy/src/gameplay.rs::tick": [
-   692
-  ],
   "crates/hl2-bevy/src/input.rs::controls": [
    103
   ],
   "crates/hl2-bevy/src/rendering.rs::build_model_draws": [
    106
-  ],
-  "crates/hl2-bevy/src/simulation.rs::step": [
-   167
   ],
   "crates/hl2-bevy/src/studio_decals.rs::present": [
    156

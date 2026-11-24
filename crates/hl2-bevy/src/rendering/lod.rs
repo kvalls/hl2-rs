@@ -623,26 +623,40 @@ pub(crate) fn switch_levels(
     camera: Query<Camera, With<crate::FlyCamera>>,
     monitor: Query<(Camera, &bevy::camera::Camera), With<crate::monitors::MonitorCamera>>,
     frame: Option<Res<crate::video::GameFrame>>,
+    isolation: Option<Res<crate::isolation::Isolation>>,
     mut draws: Query<Draw>,
 ) {
-    let Ok((camera, projection)) = camera.single() else {
-        return;
+    let forced = isolation.and_then(|i| i.force_lod);
+    let views = match forced {
+        Some(_) => None,
+        None => {
+            let Ok((camera, projection)) = camera.single() else {
+                return;
+            };
+            let height = frame.map_or(768., |f| f.resolution.y as f32);
+            let Some(view) = View::of(camera, projection, height) else {
+                return;
+            };
+            let monitor = monitor
+                .single()
+                .ok()
+                .filter(|(_, camera)| camera.is_active)
+                .and_then(|((t, p), _)| View::of(t, p, crate::monitors::SIZE as f32));
+            Some((view, monitor))
+        }
     };
-    let height = frame.map_or(768., |f| f.resolution.y as f32);
-    let Some(view) = View::of(camera, projection, height) else {
-        return;
-    };
-    let monitor = monitor
-        .single()
-        .ok()
-        .filter(|(_, camera)| camera.is_active)
-        .and_then(|((t, p), _)| View::of(t, p, crate::monitors::SIZE as f32));
     for (transform, mut levels, mut mesh, animation, triangles) in &mut draws {
-        let at = transform.translation;
-        let wanted = view.level(&levels.switches, at);
-        let wanted = monitor
-            .as_ref()
-            .map_or(wanted, |m| wanted.min(m.level(&levels.switches, at)));
+        let wanted = if let Some(lod) = forced {
+            lod.min(levels.levels.len().saturating_sub(1))
+        } else if let Some((view, monitor)) = &views {
+            let at = transform.translation;
+            let wanted = view.level(&levels.switches, at);
+            monitor
+                .as_ref()
+                .map_or(wanted, |m| wanted.min(m.level(&levels.switches, at)))
+        } else {
+            continue;
+        };
         if wanted == levels.current {
             continue;
         }

@@ -2,6 +2,7 @@
 mod frame_quads;
 mod gibs;
 mod initial;
+mod marks;
 mod material;
 mod model_reading;
 mod quads;
@@ -679,13 +680,17 @@ pub fn present(
     mut effects: ResMut<Effects>,
     game: Res<Gameplay>,
     sim: Res<Simulation>,
-    frame: Option<Res<crate::video::GameFrame>>,
+    (frame, performance): (
+        Option<Res<crate::video::GameFrame>>,
+        Option<Res<crate::performance::Performance>>,
+    ),
     (mut meshes, mut buffers): (
         ResMut<Assets<Mesh>>,
         ResMut<Assets<bevy::render::storage::ShaderBuffer>>,
     ),
     (mut quad_draws, mut draws): (quads::QuadDraws, GrenadeDraws),
 ) {
+    let _timing = crate::performance::scope(performance.as_deref(), "effects");
     let (yaw, pitch) = sim.view_angles();
     let direction = glam::Vec3::from_array(crate::source_direction(yaw, pitch).to_array());
     // CL_DecayLights before this frame's new elights.
@@ -748,76 +753,7 @@ pub fn present(
         &mut effects,
         &viewmodel,
     );
-    let dead: Vec<_> = effects
-        .marks
-        .keys()
-        .copied()
-        .filter(|id| !game.impacts.marks.iter().any(|m| m.id == *id))
-        .collect();
-    for id in dead {
-        if let Some((entity, handle)) = effects.marks.remove(&id) {
-            commands.entity(entity).try_despawn();
-            meshes.remove(&handle);
-        }
-    }
-    effects.mark_draws = 0;
-    for mark in &game.impacts.marks {
-        let (transform, visible) =
-            game.scene
-                .states
-                .get(mark.entity)
-                .map_or((Transform::IDENTITY, true), |s| {
-                    let (p, r) = sim
-                        .physics
-                        .entity_pose(mark.entity)
-                        .unwrap_or((s.origin, s.rotation));
-                    let mut t = rendering::entity_transform(p, r);
-                    t.scale = Vec3::splat(mark.scale);
-                    (t, !s.killed && s.visible)
-                });
-        if !effects.marks.contains_key(&mark.id) {
-            let mesh = meshes.add(mesh(
-                mark.vertices
-                    .iter()
-                    .map(|v| {
-                        crate::source_to_bevy(Vec3::from_array(v.position.to_array())).to_array()
-                    })
-                    .collect(),
-                mark.vertices.iter().map(|v| v.uv.to_array()).collect(),
-                // Linear light; lit decals apply it after the sRGB decode.
-                vec![
-                    {
-                        let [r, g, b] = mark.tint.map(|c| c.max(0.));
-                        [r, g, b, 1.]
-                    };
-                    mark.vertices.len()
-                ],
-                (0..mark.vertices.len() as u32).collect(),
-                false,
-            ));
-            let material = effects.materials[&mark.material].clone();
-            let entity = commands
-                .spawn((
-                    crate::campaign::MapOwned,
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material),
-                    transform,
-                    (DecalDraw { id: mark.id }, bevy::light::NotShadowCaster),
-                ))
-                .id();
-            effects.marks.insert(mark.id, (entity, mesh));
-        }
-        let entity = effects.marks[&mark.id].0;
-        commands.entity(entity).insert((
-            transform,
-            if visible {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            },
-        ));
-        effects.mark_draws += usize::from(visible);
-    }
+    marks::present(&mut commands, &mut effects, &game, &sim, &mut meshes);
     present_grenades(&mut commands, &mut effects, &game, &mut draws);
     present_stuck_bolts(&mut commands, &mut effects, &game);
 }

@@ -1,3 +1,4 @@
+mod bench;
 mod hitboxes;
 mod ragdolls;
 mod shadow;

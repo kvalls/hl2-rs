@@ -617,10 +617,21 @@ impl Simulation {
         c.label
     }
 
+    #[cfg(test)]
     pub(crate) fn step(
+        &mut self,
+        game: Option<&mut crate::gameplay::Gameplay>,
+        ui: Option<&mut crate::ui_host::Console>,
+    ) {
+        self.step_with(game, ui, crate::isolation::Isolation::default(), None);
+    }
+
+    pub(crate) fn step_with(
         &mut self,
         mut game: Option<&mut crate::gameplay::Gameplay>,
         mut ui: Option<&mut crate::ui_host::Console>,
+        isolation: crate::isolation::Isolation,
+        performance: Option<&crate::performance::Performance>,
     ) {
         if (self.finished && !self.run_after_script) || self.loading {
             return;
@@ -655,78 +666,15 @@ impl Simulation {
                     glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array());
                 // GetDefaultFOV for SetFOV ramps (the `fov` command / fixture FOV).
                 game.inventory.fov.default_fov = self.fov;
-                game.tick(
+                game.tick_with(
                     &mut self.physics,
                     &self.player,
-                    self.eye,
-                    direction,
-                    self.fly,
+                    (self.eye, direction, self.fly),
+                    isolation,
+                    performance,
                 );
             }
-            if self.fly {
-                let forward =
-                    glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array());
-                let right = glam::Vec3::new(self.yaw.sin(), -self.yaw.cos(), 0.);
-                let vertical = f32::from(self.input.jump) - f32::from(self.input.crouch);
-                let direction = (forward * self.input.forward
-                    + right * self.input.side
-                    + glam::Vec3::Z * vertical)
-                    .normalize_or_zero();
-                self.eye += direction * if self.input.sprint { 900. } else { 300. } * TICK;
-            } else {
-                let before = hl2_simulation::footsteps::State {
-                    velocity: self.player.velocity,
-                    grounded: self.player.grounded,
-                    crouched: self.player.crouched,
-                    noclip: false,
-                };
-                let feet = self.player.feet;
-                // NPC hits push the player (ApplyAbsVelocityImpulse) before the move.
-                if let Some(game) = game.as_deref_mut() {
-                    self.player.velocity += std::mem::take(&mut game.player_impulse);
-                }
-                // SetMaxSpeed from the weapons stage (gravity gun load) for this step.
-                self.input.max_speed = game
-                    .as_deref()
-                    .and_then(|game| game.inventory.player_max_speed());
-                self.input.surface = game
-                    .as_deref()
-                    .filter(|_| self.player.grounded)
-                    .map(|game| game.ground_surface(&self.physics, feet))
-                    .unwrap_or_default();
-                // A scripted camera (point_viewcontrol) freezes the player in place.
-                let input = if self.frozen() {
-                    Input {
-                        yaw: self.yaw,
-                        ..Input::default()
-                    }
-                } else {
-                    self.input
-                };
-                self.move_player(input, game.as_deref_mut());
-                self.eye = self.player.eye();
-                // The player's VPhysics shadow pushes and weighs down movable props.
-                let held = game.as_deref().and_then(|game| {
-                    game.inventory.physcannon.held.or(game
-                        .inventory
-                        .carry
-                        .as_ref()
-                        .map(|carry| carry.entity))
-                });
-                self.physics.update_player_shadow(
-                    feet,
-                    self.player.feet,
-                    self.player.crouched,
-                    self.player.grounded && !self.player.dead,
-                    self.player.step_height,
-                    self.player.wish_velocity,
-                    held,
-                    TICK,
-                );
-                if let Some(game) = game.as_deref_mut() {
-                    commentary::finish_ground_step(self, game, before, feet);
-                }
-            }
+            self.step_player(game.as_deref_mut());
             if let Some(game) = game.as_deref_mut() {
                 commentary::after_gameplay_step(self, game);
             }
@@ -752,37 +700,109 @@ impl Simulation {
             self.loading = true;
         }
         if let Some(label) = label {
-            self.samples.push(Sample {
-                label,
-                host_tick: self.host_tick,
-                paused: self.paused,
-                fly: self.fly,
-                player: self.player.clone(),
-                gameplay: game
-                    .as_deref()
-                    .map(|g| commentary::sample_report(g, &self.physics)),
-                console: ui.as_deref().map(|u| u.report()),
-                hull_contacts: self.physics.hull_contacts(
-                    self.player.feet,
-                    if self.player.crouched { 36. } else { 72. },
-                ),
-                shadow: self.physics.player_shadow_center(),
-                physics_ms: self.physics.last_step_ms,
-                step_ms: self.last_step_ms,
-                awake_bodies: self.physics.awake_bodies(),
-                frame: self.frame_size,
-                camera: self.camera_fov,
-                ray_entity: self
-                    .physics
-                    .ray(
-                        self.eye,
-                        glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array()),
-                        128.,
-                    )
-                    .map(|(id, _)| id),
-            });
+            self.record_sample(label, game.as_deref(), ui.as_deref());
         }
         self.finished = !self.commands.is_empty() && self.next == self.commands.len();
+    }
+
+    fn step_player(&mut self, mut game: Option<&mut crate::gameplay::Gameplay>) {
+        if self.fly {
+            let forward = glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array());
+            let right = glam::Vec3::new(self.yaw.sin(), -self.yaw.cos(), 0.);
+            let vertical = f32::from(self.input.jump) - f32::from(self.input.crouch);
+            let direction =
+                (forward * self.input.forward + right * self.input.side + glam::Vec3::Z * vertical)
+                    .normalize_or_zero();
+            self.eye += direction * if self.input.sprint { 900. } else { 300. } * TICK;
+            return;
+        }
+        let before = hl2_simulation::footsteps::State {
+            velocity: self.player.velocity,
+            grounded: self.player.grounded,
+            crouched: self.player.crouched,
+            noclip: false,
+        };
+        let feet = self.player.feet;
+        // NPC hits push the player (ApplyAbsVelocityImpulse) before the move.
+        if let Some(game) = game.as_deref_mut() {
+            self.player.velocity += std::mem::take(&mut game.player_impulse);
+        }
+        // SetMaxSpeed from the weapons stage (gravity gun load) for this step.
+        self.input.max_speed = game
+            .as_deref()
+            .and_then(|game| game.inventory.player_max_speed());
+        self.input.surface = game
+            .as_deref()
+            .filter(|_| self.player.grounded)
+            .map(|game| game.ground_surface(&self.physics, feet))
+            .unwrap_or_default();
+        // A scripted camera (point_viewcontrol) freezes the player in place.
+        let input = if self.frozen() {
+            Input {
+                yaw: self.yaw,
+                ..Input::default()
+            }
+        } else {
+            self.input
+        };
+        self.move_player(input, game.as_deref_mut());
+        self.eye = self.player.eye();
+        // The player's VPhysics shadow pushes and weighs down movable props.
+        let held = game.as_deref().and_then(|game| {
+            game.inventory.physcannon.held.or(game
+                .inventory
+                .carry
+                .as_ref()
+                .map(|carry| carry.entity))
+        });
+        self.physics.update_player_shadow(
+            feet,
+            self.player.feet,
+            self.player.crouched,
+            self.player.grounded && !self.player.dead,
+            self.player.step_height,
+            self.player.wish_velocity,
+            held,
+            TICK,
+        );
+        if let Some(game) = game {
+            commentary::finish_ground_step(self, game, before, feet);
+        }
+    }
+
+    fn record_sample(
+        &mut self,
+        label: String,
+        game: Option<&crate::gameplay::Gameplay>,
+        ui: Option<&crate::ui_host::Console>,
+    ) {
+        self.samples.push(Sample {
+            label,
+            host_tick: self.host_tick,
+            paused: self.paused,
+            fly: self.fly,
+            player: self.player.clone(),
+            gameplay: game.map(|g| commentary::sample_report(g, &self.physics)),
+            console: ui.map(|u| u.report()),
+            hull_contacts: self.physics.hull_contacts(
+                self.player.feet,
+                if self.player.crouched { 36. } else { 72. },
+            ),
+            shadow: self.physics.player_shadow_center(),
+            physics_ms: self.physics.last_step_ms,
+            step_ms: self.last_step_ms,
+            awake_bodies: self.physics.awake_bodies(),
+            frame: self.frame_size,
+            camera: self.camera_fov,
+            ray_entity: self
+                .physics
+                .ray(
+                    self.eye,
+                    glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array()),
+                    128.,
+                )
+                .map(|(id, _)| id),
+        });
     }
 }
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -818,10 +838,16 @@ fn fixed_step(
     mut ui: Option<ResMut<crate::ui_host::Console>>,
     mut exit: MessageWriter<AppExit>,
     performance: Option<Res<crate::performance::Performance>>,
+    isolation: Option<Res<crate::isolation::Isolation>>,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "fixed_simulation");
     let started = std::time::Instant::now();
-    sim.step(game.as_deref_mut(), ui.as_deref_mut());
+    sim.step_with(
+        game.as_deref_mut(),
+        ui.as_deref_mut(),
+        isolation.as_deref().copied().unwrap_or_default(),
+        performance.as_deref(),
+    );
     sim.last_step_ms = started.elapsed().as_secs_f64() * 1000.;
     if ui.is_some_and(|u| u.quit_requested) {
         exit.write(AppExit::Success);

@@ -20,6 +20,7 @@ mod gpu_skinning;
 pub mod input;
 mod intro_view;
 mod io_trace;
+pub mod isolation;
 mod launch;
 mod map_install;
 mod material_proxies;
@@ -136,6 +137,8 @@ struct Options {
     startup_commands: Vec<String>,
     /// NPC pool labels requested by the startup `--movement-script` for selective preloading.
     pub(crate) script_npc_classes: std::collections::BTreeSet<String>,
+    /// Subsystem isolation flags from CLI arguments.
+    pub isolation: crate::isolation::Isolation,
     /// Persisted user configuration.
     config: hl2_ui::config::Config,
 }
@@ -296,6 +299,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
     }
     app.insert_resource(extensions::UiContributions(application.ui))
         .insert_resource(options.clone())
+        .insert_resource(options.isolation)
         .insert_resource(audio::OutputMute(options.mute))
         .insert_resource(tonemap::Tonemap::new(options.tonemap_scale))
         .insert_resource(status.clone())

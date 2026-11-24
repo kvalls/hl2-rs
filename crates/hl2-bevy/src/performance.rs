@@ -38,18 +38,17 @@ pub fn scope<'a>(performance: Option<&'a Performance>, name: &'static str) -> Sc
         start: Instant::now(),
     }
 }
+fn push_sample(all: &mut BTreeMap<&'static str, Samples>, name: &'static str, ms: f64) {
+    let samples = all.entry(name).or_default();
+    samples.calls += 1;
+    if samples.calls > 30 && samples.values.len() < SAMPLE_LIMIT {
+        samples.values.push(ms);
+    }
+}
 impl Drop for Scope<'_> {
     fn drop(&mut self) {
-        let Some(performance) = self.performance else {
-            return;
-        };
-        let mut all = performance.0.lock().expect("CPU timing");
-        let samples = all.entry(self.name).or_default();
-        samples.calls += 1;
-        if samples.calls > 30 && samples.values.len() < SAMPLE_LIMIT {
-            samples
-                .values
-                .push(self.start.elapsed().as_secs_f64() * 1000.);
+        if let Some(performance) = self.performance {
+            performance.record_sample(self.name, self.start.elapsed().as_secs_f64() * 1000.);
         }
     }
 }
@@ -58,6 +57,13 @@ impl Performance {
         if let Some(stats) = self.1.lock().expect("GPU profiling state").as_mut() {
             stats.camera_indirect_drawing_disabled = direct;
         }
+    }
+    fn record_sample(&self, name: &'static str, ms: f64) {
+        let mut all = self.0.lock().expect("CPU timing");
+        push_sample(&mut all, name, ms);
+    }
+    pub fn record_ms(&self, name: &'static str, ms: f64) {
+        self.record_sample(name, ms);
     }
     pub fn write_report(
         &self,
@@ -313,11 +319,7 @@ impl Performance {
     fn record_stages(&self, stages: impl IntoIterator<Item = (&'static str, f64)>) {
         let mut all = self.0.lock().expect("CPU timing");
         for (name, milliseconds) in stages {
-            let samples = all.entry(name).or_default();
-            samples.calls += 1;
-            if samples.calls > 30 && samples.values.len() < SAMPLE_LIMIT {
-                samples.values.push(milliseconds);
-            }
+            push_sample(&mut all, name, milliseconds);
         }
     }
 }
@@ -334,5 +336,24 @@ impl Performance {
             .expect("CPU timing")
             .get(name)
             .map_or(0, |samples| samples.values.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_ms_skips_first_30_calls_and_records_from_31() {
+        let perf = Performance::default();
+        for i in 1..=35 {
+            perf.record_ms("test_stage", f64::from(i));
+        }
+        assert_eq!(perf.recorded("test_stage"), 5);
+        let report = perf.report();
+        assert_eq!(report["test_stage"]["calls"], 35);
+        assert_eq!(report["test_stage"]["samples"], 5);
+        assert_eq!(report["test_stage"]["mean_ms"], 33.0);
+        assert_eq!(report["test_stage"]["max_ms"], 35.0);
     }
 }

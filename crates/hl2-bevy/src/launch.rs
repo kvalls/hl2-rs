@@ -155,18 +155,20 @@ pub(super) fn add_presentation_systems(app: &mut App) {
     .add_systems(
         PostUpdate,
         (
-            rendering::present_entities,
+            rendering::present_entities.run_if(crate::isolation::run_animation),
             rendering::lod::switch_levels.after(rendering::present_entities),
             rendering::present_weapons,
-            effects::present,
-            effects::present_gibs,
+            effects::present.run_if(crate::isolation::run_effects),
+            effects::present_gibs.run_if(crate::isolation::run_effects),
             studio_decals::present,
             sky::present,
             monitors::present,
             monitors::present_materials,
-            eyes::attention_pvs,
+            eyes::attention_pvs.run_if(crate::isolation::run_eyes),
             material_proxies::present,
-            canvas_renderer::present.after(flashlight::update),
+            canvas_renderer::present
+                .after(flashlight::update)
+                .run_if(crate::isolation::run_hud),
             tonemap::update,
         )
             .before(TransformSystems::Propagate),
@@ -184,7 +186,8 @@ pub(super) fn add_presentation_systems(app: &mut App) {
             PostUpdate,
             audio::queue
                 .after(canvas_renderer::present)
-                .before(TransformSystems::Propagate),
+                .before(TransformSystems::Propagate)
+                .run_if(crate::isolation::run_audio),
         )
         .add_systems(Last, effects::observe.before(monitor::monitor))
         .add_systems(Last, audio::observe.before(monitor::monitor))
@@ -233,7 +236,7 @@ fn add_runtime_entity_systems(app: &mut App) {
         PostUpdate,
         (
             rendering::present_render_colors,
-            rendering::apply_lightstyles,
+            rendering::apply_lightstyles.run_if(crate::isolation::run_lightstyles),
         )
             .after(rendering::present_entities),
     )
@@ -242,13 +245,15 @@ fn add_runtime_entity_systems(app: &mut App) {
         rendering::present_lighting
             .after(rendering::present_entities)
             .after(effects::present)
-            .before(TransformSystems::Propagate),
+            .before(TransformSystems::Propagate)
+            .run_if(crate::isolation::run_model_lighting),
     )
     .add_systems(
         PostUpdate,
         eyes::present
             .after(rendering::present_entities)
-            .before(TransformSystems::Propagate),
+            .before(TransformSystems::Propagate)
+            .run_if(crate::isolation::run_eyes),
     )
     .add_systems(
         PostUpdate,

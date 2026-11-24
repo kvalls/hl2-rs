@@ -162,3 +162,96 @@ fn actors_with_too_many_morph_channels_keep_private_meshes() {
     };
     assert_ne!(spawn(1), spawn(2));
 }
+
+#[test]
+fn force_lod_switches_and_clamps_without_camera_distance() {
+    use bevy::ecs::{system::RunSystemOnce, world::World as BevyWorld};
+
+    let root_vertices = Arc::new(Vertices {
+        bind: vec![(glam::Vec3::ONE, None)],
+        normals: vec![glam::Vec3::Z],
+        flex: vec![Some([0, 0, 1])],
+    });
+    let coarser_vertices = Arc::new(Vertices {
+        bind: vec![(glam::Vec3::ZERO, None)],
+        normals: vec![glam::Vec3::Y],
+        flex: vec![Some([0, 0, 2])],
+    });
+    let anim = AnimatedMesh {
+        sampled: None,
+        gpu: None,
+        entity: Some(1),
+        weapon: None,
+        key: "models/alyx.mdl".to_owned(),
+        scale: 1.0,
+        vertices: Arc::clone(&root_vertices),
+        deformed: Some(vec![glam::Vec3::X]),
+        morph: None,
+        flex_state: Default::default(),
+    };
+
+    let mut world = BevyWorld::new();
+    let draw = world
+        .spawn((
+            Transform::from_xyz(0., 0., -10.),
+            ModelLevels {
+                switches: vec![0., 500.],
+                levels: vec![
+                    Level {
+                        mesh: Handle::default(),
+                        vertices: Some(Arc::clone(&root_vertices)),
+                        triangles: 100,
+                    },
+                    Level {
+                        mesh: Handle::default(),
+                        vertices: Some(Arc::clone(&coarser_vertices)),
+                        triangles: 40,
+                    },
+                ],
+                current: 0,
+            },
+            Mesh3d(Handle::default()),
+            anim,
+            super::super::DrawTriangles(100),
+        ))
+        .id();
+
+    world.insert_resource(crate::isolation::Isolation {
+        force_lod: Some(1),
+        ..Default::default()
+    });
+    world.run_system_once(switch_levels).unwrap();
+    assert_eq!(world.get::<ModelLevels>(draw).unwrap().current, 1);
+    assert_eq!(
+        world.get::<super::super::DrawTriangles>(draw).unwrap().0,
+        40
+    );
+    assert!(Arc::ptr_eq(
+        &world.get::<AnimatedMesh>(draw).unwrap().vertices,
+        &coarser_vertices
+    ));
+
+    // Out-of-range forced LOD clamps to the coarsest available level.
+    world.insert_resource(crate::isolation::Isolation {
+        force_lod: Some(9),
+        ..Default::default()
+    });
+    world.run_system_once(switch_levels).unwrap();
+    assert_eq!(world.get::<ModelLevels>(draw).unwrap().current, 1);
+
+    // Forcing back to 0 restores the root level.
+    world.insert_resource(crate::isolation::Isolation {
+        force_lod: Some(0),
+        ..Default::default()
+    });
+    world.run_system_once(switch_levels).unwrap();
+    assert_eq!(world.get::<ModelLevels>(draw).unwrap().current, 0);
+    assert_eq!(
+        world.get::<super::super::DrawTriangles>(draw).unwrap().0,
+        100
+    );
+    assert!(Arc::ptr_eq(
+        &world.get::<AnimatedMesh>(draw).unwrap().vertices,
+        &root_vertices
+    ));
+}

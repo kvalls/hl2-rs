@@ -85,6 +85,7 @@ impl Options {
             usercon: false,
             startup_commands: Vec::new(),
             script_npc_classes: std::collections::BTreeSet::new(),
+            isolation: Default::default(),
             config,
         }
     }
@@ -183,6 +184,7 @@ impl Options {
                 startup::print_help();
                 std::process::exit(0);
             }
+            _ if options.isolation.parse_flag(arg, args)? => {}
             _ => bail!("unknown option {arg}; use --help"),
         }
         Ok(())
