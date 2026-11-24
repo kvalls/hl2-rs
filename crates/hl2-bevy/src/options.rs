@@ -84,6 +84,7 @@ impl Options {
             condebug: false,
             usercon: false,
             startup_commands: Vec::new(),
+            script_npc_classes: std::collections::BTreeSet::new(),
             config,
         }
     }

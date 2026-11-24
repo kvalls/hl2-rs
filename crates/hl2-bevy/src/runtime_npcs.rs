@@ -41,10 +41,11 @@ use std::{
 
 type Slot = Arc<Mutex<Option<Result<PreparedNpc, String>>>>;
 
-/// Mounted VFS handle and in-flight worker jobs for late-precached NPC classes.
+/// Mounted VFS handle, shared audio decode cache, and in-flight worker jobs for late-precached NPCs.
 #[derive(Resource)]
 pub struct RuntimeNpcs {
     vfs: Arc<source_assets::vpk::Vfs>,
+    audio_reuse: Arc<crate::audio::reuse::AudioReuse>,
     jobs: BTreeMap<String, Job>,
 }
 
@@ -55,22 +56,43 @@ struct Job {
 }
 
 impl RuntimeNpcs {
-    pub fn new(vfs: Arc<source_assets::vpk::Vfs>) -> Self {
+    pub(crate) fn new(
+        vfs: Arc<source_assets::vpk::Vfs>,
+        audio_reuse: Arc<crate::audio::reuse::AudioReuse>,
+    ) -> Self {
         Self {
             vfs,
+            audio_reuse,
             jobs: BTreeMap::new(),
         }
     }
 }
 
+pub(crate) struct PreparedTemplate {
+    entity: modkit_core::Entity,
+    instance: Option<modkit_core::ModelInstance>,
+    actor: Option<hl2_simulation::actors::PreparedActor>,
+}
+
 pub(crate) struct PreparedNpc {
     world: modkit_core::World,
-    template: modkit_core::Entity,
-    instance: Option<modkit_core::ModelInstance>,
+    templates: Vec<PreparedTemplate>,
     materials: BTreeMap<String, MaterialData>,
     gibs: BTreeMap<String, Vec<modkit_core::Surface>>,
     faces: faces::Faces,
-    actor: Option<hl2_simulation::actors::PreparedActor>,
+    audio: crate::audio::late::PreparedLateAudio,
+}
+
+pub(crate) struct PrepareInput<'a> {
+    pub vfs: &'a source_assets::vpk::Vfs,
+    pub map_name: &'a str,
+    pub label: &'a str,
+    pub known: &'a BTreeSet<String>,
+    pub existing_templates: &'a BTreeSet<String>,
+    pub loaded_waves: &'a BTreeSet<String>,
+    pub audio_reuse: &'a crate::audio::reuse::AudioReuse,
+    pub config: &'a hl2_ui::config::Config,
+    pub allow_bc: bool,
 }
 
 fn load_gibs_and_materials(
@@ -115,61 +137,142 @@ fn load_gibs_and_materials(
     (gibs, materials)
 }
 
-/// Prepare one unpooled NPC class on a worker thread: entity template, model, rig,
-/// ragdoll, locomotion clips, gibs, missing materials and face/eye metadata.
-pub(crate) fn prepare_npc_template(
-    vfs: &source_assets::vpk::Vfs,
-    map_name: &str,
+fn build_template_entities(
     label: &str,
-    known: &BTreeSet<String>,
-    config: &hl2_ui::config::Config,
-    allow_bc: bool,
-) -> anyhow::Result<PreparedNpc> {
-    let template = hl2_simulation::ai::spawn::template_entity(label, 0)
-        .with_context(|| format!("unknown NPC class {label}"))?;
+    existing_templates: &BTreeSet<String>,
+) -> anyhow::Result<Vec<modkit_core::Entity>> {
+    let slots = match label {
+        "npc_citizen" | "npc_citizen_rebel" | "npc_citizen_refugee" | "npc_citizen_medic" => 3,
+        _ => 1,
+    };
+    let mut entities = Vec::with_capacity(slots);
+    for slot in 0..slots {
+        let entity = hl2_simulation::ai::spawn::template_entity(label, slot)
+            .with_context(|| format!("unknown NPC class {label}"))?;
+        entities.push(entity);
+    }
+    let (dep_labels, dep_gibs) = hl2_simulation::ai::spawn::required_pool_dependencies([label]);
+    for dep in dep_labels {
+        if dep != label
+            && !existing_templates.contains(dep)
+            && let Some(entity) = hl2_simulation::ai::spawn::template_entity(dep, 0)
+        {
+            entities.push(entity);
+        }
+    }
+    for gib in dep_gibs {
+        if !existing_templates.contains(&hl2_simulation::ai::spawn::gib_label(gib)) {
+            entities.push(hl2_simulation::ai::spawn::gib_template_entity(gib));
+        }
+    }
+    Ok(entities)
+}
+
+fn prepare_actors(
+    mini_world: &mut modkit_core::World,
+    vfs: &source_assets::vpk::Vfs,
+) -> Vec<Option<hl2_simulation::actors::PreparedActor>> {
+    let mut actors = Vec::with_capacity(mini_world.entities.len());
+    for idx in 0..mini_world.entities.len() {
+        let actor = if mini_world.entities[idx].class() != "raggib" {
+            match hl2_simulation::actors::prepare_single_actor(mini_world, vfs, idx) {
+                Ok(actor) => actor,
+                Err(e) => {
+                    mini_world
+                        .warnings
+                        .push(format!("NPC {}: {e:#}", mini_world.entities[idx].class()));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        actors.push(actor);
+    }
+    actors
+}
+
+fn prepare_audio(
+    mini_world: &modkit_core::World,
+    input: &PrepareInput<'_>,
+) -> crate::audio::late::PreparedLateAudio {
+    let mut cues = BTreeSet::new();
+    for rig in mini_world.rigs.values() {
+        cues.extend(hl2_simulation::sounds::animation_sound_names(rig));
+    }
+    for entity in &mini_world.entities {
+        cues.extend(
+            crate::audio::late::class_sound_cues(entity.class())
+                .into_iter()
+                .map(str::to_owned),
+        );
+    }
+    crate::audio::late::prepare_npc_audio(input.vfs, input.audio_reuse, input.loaded_waves, &cues)
+}
+
+fn collect_templates(
+    mini_world: &mut modkit_core::World,
+    actors: Vec<Option<hl2_simulation::actors::PreparedActor>>,
+) -> Vec<PreparedTemplate> {
+    let mut instances: BTreeMap<usize, modkit_core::ModelInstance> = BTreeMap::new();
+    for inst in std::mem::take(&mut mini_world.model_instances) {
+        if let Some(id) = inst.entity {
+            instances.insert(id, inst);
+        }
+    }
+    std::mem::take(&mut mini_world.entities)
+        .into_iter()
+        .zip(actors)
+        .enumerate()
+        .map(|(idx, (entity, actor))| PreparedTemplate {
+            entity,
+            instance: instances.remove(&idx),
+            actor,
+        })
+        .collect()
+}
+
+/// Prepare one unpooled NPC class (plus dependent classes/gibs) on a worker thread:
+/// entity templates, models, rigs, ragdolls, locomotion clips, gibs, missing materials,
+/// face/eye metadata, and audio waves.
+pub(crate) fn prepare_npc_template(input: PrepareInput<'_>) -> anyhow::Result<PreparedNpc> {
+    let entities = build_template_entities(input.label, input.existing_templates)?;
     let mut mini_world = modkit_core::World {
-        name: map_name.to_owned(),
-        entities: vec![template],
+        name: input.map_name.to_owned(),
+        entities,
         ..Default::default()
     };
     hl2_simulation::citizens::select_models(&mut mini_world, hl2_simulation::ai::spawn::POOL_KEY);
-    let root_lod = config.video.root_lod();
-    let report = source_assets::models::append_models_lod(&mut mini_world, vfs, root_lod);
+    let root_lod = input.config.video.root_lod();
+    let report = source_assets::models::append_models_lod(&mut mini_world, input.vfs, root_lod);
     if mini_world.model_assets.is_empty() {
-        anyhow::bail!("{label}: {}", report.errors.join("; "));
+        anyhow::bail!("{}: {}", input.label, report.errors.join("; "));
     }
-    let _ = source_assets::models::append_break_physics(&mut mini_world, vfs);
-    let actor = match hl2_simulation::actors::prepare_single_actor(&mut mini_world, vfs, 0) {
-        Ok(actor) => actor,
-        Err(e) => {
-            mini_world.warnings.push(format!("NPC {label}: {e:#}"));
-            None
-        }
-    };
+    let _ = source_assets::models::append_break_physics(&mut mini_world, input.vfs);
+    let actors = prepare_actors(&mut mini_world, input.vfs);
     let (gibs, materials) = load_gibs_and_materials(
         &mut mini_world,
-        vfs,
-        known,
+        input.vfs,
+        input.known,
         (
             root_lod,
-            config.video.picmip(),
-            config.video.hdr.is_hdr(),
-            allow_bc,
+            input.config.video.picmip(),
+            input.config.video.hdr.is_hdr(),
+            input.allow_bc,
         ),
     );
     let mut face_errors = Vec::new();
-    let faces = faces::load(vfs, &mini_world, &mut face_errors);
+    let faces = faces::load(input.vfs, &mini_world, &mut face_errors);
     mini_world.warnings.extend(face_errors);
-    let template = mini_world.entities.remove(0);
-    let instance = mini_world.model_instances.pop();
+    let audio = prepare_audio(&mini_world, &input);
+    let templates = collect_templates(&mut mini_world, actors);
     Ok(PreparedNpc {
         world: mini_world,
-        template,
-        instance,
+        templates,
         materials,
         gibs,
         faces,
-        actor,
+        audio,
     })
 }
 
@@ -180,6 +283,7 @@ pub struct HostState<'w> {
     console: ResMut<'w, Console>,
     options: Option<Res<'w, crate::Options>>,
     texture_caps: Option<Res<'w, crate::TextureCaps>>,
+    audio: Option<ResMut<'w, crate::audio::Audio>>,
 }
 
 #[derive(SystemParam)]
@@ -192,6 +296,17 @@ pub struct RenderAssets<'w> {
     materials: ResMut<'w, Assets<SourceMaterial>>,
     images: ResMut<'w, Assets<Image>>,
     inverse_binds: ResMut<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+}
+
+fn existing_pool_labels(world: &modkit_core::World) -> BTreeSet<String> {
+    world
+        .entities
+        .iter()
+        .filter_map(|e| {
+            e.get(hl2_simulation::ai::spawn::POOL_KEY)
+                .map(str::to_owned)
+        })
+        .collect()
 }
 
 fn enqueue_requests(npcs: &mut RuntimeNpcs, host: &mut HostState<'_>, render: &RenderAssets<'_>) {
@@ -210,16 +325,32 @@ fn enqueue_requests(npcs: &mut RuntimeNpcs, host: &mut HostState<'_>, render: &R
         }
         let slot: Slot = Arc::default();
         let vfs = npcs.vfs.clone();
+        let audio_reuse = npcs.audio_reuse.clone();
         let map_name = host.game.world.name.clone();
         let known: BTreeSet<String> = render.cache.definitions.keys().cloned().collect();
+        let existing_templates = existing_pool_labels(&host.game.world);
+        let loaded_waves = host
+            .audio
+            .as_deref()
+            .map(crate::audio::Audio::loaded_wave_paths)
+            .unwrap_or_default();
         let config = host.console.source.config.clone();
         let allow_bc = host.texture_caps.as_deref().is_some_and(|c| c.bc);
         let class_label = label.clone();
         let out = slot.clone();
         std::thread::spawn(move || {
-            let result =
-                prepare_npc_template(&vfs, &map_name, &class_label, &known, &config, allow_bc)
-                    .map_err(|e| format!("{e:#}"));
+            let result = prepare_npc_template(PrepareInput {
+                vfs: &vfs,
+                map_name: &map_name,
+                label: &class_label,
+                known: &known,
+                existing_templates: &existing_templates,
+                loaded_waves: &loaded_waves,
+                audio_reuse: &audio_reuse,
+                config: &config,
+                allow_bc,
+            })
+            .map_err(|e| format!("{e:#}"));
             *out.lock().expect("npc precache slot") = Some(result);
         });
         npcs.jobs.insert(
@@ -233,40 +364,18 @@ fn enqueue_requests(npcs: &mut RuntimeNpcs, host: &mut HostState<'_>, render: &R
     }
 }
 
-fn install_prepared(
+fn install_template(
     commands: &mut Commands,
     host: &mut HostState<'_>,
     render: &mut RenderAssets<'_>,
-    prepared: PreparedNpc,
-    waiters: Vec<PendingNpcSpawn>,
-    load_ms: f64,
+    template: PreparedTemplate,
+    faces: &faces::Faces,
+    cpu_skinning: bool,
 ) {
-    let cpu_skinning = host.options.as_deref().is_some_and(|o| o.cpu_skinning);
-    let filtering = host.console.source.config.video.texture_sampling().0;
-    render
-        .cache
-        .add_materials_filtered(&mut render.images, prepared.materials, filtering);
-    if let Some(effects) = render.effects.as_deref_mut() {
-        effects.add_models(
-            prepared.gibs,
-            &render.cache,
-            &mut render.meshes,
-            &mut render.materials,
-        );
-    }
-    for (k, v) in prepared.faces.flexes {
-        render
-            .cache
-            .faces
-            .entry(k.clone())
-            .or_insert_with(|| v.clone());
-        render.flex_models.0.entry(k).or_insert(v);
-    }
-    host.game.merge_model(prepared.world);
     let template_id = host
         .game
-        .install_pool_template(prepared.template, prepared.instance);
-    if let Some(actor) = prepared.actor {
+        .install_pool_template(template.entity, template.instance);
+    if let Some(actor) = template.actor {
         let game = &mut *host.game;
         if let Err(e) = hl2_simulation::actors::register_prepared_actor(
             &mut game.npcs,
@@ -286,7 +395,7 @@ fn install_prepared(
         .iter()
         .find(|i| i.entity == Some(template_id))
         && hl2_simulation::attention::is_flex_actor(host.game.world.entities[template_id].class())
-        && let Some(gaze) = prepared.faces.gaze.get(&instance.asset_key())
+        && let Some(gaze) = faces.gaze.get(&instance.asset_key())
     {
         render.eyes.insert_actor(
             template_id,
@@ -295,23 +404,81 @@ fn install_prepared(
             instance.scale,
         );
     }
+    let world = host.game.world.clone();
+    build_npc_template_draws(
+        commands,
+        TemplateDrawAssets {
+            meshes: &mut render.meshes,
+            materials: &mut render.materials,
+            inverse_binds: &mut render.inverse_binds,
+        },
+        TemplateDrawWorld {
+            cache: &render.cache,
+            world: &world,
+            ai: &host.game.ai,
+            eyes: &faces.eyes,
+            cpu_skinning,
+        },
+        template_id,
+    );
+}
+
+fn install_prepared(
+    commands: &mut Commands,
+    host: &mut HostState<'_>,
+    render: &mut RenderAssets<'_>,
+    prepared: PreparedNpc,
+    waiters: Vec<PendingNpcSpawn>,
+    load_ms: f64,
+) {
+    let cpu_skinning = host.options.as_deref().is_some_and(|o| o.cpu_skinning);
+    let filtering = host.console.source.config.video.texture_sampling().0;
+    if let Some(audio) = host.audio.as_deref_mut()
+        && audio.is_ready()
     {
-        let world = host.game.world.clone();
-        build_npc_template_draws(
+        let game = &mut *host.game;
+        audio.merge_late(prepared.audio, &mut game.scene.lipsync);
+    }
+    render
+        .cache
+        .add_materials_filtered(&mut render.images, prepared.materials, filtering);
+    if let Some(effects) = render.effects.as_deref_mut() {
+        effects.add_models(
+            prepared.gibs,
+            &render.cache,
+            &mut render.meshes,
+            &mut render.materials,
+        );
+    }
+    for (k, v) in &prepared.faces.flexes {
+        render
+            .cache
+            .faces
+            .entry(k.clone())
+            .or_insert_with(|| v.clone());
+        render
+            .flex_models
+            .0
+            .entry(k.clone())
+            .or_insert_with(|| v.clone());
+    }
+    host.game.merge_model(prepared.world);
+    let already_installed = existing_pool_labels(&host.game.world);
+    for template in prepared.templates {
+        if template
+            .entity
+            .get(hl2_simulation::ai::spawn::POOL_KEY)
+            .is_some_and(|label| already_installed.contains(label))
+        {
+            continue;
+        }
+        install_template(
             commands,
-            TemplateDrawAssets {
-                meshes: &mut render.meshes,
-                materials: &mut render.materials,
-                inverse_binds: &mut render.inverse_binds,
-            },
-            TemplateDrawWorld {
-                cache: &render.cache,
-                world: &world,
-                ai: &host.game.ai,
-                eyes: &prepared.faces.eyes,
-                cpu_skinning,
-            },
-            template_id,
+            host,
+            render,
+            template,
+            &prepared.faces,
+            cpu_skinning,
         );
     }
     for pending in waiters {
@@ -404,9 +571,10 @@ mod tests {
             Vec::new(),
         ));
         app.insert_resource(Console::new(Default::default()));
-        app.insert_resource(RuntimeNpcs::new(Arc::new(
-            source_assets::vpk::Vfs::default(),
-        )));
+        app.insert_resource(RuntimeNpcs::new(
+            Arc::new(source_assets::vpk::Vfs::default()),
+            Arc::default(),
+        ));
         app.add_systems(
             Update,
             (
@@ -417,8 +585,7 @@ mod tests {
         app
     }
 
-    fn synthetic_prepared_npc(class: &str, model: &str) -> PreparedNpc {
-        let mut mini_world = World::default();
+    fn insert_synthetic_model(mini_world: &mut World, model: &str) {
         let triangle = Surface {
             background: false,
             material: "models/test/vort".into(),
@@ -443,8 +610,17 @@ mod tests {
         };
         mini_world
             .model_assets
-            .insert(format!("{model}#0"), vec![triangle]);
-        let template = hl2_simulation::ai::spawn::template_entity(class, 0).unwrap();
+            .entry(format!("{model}#0"))
+            .or_insert_with(|| vec![triangle]);
+    }
+
+    fn synthetic_template_entry(
+        mini_world: &mut World,
+        entity: modkit_core::Entity,
+        model: &str,
+    ) -> PreparedTemplate {
+        insert_synthetic_model(mini_world, model);
+        let kind = entity.class().to_owned();
         let instance = modkit_core::ModelInstance {
             background: false,
             model: model.into(),
@@ -453,19 +629,29 @@ mod tests {
             skin: 0,
             body: 0,
             scale: 1.,
-            kind: class.into(),
+            kind,
             solid: true,
             solid_mode: None,
             entity: Some(0),
         };
+        PreparedTemplate {
+            entity,
+            instance: Some(instance),
+            actor: None,
+        }
+    }
+
+    fn synthetic_prepared_npc(class: &str, model: &str) -> PreparedNpc {
+        let mut mini_world = World::default();
+        let entity = hl2_simulation::ai::spawn::template_entity(class, 0).unwrap();
+        let template = synthetic_template_entry(&mut mini_world, entity, model);
         PreparedNpc {
             world: mini_world,
-            template,
-            instance: Some(instance),
+            templates: vec![template],
             materials: BTreeMap::from([("models/test/vort".to_owned(), MaterialData::default())]),
             gibs: BTreeMap::new(),
             faces: faces::Faces::default(),
-            actor: None,
+            audio: crate::audio::late::PreparedLateAudio::default(),
         }
     }
 
@@ -599,19 +785,281 @@ mod tests {
     }
 
     #[test]
+    fn build_template_entities_expands_citizen_slots_and_filters_existing_dependencies() {
+        let rebel = build_template_entities("npc_citizen_rebel", &BTreeSet::new()).unwrap();
+        assert_eq!(rebel.len(), 3);
+        assert!(
+            rebel
+                .iter()
+                .all(|e| e.get(hl2_simulation::ai::spawn::POOL_KEY) == Some("npc_citizen_rebel"))
+        );
+
+        let full_zombie = build_template_entities("npc_zombie", &BTreeSet::new()).unwrap();
+        let labels: BTreeSet<&str> = full_zombie
+            .iter()
+            .filter_map(|e| e.get(hl2_simulation::ai::spawn::POOL_KEY))
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "npc_zombie",
+                "npc_zombie_torso",
+                "npc_headcrab",
+                "raggib models/zombie/classic_legs.mdl",
+                "raggib models/zombie/classic_torso.mdl",
+                "raggib models/zombie/classic.mdl",
+                "raggib models/headcrabclassic.mdl",
+            ]
+            .into_iter()
+            .collect()
+        );
+
+        let existing: BTreeSet<String> = ["npc_headcrab", "raggib models/zombie/classic.mdl"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let filtered = build_template_entities("npc_zombie", &existing).unwrap();
+        let filtered_labels: BTreeSet<&str> = filtered
+            .iter()
+            .filter_map(|e| e.get(hl2_simulation::ai::spawn::POOL_KEY))
+            .collect();
+        assert!(!filtered_labels.contains("npc_headcrab"));
+        assert!(!filtered_labels.contains("raggib models/zombie/classic.mdl"));
+        assert!(filtered_labels.contains("npc_zombie"));
+        assert!(filtered_labels.contains("npc_zombie_torso"));
+        assert!(filtered_labels.contains("raggib models/zombie/classic_legs.mdl"));
+    }
+
+    #[test]
+    fn multi_template_install_registers_dependents_and_skips_concurrent_duplicates() {
+        let mut app = test_app(World::default());
+        let zombie_req = SpawnRequest {
+            classname: "npc_zombie".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            request_spawn_in_app(&mut app, zombie_req),
+            "Loading npc_zombie..."
+        );
+        let waiter = std::mem::take(&mut app.world_mut().resource_mut::<Gameplay>().npc_requests);
+        let mut mini_world = World::default();
+        let templates = vec![
+            synthetic_template_entry(
+                &mut mini_world,
+                hl2_simulation::ai::spawn::template_entity("npc_zombie", 0).unwrap(),
+                "models/zombie/classic.mdl",
+            ),
+            synthetic_template_entry(
+                &mut mini_world,
+                hl2_simulation::ai::spawn::template_entity("npc_zombie_torso", 0).unwrap(),
+                "models/zombie/classic_torso.mdl",
+            ),
+            synthetic_template_entry(
+                &mut mini_world,
+                hl2_simulation::ai::spawn::template_entity("npc_headcrab", 0).unwrap(),
+                "models/headcrabclassic.mdl",
+            ),
+            synthetic_template_entry(
+                &mut mini_world,
+                hl2_simulation::ai::spawn::gib_template_entity("models/zombie/classic_legs.mdl"),
+                "models/zombie/classic_legs.mdl",
+            ),
+        ];
+        let prepared = PreparedNpc {
+            world: mini_world,
+            templates,
+            materials: BTreeMap::from([("models/test/vort".to_owned(), MaterialData::default())]),
+            gibs: BTreeMap::new(),
+            faces: faces::Faces::default(),
+            audio: crate::audio::late::PreparedLateAudio::default(),
+        };
+        app.world_mut().resource_mut::<RuntimeNpcs>().jobs.insert(
+            "npc_zombie".into(),
+            Job {
+                started: Instant::now(),
+                waiters: waiter,
+                result: Arc::new(Mutex::new(Some(Ok(prepared)))),
+            },
+        );
+        app.update();
+        {
+            let game = app.world().resource::<Gameplay>();
+            assert_eq!(game.runtime_entities.len(), 1);
+            for label in [
+                "npc_zombie",
+                "npc_zombie_torso",
+                "npc_headcrab",
+                "raggib models/zombie/classic_legs.mdl",
+            ] {
+                assert_eq!(
+                    hl2_simulation::ai::spawn::templates(&game.world, label).len(),
+                    1,
+                    "{label}"
+                );
+            }
+        }
+        // Dependent template is immediately spawnable without another async job.
+        let crab_msg = request_spawn_in_app(
+            &mut app,
+            SpawnRequest {
+                classname: "npc_headcrab".into(),
+                ..Default::default()
+            },
+        );
+        assert!(crab_msg.starts_with("Created npc_headcrab"), "{crab_msg}");
+        assert!(app.world().resource::<Gameplay>().npc_requests.is_empty());
+
+        // A second concurrent job overlapping on npc_headcrab and the gib skips those duplicates.
+        let torso_req = SpawnRequest {
+            classname: "npc_poisonzombie".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            request_spawn_in_app(&mut app, torso_req),
+            "Loading npc_poisonzombie..."
+        );
+        let waiter = std::mem::take(&mut app.world_mut().resource_mut::<Gameplay>().npc_requests);
+        let mut second_world = World::default();
+        let second_templates = vec![
+            synthetic_template_entry(
+                &mut second_world,
+                hl2_simulation::ai::spawn::template_entity("npc_poisonzombie", 0).unwrap(),
+                "models/zombie/poison.mdl",
+            ),
+            synthetic_template_entry(
+                &mut second_world,
+                hl2_simulation::ai::spawn::template_entity("npc_headcrab", 0).unwrap(),
+                "models/headcrabclassic.mdl",
+            ),
+            synthetic_template_entry(
+                &mut second_world,
+                hl2_simulation::ai::spawn::gib_template_entity("models/zombie/classic_legs.mdl"),
+                "models/zombie/classic_legs.mdl",
+            ),
+        ];
+        let second = PreparedNpc {
+            world: second_world,
+            templates: second_templates,
+            materials: BTreeMap::from([("models/test/vort".to_owned(), MaterialData::default())]),
+            gibs: BTreeMap::new(),
+            faces: faces::Faces::default(),
+            audio: crate::audio::late::PreparedLateAudio::default(),
+        };
+        app.world_mut().resource_mut::<RuntimeNpcs>().jobs.insert(
+            "npc_poisonzombie".into(),
+            Job {
+                started: Instant::now(),
+                waiters: waiter,
+                result: Arc::new(Mutex::new(Some(Ok(second)))),
+            },
+        );
+        app.update();
+        let game = app.world().resource::<Gameplay>();
+        assert_eq!(
+            hl2_simulation::ai::spawn::templates(&game.world, "npc_poisonzombie").len(),
+            1
+        );
+        assert_eq!(
+            hl2_simulation::ai::spawn::templates(&game.world, "npc_headcrab").len(),
+            1
+        );
+        assert_eq!(
+            hl2_simulation::ai::spawn::templates(
+                &game.world,
+                "raggib models/zombie/classic_legs.mdl"
+            )
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn multi_slot_citizen_installs_all_slots_when_not_yet_installed() {
+        let mut app = test_app(World::default());
+        assert_eq!(
+            request_spawn_in_app(
+                &mut app,
+                SpawnRequest {
+                    classname: "npc_citizen".into(),
+                    ..Default::default()
+                }
+            ),
+            "Loading npc_citizen..."
+        );
+        let waiter = std::mem::take(&mut app.world_mut().resource_mut::<Gameplay>().npc_requests);
+        let mut mini_world = World::default();
+        let templates = (0..3)
+            .map(|slot| {
+                synthetic_template_entry(
+                    &mut mini_world,
+                    hl2_simulation::ai::spawn::template_entity("npc_citizen", slot).unwrap(),
+                    "models/humans/group01/male_01.mdl",
+                )
+            })
+            .collect();
+        let prepared = PreparedNpc {
+            world: mini_world,
+            templates,
+            materials: BTreeMap::from([("models/test/vort".to_owned(), MaterialData::default())]),
+            gibs: BTreeMap::new(),
+            faces: faces::Faces::default(),
+            audio: crate::audio::late::PreparedLateAudio::default(),
+        };
+        app.world_mut().resource_mut::<RuntimeNpcs>().jobs.insert(
+            "npc_citizen".into(),
+            Job {
+                started: Instant::now(),
+                waiters: waiter,
+                result: Arc::new(Mutex::new(Some(Ok(prepared)))),
+            },
+        );
+        app.update();
+        let game = app.world().resource::<Gameplay>();
+        assert_eq!(
+            hl2_simulation::ai::spawn::templates(&game.world, "npc_citizen").len(),
+            3
+        );
+        assert_eq!(game.runtime_entities.len(), 1);
+    }
+
+    #[test]
     #[ignore = "requires an owned installed Half-Life 2 copy"]
     fn owned_prepare_npc_template_loads_vortigaunt_and_combine_without_errors() {
         let game_dir = source_assets::install::discover().unwrap();
         let vfs = source_assets::vpk::Vfs::mount_game(&game_dir, "hl2").unwrap();
         let config = hl2_ui::config::Config::default();
         let known = BTreeSet::new();
+        let existing_templates = BTreeSet::new();
+        let loaded_waves = BTreeSet::new();
+        let audio_reuse = crate::audio::reuse::AudioReuse::default();
         for class in ["npc_vortigaunt", "npc_combine_s"] {
-            let prepared =
-                prepare_npc_template(&vfs, "background02", class, &known, &config, false).unwrap();
+            let prepared = prepare_npc_template(PrepareInput {
+                vfs: &vfs,
+                map_name: "background02",
+                label: class,
+                known: &known,
+                existing_templates: &existing_templates,
+                loaded_waves: &loaded_waves,
+                audio_reuse: &audio_reuse,
+                config: &config,
+                allow_bc: false,
+            })
+            .unwrap();
             assert!(!prepared.world.model_assets.is_empty(), "{class}: meshes");
             assert!(!prepared.world.rigs.is_empty(), "{class}: rig");
             assert!(!prepared.materials.is_empty(), "{class}: materials");
-            assert!(prepared.actor.is_some(), "{class}: prepared actor");
+            assert!(
+                prepared.world.entities.is_empty(),
+                "{class}: drained entities"
+            );
+            assert!(
+                prepared.world.model_instances.is_empty(),
+                "{class}: drained instances"
+            );
+            assert!(
+                !prepared.templates.is_empty() && prepared.templates[0].actor.is_some(),
+                "{class}: prepared actor"
+            );
         }
     }
 }

@@ -69,7 +69,7 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 - There is no declared-dependency or capability validation between plugins, because the two current plugins are independent.
 - `cargo run` without packaging has no `weapon_blur.wgsl` in its asset root, so run the packaged build for Advanced or Ultra blur.
 - Plugin developer text in the F4 panel and debug overlays still has English literals, and the string audit does not scan `plugins/`.
-- `spawn_usable_weapons` runs when a map is adopted and the Props listing starts then too, so opening the Props tab right after a load can briefly show the default listing. A generic prepare hook on the loading worker would fix both.
+- F4 usable-weapon resolution (`source_assets::animation::activity_names`) and the Props listing both start on background threads when a map is adopted, so opening F4 immediately after a load can briefly show the initial subset until both background scans finish. A generic prepare hook on the loading worker would precompute both earlier.
 - Packaged replays assume both plugins, so other selections have no replay coverage.
 - Not gaps: the window-following frame, the projection parameter and the background-selection services stay in core as generic mechanisms, because they pass the core test.
 - `modkit_core::ModPlugin` is an older, unused simulation contract, not this mechanism.

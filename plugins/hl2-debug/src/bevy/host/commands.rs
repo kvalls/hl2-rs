@@ -108,6 +108,13 @@ impl State {
         let command = self.overlay.key(key);
         self.spawn_overlay_command(sim, game, command)
     }
+    pub(super) fn record_spawn_status(&mut self, before_len: usize, after_len: usize, msg: &str) {
+        if after_len == before_len {
+            self.loading_status = Some((before_len, msg.to_owned()));
+        } else {
+            self.loading_status = None;
+        }
+    }
     pub(super) fn spawn_overlay_command(
         &mut self,
         sim: &mut hl2_bevy::simulation::Simulation,
@@ -116,7 +123,12 @@ impl State {
     ) -> Option<String> {
         use crate::spawn::OverlayCommand;
         match command? {
-            OverlayCommand::Spawn(request) => Some(sim.spawn_npc(game, request)),
+            OverlayCommand::Spawn(request) => {
+                let before_len = game.spawn_log.len();
+                let msg = sim.spawn_npc(game, request);
+                self.record_spawn_status(before_len, game.spawn_log.len(), &msg);
+                Some(msg)
+            }
             OverlayCommand::SpawnProp(model) => {
                 let model = hl2_bevy::runtime_props::model_path(&model);
                 let message = format!("prop_physics_create {model}");

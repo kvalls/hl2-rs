@@ -7,6 +7,8 @@ use modkit_core::animation::{
     PoseParameter, Rig,
 };
 use std::collections::BTreeSet;
+mod activities;
+pub use activities::activity_names;
 fn offset(data: &[u8], field: usize) -> Result<usize> {
     Ok(usize::try_from(i32le(data, field)?)?)
 }
@@ -865,16 +867,7 @@ fn load_sequences(
             Err(e) => rig.warnings.push(format!("{path}:{name}: {e:#}")),
         }
     }
-    let includes = offset(data, 336)?;
-    if includes > 64 {
-        bail!("included model table exceeds limit");
-    }
-    let base = offset(data, 340)?;
-    for id in 0..includes {
-        let at = base + id * 8;
-        let include = string(data, relative(data, at, at + 4)?)?
-            .replace('\\', "/")
-            .to_lowercase();
+    for include in activities::include_model_paths(data)? {
         if let Some(bytes) = vfs.read(&include)? {
             if let Err(e) = load_sequences(vfs, &include, &bytes, wanted, rig, state, depth + 1) {
                 rig.warnings.push(format!("{include}: {e:#}"));

@@ -110,6 +110,11 @@ pub(super) fn spawn_worker(
     let background = request.background;
     let config = ui.source.config.clone();
     let progress = ui.source.loading_progress();
+    let extra_npc_classes = if background {
+        Default::default()
+    } else {
+        options.script_npc_classes.clone()
+    };
     super::assets::work::Work::spawn("hl2-owned-map-loader", move |cancel| {
         crate::assets::loading::load(
             crate::assets::loading::LoadInput {
@@ -126,6 +131,7 @@ pub(super) fn spawn_worker(
                 cancel,
                 audio_reuse,
                 allow_bc_textures,
+                extra_npc_classes,
             },
         )
     })

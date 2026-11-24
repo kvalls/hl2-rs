@@ -104,7 +104,10 @@ impl Scene {
         // as do other weapon users given a weapon (a citizen's SMG1: ACT_IDLE_SMG1).
         for id in 0..world.entities.len() {
             let e = &world.entities[id];
-            if e.get("DefaultAnim").is_some() || !crate::npc_weapons::uses_weapons(e.class()) {
+            if e.get(crate::ai::spawn::POOL_KEY).is_some()
+                || e.get("DefaultAnim").is_some()
+                || !crate::npc_weapons::uses_weapons(e.class())
+            {
                 continue;
             }
             let weapon = e.get("additionalequipment").unwrap_or("");
@@ -395,5 +398,65 @@ mod tests {
         let flags: Vec<_> = background.screen_fades.iter().map(|f| f.flags).collect();
         assert_eq!(flags.len(), 2);
         assert_ne!(flags[1] & FFADE_PURGE, 0);
+    }
+
+    #[test]
+    fn pooled_npcs_do_not_consume_scene_rng_at_startup() {
+        use modkit_core::{
+            animation::{Clip, Rig, Sequence},
+            Entity, ModelInstance,
+        };
+        let rig = Rig {
+            sequences: vec![
+                Sequence::new("idle_a", "ACT_IDLE_MELEE", 1, 0),
+                Sequence::new("idle_b", "ACT_IDLE_MELEE", 1, 1),
+            ],
+            clips: ["idle_a", "idle_b"]
+                .into_iter()
+                .map(|name| {
+                    (
+                        name.into(),
+                        Clip {
+                            events: Vec::new(),
+                            fps: 30.,
+                            looping: true,
+                            frames: Vec::new(),
+                            layer: Default::default(),
+                        },
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let base_world = World::default();
+        let base_scene = Scene::new(&base_world);
+
+        let mut pooled_world = World {
+            entities: vec![Entity {
+                properties: vec![
+                    ("classname".into(), "npc_metropolice".into()),
+                    ("model".into(), "models/police.mdl".into()),
+                    (crate::ai::spawn::POOL_KEY.into(), "npc_metropolice".into()),
+                ],
+            }],
+            model_instances: vec![ModelInstance {
+                background: false,
+                entity: Some(0),
+                model: "models/police.mdl".into(),
+                skin: 0,
+                body: 0,
+                origin: Vec3::ZERO,
+                angles: Vec3::ZERO,
+                scale: 1.,
+                kind: "npc_metropolice".into(),
+                solid: false,
+                solid_mode: None,
+            }],
+            ..Default::default()
+        };
+        pooled_world.rigs.insert("models/police.mdl#0".into(), rig);
+        let pooled_scene = Scene::new(&pooled_world);
+
+        assert_eq!(pooled_scene.random, base_scene.random);
     }
 }

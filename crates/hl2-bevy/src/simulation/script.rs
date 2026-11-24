@@ -72,3 +72,68 @@ pub fn read_script(path: &Path) -> Result<Vec<Command>> {
     }
     Ok(commands)
 }
+
+/// Scans movement-script `ui` console commands for `npc_create`, `npc_create_aimed`, and
+/// `ent_create` NPC spawns, returning their pool labels for selective map-load preloading.
+pub(crate) fn requested_npc_classes(commands: &[Command]) -> std::collections::BTreeSet<String> {
+    let mut console = hl2_simulation::ai::spawn::Console::default();
+    let mut classes = std::collections::BTreeSet::new();
+    for cmd in commands {
+        for action in &cmd.ui {
+            let crate::ui_host::Action::Command { command } = action else {
+                continue;
+            };
+            for segment in command.split(';') {
+                if let Ok(Some(hl2_simulation::ai::spawn::Command::Spawn(req))) =
+                    console.parse(segment)
+                {
+                    classes.insert(req.pool_label().to_owned());
+                }
+            }
+        }
+    }
+    classes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn command_at(tick: u64, lines: &[&str]) -> Command {
+        let ui: Vec<serde_json::Value> = lines
+            .iter()
+            .map(|line| serde_json::json!({ "action": "command", "command": line }))
+            .collect();
+        serde_json::from_value(serde_json::json!({ "tick": tick, "ui": ui })).unwrap()
+    }
+
+    #[test]
+    fn requested_npc_classes_collects_spawn_labels_and_ignores_other_commands() {
+        let commands = vec![
+            command_at(1, &["sv_cheats 1"]),
+            command_at(
+                2,
+                &["ent_create npc_metropolice additionalequipment weapon_smg1"],
+            ),
+            command_at(3, &["npc_create npc_citizen_rebel"]),
+            command_at(
+                4,
+                &[
+                    "npc_create_aimed npc_zombie; prop_physics_create props_c17/oildrum001.mdl; ent_create npc_combine_s targetname c1",
+                ],
+            ),
+        ];
+        assert_eq!(
+            requested_npc_classes(&commands),
+            [
+                "npc_citizen_rebel",
+                "npc_combine_s",
+                "npc_metropolice",
+                "npc_zombie",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+        );
+    }
+}

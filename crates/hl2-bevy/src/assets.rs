@@ -1577,7 +1577,13 @@ mod owned_route_cost {
     #[ignore = "requires an owned installed Half-Life 2 copy"]
     fn owned_tiny_hull_routes_like_the_human_hull() {
         let root = source_assets::install::discover().unwrap();
-        let mut loaded = super::load(&root, "hl2", "d1_trainstation_02").unwrap();
+        let mut loaded = super::loading::load_with_extra_npcs(
+            &root,
+            "hl2",
+            "d1_trainstation_02",
+            ["npc_zombie".into()].into(),
+        )
+        .unwrap();
         let world = loaded.world.clone();
         let mut physics = Physics::new(&world);
         physics.tick(0.015);

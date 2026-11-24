@@ -174,19 +174,13 @@ pub fn poll(
         }
     };
     let previous_eye = glam::Vec3::from_array(sim.eye().to_array());
-    let eye = if job.request.direct {
-        options
-            .position
-            .map(|p| glam::Vec3::from_array(p.to_array()))
-            .unwrap_or(loaded.world.spawn().0)
-    } else {
-        hl2_simulation::campaign::arrival(
-            &game.world,
-            &loaded.world,
-            previous_eye,
-            &job.request.landmark,
-        )
-    };
+    let eye = arrival_eye(
+        &job.request,
+        &options,
+        &game.world,
+        &loaded.world,
+        previous_eye,
+    );
     loading::carry_state(&job.request, &mut loaded, &mut game);
     loaded.gameplay.consume_attacks();
     campaign.history.push(serde_json::json!({"from":game.world.name,"to":loaded.world.name,"direct":job.request.direct,"landmark":job.request.landmark,
@@ -213,11 +207,36 @@ pub fn poll(
         &mut assets,
         &status,
         &options,
-        ui.source.config.video.texture_sampling(),
+        (
+            ui.source.config.video.texture_sampling(),
+            campaign.audio_reuse.clone(),
+        ),
         frame.as_ref().map(|f| &f.image),
     );
     record_install(&mut campaign.metadata, job.started, install_times);
     crate::capture::installed_frame(&mut commands, options.capture.as_ref());
+}
+
+fn arrival_eye(
+    request: &Request,
+    options: &Options,
+    previous_world: &modkit_core::World,
+    next_world: &modkit_core::World,
+    previous_eye: glam::Vec3,
+) -> glam::Vec3 {
+    if request.direct {
+        options
+            .position
+            .map(|p| glam::Vec3::from_array(p.to_array()))
+            .unwrap_or(next_world.spawn().0)
+    } else {
+        hl2_simulation::campaign::arrival(
+            previous_world,
+            next_world,
+            previous_eye,
+            &request.landmark,
+        )
+    }
 }
 
 /// The load report's install times and the time from the load request to an installed map.

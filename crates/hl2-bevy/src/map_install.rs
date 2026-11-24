@@ -69,7 +69,10 @@ pub(crate) fn install_loaded_map(
     assets: &mut StartupAssets,
     status: &Status,
     options: &crate::Options,
-    filtering: hl2_ui::config::TextureSampling,
+    (filtering, audio_reuse): (
+        hl2_ui::config::TextureSampling,
+        std::sync::Arc<crate::audio::reuse::AudioReuse>,
+    ),
     target: Option<&bevy::asset::Handle<Image>>,
 ) -> InstallTimes {
     let (meshes, materials, images, sounds, effect_materials, inverse_binds, slots) = assets;
@@ -91,7 +94,7 @@ pub(crate) fn install_loaded_map(
             options.no_pvs,
             options.world_partition,
         ),
-        (filtering, options.mute),
+        (filtering, options.mute, audio_reuse),
         target,
     )
 }
@@ -102,7 +105,11 @@ pub(crate) fn install_map(
     (meshes, materials, images, sounds, effect_materials, inverse_binds, slots): MapAssets,
     status: &Status,
     (cpu_skinning, no_pvs, world_partition): (bool, bool, bool),
-    (filtering, mute): (hl2_ui::config::TextureSampling, bool),
+    (filtering, mute, audio_reuse): (
+        hl2_ui::config::TextureSampling,
+        bool,
+        std::sync::Arc<crate::audio::reuse::AudioReuse>,
+    ),
     target: Option<&bevy::asset::Handle<Image>>,
 ) -> InstallTimes {
     let mut laps = Laps::new();
@@ -123,7 +130,10 @@ pub(crate) fn install_map(
     ));
     commands.insert_resource(rendering::FlexModels(loaded.flexes.clone()));
     commands.insert_resource(runtime_props::RuntimeProps::new(loaded.vfs.clone()));
-    commands.insert_resource(runtime_npcs::RuntimeNpcs::new(loaded.vfs.clone()));
+    commands.insert_resource(runtime_npcs::RuntimeNpcs::new(
+        loaded.vfs.clone(),
+        audio_reuse,
+    ));
     let camera_target = monitors::install(&loaded, commands, images);
     laps.mark("monitors");
     effects::install(

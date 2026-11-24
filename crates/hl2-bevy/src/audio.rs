@@ -63,9 +63,9 @@ pub struct PreparedAudio {
 pub(crate) mod deferred;
 #[cfg(test)]
 mod deferred_tests;
+pub(crate) mod late;
 mod preparation;
 pub(crate) mod reuse;
-
 #[derive(Resource)]
 pub struct Audio {
     ready: bool,
@@ -581,7 +581,6 @@ fn update_player(
         sink.set_paused(ctx.paused);
     }
 }
-
 fn apply_output_settings(
     audio: &mut Audio,
     ui: Option<&crate::ui_host::Console>,

@@ -50,6 +50,7 @@ pub(crate) struct LoadMode {
     pub cancel: super::work::Cancellation,
     pub audio_reuse: Arc<crate::audio::reuse::AudioReuse>,
     pub allow_bc_textures: bool,
+    pub extra_npc_classes: std::collections::BTreeSet<String>,
 }
 
 pub fn load_with_progress(
@@ -72,6 +73,32 @@ pub fn load_with_progress(
             progress,
         },
         LoadMode::default(),
+    )
+}
+
+#[cfg(test)]
+pub(super) fn load_with_extra_npcs(
+    root: &Path,
+    game: &str,
+    map: &str,
+    extra_npc_classes: std::collections::BTreeSet<String>,
+) -> Result<LoadedMap> {
+    let config = hl2_ui::config::Config::load_or_default();
+    let progress = hl2_ui::gameui::loading::ProgressReport::default();
+    load(
+        LoadInput {
+            root,
+            game,
+            map,
+            canvas: source_ui::canvas::Canvas::default(),
+            new_game: true,
+            config: &config,
+            progress: &progress,
+        },
+        LoadMode {
+            extra_npc_classes,
+            ..Default::default()
+        },
     )
 }
 
@@ -272,12 +299,14 @@ fn prepare_world(
     // Static infodecals land on world brush faces only, before static props are merged.
     let mut decal_errors = Vec::new();
     add_static_decals(&mut world, vfs, &mut decal_errors);
-    // F4 / npc_create spawn pool: hidden NPCs every load-time system builds.
-    if !mode.background {
-        hl2_simulation::ai::spawn::append_pool(&mut world);
-    }
-    // CreateRagGib models (the zombie's legs), precached like the zombie's Precache.
-    hl2_simulation::ai::spawn::append_gib_pool(&mut world);
+    // F4 / npc_create spawn pool: hidden templates required by map entities or script commands.
+    let empty = std::collections::BTreeSet::new();
+    let extras = if mode.background {
+        &empty
+    } else {
+        &mode.extra_npc_classes
+    };
+    hl2_simulation::ai::spawn::append_required_pool(&mut world, extras);
     // CNPC_Citizen::SelectModel (citizen types, random heads), before models load.
     hl2_simulation::citizens::select_models(&mut world, hl2_simulation::ai::spawn::POOL_KEY);
     let commentary_enabled = config.gameplay.commentary;

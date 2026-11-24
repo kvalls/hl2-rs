@@ -8,6 +8,8 @@ impl State {
         hud: &mut hl2_bevy::canvas_renderer::Hud,
         status: &hl2_bevy::Status,
     ) {
+        self.adopt_finished_usable();
+        self.adopt_finished_props();
         let (Some(game), Some(ui)) = (
             context.gameplay.as_deref_mut(),
             context.console.as_deref_mut(),
@@ -47,15 +49,13 @@ impl State {
             let stack_top = draw_debug_overlays(self, ui, sim, width, height);
             // F4 NPC spawn panel (ours, outside the hl2-ui menus).
             self.panel_switches = Some((game.ai.enabled, game.ai.ignore_player));
+            refresh_loading_status(&mut self.loading_status, game.spawn_log.len());
             let panel = self
                 .overlay
                 .open
                 .then(|| self.overlay.panel(game.ai.enabled, game.ai.ignore_player));
             let hits = if let (Some(font), Some(panel)) = (&self.font, &panel) {
-                let message = game
-                    .spawn_log
-                    .last()
-                    .and_then(|entry| entry["message"].as_str());
+                let message = footer_message(&mut self.loading_status, &game.spawn_log);
                 font.draw(&hud.source.canvas, panel, message, stack_top)
             } else {
                 vec![]
@@ -67,6 +67,27 @@ impl State {
                 .map_or(0, |font| font.rows_fit(stack_top, height));
         }
     }
+}
+pub(super) fn refresh_loading_status(
+    loading_status: &mut Option<(usize, String)>,
+    spawn_log_len: usize,
+) {
+    if loading_status
+        .as_ref()
+        .is_some_and(|(len, _)| *len != spawn_log_len)
+    {
+        *loading_status = None;
+    }
+}
+pub(super) fn footer_message<'a>(
+    loading_status: &'a mut Option<(usize, String)>,
+    spawn_log: &'a [serde_json::Value],
+) -> Option<&'a str> {
+    refresh_loading_status(loading_status, spawn_log.len());
+    loading_status
+        .as_ref()
+        .map(|(_, msg)| msg.as_str())
+        .or_else(|| spawn_log.last().and_then(|entry| entry["message"].as_str()))
 }
 /// F1 header rows from the host's profiler status; none when no profiler runs.
 fn profiling_rows(

@@ -283,20 +283,96 @@ pub const GIB_MODELS: &[&str] = &[
 pub fn gib_label(model: &str) -> String {
     format!("raggib {model}")
 }
+/// Build one hidden `raggib` pool template entity for `model`.
+pub fn gib_template_entity(model: &str) -> modkit_core::Entity {
+    modkit_core::Entity {
+        properties: vec![
+            ("classname".into(), "raggib".into()),
+            (
+                "origin".into(),
+                format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
+            ),
+            ("model".into(), model.into()),
+            (POOL_KEY.into(), gib_label(model)),
+        ],
+    }
+}
 /// Append the hidden raggib templates (after `append_pool`, before models load).
 pub fn append_gib_pool(world: &mut modkit_core::World) {
     for model in GIB_MODELS {
-        world.entities.push(modkit_core::Entity {
-            properties: vec![
-                ("classname".into(), "raggib".into()),
-                (
-                    "origin".into(),
-                    format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
-                ),
-                ("model".into(), (*model).into()),
-                (POOL_KEY.into(), gib_label(model)),
-            ],
-        });
+        world.entities.push(gib_template_entity(model));
+    }
+}
+/// Runtime NPC and raggib pool dependencies required by map or extra NPC classes.
+pub fn required_pool_dependencies<'a>(
+    classes: impl IntoIterator<Item = &'a str>,
+) -> (Vec<&'static str>, Vec<&'static str>) {
+    let mut npcs = std::collections::BTreeSet::new();
+    let mut gibs = std::collections::BTreeSet::new();
+    for class in classes {
+        match spawn_class(class).0.to_ascii_lowercase().as_str() {
+            "npc_zombie" => {
+                npcs.extend(["npc_zombie_torso", "npc_headcrab"]);
+                gibs.extend([
+                    "models/zombie/classic_legs.mdl",
+                    "models/zombie/classic_torso.mdl",
+                    "models/zombie/classic.mdl",
+                    "models/headcrabclassic.mdl",
+                ]);
+            }
+            "npc_zombie_torso" => {
+                npcs.insert("npc_headcrab");
+                gibs.extend([
+                    "models/zombie/classic_torso.mdl",
+                    "models/headcrabclassic.mdl",
+                ]);
+            }
+            "npc_fastzombie" | "npc_fastzombie_torso" => {
+                npcs.insert("npc_headcrab_fast");
+                gibs.insert("models/headcrab.mdl");
+            }
+            "npc_poisonzombie" => {
+                npcs.insert("npc_headcrab_poison");
+                gibs.insert("models/headcrabblack.mdl");
+            }
+            _ => {}
+        }
+    }
+    (npcs.into_iter().collect(), gibs.into_iter().collect())
+}
+/// Append hidden pool templates for `extra_labels` plus runtime NPC/raggib dependencies
+/// required by entities already in `world` or `extra_labels` without duplicating labels.
+pub fn append_required_pool(
+    world: &mut modkit_core::World,
+    extra_labels: &std::collections::BTreeSet<String>,
+) {
+    let (dep_labels, dep_gibs) = {
+        let entity_classes = world.entities.iter().map(|e| e.class());
+        let extra_classes = extra_labels
+            .iter()
+            .flat_map(|label| [label.as_str(), spawn_class(label).0]);
+        required_pool_dependencies(entity_classes.chain(extra_classes))
+    };
+    for label in extra_labels {
+        if templates(world, label).is_empty() {
+            for slot in 0..pool_slots(label) {
+                if let Some(entity) = template_entity(label, slot) {
+                    world.entities.push(entity);
+                }
+            }
+        }
+    }
+    for dep in dep_labels {
+        if !extra_labels.contains(dep) && templates(world, dep).is_empty() {
+            if let Some(entity) = template_entity(dep, 0) {
+                world.entities.push(entity);
+            }
+        }
+    }
+    for gib in dep_gibs {
+        if templates(world, &gib_label(gib)).is_empty() {
+            world.entities.push(gib_template_entity(gib));
+        }
     }
 }
 /// Source's edict limit (MAX_EDICT_BITS 11, a compile-time constant tied to the
@@ -895,5 +971,86 @@ mod tests {
         assert!(can_late_precache("npc_vortigaunt"));
         assert!(!can_late_precache("npc_not_a_real_class"));
         assert!(template_entity("prop_physics", 0).is_none());
+    }
+    #[test]
+    fn append_required_pool_adds_only_needed_dependencies_without_duplicates() {
+        let mut empty_world = modkit_core::World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![("classname".into(), "npc_metropolice".into())],
+            }],
+            ..Default::default()
+        };
+        append_required_pool(&mut empty_world, &std::collections::BTreeSet::new());
+        assert_eq!(empty_world.entities.len(), 1);
+
+        let mut zombie_world = modkit_core::World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![("classname".into(), "npc_zombie".into())],
+            }],
+            ..Default::default()
+        };
+        append_required_pool(&mut zombie_world, &std::collections::BTreeSet::new());
+        assert_eq!(templates(&zombie_world, "npc_zombie_torso").len(), 1);
+        assert_eq!(templates(&zombie_world, "npc_headcrab").len(), 1);
+        for gib in [
+            "models/zombie/classic_legs.mdl",
+            "models/zombie/classic_torso.mdl",
+            "models/zombie/classic.mdl",
+            "models/headcrabclassic.mdl",
+        ] {
+            assert_eq!(templates(&zombie_world, &gib_label(gib)).len(), 1, "{gib}");
+        }
+        assert_eq!(zombie_world.entities.len(), 1 + 2 + 4);
+
+        let mut fast_poison_world = modkit_core::World {
+            entities: vec![
+                modkit_core::Entity {
+                    properties: vec![("classname".into(), "npc_fastzombie".into())],
+                },
+                modkit_core::Entity {
+                    properties: vec![("classname".into(), "npc_poisonzombie".into())],
+                },
+            ],
+            ..Default::default()
+        };
+        append_required_pool(&mut fast_poison_world, &std::collections::BTreeSet::new());
+        assert_eq!(templates(&fast_poison_world, "npc_headcrab_fast").len(), 1);
+        assert_eq!(
+            templates(&fast_poison_world, "npc_headcrab_poison").len(),
+            1
+        );
+        assert_eq!(
+            templates(&fast_poison_world, &gib_label("models/headcrab.mdl")).len(),
+            1
+        );
+        assert_eq!(
+            templates(&fast_poison_world, &gib_label("models/headcrabblack.mdl")).len(),
+            1
+        );
+        assert_eq!(fast_poison_world.entities.len(), 2 + 2 + 2);
+
+        let mut extra_world = modkit_core::World::default();
+        let extras =
+            std::collections::BTreeSet::from(["npc_zombie".into(), "npc_metropolice".into()]);
+        append_required_pool(&mut extra_world, &extras);
+        append_required_pool(&mut extra_world, &extras);
+        assert_eq!(
+            templates(&extra_world, "npc_zombie").len(),
+            pool_slots("npc_zombie")
+        );
+        assert_eq!(
+            templates(&extra_world, "npc_metropolice").len(),
+            pool_slots("npc_metropolice")
+        );
+        assert_eq!(templates(&extra_world, "npc_zombie_torso").len(), 1);
+        assert_eq!(templates(&extra_world, "npc_headcrab").len(), 1);
+        for gib in [
+            "models/zombie/classic_legs.mdl",
+            "models/zombie/classic_torso.mdl",
+            "models/zombie/classic.mdl",
+            "models/headcrabclassic.mdl",
+        ] {
+            assert_eq!(templates(&extra_world, &gib_label(gib)).len(), 1, "{gib}");
+        }
     }
 }

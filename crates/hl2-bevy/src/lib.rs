@@ -134,6 +134,8 @@ struct Options {
     usercon: bool,
     /// `+command arguments` words, run in order once the console exists.
     startup_commands: Vec<String>,
+    /// NPC pool labels requested by the startup `--movement-script` for selective preloading.
+    pub(crate) script_npc_classes: std::collections::BTreeSet<String>,
     /// Persisted user configuration.
     config: hl2_ui::config::Config,
 }
@@ -250,7 +252,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
     }
     let mut config = hl2_ui::config::Config::load_or_default();
     application.ui.prepare_config(&mut config);
-    let options = Options::parse(config)?;
+    let mut options = Options::parse(config)?;
     let (target, mounted_vfs) = startup::target_map(&options)?;
     let loaded = startup::load_stub(&options.game, &target.game, mounted_vfs)?;
     let summary = launch::MapSummary::of(&loaded);
@@ -261,6 +263,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         .map(|p| simulation::read_script(p))
         .transpose()?
         .unwrap_or_default();
+    options.script_npc_classes = simulation::script::requested_npc_classes(&movement_commands);
     let mut simulation = simulation::Simulation::new(
         &loaded.world,
         options
@@ -360,7 +363,10 @@ fn setup(
         &mut assets,
         &status,
         &options,
-        options.config.video.texture_sampling(),
+        (
+            options.config.video.texture_sampling(),
+            std::sync::Arc::default(),
+        ),
         None,
     );
     commands.insert_resource(init_console_ui(ui, adapter.as_deref(), &target, &options));

@@ -685,3 +685,65 @@ fn zero_resets_the_viewmodel_framing_on_press_only() {
     keys.press(KeyCode::Digit1);
     assert!(!reset_key_pressed(&keys));
 }
+
+#[test]
+fn adopt_finished_usable_populates_overlay_once_resolved() {
+    let mut state = State::default();
+    assert!(state.overlay.usable("npc_combine_s").is_empty());
+    let listing = super::PropListing::default();
+    state.usable_weapons = Some(listing.clone());
+    state.adopt_finished_usable();
+    assert!(state.usable_weapons.is_some());
+    assert!(state.overlay.usable("npc_combine_s").is_empty());
+
+    let mut usable = std::collections::BTreeMap::new();
+    usable.insert(
+        "npc_combine_s".to_owned(),
+        vec![
+            "weapon_smg1".to_owned(),
+            "weapon_ar2".to_owned(),
+            "weapon_shotgun".to_owned(),
+        ],
+    );
+    listing.set(usable).unwrap();
+    state.adopt_finished_usable();
+    assert!(state.usable_weapons.is_none());
+    assert_eq!(
+        state.overlay.usable("npc_combine_s"),
+        ["weapon_smg1", "weapon_ar2", "weapon_shotgun"]
+    );
+    assert!(state.overlay.usable("npc_metropolice").is_empty());
+}
+
+#[test]
+fn loading_status_stays_active_until_spawn_log_grows() {
+    let mut state = State::default();
+    let mut spawn_log = vec![serde_json::json!({
+        "message": "Created npc_combine_s (entity 1)"
+    })];
+
+    state.record_spawn_status(1, 1, "Loading npc_vortigaunt...");
+    assert_eq!(
+        state.loading_status,
+        Some((1, "Loading npc_vortigaunt...".to_owned()))
+    );
+    assert_eq!(
+        super::draw::footer_message(&mut state.loading_status, &spawn_log),
+        Some("Loading npc_vortigaunt...")
+    );
+    assert!(state.loading_status.is_some());
+
+    spawn_log.push(serde_json::json!({
+        "message": "Created npc_vortigaunt (no weapon) at 0 0 0 yaw 0 (entity 2, 12 ms)"
+    }));
+    assert_eq!(
+        super::draw::footer_message(&mut state.loading_status, &spawn_log),
+        Some("Created npc_vortigaunt (no weapon) at 0 0 0 yaw 0 (entity 2, 12 ms)")
+    );
+    assert!(state.loading_status.is_none());
+
+    state.record_spawn_status(2, 2, "Loading npc_dog...");
+    assert!(state.loading_status.is_some());
+    state.record_spawn_status(2, 3, "Created npc_metropolice (entity 3)");
+    assert!(state.loading_status.is_none());
+}
