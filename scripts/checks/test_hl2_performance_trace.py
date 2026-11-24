@@ -472,6 +472,7 @@ class TestCaptureOrchestrator(unittest.TestCase):
                 allow_mismatch=False,
                 trailing=["--", "--uncapped"],
             )
+            idle = {"gpu": {"device_pct": 37.0}}
             with (
                 mock.patch.object(capture, "_git_head", return_value="deadbeef"),
                 mock.patch.object(
@@ -479,7 +480,7 @@ class TestCaptureOrchestrator(unittest.TestCase):
                     "run",
                     return_value=capture.subprocess.CompletedProcess(args=[], returncode=0),
                 ) as mocked_run,
-                mock.patch.object(capture.resource_sampler, "collect_once", return_value={}),
+                mock.patch.object(capture.resource_sampler, "collect_once", return_value=idle),
                 contextlib.redirect_stdout(io.StringIO()) as out_buf,
             ):
                 rc = capture.cmd_headless(args)
@@ -488,6 +489,7 @@ class TestCaptureOrchestrator(unittest.TestCase):
             mocked_run.assert_called_once()
             meta = json.loads((out_dir / "capture_meta.json").read_text(encoding="utf-8"))
             self.assertEqual(meta["executable_sha256"], hashlib.sha256(b"headless-binary").hexdigest())
+            self.assertEqual(meta["idle_baseline"], idle)
             self.assertEqual(meta["args"], ["--uncapped"])
             self.assertEqual(meta["backlog_item"], "O2")
             self.assertEqual(meta["backlog_measure"], "Static spawn: `render_graph`")

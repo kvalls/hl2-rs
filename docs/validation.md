@@ -887,6 +887,15 @@ positive GPU diagnostic execution, zero borrowed-motion pixels and zero covered 
 with no gathered coverage. The positive control prevents a missing/failed pass from passing
 only because it drew no error color. Generated variations reuse the registered viewmodel
 fixture and standard isolated/muted/background runner; no chapter runner/UI files changed.
+
+O24 recheck (2026-11-24, M1 Pro / Metal): the default 4x replay speed reached the pistol
+fire label with zero pose mismatches but all nine screenshots contained zero reconstructed
+pixels. Running these bursts at normal speed restored the positive control at both AA settings.
+The separate Advanced/Ultra swing at tick 107 had bloom values 0.778 and 0.664, and 39,065
+pixels exceeded the RGB threshold. Delaying the attack by 400 fixed ticks at normal speed
+gave bloom 0.400 in both runs and zero pixels above the original threshold of 16 in the
+comparison region. Windows runtime and interactive comparisons are **not tested**.
+
 Run this check separately from replays.py because both stage their own test package.
 
 `NO_BUILD=1 ONLY='viewmodel_motion_blur coverage' python3 -u scripts/checks/replays.py`

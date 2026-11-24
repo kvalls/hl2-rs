@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-24 — Crowd scaling sweep and capture fixture verification
+
+- Agent/model: Codex desktop, GPT-6 family (exact model ID not recorded).
+- Changed: Added the O32 five-population packaged plaza benchmark and a separate macOS Metal/stack capture mode. Verified O12 pre-launch GPU sampling. Fixed O24 real-time weapon bursts and warmed both swing captures before comparing their pixels.
+- Why: The mixed crowd measured one population. Replay acceleration skipped the pistol's diagnostic signal, and unequal bloom biased the Advanced/Ultra comparison.
+- Tested how: Ran five release captures and five instrumented repeats at 1080p, plus the 100-manhack animation isolation control. Ran the packaged weapon fixture, Python checks, architecture guard and diff checks. Commands and per-population data are in docs/performance.md and docs/validation.md.
+- Result: From 0 to 100 added manhacks, mean frame time rose from 4.221 to 7.145 ms, the p99 upper bound from 6 to 14 ms and AI from 0.082 to 1.624 ms/tick. Sight accounted for 118/340 fixed-step samples at 100. All eight weapon/AA diagnostics passed, and the warmed swing pair had zero pixels over the existing comparison threshold. The game runtime was unchanged.
+- Still broken or not tested: The sandboxed pilot had no Metal device and three sandboxed loopback checks could not bind sockets. All 113 Python checks passed with loopback available. Windows runtime and live play are **not tested**.
+- Next: Measure O18 sight work across its mixed-crowd and plaza fixtures before changing AI.
+
 ## 2026-11-24 — Unit-test coverage guardrails (`architecture.py` + `coverage.py`)
 - Agent/model: Antigravity (`Gemini 4 Hydrogen (High)` planning & execution).
 - Changed:

@@ -1,5 +1,22 @@
 # STATUS
 
+## O32 crowd scaling, O12 capture baselines and O24 weapon-blur validation (2026-11-24)
+
+The packaged release at `fa90617c` completed all five 1080p plaza populations on Apple M1
+Pro / Metal. At 100 added manhacks the AI stage averaged 1.624 ms/tick, sight rays accounted
+for 118 of 340 fixed-step stack samples, and the p99 frame-time bound was 14 ms. The
+zero-spawn control measured 0.082 ms/tick and a 6 ms p99 bound. The measurements warrant
+reopening the O18 sight investigation on its mixed-crowd and plaza fixtures. Reproduce
+with `python3 scripts/checks/crowd_scaling.py --out artifacts/o32-stages` followed by a
+separate `--mac-trace` sweep. Both capture entry points already record O12 idle GPU
+utilization. The sandboxed pilot failed before gameplay because Metal was unavailable.
+Windows runtime and live display pacing are **not tested**.
+
+O24's 4x pistol fixture reproduced zero reconstructed pixels. Real-time isolated bursts
+passed all eight weapon/AA cases. A separate cold comparison failed with unequal bloom;
+a 400-tick warm-up equalized bloom and the original comparison passed. Reproduce with
+`NO_BUILD=1 python3 scripts/checks/check_weapon_blur.py`.
+
 ## `O42` `LightingIndex`, `32 x 32 x 128` cell cache, and `MeshTag` lighting dedup (2026-11-24)
 - **Shipped:** Implemented bit-exact `LightingIndex` in `modkit-core/src/lighting/{accel.rs,brushes.rs}` (`active_lights` `1,941 -> 51` on `d1_trainstation_02`, conservative `max_dist_sq`, stack `[_; MAX_LOCAL_LIGHTS]`, single-pass brush entry, axial `entry_aabb` + padded brush AABBs) built in `source-assets/src/model_lighting.rs`; added `StaticLightCache` in `hl2-bevy/src/rendering/lighting.rs` caching map-scoped `32 x 32 x 128` `cache_cell` centers (`4,096` cap, retail trace occlusion fallback), preserving static post-boost `LightState` across `elights`, caching `ModelIllumination` on `ModelLit`, skipping non-reflective `envmap` work, and deduplicating shared `MeshTag` sibling draws; added `O43` in `docs/optimization-backlog.md` to re-audit completed items using isolated hooks.
 - **Verified (macOS Apple M1 Pro / Metal):** `owned_station02_indexed_lighting_matches_unindexed_and_benchmarks` verified `200/200` bit-exact `state_at` equality (`20.90 -> 15.13 us/call`, `1.38x`); `hl2-bevy` (`10`), `modkit-core` (`15`), `source-assets` (`5` + `2` owned) tests, `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and `7/7` targeted lighting/effect replays (`33 s`) passed. Alternating 3-pair release A/B (`fa4db9f9` vs `f8f85a8d`): `mixed-crowd.json` maxed Retina `model lighting` **`0.419 -> 0.082 ms` (`-80.49%`**, `p95 0.851 -> 0.163 ms`); `mixed-crowd.json` `320x240` Potato `model lighting` **`1.000 -> 0.086 ms` (`-91.38%`**, `p95 2.526 -> 0.327 ms`), `PostUpdate` **`3.937 -> 3.175 ms` (`-19.35%`)**, `frame_total` **`7.668 -> 6.757 ms` (`-11.88%`)**; `animated-fire.json` maxed `model lighting` **`0.054 -> 0.018 ms` (`-66.45%`)**; `quiet.json` maxed flat (`0.007 -> 0.007 ms`). Windows runtime/linking **not tested** here.

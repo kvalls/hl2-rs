@@ -1603,3 +1603,61 @@ No original 30 timing run was replaced by fixed-exposure timing. Evidence:
 `artifacts/performance-implementation-2026-11-11/paired-summary.json`,source/package manifest,
 raw reports/logs,controlled/regression summaries,CPU experiments and diagnostics/stack-summary.json.
 Windows/native matched timing and full-campaign/all-camera runtime parity remain **not tested**.
+
+## O32 plaza population sweep and O12 pre-launch GPU load (2026-11-24)
+
+On Apple M1 Pro / Metal, release `fa90617c` (executable SHA-256 prefix
+`98ec717c`), the same 100-position camera path, final plaza view, 1920×1080 settings and
+1,200 fixed ticks ran at each population. The single class was `npc_manhack`; the zero
+case still includes map-authored NPCs. Only the first N positions issue a spawn command.
+The benchmark checks unique successful placements and emits two labeled snapshots. Run
+`python3 scripts/checks/crowd_scaling.py --out artifacts/o32-stages` using a fresh output
+directory. Add `--mac-trace` with a second directory for Metal and sight-ray stack samples.
+
+| Added NPCs | AI thinks | Fixed simulation | AI tick | Hitbox pose | Animation | Render assets | Render graph CPU | Frame mean | Frame p95 / p99 bounds |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 2,767 | 0.969 | 0.082 | 0.165 | 0.231 | 0.164 | 2.361 | 4.221 | 5 / 6 |
+| 10 | 4,328 | 1.184 | 0.213 | 0.194 | 0.269 | 0.191 | 2.502 | 4.402 | 6 / 6 |
+| 30 | 7,574 | 1.355 | 0.353 | 0.229 | 0.318 | 0.216 | 2.741 | 4.793 | 6 / 8 |
+| 60 | 12,443 | 1.920 | 0.708 | 0.307 | 0.455 | 0.286 | 2.807 | 5.709 | 10 / 11 |
+| 100 | 18,342 | 3.071 | 1.624 | 0.386 | 0.643 | 0.387 | 2.911 | 7.145 | 12 / 14 |
+
+Times are milliseconds per stage invocation. AI and hitbox scopes run per simulation tick.
+Frame tails are histogram upper bounds. Each row is one headless run including the placement
+phase. The existing profiler caps each stage at 4,096 samples (O11). The 60-to-100 interval
+added 0.916 ms per AI tick, compared with 0.355 ms from 30 to 60. This identifies a target
+for profiling. The sweep alone cannot establish algorithmic complexity or live display pacing.
+
+Four-second instrumented repeats used the single HUD fragment pass to delimit each GPU
+frame. The default upscaling marker appeared twice per frame in this view. Sight counts
+are inclusive CPU stack samples inside a fixed step (`PhysicsSight::visible` or
+`first_solid`), with nested calls counted once. The zero case had no identifiable sight
+samples in this window. The counts measure sampled time, not ray calls.
+
+| Added NPCs | GPU frames | GPU busy mean / p95 / p99 (ms) | Sight / fixed-step samples |
+|---:|---:|---:|---:|
+| 0 | 699 | 3.92 / 5.54 / 6.29 | 0 / 103 |
+| 10 | 528 | 4.09 / 5.99 / 6.45 | 10 / 119 |
+| 30 | 471 | 4.58 / 6.28 / 6.92 | 19 / 130 |
+| 60 | 473 | 4.38 / 6.60 / 7.08 | 34 / 185 |
+| 100 | 350 | 5.07 / 7.46 / 8.61 | 118 / 340 |
+
+A repeat of the final recorder path, attaching four seconds after gameplay started,
+measured 5.006 ms mean GPU busy over 417 frames at 100 manhacks. Sight accounted for
+146/370 fixed-step samples.
+
+O12 verification: the status preflight showed 95% GPU device utilization before the sweep.
+The capture metadata recorded 68%, 79%, 79%, 77% and 14% immediately before launching the
+0, 10, 30, 60 and 100 cases respectively (the 100 case ran first). Both live and headless
+entry points take this sample before spawning the game. Four earlier live metadata files
+also contain readings of 17%, 56%, 56% and 58%. Each percentage is one driver reading.
+
+The dedicated O12 preflight later read 34%, followed by 7% in the stamped capture.
+That 100-manhack isolation run (`--no-animation`) finished all 1,200 ticks and retained
+100 successful placements. The animation stage disappeared and AI measured 1.610 ms/tick,
+compared with 1.624 ms/tick with presentation animation enabled. This was a single
+isolation control. The graphics settings and idle load limit comparisons with other runs.
+
+O24 changes only the capture fixture. At normal speed the 1024×768 pistol-fire bursts
+recorded positive reconstruction with no borrowed motion or uncovered holes; see
+docs/validation.md for the accelerated and unequal-bloom captures that were rejected.

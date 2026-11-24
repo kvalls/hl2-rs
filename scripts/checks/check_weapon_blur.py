@@ -60,8 +60,13 @@ def check(case, aa):
         "motion_blur": True, "motion_blur_viewmodel": True, "antialiasing": aa, "vsync": False}})
     path = replay.OUT / (name + ".input.json")
     path.write_text(json.dumps(fixture(case)), encoding="utf-8")
-    run = replay.game(name, "--map", "d1_trainstation_02", "--width", "1024", "--height", "768",
-                      "--movement-script", str(path), "--capture-live", "--capture-burst", "8")
+    burst = [replay.OUT / f"{name}-{i}.png" for i in range(1, 9)]
+    for image in burst:
+        image.unlink(missing_ok=True)
+    # Sample the recoil at real time even when other replays run at 4x speed.
+    run = replay.game(name, "--timescale", "1", "--map", "d1_trainstation_02",
+                      "--width", "1024", "--height", "768", "--movement-script", str(path),
+                      "--capture-live", "--capture-burst", "8")
     sample = run.sample("animation")["gameplay"]
     replay.expect("selected weapon", sample["inventory"]["active"],
                   "weapon_smg1" if case == "smg" else "weapon_pistol")
@@ -74,8 +79,7 @@ def check(case, aa):
         replay.expect("animation", animation, "fire" if case == "pistol" else "draw")
     replay.expect("posed bounds", run.report["render"]["presentation"]["pose_or_visibility_mismatches"], 0)
     replay.holds("no rendering errors", "Caught rendering error" not in run.log and "ERROR" not in run.log)
-    paths = [run.capture] + [replay.OUT / f"{name}-{i}.png" for i in range(1, 9)]
-    counts = [artifact_count(path) for path in paths]
+    counts = [artifact_count(path) for path in [run.capture, *burst]]
     (replay.OUT / (name + ".artifacts.json")).write_text(json.dumps(counts), encoding="utf-8")
     replay.holds("diagnostic reconstruction actually ran", max(z for _, _, z in counts) > 100, counts)
     replay.expect("covered pixels borrowing other surfaces' motion", max(x for x, _, _ in counts), 0)
@@ -84,15 +88,24 @@ def check(case, aa):
 
 def check_ultra_matches_advanced():
     """Ultra softens the world's camera blur only; a still view swings the same weapon blur."""
+    # Let the independently eased bloom settle before comparing the two rendered swings.
+    frames = json.loads((replay.REPO / "test-inputs/bevy-viewmodel-motion-blur.json").read_text())
+    for frame in frames:
+        if frame["tick"] >= 100:
+            frame["tick"] += 400
+    script = replay.OUT / "weapon_swing_warm.input.json"
+    script.write_text(json.dumps(frames), encoding="utf-8")
     captures = {}
     for world in (False, True):
         replay.settings(video={"hdr": "none", "hdr_migrated": True, "advanced": {
             "motion_blur": True, "motion_blur_viewmodel": True, "motion_blur_world": world,
             "antialiasing": "x4", "vsync": False}})
         name = "weapon_swing_" + ("ultra" if world else "advanced")
-        run = replay.game(name, "--map", "d1_trainstation_02", "--width", "1024", "--height", "768",
-                          "--movement-script", str(replay.REPO / "test-inputs/bevy-viewmodel-motion-blur.json"))
+        run = replay.game(name, "--timescale", "1", "--map", "d1_trainstation_02", "--width",
+                          "1024", "--height", "768", "--movement-script", str(script))
         replay.holds("no render errors", "Caught rendering error" not in run.log)
+        animation = run.sample("swing")["gameplay"]["viewmodel"]["animation"]
+        replay.holds("crowbar is swinging", animation.startswith("miss"), animation)
         captures[world] = run.capture
     changes = pixel_changes(captures[False], captures[True], threshold=16, region=(180, 430, 1000, 768))
     replay.holds("Ultra keeps Advanced's weapon blur", changes["changed"] <= MAX_ULTRA_WEAPON_DIFFERENCE, changes)

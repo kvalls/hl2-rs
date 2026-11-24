@@ -2669,6 +2669,12 @@ anisotropic 8x, VSync) on an Apple M1 Pro at a steady 120 FPS, so the slowest 1%
 stays under 8.33 ms. Owner instruction for the first step: collect all the data one run can give,
 then iterate (measure, fix the largest or most frequent cost, re-measure on the same path).
 
+O32 scaling sweep: replay the same 100 placement camera positions and final plaza view at
+each population, enabling only the first 0, 10, 30, 60 or 100 placements. Use one NPC class
+to hold its cost mix constant. Validate successful placements, simulation duration and
+post-warmup samples before comparing CPU stages and frame-time tails. Collect GPU and sight
+measurements separately where the release report lacks them.
+
 Layers, each opt-in so ordinary builds and runs pay nothing:
 1. `--profile` frame stages (existing), now with `render_create_views` and `render_specialize`.
 2. `trace-chrome` application feature (profiling builds only, `scripts/build-bevy.sh --plugins
