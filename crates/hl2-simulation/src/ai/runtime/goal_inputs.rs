@@ -105,7 +105,9 @@ impl AiRuntime {
                 self.scripted_schedule_input(world, scene, target, &input);
                 continue;
             }
-            if class == "ai_goal_actbusy_queue" && self.queue_input(scene, target, &input) {
+            if class == "ai_goal_actbusy_queue"
+                && self.queue_input(scene, target, &input, &parameter)
+            {
                 continue;
             }
             if matches!(class, "ai_goal_actbusy" | "ai_goal_actbusy_queue") {
