@@ -22,6 +22,8 @@ struct Sample {
     fly: bool,
     player: Player,
     gameplay: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cpu_stages: Option<serde_json::Value>,
     ray_entity: Option<usize>,
     /// Colliders overlapping the player hull (entity, dynamic).
     hull_contacts: Vec<(Option<usize>, bool, f32, glam::Vec3)>,
@@ -384,25 +386,12 @@ impl Simulation {
                 game.prop_requests.push((model, self.eye, self.forward()));
             }
             Ok(Some(hl2_simulation::ai::spawn::Command::SpawnPickup(class, mut properties))) => {
-                let model = source_assets::models::supply_model(&class)
-                    .map(str::to_owned)
-                    .or_else(|| {
-                        game.weapons
-                            .get(&class)
-                            .map(|weapon| weapon.world_model.clone())
-                    })
-                    .filter(|model| !model.is_empty())
-                    .or_else(|| game.ai.weapon_model(&class));
-                if let Some(model) = model {
-                    properties.insert(0, ("classname".into(), class));
-                    game.pickup_requests.push(crate::runtime_props::Request {
-                        model,
-                        aim: (self.eye, self.forward()),
-                        pickup: Some(modkit_core::Entity { properties }),
-                    });
-                } else {
-                    ui.source
-                        .log(format!("Can't create {class}: unknown pickup model"));
+                properties.insert(0, ("classname".into(), class));
+                if let Err(error) = game.queue_model(
+                    modkit_core::Entity { properties },
+                    crate::runtime_props::ModelPlacement::Aim(self.eye, self.forward()),
+                ) {
+                    ui.source.log(error);
                 }
             }
             Ok(None) => {}
@@ -666,12 +655,14 @@ impl Simulation {
         }
         self.host_tick += 1;
         let mut label = None;
+        let mut profile_window = None;
         if let Some(c) = self
             .commands
             .get(self.next)
             .filter(|c| c.tick == self.host_tick)
             .cloned()
         {
+            profile_window = c.profile_window;
             label = self.apply_script_command(c, game.as_deref_mut(), ui.as_deref_mut());
         }
         if (self.paused() || self.transition)
@@ -722,7 +713,16 @@ impl Simulation {
             self.loading = true;
         }
         if let Some(label) = label {
-            self.record_sample(label, game.as_deref(), ui.as_deref());
+            let cpu_stages = match (profile_window, performance) {
+                (Some(script::ProfileWindow::End), Some(performance)) => Some(performance.report()),
+                _ => None,
+            };
+            self.record_sample(label, game.as_deref(), ui.as_deref(), cpu_stages);
+            if let (Some(script::ProfileWindow::Start), Some(performance)) =
+                (profile_window, performance)
+            {
+                performance.restart_stages();
+            }
         }
         self.finished = !self.commands.is_empty() && self.next == self.commands.len();
     }
@@ -797,6 +797,7 @@ impl Simulation {
         label: String,
         game: Option<&crate::gameplay::Gameplay>,
         ui: Option<&crate::ui_host::Console>,
+        cpu_stages: Option<serde_json::Value>,
     ) {
         self.samples.push(Sample {
             label,
@@ -805,6 +806,7 @@ impl Simulation {
             fly: self.fly,
             player: self.player.clone(),
             gameplay: game.map(|g| commentary::sample_report(g, &self.physics)),
+            cpu_stages,
             console: ui.map(|u| u.report()),
             hull_contacts: self.physics.hull_contacts(
                 self.player.feet,

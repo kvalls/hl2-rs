@@ -2685,6 +2685,20 @@ Measure a zero-spawn control and 30, 60 and 100 loose bodies on the same station
 Use both a mixed set and a battery-only set. Verify each spawn and its body before collecting
 stage and frame timing, and report awake bodies so resting and busy workloads remain legible.
 
+## Station 02 separated workloads (2026-11-25)
+
+Place benchmark squads and props in three named sectors. The Source SDK
+`game/server/baseentity.cpp` command applies `origin` as a keyvalue before a successful aim
+trace replaces it. The retail server binary describes `ent_create` and `ent_teleport` as
+aim-based. Use the debug plugin's coordinate command for this fixture and share core
+placement and late precaching.
+Replay the same six observation stops with a zero-spawn control, separated NPC teams,
+local fights and loose supplies. Use script-controlled CPU timing windows after each
+camera transition. Compare per-stop deltas against the control and verify every spawn
+against the designated sector. Record NPC activity and sleeping physics bodies by
+spawn sector. The first benchmark will expose existing costs that cross sector boundaries
+and provide a baseline for subsequent optimization.
+
 ## Profiling toward a steady 120 FPS (owner goal, 2026-11-21)
 
 Goal (owner): maxed settings at native Retina (3456x2168, 4x MSAA, full HDR, motion blur,

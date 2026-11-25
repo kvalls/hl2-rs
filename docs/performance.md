@@ -1,5 +1,55 @@
 # Performance measurements - 2026-10-05
 
+## O47 — Separated workloads in Station 02 (2026-11-25)
+
+Measured the packaged release on Apple M1 Pro / Metal at 1920 × 1080, uncapped and
+headless with `advanced-options,debug-tools`. The route seeds the backyard, plaza
+and playground with `notarget` enabled, then disables it in the room before the
+trash-can test. Each stop has 80 settling ticks and a 220-tick (3.3 seconds of
+simulation) timing window. The CPU profiler omits its first 30 samples per stage
+in each window. The plaza and playground approaches use stepped camera movement.
+
+The authored map is present in all cases. The control adds zero entities. Crowds
+add 16 rebels, 32 Combine and 32 zombies in separate sectors. Fights add 10 rebels
+and 6 manhacks, 16 Combine and 16 rebels, and 16 zombies and 16 metrocops. Supplies
+add 20 medkits, 32 SMGs and 32 batteries. Two passes ran in reverse order. The
+initial combat pair is excluded because Station 02's precriminal state left the
+plaza citizens and Combine neutral. Two replacement combat runs interleaved the
+plaza teams and applied mutual hostility through `SetRelationship` to the named
+test NPCs only. All three sectors engaged their own opponents in both runs.
+
+Each cell is the median of the two run means for **CPU frame / AI tick / physics
+tick**, in milliseconds. For the room, the two whole-frame means were 4.885 and
+4.951 for the control, 5.685 and 5.766 for crowds, 9.214 and 9.487 for fights, and
+5.342 and 5.377 for supplies. The corresponding median frame p99s were 6.06, 9.03,
+13.96 and 6.96 ms.
+
+| Observation stop | Control | Crowds | Fights | Supplies |
+| --- | ---: | ---: | ---: | ---: |
+| Room before trash cans | 4.918 / 0.087 / 0.077 | 5.726 / 0.735 / 0.141 | 9.350 / 1.060 / 1.713 | 5.360 / 0.098 / 0.109 |
+| Backyard | 3.218 / 0.084 / 0.077 | 4.704 / 0.569 / 0.154 | 5.902 / 0.724 / 1.092 | 3.364 / 0.087 / 0.111 |
+| Hall before plaza | 4.752 / 0.084 / 0.081 | 5.900 / 0.602 / 0.219 | 7.268 / 0.587 / 1.227 | 4.893 / 0.085 / 0.114 |
+| Plaza | 4.596 / 0.111 / 0.083 | 5.690 / 0.414 / 0.156 | 7.091 / 0.537 / 1.343 | 4.756 / 0.127 / 0.114 |
+| Corridor before playground | 3.852 / 0.100 / 0.083 | 4.313 / 0.424 / 0.154 | 5.113 / 0.421 / 0.963 | 3.994 / 0.117 / 0.116 |
+| Playground | 3.736 / 0.108 / 0.085 | 4.786 / 0.452 / 0.158 | 5.427 / 0.415 / 0.551 | 3.865 / 0.129 / 0.113 |
+
+All 80 NPCs in each scenario thought while the player was in the room. Crowds
+still had 64 distant actors thinking in the backyard and 48 in the remaining
+windows. With combat, 37–40 distant actors thought in the backyard, 37–38 in the
+plaza hall, 32–33 in the plaza, and 26–28 at and approaching the playground.
+The fights recorded 327 and 346 shots during the room windows alone. Fixed
+simulation in the room averaged 0.906 ms/tick for control, 2.466 for crowds and
+5.436 for fights. In the supply runs, 81/84 bodies slept at every checkpoint.
+Three plaza SMGs stayed awake in both runs with small movements at their spawn
+sites. The room's physics stage added 0.032 ms/tick with the supply population.
+
+The test attributes activity to the spawn sector and treats the next sector as
+near at both approach stops. Body sleep is sampled at the end of each window.
+The report preserves per-stage means, frame tails and raw NPC/prop snapshots.
+Displayed FPS, GPU-stage attribution, Windows runtime and ordinary play are
+**not tested**. Run the route and its optional strict assertion as described in
+[validation.md](validation.md#station-02-placed-spawns-and-workload-locality-2026-11-25).
+
 ## `O42` — `LightingIndex`, `32 x 32 x 128` light-cache cell sharing, and `MeshTag` lighting deduplication (2026-11-24)
 
 Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools`, everyday release baseline `sha256 fa4db9f9` vs `O42` `sha256 f8f85a8d`):

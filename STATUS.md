@@ -1,5 +1,18 @@
 # STATUS
 
+## Station 02 workload locality (2026-11-25)
+
+The `hl2-debug` console can spawn a supported entity at explicit coordinates
+with `spawn_at <class> pos <x> <y> <z>`. The O47 packaged replay sweep verified
+all three test populations and both ordered passes of the six map stops. While
+the player was in the room before the trash-can test, all 80 NPCs thought in
+both NPC scenarios. Against the 4.918 ms CPU frame control, the room window
+measured 5.726 ms with crowds, 9.350 ms with fights and 5.360 ms with supplies.
+Three of 84 supply bodies stayed awake. See docs/performance.md for approach
+measurements, CPU stage costs and the rejected combat setup. O47 remains open.
+Run `python3 scripts/checks/sector_locality.py --out artifacts/sector-locality/run`.
+Live retail command execution and Windows runtime are **not tested**.
+
 ## Supply pickup physics and plaza prop scaling (2026-11-25)
 
 Loose supplies and world weapons use owned model solids in the weapon collision group.

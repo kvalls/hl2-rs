@@ -91,10 +91,11 @@ impl Performance {
             let mut sorted=samples.values.clone();sorted.sort_by(f64::total_cmp);
             let mean=sorted.iter().sum::<f64>()/sorted.len().max(1) as f64;
             let p95=sorted.get(sorted.len().saturating_sub(1)*95/100).copied().unwrap_or(0.);
+            let p99=sorted.get(sorted.len().saturating_sub(1)*99/100).copied().unwrap_or(0.);
             // The slowest samples with their sample index (frame hitches, e.g. a map copy).
             let mut slowest:Vec<(usize,f64)>=samples.values.iter().copied().enumerate().collect();
             slowest.sort_by(|a,b| b.1.total_cmp(&a.1));slowest.truncate(3);
-            ((*name).into(),serde_json::json!({"calls":samples.calls,"samples":sorted.len(),"mean_ms":mean,"p95_ms":p95,"max_ms":sorted.last().copied().unwrap_or(0.),"slowest":slowest}))
+            ((*name).into(),serde_json::json!({"calls":samples.calls,"samples":sorted.len(),"mean_ms":mean,"p95_ms":p95,"p99_ms":p99,"max_ms":sorted.last().copied().unwrap_or(0.),"slowest":slowest}))
         }).collect())
     }
 }

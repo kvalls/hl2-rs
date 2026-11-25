@@ -89,31 +89,39 @@ impl Gameplay {
                 }));
                 e
             }
-            Ok(p) => {
-                let label = request.pool_label();
-                if !spawn::templates(&self.world, label).is_empty() {
-                    self.complete_spawn(&request, &p, physics, None)
-                } else if spawn::can_late_precache(label) {
-                    let msg = format!("Loading {}...", request.classname);
-                    self.npc_requests.push(PendingNpcSpawn {
-                        request,
-                        placement: p,
-                    });
-                    msg
-                } else {
-                    let msg = format!(
-                        "Can't create {}: the class was not loaded on this map",
-                        request.classname
-                    );
-                    self.spawn_log.push(serde_json::json!({
-                        "request": request,
-                        "placement": Some(p),
-                        "entity": Option::<usize>::None,
-                        "message": msg,
-                    }));
-                    msg
-                }
-            }
+            Ok(placement) => self.request_spawn_at(request, physics, placement),
+        }
+    }
+
+    /// Instantiate at a supplied world pose through the usual template and late-precache paths.
+    pub fn request_spawn_at(
+        &mut self,
+        request: SpawnRequest,
+        physics: &mut Physics,
+        p: Placement,
+    ) -> String {
+        let label = request.pool_label();
+        if !spawn::templates(&self.world, label).is_empty() {
+            self.complete_spawn(&request, &p, physics, None)
+        } else if spawn::can_late_precache(label) {
+            let msg = format!("Loading {}...", request.classname);
+            self.npc_requests.push(PendingNpcSpawn {
+                request,
+                placement: p,
+            });
+            msg
+        } else {
+            let msg = format!(
+                "Can't create {}: the class was not loaded on this map",
+                request.classname
+            );
+            self.spawn_log.push(serde_json::json!({
+                "request": request,
+                "placement": Some(p),
+                "entity": Option::<usize>::None,
+                "message": msg,
+            }));
+            msg
         }
     }
 

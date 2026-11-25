@@ -1,5 +1,19 @@
 # Local validation — 2026-10-05
 
+## Station 02 placed spawns and workload locality (2026-11-25)
+
+Build the packaged release with `advanced-options,debug-tools` enabled. Run
+`NO_BUILD=1 ONLY='spawn_at supply_physics coverage' python3 scripts/checks/replays.py`.
+The `spawn_at` replay checks cheats, exact spawn positions for a rebel, a battery and
+a physics crate, NPC equipment and both loose rigid bodies. The helper tests run with
+`python3 -m unittest discover -s scripts/checks -p test_sector_locality.py`.
+
+Run `python3 scripts/checks/sector_locality.py --out artifacts/sector-locality/run`
+for two rounds of all four cases. Each run verifies all coordinates and records the
+same six observation windows. Add `--require-local` to fail after saving reports if
+an NPC from a distant spawn sector thinks during a window or a distant supply body
+is still awake at its end. See [O47 measurements](performance.md#o47--separated-workloads-in-station-02-2026-11-25).
+
 ## GPU shadow silhouette experiment (2026-11-15)
 
 Run the adapter test with

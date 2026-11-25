@@ -17,6 +17,7 @@ pub struct Command {
     #[serde(default)]
     pub(crate) secondary: bool,
     pub(crate) label: Option<String>,
+    pub(crate) profile_window: Option<ProfileWindow>,
     pub(crate) eye: Option<[f32; 3]>,
     pub(crate) yaw: Option<f32>,
     pub(crate) pitch: Option<f32>,
@@ -39,6 +40,13 @@ pub struct Command {
     pub(crate) slow: bool,
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ProfileWindow {
+    Start,
+    End,
+}
+
 pub fn read_script(path: &Path) -> Result<Vec<Command>> {
     let bytes = std::fs::read(path)?;
     if bytes.len() > 1024 * 1024 {
@@ -49,6 +57,7 @@ pub fn read_script(path: &Path) -> Result<Vec<Command>> {
         bail!("movement script must have 1..1024 commands");
     }
     let mut previous = 0;
+    let mut profiling = false;
     for c in &commands {
         if c.ui.len() > 64
             || c.ui.iter().any(|a| !a.valid())
@@ -68,7 +77,16 @@ pub fn read_script(path: &Path) -> Result<Vec<Command>> {
         {
             bail!("invalid movement command at tick {}", c.tick);
         }
+        match c.profile_window {
+            Some(ProfileWindow::Start) if !profiling && c.label.is_some() => profiling = true,
+            Some(ProfileWindow::End) if profiling && c.label.is_some() => profiling = false,
+            Some(_) => bail!("unpaired profiling marker at tick {}", c.tick),
+            None => (),
+        }
         previous = c.tick;
+    }
+    if profiling {
+        bail!("movement script leaves a profile window open");
     }
     Ok(commands)
 }

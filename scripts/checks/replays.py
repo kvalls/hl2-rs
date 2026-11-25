@@ -1184,7 +1184,7 @@ UI_FIXTURES = tuple(f"bevy-chapters-{game}{suffix}" for game in ("hl2", "episodi
                "bevy-flashlight-depth-actor", "bevy-flashlight-depth-fence",
                "bevy-options-motion-blur", "bevy-viewmodel-motion-blur", "bevy-flashlight-viewmodel-pistol", "bevy-flashlight-viewmodel-smg", "bevy-canals-lamp", "bevy-flashlight-availability",
                "bevy-options-status-mouse", "bevy-options-status-audio", "bevy-options-status-advanced",
-               "bevy-lostcoast-commentary", "bevy-supply-physics", "bevy-video")
+               "bevy-lostcoast-commentary", "bevy-supply-physics", "bevy-spawn-at", "bevy-video")
 SKIPPED: dict[str, str] = {}  # fixture: why it is not run
 # Sounds the installed maps reference but the installation does not have.
 MISSING_SOUNDS = {"d1_trainstation_01": {"Intro.zoomout", "ambience/particle_suck1.wav",
@@ -1323,6 +1323,25 @@ def check_movement(run: Run) -> None:
     textures = run.report["textures"]
     holds("decoded textures within their budget",
           0 < textures["decoded_base_bytes"] <= textures["decoded_base_budget"])
+
+
+def check_spawn_at():
+    """The debug coordinate command accepts model and NPC spawn requests in world space."""
+    script = REPO / "test-inputs/bevy-spawn-at.json"
+    run = game("spawn_at", "--map", "d1_trainstation_02", "--movement-script", str(script))
+    check_report(run, json.loads(script.read_text(encoding="utf-8")), "d1_trainstation_02")
+    game_report = run.sample("complete")["gameplay"]
+    props = {entry.get("name"): entry for entry in game_report["npc_spawns"] if "prop" in entry}
+    expect("only cheat-enabled model spawns", set(props), {"coordinate_battery", "coordinate_crate"})
+    for name, origin in {
+        "coordinate_battery": [-4300, 150, -57], "coordinate_crate": [-4350, 100, -36],
+    }.items():
+        expect(f"{name} initial position", props[name]["origin"], origin)
+        holds(f"{name} got an owned draw and body", props[name]["draws"] > 0 and props[name]["mass"] > 0)
+    npc, = (e for e in game_report["npc_spawns"] if e.get("request", {}).get("name") == "coordinate_rebel")
+    holds("remote rebel spawned", npc["entity"] is not None)
+    expect("remote rebel initial position", npc["placement"]["origin"], [-4300, 200, -57])
+    expect("remote rebel equipment", npc["request"]["equipment"], "weapon_smg1")
 
 
 def check_supply_physics():
@@ -1849,6 +1868,7 @@ CHECKS = [
     Check("console_map", check_console_map, "shared"),
     Check("campaign", check_campaign, "shared"),
     Check("supply_physics", check_supply_physics, "shared", "gameplay", real_time=True),
+    Check("spawn_at", check_spawn_at, "shared", "gameplay", real_time=True),
     Check("dev_overlay", check_dev_overlay, "shared"),
     Check("hud", check_hud, "shared"),
     Check("hud_aspect", check_hud_aspect, "shared", real_time=True),

@@ -284,3 +284,26 @@ fn map_dump_accepts_coordinates_and_pages_only_with_debug_tools() {
         assert!(c.submit(bad).is_empty());
     }
 }
+
+#[test]
+fn spawn_at_preserves_coordinates_and_only_accepts_known_options() {
+    let mut console = console();
+    assert_eq!(
+        console.submit("spawn_at npc_citizen_rebel pos -4310 84 -57 targetname scout additionalequipment weapon_smg1"),
+        vec![effect(Request::SpawnAt(crate::commands::SpawnAt {
+            class: "npc_citizen_rebel".into(),
+            origin: [-4310., 84., -57.],
+            name: Some("scout".into()),
+            model: None,
+            equipment: Some("weapon_smg1".into()),
+        }))]
+    );
+    for command in [
+        "spawn_at item_battery pos -4300 nan -57",
+        "spawn_at item_battery pos 1 2",
+        "spawn_at item_battery pos 1 2 3 bogus 4",
+        "spawn_at item_battery pos 1 2 3 targetname one targetname two",
+    ] {
+        assert!(console.submit(command).is_empty(), "{command}");
+    }
+}

@@ -29,7 +29,60 @@ pub enum Request {
     MapDump(MapDumpQuery),
     AgentResume,
     AiEnable(Option<bool>),
+    SpawnAt(SpawnAt),
 }
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SpawnAt {
+    pub class: String,
+    pub origin: [f32; 3],
+    pub name: Option<String>,
+    pub model: Option<String>,
+    pub equipment: Option<String>,
+}
+
+impl SpawnAt {
+    pub(crate) fn valid(&self) -> bool {
+        !self.class.is_empty()
+            && self
+                .origin
+                .iter()
+                .all(|v| v.is_finite() && v.abs() < 65536.)
+    }
+}
+
+fn parse_spawn_at(args: &[String]) -> Option<SpawnAt> {
+    let [class, pos, x, y, z, pairs @ ..] = args else {
+        return None;
+    };
+    if !pos.eq_ignore_ascii_case("pos") || !pairs.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut request = SpawnAt {
+        class: class.to_ascii_lowercase(),
+        origin: [x.parse().ok()?, y.parse().ok()?, z.parse().ok()?],
+        name: None,
+        model: None,
+        equipment: None,
+    };
+    for [key, value] in pairs.as_chunks::<2>().0 {
+        let field = match key.to_ascii_lowercase().as_str() {
+            "targetname" => &mut request.name,
+            "model" => &mut request.model,
+            "additionalequipment" => &mut request.equipment,
+            _ => return None,
+        };
+        if field.replace(value.clone()).is_some() {
+            return None;
+        }
+    }
+    request.valid().then_some(request)
+}
+
+fn spawn_at<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    let request = parse_spawn_at(args).ok_or_else(|| spec.usage())?;
+    Ok(Some(C::effect(Request::SpawnAt(request))))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentStatus {
     Clear,
@@ -66,7 +119,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 12] {
+pub const fn specs<C: Host>() -> [Spec<C>; 13] {
     [
         command(
             "viewmodel_debug_mode",
@@ -121,6 +174,18 @@ pub const fn specs<C: Host>() -> [Spec<C>; 12] {
             "npc_dump [radius|id <entity>]: print nearby (default 512 u) or one entity's NPC AI and goal state as one JSON line",
             &[Arg::Free, Arg::Free],
             npc_dump,
+        ),
+        command(
+            "spawn_at",
+            "spawn_at <class> pos <x> <y> <z> [targetname name] [model path] [additionalequipment weapon]",
+            &[
+                Arg::Free,
+                Arg::Values(&["pos"]),
+                Arg::Free,
+                Arg::Free,
+                Arg::Free,
+            ],
+            spawn_at,
         ),
         command(
             "agent_status",

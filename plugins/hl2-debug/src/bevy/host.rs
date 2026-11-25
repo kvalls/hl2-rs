@@ -184,6 +184,19 @@ impl RuntimeExtension for State {
                     ui.source.log(format!("ai_enable {}", u8::from(on)));
                 }
             }
+            crate::commands::Request::SpawnAt(request) => {
+                let message = if !ui.source.cheats {
+                    "Can't use spawn_at without sv_cheats 1".to_owned()
+                } else if let Some(game) = context.gameplay.as_deref_mut()
+                    && !context.simulation.loading
+                    && !context.simulation.background_level
+                {
+                    commands::spawn_at(context.simulation, game, request)
+                } else {
+                    "spawn_at needs a loaded gameplay map".to_owned()
+                };
+                ui.source.log(message);
+            }
             other => self.apply_background_debug_effect(context.simulation, ui, other),
         }
         true

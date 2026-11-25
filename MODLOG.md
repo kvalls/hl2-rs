@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Coordinate spawning and Station 02 workload locality
+
+- Agent/model: Codex desktop, gpt-6.2-sol.
+- Changed: Add the `hl2-debug` command `spawn_at <class> pos <x> <y> <z>` for runtime NPCs, supplies, world weapons and physics props, using the existing spawn templates and model worker. Add labeled replay timing windows, CPU frame p99 and the Station 02 benchmark, packaged spawn replay and Python route checks.
+- Why: Explicit coordinates let the fixture place each entity reproducibly without an aim trace. The retail command descriptions and SDK command paths use the player's aim for placement. The locality benchmark can identify workload from other parts of the map.
+- Tested how: Run the `spawn_at`, `supply_physics` and `coverage` packaged checks, the focused plugin, profiler, script and Python unit tests, and the O47 benchmark in docs/performance.md. Run the strict locality assertion against the packaged crowds fixture. Strict Clippy on macOS and for the Windows target, all four plugin selections, formatting and architecture passed.
+- Result: All three packaged checks and 65 focused tests passed. The strict assertion reported distant work as expected. In the pre-trash-can room, CPU frames averaged 4.918 ms for control, 5.726 ms for crowds, 9.350 ms for combat and 5.360 ms for supplies across two runs per case. All 80 test NPCs in each scenario thought during the room window and three distant SMGs stayed awake.
+- Still broken or not tested: O47 remains open. The initial fight staging did not engage in the plaza, so that pair was excluded and replaced after applying explicit relationships to the named test squads. Live retail command execution, ordinary play, displayed FPS and Windows runtime are **not tested**.
+- Next: Profile the cost of distant NPC perception and scheduling while keeping authored sequences and nearby combat responsive.
+
 ## 2026-11-25 — Loose supply physics and plaza prop scaling
 
 - Agent/model: Codex desktop, gpt-6.2-sol.
