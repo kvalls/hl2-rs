@@ -2668,6 +2668,23 @@ per-frame tick allowance); gameplay replays use 4, since they end when their tic
 Validation: a unit test of the path choice, the full replay suite at `JOBS=2` against the
 serial outcomes, and its wall time before and after. Reversible by dropping the commit.
 
+## Supply pickup physics and plaza scale (2026-11-25)
+
+Source SDK `game/server/item_world.cpp` and `game/server/basecombatweapon.cpp` put loose
+supplies and weapons in the weapon collision group. Their owned model solids determine mass
+and contact shape. The retail server exports at 102e2550 and 102f4120 corroborate pickup-side
+battery and health effects. Keep those effects on the existing inventory path. Use the shared
+model collider builder for map and console spawns, take pickup positions from the body, and
+disable the body on collection. Loose CItem supplies use the existing hand-carry and gravity-gun
+controllers. The constrained-start flag holds the authored pose, and bugbait keeps its special
+non-rigid placement. Reuse the
+asynchronous runtime model loader for `ent_create` and keep its aim placement separate from
+the hull sweep used by `prop_physics_create`.
+
+Measure a zero-spawn control and 30, 60 and 100 loose bodies on the same station plaza path.
+Use both a mixed set and a battery-only set. Verify each spawn and its body before collecting
+stage and frame timing, and report awake bodies so resting and busy workloads remain legible.
+
 ## Profiling toward a steady 120 FPS (owner goal, 2026-11-21)
 
 Goal (owner): maxed settings at native Retina (3456x2168, 4x MSAA, full HDR, motion blur,

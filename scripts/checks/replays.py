@@ -1184,7 +1184,7 @@ UI_FIXTURES = tuple(f"bevy-chapters-{game}{suffix}" for game in ("hl2", "episodi
                "bevy-flashlight-depth-actor", "bevy-flashlight-depth-fence",
                "bevy-options-motion-blur", "bevy-viewmodel-motion-blur", "bevy-flashlight-viewmodel-pistol", "bevy-flashlight-viewmodel-smg", "bevy-canals-lamp", "bevy-flashlight-availability",
                "bevy-options-status-mouse", "bevy-options-status-audio", "bevy-options-status-advanced",
-               "bevy-lostcoast-commentary", "bevy-video")
+               "bevy-lostcoast-commentary", "bevy-supply-physics", "bevy-video")
 SKIPPED: dict[str, str] = {}  # fixture: why it is not run
 # Sounds the installed maps reference but the installation does not have.
 MISSING_SOUNDS = {"d1_trainstation_01": {"Intro.zoomout", "ambience/particle_suck1.wav",
@@ -1323,6 +1323,30 @@ def check_movement(run: Run) -> None:
     textures = run.report["textures"]
     holds("decoded textures within their budget",
           0 < textures["decoded_base_bytes"] <= textures["decoded_base_budget"])
+
+
+def check_supply_physics():
+    """Loose pickups fall on their authored bodies and collecting one disables its collider."""
+    script = REPO / "test-inputs/bevy-supply-physics.json"
+    run = game("supply_physics", "--map", "d1_trainstation_02", "--movement-script", str(script))
+    check_report(run, json.loads(script.read_text(encoding="utf-8")), "d1_trainstation_02")
+    settled = run.sample("settled")["gameplay"]
+    spawns = {entry["class"]: entry for entry in settled["npc_spawns"] if "class" in entry}
+    expect("four supply classes spawned", sorted(spawns),
+           ["item_ammo_ar2", "item_battery", "item_healthkit", "weapon_ar2"])
+    bodies = {e["entity"]: e for e in settled["entities"]}
+    for name, spawned in spawns.items():
+        body = bodies[spawned["entity"]]
+        holds(f"{name} has a movable body and fell",
+              body["body"][0] > 0 and body["body"][2]
+              and body["origin"][2] < spawned["origin"][2] - 2, body)
+    expect("E carries the loose first-aid kit", run.sample("carried")["gameplay"]["carrying"], True)
+    expect("E drops it again", run.sample("released")["gameplay"]["carrying"], False)
+    collected = run.sample("collected")["gameplay"]
+    battery = next(e for e in collected["entities"] if e["name"] == "supply_test_battery")
+    expect("battery gives 15 suit power", collected["inventory"]["armor"], 15)
+    expect("battery removed from gameplay", (battery["visible"], battery["killed"]), (False, True))
+    expect("collected battery cannot collide", battery["body"][2], False)
 
 
 def check_entities_weapons(run: Run) -> None:
@@ -1824,6 +1848,7 @@ CHECKS = [
     Check("console", check_console, "shared", real_time=True),
     Check("console_map", check_console_map, "shared"),
     Check("campaign", check_campaign, "shared"),
+    Check("supply_physics", check_supply_physics, "shared", "gameplay", real_time=True),
     Check("dev_overlay", check_dev_overlay, "shared"),
     Check("hud", check_hud, "shared"),
     Check("hud_aspect", check_hud_aspect, "shared", real_time=True),

@@ -1,0 +1,13 @@
+[
+  {"tick":1,"eye":[-2456,-2556,128],"fly":true,"pitch":-89,"yaw":0,"ui":[{"action":"command","command":"sv_cheats 1; notarget; impulse 101"}]},
+  {"tick":5,"ui":[{"action":"command","command":"ent_create item_battery targetname supply_test_battery"}]},
+  {"tick":20,"eye":[-2328,-2556,128],"ui":[{"action":"command","command":"ent_create item_healthkit"}]},
+  {"tick":35,"eye":[-2136,-2556,128],"ui":[{"action":"command","command":"ent_create item_ammo_ar2"}]},
+  {"tick":50,"eye":[-1944,-2556,128],"ui":[{"action":"command","command":"ent_create weapon_ar2"}]},
+  {"tick":65,"eye":[-2020,-2680,158],"pitch":-14,"yaw":90},
+  {"tick":250,"label":"settled"},
+  {"tick":252,"eye":[-2326,-2614,62],"pitch":-46,"yaw":90,"actions":[{"action":"use"}],"label":"carried"},
+  {"tick":256,"actions":[{"action":"use"}],"label":"released"},
+  {"tick":260,"eye":[-2454,-2556,28]},
+  {"tick":290,"label":"collected"}
+]

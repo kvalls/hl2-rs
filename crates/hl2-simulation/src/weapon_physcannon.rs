@@ -501,6 +501,13 @@ impl Inventory {
         let Some(grab) = self.physcannon.grab.as_mut() else {
             return false;
         };
+        if scene
+            .states
+            .get(grab.entity)
+            .is_some_and(|state| state.killed)
+        {
+            return false;
+        }
         let crate::grab::HoldView {
             eye,
             forward,

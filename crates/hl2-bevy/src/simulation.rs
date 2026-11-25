@@ -383,6 +383,28 @@ impl Simulation {
                 ui.source.log(format!("prop_physics_create {model}"));
                 game.prop_requests.push((model, self.eye, self.forward()));
             }
+            Ok(Some(hl2_simulation::ai::spawn::Command::SpawnPickup(class, mut properties))) => {
+                let model = source_assets::models::supply_model(&class)
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        game.weapons
+                            .get(&class)
+                            .map(|weapon| weapon.world_model.clone())
+                    })
+                    .filter(|model| !model.is_empty())
+                    .or_else(|| game.ai.weapon_model(&class));
+                if let Some(model) = model {
+                    properties.insert(0, ("classname".into(), class));
+                    game.pickup_requests.push(crate::runtime_props::Request {
+                        model,
+                        aim: (self.eye, self.forward()),
+                        pickup: Some(modkit_core::Entity { properties }),
+                    });
+                } else {
+                    ui.source
+                        .log(format!("Can't create {class}: unknown pickup model"));
+                }
+            }
             Ok(None) => {}
             Err(e) => ui.source.log(e),
         }

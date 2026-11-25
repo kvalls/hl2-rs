@@ -2575,3 +2575,15 @@ Audio package SHA-256 `389E440B8D3AB58FB22070682EE30E5F4C8BCD1DA295FA8E0725A2506
 The packaged release executable SHA256 is973558A4A9E0D3C2C8B2AEEC28B01A737DE68F67D65719181E4A1F1D6999CF43. The retained executable remains6E379B5184F1D1F41A2D091F4C3D9BC33D7CDEC2C37FDCB8E45A19F794BD820C. All23 affected Bevy tests and strict all-target Bevy Clippy pass; workspace formatting and diff checks pass. Shared code is unchanged from the preceding291 normal/18 owned-install test milestone; those full suites were not repeated for this adapter-only change.
 
 Packaged movement26, weapon/door17 and material/monitor15 assertions pass. Inspected captures retain Barney's player-interest body/eyes and both live camera feeds. Spawn and Breen feed comparisons are pixel-identical; Barney's matching actor crop is exact and his per-actor eye diagnostics agree. An initial comparison against the monitor-interest fixture used a different tick/attention target and was rejected, then replaced with the matching player-interest fixture. Kleiner's feed still shows the unstaged lab wall; broadcast/choreography completion is not inferred from it. Evidence remains in ignored artifacts/material-cache-*, with performance-material-cache.json and material-cache-validation.assertions.json. See performance.md for measured scope and limits.
+
+
+## Loose supply and world-weapon physics (2026-11-25)
+
+`NO_BUILD=1 ONLY="supply_physics coverage" python3 scripts/checks/replays.py` runs
+the station plaza pickup fixture in the packaged game. It checks four classes
+(battery, healthkit, AR2 ammo and AR2), verifies positive body masses and a
+downward displacement after spawn, carries and releases the healthkit with E,
+then collects the battery. The battery gives 15 suit power, is hidden and has
+its collision body disabled. The release replay suite passed 110/110 on Apple
+Silicon / Metal. Windows-target Clippy passed. Native and Windows runtime
+comparisons are **not tested**. See docs/performance.md for the 21 prop scale runs.

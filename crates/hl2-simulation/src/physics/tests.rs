@@ -816,6 +816,56 @@ fn authored_vphysics_props_use_phy_mass_pieces_damping_and_surface_material() {
     assert!((scaled_inertia - inertia * 0.5).norm() < inertia.norm() * 1e-3);
 }
 #[test]
+fn loose_pickups_use_the_weapon_collision_group_and_disable_when_collected() {
+    for class in [
+        "item_battery",
+        "item_healthkit",
+        "item_ammo_ar2",
+        "weapon_ar2",
+    ] {
+        let mut world = native_prop_world();
+        let instance = &mut world.model_instances[0];
+        instance.kind = class.into();
+        instance.entity = Some(0);
+        world.model_physics.insert(
+            instance.asset_key(),
+            modkit_core::PhysicsSolid {
+                mass: 3.,
+                ..Default::default()
+            },
+        );
+        world.entities.push(modkit_core::Entity {
+            properties: vec![("classname".into(), class.into())],
+        });
+
+        let mut physics = Physics::new(&world);
+        let handle = physics.entity_body(0).expect("pickup rigid body");
+        assert!((physics.entity_mass(0).unwrap() - 3.).abs() < 0.001);
+        assert_eq!(
+            crate::player_pickup::can_pickup(&world, &physics, 0),
+            class.starts_with("item_"),
+        );
+        let colliders = physics.bodies[handle].colliders().to_vec();
+        assert_eq!(colliders.len(), 2);
+        assert!(colliders
+            .iter()
+            .all(|&h| physics.colliders[h].collision_groups() == WEAPON_GROUPS));
+        physics.set_entity(0, Vec3::ZERO, Quat::IDENTITY, false);
+        assert!(!physics.bodies[handle].is_enabled());
+        assert!(colliders
+            .iter()
+            .all(|&h| !physics.colliders[h].is_enabled()));
+
+        world.entities[0]
+            .properties
+            .push(("spawnflags".into(), "1".into()));
+        let constrained = Physics::new(&world);
+        assert!(constrained.entity_body(0).is_none());
+        assert_eq!(constrained.entity_colliders[&0].len(), 2);
+    }
+}
+
+#[test]
 fn world_brush_sides_use_their_own_surfaceprop() {
     // Synthetic: one floor brush whose top side is "synthetic/ice" (friction 0.1)
     // or the default material; a 5 kg box slides across it from 300 u/s.

@@ -12,6 +12,7 @@ mod broad_phase;
 mod brush_entities;
 mod diagnostics;
 mod hitboxes;
+mod model_colliders;
 #[path = "physics_npc_trace.rs"]
 mod npc_trace;
 mod physbox;
@@ -20,6 +21,7 @@ mod player_convex;
 mod queries;
 mod rays;
 mod shadow_push;
+use model_colliders::{prevent_prop_pickup, prop_collider};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RayHit {
     pub entity: usize,
@@ -1149,7 +1151,13 @@ impl Physics {
             .and_then(|e| e.get("spawnflags"))
             .and_then(|f| f.parse::<u32>().ok())
             .unwrap_or(0);
-        let dynamic = instance.kind.starts_with("prop_physics") && prop_flags & 8 == 0;
+        let pickup = source_assets::models::physical_pickup(&instance.kind);
+        // CItem::Spawn and CBaseCombatWeapon::FallInit use bit 1 for constrained start.
+        let dynamic = if pickup {
+            prop_flags & 1 == 0
+        } else {
+            instance.kind.starts_with("prop_physics") && prop_flags & 8 == 0
+        };
         // The installed rotating door's VVD bind mesh points along X, but
         // its idle sequence turns the panel along Y. Use the same initial
         // skinned pose as rendering before applying the entity's swing.
@@ -1165,7 +1173,7 @@ impl Physics {
         // VPhysics props use their authored .phy pieces once the model loader
         // read the solid parameters (CPhysicsProp::CreateVPhysics); otherwise
         // the prior render-hull policy stays.
-        let authored = dynamic
+        let authored = (dynamic || pickup)
             .then(|| world.model_physics.get(&instance.asset_key()))
             .flatten();
         let native_eligible = (instance.kind == "static_prop" && instance.solid_mode == Some(6))
@@ -1253,7 +1261,7 @@ impl Physics {
                 RigidBodyBuilder::dynamic()
                     .additional_mass_properties(masses.unwrap_or_default())
                     .position(position)
-                    .sleeping(prop_flags & 1 != 0)
+                    .sleeping(!pickup && prop_flags & 1 != 0)
                     .linear_damping(linear_damping)
                     .angular_damping(angular_damping),
             )
@@ -1261,13 +1269,7 @@ impl Physics {
         if let (Some(id), Some(body)) = (entity, body) {
             self.ccd_gated.insert(body, 0.);
             self.dynamic.insert(id, body);
-            if world
-                .entities
-                .get(id)
-                .and_then(|e| e.get("spawnflags"))
-                .and_then(|v| v.trim().parse::<u32>().ok())
-                .is_some_and(|flags| flags & 0x200 != 0)
-            {
+            if !pickup && prevent_prop_pickup(world, id) {
                 self.no_pickup.insert(id);
             }
         }
@@ -1283,20 +1285,7 @@ impl Physics {
         }
         let surfaceprop = solid_surfaceprop(world, instance, solid.as_ref());
         for shape in &cached.shapes {
-            let collider = match material {
-                // VPhysics multiplies both surfaces' friction and elasticity
-                // (frag fit: grenade 0.9 x concrete 0.8). Rapier restitution is
-                // not IVP elasticity: "native fit needed".
-                Some(m) => ColliderBuilder::new(shape.clone())
-                    .friction(m.friction)
-                    .restitution(restitution(m))
-                    .friction_combine_rule(CoefficientCombineRule::Multiply)
-                    .restitution_combine_rule(CoefficientCombineRule::Multiply),
-                None => ColliderBuilder::new(shape.clone())
-                    .friction(0.7)
-                    .restitution(0.05),
-            }
-            .user_data(entity.map_or(0, |i| i as u128 + 1));
+            let collider = prop_collider(shape.clone(), material, entity);
             let c = match body {
                 Some(body) => {
                     // Authored bodies carry their mass on the body; pieces add none.
@@ -1320,6 +1309,8 @@ impl Physics {
             if instance.kind.starts_with("npc_") {
                 self.colliders[c]
                     .set_collision_groups(InteractionGroups::new(NPC_GROUP, Group::ALL));
+            } else if pickup {
+                self.colliders[c].set_collision_groups(WEAPON_GROUPS);
             } else if body.is_some() && prop_flags & 4 != 0 {
                 self.colliders[c].set_collision_groups(DEBRIS_GROUPS);
             }

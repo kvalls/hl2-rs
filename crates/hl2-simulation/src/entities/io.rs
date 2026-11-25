@@ -183,6 +183,10 @@ impl Scene {
     /// a gravity gun pickup or a punt (activator: the player).
     pub fn prop_physgun_pickup(&mut self, world: &World, id: usize, reason: PhysGunPickup) {
         let class = world.entities.get(id).map_or("", |e| e.class());
+        if source_assets::models::supply_model(class).is_some() {
+            self.fire(id, "OnCacheInteraction", usize::MAX);
+            return;
+        }
         if !class.starts_with("prop_physics") && class != "func_physbox" {
             return;
         }

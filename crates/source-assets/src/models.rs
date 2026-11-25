@@ -368,7 +368,9 @@ use collision::static_collision;
 pub mod ai_activities;
 mod entity_rigs;
 mod geometry;
+mod pickups;
 mod prefetch;
+pub use pickups::{physical_pickup, supply_model};
 mod prop_data;
 mod root_motion;
 pub use ai_activities::{
@@ -451,19 +453,11 @@ fn append_entity_models(world: &mut World, vfs: &Vfs) {
         } else {
             None
         };
-        let item_model = match entity.class() {
-            "item_healthkit" => Some("models/items/healthkit.mdl"),
-            "item_healthvial" => Some("models/healthvial.mdl"),
-            "item_battery" => Some("models/items/battery.mdl"),
-            "item_suit" => Some("models/items/hevsuit.mdl"),
-            "item_ammo_pistol" | "item_ammo_pistol_large" => Some("models/items/boxsrounds.mdl"),
-            _ => None,
-        };
         if let Some(model) = entity
             .get("model")
             .filter(|m| m.ends_with(".mdl"))
             .or(script_model.as_deref())
-            .or(item_model)
+            .or_else(|| supply_model(entity.class()))
             .or(default_model)
         {
             world.model_instances.push(ModelInstance {
@@ -480,8 +474,8 @@ fn append_entity_models(world: &mut World, vfs: &Vfs) {
                     .unwrap_or(1.),
                 kind: entity.class().into(),
                 // A prop_ragdoll collides through its ragdoll solids, not a model collider.
-                solid: !entity.class().starts_with("item_")
-                    && !entity.class().starts_with("weapon_")
+                solid: (!(entity.class().starts_with("item_") || entity.class().starts_with("weapon_"))
+                    || physical_pickup(entity.class()))
                     && entity.class() != "prop_ragdoll"
                     // CRagGib::Spawn: FSOLID_NOT_SOLID, then a client ragdoll.
                     && entity.class() != "raggib"
@@ -490,6 +484,13 @@ fn append_entity_models(world: &mut World, vfs: &Vfs) {
                 entity: Some(entity_id),
             });
         }
+    }
+}
+
+fn load_surface_materials(world: &mut World, vfs: &Vfs, warnings: &mut Vec<String>) {
+    match crate::surfaceprops::read(vfs) {
+        Ok(table) => world.surface_materials = table,
+        Err(error) => warnings.push(format!("surfaceproperties: {error:#}")),
     }
 }
 
@@ -502,12 +503,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         .and_then(|data| crate::keyvalues::parse(&String::from_utf8_lossy(&data)).ok())
         .unwrap_or_default();
     world.breakable_chunks = breakable_chunks(&prop_data);
-    match crate::surfaceprops::read(vfs) {
-        Ok(table) => world.surface_materials = table,
-        Err(error) => physics_report
-            .1
-            .push(format!("surfaceproperties: {error:#}")),
-    }
+    load_surface_materials(world, vfs, &mut physics_report.1);
     // VBSP gives each world collision triangle its brush side's $surfaceprop
     // (ivp.cpp ConvertWorldBrushesToPhysCollide); resolve each side material once.
     let side_materials: std::collections::BTreeSet<String> = world
@@ -542,6 +538,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
     }
     report.unique_models = cache.len();
     let mut collision_attempted = BTreeSet::new();
+    let mut physics_attempted = BTreeSet::new();
     let mut ragdolls_read = BTreeSet::new();
     let mut collision_modes_reported = BTreeSet::new();
     // Placed instances only: one whose model failed to read is skipped below.
@@ -622,8 +619,9 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         }
         // VPhysics props (CPhysicsProp::CreateVPhysics): authored solid parameters and
         // the authored convex pieces as stored (PhysModelCreate: entity space, any root).
-        if instance.kind.starts_with("prop_physics")
+        if (instance.kind.starts_with("prop_physics") || physical_pickup(&instance.kind))
             && !world.model_physics.contains_key(&instance.asset_key())
+            && physics_attempted.insert(instance.asset_key())
         {
             match read_physics(vfs, &instance.model) {
                 Ok(Some((solid, pieces))) => {
@@ -641,6 +639,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                         )),
                     }
                 }
+                Ok(None) if physical_pickup(&instance.kind) => (),
                 Ok(None) => report.collision_models_missing += 1,
                 Err(error) => physics_report
                     .1

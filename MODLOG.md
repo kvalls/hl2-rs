@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Loose supply physics and plaza prop scaling
+
+- Agent/model: Codex desktop, gpt-6.2-sol.
+- Changed: Load the loose pickup model and collision solid, apply the weapon collision group at map and console spawn, and use body positions for physics and collection. Reuse the hand-carry and gravity gun paths for loose supplies. Keep authored constraint starts fixed and bugbait in its existing placement. Add the O44 benchmark and the O45/O46 optimization challenges.
+- Why: Supplies and map weapons had inventory pickup behavior without the loose rigid-body behavior seen in the Source SDK. The existing plaza benchmark measured NPCs only.
+- Tested how: `NO_BUILD=1 python3 scripts/checks/replays.py`, release unit tests for hl2-bevy/hl2-simulation/source-assets, strict Clippy on macOS and for the Windows target, and `python3 scripts/checks/prop_scaling.py --out artifacts/prop-scaling/run`. Methods and data are in docs/validation.md and docs/performance.md.
+- Result: 110/110 packaged replays passed on M1 Pro / Metal. The new fixture verified four pickup bodies falling, E carry/drop and a collected battery with suit gain and disabled collision. The release unit rerun passed 1,317 tests. All 21 scaling runs matched their expected population. At 100 bodies, median physics per tick rose from 0.120 ms to 0.248 ms for batteries and 0.291 ms for mixed props.
+- Still broken or not tested: Two existing Bevy image assertion tests require debug assertions and were excluded from the release rerun. Loopback was required for the RCON test. Native trigger obstruction, breakable start constraints and exact fallback motion for models without a .phy remain outside the implemented body path. Native runtime, Windows runtime and a synchronized 100-body wake are **not tested**.
+- Next: O45 isolates collider installation and awake-body scaling. O46 compares render and shadow cost across the same prop populations.
+
 ## 2026-11-25 — Crossfade between projected shadow qualities
 
 - Agent/model: Codex desktop, gpt-6.2-sol for the 800 ms revision and verification. Earlier prototype model ID not recorded.

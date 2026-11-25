@@ -79,6 +79,7 @@ impl Gameplay {
             body_swap_failures: Vec::new(),
             launch_impacts: Vec::new(),
             prop_requests: Vec::new(),
+            pickup_requests: Vec::new(),
             npc_requests: Vec::new(),
             model_draws: Vec::new(),
         }

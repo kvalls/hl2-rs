@@ -1696,3 +1696,53 @@ and 0.156–0.160 ms with the 800 ms fade. Render assets rose from 0.231–0.241
 GPU device load varied from 33% to 98%, so the frame-time comparison resolves no
 consistent penalty under this load. Live display pacing and Windows runtime are
 **not tested**.
+
+## O44 loose props on the train station plaza (2026-11-25)
+
+`python3 scripts/checks/prop_scaling.py --out artifacts/prop-scaling/run` runs the
+packaged release on `d1_trainstation_02` at 1920×1080, Full HDR, High shadows, no MSAA
+and uncapped in the background. Each round starts a fresh process for the zero-spawn
+control, then each of 30, 60 and 100 mixed props and the same counts of batteries.
+The second round reverses the order. The control keeps the authored map bodies.
+All cases follow the same 100-position placement path and hold the same plaza view
+from tick 305 to tick 780. The mixed list cycles battery, healthkit, health vial,
+AR2 ammo, SMG ammo, AR2, pop can, watermelon and wooden crate.
+
+The runner verifies successful spawns, draw presence, class mix, movable bodies with
+positive mass, capture size, completion and GPU completion errors. It records fall
+and awake counts at ticks 490 and 780. Whole-run profile stages include placement
+and settling. The frame mean after placement uses complete windows between six and
+one seconds before exit. Frame percentile values are reported histogram upper bounds.
+The sweep exercises staggered settling plus the resting load. A synchronized wake
+and GPU-pass attribution remain separate backlog measures under O45 and O46.
+
+M1 Pro / Metal, three rounds on executable SHA-256 prefix `a74090d1`. All 21
+runs matched their entity and body counts. Pre-launch GPU use ranged from 42% to
+78%. The table gives medians of run statistics in milliseconds. Physics, scene
+and fixed simulation are per fixed tick. Shadow, render and frame times are per
+rendered frame.
+
+| Props | Fixed simulation | Physics | Scene | Shadows | Render assets | Render graph | Frame mean | Post-placement mean | Frame p95 / p99 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 added | 0.948 | 0.120 | 0.281 | 0.090 | 0.187 | 2.275 | 4.228 | 4.486 | 5 / 6 |
+| 30 mixed | 1.045 | 0.177 | 0.288 | 0.119 | 0.219 | 2.338 | 4.287 | 4.578 | 6 / 6 |
+| 30 battery | 1.025 | 0.161 | 0.287 | 0.110 | 0.221 | 2.337 | 4.295 | 4.570 | 6 / 6 |
+| 60 mixed | 1.125 | 0.224 | 0.295 | 0.120 | 0.231 | 2.399 | 4.412 | 4.627 | 6 / 6 |
+| 60 battery | 1.086 | 0.198 | 0.290 | 0.121 | 0.230 | 2.385 | 4.364 | 4.681 | 6 / 6 |
+| 100 mixed | 1.232 | 0.291 | 0.296 | 0.104 | 0.226 | 2.475 | 4.507 | 4.725 | 6 / 6 |
+| 100 battery | 1.181 | 0.248 | 0.299 | 0.122 | 0.226 | 2.429 | 4.432 | 4.746 | 6 / 6 |
+
+At the finish checkpoint, the 30, 60 and 100 groups retained 2, 4 and 8 awake added
+bodies in either mix. Mixed 100 had 11 awake bodies at tick 490. The battery-only
+group added 100 authored convex pieces at 100 spawns, and the mixed group added 111.
+Ordinary props use a placement hull and tend to start close to the floor,
+so some mixed props moved down by less than the one-unit fall marker.
+The 100-prop mixed run added 0.171 ms per physics tick over the control. Batteries
+added 0.128 ms. The post-placement whole-frame mean increased about 0.24–0.26 ms.
+Small differences between the two mixes can fall within run-to-run GPU variation.
+One mixed-100 run had a 7 ms p99 bound. Synchronized waking, Retina GPU passes,
+live pacing and Windows runtime are **not tested** in this sweep.
+
+The final package (SHA-256 prefix `bfcfb247`) repeated mixed 100
+with 100 verified bodies, 0.293 ms per physics tick,
+4.793 ms post-placement mean and a 6 ms p99 bound.

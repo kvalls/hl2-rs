@@ -387,10 +387,10 @@ impl PhysicsSight<'_> {
         let world = self.world;
         let keep = |entity: usize| {
             !ignore.contains(&entity)
-                && !world
-                    .entities
-                    .get(entity)
-                    .is_some_and(|e| e.class().starts_with("npc_"))
+                && !world.entities.get(entity).is_some_and(|e| {
+                    e.class().starts_with("npc_")
+                        || source_assets::models::supply_model(e.class()).is_some()
+                })
         };
         self.physics
             .filtered_ray(from, to, &keep)

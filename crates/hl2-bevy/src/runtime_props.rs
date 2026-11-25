@@ -23,10 +23,14 @@ pub struct RuntimeProps {
     vfs: Arc<source_assets::vpk::Vfs>,
     jobs: Vec<Job>,
 }
+pub(crate) struct Request {
+    pub model: String,
+    pub aim: (glam::Vec3, glam::Vec3),
+    pub pickup: Option<modkit_core::Entity>,
+}
+
 struct Job {
-    model: String,
-    eye: glam::Vec3,
-    forward: glam::Vec3,
+    request: Request,
     started: std::time::Instant,
     result: Slot,
 }
@@ -53,34 +57,50 @@ pub fn model_path(argument: &str) -> String {
     }
 }
 /// A prop request's load: on a worker, unless a map prop_physics already brought the model in.
-fn start_job(
-    props: &RuntimeProps,
-    game: &Gameplay,
-    cache: &ModelCache,
-    (model, eye, forward): (String, glam::Vec3, glam::Vec3),
-) -> Job {
+fn start_job(props: &RuntimeProps, game: &Gameplay, cache: &ModelCache, request: Request) -> Job {
     let slot: Slot = Arc::default();
-    if game.world.model_physics.contains_key(&format!("{model}#0")) {
+    let key = format!("{}#0", request.model);
+    if game.world.model_physics.contains_key(&key)
+        || request.pickup.is_some() && game.world.model_assets.contains_key(&key)
+    {
         *slot.lock().expect("prop slot") = Some(Err(String::new()));
     } else {
         let vfs = props.vfs.clone();
         let known = cache.definitions.keys().cloned().collect();
-        let name = model.clone();
+        let name = request.model.clone();
+        let class = request
+            .pickup
+            .as_ref()
+            .map_or("prop_physics", |e| e.class())
+            .to_owned();
         let out = slot.clone();
         std::thread::spawn(move || {
-            let result = crate::assets::prepare_model(&vfs, &name, "prop_physics", &known)
+            let result = crate::assets::prepare_model(&vfs, &name, &class, &known)
                 .map_err(|e| format!("{e:#}"));
             *out.lock().expect("prop slot") = Some(result);
         });
     }
     Job {
-        model,
-        eye,
-        forward,
+        request,
         started: std::time::Instant::now(),
         result: slot,
     }
 }
+fn queue_jobs(props: &mut RuntimeProps, game: &mut Gameplay, cache: &ModelCache) {
+    let props_to_spawn =
+        std::mem::take(&mut game.prop_requests)
+            .into_iter()
+            .map(|(model, eye, forward)| Request {
+                model,
+                aim: (eye, forward),
+                pickup: None,
+            });
+    for request in props_to_spawn.chain(std::mem::take(&mut game.pickup_requests)) {
+        let job = start_job(props, game, cache, request);
+        props.jobs.push(job);
+    }
+}
+
 /// Queued requests start loading; finished loads are merged, placed and drawn.
 #[allow(clippy::too_many_arguments)]
 pub fn poll(
@@ -96,10 +116,7 @@ pub fn poll(
     mut images: ResMut<Assets<Image>>,
     mut inverse_binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 ) {
-    for (model, eye, forward) in std::mem::take(&mut game.prop_requests) {
-        let job = start_job(&props, &game, &cache, (model, eye, forward));
-        props.jobs.push(job);
-    }
+    queue_jobs(&mut props, &mut game, &cache);
     for id in std::mem::take(&mut game.model_draws) {
         let world = game.world.clone();
         let state = &game.scene.states[id];
@@ -138,7 +155,7 @@ pub fn poll(
             }
             // Already loaded.
             Err(e) if e.is_empty() => create(&mut game, &mut sim, &job, None),
-            Err(e) => Err(format!("Can't create {}: {e}", job.model)),
+            Err(e) => Err(format!("Can't create {}: {e}", job.request.model)),
         };
         let message = match message {
             Ok(id) => {
@@ -155,15 +172,21 @@ pub fn poll(
                     transform,
                     None,
                 );
-                game.spawn_log.push(serde_json::json!({"prop":job.model,"entity":id,"draws":draws,"load_ms":load_ms,"origin":origin.to_array()}));
+                let class = world.entities[id].class();
+                let body = sim.physics.entity_mass(id);
+                game.spawn_log.push(serde_json::json!({
+                    "prop":job.request.model,"class":class,"entity":id,"draws":draws,
+                    "load_ms":load_ms,"origin":origin.to_array(),"mass":body
+                }));
                 format!(
-                    "Created prop_physics {} at {:.0} {:.0} {:.0} (entity {id}, {load_ms:.0} ms)",
-                    job.model, origin.x, origin.y, origin.z
+                    "Created {class} {} at {:.0} {:.0} {:.0} (entity {id}, {load_ms:.0} ms)",
+                    job.request.model, origin.x, origin.y, origin.z
                 )
             }
             Err(e) => {
-                game.spawn_log
-                    .push(serde_json::json!({"prop":job.model,"error":e,"load_ms":load_ms}));
+                game.spawn_log.push(
+                    serde_json::json!({"prop":job.request.model,"error":e,"load_ms":load_ms}),
+                );
                 e
             }
         };
@@ -180,11 +203,14 @@ fn create(
     job: &Job,
     hull: Option<(glam::Vec3, glam::Vec3)>,
 ) -> Result<usize, String> {
-    let key = format!("{}#0", job.model);
+    if let Some(entity) = job.request.pickup.clone() {
+        return create_pickup(game, &mut sim.physics, &job.request, entity);
+    }
+    let key = format!("{}#0", job.request.model);
     if !game.world.model_physics.contains_key(&key) {
         return Err(format!(
             "Can't create {}: the model has no physics (.phy)",
-            job.model
+            job.request.model
         ));
     }
     let (mins, maxs) = match hull {
@@ -201,17 +227,18 @@ fn create(
             })
             .ok_or("model missing")?,
     };
-    let end = job.eye + job.forward * hl2_simulation::ai::spawn::MAX_TRACE_LENGTH;
+    let (eye, forward) = job.request.aim;
+    let end = eye + forward * hl2_simulation::ai::spawn::MAX_TRACE_LENGTH;
     let trace = sim
         .physics
-        .npc_trace_hull(job.eye, end, Hull { mins, maxs }, Query::default());
+        .npc_trace_hull(eye, end, Hull { mins, maxs }, Query::default());
     if trace.trace.fraction >= 1. || trace.trace.all_solid {
         return Err(format!(
             "Can't create {}: no surface along the aim",
-            job.model
+            job.request.model
         ));
     }
-    let origin = job.eye + (end - job.eye) * trace.trace.fraction + trace.trace.normal;
+    let origin = eye + (end - eye) * trace.trace.fraction + trace.trace.normal;
     let id = game.world.entities.len();
     let entity = modkit_core::Entity {
         properties: [
@@ -221,7 +248,7 @@ fn create(
                 format!("{:.10} {:.10} {:.10}", origin.x, origin.y, origin.z),
             ),
             ("angles", "0 0 0".to_owned()),
-            ("model", job.model.clone()),
+            ("model", job.request.model.clone()),
             ("fademindist", "-1".to_owned()),
             ("fademaxdist", "0".to_owned()),
             ("fadescale", "1".to_owned()),
@@ -234,7 +261,7 @@ fn create(
     };
     let instance = modkit_core::ModelInstance {
         background: false,
-        model: job.model.clone(),
+        model: job.request.model.clone(),
         origin,
         angles: glam::Vec3::ZERO,
         skin: 0,
@@ -246,7 +273,46 @@ fn create(
         entity: Some(id),
     };
     game.insert_entity(entity, Some(instance), &mut sim.physics)
-        .map_err(|e| format!("Can't create {}: {e}", job.model))
+        .map_err(|e| format!("Can't create {}: {e}", job.request.model))
+}
+
+/// Loose pickups use the aim ray instead of the ordinary prop hull sweep.
+fn create_pickup(
+    game: &mut Gameplay,
+    physics: &mut hl2_simulation::physics::Physics,
+    request: &Request,
+    mut entity: modkit_core::Entity,
+) -> Result<usize, String> {
+    let (eye, forward) = request.aim;
+    let aim = physics
+        .impact_ray(eye, forward, hl2_simulation::ai::spawn::MAX_TRACE_LENGTH)
+        .ok_or("No surface along the aim")?;
+    let origin = aim.position + glam::Vec3::Z * 12.;
+    let angles = entity
+        .get("angles")
+        .and_then(modkit_core::parse_vec3)
+        .unwrap_or_default();
+    let instance = modkit_core::ModelInstance {
+        background: false,
+        model: request.model.clone(),
+        origin,
+        angles,
+        skin: 0,
+        body: 0,
+        scale: 1.,
+        kind: entity.class().into(),
+        solid: true,
+        solid_mode: None,
+        entity: Some(game.world.entities.len()),
+    };
+    entity.properties.extend([
+        (
+            "origin".into(),
+            format!("{} {} {}", origin.x, origin.y, origin.z),
+        ),
+        ("model".into(), request.model.clone()),
+    ]);
+    game.insert_entity(entity, Some(instance), physics)
 }
 
 #[cfg(test)]

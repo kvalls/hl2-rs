@@ -216,6 +216,7 @@ pub struct Gameplay {
     pub launch_impacts: Vec<serde_json::Value>,
     /// prop_physics_create requests (model, eye, aim) for the host's model loader.
     pub prop_requests: Vec<(String, Vec3, Vec3)>,
+    pub(crate) pickup_requests: Vec<crate::runtime_props::Request>,
     /// npc_create / ent_create requests waiting for asynchronous NPC late precaching.
     pub npc_requests: Vec<PendingNpcSpawn>,
     /// Runtime entities whose model draws the host builds next frame (dropped weapons).
@@ -734,12 +735,15 @@ impl Gameplay {
     }
     pub fn report(&self, physics: &Physics) -> serde_json::Value {
         let entities: Vec<_> = self.world.entities.iter().enumerate()
-            .filter(|(_, e)| e.class().contains("door") || e.class().starts_with("prop_physics"))
+            .filter(|(_, e)| e.class().contains("door")
+                || e.class().starts_with("prop_physics")
+                || source_assets::models::physical_pickup(e.class()))
             .map(|(id, e)| {
                 let state = &self.scene.states[id];
                 let (origin, rotation) = physics.entity_pose(id).unwrap_or((state.origin, state.rotation));
                 serde_json::json!({"entity":id,"name":e.get("targetname"),"class":e.class(),
-                    "origin":origin.to_array(),"rotation":rotation.to_array(),"visible":state.visible,"killed":state.killed})
+                    "origin":origin.to_array(),"rotation":rotation.to_array(),"visible":state.visible,"killed":state.killed,
+                    "body": physics.entity_rest_state(id)})
             }).collect();
         // Composition failures drop a gesture layer silently in presentation; surface them.
         let compose_errors: BTreeMap<usize, Vec<String>> = self

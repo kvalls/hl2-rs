@@ -542,6 +542,7 @@ pub enum Command {
     /// prop_physics_create (or ent_create of a physics prop) with this model argument,
     /// relative to models/.
     SpawnProp(String),
+    SpawnPickup(String, Vec<(String, String)>),
 }
 /// The ent_create classes that are CPhysicsProp (they need a `model` keyvalue).
 const PHYSICS_PROP_CLASSES: &[&str] = &[
@@ -607,58 +608,67 @@ impl Console {
                 Ok((args.len() == 2)
                     .then(|| Command::SpawnProp(args[1].trim_matches('"').to_owned())))
             }
-            "ent_create" => {
-                let Some(class) = args
-                    .get(1)
-                    .map(|c| c.trim_matches('"').to_ascii_lowercase())
-                else {
-                    return Ok(None);
-                };
-                let pairs: Vec<(String, &str)> = args[2..]
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|kv| {
-                        (
-                            kv[0].trim_matches('"').to_ascii_lowercase(),
-                            kv[1].trim_matches('"'),
-                        )
-                    })
-                    .collect();
-                let value = |key: &str| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
-                if PHYSICS_PROP_CLASSES.contains(&class.as_str()) {
-                    // CBaseProp::Spawn removes a prop without a model.
-                    let model = value("model")
-                        .ok_or_else(|| format!("ent_create: {class} missing modelname, removed"))?;
-                    return Ok(Some(Command::SpawnProp(model.to_owned())));
-                }
-                if class.starts_with("npc_") && spawn_class(&class).0 == class {
-                    // ent_create does not read npc_create_equipment; the weapon comes from
-                    // the additionalequipment keyvalue (CAI_BaseNPC::KeyValue).
-                    return Ok(Some(Command::Spawn(SpawnRequest {
-                        classname: class.clone(),
-                        name: value("targetname").map(str::to_owned),
-                        equipment: value("additionalequipment").unwrap_or("").to_owned(),
-                        aimed: false,
-                        allegiance: Allegiance::Default,
-                        variant: String::new(),
-                        grenades: value("numgrenades")
-                            .filter(|_| reads_num_grenades(&class))
-                            .and_then(|n| n.parse().ok()),
-                        ent_create: true,
-                        squad: value("squadname").map(str::to_owned),
-                        // "pitch yaw roll" (CBaseEntity::KeyValue angles).
-                        yaw: value("angles")
-                            .and_then(|a| a.split_whitespace().nth(1)?.parse().ok()),
-                    })));
-                }
-                Err(format!(
-                    "ent_create: runtime creation of {class} is not implemented (NPC classes and physics props only)"
-                ))
-            }
+            "ent_create" => entity_create(&args[1..]),
             _ => Ok(None),
         }
     }
+}
+
+fn entity_create(args: &[&str]) -> Result<Option<Command>, String> {
+    let Some(class) = args
+        .first()
+        .map(|c| c.trim_matches('"').to_ascii_lowercase())
+    else {
+        return Ok(None);
+    };
+    let pairs: Vec<(String, &str)> = args[1..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|kv| {
+            (
+                kv[0].trim_matches('"').to_ascii_lowercase(),
+                kv[1].trim_matches('"'),
+            )
+        })
+        .collect();
+    let value = |key: &str| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
+    if PHYSICS_PROP_CLASSES.contains(&class.as_str()) {
+        // CBaseProp::Spawn removes a prop without a model.
+        let model = value("model")
+            .ok_or_else(|| format!("ent_create: {class} missing modelname, removed"))?;
+        return Ok(Some(Command::SpawnProp(model.to_owned())));
+    }
+    if source_assets::models::physical_pickup(&class) {
+        let properties = pairs
+            .into_iter()
+            .filter(|(key, _)| matches!(key.as_str(), "angles" | "targetname" | "spawnflags"))
+            .map(|(key, value)| (key, value.to_owned()))
+            .collect();
+        return Ok(Some(Command::SpawnPickup(class, properties)));
+    }
+    if class.starts_with("npc_") && spawn_class(&class).0 == class {
+        // ent_create does not read npc_create_equipment; the weapon comes from
+        // the additionalequipment keyvalue (CAI_BaseNPC::KeyValue).
+        return Ok(Some(Command::Spawn(SpawnRequest {
+            classname: class.clone(),
+            name: value("targetname").map(str::to_owned),
+            equipment: value("additionalequipment").unwrap_or("").to_owned(),
+            aimed: false,
+            allegiance: Allegiance::Default,
+            variant: String::new(),
+            grenades: value("numgrenades")
+                .filter(|_| reads_num_grenades(&class))
+                .and_then(|n| n.parse().ok()),
+            ent_create: true,
+            squad: value("squadname").map(str::to_owned),
+            // "pitch yaw roll" (CBaseEntity::KeyValue angles).
+            yaw: value("angles").and_then(|a| a.split_whitespace().nth(1)?.parse().ok()),
+        })));
+    }
+    Err(format!(
+        "ent_create: runtime creation of {class} is not implemented (NPCs, loose pickups and physics props only)"
+    ))
 }
 
 /// Console arguments like CCommand::Tokenize: whitespace separates them, a double-quoted
@@ -870,7 +880,16 @@ mod tests {
         // Our citizen variants are overlay labels, not entity classes; other classes are
         // not runtime-creatable yet.
         assert!(console.parse("ent_create npc_citizen_rebel").is_err());
-        assert!(console.parse("ent_create item_healthkit").is_err());
+        assert_eq!(
+            console
+                .parse("ent_create item_healthkit targetname medkit")
+                .unwrap(),
+            Some(Command::SpawnPickup(
+                "item_healthkit".into(),
+                vec![("targetname".into(), "medkit".into())]
+            ))
+        );
+        assert!(console.parse("ent_create item_dynamic_resupply").is_err());
         assert_eq!(console.parse("ent_create").unwrap(), None);
     }
     #[test]

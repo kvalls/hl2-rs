@@ -1,5 +1,20 @@
 # STATUS
 
+## Supply pickup physics and plaza prop scaling (2026-11-25)
+
+Loose supplies and world weapons use owned model solids in the weapon collision group.
+They fall, collide with the world and props, and disable their body on collection.
+`ent_create` creates supported pickups through the asynchronous model loader. Bugbait
+retains its authored placement. The fixed-start constraint limits and native trigger
+obstruction behavior are not reproduced by this change.
+
+O44 passed all 21 packaged M1 Pro / Metal runs at 1080p. The 0-spawn physics stage was
+0.120 ms/tick, compared with 0.248 at 100 batteries and 0.291 at 100 mixed props.
+Use `python3 scripts/checks/prop_scaling.py --out artifacts/prop-scaling/run` for the
+sweep. O45 covers spawn and awake-body scaling. O46 covers resting render and shadow
+costs. See docs/performance.md. Native runtime comparison and Windows runtime are
+**not tested**.
+
 ## Shadow quality crossfade on the performance branch (2026-11-25)
 
 Medium and High projected shadows blend silhouette and blob for 800 ms when the visible
