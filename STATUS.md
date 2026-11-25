@@ -1,5 +1,16 @@
 # STATUS
 
+## Loopback-only RCON (2026-11-26)
+
+The host refuses non-loopback RCON binds, including wildcard addresses passed
+through `-usercon`. The skill client refuses non-loopback destinations before
+opening a socket, and supervised launches apply their own endpoint and
+credentials after optional startup arguments. Packaged macOS checks observed
+no TCP listener for either wildcard request. After automatic activation,
+socket inspection confirmed the bootstrap and RCON ports on `127.0.0.1`.
+Startup and automatic local RCON passed. Windows and Linux runtime are
+**not tested**.
+
 ## Automatic hl2-session attachment (2026-11-26)
 
 The skill now runs `session.py attach --enable` for an open game. It reuses

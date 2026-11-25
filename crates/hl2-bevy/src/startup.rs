@@ -222,7 +222,7 @@ const HELP_LINES: &[&str] = &[
     "      --no-model-lighting             Skip per-entity model lighting updates",
     "      --no-physics-step               Skip physics step during gameplay tick",
     "      -condebug                       Append console output to console.log beside the settings file",
-    "      -usercon                        Start the remote console (RCON) on ip:hostport; needs +rcon_password",
+    "      -usercon                        Start local-only RCON on loopback ip:hostport; needs +rcon_password",
     "      +<command> [args]               Run a console command at startup (e.g. +rcon_password <password>)",
     "      --novid, -novid                 Skip startup videos on launch",
     "      --no-pvs                        Disable BSP potential visible set (PVS) occlusion culling",

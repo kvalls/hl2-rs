@@ -286,12 +286,6 @@ def build_launch_command(
         str(exe),
         "-condebug",
         "-usercon",
-        "+ip",
-        "127.0.0.1",
-        "+rcon_password",
-        password,
-        "+hostport",
-        str(port),
         "+con_timestamp",
         "1",
         "+sv_rcon_log",
@@ -299,6 +293,12 @@ def build_launch_command(
         "+showconsole",
         *keep_args,
         *run_args,
+        "+ip",
+        "127.0.0.1",
+        "+rcon_password",
+        password,
+        "+hostport",
+        str(port),
     ]
 
 

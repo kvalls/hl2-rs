@@ -15,7 +15,7 @@ use listener::{Message, Outgoing};
 use server::{Connection, Limits, Reply, Server};
 use source_ui::console::panel::Level;
 use std::collections::HashMap;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, Sender};
 
@@ -61,9 +61,15 @@ impl Console {
         self.remote_console.as_ref().map(|remote| remote.bound)
     }
 
-    /// Opens an RCON listener on the requested address. Settings and access policy belong
-    /// to the caller. Starting twice leaves the first listener in place.
+    /// Opens an RCON listener on a loopback address. Starting twice leaves the first
+    /// listener in place.
     pub fn start_remote_console(&mut self, address: SocketAddr) -> std::io::Result<SocketAddr> {
+        if !address.ip().is_loopback() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "RCON requires a loopback address",
+            ));
+        }
         if let Some(bound) = self.remote_console_address() {
             return Ok(bound);
         }
@@ -93,10 +99,17 @@ fn limits(remote: &hl2_ui::console::remote::Remote) -> Limits {
 /// Starts listening on `ip`:`hostport` as the console's cvars stand.
 fn startup_address(remote: &hl2_ui::console::remote::Remote) -> std::io::Result<SocketAddr> {
     let port = u16::try_from(remote.hostport).map_err(std::io::Error::other)?;
-    (remote.ip.as_str(), port)
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| std::io::Error::other("the address does not resolve"))
+    let ip = if remote.ip.eq_ignore_ascii_case("localhost") {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    } else {
+        remote.ip.parse().map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "RCON requires a numeric loopback address or localhost",
+            )
+        })?
+    };
+    Ok(SocketAddr::new(ip, port))
 }
 
 /// Runs a remote command through the console with its output redirected; `say` lines are
@@ -221,6 +234,38 @@ mod tests {
         fn remote_console_chat(&mut self, line: &str) {
             self.0.lock().unwrap().push(line.to_owned());
         }
+    }
+
+    #[test]
+    fn the_host_refuses_non_loopback_addresses_at_the_bind_boundary() {
+        use std::io::ErrorKind;
+
+        let mut console = Console::new(Default::default());
+        for address in ["0.0.0.0:0", "[::]:0", "192.0.2.1:0", "[2001:db8::1]:0"] {
+            let error = console
+                .start_remote_console(address.parse().unwrap())
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+            assert!(console.remote_console_address().is_none());
+        }
+    }
+
+    #[test]
+    fn startup_resolves_localhost_without_dns_and_accepts_numeric_ipv6() {
+        use hl2_ui::console::remote::Remote;
+
+        let mut remote = Remote::default();
+        assert_eq!(
+            super::startup_address(&remote).unwrap(),
+            "127.0.0.1:27015".parse().unwrap()
+        );
+        remote.ip = "::1".into();
+        assert_eq!(
+            super::startup_address(&remote).unwrap(),
+            "[::1]:27015".parse().unwrap()
+        );
+        remote.ip = "game.example".into();
+        assert!(super::startup_address(&remote).is_err());
     }
 
     #[test]

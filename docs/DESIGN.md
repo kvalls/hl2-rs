@@ -1,5 +1,14 @@
 # Design
 
+## Keep RCON on the local machine (2026-11-26)
+
+The game rejects non-loopback RCON binds at the host service boundary, even
+when a startup cvar requests one. The skill client rejects non-loopback
+destinations before creating a socket and normalizes `localhost` to numeric
+loopback. The supervised launcher applies its managed bind, port and password
+after optional arguments. Verify automatic activation, explicit startup and
+rejection of non-loopback addresses in the packaged build.
+
 ## Automatic local RCON activation (2026-11-26)
 
 `hl2-session` first probes the selected running game's RCON endpoint. On an
@@ -54,7 +63,7 @@ Core (retail; each phase its own commit, tests in the owning crate):
 2. **`say <text>`.** Prints `<name>: <text>` (server.dll's `%s: %s`); the player's name is
    `Player` until a `name` cvar exists (retail's exact single-player name **not verified**).
    From the remote console the name is `Console`.
-3. **Remote console.** `-usercon` starts a listener thread on `ip` (default `127.0.0.1`) and
+3. **Remote console.** `-usercon` starts a listener thread on a loopback `ip` (default `127.0.0.1`) and
    `hostport` (default 27015) speaking Valve's documented RCON packets (auth, exec, response).
    Commands run only while `rcon_password` is non-empty; it is never saved. Failed
    authentications follow `sv_rcon_maxfailures`/`sv_rcon_minfailures`/`sv_rcon_minfailuretime`

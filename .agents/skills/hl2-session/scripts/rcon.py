@@ -13,6 +13,7 @@ SESSION (defaults to <temp>/hl2rs-agent-session).
 """
 
 import argparse
+import ipaddress
 import os
 import re
 import socket
@@ -140,7 +141,14 @@ def exec_command(
     password: str = "",
     timeout: float = 10.0,
 ) -> str:
-    with socket.create_connection((host, port), timeout=timeout) as sock:
+    address = "127.0.0.1" if host.lower() == "localhost" else host
+    try:
+        loopback = ipaddress.ip_address(address)
+    except ValueError:
+        raise ValueError("RCON requires a loopback address") from None
+    if not loopback.is_loopback:
+        raise ValueError("RCON requires a loopback address")
+    with socket.create_connection((str(loopback), port), timeout=timeout) as sock:
         sock.settimeout(timeout)
         send_packet(sock, 1, AUTH, password)
         while True:
@@ -234,7 +242,7 @@ def wait_and_exec(
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Send a command to HL2-RS over Source RCON.")
     parser.add_argument("--session", type=Path, default=None, help="Session directory path.")
-    parser.add_argument("--host", default=None, help="RCON host (default: 127.0.0.1).")
+    parser.add_argument("--host", default=None, help="Loopback RCON address (default: 127.0.0.1).")
     parser.add_argument("--port", type=int, default=None, help="RCON port (default: session port or 27015).")
     parser.add_argument(
         "--password-file",

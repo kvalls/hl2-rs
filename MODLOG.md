@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Restrict RCON to loopback
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent independently reviewed the RCON and skill boundaries. Exact subagent model ID not recorded.
+- Changed: Reject non-loopback RCON binds in the host and non-loopback destinations in the skill client before opening sockets. Resolve `localhost` to numeric loopback. Apply the supervised launcher's bind, port and password after optional startup arguments.
+- Why: Automatic activation already used IPv4 loopback, but explicit startup settings could bind RCON outside it. The skill helper could also send its credentials to a configured non-local host.
+- Tested how: Focused Rust and Python RCON tests, strict Clippy on macOS and for the Windows target, architecture and all four plugin selections. Ran isolated packaged macOS checks for IPv4 and IPv6 wildcard refusal, automatic attachment and startup RCON.
+- Result: Wildcard requests opened no TCP listener. The automatically activated bootstrap and RCON sockets belonged to the game PID and were bound to `127.0.0.1`. Local chat and subtitles still worked. The first fixture assumed the game had just one UDP socket, so the replacement matched the bootstrap by its published port.
+- Still broken or not tested: Windows and Linux runtime are **not tested**. Separately configured forwarding is outside the skill's connection path.
+- Next: Use the loopback-only package for live sessions.
+
 ## 2026-11-26 — Enable RCON automatically when the skill attaches
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent implemented the helper, skill and Python tests. Exact subagent model ID not recorded.

@@ -110,6 +110,13 @@ class MockRconServer:
 
 
 class TestRcon(unittest.TestCase):
+    def test_rcon_refuses_non_loopback_before_opening_a_socket(self):
+        with mock.patch.object(rcon.socket, "create_connection") as connect:
+            for address in ("0.0.0.0", "192.0.2.1", "::", "2001:db8::1", "game.example"):
+                with self.subTest(address=address), self.assertRaisesRegex(ValueError, "loopback"):
+                    rcon.exec_command("echo check", host=address)
+            connect.assert_not_called()
+
     def test_exec_success_and_multipacket_response(self):
         server = MockRconServer("pw123", lambda cmd: ["part1 ", "part2\n"] if cmd == "ui_dump" else [])
         try:
@@ -565,7 +572,12 @@ class TestSession(unittest.TestCase):
             )
             self.assertIn("-usercon", cmd)
             self.assertIn("+showconsole", cmd)
-            self.assertEqual(cmd[-3:], ["--windowed", "--map", "d1_trainstation_01"])
+            self.assertEqual(cmd[-9:-6], ["--windowed", "--map", "d1_trainstation_01"])
+            overrides = session.build_launch_command(
+                session.executable_path(repo), 27016, "pw",
+                ["+ip", "0.0.0.0", "+hostport", "27017"], ["+rcon_password", "other"],
+            )
+            self.assertEqual(overrides[-6:], ["+ip", "127.0.0.1", "+rcon_password", "pw", "+hostport", "27016"])
 
     def test_port_free_and_pick_free_port(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
