@@ -22,7 +22,6 @@ mod simplify;
 mod steer;
 mod tracks;
 pub use restrictions::NavRestrictions;
-use simplify::simplify_path_forward;
 use tracks::checked_track;
 pub mod links;
 mod tactical;

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 session 70: NPCs steer around a standing NPC (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation npc/steer.rs (new: deflection, local avoidance, near-waypoint skip), npc.rs (Route::detour_end, advance calls steer::walk), npc/simplify.rs (simplify::tick, detour-aware query), npc/graph.rs (Route::along), npc/graph/triangulate.rs (apex visible to npc), npc_probe.rs (GroundMove::transient); two npc tests moved into a corridor, one new controller test and one deflection test. Cherry-picked the queue newcomer steering and the pre-suit walk speed side branches.
+- Why: the owner's station 01 playtest: luggage_citizen stopped at the luggage cop standing on his route and never sat in the breakroom.
+- Tested how: SDK (ai_localnavigator.cpp, ai_navigator.cpp, ai_pathfinder.cpp), retail strings, unit tests, packaged fixture artifacts/s70/lugg (r1), a native raw run with the same placements (bench views), artifacts/s70/validate1.sh.
+- Result: he walks around the cop and reaches the hint at 135 s (native: between ~137 and ~145 s). Architecture: npc.rs::advance 123 -> 114, npc.rs 1120 -> 1113. Validation: Clippy 0 (after removing an unused import), tests 1770 + the 2 known failures, fmt 0, architecture 0, build ok, regression passed, replays 61/73 with 12 changes reviewed by cause and recorded (walk speed, queue steering, NPC steering, luggage-shove's ray). Also: physics props' step sounds are preloaded (SDK PrecachePhysicsSounds; the footsteps replay played an unloaded wood_box_footstep1).
+- Still broken or not tested: he sits beside the bench, native on it (ActBusy entry/exit sequences and their root motion are not modeled); the plane solver; the pen queue clumping (not reproduced); the recorded I/O counter changes were not compared with native one by one; CI not run, main not fast-forwarded.
+- Next: ActBusy entry/exit sequences with AutoMovement; the pen queue with the player in line.
+
 ## 2026-11-21 session 69: the owner's station 01 playtest (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
