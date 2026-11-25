@@ -108,7 +108,6 @@ fn profiling_rows(
             state: state(s.state),
             elapsed: s.elapsed,
             frames: s.frames,
-            limit: s.limit,
         }),
         snapshot.trace.map(|t| TraceProfiler {
             state: state(t.state),

@@ -173,7 +173,6 @@ pub struct StageProfiler {
     pub state: ProfilerState,
     pub elapsed: std::time::Duration,
     pub frames: usize,
-    pub limit: usize,
 }
 /// A trace, written from the first gameplay frame.
 pub struct TraceProfiler {
@@ -186,11 +185,10 @@ pub struct TraceProfiler {
 pub fn profiling_lines(stages: Option<StageProfiler>, trace: Option<TraceProfiler>) -> Vec<String> {
     let stages = stages.map(|s| {
         format!(
-            "Profile (--profile): {}  {}  |  {} / {} frames",
+            "Profile (--profile): {}  {}  |  {} frames",
             s.state.label(),
             elapsed_text(s.elapsed),
-            s.frames,
-            s.limit
+            s.frames
         )
     });
     let trace = trace.map(|t| {
@@ -256,10 +254,9 @@ mod tests {
         assert!(profiling_lines(None, None).is_empty());
         let lines = profiling_lines(
             Some(StageProfiler {
-                state: ProfilerState::Finished,
+                state: ProfilerState::Profiling,
                 elapsed: Duration::from_millis(3_723_045),
-                frames: 4096,
-                limit: 4096,
+                frames: 8192,
             }),
             Some(TraceProfiler {
                 state: ProfilerState::Profiling,
@@ -270,7 +267,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "Profile (--profile): finished  01:02:03.045  |  4096 / 4096 frames",
+                "Profile (--profile): profiling  01:02:03.045  |  8192 frames",
                 "Trace (trace-chrome): profiling  00:01:01.500  |  1.50 GB",
             ]
         );

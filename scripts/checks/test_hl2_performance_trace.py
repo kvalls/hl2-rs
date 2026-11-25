@@ -267,6 +267,26 @@ Total number in stack (recursive counted multiple, when >=5):
 
 
 class TestCaptureOrchestrator(unittest.TestCase):
+    def test_game_report_preserves_percentile_bounds_and_legacy_exact_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "report.json"
+            report.write_text(json.dumps({"presentation": {"cpu_stages": {
+                "legacy": {"samples": 80, "p95_ms": 2.4, "max_ms": 3.5},
+                "long": {
+                    "samples": 6170, "p95_ms": 5.0625, "p99_ms": 8.5,
+                    "percentiles_exact": False, "max_ms": 19.5,
+                },
+            }}}), encoding="utf-8")
+            summary = capture.summarize_game_report(report)
+            long, legacy = summary["cpu_stages"]
+            self.assertEqual((long["samples"], long["p99_ms"], long["percentiles_exact"]),
+                             (6170, 8.5, False))
+            self.assertIsNone(legacy["p99_ms"])
+            self.assertTrue(legacy["percentiles_exact"])
+            lines = capture.format_game_report(summary).splitlines()
+            self.assertEqual(lines[2].split()[-3:], ["<=5.063", "<=8.500", "19.50"])
+            self.assertEqual(lines[3].split()[-3:], ["2.400", "-", "3.50"])
+
     def test_mode_validation_and_build_commands(self):
         ok, _ = capture.build_matches_mode({"plugins": "debug-tools,advanced-options"}, "stages")
         self.assertTrue(ok)

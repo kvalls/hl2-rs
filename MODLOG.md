@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Whole-run CPU stage profiling
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. Analyzer changes by the Codex profiler review subagent, exact model ID not recorded.
+- Changed: Keep exact short samples and a bounded long-run histogram, with exact full-run counts, mean, maximum and slowest indices. Keep the debug overlay recording and show approximate percentile bounds in the capture analyzer.
+- Why: Long captures silently stopped sampling after the first 4,096 frames.
+- Tested how: Twelve release profiler tests, 51 debug plugin tests, 17 Python analyzer tests, strict Clippy on macOS and the Windows target, all four plugin selections, four packaged replays and three paired 6,200-frame captures.
+- Result: Each candidate `frame_total` report covered all 6,049 post-warm-up samples, compared with 4,096 previously. Synthetic tests retained hitches recorded after the old limit.
+- Still broken or not tested: Windows runtime and isolated recorder overhead are **not tested**.
+- Next: Instrument and measure runtime prop collider installation under O45.
+
 ## 2026-11-25 — Source-style NPC decision locality and authored sleep
 
 - Agent/model: Codex desktop, GPT-6 family. Exact model ID not recorded.

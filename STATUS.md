@@ -1,5 +1,14 @@
 # STATUS
 
+## Whole-run CPU stage profiles (2026-11-25)
+
+O11 closed after three alternating pairs of packaged 6,200-frame runs.
+The profiler now reports all 6,049 post-warm-up frame samples in the fixture.
+Long stage reports flag percentile bounds and retain exact late hitches.
+The debugger shows a growing frame count past the former cap.
+All profiler, overlay, analyzer and targeted packaged checks passed.
+Windows runtime and isolated recorder overhead are **not tested**.
+
 ## Source-style NPC decision locality (2026-11-25)
 
 Quiet Combine, rebels, zombies and headcrabs use a distance and visibility

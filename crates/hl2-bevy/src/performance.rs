@@ -2,13 +2,13 @@
 mod frame_stages;
 mod gpu_completion;
 mod pacing;
+mod samples;
 pub mod status;
 #[cfg(feature = "trace")]
 pub(crate) mod trace_writer;
 use bevy::prelude::*;
 pub(crate) use pacing::background_interval;
-/// Samples kept per stage; later frames only count calls.
-pub(crate) const SAMPLE_LIMIT: usize = 4096;
+use samples::Samples;
 /// The whole-frame stage (`frame_stages`).
 pub(crate) const FRAME_TOTAL: &str = "frame_total";
 use std::{
@@ -21,11 +21,6 @@ pub struct Performance(
     Arc<Mutex<BTreeMap<&'static str, Samples>>>,
     Arc<Mutex<Option<gpu_completion::Stats>>>,
 );
-#[derive(Default)]
-struct Samples {
-    calls: u64,
-    values: Vec<f64>,
-}
 pub struct Scope<'a> {
     performance: Option<&'a Performance>,
     name: &'static str,
@@ -39,11 +34,7 @@ pub fn scope<'a>(performance: Option<&'a Performance>, name: &'static str) -> Sc
     }
 }
 fn push_sample(all: &mut BTreeMap<&'static str, Samples>, name: &'static str, ms: f64) {
-    let samples = all.entry(name).or_default();
-    samples.calls += 1;
-    if samples.calls > 30 && samples.values.len() < SAMPLE_LIMIT {
-        samples.values.push(ms);
-    }
+    all.entry(name).or_default().record(ms);
 }
 impl Drop for Scope<'_> {
     fn drop(&mut self) {
@@ -87,16 +78,11 @@ impl Performance {
     }
     pub fn report(&self) -> serde_json::Value {
         let all = self.0.lock().expect("CPU timing");
-        serde_json::Value::Object(all.iter().map(|(name,samples)| {
-            let mut sorted=samples.values.clone();sorted.sort_by(f64::total_cmp);
-            let mean=sorted.iter().sum::<f64>()/sorted.len().max(1) as f64;
-            let p95=sorted.get(sorted.len().saturating_sub(1)*95/100).copied().unwrap_or(0.);
-            let p99=sorted.get(sorted.len().saturating_sub(1)*99/100).copied().unwrap_or(0.);
-            // The slowest samples with their sample index (frame hitches, e.g. a map copy).
-            let mut slowest:Vec<(usize,f64)>=samples.values.iter().copied().enumerate().collect();
-            slowest.sort_by(|a,b| b.1.total_cmp(&a.1));slowest.truncate(3);
-            ((*name).into(),serde_json::json!({"calls":samples.calls,"samples":sorted.len(),"mean_ms":mean,"p95_ms":p95,"p99_ms":p99,"max_ms":sorted.last().copied().unwrap_or(0.),"slowest":slowest}))
-        }).collect())
+        serde_json::Value::Object(
+            all.iter()
+                .map(|(name, samples)| ((*name).into(), samples.report()))
+                .collect(),
+        )
     }
 }
 
@@ -336,7 +322,7 @@ impl Performance {
             .lock()
             .expect("CPU timing")
             .get(name)
-            .map_or(0, |samples| samples.values.len())
+            .map_or(0, |samples| samples.count())
     }
 }
 
@@ -356,5 +342,23 @@ mod tests {
         assert_eq!(report["test_stage"]["samples"], 5);
         assert_eq!(report["test_stage"]["mean_ms"], 33.0);
         assert_eq!(report["test_stage"]["max_ms"], 35.0);
+    }
+
+    #[test]
+    fn resetting_a_long_stage_recording_restores_exact_percentiles() {
+        let perf = Performance::default();
+        for _ in 0..5000 {
+            perf.record_ms("stage", 100.);
+        }
+        assert_eq!(perf.report()["stage"]["percentiles_exact"], false);
+        perf.restart_stages();
+        assert_eq!(perf.report(), serde_json::json!({}));
+        for _ in 0..35 {
+            perf.record_ms("stage", 1.);
+        }
+        let report = perf.report();
+        assert_eq!(report["stage"]["samples"], 5);
+        assert_eq!(report["stage"]["percentiles_exact"], true);
+        assert_eq!(report["stage"]["max_ms"], 1.);
     }
 }

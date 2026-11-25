@@ -3,7 +3,7 @@
 //! pays nothing. Both start with gameplay, not with the launch: the first frame that is not
 //! loading, paused or a menu background level starts the trace, and the `--profile` stage
 //! samples restart `STAGE_WARM_UP_FRAMES` gameplay frames later.
-use super::{FRAME_TOTAL, Performance, SAMPLE_LIMIT};
+use super::{FRAME_TOTAL, Performance};
 use bevy::prelude::{App, IntoScheduleConfigs, Res, ResMut, Resource};
 use std::{
     path::{Path, PathBuf},
@@ -60,7 +60,7 @@ pub enum RecorderState {
     /// Waiting for gameplay (and, for stage samples, the warm-up after it).
     Idle,
     Recording,
-    /// Its sample buffer is full; later frames are not measured.
+    /// The trace file has been finalized.
     Finished,
 }
 
@@ -68,10 +68,9 @@ pub enum RecorderState {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StageRecorder {
     pub state: RecorderState,
-    /// Time since measurements started, frozen when they finished.
+    /// Time since measurements started.
     pub elapsed: Duration,
     pub frames: usize,
-    pub limit: usize,
 }
 
 /// The trace recorder.
@@ -105,7 +104,6 @@ pub struct Profiling {
     gameplay_started: Option<Instant>,
     gameplay_frames: u64,
     stages_started: Option<Instant>,
-    stages_finished: Option<Instant>,
     trace: Option<TraceRecording>,
     trace_finished: Option<Instant>,
     trace_bytes: Option<u64>,
@@ -120,7 +118,6 @@ impl Profiling {
             gameplay_started: None,
             gameplay_frames: 0,
             stages_started: None,
-            stages_finished: None,
             trace,
             trace_finished: None,
             trace_bytes: None,
@@ -172,7 +169,7 @@ impl Profiling {
         actions
     }
     fn stage_recorder(
-        &mut self,
+        &self,
         now: Instant,
         recorded: Option<usize>,
         actions: &Actions,
@@ -182,22 +179,15 @@ impl Profiling {
             Some(_) if !actions.restart_stages => recorded.unwrap_or(0),
             _ => 0,
         };
-        if frames >= SAMPLE_LIMIT && self.stages_finished.is_none() {
-            self.stages_finished = Some(now);
-        }
-        let state = match (self.stages_started, self.stages_finished) {
-            (_, Some(_)) => RecorderState::Finished,
-            (Some(_), None) => RecorderState::Recording,
-            (None, None) => RecorderState::Idle,
-        };
-        let elapsed = self.stages_started.map_or(Duration::ZERO, |start| {
-            self.stages_finished.unwrap_or(now).duration_since(start)
-        });
+        let (state, elapsed) = self
+            .stages_started
+            .map_or((RecorderState::Idle, Duration::ZERO), |start| {
+                (RecorderState::Recording, now.duration_since(start))
+            });
         StageRecorder {
             state,
             elapsed,
             frames,
-            limit: SAMPLE_LIMIT,
         }
     }
     fn trace_recorder(&mut self, now: Instant, actions: &mut Actions) -> Option<TraceRecorder> {
@@ -298,13 +288,11 @@ fn update(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Actions, Profiling, RecorderState, SAMPLE_LIMIT, STAGE_WARM_UP_FRAMES, TraceRecording,
-    };
+    use super::{Actions, Profiling, RecorderState, STAGE_WARM_UP_FRAMES, TraceRecording};
     use std::time::{Duration, Instant};
 
     #[test]
-    fn stages_wait_for_gameplay_and_its_warm_up_then_record_and_freeze_their_time() {
+    fn stages_wait_for_gameplay_and_its_warm_up_then_keep_recording() {
         let t0 = Instant::now();
         let mut p = Profiling::new(true, None);
         // Menu and loading frames: nothing starts.
@@ -321,11 +309,11 @@ mod tests {
         assert!(actions.restart_stages && !actions.start_trace && !actions.gameplay_started);
         let s = p.snapshot().stages.unwrap();
         assert_eq!((s.state, s.frames), (RecorderState::Recording, 0));
-        p.update(t0 + Duration::from_secs(5), false, Some(SAMPLE_LIMIT));
-        p.update(t0 + Duration::from_secs(9), true, Some(SAMPLE_LIMIT));
+        p.update(t0 + Duration::from_secs(5), false, Some(4096));
+        p.update(t0 + Duration::from_secs(9), true, Some(8192));
         let s = p.snapshot().stages.unwrap();
-        assert_eq!(s.state, RecorderState::Finished);
-        assert_eq!(s.elapsed, Duration::from_secs(3));
+        assert_eq!((s.state, s.frames), (RecorderState::Recording, 8192));
+        assert_eq!(s.elapsed, Duration::from_secs(7));
         assert!(p.snapshot().trace.is_none());
     }
 

@@ -9,6 +9,7 @@ Trace / `sample` tools into one repeatable workflow. Stdlib-only.
 import argparse
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -648,12 +649,15 @@ def summarize_game_report(report_path: Path) -> dict[str, Any]:
     for name, vals in stages_raw.items():
         if not isinstance(vals, dict):
             continue
+        p99 = vals.get("p99_ms")
         stages.append({
             "stage": name,
             "calls": vals.get("calls", 0),
             "samples": vals.get("samples", 0),
             "mean_ms": float(vals.get("mean_ms", 0.0)),
             "p95_ms": float(vals.get("p95_ms", 0.0)),
+            "p99_ms": None if p99 is None else float(p99),
+            "percentiles_exact": vals.get("percentiles_exact", True),
             "max_ms": float(vals.get("max_ms", 0.0)),
         })
     stages.sort(key=lambda item: -item["p95_ms"])
@@ -665,6 +669,15 @@ def summarize_game_report(report_path: Path) -> dict[str, Any]:
         "benchmark": benchmark,
         "cpu_stages": stages,
     }
+
+
+def _stage_percentile_text(value: float | None, exact: bool) -> str:
+    if value is None:
+        return "-"
+    if exact:
+        return f"{value:.3f}"
+    # Round upward so the printed value still bounds the percentile.
+    return f"<={math.ceil(value * 1000) / 1000:.3f}"
 
 
 def format_game_report(data: dict[str, Any], top: int = 25) -> str:
@@ -681,11 +694,14 @@ def format_game_report(data: dict[str, Any], top: int = 25) -> str:
         )
     stages = data.get("cpu_stages") or []
     if stages:
-        lines.append(f"{'stage':28} {'samples':>8} {'mean':>8} {'p95':>8} {'max':>8}")
+        lines.append(f"{'stage':28} {'samples':>8} {'mean':>8} {'p95':>10} {'p99':>10} {'max':>8}")
         for row in stages[:top]:
+            exact = row.get("percentiles_exact", True)
+            p95 = _stage_percentile_text(row["p95_ms"], exact)
+            p99 = _stage_percentile_text(row.get("p99_ms"), exact)
             lines.append(
                 f"{row['stage'][:28]:28} {row['samples']:8d} {row['mean_ms']:8.3f} "
-                f"{row['p95_ms']:8.3f} {row['max_ms']:8.2f}"
+                f"{p95:>10} {p99:>10} {row['max_ms']:8.2f}"
             )
     else:
         lines.append("cpu_stages: none recorded (check --profile or gameplay warm-up)")

@@ -2726,6 +2726,16 @@ results describe the implemented policy. VPhysics-style object sleep uses the
 existing rigid-body state. The NPC policy leaves room for the SDK's wider
 combat-efficiency table, visibility variants and wake-squad propagation.
 
+## Long stage recordings (O11)
+
+Retain up to 4,096 original timings per stage and report exact percentiles while
+the whole recording fits. Accumulate later samples in fixed-size buckets and
+include the prefix in those buckets at report time. Full-run count, mean,
+maximum and the three slowest sample indices use the original values. Label whole-run
+percentiles as upper bounds when buckets are used. Keep the stage overlay
+recording past the old cap and preserve the existing warm-up and replay-window
+reset. Verify a packaged run beyond the cap and a synthetic hitch after it.
+
 ## Profiling toward a steady 120 FPS (owner goal, 2026-11-21)
 
 Goal (owner): maxed settings at native Retina (3456x2168, 4x MSAA, full HDR, motion blur,

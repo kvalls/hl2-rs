@@ -1,5 +1,30 @@
 # Performance measurements - 2026-10-05
 
+## O11 — Full-run CPU stage profiles (2026-11-25)
+
+On M1 Pro / Metal, both release packages rendered 6,200 frames of
+`d1_trainstation_02` at 960 × 540 with `--uncapped --profile`. After warm-ups,
+three alternating pairs (`A-B-B-A-A-B`) each recorded 6,079 `frame_total`
+calls. Baseline `84d93a3d` (package `bd0f165d`) stopped retaining samples at
+4,096. Candidate package `c0f81dae` reported all 6,049 after omitting the
+30 per-stage warm-up calls. Sample counts, boot conditions and executable
+digests are in `artifacts/o11/summary.json` and the stamped capture metadata.
+
+For short captures, percentiles still use the original exact order
+statistics. Long reports label p95/p99 as upper bounds. Normal-range buckets
+use 32 subdivisions per factor of two, with exact maximum and three slowest
+sample indices retained for the full run. The analyzer carries the exactness
+flag into JSON and rounds displayed bounds upward. Focused tests placed
+hitches after sample 4,096 and verified that replay-window resets start a
+fresh exact recording. The F1 recorder test verified a growing frame count
+past 4,096.
+
+Reproduce with `capture.py headless --mode stages --map d1_trainstation_02
+--frames 6200 --item O11 --out artifacts/o11/run --analyze -- --uncapped
+--width 960 --height 540`. The timing summaries use different sample
+windows, so these captures establish coverage. Isolated recorder overhead
+and Windows runtime are **not tested**.
+
 ## O47 — Separated workloads in Station 02 (2026-11-25)
 
 Measured the packaged release on Apple M1 Pro / Metal at 1920 × 1080, uncapped and
