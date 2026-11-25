@@ -1,5 +1,6 @@
 """Cross-platform unit tests for the in-repo /hl2-session skill scripts and docs."""
 
+from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 import io
 import json
@@ -392,6 +393,100 @@ class TestWatch(unittest.TestCase):
 
 
 class TestSession(unittest.TestCase):
+    def test_attach_authenticates_only_the_selected_local_listener(self):
+        server = MockRconServer("test_password", lambda cmd: ["HL2RS_ATTACH\n"] if cmd == "echo HL2RS_ATTACH" else [])
+        self.addCleanup(server.close)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = root / "live-123"
+            published.mkdir()
+            (published / "pid").write_text("123\n", encoding="utf-8")
+            (published / "port").write_text(str(server.port), encoding="utf-8")
+            (published / "console_log_path").write_text(str(root / "console.log"), encoding="utf-8")
+            password_file = published / "rcon_password"
+            password_file.write_text("test_password\n", encoding="utf-8")
+            for name in ("pid", "port", "console_log_path"):
+                (root / name).write_bytes((published / name).read_bytes())
+            managed_password = root / "rcon_password"
+            managed_password.write_text("stale_password\n", encoding="utf-8")
+            game = {"pid": 123, "listeners": [{"address": "0.0.0.0", "port": server.port}]}
+            args = ["attach", "--pid", "123"]
+            with mock.patch.object(session, "find_running_games", return_value=[game]), \
+                 mock.patch.object(rcon, "default_session_dir", return_value=root):
+                with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+                    self.assertEqual(session.main(args), 1)
+                    self.assertEqual(out.getvalue(), "")
+                    self.assertIn("agent_rcon", err.getvalue())
+                    self.assertEqual(server.commands, [])
+
+                game["listeners"][0]["address"] = "127.0.0.1"
+                with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+                    self.assertEqual(session.main(args), 0)
+                    self.assertEqual(out.getvalue().strip(), str(published.resolve()))
+                    self.assertEqual(err.getvalue(), "")
+                    self.assertEqual(server.commands, ["echo HL2RS_ATTACH"])
+
+                password_file.write_text("stale_password\n", encoding="utf-8")
+                with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+                    with mock.patch.object(rcon, "exec_command", wraps=rcon.exec_command) as exec_command:
+                        self.assertEqual(session.main(args), 1)
+                        exec_command.assert_called_once()
+                    self.assertEqual(out.getvalue(), "")
+                    self.assertIn("agent_rcon", err.getvalue())
+                    self.assertNotIn("stale_password", err.getvalue())
+
+                managed_password.write_text("test_password\n", encoding="utf-8")
+                with redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(session.main(args), 0)
+                    self.assertEqual(out.getvalue().strip(), str(root.resolve()))
+
+    def test_attached_watcher_stops_without_a_supervisor_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            published = Path(tmp) / "live-456"
+            published.mkdir()
+            (published / "pid").write_text("456\n", encoding="utf-8")
+            output = io.StringIO()
+            with mock.patch.object(watch, "process_is_alive", return_value=False) as probe:
+                self.assertEqual(watch.watch_stream(published, [], out=output), 0)
+            probe.assert_called_once_with(456)
+            self.assertEqual(output.getvalue().strip(), "AGENT_SESSION_EXIT attached game stopped")
+
+    def test_attached_watcher_retires_only_after_the_game_removes_the_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            published = Path(tmp) / "live-456"
+            published.mkdir()
+            marker = published / "pid"
+            marker.touch()
+            cursor = published / "watch.cursor"
+            cursor.touch()
+
+            with mock.patch.object(watch, "watch_once", return_value=0):
+                self.assertEqual(watch.main(["--session", str(published), "--once"]), 0)
+            self.assertTrue(cursor.is_file())
+            self.assertTrue((published / "watch.lock").is_file())
+
+            def exit_during_watch(*args, **kwargs):
+                marker.unlink()
+                return 0
+
+            with mock.patch.object(watch, "watch_stream", side_effect=exit_during_watch):
+                self.assertEqual(watch.main(["--session", str(published)]), 0)
+            self.assertFalse(published.exists())
+
+    def test_current_host_process_is_alive(self):
+        self.assertTrue(watch.process_is_alive(os.getpid()))
+
+    def test_restart_refuses_an_attached_game_before_building_or_contacting_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            send = mock.Mock()
+            build = mock.Mock()
+            with redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(restart.restart_session(root / "live-123", root, rcon_exec=send, script_builder=build), 1)
+            self.assertIn("Leaving it running", err.getvalue())
+            send.assert_not_called()
+            build.assert_not_called()
+
     def test_paths_command_and_bom_build_info(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

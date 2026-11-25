@@ -14,6 +14,7 @@ SESSION (defaults to <temp>/hl2rs-agent-session).
 
 import argparse
 import os
+import re
 import socket
 import struct
 import sys
@@ -39,6 +40,11 @@ def default_session_dir(env: Optional[dict[str, str]] = None) -> Path:
     if raw:
         return Path(raw)
     return Path(tempfile.gettempdir()) / "hl2rs-agent-session"
+
+
+def live_session_pid(session: Path) -> Optional[int]:
+    match = re.fullmatch(r"live-([1-9][0-9]*)", session.name)
+    return int(match[1]) if match else None
 
 
 def read_password(
@@ -260,9 +266,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
     session_dir = args.session if args.session is not None else default_session_dir()
-    allow_legacy = args.session is None and not os.environ.get("SESSION", "").strip()
+    env = {} if args.session is not None or live_session_pid(session_dir) is not None else os.environ
+    allow_legacy = args.session is None and env is os.environ and not env.get("SESSION", "").strip()
     try:
-        host = read_host(args.host)
+        host = read_host(args.host, env=env)
         output = wait_and_exec(
             command,
             host=host,
@@ -271,10 +278,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             timeout=args.timeout,
             wait_seconds=args.wait,
             session_dir=session_dir,
-            port_getter=lambda: read_port(args.port, session_dir=session_dir),
+            port_getter=lambda: read_port(args.port, session_dir=session_dir, env=env),
             password_getter=lambda: read_password(
                 password_file=args.password_file,
                 session_dir=session_dir,
+                env=env,
                 allow_legacy_fallback=allow_legacy,
             ),
         )

@@ -4,6 +4,7 @@ mod commands;
 mod draw;
 mod input;
 mod loading;
+mod session;
 mod subtitles;
 #[cfg(test)]
 mod tests;
@@ -14,6 +15,7 @@ use hl2_bevy::extensions::{Context, Input, RuntimeExtension, UiInput};
 pub struct State {
     dev_overlay: bool,
     subtitles: subtitles::RemoteSubtitles,
+    agent_session: Option<session::Session>,
     viewmodel_debug: ViewmodelDebug,
     background_debug: crate::bevy::background::BackgroundDebug,
     overlay: Overlay,
@@ -111,6 +113,9 @@ impl State {
     }
 }
 impl RuntimeExtension for State {
+    fn shutdown(&mut self) {
+        self.agent_session = None;
+    }
     fn remote_console_chat(&mut self, line: &str) {
         self.subtitles.push(line, std::time::Instant::now());
     }
@@ -180,6 +185,7 @@ impl RuntimeExtension for State {
             crate::commands::Request::AgentResume => {
                 super::agent::agent_resume(context.simulation, ui)
             }
+            crate::commands::Request::AgentRcon => self.agent_rcon(ui),
             crate::commands::Request::AiEnable(value) => {
                 if let Some(game) = context.gameplay.as_deref_mut() {
                     let on = hl2_bevy::simulation::set_ai_enabled(

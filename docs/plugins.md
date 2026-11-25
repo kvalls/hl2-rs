@@ -50,6 +50,13 @@ loose pickups, world weapons and `prop_physics`. Optional key-value pairs are
 subtitles. The subtitle panel uses the installed caption font and is available
 with game captions off. With game captions on, it sits above their panel.
 
+Enter `agent_rcon` in the local developer console to enable agent attachment
+in an already running game. The command enables console logging and opens an
+authenticated listener on `127.0.0.1`, or reuses one already bound there. The
+`hl2-session` helper uses private per-process discovery files to attach without
+reloading the map. Independently launched games remain outside the restart
+supervisor.
+
 Ordinary motion blur, flight, spawning, camera behavior and simulation mechanisms stay in core.
 
 ## Contracts

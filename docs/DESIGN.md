@@ -1,5 +1,22 @@
 # Design
 
+## Attach to a running game (2026-11-25)
+
+The inspected Steam retail engine gates non-dedicated RCON initialization on
+`-usercon` in `bin/engine.dll` at `0x101ef5e0`. The `rcon_password` callback
+at `0x101765f0` updates credentials and closes existing connections. It has no
+listener startup path. This is static evidence from build 19307283.
+
+Keep the startup RCON path for retail-style launches. In a loaded HL2-RS
+session, `hl2-debug` can start the same RCON service through the local
+`agent_rcon` command. Bind new listeners to IPv4 loopback on an available port
+and generate a session password. Reuse an existing IPv4 loopback listener
+without rotating a configured password. Publish discovery files for that PID
+in the private temporary session directory and enable the existing console
+log writer. The helper must verify process ownership and authenticate before
+reporting success. Test startup and late attachment on the same executable,
+including a player chat message after attachment and an unchanged map and PID.
+
 ## Debug map entity dump (2026-11-23)
 
 Add an on-demand command to the debug plugin using the existing console extension and loaded world. Page through entity IDs or search live origins around a Source coordinate. Preserve absent origin keys in the output. Include map identity and expose result limits. Validate parsing, plugin omission, and an actual packaged query in the canal map.
@@ -33,7 +50,8 @@ Core (retail; each phase its own commit, tests in the owning crate):
    with `try_recv`; each command runs through the console like a typed one, and the lines it
    prints are returned to the client and taken out of the local history (retail redirects them),
    except `say`, whose labelled chat line the player sees once. For commands other than chat-only lines, `sv_rcon_log 1` (default) logs
-   `rcon from "<address>": command "<line>"`. Without `-usercon` no thread or system exists.
+   `rcon from "<address>": command "<line>"`. Without `-usercon` or an explicit
+   runtime request no listener thread is created.
 4. **`screenshot`.** Saves the next presented frame as PNG through the `--capture` readback into
    `screenshots/` next to the settings file (retail writes into the game folder) and prints the
    path. `jpeg` is not implemented.

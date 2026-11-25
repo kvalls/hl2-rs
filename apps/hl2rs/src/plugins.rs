@@ -3,4 +3,6 @@ use bevy::prelude::App;
 pub fn install(_app: &mut App) {
     #[cfg(feature = "advanced-options")]
     hl2_advanced_options::bevy::host::install(_app);
+    #[cfg(feature = "debug-tools")]
+    hl2_debug::bevy::install(_app);
 }

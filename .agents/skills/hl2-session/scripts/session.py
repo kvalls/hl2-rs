@@ -3,6 +3,7 @@
 
 Usage:
     python3 session.py status [--json]
+    python3 session.py attach [--pid PID] [--wait SECONDS]
     python3 session.py launch [--port auto|27015] [--build] [-- --map d1_trainstation_01]
 
 Session files are written under <temp>/hl2rs-agent-session/ (or SESSION env var):
@@ -11,6 +12,7 @@ rcon_password, port, console_log_path, hl2rs_dir, pid, game.log, and resume.
 
 import argparse
 import json
+import math
 import os
 import re
 import secrets
@@ -152,7 +154,7 @@ def _find_posix_listeners(pid: int) -> list[dict[str, object]]:
             text=True,
             check=False,
         )
-        pid_token = f"pid={pid}"
+        pid_token = f"pid={pid},"
         for line in proc.stdout.splitlines():
             if pid_token not in line:
                 continue
@@ -532,6 +534,75 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def attach_to_game(game: dict, session_dir: Path, rejected: set[tuple[int, str]]) -> Optional[Path]:
+    pid = game["pid"]
+    published_dir = rcon.default_session_dir({}) / f"live-{pid}"
+    ports = {
+        listener["port"] for listener in game["listeners"]
+        if listener["address"] == "127.0.0.1"
+    }
+    for candidate in dict.fromkeys((session_dir, published_dir)):
+        if _read_optional_text(candidate / "pid") != str(pid):
+            continue
+        if not _read_optional_text(candidate / "console_log_path"):
+            continue
+        try:
+            port = rcon.read_port(session_dir=candidate, env={})
+            if not (candidate / "port").is_file() or port not in ports:
+                continue
+            password = rcon.read_password(session_dir=candidate, env={}, allow_legacy_fallback=False)
+            if not password or (port, password) in rejected:
+                continue
+        except (OSError, ValueError):
+            continue
+        try:
+            reply = rcon.exec_command("echo HL2RS_ATTACH", port=port, password=password, timeout=2.0)
+        except rcon.RconAuthError:
+            rejected.add((port, password))
+            continue
+        except OSError:
+            continue
+        if reply.strip() == "HL2RS_ATTACH":
+            return candidate.resolve()
+    return None
+
+
+def cmd_attach(args: argparse.Namespace) -> int:
+    session_dir = args.session if args.session else rcon.default_session_dir()
+    if not math.isfinite(args.wait) or args.wait < 0:
+        print("attach: --wait must be a finite, non-negative number of seconds.", file=sys.stderr)
+        return 2
+    deadline = time.monotonic() + args.wait
+    pid = args.pid
+    rejected: set[tuple[int, str]] = set()
+    while True:
+        running = find_running_games()
+        if pid is None and len(running) > 1:
+            pids = ", ".join(str(game["pid"]) for game in running)
+            print(f"attach: multiple games are running ({pids}). Select one with --pid.", file=sys.stderr)
+            return 1
+        games = [game for game in running if pid is None or game["pid"] == pid]
+        if not games:
+            print("attach: no matching HL2-RS game is running.", file=sys.stderr)
+            return 1
+        game = games[0]
+        pid = game["pid"]
+        attached = attach_to_game(game, session_dir, rejected)
+        if attached:
+            print(attached)
+            return 0
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(0.5, remaining))
+    print(
+        f"attach: no authenticated session for PID {pid}. "
+        "Run agent_rcon in that game's local developer console, then retry attach.",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def cmd_launch(args: argparse.Namespace) -> int:
     repo = args.repo.resolve() if args.repo else default_repo_dir()
     session_dir = args.session if args.session else rcon.default_session_dir()
@@ -622,6 +693,11 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p_status.add_argument("--port", type=int, default=DEFAULT_PORT, help="Preferred RCON port to check (27015).")
     p_status.add_argument("--json", action="store_true", help="Print status as JSON.")
 
+    p_attach = sub.add_parser("attach", help="Authenticate to a running game and print its session directory.")
+    p_attach.add_argument("--session", type=Path, default=None, help="Existing supervisor session directory.")
+    p_attach.add_argument("--pid", type=int, default=None, help="Game PID to attach when multiple games are running.")
+    p_attach.add_argument("--wait", type=float, default=0.0, help="Seconds to wait for a running game to publish RCON.")
+
     p_launch = sub.add_parser("launch", help="Launch HL2-RS with RCON and console logging in a restart loop.")
     p_launch.add_argument("--repo", type=Path, default=None, help="HL2-RS repository root.")
     p_launch.add_argument("--session", type=Path, default=None, help="Session directory path.")
@@ -637,6 +713,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     if args.subcommand == "status":
         return cmd_status(args)
+    if args.subcommand == "attach":
+        return cmd_attach(args)
     if args.subcommand == "launch":
         return cmd_launch(args)
     return 2

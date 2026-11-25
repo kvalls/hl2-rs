@@ -59,12 +59,16 @@ fn spawn_connection(
     std::thread::Builder::new()
         .name("rcon-write".into())
         .spawn(move || write(writer_stream, &outgoing))?;
-    let reader_messages = messages.clone();
-    std::thread::Builder::new()
-        .name("rcon-read".into())
-        .spawn(move || read(connection, stream, &reader_messages, max_packet))?;
     let _ = messages.send(Message::Writer(connection, writer));
     let _ = messages.send(Message::Event(Event::Connected(connection, address)));
+    let reader_messages = messages.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name("rcon-read".into())
+        .spawn(move || read(connection, stream, &reader_messages, max_packet))
+    {
+        let _ = messages.send(Message::Event(Event::Closed(connection)));
+        return Err(error);
+    }
     Ok(())
 }
 

@@ -2879,6 +2879,7 @@ name = "hl2-debug"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "getrandom 0.4.3",
  "glam 0.27.0",
  "hl2-bevy",
  "hl2-simulation",

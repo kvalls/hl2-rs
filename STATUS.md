@@ -1,5 +1,16 @@
 # STATUS
 
+## Attach hl2-session to an open game (2026-11-25)
+
+`session.py attach` confirms the selected game's IPv4 loopback listener and
+authenticates before handing its session directory to the watcher. In a game
+launched without RCON, the local `agent_rcon` command enables it through the
+debug plugin. Packaged Station 02 on macOS Metal verified attachment after
+load, chat in both directions, an unchanged PID and map, repeat activation
+while watching, and credential cleanup on normal exit. The earlier startup
+RCON and subtitle flow also passed. Windows runtime and live retail are
+**not tested**.
+
 ## RCON gameplay subtitles (2026-11-25)
 
 With `debug-tools` selected, authenticated RCON `say` messages appear in a

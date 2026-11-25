@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Attach to a running HL2-RS game
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. Codex subagents investigated retail and implemented the Python attach flow. Exact subagent model IDs not recorded.
+- Changed: Add the local debug command `agent_rcon` and `session.py attach`. Reuse Source RCON and the existing log writer. Bind new sessions to IPv4 loopback with generated credentials and publish private per-process metadata. Keep externally launched games outside the restart supervisor.
+- Why: An open game could accept an agent only if it already had a listener and known credentials. Static analysis of retail found the launch flag gate described in docs/DESIGN.md.
+- Tested how: Focused RCON and debug plugin tests, `test_hl2_session.py`, strict macOS and Windows-target Clippy, all four plugin selections and packaged macOS Metal runs for late opt-in and startup RCON. The `console` and `dev_overlay` replays also ran against the package.
+- Result: The late test attached only after console opt-in, received a player line through the watcher, replied over RCON and kept the same map and PID. A repeated opt-in preserved the session, and normal exit removed the discovery credentials. Startup RCON still rendered subtitles.
+- Still broken or not tested: The first run quit before its replay finished and exposed that the host bypasses resource destructors on exit. Cleanup now runs through the host shutdown lifecycle and passed the corrected run. Windows runtime, live retail and ordinary play are **not tested**.
+- Next: Use `hl2-session` to attach during an ordinary play session.
+
 ## 2026-11-25 — Show RCON chat in gameplay subtitles
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent reviewed routing and prepared the isolated loopback check. Exact subagent model ID not recorded.

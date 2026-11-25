@@ -85,6 +85,9 @@ def restart_session(
     script_builder: Callable[..., int] = session.run_build_script,
     cargo_builder: Callable[..., int] = run_cargo_build,
 ) -> int:
+    if rcon.live_session_pid(session_dir) is not None:
+        print("restart: this game was attached without a supervisor. Leaving it running.", file=sys.stderr)
+        return 1
     win = (os.name == "nt") if is_windows is None else is_windows
     info = session.read_build_info(repo)
     chosen_profile = profile or (info.get("profile") if isinstance(info.get("profile"), str) else None) or "release"

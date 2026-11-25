@@ -80,12 +80,14 @@ def acquire_lock(lock_path: Path) -> Iterator[None]:
 
 
 def send_notice(session: Path, status: str) -> bool:
+    has_credentials = (session / "port").is_file() and (session / "rcon_password").is_file()
+    env = {} if has_credentials or rcon.live_session_pid(session) is not None else os.environ
     try:
-        port = rcon.read_port(session_dir=session)
-        password = rcon.read_password(session_dir=session)
+        port = rcon.read_port(session_dir=session, env=env)
+        password = rcon.read_password(session_dir=session, env=env, allow_legacy_fallback=env is os.environ)
         output = rcon.exec_command(
             f"agent_status {status}",
-            host=rcon.read_host(),
+            host=rcon.read_host(env=env),
             port=port,
             password=password,
             timeout=3.0,
@@ -123,6 +125,60 @@ def classify_line(line: str) -> Optional[str]:
     if text.startswith("AGENT_SESSION_") or "panicked" in text or "ERROR" in text:
         return "alert"
     return None
+
+
+def process_is_alive(pid: int) -> bool:
+    if os.name == "nt":
+        from ctypes import WinDLL, wintypes
+
+        kernel = WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not handle:
+            return False
+        try:
+            return kernel.WaitForSingleObject(handle, 0) == 258  # WAIT_TIMEOUT
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
+def attached_game_closed(session: Path) -> Callable[[], bool]:
+    pid = rcon.live_session_pid(session)
+    next_check = 0.0
+
+    def closed() -> bool:
+        nonlocal next_check
+        if pid is None or time.monotonic() < next_check:
+            return False
+        next_check = time.monotonic() + 1.0
+        return not (session / "pid").is_file() or not process_is_alive(pid)
+
+    return closed
+
+
+def remove_detached_watch_state(session: Path) -> None:
+    if rcon.live_session_pid(session) is None or (session / "pid").exists():
+        return
+    for filename in ("watch.lock", "watch.cursor"):
+        try:
+            (session / filename).unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        session.rmdir()
+    except OSError:
+        pass
 
 
 def init_eof_cursors(paths: list[str]) -> dict[str, int]:
@@ -199,6 +255,7 @@ def watch_once(
     cursors = load_cursors(cursor_file, paths)
     save_cursors(cursor_file, cursors)
     print("WATCH_READY", file=sys.stderr, flush=True)
+    closed = attached_game_closed(session)
     while True:
         updated = False
         for p in paths:
@@ -243,6 +300,9 @@ def watch_once(
                 continue
         if updated:
             save_cursors(cursor_file, cursors)
+        if closed():
+            print("AGENT_SESSION_EXIT attached game stopped", file=stream, flush=True)
+            return 0
         time.sleep(poll_interval)
 
 
@@ -259,6 +319,7 @@ def watch_stream(
     stream = sys.stdout if out is None else out
     cursors = init_eof_cursors(paths)
     print("WATCH_READY", file=sys.stderr, flush=True)
+    closed = attached_game_closed(session)
     deadline: Optional[float] = None
     while True:
         for line in read_complete_lines(paths, cursors):
@@ -280,6 +341,9 @@ def watch_stream(
         if deadline is not None and monotonic() >= deadline:
             send(session, TIMEOUT_STATUS)
             deadline = None
+        if closed():
+            print("AGENT_SESSION_EXIT attached game stopped", file=stream, flush=True)
+            return 0
         sleep(poll_interval)
 
 
@@ -319,10 +383,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not session.is_dir():
         print(f"watch: session directory does not exist: {session}", file=sys.stderr)
         return 1
+    attached = rcon.live_session_pid(session) is not None
+    if attached and not (session / "pid").exists():
+        print("watch: the attached game has stopped", file=sys.stderr)
+        return 1
     once = args.once or os.environ.get("WATCH_ONCE") == "1"
-    paths = session_log_paths(session)
+    held_lock = False
     try:
         with acquire_lock(session / "watch.lock"):
+            held_lock = True
+            if attached and not (session / "pid").exists():
+                print("watch: the attached game has stopped", file=sys.stderr)
+                return 1
+            paths = session_log_paths(session)
             if once:
                 return watch_once(session, paths, poll_interval=args.poll)
             return watch_stream(
@@ -334,6 +407,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     except SessionLockedError as error:
         print(str(error), file=sys.stderr)
         return 1
+    finally:
+        if held_lock:
+            remove_detached_watch_state(session)
 
 
 if __name__ == "__main__":

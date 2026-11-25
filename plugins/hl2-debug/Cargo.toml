@@ -6,7 +6,7 @@ license = "MIT"
 
 [features]
 default = []
-bevy = ["dep:bevy", "dep:hl2-bevy", "dep:source-assets"]
+bevy = ["dep:bevy", "dep:getrandom", "dep:hl2-bevy", "dep:source-assets"]
 
 [dependencies]
 source-assets = { workspace = true, optional = true }
@@ -16,6 +16,7 @@ source-ui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 glam.workspace = true
+getrandom = { version = "0.4", optional = true }
 bevy = { workspace = true, optional = true }
 hl2-simulation.workspace = true
 hl2-bevy = { workspace = true, optional = true }

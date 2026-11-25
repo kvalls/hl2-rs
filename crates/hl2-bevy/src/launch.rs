@@ -323,6 +323,9 @@ pub(super) fn exit_process(world: &mut bevy::prelude::World) {
     let Some(exit) = exit else {
         return;
     };
+    if let Some(mut simulation) = world.get_resource_mut::<crate::simulation::Simulation>() {
+        simulation.with_extensions(|extension, _| extension.shutdown());
+    }
     let status = world.resource::<Status>().clone();
     let options = world.resource::<Options>().clone();
     let summary = world.resource::<ExitSummary>().0.clone();

@@ -41,6 +41,8 @@ pub struct UiInput<'a> {
 /// Implementations own their state. The application supplies instances before startup.
 /// Empty defaults let a contributor implement only the lifecycle hooks it needs.
 pub trait RuntimeExtension: Send + Sync + 'static {
+    /// Finish external resources before the host exits its process.
+    fn shutdown(&mut self) {}
     fn input(&mut self, _context: &mut Context<'_>, _input: &Input<'_>) {}
     /// Text from an authenticated remote console chat broadcast.
     fn remote_console_chat(&mut self, _line: &str) {}

@@ -20,7 +20,7 @@ pub fn install(app: &mut App, usercon: bool) {
         .add_systems(Last, write_log)
         .add_systems(Update, crate::capture::console_screenshot);
     if usercon {
-        crate::rcon::install(app);
+        crate::rcon::install_startup(app);
     }
 }
 

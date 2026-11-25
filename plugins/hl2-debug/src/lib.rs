@@ -15,6 +15,12 @@ pub fn register(extensions: &mut hl2_ui::extensions::Extensions) -> Result<(), S
     extensions.localization.extend([
         ("HL2RS_AgentThinking", "Thinking..."),
         ("HL2RS_AgentWaiting", "Still waiting for a reply..."),
+        (
+            "HL2RS_AgentRconLocal",
+            "Run agent_rcon in the local developer console.",
+        ),
+        ("HL2RS_AgentRconReady", "Agent session ready on"),
+        ("HL2RS_AgentRconFailed", "Could not enable agent session"),
     ]);
     extensions.commands(&commands::specs::<hl2_ui::console::Console>())?;
     extensions.select_standard_background(standard_background::forced)?;

@@ -28,6 +28,7 @@ pub enum Request {
     NpcDump(NpcDumpQuery),
     MapDump(MapDumpQuery),
     AgentResume,
+    AgentRcon,
     AiEnable(Option<bool>),
     SpawnAt(SpawnAt),
 }
@@ -119,7 +120,7 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 13] {
+pub const fn specs<C: Host>() -> [Spec<C>; 14] {
     [
         command(
             "viewmodel_debug_mode",
@@ -198,6 +199,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 13] {
             "agent_resume: print the launch arguments that restart at this map, view and open menus",
             &[],
             agent_resume,
+        ),
+        command(
+            "agent_rcon",
+            "agent_rcon: allow a local agent to connect to this running game",
+            &[],
+            agent_rcon,
         ),
         command(
             "ai_enable",
@@ -381,6 +388,14 @@ fn agent_status<C: Host>(console: &mut C, spec: &Spec<C>, args: &[String]) -> Ou
 fn agent_resume<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
     if args.is_empty() {
         Ok(Some(C::effect(Request::AgentResume)))
+    } else {
+        Err(spec.usage())
+    }
+}
+
+fn agent_rcon<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    if args.is_empty() {
+        Ok(Some(C::effect(Request::AgentRcon)))
     } else {
         Err(spec.usage())
     }

@@ -18,6 +18,7 @@ pub struct Console {
     pub quit_requested: bool,
     /// `screenshot` asked for the next frame.
     pub screenshot_requested: bool,
+    pub(crate) remote_console: Option<crate::rcon::RemoteConsole>,
 }
 impl Console {
     pub fn new(source: hl2_ui::console::Console) -> Self {
@@ -28,7 +29,17 @@ impl Console {
             background_request: false,
             quit_requested: false,
             screenshot_requested: false,
+            remote_console: None,
         }
+    }
+    /// Resolves a console log name the same way as the console log writer.
+    pub fn console_log_path(name: &str) -> std::io::Result<Option<std::path::PathBuf>> {
+        hl2_ui::console::remote::log_file(name)
+            .map_err(std::io::Error::other)?
+            .map(|relative| {
+                std::path::absolute(crate::console_log::settings_folder().join(relative))
+            })
+            .transpose()
     }
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"mode":self.source.mode(),"background_level":self.source.background_level(),"sv_cheats":self.source.cheats,"input":self.source.input_line(),"output":self.source.shell.panel.output,"pending_map":self.map_request,"pending_game":self.map_request_game,"options":self.source.options_report(),"chapters":self.source.chapters_report(),"windows":self.source.open_windows(),"confirm":self.source.confirm_report(),"menu":self.source.menu_report(),"console_frame":self.source.console_frame_report(),"video":self.source.video_report()})

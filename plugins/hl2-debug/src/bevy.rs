@@ -5,6 +5,10 @@ pub mod host;
 pub mod input;
 mod map_dump;
 pub mod repeat;
+
+pub fn install(app: &mut bevy::prelude::App) {
+    hl2_bevy::rcon::install(app);
+}
 /// The developer runtime; the application injects it before startup settings are applied.
 pub fn runtime() -> Box<dyn hl2_bevy::extensions::RuntimeExtension> {
     Box::<host::State>::default()
