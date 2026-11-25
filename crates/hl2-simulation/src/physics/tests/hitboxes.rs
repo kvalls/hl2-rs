@@ -114,3 +114,48 @@ fn traces_hit_posed_hitboxes_that_never_touch_or_wake_a_body() {
     physics.tick(TICK);
     assert!(near(shot_down(&physics), 68.));
 }
+
+#[test]
+fn runtime_npc_publishes_its_hull_and_reused_studio_hitbox_slot() {
+    let mut world = hitbox_world();
+    let mut physics = Physics::new(&world);
+    physics.add_entity_hull(99, Vec3::splat(-4.), Vec3::splat(4.), Vec3::Z * 100.);
+    let queued = physics.changed_entity_colliders.clone();
+    let before: Vec<_> = physics.colliders.iter().map(|(handle, _)| handle).collect();
+    let mut instance = world.model_instances[0].clone();
+    instance.origin = Vec3::X * 100.;
+    instance.entity = Some(1);
+    world.entities.push(world.entities[0].clone());
+
+    physics.add_spawned_instance(&world, &instance);
+    let added: Vec<_> = physics
+        .colliders
+        .iter()
+        .map(|(handle, _)| handle)
+        .filter(|handle| !before.contains(handle))
+        .collect();
+    let hull = physics.npc_hulls[&1].0;
+    let studio = physics.studio_hitboxes[&1].boxes[0].0;
+    assert_eq!(
+        added,
+        [studio, hull],
+        "the box reuses the discarded model slot"
+    );
+    assert_eq!(&physics.changed_entity_colliders[..queued.len()], queued);
+    assert_eq!(&physics.changed_entity_colliders[queued.len()..], added);
+
+    let eye = Vec3::new(147., 0., 100.);
+    assert!(physics.impact_ray(eye, -Vec3::Z, 200.).is_none());
+    physics.refresh_entity_queries();
+    let hit = physics
+        .impact_ray(eye, -Vec3::Z, 200.)
+        .expect("published studio hitbox");
+    assert_eq!((hit.entity, hit.hitgroup, hit.bone), (1, 3, Some(0)));
+    let hull_hit = physics.trace_hull(
+        Vec3::new(100., 0., 100.),
+        Vec3::new(100., 0., 0.),
+        Vec3::splat(-1.),
+        Vec3::splat(1.),
+    );
+    assert!(hull_hit.fraction < 1., "the movement hull is published too");
+}

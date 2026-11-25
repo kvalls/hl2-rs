@@ -2,9 +2,10 @@
 //! tick (DESIGN 14b), or a hull-box NPC's model-shaped colliders when its model has none. Only
 //! traces see them (CBaseAnimating::TestHitboxes; the NPC's hull box moves and touches): the
 //! broad phase never holds them, so they form no contact pairs and cost nothing when they move.
-use super::{angles, mat4_pose, Physics, NPC_GROUP, SCALE};
+use super::{angles, mat4_pose, npc_hull, npc_trace, vector, Physics, NPC_GROUP, SCALE};
 use crate::npc_probe::CONTENTS_MONSTER;
 use glam::{Mat4, Vec3};
+use modkit_core::{animation::Rig, ModelInstance, World};
 use rapier3d::prelude::{ColliderBuilder, ColliderHandle, ColliderSet, Group, InteractionGroups};
 
 /// An NPC's studio hitboxes (hitbox set 0) as trace colliders.
@@ -24,13 +25,57 @@ impl Physics {
     pub(super) fn is_trace_only(&self, collider: ColliderHandle) -> bool {
         self.broad.trace_only.contains(&collider)
     }
+    /// Movement and contacts use the unchanged class hull, while traces use model
+    /// geometry or studio hitboxes when the model supplies them.
+    pub(super) fn add_npc_model_colliders(
+        &mut self,
+        world: &World,
+        instance: &ModelInstance,
+        surfaceprop: Option<&str>,
+        query_start: Option<usize>,
+    ) {
+        let (Some(id), Some((mins, maxs))) = (instance.entity, npc_hull(&instance.kind)) else {
+            return;
+        };
+        for c in self.entity_colliders.get(&id).cloned().unwrap_or_default() {
+            self.trace_only(c);
+        }
+        let half = (maxs - mins) * 0.5;
+        let hull = self.colliders.insert(
+            ColliderBuilder::cuboid(half.x * SCALE, half.y * SCALE, half.z * SCALE)
+                .translation(vector(instance.origin + (mins + maxs) * 0.5))
+                .friction(0.7)
+                .user_data(id as u128 + 1)
+                .collision_groups(npc_trace::hull_groups(&instance.kind)),
+        );
+        self.npc_collider_contents.insert(hull, CONTENTS_MONSTER);
+        if let Some(surfaceprop) = surfaceprop {
+            self.collider_materials.insert(hull, surfaceprop.to_owned());
+        }
+        self.npc_hulls.insert(id, (hull, mins, maxs));
+        if let Some(rig) = world
+            .rigs
+            .get(&instance.asset_key())
+            .filter(|rig| !rig.hitboxes.is_empty())
+        {
+            if let Some(start) = query_start {
+                // These pending model shapes are replaced before reaching the query tree.
+                self.changed_entity_colliders.truncate(start);
+            }
+            self.use_studio_hitboxes(id, instance, rig, query_start.is_some());
+        }
+        if query_start.is_some() {
+            self.changed_entity_colliders.push(hull);
+        }
+    }
     /// Replace an NPC's render-mesh trace collider with its studio hitboxes at the bind
     /// pose (the hull box stays for movement and contacts).
-    pub(super) fn use_studio_hitboxes(
+    fn use_studio_hitboxes(
         &mut self,
         id: usize,
-        instance: &modkit_core::ModelInstance,
-        rig: &modkit_core::animation::Rig,
+        instance: &ModelInstance,
+        rig: &Rig,
+        publish_queries: bool,
     ) {
         for c in self.entity_colliders.remove(&id).unwrap_or_default() {
             self.colliders
@@ -57,6 +102,9 @@ impl Physics {
             self.npc_collider_contents.insert(c, CONTENTS_MONSTER);
             self.collider_hitgroups.insert(c, hitbox.group);
             self.collider_hitbox_bones.insert(c, hitbox.bone);
+            if publish_queries {
+                self.changed_entity_colliders.push(c);
+            }
             boxes.push((c, hitbox.bone, center, bind));
         }
         self.studio_hitboxes.insert(

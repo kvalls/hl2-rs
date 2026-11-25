@@ -2736,6 +2736,16 @@ percentiles as upper bounds when buckets are used. Keep the stage overlay
 recording past the old cap and preserve the existing warm-up and replay-window
 reset. Verify a packaged run beyond the cap and a synthetic hitch after it.
 
+## Runtime collider registration (O45)
+
+Runtime model installation currently scans the entire collider arena before and
+after every spawn. Record handles when the installer inserts them, retaining
+arena order for the query update and accounting for NPC hulls and studio
+hitboxes. Keep the map's full query build and its existing shape cache. Compare
+identically instrumented packages on the O44 plaza populations, with a joint
+wake followed by landing and settling. Track installation latency, collider
+query refresh, physics-stage time, awake bodies and contact counts.
+
 ## Profiling toward a steady 120 FPS (owner goal, 2026-11-21)
 
 Goal (owner): maxed settings at native Retina (3456x2168, 4x MSAA, full HDR, motion blur,

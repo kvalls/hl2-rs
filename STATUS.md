@@ -1,5 +1,14 @@
 # STATUS
 
+## Runtime collider registration (2026-11-25)
+
+O45 closed after 42 packaged Station 02 runs on M1 Pro / Metal. The sum of
+runtime installs at 100 props fell from 30.09 to 10.71 ms for the mixed
+population and from 24.51 to 4.70 ms for batteries. All matched pairs
+agreed on wake, contact, rest and native shape counts. See docs/performance.md.
+All 909 simulation tests and six targeted packaged replays passed.
+Windows runtime and displayed FPS are **not tested**.
+
 ## Whole-run CPU stage profiles (2026-11-25)
 
 O11 closed after three alternating pairs of packaged 6,200-frame runs.

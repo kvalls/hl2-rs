@@ -867,7 +867,7 @@ impl Physics {
         p.add_brush_entity_colliders(world);
         let mut shape_cache = BTreeMap::new();
         for instance in &world.model_instances {
-            p.add_model_instance(world, instance, &mut shape_cache);
+            p.add_model_instance(world, instance, &mut shape_cache, None);
         }
         // Fold additional (authored) mass properties in before the first query.
         for handle in p.dynamic.values() {
@@ -1133,6 +1133,7 @@ impl Physics {
         world: &World,
         instance: &modkit_core::ModelInstance,
         shape_cache: &mut BTreeMap<(String, bool, Option<String>, bool), PropShapes>,
+        query_start: Option<usize>,
     ) {
         if instance.background {
             return;
@@ -1303,6 +1304,9 @@ impl Physics {
             if let Some(id) = entity {
                 self.entity_colliders.entry(id).or_default().push(c);
             }
+            if query_start.is_some() {
+                self.changed_entity_colliders.push(c);
+            }
             if let Some(name) = &surfaceprop {
                 self.collider_materials.insert(c, name.clone());
             }
@@ -1323,50 +1327,21 @@ impl Physics {
                 },
             );
         }
-        // SOLID_BBOX NPCs: movement and physics collide with the class hull box at
-        // the entity origin (never rotated); the model shape stays for traces.
-        if let (Some(id), Some((mins, maxs))) = (entity, npc_hull(&instance.kind)) {
-            for c in self.entity_colliders.get(&id).cloned().unwrap_or_default() {
-                self.trace_only(c);
-            }
-            let half = (maxs - mins) * 0.5;
-            let hull = self.colliders.insert(
-                ColliderBuilder::cuboid(half.x * SCALE, half.y * SCALE, half.z * SCALE)
-                    .translation(vector(instance.origin + (mins + maxs) * 0.5))
-                    .friction(0.7)
-                    .user_data(id as u128 + 1)
-                    .collision_groups(npc_trace::hull_groups(&instance.kind)),
-            );
-            self.npc_collider_contents.insert(hull, CONTENTS_MONSTER);
-            if let Some(s) = &solid {
-                self.collider_materials.insert(hull, s.surfaceprop.clone());
-            }
-            self.npc_hulls.insert(id, (hull, mins, maxs));
-            // Bullets trace the studio hitboxes (CBaseAnimating::TestHitboxes),
-            // not the render mesh: one box per hitbox, posed per tick.
-            if let Some(rig) = world
-                .rigs
-                .get(&instance.asset_key())
-                .filter(|rig| !rig.hitboxes.is_empty())
-            {
-                self.use_studio_hitboxes(id, instance, rig);
-            }
-        }
+        self.add_npc_model_colliders(
+            world,
+            instance,
+            solid.as_ref().map(|s| s.surfaceprop.as_str()),
+            query_start,
+        );
     }
     /// A runtime-spawned entity's model instance (DESIGN 14r part A): the same
     /// colliders as a map entity of its model; queries see them after the next
     /// refresh_entity_queries.
     pub fn add_spawned_instance(&mut self, world: &World, instance: &modkit_core::ModelInstance) {
-        let before: std::collections::HashSet<ColliderHandle> =
-            self.colliders.iter().map(|(h, _)| h).collect();
-        self.add_model_instance(world, instance, &mut BTreeMap::new());
-        let added: Vec<ColliderHandle> = self
-            .colliders
-            .iter()
-            .map(|(h, _)| h)
-            .filter(|h| !before.contains(h))
-            .collect();
-        self.changed_entity_colliders.extend(added);
+        let start = self.changed_entity_colliders.len();
+        self.add_model_instance(world, instance, &mut BTreeMap::new(), Some(start));
+        // Match collider-arena iteration order even when studio boxes reuse discarded slots.
+        self.changed_entity_colliders[start..].sort_unstable_by_key(|h| h.into_raw_parts().0);
         let handle = instance
             .entity
             .and_then(|id| self.dynamic.get(&id))

@@ -1,6 +1,7 @@
 mod bench;
 mod hitboxes;
 mod ragdolls;
+mod runtime_spawns;
 mod shadow;
 use super::*;
 #[test]

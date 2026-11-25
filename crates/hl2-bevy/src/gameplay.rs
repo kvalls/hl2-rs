@@ -686,6 +686,9 @@ impl Gameplay {
             hl2_simulation::gameplay::pose_npc_hitboxes(&self.world, &self.scene, physics);
         });
         self.tick_projectiles_and_aim(physics, player, eye, direction);
+        timed(performance, "sim_query_refresh", || {
+            physics.refresh_entity_queries()
+        });
         // NPC stage: the AI thinks (when enabled) before the movement controller tick.
         let ai_player = self.ai_player_state(player, fly, direction);
         timed(performance, "sim_ai", || {
@@ -743,7 +746,7 @@ impl Gameplay {
                 let (origin, rotation) = physics.entity_pose(id).unwrap_or((state.origin, state.rotation));
                 serde_json::json!({"entity":id,"name":e.get("targetname"),"class":e.class(),
                     "origin":origin.to_array(),"rotation":rotation.to_array(),"visible":state.visible,"killed":state.killed,
-                    "body": physics.entity_rest_state(id)})
+                    "body": physics.entity_rest_state(id),"body_contact":physics.entity_in_contact(id)})
             }).collect();
         // Composition failures drop a gesture layer silently in presentation; surface them.
         let compose_errors: BTreeMap<usize, Vec<String>> = self

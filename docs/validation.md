@@ -1,5 +1,23 @@
 # Local validation — 2026-10-05
 
+## Runtime collider registration and synchronized wakes (2026-11-25)
+
+Use the everyday release package with `advanced-options,debug-tools`.
+`cargo test --release --locked -p hl2-simulation physics::tests::` checks
+new runtime pickup pieces and NPC studio-slot reuse before and after query
+publication. Run `NO_BUILD=1 ONLY='spawn_at supply_physics campaign
+physcannon-props pallet-on-npc-hull coverage' python3 scripts/checks/replays.py`
+for positioned spawns, carry and collection, contacts, and map lifecycle.
+
+For the O45 sweep, obtain the O44 reference first with
+`python3 scripts/checks/prop_scaling.py --rounds 1 --out artifacts/o45/reference`.
+Then run `python3 scripts/checks/prop_scaling.py --wake-reference
+artifacts/o45/reference --out artifacts/o45/run`. For an A/B comparison,
+use the same reference for both builds and alternate the two packages with
+`--package` and `--case` across the seven populations. A run verifies body
+count, identity, wake height and rest, and reports contacts and phase timings.
+See [O45 results](performance.md#o45--publish-runtime-collider-handles-on-insertion-2026-11-25).
+
 ## Station 02 placed spawns and workload locality (2026-11-25)
 
 Build the packaged release with `advanced-options,debug-tools` enabled. Run

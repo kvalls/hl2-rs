@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Publish runtime collider handles directly
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. The Codex profiler review and backlog subagents drafted the collider change and wake fixture. A separate Codex subagent reviewed fixture and test coverage. Exact subagent model IDs not recorded.
+- Changed: Queue the collider handles produced by runtime model installation. Preserve arena order and include the NPC hull and studio replacement boxes. Add install and query timings and a controlled prop wake/settle benchmark.
+- Why: Runtime model installation scanned every collider twice and allocated an intermediate set for each spawn.
+- Tested how: 909 release simulation tests, three Python fixture tests, strict Clippy on macOS and the Windows target, architecture and formatting, six packaged regressions, and three alternating Metal release pairs across all seven O45 populations.
+- Result: All 21 matched pairs agreed on wake, contact, rest and native shape counts. With 100 props, median summed install time fell 30.09 → 10.71 ms for mixed and 24.51 → 4.70 ms for batteries. Fixed-tick phase and frame results are recorded in docs/performance.md.
+- Still broken or not tested: Spawned pickups on both sides of a single map transition, Windows runtime and displayed FPS are **not tested**. The pilot overlapped compilation and was excluded from the paired timings.
+- Next: Stress-query profiling for the O18 crowd fixtures or the O46 resting-prop presentation sweep.
+
 ## 2026-11-25 — Whole-run CPU stage profiling
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. Analyzer changes by the Codex profiler review subagent, exact model ID not recorded.

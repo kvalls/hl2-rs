@@ -260,7 +260,6 @@ impl Gameplay {
                 });
             }
         }
-        physics.refresh_entity_queries();
     }
 
     pub(super) fn npc_shots_and_flashes(

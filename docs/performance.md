@@ -1,5 +1,65 @@
 # Performance measurements - 2026-10-05
 
+## O45 — Publish runtime collider handles on insertion (2026-11-25)
+
+Runtime model installation queues its new collider handles directly. For NPCs,
+the queue includes the class hull and any live studio hitboxes after the
+temporary model traces are replaced. Sorting the new suffix preserves the
+old arena order, including reused handle slots. Focused tests checked a
+multi-piece pickup and an NPC with a reused studio slot before and after
+the query refresh.
+
+The two Metal release packages contain identical instrumentation. `install_ms`
+times the host create call after asset preparation, including placement,
+entity insertion and collider creation. `load_ms` measures the request's wait
+for model preparation and polling. Its sum can include overlapping requests.
+`sim_query_refresh` covers the first incremental refresh in the fixed tick.
+The wake and rest windows also report the physics step and whole-frame CPU time.
+
+The fixture reuses the O44 plaza placement order, asserts each body identity
+and wakes up to 100 props over two adjacent physics ticks. `Contacting` counts
+spawned bodies with at least one active contact. It measures spawning, resting,
+the wake and landing interval, and the final settled interval. The timed
+runs were preceded by a discarded 100-prop warm-up for each package.
+
+Apple M1 Pro / Metal at 1920 × 1080, using the pre-change instrumented
+`af7e0d18` and direct-registration `a1d4bbb1` release packages. All 42 runs
+completed in three alternating pairs per population. The table lists medians
+in milliseconds. Total install time sums individual creates across the path.
+The two physics columns are CPU time per fixed tick.
+
+| Population | Sum of installs A → B | Typical install A → B | Awake physics A → B | Resettled physics A → B |
+| --- | ---: | ---: | ---: | ---: |
+| Empty control | — | — | 0.075 → 0.076 | 0.080 → 0.081 |
+| 30 mixed | 7.97 → 2.30 | 0.245 → 0.058 | 0.361 → 0.367 | 0.099 → 0.099 |
+| 30 batteries | 7.07 → 1.39 | 0.232 → 0.042 | 0.229 → 0.229 | 0.102 → 0.103 |
+| 60 mixed | 17.06 → 5.27 | 0.262 → 0.061 | 0.502 → 0.501 | 0.122 → 0.123 |
+| 60 batteries | 14.35 → 2.81 | 0.236 → 0.044 | 0.336 → 0.334 | 0.116 → 0.115 |
+| 100 mixed | 30.09 → 10.71 | 0.263 → 0.061 | 0.696 → 0.705 | 0.144 → 0.147 |
+| 100 batteries | 24.51 → 4.70 | 0.242 → 0.045 | 0.481 → 0.479 | 0.139 → 0.136 |
+
+For 100 mixed props, summed installs were 29.84–32.01 ms before and
+10.35–10.77 ms after. For 100 batteries they were 24.25–25.00 ms before
+and 4.59–4.74 ms after. The median paired reductions were 64.4% and 81.0%.
+The two 100-prop cases' median summed request-wait times were 20.88 → 21.52 ms
+for mixed and 5.82 → 5.24 ms for batteries. In the spawning window, the first
+query refresh was 0.038 → 0.044 ms/tick for mixed and 0.038 → 0.040 for
+batteries. It was 0.030 → 0.030 and 0.031 → 0.032 in the awake window.
+The two 100-prop cases' awake CPU frame p95/p99 medians were
+6.13/7.22 → 5.57/6.13 ms and 5.61/6.22 → 5.17/6.09 ms.
+Pre-launch GPU device use ranged from 77% to 82%. The consistent gain is in
+installation. Whole-frame and steady solver results varied by window.
+
+All 21 pairs matched native shape counts and body diagnostics at every
+checkpoint. The 100-prop mixes each woke all their bodies. At the landing
+sample, 82 mixed props and 97 batteries had an active contact. At the final
+sample, 6 mixed props and 7 batteries were still awake. Six packaged
+regression checks passed, covering positioned spawns, loose supply carry
+and collection, NPC hulls, gravity-gun use and campaign transitions.
+Full phase statistics are in `artifacts/o45/paired/summary.json`.
+Spawned pickups on both sides of a single map transition, Windows runtime,
+and displayed FPS are **not tested**.
+
 ## O11 — Full-run CPU stage profiles (2026-11-25)
 
 On M1 Pro / Metal, both release packages rendered 6,200 frames of

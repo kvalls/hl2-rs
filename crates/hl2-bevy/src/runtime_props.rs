@@ -193,17 +193,20 @@ pub fn poll(
             Err(_) => Err("model loader stopped".into()),
         };
         let load_ms = job.started.elapsed().as_secs_f64() * 1000.;
-        let message = match result {
+        let hull = match result {
             Ok(prepared) => {
                 cache.add_materials(&mut images, prepared.materials);
                 effects.add_models(prepared.gibs, &cache, &mut meshes, &mut materials);
                 game.merge_model(prepared.world);
-                create(&mut game, &mut sim, &job, Some(prepared.hull))
+                Ok(Some(prepared.hull))
             }
             // Already loaded.
-            Err(e) if e.is_empty() => create(&mut game, &mut sim, &job, None),
+            Err(e) if e.is_empty() => Ok(None),
             Err(e) => Err(format!("Can't create {}: {e}", job.request.model)),
         };
+        let started = std::time::Instant::now();
+        let message = hull.and_then(|hull| create(&mut game, &mut sim, &job, hull));
+        let install_ms = started.elapsed().as_secs_f64() * 1000.;
         let message = match message {
             Ok(id) => {
                 let world = game.world.clone();
@@ -224,7 +227,7 @@ pub fn poll(
                 let name = world.entities[id].get("targetname");
                 game.spawn_log.push(serde_json::json!({
                     "prop":job.request.model,"class":class,"name":name,"entity":id,"draws":draws,
-                    "load_ms":load_ms,"origin":origin.to_array(),"mass":body
+                    "load_ms":load_ms,"install_ms":install_ms,"origin":origin.to_array(),"mass":body
                 }));
                 format!(
                     "Created {class} {} at {:.0} {:.0} {:.0} (entity {id}, {load_ms:.0} ms)",
