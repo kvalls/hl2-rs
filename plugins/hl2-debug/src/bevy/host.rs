@@ -1,5 +1,6 @@
 //! HL2 host adapter. All developer policy and mutable state belongs to this plugin.
 mod background;
+mod bootstrap;
 mod commands;
 mod draw;
 mod input;
@@ -16,6 +17,7 @@ pub struct State {
     dev_overlay: bool,
     subtitles: subtitles::RemoteSubtitles,
     agent_session: Option<session::Session>,
+    agent_bootstrap: Option<bootstrap::Bootstrap>,
     viewmodel_debug: ViewmodelDebug,
     background_debug: crate::bevy::background::BackgroundDebug,
     overlay: Overlay,
@@ -114,12 +116,18 @@ impl State {
 }
 impl RuntimeExtension for State {
     fn shutdown(&mut self) {
+        self.agent_bootstrap = None;
         self.agent_session = None;
     }
     fn remote_console_chat(&mut self, line: &str) {
         self.subtitles.push(line, std::time::Instant::now());
     }
     fn input(&mut self, context: &mut Context<'_>, input: &Input<'_>) {
+        if !context.simulation.loading
+            && let Some(ui) = context.console.as_deref_mut()
+        {
+            self.process_agent_bootstrap(ui);
+        }
         self.adopt_finished_usable();
         self.adopt_finished_props();
         let sim = &mut *context.simulation;
@@ -267,6 +275,9 @@ impl RuntimeExtension for State {
         });
     }
     fn startup(&mut self, config: &hl2_ui::config::Config) {
+        if let Err(error) = self.start_agent_bootstrap() {
+            bevy::log::warn!("Could not start automatic agent attachment: {error}");
+        }
         self.dev_overlay = crate::overlay::shown(config);
         self.force_default_blur = crate::standard_background::forced(&config.video);
     }

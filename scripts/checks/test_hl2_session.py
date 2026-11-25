@@ -393,6 +393,59 @@ class TestWatch(unittest.TestCase):
 
 
 class TestSession(unittest.TestCase):
+    def test_enable_attach_requests_once_then_authenticates(self):
+        game = {"pid": 123, "listeners": []}
+        path = Path("live-123")
+        with mock.patch.object(session, "find_running_games", return_value=[game]), \
+             mock.patch.object(session, "attach_to_game", side_effect=[None, None, path, path]), \
+             mock.patch.object(session, "request_agent_rcon", return_value=True) as enable, \
+             mock.patch.object(session.time, "sleep"), \
+             redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(session.main(["attach", "--enable"]), 0)
+            self.assertEqual(out.getvalue().strip(), str(path))
+            enable.assert_called_once_with(123)
+
+            self.assertEqual(session.main(["attach", "--enable"]), 0)
+            self.assertEqual(enable.call_count, 1, "an authenticated session needs no activation")
+
+    def test_enable_attach_does_not_guess_between_multiple_games(self):
+        games = [{"pid": 123, "listeners": []}, {"pid": 456, "listeners": []}]
+        with mock.patch.object(session, "find_running_games", return_value=games), \
+             mock.patch.object(session, "request_agent_rcon") as enable, \
+             redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(session.main(["attach", "--enable"]), 1)
+            self.assertIn("--pid", err.getvalue())
+            enable.assert_not_called()
+
+    def test_activation_validates_private_record_and_sends_only_token_to_owned_port(self):
+        pid, token = 123, "a" * 48
+        with tempfile.TemporaryDirectory() as tmp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+            root = Path(tmp)
+            published = root / f"live-{pid}"
+            published.mkdir(mode=0o700)
+            descriptor = published / "bootstrap.json"
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+            valid = {"pid": pid, "port": port, "token": token}
+            listener.settimeout(2)
+            with mock.patch.object(rcon, "default_session_dir", return_value=root), \
+                 mock.patch.object(session, "_owns_bootstrap_port", return_value=False) as owns_port:
+                for invalid in ({"pid": pid + 1}, {"port": True}, {"token": token + " extra"}):
+                    session.write_private_text(descriptor, json.dumps(valid | invalid))
+                    self.assertFalse(session.request_agent_rcon(pid))
+                owns_port.assert_not_called()
+                session.write_private_text(descriptor, json.dumps(valid))
+                if os.name != "nt":
+                    descriptor.chmod(0o644)
+                    self.assertFalse(session.request_agent_rcon(pid))
+                    owns_port.assert_not_called()
+                    descriptor.chmod(0o600)
+                self.assertFalse(session.request_agent_rcon(pid))
+                owns_port.assert_called_once_with(pid, port)
+                owns_port.return_value = True
+                self.assertTrue(session.request_agent_rcon(pid))
+                self.assertEqual(listener.recvfrom(100)[0], token.encode("ascii"))
+
     def test_attach_authenticates_only_the_selected_local_listener(self):
         server = MockRconServer("test_password", lambda cmd: ["HL2RS_ATTACH\n"] if cmd == "echo HL2RS_ATTACH" else [])
         self.addCleanup(server.close)

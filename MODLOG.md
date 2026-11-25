@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Enable RCON automatically when the skill attaches
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent implemented the helper, skill and Python tests. Exact subagent model ID not recorded.
+- Changed: The skill tries authenticated RCON first. `attach --enable` verifies the selected PID owns the private loopback endpoint and sends one activation request. The debug plugin passes it to the existing local `agent_rcon` handler when startup finishes. The idle worker blocks on receive and the frame loop checks a flag.
+- Why: Attaching to an ordinary running build previously required a console visit. The helper can now activate RCON while the player stays in the current UI and map.
+- Tested how: Python session and Rust debug plugin tests, strict macOS and Windows-target Clippy, architecture and four plugin selections. Ran isolated packaged macOS Metal checks for automatic activation, manual `agent_rcon` and startup RCON with subtitles.
+- Result: The automatic run rejected an invalid token, kept the same PID and map with the console closed, reused the authenticated endpoint on repeat attach and removed credentials on normal exit. Manual activation and startup RCON remained functional.
+- Still broken or not tested: The first capture checked UI before the startup transition settled, so the replacement fixture waits for the expected gameplay state. Windows and Linux runtime attachment, windowed focus and separate idle CPU timing are **not tested**. Builds with the manual command but without the new endpoint still need manual activation.
+- Next: Use the updated skill with an ordinary running game.
+
 ## 2026-11-25 — Attach to a running HL2-RS game
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. Codex subagents investigated retail and implemented the Python attach flow. Exact subagent model IDs not recorded.

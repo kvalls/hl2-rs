@@ -3,7 +3,7 @@
 
 Usage:
     python3 session.py status [--json]
-    python3 session.py attach [--pid PID] [--wait SECONDS]
+    python3 session.py attach [--pid PID] [--wait SECONDS] [--enable]
     python3 session.py launch [--port auto|27015] [--build] [-- --map d1_trainstation_01]
 
 Session files are written under <temp>/hl2rs-agent-session/ (or SESSION env var):
@@ -19,6 +19,7 @@ import secrets
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -131,25 +132,25 @@ def _parse_host_port(endpoint: str) -> Optional[dict[str, object]]:
     return {"address": host, "port": int(port_text)}
 
 
-def _find_posix_listeners(pid: int) -> list[dict[str, object]]:
+def _find_posix_listeners(pid: int, *, datagram: bool = False) -> list[dict[str, object]]:
     listeners: list[dict[str, object]] = []
     if shutil.which("lsof"):
+        filters = ["-iUDP"] if datagram else ["-iTCP", "-sTCP:LISTEN"]
         proc = subprocess.run(
-            ["lsof", "-nP", "-a", "-p", str(pid), "-iTCP", "-sTCP:LISTEN"],
+            ["lsof", "-nP", "-a", "-p", str(pid), *filters, "-Fn"],
             capture_output=True,
             text=True,
             check=False,
         )
-        for line in proc.stdout.splitlines()[1:]:
-            match = re.search(r"(\S+)\s+\(LISTEN\)\s*$", line)
-            if match:
-                parsed = _parse_host_port(match.group(1))
+        for line in proc.stdout.splitlines():
+            if line.startswith("n") and "->" not in line:
+                parsed = _parse_host_port(line[1:])
                 if parsed:
                     listeners.append(parsed)
         return listeners
     if shutil.which("ss"):
         proc = subprocess.run(
-            ["ss", "-ltnp"],
+            ["ss", "-lunp" if datagram else "-ltnp"],
             capture_output=True,
             text=True,
             check=False,
@@ -202,21 +203,10 @@ def _find_running_games_posix() -> list[dict[str, object]]:
     return games
 
 
-def _find_running_games_windows() -> list[dict[str, object]]:
-    script = (
-        "$procs = @(Get-Process -Name 'hl2-bevy' -ErrorAction SilentlyContinue | Select-Object Id, Path);"
-        "$pids = @($procs | ForEach-Object { $_.Id });"
-        "$listeners = @();"
-        "if ($pids.Count -gt 0) {"
-        "$listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue "
-        "| Where-Object { $pids -contains $_.OwningProcess } "
-        "| Select-Object OwningProcess, LocalAddress, LocalPort)"
-        "}"
-        "[pscustomobject]@{ processes = $procs; listeners = $listeners } | ConvertTo-Json -Depth 3 -Compress"
-    )
+def _windows_json(script: str) -> dict:
     powershell = shutil.which("powershell") or shutil.which("pwsh")
     if not powershell:
-        return []
+        return {}
     proc = subprocess.run(
         [powershell, "-NoProfile", "-Command", script],
         capture_output=True,
@@ -227,11 +217,26 @@ def _find_running_games_windows() -> list[dict[str, object]]:
     )
     raw = proc.stdout.strip()
     if proc.returncode != 0 or not raw:
-        return []
+        return {}
     try:
         data = json.loads(raw)
     except ValueError:
-        return []
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _find_running_games_windows() -> list[dict[str, object]]:
+    data = _windows_json(
+        "$procs = @(Get-Process -Name 'hl2-bevy' -ErrorAction SilentlyContinue | Select-Object Id, Path);"
+        "$pids = @($procs | ForEach-Object { $_.Id });"
+        "$listeners = @();"
+        "if ($pids.Count -gt 0) {"
+        "$listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue "
+        "| Where-Object { $pids -contains $_.OwningProcess } "
+        "| Select-Object OwningProcess, LocalAddress, LocalPort)"
+        "}"
+        "[pscustomobject]@{ processes = $procs; listeners = $listeners } | ConvertTo-Json -Depth 3 -Compress"
+    )
     procs = data.get("processes") or []
     if isinstance(procs, dict):
         procs = [procs]
@@ -534,9 +539,60 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _live_session_dir(pid: int) -> Path:
+    return rcon.default_session_dir({}) / f"live-{pid}"
+
+
+def _owns_bootstrap_port(pid: int, port: int) -> bool:
+    if os.name != "nt":
+        return {"address": "127.0.0.1", "port": port} in _find_posix_listeners(pid, datagram=True)
+    result = _windows_json(
+        "[pscustomobject]@{ owned = [bool](Get-NetUDPEndpoint -ErrorAction SilentlyContinue "
+        f"-OwningProcess {pid} -LocalAddress 127.0.0.1 -LocalPort {port}) }}"
+        " | ConvertTo-Json -Compress"
+    )
+    return result.get("owned") is True
+
+
+def _private_session_entry(path: Path, matches_type: Callable[[int], bool]) -> bool:
+    metadata = path.lstat()
+    if not matches_type(metadata.st_mode):
+        return False
+    if os.name == "nt":
+        return not metadata.st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT
+    return metadata.st_uid == os.getuid() and not metadata.st_mode & 0o077
+
+
+def request_agent_rcon(pid: int) -> bool:
+    """Request only the fixed local enable operation on the selected game."""
+    directory = _live_session_dir(pid)
+    descriptor = directory / "bootstrap.json"
+    try:
+        if not all(_private_session_entry(path, stat.S_ISDIR) for path in (directory.parent, directory)):
+            return False
+        if not _private_session_entry(descriptor, stat.S_ISREG):
+            return False
+        with descriptor.open("rb") as file:
+            data = json.loads(file.read(512))
+        if not isinstance(data, dict) or data.get("pid") != pid:
+            return False
+        port, token = data.get("port"), data.get("token")
+        if type(port) is not int or not 0 < port <= 65535:
+            return False
+        if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{48}", token):
+            return False
+        if not _owns_bootstrap_port(pid, port):
+            return False
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(token.encode("ascii"), ("127.0.0.1", port))
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def attach_to_game(game: dict, session_dir: Path, rejected: set[tuple[int, str]]) -> Optional[Path]:
     pid = game["pid"]
-    published_dir = rcon.default_session_dir({}) / f"live-{pid}"
+    published_dir = _live_session_dir(pid)
     ports = {
         listener["port"] for listener in game["listeners"]
         if listener["address"] == "127.0.0.1"
@@ -575,6 +631,7 @@ def cmd_attach(args: argparse.Namespace) -> int:
     deadline = time.monotonic() + args.wait
     pid = args.pid
     rejected: set[tuple[int, str]] = set()
+    requested = False
     while True:
         running = find_running_games()
         if pid is None and len(running) > 1:
@@ -591,12 +648,16 @@ def cmd_attach(args: argparse.Namespace) -> int:
         if attached:
             print(attached)
             return 0
+        if args.enable and not requested and request_agent_rcon(pid):
+            requested = True
+            deadline = max(deadline, time.monotonic() + 5.0)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         time.sleep(min(0.5, remaining))
+    activation = " Automatic activation did not complete." if args.enable else ""
     print(
-        f"attach: no authenticated session for PID {pid}. "
+        f"attach: no authenticated session for PID {pid}.{activation} "
         "Run agent_rcon in that game's local developer console, then retry attach.",
         file=sys.stderr,
     )
@@ -697,6 +758,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p_attach.add_argument("--session", type=Path, default=None, help="Existing supervisor session directory.")
     p_attach.add_argument("--pid", type=int, default=None, help="Game PID to attach when multiple games are running.")
     p_attach.add_argument("--wait", type=float, default=0.0, help="Seconds to wait for a running game to publish RCON.")
+    p_attach.add_argument("--enable", action="store_true", help="Enable local RCON in the selected game if needed.")
 
     p_launch = sub.add_parser("launch", help="Launch HL2-RS with RCON and console logging in a restart loop.")
     p_launch.add_argument("--repo", type=Path, default=None, help="HL2-RS repository root.")

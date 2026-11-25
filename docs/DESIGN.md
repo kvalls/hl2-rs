@@ -1,5 +1,17 @@
 # Design
 
+## Automatic local RCON activation (2026-11-26)
+
+`hl2-session` first probes the selected running game's RCON endpoint. On an
+explicit `attach --enable`, it can request activation from an updated debug
+build by reading that PID's private bootstrap record and sending its token
+over IPv4 loopback. The listener accepts only the fixed activation request.
+The game thread reuses `agent_rcon` after startup commands apply. The worker
+blocks on receive between requests and the frame loop checks only an atomic
+flag. The skill confirms success through the usual RCON authentication.
+Older builds and unavailable bootstrap endpoints retain manual console entry.
+Verify an isolated packaged process on the same map and preserve its UI state.
+
 ## Attach to a running game (2026-11-25)
 
 The inspected Steam retail engine gates non-dedicated RCON initialization on

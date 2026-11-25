@@ -1,5 +1,15 @@
 # STATUS
 
+## Automatic hl2-session attachment (2026-11-26)
+
+The skill now runs `session.py attach --enable` for an open game. It reuses
+authenticated RCON when available and requests the local `agent_rcon`
+activation when needed. The packaged macOS Metal check verified activation
+without launch RCON flags, a closed console, the selected PID and map,
+invalid-token rejection, reuse and normal credential cleanup. Manual
+activation and startup RCON passed separately. Windows and Linux runtime
+attachment and windowed focus behavior are **not tested**.
+
 ## Attach hl2-session to an open game (2026-11-25)
 
 `session.py attach` confirms the selected game's IPv4 loopback listener and

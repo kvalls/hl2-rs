@@ -53,9 +53,10 @@ with game captions off. With game captions on, it sits above their panel.
 Enter `agent_rcon` in the local developer console to enable agent attachment
 in an already running game. The command enables console logging and opens an
 authenticated listener on `127.0.0.1`, or reuses one already bound there. The
-`hl2-session` helper uses private per-process discovery files to attach without
-reloading the map. Independently launched games remain outside the restart
-supervisor.
+`hl2-session` helper can invoke the same activation through a private
+loopback request while the game is running. It verifies process ownership and
+authenticates to RCON without changing the game window or map. Independently
+launched games remain outside the restart supervisor.
 
 Ordinary motion blur, flight, spawning, camera behavior and simulation mechanisms stay in core.
 

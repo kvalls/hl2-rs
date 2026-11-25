@@ -15,6 +15,7 @@ impl Drop for Session {
             "rcon_password",
             "port",
             "console_log_path",
+            "bootstrap.json",
             ".pending",
         ] {
             let _ = fs::remove_file(self.0.join(name));
@@ -24,7 +25,7 @@ impl Drop for Session {
 }
 
 impl Session {
-    fn create(temp: &Path, pid: u32) -> io::Result<Self> {
+    pub(super) fn create(temp: &Path, pid: u32) -> io::Result<Self> {
         let parent = temp.join("hl2rs-agent-session");
         match private_directory(&parent) {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -46,7 +47,7 @@ impl Session {
         Ok(Self(path))
     }
 
-    fn write(&self, name: &str, bytes: &[u8]) -> io::Result<()> {
+    pub(super) fn write(&self, name: &str, bytes: &[u8]) -> io::Result<()> {
         let pending = self.0.join(".pending");
         let mut options = OpenOptions::new();
         #[cfg(unix)]
@@ -75,7 +76,7 @@ fn private_directory(path: &Path) -> io::Result<()> {
     builder.recursive(false).create(path)
 }
 
-fn password() -> io::Result<String> {
+pub(super) fn password() -> io::Result<String> {
     let mut bytes = [0_u8; 24];
     getrandom::fill(&mut bytes)
         .map_err(|_| io::Error::other("could not generate session password"))?;
