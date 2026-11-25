@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Show RCON chat in gameplay subtitles
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent reviewed routing and prepared the isolated loopback check. Exact subagent model ID not recorded.
+- Changed: Forward authenticated remote chat to runtime extensions. The debug plugin displays recent chat as literal text using the installed caption font, with a bounded queue and cached text wrapping. Update the session skill.
+- Why: Players following an agent session can read replies during play with the console closed.
+- Tested how: Focused RCON, debug plugin and caption tests, the owned Episode One caption resource test, strict macOS and Windows-target Clippy, architecture, all four plugin selections, the packaged `console`, `commentary`, `dev_overlay` and `captions` replays, and two packaged macOS Metal loopback checks with native captions on and off.
+- Result: Both loopback captures drew the remote message with the console closed. Local chat and pinned agent status remained outside the subtitle panel. Unit tests confirmed wrapping, truncation and expiry.
+- Still broken or not tested: Ordinary play, Windows runtime and comparative frame timing while chat is visible are **not tested**.
+- Next: Use the subtitle panel in the next live session.
+
 ## 2026-11-25 — Publish runtime collider handles directly
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. The Codex profiler review and backlog subagents drafted the collider change and wake fixture. A separate Codex subagent reviewed fixture and test coverage. Exact subagent model IDs not recorded.

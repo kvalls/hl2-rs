@@ -4,6 +4,7 @@ mod commands;
 mod draw;
 mod input;
 mod loading;
+mod subtitles;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -12,6 +13,7 @@ use hl2_bevy::extensions::{Context, Input, RuntimeExtension, UiInput};
 #[derive(Default)]
 pub struct State {
     dev_overlay: bool,
+    subtitles: subtitles::RemoteSubtitles,
     viewmodel_debug: ViewmodelDebug,
     background_debug: crate::bevy::background::BackgroundDebug,
     overlay: Overlay,
@@ -109,6 +111,9 @@ impl State {
     }
 }
 impl RuntimeExtension for State {
+    fn remote_console_chat(&mut self, line: &str) {
+        self.subtitles.push(line, std::time::Instant::now());
+    }
     fn input(&mut self, context: &mut Context<'_>, input: &Input<'_>) {
         self.adopt_finished_usable();
         self.adopt_finished_props();
@@ -225,6 +230,7 @@ impl RuntimeExtension for State {
     }
     fn map_changed(&mut self, _sim: &mut hl2_bevy::simulation::Simulation) {
         self.viewmodel_debug = ViewmodelDebug::default();
+        self.subtitles = subtitles::RemoteSubtitles::default();
     }
     fn map_installed(
         &mut self,
@@ -325,7 +331,7 @@ impl RuntimeExtension for State {
     }
     fn hud_report(&self, hud: &hl2_bevy::canvas_renderer::Hud) -> Option<serde_json::Value> {
         Some(
-            serde_json::json!({"spawn_overlay":self.overlay.open.then(||{let (ai,notarget)=self.panel_switches.unwrap_or((true,false));self.overlay.panel(ai,notarget)}),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines,"profiling":self.profiling_lines}}),
+            serde_json::json!({"spawn_overlay":self.overlay.open.then(||{let (ai,notarget)=self.panel_switches.unwrap_or((true,false));self.overlay.panel(ai,notarget)}),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines,"profiling":self.profiling_lines},"remote_subtitles":{"rows":self.subtitles.visible_rows()}}),
         )
     }
     fn gameplay_report(&self) -> Option<(&'static str, serde_json::Value)> {

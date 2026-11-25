@@ -2726,6 +2726,15 @@ results describe the implemented policy. VPhysics-style object sleep uses the
 existing rigid-body state. The NPC policy leaves room for the SDK's wider
 combat-efficiency table, visibility variants and wake-squad propagation.
 
+## Remote console subtitles (2026-11-25)
+
+Notify runtime extensions when an authenticated remote console chat line is
+broadcast locally. The debug plugin owns a short-lived, bounded plain-text
+subtitle queue and draws it using the installed caption font and bounds.
+Reserve the game's caption region while captions are enabled. Hide remote
+subtitles outside gameplay and clear them on map change. Validate real RCON
+chat with the console closed, including status and local chat controls.
+
 ## Long stage recordings (O11)
 
 Retain up to 4,096 original timings per stage and report exact percentiles while

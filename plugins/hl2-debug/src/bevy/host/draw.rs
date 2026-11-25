@@ -17,6 +17,16 @@ impl State {
             return;
         };
         let sim = &*context.simulation;
+        if self.subtitles.has_messages() {
+            let gameplay = !sim.paused()
+                && !sim.transition
+                && !sim.background_level
+                && !ui.source.paused()
+                && !game.scene.logic_autos_pending();
+            let captions =
+                hl2_ui::closecaption::Settings::from_config(ui.source.config.audio.captions);
+            self.subtitles.present(hud, gameplay, captions.closecaption);
+        }
         let (width, height) = (hud.source.canvas.width(), hud.source.canvas.height());
         if self.font.is_none() {
             self.font = hud.bitmap_font().map(crate::spawn_panel::PanelFont);

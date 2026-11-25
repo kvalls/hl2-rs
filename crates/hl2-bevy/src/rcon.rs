@@ -84,6 +84,7 @@ fn run(
         None => {}
     }
     for line in std::mem::take(&mut ui.source.remote.broadcast) {
+        sim.with_extensions(|extension, _| extension.remote_console_chat(&line));
         ui.source.print(Level::ChatRemote, line);
     }
     lines
@@ -155,5 +156,59 @@ fn send(writers: &mut HashMap<Connection, Sender<Outgoing>>, reply: Reply) {
                 let _ = writer.send(Outgoing::Close);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Level, run};
+    use crate::{extensions::RuntimeExtension, simulation::Simulation, ui_host::Console};
+    use std::sync::{Arc, Mutex};
+
+    struct Chat(Arc<Mutex<Vec<String>>>);
+
+    impl RuntimeExtension for Chat {
+        fn remote_console_chat(&mut self, line: &str) {
+            self.0.lock().unwrap().push(line.to_owned());
+        }
+    }
+
+    #[test]
+    fn only_remote_chat_broadcasts_reach_runtime_extensions() {
+        let mut console = Console::new(Default::default());
+        let mut sim = Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        sim.extensions.push(Box::new(Chat(Arc::clone(&lines))));
+        let from = "127.0.0.1:27015".parse().unwrap();
+        console.source.submit("say player line");
+        console
+            .source
+            .log_snapshot_with_level(Level::ChatRemote, "status line");
+        let reply = run(
+            &mut console,
+            &mut sim,
+            None,
+            "echo command output; say reply",
+            from,
+        );
+        assert!(reply.contains("command output"));
+        assert!(reply.contains("Console: reply"));
+        assert_eq!(*lines.lock().unwrap(), ["Console: reply"]);
+        assert!(
+            console
+                .source
+                .shell
+                .panel
+                .output
+                .iter()
+                .any(|line| line.text == "Console: reply")
+        );
     }
 }

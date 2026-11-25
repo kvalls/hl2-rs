@@ -1,5 +1,13 @@
 # STATUS
 
+## RCON gameplay subtitles (2026-11-25)
+
+With `debug-tools` selected, authenticated RCON `say` messages appear in a
+temporary panel in the gameplay subtitle area. Packaged macOS Metal captures
+verified rendering on Station 02 with the console closed and game captions
+on and off. Local `say` and pinned agent status did not enter the subtitle
+panel. Windows runtime and ordinary play are **not tested**.
+
 ## Runtime collider registration (2026-11-25)
 
 O45 closed after 42 packaged Station 02 runs on M1 Pro / Metal. The sum of

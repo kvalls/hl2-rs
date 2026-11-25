@@ -348,6 +348,10 @@ fn owned_episode_one_caption_panel_reads_layout_scheme_and_fonts() {
     // 768 lines: 12 * 1.6 = 19 pixel caption text.
     let (_, tall) = hud.face(Style::Italic, 768. / 480.).unwrap();
     assert_eq!(tall, 19.);
+    let (surface, _, height) = hud.text_surface((1024., 768.)).unwrap();
+    let (panel, _) = hud.paint((1024., 768.), 0.).unwrap();
+    assert_eq!(surface, panel);
+    assert_eq!(height, tall);
 }
 
 #[test]

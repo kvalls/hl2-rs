@@ -908,16 +908,9 @@ impl CaptionHud {
     /// Lays out the panel for a canvas `size` in pixels; None while there is nothing to draw
     /// or the fonts are missing.
     pub fn paint(&self, size: (f32, f32), time: f64) -> Option<(source_ui::canvas::Rect, Paint)> {
-        let canvas = glam::vec2(size.0, size.1);
-        let scale = crate::proportional::scale(canvas);
+        let scale = crate::proportional::scale(glam::vec2(size.0, size.1));
         let measure = self.measure(scale)?;
-        let x = crate::hud::panel_axis(&self.layout.xpos, size.0, scale).unwrap_or(0.);
-        let rect = source_ui::canvas::Rect::new(
-            x.trunc(),
-            (self.layout.ypos * crate::proportional::y_scale(canvas)).trunc(),
-            (self.layout.wide * scale).trunc(),
-            (self.layout.tall * scale).trunc(),
-        );
+        let rect = self.panel_rect(size, scale);
         let paint = self.state.borrow_mut().paint(
             (rect.w, rect.h),
             scale,
@@ -927,6 +920,26 @@ impl CaptionHud {
             time,
         );
         Some((rect, paint))
+    }
+
+    /// Caption bounds and normal font for consumers presenting literal text.
+    pub fn text_surface(
+        &self,
+        size: (f32, f32),
+    ) -> Option<(source_ui::canvas::Rect, &source_ui::font::FontFace, f32)> {
+        let scale = crate::proportional::scale(glam::vec2(size.0, size.1));
+        let (face, tall) = self.face(Style::Normal, scale)?;
+        Some((self.panel_rect(size, scale), face, tall))
+    }
+
+    fn panel_rect(&self, size: (f32, f32), scale: f32) -> source_ui::canvas::Rect {
+        let x = crate::hud::panel_axis(&self.layout.xpos, size.0, scale).unwrap_or(0.);
+        source_ui::canvas::Rect::new(
+            x.trunc(),
+            (self.layout.ypos * crate::proportional::y_scale(glam::vec2(size.0, size.1))).trunc(),
+            (self.layout.wide * scale).trunc(),
+            (self.layout.tall * scale).trunc(),
+        )
     }
 
     fn measure(&self, scale: f32) -> Option<Fonts<'_>> {

@@ -42,6 +42,8 @@ pub struct UiInput<'a> {
 /// Empty defaults let a contributor implement only the lifecycle hooks it needs.
 pub trait RuntimeExtension: Send + Sync + 'static {
     fn input(&mut self, _context: &mut Context<'_>, _input: &Input<'_>) {}
+    /// Text from an authenticated remote console chat broadcast.
+    fn remote_console_chat(&mut self, _line: &str) {}
     fn effect(&mut self, _context: &mut Context<'_>, _event: &serde_json::Value) -> bool {
         false
     }

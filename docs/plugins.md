@@ -46,6 +46,10 @@ loose pickups, world weapons and `prop_physics`. Optional key-value pairs are
 `targetname <name>`, `additionalequipment <weapon>` for an NPC, and
 `model <path>` for a physics prop. An absent model loads through the existing worker.
 
+`hl2-debug` shows authenticated RCON `say` messages as temporary gameplay
+subtitles. The subtitle panel uses the installed caption font and is available
+with game captions off. With game captions on, it sits above their panel.
+
 Ordinary motion blur, flight, spawning, camera behavior and simulation mechanisms stay in core.
 
 ## Contracts
@@ -59,7 +63,7 @@ Ordinary motion blur, flight, spawning, camera behavior and simulation mechanism
 | `hl2_ui::extensions::StandardBackground` | `Extensions::select_standard_background` (one contributor) | Whether the menu background keeps its standard (4:3) blur artwork and field of view on wide frames |
 | `hl2_ui::extensions::FramingProfiles` | `VideoExtension::framing_profiles` | Viewmodel framing profile ids and values; without one, every aspect keeps the retail view |
 | `hl2_ui::config::StoredExtensions` | `video.extensions`, `video.advanced.extensions`, top-level `extensions` (settings of no Options section) | Plugin settings saved beside core fields; unknown keys survive, so old files keep their format |
-| `hl2_bevy::extensions::RuntimeExtension` | `Application::runtime` | Input, UI, presentation, loading, map and config lifecycle, replay events, reports |
+| `hl2_bevy::extensions::RuntimeExtension` | `Application::runtime` | Input, UI, presentation, loading, map and config lifecycle, remote console chat, replay events, reports |
 | `Application::install` | `fn(&mut App)` | Bevy systems, render nodes and resources |
 
 Runtime extensions are in place before startup settings are applied, so `startup` and the first `level_target` reach them. Their state belongs to the instance; do not add mutable globals.
