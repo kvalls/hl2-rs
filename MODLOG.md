@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 session 71: the customs queue's player blocking; PR #5's actbusy entry/exit evaluated (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The cherry-picked commit is @OrbitalMan's (PR #5, eb51f6c).
+- Changed: hl2-simulation ai/runtime/goal_inputs/actbusy_queue.rs (PlayerStartedBlocking/PlayerStoppedBlocking: line_count, push_back_moves, force_onto_node; unit test), goal_inputs.rs (the queue input gets its value). Side branch wip/session71-20261125b: PR #5's eb51f6c cherry-picked with conflicts resolved (main's hint outputs kept).
+- Why: the owner's station 01 playtest (luggage_citizen on the bench; the pen queue). PR #5's claim lists the actbusy benches and its eb51f6c already implements the entry/exit root motion, so it was evaluated instead of rewritten.
+- Tested how: SDK (ai_behavior_actbusy.cpp), retail server.dll strings, owned map entities (fourteen client-only triggers), unit tests, packaged fixtures (artifacts/s71/lugg, artifacts/s71/queue), native raw runs with proximity sensors on luggage_citizen (artifacts/s71/native_bench.py), artifacts/s71/validate1.sh (v1-*).
+- Result: PR #5's actbusy entry seats luggage_citizen at (-5279, -591); native (proximity sensors) at (-5279.45, -590.49): a match within about one unit. The queue's player blocking works on the packaged fixture (the second citizen turns back to node 2 while the player stands on node 1). Validation: running at the handoff (log artifacts/s71/validate1.log).
+- Still broken or not tested: merging the side branch waits for the owner (PR #5's work); ours reaches the bench hint ~5.8 s before native (route and speed); the queue blocking not compared with native; the owner's queue clumping not reproduced; the actbusy walk tolerance (SDK 4, ours 13); CI not run for this branch.
+- Next: the owner's decision on PR #5's actbusy commit; the arrival timing; the packaged checks and session 68's list.
+
 ## 2026-11-25 session 70: NPCs steer around a standing NPC (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
