@@ -5,14 +5,18 @@
 use super::packet::{self, Packet};
 use super::server::{Connection, Event};
 use std::io::{Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::sync::{
+    Arc,
+    mpsc::{self, Receiver, SyncSender},
+};
+use std::time::Duration;
 
 /// What the sockets report to the game thread.
 pub enum Message {
     Event(Event),
     /// Where replies to a new connection go; sent before its `Connected` event.
-    Writer(Connection, Sender<Outgoing>),
+    Writer(Connection, SyncSender<Outgoing>),
 }
 
 /// What the game thread asks a connection's writer to do.
@@ -26,22 +30,49 @@ pub enum Outgoing {
 pub fn start(
     address: SocketAddr,
     max_packet: usize,
+    peer: Option<IpAddr>,
 ) -> std::io::Result<(Receiver<Message>, SocketAddr)> {
     let listener = TcpListener::bind(address)?;
     let bound = listener.local_addr()?;
-    let (messages, receiver) = mpsc::channel();
+    let (messages, receiver) = mpsc::sync_channel(256);
     std::thread::Builder::new()
         .name("rcon-accept".into())
-        .spawn(move || accept(&listener, &messages, max_packet))?;
+        .spawn(move || accept(&listener, &messages, max_packet, peer))?;
     Ok((receiver, bound))
 }
 
-fn accept(listener: &TcpListener, messages: &Sender<Message>, max_packet: usize) {
+fn accept(
+    listener: &TcpListener,
+    messages: &SyncSender<Message>,
+    max_packet: usize,
+    peer: Option<IpAddr>,
+) {
+    let workers = Arc::new(());
     for (connection, stream) in (1..).zip(listener.incoming()) {
         let Ok(stream) = stream else {
             continue;
         };
-        if spawn_connection(connection, stream, messages, max_packet).is_err() {
+        if let Some(peer) = peer {
+            // Only the configured peer can consume worker slots or enter the game queue.
+            if stream.peer_addr().map(|address| address.ip()).ok() != Some(peer)
+                || Arc::strong_count(&workers) > 7
+                || stream
+                    .set_read_timeout(Some(Duration::from_secs(30)))
+                    .is_err()
+                || stream
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .is_err()
+            {
+                continue;
+            }
+        }
+        let max_packet = if peer.is_some() {
+            max_packet.min(4096)
+        } else {
+            max_packet
+        };
+        let worker_slot = peer.map(|_| Arc::clone(&workers));
+        if spawn_connection(connection, stream, messages, max_packet, worker_slot).is_err() {
             continue;
         }
     }
@@ -50,21 +81,29 @@ fn accept(listener: &TcpListener, messages: &Sender<Message>, max_packet: usize)
 fn spawn_connection(
     connection: Connection,
     stream: TcpStream,
-    messages: &Sender<Message>,
+    messages: &SyncSender<Message>,
     max_packet: usize,
+    worker_slot: Option<Arc<()>>,
 ) -> std::io::Result<()> {
     let address = stream.peer_addr()?;
     let writer_stream = stream.try_clone()?;
-    let (writer, outgoing) = mpsc::channel();
+    let (writer, outgoing) = mpsc::sync_channel(32);
+    let writer_slot = worker_slot.clone();
     std::thread::Builder::new()
         .name("rcon-write".into())
-        .spawn(move || write(writer_stream, &outgoing))?;
+        .spawn(move || {
+            let _slot = writer_slot;
+            write(writer_stream, &outgoing);
+        })?;
     let _ = messages.send(Message::Writer(connection, writer));
     let _ = messages.send(Message::Event(Event::Connected(connection, address)));
     let reader_messages = messages.clone();
     if let Err(error) = std::thread::Builder::new()
         .name("rcon-read".into())
-        .spawn(move || read(connection, stream, &reader_messages, max_packet))
+        .spawn(move || {
+            let _slot = worker_slot;
+            read(connection, stream, &reader_messages, max_packet);
+        })
     {
         let _ = messages.send(Message::Event(Event::Closed(connection)));
         return Err(error);
@@ -81,7 +120,7 @@ fn write(mut stream: TcpStream, outgoing: &Receiver<Outgoing>) {
     let _ = stream.shutdown(Shutdown::Both);
 }
 
-fn read(connection: Connection, mut stream: TcpStream, messages: &Sender<Message>, max: usize) {
+fn read(connection: Connection, mut stream: TcpStream, messages: &SyncSender<Message>, max: usize) {
     let event = loop {
         let mut size = [0; 4];
         if stream.read_exact(&mut size).is_err() {
@@ -113,7 +152,7 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    fn next_event(messages: &Receiver<Message>) -> (Option<Sender<Outgoing>>, Event) {
+    fn next_event(messages: &Receiver<Message>) -> (Option<SyncSender<Outgoing>>, Event) {
         let mut writer = None;
         loop {
             match messages
@@ -127,8 +166,26 @@ mod tests {
     }
 
     #[test]
+    fn out_of_policy_peers_never_reach_the_game_queue() {
+        let local = SocketAddr::from(([127, 0, 0, 1], 0));
+        let (messages, address) = start(local, 1024, Some("192.0.2.1".parse().unwrap())).unwrap();
+        let mut client = TcpStream::connect(address).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        // The listener can close before or after the handshake reaches the client.
+        match client.read(&mut [0]) {
+            Ok(0) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+            result => panic!("unexpected read result: {result:?}"),
+        }
+        assert!(messages.try_recv().is_err());
+    }
+
+    #[test]
     fn packets_arrive_and_replies_go_back_over_a_real_socket() {
-        let (messages, address) = start(SocketAddr::from(([127, 0, 0, 1], 0)), 1024).expect("bind");
+        let (messages, address) =
+            start(SocketAddr::from(([127, 0, 0, 1], 0)), 1024, None).expect("bind");
         let mut client = TcpStream::connect(address).expect("connect");
         let (writer, connected) = next_event(&messages);
         assert!(matches!(connected, Event::Connected(..)));

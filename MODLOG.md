@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Allow explicit network RCON for a configured peer
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent reviewed transport and peer restrictions. Exact subagent model ID not recorded.
+- Changed: Add network startup options for an exact peer and a private generated password file. Require a specific bind interface, keep the credential outside console cvars, and filter peers before spawning the bounded network workers. Cap packet size, queues and per-update work. Preserve local skill activation and managed launch.
+- Why: The owner wants intentional remote administration where Source has it. Separate that from the skill's local attachment path. Source RCON is plaintext, so document using an encrypted VPN for Internet use.
+- Tested how: Focused Rust/Python tests, strict macOS and Windows-target Clippy, architecture, four plugin selections and isolated packaged macOS runs for allowed and rejected peers, unauthenticated requests, local auto-attach and startup RCON.
+- Result: The allowed peer authenticated with its file credential and ran a console canary. Another peer was disconnected before authentication. The network password was absent from console replies, application logs and skill metadata. Loopback attachment and subtitle output still passed.
+- Still broken or not tested: Windows and Linux runtime, Internet routing and an encrypted VPN transport are **not tested**. A network listener occupies the game's sole RCON listener until exit.
+- Next: Use the local skill mode for ordinary game sessions.
+
 ## 2026-11-26 — Restrict RCON to loopback
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent independently reviewed the RCON and skill boundaries. Exact subagent model ID not recorded.

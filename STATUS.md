@@ -1,9 +1,18 @@
 # STATUS
 
-## Loopback-only RCON (2026-11-26)
+## Explicit network RCON (2026-11-26)
 
-The host refuses non-loopback RCON binds, including wildcard addresses passed
-through `-usercon`. The skill client refuses non-loopback destinations before
+The skill and default startup remain loopback-only. Manual network startup
+requires an explicit interface, an allowed source IP and a private password
+file. Packaged macOS tests accepted the allowed peer with the file credential,
+rejected the wrong credential and another peer, and kept the network secret
+out of the console, logs and skill metadata. Local activation and startup RCON
+also passed. Public Internet, Windows and Linux runtime are **not tested**.
+
+## Initial RCON loopback hardening (2026-11-26)
+
+The initial change refused every non-loopback RCON bind. The explicit network
+mode above now permits a single opt-in network peer. The skill client refuses non-loopback destinations before
 opening a socket, and supervised launches apply their own endpoint and
 credentials after optional startup arguments. Packaged macOS checks observed
 no TCP listener for either wildcard request. After automatic activation,

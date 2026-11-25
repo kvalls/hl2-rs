@@ -83,6 +83,8 @@ impl Options {
             novid: false,
             condebug: false,
             usercon: false,
+            rcon_peer: None,
+            rcon_password_file: None,
             startup_commands: Vec::new(),
             script_npc_classes: std::collections::BTreeSet::new(),
             isolation: Default::default(),
@@ -178,16 +180,36 @@ impl Options {
             "--main-menu" => options.main_menu = true,
             "-novid" | "--novid" => options.novid = true,
             "-condebug" => options.condebug = true,
-            "-usercon" => options.usercon = true,
             "--background-map" => options.background_map = Some(next()?),
             "--help" | "-h" => {
                 startup::print_help();
                 std::process::exit(0);
             }
-            _ if options.isolation.parse_flag(arg, args)? => {}
+            _ if options.parse_rcon_flag(arg, args)?
+                || options.isolation.parse_flag(arg, args)? => {}
             _ => bail!("unknown option {arg}; use --help"),
         }
         Ok(())
+    }
+
+    fn parse_rcon_flag(
+        &mut self,
+        flag: &str,
+        args: &mut dyn Iterator<Item = String>,
+    ) -> Result<bool> {
+        let mut next = || {
+            args.next()
+                .with_context(|| format!("missing value after {flag}"))
+        };
+        match flag {
+            "-usercon" => self.usercon = true,
+            "--rcon-peer" => {
+                self.rcon_peer = Some(next()?.parse().context("invalid RCON peer IP address")?)
+            }
+            "--rcon-password-file" => self.rcon_password_file = Some(next()?.into()),
+            _ => return Ok(false),
+        }
+        Ok(true)
     }
 
     fn validated(mut options: Self, cli: Cli) -> Result<(Self, startup::InstallationRequest)> {

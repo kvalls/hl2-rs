@@ -15,13 +15,12 @@ pub struct LogFile {
 }
 
 /// Adds the log writer, the `screenshot` saver and, with `-usercon`, the remote console.
-pub fn install(app: &mut App, usercon: bool) {
+pub(super) fn install(app: &mut App, options: &crate::Options) -> anyhow::Result<()> {
     app.init_resource::<LogFile>()
         .add_systems(Last, write_log)
         .add_systems(Update, crate::capture::console_screenshot);
-    if usercon {
-        crate::rcon::install_startup(app);
-    }
+    crate::rcon::install_startup(app, options)?;
+    Ok(())
 }
 
 /// Opens `relative` (as `con_logfile` validated it) next to the settings file, appending.

@@ -1,13 +1,15 @@
 # Design
 
-## Keep RCON on the local machine (2026-11-26)
+## Keep skill RCON local and support explicit network RCON (2026-11-26)
 
-The game rejects non-loopback RCON binds at the host service boundary, even
-when a startup cvar requests one. The skill client rejects non-loopback
-destinations before creating a socket and normalizes `localhost` to numeric
-loopback. The supervised launcher applies its managed bind, port and password
-after optional arguments. Verify automatic activation, explicit startup and
-rejection of non-loopback addresses in the packaged build.
+The skill client and runtime activation use loopback. The supervised launcher
+applies its managed endpoint and password after optional arguments. A separate
+startup-only network mode requires an explicit interface, a single allowed
+peer and a private generated password file. Filter peers before spawning
+workers and bound network connection resources. Keep the network credential
+outside the console and automatic discovery. Source RCON uses plaintext TCP,
+so use a trusted encrypted network for Internet access. Verify the bind and
+peer gates, authentication, a permitted network connection and local attach.
 
 ## Automatic local RCON activation (2026-11-26)
 

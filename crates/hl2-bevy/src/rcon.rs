@@ -4,6 +4,7 @@
 //! output back instead of showing it ([`server`]).
 
 mod listener;
+mod network;
 mod packet;
 mod server;
 
@@ -12,23 +13,27 @@ use bevy::prelude::{
     App, IntoScheduleConfigs, Plugin, Real, Res, ResMut, Resource, Time, Update, info, warn,
 };
 use listener::{Message, Outgoing};
+use network::NetworkPolicy;
 use server::{Connection, Limits, Reply, Server};
 use source_ui::console::panel::Level;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Mutex;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, SyncSender};
 
 /// The running remote console.
 pub(crate) struct RemoteConsole {
     bound: SocketAddr,
     messages: Mutex<Receiver<Message>>,
-    writers: HashMap<Connection, Sender<Outgoing>>,
+    writers: HashMap<Connection, SyncSender<Outgoing>>,
     server: Server,
+    network: Option<NetworkPolicy>,
 }
 
 #[derive(Resource, Default)]
-struct StartupListener(bool);
+struct StartupListener(Option<StartupPolicy>);
+
+struct StartupPolicy(Option<NetworkPolicy>);
 
 struct Host;
 
@@ -46,13 +51,17 @@ pub fn install(app: &mut App) {
     }
 }
 
-pub(crate) fn install_startup(app: &mut App) {
-    install(app);
-    app.insert_resource(StartupListener(true));
+pub(crate) fn install_startup(app: &mut App, options: &crate::Options) -> anyhow::Result<()> {
+    let network = NetworkPolicy::load(options)?;
+    if options.usercon {
+        install(app);
+        app.insert_resource(StartupListener(Some(StartupPolicy(network))));
+    }
+    Ok(())
 }
 
 fn active(startup: Res<StartupListener>, ui: Option<Res<Console>>) -> bool {
-    startup.0 || ui.is_some_and(|ui| ui.remote_console.is_some())
+    startup.0.is_some() || ui.is_some_and(|ui| ui.remote_console.is_some())
 }
 
 impl Console {
@@ -65,28 +74,70 @@ impl Console {
     /// listener in place.
     pub fn start_remote_console(&mut self, address: SocketAddr) -> std::io::Result<SocketAddr> {
         if !address.ip().is_loopback() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "RCON requires a loopback address",
-            ));
+            return Err(network::network_bind_denied());
         }
+        self.bind_remote_console(address, None)
+    }
+
+    fn bind_remote_console(
+        &mut self,
+        address: SocketAddr,
+        network: Option<NetworkPolicy>,
+    ) -> std::io::Result<SocketAddr> {
         if let Some(bound) = self.remote_console_address() {
             return Ok(bound);
         }
-        let (messages, bound) =
-            listener::start(address, self.source.remote.sv_rcon_maxpacketsize as usize)?;
+        let max_packet = self.source.remote.sv_rcon_maxpacketsize as usize;
+        let (messages, bound) = listener::start(
+            address,
+            max_packet,
+            network.as_ref().map(|policy| policy.peer),
+        )?;
         self.remote_console = Some(RemoteConsole {
             bound,
             messages: Mutex::new(messages),
             writers: HashMap::new(),
             server: Server::default(),
+            network,
         });
         info!("Remote console listening on {bound}");
         Ok(bound)
     }
 }
 
-fn limits(remote: &hl2_ui::console::remote::Remote) -> Limits {
+impl StartupPolicy {
+    fn bind(self, ui: &mut Console) -> std::io::Result<SocketAddr> {
+        let address = startup_address(&ui.source.remote)?;
+        if address.ip().is_loopback() {
+            return ui.start_remote_console(address);
+        }
+        let network = self.0.ok_or_else(network::network_bind_denied)?;
+        if !network::specific_ip(address.ip()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "network RCON requires a specific bind interface",
+            ));
+        }
+        if address.is_ipv4() != network.peer.is_ipv4() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "RCON bind and peer addresses must use the same IP version",
+            ));
+        }
+        ui.bind_remote_console(address, Some(network))
+    }
+}
+
+fn limits(remote: &hl2_ui::console::remote::Remote, network: Option<&NetworkPolicy>) -> Limits {
+    if let Some(network) = network {
+        return Limits {
+            password: network.password.clone(),
+            max_failures: 5,
+            min_failures: 3,
+            min_failure_time: 60.,
+            ban_minutes: 5.,
+        };
+    }
     Limits {
         password: remote.rcon_password.clone(),
         max_failures: remote.sv_rcon_maxfailures,
@@ -105,7 +156,7 @@ fn startup_address(remote: &hl2_ui::console::remote::Remote) -> std::io::Result<
         remote.ip.parse().map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "RCON requires a numeric loopback address or localhost",
+                "RCON requires a numeric IP address or localhost",
             )
         })?
     };
@@ -166,24 +217,27 @@ fn serve(
     if ui.source.startup_pending() {
         return;
     }
-    if startup.0 {
-        startup.0 = false;
-        if ui.remote_console.is_none()
-            && let Err(error) = startup_address(&ui.source.remote)
-                .and_then(|address| ui.start_remote_console(address))
-        {
-            warn!("Could not start the remote console: {error}");
-        }
+    if let Some(startup) = startup.0.take()
+        && ui.remote_console.is_none()
+        && let Err(error) = startup.bind(ui)
+    {
+        warn!("Could not start the remote console: {error}");
     }
     let Some(mut remote) = ui.remote_console.take() else {
         return;
     };
     let now = time.elapsed_secs_f64();
-    while let Ok(message) = remote
+    let budget = if remote.network.is_some() {
+        64
+    } else {
+        usize::MAX
+    };
+    for message in remote
         .messages
         .get_mut()
         .expect("game owns receiver")
-        .try_recv()
+        .try_iter()
+        .take(budget)
     {
         let event = match message {
             Message::Writer(connection, writer) => {
@@ -195,7 +249,7 @@ fn serve(
         if let server::Event::Closed(connection) = &event {
             remote.writers.remove(connection);
         }
-        let limits = limits(&ui.source.remote);
+        let limits = limits(&ui.source.remote, remote.network.as_ref());
         let replies = remote.server.handle(event, now, &limits, |line, from| {
             run(ui, &mut sim, game.as_deref_mut(), line, from)
         });
@@ -206,17 +260,19 @@ fn serve(
     ui.remote_console = Some(remote);
 }
 
-fn send(writers: &mut HashMap<Connection, Sender<Outgoing>>, reply: Reply) {
+fn send(writers: &mut HashMap<Connection, SyncSender<Outgoing>>, reply: Reply) {
     match reply {
         Reply::Send(connection, packets) => {
             if let Some(writer) = writers.get(&connection) {
                 let bytes = packets.iter().flat_map(packet::Packet::encode).collect();
-                let _ = writer.send(Outgoing::Bytes(bytes));
+                if writer.try_send(Outgoing::Bytes(bytes)).is_err() {
+                    writers.remove(&connection);
+                }
             }
         }
         Reply::Close(connection) => {
             if let Some(writer) = writers.remove(&connection) {
-                let _ = writer.send(Outgoing::Close);
+                let _ = writer.try_send(Outgoing::Close);
             }
         }
     }

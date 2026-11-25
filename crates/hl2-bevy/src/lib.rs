@@ -133,6 +133,9 @@ struct Options {
     condebug: bool,
     /// `-usercon`: start the remote console (`rcon_password`, `ip`, `hostport`).
     usercon: bool,
+    /// Explicit remote RCON source address and credential file.
+    rcon_peer: Option<std::net::IpAddr>,
+    rcon_password_file: Option<PathBuf>,
     /// `+command arguments` words, run in order once the console exists.
     startup_commands: Vec<String>,
     /// NPC pool labels requested by the startup `--movement-script` for selective preloading.
@@ -325,7 +328,7 @@ pub fn run(application: extensions::Application) -> Result<()> {
         Update,
         console_host::poll_installed_maps.before(console_host::sync_sources),
     );
-    console_log::install(&mut app, options.usercon);
+    console_log::install(&mut app, &options)?;
     app.add_systems(Last, launch::exit_process.after(monitor::monitor));
     if options.profile {
         performance::install(&mut app);
