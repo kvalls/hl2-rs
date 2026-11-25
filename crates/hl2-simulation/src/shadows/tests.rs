@@ -413,6 +413,26 @@ fn a_size_used_up_this_frame_falls_back_to_a_smaller_one() {
 }
 
 #[test]
+fn retaining_an_outgoing_shadow_protects_its_cell_until_the_next_frame() {
+    let mut page = super::allocator::Allocator::new();
+    let outgoing = page.allocate(256);
+    assert!(!page.retain(outgoing));
+    assert!(page.use_texture(outgoing, true, 1e6));
+    let old = page.rect(outgoing);
+    page.advance_frame();
+    assert!(page.retain(outgoing));
+    for _ in 0..6 {
+        let incoming = page.allocate(256);
+        page.use_texture(incoming, true, 1e6);
+    }
+    assert_eq!(page.rect(outgoing), old);
+    page.advance_frame();
+    let incoming = page.allocate(256);
+    page.use_texture(incoming, true, 1e6);
+    assert_eq!(page.rect(outgoing), None);
+}
+
+#[test]
 fn displaced_world_surface_uses_geometric_triangle_normal() {
     // Displaced terrain keeps the flat base-face shading normal (+Z) even on sloped triangles;
     // receiver triangles must follow the sloped geometry and stay lifted off the sloped surface.

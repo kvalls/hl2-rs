@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Crossfade between projected shadow qualities
+
+- Agent/model: Codex desktop, gpt-6.2-sol for the 800 ms revision and verification. Earlier prototype model ID not recorded.
+- Changed: Blend between the detailed and blob projections over 800 ms. Keep the outgoing atlas cell available through the fade, reverse from the current blend weight, and use the existing pooled buffers and overflow path.
+- Why: In the owner's Combine playtest, dropped AR2 shadows switched abruptly when their screen-area rank changed while walking.
+- Tested how: Ran interleaved release comparisons on a 48-AR2 path and a held plaza view, captured a burst during a shadow handoff, and ran the packaged flashlight and Options replays. Ran 26 focused release tests, strict Clippy for both affected crates, and the architecture check. The setup and full results are in docs/performance.md.
+- Result: At 720p, changing 200 to 800 ms added 0.010 ms to the shadow stage and moved median frame time from 4.368 to 4.373 ms. At Retina, the 800 ms build's whole-frame means fell inside the hard-switch runs' range. All three packaged replays passed.
+- Still broken or not tested: Windows runtime and ordinary interactive play with the longer fade are **not tested**. Retina background GPU use varied between 33% and 98%.
+- Next: Check the transition feel in the user's normal playtest.
+
 ## 2026-11-24 — Crowd scaling sweep and capture fixture verification
 
 - Agent/model: Codex desktop, GPT-6 family (exact model ID not recorded).

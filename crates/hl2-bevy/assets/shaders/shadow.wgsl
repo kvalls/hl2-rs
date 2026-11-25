@@ -69,7 +69,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         out.world_tangent = vec4<f32>(1.0, 0.0, 0.0, 1.0);
 #endif
 #ifdef VERTEX_COLORS
-        out.color = vec4<f32>(1.0, 1.0, 1.0, p.w);
+        out.color = vec4<f32>(1.0 - uv.z, 1.0, 1.0, p.w);
 #endif
 #ifdef VISIBILITY_RANGE_DITHER
         out.visibility_range_dither = 0;
@@ -130,7 +130,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var coverage = (coverage_at(uv) + coverage_at(uv + a) + coverage_at(uv - a) + coverage_at(uv + b)
         + coverage_at(uv - b)) * 0.2;
 #ifdef VERTEX_COLORS
-    coverage = saturate(coverage - mesh.color.a);
+    coverage = saturate(coverage - mesh.color.a) * mesh.color.r;
 #endif
     return vec4(vec3(1.0) + coverage * (parameters.color.rgb - vec3(1.0)), 1.0);
 }

@@ -1661,3 +1661,38 @@ isolation control. The graphics settings and idle load limit comparisons with ot
 O24 changes only the capture fixture. At normal speed the 1024×768 pistol-fire bursts
 recorded positive reconstruction with no borrowed motion or uncovered holes; see
 docs/validation.md for the accelerated and unequal-bloom captures that were rejected.
+
+
+## Shadow quality crossfade near AR2 props (2026-11-25)
+
+A controlled `d1_trainstation_02` path spawned 48 copies of the AR2 world model with
+`prop_physics_create` on an 8×6 grid and moved the camera across the group and back.
+The second scene held the shadow plaza view using
+`test-inputs/performance-research/shadow-plaza.json`. The M1 Pro / Metal release packages
+ran headlessly with High shadow detail, uncapped rendering and per-run settings. The
+720p comparison interleaved the hard switch, 200 ms, and 800 ms builds. The Retina
+comparison used 3456×2168, Full HDR, 4× MSAA and anisotropic 8× filtering. Capture logs
+and reports are under ignored `artifacts/shadow-handoff/`.
+
+The 800 ms transition keeps an outgoing atlas fragment resident until the fade finishes.
+The frame still budgets 32 casters for silhouette updates. The two existing pooled
+shadow draws carry complementary weights during the transition. An atlas-cell resize
+reuses the blob projection when the caster did not move.
+
+720p results are medians of three run means (milliseconds). The walk reached 167 handoffs
+in each 800 ms run. A separate burst captured the receiver shadows after a camera jump.
+
+| Scene and build | Shadows | Render assets | Whole frame |
+|---|---:|---:|---:|
+| AR2 walk, hard switch | 0.0873 | 0.1786 | 4.4638 |
+| AR2 walk, 200 ms | 0.1014 | 0.2227 | 4.3680 |
+| AR2 walk, 800 ms | 0.1118 | 0.2600 | 4.3730 |
+| Held plaza, hard switch | 0.0375 | 0.1762 | 3.8248 |
+| Held plaza, 800 ms | 0.0414 | 0.1925 | 3.8761 |
+
+At Retina, over two runs per build, shadows averaged 0.128–0.135 ms with hard switches
+and 0.156–0.160 ms with the 800 ms fade. Render assets rose from 0.231–0.241 to
+0.302–0.303 ms. Whole-frame means overlapped at 7.34–7.59 and 7.42–7.57 ms. Pre-launch
+GPU device load varied from 33% to 98%, so the frame-time comparison resolves no
+consistent penalty under this load. Live display pacing and Windows runtime are
+**not tested**.

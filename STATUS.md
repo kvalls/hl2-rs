@@ -1,5 +1,14 @@
 # STATUS
 
+## Shadow quality crossfade on the performance branch (2026-11-25)
+
+Medium and High projected shadows blend silhouette and blob for 800 ms when the visible
+ranking changes. A 48-AR2 packaged walk on Apple M1 Pro / Metal exercised 167 transitions
+per run. At 720p, the change from 200 to 800 ms added 0.010 ms to the shadow stage, while
+median whole-frame time was 4.368 → 4.373 ms. Retina runs and the held plaza control are
+recorded in docs/performance.md. Ordinary interactive play and Windows runtime are
+**not tested** for the longer fade.
+
 ## O32 crowd scaling, O12 capture baselines and O24 weapon-blur validation (2026-11-24)
 
 The packaged release at `fa90617c` completed all five 1080p plaza populations on Apple M1

@@ -100,6 +100,15 @@ impl Allocator {
         }
     }
 
+    /// Keep a cached silhouette readable through this frame without resizing or redrawing it.
+    pub fn retain(&mut self, id: TextureId) -> bool {
+        let Some(fragment) = self.textures[id.0].fragment else {
+            return false;
+        };
+        self.mark_used(fragment);
+        true
+    }
+
     /// `UseTexture`: gives the texture a fragment for this frame's screen `area` (pixels); true
     /// when it must be redrawn (a new fragment). `redraw` is whether it will be redrawn anyway.
     pub fn use_texture(&mut self, id: TextureId, redraw: bool, area: f32) -> bool {

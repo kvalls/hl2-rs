@@ -7,7 +7,7 @@
 //! asks (`CTextureAllocator`) and their silhouette is drawn there when they moved, animate or got a
 //! new fragment; the rest show the blob picture on the same projection (`DrawRenderToTextureShadowLOD`).
 //! The geometry is [`hl2_simulation::shadows`]: the receivers are gathered on the map worker
-//! ([`receivers`]); each caster keeps one decal mesh, rewritten in place only when it moved a
+//! ([`receivers`]); each caster keeps its receiver geometry, rebuilt when it moved a
 //! quarter shadow texel, turned, changed sequence or changed look, drawn by [`ShadowMaterial`].
 //!
 //! Casters ([`caster`]): entities with a studio model and its rig, without `disableshadows`, drawn,
@@ -22,6 +22,7 @@ pub mod material;
 #[cfg(test)]
 mod owned_tests;
 mod texture;
+mod transition;
 
 use crate::{
     FlyCamera,
@@ -49,6 +50,7 @@ use bevy::{
     mesh::Mesh,
     pbr::MaterialPlugin,
     render::storage::ShaderBuffer,
+    time::Time,
     transform::{TransformSystems, components::Transform},
 };
 use caster::{Caster, Look};
@@ -76,6 +78,7 @@ const MOVE: f32 = 0.25 / TEXELS_PER_UNIT;
 const TURN: f32 = MOVE / 64.;
 /// Silhouettes drawn per frame, largest on screen first (`r_shadowmaxrendered`).
 const MAX_RENDERED: usize = 32;
+const LOD_FADE_SECONDS: f32 = 0.8;
 
 /// The receivers among the world's surfaces: not translucent, alpha-tested, additive or flagged
 /// `SURF_NOSHADOWS` (the engine's surface flags for these keep shadows off them).
@@ -136,6 +139,7 @@ pub struct MapShadows {
     /// Decals rebuilt and silhouettes drawn since the map was installed.
     rebuilds: u64,
     silhouettes: u64,
+    lod_transitions: u64,
 }
 
 impl MapShadows {
@@ -154,6 +158,7 @@ impl MapShadows {
             batches: draw::ShadowBatches::default(),
             rebuilds: 0,
             silhouettes: 0,
+            lod_transitions: 0,
         }
     }
 
@@ -173,6 +178,7 @@ impl MapShadows {
             "in_view": self.order.len(),
             "textured": cells.count(),
             "rebuilds": self.rebuilds,
+            "lod_transitions": self.lod_transitions,
             "silhouettes": self.silhouettes,
             "gpu_cells_submitted": self.textures.submitted.as_ref().map(|count|
                 count.load(std::sync::atomic::Ordering::Relaxed)),
@@ -210,6 +216,7 @@ type FrameOptions<'w> = (
     Option<Res<'w, crate::performance::Performance>>,
     Option<Res<'w, crate::video::GameFrame>>,
     Option<Res<'w, gpu::GpuSilhouettes>>,
+    Res<'w, Time>,
 );
 
 /// The world camera, for screen areas: origin and forward in Source axes, and pixels per unit of
@@ -272,7 +279,7 @@ pub(crate) fn update(
     (mut meshes, mut materials, mut images, mut buffers): ShadowAssets,
     mut draws: Draws,
     (camera, entity_draws): (CameraView, EntityDraws),
-    (performance, frame, gpu): FrameOptions,
+    (performance, frame, gpu, time): FrameOptions,
 ) {
     let Some(mut shadows) = shadows else {
         return;
@@ -311,29 +318,34 @@ pub(crate) fn update(
         shadows.silhouettes += rank(shadows, &game, &mut images, actor_poses.as_deref_mut());
     }
     let mut any_changed = !shadows.batches.is_synced();
+    let step = (time.delta_secs() / LOD_FADE_SECONDS).clamp(0., 1.);
     for (caster, is_shown) in shadows.casters.iter_mut().zip(shown) {
-        if caster.shown != is_shown {
-            caster.shown = is_shown;
+        let was_blending = caster.transition.blending();
+        if is_shown && transition::update(caster, step, mode == Mode::Texture) {
             any_changed = true;
         }
+        let started = !was_blending && caster.transition.blending();
+        shadows.lod_transitions += u64::from(started);
+        any_changed |= caster.shown != is_shown;
+        caster.shown = is_shown;
         if !is_shown {
             continue;
         }
-        if caster.look != Some(caster.wanted) || caster.moved {
-            lay(caster, (&shadows.receivers, &mut shadows.scratch));
+        let project = caster.look != Some(caster.wanted) || caster.moved;
+        if caster.transition.blending() && (caster.moved || started) {
+            lay(caster, (&shadows.receivers, &mut shadows.scratch), true);
+        }
+        if project {
+            lay(caster, (&shadows.receivers, &mut shadows.scratch), false);
             shadows.rebuilds += 1;
             caster.look = Some(caster.wanted);
+            caster.moved = false;
             any_changed = true;
         }
-        let (use_atlas, rect) = match caster.wanted {
+        (caster.use_atlas, caster.rect) = match caster.wanted {
             Look::Cell(corner, n) => (true, to_bevy(uv_rect((corner, n)))),
             Look::Blob | Look::Lod => (false, (Vec2::ZERO, Vec2::ONE)),
         };
-        if caster.use_atlas != use_atlas || caster.rect != rect {
-            caster.use_atlas = use_atlas;
-            caster.rect = rect;
-            any_changed = true;
-        }
     }
     if any_changed {
         shadows.batches.sync(
@@ -384,6 +396,7 @@ fn place(
             || caster::under_caster(game, casters, id);
         let caster = &mut casters[index];
         caster.area = None;
+        caster.retained = false;
         if hidden {
             continue;
         }
@@ -394,7 +407,6 @@ fn place(
         shown[index] = true;
         caster.wanted = match (mode, caster.look) {
             (Mode::Blob, _) => Look::Blob,
-            (_, Some(look)) if look != Look::Blob => look,
             _ => Look::Lod,
         };
         // The shadow reaches its cast distance past the caster: the sphere stretched along it.
@@ -437,6 +449,16 @@ fn rank(
             .unwrap_or(0.)
             .total_cmp(&casters[a].area.unwrap_or(0.))
     });
+    // Pin outgoing cells before a newly promoted caster can take their texels.
+    for &index in order.iter().skip(MAX_RENDERED) {
+        let caster = &mut casters[index];
+        if caster.transition.weight > 0.
+            && let (Some(id), Some(Look::Cell(at, size))) = (caster.texture, caster.look)
+            && textures.page.rect(id) == Some((at, size))
+        {
+            caster.retained = textures.page.retain(id);
+        }
+    }
     let mut drawn = 0;
     for (place, &index) in order.iter().enumerate() {
         let caster = &mut casters[index];
@@ -471,12 +493,17 @@ fn rank(
 
 /// Lays the caster's decal for its wanted look: the blob and cell looks keep the frame's clip
 /// planes, the render-to-texture blob drops them (`ClearExtraClipPlanes`).
-fn lay(caster: &mut Caster, (receivers, scratch): (&Receivers, &mut Scratch)) {
+fn lay(caster: &mut Caster, (receivers, scratch): (&Receivers, &mut Scratch), blend_blob: bool) {
+    let decal = if blend_blob {
+        &mut caster.transition.blob
+    } else {
+        &mut caster.decal
+    };
     let Some(frame) = caster.frame.as_mut() else {
-        caster.decal.clear();
+        decal.clear();
         return;
     };
-    let clip = if caster.wanted == Look::Lod {
+    let clip = if blend_blob || caster.wanted == Look::Lod {
         std::mem::take(&mut frame.clip)
     } else {
         Vec::new()
@@ -486,9 +513,8 @@ fn lay(caster: &mut Caster, (receivers, scratch): (&Receivers, &mut Scratch)) {
         bias: 0,
         lift: LIFT,
     };
-    receivers.decal(frame, cast, scratch, &mut caster.decal);
+    receivers.decal(frame, cast, scratch, decal);
     if !clip.is_empty() {
         frame.clip = clip;
     }
-    caster.moved = false;
 }

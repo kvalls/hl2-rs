@@ -1378,6 +1378,12 @@ and `common_flashlight_fxc.h` (the flashlight light and its depth shadow), `game
 (suit power, `impulse 100`); the installed `decals/simpleshadow`, `decals/rendershadow`, `effects/flashlight*`
 materials and the maps' `shadow_control` entities (66 of 78 base maps).
 
+Crowded shadow handoffs (owner playtest, 2026-11-24): keep the screen-area ranking and
+32-caster silhouette budget. Over 800 ms blend the outgoing cached silhouette
+and incoming blob on their own receiver geometry. Protect outgoing atlas cells during the
+fade. Reverse a fade from its current weight if rank changes again. Check both pooled and
+overflow batches, walking past AR2 props and the existing shadow plaza control.
+
 Levels: Low = `r_shadowrendertotexture 0` (every caster a blob of `decals/simpleshadow` straight down), Medium =
 render-to-texture silhouettes along the map's shadow direction, High = Medium plus the flashlight's depth-map
 shadows (`r_flashlightdepthtexture 1`). Shadows exist at every level (retail has no "off" in the dialog).

@@ -175,13 +175,13 @@ impl ShadowBatches {
     fn pack_gpu_batch(&mut self, casters: &[Caster], want_atlas: bool, start_tri: usize) -> Aabb {
         let mut row = start_tri * 6;
         let (mut min, mut max) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
-        for caster in visible_casters(casters, want_atlas) {
-            for (pos, _, uv, fade) in decal_vertices(caster) {
+        for layer in layers(casters, want_atlas) {
+            for (pos, _, uv, fade) in decal_vertices(layer) {
                 min = min.min(pos);
                 max = max.max(pos);
                 let pair = [
                     Vec4::new(pos.x, pos.y, pos.z, fade),
-                    Vec4::new(uv.x, uv.y, 0.0, 0.0),
+                    Vec4::new(uv.x, uv.y, 1. - layer.opacity, 0.0),
                 ];
                 if !self.synced || self.rows[row..row + 2] != pair {
                     self.rows[row..row + 2].copy_from_slice(&pair);
@@ -223,27 +223,57 @@ impl ShadowBatches {
     }
 }
 
-fn visible_casters(casters: &[Caster], want_atlas: bool) -> impl Iterator<Item = &Caster> {
-    casters
-        .iter()
-        .filter(move |c| c.shown && !c.decal.is_empty() && c.use_atlas == want_atlas)
+#[derive(Clone, Copy)]
+struct Layer<'a> {
+    decal: &'a hl2_simulation::shadows::receivers::Decal,
+    rect: (Vec2, Vec2),
+    opacity: f32,
 }
 
-fn count_tris(casters: &[Caster], want_atlas: bool) -> usize {
-    visible_casters(casters, want_atlas)
-        .map(|c| c.decal.indices.len() / 3)
+fn layer(caster: &Caster, atlas: bool) -> Option<Layer<'_>> {
+    if !caster.shown {
+        return None;
+    }
+    let layer = if caster.use_atlas == atlas {
+        Layer {
+            decal: &caster.decal,
+            rect: caster.rect,
+            opacity: if atlas { caster.transition.weight } else { 1. },
+        }
+    } else if !atlas && caster.transition.blending() {
+        Layer {
+            decal: &caster.transition.blob,
+            rect: (Vec2::ZERO, Vec2::ONE),
+            opacity: 1. - caster.transition.weight,
+        }
+    } else {
+        return None;
+    };
+    (!layer.decal.is_empty()).then_some(layer)
+}
+
+fn layers(casters: &[Caster], atlas: bool) -> impl Iterator<Item = Layer<'_>> {
+    casters
+        .iter()
+        .filter_map(move |caster| layer(caster, atlas))
+}
+
+fn count_tris(casters: &[Caster], atlas: bool) -> usize {
+    layers(casters, atlas)
+        .map(|l| l.decal.indices.len() / 3)
         .sum()
 }
 
-fn decal_vertices(caster: &Caster) -> impl Iterator<Item = (Vec3, Vec3, Vec2, f32)> + '_ {
-    let (origin, size) = caster.rect;
-    let tri_indices = (caster.decal.indices.len() / 3) * 3;
-    caster.decal.indices[..tri_indices].iter().map(move |&idx| {
+fn decal_vertices(layer: Layer<'_>) -> impl Iterator<Item = (Vec3, Vec3, Vec2, f32)> + '_ {
+    let (origin, size) = layer.rect;
+    let decal = layer.decal;
+    let tri_indices = (decal.indices.len() / 3) * 3;
+    decal.indices[..tri_indices].iter().map(move |&idx| {
         let i = idx as usize;
-        let pos = crate::source_to_bevy(Vec3::from_array(caster.decal.positions[i].to_array()));
-        let normal = crate::source_to_bevy(Vec3::from_array(caster.decal.normals[i].to_array()));
-        let uv = origin + Vec2::from_array(caster.decal.uvs[i].to_array()) * size;
-        let fade = f32::from(caster.decal.fades[i]) / 255.0;
+        let pos = crate::source_to_bevy(Vec3::from_array(decal.positions[i].to_array()));
+        let normal = crate::source_to_bevy(Vec3::from_array(decal.normals[i].to_array()));
+        let uv = origin + Vec2::from_array(decal.uvs[i].to_array()) * size;
+        let fade = f32::from(decal.fades[i]) / 255.0;
         (pos, normal, uv, fade)
     })
 }
@@ -259,14 +289,14 @@ fn build_cpu_mesh(
     let mut normals = Vec::new();
     let mut uvs = Vec::new();
     let mut colors = Vec::new();
-    for caster in visible_casters(casters, want_atlas) {
-        for (pos, normal, uv, fade) in decal_vertices(caster) {
+    for layer in layers(casters, want_atlas) {
+        for (pos, normal, uv, fade) in decal_vertices(layer) {
             min = min.min(pos);
             max = max.max(pos);
             positions.push(pos.to_array());
             normals.push(normal.to_array());
             uvs.push(uv.to_array());
-            colors.push([1.0, 1.0, 1.0, fade]);
+            colors.push([layer.opacity, 1.0, 1.0, fade]);
         }
     }
     let handle = match &slot.overflow {

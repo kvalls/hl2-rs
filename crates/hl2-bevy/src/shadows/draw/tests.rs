@@ -285,7 +285,7 @@ fn packs_atlas_and_blob_into_two_draws_with_exact_rows_tag_and_aabb() {
     assert_eq!(rows.len(), TOTAL_ROWS);
     let expected_verts: Vec<_> = [&casters[0], &casters[3], &casters[2], &casters[5]]
         .into_iter()
-        .flat_map(decal_vertices)
+        .flat_map(|caster| decal_vertices(layer(caster, caster.use_atlas).unwrap()))
         .collect();
     assert_eq!(expected_verts.len(), 24);
     for (v, (pos, _, uv, fade)) in expected_verts.iter().enumerate() {
@@ -443,4 +443,17 @@ fn hiding_all_hides_both_draws_and_overflow_falls_back_to_cpu_mesh() {
     let no_buf_draws = no_buf.draw_entities();
     assert_eq!(no_buf_draws.len(), 1);
     assert_eq!(no_buf_draws[0].tag, MeshTag(0));
+}
+
+#[test]
+fn handoff_uses_both_receiver_projections_and_complementary_weights() {
+    let mut caster = Caster::synthetic(true, true, (Vec2::ZERO, Vec2::ONE), quad_decal(0., 0., 0));
+    caster.transition.weight = 0.25;
+    caster.transition.blob = quad_decal(10., 0., 0);
+    let atlas = layer(&caster, true).unwrap();
+    let blob = layer(&caster, false).unwrap();
+    assert_eq!((atlas.opacity, blob.opacity), (0.25, 0.75));
+    assert_ne!(atlas.decal.positions, blob.decal.positions);
+    caster.transition.weight = 1.;
+    assert!(layer(&caster, false).is_none());
 }
