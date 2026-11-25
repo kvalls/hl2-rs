@@ -19,9 +19,10 @@ mod hint_limits;
 mod move_style;
 mod restrictions;
 mod simplify;
+mod steer;
 mod tracks;
 pub use restrictions::NavRestrictions;
-use simplify::{simplify_path_forward, ROUTE_SIMPLIFY_DELAY};
+use simplify::simplify_path_forward;
 use tracks::checked_track;
 pub mod links;
 mod tactical;
@@ -371,6 +372,8 @@ struct Route {
     door_known: Vec<bool>,
     /// How each waypoint is reached (missing entries walk).
     navs: Vec<links::Nav>,
+    /// Waypoints before this index lead around an obstruction (bits_WP_TO_DETOUR, `steer`).
+    detour_end: usize,
 }
 pub struct Controller {
     graph: Option<Graph>,
@@ -1012,26 +1015,14 @@ fn advance<W: NpcCollisionWorld>(
         goal.state = GoalState::Arrived;
         return Ok(());
     }
-    // CAI_Navigator::SimplifyPath for every ground goal: AI goals, scripted and scene moves
-    // alike (the SDK's navigator simplifies any reducible path; native d1_trainstation_01's
-    // passengers cut the corners out of the car).
-    goal.simplify_in -= dt;
-    if goal.simplify_in <= 0. {
-        goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
-        let forced = !goal.simplified;
-        goal.simplified = true;
-        let plain = Query {
-            transients: &[],
-            ..query
-        };
-        simplify_path_forward(world, actor, goal, plain, forced);
-    }
+    simplify::tick(world, actor, goal, query, dt);
     let duration = track
         .duration()
         .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
     // The playback rate scales the run's distance and its cycle together.
     let mut remaining = dt * actor.playback_rate * blended::throttle(actor, goal, track, dt)?;
     let mut start_validated = !goal.shaky;
+    let mut triangulated = false;
     // Budget is ours, not an engine constant; failing never releases SECTION.
     for _ in 0..32 {
         if remaining <= 0. || links::at_link(goal) {
@@ -1078,12 +1069,15 @@ fn advance<W: NpcCollisionWorld>(
             )
         };
         let direction = delta / distance;
-        let desired = goal.feet + direction * amount;
         // This tick's first step starts where `fits` and `stand` just passed.
-        let movement = if std::mem::take(&mut start_validated) {
-            npc_probe::ground_move_from_valid(world, goal.feet, desired, actor.ground, query)
-        } else {
-            npc_probe::ground_move(world, goal.feet, desired, actor.ground, query)
+        let validated = std::mem::take(&mut start_validated);
+        let step = steer::Step::new(goal.feet, direction, amount, consumed, validated);
+        let movement = match steer::walk(world, actor, goal, step, query, &mut triangulated) {
+            steer::Walk::Moved(movement) => movement,
+            steer::Walk::Steered(used) => {
+                remaining = (remaining - used).max(0.);
+                continue;
+            }
         };
         let actual = (movement.end - goal.feet).truncate().length();
         goal.feet = movement.end;
@@ -1290,13 +1284,13 @@ pub(crate) mod tests {
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.
-        simplify_path_forward(&physics, actor, &mut goal, query, true);
+        simplify::simplify_path_forward(&physics, actor, &mut goal, query, true);
         assert_eq!(goal.next, 1);
         // Near the corner, heading +X: the nearest point up the next leg is inside the
         // 40-degree cone and replaces the corner; farther points are outside it.
         goal.next = 0;
         goal.feet = Vec3::new(100., 0., 0.);
-        simplify_path_forward(&physics, actor, &mut goal, query, false);
+        simplify::simplify_path_forward(&physics, actor, &mut goal, query, false);
         assert_eq!(goal.next, 0);
         assert!((goal.route.feet[0] - Vec3::new(150., 36., 0.)).length() < 0.01);
     }
@@ -1488,11 +1482,43 @@ pub(crate) mod tests {
         assert!((resumed.animation_time - 0.1).abs() < 1e-4);
         assert!(feet.x > moved.x);
     }
+    /// Walls 20 units either side of the X axis: a human hull fits, no detour does.
+    fn corridor() -> World {
+        world(vec![
+            cube(Vec3::new(-100., 20., 0.), Vec3::new(300., 40., 100.)),
+            cube(Vec3::new(-100., -40., 0.), Vec3::new(300., -20., 100.)),
+        ])
+    }
+    #[test]
+    fn a_standing_npc_on_the_route_is_walked_around() {
+        // OnFailedSteer's PrependLocalAvoidance: d1_trainstation_01's luggage_citizen and
+        // the luggage cop standing on his route to luggage_guy_lean.
+        let physics = Physics::new(&world(vec![]));
+        let blocker = [ActorHull {
+            entity: Some(8),
+            feet: Vec3::X * 50.,
+            hull: normal_human(1., 18., 1.).unwrap().hull,
+        }];
+        let mut controller = make_controller(None);
+        let mut feet = Vec3::ZERO;
+        controller.request(key(1), request(Vec3::X * 200.), pose(feet), &physics, &[]);
+        let mut widest = 0f32;
+        for _ in 0..200 {
+            let updates = controller.tick(&physics, &[pose(feet)], &blocker, 0.05, false);
+            if let Some(update) = updates.last() {
+                feet = update.feet;
+                widest = widest.max(feet.y.abs());
+            }
+        }
+        let status = controller.status(key(1)).unwrap();
+        assert!(status.is_arrived(), "{status:?} at {feet}");
+        assert!(widest > 13., "{widest}");
+    }
     #[test]
     fn headcrabs_move_through_each_other() {
         // HL2COLLISION_GROUP_HEADCRAB: a crab's move is blocked by another NPC's hull
-        // (entity 8) unless both are crabs.
-        let physics = Physics::new(&world(vec![]));
+        // (entity 8) unless both are crabs (in a corridor too narrow to walk around it).
+        let physics = Physics::new(&corridor());
         let blocker = [ActorHull {
             entity: Some(8),
             feet: Vec3::X * 50.,
@@ -1520,7 +1546,8 @@ pub(crate) mod tests {
     }
     #[test]
     fn player_obstruction_holds_idle_then_retries_actual_ground_travel() {
-        let physics = Physics::new(&world(vec![]));
+        // In a corridor too narrow to walk around the player.
+        let physics = Physics::new(&corridor());
         let mut controller = make_controller(None);
         let mut feet = Vec3::ZERO;
         controller.request(key(1), request(Vec3::X * 200.), pose(feet), &physics, &[]);

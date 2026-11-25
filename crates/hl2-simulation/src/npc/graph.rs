@@ -7,7 +7,7 @@ use glam::Vec3;
 use source_assets::navigation::{Graph, Node};
 use std::collections::{BTreeMap, BTreeSet};
 
-mod triangulate;
+pub(super) mod triangulate;
 
 /// Usable node feet and each node's usable neighbors.
 /// NODE_GROUND and NODE_CLIMB (ai_node.h).
@@ -202,6 +202,7 @@ impl Route {
             doors: vec![None],
             door_known: vec![true],
             navs: Vec::new(),
+            detour_end: 0,
         }
     }
 }
@@ -292,19 +293,26 @@ fn plan<W: NpcCollisionWorld>(
     )?;
     let mut feet: Vec<_> = nodes.iter().map(|n| feet_of(*n)).collect();
     feet.push(end);
-    // Doors along the route are probed as the actor reaches each segment (probe_doors).
-    let navs = links::route_navs(graph, &nodes, &actor.caps, actor.hull);
-    let mut door_known: Vec<_> = (0..feet.len())
-        .map(|i| navs.get(i).is_some_and(|nav| *nav != Nav::Ground))
-        .collect();
-    door_known[0] = true;
-    Ok(Route {
-        nodes,
-        doors: vec![None; feet.len()],
-        feet,
-        door_known,
-        navs,
-    })
+    Ok(Route::along(graph, actor, nodes, feet))
+}
+impl Route {
+    /// The route through graph `nodes` standing at `feet` (and the end).
+    fn along(graph: &Graph, actor: &Actor, nodes: Vec<usize>, feet: Vec<Vec3>) -> Self {
+        // Doors along the route are probed as the actor reaches each segment (probe_doors).
+        let navs = links::route_navs(graph, &nodes, &actor.caps, actor.hull);
+        let mut door_known: Vec<_> = (0..feet.len())
+            .map(|i| navs.get(i).is_some_and(|nav| *nav != Nav::Ground))
+            .collect();
+        door_known[0] = true;
+        Route {
+            nodes,
+            doors: vec![None; feet.len()],
+            feet,
+            door_known,
+            navs,
+            detour_end: 0,
+        }
+    }
 }
 /// The stale-suggested links and the movement clock, for one plan.
 struct Stale<'a> {

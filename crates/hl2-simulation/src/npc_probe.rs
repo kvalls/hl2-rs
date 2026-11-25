@@ -128,6 +128,8 @@ pub struct GroundMove {
     pub blocker: Option<usize>,
     pub normal: Vec3,
     pub reason: Option<BlockReason>,
+    /// The blocker is an actor's hull (an NPC, or the player without an entity).
+    pub transient: bool,
 }
 
 // Pinned ai_moveprobe.cpp: CheckStep/TestGroundMove, not invented motor tuning.
@@ -222,6 +224,7 @@ fn failure(end: Vec3, reason: BlockReason, hit: HullTrace) -> GroundMove {
         blocker: hit.entity,
         normal: hit.trace.normal,
         reason: Some(reason),
+        transient: hit.transient,
     }
 }
 
@@ -341,5 +344,6 @@ fn ground_steps<W: NpcCollisionWorld>(
         blocker: None,
         normal: Vec3::ZERO,
         reason: None,
+        transient: false,
     }
 }
