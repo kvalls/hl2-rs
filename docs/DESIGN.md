@@ -2699,6 +2699,33 @@ against the designated sector. Record NPC activity and sleeping physics bodies b
 spawn sector. The first benchmark will expose existing costs that cross sector boundaries
 and provide a baseline for subsequent optimization.
 
+### NPC decision locality
+
+Share the map's cached BSP visibility rows between presentation and the actor
+visibility sampler. Apply the existing Source efficiency table to idle and alert
+decisions for quiet Combine, rebels, zombies and headcrabs. Keep story civilians,
+active ActBusy and assault behaviors, and transit actors on their usual cadence.
+Keep animation and weapon events, fixed
+movement, scripted scenes and physics on their existing clocks. Reevaluate delayed
+decisions when the player approaches, an NPC is damaged, or a threat demands a
+prompt response. Keep active combat and movement responsive and use normal cadence
+when visibility is unavailable. Measure per-actor decisions per second near and far,
+plus stage and frame times against the same six-stop control. Ordinary spawned NPCs
+remain active at reduced decision frequency, as in the SDK.
+Handle authored sleep states separately. An actor waiting for visibility or threat
+can wake on its authored radius or relevant stimulus, an input can wake a waiting
+actor, and auto-PVS states respond to later visibility changes. Emit entity outputs
+on transitions. Sleeping suppresses drawing and sensing, preserving the entity's
+collision and script ownership.
+
+The SDK reference is `game/server/ai_basenpc.cpp` (`UpdateEfficiency` and
+`UpdateSleepState`). The owned retail server's indexed registration code contains
+the efficiency controls, including `ai_use_efficiency` and `ai_debug_efficiency`.
+Those anchors establish the controls' presence. The SDK and packaged replay
+results describe the implemented policy. VPhysics-style object sleep uses the
+existing rigid-body state. The NPC policy leaves room for the SDK's wider
+combat-efficiency table, visibility variants and wake-squad propagation.
+
 ## Profiling toward a steady 120 FPS (owner goal, 2026-11-21)
 
 Goal (owner): maxed settings at native Retina (3456x2168, 4x MSAA, full HDR, motion blur,

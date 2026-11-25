@@ -56,7 +56,7 @@ pub(crate) fn draw_hidden(
     };
     // A ragdolled NPC stays drawn (its bone-merged weapon does not).
     let ragdoll = game.scene.ragdoll_matrices.contains_key(&id);
-    (!s.visible || s.killed) && !(ragdoll && weapon.is_none())
+    !s.is_visible() && !(ragdoll && weapon.is_none())
         || ragdoll && weapon.is_some()
         || weapon.is_some_and(|w| {
             game.ai

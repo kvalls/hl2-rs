@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-25 — Source-style NPC decision locality and authored sleep
+
+- Agent/model: Codex desktop, GPT-6 family. Exact model ID not recorded.
+- Changed: Reuse the Source efficiency table and cached BSP rows to schedule quiet Combine, rebel, zombie and headcrab decisions. Honor authored waits and auto-PVS sleep, wake radius and entity I/O. Preserve full cadence for active combat, civilians, map goals and actors on transit. Replace the benchmark's strict check with an assertion on decisions per actor-second.
+- Why: Retail separates idle work by visibility and distance. A distant actor can still think, and live combat and authored map behavior need to progress.
+- Tested how: `cargo test --release --locked -p hl2-simulation`, strict Clippy for hl2-simulation and hl2-bevy, `scripts/checks/check_windows.sh`, Python route checks, architecture and formatting. Ran 15 targeted packaged replays and 24 paired Station 02 captures across every O47 workload and stop. The matched camera and results are in docs/performance.md.
+- Result: 907 simulation tests, all 15 packaged replays and the locality assertion passed. In the quiet room window, total decisions fell 3,012 → 945, mean AI tick 0.690 → 0.330 ms, and median CPU frame 5.077 → 4.967 ms. Nearby crowds returned to 7.47–9.55 decisions per actor-second. 81 of 84 supplies slept. Opening combat ran at 9.331 → 9.758 ms per CPU frame while firing more shots.
+- Still broken or not tested: Rejected the original fixture point because its camera was in a solid BSP leaf, and rejected an early policy that changed two station scenes. Active combat cost remains open under O47. Wake-squad propagation, live retail cadence, displayed FPS and Windows runtime are **not tested**.
+- Next: Use equivalent combat activity to isolate the timing increase in the three-fight case.
+
 ## 2026-11-25 — Coordinate spawning and Station 02 workload locality
 
 - Agent/model: Codex desktop, gpt-6.2-sol.

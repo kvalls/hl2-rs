@@ -41,17 +41,22 @@ class SectorLocalityTests(unittest.TestCase):
             self.assertEqual([s["label"] for s in steps if s.get("profile_window") == "end"],
                              [f"{name}-end" for name, *_ in STOPS])
 
-    def test_strict_mode_reports_distant_activity_after_writing_results(self):
-        for thinking, awake in ((0, 0), (1, 0), (0, 1)):
-            with self.subTest(thinking=thinking, awake=awake), tempfile.TemporaryDirectory() as out:
-                row = {"case": "crowds", "spawned": 80, "phases": {
-                    "before-trashcan": {"far_thinking": thinking, "far_awake": awake},
-                }}
+    def test_strict_mode_checks_decision_rates_after_writing_results(self):
+        for far in (2., 10., None):
+            with self.subTest(far=far), tempfile.TemporaryDirectory() as out:
+                def phase(rate):
+                    return {"far_thinking": 80, "far_awake": 0, "sectors": {
+                        sector: {"decisions_per_actor_second": rate} for sector in SECTORS
+                    }}
+
+                phases = {sector: phase(9.5) for sector in SECTORS}
+                phases["before-trashcan"] = phase(far)
+                row = {"case": "crowds", "spawned": 80, "phases": phases}
                 argv = ["sector_locality", "--out", out, "--rounds", "1", "--case", "crowds", "--require-local"]
                 with patch("sector_locality.run", return_value=row), patch("sys.argv", argv), \
                         contextlib.redirect_stdout(io.StringIO()):
-                    if thinking or awake:
-                        with self.assertRaisesRegex(SystemExit, "Distant benchmark entities"):
+                    if far != 2.:
+                        with self.assertRaisesRegex(SystemExit, "expected fewer decisions"):
                             main()
                     else:
                         main()

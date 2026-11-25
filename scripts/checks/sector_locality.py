@@ -13,7 +13,7 @@ from crowd_scaling import CAPTURE
 MAP = "d1_trainstation_02"
 SECTORS = ("backyard", "plaza", "playground")
 STOPS = (
-    ("before-trashcan", None, (-3728, -545, 145), 270, 0),
+    ("before-trashcan", None, (-3888, -816, 152), 331, 0),
     ("backyard", "backyard", (-4300, -47, 41), 90, -18),
     ("plaza-hall", "plaza", (-3390, -2043, 132), 0, 0),
     ("plaza", "plaza", (-2020, -2680, 158), 90, -14),
@@ -163,9 +163,12 @@ def check_spawns(gameplay, roster):
 
 def activity(before, after, spawned):
     ai = after["ai"]["actors"]
+    previous = before["ai"]["actors"]
     props = {str(prop["entity"]): prop for prop in after["entities"]}
     npc_sectors = {entity: sector for entity, sector, npc in spawned.values() if npc}
-    sectors = {s: dict(alive=0, thinking=0, awake=0, engaging=0) for s in SECTORS}
+    duration = after["time"] - before["time"]
+    sectors = {s: dict(alive=0, thinking=0, awake=0, engaging=0, decisions=0,
+                       rate_actors=0, decisions_per_actor_second=None) for s in SECTORS}
     for entity, sector, npc in spawned.values():
         dst = sectors[sector]
         if npc and (actor := ai.get(entity)):
@@ -173,10 +176,17 @@ def activity(before, after, spawned):
             dst["thinking"] += actor["last_think"] > before["time"]
             enemy = actor["npc"].get("enemy")
             dst["engaging"] += npc_sectors.get(str(enemy)) == sector
+            prior = previous.get(entity, {})
+            if "decisions" in actor and "decisions" in prior:
+                dst["decisions"] += actor["decisions"]["count"] - prior["decisions"]["count"]
+                dst["rate_actors"] += 1
         if not npc and (prop := props.get(entity)):
             body = prop["body"]
             dst["alive"] += not prop["killed"]
             dst["awake"] += bool(body and body[2] and not body[1])
+    for sector in sectors.values():
+        if sector["rate_actors"]:
+            sector["decisions_per_actor_second"] = sector["decisions"] / (sector["rate_actors"] * duration)
     return sectors
 
 
@@ -213,13 +223,14 @@ def summarize(report, case):
     return {"case": case, "spawned": len(spawned), "phases": phases}
 
 
-def run(out, case):
+def run(out, case, package=REPO):
     out.mkdir(parents=True, exist_ok=False)
     config, script = out / "settings.json", out / "movement.json"
     write_json(config, settings((1920, 1080)))
     write_json(script, fixture(case))
     subprocess.run([sys.executable, str(CAPTURE), "headless", "--mode", "stages",
                     "--map", MAP, "--frames", "18000", "--item", "O47", "--out", str(out),
+                    "--repo", str(package),
                     "--", "--uncapped", "--movement-script", str(script)],
                    env={**os.environ, "HL2RS_SETTINGS": str(config)}, check=True)
     row = summarize(json.loads((out / "report.json").read_text()), case)
@@ -243,13 +254,27 @@ def compare(rows):
             }
 
 
+def check_locality(rows):
+    for row in rows:
+        if row["case"] != "crowds":
+            continue
+        far = row["phases"]["before-trashcan"]["sectors"]
+        for sector in SECTORS:
+            distant_rate = far[sector]["decisions_per_actor_second"]
+            local_rate = row["phases"][sector]["sectors"][sector]["decisions_per_actor_second"]
+            if distant_rate is None or local_rate is None or not 0 < distant_rate < local_rate:
+                sys.exit(f"{sector}: expected fewer decisions for a distant crowd. See summary.json.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--rounds", type=int, default=2)
     parser.add_argument("--case", choices=TEAMS)
+    parser.add_argument("--package", type=Path, default=REPO,
+                        help="alternate repo root with a packaged release and backlog")
     parser.add_argument("--require-local", action="store_true",
-                        help="fail if any distant test spawn is thinking or awake")
+                        help="require distant crowds to make fewer decisions than nearby crowds")
     args = parser.parse_args()
     if args.rounds < 1:
         parser.error("rounds must be positive")
@@ -259,17 +284,15 @@ def main():
         if round_no % 2:
             order.reverse()
         for case in order:
-            row = run(args.out.resolve() / f"round-{round_no+1}" / case, case)
+            row = run(args.out.resolve() / f"round-{round_no+1}" / case, case, args.package)
             rows.append(row)
             print(case, row["spawned"], [
                 (name, p["far_thinking"], p["far_awake"]) for name, p in row["phases"].items()
             ], flush=True)
     compare(rows)
     write_json(args.out.resolve() / "summary.json", rows)
-    if args.require_local and any(
-        p["far_thinking"] or p["far_awake"] for row in rows for p in row["phases"].values()
-    ):
-        sys.exit("Distant benchmark entities stayed active. See summary.json.")
+    if args.require_local:
+        check_locality(rows)
 
 
 if __name__ == "__main__":

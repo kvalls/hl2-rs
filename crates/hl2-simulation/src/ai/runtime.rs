@@ -4,8 +4,8 @@
 //! MaintainSchedule through the class behavior. Switched by `enabled` (the host's
 //! `ai_disable`, on by default like Source's ai_disabled 0). NPCs owned by a
 //! scripted_sequence or a choreographed scene are NPC_STATE_SCRIPT and the AI leaves
-//! them alone. Simplified from the SDK: every NPC thinks every 0.1 s (no PVS/efficiency
-//! throttling, no think staggering). Class layers: npc_metropolice and the humanoids
+//! them alone. Quiet, stationary actors can run decisions at the Source efficiency
+//! cadence. Class layers: npc_metropolice and the humanoids
 //! (npc_citizen, npc_barney, npc_alyx, npc_combine_s); other classes have no AI yet.
 use super::assault;
 use super::bird;
@@ -44,6 +44,7 @@ mod barnacles;
 mod birds;
 mod class;
 mod crabs;
+mod decisions;
 mod equipment;
 mod events;
 mod gather;
@@ -56,6 +57,7 @@ mod requests;
 mod scanners;
 mod script_conditions;
 mod setup;
+mod sleep;
 mod speech;
 mod squads;
 mod toss;
@@ -246,6 +248,9 @@ pub struct AiActor {
     pub class: AiClass,
     pub next_think: f64,
     pub last_think: f64,
+    pub decisions: decisions::DecisionClock,
+    #[serde(skip)]
+    sleep: sleep::Sleep,
     /// The active weapon (Weapon_Equip of `additionalequipment`; DESIGN 14w).
     pub weapon: Option<NpcWeapon>,
     /// The F4 per-spawn disposition toward the player (an ai_relationship aimed at
@@ -817,17 +822,6 @@ impl AiRuntime {
         (self.random >> 40) as f32 / (1u32 << 24) as f32
     }
     /// OnTakeDamage_Alive: hits since the last tick, per victim.
-    fn take_damage_reports(&mut self, world: &World, scene: &mut Scene, player: PlayerState) {
-        for report in std::mem::take(&mut scene.npc_damage) {
-            if let Some(actor) = self.actors.get_mut(&report.victim) {
-                actor.damage_taken = actor.damage_taken.max(report.damage);
-                actor.damaged_by_player |= report.by_player;
-                actor.class.hurt(&report, scene);
-            }
-            self.barnacle_hurt(report.victim);
-            self.pain_or_death_sound(report.victim, world, scene, player);
-        }
-    }
     /// One fixed tick of the NPC stage (before the movement controller tick).
     pub fn tick(
         &mut self,
@@ -870,19 +864,13 @@ impl AiRuntime {
         self.update_squads(world, scene);
         self.tick_barnacles(world, scene, controller, physics, player);
         let ids: Vec<usize> = self.actors.keys().copied().collect();
+        let sight = PhysicsSight { physics, world };
         for id in ids {
-            let state = &scene.states[id];
-            if state.killed || !state.visible || self.held_npcs.contains(&id) {
-                continue;
-            }
-            // NPC_STATE_SCRIPT: scripts own the actor; the AI yields.
-            if scene.ai_scripted(id) && !self.refuses_scene(id, scene) {
-                self.yield_to_script(id, world, scene, controller);
-                self.diagnostics.scripted_skips += 1;
+            if !self.actor_runs_ai(id, scene, controller, &sight, player) {
                 continue;
             }
             let _span = crate::profile_span!("npc", id);
-            let think_at = self.actors[&id].next_think;
+            let decision_due = self.decision_due(id, scene, player);
             let since = self.advance_event_window(id, scene, now);
             let mut events = scene.ai_events(world, id, since, now);
             self.weapon_events(id, world, now, &mut events);
@@ -1048,7 +1036,7 @@ impl AiRuntime {
                 self.weapon_sounds(id, def.as_ref(), shots, scene, now);
                 self.apply_requests(id, world, scene, physics, player);
             }
-            if now + 1e-9 < think_at {
+            if !decision_due {
                 continue;
             }
             self.think(
@@ -1239,7 +1227,7 @@ impl AiRuntime {
                 let center = state.origin + Vec3::Z * 36.;
                 other != id
                     && !state.dead()
-                    && state.visible
+                    && state.is_visible()
                     && sees_height(state.origin.z)
                     && center.distance_squared(eye) <= senses::LOOK_DISTANCE * senses::LOOK_DISTANCE
                     && senses::in_view_cone(&viewer, center)
@@ -1310,7 +1298,7 @@ impl AiRuntime {
                 .chain(seen_npcs.iter().map(|&(e, _)| e))
                 .chain(actor.damaged_by)
                 .filter(|&e| e != PLAYER)
-                .filter(|&e| scene.states.get(e).is_some_and(|s| !s.killed && s.visible))
+                .filter(|&e| scene.states.get(e).is_some_and(|s| s.is_visible()))
                 .map(|e| {
                     let class = self.npc_class(world, e, precriminal);
                     (
@@ -1499,7 +1487,7 @@ impl AiRuntime {
             };
             let initial = actor.npc.enemy;
             let went_null = initial.is_some_and(|e| {
-                e != PLAYER && scene.states.get(e).is_none_or(|s| s.killed || !s.visible)
+                e != PLAYER && scene.states.get(e).is_none_or(|s| !s.is_visible())
             });
             let eluded = went_null
                 || initial
@@ -2064,7 +2052,6 @@ impl AiRuntime {
         }
         actor.origin = origin.to_array();
         actor.yaw = yaw_of(scene, id);
-        actor.next_think = now + THINK_INTERVAL;
         // CZombie::PrescheduleThink's idle moans.
         // CAI_ActBusyBehavior::FindActBusyHintNode for a behavior about to search.
         let npc_state = actor.npc.state;
@@ -2297,6 +2284,7 @@ impl AiRuntime {
         if let Some(busy) = actor.class.actbusy_mut() {
             actbusy_host::settle(busy, id, &mut self.hint_locks, scene);
         }
+        self.record_decision(id, scene, player);
         self.apply_requests(id, world, scene, physics, player);
     }
 }

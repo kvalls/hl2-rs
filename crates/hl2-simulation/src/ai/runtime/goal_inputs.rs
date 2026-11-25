@@ -88,6 +88,10 @@ impl AiRuntime {
                 self.set_relationship(world, target, &parameter);
                 continue;
             }
+            if input == "wake" && class.starts_with("npc_") {
+                self.wake_actor(target, scene);
+                continue;
+            }
             if class == "ai_goal_assault" {
                 self.assault_goal_input(world, scene, target, &input);
                 continue;

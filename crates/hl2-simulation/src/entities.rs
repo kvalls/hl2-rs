@@ -202,6 +202,8 @@ pub struct State {
     pub origin: Vec3,
     pub rotation: Quat,
     pub visible: bool,
+    /// NPC sleep suppresses drawing and sight without changing its solid body.
+    pub ai_sleeping: bool,
     pub enabled: bool,
     pub killed: bool,
     pub animation: String,
@@ -264,6 +266,9 @@ impl State {
     /// Out of play: removed, or a corpse still in the world.
     pub fn dead(&self) -> bool {
         self.killed || self.corpse
+    }
+    pub fn is_visible(&self) -> bool {
+        self.visible && !self.killed && !self.ai_sleeping
     }
     /// The actor plays authored locomotion (IsMoving for look-target choice).
     pub fn is_moving(&self) -> bool {

@@ -686,7 +686,7 @@ fn random_view_target(eye: glam::Vec3, forward: glam::Vec3, actor: usize, time: 
 pub fn attention_pvs(
     mut game: ResMut<crate::gameplay::Gameplay>,
     sim: Res<crate::simulation::Simulation>,
-    sky: Res<crate::sky::Sky>,
+    mut visibility: ResMut<crate::visibility::SourceVisibility>,
     monitors: Res<crate::monitors::Monitors>,
 ) {
     let now = game.scene.time;
@@ -697,6 +697,10 @@ pub fn attention_pvs(
     if let Some(camera) = monitors.selected().and_then(|c| game.scene.states.get(c)) {
         eyes.push(camera.origin);
     }
+    let Some(rows) = visibility.actor_rows(eyes) else {
+        game.scene.look_targets.clear_pvs(now.max(1e-6));
+        return;
+    };
     let mut visible = std::collections::BTreeSet::new();
     // Scanner beams and lit point_spotlights: near when any of the beam can be seen.
     let lamps = game
@@ -709,7 +713,7 @@ pub fn attention_pvs(
     for (id, entity) in game.world.entities.iter().enumerate() {
         let tongue = game.scene.tongues.get(&id);
         let beam = beams.get(&id);
-        let tracked = tongue.is_some() || beam.is_some();
+        let tracked = tongue.is_some() || beam.is_some() || game.ai.actors.contains_key(&id);
         if !tracked && !hl2_simulation::attention::has_animated_face(entity.class()) {
             continue;
         }
@@ -728,15 +732,8 @@ pub fn attention_pvs(
             (None, Some(beam)) => (beam.start.min(beam.end), beam.start.max(beam.end)),
             (None, None) => (state.origin, state.origin + glam::Vec3::Z * 64.),
         };
-        for &eye in &eyes {
-            match sky.bounds_in_pvs(eye, low, high) {
-                Ok(true) => {
-                    visible.insert(id);
-                    break;
-                }
-                Ok(false) => {}
-                Err(_) => return,
-            }
+        if visibility.actor_visible(&rows, low, high) {
+            visible.insert(id);
         }
     }
     game.scene.look_targets.set_pvs(visible, now.max(1e-6));

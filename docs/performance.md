@@ -50,6 +50,75 @@ Displayed FPS, GPU-stage attribution, Windows runtime and ordinary play are
 **not tested**. Run the route and its optional strict assertion as described in
 [validation.md](validation.md#station-02-placed-spawns-and-workload-locality-2026-11-25).
 
+### Source-style NPC decision cadence
+
+The first candidate capture found an invalid BSP leaf at the original room
+camera. With no visibility row, every actor correctly ran at normal cadence.
+The comparison below uses a valid view over the Station 02 nav node before the
+trash-can test at `(-3888, -816, 152)` in both packages. Keep the earlier results
+above as a record of that fixture and use the matched route for the new A/B.
+
+The candidate profiles decisions independently of whether an actor thought at
+least once. For each spawn sector, the rate divides completed decisions by the
+number of tracked actors present at both ends and the elapsed simulation time.
+The presence of an occasional distant think is expected. Approaching the next
+sector during the route raises decision frequency before the player reaches it.
+
+Apple M1 Pro / Metal, headless at 1920 × 1080, with a control warm-up discarded
+per package. The baseline is `f109619c` (`4d71b5ea` executable) and the candidate
+has executable digest `bd0f165d`. Three paired runs alternated package order.
+In the quiet crowd case all 80 actors continued to think. Room-wide decisions,
+including authored map actors, fell from 3,012 to 945 per 3.3-second window.
+The table uses medians of run means in milliseconds and candidate decision rates
+in decisions per NPC per second.
+
+| Stop | CPU frame A → B | AI tick A → B | Backyard rate | Plaza rate | Playground rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Room before trash cans | 5.077 → 4.967 | 0.690 → 0.330 | 1.70 | 1.64 | 1.72 |
+| Backyard | 4.582 → 4.522 | 0.386 → 0.243 | 9.55 | 1.60 | 1.61 |
+| Hall before plaza | 5.606 → 5.542 | 0.397 → 0.239 | 1.82 | 4.85 | 1.52 |
+| Plaza | 5.534 → 5.543 | 0.417 → 0.295 | 1.82 | 9.55 | 1.54 |
+| Corridor before playground | 4.423 → 4.378 | 0.407 → 0.323 | 1.52 | 1.69 | 4.85 |
+| Playground | 4.801 → 4.828 | 0.432 → 0.348 | 1.74 | 1.52 | 7.47 |
+
+The quiet room AI stage fell 52.1% by median paired ratio. Fixed simulation fell
+from 2.559 to 2.196 ms/tick and the CPU frame p99 fell from 9.15 to 8.63 ms.
+The three CPU frame means in the room ranged from 5.046 to 5.082 ms before,
+and from 4.926 to 4.972 ms after.
+
+The other cases preserve authored map activity and active combat. These cells
+list median CPU frame means in milliseconds. For supplies, 81 of 84 bodies
+slept in every candidate window. The same three plaza SMGs remained awake.
+
+| Stop | Control A → B | Fights A → B | Supplies A → B |
+| --- | ---: | ---: | ---: |
+| Room before trash cans | 4.013 → 4.027 | 9.331 → 9.758 | 4.055 → 4.038 |
+| Backyard | 3.161 → 3.198 | 6.023 → 6.243 | 3.289 → 3.284 |
+| Hall before plaza | 4.633 → 4.786 | 7.407 → 7.510 | 4.889 → 4.889 |
+| Plaza | 4.593 → 4.522 | 7.034 → 7.292 | 4.621 → 4.638 |
+| Corridor before playground | 3.789 → 3.819 | 5.314 → 5.354 | 3.821 → 3.875 |
+| Playground | 3.558 → 3.617 | 5.533 → 5.855 | 3.722 → 3.689 |
+
+Combat engaged in all three sectors. In the room window, the fights fired
+338–356 shots before and 366–374 after. AI tick time in that window went from
+0.966 to 1.031 ms, and frame p99 from 15.20 to 17.32 ms. The opening fight
+CPU frame means were 9.155, 9.331 and 9.333 ms before, and 10.701, 9.758
+and 9.656 ms after. These are outcomes from evolving NPC fights. Shot count,
+ragdolls and physics varied, so the timing delta cannot isolate scheduler cost.
+A replicated timing comparison with equivalent combat activity is still open.
+The supplies' room physics tick was 0.126 → 0.124 ms. The unchanged room
+authored AI count of 499 in the control and supplies matches across all six
+build and repetition combinations for each case.
+
+All 24 timed routes verified the requested spawn counts and completed the six
+stops. All three candidate crowd runs passed the strict decision-rate check.
+Stage timings, p95/p99, activity counts and control deltas are saved in
+`artifacts/o47-cadence/paired/summary.json`. The 15 targeted packaged
+replays include the Breen monitor and playground constraints. An early,
+rejected policy slowed story civilians and changed both replays' I/O results.
+Both pass with civilian and active-goal decisions on normal cadence.
+Live retail cadence and Windows runtime are **not tested**.
+
 ## `O42` — `LightingIndex`, `32 x 32 x 128` light-cache cell sharing, and `MeshTag` lighting deduplication (2026-11-24)
 
 Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools`, everyday release baseline `sha256 fa4db9f9` vs `O42` `sha256 f8f85a8d`):

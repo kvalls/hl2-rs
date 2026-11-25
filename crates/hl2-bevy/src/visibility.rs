@@ -67,15 +67,50 @@ impl SourceVisibility {
         };
         let cluster = index.cluster(eye)?;
         self.clusters.push(cluster);
+        self.cached_row(cluster)
+    }
+
+    fn cached_row(&mut self, cluster: i16) -> anyhow::Result<Option<Arc<PvsRow>>> {
         if let Some(row) = self.rows.get(&cluster) {
             return Ok(row.clone());
         }
+        let Some(index) = &self.index else {
+            return Ok(None);
+        };
         let row = index.row(cluster)?.map(Arc::new);
         if self.rows.len() >= 8 {
             self.rows.clear();
         }
         self.rows.insert(cluster, row.clone());
         Ok(row)
+    }
+
+    /// Actor visibility shares the decoded rows and traversal scratch with draw culling.
+    pub(crate) fn actor_rows(
+        &mut self,
+        eyes: impl IntoIterator<Item = glam::Vec3>,
+    ) -> Option<Vec<Arc<PvsRow>>> {
+        eyes.into_iter()
+            .map(|eye| {
+                let cluster = self.index.as_ref()?.cluster(eye).ok()?;
+                self.cached_row(cluster).ok().flatten()
+            })
+            .collect()
+    }
+
+    pub(crate) fn actor_visible(
+        &mut self,
+        rows: &[Arc<PvsRow>],
+        low: glam::Vec3,
+        high: glam::Vec3,
+    ) -> bool {
+        self.index.as_ref().is_none_or(|index| {
+            rows.iter().any(|row| {
+                index
+                    .bounds_visible(low, high, row, &mut self.stack)
+                    .unwrap_or(true)
+            })
+        })
     }
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"enabled":!self.disabled,"index_available":self.index.is_some(),"view_clusters":self.clusters,"cached_rows":self.rows.len(),"checked_draws":self.checked,"culled_draws":self.culled,"reused_bounds_tests":self.reused,"listed_bounds_tests":self.listed,"error":self.error,"policy":"current animated bounds; union of active world/monitor views, fail open without valid PVS; sky/viewmodels excluded; area portals and occluders remain incomplete"})

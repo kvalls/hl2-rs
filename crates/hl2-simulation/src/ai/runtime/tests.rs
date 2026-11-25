@@ -80,6 +80,178 @@ fn player_at(x: f32) -> PlayerState {
     }
 }
 
+fn npc_rig(class: &str, settings: &[(&str, &str)]) -> Rig {
+    let mut properties = vec![("classname", class), ("origin", "0 0 0")];
+    properties.extend_from_slice(settings);
+    let world = World {
+        entities: vec![entity(&properties)],
+        ..Default::default()
+    };
+    let mut ai = AiRuntime::new(&world, None);
+    ai.enabled = true;
+    Rig {
+        scene: Scene::new(&world),
+        physics: Physics::new(&world),
+        controller: Controller::new(None, Default::default()),
+        world,
+        ai,
+    }
+}
+
+#[test]
+fn quiet_distant_actor_decides_less_often_and_recovers_on_approach() {
+    let mut r = npc_rig("npc_combine_s", &[]);
+    r.scene.look_targets.set_pvs(Default::default(), 0.001);
+    let far = PlayerState {
+        noclip: true,
+        ..player_at(2000.)
+    };
+    run(&mut r, 80, far);
+    assert_eq!(r.ai.actors[&0].decisions.interval, 0.6);
+    let distant = r.ai.actors[&0].decisions.count;
+    assert!(distant <= 3);
+    let near = PlayerState {
+        noclip: true,
+        ..player_at(100.)
+    };
+    run(&mut r, 8, near);
+    assert!(r.ai.actors[&0].decisions.count > distant);
+    assert_eq!(r.ai.actors[&0].decisions.interval, THINK_INTERVAL);
+    run(&mut r, 80, near);
+    assert!(r.ai.actors[&0].decisions.count - distant >= 10);
+}
+
+#[test]
+fn untracked_always_think_and_threatened_actors_keep_full_decision_cadence() {
+    let far = PlayerState {
+        noclip: true,
+        ..player_at(2000.)
+    };
+    let mut r = npc_rig("npc_combine_s", &[]);
+    run(&mut r, 15, far);
+    assert_eq!(r.ai.actors[&0].decisions.interval, THINK_INTERVAL);
+    r.scene.look_targets.set_pvs(Default::default(), 0.001);
+    run(&mut r, 8, far);
+    assert_eq!(r.ai.actors[&0].decisions.interval, 0.6);
+    let before = r.ai.actors[&0].decisions.count;
+    r.ai.actors.get_mut(&0).unwrap().damage_taken = 5.;
+    run(&mut r, 1, far);
+    assert_eq!(r.ai.actors[&0].decisions.count, before + 1);
+
+    let mut always = npc_rig("npc_combine_s", &[("spawnflags", "1024")]);
+    always.scene.look_targets.set_pvs(Default::default(), 0.001);
+    run(&mut always, 15, far);
+    assert_eq!(always.ai.actors[&0].decisions.interval, THINK_INTERVAL);
+}
+
+#[test]
+fn civilians_and_active_actbusy_goals_keep_their_decision_cadence() {
+    let far = PlayerState {
+        noclip: true,
+        ..player_at(2000.)
+    };
+    let mut citizen = npc_rig("npc_citizen", &[]);
+    citizen
+        .scene
+        .look_targets
+        .set_pvs(Default::default(), 0.001);
+    run(&mut citizen, 30, far);
+    assert_eq!(citizen.ai.actors[&0].decisions.interval, THINK_INTERVAL);
+
+    let mut soldier = npc_rig("npc_citizen", &[("citizentype", "3")]);
+    soldier
+        .scene
+        .look_targets
+        .set_pvs(Default::default(), 0.001);
+    soldier
+        .ai
+        .actors
+        .get_mut(&0)
+        .unwrap()
+        .class
+        .actbusy_mut()
+        .unwrap()
+        .enabled = true;
+    run(&mut soldier, 30, far);
+    assert_eq!(soldier.ai.actors[&0].decisions.interval, THINK_INTERVAL);
+}
+
+#[test]
+fn authored_pvs_sleep_preserves_collision_and_wakes_when_visible() {
+    let mut r = npc_rig(
+        "npc_combine_s",
+        &[
+            ("sleepstate", "2"),
+            ("OnSleep", "relay,Trigger,,0,-1"),
+            ("OnWake", "relay,Trigger,,0,-1"),
+        ],
+    );
+    let far = PlayerState {
+        noclip: true,
+        ..player_at(2000.)
+    };
+    r.scene.look_targets.set_pvs(Default::default(), 0.001);
+    run(&mut r, 20, far);
+    assert!(r.scene.states[0].ai_sleeping);
+    assert!(r.scene.states[0].collides());
+    assert_eq!(r.ai.actors[&0].decisions.count, 0);
+    assert_eq!(r.scene.diagnostics.outputs_fired, 1);
+    r.scene.look_targets.set_pvs([0].into(), 0.3);
+    run(&mut r, 1, far);
+    assert!(!r.scene.states[0].ai_sleeping);
+    assert_eq!(r.ai.actors[&0].decisions.count, 1);
+    assert_eq!(r.scene.diagnostics.outputs_fired, 2);
+    r.scene.look_targets.set_pvs(Default::default(), 0.315);
+    run(&mut r, 1, far);
+    assert!(!r.scene.states[0].ai_sleeping);
+}
+
+#[test]
+fn authored_radius_respects_notarget_and_wake_input_resumes_ai() {
+    let mut r = npc_rig(
+        "npc_combine_s",
+        &[("sleepstate", "3"), ("wakeradius", "160")],
+    );
+    let near = player_at(80.);
+    r.ai.ignore_player = true;
+    run(&mut r, 2, near);
+    assert!(r.scene.states[0].ai_sleeping);
+    r.ai.ignore_player = false;
+    run(&mut r, 1, near);
+    assert!(!r.scene.states[0].ai_sleeping);
+
+    let mut r = npc_rig("npc_combine_s", &[("sleepstate", "3")]);
+    run(&mut r, 2, near);
+    r.scene.ai_inputs.push((0, "wake".into(), String::new(), 0));
+    run(&mut r, 1, near);
+    assert!(!r.scene.states[0].ai_sleeping);
+    assert_eq!(r.ai.actors[&0].decisions.count, 1);
+}
+
+#[test]
+fn authored_auto_pvs_after_seen_sleeps_only_after_first_visibility() {
+    let mut r = npc_rig("npc_combine_s", &[("sleepstate", "5")]);
+    let far = PlayerState {
+        noclip: true,
+        ..player_at(2000.)
+    };
+    for (tick, visible, sleeping) in [
+        (1, false, false),
+        (2, true, false),
+        (3, false, true),
+        (4, true, false),
+    ] {
+        let pvs = if visible {
+            [0].into()
+        } else {
+            Default::default()
+        };
+        r.scene.look_targets.set_pvs(pvs, f64::from(tick) * 0.015);
+        run(&mut r, 1, far);
+        assert_eq!(r.scene.states[0].ai_sleeping, sleeping);
+    }
+}
+
 #[test]
 fn ai_is_off_by_default_and_shoves_a_close_player_when_enabled() {
     let mut r = rig();

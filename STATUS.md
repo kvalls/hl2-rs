@@ -1,5 +1,19 @@
 # STATUS
 
+## Source-style NPC decision locality (2026-11-25)
+
+Quiet Combine, rebels, zombies and headcrabs use a distance and visibility
+dependent decision cadence. Authored sleepers support PVS, threat, radius and
+`Wake` input transitions. Story actors, active combat and map goals keep their
+usual cadence. The packaged Station 02 control and three workloads completed
+24 paired captures. All three quiet crowds increased their decision rate on
+approach. From the room, quiet crowds cut the AI stage from 0.690 to 0.330
+ms/tick and CPU frame time from 5.077 to 4.967 ms. The active combat room
+increased from 9.331 to 9.758 ms with more shots fired. O47 stays open for
+equivalent-work combat comparison. See docs/performance.md. The 15 targeted
+packaged replays, 907 simulation tests and Windows cross-target lint passed.
+Live retail parity and Windows runtime are **not tested**.
+
 ## Station 02 workload locality (2026-11-25)
 
 The `hl2-debug` console can spawn a supported entity at explicit coordinates

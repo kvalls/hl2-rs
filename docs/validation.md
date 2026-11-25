@@ -10,9 +10,14 @@ a physics crate, NPC equipment and both loose rigid bodies. The helper tests run
 
 Run `python3 scripts/checks/sector_locality.py --out artifacts/sector-locality/run`
 for two rounds of all four cases. Each run verifies all coordinates and records the
-same six observation windows. Add `--require-local` to fail after saving reports if
-an NPC from a distant spawn sector thinks during a window or a distant supply body
-is still awake at its end. See [O47 measurements](performance.md#o47--separated-workloads-in-station-02-2026-11-25).
+same six observation windows. Add `--require-local` to check that each isolated
+crowd makes fewer decisions per actor-second in the room window than when visited.
+The fight fixture also verifies engagements in all three sectors. Body rest is
+recorded separately. Use `--package` for an alternate packaged repository root.
+The `hl2-simulation` runtime tests exercise idle cadence, promotion on approach
+and damage, authored PVS sleep and wake, auto-PVS after first sight, wake radius,
+and the `Wake` input.
+See [O47 measurements](performance.md#o47--separated-workloads-in-station-02-2026-11-25).
 
 ## GPU shadow silhouette experiment (2026-11-15)
 

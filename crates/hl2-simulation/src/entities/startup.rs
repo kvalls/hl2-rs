@@ -252,6 +252,7 @@ impl Scene {
             scene_animation: None,
             movement_animation: None,
             ai_move_facing: None,
+            ai_sleeping: false,
             script_actor: None,
             scripted_by: None,
             script_post_idle: None,

@@ -148,6 +148,14 @@ impl LookTargets {
         self.pvs = Some(actors);
         self.pvs_time = now;
     }
+    pub fn clear_pvs(&mut self, now: f64) {
+        self.pvs = None;
+        self.pvs_time = now;
+    }
+    /// A missing row must keep AI at its regular cadence.
+    pub(crate) fn actor_pvs(&self, actor: usize) -> Option<bool> {
+        self.pvs.as_ref().map(|set| set.contains(&actor))
+    }
     /// MaintainLookTargets returns before the head and eye updates when the player cannot
     /// see the actor; random picks still happen.
     pub fn in_pvs(&self, actor: usize) -> bool {

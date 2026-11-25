@@ -164,7 +164,7 @@ pub(super) fn add_presentation_systems(app: &mut App) {
             sky::present,
             monitors::present,
             monitors::present_materials,
-            eyes::attention_pvs.run_if(crate::isolation::run_eyes),
+            eyes::attention_pvs,
             material_proxies::present,
             canvas_renderer::present
                 .after(flashlight::update)
