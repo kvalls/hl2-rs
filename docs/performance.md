@@ -1952,6 +1952,24 @@ with 100 verified bodies, 0.293 ms per physics tick,
 4.793 ms post-placement mean and a 6 ms p99 bound.
 
 
+## O1/O4 unified Simple3d pass for SkyCamera and MonitorCamera + Hud2d depth discard (2026-11-26)
+
+On Apple M1 Pro Metal (`1c8aa0cd` SHA-256 `9a7006f8` vs candidate SHA-256 `1e93e393`), the sky and monitor cameras moved from full `Core3d` to a single-pass `Simple3d` schedule (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `Simple3d` (`crates/hl2-bevy/src/rendering/simple_pass.rs`, `rendering.rs`, `lib.rs`, `sky.rs`, `monitors.rs`): draws `Opaque3d`, `AlphaMask3d`, and `Transparent3d` in a single `simple_pass_3d` render pass with `StoreOp::Discard` depth and GPU mesh preprocessing parity (`clear_indirect_parameters_metadata`, `unpack_bins`, `early_gpu_preprocess`, `main_build_indirect_parameters` checked via `GpuPreprocessingSupport::is_available()` in `finish()`, since `PreprocessPipelines` is inserted later in `RenderStartup`). `MonitorCamera` (`Msaa::Off`, `Rgba8UnormSrgb`) renders directly onto `_rt_Camera` without `upscaling`; `SkyCamera` renders directly onto the shared 4× MSAA target without a separate transparent pass or depth store.
+2. `Hud2d` depth discard (`crates/hl2-bevy/src/canvas_renderer/hud_pass.rs`): changed `hud_pass_2d`'s depth attachment from `StoreOp::Store` to `StoreOp::Discard`.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. Both `main_opaque_pass_3d`, `main_transparent_pass_3d`, and `upscaling` dropped to `1.0/f` across all four scenes (while `early_mesh_preprocessing` remained `3.0/f` in `plaza-hall` and `2.0/f` in `plaza`), cutting GPU busy by `0.47–1.20 ms/f` and CPU `render_graph` to `4.12–4.93 ms`. Every scene now holds GPU busy p99 below `8.33 ms` (`8.16`, `7.88`, `7.17`, `6.83 ms`, with zero frames > 8.33 ms in either windowed scene), windowed `plaza-hall` rose `103.6 → 114.9 FPS` (`95.8%` 1x refreshes, repeated `173 → 53`), and windowed `plaza` reached **`119.3 FPS`** (`99.4%` 1x refreshes, repeated `19 → 7`).
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `main_opaque` + `main_transparent` + `simple_pass_3d` Frag (passes/f) | `upscaling` Frag (passes/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---|---:|---:|---:|---:|
+| `plaza-hall-headless` | 57% → 60% | 6.83 → 6.11 | 6.67 / 8.04 / 8.71 → 6.13 / 7.48 / 8.16 | 27/1262 (2.1%) → 9/1353 (0.67%) | `1.547 (1.0)` + `1.211 (1.0)` + `0.765 (2.0)` | 0.165 (2.0) → 0.176 (1.0) | — | 7.961 / 9.204 → 7.151 / 8.606 | 5.337 / 6.233 → 4.660 / 5.736 |
+| `plaza-headless` | 64% → 62% | 7.14 → 5.94 | 7.05 / 8.46 / 8.90 → 5.82 / 7.54 / 7.88 | 121/1391 (8.7%) → 8/1521 (0.53%) | `1.849 (1.0)` + `1.184 (1.0)` + `0.609 (1.0)` | 0.187 (1.0) → 0.191 (1.0) | — | 7.364 / 9.006 → 6.543 / 7.981 | 4.896 / 6.482 → 4.121 / 5.087 |
+| `plaza-hall` (windowed) | 63% → 66% | 6.35 → 5.88 | 6.36 / 7.12 / 7.45 → 5.87 / 6.70 / 7.17 | 1/1097 (0.09%) → 0/1204 (0.0%) | `1.501 (1.0)` + `1.118 (1.0)` + `0.798 (2.0)` | 0.146 (2.0) → 0.147 (1.0) | 103.6 (173/1093) → 114.9 (53/1201; 1150 1x [95.8%], 49 2x, 2 3x) | 9.201 / 13.406 → 8.623 / 9.401 | 5.287 / 6.621 → 4.929 / 6.153 |
+| `plaza` (windowed) | 55% → 49% | 6.62 → 5.94 | 6.74 / 7.09 / 7.19 → 5.96 / 6.63 / 6.83 | 0/1241 (0.0%) → 0/1264 (0.0%) | `1.839 (1.0)` + `1.173 (1.0)` + `0.565 (1.0)` | 0.156 (1.0) → 0.161 (1.0) | 118.2 (19/1236) → 119.3 (7/1260; 1253 1x [99.4%], 7 2x) | 8.470 / 9.188 → 8.427 / 9.146 | 4.629 / 5.776 → 4.418 / 5.401 |
+
+In `o1-simple3d-plaza-hall-headless/report.json`, `monitors.rendered_frames = 2532`, `sky.frames_2d = 2534`, `sky.frames_3d = 2534`, and `tonemap.readbacks = 317`. Visually verified `artifacts/replays/video.png`, `background_reveal.png`, `bevy-monitors-breen-slate.png`, `bevy-monitors-breen-screen.png`, `window-console-resolution.png`, and `artifacts/perf-top-five/check-sky-fixed.png` (full 2D sky, 3D miniature skybox, and monitor output). Verified with unit tests (`rendering::simple_pass` 2 passed; `sky` 3 passed; `monitors` 3 passed; `video` 27 passed, 1 ignored), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, `scripts/checks/architecture.py`, 14 targeted packaged replays, and `WINDOWED=1 ONLY='window' replays.py` (`1/1` passed). Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**.
+
 ## O4/O1 direct swapchain Present2d and idle ViewmodelCamera disable (2026-11-26)
 
 On Apple M1 Pro Metal (`36cca73f` SHA-256 `fb94db74` vs candidate SHA-256 `9a7006f8`), two render-graph and camera-count reductions ran against maxed Retina settings (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):

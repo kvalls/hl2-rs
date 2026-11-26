@@ -246,6 +246,7 @@ fn add_runtime_plugins(app: &mut App) {
         )
         .add_plugins((
             MaterialPlugin::<rendering::SourceMaterial>::default(),
+            rendering::simple_pass::SimplePassPlugin,
             video::present_pass::PresentPassPlugin,
             MaterialPlugin::<effects::EffectMaterial>::default(),
             bloom::SourceBloomPlugin,

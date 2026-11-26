@@ -41,6 +41,7 @@ mod npc_weapon_draws;
 mod placement;
 pub(crate) use placement::draw_hidden;
 pub(crate) mod runtime;
+pub(crate) mod simple_pass;
 mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
 #[cfg(test)]

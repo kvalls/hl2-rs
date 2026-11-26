@@ -78,7 +78,7 @@ fn hud_pass_2d(
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let color_attachments = [Some(out_attachment)];
-    let depth_stencil_attachment = Some(depth.get_attachment(StoreOp::Store));
+    let depth_stencil_attachment = Some(depth.get_attachment(StoreOp::Discard));
     let mut render_pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("hud_pass_2d"),
         color_attachments: &color_attachments,
