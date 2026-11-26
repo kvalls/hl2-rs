@@ -99,6 +99,38 @@ class TestTraceSummary(unittest.TestCase):
             self.assertTrue(out_json.is_file())
             self.assertIn("frames ('main app'): 2", buf.getvalue())
 
+    def test_frame_work_counts_quick_fixed_ticks_and_clips_pipeline_overlap(self):
+        fixed = trace_summary.FIXED_STEP
+        pipeline = trace_summary.PIPELINE_QUEUE
+        events = [
+            {"ph": "X", "name": pipeline, "tid": 2, "ts": 1000, "dur": 18000},
+            {"ph": "X", "name": pipeline, "tid": 3, "ts": 8500, "dur": 2000},
+            {"ph": "X", "name": "main app", "tid": 1, "ts": 5000, "dur": 6000},
+            {"ph": "B", "name": fixed, "tid": 1, "ts": 7000},
+            {"ph": "E", "tid": 1, "ts": 7250},
+            {"ph": "X", "name": fixed, "tid": 1, "ts": 7500, "dur": 500},
+            # This step is in the gap and belongs to neither frame.
+            {"ph": "X", "name": fixed, "tid": 1, "ts": 11000, "dur": 2000},
+            {"ph": "X", "name": "main app", "tid": 1, "ts": 15000, "dur": 5000},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = _write_events(Path(tmp) / "trace.json", events)
+            for full_paths in (False, True):
+                with self.subTest(full_paths=full_paths):
+                    report = trace_summary.analyze_trace(trace, full_paths=full_paths, spikes=1)
+                    first, second = report["first_frames"]
+                    self.assertEqual(first["fixed_steps"], 2)
+                    self.assertEqual(first["fixed_step_ms"], 0.75)
+                    self.assertEqual(first["pipeline_queue_overlap_ms"], 6.0)
+                    self.assertEqual(second["fixed_steps"], 0)
+                    self.assertEqual(second["pipeline_queue_overlap_ms"], 4.0)
+                    slow, = report["slow_frames"]
+                    self.assertEqual(slow["fixed_steps"], 2)
+                    self.assertEqual(len(slow["spans"]), 1)
+                    self.assertIn("process_pipeline_queue_system", slow["spans"][0]["span"])
+                    self.assertEqual(slow["pipeline_queue_overlap_ms"], 6.0)
+                    self.assertIn("2 fixed steps (0.75 ms)", trace_summary.format_report(report))
+
 
 class TestTraceWaste(unittest.TestCase):
     def test_separates_true_duplicates_from_multi_tick_and_joins_npc_state(self):

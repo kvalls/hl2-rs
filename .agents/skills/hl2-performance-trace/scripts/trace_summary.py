@@ -15,6 +15,11 @@ import sys
 from typing import Any, Optional
 
 SORT_CHOICES = ("total", "max", "calls", "per_frame", "p99")
+FIXED_STEP = 'system: name="hl2_bevy::simulation::fixed_step"'
+PIPELINE_QUEUE = (
+    'system: name="bevy_render::render_resource::pipeline_cache::'
+    'PipelineCache::process_pipeline_queue_system"'
+)
 
 
 def _shorten_span(name: str, full_paths: bool) -> str:
@@ -26,6 +31,33 @@ def _shorten_span(name: str, full_paths: bool) -> str:
 def _percentile(sorted_vals: list[float], pct: int) -> float:
     idx = min(len(sorted_vals) - 1, len(sorted_vals) * pct // 100)
     return sorted_vals[idx]
+
+
+def _frame_work(
+    frame: tuple[float, float],
+    fixed: list[tuple[float, float]],
+    pipelines: list[tuple[float, float]],
+) -> dict[str, Any]:
+    """Fixed invocations and wall-time overlap with the render queue in one frame."""
+    start, end = frame
+    fixed_here = [(lo, hi) for lo, hi in fixed if start <= lo < end]
+    # Render work may start on an earlier frame or run past the end of this one.
+    # The union avoids double-counting processing on multiple render threads.
+    covered_until = start
+    overlap = 0.0
+    for lo, hi in pipelines:
+        if lo >= end:
+            break
+        left, right = max(lo, covered_until), min(hi, end)
+        if left < right:
+            overlap += right - left
+            covered_until = right
+    return {
+        "fixed_steps": len(fixed_here),
+        "fixed_step_ms": sum(min(hi, end) - lo for lo, hi in fixed_here) / 1000.0,
+        "pipeline_queue_overlap_ms": overlap / 1000.0,
+    }
+
 
 
 def analyze_trace(
@@ -87,6 +119,20 @@ def analyze_trace(
 
     frames.sort()
     frame_starts = [start for start, _ in frames]
+
+    def system_intervals(name: str) -> list[tuple[float, float]]:
+        key = _shorten_span(name, full_paths)
+        return sorted(
+            (start, start + ms * 1000.0)
+            for start, ms in zip(starts.get(key, []), durations.get(key, []))
+        )
+
+    fixed = system_intervals(FIXED_STEP)
+    pipelines = system_intervals(PIPELINE_QUEUE)
+    first_frames = [
+        {"frame": idx, "ms": (frame[1] - frame[0]) / 1000.0, **_frame_work(frame, fixed, pipelines)}
+        for idx, frame in enumerate(frames[:5])
+    ]
     n_frames = max(len(frames), 1)
 
     rows: list[dict[str, Any]] = []
@@ -128,7 +174,7 @@ def analyze_trace(
                 if dur < 1.0:
                     continue
                 idx = bisect.bisect_right(frame_starts, ts) - 1
-                if idx >= 0:
+                if idx >= 0 and ts < frames[idx][1]:
                     by_frame[idx].append((dur, key))
         slow_indices = sorted(range(len(frames)), key=lambda idx: frames[idx][0] - frames[idx][1])[:spikes]
         for idx in slow_indices:
@@ -138,6 +184,7 @@ def analyze_trace(
                 "frame": idx,
                 "ms": (end_ts - start_ts) / 1000.0,
                 "spans": [{"ms": dur, "span": span} for dur, span in top_spans],
+                **_frame_work((start_ts, end_ts), fixed, pipelines),
             })
 
     return {
@@ -148,6 +195,7 @@ def analyze_trace(
         "frame_ms": frame_stats,
         "rows": rows,
         "slow_frames": slow_frames,
+        "first_frames": first_frames,
         "top": top,
     }
 
@@ -170,11 +218,26 @@ def format_report(data: dict[str, Any], top: Optional[int] = None) -> str:
             f"{row['calls']:9d} {row['per_frame']:8.1f} {row['total']:10.1f} "
             f"{row['mean']:8.3f} {row['p99']:8.3f} {row['max']:8.2f}  {row['span']}"
         )
+    first = data.get("first_frames") or []
+    if first:
+        lines.append("\nfirst complete frames (pipeline queue overlap is concurrent wall time):")
+        for entry in first:
+            lines.append(
+                f"  frame {entry['frame']}: {entry['ms']:.2f} ms, "
+                f"{entry['fixed_steps']} fixed steps ({entry['fixed_step_ms']:.2f} ms), "
+                f"{entry['pipeline_queue_overlap_ms']:.2f} ms pipeline queue overlap"
+            )
     slow = data.get("slow_frames") or []
     if slow:
         lines.append("\nslowest frames (spans >= 1 ms that began in them):")
         for entry in slow:
-            lines.append(f"  frame {entry['frame']}: {entry['ms']:.2f} ms")
+            line = f"  frame {entry['frame']}: {entry['ms']:.2f} ms"
+            if "fixed_steps" in entry:
+                line += (
+                    f", {entry['fixed_steps']} fixed steps ({entry['fixed_step_ms']:.2f} ms)"
+                    f", {entry['pipeline_queue_overlap_ms']:.2f} ms pipeline queue overlap"
+                )
+            lines.append(line)
             for item in entry.get("spans", []):
                 lines.append(f"      {item['ms']:8.2f}  {item['span']}")
     return "\n".join(lines) + "\n"

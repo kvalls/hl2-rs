@@ -2804,6 +2804,24 @@ identically instrumented packages on the O44 plaza populations, with a joint
 wake followed by landing and settling. Track installation latency, collider
 query refresh, physics-stage time, awake bodies and contact counts.
 
+## First-frame hitch attribution (O27)
+
+Before changing the fixed clock or warming render pipelines, count the fixed
+steps in each first or slow main-app frame and report how much of the frame
+overlaps render pipeline queue processing. A render span can cross main-frame
+boundaries, so its full duration cannot be charged to the frame in which it
+began, and overlap alone does not establish that the main thread waited for it.
+Use existing console and campaign fixtures for resume and map-load traces.
+Compare the first complete frame and any relevant tail frames with the same
+trace configuration, then check wall time with a regular release build. Start
+with `capture.py headless --mode trace --item O27 --frames 400 --analyze`, using
+the Station 02 launch with `--movement-script test-inputs/bevy-console.json`
+and the Station 01 launch with `--movement-script test-inputs/bevy-campaign.json`.
+These runs use the first complete frame in the trace, which may follow the
+frame that enabled the recorder. A trace that starts at gameplay does not
+capture pipeline work during the initial load.
+Ordinary play uses the existing simulation clock and profiling remains opt-in.
+
 ## Profiling toward a steady 120 FPS (owner goal, 2026-11-21)
 
 Goal (owner): maxed settings at native Retina (3456x2168, 4x MSAA, full HDR, motion blur,
