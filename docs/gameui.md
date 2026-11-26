@@ -1589,10 +1589,10 @@ Aligning mid-gameplay developer console activation with authentic Half-Life 2 / 
 - **Tilde / `toggleconsole`:** With the console open over gameplay or its pause menu,
   closes the console and returns to active gameplay. The console close button
   and `hideconsole` close the console window.
-- **Escape:** With the console open over the pause menu, hides the menu and
-  resumes the scene while preserving the console window and its focus. The
-  console still owns input while focused. Escape can reopen the pause menu
-  under it. Editor cancellation and modal dialogs keep priority.
+- **Escape:** With the console open over the pause menu, hides both and
+  returns gameplay input to the player. Reopening the pause menu restores
+  the console and its editor. Editor cancellation and modal dialogs keep
+  priority.
 - **Verification:** Unit-tested in `console::tests::mid_gameplay_tilde_dev_console_transition_and_pause_menu_focus`
   and `simulation::tests::ui_open_close_and_resume_consume_pointer_attack_and_held_jump`.
 

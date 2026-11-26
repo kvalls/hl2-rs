@@ -3,11 +3,11 @@
 ## Gameplay console shortcuts (2026-11-26)
 
 Keep console visibility and focus separate from the in-game pause menu.
-Tilde closes both surfaces during gameplay. Escape changes the pause
-menu under the console while preserving the console and its input focus.
-Console input still takes priority over player movement, while the
-unpaused world advances. Preserve modal, title-menu and editor Escape
-handling. Verify both shortcuts through the host input and packaged replay.
+Tilde dismisses both surfaces during gameplay. Escape hides the menu and
+its console, then restores the console when the pause menu next opens.
+Retain the console editor and placement. While hidden, deliver input to
+gameplay. Preserve modal, title-menu and editor Escape handling. Verify
+both shortcuts through the host input and packaged replay.
 
 ## Local console chat mode (2026-11-26)
 

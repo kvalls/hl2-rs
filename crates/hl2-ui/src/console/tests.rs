@@ -185,7 +185,7 @@ fn console_hide_preserves_pause_and_escape_dismisses_history_first() {
     assert_eq!(console.mode(), Mode::Console);
     assert!(console.paused());
     console.escape();
-    assert_eq!(console.mode(), Mode::Console);
+    assert_eq!(console.mode(), Mode::Gameplay);
     assert!(!console.paused());
     assert_eq!(
         console.take_changed_history(),
@@ -3384,20 +3384,17 @@ fn mid_gameplay_tilde_dev_console_transition_and_pause_menu_focus() {
     assert_eq!(console.shell.windows.focus(), Layer::Base);
 
     console.toggle();
+    console.shell.panel.editor.insert("echo draft");
     console.escape_pressed();
     console.escape_released();
-    assert_eq!(console.mode(), Mode::Console);
-    assert_eq!(console.base, Mode::Gameplay);
-    assert!(console.console_open());
-    assert!(!console.paused());
+    assert_eq!(console.mode(), Mode::Gameplay);
+    assert!(!console.console_open());
     assert_eq!(console.dim_overlay_alpha(0.0), 0.0);
-    assert_eq!(
-        console.shell.windows.focus(),
-        Layer::Window(Window::Console)
-    );
+    assert_eq!(console.shell.windows.focus(), Layer::Base);
 
     console.escape();
-    assert!(console.console_open());
+    assert_eq!(console.mode(), Mode::Console);
+    assert_eq!(console.input_line(), "echo draft");
     assert!(console.paused());
     console.toggle();
     assert_eq!(console.mode(), Mode::Gameplay);

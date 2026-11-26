@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Hide and restore console with the in-game pause menu
+
+- Agent/model: Initial patch by Codex desktop (`gpt-6.2-sol`); completion, test-harness fix, full validation, Windows Clippy check, macOS release build, replays, docs, and commit by Antigravity (Gemini family, exact model ID not recorded).
+- Changed: Add `restore_console_on_pause` to `Console` in `crates/hl2-ui/src/console.rs` and `crates/hl2-ui/src/console/focus.rs` so pressing Escape over the pause-menu console hides both surfaces, returns pause state (`paused() == self.mode != Mode::Gameplay`) and pointer/keyboard control to gameplay in `crates/hl2-bevy/src/input.rs`, `simulation.rs`, and `ui_system.rs`, and restores the console (keeping its draft editor and placement) when the pause menu next opens (`set_mode(Mode::Pause)`), while Tilde/Backquote still closes both without restoring; update unit tests in `crates/hl2-ui/src/console/tests.rs` and `crates/hl2-bevy/src/simulation.rs`, replay expectations in `test-inputs/bevy-console.json` and `scripts/checks/replays.py`, baseline count in `scripts/checks/architecture-baseline.json`, and docs in `docs/DESIGN.md`, `docs/gameui.md`, and `docs/validation.md`; register `.add_message::<bevy::window::WindowCloseRequested>()` in `crates/hl2-bevy/src/performance/status.rs` for its `(MinimalPlugins, UiPlugin)` test harness.
+- Why: Align Escape and Tilde behavior over the mid-gameplay pause menu with Source/HL2 expectations (Escape hides pause menu and console together so gameplay immediately regains input without needing a second keypress, reopening the pause menu brings the console back), and fix the missing `WindowCloseRequested` message registration uncovered by full workspace testing.
+- Tested how: `scripts/checks/architecture.py`, Python suite (`134 tests`), all 4 plugin builds (`core`, `advanced-options`, `debug-tools`, `advanced-options+debug-tools`), full workspace `cargo test` (`2,031 passed, 0 failed, 151 ignored`: `hl2-advanced-options` 52, `hl2-bevy` 296, `hl2-debug` 57, `hl2-simulation` 914, `hl2-ui` 340, `modkit-core` 78, `source-assets` 144, `source-ui` 150), strict workspace Clippy, Windows target strict Clippy, `cargo fmt --check`, `scripts/build-bevy.sh` (`advanced-options,debug-tools`), and `NO_BUILD=1 ONLY='console console_map power_hud flashlight_shadows flashlight_viewmodel' JOBS=3 python3 scripts/checks/replays.py`.
+- Result: All validation gates, Windows cross-target Clippy, macOS release build, and all 5 affected packaged replays (`console`, `console_map`, `power_hud`, `flashlight_shadows`, `flashlight_viewmodel`) passed with `0 failed` (`bevy-console.json` confirms gameplay clock advances after Escape and console state restores on reopening pause).
+- Still broken or not tested: Windows runtime and manual live keyboard play on the rebuilt package are **not tested**.
+- Next: Manual live verification if desired, or return to the active performance work on `orbitalman/performance_research`.
+
 ## 2026-11-26 — Match gameplay console shortcuts
 
 - Codex desktop, `gpt-6.2-sol`.

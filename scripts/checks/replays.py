@@ -719,10 +719,12 @@ def check_console():
     holds("the console opens over the pause menu",
           mode("console-from-pause") == "Console"
           and g("console-paused")["time"] == g("pause-open")["time"])
-    holds("Escape resumes the scene while the console stays focused",
-          mode("resumed-with-console") == mode("after-escape") == "Console"
-          and not s["resumed-with-console"]["paused"]
+    holds("Escape hides the pause menu and console and resumes the scene",
+          mode("menu-hidden") == mode("after-escape") == "Gameplay"
+          and not s["menu-hidden"]["paused"]
           and g("after-escape")["time"] > g("console-paused")["time"])
+    holds("reopening the pause menu restores the console",
+          mode("console-restored") == "Console" and s["console-restored"]["paused"])
     expect("tilde closes the retained console", mode("console-close"), "Gameplay")
     holds("unknown commands are rejected",
           "Unknown or unimplemented command: unsupported_command" in out("console-paused"))

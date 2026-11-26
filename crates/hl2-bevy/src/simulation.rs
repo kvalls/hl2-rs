@@ -609,11 +609,11 @@ impl Simulation {
             game.actions.extend(c.actions);
         }
         if let (Some(ui), Some(game)) = (ui, game) {
-            let before = (ui.source.mode(), ui.source.paused());
+            let before = ui.source.mode();
             for action in &c.ui {
                 self.ui_action(ui, game, action);
             }
-            if (ui.source.mode(), ui.source.paused()) != before {
+            if ui.source.mode() != before {
                 self.paused = ui.source.paused();
                 self.transition = true;
                 self.jump_suppressed |= c.jump;
@@ -1080,8 +1080,9 @@ mod tests {
         step_input(&mut app);
         let sim = app.world().resource::<Simulation>();
         assert!(!sim.paused && sim.transition && sim.jump_suppressed && !sim.input.jump);
+        assert!(!app.world().resource::<crate::gameplay::Gameplay>().primary);
         assert!(
-            app.world()
+            !app.world()
                 .resource::<crate::ui_host::Console>()
                 .source
                 .console_open()
@@ -1095,12 +1096,27 @@ mod tests {
         step_input(&mut app);
         let sim = app.world().resource::<Simulation>();
         assert!(!sim.paused && !sim.input.jump);
-        assert_eq!((sim.yaw, sim.pitch), (0., 0.));
-        assert!(!app.world().resource::<crate::gameplay::Gameplay>().primary);
+        assert_ne!((sim.yaw, sim.pitch), (0., 0.));
 
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Backquote);
+            .press(KeyCode::Escape);
+        step_input(&mut app);
+        assert!(app.world().resource::<Simulation>().paused);
+        assert_eq!(
+            app.world()
+                .resource::<crate::ui_host::Console>()
+                .source
+                .mode(),
+            Mode::Console
+        );
+
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            keys.release(KeyCode::Escape);
+            keys.press(KeyCode::Backquote);
+        }
         step_input(&mut app);
         assert!(
             !app.world()

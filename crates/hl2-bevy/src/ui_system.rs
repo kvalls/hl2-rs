@@ -171,7 +171,7 @@ pub fn update_ui(
     let cancel_selection = cancel_selection || sim.input_claims.escape;
     let overlay_open = sim.input_claims.pointer;
     if let Some(ui) = ui.as_deref_mut() {
-        let before = (ui.source.mode(), ui.source.paused());
+        let before = ui.source.mode();
         resize_canvas(&ui.source.canvas, video_viewport.as_deref(), &window);
         if keys.just_pressed(KeyCode::Escape) && !cancel_selection {
             ui.source.escape_pressed();
@@ -185,7 +185,7 @@ pub fn update_ui(
         if !window.focused && !ui.source.paused() {
             ui.source.set_mode(hl2_ui::console::Mode::Pause);
         }
-        if (ui.source.mode(), ui.source.paused()) == before
+        if ui.source.mode() == before
             && let Some(game) = game.as_deref_mut()
         {
             let pointer =
@@ -242,19 +242,19 @@ pub fn update_ui(
         // Applied video settings (`sim.pending_video_config`) are carried out by
         // `video::apply_video_settings`.
         native_text::sync_console_focus(&mut window, &ui.source);
-        sim.transition = (ui.source.mode(), ui.source.paused()) != before;
+        sim.transition = ui.source.mode() != before;
         sim.paused = ui.source.paused();
-        let ui_owns_pointer = sim.paused || ui.source.mode() == hl2_ui::console::Mode::Console;
         let cfg = Some(&ui.source.config);
-        if sim.transition || ui_owns_pointer {
-            cursor.grab_mode = if ui_owns_pointer {
+        if sim.transition || sim.paused {
+            cursor.grab_mode = if sim.paused {
                 CursorGrabMode::None
             } else {
                 CursorGrabMode::Locked
             };
-            cursor.visible = ui_owns_pointer;
+            cursor.visible = sim.paused;
             sim.jump_suppressed |= crate::input::action_pressed("+jump", &keys, &buttons, cfg);
-        } else if !overlay_open
+        } else if !sim.paused
+            && !overlay_open
             && buttons.just_pressed(MouseButton::Left)
             && cursor.grab_mode == CursorGrabMode::None
         {
@@ -263,7 +263,7 @@ pub fn update_ui(
             cursor.visible = false;
             sim.jump_suppressed |= crate::input::action_pressed("+jump", &keys, &buttons, cfg);
         }
-        if !ui_owns_pointer && window.focused {
+        if !sim.paused && window.focused {
             if overlay_open {
                 let grab = if buttons.pressed(MouseButton::Right) {
                     CursorGrabMode::Locked

@@ -360,7 +360,7 @@
   "source-ui": 151
  },
  "test_files": {
-  "crates/hl2-ui/src/console/tests.rs": 4522,
+  "crates/hl2-ui/src/console/tests.rs": 4519,
   "crates/hl2-ui/src/gameui/options/tests.rs": 2839
  },
  "untested_modules": [

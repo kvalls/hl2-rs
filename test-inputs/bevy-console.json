@@ -163,11 +163,20 @@
         "action": "escape"
       }
     ],
-    "label": "resumed-with-console"
+    "label": "menu-hidden"
   },
   {
     "tick": 127,
     "label": "after-escape"
+  },
+  {
+    "tick": 129,
+    "ui": [
+      {
+        "action": "escape"
+      }
+    ],
+    "label": "console-restored"
   },
   {
     "tick": 130,

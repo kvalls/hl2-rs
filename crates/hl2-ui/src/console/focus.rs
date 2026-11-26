@@ -33,6 +33,12 @@ impl Console {
     /// resetting its contents); a base mode (menus, gameplay) replaces the base and closes
     /// every window.
     pub fn set_mode(&mut self, mode: Mode) {
+        let restore_console = std::mem::take(&mut self.restore_console_on_pause);
+        let mode = if mode == Mode::Pause && restore_console && self.console_enabled() {
+            Mode::Console
+        } else {
+            mode
+        };
         match mode {
             Mode::NewGame => {
                 self.shell.windows.open(Window::NewGame);
@@ -253,7 +259,7 @@ impl Console {
     }
 
     pub fn paused(&self) -> bool {
-        self.base != Mode::Gameplay || matches!(self.mode, Mode::Options | Mode::NewGame)
+        self.mode != Mode::Gameplay
     }
 
     /// Escape went down. When it would close a dialog with a close or Cancel button, that
@@ -638,12 +644,11 @@ impl Host for Console {
             // Windows are never the base.
             window @ (Mode::Console | Mode::Options | Mode::NewGame) => window,
         };
-        if self.console_escape_to_base() {
-            self.base = base;
+        let remember_console = base == Mode::Gameplay && self.console_escape_to_base();
+        self.set_mode(base);
+        if remember_console {
+            self.restore_console_on_pause = true;
             self.reset_menu_interaction();
-            self.sync_mode();
-        } else {
-            self.set_mode(base);
         }
     }
 
@@ -664,6 +669,7 @@ impl Host for Console {
     }
 
     fn console_opening(&mut self) {
+        self.restore_console_on_pause = false;
         self.clear_menu_hover();
         if !self.background_level && self.base == Mode::Gameplay {
             self.base = Mode::Pause;

@@ -2,11 +2,16 @@
 
 ## Gameplay console shortcuts (2026-11-26)
 
-Tilde closes the developer console and the pause menu and resumes the
-scene. Escape resumes the scene with the console open and focused. The
-console retains keyboard and pointer input while the scene advances.
-The packaged macOS console replay verified both transitions at 720p
-and 1080p. Windows runtime and manual keyboard play are **not tested**.
+Escape over the in-game pause menu + developer console hides both surfaces
+together, returns keyboard and pointer input to active gameplay while the
+scene advances, and restores the console (retaining its editor draft and
+placement) when the pause menu next opens. Tilde (`toggleconsole`) closes
+both the console and pause menu and resumes gameplay without restoring the
+console on the next Escape. The workspace validation suite, Windows strict
+Clippy check, macOS release build, and the 5 affected packaged replays
+(`console`, `console_map`, `power_hud`, `flashlight_shadows`,
+`flashlight_viewmodel`) passed (`0 failed`). Windows runtime and manual
+live keyboard play on the rebuilt package are **not tested**.
 
 ## Chat command routing and macOS quote keys (2026-11-26)
 

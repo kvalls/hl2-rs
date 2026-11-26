@@ -91,6 +91,7 @@ pub struct Console {
     mode: Mode,
     /// What the windows are over: the main menu, the pause menu or the game.
     base: Mode,
+    restore_console_on_pause: bool,
     /// The window stack and focus (the Options dialog and the console), the console dialog,
     /// Escape held over a dialog, key repeat and the latest pointer.
     pub shell: Shell<Window>,
@@ -288,6 +289,7 @@ impl Default for Console {
             canvas: Canvas::default(),
             mode: Mode::Gameplay,
             base: Mode::Gameplay,
+            restore_console_on_pause: false,
             // `Frame.FocusTransitionEffectTime` of the installed desktop scheme.
             shell: Shell::new(
                 0.3,

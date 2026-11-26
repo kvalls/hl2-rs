@@ -371,12 +371,7 @@ pub(crate) fn controls(
         route_attacks(game, &devices, cfg, overlay_open);
     }
     sim.input = Input::default();
-    if sim.paused()
-        || sim.transition
-        || ui
-            .as_ref()
-            .is_some_and(|ui| ui.source.mode() == hl2_ui::console::Mode::Console)
-        || (cursor.grab_mode == CursorGrabMode::None && !overlay_open)
+    if sim.paused() || sim.transition || (cursor.grab_mode == CursorGrabMode::None && !overlay_open)
     {
         if let Some(game) = game.as_deref_mut() {
             game.consume_attacks();
