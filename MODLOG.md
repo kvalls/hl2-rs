@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-26 — Close O23 and measure the O10 memory baseline
+
+- Codex desktop, `gpt-6.2-sol`.
+- Closed O23 after three packaged 120-second Station 02 crowd runs on macOS Metal. Host swapout traffic was zero in each run. Ending swap use changed by −16, −16 and 0 MB. The first idle control separately recorded 303 MiB of swapouts.
+- Measured O10 across fresh Station 01–03 loads, the campaign transition replay and the crowd. Three transition repeats sampled peaks of 3.89–4.10 GB RSS. Crowd peaks were 3.95–4.40 GB. Compared final asset counts and verified that the campaign reached Station 03 with the starting inventory intact.
+- O10 remains open for peak allocation attribution. Longer interactive play and other platforms are **not tested**.
+
 ## 2026-11-26 — Merge upstream main through `8a2230ca`
 
 - Codex desktop, GPT-6 family, exact model ID not recorded.

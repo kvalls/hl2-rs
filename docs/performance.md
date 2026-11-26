@@ -1950,3 +1950,51 @@ live pacing and Windows runtime are **not tested** in this sweep.
 The final package (SHA-256 prefix `bfcfb247`) repeated mixed 100
 with 100 verified bodies, 0.293 ms per physics tick,
 4.793 ms post-placement mean and a 6 ms p99 bound.
+
+## O23 swap and O10 memory baseline (2026-11-26)
+
+M1 Pro, 16 GB, macOS Metal. Everyday packaged release at `02ff411f`,
+executable SHA-256 prefix `98cfefa4cc908458`. Each launch used isolated
+settings at 1920×1080. The external sampler took game RSS, host swap use
+and cumulative `vm_stat` swap counters about every two seconds. Each run
+used `--background --no-setup --mute --width 1920 --height 1080`
+with the relevant `--map`, `--movement-script` and `--report`. The
+engine profiler and Metal recorder were off.
+
+For O23, replay `test-inputs/performance-research/mixed-crowd.json` on
+`d1_trainstation_02`, adding a final marker at tick 8000 (120 seconds of
+simulation). Each run reached the marker and exited normally. The three
+runs took approximately 124 wall-clock seconds each. Idle controls ran
+for approximately 31 seconds before each run and after the last one.
+
+| Crowd run | Samples | Host swap start → end (MB as reported) | Host swapout traffic (MiB) | Game RSS median / sampled peak (sampler MB) |
+|---|---:|---:|---:|---:|
+| 1 | 62 | 2719.62 → 2703.62 | 0 | 2500.9 / 4399.0 |
+| 2 | 62 | 2703.62 → 2687.62 | 0 | 2391.9 / 4006.1 |
+| 3 | 62 | 2687.62 → 2687.62 | 0 | 1548.8 / 3951.7 |
+
+The first idle control moved from 3540.56 to 2719.62 MB of swap in use while
+recording 303.20 MiB of swapouts. Later idle controls recorded zero swapouts.
+The counters describe the whole host, and shorter RSS spikes can fall
+between samples. The crowd runs complete O23's check for swap growth
+without trace recorders. Longer interactive sessions and other platforms
+are **not tested**.
+
+For O10, the same package ran each station from a fresh process for 600
+frames. The campaign replay (`test-inputs/bevy-campaign.json`) loaded
+Stations 01, 02 and 03 in order and preserved the inventory. Its first
+sampled RSS peak was 3587.7 MB at a two-second interval. Three repeats
+sampled roughly every 0.3 seconds and caught higher peaks.
+
+| Scenario | Game RSS median / sampled peak (sampler MB) | Final meshes | Final images | Final material slots |
+|---|---:|---:|---:|---:|
+| Station 01 fresh | 2529.6 / 2530.3 | 1318 | 762 | 48 |
+| Station 02 fresh | 2631.0 / 2631.4 | 1239 | 799 | 43 |
+| Station 03 fresh | 2158.5 / 2160.0 | 1340 | 676 | 2 |
+| Station 01 → 02 → 03, three repeats | 3047.0–3261.1 / 3890.8–4095.1 | 1352–1353 | 676 | 2 |
+| Station 02 mixed crowd, three repeats | 1548.8–2500.9 / 3951.7–4399.0 | 3065–3079 | 896 | 43 |
+
+The campaign peak exceeded the sampled peak of every fresh station launch.
+The final counts show the number of live asset handles at exit. Peak
+allocation attribution requires byte measurements during the transition. O10 remains open. Compare live asset bytes and temporary loader
+buffers across the changelevel before selecting an optimization.

@@ -1,5 +1,13 @@
 # STATUS
 
+## Performance backlog memory measurements (2026-11-26)
+
+O23 is done. Three packaged macOS Metal crowd replays reached 120 seconds
+of gameplay with zero host swapouts and no swap growth. O10 has a sampled
+RSS and final asset-count baseline for fresh station loads, campaign
+changelevels and the crowd. Attribution of the 3.89–4.10 GB changelevel
+peaks remains open. See docs/performance.md for pack and sampling details.
+
 ## Performance branch integration (2026-11-26)
 
 Integrated upstream main `8a2230ca` with `3ad2588e`. The merged motor uses route detours when local steering cannot pass an actor. The packaged macOS suite passed 111/111 before and after integration. Three replay expectation differences and their resolutions are recorded in MODLOG. Workspace validation and Windows-target Clippy passed. Windows runtime and the Station 01 bench arrival time on this build are **not tested**.
