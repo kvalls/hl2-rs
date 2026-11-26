@@ -22,6 +22,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // The frame is sRGB: sampling yields linear values, and the window attachment encodes
     // them again. The ramp applies to the display-encoded values in between.
     let frame = textureSample(frame_texture, frame_sampler, mesh.uv);
+    if abs(present.params.x - 1.0) < 1e-4 { return frame; }
     let ramped = pow(clamp(encode(frame.rgb), vec3(0.0), vec3(1.0)), vec3(present.params.x));
     return vec4(decode(ramped), frame.a);
 }

@@ -344,11 +344,13 @@ pub(crate) fn fallback_images(
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct MaterialKey {
     two_sided: bool,
+    may_discard: bool,
 }
 impl From<&SourceMaterial> for MaterialKey {
     fn from(material: &SourceMaterial) -> Self {
         Self {
             two_sided: material.two_sided,
+            may_discard: !matches!(material.alpha, AlphaMode::Opaque) || material.parameters.x > 0.,
         }
     }
 }
@@ -377,6 +379,11 @@ impl bevy::pbr::Material for SourceMaterial {
             key.bind_group_data.two_sided,
             key.mesh_key,
         );
+        if key.bind_group_data.may_discard
+            && let Some(fragment) = &mut descriptor.fragment
+        {
+            fragment.shader_defs.push("SOURCE_MAY_DISCARD".into());
+        }
         Ok(())
     }
 }
@@ -700,6 +707,47 @@ mod tests {
             Some(Face::Back)
         );
         assert_eq!(faces_culled(Some(Face::Back), true, colour), None);
+    }
+
+    #[test]
+    fn material_key_only_enables_discard_for_non_opaque_or_alpha_tested_materials() {
+        let mut images = Assets::<Image>::default();
+        let white = images.add(image(1, 1, vec![255; 4], false));
+        let (cube, cookie) = (Handle::default(), Handle::default());
+        let opaque = make_material(
+            &MaterialData::default(),
+            white.clone(),
+            white.clone(),
+            None,
+            (&white, &cube, &cookie),
+        );
+        assert!(!MaterialKey::from(&opaque).may_discard);
+
+        let mut custom_cutoff = opaque.clone();
+        custom_cutoff.parameters.x = 0.25;
+        assert!(MaterialKey::from(&custom_cutoff).may_discard);
+
+        for (alpha_cutoff, translucent, additive, modulate) in [
+            (Some(0.5), false, false, false),
+            (None, true, false, false),
+            (None, false, true, false),
+            (None, false, false, true),
+        ] {
+            let mat = make_material(
+                &MaterialData {
+                    alpha_cutoff,
+                    translucent,
+                    additive,
+                    modulate,
+                    ..Default::default()
+                },
+                white.clone(),
+                white.clone(),
+                None,
+                (&white, &cube, &cookie),
+            );
+            assert!(MaterialKey::from(&mat).may_discard);
+        }
     }
 
     #[test]

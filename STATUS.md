@@ -1,5 +1,20 @@
 # STATUS
 
+## O1 opaque shader HSR and hotspot captures (2026-11-26)
+
+`MaterialKey::may_discard` (`SOURCE_MAY_DISCARD`) removes `discard` and the
+base alpha test from `AlphaMode::Opaque` pipelines in `source.wgsl` and
+`source_depth.wgsl`, `source.wgsl` shares one `srgb_to_linear` and skips the
+clustered spotlight lookup when `ClusterConfig::Single` has no spot lights, and
+`present.wgsl` bypasses gamma power math at neutral gamma (`2.2`). On
+`d1_trainstation_02` hotspots at maxed Retina (`3456×2168` headless / `3456×1978`
+windowed, analyzed by `hud_pass_2d`), `plaza-headless` GPU busy dropped
+`8.75 -> 8.17 ms` mean (`p95 9.43 -> 8.85`, frames > 8.33 ms `76.6% -> 39.6%`),
+`plaza-hall` windowed dropped `7.97 -> 7.47 ms` (`p95 8.82 -> 8.32`, `86.2 -> 90.6 FPS`),
+and `plaza` windowed dropped `8.90 -> 8.36 ms` (`84.9 -> 86.6 FPS`). Ten targeted
+replays and 35 rendering unit tests passed. Multi-pair interleaved A/B, live
+interactive pacing, and Windows runtime are **not tested**. See `docs/performance.md`.
+
 ## O1/O20 camera-only blur candidate (2026-11-26)
 
 Explicitly empty object coverage skips three reduction passes during

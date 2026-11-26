@@ -251,13 +251,20 @@ fn flashlight(world_position: vec4<f32>, n: vec3<f32>, frag_coord: vec2<f32>) ->
     }
     return vec3(0.0);
 }
+fn has_spot_lights() -> bool {
+    if lights.cluster_dimensions.w != 1u { return true; }
+    let ranges = clustered_forward::unpack_clusterable_object_index_ranges(0u);
+    return ranges.first_spot_light_index_offset < ranges.first_reflection_probe_index_offset;
+}
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var base = textureSample(base_texture, base_sampler, mesh.uv);
     // DecalModulate (SDK decalmodulate_dx9.cpp): alpha test, then the frame times twice the
     // texture (DST_COLOR, SRC_COLOR): grey leaves it unchanged. Unlit and without the tonemap scale.
     if material.parameters.z > 1.5 {
+#ifdef SOURCE_MAY_DISCARD
         if base.a < material.parameters.x { discard; }
+#endif
         return vec4(srgb_to_linear(base.rgb * 2.0), 1.0);
     }
     let eye =material.parameters.w > 0.5 && material.parameters.w < 1.5;
@@ -295,27 +302,37 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Static-prop vertex colour is baked illumination, not emissive albedo.
     let material_albedo = base.rgb;
     base *= material_tint() * vertex_color;
+#ifdef SOURCE_MAY_DISCARD
     if base.a < material.parameters.x { discard; }
+#endif
 #ifdef MAY_DISCARD
     // Alpha-test survivors are opaque. Retaining texture alpha blends the sky back
     // through cutout edges when later cameras compose the frame, creating bright rims.
     base.a = 1.0;
 #endif
 
-    let baked = select(textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb, vec3(1.0), eye);
-    // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
-    // Procedural camera images are sampled through an sRGB view and are already linear.
-    var rgb = select(srgb_to_linear(base.rgb) * baked, base.rgb, material.parameters.w < -0.5);
+    var linear_base = base.rgb;
+    var rgb = base.rgb;
+    if material.parameters.w >= -0.5 {
+        var baked = vec3(1.0);
+        if !eye {
+            baked = textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb;
+        }
+        // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
+        // Procedural camera images are sampled through an sRGB view and are already linear.
+        linear_base = srgb_to_linear(base.rgb);
+        rgb = linear_base * baked;
+    }
     if lit {
         let basis = light_basis(lslot);
         let p = (basis * vec4(mesh.world_position.xyz, 1.0)).xyz;
         let n = normalize((basis * vec4(mesh.world_normal, 0.0)).xyz);
-        rgb = srgb_to_linear(base.rgb) * model_light(lslot, p, n);
+        rgb = linear_base * model_light(lslot, p, n);
     }
     if lparams.w > 1.5 && material.parameters.z < 0.5 && material.parameters.w > -0.5 {
-        rgb += srgb_to_linear(base.rgb) * viewmodel_flashlight_color(lslot, mesh.world_position.xyz, mesh.world_normal);
-    } else if lparams.w < 0.5 {
-        rgb += srgb_to_linear(base.rgb) * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
+        rgb += linear_base * viewmodel_flashlight_color(lslot, mesh.world_position.xyz, mesh.world_normal);
+    } else if lparams.w < 0.5 && has_spot_lights() {
+        rgb += linear_base * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
     }
     // SDK $selfillum: diffuse = lerp(diffuse, material.tint * albedo, base alpha), before specular.
     if material.self_illum.w > 0.5 {

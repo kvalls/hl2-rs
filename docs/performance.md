@@ -1952,6 +1952,25 @@ with 100 verified bodies, 0.293 ms per physics tick,
 4.793 ms post-placement mean and a 6 ms p99 bound.
 
 
+## O1 opaque shader HSR, flashlight early-out and neutral gamma present (2026-11-26)
+
+On Apple M1 Pro Metal (`19eff634` SHA-256 `64b50490` vs candidate SHA-256 `e54cddd0`), three zero-behavioral-change shader specializations targeted `main_opaque_pass_3d`, `early prepass`, and `main_opaque_pass_2d` at maxed Retina settings (`3456×2168`, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `MaterialKey::may_discard` (`SOURCE_MAY_DISCARD` in `crates/hl2-bevy/src/rendering/material.rs`) omits `discard` and the `base_texture` alpha test from `AlphaMode::Opaque` pipelines in `source.wgsl` and `source_depth.wgsl`, preserving Apple TBDR hidden-surface removal and early depth testing on opaque world geometry, props, and actors.
+2. `source.wgsl` reuses a single `srgb_to_linear(base.rgb)` conversion, skips the lightmap sample on unlit/camera paths, and gates `flashlight(...)` behind `has_spot_lights()` when the view uses a single cluster (`ClusterConfig::Single`) with zero spot lights.
+3. `present.wgsl` returns `frame` directly when `mat_monitorgamma` is neutral (`2.2`, `abs(present.params.x - 1.0) < 1e-4`), skipping per-pixel sRGB encode/power/decode across the 2D presentation pass.
+
+All Metal GPU intervals below were analyzed by `hud_pass_2d` (single real-frame boundary, avoiding multi-`upscaling` splits when `camera_tv_breen` or `PresentCamera` is active). Windowed runs (`--no-focus`) presented at `3456×1978` inside the macOS desktop area; headless runs (`--background`) rendered `3456×2168`.
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `main_opaque_pass_3d` Frag | `early prepass` Frag | `main_opaque_pass_2d` Frag | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 19% → 29% | 8.23 → 8.04 | 8.06 / 10.07 / 12.28 → 7.98 / 9.85 / 10.99 | 311/1081 (28.8%) → 456/1170 (39.0%) | 2.668 → 2.489 | 0.634 → 0.524 | — | — | 8.99 / 12.05 → 8.84 / 10.84 |
+| `plaza-headless` | 84% → 75% | 8.75 → 8.17 | 8.80 / 9.43 / 9.57 → 8.19 / 8.85 / 9.07 | 862/1125 (76.6%) → 473/1195 (39.6%) | 3.365 → 2.815 | 0.626 → 0.588 | — | — | 9.12 / 10.64 → 8.78 / 10.24 |
+| `plaza-hall` (windowed) | 29% → 79% | 7.97 → 7.47 | 7.98 / 8.82 / 9.30 → 7.50 / 8.32 / 8.63 | 215/904 (23.8%) → 46/944 (4.9%) | 2.391 → 2.071 | 0.570 → 0.498 | 0.271 → 0.113 | 86.2 → 90.6 (353/901 → 306/943) | 10.46 / 15.41 → 10.16 / 14.77 |
+| `plaza` (windowed) | 33% → 64% | 8.90 → 8.36 | 8.97 / 9.62 / 9.77 → 8.41 / 9.03 / 9.20 | 786/886 (88.7%) → 524/907 (57.8%) | 3.162 → 2.670 | 0.610 → 0.570 | 0.271 → 0.127 | 84.9 → 86.6 (364/881 → 348/902) | 11.14 / 16.59 → 10.91 / 15.78 |
+
+Verified with 35 `hl2-bevy` rendering unit tests (`material_key_only_enables_discard_for_non_opaque_or_alpha_tested_materials` added), strict Clippy, `cargo fmt --check`, architecture check, and 10 targeted packaged replays (`flashlight_shadows`, `flashlight_viewmodel`, `monitors-breen-screen`, `face-security-1805`, `hud`, `effect-decal`, `effect-decal-door`, `video`, `viewmodel_motion_blur`, `lamp_emission`). Multi-pair interleaved A/B runs (these are single pairs per scene with idle GPU variance noted), interactive live play, and Windows runtime are **not tested**.
+
 ## O1/O20 camera-only world blur reductions (2026-11-26)
 
 The camera-only world filter can run while the object motion region is

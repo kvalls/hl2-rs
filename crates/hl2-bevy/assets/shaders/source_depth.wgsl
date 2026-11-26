@@ -15,10 +15,12 @@ fn fragment(mesh: VertexOutput)
  -> FragmentOutput
 #endif
 {
+#ifdef SOURCE_MAY_DISCARD
     if material.parameters.x > 0.0 {
         let alpha = select(textureSample(base_texture, base_sampler, mesh.uv).a, 1.0, material.parameters.y > 0.5);
         if alpha * material.tint.a < material.parameters.x { discard; }
     }
+#endif
 #ifdef MOTION_VECTOR_PREPASS
     var out: FragmentOutput;
     if material.lighting.params.w > 1.5 {

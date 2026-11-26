@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — O1 opaque shader HSR, flashlight early-out and neutral gamma present
+
+- Agent/model: Antigravity (Gemini 4 family, exact model ID not recorded).
+- Changed: Add `MaterialKey::may_discard` (`SOURCE_MAY_DISCARD`) in `crates/hl2-bevy/src/rendering/material.rs` so `AlphaMode::Opaque` materials omit `discard` and alpha-test texture reads in `source.wgsl` and `source_depth.wgsl`. Deduplicate `srgb_to_linear`, skip lightmap sampling on unlit/camera materials, and gate `flashlight(...)` behind `has_spot_lights()` in `source.wgsl`. Add an early return for neutral `gamma == 2.2` in `present.wgsl`.
+- Why: Station 02 plaza and hall hotspot Metal captures (`19eff634`) showed `main_opaque_pass_3d` (`2.39–3.37 ms` Frag), `early prepass` (`0.57–0.63 ms` Frag), and `main_opaque_pass_2d` (`0.27 ms` Frag) pushing `plaza` to `84.9 FPS` and `plaza-hall` to `86.2 FPS`.
+- Tested how: `cargo test --locked -p hl2-bevy --lib rendering` (35 passed, 1 ignored), strict Clippy, `cargo fmt --check`, architecture check, 10 targeted packaged replays (`flashlight_shadows`, `flashlight_viewmodel`, `monitors-breen-screen`, `face-security-1805`, `hud`, `effect-decal`, `effect-decal-door`, `video`, `viewmodel_motion_blur`, `lamp_emission`), and single-pair Metal + `--profile` hotspot captures (`plaza-hall-headless`, `plaza-headless`, `plaza-hall`, `plaza`) analyzed by `hud_pass_2d`.
+- Result: `plaza-headless` GPU busy fell `8.75 -> 8.17 ms` mean (`p95 9.43 -> 8.85`, frames > 8.33 ms `76.6% -> 39.6%`, `main_opaque_pass_3d` Frag `3.365 -> 2.815 ms`). `plaza-hall` windowed fell `7.97 -> 7.47 ms` (`p95 8.82 -> 8.32`, `86.2 -> 90.6 FPS`, `main_opaque_pass_2d` Frag `0.271 -> 0.113 ms`). `plaza` windowed fell `8.90 -> 8.36 ms` (`84.9 -> 86.6 FPS`).
+- Still broken or not tested: Multi-pair interleaved A/B runs, interactive live pacing, and Windows runtime are **not tested**. `plaza` (`86.6 FPS`) and `plaza-hall` (`90.6 FPS`) still miss 120 Hz due to CPU `render_graph` (`6.0–6.2 ms`) and remaining GPU passes (`main_opaque_pass_3d`, `main_transparent_pass_3d`, `source_bloom`).
+- Next: Capture headless `trace` profiles on `plaza`, `plaza-hall`, and startup/first-frame (O4, O13, O27).
+
 ## 2026-11-26 — O1/O20 omit empty object reductions during camera blur
 
 - Codex desktop, GPT-6.2 Sol.
