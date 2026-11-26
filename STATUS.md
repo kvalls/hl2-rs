@@ -1,5 +1,23 @@
 # STATUS
 
+## Console selection and plugin editing shortcuts (2026-11-26)
+
+Core (`source-ui`, `hl2-ui`, `hl2-bevy`) now implements retail Source
+(`TextEntry` / `RichText`) console selection and editing: character-accurate
+mouse click, drag-to-select (with horizontal auto-scroll on edge drag),
+double-click word selection, and triple-click select-all in the entry;
+character-accurate mouse drag and double-click word selection (plus EOL
+highlight) in the output history; and `Cmd/Ctrl+A/C/V/X/Z`, `Shift+Delete`,
+and retail `Cmd/Ctrl+Left/Right` word navigation. Non-retail shortcuts
+(`Ctrl+R` reverse history search and `#HL2RS_Console_ReverseSearch`,
+`Ctrl+U/K/W/E/L`, `Ctrl+Backspace/Delete`, and macOS `Option` word /
+`Command` line shortcuts) live in `hl2-debug` via
+`Extensions::select_console_input`. Workspace validation (`2,039` Rust tests,
+`134` Python tests, all `4` plugin builds, strict Clippy), `hl2-debug --features bevy`
+(`59` tests), Windows strict Clippy, the macOS release build, and the
+`console` and `console_map` replays passed (`0` failed). Windows runtime
+and manual interactive play on the rebuilt binary are **not tested**.
+
 ## Gameplay console shortcuts (2026-11-26)
 
 Escape over the in-game pause menu + developer console hides both surfaces

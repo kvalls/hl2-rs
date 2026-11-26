@@ -1332,13 +1332,7 @@ complete}`, HL2's glue (texts, look, actions to effects) in `hl2-ui::console::pa
   are cached by line number). Lines stay whole in the buffer: scrolling, the scroll bar and the
   wheel count rows, while filtering, coloring, selection and copy work on lines. The entry is a sunken `TextEntry` with no prompt (the `] line`
   echo stays in the history); it scrolls to keep the cursor in view.
-- Selection: dragging over the history selects the lines under the rows it covers, every row
-  of a wrapped line highlighted (`RichText.SelectedBgColor` Orange, `RichText.SelectedTextColor`
-  Black), scrolling a row per frame past the top or bottom. Cmd+C on macOS, Ctrl+C elsewhere
-  copies the selected lines as printed, one per line with their own newlines kept and no wrap
-  breaks, with the current `con_filter_enable` filter and `con_timestamp` prefix, through Bevy
-  `Clipboard`. Rows are numbered since start, so the selection stays on its
-  lines while new output arrives and old lines leave the 1024-line buffer; Ctrl+L clears it.
+- Selection: dragging or double-clicking inside the history (`RichText`) selects exact characters or words (`RichText.SelectedBgColor` Orange, `RichText.SelectedTextColor` Black), scrolling a row per frame past the top or bottom; clicking without dragging leaves no selection. Clicking, Shift+clicking, dragging, double-clicking (word), and triple-clicking (select all) inside the entry (`TextEntry`) position the caret and select characters with horizontal auto-scroll on edge drag. `Cmd/Ctrl+C` (or `Ctrl/Cmd+X` / `Shift+Delete` when only history is selected) copies selected text as printed (keeping `con_filter_enable` and `con_timestamp` prefixes in history), through Bevy `Clipboard`; `Cmd/Ctrl+X` / `Shift+Delete` cuts entry selection, `Cmd/Ctrl+A` selects all in the entry, and `Cmd/Ctrl+Z` undoes edits. History line numbers count since start so selections stay on their lines while output arrives or leaves the 1024-line buffer; `clear` drops the selection (`Ctrl+L` is supplied by `hl2-debug`).
 
 - Code layout: `console.rs` keeps the types, loading, `tick` and `draw`; `impl Console` is split by
   concern into `console/focus.rs` (window stack, focus, Escape, input routing), `menu_flow.rs`
@@ -1362,14 +1356,7 @@ complete}`, HL2's glue (texts, look, actions to effects) in `hl2-ui::console::pa
   bottom of the panel), at most 10 rows with the last one `...` when more (retail
   `MAX_MENU_ITEMS`), cvars with their current value. Above it, a help line shows the usage of the
   command being typed with the argument being typed highlighted (HL2-RS addition).
-- Keys: Tab/Down step forward and Shift+Tab/Up back, putting the item in the line (retail
-  `OnAutoComplete`); Tab on a single match takes it with a space; Up/Down on a line without
-  matches step through the history; Escape ends a Ctrl+R search, then hides the list, then
-  closes the console; Ctrl+R searches the history backwards (Enter runs the match, arrows/Tab take
-  it); Ctrl+W/Backspace and Ctrl+Delete delete words, Ctrl+U/K to the start/end, Ctrl+A/E move
-  there, Ctrl+arrows move by words, Ctrl+Home/End scroll the output, Ctrl+L clears it; paste is
-  Cmd+V on macOS and Ctrl+V elsewhere (Bevy `Clipboard`); typed text is ignored while Control or
-  Cmd is held.
+- Keys: retail core supports Tab/Down forward and Shift+Tab/Up back through completions or history, `Left`/`Right` and `Home`/`End` (with `Shift` selection), `Ctrl/Cmd+Left/Right` word movement (matching retail OSX `Cmd` and cross-platform `Ctrl`), `Ctrl/Cmd+Home/End` output scrolling, `Cmd/Ctrl+A/C/V/X/Z` and `Shift+Delete`; Escape hides the completion list then closes the console. Non-retail shortcuts (`Ctrl+R` reverse history search, `Ctrl+U/K/W/E/L`, `Ctrl+Backspace/Delete`, and macOS `Option` word / `Command` line navigation & deletion) are injected by the `hl2-debug` plugin via `Extensions::select_console_input`; typed text is ignored while Control or Command is held.
 - History: 100 entries (retail `MAX_HISTORY_ITEMS`), a repeated command moves to the end, saved
   in `hl2-console-history.txt` next to the settings file (never in the install). Lines submitted
   by scripts or `Console::submit` do not join it.
@@ -1381,7 +1368,7 @@ complete}`, HL2's glue (texts, look, actions to effects) in `hl2-ui::console::pa
   report still records lines as text.
 - Not ported: binds, aliases, `exec`, cvar registries for unimplemented engine cvars,
   game-specific commands from other titles, moving and resizing the console dialog (and the
-  bounds retail remembers), and character-level selection inside a history row.
+  bounds retail remembers), and right-click Cut/Copy/Paste context menus on the entry and history.
 
 ## 12. Moving and resizing dialogs (2026-10-17)
 

@@ -4,6 +4,7 @@ pub mod agent;
 pub mod bevy;
 mod chat_mode;
 pub mod commands;
+pub mod console_editing;
 pub mod overlay;
 pub mod spawn;
 pub mod spawn_panel;
@@ -22,9 +23,15 @@ pub fn register(extensions: &mut hl2_ui::extensions::Extensions) -> Result<(), S
         ),
         ("HL2RS_AgentRconReady", "Agent session ready on"),
         ("HL2RS_AgentRconFailed", "Could not enable agent session"),
+        ("HL2RS_Console_ReverseSearch", "reverse-i-search"),
     ]);
     extensions.commands(&commands::specs::<hl2_ui::console::Console>())?;
     extensions.select_standard_background(standard_background::forced)?;
+    extensions.select_console_input(
+        "hl2-debug",
+        console_editing::handle,
+        Some(console_editing::CONSOLE_REVERSE_SEARCH),
+    )?;
     extensions.bindings.extend_from_slice(DEFAULT_BINDINGS);
     // The session watcher sets the agent status on every message: not worth a log line each.
     extensions.quiet_remote.push("agent_status");

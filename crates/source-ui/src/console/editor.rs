@@ -15,6 +15,8 @@ mod selection;
 pub const HISTORY_MAX: usize = 100;
 /// Longest input line.
 const MAX_LINE: usize = 1024;
+/// Undo history depth per unsubmitted input line.
+const UNDO_MAX: usize = 64;
 
 /// The completion list and what it completes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,6 +37,7 @@ pub struct LineEditor {
     /// Cursor position in characters.
     cursor: usize,
     anchor: Option<usize>,
+    undo_stack: Vec<(String, usize)>,
     history: Vec<String>,
     history_changed: bool,
     list: Option<List>,
@@ -43,6 +46,8 @@ pub struct LineEditor {
     /// Ctrl+R: the query and how many matches back.
     search: Option<(String, usize)>,
 }
+
+pub use selection::word_bounds;
 
 pub(super) fn char_index(text: &str, chars: usize) -> usize {
     text.char_indices()
@@ -131,6 +136,38 @@ impl LineEditor {
         });
     }
 
+    fn push_undo(&mut self) {
+        if self
+            .undo_stack
+            .last()
+            .is_some_and(|(t, c)| *t == self.text && *c == self.cursor)
+        {
+            return;
+        }
+        if self.undo_stack.len() >= UNDO_MAX {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push((self.text.clone(), self.cursor));
+    }
+
+    /// Restores the text and cursor prior to the most recent edit (`Cmd/Ctrl+Z`).
+    pub fn undo(&mut self) -> bool {
+        self.accept_search();
+        let Some((text, cursor)) = self.undo_stack.pop() else {
+            return false;
+        };
+        self.edited(text, cursor);
+        true
+    }
+
+    /// Deletes and returns the active selection, if any (`Cmd/Ctrl+X` / `Shift+Delete`).
+    pub fn cut(&mut self) -> Option<String> {
+        let selected = self.selected_text()?.to_owned();
+        self.push_undo();
+        self.delete_selection();
+        Some(selected)
+    }
+
     pub fn insert(&mut self, text: &str) {
         if let Some((query, _)) = &mut self.search {
             query.extend(text.chars().filter(|c| !c.is_control()));
@@ -140,6 +177,12 @@ impl LineEditor {
         if text.chars().all(char::is_control) {
             return;
         }
+        let has_selection = self.selection().is_some();
+        let insert_non_empty = text.chars().any(|c| !c.is_control());
+        if !has_selection && !insert_non_empty {
+            return;
+        }
+        self.push_undo();
         self.delete_selection();
         let mut chars: Vec<char> = self.text.chars().collect();
         let insert: Vec<char> = text
@@ -162,7 +205,9 @@ impl LineEditor {
     }
 
     pub fn backspace(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         if let Some((query, _)) = &mut self.search {
@@ -171,6 +216,7 @@ impl LineEditor {
             return;
         }
         if self.cursor > 0 {
+            self.push_undo();
             let mut chars: Vec<char> = self.text.chars().collect();
             chars.remove(self.cursor - 1);
             self.edited(chars.into_iter().collect(), self.cursor - 1);
@@ -178,11 +224,14 @@ impl LineEditor {
     }
 
     pub fn delete(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         let mut chars: Vec<char> = self.text.chars().collect();
         if self.cursor < chars.len() {
+            self.push_undo();
             chars.remove(self.cursor);
             self.edited(chars.into_iter().collect(), self.cursor);
         }
@@ -192,10 +241,10 @@ impl LineEditor {
     fn word_start(&self) -> usize {
         let chars: Vec<char> = self.text.chars().collect();
         let mut at = self.cursor.min(chars.len());
-        while at > 0 && chars[at - 1] == ' ' {
+        while at > 0 && chars[at - 1].is_whitespace() {
             at -= 1;
         }
-        while at > 0 && chars[at - 1] != ' ' {
+        while at > 0 && !chars[at - 1].is_whitespace() {
             at -= 1;
         }
         at
@@ -205,52 +254,77 @@ impl LineEditor {
     fn word_end(&self) -> usize {
         let chars: Vec<char> = self.text.chars().collect();
         let mut at = self.cursor.min(chars.len());
-        while at < chars.len() && chars[at] == ' ' {
+        while at < chars.len() && chars[at].is_whitespace() {
             at += 1;
         }
-        while at < chars.len() && chars[at] != ' ' {
+        while at < chars.len() && !chars[at].is_whitespace() {
             at += 1;
         }
         at
     }
 
-    /// Ctrl+Backspace / Ctrl+W.
+    /// Deletes the word before the cursor (or the active selection).
     pub fn delete_word_back(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         let start = self.word_start();
+        if start == self.cursor {
+            return;
+        }
+        self.push_undo();
         let chars: Vec<char> = self.text.chars().collect();
         let text = chars[..start].iter().chain(&chars[self.cursor..]).collect();
         self.edited(text, start);
     }
 
-    /// Ctrl+Delete.
+    /// Deletes the word after the cursor (or the active selection).
     pub fn delete_word_forward(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         let end = self.word_end();
+        if end == self.cursor {
+            return;
+        }
+        self.push_undo();
         let chars: Vec<char> = self.text.chars().collect();
         let text = chars[..self.cursor].iter().chain(&chars[end..]).collect();
         self.edited(text, self.cursor);
     }
 
-    /// Ctrl+U: delete up to the cursor.
+    /// Deletes from the start of the line up to the cursor.
     pub fn kill_to_start(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
+        if self.cursor == 0 {
+            return;
+        }
+        self.push_undo();
         let rest = self.text[char_index(&self.text, self.cursor)..].to_owned();
         self.edited(rest, 0);
     }
 
-    /// Ctrl+K: delete from the cursor on.
+    /// Deletes from the cursor to the end of the line.
     pub fn kill_to_end(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
-        let kept = self.text[..char_index(&self.text, self.cursor)].to_owned();
+        let byte = char_index(&self.text, self.cursor);
+        if byte == self.text.len() {
+            return;
+        }
+        self.push_undo();
+        let kept = self.text[..byte].to_owned();
         let cursor = self.cursor;
         self.edited(kept, cursor);
     }
@@ -276,10 +350,10 @@ impl LineEditor {
         self.anchor = None;
         let chars: Vec<char> = self.text.chars().collect();
         let mut at = self.cursor;
-        while at < chars.len() && chars[at] != ' ' {
+        while at < chars.len() && !chars[at].is_whitespace() {
             at += 1;
         }
-        while at < chars.len() && chars[at] == ' ' {
+        while at < chars.len() && chars[at].is_whitespace() {
             at += 1;
         }
         self.cursor = at;
@@ -346,6 +420,7 @@ impl LineEditor {
             let text = format!("{}{} ", list.head, list.items[0].text);
             self.list = None;
             let cursor = text.chars().count();
+            self.push_undo();
             self.set(text, cursor);
             return;
         }
@@ -360,6 +435,7 @@ impl LineEditor {
         let text = format!("{}{}", list.head, list.items[index].text);
         list.shows = text.clone();
         let cursor = text.chars().count();
+        self.push_undo();
         self.set(text, cursor);
     }
 
@@ -410,6 +486,7 @@ impl LineEditor {
         self.accept_search();
         let line = std::mem::take(&mut self.text);
         self.cursor = 0;
+        self.undo_stack.clear();
         self.list = None;
         self.dismissed = None;
         let entry = line.trim();

@@ -1,9 +1,6 @@
 //! Lines printed since they were last taken, for readers outside the dialog (a log file, a
 //! remote console client). Kept only while a reader asked for them.
-use super::{
-    Canvas, Color, ConsolePanel, HistoryRow, Level, Line, Selection, OUTPUT_LINES, TAB_SPACES,
-    WHITE,
-};
+use super::{Canvas, ConsolePanel, Level, Line, Selection, OUTPUT_LINES};
 
 impl ConsolePanel {
     /// Prints a line at `level`, stamped with the current time.
@@ -76,11 +73,11 @@ impl ConsolePanel {
     fn move_pinned_snapshot(&mut self, old_number: u64, new_number: u64) {
         self.snapshot = Some(new_number);
         if let Some(mut selection) = self.selection {
-            if selection.anchor == old_number {
-                selection.anchor = new_number;
+            if selection.anchor.line == old_number {
+                selection.anchor.line = new_number;
             }
-            if selection.head == old_number {
-                selection.head = new_number;
+            if selection.head.line == old_number {
+                selection.head.line = new_number;
             }
             self.selection = Some(selection);
         }
@@ -153,27 +150,6 @@ impl ConsolePanel {
             self.selection = None;
         }
         lines
-    }
-    pub(super) fn draw_history_row(
-        &self,
-        shown: &HistoryRow<'_>,
-        selected: bool,
-        (x, baseline, scale): (f32, f32, f32),
-        color: Color,
-        draw_text: &impl Fn(&str, f32, f32, Color),
-    ) {
-        let content =
-            self.shown_text(shown.line)[shown.text.clone()].replace('\t', &" ".repeat(TAB_SPACES));
-        let split = (!selected && shown.text.start == 0)
-            .then(|| chat_label_end(shown.line.level, &content))
-            .flatten();
-        if let Some(split) = split {
-            draw_text(&content[..split], x, baseline, WHITE);
-            let body_x = x + self.text_width(&content[..split], scale);
-            draw_text(&content[split..], body_x, baseline, color);
-        } else {
-            draw_text(&content, x, baseline, color);
-        }
     }
 }
 
@@ -266,7 +242,7 @@ mod tests {
             panel.print(&canvas, Level::Normal, format!("line {i}"));
         }
         panel.scroll = 7;
-        let selection = Selection { anchor: 2, head: 5 };
+        let selection = Selection::lines(2, 5);
         panel.selection = Some(selection);
         let redirect = panel.start_redirect();
         panel.print(&canvas, Level::Normal, "remote reply");

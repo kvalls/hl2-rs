@@ -227,51 +227,34 @@ fn explicit_text_input_edits_unicode_at_boundaries_and_completes_commands() {
         .any(|s| s.contains("sv_cheats")));
 }
 #[test]
-fn console_shortcuts_search_paste_filter_and_timestamps() {
+fn console_shortcuts_paste_filter_and_timestamps() {
     let mut console = Console::default();
     console.toggle();
     console.set_history(vec!["fov 90".into(), "volume 0.5".into()]);
-    console.input(&Input {
-        text: "x".into(),
-        ctrl: true,
-        binding_keys: vec!["KeyR".into()],
-        ..Default::default()
-    });
-    console.input(&Input {
-        text: "fov".into(),
-        ..Default::default()
-    });
-    assert_eq!(
-        console.shell.panel.editor.search(),
-        Some(("fov", Some("fov 90")))
-    );
-    console.escape();
-    assert_eq!(
-        console.mode(),
-        Mode::Console,
-        "Escape ends the search first"
-    );
     console.input(&Input {
         paste: Some("echo pasted\n".into()),
         ..Default::default()
     });
     assert_eq!(console.input_line(), "echo pasted");
-    console.input(&Input {
-        ctrl: true,
-        binding_keys: vec!["KeyU".into()],
-        ..Default::default()
-    });
-    assert_eq!(console.input_line(), "");
+    // Non-retail shortcuts (Ctrl+R search, Ctrl+U kill, Ctrl+L clear) stay inactive in core.
+    for key in ["KeyR", "KeyU", "KeyL"] {
+        console.input(&Input {
+            ctrl: true,
+            binding_keys: vec![key.into()],
+            ..Default::default()
+        });
+    }
+    assert_eq!(console.shell.panel.editor.search(), None);
+    assert_eq!(console.input_line(), "echo pasted");
     console.submit("con_filter_enable 1; con_filter_text Loaded; con_timestamp 1");
     assert_eq!(
-        console.cvar_value("con_filter_enable").as_deref(),
-        Some("1")
+        (
+            console.cvar_value("con_filter_enable").as_deref(),
+            console.cvar_value("con_filter_text").as_deref(),
+            console.shell.panel.con_timestamp,
+        ),
+        (Some("1"), Some("Loaded"), true)
     );
-    assert_eq!(
-        console.cvar_value("con_filter_text").as_deref(),
-        Some("Loaded")
-    );
-    assert!(console.shell.panel.con_timestamp);
     assert!(console.submit("con_filter_enable 3").is_empty());
     assert_eq!(
         console.cvar_value("con_filter_enable").as_deref(),
@@ -288,15 +271,8 @@ fn console_shortcuts_search_paste_filter_and_timestamps() {
         "\"Loaded hl2/background01\"",
         "lines serialize as their text in the run report"
     );
-    console.input(&Input {
-        ctrl: true,
-        binding_keys: vec!["KeyL".into()],
-        ..Default::default()
-    });
-    assert!(
-        console.shell.panel.output.is_empty(),
-        "Ctrl+L clears the output"
-    );
+    console.submit("clear");
+    assert!(console.shell.panel.output.is_empty());
 }
 /// Canvas point at the middle of a frame-relative layout rectangle of the console dialog.
 fn dialog_point(console: &Console, rect: Rect) -> Vec2 {
@@ -306,15 +282,6 @@ fn dialog_point(console: &Console, rect: Rect) -> Vec2 {
         .dialog_layout(&console.canvas)
         .canvas(rect);
     vec2(r.x + r.w * 0.5, r.y + r.h * 0.5)
-}
-/// Canvas point on the history row `row` (0 is the top row shown).
-fn history_point(console: &Console, row: usize) -> Vec2 {
-    let layout = console.shell.panel.dialog_layout(&console.canvas);
-    let text = layout.canvas(HistoryView::new(&layout).text);
-    vec2(
-        text.x + 10.,
-        text.y + (row as f32 + 0.5) * CONSOLE_ROW * layout.scale,
-    )
 }
 fn press(console: &mut Console, at: Vec2) -> Vec<Effect> {
     console.input(&Input {
@@ -331,16 +298,24 @@ fn release(console: &mut Console, at: Vec2) -> Vec<Effect> {
         ..Default::default()
     })
 }
-/// Drags over the history from row `from` to row `to`.
+/// Drags horizontally across history rows from `from` through `to` (full-row character span).
 fn drag(console: &mut Console, from: usize, to: usize) {
-    press(console, history_point(console, from));
-    let to = history_point(console, to);
+    let layout = console.shell.panel.dialog_layout(&console.canvas);
+    let area = layout.canvas(HistoryView::new(&layout).text);
+    let y = |row: usize| area.y + (row as f32 + 0.5) * CONSOLE_ROW * layout.scale;
+    let (start_x, end_x) = if from <= to {
+        (area.x + 1., area.x + area.w - 1.)
+    } else {
+        (area.x + area.w - 1., area.x + 1.)
+    };
+    press(console, vec2(start_x, y(from)));
+    let target = vec2(end_x, y(to));
     console.input(&Input {
-        pointer: Some(to),
+        pointer: Some(target),
         held: true,
         ..Default::default()
     });
-    release(console, to);
+    release(console, target);
 }
 fn copy(console: &mut Console) -> Option<String> {
     console.input(&Input {
@@ -586,12 +561,6 @@ fn dragging_over_history_rows_selects_them_for_copy() {
     assert!(copied.ends_with("] line 3"), "{copied}");
     assert!(!copied.contains('\n'), "{copied}");
 
-    console.input(&Input {
-        ctrl: true,
-        binding_keys: vec!["KeyL".into()],
-        ..Default::default()
-    });
-    assert_eq!(copy(&mut console), None, "Ctrl+L clears the selection");
     console.submit("con_filter_enable 0");
     drag(&mut console, 0, 0);
     assert!(copy(&mut console).is_some());
@@ -705,11 +674,11 @@ fn long_lines_wrap_to_rows_and_newlines_start_rows() {
     );
     assert_eq!(rows.last().unwrap(), &(3, "last".to_owned()));
 
-    // Selecting any row of a wrapped line copies the whole line as printed.
-    drag(&mut console, 2, 2);
+    // Dragging across wrapped rows selects their exact span across lines.
+    drag(&mut console, 1, long_rows);
     assert_eq!(copy(&mut console).as_deref(), Some(long.as_str()));
     let warning_row = long_rows + count;
-    drag(&mut console, warning_row, warning_row);
+    drag(&mut console, 1 + long_rows, warning_row);
     assert_eq!(copy(&mut console).as_deref(), Some(warning));
     drag(&mut console, rows.len() - 1, 0);
     assert_eq!(
@@ -720,7 +689,14 @@ fn long_lines_wrap_to_rows_and_newlines_start_rows() {
     // Timestamps wrap with the text and copy with it.
     console.submit("con_timestamp 1");
     assert_eq!(top_row(&console), (0, "[   0.00] first".to_owned()));
-    drag(&mut console, 2, 2);
+    let ts_long_rows = console
+        .shell
+        .panel
+        .history_rows(&console.canvas)
+        .iter()
+        .filter(|r| r.number == 1)
+        .count();
+    drag(&mut console, 1, ts_long_rows);
     let copied = copy(&mut console).unwrap();
     assert!(
         copied.starts_with("[   0.00] w000") && copied.ends_with(&long),

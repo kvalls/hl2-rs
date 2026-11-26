@@ -202,8 +202,8 @@ pub fn wheel_steps<'a>(events: impl Iterator<Item = &'a bevy::input::mouse::Mous
 /// Keys and buttons pressed this frame as persisted binding names: the `KeyCode` name for keys
 /// (`KeyW`, `SuperLeft`), the Source names `MOUSE1`..`MOUSE5` for buttons and
 /// `MWHEELUP`/`MWHEELDOWN` for the wheel. Unidentified native keys are skipped.
-/// Control and Shift held, and whether this frame pastes or copies: Cmd+V / Cmd+C on macOS,
-/// Ctrl+V / Ctrl+C elsewhere.
+/// Modifiers held, and whether this frame triggers retail editing shortcuts (Control, or Command on
+/// macOS, without Alt, matching SDK `TextEntry` / `RichText`).
 /// Typed text is dropped while Control or Cmd is held (shortcuts, not text).
 pub struct Modifiers {
     pub ctrl: bool,
@@ -212,24 +212,25 @@ pub struct Modifiers {
     pub command: bool,
     pub paste: bool,
     pub copy: bool,
+    pub cut: bool,
+    pub undo: bool,
     pub select_all: bool,
 }
 
 pub fn modifiers(native: &ButtonInput<KeyCode>) -> Modifiers {
     let ctrl = native.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let command = native.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]);
-    let clipboard_modifier = if cfg!(target_os = "macos") {
-        command
-    } else {
-        ctrl
-    };
+    let alt = native.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    let clipboard_modifier = (ctrl || (cfg!(target_os = "macos") && command)) && !alt;
     Modifiers {
         ctrl,
         shift: native.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
-        alt: native.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]),
+        alt,
         command,
         paste: clipboard_modifier && native.just_pressed(KeyCode::KeyV),
         copy: clipboard_modifier && native.just_pressed(KeyCode::KeyC),
+        cut: clipboard_modifier && native.just_pressed(KeyCode::KeyX),
+        undo: clipboard_modifier && native.just_pressed(KeyCode::KeyZ),
         select_all: clipboard_modifier && native.just_pressed(KeyCode::KeyA),
     }
 }
@@ -280,8 +281,17 @@ mod binding_tests {
         keys.release(KeyCode::KeyA);
         keys.press(KeyCode::KeyC);
         assert!(modifiers(&keys).copy);
+        keys.release(KeyCode::KeyC);
+        keys.press(KeyCode::KeyX);
+        assert!(modifiers(&keys).cut);
+        keys.release(KeyCode::KeyX);
+        keys.press(KeyCode::KeyZ);
+        assert!(modifiers(&keys).undo);
+        keys.release(KeyCode::KeyZ);
         keys.press(KeyCode::KeyV);
         assert!(modifiers(&keys).paste);
+        keys.press(KeyCode::AltLeft);
+        assert!(!modifiers(&keys).paste, "Alt suppresses retail shortcuts");
     }
 
     #[test]

@@ -97,11 +97,17 @@ pub struct Input {
     pub shift: bool,
     /// Alt (Option) is held: Alt+Up/Down opens a focused combo box's list (SDK `ComboBox`).
     pub alt: bool,
+    /// Command (Super / Windows key) is held; on macOS, triggers retail Command shortcuts.
+    pub command: bool,
     /// Text pasted this frame (the host reads the clipboard on its paste shortcut).
     pub paste: Option<String>,
-    /// The copy shortcut (Cmd+C on macOS, Ctrl+C elsewhere) was pressed this frame.
+    /// The copy shortcut (Cmd+C or Ctrl+C on macOS, Ctrl+C elsewhere) was pressed this frame.
     pub copy: bool,
-    /// The host platform select-all shortcut was pressed.
+    /// The cut shortcut (Cmd+X or Ctrl+X on macOS, Ctrl+X elsewhere) was pressed this frame.
+    pub cut: bool,
+    /// The undo shortcut (Cmd+Z or Ctrl+Z on macOS, Ctrl+Z elsewhere) was pressed this frame.
+    pub undo: bool,
+    /// The select-all shortcut (Cmd+A or Ctrl+A on macOS, Ctrl+A elsewhere) was pressed this frame.
     pub select_all: bool,
 }
 impl Input {

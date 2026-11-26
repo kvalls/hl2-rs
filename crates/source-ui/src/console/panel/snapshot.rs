@@ -53,12 +53,12 @@ impl ConsolePanel {
         }
         self.output.remove(index);
         if let Some(mut selection) = self.selection {
-            if selection.anchor == number || selection.head == number {
+            if selection.anchor.line == number || selection.head.line == number {
                 self.selection = None;
                 self.selecting = false;
             } else {
-                selection.anchor -= u64::from(selection.anchor > number);
-                selection.head -= u64::from(selection.head > number);
+                selection.anchor.line -= u64::from(selection.anchor.line > number);
+                selection.head.line -= u64::from(selection.head.line > number);
                 self.selection = Some(selection);
             }
         }
@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(rows, ["a", "b", "c", "latest"]);
         panel.print(&canvas, Level::Normal, "tail");
         // ["a", "b", "c", "tail", "latest"]
-        panel.selection = Some(Selection { anchor: 0, head: 3 });
+        panel.selection = Some(Selection::lines(0, 3));
         panel.replace_snapshot(&canvas, "newest");
         assert_eq!(panel.selected_text().as_deref(), Some("a\nb\nc\ntail"));
         // Selecting the pinned snapshot follows it past interleaved ordinary output.
@@ -198,16 +198,23 @@ mod tests {
         let rows = panel.history_rows(&canvas);
         let drawn = std::cell::RefCell::new(Vec::new());
         panel.draw_history_row(
-            &rows[1],
-            false,
-            (0., 0., 1.),
-            panel.line_color(rows[1].line),
+            &canvas,
+            &super::super::selection::RowDraw {
+                shown: &rows[1],
+                area_x: 0.,
+                area_w: 200.,
+                top: 0.,
+                row_h: 14.,
+                baseline: 0.,
+                scale: 1.,
+                base_color: panel.line_color(rows[1].line),
+            },
             &|text, _, _, color| drawn.borrow_mut().push((text.to_owned(), color)),
         );
         assert_eq!(
             *drawn.borrow(),
             vec![
-                ("Console:".into(), super::super::WHITE),
+                ("Console:".into(), crate::canvas::WHITE),
                 (" Waiting...".into(), super::super::CHAT_REMOTE_TEXT),
             ]
         );

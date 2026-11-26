@@ -33,6 +33,10 @@ pub struct Presentation {
 /// Consumes a line entered through the console editor before command parsing.
 pub type LocalSubmit = fn(&mut Console, &str) -> bool;
 
+/// Handles custom console panel keyboard shortcuts before retail editing runs.
+pub type ConsoleInputHook =
+    fn(&mut source_ui::console::panel::ConsolePanel, &source_ui::input::Input) -> bool;
+
 #[derive(Clone, Debug)]
 pub struct Extensions {
     pub commands: Arc<[Spec]>,
@@ -47,6 +51,7 @@ pub struct Extensions {
     /// such as a contributor's status updates; `say` is never logged there either.
     pub quiet_remote: Vec<&'static str>,
     local_submit: Option<(&'static str, LocalSubmit)>,
+    console_input: Option<(&'static str, ConsoleInputHook, Option<&'static str>)>,
     pub standard_background: StandardBackground,
 }
 impl Default for Extensions {
@@ -62,6 +67,7 @@ impl Default for Extensions {
             after_apply: Vec::new(),
             quiet_remote: Vec::new(),
             local_submit: None,
+            console_input: None,
             standard_background: StandardBackground::default(),
         }
     }
@@ -108,6 +114,30 @@ impl Extensions {
 
     pub(crate) fn local_submit(&self) -> Option<LocalSubmit> {
         self.local_submit.map(|(_, handler)| handler)
+    }
+
+    /// Selects a contributor's extra console input shortcut hook (and optional localization token
+    /// for its prompt); a second contributor is an error, never a silent replacement.
+    pub fn select_console_input(
+        &mut self,
+        owner: &'static str,
+        hook: ConsoleInputHook,
+        search_prompt_token: Option<&'static str>,
+    ) -> Result<(), String> {
+        if let Some((existing, _, _)) = self.console_input.filter(|(active, _, _)| *active != owner)
+        {
+            return Err(format!("console input already handled by {existing}"));
+        }
+        self.console_input = Some((owner, hook, search_prompt_token));
+        Ok(())
+    }
+
+    pub(crate) fn console_input(&self) -> Option<ConsoleInputHook> {
+        self.console_input.map(|(_, hook, _)| hook)
+    }
+
+    pub(crate) fn console_search_prompt(&self) -> Option<&'static str> {
+        self.console_input.and_then(|(_, _, token)| token)
     }
 
     /// Reject collisions so removing a contributor never changes another command's meaning.
@@ -243,5 +273,59 @@ mod tests {
             .output
             .iter()
             .any(|line| line.text.contains("extension probe executed")));
+    }
+
+    #[test]
+    fn console_input_hook_is_single_owner_and_isolated_per_extensions() {
+        use source_ui::input::{Input, Key};
+
+        fn custom_hook(panel: &mut source_ui::console::panel::ConsolePanel, input: &Input) -> bool {
+            if input.ctrl && input.pressed(Key::Backspace) {
+                panel.editor.kill_to_start();
+                return true;
+            }
+            false
+        }
+
+        let mut extensions = Extensions::default();
+        extensions
+            .select_console_input("fake", custom_hook, Some("#FakeSearch"))
+            .unwrap();
+        assert!(extensions
+            .select_console_input("other", custom_hook, None)
+            .is_err());
+
+        let mut extended = Console::default();
+        extensions.install(&mut extended);
+        assert_eq!(
+            extended.extensions.console_search_prompt(),
+            Some("#FakeSearch")
+        );
+        extended.toggle();
+        extended.input(&Input {
+            text: "echo hi".into(),
+            ..Default::default()
+        });
+        extended.input(&Input {
+            keys: [Key::Backspace].into(),
+            ctrl: true,
+            ..Default::default()
+        });
+        assert_eq!(extended.input_line(), "");
+
+        // Core console without contributor ignores Ctrl+Backspace.
+        let mut plain = Console::default();
+        assert_eq!(plain.extensions.console_search_prompt(), None);
+        plain.toggle();
+        plain.input(&Input {
+            text: "echo hi".into(),
+            ..Default::default()
+        });
+        plain.input(&Input {
+            keys: [Key::Backspace].into(),
+            ctrl: true,
+            ..Default::default()
+        });
+        assert_eq!(plain.input_line(), "echo hi");
     }
 }

@@ -173,11 +173,13 @@ impl Console {
     /// their resource file, neither button plays a sound (only GameMenu items do).
     pub(super) fn console_input(&mut self, input: &Input) -> Vec<Effect> {
         self.shell.pointer = input.pointer;
+        let hook = self.extensions.console_input();
         match self
             .shell
             .panel
-            .input(&self.canvas, input, &self.completion)
-        {
+            .input_with(&self.canvas, input, &self.completion, |panel, frame| {
+                hook.is_some_and(|h| h(panel, frame))
+            }) {
             Action::None => Vec::new(),
             Action::Close => {
                 self.toggle_console_window();
@@ -199,8 +201,11 @@ impl Console {
         let localization = &self.gameui.localization;
         let title = localization.text("#Console_Title");
         let submit = localization.text("#Console_Submit");
-        let reverse_search =
-            localization.text(crate::gameui::localize::placeholders::CONSOLE_REVERSE_SEARCH);
+        let reverse_search = self
+            .extensions
+            .console_search_prompt()
+            .map(|token| localization.text(token))
+            .unwrap_or_default();
         let look = Look {
             fonts: &self.widget_fonts,
             theme: &theme,
