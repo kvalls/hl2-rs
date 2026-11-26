@@ -10,7 +10,7 @@ serde.workspace = true
 glam.workspace = true
 modkit-core.workspace = true
 crc32fast = "1"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9.8.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 lzma-rs = "0.3"
 vmdl = "0.2.0"
 

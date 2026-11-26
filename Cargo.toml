@@ -9,7 +9,7 @@ hl2-advanced-options = { path = "plugins/hl2-advanced-options", default-features
 anyhow = "1"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-glam = { version = "0.27", features = ["serde"] }
+glam = { version = "0.33", features = ["serde"] }
 modkit-core = { path = "crates/modkit-core" }
 source-assets = { path = "crates/source-assets" }
 source-ui = { path = "crates/source-ui" }

@@ -15,7 +15,7 @@ hl2-ui.workspace = true
 glam.workspace = true
 hl2-simulation = { path = "../hl2-simulation" }
 bevy.workspace = true
-rfd = "0.17.2"
+rfd = "0.18.0"
 
 [lib]
 path = "src/lib.rs"

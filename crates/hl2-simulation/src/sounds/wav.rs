@@ -2,8 +2,11 @@
 use anyhow::{bail, Context, Result};
 use std::io::{Cursor, ErrorKind};
 use symphonia::core::{
-    audio::SampleBuffer, codecs::DecoderOptions, errors::Error as DecodeError,
-    formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint,
+    codecs::audio::AudioDecoderOptions,
+    errors::Error as DecodeError,
+    formats::{FormatOptions, TrackType, probe::Hint},
+    io::MediaSourceStream,
+    meta::MetadataOptions,
 };
 
 pub(super) const MAX_ENCODED_AUDIO: usize = 32 * 1024 * 1024;
@@ -200,42 +203,50 @@ fn compressed_to_wav(
     let stream = MediaSourceStream::new(Box::new(Cursor::new(data)), Default::default());
     let mut hint = Hint::new();
     hint.with_extension(extension);
-    let options = FormatOptions {
-        enable_gapless: true,
-        ..Default::default()
-    };
-    let mut format = symphonia::default::get_probe()
-        .format(&hint, stream, &options, &MetadataOptions::default())?
-        .format;
+    let mut format = symphonia::default::get_probe().probe(
+        &hint,
+        stream,
+        FormatOptions::default(),
+        MetadataOptions::default(),
+    )?;
     let track = format
-        .default_track()
+        .default_track(TrackType::Audio)
         .context("compressed audio has no audio track")?;
     let track_id = track.id;
-    let mut decoder =
-        symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
+    let params = track
+        .codec_params
+        .as_ref()
+        .and_then(|params| params.audio())
+        .context("compressed audio track has no audio codec")?;
+    // Gapless: encoder delay and padding are trimmed, as 0.5's FormatOptions::enable_gapless did.
+    let mut decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(params, &AudioDecoderOptions::default().gapless(true))?;
     let mut spec = None;
     let mut pcm = Vec::new();
+    let mut samples = Vec::<i16>::new();
     loop {
         let packet = match format.next_packet() {
-            Ok(packet) => packet,
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(DecodeError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => break,
             Err(error) => return Err(error.into()),
         };
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
         let decoded = decoder.decode(&packet)?;
-        let current = *decoded.spec();
-        let channels = current.channels.count();
-        if !(1..=2).contains(&channels) || !(8000..=192000).contains(&current.rate) {
+        let current = decoded.spec().clone();
+        let channels = current.channels().count();
+        let rate = current.rate();
+        if !(1..=2).contains(&channels) || !(8000..=192000).contains(&rate) {
             bail!("unsupported compressed audio channel count or sample rate");
         }
         if expected.is_some_and(|header| {
-            usize::from(header.channels) != channels || header.sample_rate != current.rate
+            usize::from(header.channels) != channels || header.sample_rate != rate
         }) {
             bail!("Microsoft ADPCM decoded format differs from its header");
         }
-        if spec.is_some_and(|previous| previous != current) {
+        if spec.as_ref().is_some_and(|previous| *previous != current) {
             bail!("compressed audio changes channel layout or sample rate");
         }
         spec = Some(current);
@@ -250,9 +261,9 @@ fn compressed_to_wav(
         if total > MAX_PCM_AUDIO / 2 {
             bail!("decoded audio exceeds 128 MiB limit");
         }
-        let mut samples = SampleBuffer::<i16>::new(decoded.capacity() as u64, current);
-        samples.copy_interleaved_ref(decoded);
-        pcm.extend_from_slice(samples.samples());
+        samples.clear();
+        decoded.copy_to_vec_interleaved(&mut samples);
+        pcm.extend_from_slice(&samples);
     }
     if pcm.is_empty() {
         bail!("compressed audio has no decoded audio samples");
@@ -272,8 +283,8 @@ fn compressed_to_wav(
     let mut writer = hound::WavWriter::new(
         &mut cursor,
         hound::WavSpec {
-            channels: spec.channels.count() as u16,
-            sample_rate: spec.rate,
+            channels: spec.channels().count() as u16,
+            sample_rate: spec.rate(),
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         },
