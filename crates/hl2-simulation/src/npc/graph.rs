@@ -1,6 +1,8 @@
 //! The node graph: usable nodes, routes (CAI_Pathfinder) and the door probes along them.
 use super::links::{self, MoveCaps, Nav};
-use super::{Actor, Goal, GoalBlockReason, NavRestrictions, PathStats, Route, STALE_RECHECK_TIME};
+use super::{
+    Actor, Goal, GoalBlockReason, GoalState, NavRestrictions, PathStats, Route, STALE_RECHECK_TIME,
+};
 use crate::ai_hull::HullType;
 use crate::npc_probe::{self, Hull, NpcCollisionWorld, Query};
 use glam::Vec3;
@@ -318,6 +320,22 @@ impl Route {
 struct Stale<'a> {
     links: &'a mut BTreeMap<usize, f64>,
     now: f64,
+}
+/// MarkCurWaypointFailedLink: a move first blocked on a graph link marks the link stale, unless
+/// a door, an NPC or the player blocks it (those hold and retry).
+pub(super) fn failed_link(
+    graph: Option<&Graph>,
+    goal: &Goal,
+    reason: &GoalBlockReason,
+    actor_block: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    let GoalBlockReason::Collision { blocker, .. } = reason else {
+        return None;
+    };
+    if blocker.is_some_and(actor_block) || matches!(goal.state, GoalState::Blocked(_)) {
+        return None;
+    }
+    route_link(graph?, &goal.route, goal.next)
 }
 /// The graph link of the route segment that ends at `feet[next]` (node to node).
 pub(super) fn route_link(graph: &Graph, route: &Route, next: usize) -> Option<usize> {

@@ -28,7 +28,7 @@ mod tactical;
 #[cfg(test)]
 use graph::search;
 use graph::{
-    ground_link, nearest_usable, node_feet, probe_doors, route_link, Destination, Planner,
+    failed_link, ground_link, nearest_usable, node_feet, probe_doors, Destination, Planner,
     UsableGraph,
 };
 pub use links::MoveCaps;
@@ -917,33 +917,13 @@ impl Controller {
             let name = self
                 .actors
                 .get(&key.actor)
-                .map(|a| match &a.pause_sequence {
-                    Some(pause) if goal.paused => pause.clone(),
-                    _ => links::played(goal, a)
-                        .unwrap_or_else(|| a.locomotion.played_name(goal.request.style, a.aiming)),
-                });
+                .map(|a| links::sequence(goal, a));
             updates.push(update(*key, goal, &self.doors, name));
             self.launches
                 .extend(goal.link.launch.take().map(|v| (key.actor, v)));
         }
         updates
     }
-}
-/// MarkCurWaypointFailedLink: a move first blocked on a graph link marks the link stale, unless
-/// a door, an NPC or the player blocks it (those hold and retry).
-fn failed_link(
-    graph: Option<&Graph>,
-    goal: &Goal,
-    reason: &GoalBlockReason,
-    actor_block: impl Fn(usize) -> bool,
-) -> Option<usize> {
-    let GoalBlockReason::Collision { blocker, .. } = reason else {
-        return None;
-    };
-    if blocker.is_some_and(actor_block) || matches!(goal.state, GoalState::Blocked(_)) {
-        return None;
-    }
-    route_link(graph?, &goal.route, goal.next)
 }
 /// The distance that counts as arrived: half the hull's width, or the request's own.
 fn goal_tolerance(actor: &Actor, request: &MoveRequest) -> f32 {
