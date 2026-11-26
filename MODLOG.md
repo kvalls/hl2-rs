@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-26 — Merge upstream main through `8a2230ca`
+
+- Codex desktop, GPT-6 family, exact model ID not recorded.
+- Merged 13 upstream commits into the performance branch at `3ad2588e`. Integrated queue blocking, the pre-suit walk speed and prop footstep precaching. NPCs try local steering first, then upstream's triangulated detour or near-waypoint skip if steering fails. Occupied destinations still report contact. Both parents already contained the same ActBusy root-motion test, so the merged tree keeps one copy.
+- On macOS, `python3 -u scripts/checks/replays.py` passed 111/111 before the merge. The first merged run passed 108/111. The Breen monitor and fading pallet reports matched upstream's expectations under the fixture comparison rules. Soundscapes retained the branch's scenes and trigger counts, with one to three fewer delivered inputs and zero to two fewer fired outputs at seven samples. Recorded those counters in an isolated run. The final `NO_BUILD=1 python3 -u scripts/checks/replays.py` passed 111/111.
+- `scripts/checks/validate.sh` passed, including 2,012 Rust tests, strict Clippy and formatting. `scripts/checks/check_windows.sh` passed. The architecture baseline tightened after merging.
+- Windows runtime, interactive campaign play and steering frame time are **not tested**. The Station 01 bench arrival timing remains open for a native comparison.
+
 ## 2026-11-26 — Route Console replies and status into the shared caption panel
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent prepared and ran the visual fixture. Exact subagent model ID not recorded.
@@ -119,6 +127,27 @@
 - Result: At 720p, changing 200 to 800 ms added 0.010 ms to the shadow stage and moved median frame time from 4.368 to 4.373 ms. At Retina, the 800 ms build's whole-frame means fell inside the hard-switch runs' range. All three packaged replays passed.
 - Still broken or not tested: Windows runtime and ordinary interactive play with the longer fade are **not tested**. Retina background GPU use varied between 33% and 98%.
 - Next: Check the transition feel in the user's normal playtest.
+
+## 2026-11-25 session 71: the customs queue's player blocking; PR #5's actbusy entry/exit evaluated (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The cherry-picked commit is @OrbitalMan's (PR #5, eb51f6c).
+- Changed: hl2-simulation ai/runtime/goal_inputs/actbusy_queue.rs (PlayerStartedBlocking/PlayerStoppedBlocking: line_count, push_back_moves, force_onto_node; unit test), goal_inputs.rs (the queue input gets its value). Side branch wip/session71-20261125b: PR #5's eb51f6c cherry-picked with conflicts resolved (main's hint outputs kept).
+- Why: the owner's station 01 playtest (luggage_citizen on the bench; the pen queue). PR #5's claim lists the actbusy benches and its eb51f6c already implements the entry/exit root motion, so it was evaluated instead of rewritten.
+- Tested how: SDK (ai_behavior_actbusy.cpp), retail server.dll strings, owned map entities (fourteen client-only triggers), unit tests, packaged fixtures (artifacts/s71/lugg, artifacts/s71/queue), native raw runs with proximity sensors on luggage_citizen (artifacts/s71/native_bench.py), artifacts/s71/validate1.sh (v1-*).
+- Result: PR #5's actbusy entry seats luggage_citizen at (-5279, -591); native (proximity sensors) at (-5279.45, -590.49): a match within about one unit. The queue's player blocking works on the packaged fixture (the second citizen turns back to node 2 while the player stands on node 1). Validation: strict Clippy 0, workspace tests 1771 passed with the 2 known --release should_panic failures (rendering::tests), fmt 0, architecture 0, build ok, regression passed (26/26, 17/17, 26/26; artifacts/s62/regdiff.py s70-regression1 -> s71-regression1: all 25 images below 1, largest 0.38 partition-movement-final), replays 72 of 73. studio-decal-bugbait-citizen changed its I/O counters (inputs 50 -> 48, outputs 37 -> 36; it repeats alone, so not a flake): the player spawns inside d1_trainstation_02's food-queue trigger for node 11 (--io-trace artifacts/s71/bugbait/io.txt: PlayerStartedBlocking(11) at 0.01 s), so actbusy_food_queue now counts that node as held, as the SDK does. Recorded with UPDATE_EXPECTED=1 (v2-replay-bugbait.log; recheck v3 passes); the counters were not compared with native. Claude Code crashed while the replays ran; the run had already finished. CI 45661954328 passed (windows, macos-15) on b94b694, before the recording.
+- Still broken or not tested: merging the side branch waits for the owner (PR #5's work); ours reaches the bench hint ~5.8 s before native (route and speed); the queue blocking not compared with native; the owner's queue clumping not reproduced; the actbusy walk tolerance (SDK 4, ours 13); CI not run for this branch.
+- Owner's yes after the handoff: PR #5's eb51f6c merged into the session branch (dbdd576); validation v4 started, main still at 61c082c.
+- Next: validation v4 of the merge (replays); the arrival timing; the packaged checks and session 68's list.
+
+## 2026-11-25 session 70: NPCs steer around a standing NPC (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: hl2-simulation npc/steer.rs (new: deflection, local avoidance, near-waypoint skip), npc.rs (Route::detour_end, advance calls steer::walk), npc/simplify.rs (simplify::tick, detour-aware query), npc/graph.rs (Route::along), npc/graph/triangulate.rs (apex visible to npc), npc_probe.rs (GroundMove::transient); two npc tests moved into a corridor, one new controller test and one deflection test. Cherry-picked the queue newcomer steering and the pre-suit walk speed side branches.
+- Why: the owner's station 01 playtest: luggage_citizen stopped at the luggage cop standing on his route and never sat in the breakroom.
+- Tested how: SDK (ai_localnavigator.cpp, ai_navigator.cpp, ai_pathfinder.cpp), retail strings, unit tests, packaged fixture artifacts/s70/lugg (r1), a native raw run with the same placements (bench views), artifacts/s70/validate1.sh.
+- Result: he walks around the cop and reaches the hint at 135 s (native: between ~137 and ~145 s). Architecture: npc.rs::advance 123 -> 114, npc.rs 1120 -> 1113. Validation: Clippy 0 (after removing an unused import), tests 1770 + the 2 known failures, fmt 0, architecture 0, build ok, regression passed, replays 61/73 with 12 changes reviewed by cause and recorded (walk speed, queue steering, NPC steering, luggage-shove's ray). Also: physics props' step sounds are preloaded (SDK PrecachePhysicsSounds; the footsteps replay played an unloaded wood_box_footstep1).
+- Still broken or not tested: he sits beside the bench, native on it (ActBusy entry/exit sequences and their root motion are not modeled); the plane solver; the pen queue clumping (not reproduced); the recorded I/O counter changes were not compared with native one by one; CI not run, main not fast-forwarded.
+- Next: ActBusy entry/exit sequences with AutoMovement; the pen queue with the player in line.
 
 ## 2026-11-24 — Crowd scaling sweep and capture fixture verification
 

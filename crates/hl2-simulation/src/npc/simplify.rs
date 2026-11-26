@@ -6,6 +6,25 @@ use glam::Vec3;
 
 /// ROUTE_SIMPLIFY_TIME_DELAY (in the PVS, AIStrongOpt off).
 pub(super) const ROUTE_SIMPLIFY_DELAY: f32 = 0.5;
+/// CAI_Navigator::SimplifyPath every ROUTE_SIMPLIFY_DELAY for every ground goal: AI goals,
+/// scripted and scene moves alike (the SDK's navigator simplifies any reducible path; native
+/// d1_trainstation_01's passengers cut the corners out of the car).
+pub(super) fn tick<W: NpcCollisionWorld>(
+    world: &W,
+    actor: &Actor,
+    goal: &mut Goal,
+    query: Query<'_>,
+    dt: f32,
+) {
+    goal.simplify_in -= dt;
+    if goal.simplify_in <= 0. {
+        goal.simplify_in = ROUTE_SIMPLIFY_DELAY;
+        let forced = !goal.simplified;
+        goal.simplified = true;
+        let query = super::steer::simplify_query(goal, query);
+        simplify_path_forward(world, actor, goal, query, forced);
+    }
+}
 /// MIN_ANGLE_COS_SIMPLIFY: 40 degrees left or right of the current heading.
 const MIN_ANGLE_COS_SIMPLIFY: f32 = 0.766;
 /// CAI_Navigator::SimplifyPathForward with the full scan parameters (32 ft out, points

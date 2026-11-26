@@ -140,7 +140,7 @@
   "crates/hl2-simulation/src/ai/runtime.rs": 2345,
   "crates/hl2-simulation/src/entities/choreography.rs": 1221,
   "crates/hl2-simulation/src/gameplay.rs": 2777,
-  "crates/hl2-simulation/src/npc.rs": 1118,
+  "crates/hl2-simulation/src/npc.rs": 1113,
   "crates/hl2-simulation/src/physics.rs": 3072,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
@@ -242,7 +242,7 @@
    215
   ],
   "crates/hl2-simulation/src/npc.rs::advance": [
-   119
+   112
   ],
   "crates/hl2-simulation/src/npc.rs::tick": [
    119
@@ -358,10 +358,10 @@
  },
  "min_tests": {
   "hl2-advanced-options": 52,
-  "hl2-bevy": 275,
-  "hl2-debug": 50,
-  "hl2-simulation": 909,
-  "hl2-ui": 339,
+  "hl2-bevy": 283,
+  "hl2-debug": 55,
+  "hl2-simulation": 913,
+  "hl2-ui": 340,
   "modkit-core": 78,
   "source-assets": 143,
   "source-ui": 150

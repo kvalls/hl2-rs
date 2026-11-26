@@ -141,7 +141,17 @@ impl Inventory {
     /// plus (hl2_normspeed (190) - 150) x (1 - clamp(load / physcannon_maxmass)); sprint
     /// is disabled. DetachObject restores hl2_normspeed. The +USE carry only disables
     /// sprint (hl2_normspeed). None otherwise.
+    /// The player's speed limit this step. Without the HEV suit CHL2_Player always walks
+    /// (StartWalking at spawn, bWantWalking without the suit: hl2_walkspeed 150); native
+    /// d1_trainstation_01 walks at ~150 u/s before the suit.
     pub fn player_max_speed(&self) -> Option<f32> {
+        let speed = self.carry_max_speed();
+        if self.suit {
+            return speed;
+        }
+        Some(speed.map_or(WALK_SPEED, |s| s.min(WALK_SPEED)))
+    }
+    fn carry_max_speed(&self) -> Option<f32> {
         // CPlayerPickupController::Init: EnableSprint(false) while carrying with +USE.
         if self.carrying() {
             return Some(NORM_SPEED);
@@ -860,7 +870,9 @@ mod tests {
         let world = World::default();
         let mut scene = Scene::new(&world);
         let mut physics = prop(Vec3::new(150., 0., 64.), 10.);
+        // The carry speed rules apply with the HEV suit (without it the player always walks).
         let mut inv = Inventory::default();
+        inv.suit = true;
         inv.give("weapon_physcannon", &cannon(), 0.);
         let mut t = 0;
         let mut run = |inv: &mut Inventory,

@@ -277,8 +277,17 @@ impl Impacts {
             .flat_map(|p| {
                 ["bulletimpact", "stepleft", "stepright"].map(|key| self.property(p, key))
             })
+            // PrecachePhysicsSounds covers every surface's step sounds: the player stands on
+            // props too.
             .chain(self.vphysics_props.iter().flat_map(|p| {
-                ["impacthard", "impactsoft", "bulletimpact"].map(|key| self.property(p, key))
+                [
+                    "impacthard",
+                    "impactsoft",
+                    "bulletimpact",
+                    "stepleft",
+                    "stepright",
+                ]
+                .map(|key| self.property(p, key))
             }))
             .flatten()
             .collect::<std::collections::BTreeSet<_>>()

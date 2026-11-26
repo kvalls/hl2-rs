@@ -34,6 +34,7 @@ pub(super) fn local_route<W: NpcCollisionWorld>(
         doors: vec![None, None],
         door_known: vec![true, true],
         navs: Vec::new(),
+        detour_end: 1,
     })
 }
 
@@ -41,7 +42,7 @@ pub(super) fn local_route<W: NpcCollisionWorld>(
 /// `tolerance`), or None. Two rounds of two apexes: half the hull's length to each side of
 /// the point half a hull past the obstruction (the far side first), then a hull's length
 /// farther out; an apex whose first leg is blocked is pulled back to the obstruction.
-pub(super) fn apex<W: NpcCollisionWorld>(
+pub(in crate::npc) fn apex<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
     (start, end): (Vec3, Vec3),
