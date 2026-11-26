@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 session 72: PR #5 overlaps compared; Bevy 0.20.1 started (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. Two web-fetch subagents (the Bevy 0.19 -> 0.20 migration guide; a search of Bevy's issue tracker). PR #5's code read and built is @OrbitalMan's; nothing of it was merged.
+- Changed: main fast-forwarded to 8a2230c (session 71's validated PR #5 actbusy merge). wip/session72-20261126: 3f72017, no behavior change (failed_link to npc/graph.rs, links::sequence; npc.rs 1113 -> 1093, tick 119 -> 117), docs/DESIGN.md 14z-u. wip/session72-bevy020: Bevy 0.19.1 -> 0.20.1, 3570954 the Rust API migration, 5603d7b every shader as WESL with its loads, the build scripts, the .gitignore whitelist, AGENTS.md and README.md. wip/session72-20261126b: f70a9ef, the SDK plane-solver steering attempt (rejected).
+- Why: the owner's rule for PR #5 overlaps (test both, read both, keep the best); the owner asked for the Bevy update on main before more work (OrbitalMan merges main into PR #5 after) and to check what else needs updating.
+- Tested how: PR #5's head built in its own worktree and both builds on the luggage fixture, compared with session 71's native sensor positions; the plane solver with unit tests and two traced packaged runs; Bevy 0.20.1 with Clippy (workspace, all targets, all features, -D warnings), fmt, a packaged build and the regression batch, plus a temporary build with Bevy's debug feature to name the failing system.
+- Result: DecalModulate is the same method in both (ours kept, it also covers model decals). Steering: both reach the bench at ~135 s; PR #5 passes the luggage cop on the east, ours on the west like native (ours kept). Session 71's "5.8 s early" was our fixture's trigger timing: aligned on ForceNPCToActBusy ours is ~0.5 s faster than native and on its route. Plane solver rejected after two attempts (a 2 s hesitation, then stuck beside the cop). Bevy 0.20.1 compiles cleanly but the packaged game panics while PostUpdate's schedule is built: bevy_ui's update_editable_text_layout is ordered transitively against its own PostLayout set; the closing edge is not found and Bevy's tracker has nothing on it.
+- Still broken or not tested: the Bevy panic; the WESL shaders never seen compiling; no tests, regression images, replays or CI under 0.20; the window cracks (native draws them, ours not); OnQueueMoved's value (patch ready); the survey's major updates (rapier3d 0.36.1, symphonia 0.6.1, zip 9.8.2, rfd 0.18.0, glam 0.34.3, local Rust 1.100). bin/ was rebuilt from wip/session72-20261126 (Bevy 0.19.1). Frame time not measured (no runtime change on main).
+- Next: artifacts/s72/next-session-prompt.txt.
+
 ## 2026-11-25 session 71: the customs queue's player blocking; PR #5's actbusy entry/exit evaluated (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents. The cherry-picked commit is @OrbitalMan's (PR #5, eb51f6c).
