@@ -1,6 +1,5 @@
 //! Spawns the frame, viewmodel and world cameras of the startup map.
 use super::{FlyCamera, Options, bloom, camera, source_direction, source_to_bevy, tonemap, video};
-use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::{
     Camera, Camera2d, Camera3d, ClearColorConfig, Commands, PerspectiveProjection, Projection,
     Transform, Vec3, default,
@@ -24,7 +23,7 @@ pub(super) fn spawn(
             clear_color: ClearColorConfig::None,
             ..default()
         },
-        Tonemapping::None,
+        video::PASSTHROUGH,
         msaa,
         bevy::camera::visibility::RenderLayers::layer(2),
     ));
@@ -37,7 +36,7 @@ pub(super) fn spawn(
         },
         bevy::camera::visibility::RenderLayers::layer(1),
         camera::ViewmodelCamera,
-        Tonemapping::None,
+        video::PASSTHROUGH,
         bevy::camera::Exposure::default(),
         tonemap::ToneMapped,
         // The viewmodel camera draws last in the 3D view, so bloom covers the whole scene.
@@ -59,7 +58,7 @@ pub(super) fn spawn(
     ));
     commands.spawn((
         Camera3d::default(),
-        Tonemapping::None,
+        video::PASSTHROUGH,
         msaa,
         Projection::Perspective(PerspectiveProjection {
             fov: 2. * ((75f32.to_radians() / 2.).tan() / (4. / 3.)).atan(),

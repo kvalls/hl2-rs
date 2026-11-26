@@ -3,7 +3,6 @@ use crate::{FlyCamera, assets::LoadedMap, bevy_to_source, rendering, source_to_b
 use bevy::{
     asset::RenderAssetUsages,
     camera::{RenderTarget, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     mesh::Indices,
     prelude::*,
     render::render_resource::PrimitiveTopology,
@@ -76,7 +75,7 @@ pub fn install(
             target_comp.clone(),
             RenderLayers::layer(layer),
             SkyCamera(is_2d),
-            Tonemapping::None,
+            crate::video::PASSTHROUGH,
             // Sky_HDR_DX9 and the miniature 3D skybox both end in TONEMAP_SCALE_LINEAR.
             bevy::camera::Exposure::default(),
             crate::tonemap::ToneMapped,

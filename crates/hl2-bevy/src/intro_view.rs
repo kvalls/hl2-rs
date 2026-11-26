@@ -12,7 +12,6 @@ use bevy::{
         visibility::RenderLayers,
     },
     color::Color,
-    core_pipeline::tonemapping::Tonemapping,
     ecs::{
         component::Component,
         entity::Entity,
@@ -141,7 +140,7 @@ fn update(
                 RenderTarget::Image(image.clone().into()),
                 RenderLayers::layer(0).with(5),
                 (
-                    Tonemapping::None,
+                    crate::video::PASSTHROUGH,
                     bevy::camera::Exposure::default(),
                     crate::tonemap::ToneMapped,
                 ),

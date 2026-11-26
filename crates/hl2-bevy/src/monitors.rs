@@ -5,7 +5,6 @@ use crate::{
 };
 use bevy::{
     camera::{RenderTarget, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     prelude::*,
     render::render_resource::TextureFormat,
@@ -67,7 +66,7 @@ pub fn install(
         },
         RenderTarget::Image(image.clone().into()),
         RenderLayers::layer(0),
-        Tonemapping::None,
+        crate::video::PASSTHROUGH,
         // Integer HDR draws monitor views before TurnOnToneMapping, after the previous main
         // view reset the scale to 1 (SDK viewrender.cpp 2080/2090/2214).
         bevy::camera::Exposure {
