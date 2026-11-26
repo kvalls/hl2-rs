@@ -1,5 +1,13 @@
 # STATUS
 
+## Shared Console and authored captions (2026-11-26)
+
+`hl2-debug` submits RCON `say` and `agent_status` as Console speech through the
+shared caption frame and Source formatter. The label is white and the body
+uses the console chat cyan. These cues bypass the caption setting. Packaged
+macOS captures verified shared rendering on Station 02 with captions on and
+only Console cues with captions off. Windows runtime is **not tested**.
+
 ## Explicit network RCON (2026-11-26)
 
 The skill and default startup remain loopback-only. Manual network startup

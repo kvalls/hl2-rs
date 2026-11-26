@@ -46,9 +46,9 @@ loose pickups, world weapons and `prop_physics`. Optional key-value pairs are
 `targetname <name>`, `additionalequipment <weapon>` for an NPC, and
 `model <path>` for a physics prop. An absent model loads through the existing worker.
 
-`hl2-debug` shows authenticated RCON `say` messages as temporary gameplay
-subtitles. The subtitle panel uses the installed caption font and is available
-with game captions off. With game captions on, it sits above their panel.
+`hl2-debug` sends authenticated RCON `say` and `agent_status` text to the shared
+gameplay caption panel. Both use a white speaker label, the console's chat cyan
+and the existing Source formatter. They remain visible with game captions off.
 
 Enter `agent_rcon` in the local developer console to enable agent attachment
 in an already running game. The command enables console logging and opens an

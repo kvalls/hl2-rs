@@ -409,7 +409,7 @@ fn draw_weapon_overlays(
     weapon: &mut hl2_ui::hud::WeaponHud,
     game: &mut crate::gameplay::Gameplay,
     ui: &crate::ui_host::Console,
-    sim: &crate::simulation::Simulation,
+    sim: &mut crate::simulation::Simulation,
     hud_hidden: bool,
 ) {
     weapon.aspect = ui.source.config.video.hud_aspect;
@@ -440,6 +440,9 @@ fn draw_weapon_overlays(
     let messages = std::mem::take(&mut game.caption_messages);
     weapon.captions.emit(&messages, &captions, time);
     if !hud_hidden {
+        if !sim.paused() && !sim.transition && !sim.background_level {
+            sim.with_extensions(|extension, _| extension.gameplay_captions(&weapon.captions));
+        }
         weapon.draw_captions(&captions, time);
     }
 }
@@ -471,7 +474,7 @@ pub fn present(
     let hud_hidden =
         (ui.source.paused() && !ui.source.background_level()) || game.scene.logic_autos_pending();
     if let Some(weapon) = &mut hud.source.weapon {
-        draw_weapon_overlays(weapon, &mut game, &ui, &sim, hud_hidden);
+        draw_weapon_overlays(weapon, &mut game, &ui, &mut sim, hud_hidden);
     } else {
         game.player_damage.fades.clear();
         game.scene.screen_fades.clear();

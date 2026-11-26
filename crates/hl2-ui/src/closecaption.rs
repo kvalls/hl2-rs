@@ -11,6 +11,7 @@
 //! [`paint`]: CloseCaption::paint
 use std::collections::HashMap;
 mod paint;
+mod speech;
 
 /// `CC_INSET`, proportional.
 const INSET: f32 = 6.;
@@ -171,6 +172,7 @@ struct WorkUnit {
 #[derive(Clone, Debug)]
 struct Item {
     stream: String,
+    runtime_speech: bool,
     time_to_live: f32,
     initial_life_span: f32,
     added_time: f32,
@@ -590,7 +592,7 @@ impl CloseCaption {
     /// Process: split the stream at `<delay>` into items with their lifespans.
     pub fn process(&mut self, stream: &str, duration: f32, from_player: bool, settings: &Settings) {
         if !settings.closecaption {
-            self.reset();
+            self.retain_runtime_speech();
             return;
         }
         if stream.trim().is_empty() {
@@ -604,11 +606,7 @@ impl CloseCaption {
             // In the file but not translated (cc_captiontrace 1 only reports it).
             return;
         }
-        self.processed += 1;
-        if self.recent.len() == 16 {
-            self.recent.remove(0);
-        }
-        self.recent.push(stream.to_owned());
+        self.record_processed(stream);
         let mut lifespan = duration + settings.linger_time;
         let mut added = 0.;
         if let Some(last) = self.items.last() {
@@ -677,6 +675,7 @@ impl CloseCaption {
         }
         let mut item = Item {
             stream: phrase.to_owned(),
+            runtime_speech: false,
             time_to_live: lifespan,
             initial_life_span: lifespan,
             added_time: added,
@@ -898,11 +897,15 @@ impl CaptionHud {
     }
 
     /// Advances the queue on the game clock (so a paused game holds its captions).
-    pub fn tick(&self, time: f64) {
+    pub(crate) fn tick(&self, time: f64, authored_captions: bool) -> bool {
         let mut clock = self.clock.borrow_mut();
         let dt = clock.map_or(0., |last| (time - last).max(0.)) as f32;
         *clock = Some(time);
-        self.state.borrow_mut().tick(dt);
+        let mut state = self.state.borrow_mut();
+        state.tick(dt);
+        authored_captions
+            || state.retain_runtime_speech()
+            || (state.goal_height > 0. && state.current_alpha > 0.)
     }
 
     /// Lays out the panel for a canvas `size` in pixels; None while there is nothing to draw
@@ -920,16 +923,6 @@ impl CaptionHud {
             time,
         );
         Some((rect, paint))
-    }
-
-    /// Caption bounds and normal font for consumers presenting literal text.
-    pub fn text_surface(
-        &self,
-        size: (f32, f32),
-    ) -> Option<(source_ui::canvas::Rect, &source_ui::font::FontFace, f32)> {
-        let scale = crate::proportional::scale(glam::vec2(size.0, size.1));
-        let (face, tall) = self.face(Style::Normal, scale)?;
-        Some((self.panel_rect(size, scale), face, tall))
     }
 
     fn panel_rect(&self, size: (f32, f32), scale: f32) -> source_ui::canvas::Rect {

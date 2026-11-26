@@ -2,10 +2,9 @@
 use super::{vec2, Color, Rect, WeaponHud};
 impl WeaponHud {
     /// The closed caption panel (CHudCloseCaption::Paint): its box through the HUD's rounded
-    /// panel background, then the text runs. Hidden while `closecaption` is off.
+    /// panel background, then the text runs.
     pub fn draw_captions(&self, settings: &crate::closecaption::Settings, time: f64) {
-        self.captions.tick(time);
-        if !settings.closecaption {
+        if !self.captions.tick(time, settings.closecaption) {
             return;
         }
         let _frame = self.framed();

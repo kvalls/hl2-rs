@@ -120,7 +120,10 @@ impl RuntimeExtension for State {
         self.agent_session = None;
     }
     fn remote_console_chat(&mut self, line: &str) {
-        self.subtitles.push(line, std::time::Instant::now());
+        self.subtitles.push(line);
+    }
+    fn gameplay_captions(&mut self, captions: &hl2_ui::closecaption::CaptionHud) {
+        self.subtitles.submit(captions);
     }
     fn input(&mut self, context: &mut Context<'_>, input: &Input<'_>) {
         if !context.simulation.loading
@@ -194,6 +197,7 @@ impl RuntimeExtension for State {
                 super::agent::agent_resume(context.simulation, ui)
             }
             crate::commands::Request::AgentRcon => self.agent_rcon(ui),
+            crate::commands::Request::AgentCaption(line) => self.subtitles.push(&line),
             crate::commands::Request::AiEnable(value) => {
                 if let Some(game) = context.gameplay.as_deref_mut() {
                     let on = hl2_bevy::simulation::set_ai_enabled(
@@ -348,7 +352,7 @@ impl RuntimeExtension for State {
     }
     fn hud_report(&self, hud: &hl2_bevy::canvas_renderer::Hud) -> Option<serde_json::Value> {
         Some(
-            serde_json::json!({"spawn_overlay":self.overlay.open.then(||{let (ai,notarget)=self.panel_switches.unwrap_or((true,false));self.overlay.panel(ai,notarget)}),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines,"profiling":self.profiling_lines},"remote_subtitles":{"rows":self.subtitles.visible_rows()}}),
+            serde_json::json!({"spawn_overlay":self.overlay.open.then(||{let (ai,notarget)=self.panel_switches.unwrap_or((true,false));self.overlay.panel(ai,notarget)}),"developer_overlay":{"visible":!self.lines.is_empty(),"fps":hud.frame_statistics().0,"frame_ms":hud.frame_statistics().1,"benchmark":hud.frame_statistics().2,"lines":self.lines,"profiling":self.profiling_lines}}),
         )
     }
     fn gameplay_report(&self) -> Option<(&'static str, serde_json::Value)> {

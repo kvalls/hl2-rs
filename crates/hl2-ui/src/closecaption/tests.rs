@@ -26,6 +26,7 @@ fn on() -> Settings {
 fn item(stream: &str, from_player: bool) -> Item {
     Item {
         stream: stream.into(),
+        runtime_speech: false,
         time_to_live: 1.,
         initial_life_span: 1.,
         added_time: 0.,
@@ -36,6 +37,30 @@ fn item(stream: &str, from_player: bool) -> Item {
         width: 0.,
         height: 0.,
     }
+}
+
+#[test]
+fn runtime_speech_uses_source_styles_and_survives_disabled_captions() {
+    let mut cc = CloseCaption::new();
+    cc.process("<I>Authored line", 5., false, &on());
+    let cue = "Speaker:<clr:115,230,255> <B>bold<B><cr><I>italic<I>";
+    cc.speak(cue, 5.);
+    cc.tick(1.);
+    cc.tick(1.);
+    let paint = cc.paint((640., 120.), 1., &Layout::default(), &Fixed, [0.; 4], 0.);
+    assert!(paint.background.is_some());
+    assert_eq!(paint.runs.len(), 5);
+    assert_eq!(paint.runs[0].style, Style::Italic);
+    assert_eq!(paint.runs[1].text, "Speaker:");
+    assert_eq!(paint.runs[1].color, [1.; 4]);
+    assert_eq!(paint.runs[3].text, "bold");
+    assert_eq!(paint.runs[3].style, Style::Bold);
+    assert_eq!(paint.runs[3].color, [115. / 255., 230. / 255., 1., 1.]);
+    assert_eq!(paint.runs[4].text, "italic");
+    assert_eq!(paint.runs[4].style, Style::Italic);
+    assert!(paint.runs[4].y > paint.runs[3].y);
+    cc.process("Filtered line", 5., false, &Settings::default());
+    assert_eq!(cc.streams().collect::<Vec<_>>(), [cue]);
 }
 
 #[test]
@@ -348,10 +373,6 @@ fn owned_episode_one_caption_panel_reads_layout_scheme_and_fonts() {
     // 768 lines: 12 * 1.6 = 19 pixel caption text.
     let (_, tall) = hud.face(Style::Italic, 768. / 480.).unwrap();
     assert_eq!(tall, 19.);
-    let (surface, _, height) = hud.text_surface((1024., 768.)).unwrap();
-    let (panel, _) = hud.paint((1024., 768.), 0.).unwrap();
-    assert_eq!(surface, panel);
-    assert_eq!(height, tall);
 }
 
 #[test]

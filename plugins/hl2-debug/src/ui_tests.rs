@@ -165,7 +165,7 @@ fn remote_reply_clears_status_without_printing_it() {
 
     let mut c = console();
     let before = c.shell.panel.output.len();
-    c.execute("agent_status thinking");
+    assert!(c.execute("agent_status thinking").is_empty());
     assert_eq!(c.shell.panel.output.len(), before + 1);
     assert_eq!(
         c.shell
@@ -218,7 +218,7 @@ fn remote_reply_clears_status_without_printing_it() {
             .map(|l| (l.level, l.text.as_str())),
         Some((Level::ChatRemote, "Console: Spawning NPCs..."))
     );
-    c.execute("agent_status clear");
+    assert!(c.execute("agent_status clear").is_empty());
     assert_eq!(c.shell.panel.output.len(), before + 1);
     c.execute("agent_status; agent_status \"\"; agent_status \"   \"");
     assert_eq!(
@@ -226,7 +226,10 @@ fn remote_reply_clears_status_without_printing_it() {
         Some(Level::Normal)
     );
     c.remote.from_rcon = true;
-    c.execute("agent_status thinking");
+    assert_eq!(
+        c.execute("agent_status thinking"),
+        vec![effect(Request::AgentCaption("Console: Thinking...".into()))]
+    );
     assert_eq!(
         c.remote.snapshot,
         Some(Some((Level::ChatRemote, "Console: Thinking...".into())))

@@ -165,7 +165,7 @@ impl ConsolePanel {
 
 /// Byte offset after the speaker label (`"Speaker:"`, including any timestamp prefix) on the
 /// first row of a chat line, so the label draws in white before the colored message body.
-pub(super) fn chat_label_end(level: Level, content: &str) -> Option<usize> {
+pub fn chat_label_end(level: Level, content: &str) -> Option<usize> {
     matches!(level, Level::ChatLocal | Level::ChatRemote)
         .then(|| content.find(": ").map(|i| i + 1))
         .flatten()

@@ -1,5 +1,14 @@
 # Design
 
+## Console speech in the shared caption panel (2026-11-26)
+
+Feed RCON reply and status text from the debug plugin into the existing
+dialogue caption queue. Use its Source text formatter, frame, wrapping and
+animation. The plugin separates the white speaker label from the cyan text
+with a native color tag and uses the console's palette. RCON cues have a
+bounded duration and can appear while game captions are off. Verify both
+caption settings with authored dialogue and Source formatting.
+
 ## Keep skill RCON local and support explicit network RCON (2026-11-26)
 
 The skill client and runtime activation use loopback. The supervised launcher
@@ -2770,11 +2779,8 @@ combat-efficiency table, visibility variants and wake-squad propagation.
 ## Remote console subtitles (2026-11-25)
 
 Notify runtime extensions when an authenticated remote console chat line is
-broadcast locally. The debug plugin owns a short-lived, bounded plain-text
-subtitle queue and draws it using the installed caption font and bounds.
-Reserve the game's caption region while captions are enabled. Hide remote
-subtitles outside gameplay and clear them on map change. Validate real RCON
-chat with the console closed, including status and local chat controls.
+broadcast locally. The original debug overlay was replaced by the shared
+caption panel described above.
 
 ## Long stage recordings (O11)
 

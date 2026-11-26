@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Route Console replies and status into the shared caption panel
+
+- Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent prepared and ran the visual fixture. Exact subagent model ID not recorded.
+- Changed: Remove the separate debug subtitle renderer. Feed RCON `say` and `agent_status` into the existing dialogue queue and Source formatter. Use the console's speaker-label split and cyan palette. Only runtime speech bypasses the game caption option.
+- Why: The old strip and the authored caption panel used different positions and frame styling. Console messages should share the game's presentation.
+- Tested how: Focused caption, debug plugin and RCON tests, the owned caption resource check, strict Clippy on macOS and the Windows target, architecture and four plugin selections. Ran isolated packaged Station 02 loopback captures with captions on and off, plus the `captions`, `console`, `commentary` and `dev_overlay` replays.
+- Result: Authored dialogue, status and reply text shared one rounded frame with captions on. Only Console cues appeared with captions off. Both captures showed white labels, cyan bodies and Source bold, italic and line-break formatting. Unrelated console output stayed out of the caption queue.
+- Still broken or not tested: Windows runtime and isolated frame timing are **not tested**. The first plugin-unit invocation lacked sandbox permission to bind a local socket and passed on the authorized rerun.
+- Next: Use the shared captions in a live session.
+
 ## 2026-11-26 — Allow explicit network RCON for a configured peer
 
 - Agent/model: Codex desktop, GPT-6 family, exact model ID not recorded. A Codex subagent reviewed transport and peer restrictions. Exact subagent model ID not recorded.

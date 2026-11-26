@@ -28,6 +28,7 @@ pub enum Request {
     NpcDump(NpcDumpQuery),
     MapDump(MapDumpQuery),
     AgentResume,
+    AgentCaption(String),
     AgentRcon,
     AiEnable(Option<bool>),
     SpawnAt(SpawnAt),
@@ -103,7 +104,7 @@ pub trait Host: Context {
     fn background_opacity(&self) -> u8;
     fn set_background_opacity(&mut self, opacity: u8);
     fn focus_background(&mut self);
-    fn agent_status(&mut self, status: AgentStatus);
+    fn agent_status(&mut self, status: AgentStatus) -> Option<String>;
 }
 const fn command<C: Host>(
     name: &'static str,
@@ -381,8 +382,9 @@ fn agent_status<C: Host>(console: &mut C, spec: &Spec<C>, args: &[String]) -> Ou
             AgentStatus::Text(text)
         }
     };
-    console.agent_status(status);
-    Ok(None)
+    Ok(console
+        .agent_status(status)
+        .map(|line| C::effect(Request::AgentCaption(line))))
 }
 
 fn agent_resume<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
@@ -461,17 +463,18 @@ impl Host for hl2_ui::console::Console {
     fn set_background_opacity(&mut self, opacity: u8) {
         self.presentation.background_opacity = Some(opacity);
     }
-    fn agent_status(&mut self, status: AgentStatus) {
+    fn agent_status(&mut self, status: AgentStatus) -> Option<String> {
         let text = match status {
             AgentStatus::Clear => {
                 self.clear_snapshot();
-                return;
+                return None;
             }
             AgentStatus::Token(token) => self.resources().localization.text(token),
             AgentStatus::Text(text) => text,
         };
         let line = format!("{}: {text}", hl2_ui::console::remote::RCON_SPEAKER);
-        self.log_snapshot_with_level(source_ui::console::panel::Level::ChatRemote, line);
+        self.log_snapshot_with_level(source_ui::console::panel::Level::ChatRemote, line.clone());
+        self.remote.from_rcon.then_some(line)
     }
     fn focus_background(&mut self) {
         self.focus_base();

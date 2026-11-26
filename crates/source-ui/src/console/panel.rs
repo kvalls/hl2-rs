@@ -6,7 +6,7 @@
 
 mod entry;
 mod printed;
-pub use printed::Redirect;
+pub use printed::{chat_label_end, Redirect};
 mod snapshot;
 use super::command::{self, Context, Spec};
 use super::complete::{self, Completer};
@@ -33,7 +33,14 @@ pub const OUTPUT_LINES: usize = 1024;
 const WARNING_TEXT: Color = Color::new(1.0, 0.8, 0.3, 1.0);
 const ERROR_TEXT: Color = Color::new(1.0, 0.4, 0.35, 1.0);
 const CHAT_LOCAL_TEXT: Color = Color::new(1.0, 0.92, 0.35, 1.0);
-const CHAT_REMOTE_TEXT: Color = Color::new(0.45, 0.9, 1.0, 1.0);
+/// Remote chat RGB shared by the console and its caption presentation.
+pub const CHAT_REMOTE_RGB: [u8; 3] = [115, 230, 255];
+const CHAT_REMOTE_TEXT: Color = Color::from_rgba(
+    CHAT_REMOTE_RGB[0],
+    CHAT_REMOTE_RGB[1],
+    CHAT_REMOTE_RGB[2],
+    255,
+);
 /// SDK `CConsolePanel` shows at most this many completion rows, the last one `...` when more.
 const COMPLETION_ROWS: usize = 10;
 /// History rows scrolled per mouse wheel notch.
