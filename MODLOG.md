@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 session 73: Bevy 0.20.1 runs; dependency updates (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: wip/session73-20261126 (off wip/session72-bevy020): 9556b2b Bevy 0.20.1's PostUpdate builds (bevy_ui_widgets' MenuPlugin disabled; it closed a dependency loop through UiSystems::PostLayout with our visibility::present) and passthrough cameras opt out of Bevy 0.20's deband dither; eae5fea moves that pair (tonemap::PASSTHROUGH) out of video.rs (1024 -> 1022 lines); 989753f OnQueueMoved carries the queue's new count (SDK RecalculateQueueCount, COutputInt); 67020e5 glam 0.27 -> 0.33 (Bevy's), symphonia 0.5.5 -> 0.6.1 (wav.rs decoder port), zip 2 -> 9.8.2 (fallible names; flate2 only), rfd 0.17.2 -> 0.18.0. wip/session73-rapier (8d7f854): rapier3d 0.26.1 -> 0.36.1 WIP, does not compile (50 errors left).
+- Why: owner decision 2026-11-26: update every dependency, Bevy first (main gets it, then @OrbitalMan merges main into PR #5).
+- Tested how: a temporary schedule probe (dependency-graph path search, not committed); packaged smoke run of d1_trainstation_01; artifacts/s73/validate1.sh 1 on 9556b2b (strict Clippy, tests, fmt, architecture, build, regression, replays JOBS=3) and validate1.sh 2 on 67020e5; regression images against s71-regression4 with exposure values from the reports; monitors-kleiner-scene alone three times; owned-install tests of hl2-simulation and source-assets with the new dependencies; CI on the branch.
+- Result: see STATUS "Current session 73".
+- Still broken or not tested: rapier 0.36 (WIP branch); local Rust 1.100; the train-window cracks, the shader-family smoke runs beyond the regression scenes (flashlight, shadows, motion blur, weapon blur with MSAA on and off), native comparison of the exposure timing change; two owned-install tests fail before and after the updates (explosion_particles owned_explosion_materials_decode_with_correct_blend_modes: 2 vs 3; npc_weapons owned_weapon_columns_follow_campaign_loadouts_then_weapon_can_use: the installed list adds weapon_citizenpackage and weapon_citizensuitcase).
+- Next: artifacts/s73/next-session-prompt.txt.
+
 ## 2026-11-26 session 72: PR #5 overlaps compared; Bevy 0.20.1 started (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. Two web-fetch subagents (the Bevy 0.19 -> 0.20 migration guide; a search of Bevy's issue tracker). PR #5's code read and built is @OrbitalMan's; nothing of it was merged.
