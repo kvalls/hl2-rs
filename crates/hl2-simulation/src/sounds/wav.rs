@@ -4,7 +4,7 @@ use std::io::{Cursor, ErrorKind};
 use symphonia::core::{
     codecs::audio::AudioDecoderOptions,
     errors::Error as DecodeError,
-    formats::{FormatOptions, TrackType, probe::Hint},
+    formats::{probe::Hint, FormatOptions, TrackType},
     io::MediaSourceStream,
     meta::MetadataOptions,
 };
