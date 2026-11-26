@@ -19,6 +19,7 @@ pub use gibs::{gib_models, present_gibs};
 use hl2_simulation::{projectile_visuals::ProjectileVisuals, projectiles::ProjectileKind};
 pub(crate) use model_reading::read_effect_model_lod;
 use modkit_core::Surface;
+pub(crate) use quads::QuadDraw;
 use quads::QuadLayer;
 pub use quads::install_quad_buffer;
 use source_assets::vpk::Vfs;

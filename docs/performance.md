@@ -1952,6 +1952,24 @@ with 100 verified bodies, 0.293 ms per physics tick,
 4.793 ms post-placement mean and a 6 ms p99 bound.
 
 
+## O4/O1 direct swapchain Present2d and idle ViewmodelCamera disable (2026-11-26)
+
+On Apple M1 Pro Metal (`36cca73f` SHA-256 `fb94db74` vs candidate SHA-256 `9a7006f8`), two render-graph and camera-count reductions ran against maxed Retina settings (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `Present2d` direct swapchain (`crates/hl2-bevy/assets/shaders/present.wgsl`, `crates/hl2-bevy/src/video/present_pass.rs`, `crates/hl2-bevy/src/video.rs`): replaced `Material2dPlugin::<PresentMaterial>` with a fullscreen `PresentPipeline` specialized directly to `target.out_texture_view_format()` (`Bgra8UnormSrgb` on Metal), caching the bind group by `(TextureViewId, SamplerId)` and updating the gamma uniform only on changes, drawing inside clamped viewport/scissor bounds on the swapchain (`present_pass_2d`) and removing the redundant `PresentCamera` `upscaling` copy pass.
+2. Idle `ViewmodelCamera` deactivation (`crates/hl2-bevy/src/rendering/weapons.rs`, `crates/hl2-bevy/src/effects.rs`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/launch.rs`): `sync_viewmodel_camera` deactivates `ViewmodelCamera` whenever no `WeaponMesh` or layer-1 `QuadDraw` effect is visible and hands off `SourceBloom` and `SourceColorCorrection` to `FlyCamera` so post-processing and exposure readbacks (`tonemap.readbacks = 284` with populated histogram in `o4-cpu-plaza-hall-headless/report.json`) remain on the last active 3D camera.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. Windowed `plaza` reached **118.2 FPS** effective (98.5% 1x refreshes, repeated refreshes `165 → 19`, zero frames over 8.33 ms GPU busy) and windowed `plaza-hall` rose from **93.8 → 103.6 FPS** (`276 → 173` repeated refreshes).
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `upscaling` Frag (passes/f) | `main_opaque_pass_3d` Vert (passes/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 58% → 57% | 7.17 → 6.83 | 7.11 / 8.44 / 9.30 → 6.67 / 8.04 / 8.71 | 79/1170 (6.8%) → 27/1262 (2.1%) | 0.172 (2.0) → 0.165 (2.0) | 0.985 (4.0) → 0.927 (3.0) | — | 8.273 / 9.783 → 7.961 / 9.204 | 5.636 / 6.752 → 5.337 / 6.233 |
+| `plaza-headless` | 69% → 64% | 7.21 → 7.14 | 7.10 / 8.55 / 9.27 → 7.05 / 8.46 / 8.90 | 176/1347 (13.1%) → 121/1391 (8.7%) | 0.187 (1.0) → 0.187 (1.0) | 0.791 (3.0) → 0.683 (2.0) | — | 7.597 / 9.117 → 7.364 / 9.006 | 5.064 / 6.596 → 4.896 / 6.482 |
+| `plaza-hall` (windowed) | 65% → 63% | 6.64 → 6.35 | 6.65 / 7.42 / 7.97 → 6.36 / 7.12 / 7.45 | 5/991 (0.5%) → 1/1097 (0.09%) | 0.306 (3.0) → 0.146 (2.0) | 1.006 (4.0) → 0.936 (3.0) | 93.8 (276/986) → 103.6 (173/1093; 921 1x [84.3%], 171 2x, 1 3x) | 9.775 / 13.772 → 9.201 / 13.406 | 5.767 / 7.285 → 5.287 / 6.621 |
+| `plaza` (windowed) | 57% → 55% | 6.91 → 6.62 | 7.06 / 7.37 / 7.50 → 6.74 / 7.09 / 7.19 | 2/1101 (0.18%) → 0/1241 (0.0%) | 0.329 (2.0) → 0.156 (1.0) | 0.825 (3.0) → 0.702 (2.0) | 104.3 (165/1097) → 118.2 (19/1236; 1218 1x [98.5%], 17 2x, 1 3x) | 9.246 / 13.825 → 8.470 / 9.188 | 5.099 / 6.411 → 4.629 / 5.776 |
+
+Verified with unit tests (`video` 27 passed, 1 ignored; `rendering::weapons` 1 passed; `bloom` 8 passed; `tonemap` 3 passed), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, `scripts/checks/architecture.py` (`68 long functions, 10 large files, 109 duplicated blocks known, none grown`), 14 targeted packaged replays (`flashlight_shadows`, `lamp_emission`, `monitors-breen-screen`, `flashlight_viewmodel`, `entities-weapons`, `face-security-1805`, `viewmodel_motion_blur`, `physcannon-pallet`, `pistol-level`, `monitors-kleiner-scene`, `crowbar-surfaces`, `video`, `effect-decal`, `hud`), and the `WINDOWED=1` `window` replay (`1/1` passed). Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**.
+
 ## O1/O4 bloom bilinear downsample, monitor frustum culling, shader specialization and Present2d (2026-11-26)
 
 On Apple M1 Pro Metal (`2c776f98` SHA-256 `148ba99f` vs candidate SHA-256 `fb94db74`), four targeted GPU and scene-culling optimizations ran against maxed Retina settings (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):

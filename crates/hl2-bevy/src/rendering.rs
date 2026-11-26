@@ -51,7 +51,7 @@ pub(crate) use material::{
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
 pub use runtime::{despawn_killed_runtime_draws, spawn_runtime_draws, swap_runtime_bodies};
-pub use weapons::{WeaponMesh, present_weapons};
+pub use weapons::{WeaponMesh, present_weapons, sync_viewmodel_camera};
 pub(super) use weapons::{WeaponSkin, viewmodel_sample};
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]

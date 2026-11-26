@@ -170,6 +170,10 @@ pub(super) fn add_presentation_systems(app: &mut App) {
                 .after(flashlight::update)
                 .run_if(crate::isolation::run_hud),
             tonemap::update,
+            rendering::sync_viewmodel_camera
+                .after(rendering::present_weapons)
+                .after(effects::present)
+                .after(tonemap::update),
         )
             .before(TransformSystems::Propagate),
     )

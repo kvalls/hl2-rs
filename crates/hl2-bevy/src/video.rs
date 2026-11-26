@@ -170,7 +170,7 @@ impl DesktopArea {
 }
 
 /// The camera presenting the game frame in the window.
-#[derive(Component)]
+#[derive(Component, Clone, bevy::render::extract_component::ExtractComponent)]
 pub struct PresentCamera;
 
 /// The quad showing the game frame.
@@ -191,7 +191,7 @@ pub fn monitor_gamma_exponent(gamma: f32) -> f32 {
 
 /// A game-frame camera stopped during a frame resize, with its `is_active` before.
 #[derive(Component)]
-pub struct SuspendedCamera(bool);
+pub struct SuspendedCamera(pub(crate) bool);
 
 /// Creates the game frame and its presentation. `windowed` sizes the window to the frame
 /// (clamped to the monitor) once the monitor is known; `follows_window` makes the frame follow the
