@@ -500,7 +500,7 @@ impl Host for hl2_ui::console::Console {
         };
         let line = format!("{}: {text}", hl2_ui::console::remote::RCON_SPEAKER);
         self.log_snapshot_with_level(source_ui::console::panel::Level::ChatRemote, line.clone());
-        self.remote.from_rcon.then_some(line)
+        (self.remote.from_rcon && !self.console_open()).then_some(line)
     }
     fn focus_background(&mut self) {
         self.focus_base();

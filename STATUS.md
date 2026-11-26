@@ -1,5 +1,13 @@
 # STATUS
 
+## Open-console status captions (2026-11-26)
+
+The live report exposed a separate status effect that bypassed the prior
+reply gate. The debug plugin now suppresses that effect while the console
+is visible and keeps its pinned status. The macOS packaged before and
+after check verified that only messages sent with the console closed
+reach the shared caption queue.
+
 ## Local console chat mode (2026-11-26)
 
 The debug plugin supplies `chat_mode 1` for local Player chat and

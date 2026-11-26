@@ -248,6 +248,31 @@ fn remote_reply_clears_status_without_printing_it() {
 }
 
 #[test]
+fn open_console_status_is_pinned_without_a_caption_effect() {
+    use source_ui::console::panel::Level;
+
+    let mut c = console();
+    c.set_mode(Mode::Gameplay);
+    c.set_mode(Mode::Console);
+    c.focus_base();
+    assert!(c.console_open());
+    c.remote.from_rcon = true;
+    assert!(c.execute("agent_status thinking").is_empty());
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((Level::ChatRemote, "Console: Thinking...".into())))
+    );
+
+    c.set_mode(Mode::Gameplay);
+    assert_eq!(
+        c.execute("agent_status waiting"),
+        vec![effect(Request::AgentCaption(
+            "Console: Still waiting for a reply...".into()
+        ))]
+    );
+}
+
+#[test]
 fn agent_status_is_not_logged_from_the_remote_console() {
     let console = console();
     for line in [

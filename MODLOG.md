@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-26 — Suppress queued status captions from the open console
+
+- Codex desktop, `gpt-6.2-sol`.
+- The earlier visibility gate covered remote replies. The debug plugin's separate status effect could still enter the caption queue while the console was open. Now `agent_status` keeps the console snapshot and emits a caption effect only with the console closed.
+- Three focused status tests, all four plugin selections, strict debug-plugin Clippy and a macOS release build passed. Packaged before and after runs sent status and reply markers with the console open, closed it and sent two new markers. The old package queued the open-console status and both closed-console messages. The patched package queued only the two closed-console messages.
+- Windows runtime is **not tested**.
+
 ## 2026-11-26 — Add local console chat mode
 
 - Codex desktop, `gpt-6.2-sol`.
