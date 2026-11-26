@@ -28,7 +28,7 @@ mod tactical;
 #[cfg(test)]
 use graph::search;
 use graph::{
-    ground_link, nearest_usable, node_feet, probe_doors, route_link, Destination, Planner,
+    failed_link, ground_link, nearest_usable, node_feet, probe_doors, Destination, Planner,
     UsableGraph,
 };
 pub use links::MoveCaps;
@@ -399,6 +399,8 @@ pub struct Controller {
     drops: Vec<usize>,
     /// Flying routes by hull, built at the first flight.
     air: BTreeMap<usize, air::AirGraph>,
+    /// The actors' velocities and their look-ahead steering memory.
+    motion: steer::Motion,
 }
 /// FindCoverNode's pNode->Lock(1.0).
 const COVER_NODE_LOCK: f64 = 1.;
@@ -461,6 +463,7 @@ impl Controller {
             launches: Vec::new(),
             drops: Vec::new(),
             air: BTreeMap::new(),
+            motion: steer::Motion::default(),
         }
     }
     /// register_actor for an actor that only AI goals (GoalKey::scene == AI_SCENE) move.
@@ -823,6 +826,7 @@ impl Controller {
         if dt.is_finite() && dt > 0. {
             self.clock += f64::from(dt);
         }
+        self.motion.update(transients, dt);
         let mut updates = std::mem::take(&mut self.pending);
         for (key, goal) in &mut self.goals {
             if matches!(goal.state, GoalState::Arrived | GoalState::Canceled) {
@@ -901,7 +905,8 @@ impl Controller {
                 };
                 let shaky = embedded::stand(world, *key, goal.feet, actor, query, &mut self.drops)?;
                 goal.shaky = shaky;
-                let moved = advance(world, actor, goal, track, query, dt);
+                let think = self.motion.think(key.actor, self.clock, dt);
+                let moved = advance(world, actor, goal, track, query, think, dt);
                 probe_doors(world, actor, key.actor, goal, &self.doors);
                 moved
             })();
@@ -917,33 +922,13 @@ impl Controller {
             let name = self
                 .actors
                 .get(&key.actor)
-                .map(|a| match &a.pause_sequence {
-                    Some(pause) if goal.paused => pause.clone(),
-                    _ => links::played(goal, a)
-                        .unwrap_or_else(|| a.locomotion.played_name(goal.request.style, a.aiming)),
-                });
+                .map(|a| links::sequence(goal, a));
             updates.push(update(*key, goal, &self.doors, name));
             self.launches
                 .extend(goal.link.launch.take().map(|v| (key.actor, v)));
         }
         updates
     }
-}
-/// MarkCurWaypointFailedLink: a move first blocked on a graph link marks the link stale, unless
-/// a door, an NPC or the player blocks it (those hold and retry).
-fn failed_link(
-    graph: Option<&Graph>,
-    goal: &Goal,
-    reason: &GoalBlockReason,
-    actor_block: impl Fn(usize) -> bool,
-) -> Option<usize> {
-    let GoalBlockReason::Collision { blocker, .. } = reason else {
-        return None;
-    };
-    if blocker.is_some_and(actor_block) || matches!(goal.state, GoalState::Blocked(_)) {
-        return None;
-    }
-    route_link(graph?, &goal.route, goal.next)
 }
 /// The distance that counts as arrived: half the hull's width, or the request's own.
 fn goal_tolerance(actor: &Actor, request: &MoveRequest) -> f32 {
@@ -1005,6 +990,7 @@ fn advance<W: NpcCollisionWorld>(
     track: &RootMotion,
     // The mover's exclusions (itself, or every crab for a crab) and the other actors.
     query: Query<'_>,
+    mut think: steer::Think<'_>,
     dt: f32,
 ) -> Result<(), GoalBlockReason> {
     // SDK: the hull tolerance only decides whether to move; once moving, the navigator walks
@@ -1019,9 +1005,8 @@ fn advance<W: NpcCollisionWorld>(
         .duration()
         .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
     // The playback rate scales the run's distance and its cycle together.
-    let mut remaining = dt * actor.playback_rate * blended::throttle(actor, goal, track, dt)?;
+    let mut remaining = dt * actor.playback_rate * blended::throttle(actor, goal, track, &think)?;
     let mut start_validated = !goal.shaky;
-    let mut triangulated = false;
     // Budget is ours, not an engine constant; failing never releases SECTION.
     for _ in 0..32 {
         if remaining <= 0. || links::at_link(goal) {
@@ -1071,7 +1056,7 @@ fn advance<W: NpcCollisionWorld>(
         // This tick's first step starts where `fits` and `stand` just passed.
         let validated = std::mem::take(&mut start_validated);
         let step = steer::Step::new(goal.feet, direction, amount, consumed, validated);
-        let movement = match steer::walk(world, actor, goal, step, query, &mut triangulated) {
+        let movement = match steer::walk(world, actor, goal, step, query, &mut think) {
             steer::Walk::Moved(movement) => movement,
             steer::Walk::Steered(used) => {
                 remaining = (remaining - used).max(0.);
@@ -1797,16 +1782,17 @@ pub(crate) mod tests {
     fn a_blocked_graph_link_turns_stale_and_the_retry_routes_around_it() {
         // The graph claims a direct link 0-3 through the wall: the search trusts link data
         // (CAI_Pathfinder::IsLinkUsable), the walk blocks, MarkCurWaypointFailedLink marks
-        // the link stale and the retry goes around.
+        // the link stale and the retry goes around. The wall is too long to steer around:
+        // the look-ahead's solver gives up without progress (DetectUnsolvable).
         let physical_world = world(vec![cube(
-            Vec3::new(35., -45., 0.),
-            Vec3::new(65., 45., 120.),
+            Vec3::new(35., -400., 0.),
+            Vec3::new(65., 60., 120.),
         )]);
         let physics = Physics::new(&physical_world);
         let points = [
             Vec3::new(0., 0., 0.),
-            Vec3::new(0., 80., 0.),
-            Vec3::new(100., 80., 0.),
+            Vec3::new(0., 200., 0.),
+            Vec3::new(100., 200., 0.),
             Vec3::new(100., 0., 0.),
         ];
         let edges = [(0, 1), (1, 2), (2, 3), (0, 3)];
@@ -1827,7 +1813,8 @@ pub(crate) mod tests {
         }
         assert!(stale_seen);
         assert!(controller.status(key(1)).unwrap().is_arrived());
-        assert_eq!(controller.snapshots()[0].route_nodes, vec![0, 1, 2, 3]);
+        // The steering walked north first, so the retry may start at node 1.
+        assert!(controller.snapshots()[0].route_nodes.ends_with(&[1, 2, 3]));
     }
     #[test]
     fn astar_equal_cost_uses_lower_id_and_reopens_previously_selected_nodes() {

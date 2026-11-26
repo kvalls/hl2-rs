@@ -9,10 +9,17 @@
 //! Not modeled: the plane solver's steering (MoveCalcSteer) that runs before these, and the
 //! same handling for world and entity obstructions, which keep the stale-link path.
 
+mod arcs;
+mod lookahead;
+mod plane;
+
+pub(super) use lookahead::Motion;
+
 use super::graph::triangulate;
 use super::{links, Actor, Goal, Route};
 use crate::npc_probe::{self, GroundMove, NpcCollisionWorld, Query};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
+use std::collections::BTreeMap;
 
 /// OnFailedSteer takes the deflection only while it stays this close to the wanted
 /// direction (2D dot product).
@@ -49,6 +56,49 @@ impl Step {
     }
 }
 
+/// One actor's steering context for a tick's move.
+pub(in crate::npc) struct Think<'a> {
+    /// PrependLocalAvoidance's once-per-think gate.
+    triangulated: bool,
+    /// The look-ahead runs on the tick's first substep.
+    first: bool,
+    me: usize,
+    now: f64,
+    dt: f32,
+    memory: &'a mut lookahead::Memory,
+    velocity: &'a BTreeMap<usize, Vec2>,
+}
+
+impl<'a> Think<'a> {
+    fn new(
+        me: usize,
+        (now, dt): (f64, f32),
+        memory: &'a mut lookahead::Memory,
+        velocity: &'a BTreeMap<usize, Vec2>,
+    ) -> Self {
+        Self {
+            triangulated: false,
+            first: true,
+            me,
+            now,
+            dt,
+            memory,
+            velocity,
+        }
+    }
+
+    /// This tick's time step.
+    pub(super) fn dt(&self) -> f32 {
+        self.dt
+    }
+
+    /// The direction the look-ahead steers toward `goal`'s current waypoint (MoveCalcSteer's
+    /// move.dir), if a steer is in force.
+    pub(super) fn steered(&self, goal: &Goal) -> Option<Vec2> {
+        self.memory.current(*goal.route.feet.get(goal.next)?)
+    }
+}
+
 /// A substep's outcome.
 pub(super) enum Walk {
     /// The plain ground move, completed or blocked.
@@ -57,16 +107,27 @@ pub(super) enum Walk {
     Steered(f32),
 }
 
-/// The substep's ground move, steered when an actor blocks it. `triangulated` is this
-/// think's PrependLocalAvoidance gate.
+/// The substep's ground move: around an obstruction the look-ahead found (the tick's first
+/// substep), else straight and steered when an actor blocks it.
 pub(super) fn walk<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
     goal: &mut Goal,
     step: Step,
     query: Query<'_>,
-    triangulated: &mut bool,
+    think: &mut Think<'_>,
 ) -> Walk {
+    if std::mem::take(&mut think.first) {
+        if let Some(direction) = lookahead::steer(world, actor, goal, &step, query, think) {
+            let end = step.start + direction * step.amount;
+            let moved = npc_probe::ground_move(world, step.start, end, actor.ground, query);
+            if moved.completed {
+                walked(goal, &step, moved.end, direction);
+                return Walk::Steered(step.consumed);
+            }
+        }
+    }
+    let triangulated = &mut think.triangulated;
     let end = step.start + step.direction * step.amount;
     let movement = if step.validated {
         npc_probe::ground_move_from_valid(world, step.start, end, actor.ground, query)
@@ -125,10 +186,7 @@ impl Blocked<'_> {
         // AIMR_BLOCKED_NPC only: the player has no entity here.
         if movement.blocker.is_some() {
             if let Some(moved) = deflect(world, actor, self, query) {
-                goal.feet = moved.end;
-                goal.contact_normal = Vec3::ZERO;
-                goal.yaw = step.direction.y.atan2(step.direction.x).to_degrees();
-                goal.animation_time += step.consumed;
+                walked(goal, step, moved.end, step.direction);
                 return Steer::Moved;
             }
         }
@@ -142,6 +200,15 @@ impl Blocked<'_> {
         }
         Steer::Blocked
     }
+}
+
+/// A steered substep: the feet move to `end`, the mover faces `facing` and its animation
+/// advances by the substep's time.
+fn walked(goal: &mut Goal, step: &Step, end: Vec3, facing: Vec3) {
+    goal.feet = end;
+    goal.contact_normal = Vec3::ZERO;
+    goal.yaw = facing.y.atan2(facing.x).to_degrees();
+    goal.animation_time += step.consumed;
 }
 
 /// CalculateDeflection: the wanted direction projected onto the plane of the hit normal,
@@ -252,6 +319,8 @@ fn skip_near_waypoint(actor: &Actor, goal: &mut Goal, feet: Vec3) -> bool {
     true
 }
 
+#[cfg(test)]
+mod passing;
 #[cfg(test)]
 mod tests {
     use super::*;

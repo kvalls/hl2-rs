@@ -19,6 +19,7 @@ fn walk(
             heading,
             speed,
             waypoints: &path[next..],
+            steered: None,
             ideal,
             accel: accel.of(ideal),
             arrival_distance,
@@ -87,6 +88,7 @@ fn an_arrival_distance_slows_to_a_walk_there() {
         heading: Vec2::X,
         speed,
         waypoints: &path[1..],
+        steered: None,
         ideal: 50.,
         accel: 100.,
         arrival_distance: 48.,
@@ -112,4 +114,26 @@ fn the_metrocop_accelerates_twice_its_speed_and_unblended_classes_have_no_motor(
     let path = [Vec3::ZERO, Vec3::new(300., 0., 0.)];
     let (cop, _) = walk(&path, 80., Accel::Twice, 0., 0.1);
     assert!((cop - (300. / 80. + 0.5)).abs() < 0.05, "{cop}");
+}
+
+#[test]
+fn a_steered_walk_keeps_its_speed_across_its_waypoint_direction() {
+    // Walking north around an obstruction while the waypoint lies east: the script's first
+    // point follows the steered direction (BuildVelocityScript's move.dir), so the speed holds
+    // instead of dropping to the right-angle turn's zero.
+    let path = [Vec3::new(200., 0., 0.)];
+    let plan = |steered: Option<Vec2>| Plan {
+        feet: Vec3::ZERO,
+        heading: Vec2::Y,
+        speed: 70.,
+        waypoints: &path,
+        steered,
+        ideal: 70.,
+        accel: 300.,
+        arrival_distance: 0.,
+    };
+    let (_, plain) = step(&plan(None), 0.015);
+    let (_, steered) = step(&plan(Some(Vec2::Y)), 0.015);
+    assert!(plain < 10., "{plain}");
+    assert!(steered > 60., "{steered}");
 }

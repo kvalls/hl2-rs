@@ -73,6 +73,9 @@ pub(super) struct Plan<'a> {
     pub speed: f32,
     /// The waypoints left, the goal last.
     pub waypoints: &'a [Vec3],
+    /// The look-ahead's steered direction this think: the script's first point lies along it
+    /// (BuildVelocityScript's origin + move.dir x curExpectedDist), not toward the waypoint.
+    pub steered: Option<Vec2>,
     pub ideal: f32,
     pub accel: f32,
     /// Distance short of the goal where the move ends (0: at the goal).
@@ -116,11 +119,12 @@ pub(super) fn throttle(
     actor: &Actor,
     goal: &mut Goal,
     track: &RootMotion,
-    dt: f32,
+    think: &super::steer::Think<'_>,
 ) -> Result<f32, GoalBlockReason> {
     let Some(rule) = actor.accel else {
         return Ok(1.);
     };
+    let dt = think.dt();
     let duration = track
         .duration()
         .map_err(|e| GoalBlockReason::RootMotion(e.to_string()))?;
@@ -139,6 +143,7 @@ pub(super) fn throttle(
         heading: Vec2::new(yaw.cos(), yaw.sin()) * if goal.speed > 0. { 1. } else { 0. },
         speed: goal.speed,
         waypoints: goal.route.feet.get(goal.next..).unwrap_or(&[]),
+        steered: think.steered(goal),
         ideal,
         accel: rule.of(ideal),
         arrival_distance: goal.request.event_distance,
@@ -177,8 +182,10 @@ fn waypoint_nodes(plan: &Plan) -> Vec<Node> {
     let Some(first) = plan.waypoints.first().map(|w| w.truncate()) else {
         return nodes;
     };
-    let ahead =
-        (first - here).normalize_or_zero() * (plan.ideal * MOVE_INTERVAL).min(here.distance(first));
+    let toward = plan
+        .steered
+        .unwrap_or_else(|| (first - here).normalize_or_zero());
+    let ahead = toward * (plan.ideal * MOVE_INTERVAL).min(here.distance(first));
     let points: Vec<Vec2> = std::iter::once(here + ahead)
         .chain(plan.waypoints.iter().map(|w| w.truncate()))
         .collect();

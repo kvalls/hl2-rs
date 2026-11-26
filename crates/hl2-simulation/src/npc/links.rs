@@ -364,6 +364,18 @@ pub(super) fn at_link(goal: &Goal) -> bool {
     nav.is_some_and(|nav| *nav != Nav::Ground)
 }
 /// The sequence a traversal plays, if it is not the movement's own.
+/// The sequence the actor plays for this goal: its pause, a jump's or climb's clip, or the
+/// move style's locomotion.
+pub(super) fn sequence(goal: &Goal, actor: &Actor) -> String {
+    match &actor.pause_sequence {
+        Some(pause) if goal.paused => pause.clone(),
+        _ => played(goal, actor).unwrap_or_else(|| {
+            actor
+                .locomotion
+                .played_name(goal.request.style, actor.aiming)
+        }),
+    }
+}
 pub(super) fn played(goal: &Goal, actor: &Actor) -> Option<String> {
     match goal.link.traversal {
         Traversal::None | Traversal::Climb(ClimbPlay::Run) => None,
