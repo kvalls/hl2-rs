@@ -210,7 +210,7 @@ fn capture(device: &RenderDevice, queue: &RenderQueue, output: &Texture, path: P
         .poll(PollType::wait_indefinitely())
         .expect("readback completion");
     receive.recv().expect("map result").expect("map succeeded");
-    let mapped = buffer.slice(..).get_mapped_range();
+    let mapped = buffer.slice(..).get_mapped_range().expect("mapped range");
     let bytes: Vec<u8> = mapped
         .chunks(stride as usize)
         .flat_map(|row| row[..(output.width() * 4) as usize].iter().copied())

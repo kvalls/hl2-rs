@@ -88,6 +88,7 @@ fn queue_pipeline(
         ],
         vertex: pipelines.fullscreen.to_vertex_state(),
         fragment: Some(FragmentState {
+            constants: Vec::new(),
             shader: pipelines.shader.clone(),
             shader_defs,
             entry_point: Some("composite_cc".into()),

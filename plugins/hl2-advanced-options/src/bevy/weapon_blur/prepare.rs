@@ -18,7 +18,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         texture::CachedTexture,
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 use std::collections::HashMap;
@@ -160,7 +160,7 @@ type View<'w> = (
     &'w ExtractedView,
     &'w ViewTarget,
     &'w ViewPrepassTextures,
-    &'w ViewDepthTexture,
+    &'w ViewDepthStencilTexture,
     Option<&'w PreviousViewData>,
     Option<&'w Key>,
     Option<&'w mut Prepared>,
@@ -190,7 +190,9 @@ pub(super) fn groups(
         let Some(vectors) = prepass.motion_vectors_view() else {
             continue;
         };
-        let depth = main_depth.view();
+        // The sampled depth: its depth-only view when the format carries stencil.
+        let views = main_depth.attachment.depth_stencil_views();
+        let depth = views.depth_only_view().unwrap_or(views.attachment_view());
         let sources = [target.main_texture_view(), target.main_texture_other_view()];
         let key = texture_key(
             textures,

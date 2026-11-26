@@ -534,7 +534,7 @@ pub fn present_entities(
         }
         if let Some(mut mesh) = meshes.get_mut(&handle.0) {
             skin_on_cpu(&mut mesh, &animation, matrices);
-            if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.compute_aabb()) {
+            if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.get_aabb()) {
                 *aabb = bounds;
             }
             animation.sampled = Some(sampled);
@@ -1428,7 +1428,7 @@ mod tests {
         assert!(
             chunks
                 .into_iter()
-                .any(|b| b.mesh().compute_aabb().unwrap().half_extents.x > 2000.)
+                .any(|b| b.mesh().get_aabb().unwrap().half_extents.x > 2000.)
         );
     }
     #[test]

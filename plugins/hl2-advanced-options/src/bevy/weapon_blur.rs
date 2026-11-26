@@ -39,6 +39,7 @@ mod strength;
 mod world;
 
 #[derive(Component, Clone, Copy, PartialEq, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct WeaponBlur {
     pub max: f32,
     pub scale: f32,
@@ -202,6 +203,7 @@ fn pipeline(
         layout: vec![layout.clone()],
         vertex: p.fullscreen.to_vertex_state(),
         fragment: Some(FragmentState {
+            constants: Vec::new(),
             shader: p.shader.clone(),
             shader_defs: {
                 let mut defs = Vec::new();

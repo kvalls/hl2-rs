@@ -421,7 +421,7 @@ fn draw_pool(
         used += 1;
         if slot.previous.as_ref() != Some(quad) {
             let mesh = quad_mesh(quad);
-            let bounds = mesh.compute_aabb();
+            let bounds = mesh.get_aabb();
             if let Some(mut old) = meshes.get_mut(&slot.mesh) {
                 *old = mesh;
             }

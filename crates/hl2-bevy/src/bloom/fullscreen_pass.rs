@@ -56,6 +56,7 @@ pub(crate) fn queue_pipeline(
         layout: vec![pass.layout.clone()],
         vertex: pass.vertex.to_vertex_state(),
         fragment: Some(FragmentState {
+            constants: Vec::new(),
             shader: pass.shader.clone(),
             shader_defs: Vec::new(),
             entry_point: Some(pass.entry.into()),

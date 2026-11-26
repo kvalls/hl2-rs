@@ -41,6 +41,7 @@ struct FaceWrite {
 
 /// The latest face writes, extracted to the render world; `serial` tells new ones apart.
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct LightmapWrites {
     serial: u64,
     faces: Arc<Vec<FaceWrite>>,

@@ -62,7 +62,7 @@ pub(super) fn write(
             };
             fill(&mut mesh, &caster.decal, rect);
             if let Ok((_, mut current, mut drawn, _)) = draws.get_mut(*entity) {
-                if let Some(aabb) = mesh.compute_aabb() {
+                if let Some(aabb) = mesh.get_aabb() {
                     *current = aabb;
                 }
                 if drawn.0 != material {
@@ -76,7 +76,7 @@ pub(super) fn write(
                 RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
             );
             fill(&mut mesh, &caster.decal, rect);
-            let aabb = mesh.compute_aabb().unwrap_or_default();
+            let aabb = mesh.get_aabb().unwrap_or_default();
             let handle = meshes.add(mesh);
             let entity = commands
                 .spawn((

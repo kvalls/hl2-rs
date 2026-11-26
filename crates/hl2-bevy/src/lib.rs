@@ -324,7 +324,7 @@ fn set_system_recommendation(
         return;
     };
     let max_samples = video::adapter_max_msaa_samples(Some(adapter));
-    let device_type_str = format!("{:?}", adapter.0.device_type);
+    let device_type_str = format!("{:?}", adapter.device_type);
     let device_type = match device_type_str.as_str() {
         "DiscreteGpu" => hl2_ui::gameui::recommendation::GpuDeviceType::Discrete,
         "IntegratedGpu" => hl2_ui::gameui::recommendation::GpuDeviceType::Integrated,
@@ -333,11 +333,11 @@ fn set_system_recommendation(
         _ => hl2_ui::gameui::recommendation::GpuDeviceType::Other,
     };
     let gpu = hl2_ui::gameui::recommendation::GpuSpecs {
-        name: adapter.0.name.clone(),
+        name: adapter.name.clone(),
         device_type,
-        vendor_id: Some(adapter.0.vendor),
-        device_id: Some(adapter.0.device),
-        backend: Some(format!("{:?}", adapter.0.backend)),
+        vendor_id: Some(adapter.vendor),
+        device_id: Some(adapter.device),
+        backend: Some(format!("{:?}", adapter.backend)),
         max_msaa_samples: Some(max_samples),
     };
     let cpu = hl2_ui::gameui::recommendation::CpuSpecs::new(

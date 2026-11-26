@@ -1,12 +1,17 @@
 //! Asset-independent installation bootstrap. Never uses the owned GameUI/menu.
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
+// Bevy 0.20's prelude adds ContextExt (also .context()); naming anyhow's trait so shadows it.
+use anyhow::Context as ContextExt;
 use bevy::{
     input_focus::{
         AutoFocus,
         tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
     },
+    picking::hover::Hovered,
     prelude::*,
     text::{EditableText, TextCursorStyle},
+    ui::Pressed,
+    ui_widgets::Button,
     window::WindowResolution,
 };
 use serde::{Deserialize, Serialize};
@@ -401,7 +406,7 @@ fn screen(mut commands: Commands, mut fonts: ResMut<Assets<Font>>, setup: Res<Se
         parent.spawn((Text::new("Type or paste a path (Ctrl+V / Cmd+V). Press Enter to continue."), normal.clone().with_font_size(18.)));
         parent.spawn(Node { column_gap: px(12), ..default() }).with_children(|row| {
             for (index, (label, action)) in [("Browse...", Action::Browse), ("Retry detection", Action::Detect), ("Continue", Action::Play), ("Cancel", Action::Cancel)].into_iter().enumerate() {
-                row.spawn((Button, action, TabIndex(index as i32 + 1), Node {
+                row.spawn((Button, Hovered::default(), action, TabIndex(index as i32 + 1), Node {
                     padding: px(12).all(), border: px(1).all(), ..default()
                 }, BorderColor::all(Color::srgb(0.35, 0.42, 0.5)), BackgroundColor(Color::srgb(0.16, 0.21, 0.27))))
                     .with_child((Text::new(label), normal.clone()));
@@ -418,7 +423,13 @@ fn actions(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     focus: Res<bevy::input_focus::InputFocus>,
-    mut buttons: Query<(Entity, &Interaction, &Action, &mut BackgroundColor)>,
+    mut buttons: Query<(
+        Entity,
+        &Hovered,
+        Has<Pressed>,
+        &Action,
+        &mut BackgroundColor,
+    )>,
     field: Single<(Entity, &EditableText), With<PathField>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -428,14 +439,14 @@ fn actions(
     } else {
         None
     };
-    for (entity, interaction, button, mut color) in &mut buttons {
-        *color = BackgroundColor(if *interaction == Interaction::Hovered {
+    for (entity, hovered, pressed, button, mut color) in &mut buttons {
+        *color = BackgroundColor(if hovered.0 {
             Color::srgb(0.25, 0.33, 0.42)
         } else {
             Color::srgb(0.16, 0.21, 0.27)
         });
         // Trigger on the press edge, not every held frame.
-        if (*interaction == Interaction::Pressed && mouse.just_pressed(MouseButton::Left))
+        if (pressed && mouse.just_pressed(MouseButton::Left))
             || ((enter || keys.just_pressed(KeyCode::Space)) && focus.get() == Some(entity))
         {
             action = Some(*button);
@@ -610,7 +621,8 @@ mod tests {
             .world_mut()
             .spawn((
                 Button,
-                Interaction::Pressed,
+                Hovered::default(),
+                Pressed,
                 Action::Play,
                 BackgroundColor::default(),
             ))
