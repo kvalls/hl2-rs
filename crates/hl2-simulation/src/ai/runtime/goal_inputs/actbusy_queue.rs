@@ -293,7 +293,8 @@ impl AiRuntime {
             let count = line_count(&holders, &queue.player_blocked);
             if count != queue.count {
                 queue.count = count;
-                scene.fire(goal, "OnQueueMoved", goal);
+                // COutputInt m_OnQueueMoved: the new count is the output's value.
+                scene.fire_value(goal, "OnQueueMoved", count as f32, goal);
             }
             let steer = (queue.steered != Some(count)).then(|| queue.nodes.clone());
             queue.steered = Some(count);
