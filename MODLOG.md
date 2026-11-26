@@ -1,5 +1,11 @@
 # MODLOG
 
+## 2026-11-26 — Preserve a leading say in chat mode
+
+- Codex desktop, `gpt-6.2-sol`.
+- The debug editor hook delivers the complete chat line. With chat mode on, `say hello` reaches the assistant as a request to say hello. With it off, Source-style `say` still sends the message body.
+- The focused debug test, four plugin selections, strict Clippy, macOS release build and packaged editor check passed. The same typed line reached the console as `Player: say hello` in chat mode and `Player: hello` in normal mode. Windows runtime is **not tested**.
+
 ## 2026-11-26 — Suppress queued status captions from the open console
 
 - Codex desktop, `gpt-6.2-sol`.

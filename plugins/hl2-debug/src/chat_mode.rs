@@ -20,12 +20,7 @@ fn route(console: &mut Console, line: &str) -> bool {
     if first.eq_ignore_ascii_case("chat_mode") && matches!(rest, "" | "0" | "1") {
         return false;
     }
-    let text = if first.eq_ignore_ascii_case("say") && !rest.is_empty() {
-        rest
-    } else {
-        line
-    };
-    console.say_local(text);
+    console.say_local(line);
     true
 }
 
@@ -53,11 +48,16 @@ mod tests {
         console.submit_local("say hello; world");
         assert_eq!(
             console.shell.panel.output.back().unwrap().text,
-            "Player: hello; world"
+            "Player: say hello; world"
         );
         console.execute("sv_cheats 1");
         assert!(console.cheats);
         console.submit_local("chat_mode 0");
+        console.submit_local("say hello");
+        assert_eq!(
+            console.shell.panel.output.back().unwrap().text,
+            "Player: hello"
+        );
         console.submit_local("echo back to commands");
         assert_eq!(
             console.shell.panel.output.back().unwrap().text,

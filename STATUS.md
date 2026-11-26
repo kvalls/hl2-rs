@@ -1,5 +1,10 @@
 # STATUS
 
+## Literal chat input (2026-11-26)
+
+Chat mode preserves a leading `say` as part of the message. The packaged
+macOS editor check verified the same input with chat mode on and off.
+
 ## Open-console status captions (2026-11-26)
 
 The live report exposed a separate status effect that bypassed the prior
