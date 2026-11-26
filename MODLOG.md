@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-26 — Skip render-mesh collision for dynamic props missing PHY
+
+- Codex desktop, `gpt-6.2-sol`.
+- In the Station 02 queue, the dispenser has explicit VPhysics solidity but the mounted model has no PHY. Its fallback render collider caused 139 failed starting-hull checks in a controlled replay. A diagnostic removal of the dispenser cleared those checks. Source SDK `game/server/props.cpp`, `game/shared/baseentity_shared.cpp`, and `game/shared/physics_shared.cpp` establish that the static physics path needs model collision data.
+- Map preparation checks each explicit VPhysics dynamic model once. If the mounted model has no PHY, the instance still renders and the host skips its collision shape.
+- The focused `source-assets` test, strict Clippy, and the macOS package build passed. The packaged replay kept the dispenser present. All four citizens settled and no starting-hull check hit the dispenser.
+- A separate replay that advances the line while the player blocks the exit still records a later `NoRoute`. The complete exit sequence and Windows runtime are **not tested**.
+
 ## 2026-11-26 — Keep remote chat and status in an open console
 
 - Codex desktop, `gpt-6.2-sol`.

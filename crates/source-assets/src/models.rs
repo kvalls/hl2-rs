@@ -269,6 +269,7 @@ fn eye_position(data: &[u8]) -> Result<Vec3> {
 #[cfg(test)]
 mod eye_position_tests {
     use super::*;
+
     #[test]
     fn studio_eye_rejects_truncated_mismatched_and_nonfinite_metadata() {
         let mut data = vec![0u8; 92];
@@ -422,6 +423,7 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
 /// The model instances of the map's point entities: their own model, a weapon script's, an
 /// item's or the class's default.
 fn append_entity_models(world: &mut World, vfs: &Vfs) {
+    let mut has_dynamic_phy = BTreeMap::new();
     for (entity_id, entity) in world.entities.iter().enumerate() {
         if !entity.class().starts_with("npc_")
             && !entity.class().starts_with("weapon_")
@@ -460,9 +462,22 @@ fn append_entity_models(world: &mut World, vfs: &Vfs) {
             .or_else(|| supply_model(entity.class()))
             .or(default_model)
         {
+            let model_path = model.replace('\\', "/");
+            let background = world.background_entities.contains(&entity_id);
+            let solid = entity.get("solid");
+            // VPhysics dynamic props need model collision data for their static body.
+            let missing_phy = !background
+                && matches!(entity.class(), "prop_dynamic" | "prop_dynamic_override")
+                && solid == Some("6")
+                && !*has_dynamic_phy
+                    .entry(model_path.to_ascii_lowercase())
+                    .or_insert_with(|| {
+                        let stem = model_path.trim_end_matches(".mdl");
+                        !matches!(vfs.read_prefix(&format!("{stem}.phy"), 1), Ok(None))
+                    });
             world.model_instances.push(ModelInstance {
-                background: world.background_entities.contains(&entity_id),
-                model: model.replace('\\', "/"),
+                background,
+                model: model_path,
                 origin: entity.origin(),
                 angles: parse_vec3(entity.get("angles").unwrap_or("0 0 0")).unwrap_or(Vec3::ZERO),
                 skin: entity.get("skin").and_then(|s| s.parse().ok()).unwrap_or(0),
@@ -479,7 +494,8 @@ fn append_entity_models(world: &mut World, vfs: &Vfs) {
                     && entity.class() != "prop_ragdoll"
                     // CRagGib::Spawn: FSOLID_NOT_SOLID, then a client ragdoll.
                     && entity.class() != "raggib"
-                    && entity.get("solid").is_none_or(|s| s != "0"),
+                    && solid != Some("0")
+                    && !missing_phy,
                 solid_mode: None,
                 entity: Some(entity_id),
             });
@@ -995,6 +1011,42 @@ pub fn read_ragdoll(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dynamic_props_without_physics_data_keep_the_model_without_vphysics_collision() {
+        let root = std::env::temp_dir().join(format!("hl2rs-model-phy-{}", std::process::id()));
+        let models = root.join("hl2/models");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(models.join("has.phy"), [1]).unwrap();
+        let vfs = Vfs::mount(&root).unwrap();
+        let prop = |kind: &str, model: &str, solid: &str| modkit_core::Entity {
+            properties: vec![
+                ("classname".into(), kind.into()),
+                ("model".into(), format!("models/{model}.mdl")),
+                ("solid".into(), solid.into()),
+            ],
+        };
+        let mut world = World {
+            entities: vec![
+                prop("prop_dynamic", "missing", "6"),
+                prop("prop_dynamic_override", "has", "6"),
+                prop("prop_dynamic", "missing", "2"),
+                prop("prop_physics", "missing", "6"),
+            ],
+            ..Default::default()
+        };
+        append_entity_models(&mut world, &vfs);
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            world
+                .model_instances
+                .iter()
+                .map(|i| i.solid)
+                .collect::<Vec<_>>(),
+            [false, true, true, true]
+        );
+    }
+
     #[test]
     #[ignore = "reads the installed game (HL2_ROOT)"]
     fn weapon_solids_match_their_idle_pose_not_the_bind_mesh() {

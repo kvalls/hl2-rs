@@ -1,5 +1,14 @@
 # STATUS
 
+## Station 02 queue collision (2026-11-26)
+
+The dispenser's model has no PHY and previously collided through its
+render mesh. The packaged replay reproduced 139 failed initial hull
+checks on that collider. The loader patch keeps the model present and
+lets all four citizens settle. In the forced-advance replay with a
+blocked exit, a later citizen still reports `NoRoute`. The player
+destination overlap fix addresses a separate circling behavior.
+
 ## Console chat visibility (2026-11-26)
 
 Remote `say` and `agent_status` use the gameplay caption panel only when

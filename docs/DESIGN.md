@@ -1,5 +1,17 @@
 # Design
 
+## Dynamic props with missing physics collision (2026-11-26)
+
+A packaged replay reproduces the queue's failed standing-hull checks. Its
+front citizen overlaps the dispenser's render-mesh fallback. Removing
+the object in a diagnostic control clears the checks. The installed
+dispenser model requests physics collision and has no companion PHY.
+The Source SDK dynamic-prop static physics path needs model collision data
+for this mode. At map preparation, check for the companion once per
+explicit VPhysics dynamic model and keep its render instance if absent.
+Validate a missing and a present companion, a non-VPhysics mode and a
+matched packaged queue replay with the object still in the map.
+
 ## Console speech in the shared caption panel (2026-11-26)
 
 Feed RCON reply and status text from the debug plugin into the existing
