@@ -238,6 +238,35 @@ class TestMetalGpu(unittest.TestCase):
             self.assertEqual(data["repeated_refreshes"], 1)
             self.assertAlmostEqual(data["effective_fps"], 80.0, places=0)
 
+    def test_display_pacing_matches_process_and_pid_before_choosing_resolution(self):
+        def row(duration, label, resolution):
+            return (
+                f"<row><c/><duration>{duration}</duration>"
+                + "<c/>" * 7 + label + "<c/>" * 3 + resolution + "</row>"
+            )
+
+        target = '<narrative id="4" fmt="Surface 11 (hl2-bevy (42):Frame 1:Surface 93 via WindowServer)"/>'
+        other = '<narrative fmt="Surface 9 (hl2-bevy (420):Frame 3:Surface 44 via WindowServer)"/>'
+        desktop = '<narrative fmt="Surface 8"/>'
+        resolution = '<resolution id="5" fmt="(3456,2234)"/>'
+        xml = "<trace-query-result>" + "".join((
+            row(8_333_333, target, resolution),
+            row(16_666_666, '<narrative ref="4"/>', '<resolution ref="5"/>'),
+            row(33_333_333, other, '<resolution ref="5"/>'),
+            row(33_333_333, desktop, '<resolution ref="5"/>'),
+            *(row(25_000_000, desktop, '<resolution fmt="(3840,2160)"/>') for _ in range(5)),
+        )) + "</trace-query-result>"
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "displayed_surfaces.xml"
+            p.write_text(xml, encoding="utf-8")
+            data = metal_gpu.analyze_display_pacing(p, process="hl2-bevy (42)")
+            self.assertEqual(data["surface"], "(3456,2234)")
+            self.assertEqual(data["process"], "hl2-bevy (42)")
+            self.assertEqual(data["buckets"], {"1": 1, "2": 1})
+            self.assertEqual(metal_gpu.analyze_display_pacing(p, process="hl2-bevy")["total_frames"], 3)
+            with self.assertRaises(metal_gpu.NoAttributedFrames):
+                metal_gpu.analyze_display_pacing(p, process="hl2-bevy (4)")
+
 
 class TestSampleSummary(unittest.TestCase):
     def test_inclusive_dedup_recursion_and_callers(self):
@@ -378,6 +407,27 @@ class TestCaptureOrchestrator(unittest.TestCase):
                 "summary.txt",
             ):
                 self.assertTrue((cap / expected).is_file(), expected)
+
+    def test_desktop_only_export_does_not_publish_pacing_or_prune_raw(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cap = Path(tmp)
+            (cap / "gpu.trace").mkdir()
+            (cap / "displayed_surfaces.xml").write_text(
+                "<trace-query-result><row><c/><duration>8333333</duration>"
+                + "<c/>" * 7 + '<narrative fmt="Surface 8"/>' + "<c/>" * 3
+                + '<resolution fmt="(3456,2234)"/></row></trace-query-result>',
+                encoding="utf-8",
+            )
+            for suffix in ("txt", "json"):
+                (cap / f"display_pacing.{suffix}").write_text("stale", encoding="utf-8")
+
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                rc = capture.analyze_capture_dir(cap, delete_raw=True, metal_exporter=lambda _d: [])
+            self.assertEqual(rc, 0)
+            self.assertIn("Pacing unavailable: no displayed surfaces attributed to", output.getvalue())
+            self.assertTrue((cap / "gpu.trace").is_dir())
+            for suffix in ("txt", "json"):
+                self.assertFalse((cap / f"display_pacing.{suffix}").exists())
 
     def test_cleanup_requires_summaries_unless_forced(self):
         with tempfile.TemporaryDirectory() as tmp:

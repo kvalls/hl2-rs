@@ -775,25 +775,29 @@ def analyze_capture_dir(
 
     gpu_xml = out_dir / "gpu_intervals.xml"
     pacing_xml = out_dir / "displayed_surfaces.xml"
-    gpu_errors_before = len(errors)
     if gpu_xml.is_file():
         try:
             gdata = metal_gpu.analyze_gpu_intervals(gpu_xml, top=top)
             gtext = metal_gpu.format_gpu_intervals(gdata, top=top)
             _write_artifact_outputs(out_dir, "gpu_passes", gtext, gdata)
             sections.append("\n## gpu_intervals.xml\n" + "\n".join(gtext.splitlines()[:15]))
+            gpu_ok = True
         except Exception as exc:  # noqa: BLE001
             errors.append(f"gpu_intervals.xml: {exc}")
     if pacing_xml.is_file():
         try:
-            pdata = metal_gpu.analyze_display_pacing(pacing_xml, refresh_hz=refresh_hz)
+            pdata = metal_gpu.analyze_display_pacing(pacing_xml, refresh_hz=refresh_hz, process="hl2-bevy")
             ptext = metal_gpu.format_display_pacing(pdata)
             _write_artifact_outputs(out_dir, "display_pacing", ptext, pdata)
             sections.append("\n## displayed_surfaces.xml\n" + ptext.rstrip())
+            gpu_ok = True
+        except metal_gpu.NoAttributedFrames as exc:
+            # Headless exports can include desktop frames without game presentation.
+            for suffix in ("txt", "json"):
+                (out_dir / f"display_pacing.{suffix}").unlink(missing_ok=True)
+            sections.append(f"\n## displayed_surfaces.xml\nPacing unavailable: {exc}.")
         except Exception as exc:  # noqa: BLE001
             errors.append(f"displayed_surfaces.xml: {exc}")
-    if (gpu_xml.is_file() or pacing_xml.is_file()) and len(errors) == gpu_errors_before:
-        gpu_ok = True
 
     sample_path = out_dir / "sample.txt"
     if sample_path.is_file():

@@ -41,6 +41,7 @@ Run from the HL2-RS repository root with Python 3 stdlib scripts under `.agents/
 5. **Analyze, prune raw multi-GB traces, restore the everyday build, and update docs:**
    - Run the all-in-one analyzer (`--delete-raw` removes `trace.json` and `gpu.trace` automatically once every analyzer and XML export finishes without errors; use `cleanup` only if needed later):
      `python3 .agents/skills/hl2-performance-trace/scripts/capture.py analyze --dir <dir> --delete-raw`
+   - Display pacing in a capture summary requires rows attributed to `hl2-bevy`. A headless export can contain desktop surfaces and report pacing unavailable. For a mixed-process export, use `metal_gpu.py pacing --process "hl2-bevy (PID)"` to select the game instance.
    - Individual standalone analyzers are also directly callable:
      - `.agents/skills/hl2-performance-trace/scripts/trace_summary.py --trace <dir>/trace.json --full-paths`
      - `.agents/skills/hl2-performance-trace/scripts/trace_waste.py --trace <dir>/trace.json`

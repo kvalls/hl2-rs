@@ -3,7 +3,7 @@
 
 Subcommands:
   metal_gpu.py passes --xml <gpu_intervals.xml> [--process hl2-bevy] [--ref-label upscaling] [--top 40] [--json-out <path>]
-  metal_gpu.py pacing --xml <displayed_surfaces.xml> [--resolution <substr>] [--refresh-hz 120] [--json-out <path>]
+  metal_gpu.py pacing --xml <displayed_surfaces.xml> [--process <name or name (PID)>] [--resolution <substr>] [--refresh-hz 120] [--json-out <path>]
 
 Stdlib-only; runs on any OS once XML tables are exported with `xcrun xctrace export`.
 """
@@ -176,10 +176,18 @@ def format_gpu_intervals(data: dict[str, Any], top: Optional[int] = None) -> str
     return "\n".join(lines) + "\n"
 
 
+class NoAttributedFrames(ValueError):
+    """The export contains no displayed surfaces labeled with the selected process."""
+
+
+DISPLAY_FRAME = re.compile(r"\((?P<process>[^()]+) \((?P<pid>\d+)\):Frame \d+\b")
+
+
 def analyze_display_pacing(
     xml_path: Path,
     resolution: Optional[str] = None,
     refresh_hz: float = 120.0,
+    process: Optional[str] = None,
 ) -> dict[str, Any]:
     """Summarize displayed-surface refresh counts and visible stutter from XML export."""
     ids: dict[str, ET.Element] = {}
@@ -194,7 +202,16 @@ def analyze_display_pacing(
         cells = [_resolve(ids, cell) for cell in el]
         if len(cells) < 14:
             continue
-        duration_el, res_el = cells[1], cells[13]
+        duration_el, label_el, res_el = cells[1], cells[9], cells[13]
+        if process:
+            if label_el is None:
+                continue
+            owner = DISPLAY_FRAME.search(label_el.get("fmt") or label_el.text or "")
+            if not owner:
+                continue
+            name, pid = owner.group("process", "pid")
+            if process not in (name, f"{name} ({pid})"):
+                continue
         try:
             assert duration_el is not None and duration_el.text is not None
             res_text = res_el.get("fmt", "") if res_el is not None else ""
@@ -203,6 +220,8 @@ def analyze_display_pacing(
             continue
 
     if not rows:
+        if process:
+            raise NoAttributedFrames(f"no displayed surfaces attributed to {process!r}")
         raise ValueError("no displayed surfaces")
 
     want = resolution or Counter(res for _dur, res in rows).most_common(1)[0][0]
@@ -218,6 +237,7 @@ def analyze_display_pacing(
     effective_fps = (total / (total_ns / 1e9)) if total_ns > 0 else 0.0
 
     return {
+        **({"process": process} if process else {}),
         "surface": want,
         "refresh_hz": refresh_hz,
         "total_frames": total,
@@ -230,7 +250,8 @@ def analyze_display_pacing(
 def format_display_pacing(data: dict[str, Any]) -> str:
     """Format displayed-surface pacing summary."""
     total = max(int(data["total_frames"]), 1)
-    lines = [f"surface {data['surface']!r}: {data['total_frames']} frames shown at {data['refresh_hz']:.0f} Hz"]
+    owner = f"{data['process']} " if data.get("process") else ""
+    lines = [f"{owner}surface {data['surface']!r}: {data['total_frames']} frames shown at {data['refresh_hz']:.0f} Hz"]
     for key in sorted(data["buckets"], key=lambda k: int(k)):
         cnt = data["buckets"][key]
         lines.append(f"  {int(key)} refresh interval(s): {cnt:6d} frames ({100 * cnt / total:5.1f}%)")
@@ -254,6 +275,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 
     pacing = sub.add_parser("pacing", help="Summarize displayed-surface intervals and stutter.")
     pacing.add_argument("--xml", default=os.environ.get("XML"), required="XML" not in os.environ, help="Path to displayed surfaces XML.")
+    pacing.add_argument("--process", default=os.environ.get("PROCESS"), help="Exact process name or name followed by (PID).")
     pacing.add_argument("--resolution", default=os.environ.get("RESOLUTION"), help="Surface resolution substring.")
     pacing.add_argument("--refresh-hz", type=float, default=float(os.environ.get("REFRESH_HZ", "120")), help="Display refresh rate.")
     pacing.add_argument("--json-out", default=os.environ.get("JSON_OUT"), help="Optional JSON output path.")
@@ -280,6 +302,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 xml_path,
                 resolution=args.resolution,
                 refresh_hz=args.refresh_hz,
+                process=args.process,
             )
             sys.stdout.write(format_display_pacing(data))
     except ValueError as err:
