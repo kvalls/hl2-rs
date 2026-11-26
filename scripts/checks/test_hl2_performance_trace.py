@@ -255,6 +255,42 @@ class TestMetalGpu(unittest.TestCase):
             self.assertIn("early prepass:early prepass", by_label)
             self.assertAlmostEqual(by_label["early prepass:early prepass"]["ms_per_frame"], 0.5, places=3)
             self.assertAlmostEqual(data["busy_stats"]["mean"], 0.7, places=3)
+            self.assertEqual(data["ref_label"], "upscaling")
+
+    def test_analyze_gpu_intervals_auto_prefers_hud_over_multi_upscaling(self):
+        def row(start_ns, dur_ns, label, channel="Fragment"):
+            return (
+                f"<node><row><start>{start_ns}</start><duration>{dur_ns}</duration>"
+                f'<channel fmt="{channel}"/><frame>1</frame><lat>0</lat><depth>0</depth>'
+                f'<label><string>{label}</string></label><state/><conn/><col/>'
+                f'<proc fmt="hl2-bevy (1)"/></row></node>'
+            )
+
+        xml = "<trace-query-result>" + "".join((
+            # Frame 1: monitor upscaling + main upscaling + hud_pass_2d + present upscaling.
+            row(1_000_000, 1_000_000, "upscaling:upscaling"),
+            row(2_500_000, 2_000_000, "main_opaque_pass_3d:main_opaque_pass_3d"),
+            row(5_000_000, 500_000, "upscaling:upscaling"),
+            row(6_000_000, 500_000, "hud_pass_2d:hud_pass_2d"),
+            row(7_000_000, 500_000, "upscaling:upscaling"),
+            # Frame 2.
+            row(10_000_000, 1_000_000, "upscaling:upscaling"),
+            row(12_000_000, 2_000_000, "main_opaque_pass_3d:main_opaque_pass_3d"),
+            row(15_000_000, 500_000, "hud_pass_2d:hud_pass_2d"),
+        )) + "</trace-query-result>"
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "gpu_multi.xml"
+            p.write_text(xml, encoding="utf-8")
+            auto = metal_gpu.analyze_gpu_intervals(p)
+            self.assertEqual(auto["ref_label"], "hud_pass_2d")
+            self.assertEqual(auto["frames"], 2)
+            # Frame 1: 1+2+0.5+0.5 = 4.0 ms; Frame 2: 0.5 (frame 1's trailing upscaling) + 1+2+0.5 = 4.0 ms.
+            self.assertAlmostEqual(auto["busy_stats"]["mean"], 4.0, places=3)
+            self.assertIn("(by 'hud_pass_2d')", metal_gpu.format_gpu_intervals(auto))
+
+            explicit = metal_gpu.analyze_gpu_intervals(p, ref_label="upscaling")
+            self.assertEqual(explicit["ref_label"], "upscaling")
+            self.assertEqual(explicit["frames"], 4)
 
     def test_analyze_display_pacing(self):
         row = lambda dur_ns, fmt: (

@@ -2,7 +2,7 @@
 """Analyze exported macOS Instruments Metal System Trace XML tables.
 
 Subcommands:
-  metal_gpu.py passes --xml <gpu_intervals.xml> [--process hl2-bevy] [--ref-label upscaling] [--top 40] [--json-out <path>]
+  metal_gpu.py passes --xml <gpu_intervals.xml> [--process hl2-bevy] [--ref-label auto] [--top 40] [--json-out <path>]
   metal_gpu.py pacing --xml <displayed_surfaces.xml> [--process <name or name (PID)>] [--resolution <substr>] [--refresh-hz 120] [--json-out <path>]
 
 Stdlib-only; runs on any OS once XML tables are exported with `xcrun xctrace export`.
@@ -35,7 +35,7 @@ def _percentile(ordered: list[float], pct: int) -> float:
 def analyze_gpu_intervals(
     xml_path: Path,
     process: str = "hl2-bevy",
-    ref_label: str = "upscaling",
+    ref_label: str = "auto",
     top: int = 40,
 ) -> dict[str, Any]:
     """Summarize GPU time per encoder pass/channel and GPU busy union per game frame."""
@@ -78,10 +78,17 @@ def analyze_gpu_intervals(
 
     # Include all depths: Instruments' metal-nesting-level counts concurrent channel/process
     # overlap on the GPU timeline rather than parent/child containment.
+    effective_ref = ref_label
+    if effective_ref == "auto":
+        effective_ref = (
+            "hud_pass_2d"
+            if any(row["label"].startswith("hud_pass_2d") and row["channel"] == "Fragment" for row in rows)
+            else "upscaling"
+        )
     boundaries = sorted(
         row["start"]
         for row in rows
-        if row["label"].startswith(ref_label) and row["channel"] == "Fragment"
+        if row["label"].startswith(effective_ref) and row["channel"] == "Fragment"
     )
     n_frames = max(len(boundaries), 1)
 
@@ -144,7 +151,7 @@ def analyze_gpu_intervals(
 
     return {
         "process": process,
-        "ref_label": ref_label,
+        "ref_label": effective_ref,
         "intervals": len(rows),
         "frames": len(boundaries),
         "passes": passes,
@@ -269,7 +276,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     passes = sub.add_parser("passes", help="Summarize GPU intervals per render pass and frame.")
     passes.add_argument("--xml", default=os.environ.get("XML"), required="XML" not in os.environ, help="Path to gpu intervals XML.")
     passes.add_argument("--process", default=os.environ.get("PROCESS", "hl2-bevy"), help="Process name substring.")
-    passes.add_argument("--ref-label", default=os.environ.get("REF_LABEL", "upscaling"), help="Final pass prefix marking frames.")
+    passes.add_argument("--ref-label", default=os.environ.get("REF_LABEL", "auto"), help="Final pass prefix marking frames ('auto' prefers hud_pass_2d).")
     passes.add_argument("--top", type=int, default=int(os.environ.get("TOP", "40")), help="Number of pass rows.")
     passes.add_argument("--json-out", default=os.environ.get("JSON_OUT"), help="Optional JSON output path.")
 
