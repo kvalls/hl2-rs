@@ -140,7 +140,7 @@ fn update(
                 RenderTarget::Image(image.clone().into()),
                 RenderLayers::layer(0).with(5),
                 (
-                    crate::video::PASSTHROUGH,
+                    crate::tonemap::PASSTHROUGH,
                     bevy::camera::Exposure::default(),
                     crate::tonemap::ToneMapped,
                 ),

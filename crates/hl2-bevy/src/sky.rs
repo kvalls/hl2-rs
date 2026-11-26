@@ -75,7 +75,7 @@ pub fn install(
             target_comp.clone(),
             RenderLayers::layer(layer),
             SkyCamera(is_2d),
-            crate::video::PASSTHROUGH,
+            crate::tonemap::PASSTHROUGH,
             // Sky_HDR_DX9 and the miniature 3D skybox both end in TONEMAP_SCALE_LINEAR.
             bevy::camera::Exposure::default(),
             crate::tonemap::ToneMapped,

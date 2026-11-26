@@ -13,7 +13,6 @@
 //! logical points, clamped to the monitor), as Source sizes a windowed game to its mode.
 
 use bevy::camera::{RenderTarget, Viewport, visibility::RenderLayers};
-use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::image::{ImageFilterMode, ImageSampler};
 use bevy::prelude::*;
 use bevy::window::{
@@ -63,10 +62,6 @@ pub mod mode {
 }
 
 /// Render layer of the presentation pass (only the frame quad and its camera).
-/// Cameras whose output needs no Bevy tonemapper. Bevy 0.20 enables deband dithering on every
-/// camera, and without a tonemapper it does nothing but warn.
-pub(crate) const PASSTHROUGH: (Tonemapping, DebandDither) =
-    (Tonemapping::None, DebandDither::Disabled);
 pub const PRESENT_LAYER: usize = 31;
 /// The presentation camera draws after every game-frame camera.
 const PRESENT_ORDER: isize = 100;
@@ -248,7 +243,7 @@ pub(crate) fn install_frame(
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
-        PASSTHROUGH,
+        crate::tonemap::PASSTHROUGH,
         Msaa::Off,
         RenderLayers::layer(PRESENT_LAYER),
     ));

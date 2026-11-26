@@ -2,6 +2,7 @@
 //! the tonemap scale (FinalOutput TONEMAP_SCALE_LINEAR), which Bevy carries as camera
 //! exposure. Auto exposure samples a luminance histogram of the presented frame.
 use crate::gameplay::Gameplay;
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::{
     asset::RenderAssetUsages,
     camera::Exposure,
@@ -13,6 +14,11 @@ use bevy::{
 };
 use hl2_simulation::tonemap::{self, AutoExposure, BINS};
 use std::sync::{Arc, Mutex};
+
+/// Cameras whose output needs no Bevy tonemapper. Bevy 0.20 enables deband dithering on every
+/// camera, and without a tonemapper it does nothing but warn.
+pub(crate) const PASSTHROUGH: (Tonemapping, DebandDither) =
+    (Tonemapping::None, DebandDither::Disabled);
 
 /// Cameras whose Source materials take the tonemap scale.
 #[derive(Component)]

@@ -23,7 +23,7 @@ pub(super) fn spawn(
             clear_color: ClearColorConfig::None,
             ..default()
         },
-        video::PASSTHROUGH,
+        tonemap::PASSTHROUGH,
         msaa,
         bevy::camera::visibility::RenderLayers::layer(2),
     ));
@@ -36,7 +36,7 @@ pub(super) fn spawn(
         },
         bevy::camera::visibility::RenderLayers::layer(1),
         camera::ViewmodelCamera,
-        video::PASSTHROUGH,
+        tonemap::PASSTHROUGH,
         bevy::camera::Exposure::default(),
         tonemap::ToneMapped,
         // The viewmodel camera draws last in the 3D view, so bloom covers the whole scene.
@@ -58,7 +58,7 @@ pub(super) fn spawn(
     ));
     commands.spawn((
         Camera3d::default(),
-        video::PASSTHROUGH,
+        tonemap::PASSTHROUGH,
         msaa,
         Projection::Perspective(PerspectiveProjection {
             fov: 2. * ((75f32.to_radians() / 2.).tan() / (4. / 3.)).atan(),
