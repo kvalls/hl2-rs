@@ -755,6 +755,15 @@ def check_console_map():
     failures = run.campaign()["failures"]
     holds("the missing map is one explicit error",
           len(failures) == 1 and "hl2_rs_missing_test_map" in failures[0], failures)
+    holds("missing map prints retail Map_IsValid error without opening a loading dialog",
+          not s["missing-map-request"]["console"]["loading_dialog"]
+          and not s["missing-map-recovered"]["console"]["loading_dialog"]
+          and s["missing-map-recovered"]["console"]["mode"] == "Console"
+          and "CModelLoader::Map_IsValid:  No such map 'maps/hl2_rs_missing_test_map.bsp'"
+              in s["missing-map-recovered"]["console"]["output"],
+          (s["missing-map-recovered"]["console"]["loading_dialog"],
+           s["missing-map-recovered"]["console"]["mode"],
+           s["missing-map-recovered"]["console"]["output"][-3:]))
     holds("the failed load keeps the player and scene",
           s["missing-map-request"]["player"] == s["missing-map-recovered"]["player"]
           and s["missing-map-request"]["gameplay"]["time"] == s["missing-map-recovered"]["gameplay"]["time"])

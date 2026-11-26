@@ -31,7 +31,7 @@ pub(super) fn install_view(
 }
 
 pub(super) fn activate_request(
-    request: Request,
+    mut request: Request,
     options: &crate::Options,
     campaign: &mut super::Campaign,
     ui: &mut ui_host::Console,
@@ -50,6 +50,34 @@ pub(super) fn activate_request(
         audio.is_some_and(crate::audio::Audio::is_ready),
     ) {
         return false;
+    }
+    if !request.background {
+        let requested_game = request.explicit_game.then_some(request.game.as_str());
+        let current_game = campaign.loaded_map.as_ref().map(|m| m.game.as_str());
+        match source_assets::install::check_map(
+            &options.game,
+            &request.map,
+            requested_game,
+            current_game,
+        ) {
+            Ok(game) => request.game = game,
+            Err(err) => {
+                let message = err.retail_message(&request.map);
+                ui.source
+                    .print(source_ui::console::panel::Level::Error, &message);
+                campaign.failures.push(message.clone());
+                sim.loading_failed();
+                if ui.source.loading_dialog.is_some() {
+                    ui.source.loading_failed(&message);
+                }
+                if !options.map_dependent.is_empty() && options.map.as_deref() == Some(&request.map)
+                {
+                    eprintln!("{message}");
+                    std::process::exit(1);
+                }
+                return false;
+            }
+        }
     }
     if let Some(pending) = pending {
         pending.cancel();
@@ -349,6 +377,7 @@ mod tests {
         Request {
             map: "background01".into(),
             game: "hl2".into(),
+            explicit_game: true,
             landmark: String::new(),
             direct: true,
             background,

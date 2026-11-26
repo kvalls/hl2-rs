@@ -1,5 +1,18 @@
 # STATUS
 
+## Missing/invalid console map validation without loading popup (2026-11-26)
+
+Console `map` (and `changelevel`) requests now validate map existence and the
+8-byte `VBSP` v19/20 header synchronously via `source_assets::install::check_map`
+before opening `LoadingDialog` or spawning a map-loader thread. Missing maps,
+zero-byte stubs (such as `d2_coast_02`), non-BSP files, and unsupported BSP
+versions print the retail `CModelLoader::Map_IsValid` error at `Level::Error`
+in the console with no loading popup while keeping the active world intact.
+Workspace validation (`2,046` Rust tests, `134` Python tests, all `4` plugin
+builds, strict Clippy), Windows strict Clippy, macOS release build, and the
+`console` and `console_map` replays (`2 checks, 0 failed`) passed. Windows
+runtime and interactive manual play on the rebuilt binary are **not tested**.
+
 ## Console Up/Down history draft restoration without popup (2026-11-26)
 
 Console `Up`/`Down` history browsing now updates the entry in place without

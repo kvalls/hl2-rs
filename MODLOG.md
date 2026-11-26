@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Log CModelLoader::Map_IsValid in console without opening a loading popup for missing maps
+
+- Agent/model: Antigravity (Gemini family, exact model ID not recorded).
+- Changed: Added synchronous BSP header pre-validation (`MapCheckError`, `MapCheckError::retail_message`, `check_map`) in `crates/source-assets/src/install.rs`; removed eager `console.start_loading(map)` from `crates/hl2-ui/src/console/commands/map.rs` (`map`); updated `crates/hl2-bevy/src/campaign.rs` (`Request::explicit_game`, `next_map_request`) and `crates/hl2-bevy/src/campaign/loading.rs` (`activate_request`) so non-background map loads check existence and `VBSP` header/version (19-20) before opening `LoadingDialog` or spawning a worker—printing retail `CModelLoader::Map_IsValid` errors (`No such map 'maps/<name>.bsp'`, `'maps/<name>.bsp' is not a valid BSP file`, or `bsp version ...`) at `Level::Error` in red, preserving the console open with no loading popup and leaving the active world untouched; added `"loading_dialog"` to `Console::report` in `crates/hl2-bevy/src/ui_host.rs`; added/updated unit tests in `crates/source-assets/src/install.rs`, `crates/hl2-ui/src/console/commands/map.rs`, and `crates/hl2-bevy/src/campaign.rs`, and tightened `check_console_map` in `scripts/checks/replays.py`.
+- Why: Retail HL2 validates `map` targets via `CModelLoader::Map_IsValid` without opening a loading dialog when a map is missing or invalid, printing the red `Map_IsValid` error in the console instead.
+- Tested how: `cargo fmt --check`, `scripts/checks/architecture.py`, Python helper suite (`134 tests`), all 4 plugin builds (`core only`, `advanced-options`, `debug-tools`, `advanced-options+debug-tools`), workspace `cargo test` (`2,046 passed, 0 failed, 151 ignored`: `hl2-advanced-options` 52, `hl2-bevy` 298, `hl2-debug` 59, `hl2-simulation` 914, `hl2-ui` 343, `modkit-core` 78, `source-assets` 145, `source-ui` 157), strict host and Windows-target Clippy, `scripts/build-bevy.sh` (`advanced-options,debug-tools`), and `NO_BUILD=1 ONLY='console console_map' JOBS=2 python3 scripts/checks/replays.py`.
+- Result: All validation checks (`2,046` Rust tests, `134` Python tests, all `4` plugin selections), Windows Clippy, macOS release build, and both replays (`2 checks, 0 failed`) passed.
+- Still broken or not tested: Windows runtime and manual interactive testing on the rebuilt binary are **not tested**.
+- Next: Ready for next UI fidelity item or manual test if desired.
+
 ## 2026-11-26 — Preserve unsent draft and avoid popup when browsing console history
 
 - Agent/model: Antigravity (Gemini family, exact model ID not recorded).

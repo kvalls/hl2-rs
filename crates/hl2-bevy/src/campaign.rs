@@ -21,6 +21,7 @@ struct Request {
     map: String,
     /// Installation folder of the map's game (`hl2`, `lostcoast`, ...).
     game: String,
+    explicit_game: bool,
     landmark: String,
     direct: bool,
     /// Load as the main-menu background level (menu shown, HUD hidden).
@@ -93,18 +94,31 @@ fn next_map_request(
     let requested_game = ui.map_request_game.take();
     let current_game = campaign.loaded_map.as_ref().map(|m| m.game.clone());
     // Menu backgrounds name their game and level transitions stay in the running game;
-    // a bare map name (`map`, `--map`, respawn) loads in the game that ships it.
+    // a bare gameplay map (`map`, `--map`, respawn) resolves and validates inside `activate_request`.
     ui.map_request
         .take()
-        .map(|map| Request {
-            game: requested_game.unwrap_or_else(|| {
-                source_assets::install::game_for_map(&options.game, &map, current_game.as_deref())
+        .map(|map| {
+            let explicit_game = requested_game.is_some();
+            let game = requested_game.unwrap_or_else(|| {
+                if background {
+                    source_assets::install::game_for_map(
+                        &options.game,
+                        &map,
+                        current_game.as_deref(),
+                    )
                     .unwrap_or_else(|| source_assets::install::BASE_GAME.to_owned())
-            }),
-            map,
-            landmark: String::new(),
-            direct: true,
-            background,
+                } else {
+                    String::new()
+                }
+            });
+            Request {
+                game,
+                explicit_game,
+                map,
+                landmark: String::new(),
+                direct: true,
+                background,
+            }
         })
         .or_else(|| {
             game.scene.transition.take().map(|(map, landmark)| Request {
@@ -112,6 +126,7 @@ fn next_map_request(
                 game: current_game
                     .clone()
                     .unwrap_or_else(|| source_assets::install::BASE_GAME.to_owned()),
+                explicit_game: true,
                 landmark,
                 direct: false,
                 background: false,
@@ -806,6 +821,107 @@ mod tests {
         );
         assert!(!ui.source.is_loading());
         assert_eq!(ui.source.mode(), hl2_ui::console::Mode::MainMenu);
+    }
+
+    #[test]
+    fn missing_console_map_logs_error_without_opening_loading_dialog() {
+        let mut app = App::new();
+        let temp =
+            std::env::temp_dir().join(format!("hl2_missing_map_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        for file in [
+            "hl2/gameinfo.txt",
+            "hl2/scripts/game_sounds_manifest.txt",
+            "hl2/resource/ClientScheme.res",
+            "hl2/models/weapons/v_pistol.mdl",
+            "hl2/maps/d2_coast_02.bsp",
+        ] {
+            let path = temp.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let bytes: &[u8] = if file.ends_with("gameinfo.txt") {
+                b"\"GameInfo\" { \"game\" \"Half-Life 2\" }"
+            } else if file.ends_with(".bsp") {
+                b""
+            } else {
+                b"fixture"
+            };
+            std::fs::write(path, bytes).unwrap();
+        }
+        let options = test_options(&temp);
+        super::loading_owned_tests::init_map_assets(&mut app)
+            .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
+            .insert_resource(options)
+            .insert_resource(Campaign {
+                loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),
+                ..default()
+            });
+
+        let mut console = hl2_ui::console::Console::default();
+        console.loaded_map = Some(hl2_ui::console::GameMap::new("hl2", "background01"));
+        console.level_loaded(true);
+        console.toggle();
+        assert_eq!(console.mode(), hl2_ui::console::Mode::Console);
+
+        let sim = simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let gameplay = crate::gameplay::Gameplay::synthetic(modkit_core::World::default());
+        let ui = ui_host::Console::new(console);
+        app.insert_resource(sim)
+            .insert_resource(gameplay)
+            .insert_resource(ui)
+            .add_systems(Update, poll);
+
+        for (bad_map, expected) in [
+            (
+                "d1_t",
+                "CModelLoader::Map_IsValid:  No such map 'maps/d1_t.bsp'",
+            ),
+            (
+                "d2_coast_02",
+                "CModelLoader::Map_IsValid: 'maps/d2_coast_02.bsp' is not a valid BSP file",
+            ),
+        ] {
+            let mut pending_effects = Some({
+                let mut ui = app.world_mut().resource_mut::<ui_host::Console>();
+                ui.source.submit(&format!("map {bad_map}"))
+            });
+            app.world_mut()
+                .run_system_once(
+                    move |mut sim: ResMut<simulation::Simulation>,
+                          mut ui: ResMut<ui_host::Console>,
+                          mut game: ResMut<crate::gameplay::Gameplay>| {
+                        if let Some(effects) = pending_effects.take() {
+                            sim.console_effects(&mut ui, &mut game, effects);
+                        }
+                    },
+                )
+                .unwrap();
+            app.update();
+
+            let ui = app.world().resource::<ui_host::Console>();
+            assert!(ui.source.loading_dialog.is_none());
+            assert_eq!(ui.source.mode(), hl2_ui::console::Mode::Console);
+            let last = ui.source.shell.panel.output.back().unwrap();
+            assert_eq!(last.level, source_ui::console::panel::Level::Error);
+            assert_eq!(last.text, expected);
+
+            let sim = app.world().resource::<simulation::Simulation>();
+            assert!(!sim.loading());
+            let campaign = app.world().resource::<Campaign>();
+            assert!(campaign.job.is_none());
+            assert_eq!(
+                campaign.loaded_map,
+                Some(hl2_ui::console::GameMap::new("hl2", "background01"))
+            );
+        }
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }
 

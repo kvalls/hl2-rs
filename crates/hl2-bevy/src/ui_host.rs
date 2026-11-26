@@ -42,7 +42,7 @@ impl Console {
             .transpose()
     }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"mode":self.source.mode(),"background_level":self.source.background_level(),"sv_cheats":self.source.cheats,"input":self.source.input_line(),"output":self.source.shell.panel.output,"pending_map":self.map_request,"pending_game":self.map_request_game,"options":self.source.options_report(),"chapters":self.source.chapters_report(),"windows":self.source.open_windows(),"confirm":self.source.confirm_report(),"menu":self.source.menu_report(),"console_frame":self.source.console_frame_report(),"video":self.source.video_report()})
+        serde_json::json!({"mode":self.source.mode(),"background_level":self.source.background_level(),"loading_dialog":self.source.loading_dialog.is_some(),"sv_cheats":self.source.cheats,"input":self.source.input_line(),"output":self.source.shell.panel.output,"pending_map":self.map_request,"pending_game":self.map_request_game,"options":self.source.options_report(),"chapters":self.source.chapters_report(),"windows":self.source.open_windows(),"confirm":self.source.confirm_report(),"menu":self.source.menu_report(),"console_frame":self.source.console_frame_report(),"video":self.source.video_report()})
     }
 }
 #[derive(Clone, Deserialize)]

@@ -5,7 +5,7 @@ use super::{Outcome, Spec};
 use crate::console::{Console, Effect, Mode};
 use source_ui::console::command::{flag, parse, Invalid};
 
-pub(super) fn map(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+pub(super) fn map(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if args.len() != 1 {
         return Err(spec.usage());
     }
@@ -16,7 +16,6 @@ pub(super) fn map(console: &mut Console, spec: &Spec, args: &[String]) -> Outcom
     {
         return Err("map: use a simple installed map name".into());
     }
-    console.start_loading(map);
     Ok(Some(Effect::Map(map.to_owned())))
 }
 
@@ -176,5 +175,15 @@ mod game_ui_tests {
                 crate::console::Window::Console
             ]
         );
+    }
+
+    #[test]
+    fn map_command_emits_effect_without_opening_loading_dialog() {
+        let mut console = Console::default();
+        console.toggle();
+        let effects = console.submit("map d1_t");
+        assert_eq!(effects, vec![crate::console::Effect::Map("d1_t".into())]);
+        assert!(console.loading_dialog.is_none());
+        assert!(!console.is_loading());
     }
 }

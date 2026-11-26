@@ -209,6 +209,76 @@ pub fn maps(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(maps)
 }
 
+/// Reason a requested map could not be opened for loading (`CModelLoader::Map_IsValid`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapCheckError {
+    Missing,
+    NotBsp,
+    UnsupportedVersion(u32),
+}
+
+impl MapCheckError {
+    /// Retail `CModelLoader::Map_IsValid` console message for `map`.
+    pub fn retail_message(&self, map: &str) -> String {
+        let name = map.strip_suffix(".bsp").unwrap_or(map);
+        let path = format!("maps/{name}.bsp");
+        match self {
+            Self::Missing => format!("CModelLoader::Map_IsValid:  No such map '{path}'"),
+            Self::NotBsp => format!("CModelLoader::Map_IsValid: '{path}' is not a valid BSP file"),
+            Self::UnsupportedVersion(version) => {
+                format!(
+                    "CModelLoader::Map_IsValid:  Map '{path}' bsp version {version}, expecting 19"
+                )
+            }
+        }
+    }
+}
+
+/// Validates that `map` exists in an installed game and starts with a supported `VBSP` header,
+/// returning the resolved game folder without reading or decoding the rest of the level.
+pub fn check_map(
+    root: &Path,
+    map: &str,
+    requested_game: Option<&str>,
+    current_game: Option<&str>,
+) -> std::result::Result<String, MapCheckError> {
+    use std::io::Read;
+    let name = map.strip_suffix(".bsp").unwrap_or(map);
+    let rel =
+        crate::vpk::normalize(&format!("maps/{name}.bsp")).map_err(|_| MapCheckError::Missing)?;
+    let game = match requested_game {
+        Some(game) => game.to_owned(),
+        None => game_for_map(root, name, current_game).ok_or(MapCheckError::Missing)?,
+    };
+    let loose = root.join(&game).join(&rel);
+    let mut header = Vec::new();
+    if loose.is_file() {
+        let Ok(file) = std::fs::File::open(&loose) else {
+            return Err(MapCheckError::Missing);
+        };
+        if file.take(8).read_to_end(&mut header).is_err() {
+            return Err(MapCheckError::NotBsp);
+        }
+    } else {
+        let Ok(vfs) = crate::vpk::Vfs::mount_game(root, &game) else {
+            return Err(MapCheckError::Missing);
+        };
+        header = vfs
+            .read_prefix(&rel, 8)
+            .ok()
+            .flatten()
+            .ok_or(MapCheckError::Missing)?;
+    }
+    if header.len() < 8 || &header[..4] != b"VBSP" {
+        return Err(MapCheckError::NotBsp);
+    }
+    let version = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    if !(19..=20).contains(&version) {
+        return Err(MapCheckError::UnsupportedVersion(version));
+    }
+    Ok(game)
+}
+
 /// The requested map exists in some installed game and is a BSP file.
 fn validate_map(root: &Path, map: &str) -> Result<(String, crate::vpk::Vfs)> {
     if map.is_empty() || !map.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
@@ -434,5 +504,57 @@ mod tests {
             let expected = PathBuf::from(home).join("Library/Application Support/Steam");
             assert!(roots.contains(&expected));
         }
+    }
+
+    #[test]
+    fn check_map_validates_existence_magic_and_bsp_version() {
+        let fixture = Fixture::new();
+        let v19 = [b'V', b'B', b'S', b'P', 19, 0, 0, 0];
+        let v20 = [b'V', b'B', b'S', b'P', 20, 0, 0, 0];
+        let v21 = [b'V', b'B', b'S', b'P', 21, 0, 0, 0];
+        fixture.put("hl2/gameinfo.txt", b"x");
+        fixture.put("hl2/maps/valid19.bsp", &v19);
+        fixture.put("hl2/maps/d2_coast_02.bsp", b"");
+        fixture.put("hl2/maps/badmagic.bsp", b"NOTABSP!");
+        fixture.put("hl2/maps/badver.bsp", &v21);
+        fixture.put("episodic/gameinfo.txt", b"x");
+        fixture.put("episodic/maps/valid20.bsp", &v20);
+
+        assert_eq!(
+            check_map(&fixture.0, "valid19", None, None).as_deref(),
+            Ok("hl2")
+        );
+        assert_eq!(
+            check_map(&fixture.0, "valid20.bsp", None, None).as_deref(),
+            Ok("episodic")
+        );
+        assert_eq!(
+            check_map(&fixture.0, "d1_t", None, None),
+            Err(MapCheckError::Missing)
+        );
+        assert_eq!(
+            check_map(&fixture.0, "d2_coast_02", None, None),
+            Err(MapCheckError::NotBsp)
+        );
+        assert_eq!(
+            check_map(&fixture.0, "badmagic", None, None),
+            Err(MapCheckError::NotBsp)
+        );
+        assert_eq!(
+            check_map(&fixture.0, "badver", None, None),
+            Err(MapCheckError::UnsupportedVersion(21))
+        );
+        assert_eq!(
+            MapCheckError::Missing.retail_message("d1_t"),
+            "CModelLoader::Map_IsValid:  No such map 'maps/d1_t.bsp'"
+        );
+        assert_eq!(
+            MapCheckError::NotBsp.retail_message("d2_coast_02"),
+            "CModelLoader::Map_IsValid: 'maps/d2_coast_02.bsp' is not a valid BSP file"
+        );
+        assert_eq!(
+            MapCheckError::UnsupportedVersion(21).retail_message("badver"),
+            "CModelLoader::Map_IsValid:  Map 'maps/badver.bsp' bsp version 21, expecting 19"
+        );
     }
 }
