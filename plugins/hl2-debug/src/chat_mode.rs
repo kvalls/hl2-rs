@@ -1,6 +1,8 @@
 //! Route local console submissions to player chat before command tokenization.
 use hl2_ui::console::Console;
+use hl2_ui::console::remote::PLAYER_SPEAKER;
 use hl2_ui::extensions::LocalSubmit;
+use source_ui::console::panel::Level;
 
 const OWNER: &str = "hl2-debug";
 
@@ -20,7 +22,12 @@ fn route(console: &mut Console, line: &str) -> bool {
     if first.eq_ignore_ascii_case("chat_mode") && matches!(rest, "" | "0" | "1") {
         return false;
     }
-    console.say_local(line);
+    console.shell.panel.print_with_log_text(
+        &console.canvas,
+        Level::ChatLocal,
+        format!("{PLAYER_SPEAKER}: {line}"),
+        || format!("{PLAYER_SPEAKER} (chat mode): {line}"),
+    );
     true
 }
 
@@ -45,19 +52,26 @@ mod tests {
         );
         console.submit_local("chat_mode 0; sv_cheats 1");
         assert!(!console.cheats);
-        console.submit_local("say hello; world");
+        console.shell.panel.keep_printed(true);
+        console.submit_local(r#"say 'hello'; "world""#);
         assert_eq!(
             console.shell.panel.output.back().unwrap().text,
-            "Player: say hello; world"
+            r#"Player: say 'hello'; "world""#
+        );
+        assert_eq!(
+            console.shell.panel.take_printed()[0].text,
+            r#"Player (chat mode): say 'hello'; "world""#
         );
         console.execute("sv_cheats 1");
         assert!(console.cheats);
         console.submit_local("chat_mode 0");
+        console.shell.panel.take_printed();
         console.submit_local("say hello");
         assert_eq!(
             console.shell.panel.output.back().unwrap().text,
             "Player: hello"
         );
+        assert_eq!(console.shell.panel.take_printed()[0].text, "Player: hello");
         console.submit_local("echo back to commands");
         assert_eq!(
             console.shell.panel.output.back().unwrap().text,

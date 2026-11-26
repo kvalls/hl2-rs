@@ -1,5 +1,18 @@
 # STATUS
 
+## Chat command routing and macOS quote keys (2026-11-26)
+
+The watcher can distinguish chat-mode editor input from an ordinary `say`
+message. A bare command is eligible for relay only on a chat-mode event
+and while the mode is still active. The packaged editor check preserved
+both quote characters and verified single local command execution with
+chat mode off. The live report narrowed the missing quote keystrokes
+to the US International PC layout. The developer console now accepts
+native macOS composition commits while it has keyboard focus.
+Ordered composition and focus tests passed on macOS. Live testing of
+the rebuilt package with the physical quote keys and Windows runtime
+are **not tested**.
+
 ## Literal chat input (2026-11-26)
 
 Chat mode preserves a leading `say` as part of the message. The packaged

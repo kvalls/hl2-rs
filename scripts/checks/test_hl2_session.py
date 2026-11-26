@@ -295,7 +295,7 @@ class TestWatch(unittest.TestCase):
 
             # A message arriving between turns must still be picked up via watch.cursor.
             with con_log.open("ab") as fh:
-                fh.write(b"[ 2.00] Player: between turns\r\n")
+                fh.write(b"[ 2.00] Player (chat mode): between turns\r\n")
             notices.clear()
             out2 = io.StringIO()
             rc2 = watch.watch_once(
@@ -307,7 +307,7 @@ class TestWatch(unittest.TestCase):
             )
             self.assertEqual(rc2, 0)
             self.assertEqual(notices, ["thinking"])
-            self.assertEqual(out2.getvalue().strip(), "[ 2.00] Player: between turns")
+            self.assertEqual(out2.getvalue().strip(), "[ 2.00] Player (chat mode): between turns")
 
             # Log truncation resets cursor to 0 and surfaces ERROR.
             con_log.write_text("ERROR fatal failure\n", encoding="utf-8")
@@ -334,14 +334,18 @@ class TestWatch(unittest.TestCase):
                 self.assertEqual(marker, "WATCH_READY")
                 self.assertTrue(kwargs["flush"])
                 with log.open("a", encoding="utf-8") as stream:
-                    stream.write("Console: connected\nPlayer: first\nPlayer: second\nAGENT_SESSION_EXIT 0\n")
+                    stream.write(
+                        "Console: connected\nPlayer (chat mode): say first\n"
+                        "Player: say first\nAGENT_SESSION_EXIT 0\n"
+                    )
 
             output = io.StringIO()
             with mock.patch("builtins.print", side_effect=greet_after_ready):
                 watch.watch_stream(session_dir, [str(log)], send=mock.Mock(),
                                    sleep=lambda _: self.fail("missed immediate chat"), out=output)
             self.assertEqual(output.getvalue().splitlines(),
-                             ["Player: first", "Player: second", "AGENT_SESSION_EXIT 0"])
+                             ["Player (chat mode): say first", "Player: say first",
+                              "AGENT_SESSION_EXIT 0"])
 
     def test_watch_stream_thinking_reply_timeout_and_exit(self):
         with tempfile.TemporaryDirectory() as tmp:

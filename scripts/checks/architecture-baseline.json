@@ -169,7 +169,7 @@
    156
   ],
   "crates/hl2-bevy/src/ui_system.rs::update_ui": [
-   219
+   215
   ],
   "crates/hl2-simulation/src/ai/ally_speech.rs::speak": [
    119
@@ -354,13 +354,13 @@
  },
  "min_tests": {
   "hl2-advanced-options": 52,
-  "hl2-bevy": 289,
+  "hl2-bevy": 296,
   "hl2-debug": 55,
   "hl2-simulation": 913,
   "hl2-ui": 340,
   "modkit-core": 78,
   "source-assets": 143,
-  "source-ui": 150
+  "source-ui": 151
  },
  "test_files": {
   "crates/hl2-ui/src/console/tests.rs": 4527,

@@ -2,7 +2,7 @@
 """Forward player chat and critical game events from a running HL2-RS RCON session.
 
 Streaming mode (default, for Monitor tools): sends `agent_status thinking` as soon as a
-`Player:` line arrives, prints the line, clears the timer on `Console:`, sends
+`Player:` or `Player (chat mode):` line arrives, prints it, clears the timer on `Console:`, sends
 `agent_status waiting` after `--timeout` seconds (default 60) without a reply, and exits
 on `AGENT_SESSION_EXIT`.
 
@@ -114,7 +114,7 @@ def session_log_paths(session: Path) -> list[str]:
 
 def classify_line(line: str) -> Optional[str]:
     text = STAMP.sub("", line.rstrip("\r\n"))
-    if text.startswith("Player: "):
+    if text.startswith(("Player: ", "Player (chat mode): ")):
         return "player"
     if text.startswith("Console: "):
         return "console"

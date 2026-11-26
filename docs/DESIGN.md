@@ -9,6 +9,13 @@ that changes the active mode stays available. Programmatic and remote
 commands retain their command paths. After the watcher is ready, the
 greeting helper enables chat mode over RCON. Verify literal separators and
 quotes, the default and both transitions, and all plugin selections.
+Give the watcher a distinct log prefix for editor chat so it can distinguish
+literal command requests from ordinary `say` messages even across mode changes.
+Keep the on-screen label and route both log records through the same watcher.
+On macOS, enable native text composition while the developer console owns
+keyboard focus. Read direct key text and committed text from the same ordered
+window event stream. Leave key bindings in the existing physical-key path.
+Verify both quote characters, composition order and console focus transitions.
 
 ## Dynamic props with missing physics collision (2026-11-26)
 

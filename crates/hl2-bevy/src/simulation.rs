@@ -990,7 +990,7 @@ mod tests {
             delta: Vec2::new(100., 100.),
         })
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
         app.world_mut().spawn((
             Window {
@@ -1046,7 +1046,7 @@ mod tests {
             delta: Vec2::splat(100.),
         })
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
         app.world_mut().spawn((
             Window {
@@ -1362,7 +1362,7 @@ mod tests {
                 delta: Vec2::new(50., 50.),
             })
             .add_message::<AppExit>()
-            .add_message::<bevy::input::keyboard::KeyboardInput>()
+            .add_message::<bevy::window::WindowEvent>()
             .add_message::<bevy::input::mouse::MouseWheel>();
 
         app.world_mut().spawn((

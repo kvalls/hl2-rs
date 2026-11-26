@@ -11,6 +11,20 @@ impl ConsolePanel {
         self.push_output(canvas, level, text.into(), true);
     }
 
+    /// Prints a line with alternate text for readers outside the dialog.
+    pub fn print_with_log_text(
+        &mut self,
+        canvas: &Canvas,
+        level: Level,
+        text: String,
+        log_text: impl FnOnce() -> String,
+    ) {
+        self.print(canvas, level, text);
+        if let Some(line) = self.printed.as_mut().and_then(|lines| lines.last_mut()) {
+            line.text = log_text();
+        }
+    }
+
     pub(super) fn push_output(
         &mut self,
         canvas: &Canvas,
@@ -205,6 +219,18 @@ mod tests {
         panel.keep_printed(false);
         panel.print(&canvas, Level::Normal, "after");
         assert!(!panel.keeps_printed() && panel.take_printed().is_empty());
+    }
+
+    #[test]
+    fn alternate_log_text_keeps_the_displayed_line() {
+        let canvas = Canvas::default();
+        let mut panel = ConsolePanel::new(super::super::tests::SCALING);
+        panel.keep_printed(true);
+        panel.print_with_log_text(&canvas, Level::ChatLocal, "visible".into(), || {
+            "logged".into()
+        });
+        assert_eq!(panel.output.back().unwrap().text, "visible");
+        assert_eq!(texts(&panel.take_printed()), ["logged"]);
     }
 
     #[test]

@@ -66,6 +66,8 @@ Ordinary launches start with `chat_mode 0`. The `hl2-session` greeting helper
 enables it immediately before announcing the connection. Enter `chat_mode 1` to send
 later console submissions as Player chat. A leading `say` is part of
 the message in this mode. Enter `chat_mode 0` by itself to resume local commands.
+The console log identifies chat-mode lines so the session watcher can relay
+command requests only while the mode is enabled. Ordinary `say` sends a message.
 Remote and scripted commands still execute through their regular paths.
 
 ## Contracts

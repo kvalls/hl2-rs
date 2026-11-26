@@ -354,7 +354,7 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .add_message::<AppExit>()
-            .add_message::<bevy::input::keyboard::KeyboardInput>()
+            .add_message::<bevy::window::WindowEvent>()
             .add_message::<bevy::input::mouse::MouseWheel>()
             .insert_resource(crate::simulation::Simulation::new(
                 &modkit_core::World::default(),

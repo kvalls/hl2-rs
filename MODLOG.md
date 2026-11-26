@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-26 — Distinguish chat command requests and handle composed quotes
+
+- Codex desktop, `gpt-6.2-sol`.
+- The debug plugin tags chat-mode submissions in the console log. The watcher forwards both forms of player chat. The session skill requires the tag and a current mode check before relaying a bare command. Ordinary `say` remains conversation.
+- US International PC uses dead keys for apostrophes and double quotes. macOS reported both literal characters after Space, while the old game read only raw key text. The console now consumes committed composition text in event order while focused. The host clears active composition before closing its native window.
+- The focused console, chat-mode and host UI tests passed, including the owned-install loading check. All 28 session tests, four plugin selections, strict Clippy and the macOS release build passed. The packaged editor replay logged both quotes, tagged chat-mode input and verified that each local command ran once. The initial sandboxed replay could not find the GPU. The same replay passed with GPU access and isolated settings.
+- A physical-key retest against the rebuilt package and Windows runtime are **not tested**. The live session closed before the final package was ready.
+
 ## 2026-11-26 — Preserve a leading say in chat mode
 
 - Codex desktop, `gpt-6.2-sol`.

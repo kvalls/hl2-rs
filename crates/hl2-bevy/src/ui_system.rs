@@ -8,6 +8,8 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryMonitor, PrimaryWindow, Window},
 };
 
+mod native_text;
+
 /// Maps a window cursor position in logical window coordinates to UI canvas coordinates
 /// (game-frame pixels), offsetting for letterbox/pillarbox black stripes, scaling from the
 /// presented size to the frame resolution and filtering out positions outside the frame.
@@ -68,6 +70,11 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, refresh_display_modes);
+        #[cfg(target_os = "macos")]
+        app.add_systems(
+            Last,
+            native_text::end_composition_on_close.before(bevy::window::close_when_requested),
+        );
         app.add_systems(
             RunFixedMainLoop,
             update_ui
@@ -81,14 +88,14 @@ impl Plugin for UiPlugin {
 type UiInputDevices<'w, 's> = (
     Res<'w, ButtonInput<KeyCode>>,
     Res<'w, ButtonInput<MouseButton>>,
-    MessageReader<'w, 's, bevy::input::keyboard::KeyboardInput>,
+    MessageReader<'w, 's, bevy::window::WindowEvent>,
     MessageReader<'w, 's, bevy::input::mouse::MouseWheel>,
     Option<Res<'w, Time<Real>>>,
     Option<ResMut<'w, bevy::clipboard::Clipboard>>,
 );
 
 type UiWindow<'w, 's> =
-    Query<'w, 's, (&'static mut Window, &'static mut CursorOptions), With<PrimaryWindow>>;
+    Query<'w, 's, (Entity, &'static mut Window, &'static mut CursorOptions), With<PrimaryWindow>>;
 
 #[allow(clippy::too_many_arguments)]
 pub fn update_ui(
@@ -107,15 +114,10 @@ pub fn update_ui(
         }
         exit.write(AppExit::Success);
     }
-    let Ok((window, mut cursor)) = windows.single_mut() else {
+    let Ok((window_id, mut window, mut cursor)) = windows.single_mut() else {
         return;
     };
-    let text: String = characters
-        .read()
-        .filter(|e| e.state == bevy::input::ButtonState::Pressed)
-        .filter_map(|e| e.text.as_ref())
-        .map(|s| s.as_str())
-        .collect();
+    let text = native_text::read(characters.read(), window_id, window.ime_enabled);
     let wheel = crate::ui_host::wheel_steps(wheels.read());
     // The UI clock runs every frame, also while a script drives the input (a keep-video
     // confirmation reverts at its timeout).
@@ -239,6 +241,7 @@ pub fn update_ui(
         }
         // Applied video settings (`sim.pending_video_config`) are carried out by
         // `video::apply_video_settings`.
+        native_text::sync_console_focus(&mut window, &ui.source);
         sim.transition = ui.source.mode() != before;
         sim.paused = ui.source.paused();
         let cfg = Some(&ui.source.config);
@@ -486,7 +489,7 @@ mod tests {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
 
         app.world_mut().spawn((
@@ -559,7 +562,7 @@ mod tests {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
 
         app.world_mut().spawn((
@@ -604,7 +607,7 @@ mod tests {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
         app.world_mut().spawn((
             Window {

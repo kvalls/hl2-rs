@@ -35,7 +35,7 @@ fn native_menu_wait_blocks_input_until_background_finishes() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Time<Real>>()
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
     app.world_mut().spawn((
         Window {
