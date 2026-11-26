@@ -262,6 +262,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=0.0,
         help="Seconds to retry connection errors while the game starts up (default: 0).",
     )
+    parser.add_argument("--greet", choices=("Codex", "Claude", "Gemini"),
+                        help="Enable chat mode, then send a connection greeting.")
     parser.add_argument("command", nargs="*", help="Command to execute (or set RCON_COMMAND).")
     return parser.parse_args(argv)
 
@@ -269,7 +271,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     command = " ".join(args.command).strip() if args.command else os.environ.get("RCON_COMMAND", "").strip()
-    if not command:
+    if args.greet and args.command:
+        print("rcon: --greet takes the place of a command.", file=sys.stderr)
+        return 1
+    if not command and not args.greet:
         print("rcon: pass a command argument or set RCON_COMMAND", file=sys.stderr)
         return 1
 
@@ -278,22 +283,33 @@ def main(argv: Optional[list[str]] = None) -> int:
     allow_legacy = args.session is None and env is os.environ and not env.get("SESSION", "").strip()
     try:
         host = read_host(args.host, env=env)
-        output = wait_and_exec(
-            command,
-            host=host,
-            port=27015,
-            password="",
-            timeout=args.timeout,
-            wait_seconds=args.wait,
-            session_dir=session_dir,
-            port_getter=lambda: read_port(args.port, session_dir=session_dir, env=env),
-            password_getter=lambda: read_password(
-                password_file=args.password_file,
+        def send(line: str) -> str:
+            return wait_and_exec(
+                line,
+                host=host,
+                port=27015,
+                password="",
+                timeout=args.timeout,
+                wait_seconds=args.wait,
                 session_dir=session_dir,
-                env=env,
-                allow_legacy_fallback=allow_legacy,
-            ),
-        )
+                port_getter=lambda: read_port(args.port, session_dir=session_dir, env=env),
+                password_getter=lambda: read_password(
+                    password_file=args.password_file,
+                    session_dir=session_dir,
+                    env=env,
+                    allow_legacy_fallback=allow_legacy,
+                ),
+            )
+        if args.greet:
+            enabled = "chat_mode = 1" in send("chat_mode 1").splitlines()
+            hint = ("Type a message in the console to talk to me." if enabled
+                    else "Type say <message> in the console to talk to me.")
+            greeting = f"{args.greet} connected. {hint}"
+            output = send(f"say {greeting}")
+            if f"Console: {greeting}" not in output.splitlines():
+                raise RuntimeError("game did not confirm the greeting")
+        else:
+            output = send(command)
     except (OSError, ValueError, RuntimeError) as error:
         print(f"rcon: {error}", file=sys.stderr)
         return 1

@@ -60,6 +60,14 @@ launched games remain outside the restart supervisor.
 
 Ordinary motion blur, flight, spawning, camera behavior and simulation mechanisms stay in core.
 
+### Local chat mode
+
+Ordinary launches start with `chat_mode 0`. The `hl2-session` greeting helper
+enables it immediately before announcing the connection. Enter `chat_mode 1` to send
+later console submissions as Player chat. The optional `say` prefix
+works here too. Enter `chat_mode 0` by itself to resume local commands.
+Remote and scripted commands still execute through their regular paths.
+
 ## Contracts
 
 | Contract | Location | Contributes |

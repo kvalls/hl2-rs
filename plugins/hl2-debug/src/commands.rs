@@ -105,6 +105,7 @@ pub trait Host: Context {
     fn set_background_opacity(&mut self, opacity: u8);
     fn focus_background(&mut self);
     fn agent_status(&mut self, status: AgentStatus) -> Option<String>;
+    fn chat_mode(&mut self, enabled: Option<bool>) -> Result<(), String>;
 }
 const fn command<C: Host>(
     name: &'static str,
@@ -121,7 +122,22 @@ const fn command<C: Host>(
         setting: None,
     }
 }
-pub const fn specs<C: Host>() -> [Spec<C>; 14] {
+const fn map_dump_spec<C: Host>() -> Spec<C> {
+    command(
+        "map_dump",
+        "map_dump [page <first_id>|near <x> <y> <z> <radius>]: list map entities by ID or nearest live origin",
+        &[
+            Arg::Values(&["page", "near"]),
+            Arg::Free,
+            Arg::Free,
+            Arg::Free,
+            Arg::Free,
+        ],
+        map_dump,
+    )
+}
+
+pub const fn specs<C: Host>() -> [Spec<C>; 15] {
     [
         command(
             "viewmodel_debug_mode",
@@ -159,18 +175,7 @@ pub const fn specs<C: Host>() -> [Spec<C>; 14] {
             &[],
             ui_dump,
         ),
-        command(
-            "map_dump",
-            "map_dump [page <first_id>|near <x> <y> <z> <radius>]: list map entities by ID or nearest live origin",
-            &[
-                Arg::Values(&["page", "near"]),
-                Arg::Free,
-                Arg::Free,
-                Arg::Free,
-                Arg::Free,
-            ],
-            map_dump,
-        ),
+        map_dump_spec::<C>(),
         command(
             "npc_dump",
             "npc_dump [radius|id <entity>]: print nearby (default 512 u) or one entity's NPC AI and goal state as one JSON line",
@@ -188,6 +193,12 @@ pub const fn specs<C: Host>() -> [Spec<C>; 14] {
                 Arg::Free,
             ],
             spawn_at,
+        ),
+        command(
+            "chat_mode",
+            "chat_mode <0|1>: route local console submissions to chat",
+            &[Arg::Values(&["0", "1"])],
+            chat_mode,
         ),
         command(
             "agent_status",
@@ -366,6 +377,17 @@ fn npc_dump<C: Host>(_console: &mut C, spec: &Spec<C>, args: &[String]) -> Outco
     Ok(Some(C::effect(Request::NpcDump(query))))
 }
 
+fn chat_mode<C: Host>(console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
+    let enabled = match args {
+        [] => None,
+        [value] if value == "0" => Some(false),
+        [value] if value == "1" => Some(true),
+        _ => return Err(spec.usage()),
+    };
+    console.chat_mode(enabled)?;
+    Ok(None)
+}
+
 fn agent_status<C: Host>(console: &mut C, spec: &Spec<C>, args: &[String]) -> Outcome<C::Effect> {
     if args.is_empty() {
         return Err(spec.usage());
@@ -463,6 +485,10 @@ impl Host for hl2_ui::console::Console {
     fn set_background_opacity(&mut self, opacity: u8) {
         self.presentation.background_opacity = Some(opacity);
     }
+    fn chat_mode(&mut self, enabled: Option<bool>) -> Result<(), String> {
+        crate::chat_mode::configure(self, enabled)
+    }
+
     fn agent_status(&mut self, status: AgentStatus) -> Option<String> {
         let text = match status {
             AgentStatus::Clear => {

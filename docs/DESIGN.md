@@ -1,5 +1,15 @@
 # Design
 
+## Local console chat mode (2026-11-26)
+
+The debug plugin can install a session-local console submission handler.
+The input editor offers a line to the handler before tokenization. Chat
+uses the existing Player log path and preserves punctuation. The command
+that changes the active mode stays available. Programmatic and remote
+commands retain their command paths. After the watcher is ready, the
+greeting helper enables chat mode over RCON. Verify literal separators and
+quotes, the default and both transitions, and all plugin selections.
+
 ## Dynamic props with missing physics collision (2026-11-26)
 
 A packaged replay reproduces the queue's failed standing-hull checks. Its

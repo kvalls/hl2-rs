@@ -2,7 +2,7 @@
 
 use crate::commands::Request;
 use hl2_ui::console::{Console, Effect, Mode};
-fn console() -> Console {
+pub(super) fn console() -> Console {
     let mut c = Console::default();
     let mut e = hl2_ui::extensions::Extensions::default();
     crate::register(&mut e).unwrap();

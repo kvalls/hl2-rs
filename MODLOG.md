@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-26 — Add local console chat mode
+
+- Codex desktop, `gpt-6.2-sol`.
+- `chat_mode 1` lets the debug plugin handle local console editor submissions before command parsing. It uses the existing Player chat path and leaves quotes and separators in the message. `chat_mode 0` returns the editor to normal. Fresh sessions start at 0.
+- An optional, per-console submission hook gives one contributor ownership. Programmatic and authenticated remote commands still use command execution. After the watcher is ready, the greeting helper sends `chat_mode 1` and checks its reply before greeting. Older builds get the `say` instructions.
+- Focused `hl2-debug` and `hl2-ui` tests, strict Clippy, all four plugin selections and the macOS package build passed. A packaged editor replay verified literal semicolon and quote input, command execution through the programmatic path, and turning the mode off. The 28 Python session tests passed, and a second packaged check verified default mode, greeting enablement, remote command execution and switching off. Native Windows runtime is **not tested**.
+
 ## 2026-11-26 — Skip render-mesh collision for dynamic props missing PHY
 
 - Codex desktop, `gpt-6.2-sol`.

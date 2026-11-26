@@ -2,6 +2,7 @@
 pub mod agent;
 #[cfg(feature = "bevy")]
 pub mod bevy;
+mod chat_mode;
 pub mod commands;
 pub mod overlay;
 pub mod spawn;

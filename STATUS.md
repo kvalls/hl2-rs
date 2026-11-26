@@ -1,5 +1,15 @@
 # STATUS
 
+## Local console chat mode (2026-11-26)
+
+The debug plugin supplies `chat_mode 1` for local Player chat and
+`chat_mode 0` for normal local input. The default is 0. Text goes to the
+existing console log, and authenticated remote commands stay available.
+After the watcher is ready, the greeting helper enables chat mode in a
+separate RCON command. The packaged macOS editor and greeting checks
+verified both routes. A later Station 02 queue exit can still fail with
+`NoRoute`, including when the player stays clear of the exit.
+
 ## Station 02 queue collision (2026-11-26)
 
 The dispenser's model has no PHY and previously collided through its

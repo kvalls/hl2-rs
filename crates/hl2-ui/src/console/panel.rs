@@ -44,6 +44,25 @@ impl Console {
         self.shell.panel.print(&self.canvas, level, text);
     }
 
+    /// Submits text entered through the local console editor.
+    pub fn submit_local(&mut self, line: &str) -> Vec<Effect> {
+        let line = line.trim();
+        if line.is_empty()
+            || self
+                .extensions
+                .local_submit()
+                .is_some_and(|route| route(self, line))
+        {
+            return Vec::new();
+        }
+        self.submit(line)
+    }
+
+    pub fn say_local(&mut self, text: &str) {
+        let speaker = super::remote::PLAYER_SPEAKER;
+        self.print(Level::ChatLocal, format!("{speaker}: {text}"));
+    }
+
     pub fn submit(&mut self, line: &str) -> Vec<Effect> {
         let line = line.trim();
         if line.is_empty() {
@@ -164,7 +183,7 @@ impl Console {
                 self.toggle();
                 Vec::new()
             }
-            Action::Submit { line, .. } => self.submit(&line),
+            Action::Submit { line, .. } => self.submit_local(&line),
         }
     }
 

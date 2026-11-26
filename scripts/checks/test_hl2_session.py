@@ -453,6 +453,20 @@ class TestSession(unittest.TestCase):
                 self.assertTrue(session.request_agent_rcon(pid))
                 self.assertEqual(listener.recvfrom(100)[0], token.encode("ascii"))
 
+    def test_greet_enables_chat_before_sending_the_greeting(self):
+        for supported in (True, False):
+            with self.subTest(supported=supported):
+                hint = ("Type a message" if supported else "Type say <message>")
+                greeting = f"Codex connected. {hint} in the console to talk to me."
+                mode_reply = "chat_mode = 1\n" if supported else "Unknown command\n"
+                with tempfile.TemporaryDirectory() as tmp, \
+                     mock.patch.object(rcon, "wait_and_exec", side_effect=[mode_reply, f"Console: {greeting}\n"]) as send, \
+                     redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(rcon.main(["--session", tmp, "--greet", "Codex"]), 0)
+                    self.assertEqual([call.args[0] for call in send.call_args_list],
+                                     ["chat_mode 1", f"say {greeting}"])
+                    self.assertEqual(out.getvalue().strip(), f"Console: {greeting}")
+
     def test_attach_authenticates_only_the_selected_local_listener(self):
         server = MockRconServer("test_password", lambda cmd: ["HL2RS_ATTACH\n"] if cmd == "echo HL2RS_ATTACH" else [])
         self.addCleanup(server.close)

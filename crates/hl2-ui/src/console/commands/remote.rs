@@ -114,17 +114,16 @@ pub(super) fn say(console: &mut Console, spec: &Spec, args: &[String]) -> Outcom
     if args.is_empty() {
         return Err(spec.usage());
     }
-    let (speaker, level) = if console.remote.from_rcon {
-        (remote::RCON_SPEAKER, Level::ChatRemote)
-    } else {
-        (remote::PLAYER_SPEAKER, Level::ChatLocal)
-    };
-    let line = format!("{speaker}: {}", args.join(" "));
+    let text = args.join(" ");
     if console.remote.from_rcon {
+        let speaker = remote::RCON_SPEAKER;
+        let line = format!("{speaker}: {text}");
         console.clear_snapshot();
         console.remote.broadcast.push(line.clone());
+        console.print(Level::ChatRemote, line);
+    } else {
+        console.say_local(&text);
     }
-    console.print(level, line);
     Ok(None)
 }
 
