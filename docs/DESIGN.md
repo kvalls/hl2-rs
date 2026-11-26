@@ -1,5 +1,14 @@
 # Design
 
+## Gameplay console shortcuts (2026-11-26)
+
+Keep console visibility and focus separate from the in-game pause menu.
+Tilde closes both surfaces during gameplay. Escape changes the pause
+menu under the console while preserving the console and its input focus.
+Console input still takes priority over player movement, while the
+unpaused world advances. Preserve modal, title-menu and editor Escape
+handling. Verify both shortcuts through the host input and packaged replay.
+
 ## Local console chat mode (2026-11-26)
 
 The debug plugin can install a session-local console submission handler.

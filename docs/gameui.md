@@ -664,8 +664,7 @@ SDK `vgui_controls` (`Button`, `RadioButton`, `Slider`, `ComboBox`, `PropertyShe
   `KeyPress`. It no longer draws the default-button border. Link text (the credits links on the
   Audio and Video pages) starts `widgets::LINK_TEXT_INSET` (5) into its control, inside the focus
   box (3 in) by `FOCUS_PAD`; at the control's edge the box crossed its first letter.
-- **Escape.** When Escape would close a dialog with a close button (Options or one of its
-  sub-dialogs, the developer console), the close button shows pressed while Escape is held and
+- **Escape.** When Escape would close a dialog with a close button, the close button shows pressed while Escape is held and
   the dialog closes on release (`Console::escape_pressed` / `escape_released`; retail closes on
   the press). Escape that cancels something else (a drag, key capture, open list, text edit,
   completion list) or opens / leaves the pause menu acts at once.
@@ -1579,7 +1578,7 @@ Dim overlay behavior distinguishes startup/menu background mode from active game
   `console::tests::context_aware_background_dim_overlay_across_all_four_cases`.
   Visual smoothness and gameplay dim contrast are unverified, needs manual check.
 
-## 18. Mid-gameplay developer console and pause menu focus transition (2026-10-21)
+## 18. Mid-gameplay developer console and pause menu focus transition (2026-11-26)
 
 Aligning mid-gameplay developer console activation with authentic Half-Life 2 / Source GameUI behavior:
 - **Pause menu as base surface:** Invoking the developer console mid-gameplay (via the tilde / backquote
@@ -1587,12 +1586,13 @@ Aligning mid-gameplay developer console activation with authentic Half-Life 2 / 
   and `background_level == false`. The pause menu (in-game main menu) becomes the active base surface,
   pausing and dimming gameplay, with the developer console opened and focused on top (`Mode::Console`,
   `windows.focus() == Layer::Window(Window::Console)`).
-- **Focus restoration on console dismissal:** Closing the developer console mid-gameplay (pressing tilde
-  again, clicking the close `[X]` button, or pressing Escape) closes the console dialog and returns focus
-  to the underlying pause menu (`Mode::Pause`, `windows.focus() == Layer::Base`), in accordance with the
-  single-focus model from section 15. The pause menu remains open and gameplay remains paused.
-- **Resuming gameplay:** Gameplay is resumed from the pause menu either by activating the "Resume Game"
-  menu row or by pressing Escape while the pause menu is focused.
+- **Tilde / `toggleconsole`:** With the console open over gameplay or its pause menu,
+  closes the console and returns to active gameplay. The console close button
+  and `hideconsole` close the console window.
+- **Escape:** With the console open over the pause menu, hides the menu and
+  resumes the scene while preserving the console window and its focus. The
+  console still owns input while focused. Escape can reopen the pause menu
+  under it. Editor cancellation and modal dialogs keep priority.
 - **Verification:** Unit-tested in `console::tests::mid_gameplay_tilde_dev_console_transition_and_pause_menu_focus`
   and `simulation::tests::ui_open_close_and_resume_consume_pointer_attack_and_held_jump`.
 

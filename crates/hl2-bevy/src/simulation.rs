@@ -609,11 +609,11 @@ impl Simulation {
             game.actions.extend(c.actions);
         }
         if let (Some(ui), Some(game)) = (ui, game) {
-            let before = ui.source.mode();
+            let before = (ui.source.mode(), ui.source.paused());
             for action in &c.ui {
                 self.ui_action(ui, game, action);
             }
-            if ui.source.mode() != before {
+            if (ui.source.mode(), ui.source.paused()) != before {
                 self.paused = ui.source.paused();
                 self.transition = true;
                 self.jump_suppressed |= c.jump;
@@ -1068,55 +1068,48 @@ mod tests {
             Mode::Console
         );
         assert!(app.world().resource::<Simulation>().paused);
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Escape);
-        step_input(&mut app);
-        assert_eq!(
-            app.world()
-                .resource::<crate::ui_host::Console>()
-                .source
-                .mode(),
-            Mode::Console,
-            "the console closes when Escape is released"
-        );
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .release(KeyCode::Escape);
-        step_input(&mut app);
-        assert_eq!(
-            app.world()
-                .resource::<crate::ui_host::Console>()
-                .source
-                .mode(),
-            Mode::Pause,
-            "closing the console leaves the pause menu active"
-        );
-        assert!(app.world().resource::<Simulation>().paused);
-        // Resuming from the pause menu via Escape returns to active gameplay
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Escape);
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Space);
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.reset_all();
+            keys.press(KeyCode::Escape);
+            keys.press(KeyCode::Space);
+        }
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         step_input(&mut app);
         let sim = app.world().resource::<Simulation>();
         assert!(!sim.paused && sim.transition && sim.jump_suppressed && !sim.input.jump);
+        assert!(
+            app.world()
+                .resource::<crate::ui_host::Console>()
+                .source
+                .console_open()
+        );
+
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear_just_pressed(KeyCode::Escape);
+            keys.release(KeyCode::Escape);
+        }
+        step_input(&mut app);
+        let sim = app.world().resource::<Simulation>();
+        assert!(!sim.paused && !sim.input.jump);
         assert_eq!((sim.yaw, sim.pitch), (0., 0.));
         assert!(!app.world().resource::<crate::gameplay::Gameplay>().primary);
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Backquote);
+        step_input(&mut app);
+        assert!(
+            !app.world()
+                .resource::<crate::ui_host::Console>()
+                .source
+                .console_open()
+        );
+        assert!(app.world().resource::<Simulation>().transition);
+        assert!(!app.world().resource::<Simulation>().paused);
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .clear();

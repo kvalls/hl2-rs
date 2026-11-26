@@ -157,13 +157,13 @@ fn entity_inputs_preserve_quoted_values_and_enforce_cheat_and_delay_rules() {
     }
 }
 #[test]
-fn console_returns_to_its_previous_pause_state_and_steps_through_history() {
+fn console_hide_preserves_pause_and_escape_dismisses_history_first() {
     let mut console = Console::default();
     console.escape();
     assert!(console.paused());
     console.toggle();
     assert_eq!(console.mode(), Mode::Console);
-    console.escape();
+    console.execute("hideconsole");
     assert_eq!(console.mode(), Mode::Pause);
     console.toggle();
     for line in ["echo first", "echo second"] {
@@ -180,11 +180,13 @@ fn console_returns_to_its_previous_pause_state_and_steps_through_history() {
     assert_eq!(console.input_line(), "echo first");
     keys(&mut console, &[Key::Down]);
     assert_eq!(console.input_line(), "echo second");
-    // Escape hides the list, then closes the console.
+    // Escape hides the list first. The next tap resumes the scene.
     console.escape();
     assert_eq!(console.mode(), Mode::Console);
+    assert!(console.paused());
     console.escape();
-    assert_eq!(console.mode(), Mode::Pause);
+    assert_eq!(console.mode(), Mode::Console);
+    assert!(!console.paused());
     assert_eq!(
         console.take_changed_history(),
         Some(vec!["echo first".to_owned(), "echo second".to_owned()])
@@ -3375,38 +3377,31 @@ fn mid_gameplay_tilde_dev_console_transition_and_pause_menu_focus() {
         Layer::Window(Window::Console)
     );
 
-    // 3. Close the dev console via toggle (pressing tilde again):
-    // Leaves the main/pause menu open, active, and focused
     console.toggle();
-    assert_eq!(console.mode(), Mode::Pause);
-    assert_eq!(console.base, Mode::Pause);
-    assert!(console.paused());
+    assert_eq!(console.mode(), Mode::Gameplay);
+    assert!(!console.console_open());
+    assert!(!console.paused());
     assert_eq!(console.shell.windows.focus(), Layer::Base);
 
-    // 4. Pressing tilde again from the pause menu opens dev console over pause menu
     console.toggle();
+    console.escape_pressed();
+    console.escape_released();
     assert_eq!(console.mode(), Mode::Console);
-    assert_eq!(console.base, Mode::Pause);
+    assert_eq!(console.base, Mode::Gameplay);
+    assert!(console.console_open());
+    assert!(!console.paused());
+    assert_eq!(console.dim_overlay_alpha(0.0), 0.0);
     assert_eq!(
         console.shell.windows.focus(),
         Layer::Window(Window::Console)
     );
 
-    // 5. Closing dev console via Escape also leaves main/pause menu active and focused
-    console.escape_pressed();
-    console.escape_released();
-    assert_eq!(console.mode(), Mode::Pause);
-    assert_eq!(console.base, Mode::Pause);
+    console.escape();
+    assert!(console.console_open());
     assert!(console.paused());
-    assert_eq!(console.shell.windows.focus(), Layer::Base);
-
-    // 6. Resuming from the main/pause menu returns to active gameplay
-    console.escape_pressed();
-    console.escape_released();
+    console.toggle();
     assert_eq!(console.mode(), Mode::Gameplay);
-    assert_eq!(console.base, Mode::Gameplay);
     assert!(!console.paused());
-    assert_eq!(console.shell.windows.focus(), Layer::Base);
 }
 
 #[test]

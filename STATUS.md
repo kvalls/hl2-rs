@@ -1,5 +1,13 @@
 # STATUS
 
+## Gameplay console shortcuts (2026-11-26)
+
+Tilde closes the developer console and the pause menu and resumes the
+scene. Escape resumes the scene with the console open and focused. The
+console retains keyboard and pointer input while the scene advances.
+The packaged macOS console replay verified both transitions at 720p
+and 1080p. Windows runtime and manual keyboard play are **not tested**.
+
 ## Chat command routing and macOS quote keys (2026-11-26)
 
 The watcher can distinguish chat-mode editor input from an ordinary `say`

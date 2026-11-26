@@ -180,7 +180,7 @@ impl Console {
         {
             Action::None => Vec::new(),
             Action::Close => {
-                self.toggle();
+                self.toggle_console_window();
                 Vec::new()
             }
             Action::Submit { line, .. } => self.submit_local(&line),

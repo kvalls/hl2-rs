@@ -74,7 +74,7 @@ fn set_console_open(console: &mut Console, spec: &Spec, args: &[String], open: b
         return Err(spec.usage());
     }
     if console.console_open() != open {
-        console.toggle();
+        console.toggle_console_window();
     }
     Ok(None)
 }

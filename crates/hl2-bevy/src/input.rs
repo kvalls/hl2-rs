@@ -297,6 +297,30 @@ pub(crate) fn action_pressed(
     held_devices(keys, buttons).pressed(action, config)
 }
 
+fn route_action_keys(
+    game: &mut crate::gameplay::Gameplay,
+    devices: &Devices<'_>,
+    cfg: Option<&Config>,
+) {
+    use crate::gameplay::Action;
+    for (name, action) in [
+        ("+use", Action::Use),
+        ("+reload", Action::Reload),
+        ("lastinv", Action::Previous),
+        ("impulse", Action::Impulse),
+        ("invprev", Action::Wheel { delta: -1 }),
+        ("invnext", Action::Wheel { delta: 1 }),
+    ] {
+        if devices.just_pressed(name, cfg) {
+            game.actions.push(action);
+        }
+    }
+    let pressed = |(_, name): &(usize, &str)| devices.just_pressed(name, cfg);
+    let slots = SLOTS.iter().copied().enumerate().filter(pressed);
+    game.actions
+        .extend(slots.map(|(slot, _)| Action::Slot { slot }));
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn controls(
     (keys, buttons, mouse, scroll, _frame): InputDevices,
@@ -347,7 +371,12 @@ pub(crate) fn controls(
         route_attacks(game, &devices, cfg, overlay_open);
     }
     sim.input = Input::default();
-    if sim.paused() || sim.transition || (cursor.grab_mode == CursorGrabMode::None && !overlay_open)
+    if sim.paused()
+        || sim.transition
+        || ui
+            .as_ref()
+            .is_some_and(|ui| ui.source.mode() == hl2_ui::console::Mode::Console)
+        || (cursor.grab_mode == CursorGrabMode::None && !overlay_open)
     {
         if let Some(game) = game.as_deref_mut() {
             game.consume_attacks();
@@ -357,23 +386,7 @@ pub(crate) fn controls(
     if let Some(game) = game.as_deref_mut()
         && !typing
     {
-        use crate::gameplay::Action;
-        for (name, action) in [
-            ("+use", Action::Use),
-            ("+reload", Action::Reload),
-            ("lastinv", Action::Previous),
-            ("impulse", Action::Impulse),
-            ("invprev", Action::Wheel { delta: -1 }),
-            ("invnext", Action::Wheel { delta: 1 }),
-        ] {
-            if devices.just_pressed(name, cfg) {
-                game.actions.push(action);
-            }
-        }
-        let pressed = |(_, name): &(usize, &str)| devices.just_pressed(name, cfg);
-        let slots = SLOTS.iter().copied().enumerate().filter(pressed);
-        game.actions
-            .extend(slots.map(|(slot, _)| Action::Slot { slot }));
+        route_action_keys(game, &devices, cfg);
         sim.flashlight_toggles += u32::from(devices.just_pressed("impulse 100", cfg));
     }
     if typing {

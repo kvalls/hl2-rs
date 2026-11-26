@@ -705,12 +705,9 @@ def check_console():
           any("Queued station_entrance.Close" in x for x in out("setpos-paused")))
     expect("Unicode input", s["unicode-input"]["console"]["input"], "é\U0001f980")
     expect("Unicode editing keeps whole characters", s["unicode-edit"]["console"]["input"], "é")
-    # The console opened mid-game brings up the pause menu; closing it leaves that menu up
-    # and Escape then resumes (docs/gameui.md section 18).
-    holds("closing the console returns to the pause menu",
-          mode("resume-transition") == "Pause" and s["resume-transition"]["paused"])
-    holds("Escape on the pause menu resumes the game",
-          mode("resumed-from-pause") == "Gameplay" and not s["resumed-from-pause"]["paused"])
+    holds("tilde closes the console and resumes the game",
+          mode("resume-transition") == "Gameplay" and not s["resume-transition"]["paused"]
+          and g("after-tilde")["time"] > g("setpos-paused")["time"])
     holds("the weapon selection opens without switching",
           g("selection-open")["pending"] == "weapon_smg1"
           and g("selection-open")["inventory"]["active"] == "weapon_pistol")
@@ -719,24 +716,24 @@ def check_console():
     holds("Escape opens the pause menu", mode("pause-open") == "Pause" and s["pause-open"]["paused"])
     holds("a click outside the menu stays paused",
           mode("outside-click") == "Pause" and g("outside-click")["time"] == g("pause-open")["time"])
-    holds("the console opens over the pause menu and returns to it",
-          mode("console-from-pause") == "Console" and mode("return-to-pause") == "Pause")
-    holds("the scene stays frozen meanwhile",
-          g("console-paused")["time"] == g("return-to-pause")["time"] == g("pause-open")["time"])
+    holds("the console opens over the pause menu",
+          mode("console-from-pause") == "Console"
+          and g("console-paused")["time"] == g("pause-open")["time"])
+    holds("Escape resumes the scene while the console stays focused",
+          mode("resumed-with-console") == mode("after-escape") == "Console"
+          and not s["resumed-with-console"]["paused"]
+          and g("after-escape")["time"] > g("console-paused")["time"])
+    expect("tilde closes the retained console", mode("console-close"), "Gameplay")
     holds("unknown commands are rejected",
           "Unknown or unimplemented command: unsupported_command" in out("console-paused"))
     audio = run.report["render"]["presentation"]["audio"]
-    # Sounds pause with the UI and resume after it. (The replay means to end paused, every sound
-    # paused; with the `menu-resume` step below not resuming here, its last Escape closes the
-    # pause menu instead, so the end state is not compared.)
+    # Each shortcut unpauses the running scene and its sounds.
     holds("sounds play", audio["started_sinks"] > 0 and audio["failed_requests"] == 0,
           (audio["started_sinks"], audio["failed_requests"]))
     holds("playing sounds pause with the UI and resume after it",
           audio["pause_changes"] >= 2 and audio["resume_changes"] >= 2,
           (audio["pause_changes"], audio["resume_changes"]))
     expect("viewport", run.report["render"]["presentation"]["hud"]["viewport"], [1280, 720])
-    # The replay's `menu-resume` step presses Enter with no pause-menu row selected; here Escape
-    # clears the menu selection, so Enter does nothing and its resume assertions do not apply.
     large = game("console-1080p", "--map", "d1_trainstation_02", "--width", "1920", "--height", "1080",
                  "--movement-script", "test-inputs/bevy-console.json")
     expect("1080p viewport", large.report["render"]["presentation"]["hud"]["viewport"], [1920, 1080])

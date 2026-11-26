@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-26 — Match gameplay console shortcuts
+
+- Codex desktop, `gpt-6.2-sol`.
+- Tilde and `toggleconsole` close the console and the gameplay pause menu. Escape hides the pause menu and leaves the console focused. Pause state now follows the base surface, and the host separates the running scene from the input captured by the console.
+- The physical-key-path unit test passed after its simulated taps cleared press edges and released the previous key. All 101 console tests, seven shell tests, strict Clippy and architecture checks passed. The macOS release build passed the five packaged checks `console`, `console_map`, `power_hud`, `flashlight_shadows` and `flashlight_viewmodel`. The console replay confirmed that scene time advances after both shortcuts.
+- Windows runtime and manual keyboard play are **not tested**.
+
 ## 2026-11-26 — Distinguish chat command requests and handle composed quotes
 
 - Codex desktop, `gpt-6.2-sol`.

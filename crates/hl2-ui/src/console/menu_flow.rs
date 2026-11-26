@@ -101,10 +101,7 @@ impl Console {
 
     /// Current dim overlay alpha at `time`.
     pub fn dim_overlay_alpha(&self, time: f64) -> f32 {
-        let menu_open = matches!(
-            self.mode,
-            Mode::MainMenu | Mode::Pause | Mode::Options | Mode::NewGame | Mode::Console
-        );
+        let menu_open = self.paused();
         let is_mid_gameplay =
             !self.background_level && matches!(self.base, Mode::Pause | Mode::Gameplay);
         let base_focus = self.shell.windows.base_focus_amount(time);

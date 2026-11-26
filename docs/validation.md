@@ -1785,9 +1785,9 @@ Writing replays: Escape clears the main menu selection, so Down then selects row
 skips spacers; scripted `pointer` positions are UI canvas pixels of the render resolution (pin
 `--width 1024 --height 768`: Keyboard tab (389, 215), Advanced... (464, 537)); script ticks keep
 running while Options is open; end a replay with a settle step so the capture follows a presented
-frame. `bevy-console.json` has one step more than upstream's (tick 17 Escape, `resumed-from-pause`,
-because closing the console returns to the pause menu here); its `menu-resume` step presses Enter
-with no pause-menu row selected, which no longer resumes, so its assertions are left out.
+frame. `bevy-console.json` checks that tilde closes the console and resumes the
+scene, and that Escape resumes the scene while keeping the console focused.
+The scene clock confirms that gameplay advances after each shortcut.
 
 Shared checks run in the background (`--background`: no window, nothing takes focus, captures
 read the game frame); windowed ones open a window and take focus. On macOS a windowed run becomes

@@ -159,9 +159,6 @@
   "crates/hl2-bevy/src/eyes.rs::present": [
    114
   ],
-  "crates/hl2-bevy/src/input.rs::controls": [
-   103
-  ],
   "crates/hl2-bevy/src/rendering.rs::build_model_draws": [
    106
   ],
@@ -363,7 +360,7 @@
   "source-ui": 151
  },
  "test_files": {
-  "crates/hl2-ui/src/console/tests.rs": 4527,
+  "crates/hl2-ui/src/console/tests.rs": 4522,
   "crates/hl2-ui/src/gameui/options/tests.rs": 2839
  },
  "untested_modules": [

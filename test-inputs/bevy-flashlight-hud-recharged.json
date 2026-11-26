@@ -12,9 +12,6 @@
       },
       {
         "action": "toggle_console"
-      },
-      {
-        "action": "escape"
       }
     ]
   },
@@ -30,9 +27,6 @@
       },
       {
         "action": "toggle_console"
-      },
-      {
-        "action": "escape"
       }
     ]
   },
