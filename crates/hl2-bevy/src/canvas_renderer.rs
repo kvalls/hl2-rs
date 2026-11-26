@@ -405,12 +405,28 @@ type HudResources<'w> = (
     Option<Res<'w, crate::performance::status::Profiling>>,
 );
 
+/// Whether runtime extensions may submit dialogue to the shared caption panel this frame:
+/// outside map loading, spawn hold, level transitions, and pending background audio, while
+/// the developer console is closed (gameplay, main menu, and the gameplay pause menu).
+fn accept_extension_captions(
+    sim: &crate::simulation::Simulation,
+    console_open: bool,
+    logic_autos_pending: bool,
+) -> bool {
+    !sim.loading
+        && !sim.transition
+        && !logic_autos_pending
+        && !(sim.background_level && sim.background_audio_pending)
+        && !console_open
+}
+
 fn draw_weapon_overlays(
     weapon: &mut hl2_ui::hud::WeaponHud,
     game: &mut crate::gameplay::Gameplay,
     ui: &crate::ui_host::Console,
     sim: &mut crate::simulation::Simulation,
     hud_hidden: bool,
+    real_time: f64,
 ) {
     weapon.aspect = ui.source.config.video.hud_aspect;
     // Client order: queued ScreenFade/Damage messages, the fade over the 3D view, HUD.
@@ -439,12 +455,14 @@ fn draw_weapon_overlays(
     let captions = hl2_ui::closecaption::Settings::from_config(ui.source.config.audio.captions);
     let messages = std::mem::take(&mut game.caption_messages);
     weapon.captions.emit(&messages, &captions, time);
-    if !hud_hidden {
-        if !sim.paused() && !sim.transition && !sim.background_level {
-            sim.with_extensions(|extension, _| extension.gameplay_captions(&weapon.captions));
-        }
-        weapon.draw_captions(&captions, time);
+    let console_open = ui.source.console_open();
+    let logic_autos_pending = game.scene.logic_autos_pending();
+    if accept_extension_captions(sim, console_open, logic_autos_pending) {
+        sim.with_extensions(|extension, _| extension.gameplay_captions(&weapon.captions));
     }
+    let allow_runtime_paint =
+        !logic_autos_pending && !sim.loading && !sim.transition && !console_open;
+    weapon.draw_captions(&captions, time, real_time, !hud_hidden, allow_runtime_paint);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -473,8 +491,9 @@ pub fn present(
     // Nor is anything drawn before the map's first logic_auto think (the spawn hold, startup.rs).
     let hud_hidden =
         (ui.source.paused() && !ui.source.background_level()) || game.scene.logic_autos_pending();
+    let real_time = clock.elapsed_secs_f64();
     if let Some(weapon) = &mut hud.source.weapon {
-        draw_weapon_overlays(weapon, &mut game, &ui, &mut sim, hud_hidden);
+        draw_weapon_overlays(weapon, &mut game, &ui, &mut sim, hud_hidden, real_time);
     } else {
         game.player_damage.fades.clear();
         game.scene.screen_fades.clear();
@@ -875,5 +894,42 @@ mod tests {
         let report = hud.report();
         assert_eq!(report["viewport"], serde_json::json!([800.0, 600.0]));
         assert!(report["frame"].is_null());
+    }
+
+    #[test]
+    fn extension_captions_run_in_gameplay_pause_and_main_menu_when_console_is_closed() {
+        let mut sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        assert!(accept_extension_captions(&sim, false, false));
+        assert!(!accept_extension_captions(&sim, true, false));
+
+        sim.paused = true;
+        assert!(accept_extension_captions(&sim, false, false));
+        assert!(!accept_extension_captions(&sim, true, false));
+
+        sim.background_level = true;
+        sim.background_audio_pending = false;
+        assert!(accept_extension_captions(&sim, false, false));
+        assert!(!accept_extension_captions(&sim, true, false));
+
+        sim.background_audio_pending = true;
+        assert!(!accept_extension_captions(&sim, false, false));
+        sim.background_audio_pending = false;
+
+        sim.loading = true;
+        assert!(!accept_extension_captions(&sim, false, false));
+        sim.loading = false;
+
+        sim.transition = true;
+        assert!(!accept_extension_captions(&sim, false, false));
+        sim.transition = false;
+
+        assert!(!accept_extension_captions(&sim, false, true));
     }
 }

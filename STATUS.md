@@ -1,5 +1,19 @@
 # STATUS
 
+## Runtime speech subtitles over main menu and pause menu (2026-11-26)
+
+Runtime speech (`CaptionHud::speak` / `RuntimeExtension::gameplay_captions`)
+now advances on real time and paints through the shared closed-caption panel
+whenever the developer console is closed across active gameplay, main menu
+(`background_level`), and the gameplay pause menu (`!background_level`,
+paused, console closed), while paused authored gameplay captions remain
+hidden and preserved on the frozen game clock until gameplay resumes. Workspace
+validation (`2,041` Rust tests, `134` Python tests, all `4` plugin builds,
+strict Clippy), Windows strict Clippy, macOS release rebuild/restart into
+`d1_trainstation_02`, and the `console` and `console_map` packaged replays
+(`2 checks, 0 failed`) passed. Windows runtime and live interactive visual
+verification on the restarted binary are **not tested**.
+
 ## Console selection and plugin editing shortcuts (2026-11-26)
 
 Core (`source-ui`, `hl2-ui`, `hl2-bevy`) now implements retail Source

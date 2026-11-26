@@ -465,3 +465,74 @@ fn an_idle_caption_queue_emits_no_invisible_background() {
         Paint::default()
     );
 }
+
+#[test]
+fn runtime_speech_ticks_and_paints_while_authored_captions_are_paused_and_hidden() {
+    let mut cc = CloseCaption::new();
+    cc.process("Authored dialogue", 5., false, &on());
+    cc.speak("Console:<clr:115,230,255> Runtime reply", 4.);
+
+    // While gameplay is paused, only real time advances; the authored item freezes ahead of runtime.
+    cc.tick_split(0., 1.);
+    assert!((cc.items[0].predisplay - 0.25).abs() < 1e-5);
+    assert!(cc.items[0].time_to_live == 6.);
+    assert_eq!(cc.items[1].predisplay, 0.);
+
+    let layout = Layout::default();
+    // Start the grow animation on t = 1.0, then inspect runs once grow_time (0.25s) finishes.
+    cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        false,
+        1.,
+    );
+    let paused_paint = cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        false,
+        1.3,
+    );
+    let paused_text: String = paused_paint.runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(paused_text, "Console: Runtime reply");
+
+    // Advancing real time alone expires the runtime cue without evicting the frozen authored item.
+    cc.tick_split(0., 5.);
+    assert_eq!(cc.streams().collect::<Vec<_>>(), ["Authored dialogue"]);
+
+    // Resuming gameplay advances the game clock and paints the preserved authored caption.
+    cc.tick_split(1., 1.);
+    cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        true,
+        6.,
+    );
+    let resumed_paint = cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        true,
+        6.3,
+    );
+    let resumed_text: String = resumed_paint.runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(resumed_text, "Authored dialogue");
+}

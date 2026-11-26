@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Render runtime speech subtitles behind main menu and gameplay pause menu
+
+- Agent/model: Antigravity (Gemini family, exact model ID not recorded).
+- Changed: Split `CloseCaption` timing into `game_dt` (frozen while gameplay is paused) and `runtime_dt` (`real_time`) in `crates/hl2-ui/src/closecaption.rs` and `speech.rs` (`tick_split`, `tick_with_clocks`, `runtime_clock`, `runtime_only_visible`), and added `show_authored` filtering in `crates/hl2-ui/src/closecaption/paint.rs` (`CaptionAppearance`, `paint_item`, `paint_filtered`) and `crates/hl2-ui/src/hud/captions.rs` (`WeaponHud::draw_captions`) so runtime speech (`CaptionHud::speak`) ticks and paints while authored gameplay captions stay hidden and preserved during gameplay pause; updated `crates/hl2-bevy/src/canvas_renderer.rs` (`accept_extension_captions`, `draw_weapon_overlays`) and `crates/hl2-bevy/src/extensions.rs` so `RuntimeExtension::gameplay_captions` and runtime caption painting run in active gameplay, behind the main menu over a running background map, and over the gameplay pause menu whenever the developer console is closed (while staying off during map load, spawn hold, transitions, pending background audio, or open console); added regression tests in `crates/hl2-ui/src/closecaption/tests.rs` and `crates/hl2-bevy/src/canvas_renderer.rs`, and documented the behavior in `docs/plugins.md`.
+- Why: Remote console `say` and `agent_status` subtitles were previously gated by `!sim.paused() && !sim.background_level` and `if !hud_hidden`, which dropped them whenever the console closed over the main menu or gameplay pause menu while `game.scene.time` is paused during pause menus.
+- Tested how: `cargo fmt --check`, `scripts/checks/architecture.py`, Python helper suite (`134 tests`), all 4 plugin builds (`core only`, `advanced-options`, `debug-tools`, `advanced-options+debug-tools`), workspace `cargo test` (`2,041 passed, 0 failed, 151 ignored`: `hl2-advanced-options` 52, `hl2-bevy` 297, `hl2-debug` 59, `hl2-simulation` 914, `hl2-ui` 342, `modkit-core` 78, `source-assets` 144, `source-ui` 155), strict host and Windows-target Clippy, release packaging and live session restart via `restart.py` (`d1_trainstation_02`), and `NO_BUILD=1 ONLY='console console_map' JOBS=2 python3 scripts/checks/replays.py`.
+- Result: All validation checks (`2,041` Rust tests, `134` Python tests, all `4` plugin selections), Windows Clippy, release packaging/restart, and both replays (`2 checks, 0 failed`) passed; the `crates/` diff audit confirmed zero plugin leakage into core.
+- Still broken or not tested: Windows runtime and interactive visual subtitle verification with the console closed on the main menu and gameplay pause menu are **not tested** (live session restarted cleanly and ready for user verification).
+- Next: Confirm subtitle rendering in-game across main menu and gameplay pause menu, and follow up on the player's console history draft restoration request.
+
 ## 2026-11-26 — Preserve full-word double-click selection across held and dragged frames
 
 - Agent/model: Antigravity (Gemini family, exact model ID not recorded).

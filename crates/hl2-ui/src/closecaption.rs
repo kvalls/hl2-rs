@@ -477,6 +477,8 @@ pub struct CloseCaption {
     goal_finish: f64,
     /// Ticks seen (the same-tick repeat rule).
     tick_count: u64,
+    /// Keeping the fading caption box visible while only runtime speech was shown over a hidden HUD.
+    runtime_only_visible: bool,
     /// Tokens with no caption, reported once.
     pub missing: Vec<String>,
     /// Captions processed (shown or queued).
@@ -497,6 +499,7 @@ impl CloseCaption {
     /// LevelShutdown/Reset: drop every item.
     pub fn reset(&mut self) {
         self.items.clear();
+        self.runtime_only_visible = false;
     }
 
     /// LevelInit: forget repeat timers.
@@ -703,25 +706,7 @@ impl CloseCaption {
     /// OnTick: count down the predisplay delay, then the life of shown items, and remove
     /// expired items from the head until the first one still alive.
     pub fn tick(&mut self, dt: f32) {
-        self.tick_count += 1;
-        for item in &mut self.items {
-            if item.predisplay > 0. {
-                item.predisplay = (item.predisplay - dt).max(0.);
-            } else {
-                item.time_to_live = (item.time_to_live - dt).max(0.);
-            }
-        }
-        let mut alive = false;
-        self.items.retain(|item| {
-            if item.predisplay > 0. {
-                return true;
-            }
-            if item.time_to_live > 0. {
-                alive = true;
-                return true;
-            }
-            alive
-        });
+        self.tick_split(dt, dt);
     }
 }
 
@@ -809,6 +794,7 @@ pub struct CaptionHud {
     fonts: Vec<(Style, source_ui::font::FontFace, f32)>,
     pub state: source_ui::canvas::MutexCell<CloseCaption>,
     clock: source_ui::canvas::MutexCell<Option<f64>>,
+    runtime_clock: source_ui::canvas::MutexCell<Option<f64>>,
     pub errors: Vec<String>,
 }
 
@@ -879,6 +865,7 @@ impl CaptionHud {
             fonts,
             state: source_ui::canvas::MutexCell::new(CloseCaption::new()),
             clock: source_ui::canvas::MutexCell::new(None),
+            runtime_clock: source_ui::canvas::MutexCell::new(None),
             errors,
         }
     }
@@ -896,33 +883,10 @@ impl CaptionHud {
         }
     }
 
-    /// Advances the queue on the game clock (so a paused game holds its captions).
-    pub(crate) fn tick(&self, time: f64, authored_captions: bool) -> bool {
-        let mut clock = self.clock.borrow_mut();
-        let dt = clock.map_or(0., |last| (time - last).max(0.)) as f32;
-        *clock = Some(time);
-        let mut state = self.state.borrow_mut();
-        state.tick(dt);
-        authored_captions
-            || state.retain_runtime_speech()
-            || (state.goal_height > 0. && state.current_alpha > 0.)
-    }
-
     /// Lays out the panel for a canvas `size` in pixels; None while there is nothing to draw
     /// or the fonts are missing.
     pub fn paint(&self, size: (f32, f32), time: f64) -> Option<(source_ui::canvas::Rect, Paint)> {
-        let scale = crate::proportional::scale(glam::vec2(size.0, size.1));
-        let measure = self.measure(scale)?;
-        let rect = self.panel_rect(size, scale);
-        let paint = self.state.borrow_mut().paint(
-            (rect.w, rect.h),
-            scale,
-            &self.layout,
-            &measure,
-            self.background,
-            time,
-        );
-        Some((rect, paint))
+        self.paint_filtered(size, true, time)
     }
 
     fn panel_rect(&self, size: (f32, f32), scale: f32) -> source_ui::canvas::Rect {

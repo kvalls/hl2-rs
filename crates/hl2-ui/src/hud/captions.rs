@@ -3,13 +3,27 @@ use super::{vec2, Color, Rect, WeaponHud};
 impl WeaponHud {
     /// The closed caption panel (CHudCloseCaption::Paint): its box through the HUD's rounded
     /// panel background, then the text runs.
-    pub fn draw_captions(&self, settings: &crate::closecaption::Settings, time: f64) {
-        if !self.captions.tick(time, settings.closecaption) {
+    pub fn draw_captions(
+        &self,
+        settings: &crate::closecaption::Settings,
+        game_time: f64,
+        real_time: f64,
+        show_authored: bool,
+        allow_runtime_paint: bool,
+    ) {
+        if !self.captions.tick_with_clocks(
+            game_time,
+            real_time,
+            settings.closecaption,
+            show_authored,
+            allow_runtime_paint,
+        ) {
             return;
         }
         let _frame = self.framed();
         let size = (self.canvas.width(), self.canvas.height());
-        let Some((panel, paint)) = self.captions.paint(size, time) else {
+        let Some((panel, paint)) = self.captions.paint_filtered(size, show_authored, real_time)
+        else {
             return;
         };
         let color = |c: [f32; 4]| Color::new(c[0], c[1], c[2], c[3]);
