@@ -29,7 +29,7 @@ impl Physics {
         }
         b.colliders().iter().any(|collider| {
             self.narrow.contact_pairs_with(*collider).any(|pair| {
-                if !pair.has_any_active_contact
+                if !pair.has_any_active_contact()
                     || self.world_sides.shadow.contains(&pair.collider1)
                     || self.world_sides.shadow.contains(&pair.collider2)
                 {
@@ -47,7 +47,7 @@ impl Physics {
                     .and_then(|h| self.bodies.get(h))
                     .is_none_or(|o| !o.is_dynamic() || o.mass() > PLAYER_PUSH_MASS_LIMIT);
                 immovable
-                    && pair.manifolds.iter().any(|m| {
+                    && pair.manifolds().iter().any(|m| {
                         let n = m.data.normal * sign;
                         !m.data.solver_contacts.is_empty()
                             && Vec3::new(n.x, n.y, n.z).dot(direction) > 0.7

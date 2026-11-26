@@ -144,8 +144,8 @@ impl Geometry {
 impl ConvexCache {
     pub(super) fn brush(&mut self, handle: ColliderHandle, collider: &Collider) -> Option<&Brush> {
         let position = collider.position();
-        let q = position.rotation.quaternion();
-        let rotation = Quat::from_xyzw(q.i, q.j, q.k, q.w);
+        let q = position.rotation;
+        let rotation = Quat::from_xyzw(q.x, q.y, q.z, q.w);
         let t = position.translation;
         let translation = Vec3::new(t.x, t.y, t.z) / SCALE;
         let replace = self

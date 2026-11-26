@@ -662,16 +662,16 @@ mod tests {
         let mut scene = Scene::new(&world);
         let mut physics = crate::physics::Physics::new(&world);
         physics.colliders.insert(
-            ColliderBuilder::cuboid(8. * S, 200. * S, 200. * S).translation(vector![
+            ColliderBuilder::cuboid(8. * S, 200. * S, 200. * S).translation(Vec3::new(
                 -8. * S,
                 0.,
                 0.
-            ]),
+            )),
         );
         let body = physics.bodies.insert(
             RigidBodyBuilder::dynamic()
-                .translation(vector![100. * S, 0., 0.])
-                .linvel(vector![-1500. * S, 0., 0.])
+                .translation(Vec3::new(100. * S, 0., 0.))
+                .linvel(Vec3::new(-1500. * S, 0., 0.))
                 .gravity_scale(0.)
                 .ccd_enabled(true),
         );

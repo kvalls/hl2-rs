@@ -1457,11 +1457,11 @@ mod tests {
     fn cube(physics: &mut Physics, center: Vec3, half: Vec3, entity: Option<usize>) {
         physics.colliders.insert(
             ColliderBuilder::cuboid(half.x / 39.37, half.y / 39.37, half.z / 39.37)
-                .translation(vector![
+                .translation(Vec3::new(
                     center.x / 39.37,
                     center.y / 39.37,
                     center.z / 39.37
-                ])
+                ))
                 .user_data(entity.map_or(0, |id| id as u128 + 1)),
         );
         physics.tick(0.015);
@@ -1623,7 +1623,7 @@ mod tests {
         let mut physics = Physics::new(&world);
         physics.colliders.insert(
             ColliderBuilder::cuboid(2000. / 39.37, 2000. / 39.37, 8. / 39.37)
-                .translation(vector![0., 0., -8. / 39.37])
+                .translation(Vec3::new(0., 0., -8. / 39.37))
                 .friction(0.8)
                 .restitution(0.2)
                 .friction_combine_rule(CoefficientCombineRule::Multiply)
@@ -2064,7 +2064,7 @@ mod tests {
         let mut physics = Physics::new(&world);
         physics.colliders.insert(
             ColliderBuilder::cuboid(2000. / 39.37, 2000. / 39.37, 8. / 39.37)
-                .translation(vector![0., 0., 56. / 39.37])
+                .translation(Vec3::new(0., 0., 56. / 39.37))
                 .friction(0.8)
                 .restitution(0.2)
                 .friction_combine_rule(CoefficientCombineRule::Multiply)

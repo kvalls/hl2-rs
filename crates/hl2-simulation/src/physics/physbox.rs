@@ -7,7 +7,7 @@ use super::{
 use modkit_core::{BrushModel, Entity, World};
 use rapier3d::parry::bounding_volume::BoundingVolume;
 use rapier3d::prelude::{
-    ActiveHooks, CoefficientCombineRule, ColliderBuilder, Isometry, Real, RigidBodyBuilder,
+    ActiveHooks, CoefficientCombineRule, ColliderBuilder, Pose, Real, RigidBodyBuilder,
     SharedShape,
 };
 
@@ -67,7 +67,7 @@ impl Physics {
         id: usize,
         e: &Entity,
         model: &BrushModel,
-        position: Isometry<Real>,
+        position: Pose,
     ) -> bool {
         let flags = e
             .get("spawnflags")
@@ -271,7 +271,7 @@ mod tests {
             .unwrap();
         let body = physics.dynamic[&id];
         assert!((physics.bodies[body].mass() - 35.188103).abs() < 0.01);
-        physics.bodies[body].set_angvel(vector![0., 0., 2.], true);
+        physics.bodies[body].set_angvel(Vec3::new(0., 0., 2.), true);
         for _ in 0..100 {
             physics.tick(1. / 66.);
         }
@@ -280,7 +280,7 @@ mod tests {
         // fractions are zero): about 1.5 s at nearly 2 rad/s.
         assert!(b.angvel().z > 1.5, "{:?}", b.angvel());
         let at = b.translation() / super::super::SCALE;
-        assert!((at - vector![-4086., -1452., 12.]).norm() < 0.5, "{at:?}");
+        assert!((at - Vec3::new(-4086., -1452., 12.)).length() < 0.5, "{at:?}");
     }
 
     #[test]

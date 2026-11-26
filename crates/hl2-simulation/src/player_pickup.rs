@@ -12,8 +12,8 @@ use glam::Vec3;
 use modkit_core::World;
 use rapier3d::prelude::*;
 
-fn vector(v: Vec3) -> Vector<Real> {
-    vector![v.x, v.y, v.z]
+fn vector(v: Vec3) -> Vec3 {
+    Vec3::new(v.x, v.y, v.z)
 }
 use std::collections::BTreeMap;
 
@@ -256,8 +256,8 @@ impl Inventory {
                 .and_then(|h| physics.bodies.get_mut(*h))
             {
                 let j = impulse * SCALE;
-                body.apply_impulse(vector![j.x, j.y, j.z], true);
-                let w = *body.angvel() + vector(spin * (std::f32::consts::PI / 180.));
+                body.apply_impulse(Vec3::new(j.x, j.y, j.z), true);
+                let w = body.angvel() + vector(spin * (std::f32::consts::PI / 180.));
                 body.set_angvel(w, true);
             }
             return;
@@ -479,11 +479,11 @@ mod tests {
         let mut scene = Scene::new(&world);
         let mut physics = Physics::new(&world);
         physics.colliders.insert(
-            ColliderBuilder::cuboid(2000. * SCALE, 2000. * SCALE, 8. * SCALE).translation(vector![
+            ColliderBuilder::cuboid(2000. * SCALE, 2000. * SCALE, 8. * SCALE).translation(Vec3::new(
                 0.,
                 0.,
                 -8. * SCALE
-            ]),
+            )),
         );
         physics.tick(0.015);
         let mut projectiles = Projectiles::default();

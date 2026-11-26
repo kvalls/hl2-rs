@@ -17,7 +17,7 @@ pub(super) fn hull_groups(class: &str) -> InteractionGroups {
             .difference(PROJECTILE_GROUP)
             .difference(SHADOW_GROUP)
     };
-    InteractionGroups::new(HULL_GROUP, stops)
+    InteractionGroups::new(HULL_GROUP, stops, InteractionTestMode::And)
 }
 
 /// Beyond the 1/32 unit trace distance and the Parry fallback's 0.001 minimum half extent.
@@ -155,8 +155,8 @@ impl Physics {
         query: Query<'_>,
     ) -> bool {
         let bounds = rapier3d::parry::bounding_volume::Aabb::new(
-            Point::from(vector(sweep.min)),
-            Point::from(vector(sweep.max)),
+            vector(sweep.min),
+            vector(sweep.max),
         );
         let mut cache = self
             .player_convex_cache
@@ -204,13 +204,7 @@ impl Physics {
         let overlap_shape = Cuboid::new(vector(
             (half - Vec3::splat(0.015625)).max(Vec3::splat(0.001)),
         ));
-        self.query.intersections_with_shape(
-            &self.bodies,
-            &self.colliders,
-            &position,
-            &overlap_shape,
-            filter,
-            |handle| {
+        self.queries(filter).intersections_with_shape(&position, &overlap_shape, |handle| {
                 let collider = &self.colliders[handle];
                 let all_solid = stationary
                     || (collider.shape().is_convex()
@@ -229,8 +223,7 @@ impl Physics {
                 };
                 merge(result, hit, entity_of(collider), false);
                 true
-            },
-        );
+            });
         if stationary || result.trace.all_solid {
             return;
         }
@@ -240,15 +233,7 @@ impl Physics {
             stop_at_penetration: false,
             compute_impact_geometry_on_penetration: true,
         };
-        if let Some((handle, hit)) = self.query.cast_shape(
-            &self.bodies,
-            &self.colliders,
-            &position,
-            &vector(end - start),
-            &shape,
-            options,
-            filter,
-        ) {
+        if let Some((handle, hit)) = self.queries(filter).cast_shape(&position, &vector(end - start), &shape, options) {
             let fraction = hit.time_of_impact.clamp(0., 1.);
             if fraction < result.trace.fraction {
                 result.trace.fraction = fraction;

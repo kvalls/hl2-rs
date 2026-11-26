@@ -719,7 +719,7 @@ mod tests {
         let wall = |physics: &mut Physics, x: f32, user: u128| {
             physics.colliders.insert(
                 ColliderBuilder::cuboid(1. / 39.37, 200. / 39.37, 200. / 39.37)
-                    .translation(vector![x / 39.37, 0., 0.])
+                    .translation(Vec3::new(x / 39.37, 0., 0.))
                     .user_data(user),
             );
         };
@@ -921,7 +921,7 @@ mod tests {
             for (x, user) in [(240., 2), (300., 0)] {
                 physics.colliders.insert(
                     ColliderBuilder::cuboid(1. / 39.37, 200. / 39.37, 200. / 39.37)
-                        .translation(vector![x / 39.37, 0., 0.])
+                        .translation(Vec3::new(x / 39.37, 0., 0.))
                         .user_data(user),
                 );
             }

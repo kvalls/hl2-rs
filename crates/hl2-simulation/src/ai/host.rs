@@ -474,7 +474,7 @@ mod tests {
         let mut physics = Physics::new(&world);
         physics.colliders.insert(
             ColliderBuilder::cuboid(16. / 39.37, 16. / 39.37, 36. / 39.37)
-                .translation(vector![50. / 39.37, 0., 0.])
+                .translation(Vec3::new(50. / 39.37, 0., 0.))
                 .user_data(1),
         );
         physics.refresh_queries();

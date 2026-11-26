@@ -11,13 +11,7 @@ impl Physics {
         let half = Vec3::new(16., 16., maxs_z * 0.5) - Vec3::splat(0.015625);
         let position = pose(feet + Vec3::Z * maxs_z * 0.5, Quat::IDENTITY);
         let mut found = Vec::new();
-        self.query.intersections_with_shape(
-            &self.bodies,
-            &self.colliders,
-            &position,
-            &Cuboid::new(vector(half)),
-            groups_filter(PLAYER_GROUPS),
-            |handle| {
+        self.queries(groups_filter(PLAYER_GROUPS)).intersections_with_shape(&position, &Cuboid::new(vector(half)), |handle| {
                 let c = &self.colliders[handle];
                 // Penetration depth (units) and normal from the hull into the collider.
                 let (depth, normal) = rapier3d::parry::query::contact(
@@ -44,8 +38,7 @@ impl Physics {
                     normal,
                 ));
                 true
-            },
-        );
+            });
         found
     }
 }

@@ -38,7 +38,7 @@ pub(crate) fn center(physics: &Physics, id: usize) -> Option<Vec3> {
 fn rotation(physics: &Physics, id: usize) -> Option<Quat> {
     let body = physics.bodies.get(*physics.dynamic.get(&id)?)?;
     let q = body.rotation();
-    Some(Quat::from_xyzw(q.i, q.j, q.k, q.w))
+    Some(Quat::from_xyzw(q.x, q.y, q.z, q.w))
 }
 /// Half extents of the body's colliders (world AABB), in inches.
 pub(crate) fn half_extents(physics: &Physics, id: usize) -> Vec3 {
@@ -206,7 +206,7 @@ impl GrabController {
             let ratio = (1. / props.inv_mass) / REDUCED_CARRY_MASS;
             let mut reduced = props;
             reduced.inv_mass = 1. / REDUCED_CARRY_MASS;
-            reduced.inv_principal_inertia_sqrt *= ratio.sqrt();
+            reduced.inv_principal_inertia.powf(0.5) *= ratio.sqrt();
             body.set_additional_mass_properties(reduced, true);
         }
         let mut relative = eye_rotation(forward, ignore_pitch).inverse() * current;
@@ -255,18 +255,18 @@ impl GrabController {
         body.set_gravity_scale(self.saved_gravity, true);
         body.set_angular_damping(self.saved_rot_damping);
         if clear {
-            body.set_linvel(vector![0., 0., 0.], true);
-            body.set_angvel(vector![0., 0., 0.], true);
+            body.set_linvel(Vec3::new(0., 0., 0.), true);
+            body.set_angvel(Vec3::new(0., 0., 0.), true);
             return;
         }
-        let v = *body.linvel() / SCALE;
+        let v = body.linvel() / SCALE;
         let limit = NORM_SPEED * 1.5;
-        if v.norm() > limit {
+        if v.length() > limit {
             body.set_linvel(v.normalize() * limit * SCALE, true);
         }
-        let w = *body.angvel();
+        let w = body.angvel();
         let limit = 720f32.to_radians();
-        if w.norm() > limit {
+        if w.length() > limit {
             body.set_angvel(w.normalize() * limit, true);
         }
     }
@@ -307,8 +307,8 @@ impl GrabController {
         let w = (axis * angle / dt).clamp_length_max(HOLD_MAX_ANGULAR.to_radians());
         if let Some(body) = physics.bodies.get_mut(physics.dynamic[&id]) {
             let v = v * SCALE;
-            body.set_linvel(vector![v.x, v.y, v.z], true);
-            body.set_angvel(vector![w.x, w.y, w.z], true);
+            body.set_linvel(Vec3::new(v.x, v.y, v.z), true);
+            body.set_angvel(Vec3::new(w.x, w.y, w.z), true);
         }
         true
     }

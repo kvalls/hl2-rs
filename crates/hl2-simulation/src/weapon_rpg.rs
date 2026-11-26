@@ -766,7 +766,7 @@ mod tests {
         for (x, user) in [(20., 0u128), (400., 0)] {
             physics.colliders.insert(
                 ColliderBuilder::cuboid(1. / 39.37, 200. / 39.37, 200. / 39.37)
-                    .translation(vector![x / 39.37, 0., 0.])
+                    .translation(Vec3::new(x / 39.37, 0., 0.))
                     .user_data(user),
             );
         }

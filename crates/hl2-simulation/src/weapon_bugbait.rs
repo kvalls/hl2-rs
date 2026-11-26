@@ -399,11 +399,11 @@ mod tests {
         let mut scene = Scene::new(&world);
         let mut physics = Physics::new(&world);
         physics.colliders.insert(
-            ColliderBuilder::cuboid(1. / 39.37, 200. / 39.37, 200. / 39.37).translation(vector![
+            ColliderBuilder::cuboid(1. / 39.37, 200. / 39.37, 200. / 39.37).translation(Vec3::new(
                 300. / 39.37,
                 0.,
                 0.
-            ]),
+            )),
         );
         physics.tick(0.015);
         let mut projectiles = Projectiles::default();

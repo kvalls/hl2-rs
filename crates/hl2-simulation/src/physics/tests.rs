@@ -374,8 +374,8 @@ fn npc_hull_box_carries_the_player_while_traces_hit_the_model_shape() {
     // (impact damage input) and the box stops at the hull face.
     let body = physics.bodies.insert(
         RigidBodyBuilder::dynamic()
-            .translation(vector![160. * SCALE, 0., 40. * SCALE])
-            .linvel(vector![-600. * SCALE, 0., 0.])
+            .translation(Vec3::new(160. * SCALE, 0., 40. * SCALE))
+            .linvel(Vec3::new(-600. * SCALE, 0., 0.))
             .gravity_scale(0.)
             .additional_mass(5.),
     );
@@ -398,7 +398,7 @@ fn npc_hull_box_carries_the_player_while_traces_hit_the_model_shape() {
     // across the model column's face touches only the hull.
     let inside = physics.bodies.insert(
         RigidBodyBuilder::dynamic()
-            .translation(vector![4. * SCALE, 0., 30. * SCALE])
+            .translation(Vec3::new(4. * SCALE, 0., 30. * SCALE))
             .gravity_scale(0.),
     );
     physics.colliders.insert_with_parent(
@@ -410,7 +410,7 @@ fn npc_hull_box_carries_the_player_while_traces_hit_the_model_shape() {
     assert!(physics.narrow.contact_pairs().all(|pair| {
         !physics.npc_hitboxes.contains(&pair.collider1)
             && !physics.npc_hitboxes.contains(&pair.collider2)
-            || !pair.has_any_active_contact
+            || !pair.has_any_active_contact()
     }));
     physics.remove_body(inside);
     let x = physics.bodies[body].translation().x / SCALE;
@@ -601,9 +601,9 @@ fn dropped_weapons_let_players_and_npcs_through_but_not_traces() {
     for blocked in [PLAYER_GROUPS, DEBRIS_GROUPS] {
         assert!(!groups.test(blocked));
     }
-    assert!(!groups.test(InteractionGroups::new(HULL_GROUP, Group::ALL)));
-    assert!(!groups.test(InteractionGroups::new(SHADOW_GROUP, Group::ALL)));
-    assert!(groups.test(InteractionGroups::new(Group::GROUP_1, Group::ALL)));
+    assert!(!groups.test(InteractionGroups::new(HULL_GROUP, Group::ALL, InteractionTestMode::And)));
+    assert!(!groups.test(InteractionGroups::new(SHADOW_GROUP, Group::ALL, InteractionTestMode::And)));
+    assert!(groups.test(InteractionGroups::new(Group::GROUP_1, Group::ALL, InteractionTestMode::And)));
     // Bullets and the gravity gun still find it.
     let shot = physics.ray(Vec3::new(0., 200., 40.), Vec3::X, 200.);
     assert!(shot.is_some());
@@ -671,13 +671,10 @@ fn picked_up_debris_hits_npcs_until_it_sleeps() {
         ],
     });
     let mut physics = Physics::new(&world);
-    let hull = InteractionGroups::new(
-        HULL_GROUP,
-        Group::ALL
+    let hull = InteractionGroups::new(HULL_GROUP, Group::ALL
             .difference(PROJECTILE_GROUP)
             .difference(SHADOW_GROUP)
-            .difference(RAGDOLL_GROUP),
-    );
+            .difference(RAGDOLL_GROUP), InteractionTestMode::And);
     let groups = |physics: &Physics| {
         let body = &physics.bodies[physics.dynamic[&0]];
         physics.colliders[body.colliders()[0]].collision_groups()
@@ -720,9 +717,9 @@ fn hinged_prop_keeps_its_pivot_while_ropes_stay_off() {
     );
     let pivot = physics.bodies[body]
         .position()
-        .inverse_transform_point(&Point::from(vector(Vec3::new(100., 200., 60.))));
+        .inverse_transform_point(&vector(Vec3::new(100., 200., 60.)));
     // A push off the hinge axis: it swings about it instead of falling.
-    physics.bodies[body].set_linvel(vector![2., 0., 0.], true);
+    physics.bodies[body].set_linvel(Vec3::new(2., 0., 0.), true);
     for _ in 0..200 {
         physics.tick(TICK);
     }
@@ -813,7 +810,7 @@ fn authored_vphysics_props_use_phy_mass_pieces_damping_and_surface_material() {
     assert!((body.mass() - 70.).abs() < 1e-3);
     let scaled_inertia = body.mass_properties().local_mprops.principal_inertia();
     // 2x mass and a 0.5 / 2 inertia multiplier: half the tensor.
-    assert!((scaled_inertia - inertia * 0.5).norm() < inertia.norm() * 1e-3);
+    assert!((scaled_inertia - inertia * 0.5).length() < inertia.length() * 1e-3);
 }
 #[test]
 fn world_brush_sides_use_their_own_surfaceprop() {
@@ -1057,11 +1054,11 @@ fn moving_overlap_reports_start_solid_and_allows_an_exit() {
     let maxs = Vec3::new(1., 1., 2.);
     let mut rapier = Physics::default();
     rapier.colliders.insert(
-        ColliderBuilder::cuboid(5. * SCALE, 8. * SCALE, 50. * SCALE).translation(vector![
+        ColliderBuilder::cuboid(5. * SCALE, 8. * SCALE, 50. * SCALE).translation(Vec3::new(
             15. * SCALE,
             0.,
             50. * SCALE
-        ]),
+        )),
     );
     rapier.query.update(&rapier.colliders);
     for physics in [Physics::new(&clip_box(1)), rapier] {
@@ -1083,7 +1080,7 @@ fn convex_box(min: Vec3, max: Vec3, polyhedron: bool) -> ColliderBuilder {
         for x in [-half.x, half.x] {
             for y in [-half.y, half.y] {
                 for z in [-half.z, half.z] {
-                    vertices.push(Point::from(vector(Vec3::new(x, y, z))));
+                    vertices.push(vector(Vec3::new(x, y, z)));
                 }
             }
         }
@@ -1307,11 +1304,11 @@ fn physics_objects_pass_clip_only_brushes_but_rest_on_solid_ones() {
         let mut physics = Physics::new(&clip_box(contents));
         let body = physics
             .bodies
-            .insert(RigidBodyBuilder::dynamic().translation(vector![
+            .insert(RigidBodyBuilder::dynamic().translation(Vec3::new(
                 15. * SCALE,
                 0.,
                 110. * SCALE
-            ]));
+            )));
         physics.colliders.insert_with_parent(
             ColliderBuilder::ball(4. * SCALE).density(100.),
             body,
@@ -1345,7 +1342,7 @@ fn melee_box_sweep_reaches_a_nearby_offset_target_but_not_outside_its_width() {
     let mut physics = Physics::default();
     physics.colliders.insert(
         ColliderBuilder::cuboid(5. * SCALE, 5. * SCALE, 5. * SCALE)
-            .translation(vector![40. * SCALE, 20. * SCALE, 0.])
+            .translation(Vec3::new(40. * SCALE, 20. * SCALE, 0.))
             .user_data(1),
     );
     physics.query.update(&physics.colliders);
@@ -1370,7 +1367,7 @@ fn melee_box_sweep_reaches_a_nearby_offset_target_but_not_outside_its_width() {
 fn touching_floor_allows_standing_but_penetration_does_not() {
     let mut p = Physics::default();
     p.colliders
-        .insert(ColliderBuilder::cuboid(10., 10., 1.).translation(vector![0., 0., -1.]));
+        .insert(ColliderBuilder::cuboid(10., 10., 1.).translation(Vec3::new(0., 0., -1.)));
     p.query.update(&p.colliders);
     let mins = Vec3::new(-16., -16., 0.);
     let maxs = Vec3::new(16., 16., 72.);
@@ -1747,12 +1744,12 @@ fn shadow_scene(mass: f32, gravity: bool, z: f32) -> (Physics, RigidBodyHandle) 
     let mut physics = Physics::new(&World::default());
     physics.colliders.insert(
         ColliderBuilder::cuboid(2000. / 39.37, 2000. / 39.37, 8. / 39.37)
-            .translation(vector![0., 0., -8. / 39.37])
+            .translation(Vec3::new(0., 0., -8. / 39.37))
             .friction(0.8),
     );
     let body = physics.bodies.insert(
         RigidBodyBuilder::dynamic()
-            .translation(vector![40. / 39.37, 0., z / 39.37])
+            .translation(Vec3::new(40. / 39.37, 0., z / 39.37))
             .gravity_scale(if gravity { 1. } else { 0. })
             .additional_mass(mass),
     );
@@ -1771,16 +1768,16 @@ fn stacked_props_keep_one_margin_like_a_prop_on_the_floor() {
     // Two 16-unit boxes with the prop skin dropped onto a floor plate (synthetic).
     let mut physics = Physics::new(&World::default());
     physics.colliders.insert(
-        ColliderBuilder::cuboid(2000. * SCALE, 2000. * SCALE, 8. * SCALE).translation(vector![
+        ColliderBuilder::cuboid(2000. * SCALE, 2000. * SCALE, 8. * SCALE).translation(Vec3::new(
             0.,
             0.,
             -8. * SCALE
-        ]),
+        )),
     );
     let boxes = [9., 26.].map(|z| {
         let body = physics
             .bodies
-            .insert(RigidBodyBuilder::dynamic().translation(vector![0., 0., z * SCALE]));
+            .insert(RigidBodyBuilder::dynamic().translation(Vec3::new(0., 0., z * SCALE)));
         physics.colliders.insert_with_parent(
             ColliderBuilder::cuboid(8. * SCALE, 8. * SCALE, 8. * SCALE)
                 .contact_skin(VPHYSICS_CONTACT_MARGIN * SCALE)

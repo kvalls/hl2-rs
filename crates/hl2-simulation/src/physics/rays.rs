@@ -41,17 +41,10 @@ impl Physics {
         predicate: &dyn Fn(ColliderHandle, &Collider) -> bool,
     ) -> Option<RayHit> {
         let ray = Ray::new(
-            Point::from(vector(origin)),
-            vector![direction.x, direction.y, direction.z],
+            vector(origin),
+            Vec3::new(direction.x, direction.y, direction.z),
         );
-        let (h, hit) = self.query.cast_ray_and_get_normal(
-            &self.bodies,
-            &self.colliders,
-            &ray,
-            distance * SCALE,
-            true,
-            groups_filter(QUERY_GROUPS).predicate(&predicate),
-        )?;
+        let (h, hit) = self.queries(groups_filter(QUERY_GROUPS).predicate(&predicate)).cast_ray_and_get_normal(&ray, distance * SCALE, true)?;
         let id = self.colliders[h].user_data as usize;
         Some(RayHit {
             entity: id.wrapping_sub(1),
@@ -121,17 +114,10 @@ impl Physics {
                             .is_some_and(|contents| contents & MASK_PLAYERSOLID != 0))
         };
         let ray = Ray::new(
-            Point::from(vector(origin)),
-            vector![direction.x, direction.y, direction.z],
+            vector(origin),
+            Vec3::new(direction.x, direction.y, direction.z),
         );
-        let (h, hit) = self.query.cast_ray_and_get_normal(
-            &self.bodies,
-            &self.colliders,
-            &ray,
-            distance * SCALE,
-            true,
-            groups_filter(groups).predicate(&predicate),
-        )?;
+        let (h, hit) = self.queries(groups_filter(groups).predicate(&predicate)).cast_ray_and_get_normal(&ray, distance * SCALE, true)?;
         let id = self.colliders[h].user_data as usize;
         Some(RayHit {
             entity: id.wrapping_sub(1),
@@ -175,20 +161,13 @@ impl Physics {
                     .get(&handle)
                     .is_none_or(|contents| contents & mask != 0)
         };
-        let (handle, hit) = self.query.cast_ray_and_get_normal(
-            &self.bodies,
-            &self.colliders,
-            &Ray::new(
-                Point::from(vector(start)),
-                vector![direction.x, direction.y, direction.z],
-            ),
-            length * SCALE,
-            true,
-            QueryFilter::default()
+        let (handle, hit) = self.queries(QueryFilter::default()
                 .groups(QUERY_GROUPS)
                 .exclude_sensors()
-                .predicate(&predicate),
-        )?;
+                .predicate(&predicate)).cast_ray_and_get_normal(&Ray::new(
+                vector(start),
+                Vec3::new(direction.x, direction.y, direction.z),
+            ), length * SCALE, true)?;
         Some(RayHit {
             entity: (self.colliders[handle].user_data as usize).wrapping_sub(1),
             position: start + direction * (hit.time_of_impact / SCALE),
@@ -212,20 +191,13 @@ impl Physics {
                 .get(&handle)
                 .is_some_and(|contents| contents & MASK_SOLID_BRUSHONLY != 0)
         };
-        let (_, toi) = self.query.cast_ray(
-            &self.bodies,
-            &self.colliders,
-            &Ray::new(
-                Point::from(vector(start)),
-                nalgebra::vector![direction.x, direction.y, direction.z],
-            ),
-            length * SCALE,
-            true,
-            QueryFilter::default()
+        let (_, toi) = self.queries(QueryFilter::default()
                 .groups(QUERY_GROUPS)
                 .exclude_sensors()
-                .predicate(&predicate),
-        )?;
+                .predicate(&predicate)).cast_ray(&Ray::new(
+                vector(start),
+                nalgebra::Vec3::new(direction.x, direction.y, direction.z),
+            ), length * SCALE, true)?;
         Some(start + direction * (toi / SCALE))
     }
     /// The `.phy` surfaceprop of the static prop a trace hit (`World::model_surfaceprops`):
@@ -235,20 +207,14 @@ impl Physics {
         if hit.entity != usize::MAX {
             return None;
         }
-        let point = Point::from(vector(hit.position - hit.normal * 0.25));
+        let point = vector(hit.position - hit.normal * 0.25);
         let predicate = |handle: ColliderHandle, collider: &Collider| {
             collider.user_data == 0 && self.collider_materials.contains_key(&handle)
         };
-        let (handle, projection) = self.query.project_point(
-            &self.bodies,
-            &self.colliders,
-            &point,
-            true,
-            QueryFilter::default()
+        let (handle, projection) = self.queries(QueryFilter::default()
                 .exclude_sensors()
-                .predicate(&predicate),
-        )?;
-        let gap = (projection.point - point).norm() / SCALE;
+                .predicate(&predicate)).project_point(&point, true)?;
+        let gap = (projection.point - point).length() / SCALE;
         (projection.is_inside || gap < 0.5).then(|| self.collider_materials[&handle].as_str())
     }
 }

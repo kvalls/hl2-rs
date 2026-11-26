@@ -414,7 +414,7 @@ impl Inventory {
                 let pull = npc::pull_speed(eye - c, mass) * mass;
                 if let Some(body) = physics.bodies.get_mut(physics.dynamic[&id]) {
                     let j = pull * SCALE;
-                    body.apply_impulse(vector![j.x, j.y, j.z], true);
+                    body.apply_impulse(Vec3::new(j.x, j.y, j.z), true);
                 }
             }
             self.physcannon.next_secondary = time + 0.1;
@@ -560,10 +560,10 @@ impl Inventory {
             scene.prop_physgun_pickup(world, id, crate::entities::PhysGunPickup::Punt);
             if let Some(body) = physics.bodies.get_mut(handle) {
                 let j = dv * mass * SCALE;
-                body.apply_impulse(vector![j.x, j.y, j.z], true);
+                body.apply_impulse(Vec3::new(j.x, j.y, j.z), true);
                 let k = offset * SCALE;
                 let p = hit.position * SCALE;
-                body.apply_impulse_at_point(vector![k.x, k.y, k.z], point![p.x, p.y, p.z], true);
+                body.apply_impulse_at_point(Vec3::new(k.x, k.y, k.z), Vec3::new(p.x, p.y, p.z), true);
             }
             self.punt_recoil();
         } else if let Some(npc) = npc::listed(scene, id) {
@@ -694,11 +694,11 @@ impl Inventory {
             // Pickup_PhysGunLaunchAngularImpulse = RandomAngularImpulse(-600, 600)
             // in the object's local axes, deg/s).
             let v = forward * launch_speed(mass) * SCALE;
-            body.set_linvel(*body.linvel() + vector![v.x, v.y, v.z], true);
+            body.set_linvel(body.linvel() + Vec3::new(v.x, v.y, v.z), true);
             let q = body.rotation();
-            let rotation = glam::Quat::from_xyzw(q.i, q.j, q.k, q.w);
+            let rotation = glam::Quat::from_xyzw(q.x, q.y, q.z, q.w);
             let w = rotation * (spin * (std::f32::consts::PI / 180.));
-            body.set_angvel(*body.angvel() + vector![w.x, w.y, w.z], true);
+            body.set_angvel(body.angvel() + Vec3::new(w.x, w.y, w.z), true);
         }
         physics.launched.insert(id);
         if spin_z {
@@ -777,7 +777,7 @@ mod tests {
         let body = physics.bodies.insert(
             RigidBodyBuilder::dynamic()
                 .gravity_scale(0.)
-                .translation(vector![at.x * SCALE, at.y * SCALE, at.z * SCALE]),
+                .translation(Vec3::new(at.x * SCALE, at.y * SCALE, at.z * SCALE)),
         );
         let (bodies, colliders) = (&mut physics.bodies, &mut physics.colliders);
         colliders.insert_with_parent(
@@ -928,7 +928,7 @@ mod tests {
         let v = body.linvel().x / SCALE;
         assert!((v - 1500.).abs() < 20., "{v}");
         // The random launch spin: up to 600 deg/s per local axis.
-        let w = body.angvel().norm().to_degrees();
+        let w = body.angvel().length().to_degrees();
         assert!(w > 1. && w <= 600. * 3f32.sqrt() + 1., "{w}");
         // The launch winds the motor down (volume 0, pitch 50 over 1 s).
         assert!(scene.sounds.iter().any(|s| s.name == MOTOR_SOUND
