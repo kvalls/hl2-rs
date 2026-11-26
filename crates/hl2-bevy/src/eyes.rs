@@ -75,7 +75,7 @@ pub struct Eyes {
     /// Slots of eye meshes that are gone, to give out again.
     free: Vec<u32>,
     rows: Vec<Vec4>,
-    dirty: bool,
+    dirty: Option<(usize, usize)>,
 }
 impl Eyes {
     pub fn new(loaded: &LoadedMap) -> Self {
@@ -126,11 +126,21 @@ impl Eyes {
         let at = slot as usize * 2;
         if self.rows.is_empty() {
             self.rows.resize(2 * EYE_SLOTS, Vec4::ZERO);
+            // The asset outlives the map. Clear its previous slots on this map's first upload.
+            self.dirty = Some((0, self.rows.len()));
         }
         let target = &mut self.rows[at..at + 2];
         if target != rows {
             target.copy_from_slice(&rows);
-            self.dirty = true;
+            crate::material_slots::mark_dirty(&mut self.dirty, at, at + 2);
+        }
+    }
+    fn upload_rows(&mut self, buffers: &mut Assets<ShaderBuffer>) {
+        if let Some((lo, hi)) = self.dirty
+            && let Some(mut buffer) = buffers.get_mut(&EYE_ROWS)
+        {
+            crate::material_slots::write_rows_range(&mut buffer, &self.rows, lo..hi);
+            self.dirty = None;
         }
     }
     /// A runtime spawn of a template's model (DESIGN 14r part A) tracks like it.
@@ -626,12 +636,7 @@ pub fn present(
             eyes.draws += 1;
         }
     }
-    if eyes.dirty
-        && let Some(mut buffer) = buffers.get_mut(&EYE_ROWS)
-    {
-        crate::material_slots::write_rows(&mut buffer, &eyes.rows);
-        eyes.dirty = false;
-    }
+    eyes.upload_rows(&mut buffers);
 }
 
 /// World-space iris rows from `rows`, which take a skinned model-space point (Source units,
@@ -741,6 +746,38 @@ pub fn attention_pvs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dirty_iris_rows_match_a_full_upload_and_survive_a_missing_buffer() {
+        let mut eyes = Eyes::default();
+        let mut buffers = Assets::<ShaderBuffer>::default();
+        let first = [Vec4::splat(2.0), Vec4::splat(3.0)];
+        let last = [Vec4::splat(4.0), Vec4::splat(5.0)];
+        eyes.set_rows(0, [Vec4::ONE; 2]);
+        eyes.upload_rows(&mut buffers);
+        assert_eq!(eyes.dirty, Some((0, EYE_SLOTS * 2)));
+
+        let mut buffer = ShaderBuffer::default();
+        buffer.set_data(vec![Vec4::ONE; EYE_SLOTS * 2]);
+        buffers.insert(EYE_ROWS.id(), buffer).unwrap();
+        eyes.upload_rows(&mut buffers);
+        assert_eq!(eyes.dirty, None);
+
+        eyes.set_rows(3, first);
+        eyes.set_rows(7, last);
+        assert_eq!(eyes.dirty, Some((6, 16)));
+        eyes.upload_rows(&mut buffers);
+
+        eyes.set_rows(3, first);
+        assert_eq!(eyes.dirty, None);
+        eyes.set_rows(7, [Vec4::ZERO; 2]);
+        assert_eq!(eyes.dirty, Some((14, 16)));
+        eyes.upload_rows(&mut buffers);
+
+        let mut expected = ShaderBuffer::default();
+        expected.set_data(eyes.rows.clone());
+        assert_eq!(buffers.get(&EYE_ROWS).unwrap().data, expected.data);
+    }
 
     #[test]
     fn world_rows_project_the_rendered_position_like_the_model_point() {

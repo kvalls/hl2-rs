@@ -159,7 +159,7 @@ impl MaterialSlots {
     }
 }
 
-fn mark_dirty(range: &mut Option<(usize, usize)>, start: usize, end: usize) {
+pub(crate) fn mark_dirty(range: &mut Option<(usize, usize)>, start: usize, end: usize) {
     *range = Some(match *range {
         Some((lo, hi)) => (lo.min(start), hi.max(end)),
         None => (start, end),
@@ -215,11 +215,6 @@ pub(crate) fn write_rows_range(
             *chunk = value.to_le_bytes();
         }
     }
-}
-
-/// Writes `rows` into `buffer.data`, reusing the existing byte buffer allocation when present.
-pub(crate) fn write_rows(buffer: &mut ShaderBuffer, rows: &[Vec4]) {
-    write_rows_range(buffer, rows, 0..rows.len());
 }
 
 /// Uploads the changed row ranges when a slot changed this frame; frees removed materials and draws.
@@ -357,7 +352,7 @@ mod tests {
             Vec4::new(5., 6., 7., 8.),
             Vec4::new(-1.5, 0.25, 42., -0.),
         ];
-        super::write_rows(&mut buffer, &rows);
+        super::write_rows_range(&mut buffer, &rows, 0..rows.len());
         let mut expected = Vec::new();
         StorageBuffer::new(&mut expected).write(&rows).unwrap();
         assert_eq!(buffer.data.as_deref(), Some(expected.as_slice()));

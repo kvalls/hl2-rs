@@ -161,7 +161,7 @@
    172
   ],
   "crates/hl2-bevy/src/eyes.rs::present": [
-   119
+   114
   ],
   "crates/hl2-bevy/src/input.rs::controls": [
    103
@@ -358,7 +358,7 @@
  },
  "min_tests": {
   "hl2-advanced-options": 52,
-  "hl2-bevy": 283,
+  "hl2-bevy": 284,
   "hl2-debug": 55,
   "hl2-simulation": 913,
   "hl2-ui": 340,
