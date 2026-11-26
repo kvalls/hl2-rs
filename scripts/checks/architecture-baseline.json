@@ -135,7 +135,6 @@
   "fed629d3999b"
  ],
  "files": {
-  "crates/hl2-bevy/src/video.rs": 1006,
   "crates/hl2-simulation/src/ai/default_schedules.rs": 1247,
   "crates/hl2-simulation/src/ai/runtime.rs": 2345,
   "crates/hl2-simulation/src/entities/choreography.rs": 1221,
@@ -355,7 +354,7 @@
  },
  "min_tests": {
   "hl2-advanced-options": 52,
-  "hl2-bevy": 287,
+  "hl2-bevy": 289,
   "hl2-debug": 55,
   "hl2-simulation": 913,
   "hl2-ui": 340,

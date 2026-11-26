@@ -4,7 +4,11 @@ use crate::{
     source_to_bevy,
 };
 use bevy::{
-    camera::{RenderTarget, visibility::RenderLayers},
+    camera::{
+        RenderTarget,
+        primitives::{Aabb, Frustum},
+        visibility::RenderLayers,
+    },
     core_pipeline::tonemapping::Tonemapping,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     prelude::*,
@@ -121,11 +125,14 @@ pub fn present(
     game: Res<Gameplay>,
     sim: Res<Simulation>,
     sky: Res<Sky>,
+    fly_frustum: Query<&Frustum, With<crate::FlyCamera>>,
     mut cameras: Query<(&mut Camera, &mut Projection, &mut Transform), With<MonitorCamera>>,
 ) {
     let Ok((mut camera, mut projection, mut transform)) = cameras.single_mut() else {
         return;
     };
+    let frustum = fly_frustum.single().ok();
+    let eye = glam::Vec3::from_array(sim.view_origin().to_array());
     let active = game.scene.monitors.eligible(&game.scene.states, |id| {
         let Some(state) = game.scene.states.get(id) else {
             return Ok(false);
@@ -136,7 +143,7 @@ pub fn present(
             .and_then(|m| m.strip_prefix('*'))
             .and_then(|m| m.parse::<usize>().ok())
             .and_then(|id| game.world.brush_models.iter().find(|b| b.id == id));
-        let (mins, maxs) = brush.map_or((state.origin, state.origin), |b| {
+        let bounds = brush.map_or((state.origin, state.origin), |b| {
             let center = state.origin + state.rotation * ((b.mins + b.maxs) * 0.5);
             let extent = (b.maxs - b.mins) * 0.5;
             let r = glam::Mat3::from_quat(state.rotation);
@@ -144,11 +151,7 @@ pub fn present(
                 r.x_axis.abs() * extent.x + r.y_axis.abs() * extent.y + r.z_axis.abs() * extent.z;
             (center - extent, center + extent)
         });
-        sky.bounds_in_pvs(
-            glam::Vec3::from_array(sim.view_origin().to_array()),
-            mins,
-            maxs,
-        )
+        monitor_in_view(&sky, eye, frustum, bounds)
     });
     match active {
         Ok(active) => {
@@ -199,6 +202,25 @@ pub fn present(
         }
         monitors.frames += 1;
     }
+}
+
+fn monitor_in_view(
+    sky: &Sky,
+    eye: glam::Vec3,
+    frustum: Option<&Frustum>,
+    (mins, maxs): (glam::Vec3, glam::Vec3),
+) -> anyhow::Result<bool> {
+    if !sky.bounds_in_pvs(eye, mins, maxs)? {
+        return Ok(false);
+    }
+    Ok(frustum.is_none_or(|f| mins == maxs || monitor_bounds_in_frustum(f, mins, maxs)))
+}
+
+fn monitor_bounds_in_frustum(frustum: &Frustum, mins: glam::Vec3, maxs: glam::Vec3) -> bool {
+    let bmin = Vec3::new(mins.x, mins.z, -maxs.y);
+    let bmax = Vec3::new(maxs.x, maxs.z, -mins.y);
+    let aabb = Aabb::from_min_max(bmin, bmax);
+    frustum.intersects_obb(&aabb, &bevy::math::Affine3A::IDENTITY, true, false)
 }
 
 #[derive(Component)]
@@ -288,5 +310,32 @@ mod tests {
         assert_eq!(m(0.96), 1.);
         assert_eq!(m(-1.), 0.);
         assert!((m(0.4) - (102f32 / 255.).powf(2.2)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn monitor_frustum_culling_accepts_front_and_rejects_behind() {
+        use bevy::camera::CameraProjection;
+        use bevy::prelude::{GlobalTransform, PerspectiveProjection, Transform, Vec3};
+        let proj = PerspectiveProjection {
+            fov: 75f32.to_radians(),
+            aspect_ratio: 16. / 9.,
+            near: 1.,
+            far: 4096.,
+            ..bevy::prelude::default()
+        };
+        let view = GlobalTransform::from(
+            Transform::from_translation(Vec3::ZERO).looking_to(Vec3::X, Vec3::Y),
+        );
+        let frustum = proj.compute_frustum(&view);
+        assert!(super::monitor_bounds_in_frustum(
+            &frustum,
+            glam::Vec3::new(100., -32., -32.),
+            glam::Vec3::new(140., 32., 32.),
+        ));
+        assert!(!super::monitor_bounds_in_frustum(
+            &frustum,
+            glam::Vec3::new(-200., -32., -32.),
+            glam::Vec3::new(-100., 32., 32.),
+        ));
     }
 }

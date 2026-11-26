@@ -27,10 +27,12 @@ pub(crate) use fov::vertical_fov_4_3;
 pub(crate) use fov::{vertical_fov_for, vertical_fov_with};
 mod msaa;
 mod outputs;
+pub(crate) mod present_pass;
 pub(crate) use msaa::sync_antialiasing;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
 pub(crate) use outputs::{FrameCameras, OwnTarget, apply_video_settings, skip_covered_outputs};
 pub use outputs::{HudCamera, frame_image};
+pub use present_pass::PresentMaterial;
 pub mod mode {
     use super::*;
     use hl2_ui::config::DisplayMode;
@@ -182,25 +184,9 @@ pub const NEUTRAL_MONITOR_GAMMA: f32 = 2.2;
 /// The Options slider runs from 1.6 ("Light") to 2.6 ("Dark") in the installed
 /// `OptionsSubVideoGammaDlg.res`, so lower values brighten. Retail sets a hardware gamma ramp,
 /// which only works in full screen; the presentation shader applies it in every display mode.
+/// `gamma / 2.2` exponent for `PresentMaterial`'s monitor gamma ramp.
 pub fn monitor_gamma_exponent(gamma: f32) -> f32 {
     gamma.clamp(1.6, 2.6) / NEUTRAL_MONITOR_GAMMA
-}
-
-/// Draws the game frame (3D view, HUD and menus) in the window through the monitor gamma ramp.
-#[derive(Asset, TypePath, bevy::render::render_resource::AsBindGroup, Debug, Clone)]
-pub struct PresentMaterial {
-    /// x: [`monitor_gamma_exponent`].
-    #[uniform(0)]
-    pub params: Vec4,
-    #[texture(1)]
-    #[sampler(2)]
-    pub frame: Handle<Image>,
-}
-
-impl bevy::sprite_render::Material2d for PresentMaterial {
-    fn fragment_shader() -> bevy::shader::ShaderRef {
-        "shaders/present.wgsl".into()
-    }
 }
 
 /// A game-frame camera stopped during a frame resize, with its `is_active` before.
@@ -240,6 +226,7 @@ pub(crate) fn install_frame(
     commands.spawn((
         PresentCamera,
         Camera2d,
+        bevy::render::camera::CameraRenderGraph::new(present_pass::Present2d),
         Camera {
             order: PRESENT_ORDER,
             clear_color: ClearColorConfig::Custom(Color::BLACK),

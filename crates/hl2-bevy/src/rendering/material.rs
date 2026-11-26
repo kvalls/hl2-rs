@@ -345,12 +345,18 @@ pub(crate) fn fallback_images(
 pub struct MaterialKey {
     two_sided: bool,
     may_discard: bool,
+    model_lit: bool,
+    envmap: bool,
 }
 impl From<&SourceMaterial> for MaterialKey {
     fn from(material: &SourceMaterial) -> Self {
         Self {
             two_sided: material.two_sided,
             may_discard: !matches!(material.alpha, AlphaMode::Opaque) || material.parameters.x > 0.,
+            model_lit: material.lighting.params.x > 0.5
+                || material.dynamic.z >= 0.
+                || (material.parameters.w > 0.5 && material.parameters.w < 1.5),
+            envmap: material.envmap_tint.w > 0.5,
         }
     }
 }
@@ -379,10 +385,16 @@ impl bevy::pbr::Material for SourceMaterial {
             key.bind_group_data.two_sided,
             key.mesh_key,
         );
-        if key.bind_group_data.may_discard
-            && let Some(fragment) = &mut descriptor.fragment
-        {
-            fragment.shader_defs.push("SOURCE_MAY_DISCARD".into());
+        if let Some(fragment) = &mut descriptor.fragment {
+            if key.bind_group_data.may_discard {
+                fragment.shader_defs.push("SOURCE_MAY_DISCARD".into());
+            }
+            if key.bind_group_data.model_lit {
+                fragment.shader_defs.push("SOURCE_MODEL_LIT".into());
+            }
+            if key.bind_group_data.envmap {
+                fragment.shader_defs.push("SOURCE_ENVMAP".into());
+            }
         }
         Ok(())
     }
@@ -842,5 +854,51 @@ mod tests {
         let cube_img = cube_image_filtered(&cube, hl2_ui::config::Filtering::Trilinear);
         assert_eq!(cube_img.texture_descriptor.mip_level_count, 2);
         assert_eq!(cube_img.data, Some(cube.layers()));
+    }
+
+    #[test]
+    fn material_key_specializes_model_lit_and_envmap_independently() {
+        let mut images = Assets::<Image>::default();
+        let white = images.add(image(1, 1, vec![255; 4], false));
+        let (cube, cookie) = (Handle::default(), Handle::default());
+
+        let world = make_material(
+            &MaterialData::default(),
+            white.clone(),
+            white.clone(),
+            None,
+            (&white, &cube, &cookie),
+        );
+        let world_key = MaterialKey::from(&world);
+        assert!(!world_key.model_lit);
+        assert!(!world_key.envmap);
+
+        let mut world_refl = world.clone();
+        world_refl.envmap_tint.w = 1.;
+        let world_refl_key = MaterialKey::from(&world_refl);
+        assert!(!world_refl_key.model_lit);
+        assert!(world_refl_key.envmap);
+
+        let mut model = world.clone();
+        model.lighting = ModelLighting::fallback(false);
+        let model_key = MaterialKey::from(&model);
+        assert!(model_key.model_lit);
+        assert!(!model_key.envmap);
+
+        let eye = make_material(
+            &MaterialData::default(),
+            white.clone(),
+            white.clone(),
+            Some(white.clone()),
+            (&white, &cube, &cookie),
+        );
+        assert!(MaterialKey::from(&eye).model_lit);
+
+        let mut sky = world;
+        sky.parameters.w = -2.;
+        sky.lighting.params = Vec4::W;
+        let sky_key = MaterialKey::from(&sky);
+        assert!(!sky_key.model_lit);
+        assert!(!sky_key.envmap);
     }
 }

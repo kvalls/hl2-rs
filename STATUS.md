@@ -1,5 +1,9 @@
 # STATUS
 
+## O1/O4 bloom bilinear, monitor culling, shader specialization and Present2d (2026-11-26)
+
+`bloom.wgsl` now uses 4 hardware bilinear `textureSample` taps in `shape`/`shaped_tap` instead of 16 `textureLoad` + `encode()` calls, `monitors.rs` frustum-culls `MonitorCamera` against `FlyCamera`, `rendering/material.rs` + `source.wgsl` specialize `SOURCE_MODEL_LIT` and `SOURCE_ENVMAP` pipelines and skip unlit/sky lightmap reads, and `video/present_pass.rs` extracts `PresentMaterial` into a `Present2d` schedule (bringing `video.rs` under 1,000 lines; architecture baseline tightened `11 -> 10` large files). On `d1_trainstation_02` hotspots at maxed Retina (`148ba99f` vs `fb94db74`, analyzed by `hud_pass_2d`), `source_bloom` Frag dropped `37.4%–42.7%` across all 4 scenes, `plaza-hall` windowed GPU busy fell `7.46 -> 6.64 ms` (`p99 7.97 ms < 8.33 ms`, `93.8 FPS`), and `plaza` windowed GPU busy fell `8.33 -> 6.91 ms` (`p99 7.50 ms < 8.33 ms`, `>8.33 ms` `55.6% -> 0.18%`, pacing `90.2 -> 104.3 FPS`, `render_graph` `5.811 -> 5.099 ms`). `Present2d` removed `main_transparent_pass_2d` while falling back to `upscaling` on Metal swapchain format mismatch (`Bgra8UnormSrgb` vs `Rgba8UnormSrgb`), shifting the 120 Hz limiter to CPU `render_graph` (`5.10–5.77 ms`). Unit tests (`rendering`, `monitors`, `video`, `bloom`: 72 passed, 2 ignored), strict Clippy, `cargo fmt --check`, `architecture.py`, and 12+2 targeted replays passed. Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**. See `docs/performance.md`.
+
 ## O4/O1 shadow encoder batching and bloom/tonemap fast paths (2026-11-26)
 
 `shadows/gpu` (`raster.rs`, `gpu.rs`) now encodes dirty shadow cells onto

@@ -32,6 +32,7 @@ fn material_secondary_uv() -> mat3x3<f32> {
     let row = u32(material.dynamic.x) * 4u;
     return mat3x3(material_rows[row + 1u].xyz, material_rows[row + 2u].xyz, material_rows[row + 3u].xyz);
 }
+#ifdef SOURCE_MODEL_LIT
 // Model lighting from its entity's slot when the draw's MeshTag (> 0) or material.dynamic.z
 // names one, else the material's own.
 fn light_slot_index(instance_index: u32) -> i32 {
@@ -72,6 +73,8 @@ fn light_spot(slot: i32, i: u32) -> vec4<f32> {
     if slot >= 0 { return light_row(slot, 27u + i); }
     return material.lighting.spot[i];
 }
+#endif
+#ifdef SOURCE_ENVMAP
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
@@ -112,9 +115,11 @@ fn envmap_specular(mesh: VertexOutput, base_alpha: f32) -> vec3<f32> {
     let fresnel = pow(1.0 - dot(n, normalize(to_eye)), 5.0);
     return spec * (fresnel * (1.0 - material.envmap_contrast.w) + material.envmap_contrast.w);
 }
+#endif
 fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     return select(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, color <= vec3(0.04045));
 }
+#ifdef SOURCE_MODEL_LIT
 // Source ambient cube (faces in Source axes) with squared-normal weighting.
 fn ambient_light(slot: i32, n: vec3<f32>) -> vec3<f32> {
     let s = vec3(n.x, -n.z, n.y);
@@ -162,6 +167,7 @@ fn model_light(slot: i32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     }
     return sum;
 }
+#endif
 // Direct world-space beam data for the origin-based viewmodel camera.
 
 // Shared cookie, Lambert and distance calculation for world and viewmodel fragments.
@@ -177,6 +183,7 @@ fn flashlight_base(to: vec3<f32>, n: vec3<f32>, projected: vec3<f32>, near: f32,
     let lambert = saturate(dot(n, -to / dist));
     return vec4(cookie * atten * lambert * fade, atten);
 }
+#ifdef SOURCE_MODEL_LIT
 fn viewmodel_flashlight_color(slot: i32, position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
     if material.viewmodel_flashlight.limits.z < 0.5 { return vec3(0.0); }
     let basis = light_basis(slot);
@@ -187,6 +194,7 @@ fn viewmodel_flashlight_color(slot: i32, position: vec3<f32>, normal: vec3<f32>)
         material.viewmodel_flashlight.limits.x, material.viewmodel_flashlight.limits.y,
         material.viewmodel_flashlight.origin_linear.w).rgb;
 }
+#endif
 // Eight-sample Poisson footprint (SDK shader's sampling data), independently applied to
 // Bevy's reverse-Z spotlight map. The engine-generated noise/jitter stream is not installed;
 // this stable 32-pixel tile supplies rotation without a per-frame texture or CPU update.
@@ -267,13 +275,14 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 #endif
         return vec4(srgb_to_linear(base.rgb * 2.0), 1.0);
     }
-    let eye =material.parameters.w > 0.5 && material.parameters.w < 1.5;
     if material.parameters.w > 1.5 {
         // WorldVertexTransition (SDK lightmappedgeneric_ps2_3_x.h): the second base, at the
         // same coordinates, by the vertex alpha a displacement vertex carries; alpha too.
         base = mix(base, textureSample(iris_texture, iris_sampler, mesh.uv), mesh.color.a);
     }
     let base_alpha = base.a;
+#ifdef SOURCE_MODEL_LIT
+    let eye = material.parameters.w > 0.5 && material.parameters.w < 1.5;
     if eye {
         let slot = u32(mesh.uv_b.x + 0.5) * 2u;
         let at = vec4(mesh.world_position.xyz, 1.0);
@@ -284,14 +293,19 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         let iris = textureSample(iris_texture, iris_sampler, iris_uv);
         base = vec4(mix(base.rgb, iris.rgb, iris.a), base.a);
     }
+#endif
     base.a = select(base.a, 1.0, material.parameters.y > 0.5);
     var vertex_color = mesh.color;
     // Vertex alpha is a blend weight there, never opacity (camera materials use it below).
     if material.parameters.w > -0.5 { vertex_color.a = 1.0; }
+#ifdef SOURCE_MODEL_LIT
     let lslot = light_slot_index(mesh.instance_index);
     let lparams = light_params(lslot);
     let lit = lparams.x > 0.5;
     if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
+#else
+    let lparams = material.lighting.params;
+#endif
     if material.parameters.w < -0.5 {
         let uv = (material_secondary_uv() * vec3(mesh.uv, 1.0)).xy;
         base = vec4(base.rgb * textureSample(iris_texture, iris_sampler, uv).rgb, base.a);
@@ -315,14 +329,21 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var rgb = base.rgb;
     if material.parameters.w >= -0.5 {
         var baked = vec3(1.0);
+#ifdef SOURCE_MODEL_LIT
         if !eye {
             baked = textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb;
         }
+#else
+        if lparams.w < 0.5 {
+            baked = textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb;
+        }
+#endif
         // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
         // Procedural camera images are sampled through an sRGB view and are already linear.
         linear_base = srgb_to_linear(base.rgb);
         rgb = linear_base * baked;
     }
+#ifdef SOURCE_MODEL_LIT
     if lit {
         let basis = light_basis(lslot);
         let p = (basis * vec4(mesh.world_position.xyz, 1.0)).xyz;
@@ -334,13 +355,20 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     } else if lparams.w < 0.5 && has_spot_lights() {
         rgb += linear_base * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
     }
+#else
+    if lparams.w < 0.5 && has_spot_lights() {
+        rgb += linear_base * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
+    }
+#endif
     // SDK $selfillum: diffuse = lerp(diffuse, material.tint * albedo, base alpha), before specular.
     if material.self_illum.w > 0.5 {
         rgb = mix(rgb, material.self_illum.xyz * srgb_to_linear(material_albedo * material_tint().rgb), base_alpha);
     }
+#ifdef SOURCE_ENVMAP
     if material.envmap_tint.w > 0.5 {
         rgb += envmap_specular(mesh, base_alpha);
     }
+#endif
     // Source FinalOutput TONEMAP_SCALE_LINEAR: the camera's exposure is the tonemap scale.
     rgb *= view.exposure;
     // Bevy Add uses a premultiplied pipeline. Alpha zero retains all of the

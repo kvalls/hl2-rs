@@ -1952,6 +1952,26 @@ with 100 verified bodies, 0.293 ms per physics tick,
 4.793 ms post-placement mean and a 6 ms p99 bound.
 
 
+## O1/O4 bloom bilinear downsample, monitor frustum culling, shader specialization and Present2d (2026-11-26)
+
+On Apple M1 Pro Metal (`2c776f98` SHA-256 `148ba99f` vs candidate SHA-256 `fb94db74`), four targeted GPU and scene-culling optimizations ran against maxed Retina settings (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `bloom.wgsl` (`crates/hl2-bevy/assets/shaders/bloom.wgsl`): `shape` / `shaped_tap` replace 16 `textureLoad` + 16 `encode()` calls with 4 hardware bilinear `textureSample` taps at `(base + vec2(1/3, 1/3)) * inv` (4× fewer texture reads, 60 → 16 `pow()` calls per quarter-resolution pixel).
+2. `monitors.rs` (`crates/hl2-bevy/src/monitors.rs`): frustum-culled `MonitorCamera` against `FlyCamera`'s `Frustum` (`monitor_in_view`, `monitor_bounds_in_frustum`), deactivating off-screen monitor cameras (`camera_tv_breen` in the plaza view).
+3. `rendering/material.rs` & `source.wgsl`: added `MaterialKey::model_lit` (`SOURCE_MODEL_LIT`) and `MaterialKey::envmap` (`SOURCE_ENVMAP`) shader defs to strip model lighting, eye iris projection, and envmap/bump paths from plain lightmapped world pipelines and skip `lightmap_texture` sampling on unlit/sky faces.
+4. `video/present_pass.rs`, `video.rs`, `canvas_renderer/hud_pass.rs`, `lib.rs`: moved `PresentMaterial` into `video/present_pass.rs` (bringing `video.rs` under the 1,000-line limit; architecture baseline tightened from 11 → 10 large files), shared `target_clear_color` with `Hud2d`, and added the `Present2d` schedule. `Present2d` eliminated `main_transparent_pass_2d`, while falling back to `upscaling` on macOS Metal because the swapchain view format (`Bgra8UnormSrgb`) differs from Bevy's `Rgba8UnormSrgb` `Material2d` target format.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. `o1-b2-*` used 4,000 headless / 4,500 windowed frames so `xctrace` completed capture shutdown cleanly. Both windowed scenes now hold GPU busy p99 under 8.33 ms (`7.97 ms` in `plaza-hall`, `7.50 ms` in `plaza`), shifting the 120 Hz limiter to CPU `render_graph` (`5.10–5.77 ms`).
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `source_bloom` Frag (ms/f) | `main_opaque_pass_3d` Frag/Vert (passes/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 40% → 58% | 7.63 → 7.17 | 7.51 / 9.10 / 10.53 → 7.11 / 8.44 / 9.30 | 127/1204 (10.5%) → 79/1170 (6.8%) | 0.805 → 0.504 (-37.4%) | 2.228/1.082 (3.0/4.0) → 2.231/0.985 (3.0/4.0) | — | 8.031 / 9.920 → 8.273 / 9.783 | 5.515 / 6.892 → 5.636 / 6.752 |
+| `plaza-headless` | 0% → 69% | 8.10 → 7.21 | 8.10 / 8.86 / 9.66 → 7.10 / 8.55 / 9.27 | 381/1219 (31.3%) → 176/1347 (13.1%) | 0.854 → 0.529 (-38.1%) | 2.828/1.235 (3.0/4.0) → 2.573/0.791 (2.0/3.0) | — | 8.477 / 9.817 → 7.597 / 9.117 | 5.942 / 7.173 → 5.064 / 6.596 |
+| `plaza-hall` (windowed) | 78% → 65% | 7.46 → 6.64 | 7.51 / 8.29 / 8.83 → 6.65 / 7.42 / 7.97 | 38/955 (4.0%) → 5/991 (0.5%) | 0.735 → 0.421 (-42.7%) | 2.057/1.023 (3.0/4.0) → 2.045/1.006 (3.0/4.0) | 95.3 (247/952) → 93.8 (276/986; 716 1x, 265 2x, 4 3x, 1 4x) | 10.031 / 13.793 → 9.775 / 13.772 | 6.109 / 7.774 → 5.767 / 7.285 |
+| `plaza` (windowed) | 62% → 57% | 8.33 → 6.91 | 8.38 / 8.99 / 9.14 → 7.06 / 7.37 / 7.50 | 525/945 (55.6%) → 2/1101 (0.18%) | 0.756 → 0.441 (-41.7%) | 2.691/1.155 (3.0/4.1) → 2.466/0.825 (2.0/3.0) | 90.2 (311/941) → 104.3 (165/1097; 934 1x [85.1%], 161 2x, 2 3x) | 10.310 / 15.357 → 9.246 / 13.825 | 5.811 / 7.165 → 5.099 / 6.411 |
+
+In `plaza` (`plaza-headless` and `plaza` windowed), culling `MonitorCamera` also dropped `main_transparent_pass_3d` `3.0 → 2.0/f` and `upscaling` `2.0 → 1.0/f` (headless) / `3.0 → 2.0/f` (windowed). Verified with unit tests (`rendering` 36 passed, 1 ignored; `monitors` 3 passed; `video` 26 passed, 1 ignored; `bloom` 7 passed), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, tightened `scripts/checks/architecture.py` (`68 long functions, 10 large files, 109 duplicated blocks`), and 12 targeted packaged replays (`video`, `hud`, `monitors-breen-screen`, `monitors-breen-slate`, `monitors-kleiner-scene`, `flashlight_shadows`, `flashlight_viewmodel`, `lamp_emission`, `face-security-1805`, `viewmodel_motion_blur`, `effect-decal`, `effect-decal-door`) plus `video`+`hud` re-verification after the `AtomicBool` `NeedsUpscaling` fix in `present_pass.rs`. Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**.
+
 ## O4/O1 shadow encoder batching, presample readback gating and bloom caching (2026-11-26)
 
 On Apple M1 Pro Metal (`77509a52` SHA-256 `e54cddd0` vs candidate SHA-256 `148ba99f`), four targeted render-graph and post-processing cuts ran against maxed Retina settings (`3456×2168`, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):

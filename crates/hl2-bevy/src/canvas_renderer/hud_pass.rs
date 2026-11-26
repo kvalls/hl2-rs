@@ -1,7 +1,7 @@
 //! Direct 1x HUD pass onto the game frame image without MSAA writeback or an extra copy.
 use bevy::{
     app::{App, Plugin},
-    camera::{CameraOutputMode, ClearColor, ClearColorConfig},
+    camera::ClearColor,
     core_pipeline::core_2d::Transparent2d,
     ecs::{
         prelude::{Res, World},
@@ -59,15 +59,12 @@ fn hud_pass_2d(
     else {
         return;
     };
-    let clear_color = match camera.output_mode {
-        CameraOutputMode::Write { clear_color, .. } => clear_color,
-        CameraOutputMode::Skip => return,
+    let Some(clear) =
+        crate::video::present_pass::target_clear_color(camera.output_mode, clear_color_global.0)
+    else {
+        return;
     };
-    let clear = match clear_color {
-        ClearColorConfig::Default => Some(clear_color_global.0.into()),
-        ClearColorConfig::Custom(color) => Some(color.into()),
-        ClearColorConfig::None => None,
-    };
+    let clear = clear.map(Into::into);
     if transparent_phase.items.is_empty() && clear.is_none() {
         return;
     }

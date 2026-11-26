@@ -246,7 +246,7 @@ fn add_runtime_plugins(app: &mut App) {
         )
         .add_plugins((
             MaterialPlugin::<rendering::SourceMaterial>::default(),
-            bevy::sprite_render::Material2dPlugin::<video::PresentMaterial>::default(),
+            video::present_pass::PresentPassPlugin,
             MaterialPlugin::<effects::EffectMaterial>::default(),
             bloom::SourceBloomPlugin,
             ShadowPlugin,
