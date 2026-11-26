@@ -73,6 +73,13 @@ impl LineEditor {
         self.cursor = pos.min(self.text.chars().count());
     }
 
+    /// Selects an explicit `anchor..cursor` range in character indices.
+    pub fn select_range(&mut self, anchor: usize, cursor: usize) {
+        let len = self.text.chars().count();
+        self.anchor = Some(anchor.min(len));
+        self.cursor = cursor.min(len);
+    }
+
     /// Selects the word (or whitespace run) around character index `pos` (SDK double-click).
     pub fn select_word_at(&mut self, pos: usize) {
         self.accept_search();

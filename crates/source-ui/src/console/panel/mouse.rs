@@ -1,6 +1,7 @@
 //! Console mouse interaction: buttons, history scroll bar/wheel, entry caret/word/triple-click
 //! selection, and output history character/word selection.
-use super::super::dialog::{DialogLayout, Selection};
+use super::super::dialog::{DialogLayout, HistoryPos, Selection};
+use super::super::editor::word_bounds;
 use super::{Action, Canvas, ConsoleButton, ConsolePanel, HistoryView, WHEEL_ROWS};
 use crate::input::Input;
 use crate::widgets::{ScrollBarLayout, ScrollMode, DOUBLE_CLICK_SECONDS};
@@ -8,6 +9,17 @@ use glam::Vec2;
 
 /// Maximum pointer drift between clicks in a double/triple-click sequence (canvas pixels).
 const MULTI_CLICK_DIST_SQ: f32 = 16.;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum WordAnchor {
+    #[default]
+    None,
+    Entry {
+        start: usize,
+        end: usize,
+    },
+    History(Selection),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClickTarget {
@@ -85,6 +97,7 @@ impl ConsolePanel {
                     self.selection = None;
                 }
             }
+            self.drag_word = WordAnchor::None;
         }
         None
     }
@@ -200,12 +213,20 @@ impl ConsolePanel {
             match count {
                 3 => {
                     self.editor.select_all();
+                    self.drag_word = WordAnchor::None;
                     self.entry_selecting = false;
                     return;
                 }
                 2 => {
                     let pos = self.entry_char_at(&chars, start, rel_x, scale);
                     self.editor.select_word_at(pos);
+                    self.drag_word =
+                        self.editor
+                            .selection()
+                            .map_or(WordAnchor::None, |r| WordAnchor::Entry {
+                                start: r.start,
+                                end: r.end,
+                            });
                     self.entry_scroll =
                         self.effective_entry_start(&chars, self.editor.cursor(), inner_w, scale);
                     self.entry_selecting = true;
@@ -214,6 +235,7 @@ impl ConsolePanel {
                 _ => {
                     let pos = self.entry_char_at(&chars, start, rel_x, scale);
                     self.editor.set_cursor(pos, input.shift);
+                    self.drag_word = WordAnchor::None;
                     self.entry_scroll = self.effective_entry_start(&chars, pos, inner_w, scale);
                     self.entry_selecting = true;
                     return;
@@ -224,20 +246,35 @@ impl ConsolePanel {
             if let Some(t) = input.time {
                 self.entry_interaction = Some(t);
             }
-            if rel_x < 0. {
+            let pos = if rel_x < 0. {
                 let new_start = start.saturating_sub(1);
                 self.entry_scroll = new_start;
-                self.editor.drag_to(new_start);
+                new_start
             } else if rel_x > inner_w {
                 let end = self.entry_visible_end(&chars, start, inner_w, scale);
                 let pos = (end + 1).min(chars.len());
-                self.editor.drag_to(pos);
                 self.entry_scroll = self.effective_entry_start(&chars, pos, inner_w, scale);
+                pos
             } else {
-                let pos = self.entry_char_at(&chars, start, rel_x, scale);
-                self.editor.drag_to(pos);
                 self.entry_scroll = start;
+                self.entry_char_at(&chars, start, rel_x, scale)
+            };
+            self.extend_entry_drag(pos);
+        }
+    }
+
+    fn extend_entry_drag(&mut self, pos: usize) {
+        if let WordAnchor::Entry { start: ws, end: we } = self.drag_word {
+            let cur = word_bounds(self.editor.text(), pos);
+            if pos < ws {
+                self.editor.select_range(we, cur.start);
+            } else if pos > we {
+                self.editor.select_range(ws, cur.end);
+            } else {
+                self.editor.select_range(ws, we);
             }
+        } else {
+            self.editor.drag_to(pos);
         }
     }
 
@@ -266,6 +303,11 @@ impl ConsolePanel {
                     Some(Selection::at_pos(pos))
                 }
             });
+            self.drag_word = if count == 2 {
+                self.selection.map_or(WordAnchor::None, WordAnchor::History)
+            } else {
+                WordAnchor::None
+            };
         } else if self.selecting && (input.click || input.held) {
             if p_local.y < view.text.y {
                 self.scroll = (self.scroll + 1).min(max_scroll);
@@ -273,10 +315,36 @@ impl ConsolePanel {
                 self.scroll = self.scroll.saturating_sub(1);
             }
             if let Some(pos) = self.history_pos_at(canvas, layout, view, p_local, p_canvas, true) {
-                if let Some(selection) = self.selection.as_mut() {
-                    selection.head = pos;
-                }
+                self.extend_history_drag(pos);
             }
+        }
+    }
+
+    fn extend_history_drag(&mut self, pos: HistoryPos) {
+        if let WordAnchor::History(anchor_word) = self.drag_word {
+            let (ws, we) = anchor_word.ordered();
+            let cur = self
+                .history_word_selection(pos)
+                .map(Selection::ordered)
+                .unwrap_or((pos, pos));
+            self.selection = Some(if pos < ws {
+                Selection {
+                    anchor: we,
+                    head: cur.0,
+                }
+            } else if pos > we {
+                Selection {
+                    anchor: ws,
+                    head: cur.1,
+                }
+            } else {
+                Selection {
+                    anchor: ws,
+                    head: we,
+                }
+            });
+        } else if let Some(selection) = self.selection.as_mut() {
+            selection.head = pos;
         }
     }
 }
@@ -346,22 +414,82 @@ mod tests {
         );
         assert_eq!(panel.editor.selected_text(), Some("llo"));
 
-        // Double click at same spot selects word `"hello"`.
+        // Double click at same spot + held frame preserves full word `"hello"`, and dragging right extends by word.
         panel.input(&canvas, &click_at(vec2(x_he, y), 2.0), nothing);
         panel.input(
             &canvas,
             &Input {
                 pointer: Some(vec2(x_he, y)),
                 released: true,
+                time: Some(2.05),
                 ..Default::default()
             },
             nothing,
         );
         panel.input(&canvas, &click_at(vec2(x_he, y), 2.2), nothing);
         assert_eq!(panel.editor.selected_text(), Some("hello"));
+        panel.input(
+            &canvas,
+            &Input {
+                pointer: Some(vec2(x_he, y)),
+                held: true,
+                time: Some(2.22),
+                ..Default::default()
+            },
+            nothing,
+        );
+        assert_eq!(panel.editor.selected_text(), Some("hello"));
+        let x_wor = inner_x + panel.text_width("echo hello wor", layout.scale) + 0.1;
+        panel.input(
+            &canvas,
+            &Input {
+                pointer: Some(vec2(x_wor, y)),
+                held: true,
+                time: Some(2.25),
+                ..Default::default()
+            },
+            nothing,
+        );
+        assert_eq!(panel.editor.selected_text(), Some("hello world"));
+        let x_ec = inner_x + panel.text_width("ec", layout.scale) + 0.1;
+        panel.input(
+            &canvas,
+            &Input {
+                pointer: Some(vec2(x_ec, y)),
+                held: true,
+                time: Some(2.28),
+                ..Default::default()
+            },
+            nothing,
+        );
+        assert_eq!(panel.editor.selected_text(), Some("echo hello"));
+        panel.input(
+            &canvas,
+            &Input {
+                pointer: Some(vec2(x_ec, y)),
+                released: true,
+                time: Some(2.3),
+                ..Default::default()
+            },
+            nothing,
+        );
 
-        // Third click within streak selects the entire input line.
-        panel.input(&canvas, &click_at(vec2(x_he, y), 2.4), nothing);
+        // Triple click at one spot selects the entire input line.
+        for (i, t) in [3.0, 3.2, 3.4].into_iter().enumerate() {
+            panel.input(&canvas, &click_at(vec2(x_he, y), t), nothing);
+            if i < 2 {
+                panel.input(
+                    &canvas,
+                    &Input {
+                        pointer: Some(vec2(x_he, y)),
+                        released: true,
+                        time: Some(t + 0.05),
+                        ..Default::default()
+                    },
+                    nothing,
+                );
+            }
+        }
         assert_eq!(panel.editor.selected_text(), Some("echo hello world"));
     }
 
@@ -370,7 +498,7 @@ mod tests {
         let canvas = Canvas::default();
         let mut panel = ConsolePanel::new(SCALING);
         let nothing = &crate::console::panel::test_helpers::Nothing;
-        panel.print(&canvas, Level::Normal, "map d1_trainstation_02");
+        panel.print(&canvas, Level::Normal, "map d1_trainstation_02 end");
         let layout = panel.dialog_layout(&canvas);
         let area = layout.canvas(HistoryView::new(&layout).text);
         let x = area.x + panel.text_width("map d1_", layout.scale);
@@ -390,18 +518,53 @@ mod tests {
         );
         assert_eq!(panel.selection, None);
 
-        // Double click selects `"d1_trainstation_02"`.
+        // Double click + held frame keeps `"d1_trainstation_02"` selected, and dragging right extends by word.
         panel.input(&canvas, &click_at(vec2(x, y), 1.25), nothing);
         panel.input(
             &canvas,
             &Input {
-                copy: true,
-                time: Some(1.3),
+                pointer: Some(vec2(x, y)),
+                held: true,
+                time: Some(1.27),
                 ..Default::default()
             },
             nothing,
         );
-        assert_eq!(panel.take_copied().as_deref(), Some("d1_trainstation_02"));
+        assert_eq!(panel.selected_text().as_deref(), Some("d1_trainstation_02"));
+        let x_en = area.x + panel.text_width("map d1_trainstation_02 en", layout.scale);
+        panel.input(
+            &canvas,
+            &Input {
+                pointer: Some(vec2(x_en, y)),
+                held: true,
+                time: Some(1.29),
+                ..Default::default()
+            },
+            nothing,
+        );
+        panel.input(
+            &canvas,
+            &Input {
+                pointer: Some(vec2(x_en, y)),
+                released: true,
+                time: Some(1.31),
+                ..Default::default()
+            },
+            nothing,
+        );
+        panel.input(
+            &canvas,
+            &Input {
+                copy: true,
+                time: Some(1.33),
+                ..Default::default()
+            },
+            nothing,
+        );
+        assert_eq!(
+            panel.take_copied().as_deref(),
+            Some("d1_trainstation_02 end")
+        );
     }
 
     const CONSOLE_ROW_MID: f32 = super::super::CONSOLE_ROW * 0.5;

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Preserve full-word double-click selection across held and dragged frames
+
+- Agent/model: Antigravity (Gemini family, exact model ID not recorded).
+- Changed: Add `WordAnchor` in `crates/source-ui/src/console/panel/mouse.rs` (`ConsolePanel::drag_word` in `crates/source-ui/src/console/panel.rs`) and `LineEditor::select_range` in `crates/source-ui/src/console/editor/selection.rs` so holding or dragging the pointer after a double-click in either the input line or output history preserves the full clicked word and extends selection word-by-word instead of overwriting the selection head back to the cursor position; expand unit tests in `crates/source-ui/src/console/panel/mouse.rs` to cover held frames after double-click and word-by-word drag extension.
+- Why: Holding the mouse button for one or more frames after a double-click previously triggered character drag at the unchanged pointer position inside the word, collapsing selection to the left side of the word.
+- Tested how: `cargo fmt --check`, `scripts/checks/architecture.py`, Python helper suite (`134 tests`), all 4 plugin builds, workspace `cargo test` (`2,039 passed, 0 failed, 151 ignored`), strict host and Windows-target Clippy, `scripts/build-bevy.sh` (`advanced-options,debug-tools`), and `NO_BUILD=1 ONLY='console console_map' JOBS=2 python3 scripts/checks/replays.py`.
+- Result: All validation gates, Windows Clippy, macOS release build, and both replays passed (`0` failures), and the held-frame regression tests in `mouse.rs` pass for both entry and history word selection.
+- Still broken or not tested: Windows runtime and interactive manual double-click play on the rebuilt package are **not tested** (the running `hl2-bevy` process needs a relaunch).
+- Next: Manual live verification of double-click selection after relaunching the binary.
+
 ## 2026-11-26 — Retail console mouse/keyboard selection and hl2-debug editing shortcuts
 
 - Agent/model: Antigravity (Gemini family, exact model ID not recorded).

@@ -282,6 +282,8 @@ pub struct ConsolePanel {
     entry_interaction: Option<f64>,
     /// Multi-click timing tracker for entry (double/triple-click) and history (double-click).
     click_streak: mouse::ClickStreak,
+    /// Anchor word captured on double-click so holding/dragging preserves and extends by word.
+    drag_word: mouse::WordAnchor,
     /// Where the dialog was dragged or resized.
     pub placement: Placement,
     /// Text the copy shortcut put on the clipboard, until the app takes it.
@@ -333,6 +335,7 @@ impl ConsolePanel {
             entry_scroll: 0,
             entry_interaction: None,
             click_streak: mouse::ClickStreak::default(),
+            drag_word: mouse::WordAnchor::None,
             placement: Placement::default(),
             copied: None,
             buttons: ButtonTracker::capturing(),
@@ -488,6 +491,7 @@ impl ConsolePanel {
         self.snapshot = None;
         self.selection = None;
         self.selecting = false;
+        self.drag_word = mouse::WordAnchor::None;
     }
 
     /// The console dialog's frame: retail placement and minimum size, sizeable by its corners.
