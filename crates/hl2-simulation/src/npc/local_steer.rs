@@ -42,7 +42,7 @@ pub(super) fn step<W: NpcCollisionWorld>(
     }
     // A detour around the actor standing on the destination would send the mover back
     // into the same hull. Let its schedule handle the obstruction (e.g. an ActBusy exit).
-    if occupied_destination(goal, query, &blocked) {
+    if occupied_destination(actor, goal, query, &blocked) {
         goal.steer = None;
         return Walk::Moved(blocked, direction);
     }
@@ -70,12 +70,28 @@ pub(super) fn step<W: NpcCollisionWorld>(
     }
 }
 
-fn occupied_destination(goal: &Goal, query: Query<'_>, blocked: &GroundMove) -> bool {
+fn occupied_destination(
+    actor: &Actor,
+    goal: &Goal,
+    query: Query<'_>,
+    blocked: &GroundMove,
+) -> bool {
     query.transients.iter().any(|other| {
-        let local = goal.request.target_feet - other.feet;
-        other.entity == blocked.blocker
-            && local.cmpge(other.hull.mins).all()
-            && local.cmple(other.hull.maxs).all()
+        if other.entity != blocked.blocker {
+            return false;
+        }
+        let target = goal.request.target_feet;
+        if other.entity.is_none() {
+            // A destination can lie outside the player box while the mover's hull
+            // still overlaps it. Use the same swept-box test as the movement probe.
+            let hull = actor.ground.hull;
+            let min = other.feet + other.hull.mins;
+            let max = other.feet + other.hull.maxs;
+            return modkit_core::trace_box(target, target, hull.mins, hull.maxs, (min, max))
+                .start_solid;
+        }
+        let local = target - other.feet;
+        local.cmpge(other.hull.mins).all() && local.cmple(other.hull.maxs).all()
     })
 }
 
@@ -263,6 +279,41 @@ mod passing {
         let mut feet = contact.feet;
         for _ in 0..40 {
             for update in controller.tick(&physics, &[pose(feet)], &[], 0.1, false) {
+                feet = update.feet;
+            }
+        }
+        assert!(controller.status(key(1)).unwrap().is_arrived());
+    }
+
+    #[test]
+    fn a_player_overlapping_the_destination_hull_stops_the_mover_until_clear() {
+        let physics = Physics::new(&world(vec![]));
+        let mut controller = make_controller(None);
+        let target = Vec3::X * 80.;
+        let player = ActorHull {
+            entity: None,
+            feet: Vec3::new(60., 10., 0.),
+            hull: super::super::Hull {
+                mins: Vec3::new(-16., -16., 0.),
+                maxs: Vec3::new(16., 16., 72.),
+            },
+        };
+        let mut feet = Vec3::ZERO;
+        controller.request(key(1), request(target), pose(feet), &physics, &[]);
+        for _ in 0..120 {
+            for update in controller.tick(&physics, &[pose(feet)], &[player], 0.05, false) {
+                feet = update.feet;
+            }
+        }
+        let status = controller.status(key(1)).unwrap();
+        assert!(
+            matches!(status, GoalState::Blocked(_)),
+            "{status:?} at {feet}"
+        );
+        assert!(feet.y.abs() < 0.01, "detoured around the player to {feet}");
+
+        for _ in 0..100 {
+            for update in controller.tick(&physics, &[pose(feet)], &[], 0.05, false) {
                 feet = update.feet;
             }
         }

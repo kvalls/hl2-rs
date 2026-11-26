@@ -1,5 +1,14 @@
 # STATUS
 
+## Player-blocked NPC destination (2026-11-26)
+
+Three live Station 02 samples showed a citizen changing position around a
+stationary player while targeting the same final waypoint. Local steering
+now checks whether the mover's hull would overlap the player at that
+destination. Focused simulation verified that a blocked mover waits and
+resumes when the player clears the destination. The live game stayed on
+its existing build. Interactive verification of the patch is **not tested**.
+
 ## O1/O4 unified Simple3d pass for SkyCamera and MonitorCamera (2026-11-26)
 
 `SkyCamera` and `MonitorCamera` now run on a unified single-pass `Simple3d` schedule (`simple_pass.rs`), drawing `Opaque3d`, `AlphaMask3d`, and `Transparent3d` in one `simple_pass_3d` render pass with `StoreOp::Discard` depth (and GPU mesh preprocessing enabled in `finish()`), direct-to-`_rt_Camera` output on `MonitorCamera`, and `StoreOp::Discard` depth in `hud_pass_2d`. On `d1_trainstation_02` hotspots at maxed Retina (`9a7006f8` vs `1e93e393`, analyzed by `hud_pass_2d`), `main_opaque_pass_3d`, `main_transparent_pass_3d`, and `upscaling` dropped to `1.0/f` across all four scenes, GPU busy p99 fell below `8.33 ms` in every scene (`8.16 ms` `plaza-hall-headless`, `7.88 ms` `plaza-headless`, `7.17 ms` `plaza-hall` windowed with `0/1204` > 8.33 ms, `6.83 ms` `plaza` windowed with `0/1264` > 8.33 ms), CPU `render_graph` fell to `4.121–4.929 ms`, windowed `plaza-hall` jumped `103.6 -> 114.9 FPS` (`95.8%` 1x refreshes, repeated `173 -> 53`), and windowed `plaza` reached `119.3 FPS` (`99.4%` 1x refreshes, repeated `19 -> 7`). Visual inspection confirmed clean 2D skybox, 3D miniature skybox, and Breen monitor output. Unit tests (`35 passed, 1 ignored`), strict Clippy, `cargo fmt --check`, `architecture.py`, 14 targeted replays, and `WINDOWED=1 ONLY='window'` passed. Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**. See `docs/performance.md`.

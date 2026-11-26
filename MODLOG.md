@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-26 — Stop circling a destination blocked by the player
+
+- Codex desktop, `gpt-6.2-sol`.
+- On Station 02, a citizen moved around a stationary player while keeping the same final waypoint. The waypoint was outside the player's bounds, but the citizen's hull at the waypoint intersected the player.
+- The local steering check now uses the movement probe's swept-box routine to detect player overlap at the destination. The blocked move flows through existing goal handling, which retries once the obstruction clears.
+- `cargo test --locked -p hl2-simulation --lib npc::local_steer` passed all eight tests, including a waypoint outside the player's box that remains blocked until the player moves.
+- The original live game provided the reproduction. Interactive verification of the patched package and Windows runtime are **not tested**.
+
 ## 2026-11-26 — O1/O4 unified Simple3d pass for SkyCamera and MonitorCamera + Hud2d depth discard
 
 - Agent/model: Antigravity (Gemini 4 family, exact model ID not recorded).
