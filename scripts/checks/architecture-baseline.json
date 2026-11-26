@@ -154,9 +154,6 @@
   "crates/hl2-bevy/src/audio.rs::queue": [
    259
   ],
-  "crates/hl2-bevy/src/bloom.rs::source_bloom": [
-   111
-  ],
   "crates/hl2-bevy/src/effects.rs::viewmodel_quads": [
    172
   ],
@@ -358,7 +355,7 @@
  },
  "min_tests": {
   "hl2-advanced-options": 52,
-  "hl2-bevy": 284,
+  "hl2-bevy": 287,
   "hl2-debug": 55,
   "hl2-simulation": 913,
   "hl2-ui": 340,

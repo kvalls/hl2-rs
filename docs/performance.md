@@ -1952,6 +1952,26 @@ with 100 verified bodies, 0.293 ms per physics tick,
 4.793 ms post-placement mean and a 6 ms p99 bound.
 
 
+## O4/O1 shadow encoder batching, presample readback gating and bloom caching (2026-11-26)
+
+On Apple M1 Pro Metal (`77509a52` SHA-256 `e54cddd0` vs candidate SHA-256 `148ba99f`), four targeted render-graph and post-processing cuts ran against maxed Retina settings (`3456×2168`, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `shadows/gpu` (`crates/hl2-bevy/src/shadows/gpu/raster.rs`, `shadows/gpu.rs`): `Raster::encode` records dirty shadow-cell uploads and render passes onto `RenderContext::command_encoder()` in `RenderGraphSystems::Begin` instead of creating a standalone `CommandEncoder` and calling `queue.submit(...)` every frame (keeping `#[cfg(test)] Raster::draw` for tests).
+2. `tonemap::update` (`crates/hl2-bevy/src/tonemap.rs`): `should_request_readback` / `apply_bloom_frame` attach `bloom.presample` only on frames that actually spawn a histogram `Readback` (`INTERVAL = 8` frames), skipping the extra `source_bloom` presample pass on the other 7 of 8 frames. `o4-batch-plaza-hall-headless/report.json` confirmed `tonemap.readbacks = 282` with a populated `histogram` and `scale = 1.9999914`.
+3. `bloom.rs` (`crates/hl2-bevy/src/bloom.rs`): `BloomCache` caches bind groups by `(source.id(), glow.id(), uniform_id)` (capped at 16 entries) instead of allocating bind groups 4–5×/frame, and `sync_blur_uniforms` skips redundant blur uniform buffer writes whenever `(width, height, amount)` is unchanged (`source_bloom` tightened below 100 lines).
+4. `bloom.wgsl` (`crates/hl2-bevy/assets/shaders/bloom.wgsl`): `composite` returns `frame` early when `all(glow <= vec3(0.0)) && all(frame.rgb <= vec3(1.0))`, skipping `encode`/`decode` power math on non-glowing LDR pixels while preserving HDR highlight clamping above `1.0`.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. Windowed runs (`--no-focus`) presented at `3456×1978` inside the macOS desktop area; headless runs (`--background`) rendered `3456×2168`. Note that `plaza-headless` ran with `75% -> 0%` preflight idle GPU load variance.
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `source_bloom` Frag/Vert (passes/f) | `Blit Command 0` (ms/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 29% → 40% | 8.04 → 7.63 | 7.98 / 9.85 / 10.99 → 7.51 / 9.10 / 10.53 | 456/1170 (39.0%) → 127/1204 (10.5%) | 0.933/0.116 (5.0) → 0.805/0.107 (4.1) | 0.180 → 0.064 | — | 8.841 / 10.843 → 8.031 / 9.920 | 6.210 / 8.133 → 5.515 / 6.892 |
+| `plaza-headless` | 75% → 0% | 8.17 → 8.10 | 8.19 / 8.85 / 9.07 → 8.10 / 8.86 / 9.66 | 473/1195 (39.6%) → 381/1219 (31.3%) | 0.919/0.114 (5.0) → 0.854/0.111 (4.1) | 0.145 → 0.106 | — | 8.775 / 10.241 → 8.477 / 9.817 | 6.217 / 7.491 → 5.942 / 7.173 |
+| `plaza-hall` (windowed) | 79% → 78% | 7.47 → 7.46 | 7.50 / 8.32 / 8.63 → 7.51 / 8.29 / 8.83 | 46/944 (4.9%) → 38/955 (4.0%) | 0.807/0.104 (5.0) → 0.735/0.101 (4.1) | 0.060 → 0.039 | 90.6 → 95.3 (306/943 → 247/952) | 10.156 / 14.768 → 10.031 / 13.793 | 5.997 / 7.438 → 6.109 / 7.774 |
+| `plaza` (windowed) | 64% → 62% | 8.36 → 8.33 | 8.41 / 9.03 / 9.20 → 8.38 / 8.99 / 9.14 | 524/907 (57.8%) → 525/945 (55.6%) | 0.827/0.106 (5.0) → 0.756/0.103 (4.1) | 0.061 → 0.029 | 86.6 → 90.2 (348/902 → 311/941) | 10.912 / 15.779 → 10.310 / 15.357 | 5.960 / 7.416 → 5.811 / 7.165 |
+
+Verified with `cargo test --locked -p hl2-bevy --lib shadows` (8 passed, 2 ignored), `bloom` (7 passed, including `blur_uniform_cache_skips_redundant_writes`), `tonemap` (3 passed, including `presample_is_attached_only_on_readback_frames`), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, tightened `scripts/checks/architecture.py` baseline (`bloom.rs::source_bloom` now within limit), and 7 targeted packaged replays (`lamp_emission`, `flashlight_shadows`, `monitors-breen-screen`, `viewmodel_motion_blur`, `video`, `hud`, `face-security-1805`, with `readbacks = 16` and populated histogram in `bevy-monitors-breen-screen.json`). Multi-pair interleaved A/B runs (these are single pairs per scene), interactive live play, and Windows runtime are **not tested**.
+
 ## O1 opaque shader HSR, flashlight early-out and neutral gamma present (2026-11-26)
 
 On Apple M1 Pro Metal (`19eff634` SHA-256 `64b50490` vs candidate SHA-256 `e54cddd0`), three zero-behavioral-change shader specializations targeted `main_opaque_pass_3d`, `early prepass`, and `main_opaque_pass_2d` at maxed Retina settings (`3456×2168`, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):

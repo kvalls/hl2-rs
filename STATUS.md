@@ -1,5 +1,27 @@
 # STATUS
 
+## O4/O1 shadow encoder batching and bloom/tonemap fast paths (2026-11-26)
+
+`shadows/gpu` (`raster.rs`, `gpu.rs`) now encodes dirty shadow cells onto
+Bevy's shared `RenderContext::command_encoder()` in `RenderGraphSystems::Begin`
+instead of submitting a standalone command buffer per frame, `tonemap::update`
+attaches `bloom.presample` only on `INTERVAL = 8` histogram readback frames,
+`bloom.rs` caches `source_bloom` bind groups and dirty-checked blur uniforms in
+`BloomCache` (bringing `source_bloom` under the 100-line architecture limit),
+and `bloom.wgsl::composite` skips gamma `pow()` math on non-glowing LDR
+pixels. On `d1_trainstation_02` hotspots at maxed Retina (`e54cddd0` vs
+`148ba99f`, analyzed by `hud_pass_2d`), `source_bloom` dropped from `5.0 -> 4.1`
+passes/frame across all four scenes, `Blit Command 0` fell `0.180 -> 0.064 ms/f`
+(`plaza-hall-headless`), `plaza-hall-headless` GPU busy fell `8.04 -> 7.63 ms`
+(`>8.33 ms`: `39.0% -> 10.5%`), `plaza-hall` windowed improved `90.6 -> 95.3 FPS`
+(`306/943 -> 247/952` repeated refreshes), and `plaza` windowed improved
+`86.6 -> 90.2 FPS` (`348/902 -> 311/941` repeated refreshes). `shadows`, `bloom`,
+and `tonemap` unit tests (18 passed, 2 ignored), strict Clippy, `cargo fmt --check`,
+`architecture.py`, and 7 targeted replays passed (`bevy-monitors-breen-screen.json`
+`tonemap.readbacks = 16`, `plaza-hall-headless` `tonemap.readbacks = 282` with
+populated histogram). Multi-pair interleaved A/B runs, interactive live play,
+and Windows runtime are **not tested**. See `docs/performance.md`.
+
 ## O1 opaque shader HSR and hotspot captures (2026-11-26)
 
 `MaterialKey::may_discard` (`SOURCE_MAY_DISCARD`) removes `discard` and the

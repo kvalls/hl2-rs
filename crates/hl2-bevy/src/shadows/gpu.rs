@@ -15,7 +15,7 @@ use bevy::{
     render::{
         ExtractSchedule, MainWorld, RenderApp,
         render_asset::RenderAssets,
-        renderer::{RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue},
+        renderer::{RenderContext, RenderGraph, RenderGraphSystems, RenderQueue},
         texture::GpuImage,
     },
 };
@@ -83,8 +83,8 @@ fn extract(mut world: ResMut<MainWorld>, mut pending: ResMut<Pending>) {
 fn draw(
     mut pending: ResMut<Pending>,
     images: Res<RenderAssets<GpuImage>>,
-    device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
+    mut ctx: RenderContext,
 ) {
     if pending.batch.cells.is_empty() {
         return;
@@ -92,6 +92,7 @@ fn draw(
     let Some(image) = pending.atlas.and_then(|id| images.get(id)) else {
         return;
     };
+    let device = ctx.render_device().clone();
     let Pending {
         batch,
         raster,
@@ -100,7 +101,14 @@ fn draw(
     } = &mut *pending;
     raster
         .get_or_insert_with(|| raster::Raster::new(&device))
-        .draw(&device, &queue, &image.texture, &image.texture_view, batch);
+        .encode(
+            &device,
+            &queue,
+            ctx.command_encoder(),
+            &image.texture,
+            &image.texture_view,
+            batch,
+        );
     if let Some(count) = submitted {
         count.fetch_add(batch.cells.len() as u64, Ordering::Relaxed);
     }

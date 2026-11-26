@@ -5,8 +5,8 @@ use bevy::{
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayout, BlendComponent, BlendFactor,
             BlendOperation, BlendState, Buffer, BufferDescriptor, BufferUsages, ColorTargetState,
-            ColorWrites, Extent3d, IndexFormat, LoadOp, Operations, Origin3d, RawFragmentState,
-            RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState,
+            ColorWrites, CommandEncoder, Extent3d, IndexFormat, LoadOp, Operations, Origin3d,
+            RawFragmentState, RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState,
             RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
             ShaderModuleDescriptor, ShaderSource, StoreOp, TexelCopyBufferInfo,
             TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
@@ -115,6 +115,7 @@ impl Raster {
         self.groups.clear();
     }
 
+    #[cfg(test)]
     pub(super) fn draw(
         &mut self,
         device: &RenderDevice,
@@ -124,6 +125,19 @@ impl Raster {
         batch: &Batch,
     ) {
         let mut enc = device.create_command_encoder(&default());
+        self.encode(device, queue, &mut enc, atlas, view, batch);
+        queue.submit([enc.finish()]);
+    }
+
+    pub(super) fn encode(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        enc: &mut CommandEncoder,
+        atlas: &Texture,
+        view: &TextureView,
+        batch: &Batch,
+    ) {
         for cell in &batch.cells {
             enc.copy_buffer_to_texture(
                 TexelCopyBufferInfo {
@@ -208,7 +222,6 @@ impl Raster {
                 }
             }
         }
-        queue.submit([enc.finish()]);
     }
 }
 

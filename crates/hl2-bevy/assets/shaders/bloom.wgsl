@@ -62,6 +62,9 @@ fn blur(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let frame = textureLoad(source, vec2<i32>(floor(in.position.xy)), 0);
     let glow = textureSample(bloom, linear_sampler, in.uv).rgb;
+    if (all(glow <= vec3(0.0)) && all(frame.rgb <= vec3(1.0))) {
+        return frame;
+    }
     let gamma = min(encode(frame.rgb) + glow * pass_data.params.x, vec3(1.0));
     return vec4(decode(gamma), frame.a);
 }

@@ -53,6 +53,7 @@ impl Plugin for SourceBloomPlugin {
             return;
         };
         render_app
+            .init_resource::<BloomCache>()
             .add_systems(RenderStartup, init_pipelines)
             .add_systems(
                 Render,
@@ -260,29 +261,125 @@ fn prepare_textures(
     }
 }
 
+const MAX_CACHED_BIND_GROUPS: usize = 16;
+const UNIFORM_CONSTANT: u8 = 0;
+const UNIFORM_BLUR_H: u8 = 1;
+const UNIFORM_BLUR_V: u8 = 2;
+
+/// Cached bind groups and last blur uniform parameters for `source_bloom`.
+#[derive(Resource, Default)]
+struct BloomCache {
+    last_blur: Option<(u32, u32, u32)>,
+    groups: std::collections::HashMap<(TextureViewId, TextureViewId, u8), BindGroup>,
+}
+
+impl BloomCache {
+    fn should_sync_blur(&mut self, width: u32, height: u32, amount: f32) -> bool {
+        let bits = if amount == 0. { 0 } else { amount.to_bits() };
+        let key = (width, height, bits);
+        if self.last_blur == Some(key) {
+            return false;
+        }
+        self.last_blur = Some(key);
+        true
+    }
+
+    fn sync_blur_uniforms(
+        &mut self,
+        queue: &RenderQueue,
+        pipelines: &Pipelines,
+        width: u32,
+        height: u32,
+        amount: f32,
+    ) {
+        if !self.should_sync_blur(width, height, amount) {
+            return;
+        }
+        let texel = Vec2::new(1. / width as f32, 1. / height as f32);
+        write_uniform(
+            queue,
+            &pipelines.blur_h_uniform,
+            pass_data(
+                Vec4::new(texel.x, texel.y, 1., 0.),
+                Vec4::new(1., 0., 0., 0.),
+            ),
+        );
+        write_uniform(
+            queue,
+            &pipelines.blur_v_uniform,
+            pass_data(
+                Vec4::new(texel.x, texel.y, 0., 1.),
+                Vec4::new(amount, 0., 0., 0.),
+            ),
+        );
+    }
+
+    fn bind_group<'a>(
+        &'a mut self,
+        device: &RenderDevice,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+        source: &TextureView,
+        glow: &TextureView,
+        uniform: (u8, &Buffer),
+    ) -> &'a BindGroup {
+        let key = (source.id(), glow.id(), uniform.0);
+        if self.groups.len() >= MAX_CACHED_BIND_GROUPS && !self.groups.contains_key(&key) {
+            self.groups.clear();
+        }
+        self.groups.entry(key).or_insert_with(|| {
+            device.create_bind_group(
+                Some("source_bloom_bind_group"),
+                layout,
+                &BindGroupEntries::sequential((
+                    source,
+                    glow,
+                    sampler,
+                    uniform.1.as_entire_binding(),
+                )),
+            )
+        })
+    }
+}
+
+impl Pipelines {
+    fn uniform(&self, id: u8) -> (u8, &Buffer) {
+        let buf = match id {
+            UNIFORM_BLUR_H => &self.blur_h_uniform,
+            UNIFORM_BLUR_V => &self.blur_v_uniform,
+            _ => &self.constant_uniform,
+        };
+        (id, buf)
+    }
+}
+
 /// One fullscreen draw of the bloom shader.
 struct Pass<'a> {
     pipeline: &'a RenderPipeline,
     source: &'a TextureView,
     glow: &'a TextureView,
-    uniform: &'a Buffer,
+    uniform: u8,
     destination: &'a TextureView,
     /// Group 1, for the composite that applies color correction.
     extra: Option<&'a BindGroup>,
 }
 
 impl Pass<'_> {
-    fn draw(self, ctx: &mut RenderContext, pipelines: &Pipelines, layout: &BindGroupLayout) {
+    fn draw(
+        self,
+        ctx: &mut RenderContext,
+        pipelines: &Pipelines,
+        layout: &BindGroupLayout,
+        bind_cache: &mut BloomCache,
+    ) {
         let device = ctx.render_device().clone();
-        let bind_group = device.create_bind_group(
-            Some("source_bloom_bind_group"),
+        let bind_group = bind_cache.bind_group(
+            &device,
             layout,
-            &BindGroupEntries::sequential((
-                self.source,
-                self.glow,
-                &pipelines.sampler,
-                self.uniform.as_entire_binding(),
-            )),
+            &pipelines.sampler,
+            self.source,
+            self.glow,
+            pipelines.uniform(self.uniform),
         );
         let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("source_bloom"),
@@ -298,7 +395,7 @@ impl Pass<'_> {
             multiview_mask: None,
         });
         pass.set_render_pipeline(self.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_bind_group(0, bind_group, &[]);
         if let Some(extra) = self.extra {
             pass.set_bind_group(1, extra, &[]);
         }
@@ -332,11 +429,11 @@ fn source_bloom(
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    mut bloom_cache: ResMut<BloomCache>,
     mut ctx: RenderContext,
 ) {
     let (target, bloom, small, composite, correction) = view.into_inner();
     let layout = cache.get_bind_group_layout(&pipelines.layout);
-    let one = Vec4::new(1., 0., 0., 0.);
     if let (Some(pipeline), Some(image)) = (
         cache.get_render_pipeline(pipelines.presample),
         bloom.presample.as_ref().and_then(|h| images.get(h)),
@@ -346,11 +443,11 @@ fn source_bloom(
             pipeline,
             source: frame,
             glow: frame,
-            uniform: &pipelines.constant_uniform,
+            uniform: UNIFORM_CONSTANT,
             destination: &image.texture_view,
             extra: None,
         }
-        .draw(&mut ctx, &pipelines, &layout);
+        .draw(&mut ctx, &pipelines, &layout, &mut bloom_cache);
     }
     let corrected = correction.and_then(|c| {
         cache
@@ -365,11 +462,11 @@ fn source_bloom(
                 pipeline,
                 source: post.source,
                 glow: post.source,
-                uniform: &pipelines.constant_uniform,
+                uniform: UNIFORM_CONSTANT,
                 destination: post.destination,
                 extra: Some(group),
             }
-            .draw(&mut ctx, &pipelines, &layout);
+            .draw(&mut ctx, &pipelines, &layout, &mut bloom_cache);
         }
         return;
     }
@@ -381,20 +478,7 @@ fn source_bloom(
         return;
     };
     let size = small.0[0].texture.size();
-    let texel = Vec2::new(1. / size.width as f32, 1. / size.height as f32);
-    write_uniform(
-        &queue,
-        &pipelines.blur_h_uniform,
-        pass_data(Vec4::new(texel.x, texel.y, 1., 0.), one),
-    );
-    write_uniform(
-        &queue,
-        &pipelines.blur_v_uniform,
-        pass_data(
-            Vec4::new(texel.x, texel.y, 0., 1.),
-            Vec4::new(bloom.amount, 0., 0., 0.),
-        ),
-    );
+    bloom_cache.sync_blur_uniforms(&queue, &pipelines, size.width, size.height, bloom.amount);
     let (a, b) = (&small.0[0].default_view, &small.0[1].default_view);
     let post = target.post_process_write();
     let pass = |pipeline, source, glow, uniform, destination, extra| Pass {
@@ -407,27 +491,37 @@ fn source_bloom(
     };
     let (pipeline, extra) = corrected.map_or((composite, None), |(p, group)| (p, Some(group)));
     let passes = [
-        pass(
-            shape,
-            post.source,
-            post.source,
-            &pipelines.constant_uniform,
-            a,
-            None,
-        ),
-        pass(blur, a, a, &pipelines.blur_h_uniform, b, None),
+        pass(shape, post.source, post.source, UNIFORM_CONSTANT, a, None),
+        pass(blur, a, a, UNIFORM_BLUR_H, b, None),
         // The vertical blur carries the bloom amount.
-        pass(blur, b, b, &pipelines.blur_v_uniform, a, None),
+        pass(blur, b, b, UNIFORM_BLUR_V, a, None),
         pass(
             pipeline,
             post.source,
             a,
-            &pipelines.constant_uniform,
+            UNIFORM_CONSTANT,
             post.destination,
             extra,
         ),
     ];
     for pass in passes {
-        pass.draw(&mut ctx, &pipelines, &layout);
+        pass.draw(&mut ctx, &pipelines, &layout, &mut bloom_cache);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blur_uniform_cache_skips_redundant_writes() {
+        let mut cache = BloomCache::default();
+        assert!(cache.should_sync_blur(480, 270, 0.5));
+        assert!(!cache.should_sync_blur(480, 270, 0.5));
+        assert!(cache.should_sync_blur(480, 270, 0.75));
+        assert!(!cache.should_sync_blur(480, 270, 0.75));
+        assert!(cache.should_sync_blur(864, 542, 0.75));
+        assert!(cache.should_sync_blur(864, 542, 0.0));
+        assert!(!cache.should_sync_blur(864, 542, -0.0));
     }
 }
