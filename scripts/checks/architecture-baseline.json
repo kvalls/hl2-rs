@@ -351,16 +351,16 @@
  },
  "min_tests": {
   "hl2-advanced-options": 52,
-  "hl2-bevy": 296,
-  "hl2-debug": 55,
-  "hl2-simulation": 913,
-  "hl2-ui": 340,
+  "hl2-bevy": 297,
+  "hl2-debug": 59,
+  "hl2-simulation": 914,
+  "hl2-ui": 343,
   "modkit-core": 78,
-  "source-assets": 143,
-  "source-ui": 151
+  "source-assets": 144,
+  "source-ui": 158
  },
  "test_files": {
-  "crates/hl2-ui/src/console/tests.rs": 4495,
+  "crates/hl2-ui/src/console/tests.rs": 4494,
   "crates/hl2-ui/src/gameui/options/tests.rs": 2839
  },
  "untested_modules": [

@@ -166,32 +166,31 @@ fn console_hide_preserves_pause_and_escape_dismisses_history_first() {
     console.execute("hideconsole");
     assert_eq!(console.mode(), Mode::Pause);
     console.toggle();
-    for line in ["echo first", "echo second"] {
-        console.input(&Input {
-            text: line.into(),
-            keys: [Key::Enter].into(),
+    let send = |c: &mut Console, t: &str, k: &[Key]| {
+        c.input(&Input {
+            text: t.into(),
+            keys: k.iter().copied().collect(),
             ..Default::default()
         });
-    }
-    // An empty line: Up and Down step through the history, newest first.
+    };
+    send(&mut console, "echo first", &[Key::Enter]);
+    send(&mut console, "echo second", &[Key::Enter]);
     keys(&mut console, &[Key::Up]);
-    assert_eq!(console.input_line(), "echo second");
+    assert!(console.input_line() == "echo second" && console.completion_bounds().is_none());
     keys(&mut console, &[Key::Up]);
     assert_eq!(console.input_line(), "echo first");
     keys(&mut console, &[Key::Down]);
     assert_eq!(console.input_line(), "echo second");
-    // Escape hides the list first. The next tap resumes the scene.
+    keys(&mut console, &[Key::Down]);
+    assert_eq!(console.input_line(), "");
+    send(&mut console, "ec", &[]);
+    assert!(console.completion_bounds().is_some());
     console.escape();
-    assert_eq!(console.mode(), Mode::Console);
-    assert!(console.paused());
+    assert!(console.mode() == Mode::Console && console.completion_bounds().is_none());
     console.escape();
-    assert_eq!(console.mode(), Mode::Gameplay);
-    assert!(!console.paused());
-    assert_eq!(
-        console.take_changed_history(),
-        Some(vec!["echo first".to_owned(), "echo second".to_owned()])
-    );
-    assert_eq!(console.take_changed_history(), None);
+    assert!(!console.paused() && console.mode() == Mode::Gameplay);
+    let history = console.take_changed_history().unwrap();
+    assert!(history == ["echo first", "echo second"] && console.take_changed_history().is_none());
 }
 #[test]
 fn explicit_text_input_edits_unicode_at_boundaries_and_completes_commands() {

@@ -1,5 +1,18 @@
 # STATUS
 
+## Console Up/Down history draft restoration without popup (2026-11-26)
+
+Console `Up`/`Down` history browsing now updates the entry in place without
+opening an autocomplete or argument-help popup (matching retail popup-only
+autocomplete), saves any unsent draft and caret position before stepping into
+history, and restores them when stepping back past the newest entry (while
+`Down` on an unsubmitted draft leaves it untouched and `Tab`/editing resumes
+autocomplete). Workspace validation (`2,043` Rust tests, `134` Python tests,
+all `4` plugin builds, strict Clippy), Windows strict Clippy, macOS release
+build, and the `console` and `console_map` replays (`2 checks, 0 failed`)
+passed. Windows runtime and interactive manual keyboard play on the rebuilt
+binary are **not tested**.
+
 ## Runtime speech subtitles over main menu and pause menu (2026-11-26)
 
 Runtime speech (`CaptionHud::speak` / `RuntimeExtension::gameplay_captions`)

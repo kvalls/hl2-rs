@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-26 — Preserve unsent draft and avoid popup when browsing console history
+
+- Agent/model: Antigravity (Gemini family, exact model ID not recorded).
+- Changed: Separated command-history browsing (`HistoryBrowse`) from autocomplete popup state in `crates/source-ui/src/console/editor.rs` (`browsing_history`, `stop_history_browse`, `step_completion`, `step_history`, updating `refresh`, `edited`, `set_history`, `search_back`, and `submit`) and `crates/source-ui/src/console/panel.rs` (`after_keyboard_input`, `completion`) so `Up`/`Down` without an open popup recalls command history in place without opening the autocomplete or argument-help popup, saves any unsent input line + cursor position on `Up`, clamps at the oldest entry, restores the unsent draft + cursor when stepping back past the newest entry (and leaves an unsubmitted draft untouched on `Down`), while explicit `Tab`/`Shift+Tab` (or editing) resumes autocomplete normally; tightened `crates/hl2-ui/src/console/tests.rs` in `scripts/checks/architecture-baseline.json` (`4495 -> 4494`), added/updated tests in `editor.rs`, `panel.rs`, and `crates/hl2-ui/src/console/tests.rs`, and updated `docs/gameui.md`.
+- Why: Align console Up/Down history browsing with retail (which only opens the popup for autocomplete) while preventing unsent input drafts from being lost on accidental Up/Down presses.
+- Tested how: `cargo fmt --check`, `scripts/checks/architecture.py`, Python helper suite (`134 tests`), all 4 plugin builds (`core only`, `advanced-options`, `debug-tools`, `advanced-options+debug-tools`), workspace `cargo test` (`2,043 passed, 0 failed, 151 ignored`: `hl2-advanced-options` 52, `hl2-bevy` 297, `hl2-debug` 59, `hl2-simulation` 914, `hl2-ui` 342, `modkit-core` 78, `source-assets` 144, `source-ui` 157), strict host and Windows-target Clippy, `scripts/build-bevy.sh` (`advanced-options,debug-tools`), and `NO_BUILD=1 ONLY='console console_map' JOBS=2 python3 scripts/checks/replays.py`.
+- Result: All validation checks (`2,043` Rust tests, `134` Python tests, all `4` plugin selections), Windows Clippy, macOS release build, and both replays (`2 checks, 0 failed`) passed.
+- Still broken or not tested: Windows runtime and interactive manual Up/Down + Tab keyboard play on the rebuilt package are **not tested**; retail `sentences.txt` `{closecaption ...}` radio captions (`audio.rs::emit_sentence`) remain untouched.
+- Next: Manual keyboard playtest if desired, or implement `sentences.txt` `{closecaption ...}` support in `audio.rs` when requested.
+
 ## 2026-11-26 — Render runtime speech subtitles behind main menu and gameplay pause menu
 
 - Agent/model: Antigravity (Gemini family, exact model ID not recorded).

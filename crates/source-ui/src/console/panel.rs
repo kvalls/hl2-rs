@@ -445,6 +445,10 @@ impl ConsolePanel {
             }
         }
         if input.pressed(Key::Tab) {
+            if self.editor.browsing_history() {
+                self.editor.stop_history_browse();
+                self.editor.refresh(completer);
+            }
             self.editor.step(input.shift, true);
             self.editor.refresh(completer);
         }
@@ -773,7 +777,7 @@ impl ConsolePanel {
         let cvar_value = |name: &str| command::find(commands, name)?.value?(context);
         let mut rows: Vec<Vec<(String, Color)>> = Vec::new();
         let mut highlighted = None;
-        if self.editor.search().is_none() {
+        if self.editor.search().is_none() && !self.editor.browsing_history() {
             if let Some(help) = complete::arg_help(self.editor.text(), commands) {
                 let mut runs = vec![(help.name.to_owned(), theme.text)];
                 for (i, arg) in help.args.iter().enumerate() {
@@ -1260,6 +1264,97 @@ mod tests {
             Some("Console:".len())
         );
         assert_eq!(printed::chat_label_end(Level::Normal, "Player: hi"), None);
+    }
+
+    #[test]
+    fn history_browsing_hides_completion_and_arg_help_until_tab_or_edit() {
+        let canvas = Canvas::default();
+        canvas.resize(1280., 720.);
+        let mut panel = ConsolePanel::new(SCALING);
+        struct App;
+        impl Context for App {
+            type Effect = ();
+            type Names = ();
+        }
+        impl Completer for App {
+            fn complete(&self, line: &str) -> complete::Completion {
+                let items = if "map".starts_with(line) && !line.is_empty() {
+                    vec![complete::Candidate {
+                        text: "map".into(),
+                        detail: String::new(),
+                    }]
+                } else {
+                    Vec::new()
+                };
+                complete::Completion {
+                    head: String::new(),
+                    items,
+                }
+            }
+        }
+        let app = App;
+        let commands = [Spec {
+            name: "map",
+            help: "map <levelname>: load a map",
+            args: &[super::command::Arg::Free],
+            run: |_, _, _| Ok(None),
+            value: None,
+            setting: None,
+        }];
+        let theme = Theme::default();
+
+        panel.input(
+            &canvas,
+            &Input {
+                text: "map d1_trainstation_01".into(),
+                keys: [Key::Enter].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        panel.input(&canvas, &typed("unsent"), &app);
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Up].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        assert_eq!(panel.editor.text(), "map d1_trainstation_01");
+        assert!(panel
+            .completion_bounds(&canvas, &theme, &commands, &app)
+            .is_none());
+
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Down].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        assert_eq!(panel.editor.text(), "unsent");
+
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Up].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Tab].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        assert!(panel
+            .completion_bounds(&canvas, &theme, &commands, &app)
+            .is_some());
     }
 }
 

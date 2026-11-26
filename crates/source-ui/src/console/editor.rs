@@ -1,12 +1,13 @@
 //! The console's input line: editing, the completion list, history and reverse search.
 //!
-//! Follows the SDK `CConsolePanel`: typing rebuilds a completion list for the line; Tab and
-//! Down step forward through it, Shift+Tab and Up back, each step putting that item in the
-//! line, and typing again rebuilds the list from the new text. On an empty line the list is the
-//! command history (`MAX_HISTORY_ITEMS` 100; a repeated command moves to the end). On top of
-//! retail: fuzzy-ranked argument completion ([`super::complete`]), Tab on a single match takes
-//! it with a space after it, Up/Down browse the history while the line has no matches, Escape
-//! hides the list, Ctrl+R searches the history backwards, and word and line editing keys.
+//! Follows the SDK `CConsolePanel`: typing rebuilds a completion list for the line; Tab/Shift+Tab
+//! step through completion candidates, and when a completion list is open Down/Up step forward and
+//! backward through it. Without an open completion list, Up/Down browse the command history
+//! (`MAX_HISTORY_ITEMS` 100; a repeated command moves to the end) in place without opening a
+//! popup, saving any unsent draft and restoring it when stepping back past the newest entry. On
+//! top of retail: fuzzy-ranked argument completion ([`super::complete`]), Tab on a single match
+//! takes it with a space after it, Escape hides the list, Ctrl+R searches the history backwards,
+//! and word and line editing keys.
 
 use super::complete::{Candidate, Completer};
 mod selection;
@@ -31,6 +32,15 @@ struct List {
     shows: String,
 }
 
+/// Active Up/Down command-history browsing (updates the entry in place without a popup,
+/// restoring the unsent draft when stepping back past the newest entry).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HistoryBrowse {
+    index: usize,
+    draft: String,
+    draft_cursor: usize,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LineEditor {
     text: String,
@@ -40,6 +50,7 @@ pub struct LineEditor {
     undo_stack: Vec<(String, usize)>,
     history: Vec<String>,
     history_changed: bool,
+    history_browse: Option<HistoryBrowse>,
     list: Option<List>,
     /// The line the list was hidden at with Escape; it comes back when the line changes.
     dismissed: Option<String>,
@@ -69,10 +80,21 @@ impl LineEditor {
         &self.history
     }
 
+    /// Whether Up/Down command-history browsing is currently active.
+    pub fn browsing_history(&self) -> bool {
+        self.history_browse.is_some()
+    }
+
+    /// Leaves history-browsing mode so the next refresh/Tab can open completions.
+    pub fn stop_history_browse(&mut self) {
+        self.history_browse = None;
+    }
+
     /// Replaces the history (loaded by the host), keeping the newest `HISTORY_MAX`.
     pub fn set_history(&mut self, history: Vec<String>) {
         let skip = history.len().saturating_sub(HISTORY_MAX);
         self.history = history.into_iter().skip(skip).collect();
+        self.history_browse = None;
     }
 
     /// Whether the history changed since the last call (the host saves it then).
@@ -112,17 +134,19 @@ impl LineEditor {
         self.cursor = cursor.min(self.text.chars().count());
     }
 
-    /// The line changed by editing: the list follows the new text at the next refresh.
+    /// The line changed by editing: leaves history browse and lets the list follow at refresh.
     fn edited(&mut self, text: String, cursor: usize) {
         if text != self.text {
             self.list = None;
+            self.history_browse = None;
         }
         self.set(text, cursor);
     }
 
     /// Rebuilds the completion list when the line no longer is what the list shows.
     pub fn refresh(&mut self, completer: &impl Completer) {
-        if self.list.as_ref().is_some_and(|l| l.shows == self.text) {
+        if self.history_browse.is_some() || self.list.as_ref().is_some_and(|l| l.shows == self.text)
+        {
             return;
         }
         self.list = (!self.text.trim().is_empty()).then(|| {
@@ -369,9 +393,9 @@ impl LineEditor {
         self.cursor = self.text.chars().count();
     }
 
-    /// Up/Down, Tab/Shift+Tab: step through the completion list, putting the item in the line.
-    /// An empty line, or Up/Down on a line without matches, steps through the history. `tab`:
-    /// a single match is taken with a space after it.
+    /// Steps forward (`!back`) or backward (`back`) through completion candidates (`Tab`/`Shift+Tab`,
+    /// or `Up`/`Down` while a popup is open), or recalls command history in place (`Up`/`Down`
+    /// without an open popup, saving and restoring any unsent draft).
     pub fn step(&mut self, back: bool, tab: bool) {
         if self.search.is_some() {
             if tab {
@@ -379,23 +403,18 @@ impl LineEditor {
             }
             return;
         }
-        self.dismissed = None;
-        let no_matches = self.list.as_ref().is_none_or(|l| l.items.is_empty());
-        if self.text.is_empty() || (!tab && no_matches) {
-            self.list = Some(List {
-                head: String::new(),
-                items: self
-                    .history
-                    .iter()
-                    .map(|h| Candidate {
-                        text: h.clone(),
-                        detail: String::new(),
-                    })
-                    .collect(),
-                index: None,
-                shows: self.text.clone(),
-            });
+        if tab {
+            self.dismissed = None;
+            self.history_browse = None;
+            self.step_completion(back, true);
+        } else if self.popup().is_some() {
+            self.step_completion(back, false);
+        } else {
+            self.step_history(back);
         }
+    }
+
+    fn step_completion(&mut self, back: bool, tab: bool) {
         let Some(list) = self.list.as_mut().filter(|l| !l.items.is_empty()) else {
             return;
         };
@@ -439,6 +458,49 @@ impl LineEditor {
         self.set(text, cursor);
     }
 
+    fn step_history(&mut self, back: bool) {
+        if self.history.is_empty() {
+            return;
+        }
+        match (self.history_browse.as_mut(), back) {
+            (None, false) => {}
+            (None, true) => {
+                self.push_undo();
+                let draft = self.text.clone();
+                let draft_cursor = self.cursor;
+                self.list = None;
+                let index = self.history.len() - 1;
+                let entry = self.history[index].clone();
+                let cursor = entry.chars().count();
+                self.history_browse = Some(HistoryBrowse {
+                    index,
+                    draft,
+                    draft_cursor,
+                });
+                self.set(entry, cursor);
+            }
+            (Some(browse), true) => {
+                if browse.index > 0 {
+                    browse.index -= 1;
+                    let entry = self.history[browse.index].clone();
+                    let cursor = entry.chars().count();
+                    self.set(entry, cursor);
+                }
+            }
+            (Some(browse), false) => {
+                if browse.index + 1 < self.history.len() {
+                    browse.index += 1;
+                    let entry = self.history[browse.index].clone();
+                    let cursor = entry.chars().count();
+                    self.set(entry, cursor);
+                } else {
+                    let browse = self.history_browse.take().expect("history browse state");
+                    self.set(browse.draft, browse.draft_cursor);
+                }
+            }
+        }
+    }
+
     /// Escape: ends a search, else hides the list. Returns whether it did either (otherwise
     /// Escape closes the console).
     /// Whether [`Self::dismiss`] would end a search or hide the completion list.
@@ -460,6 +522,7 @@ impl LineEditor {
     /// Ctrl+R: start a reverse history search, or find the next older match.
     pub fn search_back(&mut self) {
         self.anchor = None;
+        self.history_browse = None;
         self.search = Some(match self.search.take() {
             Some((query, back)) => {
                 let next = back + 1;
@@ -487,6 +550,7 @@ impl LineEditor {
         let line = std::mem::take(&mut self.text);
         self.cursor = 0;
         self.undo_stack.clear();
+        self.history_browse = None;
         self.list = None;
         self.dismissed = None;
         let entry = line.trim();
@@ -618,19 +682,97 @@ mod tests {
         assert!(!e.take_history_changed());
         e.step(true, false);
         assert_eq!(e.text(), "fov 90", "Up starts at the newest");
+        assert!(e.browsing_history() && e.popup().is_none());
         e.refresh(&App::default());
+        assert!(e.popup().is_none(), "history recall opens no popup");
         e.step(true, false);
         assert_eq!(e.text(), "map x");
-        let (items, index) = e.popup().unwrap();
-        assert_eq!((items.len(), index), (2, Some(0)));
+        e.step(true, false);
+        assert_eq!(e.text(), "map x", "clamps at oldest history entry");
         e.step(false, false);
         assert_eq!(e.text(), "fov 90");
+        e.step(false, false);
+        assert_eq!(e.text(), "", "Down past newest restores empty line");
+        assert!(!e.browsing_history() && e.popup().is_none());
         let mut many = LineEditor::default();
         many.set_history((0..150).map(|i| i.to_string()).collect());
         assert_eq!(
             (many.history().len(), many.history()[0].as_str()),
             (HISTORY_MAX, "50")
         );
+    }
+
+    #[test]
+    fn history_browsing_preserves_and_restores_unsent_draft_without_popup() {
+        let app = App {
+            maps: vec!["d1_trainstation_01"],
+        };
+        let mut e = LineEditor::default();
+        for cmd in ["map d1_trainstation_01", "fov 90"] {
+            e.insert(cmd);
+            e.submit();
+        }
+        e.insert("say hello world");
+        e.word_left();
+        e.refresh(&app);
+        let saved_cursor = e.cursor();
+        assert_eq!(e.text(), "say hello world");
+
+        // Down on the unsent draft leaves it untouched.
+        e.step(false, false);
+        assert_eq!((e.text(), e.cursor()), ("say hello world", saved_cursor));
+        assert!(!e.browsing_history());
+
+        // Up recalls history without opening any popup even for known commands.
+        e.step(true, false);
+        e.refresh(&app);
+        assert_eq!(e.text(), "fov 90");
+        assert!(e.browsing_history() && e.popup().is_none());
+        e.step(true, false);
+        e.refresh(&app);
+        assert_eq!(e.text(), "map d1_trainstation_01");
+        assert!(e.popup().is_none());
+
+        // Down steps forward through history and restores exact (draft, cursor) past newest.
+        e.step(false, false);
+        assert_eq!(e.text(), "fov 90");
+        e.step(false, false);
+        assert_eq!((e.text(), e.cursor()), ("say hello world", saved_cursor));
+        assert!(!e.browsing_history());
+
+        // Editing a recalled entry exits history browsing so refresh resumes completion.
+        e.submit();
+        e.insert("map");
+        e.submit();
+        e.step(true, false);
+        e.backspace();
+        assert!(!e.browsing_history());
+        e.refresh(&app);
+        assert!(e.popup().is_some());
+
+        // Dismissed popup stays dismissed when returning to that draft via Down.
+        assert!(e.dismiss());
+        assert!(e.popup().is_none());
+        let saved_partial = e.text().to_owned();
+        e.step(true, false);
+        assert_eq!(e.text(), "map");
+        e.step(false, false);
+        e.refresh(&app);
+        assert_eq!(e.text(), saved_partial);
+        assert!(e.popup().is_none());
+
+        // Explicit Tab stops history browsing and completes the recalled entry.
+        e.submit();
+        e.insert("ma");
+        e.submit();
+        e.step(true, false);
+        assert!(e.browsing_history());
+        e.stop_history_browse();
+        e.refresh(&app);
+        e.step(false, true);
+        assert!(!e.browsing_history());
+        assert_eq!(e.text(), "mainmenu");
+        assert!(e.popup().is_some());
     }
 
     #[test]
