@@ -49,7 +49,7 @@ impl From<&HudMaterial> for HudMaterialKey {
 }
 impl Material2d for HudMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/hud.wgsl".into()
+        "shaders/hud.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Blend

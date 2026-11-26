@@ -219,7 +219,7 @@ pub(crate) fn resolve_asset_root() -> Result<PathBuf> {
         .parent()
         .context("executable has no directory")?
         .join("bevy-assets");
-    if packaged_assets.join("shaders/source.wgsl").is_file() {
+    if packaged_assets.join("shaders/source.wesl").is_file() {
         Ok(packaged_assets)
     } else {
         Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"))

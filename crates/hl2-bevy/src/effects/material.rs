@@ -12,10 +12,10 @@ use bevy::{
 };
 impl Material for EffectMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/effects.wgsl".into()
+        "shaders/effects.wesl".into()
     }
     fn prepass_fragment_shader() -> ShaderRef {
-        "shaders/effects_depth.wgsl".into()
+        "shaders/effects_depth.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode {
         match self.kind {

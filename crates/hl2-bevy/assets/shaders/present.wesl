@@ -1,14 +1,14 @@
 // Presents the game frame in the window with the monitor gamma ramp (mat_monitorgamma): the
 // display-encoded value v becomes v^(gamma / 2.2), so 2.2 is unchanged, lower is lighter.
-#import bevy_sprite::mesh2d_vertex_output::VertexOutput
+import bevy_sprite_render::mesh2d::vertex_output::VertexOutput;
 
 struct PresentParams {
     // x: ramp exponent (gamma / 2.2).
     params: vec4<f32>,
 };
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> present: PresentParams;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var frame_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var frame_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> present: PresentParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var frame_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var frame_sampler: sampler;
 
 fn encode(c: vec3<f32>) -> vec3<f32> {
     return select(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3(0.0031308));

@@ -3,7 +3,7 @@
 // camera entity's view ("scene") and the ordinary view ("gman"), added over black with
 // SRC_ALPHA, ONE. The engine reads and writes its 8-bit frame buffers without sRGB conversion,
 // so the modes work on gamma-space values; ours are linear and are converted around them.
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 @group(0) @binding(0) var view_texture: texture_2d<f32>;
 @group(0) @binding(1) var scene_texture: texture_2d<f32>;

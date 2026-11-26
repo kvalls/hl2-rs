@@ -93,7 +93,7 @@ fn init(
         layout,
         sampler,
         fullscreen: fullscreen.clone(),
-        shader: assets.load("shaders/motion_blur.wgsl"),
+        shader: assets.load("shaders/motion_blur.wesl"),
     });
 }
 

@@ -173,7 +173,7 @@ fn init(
         reduce_layout,
         composite_layouts,
         fullscreen: fullscreen.clone(),
-        shader: assets.load("shaders/weapon_blur.wgsl"),
+        shader: assets.load("shaders/weapon_blur.wesl"),
         sampler: device.create_sampler(&SamplerDescriptor {
             min_filter: FilterMode::Linear,
             mag_filter: FilterMode::Linear,

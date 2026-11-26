@@ -1,21 +1,21 @@
-#import "shaders/source_uniforms.wgsl"::material
-#import bevy_pbr::forward_io::VertexOutput
-#import bevy_pbr::mesh_view_bindings::{view, clustered_lights, lights, directional_shadow_textures, directional_shadow_textures_comparison_sampler}
-#import bevy_render::maths::orthonormalize
-#import bevy_pbr::clustered_forward
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var base_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var base_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(4) var lightmap_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(5) var lightmap_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(6) var iris_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(7) var iris_sampler: sampler;
+import package::shaders::source_uniforms::material;
+import bevy_pbr::render::forward_io::VertexOutput;
+import bevy_pbr::render::mesh_view_bindings::{view, clustered_lights, lights, directional_shadow_textures, directional_shadow_textures_comparison_sampler};
+import bevy_render::maths::orthonormalize;
+import bevy_pbr::render::clustered_forward;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var base_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var base_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(4) var lightmap_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(5) var lightmap_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(6) var iris_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(7) var iris_sampler: sampler;
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(10) var envmap_texture: texture_cube<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(11) var envmap_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(15) var envmap_mask_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(16) var envmap_mask_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(18) var flashlight_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(19) var flashlight_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(10) var envmap_texture: texture_cube<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(11) var envmap_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(15) var envmap_mask_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(16) var envmap_mask_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(18) var flashlight_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(19) var flashlight_sampler: sampler;
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
@@ -146,12 +146,13 @@ fn flashlight_shadow(id: u32, delta: vec3<f32>, direction: vec3<f32>, pixel: vec
     var coverage = 0.0;
     for (var sample = 0u; sample < 8u; sample++) {
         let offset = mat2x2(rotation, vec2(-rotation.y, rotation.x)) * FLASHLIGHT_POISSON[sample] * (6.0 / 1024.0);
-#ifdef NO_ARRAY_TEXTURES_SUPPORT
-        coverage += textureSampleCompareLevel(directional_shadow_textures, directional_shadow_textures_comparison_sampler, uv + offset, depth);
-#else
-        coverage += textureSampleCompareLevel(directional_shadow_textures, directional_shadow_textures_comparison_sampler,
-            uv + offset, i32(id) + lights.spot_light_shadowmap_offset, depth);
-#endif
+        @if(NO_ARRAY_TEXTURES_SUPPORT) {
+            coverage += textureSampleCompareLevel(directional_shadow_textures, directional_shadow_textures_comparison_sampler, uv + offset, depth);
+        }
+        @if(!NO_ARRAY_TEXTURES_SUPPORT) {
+            coverage += textureSampleCompareLevel(directional_shadow_textures, directional_shadow_textures_comparison_sampler,
+                uv + offset, i32(id) + lights.spot_light_shadowmap_offset, depth);
+        }
     }
     return coverage * 0.125;
 }
@@ -213,11 +214,11 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let material_albedo = base.rgb;
     base *= material.tint * vertex_color;
     if base.a < material.parameters.x { discard; }
-#ifdef MAY_DISCARD
     // Alpha-test survivors are opaque. Retaining texture alpha blends the sky back
     // through cutout edges when later cameras compose the frame, creating bright rims.
-    base.a = 1.0;
-#endif
+    @if(MAY_DISCARD) {
+        base.a = 1.0;
+    }
     // DecalModulate (z = 2): alpha test GREATER 0 above, then mod2x of the frame behind it
     // (2 x texture under a Dst x Src blend) with TONEMAP_SCALE_NONE: the lit frame is the
     // multiplicand, so neither light nor exposure applies (like effects.wgsl's studio decals).

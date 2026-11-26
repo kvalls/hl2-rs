@@ -77,14 +77,14 @@ sudo apt-get install g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkb
 
 Install the graphics driver and desktop portal backend appropriate to the system;
 package names differ between distributions. The library list follows the pinned
-[Bevy Linux build requirements](https://github.com/bevyengine/bevy/blob/v0.19.1/docs/linux_dependencies.md).
+[Bevy Linux build requirements](https://github.com/bevyengine/bevy/blob/v0.20.1/docs/linux_dependencies.md).
 The Linux commands are documented prerequisites, **not a locally verified build**.
 CI defines native checks on Windows and Apple Silicon macOS; owned-content/rendering checks remain
 separate from source-only CI.
 
 ## Branches and contributing
 
-HL2-RS is a Bevy 0.19 / wgpu Rust rewrite. Owned asset readers, shared simulation and rendering are separated following [iw4L](https://github.com/vladtrc/iw4L). On 2026-10-07 the Bevy work was merged into `main` and the original Macroquad/OpenGL host was removed from it.
+HL2-RS is a Bevy 0.20 / wgpu Rust rewrite. Owned asset readers, shared simulation and rendering are separated following [iw4L](https://github.com/vladtrc/iw4L). On 2026-10-07 the Bevy work was merged into `main` and the original Macroquad/OpenGL host was removed from it.
 
 | Branch | Purpose | Pull requests |
 | --- | --- | --- |

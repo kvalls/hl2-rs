@@ -28,12 +28,14 @@
 !/plugins/*/Cargo.toml
 !/plugins/*/src/**/*.rs
 !/plugins/*/assets/shaders/*.wgsl
+!/plugins/*/assets/shaders/*.wesl
 !/plugins/*/assets/ui/*.res
 !/plugins/*/assets/ui/tuning.json
 !/plugins/*/assets/display/*.json
 !/crates/**/Cargo.toml
 !/crates/**/src/**/*.rs
 !/crates/hl2-bevy/assets/shaders/*.wgsl
+!/crates/hl2-bevy/assets/shaders/*.wesl
 !/crates/source-ui/assets/fonts/ProggyClean.ttf
 !/crates/source-ui/assets/fonts/LICENSE.txt
 !/crates/source-ui/assets/fonts/README.md

@@ -97,7 +97,7 @@ Read docs/gameui.md section 0 before UI work; in one line each:
 
 - Windows 11 Pro 64-bit, observed version 10.0.26200, is the primary tested platform. macOS Apple Silicon (aarch64, Metal) was tested by a contributor (@OrbitalMan, PR #1: build, tests and the packaged build running d1_trainstation_02 with its scripted dispenser, Metrocop and queue sequences on an M1 Pro); other platforms **not tested**.
 - Owned Steam Half-Life 2 app220, tested build19307283/patch9912070; other versions **not tested**. Default installation: C:/Program Files (x86)/Steam/steamapps/common/Half-Life 2; discover another library or use HL2_ROOT.
-- Rust1.99.0 stable MSVC, Visual Studio C++ tools/Windows SDK. Bevy0.19.1/wgpu and direct Rapier0.26.1. Switching to Avian was not requested; comparative physics performance is not tested.
+- Rust1.99.0 stable MSVC, Visual Studio C++ tools/Windows SDK. Bevy0.20.1/wgpu30 (shaders are WESL: .wesl files with `import ...;` and `@if`) and direct Rapier0.26.1. Switching to Avian was not requested; comparative physics performance is not tested.
 - Loader: none. Game owning the player: not applicable; Rust simulation owns state and the installation supplies content.
 - Agent: Claude Code desktop (2026-10-06/07 sessions, Claude Opus 5.5).
 

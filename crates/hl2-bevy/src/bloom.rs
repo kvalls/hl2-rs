@@ -150,7 +150,7 @@ fn init_pipelines(
         address_mode_v: AddressMode::ClampToEdge,
         ..default()
     });
-    let shader = assets.load("shaders/bloom.wgsl");
+    let shader = assets.load("shaders/bloom.wesl");
     let fullscreen = fullscreen.clone();
     let shape = cache.queue_render_pipeline(descriptor(
         &layout,

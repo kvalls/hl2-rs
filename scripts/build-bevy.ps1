@@ -43,7 +43,7 @@ try {
     # Only replace this verified generated directory, so removed shaders cannot linger.
     if (Test-Path -LiteralPath $shaderDestination) { Remove-Item -LiteralPath $shaderDestination -Recurse -Force }
     Copy-Item -LiteralPath $shaderSource -Destination $shaderDestination -Recurse -Force
-    if (",$Plugins," -like '*,advanced-options,*') { Copy-Item -LiteralPath (Join-Path $projectRoot 'plugins\hl2-advanced-options\assets\shaders\weapon_blur.wgsl') -Destination (Join-Path $shaderDestination 'shaders\weapon_blur.wgsl') -Force }
+    if (",$Plugins," -like '*,advanced-options,*') { Copy-Item -LiteralPath (Join-Path $projectRoot 'plugins\hl2-advanced-options\assets\shaders\weapon_blur.wesl') -Destination (Join-Path $shaderDestination 'shaders\weapon_blur.wesl') -Force }
     $packageExecutable = Join-Path $packageRoot 'hl2-bevy.exe'
     Copy-Item -LiteralPath $sourceExecutable -Destination $packageExecutable -Force
 

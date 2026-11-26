@@ -25,4 +25,4 @@ struct SourceUniforms {
     self_illum: vec4<f32>,
     viewmodel_flashlight: ViewmodelLight,
 }
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> material: SourceUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> material: SourceUniforms;

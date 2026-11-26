@@ -198,7 +198,7 @@ pub struct PresentMaterial {
 
 impl bevy::sprite_render::Material2d for PresentMaterial {
     fn fragment_shader() -> bevy::shader::ShaderRef {
-        "shaders/present.wgsl".into()
+        "shaders/present.wesl".into()
     }
 }
 

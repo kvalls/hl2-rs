@@ -39,7 +39,7 @@ pub struct ShadowMaterial {
 
 impl Material for ShadowMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/shadow.wgsl".into()
+        "shaders/shadow.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode {
