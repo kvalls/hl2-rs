@@ -577,50 +577,53 @@ impl PhysicsHooks for WorldSideMaterials {
         } else if self.shadow.contains(&context.collider2) {
             context.rigid_body1
         } else {
-            return Some(SolverFlags::COMPUTE_IMPULSES);
+            return Some(SolverFlags::COMPUTE_RIGID_IMPULSES);
         };
         let (handle, body) = other.and_then(|h| context.bodies.get(h).map(|b| (h, b)))?;
         (body.is_dynamic()
             && body.mass() <= PLAYER_PUSH_MASS_LIMIT
             && !self.shadow_excluded.contains(&handle))
-        .then_some(SolverFlags::COMPUTE_IMPULSES)
+        .then_some(SolverFlags::COMPUTE_RIGID_IMPULSES)
     }
     fn modify_solver_contacts(&self, context: &mut ContactModificationContext) {
         // VPhysics keeps one collision margin per contact pair, but Rapier adds both
         // colliders' skins: two props would rest a full margin further apart than a
         // prop on the floor (owner report: stacked crates sat higher than native).
-        let skin = |c| context.colliders.get(c).map_or(0., |c| c.contact_skin());
+        let colliders = context.colliders;
+        let skin = |c| colliders.get(c).map_or(0., |c| c.contact_skin());
         let shared = skin(context.collider1).min(skin(context.collider2));
+        let (collider1, collider2) = (context.collider1, context.collider2);
+        let ModifiableContacts::Rigid(manifold) = &mut context.contacts else {
+            return;
+        };
         if shared > 0. {
-            for contact in context.solver_contacts.iter_mut() {
+            for contact in manifold.solver_contacts.iter_mut() {
                 contact.dist += shared;
             }
             return;
         }
-        let n = Vec3::new(context.normal.x, context.normal.y, context.normal.z);
-        let (side, other) = if let Some(side) = self.side(context.collider1, n) {
-            (side, context.collider2)
-        } else if let Some(side) = self.side(context.collider2, -n) {
-            (side, context.collider1)
+        let n = *manifold.normal;
+        let (side, other) = if let Some(side) = self.side(collider1, n) {
+            (side, collider2)
+        } else if let Some(side) = self.side(collider2, -n) {
+            (side, collider1)
         } else {
             return;
         };
         // Multiply combine, as for every other surfaceprop pair.
-        let (friction, restitution) = context
-            .colliders
+        let (friction, restitution) = colliders
             .get(other)
             .map_or((1., 0.), |c| (c.friction(), c.restitution()));
-        for contact in context.solver_contacts.iter_mut() {
-            contact.friction = side.friction * friction;
-            contact.restitution = side.restitution * restitution;
-        }
+        // Rapier 0.36 keeps friction and restitution per manifold (0.26: per contact,
+        // where every contact got these same values).
+        *manifold.friction = side.friction * friction;
+        *manifold.restitution = side.restitution * restitution;
     }
 }
 #[derive(Default)]
 pub struct Physics {
     pub bodies: RigidBodySet,
     pub colliders: ColliderSet,
-    query: QueryPipeline,
     changed_entity_colliders: Vec<ColliderHandle>,
     pipeline: PhysicsPipeline,
     islands: IslandManager,
