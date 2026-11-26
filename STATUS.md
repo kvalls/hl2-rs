@@ -1,5 +1,13 @@
 # STATUS
 
+## Console chat visibility (2026-11-26)
+
+Remote `say` and `agent_status` use the gameplay caption panel only when
+the developer console is closed. The gate uses window visibility and the
+host still prints messages in the console. RCON tests, all app plugin
+selections and the macOS package build passed. Patched live visual
+verification and Windows runtime are **not tested**.
+
 ## Player-blocked NPC destination (2026-11-26)
 
 Three live Station 02 samples showed a citizen changing position around a

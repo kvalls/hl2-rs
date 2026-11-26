@@ -7,7 +7,10 @@ dialogue caption queue. Use its Source text formatter, frame, wrapping and
 animation. The plugin separates the white speaker label from the cyan text
 with a native color tag and uses the console's palette. RCON cues have a
 bounded duration and can appear while game captions are off. Verify both
-caption settings with authored dialogue and Source formatting.
+caption settings with authored dialogue and Source formatting. When the console
+window is open, consume the remote broadcasts in the console alone. Check
+window visibility at command dispatch so those lines cannot be queued for
+the caption frame after the window closes.
 
 ## Keep skill RCON local and support explicit network RCON (2026-11-26)
 

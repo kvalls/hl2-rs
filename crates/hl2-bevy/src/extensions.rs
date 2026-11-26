@@ -44,7 +44,7 @@ pub trait RuntimeExtension: Send + Sync + 'static {
     /// Finish external resources before the host exits its process.
     fn shutdown(&mut self) {}
     fn input(&mut self, _context: &mut Context<'_>, _input: &Input<'_>) {}
-    /// Text from an authenticated remote console chat broadcast.
+    /// Authenticated remote chat for presentation while the console is closed.
     fn remote_console_chat(&mut self, _line: &str) {}
     /// Submit gameplay dialogue before the shared caption panel is painted.
     fn gameplay_captions(&mut self, _captions: &hl2_ui::closecaption::CaptionHud) {}

@@ -192,8 +192,11 @@ fn run(
         Some(None) => ui.source.clear_snapshot(),
         None => {}
     }
+    let console_open = ui.source.console_open();
     for line in std::mem::take(&mut ui.source.remote.broadcast) {
-        sim.with_extensions(|extension, _| extension.remote_console_chat(&line));
+        if !console_open {
+            sim.with_extensions(|extension, _| extension.remote_console_chat(&line));
+        }
         ui.source.print(Level::ChatRemote, line);
     }
     lines
@@ -340,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn only_remote_chat_broadcasts_reach_runtime_extensions() {
+    fn only_remote_chat_broadcasts_with_the_console_closed_reach_runtime_extensions() {
         let mut console = Console::new(Default::default());
         let mut sim = Simulation::new(
             &modkit_core::World::default(),
@@ -366,7 +369,27 @@ mod tests {
         );
         assert!(reply.contains("command output"));
         assert!(reply.contains("Console: reply"));
-        assert_eq!(*lines.lock().unwrap(), ["Console: reply"]);
+        console.source.set_mode(hl2_ui::console::Mode::Console);
+        console.source.focus_base();
+        assert!(console.source.console_open());
+        let open_reply = run(&mut console, &mut sim, None, "say visible in console", from);
+        assert!(open_reply.contains("Console: visible in console"));
+        assert!(
+            console
+                .source
+                .shell
+                .panel
+                .output
+                .iter()
+                .any(|line| line.text == "Console: visible in console")
+        );
+        console.source.set_mode(hl2_ui::console::Mode::Gameplay);
+        assert!(!console.source.console_open());
+        run(&mut console, &mut sim, None, "say after close", from);
+        assert_eq!(
+            *lines.lock().unwrap(),
+            ["Console: reply", "Console: after close"]
+        );
         assert!(
             console
                 .source

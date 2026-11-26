@@ -1,5 +1,12 @@
 # MODLOG
 
+## 2026-11-26 — Keep remote chat and status in an open console
+
+- Codex desktop, `gpt-6.2-sol`.
+- Remote `say` and `agent_status` broadcasts still print in the console. The host checks whether the console window is open before forwarding a line to the gameplay caption contributor. A line sent while the window is visible never queues a caption for later.
+- `cargo test --locked -p hl2-bevy --lib rcon::tests` passed all four tests. The focused test covers the window open but unfocused, the closed state, and console output. The initial test tried to close the window by moving focus to the base. Setting the mode to Gameplay closed the window and the rerun passed.
+- All four app plugin selections passed. The macOS release package built with both plugins. Patched live caption behavior and Windows runtime are **not tested**.
+
 ## 2026-11-26 — Stop circling a destination blocked by the player
 
 - Codex desktop, `gpt-6.2-sol`.
