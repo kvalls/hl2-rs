@@ -2829,6 +2829,13 @@ anisotropic 8x, VSync) on an Apple M1 Pro at a steady 120 FPS, so the slowest 1%
 stays under 8.33 ms. Owner instruction for the first step: collect all the data one run can give,
 then iterate (measure, fix the largest or most frequent cost, re-measure on the same path).
 
+O1/O20 camera-only reconstruction: when a moving world camera has an explicitly
+empty object motion region, omit the raw reduction, tile reduction and dilation
+passes. Preserve the camera filter and the transparent object-gather clear used
+by the final composite. A missing region still permits object motion. Compare
+the camera-turn replay for composition parity and pass activity, then run the
+O20 Retina swing guard and O1 static and live Metal measurements.
+
 O32 scaling sweep: replay the same 100 placement camera positions and final plaza view at
 each population, enabling only the first 0, 10, 30, 60 or 100 placements. Use one NPC class
 to hold its cost mix constant. Validate successful placements, simulation duration and

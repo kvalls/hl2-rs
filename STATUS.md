@@ -1,5 +1,13 @@
 # STATUS
 
+## O1/O20 camera-only blur candidate (2026-11-26)
+
+Explicitly empty object coverage skips three reduction passes during
+camera motion. Two paired Metal captures matched every RGB channel.
+The Retina swing guard still fails and the overall performance gain
+is unverified. Candidate Metal pass timings and interactive pacing are
+**not tested**. See docs/performance.md for the measured scope.
+
 ## Performance backlog memory measurements (2026-11-26)
 
 O23 is done. Three packaged macOS Metal crowd replays reached 120 seconds

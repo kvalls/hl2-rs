@@ -1,5 +1,13 @@
 # MODLOG
 
+## 2026-11-26 — O1/O20 omit empty object reductions during camera blur
+
+- Codex desktop, GPT-6.2 Sol.
+- The world camera filter now skips three reduction passes when object coverage is empty. Composite still receives a transparent cleared object gather.
+- Matched Metal captures at the Canals lamp and Station 02 were pixel-identical. Diagnostic labels confirmed the raw and tile reductions were omitted. The packaged viewmodel blur replay passed.
+- Single-pair frame mean moved 2.53 → 2.34 ms at the lamp and 4.50 → 4.66 ms at Station 02. The Retina turn mean and both swing guards failed. The swing recordings had environment differences and leave the frame-time effect unresolved.
+- O1 and O20 remain partly done. Candidate Metal pass timestamps, interactive pacing, and Windows runtime are **not tested**.
+
 ## 2026-11-26 — Close O23 and measure the O10 memory baseline
 
 - Codex desktop, `gpt-6.2-sol`.

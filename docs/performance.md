@@ -1951,6 +1951,44 @@ The final package (SHA-256 prefix `bfcfb247`) repeated mixed 100
 with 100 verified bodies, 0.293 ms per physics tick,
 4.793 ms post-placement mean and a 6 ms p99 bound.
 
+
+## O1/O20 camera-only world blur reductions (2026-11-26)
+
+The camera-only world filter can run while the object motion region is
+explicitly empty. The pipeline omits the raw and tile reductions and
+dilation in that case. The object gather still clears to transparent
+before the final composite. A missing region keeps the conservative
+full path.
+
+On Apple M1 Pro Metal, the isolated camera-turn probes held simulation
+and skeletal presentation still at 1031×773, 4× MSAA. The Canals lamp
+and Station 02 views each had zero recorded object-motion texels.
+Both packages recorded the world camera filter. The baseline recorded
+raw and tile reduction passes and the candidate recorded neither.
+Each matched rendered RGB image was pixel-identical.
+The single-run whole-frame means were mixed, 2.53 → 2.34 ms at the
+lamp and 4.50 → 4.66 ms at Station 02. These pairs establish output
+parity and omitted passes. They leave the frame-time effect uncertain.
+
+The packaged `viewmodel_motion_blur` replay passed. The existing 3456×2168
+4× MSAA performance guard produced three pairs per scene. On the
+candidate, the turn median means were 7.87 ms Enabled and 10.32 ms
+Ultra, with p95 bounds of 9 and 12 ms. Swing means were 6.66 and 10.51 ms,
+with p95 bounds of 8 and 13 ms. The turn mean and both swing guards
+failed. Four of six pairs exceeded the preflight GPU load difference
+threshold. The earlier baseline swing Ultra mean was 10.08 ms and
+p95 was 12 ms. The non-interleaved sequence and environment differences
+leave the swing delta unresolved.
+
+Focused checks:
+
+- `NO_BUILD=1 ONLY=viewmodel_motion_blur python3 scripts/checks/replays.py`
+- `NO_BUILD=1 PYTHONPATH=scripts/checks python3 -c 'import check_world_blur as c; c.configure(); c.check_camera_only()'`
+- `NO_BUILD=1 BLUR_SCENES='turn swing' BLUR_LABEL=o20-camera-only python3 scripts/checks/check_blur_performance.py`
+
+Candidate Metal per-pass timestamps and interactive displayed-frame
+pacing are **not tested**. O1 and O20 remain partly done.
+
 ## O23 swap and O10 memory baseline (2026-11-26)
 
 M1 Pro, 16 GB, macOS Metal. Everyday packaged release at `02ff411f`,

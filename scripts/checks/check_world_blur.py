@@ -36,7 +36,7 @@ def fixture(case):
     return frames
 
 
-def run(case, aa="none", mode="advanced", suffix="normal", paused=False, size=(1024, 768)):
+def run(case, aa="none", mode="advanced", suffix="normal", paused=False, size=(1024, 768), *, camera_only=False):
     if replay.CONFIG.exists():
         replay.CONFIG.unlink()
     replay.settings(video={"width": size[0], "height": size[1], "hdr": "none", "hdr_migrated": True, "advanced": {
@@ -47,16 +47,38 @@ def run(case, aa="none", mode="advanced", suffix="normal", paused=False, size=(1
     frames = fixture(case)
     if paused:
         frames[-1]["paused"] = True
+    extra = ()
+    if camera_only:
+        # Let initial pose history and pipelines settle before starting the turn.
+        frames[1:] = [dict(step, tick=step["tick"] + 242) for step in frames[1:]]
+        extra = ("--no-ai", "--no-animation", "--no-effects", "--no-physics-step",
+                 "--timescale", "1", "--profile")
     path.write_text(json.dumps(frames), encoding="utf-8")
     result = replay.game(name, "--map", "d1_canals_01" if case == "lamp" else "d1_trainstation_02", "--width", str(size[0]), "--height", str(size[1]),
-                         "--movement-script", str(path), "--capture-live", "--capture-burst", "8")
+                         "--movement-script", str(path), "--capture-live", "--capture-burst", "8", *extra)
     replay.holds("no rendering errors", "ERROR" not in result.log and "Caught rendering error" not in result.log)
-    replay.expect("current poses", result.report["render"]["presentation"]["pose_or_visibility_mismatches"], 0)
+    if not camera_only:
+        replay.expect("current poses", result.report["render"]["presentation"]["pose_or_visibility_mismatches"], 0)
     replay.expect("actual render dimensions", result.report["render"]["presentation"]["hud"]["viewport"],
                   [float(size[0]), float(size[1])])
     if case not in ("camera", "lamp"):
         replay.holds("projectile still flying", len(result.sample("flight")["gameplay"]["projectiles"]["active"]) > 0)
     return result
+
+
+def check_camera_only():
+    result = run("lamp", aa="x4", suffix="camera_only", size=(1031, 773), camera_only=True)
+    presentation = result.report["render"]["presentation"]
+    reductions = presentation["gpu_completion"]["raw_world"]
+    replay.holds("world motion regions evaluated", reductions["full_texels"] > 0, reductions)
+    replay.expect("camera-only replay has no object-motion texels", reductions["processed_texels"], 0)
+    passes = presentation["render_diagnostics"]
+    replay.holds("camera filter and composite ran",
+                 all(f"render/{label}/elapsed_cpu" in passes for label in
+                     ("world_motion_blur", "world_blur_composite", "world_object_gather")), list(passes))
+    replay.holds("camera-only replay omitted object reduction passes",
+                 not any(k.startswith(("render/weapon_reduce_", "render/weapon_motion_dilate/"))
+                         for k in passes), list(passes))
 
 
 def diagnostic(shader):
@@ -105,6 +127,7 @@ def main():
     shader = replay.GAME / "bevy-assets/shaders/weapon_blur.wgsl"
     original = shader.read_text(encoding="utf-8")
     try:
+        check_camera_only()
         for case in ("camera", "lamp", "grenade", "rocket", "bugbait"):
             run(case)
         run("camera", aa="x4", suffix="partial_tiles", size=(1031, 773))

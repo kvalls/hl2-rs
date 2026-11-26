@@ -392,7 +392,11 @@ fn camera_gather(uv: vec2<f32>, vector: vec2<f32>) -> vec4<f32> {
 }
 @fragment
 fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+#ifdef OBJECT_GATHER
     let dominant = dominant_motion(in.uv);
+#else
+    let dominant = vec2(0.0);
+#endif
     let original = textureSampleLevel(frame,linear_sampler,in.uv,0.0);
     var base = original;
 #ifdef WORLD_OBJECTS

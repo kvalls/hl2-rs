@@ -382,43 +382,22 @@ fn reconstruct(
     {
         world::prepare_images(&mut ctx, &cache, textures, world);
     }
-    if region.is_some_and(|r| r.is_empty()) && (!blur.world || !blur.camera_moving) {
-        if let Some(performance) = performance.as_deref() {
-            let size = textures.reduced[0].texture.size();
-            performance.record_reduction(
-                blur.world,
-                0,
-                u64::from(size.width) * u64::from(size.height),
-            );
-        }
-        return;
-    }
-    for i in 0..3 {
-        let scissor = region.map(|r| r.pass_scissor(i, textures.size, blur.max));
-        if i == 0
-            && let Some(performance) = performance.as_deref()
-        {
-            let size = textures.reduced[0].texture.size();
-            let r = scissor.unwrap_or([0, 0, size.width, size.height]);
-            performance.record_reduction(
-                blur.world,
-                u64::from(r[2]) * u64::from(r[3]),
-                u64::from(size.width) * u64::from(size.height),
-            );
-        }
-        draw_region(
-            &mut ctx,
-            &cache,
-            prepared.pipelines[i],
-            &prepared.groups[i],
-            &textures.reduced[i].default_view,
-            [
-                "weapon_reduce_4",
-                "weapon_reduce_32",
-                "weapon_motion_dilate",
-            ][i],
-            scissor,
+    let object_motion = region.is_none_or(|r| !r.is_empty());
+    if let Some(performance) = performance.as_deref() {
+        let size = textures.reduced[0].texture.size();
+        let raw = region.map_or([0, 0, size.width, size.height], |r| {
+            r.scissor(textures.size)
+        });
+        performance.record_reduction(
+            blur.world,
+            u64::from(raw[2]) * u64::from(raw[3]),
+            u64::from(size.width) * u64::from(size.height),
         );
+    }
+    if object_motion {
+        draw_reductions(&mut ctx, &cache, textures, prepared, region, blur.max);
+    } else if !blur.world || !blur.camera_moving {
+        return;
     }
     if let Some(world) = &frame.world {
         world::reconstruct(
@@ -441,4 +420,34 @@ fn reconstruct(
         write.destination,
         "viewmodel_animation_blur",
     );
+}
+
+// The world camera filter ignores the reduction textures. A camera-only frame
+// still clears its object-gather target before the final composite.
+fn draw_reductions(
+    ctx: &mut RenderContext,
+    cache: &PipelineCache,
+    textures: &Textures,
+    prepared: &Prepared,
+    region: Option<&region::MotionRegion>,
+    max_blur: f32,
+) {
+    for (i, label) in [
+        "weapon_reduce_4",
+        "weapon_reduce_32",
+        "weapon_motion_dilate",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        draw_region(
+            ctx,
+            cache,
+            prepared.pipelines[i],
+            &prepared.groups[i],
+            &textures.reduced[i].default_view,
+            label,
+            region.map(|r| r.pass_scissor(i, textures.size, max_blur)),
+        );
+    }
 }
