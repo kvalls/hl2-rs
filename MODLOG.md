@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Sky camera warm-up rejected (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Nothing kept. A trial made `sky::present` draw every sky the map has (2D faces, 3D skybox) during the variant warm-up frames; reverted. docs/optimization-backlog.md (O9).
+- Why — The walk's first entry into the outside area compiles pipelines in one `125-138 ms` frame; the sky camera, inactive until sky is first visible, was the cheapest candidate.
+- Tested how — Unit test of the rule; everyday packages at maxed Retina, `pvs-walk` and `mixed-crowd`, A-B-B-A with four runs per side after one discarded warm-up each (`ad414a26` vs `84903d1f`).
+- Result — No change: walk maximum frame `124.9-136.7 -> 125.5-135.0 ms`; crowd mean `10.13 -> 10.14`, p99 `16.99 -> 16.72`. The crowd `render_graph` maximum is `26.1-27.5 ms` on both sides, not the `13.8-14.4` recorded after the hidden-draw warm-up.
+- Still broken or **not tested** — The first-entry stall; whether `visibility::present` re-hides warmed draws.
+- Next — Check the warm-up in its real schedule order, then warm world `PvsDraw` draws (O9).
+
 ## 2026-11-27 — Crowd mesh owners measured; O13 closed
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
