@@ -562,7 +562,11 @@ impl Inventory {
                 body.apply_impulse(Vec3::new(j.x, j.y, j.z), true);
                 let k = offset * SCALE;
                 let p = hit.position * SCALE;
-                body.apply_impulse_at_point(Vec3::new(k.x, k.y, k.z), Vec3::new(p.x, p.y, p.z), true);
+                body.apply_impulse_at_point(
+                    Vec3::new(k.x, k.y, k.z),
+                    Vec3::new(p.x, p.y, p.z),
+                    true,
+                );
             }
             self.punt_recoil();
         } else if let Some(npc) = npc::listed(scene, id) {

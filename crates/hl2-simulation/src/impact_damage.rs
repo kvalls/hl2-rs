@@ -665,7 +665,7 @@ mod tests {
             ColliderBuilder::cuboid(8. * S, 200. * S, 200. * S).translation(Vec3::new(
                 -8. * S,
                 0.,
-                0.
+                0.,
             )),
         );
         let body = physics.bodies.insert(

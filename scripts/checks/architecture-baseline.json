@@ -7,7 +7,7 @@
    "too_many_arguments allowances": 7
   },
   "hl2-simulation": {
-   "glob imports": 13,
+   "glob imports": 11,
    "mutable statics": 2,
    "too_many_arguments allowances": 32
   },
@@ -42,13 +42,11 @@
   "315d624c061b",
   "350498093ba2",
   "3612c4ae62eb",
-  "369e06d5d017",
   "38e26440c724",
   "393fa9579c7a",
   "3a2cd52dae7e",
   "3d34c27267f6",
   "3e923f2e08e9",
-  "441823ff37f1",
   "442c96193fbf",
   "4485b755ca4c",
   "46a513be1637",
@@ -147,7 +145,7 @@
   "crates/hl2-simulation/src/entities/choreography.rs": 1221,
   "crates/hl2-simulation/src/gameplay.rs": 2825,
   "crates/hl2-simulation/src/npc.rs": 1093,
-  "crates/hl2-simulation/src/physics.rs": 3268,
+  "crates/hl2-simulation/src/physics.rs": 3266,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1150,
@@ -294,7 +292,7 @@
    173
   ],
   "crates/hl2-simulation/src/physics.rs::add_model_instance": [
-   241
+   240
   ],
   "crates/hl2-simulation/src/physics.rs::add_runtime_body": [
    107
@@ -303,10 +301,10 @@
    124
   ],
   "crates/hl2-simulation/src/physics.rs::trace_hull": [
-   143
+   132
   ],
   "crates/hl2-simulation/src/physics.rs::update_player_shadow": [
-   240
+   234
   ],
   "crates/hl2-simulation/src/projectile_visuals.rs::frame": [
    198

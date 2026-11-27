@@ -402,7 +402,7 @@ mod tests {
             ColliderBuilder::cuboid(1. / 39.37, 200. / 39.37, 200. / 39.37).translation(Vec3::new(
                 300. / 39.37,
                 0.,
-                0.
+                0.,
             )),
         );
         physics.tick(0.015);

@@ -77,23 +77,29 @@ pub const MASK_SHOT: u32 = 0x1 | 0x4000 | 0x2000000 | 0x2 | 0x4000000 | 0x4000_0
 /// the player (movement or shadow), NPCs, thrown frags or other debris. Traces (bullets,
 /// +USE, the gravity gun) still hit it.
 const DEBRIS_GROUP: Group = Group::GROUP_6;
-const DEBRIS_GROUPS: InteractionGroups = InteractionGroups::new(DEBRIS_GROUP, Group::ALL
+const DEBRIS_GROUPS: InteractionGroups = and_groups(
+    DEBRIS_GROUP,
+    Group::ALL
         .difference(DEBRIS_GROUP)
         .difference(SHADOW_GROUP)
         .difference(HULL_GROUP)
         .difference(NPC_GROUP)
         .difference(PROJECTILE_GROUP)
-        .difference(INTERACTIVE_DEBRIS_GROUP), InteractionTestMode::And);
+        .difference(INTERACTIVE_DEBRIS_GROUP),
+);
 /// COLLISION_GROUP_INTERACTIVE_DEBRIS: a debris prop the player picked up, punted or
 /// threw (CPlayerPickupController::Init, Physgun_OnPhysGunPickup) collides with
 /// everything but debris, other interactive debris and the player (movement and
 /// shadow), so a thrown can hits NPCs; it converts back to debris when its body falls
 /// asleep (CBaseEntity::VPhysicsUpdate).
 const INTERACTIVE_DEBRIS_GROUP: Group = Group::GROUP_7;
-const INTERACTIVE_DEBRIS_GROUPS: InteractionGroups = InteractionGroups::new(INTERACTIVE_DEBRIS_GROUP, Group::ALL
+const INTERACTIVE_DEBRIS_GROUPS: InteractionGroups = and_groups(
+    INTERACTIVE_DEBRIS_GROUP,
+    Group::ALL
         .difference(DEBRIS_GROUP)
         .difference(INTERACTIVE_DEBRIS_GROUP)
-        .difference(SHADOW_GROUP), InteractionTestMode::And);
+        .difference(SHADOW_GROUP),
+);
 /// Client-side ragdolls (C_BaseAnimating::BecomeRagdollOnClient): the world and props
 /// block them but props are not pushed (dominance), and the player, NPCs, debris and
 /// every server trace ignore them. Self collisions follow the model's collision rules
@@ -105,49 +111,70 @@ const RAGDOLL_GROUP: Group = Group::GROUP_8;
 /// constants are not read (retail vphysics.dll).
 const RAGDOLL_SLEEP_ANGULAR: f32 = 2.;
 const RAGDOLL_SLEEP_TIME: f32 = 0.5;
-const RAGDOLL_GROUPS: InteractionGroups = InteractionGroups::new(RAGDOLL_GROUP, Group::ALL
+const RAGDOLL_GROUPS: InteractionGroups = and_groups(
+    RAGDOLL_GROUP,
+    Group::ALL
         .difference(SHADOW_GROUP)
         .difference(HULL_GROUP)
         .difference(NPC_GROUP)
         .difference(PROJECTILE_GROUP)
         .difference(DEBRIS_GROUP)
-        .difference(INTERACTIVE_DEBRIS_GROUP), InteractionTestMode::And);
+        .difference(INTERACTIVE_DEBRIS_GROUP),
+);
 /// Dropped weapons (CBaseCombatWeapon::FallInit, COLLISION_GROUP_WEAPON):
 /// CGameRules::ShouldCollide keeps the player (movement and shadow), NPCs (models and
 /// hulls) and debris off them, so the player walks over them; the world, props, thrown
 /// frags and other weapons still collide, and bullets, +USE and the gravity gun still hit
 /// them (COLLISION_GROUP_NONE traces).
 const WEAPON_GROUP: Group = Group::GROUP_9;
-const WEAPON_GROUPS: InteractionGroups = InteractionGroups::new(WEAPON_GROUP, Group::ALL
+const WEAPON_GROUPS: InteractionGroups = and_groups(
+    WEAPON_GROUP,
+    Group::ALL
         .difference(NPC_GROUP)
         .difference(HULL_GROUP)
         .difference(SHADOW_GROUP)
         .difference(DEBRIS_GROUP)
-        .difference(RAGDOLL_GROUP), InteractionTestMode::And);
-const QUERY_GROUPS: InteractionGroups = InteractionGroups::new(Group::ALL, Group::ALL
+        .difference(RAGDOLL_GROUP),
+);
+/// Rapier 0.26's group test, kept by 0.36's InteractionTestMode::And: each side's
+/// memberships must meet the other's filter.
+const fn and_groups(memberships: Group, filter: Group) -> InteractionGroups {
+    InteractionGroups::new(memberships, filter, InteractionTestMode::And)
+}
+
+const QUERY_GROUPS: InteractionGroups = and_groups(
+    Group::ALL,
+    Group::ALL
         .difference(PROJECTILE_GROUP)
         .difference(SHADOW_GROUP)
         .difference(HULL_GROUP)
-        .difference(RAGDOLL_GROUP), InteractionTestMode::And);
+        .difference(RAGDOLL_GROUP),
+);
 /// Player movement: everything solid to the player, NPC hull boxes included (not
 /// debris props).
-const PLAYER_GROUPS: InteractionGroups = InteractionGroups::new(Group::ALL, Group::ALL
+const PLAYER_GROUPS: InteractionGroups = and_groups(
+    Group::ALL,
+    Group::ALL
         .difference(PROJECTILE_GROUP)
         .difference(SHADOW_GROUP)
         .difference(DEBRIS_GROUP)
         .difference(INTERACTIVE_DEBRIS_GROUP)
         .difference(RAGDOLL_GROUP)
-        .difference(WEAPON_GROUP), InteractionTestMode::And);
+        .difference(WEAPON_GROUP),
+);
 /// The SDK hull (mins, maxs) of npc_* classes (SetHullType), for those done so far.
 pub fn npc_hull(class: &str) -> Option<(Vec3, Vec3)> {
     crate::ai_hull::body_box(class)
 }
 /// Traces with COLLISION_GROUP_NONE (FindUseEntity, the gravity gun's FindObject and
 /// punt): they also hit COLLISION_GROUP_WEAPON bodies such as a thrown frag.
-const PICK_GROUPS: InteractionGroups = InteractionGroups::new(Group::ALL, Group::ALL
+const PICK_GROUPS: InteractionGroups = and_groups(
+    Group::ALL,
+    Group::ALL
         .difference(SHADOW_GROUP)
         .difference(HULL_GROUP)
-        .difference(RAGDOLL_GROUP), InteractionTestMode::And);
+        .difference(RAGDOLL_GROUP),
+);
 /// Entity ids of VPhysics projectile bodies (thrown frags), above every map entity
 /// index, so the entity-keyed +USE and gravity gun holds can take them.
 pub const PROJECTILE_ENTITY_BASE: usize = 1 << 40;
@@ -245,12 +272,7 @@ fn brush_shape(brush: &Brush) -> Option<SharedShape> {
             }
         }
     }
-    SharedShape::convex_hull(
-        &points
-            .into_iter()
-            .map(|p| vector(p))
-            .collect::<Vec<_>>(),
-    )
+    SharedShape::convex_hull(&points.into_iter().map(vector).collect::<Vec<_>>())
 }
 fn mesh_shape(
     surfaces: &[Surface],
@@ -733,7 +755,7 @@ fn drag_geometry(body: &RigidBody, colliders: &ColliderSet) -> Option<crate::dra
                 add(Vec3::new(
                     if i & 1 == 0 { aabb.mins.x } else { aabb.maxs.x },
                     if i & 2 == 0 { aabb.mins.y } else { aabb.maxs.y },
-                    if i & 4 == 0 { aabb.mins.z } else { aabb.maxs.z }
+                    if i & 4 == 0 { aabb.mins.z } else { aabb.maxs.z },
                 ));
             }
         }
@@ -1101,9 +1123,7 @@ impl Physics {
         let com = body.position() * props.local_com;
         let com = Vec3::new(com.x, com.y, com.z) / SCALE;
         let snapped = point + axis * (com - point).dot(axis);
-        let local = body
-            .position()
-            .inverse_transform_point(vector(snapped));
+        let local = body.position().inverse_transform_point(vector(snapped));
         let mass = props.mass();
         let snapped_props = MassProperties::with_principal_inertia_frame(
             local,
@@ -1311,8 +1331,7 @@ impl Physics {
                 self.collider_materials.insert(c, name.clone());
             }
             if instance.kind.starts_with("npc_") {
-                self.colliders[c]
-                    .set_collision_groups(InteractionGroups::new(NPC_GROUP, Group::ALL, InteractionTestMode::And));
+                self.colliders[c].set_collision_groups(and_groups(NPC_GROUP, Group::ALL));
             } else if body.is_some() && prop_flags & 4 != 0 {
                 self.colliders[c].set_collision_groups(DEBRIS_GROUPS);
             }
@@ -1420,8 +1439,13 @@ impl Physics {
         rig: &modkit_core::animation::Rig,
     ) {
         for c in self.entity_colliders.remove(&id).unwrap_or_default() {
-            self.colliders
-                .remove(c, &mut self.islands, &mut self.bodies, &mut self.soft, false);
+            self.colliders.remove(
+                c,
+                &mut self.islands,
+                &mut self.bodies,
+                &mut self.soft,
+                false,
+            );
             self.npc_hitboxes.remove(&c);
             self.world_sides.hitboxes.remove(&c);
             self.npc_collider_contents.remove(&c);
@@ -1439,7 +1463,7 @@ impl Physics {
             let collider = ColliderBuilder::cuboid(half.x * SCALE, half.y * SCALE, half.z * SCALE)
                 .position(mat4_pose(base * bind * Mat4::from_translation(center)))
                 .user_data(id as u128 + 1)
-                .collision_groups(InteractionGroups::new(NPC_GROUP, Group::ALL, InteractionTestMode::And))
+                .collision_groups(and_groups(NPC_GROUP, Group::ALL))
                 .active_collision_types(ActiveCollisionTypes::empty())
                 .active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS);
             let c = self.colliders.insert(collider);
@@ -1968,9 +1992,12 @@ impl Physics {
                     .contact_skin(VPHYSICS_CONTACT_MARGIN * SCALE)
                     .active_hooks(ActiveHooks::MODIFY_SOLVER_CONTACTS)
             } else {
-                builder.collision_groups(InteractionGroups::new(PROJECTILE_GROUP, Group::ALL
+                builder.collision_groups(and_groups(
+                    PROJECTILE_GROUP,
+                    Group::ALL
                         .difference(NPC_GROUP)
-                        .difference(PROJECTILE_GROUP), InteractionTestMode::And))
+                        .difference(PROJECTILE_GROUP),
+                ))
             };
             let builder = match material {
                 Some(m) => builder
@@ -2300,9 +2327,7 @@ impl Physics {
         point: Vec3,
     ) -> Option<RigidBodyHandle> {
         let body = self.bodies.get_mut(handle)?;
-        let local = body
-            .position()
-            .inverse_transform_point(vector(point));
+        let local = body.position().inverse_transform_point(vector(point));
         let props = body.mass_properties().local_mprops;
         let doubled = MassProperties::with_principal_inertia_frame(
             props.local_com,
@@ -2411,7 +2436,7 @@ impl Physics {
         };
         let mut pose = *body.position();
         let p = position * SCALE;
-        pose.translation = Vec3::new(p.x, p.y, p.z).into();
+        pose.translation = Vec3::new(p.x, p.y, p.z);
         body.set_body_type(RigidBodyType::Fixed, true);
         body.set_position(pose, true);
         body.set_linvel(Vec3::new(0., 0., 0.), false);
@@ -2436,7 +2461,7 @@ impl Physics {
             if let Some(body) = self.bodies.get_mut(handle) {
                 let mut pose = *body.position();
                 let p = save * SCALE;
-                pose.translation = Vec3::new(p.x, p.y, p.z).into();
+                pose.translation = Vec3::new(p.x, p.y, p.z);
                 body.set_body_type(RigidBodyType::Dynamic, true);
                 body.set_position(pose, true);
             }
@@ -2533,7 +2558,15 @@ impl Physics {
         self.drag_fractions.remove(&handle);
         self.drag_geometry.remove(&handle);
         self.ccd_gated.remove(&handle);
-        self.bodies.remove(handle, &mut self.islands, &mut self.colliders, &mut self.impulses, &mut self.multibody, &mut self.soft, true);
+        self.bodies.remove(
+            handle,
+            &mut self.islands,
+            &mut self.colliders,
+            &mut self.impulses,
+            &mut self.multibody,
+            &mut self.soft,
+            true,
+        );
         // Removed colliders keep their BVH leaves until the next step; queries look colliders
         // up by slot and skip the removed ones (a faded gib once panicked a later ray).
     }
@@ -2592,10 +2625,13 @@ impl Physics {
                         .density(0.)
                         .friction(0.8)
                         .active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS)
-                        .collision_groups(InteractionGroups::new(SHADOW_GROUP, Group::ALL
+                        .collision_groups(and_groups(
+                            SHADOW_GROUP,
+                            Group::ALL
                                 .difference(PROJECTILE_GROUP)
                                 .difference(NPC_GROUP)
-                                .difference(SHADOW_GROUP), InteractionTestMode::And)),
+                                .difference(SHADOW_GROUP),
+                        )),
                     body,
                     &mut self.bodies,
                 );
@@ -2623,7 +2659,12 @@ impl Physics {
         let movable = |physics: &Self, from: Vec3, to: Vec3| -> Option<RigidBodyHandle> {
             let shape = Cuboid::new(Vec3::new(half.x * SCALE, half.y * SCALE, half.z * SCALE));
             let filter = Self::movable_filter();
-            let (collider, _) = physics.queries(filter).cast_shape(&pose(center(from), Quat::IDENTITY), vector(to - from), &shape, ShapeCastOptions::with_max_time_of_impact(1.))?;
+            let (collider, _) = physics.queries(filter).cast_shape(
+                &pose(center(from), Quat::IDENTITY),
+                vector(to - from),
+                &shape,
+                ShapeCastOptions::with_max_time_of_impact(1.),
+            )?;
             let body = physics.colliders.get(collider)?.parent()?;
             physics
                 .bodies
@@ -2729,15 +2770,23 @@ impl Physics {
                     })
             };
             let filter = QueryFilter::default()
-                .groups(InteractionGroups::new(SHADOW_GROUP, Group::ALL
+                .groups(and_groups(
+                    SHADOW_GROUP,
+                    Group::ALL
                         .difference(PROJECTILE_GROUP)
                         .difference(NPC_GROUP)
                         .difference(SHADOW_GROUP)
-                        .difference(RAGDOLL_GROUP), InteractionTestMode::And))
+                        .difference(RAGDOLL_GROUP),
+                ))
                 .exclude_sensors()
                 .predicate(&skip);
             let delta = velocity * dt;
-            if let Some((collider, hit)) = self.queries(filter).cast_shape(&pose(position + skin_offset, Quat::IDENTITY), vector(delta), &shape, ShapeCastOptions::with_max_time_of_impact(1.)) {
+            if let Some((collider, hit)) = self.queries(filter).cast_shape(
+                &pose(position + skin_offset, Quat::IDENTITY),
+                vector(delta),
+                &shape,
+                ShapeCastOptions::with_max_time_of_impact(1.),
+            ) {
                 let n = Vec3::new(hit.normal1.x, hit.normal1.y, hit.normal1.z);
                 let other = self.colliders.get(collider).and_then(|c| c.parent());
                 let pushable = other
@@ -2902,11 +2951,7 @@ impl Physics {
     pub fn impulse_at(&mut self, id: usize, impulse: Vec3, point: Vec3) {
         if let Some(b) = self.dynamic.get(&id).and_then(|h| self.bodies.get_mut(*h)) {
             let p = vector(point);
-            b.apply_impulse_at_point(
-                Vec3::new(impulse.x, impulse.y, impulse.z),
-                p,
-                true,
-            );
+            b.apply_impulse_at_point(Vec3::new(impulse.x, impulse.y, impulse.z), p, true);
         }
     }
     pub fn impulse(&mut self, id: usize, direction: Vec3, strength: f32) {
@@ -2916,7 +2961,7 @@ impl Physics {
                     Vec3::new(
                         direction.x * strength,
                         direction.y * strength,
-                        direction.z * strength
+                        direction.z * strength,
                     ),
                     true,
                 );
@@ -2953,15 +2998,24 @@ impl Physics {
                     .get(&handle)
                     .is_none_or(|contents| contents & 0x0200_400b != 0)
         };
-        let (handle, hit) = self.queries(QueryFilter::default()
-                .groups(QUERY_GROUPS)
-                .exclude_sensors()
-                .predicate(&predicate)).cast_shape(&pose(start, Quat::IDENTITY), vector(end - start), shape.as_ref(), ShapeCastOptions {
-                max_time_of_impact: 1.,
-                target_distance: 0.,
-                stop_at_penetration: true,
-                compute_impact_geometry_on_penetration: true,
-            })?;
+        let (handle, hit) = self
+            .queries(
+                QueryFilter::default()
+                    .groups(QUERY_GROUPS)
+                    .exclude_sensors()
+                    .predicate(&predicate),
+            )
+            .cast_shape(
+                &pose(start, Quat::IDENTITY),
+                vector(end - start),
+                shape.as_ref(),
+                ShapeCastOptions {
+                    max_time_of_impact: 1.,
+                    target_distance: 0.,
+                    stop_at_penetration: true,
+                    compute_impact_geometry_on_penetration: true,
+                },
+            )?;
         Some(ProjectileHit {
             entity: (self.colliders[handle].user_data as usize).wrapping_sub(1),
             position: start.lerp(end, hit.time_of_impact),
@@ -3044,7 +3098,14 @@ impl Physics {
             stop_at_penetration: true,
             compute_impact_geometry_on_penetration: true,
         };
-        let (handle, hit) = self.queries(groups_filter(groups).predicate(&predicate)).cast_shape(&pose(origin, Quat::IDENTITY), vector(direction * distance), &shape, options)?;
+        let (handle, hit) = self
+            .queries(groups_filter(groups).predicate(&predicate))
+            .cast_shape(
+                &pose(origin, Quat::IDENTITY),
+                vector(direction * distance),
+                &shape,
+                options,
+            )?;
         Some(RayHit {
             entity: (self.colliders[handle].user_data as usize).wrapping_sub(1),
             position: origin + direction * distance * hit.time_of_impact,
@@ -3104,40 +3165,42 @@ impl CollisionWorld for Physics {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         for (handle, collider) in self
-                .queries(QueryFilter::default())
-                .intersect_aabb_conservative(bounds)
+            .queries(QueryFilter::default())
+            .intersect_aabb_conservative(bounds)
+        {
+            if collider.is_enabled()
+                && !collider.is_sensor()
+                && !matches!(
+                    collider.collision_groups().memberships,
+                    PROJECTILE_GROUP
+                        | SHADOW_GROUP
+                        | DEBRIS_GROUP
+                        | INTERACTIVE_DEBRIS_GROUP
+                        | RAGDOLL_GROUP
+                        | WEAPON_GROUP
+                )
+                && !self.world_brush_contents.contains_key(&handle)
+                && !self.npc_hitboxes.contains(&handle)
             {
-                if collider.is_enabled()
-                    && !collider.is_sensor()
-                    && !matches!(
-                        collider.collision_groups().memberships,
-                        PROJECTILE_GROUP
-                            | SHADOW_GROUP
-                            | DEBRIS_GROUP
-                            | INTERACTIVE_DEBRIS_GROUP
-                            | RAGDOLL_GROUP
-                            | WEAPON_GROUP
-                    )
-                    && !self.world_brush_contents.contains_key(&handle)
-                    && !self.npc_hitboxes.contains(&handle)
-                {
-                    if let Some(brush) = cache.brush(handle, collider) {
-                        let hit =
-                            trace_brushes(std::slice::from_ref(brush), start, end, mins, maxs, 1);
-                        result.start_solid |= hit.start_solid;
-                        result.all_solid |= hit.all_solid;
-                        if hit.fraction < result.fraction {
-                            result.fraction = hit.fraction;
-                            result.normal = hit.normal;
-                        }
+                if let Some(brush) = cache.brush(handle, collider) {
+                    let hit = trace_brushes(std::slice::from_ref(brush), start, end, mins, maxs, 1);
+                    result.start_solid |= hit.start_solid;
+                    result.all_solid |= hit.all_solid;
+                    if hit.fraction < result.fraction {
+                        result.fraction = hit.fraction;
+                        result.normal = hit.normal;
                     }
                 }
             }
+        }
         self.trace_entity_player_clips(cache, (start, end, mins, maxs), &mut result);
         let mut overlapping = Vec::new();
-        for (handle, _) in self.queries(filter).intersect_shape(position, &overlap_shape) {
-                overlapping.push(handle);
-            }
+        for (handle, _) in self
+            .queries(filter)
+            .intersect_shape(position, &overlap_shape)
+        {
+            overlapping.push(handle);
+        }
         result.start_solid |= !overlapping.is_empty();
         // The overlap region of a convex collider and a translating hull is
         // convex: overlapping both endpoints proves this entire segment is solid.
@@ -3172,7 +3235,10 @@ impl CollisionWorld for Physics {
             stop_at_penetration: false,
             compute_impact_geometry_on_penetration: true,
         };
-        if let Some((_, hit)) = self.queries(filter).cast_shape(&position, vector(delta), &shape, options) {
+        if let Some((_, hit)) =
+            self.queries(filter)
+                .cast_shape(&position, vector(delta), &shape, options)
+        {
             let n = hit.normal1;
             let fraction = hit.time_of_impact.clamp(0., 1.);
             if fraction < result.fraction {

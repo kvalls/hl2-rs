@@ -1460,7 +1460,7 @@ mod tests {
                 .translation(Vec3::new(
                     center.x / 39.37,
                     center.y / 39.37,
-                    center.z / 39.37
+                    center.z / 39.37,
                 ))
                 .user_data(entity.map_or(0, |id| id as u128 + 1)),
         );

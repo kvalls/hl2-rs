@@ -601,9 +601,9 @@ fn dropped_weapons_let_players_and_npcs_through_but_not_traces() {
     for blocked in [PLAYER_GROUPS, DEBRIS_GROUPS] {
         assert!(!groups.test(blocked));
     }
-    assert!(!groups.test(InteractionGroups::new(HULL_GROUP, Group::ALL, InteractionTestMode::And)));
-    assert!(!groups.test(InteractionGroups::new(SHADOW_GROUP, Group::ALL, InteractionTestMode::And)));
-    assert!(groups.test(InteractionGroups::new(Group::GROUP_1, Group::ALL, InteractionTestMode::And)));
+    assert!(!groups.test(and_groups(HULL_GROUP, Group::ALL)));
+    assert!(!groups.test(and_groups(SHADOW_GROUP, Group::ALL)));
+    assert!(groups.test(and_groups(Group::GROUP_1, Group::ALL)));
     // Bullets and the gravity gun still find it.
     let shot = physics.ray(Vec3::new(0., 200., 40.), Vec3::X, 200.);
     assert!(shot.is_some());
@@ -671,10 +671,13 @@ fn picked_up_debris_hits_npcs_until_it_sleeps() {
         ],
     });
     let mut physics = Physics::new(&world);
-    let hull = InteractionGroups::new(HULL_GROUP, Group::ALL
+    let hull = and_groups(
+        HULL_GROUP,
+        Group::ALL
             .difference(PROJECTILE_GROUP)
             .difference(SHADOW_GROUP)
-            .difference(RAGDOLL_GROUP), InteractionTestMode::And);
+            .difference(RAGDOLL_GROUP),
+    );
     let groups = |physics: &Physics| {
         let body = &physics.bodies[physics.dynamic[&0]];
         physics.colliders[body.colliders()[0]].collision_groups()
@@ -1057,7 +1060,7 @@ fn moving_overlap_reports_start_solid_and_allows_an_exit() {
         ColliderBuilder::cuboid(5. * SCALE, 8. * SCALE, 50. * SCALE).translation(Vec3::new(
             15. * SCALE,
             0.,
-            50. * SCALE
+            50. * SCALE,
         )),
     );
     rapier.refresh_queries();
@@ -1159,14 +1162,16 @@ fn rotated_convex_edge_bevel_allows_clearance_and_blocks_fast_crossing() {
         // This box is separated by an edge-cross-edge axis by .4119 units,
         // while all convex-face and player XYZ projections overlap.
         let collider = &physics.colliders[handle];
-        assert!(!rapier3d::parry::query::intersection_test(
-            collider.position(),
-            collider.shape(),
-            &pose(start, Quat::IDENTITY),
-            &Cuboid::new(vector(half)),
-        )
-        .unwrap()
-        .intersecting);
+        assert!(
+            !rapier3d::parry::query::intersection_test(
+                collider.position(),
+                collider.shape(),
+                &pose(start, Quat::IDENTITY),
+                &Cuboid::new(vector(half)),
+            )
+            .unwrap()
+            .intersecting
+        );
         assert!(!physics.trace_hull(start, start, -half, half).start_solid);
         let enter = physics.trace_hull(start, Vec3::ZERO, -half, half);
         assert!((enter.fraction - 0.05053343).abs() < 0.00001);
@@ -1308,7 +1313,7 @@ fn physics_objects_pass_clip_only_brushes_but_rest_on_solid_ones() {
             .insert(RigidBodyBuilder::dynamic().translation(Vec3::new(
                 15. * SCALE,
                 0.,
-                110. * SCALE
+                110. * SCALE,
             )));
         physics.colliders.insert_with_parent(
             ColliderBuilder::ball(4. * SCALE).density(100.),
@@ -1772,7 +1777,7 @@ fn stacked_props_keep_one_margin_like_a_prop_on_the_floor() {
         ColliderBuilder::cuboid(2000. * SCALE, 2000. * SCALE, 8. * SCALE).translation(Vec3::new(
             0.,
             0.,
-            -8. * SCALE
+            -8. * SCALE,
         )),
     );
     let boxes = [9., 26.].map(|z| {

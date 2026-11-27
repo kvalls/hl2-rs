@@ -7,8 +7,7 @@ use super::{
 use modkit_core::{BrushModel, Entity, World};
 use rapier3d::parry::bounding_volume::BoundingVolume;
 use rapier3d::prelude::{
-    ActiveHooks, CoefficientCombineRule, ColliderBuilder, Pose, RigidBodyBuilder,
-    SharedShape,
+    ActiveHooks, CoefficientCombineRule, ColliderBuilder, Pose, RigidBodyBuilder, SharedShape,
 };
 
 /// SDK physobj.h spawnflags.
@@ -280,7 +279,10 @@ mod tests {
         // fractions are zero): about 1.5 s at nearly 2 rad/s.
         assert!(b.angvel().z > 1.5, "{:?}", b.angvel());
         let at = b.translation() / super::super::SCALE;
-        assert!((at - Vec3::new(-4086., -1452., 12.)).length() < 0.5, "{at:?}");
+        assert!(
+            (at - Vec3::new(-4086., -1452., 12.)).length() < 0.5,
+            "{at:?}"
+        );
     }
 
     #[test]

@@ -11,33 +11,36 @@ impl Physics {
         let half = Vec3::new(16., 16., maxs_z * 0.5) - Vec3::splat(0.015625);
         let position = pose(feet + Vec3::Z * maxs_z * 0.5, Quat::IDENTITY);
         let mut found = Vec::new();
-        for (handle, _) in self.queries(groups_filter(PLAYER_GROUPS)).intersect_shape(position, &Cuboid::new(vector(half))) {
-                let c = &self.colliders[handle];
-                // Penetration depth (units) and normal from the hull into the collider.
-                let (depth, normal) = rapier3d::parry::query::contact(
-                    &position,
-                    &Cuboid::new(vector(half)),
-                    c.position(),
-                    c.shape(),
-                    0.,
+        for (handle, _) in self
+            .queries(groups_filter(PLAYER_GROUPS))
+            .intersect_shape(position, &Cuboid::new(vector(half)))
+        {
+            let c = &self.colliders[handle];
+            // Penetration depth (units) and normal from the hull into the collider.
+            let (depth, normal) = rapier3d::parry::query::contact(
+                &position,
+                &Cuboid::new(vector(half)),
+                c.position(),
+                c.shape(),
+                0.,
+            )
+            .ok()
+            .flatten()
+            .map_or((0., Vec3::ZERO), |k| {
+                (
+                    -k.dist / SCALE,
+                    Vec3::new(k.normal1.x, k.normal1.y, k.normal1.z),
                 )
-                .ok()
-                .flatten()
-                .map_or((0., Vec3::ZERO), |k| {
-                    (
-                        -k.dist / SCALE,
-                        Vec3::new(k.normal1.x, k.normal1.y, k.normal1.z),
-                    )
-                });
-                found.push((
-                    (c.user_data as usize).checked_sub(1),
-                    c.parent()
-                        .and_then(|b| self.bodies.get(b))
-                        .is_some_and(|b| b.is_dynamic()),
-                    depth,
-                    normal,
-                ));
-            }
+            });
+            found.push((
+                (c.user_data as usize).checked_sub(1),
+                c.parent()
+                    .and_then(|b| self.bodies.get(b))
+                    .is_some_and(|b| b.is_dynamic()),
+                depth,
+                normal,
+            ));
+        }
         found
     }
 }

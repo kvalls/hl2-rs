@@ -104,7 +104,11 @@ fn trace_bleed_marks_the_wall_behind_bleeding_npcs() {
     // Synthetic wall 100 units behind the hit point (not game data).
     let mut physics = Physics::default();
     physics.colliders.insert(
-        ColliderBuilder::cuboid(5. * S, 200. * S, 200. * S).translation(Vec3::new(100. * S, 0., 0.)),
+        ColliderBuilder::cuboid(5. * S, 200. * S, 200. * S).translation(Vec3::new(
+            100. * S,
+            0.,
+            0.,
+        )),
     );
     physics.refresh_queries();
     let hit = crate::physics::RayHit {
@@ -408,7 +412,7 @@ fn melee_target(origin: Vec3) -> (Physics, Scene) {
             .translation(Vec3::new(
                 origin.x / 39.37,
                 origin.y / 39.37,
-                origin.z / 39.37
+                origin.z / 39.37,
             ))
             .user_data(1),
     );
