@@ -50,7 +50,7 @@ pub struct PresentMaterial {
 
 impl Material2d for PresentMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/present.wgsl".into()
+        "shaders/present.wesl".into()
     }
 }
 
@@ -166,7 +166,7 @@ fn init_present_pipeline(
     commands.insert_resource(PresentPipeline {
         layout,
         fullscreen: fullscreen.clone(),
-        shader: assets.load("shaders/present.wgsl"),
+        shader: assets.load("shaders/present.wesl"),
         uniform,
     });
 }

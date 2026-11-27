@@ -1,6 +1,6 @@
 // Presents the game frame in the window with the monitor gamma ramp (mat_monitorgamma): the
 // display-encoded value v becomes v^(gamma / 2.2), so 2.2 is unchanged, lower is lighter.
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 struct PresentParams {
     // x: ramp exponent (gamma / 2.2).

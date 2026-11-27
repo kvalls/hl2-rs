@@ -53,7 +53,7 @@ impl Raster {
                 module: &module,
                 entry_point: Some("vs"),
                 compilation_options: default(),
-                buffers: &[RawVertexBufferLayout {
+                buffers: &[Some(RawVertexBufferLayout {
                     array_stride: 20,
                     step_mode: VertexStepMode::Vertex,
                     attributes: &[
@@ -73,7 +73,7 @@ impl Raster {
                             shader_location: 2,
                         },
                     ],
-                }],
+                })],
             },
             fragment: Some(RawFragmentState {
                 module: &module,

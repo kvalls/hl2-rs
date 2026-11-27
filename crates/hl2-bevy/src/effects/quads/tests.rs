@@ -1,4 +1,5 @@
 use super::{EffectMaterial, Geometry, Quad, batch, draw_runs, gpu};
+use crate::shader_rows::ShaderRows;
 use bevy::{
     asset::RenderAssetUsages,
     camera::primitives::{Aabb, MeshAabb},
@@ -74,7 +75,7 @@ fn decode_buffer_row(bytes: &[u8], row: usize) -> Vec4 {
 }
 
 fn assert_gpu_quads(buffer: &ShaderBuffer, start: usize, quads: &[Quad]) {
-    let bytes = buffer.data.as_ref().expect("quad buffer bytes");
+    let bytes = buffer.bytes().expect("quad buffer bytes");
     for (i, q) in quads.iter().enumerate() {
         let p = positions(q);
         let uv = q.uv;
@@ -123,7 +124,7 @@ fn changed_sprite_keeps_storage_and_exact_geometry() {
         storage,
         attributes.map(|a| mesh.attribute(a).unwrap().get_bytes().as_ptr())
     );
-    let bounds = mesh.compute_aabb().unwrap();
+    let bounds = mesh.get_aabb().unwrap();
     assert_eq!(bounds.min().to_array(), [-2., 3., -1.]);
     assert_eq!(bounds.max().to_array(), [6., 12., 4.]);
 }
@@ -144,7 +145,7 @@ fn invalid_storage_is_rebuilt_as_a_complete_quad() {
         .expect("overflow uses cpu_mesh");
     assert_eq!(
         f.world.entity(overflow_batch.entity).get::<MeshTag>(),
-        Some(&MeshTag(0))
+        Some(&MeshTag::new(0))
     );
     f.meshes
         .get_mut(&handle)
@@ -170,7 +171,7 @@ impl Fixture {
     fn new() -> Self {
         let mut buffers = Assets::<ShaderBuffer>::default();
         let mut buf = ShaderBuffer::default();
-        buf.set_data(vec![Vec4::ZERO; gpu::MAX_QUADS * gpu::ROWS_PER_QUAD]);
+        buf.set_rows(&vec![Vec4::ZERO; gpu::MAX_QUADS * gpu::ROWS_PER_QUAD]);
         let _ = buffers.insert(gpu::QUAD_ROWS.id(), buf);
         let mut assets = Assets::<EffectMaterial>::default();
         let materials = ["first", "second"].map(|name| {
@@ -264,15 +265,15 @@ fn consecutive_quads_of_one_material_share_a_draw_in_input_order() {
     assert_eq!(f.pool[1].mesh, f.pool[2].mesh);
     assert_eq!(
         f.world.entity(f.pool[0].entity).get::<MeshTag>(),
-        Some(&MeshTag(2))
+        Some(&MeshTag::new(2))
     );
     assert_eq!(
         f.world.entity(f.pool[1].entity).get::<MeshTag>(),
-        Some(&MeshTag((2 << 16) | 1))
+        Some(&MeshTag::new((2 << 16) | 1))
     );
     assert_eq!(
         f.world.entity(f.pool[2].entity).get::<MeshTag>(),
-        Some(&MeshTag((3 << 16) | 1))
+        Some(&MeshTag::new((3 << 16) | 1))
     );
     let buf = f.buffers.get(&gpu::QUAD_ROWS).unwrap();
     assert_gpu_quads(buf, 0, &[first, second, other, last]);
@@ -322,7 +323,7 @@ fn pool_preserves_material_bounds_layers_and_show_hide_transitions() {
         );
         assert_eq!(
             entity.get::<MeshTag>(),
-            Some(&MeshTag(((index as u32) << 16) | 1))
+            Some(&MeshTag::new(((index as u32) << 16) | 1))
         );
         let bounds = expected_bounds(std::slice::from_ref(q));
         assert_eq!(entity.get::<Aabb>().unwrap().min(), bounds.min());
@@ -485,11 +486,11 @@ fn runs_split_at_max_bucket_preserving_input_order() {
     assert_eq!(f.pool.len(), 2);
     assert_eq!(
         f.world.entity(f.pool[0].entity).get::<MeshTag>(),
-        Some(&MeshTag(gpu::MAX_BUCKET as u32))
+        Some(&MeshTag::new(gpu::MAX_BUCKET as u32))
     );
     assert_eq!(
         f.world.entity(f.pool[1].entity).get::<MeshTag>(),
-        Some(&MeshTag(((gpu::MAX_BUCKET as u32) << 16) | 3))
+        Some(&MeshTag::new(((gpu::MAX_BUCKET as u32) << 16) | 3))
     );
     assert_gpu_quads(f.buffers.get(&gpu::QUAD_ROWS).unwrap(), 0, &quads);
 }
@@ -511,7 +512,7 @@ fn overflow_falls_back_to_cpu_mesh_and_recovers_to_gpu_template() {
         .expect("overflow creates cpu_mesh");
     assert_eq!(
         f.world.entity(overflow.entity).get::<MeshTag>(),
-        Some(&MeshTag(0))
+        Some(&MeshTag::new(0))
     );
     assert_eq!(
         f.world.entity(overflow.entity).get::<Visibility>(),
@@ -525,7 +526,7 @@ fn overflow_falls_back_to_cpu_mesh_and_recovers_to_gpu_template() {
     assert!(!f.meshes.contains(&cpu_handle));
     assert_eq!(
         f.world.entity(f.pool[0].entity).get::<MeshTag>(),
-        Some(&MeshTag(1))
+        Some(&MeshTag::new(1))
     );
 }
 

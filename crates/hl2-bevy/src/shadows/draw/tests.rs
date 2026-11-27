@@ -1,4 +1,5 @@
 use super::*;
+use crate::shader_rows::ShaderRows;
 use crate::shadows::material::ShadowParameters;
 use bevy::{
     app::{App, Startup, TaskPoolPlugin},
@@ -165,7 +166,7 @@ impl Fixture {
         let buffers = self.app.world().resource::<Assets<ShaderBuffer>>();
         let bytes = buffers
             .get(&SHADOW_VERTS)
-            .and_then(|b| b.data.as_deref())
+            .and_then(|b| b.bytes())
             .expect("SHADOW_VERTS data");
         bytes
             .as_chunks::<16>()
@@ -263,8 +264,8 @@ fn packs_atlas_and_blob_into_two_draws_with_exact_rows_tag_and_aabb() {
         .expect("blob draw");
     assert_eq!(atlas_draw.visibility, Visibility::Inherited);
     assert_eq!(blob_draw.visibility, Visibility::Inherited);
-    assert_eq!(atlas_draw.tag, MeshTag(4));
-    assert_eq!(blob_draw.tag, MeshTag((4 << 16) | 4));
+    assert_eq!(atlas_draw.tag, MeshTag::new(4));
+    assert_eq!(blob_draw.tag, MeshTag::new((4 << 16) | 4));
 
     let expected_aabb = |list: &[&Caster]| {
         let mut min = Vec3::splat(f32::INFINITY);
@@ -423,7 +424,7 @@ fn hiding_all_hides_both_draws_and_overflow_falls_back_to_cpu_mesh() {
         .find(|d| d.material == f.blob)
         .expect("blob draw");
     assert_eq!(atlas_draw.visibility, Visibility::Inherited);
-    assert_eq!(atlas_draw.tag, MeshTag(0));
+    assert_eq!(atlas_draw.tag, MeshTag::new(0));
     assert_eq!(blob_draw.visibility, Visibility::Hidden);
     let meshes = f.app.world().resource::<Assets<Mesh>>();
     let mesh = meshes.get(&atlas_draw.mesh.0).expect("cpu overflow mesh");
@@ -442,7 +443,7 @@ fn hiding_all_hides_both_draws_and_overflow_falls_back_to_cpu_mesh() {
     )]);
     let no_buf_draws = no_buf.draw_entities();
     assert_eq!(no_buf_draws.len(), 1);
-    assert_eq!(no_buf_draws[0].tag, MeshTag(0));
+    assert_eq!(no_buf_draws[0].tag, MeshTag::new(0));
 }
 
 #[test]

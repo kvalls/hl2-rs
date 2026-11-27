@@ -1,13 +1,13 @@
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_functions,
     forward_io::{Vertex, VertexOutput},
     mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
-}
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var effect_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var effect_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> parameters: vec4<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(3) var<storage, read> quad_rows: array<vec4<f32>>;
+};
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var effect_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var effect_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var<uniform> parameters: vec4<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(3) var<storage, read> quad_rows: array<vec4<f32>>;
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
@@ -16,13 +16,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     if tag != 0u {
         let start = tag >> 16u;
         let count = tag & 0xffffu;
-#ifdef VERTEX_POSITIONS
-        let q = u32(vertex.position.x + 0.5);
-        let c = u32(vertex.position.y + 0.5);
-#else
-        let q = 0u;
-        let c = 0u;
-#endif
+        var q = 0u;
+        var c = 0u;
+        @if(VERTEX_POSITIONS) {
+            q = u32(vertex.position.x + 0.5);
+            c = u32(vertex.position.y + 0.5);
+        }
         if q >= count {
             out.position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
             return out;
@@ -44,67 +43,67 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         out.world_position = vec4<f32>(pos, 1.0);
         out.position = position_world_to_clip(pos);
         out.world_normal = vec3<f32>(0.0, 1.0, 0.0);
-#ifdef VERTEX_UVS_A
-        out.uv = vec2<f32>(p.w, uv_y);
-#endif
-#ifdef VERTEX_UVS_B
-        out.uv_b = vec2<f32>(0.0);
-#endif
-#ifdef VERTEX_TANGENTS
-        out.world_tangent = vec4<f32>(1.0, 0.0, 0.0, 1.0);
-#endif
-#ifdef VERTEX_COLORS
-        out.color = row5;
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-        out.instance_index = vertex.instance_index;
-#endif
-#ifdef VISIBILITY_RANGE_DITHER
-        let mesh_world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-        out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
-            vertex.instance_index, mesh_world_from_local[3]);
-#endif
+        @if(VERTEX_UVS_A) {
+            out.uv = vec2<f32>(p.w, uv_y);
+        }
+        @if(VERTEX_UVS_B) {
+            out.uv_b = vec2<f32>(0.0);
+        }
+        @if(VERTEX_TANGENTS) {
+            out.world_tangent = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+        }
+        @if(VERTEX_COLORS) {
+            out.color = row5;
+        }
+        @if(VERTEX_OUTPUT_INSTANCE_INDEX) {
+            out.instance_index = vertex.instance_index;
+        }
+        @if(VISIBILITY_RANGE_DITHER) {
+            let mesh_world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+            out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+                vertex.instance_index, mesh_world_from_local[3]);
+        }
         return out;
     }
 
     let mesh_world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     let world_from_local = mesh_world_from_local;
-#ifdef VERTEX_NORMALS
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(
-        vertex.normal,
-        vertex.instance_index
-    );
-#endif
-#ifdef VERTEX_POSITIONS
-    out.world_position = mesh_functions::mesh_position_local_to_world(
-        world_from_local,
-        vec4<f32>(vertex.position, 1.0)
-    );
-    out.position = position_world_to_clip(out.world_position.xyz);
-#endif
-#ifdef VERTEX_UVS_A
-    out.uv = vertex.uv;
-#endif
-#ifdef VERTEX_UVS_B
-    out.uv_b = vertex.uv_b;
-#endif
-#ifdef VERTEX_TANGENTS
-    out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
-        world_from_local,
-        vertex.tangent,
-        vertex.instance_index
-    );
-#endif
-#ifdef VERTEX_COLORS
-    out.color = vertex.color;
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
-#ifdef VISIBILITY_RANGE_DITHER
-    out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
-        vertex.instance_index, mesh_world_from_local[3]);
-#endif
+    @if(VERTEX_NORMALS) {
+        out.world_normal = mesh_functions::mesh_normal_local_to_world(
+            vertex.normal,
+            vertex.instance_index
+        );
+    }
+    @if(VERTEX_POSITIONS) {
+        out.world_position = mesh_functions::mesh_position_local_to_world(
+            world_from_local,
+            vec4<f32>(vertex.position, 1.0)
+        );
+        out.position = position_world_to_clip(out.world_position.xyz);
+    }
+    @if(VERTEX_UVS_A) {
+        out.uv = vertex.uv;
+    }
+    @if(VERTEX_UVS_B) {
+        out.uv_b = vertex.uv_b;
+    }
+    @if(VERTEX_TANGENTS) {
+        out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
+            world_from_local,
+            vertex.tangent,
+            vertex.instance_index
+        );
+    }
+    @if(VERTEX_COLORS) {
+        out.color = vertex.color;
+    }
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX) {
+        out.instance_index = vertex.instance_index;
+    }
+    @if(VISIBILITY_RANGE_DITHER) {
+        out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+            vertex.instance_index, mesh_world_from_local[3]);
+    }
     return out;
 }
 fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {

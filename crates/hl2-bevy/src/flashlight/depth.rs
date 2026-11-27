@@ -29,7 +29,7 @@ pub(super) fn spot(light: Light, shadows: bool) -> SpotLight {
 #[cfg(test)]
 mod tests {
     use super::spot;
-    use bevy::math::{Mat4, Vec4};
+    use bevy::math::Vec4;
     use hl2_simulation::flashlight::Light;
 
     #[test]
@@ -48,7 +48,7 @@ mod tests {
                 };
                 for shadows in [false, true] {
                     let spot = spot(light, shadows);
-                    let projection = Mat4::perspective_infinite_reverse_rh(
+                    let projection = bevy::math::proj::perspective_infinite_reverse(
                         2. * spot.outer_angle,
                         1.,
                         spot.shadow_map_near_z,

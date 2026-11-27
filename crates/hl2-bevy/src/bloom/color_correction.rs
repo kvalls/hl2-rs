@@ -33,6 +33,7 @@ const FILE_BYTES: usize = (SIZE * SIZE * SIZE) as usize * 3;
 
 /// The lookups and weights the bloom composite applies, on the camera that carries the bloom.
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct SourceColorCorrection {
     pub lookups: Arc<[Handle<Image>]>,
     pub mix: Mix,

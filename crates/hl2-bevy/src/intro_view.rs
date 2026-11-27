@@ -12,7 +12,6 @@ use bevy::{
         visibility::RenderLayers,
     },
     color::Color,
-    core_pipeline::tonemapping::Tonemapping,
     ecs::{
         component::Component,
         entity::Entity,
@@ -38,6 +37,7 @@ impl Plugin for IntroViewPlugin {
 /// The intro passes of this frame on the world camera: (mode, alpha) of up to two passes, and
 /// the camera entity's view when there is one (black otherwise, as `m_bDrawPrimary` false).
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct IntroComposite {
     pub passes: Vec4,
     pub scene: Option<Handle<Image>>,
@@ -154,7 +154,7 @@ fn spawn_intro_camera(
         RenderTarget::Image(image.into()),
         RenderLayers::layer(0).with(5),
         (
-            Tonemapping::None,
+            crate::tonemap::PASSTHROUGH,
             bevy::camera::Exposure::default(),
             crate::tonemap::ToneMapped,
         ),

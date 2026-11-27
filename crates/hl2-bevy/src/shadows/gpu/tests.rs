@@ -115,6 +115,7 @@ fn read(device: &RenderDevice, queue: &RenderQueue, atlas: &Texture) -> Vec<u8> 
     buffer
         .slice(..)
         .get_mapped_range()
+        .expect("mapped range")
         .chunks_exact(stride as usize)
         .flat_map(|r| r[..atlas.width() as usize].iter().copied())
         .collect()

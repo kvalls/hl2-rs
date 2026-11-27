@@ -155,7 +155,7 @@ fn apply_skin_pose(
     }
     if let Some(mut mesh) = meshes.get_mut(&handle.0) {
         cpu_skin::skin_on_cpu(&mut mesh, animation, matrices);
-        if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.compute_aabb()) {
+        if let (Some(mut aabb), Some(bounds)) = (aabb, mesh.get_aabb()) {
             *aabb = bounds;
         }
         animation.sampled = Some(sampled);

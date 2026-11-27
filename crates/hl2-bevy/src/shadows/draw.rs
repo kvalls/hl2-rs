@@ -1,6 +1,7 @@
 //! Batched shadow draws: packs all visible shadow decals into one GPU vertex storage buffer
 //! (`SHADOW_VERTS`) and two pooled `ShadowDraw` entities (atlas and blob), falling back to CPU
-//! meshes (`MeshTag(0)`) if total triangles exceed `MAX_SHADOW_TRIS` or the buffer is absent.
+//! meshes (`MeshTag::new(0)`) if total triangles exceed `MAX_SHADOW_TRIS` or the buffer is absent.
+use crate::shader_rows::ShaderRows;
 #[cfg(test)]
 mod tests;
 
@@ -33,7 +34,7 @@ const BUCKETS: [usize; 8] = [64, 128, 256, 512, 1024, 2048, 4096, 8192];
 /// Allocates the fixed-size shadow vertex storage buffer once at startup.
 pub fn install_shadow_buffer(mut buffers: ResMut<Assets<ShaderBuffer>>) {
     let mut buffer = ShaderBuffer::default();
-    buffer.set_data(vec![Vec4::ZERO; TOTAL_ROWS]);
+    buffer.set_rows(&vec![Vec4::ZERO; TOTAL_ROWS]);
     let _ = buffers.insert(SHADOW_VERTS.id(), buffer);
 }
 
@@ -153,7 +154,7 @@ impl ShadowBatches {
         let (aabb, mesh, tag) = if use_gpu {
             let aabb = self.pack_gpu_batch(casters, want_atlas, start_tri);
             let mesh = self.template(tris, meshes);
-            let tag = MeshTag(((start_tri as u32) << 16) | (tris as u32));
+            let tag = MeshTag::new(((start_tri as u32) << 16) | (tris as u32));
             (aabb, mesh, tag)
         } else {
             let slot = if want_atlas {
@@ -162,7 +163,7 @@ impl ShadowBatches {
                 &mut self.blob
             };
             let (aabb, mesh) = build_cpu_mesh(slot, meshes, casters, want_atlas);
-            (aabb, mesh, MeshTag(0))
+            (aabb, mesh, MeshTag::new(0))
         };
         let slot = if want_atlas {
             &mut self.atlas

@@ -3,7 +3,7 @@ members = ["crates/modkit-core", "crates/source-assets", "crates/source-ui", "cr
 resolver = "2"
 
 [workspace.dependencies]
-bevy = { version = "=0.19.1", default-features = false, features = [
+bevy = { version = "=0.20.1", default-features = false, features = [
     "std",
     "async_executor",
     "multi_threaded",
@@ -38,6 +38,7 @@ bevy = { version = "=0.19.1", default-features = false, features = [
     "bevy_input_focus",
     "bevy_ui",
     "bevy_ui_render",
+    "bevy_ui_widgets",
     "ui_picking",
 ] }
 hl2-debug = { path = "plugins/hl2-debug", default-features = false }

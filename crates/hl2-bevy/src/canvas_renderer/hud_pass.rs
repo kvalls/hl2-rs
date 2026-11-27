@@ -15,7 +15,7 @@ use bevy::{
         render_phase::ViewSortedRenderPhases,
         render_resource::{RenderPassDescriptor, StoreOp},
         renderer::{RenderContext, ViewQuery},
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 
@@ -47,7 +47,7 @@ fn hud_pass_2d(
         &ExtractedCamera,
         &ExtractedView,
         &ViewTarget,
-        &ViewDepthTexture,
+        &ViewDepthStencilTexture,
     )>,
     transparent_phases: Res<ViewSortedRenderPhases<Transparent2d>>,
     clear_color_global: Res<ClearColor>,

@@ -1,4 +1,5 @@
 use super::{super::Geometry, super::gpu, Batches, EffectMaterial};
+use crate::shader_rows::ShaderRows;
 use bevy::{
     camera::primitives::Aabb,
     camera::visibility::RenderLayers,
@@ -38,7 +39,7 @@ impl Fixture {
     fn new() -> Self {
         let mut buffers = Assets::<ShaderBuffer>::default();
         let mut buf = ShaderBuffer::default();
-        buf.set_data(vec![Vec4::ZERO; gpu::MAX_QUADS * gpu::ROWS_PER_QUAD]);
+        buf.set_rows(&vec![Vec4::ZERO; gpu::MAX_QUADS * gpu::ROWS_PER_QUAD]);
         let _ = buffers.insert(gpu::QUAD_ROWS.id(), buf);
         let mut assets = Assets::<EffectMaterial>::default();
         let materials = ["glow", "flare", "smoke"].map(|name| {
@@ -90,7 +91,7 @@ impl Fixture {
             .entity(self.batches.by_material[material].entity)
             .get::<MeshTag>()
             .unwrap()
-            .0
+            .value
     }
 
     fn visibility(&self, material: &str) -> Visibility {
@@ -111,7 +112,7 @@ fn assert_gpu_slice(buffer: &ShaderBuffer, tag: u32, quads: &[Quad]) {
     let start = (tag >> 16) as usize;
     let count = (tag & 0xffff) as usize;
     assert_eq!(count, quads.len());
-    let bytes = buffer.data.as_ref().expect("quad buffer bytes");
+    let bytes = buffer.bytes().expect("quad buffer bytes");
     for (i, q) in quads.iter().enumerate() {
         let g = Geometry::from(q);
         let p = g.bevy_positions();

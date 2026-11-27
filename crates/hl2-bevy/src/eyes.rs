@@ -1,5 +1,6 @@
 //! Owned iris projection with authored scene interests and a visible-interest fallback.
 use crate::rendering::actor_poses::{ActorPoses, entity_stamp};
+use crate::shader_rows::ShaderRows;
 use crate::{FlyCamera, assets::LoadedMap, bevy_to_source, rendering::SourceEntity};
 use bevy::{
     asset::uuid_handle, mesh::VertexAttributeValues, prelude::*, render::storage::ShaderBuffer,
@@ -268,7 +269,7 @@ const EYE_SLOTS: usize = 1024;
 pub fn install_rows(mut buffers: ResMut<Assets<ShaderBuffer>>) {
     let rows = vec![bevy::math::Vec4::ZERO; 2 * EYE_SLOTS];
     let mut buffer = ShaderBuffer::default();
-    buffer.set_data(rows);
+    buffer.set_rows(&rows);
     let _ = buffers.insert(EYE_ROWS.id(), buffer);
 }
 
@@ -758,7 +759,7 @@ mod tests {
         assert_eq!(eyes.dirty, Some((0, EYE_SLOTS * 2)));
 
         let mut buffer = ShaderBuffer::default();
-        buffer.set_data(vec![Vec4::ONE; EYE_SLOTS * 2]);
+        buffer.set_rows(&vec![Vec4::ONE; EYE_SLOTS * 2]);
         buffers.insert(EYE_ROWS.id(), buffer).unwrap();
         eyes.upload_rows(&mut buffers);
         assert_eq!(eyes.dirty, None);
@@ -775,8 +776,8 @@ mod tests {
         eyes.upload_rows(&mut buffers);
 
         let mut expected = ShaderBuffer::default();
-        expected.set_data(eyes.rows.clone());
-        assert_eq!(buffers.get(&EYE_ROWS).unwrap().data, expected.data);
+        expected.set_rows(&eyes.rows);
+        assert_eq!(buffers.get(&EYE_ROWS).unwrap().bytes(), expected.bytes());
     }
 
     #[test]

@@ -25,6 +25,7 @@ const QUIET_FRAMES: u64 = 2;
 const MIN_PIXEL_MOTION: f32 = 0.8;
 
 #[derive(Component, Clone, Copy, PartialEq, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct MotionRegion(Vec4);
 
 fn div_ceil(size: UVec2, factor: u32) -> UVec2 {
@@ -386,7 +387,7 @@ mod tests {
 
     #[test]
     fn projection_fails_open_at_the_camera_and_skips_boxes_behind_it() {
-        let projection = Mat4::perspective_infinite_reverse_rh(1., 1.5, 0.1);
+        let projection = bevy::math::proj::perspective_infinite_reverse(1., 1.5, 0.1);
         let bounds = Aabb {
             center: Vec3A::ZERO,
             half_extents: Vec3A::ONE,
@@ -411,7 +412,7 @@ mod tests {
             half_extents: Vec3A::ONE,
         };
         for angle in [-0.7, 0., 0.9] {
-            let matrix = Mat4::perspective_infinite_reverse_rh(1., 1.5, 0.1)
+            let matrix = bevy::math::proj::perspective_infinite_reverse(1., 1.5, 0.1)
                 * Mat4::from_rotation_translation(
                     Quat::from_rotation_y(angle),
                     Vec3::new(1., 0.4, -6.),
@@ -512,7 +513,7 @@ mod tests {
             .id();
 
         let mut camera = Camera::default();
-        let proj = Mat4::perspective_infinite_reverse_rh(1.0, 1.5, 0.1);
+        let proj = bevy::math::proj::perspective_infinite_reverse(1.0, 1.5, 0.1);
         camera.computed.clip_from_view = proj;
         camera.computed.target_info = Some(RenderTargetInfo {
             physical_size: UVec2::new(1000, 1000),

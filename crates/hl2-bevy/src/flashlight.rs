@@ -1,6 +1,6 @@
 //! The HEV flashlight in the host: `impulse 100` (the F key and the console) toggles it, its power runs each
 //! frame ([`hl2_simulation::flashlight`]), its sounds play, and its light is a Bevy `SpotLight` placed as
-//! `UpdateLightNew` places the flashlight. `source.wgsl` reads that light: it projects the installed cookie
+//! `UpdateLightNew` places the flashlight. `source.wesl` reads that light: it projects the installed cookie
 //! (`effects/flashlight_border`, bound in every Source material) with the engine's attenuation, Lambert term
 //! and far fade; the light's radius carries the linear attenuation (the low-power flicker). Its square
 //! depth frustum matches the cookie; the circle-bounded cookie fits the spotlight cone. Episode Two keeps

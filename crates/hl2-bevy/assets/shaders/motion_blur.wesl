@@ -1,7 +1,7 @@
 // Source image-space motion blur (materialsystem/stdshaders/motion_blur_ps2x.fxc): the frame is
 // averaged along one blur vector per pixel, made of the global (turning) vector, the falling
 // vector (a zoom, damped in the middle of the screen) and the roll vector.
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;

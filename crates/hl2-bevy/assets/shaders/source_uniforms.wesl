@@ -27,4 +27,4 @@ struct SourceUniforms {
     // x = per-frame slot in material_rows (-1 none), y = 1 when the slot holds the tint colour.
     dynamic: vec4<f32>,
 }
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> material: SourceUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> material: SourceUniforms;

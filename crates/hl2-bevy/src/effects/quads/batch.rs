@@ -190,7 +190,7 @@ impl Batch {
             crate::campaign::MapOwned,
             gpu::QuadDraw,
             Mesh3d(empty.clone()),
-            MeshTag(0),
+            MeshTag::new(0),
             MeshMaterial3d(material.clone()),
             Transform::IDENTITY,
             Aabb::default(),
@@ -229,14 +229,14 @@ impl Batch {
                 self.cpu_drawn.extend_from_slice(&self.next);
             }
             let bounds = if needs_write {
-                mesh.compute_aabb().unwrap_or_default()
+                mesh.get_aabb().unwrap_or_default()
             } else {
                 self.bounds
             };
             return (handle, 0, bounds, needs_write);
         }
         let built = batch_mesh(&self.next);
-        let bounds = built.compute_aabb().unwrap_or_default();
+        let bounds = built.get_aabb().unwrap_or_default();
         let handle = meshes.add(built);
         self.cpu_mesh = Some(handle.clone());
         self.cpu_drawn.clear();
@@ -270,7 +270,7 @@ impl Batch {
                 }
                 if self.tag != tag {
                     self.tag = tag;
-                    mesh_tag.0 = tag;
+                    mesh_tag.value = tag;
                 }
                 if self.bounds != bounds {
                     self.bounds = bounds;
@@ -293,7 +293,7 @@ impl Batch {
                 }
                 if self.tag != tag {
                     self.tag = tag;
-                    cmd.insert(MeshTag(tag));
+                    cmd.insert(MeshTag::new(tag));
                 }
                 if self.bounds != bounds {
                     self.bounds = bounds;

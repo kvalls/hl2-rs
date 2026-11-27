@@ -1,6 +1,6 @@
 //! The intro pass: after the world camera's tonemapping (the engine composes the intro from
 //! the finished frame buffers, before the viewmodel and the screen effects), the view's main
-//! texture and the camera entity's image are blended by `shaders/intro_composite.wgsl` into
+//! texture and the camera entity's image are blended by `shaders/intro_composite.wesl` into
 //! the other main texture (and the multisampled attachment, which the viewmodel camera
 //! continues from). No pass, buffer or bind group exists while the component is absent.
 use super::IntroComposite;
@@ -98,7 +98,7 @@ fn init(
         layout,
         sampler,
         fullscreen: fullscreen.clone(),
-        shader: assets.load("shaders/intro_composite.wgsl"),
+        shader: assets.load("shaders/intro_composite.wesl"),
     });
 }
 

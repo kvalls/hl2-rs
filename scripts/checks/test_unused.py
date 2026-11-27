@@ -119,6 +119,34 @@ class TestOrphanShaders(unittest.TestCase):
             self.assertEqual(len(issues), 1)
             self.assertIn("crates/demo/assets/shaders/dead.wgsl:", issues[0])
 
+    def test_wesl_shaders_count_module_imports_as_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            pkg = repo / "crates" / "demo"
+            (pkg / "src").mkdir(parents=True)
+            (pkg / "assets" / "shaders").mkdir(parents=True)
+            (pkg / "src" / "lib.rs").write_text(
+                'pub const SHADER: &str = "shaders/main.wesl";\n',
+                encoding="utf-8",
+            )
+            (pkg / "assets" / "shaders" / "main.wesl").write_text(
+                "import package::shaders::common::util;\n",
+                encoding="utf-8",
+            )
+            (pkg / "assets" / "shaders" / "common.wesl").write_text(
+                "fn util() {}\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(find_orphan_shaders(repo, {"demo": pkg}, scan), [])
+
+            (pkg / "assets" / "shaders" / "dead.wesl").write_text(
+                "// shaders::dead:: is only this file's own name\nfn f() {}\n",
+                encoding="utf-8",
+            )
+            issues = find_orphan_shaders(repo, {"demo": pkg}, scan)
+            self.assertEqual(len(issues), 1)
+            self.assertIn("crates/demo/assets/shaders/dead.wesl:", issues[0])
+
 
 class TestUnusedDependencies(unittest.TestCase):
     def test_detects_unused_member_and_workspace_deps_with_crlf(self):

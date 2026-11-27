@@ -405,7 +405,7 @@ pub fn present_lighting(
             continue;
         }
         let assets = (&mut *materials, &mut *slots);
-        let tag_val = tag.map_or(0, |t| t.0);
+        let tag_val = tag.map_or(0, |t| t.value);
         present_draw_lighting(&ctx, (&mut lit, &material.0, tag_val), &mut cache, assets);
     }
 }
@@ -641,7 +641,7 @@ fn detach_tagged_material(
     mat: &Handle<SourceMaterial>,
     tag: Option<&MeshTag>,
 ) -> Handle<SourceMaterial> {
-    if tag.is_some_and(|t| t.0 > 0)
+    if tag.is_some_and(|t| t.value > 0)
         && materials.get(mat).is_some_and(|m| m.dynamic.w < 0.5)
         && let Some(copy) = super::copy_asset(materials, mat)
     {
@@ -947,8 +947,8 @@ mod tests {
             assert_eq!(ta, tb);
             ta
         };
-        app.world_mut().entity_mut(draw_a).insert(MeshTag(tag));
-        app.world_mut().entity_mut(draw_b).insert(MeshTag(tag));
+        app.world_mut().entity_mut(draw_a).insert(MeshTag::new(tag));
+        app.world_mut().entity_mut(draw_b).insert(MeshTag::new(tag));
 
         app.insert_resource(game)
             .insert_resource(sim)
@@ -1087,7 +1087,7 @@ mod tests {
             .resource_mut::<crate::material_slots::MaterialSlots>()
             .assign_draw_tag(draw, (Some(0), false))
             .unwrap();
-        app.world_mut().entity_mut(draw).insert(MeshTag(tag));
+        app.world_mut().entity_mut(draw).insert(MeshTag::new(tag));
         app.insert_resource(game)
             .insert_resource(sim)
             .init_resource::<crate::flashlight::HostFlashlight>();
@@ -1237,7 +1237,7 @@ mod tests {
                     .resource_mut::<crate::material_slots::MaterialSlots>()
                     .assign_draw_tag(e, (Some(id), false))
                     .unwrap();
-                world.entity_mut(e).insert(MeshTag(tag));
+                world.entity_mut(e).insert(MeshTag::new(tag));
                 tag
             };
         let tag_a = spawn(app.world_mut(), 0, mat_a.clone());

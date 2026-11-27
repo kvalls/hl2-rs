@@ -247,7 +247,8 @@ def _strip_c_comments(text: str) -> str:
 
 
 def find_orphan_shaders(repo: Path, packages: dict[str, Path], scan_fn) -> list[str]:
-    """Fail when any `.wgsl` shader under `assets/` is unreferenced by `.rs` or other `.wgsl` files."""
+    """Fail when any `.wgsl` or `.wesl` shader under `assets/` is unreferenced by `.rs` files or
+    other shaders (by file name, or for WESL by its `shaders::<stem>` module path)."""
     shaders: list[Path] = []
     rust_plain_chunks: list[str] = []
     for crate in sorted(packages):
@@ -255,6 +256,7 @@ def find_orphan_shaders(repo: Path, packages: dict[str, Path], scan_fn) -> list[
         assets_dir = pkg_dir / "assets"
         if assets_dir.is_dir():
             shaders.extend(sorted(assets_dir.rglob("*.wgsl")))
+            shaders.extend(sorted(assets_dir.rglob("*.wesl")))
         for rs_path in sorted(pkg_dir.rglob("*.rs")):
             _, plain = scan_fn(rs_path.read_text(encoding="utf-8", errors="replace"))
             rust_plain_chunks.append("\n".join(plain))
@@ -270,8 +272,10 @@ def find_orphan_shaders(repo: Path, packages: dict[str, Path], scan_fn) -> list[
         name = shader.name
         resolved = shader.resolve()
         in_rust = name in rust_corpus
+        module = f"shaders::{shader.stem}::"
         in_other_wgsl = any(
-            other_path != resolved and name in other_text
+            other_path != resolved
+            and (name in other_text or (shader.suffix == ".wesl" and module in other_text))
             for other_path, other_text in shader_texts.items()
         )
         if not (in_rust or in_other_wgsl):

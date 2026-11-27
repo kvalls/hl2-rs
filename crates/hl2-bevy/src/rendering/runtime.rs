@@ -234,7 +234,7 @@ fn spawn_runtime_instance_draw(
         if parts.tag_lit
             && let Some(tag) = slots.assign_draw_tag(draw_entity, (Some(id), lit.half_lambert))
         {
-            draw.insert(bevy::mesh::MeshTag(tag));
+            draw.insert(bevy::mesh::MeshTag::new(tag));
         }
         draw.insert(
             ModelLit::new(Some(id), lit.key.clone(), lit.scale, lit.half_lambert)

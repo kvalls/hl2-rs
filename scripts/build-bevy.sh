@@ -142,7 +142,7 @@ if [[ -d "$SHADER_DEST" ]]; then
 fi
 cp -R "$SHADER_SOURCE" "$SHADER_DEST"
 if [[ ",$PLUGINS," == *",advanced-options,"* ]]; then
-    cp "$PROJECT_ROOT/plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl" "$SHADER_DEST/shaders/weapon_blur.wgsl"
+    cp "$PROJECT_ROOT/plugins/hl2-advanced-options/assets/shaders/weapon_blur.wesl" "$SHADER_DEST/shaders/weapon_blur.wesl"
 fi
 find "$SHADER_DEST" -name ".DS_Store" -delete 2>/dev/null || true
 

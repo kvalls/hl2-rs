@@ -1,5 +1,6 @@
 //! GPU storage buffer and immutable bucketed template meshes for dynamic sprite/beam quads.
 use super::{EffectMaterial, Geometry};
+use crate::shader_rows::ShaderRows;
 use bevy::{
     asset::{RenderAssetUsages, uuid_handle},
     camera::primitives::Aabb,
@@ -37,7 +38,7 @@ pub type QuadDraws<'w, 's> = Query<
 /// Inserts the fixed-size quad storage buffer before any [`EffectMaterial`] binds it.
 pub fn install_quad_buffer(mut buffers: ResMut<Assets<ShaderBuffer>>) {
     let mut buffer = ShaderBuffer::default();
-    buffer.set_data(vec![Vec4::ZERO; MAX_QUADS * ROWS_PER_QUAD]);
+    buffer.set_rows(&vec![Vec4::ZERO; MAX_QUADS * ROWS_PER_QUAD]);
     let _ = buffers.insert(QUAD_ROWS.id(), buffer);
 }
 

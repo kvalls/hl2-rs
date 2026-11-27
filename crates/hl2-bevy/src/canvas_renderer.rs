@@ -51,12 +51,13 @@ impl From<&HudMaterial> for HudMaterialKey {
 }
 impl Material2d for HudMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/hud.wgsl".into()
+        "shaders/hud.wesl".into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Blend
     }
     fn specialize(
+        _: &bevy::sprite_render::Material2dPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _: &MeshVertexBufferLayoutRef,
         key: Material2dKey<Self>,
@@ -604,7 +605,7 @@ fn draw_quads(
                 visibility.set_if_neq(Visibility::Inherited);
                 if changed
                     && let (Some(mut aabb), Some(mesh)) = (aabb, meshes.get(handle.id()))
-                    && let Some(bounds) = mesh.compute_aabb()
+                    && let Some(bounds) = mesh.get_aabb()
                 {
                     *aabb = bounds;
                 }

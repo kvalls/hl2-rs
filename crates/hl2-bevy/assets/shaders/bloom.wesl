@@ -1,7 +1,7 @@
 // Source 8-bit bloom (SDK viewpostprocess.cpp Generate8BitBloomTexture): gamma-space shape
 // and quarter-size downsample, 13-tap Gaussian blur in X then Y (Y times the bloom amount),
 // and an additive composite onto the gamma frame (Engine_Post).
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var bloom: texture_2d<f32>;
@@ -71,47 +71,48 @@ fn presample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     return vec4(encode(textureSample(source, linear_sampler, in.uv).rgb), 1.0);
 }
 
-#ifdef COLOR_CORRECTION
 // Color correction (Engine_Post PerformColorCorrection): the gamma-space frame, after the bloom
 // add, goes through up to four 32x32x32 lookup volumes weighted with the default weight.
+@if(COLOR_CORRECTION)
 struct Correction {
     weights: vec4<f32>,
     default_weight: vec4<f32>,
 }
+@if(COLOR_CORRECTION)
 @group(1) @binding(0) var lookup0: texture_3d<f32>;
+@if(COLOR_CORRECTION)
 @group(1) @binding(1) var lookup1: texture_3d<f32>;
+@if(COLOR_CORRECTION)
 @group(1) @binding(2) var lookup2: texture_3d<f32>;
+@if(COLOR_CORRECTION)
 @group(1) @binding(3) var lookup3: texture_3d<f32>;
+@if(COLOR_CORRECTION)
 @group(1) @binding(4) var<uniform> correction: Correction;
 
+@if(COLOR_CORRECTION)
 fn look_up(volume: texture_3d<f32>, at: vec3<f32>) -> vec3<f32> {
     return textureSampleLevel(volume, linear_sampler, at, 0.0).rgb;
 }
 
+@if(COLOR_CORRECTION)
 fn correct(color: vec3<f32>) -> vec3<f32> {
     // Texel centres: 0 reads 0.5/32, 1 reads 31.5/32.
     let at = color * (31.0 / 32.0) + vec3(0.5 / 32.0);
     var result = color * correction.default_weight.x;
     result += look_up(lookup0, at) * correction.weights.x;
-#if LOOKUPS > 1
-    result += look_up(lookup1, at) * correction.weights.y;
-#endif
-#if LOOKUPS > 2
-    result += look_up(lookup2, at) * correction.weights.z;
-#endif
-#if LOOKUPS > 3
-    result += look_up(lookup3, at) * correction.weights.w;
-#endif
+    if constants::LOOKUPS > 1 { result += look_up(lookup1, at) * correction.weights.y; }
+    if constants::LOOKUPS > 2 { result += look_up(lookup2, at) * correction.weights.z; }
+    if constants::LOOKUPS > 3 { result += look_up(lookup3, at) * correction.weights.w; }
     return result;
 }
 
+@if(COLOR_CORRECTION)
 @fragment
 fn composite_cc(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let frame = textureLoad(source, vec2<i32>(floor(in.position.xy)), 0);
     var gamma = encode(frame.rgb);
-#ifdef BLOOM
-    gamma += textureSample(bloom, linear_sampler, in.uv).rgb * pass_data.params.x;
-#endif
+    @if(BLOOM) {
+        gamma += textureSample(bloom, linear_sampler, in.uv).rgb * pass_data.params.x;
+    }
     return vec4(decode(correct(clamp(gamma, vec3(0.0), vec3(1.0)))), frame.a);
 }
-#endif

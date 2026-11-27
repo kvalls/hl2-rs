@@ -30,6 +30,7 @@ mod motion_blur_pass;
 /// Bloom amount on the last 3D camera of the main view, and the image that receives the
 /// pre-bloom frame for auto exposure.
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct SourceBloom {
     pub amount: f32,
     pub presample: Option<Handle<Image>>,
@@ -112,6 +113,7 @@ fn descriptor(
         layout: vec![pipelines_layout.clone()],
         vertex: fullscreen.to_vertex_state(),
         fragment: Some(FragmentState {
+            constants: Vec::new(),
             shader: shader.clone(),
             // The color correction code of the shader reads it; the plain pipelines compile it out.
             shader_defs: vec![bevy::shader::ShaderDefVal::UInt("LOOKUPS".into(), 0)],
@@ -152,7 +154,7 @@ fn init_pipelines(
         address_mode_v: AddressMode::ClampToEdge,
         ..default()
     });
-    let shader = assets.load("shaders/bloom.wgsl");
+    let shader = assets.load("shaders/bloom.wesl");
     let fullscreen = fullscreen.clone();
     let shape = cache.queue_render_pipeline(descriptor(
         &layout,

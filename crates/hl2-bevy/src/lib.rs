@@ -35,6 +35,7 @@ pub mod rendering;
 pub mod runtime_npcs;
 pub mod runtime_props;
 mod setup;
+mod shader_rows;
 mod shadows;
 pub mod simulation;
 mod sky;
@@ -215,12 +216,12 @@ impl Plugin for TextureCapsPlugin {
 }
 
 const PRELOADED_SHADER_PATHS: [&str; 6] = [
-    "shaders/source_uniforms.wgsl",
-    "shaders/source.wgsl",
-    "shaders/source_depth.wgsl",
-    "shaders/effects.wgsl",
-    "shaders/effects_depth.wgsl",
-    "shaders/shadow.wgsl",
+    "shaders/source_uniforms.wesl",
+    "shaders/source.wesl",
+    "shaders/source_depth.wesl",
+    "shaders/effects.wesl",
+    "shaders/effects_depth.wesl",
+    "shaders/shadow.wesl",
 ];
 
 #[derive(Resource)]
@@ -431,7 +432,7 @@ fn set_system_recommendation(
         return;
     };
     let max_samples = video::adapter_max_msaa_samples(Some(adapter));
-    let device_type_str = format!("{:?}", adapter.0.device_type);
+    let device_type_str = format!("{:?}", adapter.device_type);
     let device_type = match device_type_str.as_str() {
         "DiscreteGpu" => hl2_ui::gameui::recommendation::GpuDeviceType::Discrete,
         "IntegratedGpu" => hl2_ui::gameui::recommendation::GpuDeviceType::Integrated,
@@ -440,11 +441,11 @@ fn set_system_recommendation(
         _ => hl2_ui::gameui::recommendation::GpuDeviceType::Other,
     };
     let gpu = hl2_ui::gameui::recommendation::GpuSpecs {
-        name: adapter.0.name.clone(),
+        name: adapter.name.clone(),
         device_type,
-        vendor_id: Some(adapter.0.vendor),
-        device_id: Some(adapter.0.device),
-        backend: Some(format!("{:?}", adapter.0.backend)),
+        vendor_id: Some(adapter.vendor),
+        device_id: Some(adapter.device),
+        backend: Some(format!("{:?}", adapter.backend)),
         max_msaa_samples: Some(max_samples),
     };
     let cpu = hl2_ui::gameui::recommendation::CpuSpecs::new(
@@ -726,8 +727,8 @@ mod tests {
 
     #[test]
     fn preloaded_shader_paths_cover_material_pipelines() {
-        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source.wgsl"));
-        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source_depth.wgsl"));
-        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source_uniforms.wgsl"));
+        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source.wesl"));
+        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source_depth.wesl"));
+        assert!(PRELOADED_SHADER_PATHS.contains(&"shaders/source_uniforms.wesl"));
     }
 }

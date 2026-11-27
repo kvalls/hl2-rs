@@ -22,6 +22,7 @@ use hl2_simulation::motion_blur::{MotionBlur, Settings, View};
 
 /// The blur of this frame, on the world camera.
 #[derive(Component, Clone, Copy, PartialEq, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct SourceMotionBlur {
     pub values: Vec4,
     /// The longest blur vector, as a fraction of the screen (`mat_motion_blur_percent_of_screen_max`).

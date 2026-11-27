@@ -45,7 +45,7 @@ fn canal_graffiti_keeps_placement_order_from_every_view_direction() {
         .map(|(key, surface)| {
             let mut batch = Batch::default();
             batch.append(&surface, Mat4::IDENTITY, None);
-            (key, Vec3::from(batch.mesh().compute_aabb().unwrap().center))
+            (key, Vec3::from(batch.mesh().get_aabb().unwrap().center))
         })
         .collect();
     let image = Handle::default();
@@ -84,7 +84,7 @@ fn canal_graffiti_keeps_placement_order_from_every_view_direction() {
         let uploaded = draw.batch.unwrap().mesh().take_gpu_data().unwrap();
         let mat = materials.get(&draw.material).unwrap();
         assert_eq!(mat.alpha_mode(), AlphaMode::Blend);
-        let center = Vec3::from(uploaded.compute_aabb().unwrap().center);
+        let center = Vec3::from(uploaded.get_aabb().unwrap().center);
         let original = old_centers[&(draw.name.clone(), page, false)];
         graffiti
             .entry(draw.name)

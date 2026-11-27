@@ -863,10 +863,10 @@ def check_flashlight_shadows():
     expect("off light removed", off.report["render"]["presentation"]["flashlight"]["light"], None)
     # Negative control: only the private packaged copy's depth shader treats cutouts as solid.
     # The colour shader and installation stay untouched; always restore before another check.
-    depth = game_dir() / "bevy-assets/shaders/source_depth.wgsl"
+    depth = game_dir() / "bevy-assets/shaders/source_depth.wesl"
     original = depth.read_text(encoding="utf-8")
     try:
-        depth.write_text("#import bevy_pbr::prepass_io::VertexOutput\n@fragment\nfn fragment(mesh: VertexOutput) {}\n", encoding="utf-8")
+        depth.write_text("import bevy_pbr::prepass::io::VertexOutput;\n@fragment\nfn fragment(mesh: VertexOutput) {}\n", encoding="utf-8")
         solid = run("fence", "high", "_solid_control")
     finally:
         depth.write_text(original, encoding="utf-8")
@@ -896,7 +896,7 @@ def check_motion_blur_options():
 def check_viewmodel_motion_blur():
     """A still world view has animated weapon vectors, with MSAA and the option lifecycle."""
     script = json.loads((REPO / "test-inputs/bevy-viewmodel-motion-blur.json").read_text())
-    shader = game_dir() / "bevy-assets/shaders/weapon_blur.wgsl"
+    shader = game_dir() / "bevy-assets/shaders/weapon_blur.wesl"
     original = shader.read_text(encoding="utf-8")
     hook = "if alpha == 0.0 { return mix(base,select(world,base,own.z < 0.5),data.flags.y); }"
     holds("animation reconstruction hook", hook in original)
@@ -986,7 +986,7 @@ def check_flashlight_viewmodel():
         expect("selected weapon", inventory["active"], "weapon_pistol" if weapon == "pistol" else "weapon_smg1")
         expect("no stale posed bounds", result.report["render"]["presentation"]["pose_or_visibility_mismatches"], 0)
         return result
-    shader = game_dir() / "bevy-assets/shaders/source.wgsl"
+    shader = game_dir() / "bevy-assets/shaders/source.wesl"
     original = shader.read_text(encoding="utf-8")
     marker = "if material.viewmodel_flashlight.limits.z < 0.5"
     holds("control hook exists", marker in original)
@@ -1090,7 +1090,7 @@ def check_lamp_emission():
             "--movement-script", "test-inputs/bevy-canals-lamp.json")
     normal = game("canals_lamp", *args)
     holds("completed", normal.report["render"]["simulation"]["script_finished"])
-    shader = game_dir() / "bevy-assets/shaders/source.wgsl"
+    shader = game_dir() / "bevy-assets/shaders/source.wesl"
     original = shader.read_text(encoding="utf-8")
     marker = "srgb_to_linear(material_albedo * material_tint().rgb), base_alpha"
     holds("emissive albedo control exists", marker in original)

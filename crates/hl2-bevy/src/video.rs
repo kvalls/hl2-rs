@@ -13,7 +13,6 @@
 //! logical points, clamped to the monitor), as Source sizes a windowed game to its mode.
 
 use bevy::camera::{RenderTarget, Viewport, visibility::RenderLayers};
-use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::image::{ImageFilterMode, ImageSampler};
 use bevy::prelude::*;
 use bevy::window::{
@@ -171,6 +170,7 @@ impl DesktopArea {
 
 /// The camera presenting the game frame in the window.
 #[derive(Component, Clone, bevy::render::extract_component::ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct PresentCamera;
 
 /// The quad showing the game frame.
@@ -232,8 +232,7 @@ pub(crate) fn install_frame(
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
-        Tonemapping::None,
-        DebandDither::Disabled,
+        crate::tonemap::PASSTHROUGH,
         Msaa::Off,
         RenderLayers::layer(PRESENT_LAYER),
     ));

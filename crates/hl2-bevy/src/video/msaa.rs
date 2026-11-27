@@ -26,9 +26,9 @@ pub fn adapter_max_msaa_samples(
     let Some(adapter) = adapter else {
         return 4;
     };
-    let backend_str = format!("{:?}", adapter.0.backend);
-    let device_str = format!("{:?}", adapter.0.device_type);
-    let name_lower = adapter.0.name.to_ascii_lowercase();
+    let backend_str = format!("{:?}", adapter.backend);
+    let device_str = format!("{:?}", adapter.device_type);
+    let name_lower = adapter.name.to_ascii_lowercase();
 
     // 1. Metal or Apple Silicon strictly supports [1, 2, 4] samples for color & depth render targets
     if backend_str.contains("Metal") || name_lower.contains("apple") {

@@ -26,7 +26,7 @@ use bevy::{
         render_phase::{ViewBinnedRenderPhases, ViewSortedRenderPhases},
         render_resource::{RenderPassDescriptor, StoreOp, TextureFormat},
         renderer::{RenderContext, ViewQuery},
-        view::{ExtractedView, Msaa, NoIndirectDrawing, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, Msaa, NoIndirectDrawing, ViewDepthStencilTexture, ViewTarget},
     },
 };
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -81,7 +81,7 @@ impl Plugin for SimplePassPlugin {
             render_app.add_systems(
                 Simple3d,
                 (
-                    bevy::pbr::clear_indirect_parameters_metadata,
+                    bevy::pbr::allocate_uniforms,
                     bevy::pbr::unpack_bins,
                     bevy::pbr::early_gpu_preprocess,
                     bevy::pbr::main_build_indirect_parameters.run_if(
@@ -147,7 +147,7 @@ type SimpleView<'w, 's> = ViewQuery<
         &'static ExtractedCamera,
         &'static ExtractedView,
         &'static ViewTarget,
-        &'static ViewDepthTexture,
+        &'static ViewDepthStencilTexture,
         &'static Msaa,
         Option<&'static MainPassResolutionOverride>,
     ),

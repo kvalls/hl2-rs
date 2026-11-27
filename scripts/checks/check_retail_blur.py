@@ -67,7 +67,7 @@ def main():
     replay.OUT.mkdir(parents=True, exist_ok=True)
     replay.build()
     replay.stage()
-    shader = replay.GAME / "bevy-assets/shaders/motion_blur.wgsl"
+    shader = replay.GAME / "bevy-assets/shaders/motion_blur.wesl"
     original = shader.read_text(encoding="utf-8")
     replay.holds("blur entry point", BLUR_ENTRY in original)
     for aa in ("none", "x4"):

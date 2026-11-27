@@ -124,7 +124,7 @@ def colors(result):
 
 def main():
     configure()
-    shader = replay.GAME / "bevy-assets/shaders/weapon_blur.wgsl"
+    shader = replay.GAME / "bevy-assets/shaders/weapon_blur.wesl"
     original = shader.read_text(encoding="utf-8")
     try:
         check_camera_only()

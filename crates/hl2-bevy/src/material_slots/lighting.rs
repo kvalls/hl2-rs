@@ -15,7 +15,7 @@ use bevy::{
 /// Lit entities the buffer holds.
 pub(super) const SLOTS: usize = 1024;
 /// A [`ModelLighting`] as rows: params, the basis columns, the six ambient faces, then the four
-/// lights' positions, colours, directions, attenuations and spot terms (as in `source.wgsl`).
+/// lights' positions, colours, directions, attenuations and spot terms (as in `source.wesl`).
 pub(super) const ROWS: usize = 31;
 
 /// A lit draw's owner: its entity (`None` for the viewmodel) and whether it is half-Lambert.
@@ -127,7 +127,7 @@ impl MaterialSlots {
             None => material.lighting,
         }
     }
-    /// The lighting a draw with `MeshTag(tag)` draws with: its tag's slot when `tag > 0`, else the material's.
+    /// The lighting a draw with `MeshTag::new(tag)` draws with: its tag's slot when `tag > 0`, else the material's.
     pub fn draw_lighting(
         &self,
         tag: u32,
@@ -166,7 +166,7 @@ impl MaterialSlots {
         }
         Some(slot + 1)
     }
-    /// Writes `lighting` into the slot named by `MeshTag(tag)` (`tag > 0`).
+    /// Writes `lighting` into the slot named by `MeshTag::new(tag)` (`tag > 0`).
     pub fn write_tagged_lighting(&mut self, tag: u32, lighting: ModelLighting) {
         if tag > 0 && ((tag - 1) as usize) < SLOTS {
             self.set_light_rows(start(tag - 1), &rows_of(&lighting));
@@ -364,12 +364,12 @@ mod tests {
 
 #[cfg(test)]
 mod shader_layout {
-    /// `source.wgsl` reads lighting slots at the same binding and stride as [`super::LIGHT_ROWS`].
+    /// `source.wesl` reads lighting slots at the same binding and stride as [`super::LIGHT_ROWS`].
     #[test]
     fn the_shader_reads_lighting_rows_where_they_are_written() {
         let shader = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/source.wgsl"
+            "/assets/shaders/source.wesl"
         ));
         assert!(shader.contains("@binding(22) var<storage, read> light_rows: array<vec4<f32>>;"));
         assert!(shader.contains(&format!("light_rows[u32(slot) * {}u + i]", super::ROWS)));

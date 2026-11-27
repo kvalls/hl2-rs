@@ -364,10 +364,10 @@ impl From<&SourceMaterial> for MaterialKey {
 
 impl bevy::pbr::Material for SourceMaterial {
     fn fragment_shader() -> bevy::shader::ShaderRef {
-        "shaders/source.wgsl".into()
+        "shaders/source.wesl".into()
     }
     fn prepass_fragment_shader() -> bevy::shader::ShaderRef {
-        "shaders/source_depth.wgsl".into()
+        "shaders/source_depth.wesl".into()
     }
     fn depth_bias(&self) -> f32 {
         self.decal_order as f32 * 0.125

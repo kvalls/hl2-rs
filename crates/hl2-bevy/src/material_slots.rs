@@ -5,6 +5,7 @@
 //! The values are still computed on the CPU from the scene clock, so pause and scene time behave
 //! as before. When the slots run out, a material keeps the asset path.
 //! Model lighting ([`lighting`]) shares the buffer: one slot per lit entity, after the material slots.
+use crate::shader_rows::ShaderRows;
 mod lighting;
 use crate::rendering::SourceMaterial;
 use bevy::{
@@ -184,10 +185,10 @@ pub fn plugin(app: &mut bevy::app::App) {
 /// Creates the buffers before any material reads them.
 pub fn install(mut buffers: ResMut<Assets<ShaderBuffer>>) {
     let mut materials = ShaderBuffer::default();
-    materials.set_data(vec![Vec4::ZERO; MATERIAL_TOTAL_ROWS]);
+    materials.set_rows(&vec![Vec4::ZERO; MATERIAL_TOTAL_ROWS]);
     let _ = buffers.insert(MATERIAL_ROWS.id(), materials);
     let mut lights = ShaderBuffer::default();
-    lights.set_data(vec![Vec4::ZERO; LIGHT_TOTAL_ROWS]);
+    lights.set_rows(&vec![Vec4::ZERO; LIGHT_TOTAL_ROWS]);
     let _ = buffers.insert(LIGHT_ROWS.id(), lights);
 }
 
@@ -197,10 +198,8 @@ pub(crate) fn write_rows_range(
     rows: &[Vec4],
     range: std::ops::Range<usize>,
 ) {
-    let total_bytes = rows.len() * 16;
-    let bytes = buffer.data.get_or_insert_with(|| vec![0; total_bytes]);
-    let range = if bytes.len() != total_bytes {
-        bytes.resize(total_bytes, 0);
+    let (bytes, created) = buffer.bytes_sized(rows.len() * 16);
+    let range = if created {
         0..rows.len()
     } else {
         range.start.min(rows.len())..range.end.min(rows.len())
@@ -281,6 +280,7 @@ pub(crate) fn test_material() -> SourceMaterial {
 mod tests {
     use super::{Animated, MaterialSlots, SLOTS};
     use crate::rendering::SourceMaterial;
+    use crate::shader_rows::ShaderRows;
     use bevy::{
         math::{Mat3, Vec3, Vec4},
         prelude::{Assets, Handle},
@@ -356,12 +356,12 @@ mod tests {
         super::write_rows_range(&mut buffer, &rows, 0..rows.len());
         let mut expected = Vec::new();
         StorageBuffer::new(&mut expected).write(&rows).unwrap();
-        assert_eq!(buffer.data.as_deref(), Some(expected.as_slice()));
+        assert_eq!(buffer.bytes(), Some(expected.as_slice()));
 
-        let first_ptr = buffer.data.as_ref().unwrap().as_ptr();
+        let first_ptr = buffer.bytes().unwrap().as_ptr();
         let updated = [Vec4::new(1., 2., 3., 4.), Vec4::splat(9.), Vec4::splat(10.)];
         super::write_rows_range(&mut buffer, &updated, 1..2);
-        let second_ptr = buffer.data.as_ref().unwrap().as_ptr();
+        let second_ptr = buffer.bytes().unwrap().as_ptr();
         assert_eq!(first_ptr, second_ptr);
 
         let mixed = [rows[0], updated[1], rows[2]];
@@ -369,6 +369,6 @@ mod tests {
         StorageBuffer::new(&mut expected_mixed)
             .write(&mixed)
             .unwrap();
-        assert_eq!(buffer.data.as_deref(), Some(expected_mixed.as_slice()));
+        assert_eq!(buffer.bytes(), Some(expected_mixed.as_slice()));
     }
 }

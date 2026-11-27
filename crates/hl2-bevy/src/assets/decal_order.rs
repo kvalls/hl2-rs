@@ -1,6 +1,6 @@
 //! Load-time ordering of translucent infodecals that share a patch of wall.
 use crate::coords::source_to_bevy;
-use bevy::math::{Vec3, bounding::Aabb3d};
+use bevy::{math::Vec3, shape::Aabb3d};
 use modkit_core::Surface;
 use std::collections::BTreeMap;
 

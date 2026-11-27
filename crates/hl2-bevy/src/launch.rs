@@ -64,7 +64,13 @@ pub(super) fn default_plugins(
                 ..default()
             }),
             ..default()
-        });
+        })
+        // Bevy 0.20 puts its UI widgets in DefaultPlugins. The game draws no Bevy menus, and
+        // MenuPlugin (after VisibilityPropagate, before UiSystems::PostLayout, whose text layout
+        // runs before AssetEventSystems and so before CalculateBounds) leaves no room for
+        // `visibility::present` between CalculateBounds and VisibilityPropagate: PostUpdate
+        // would not build.
+        .disable::<bevy::ui_widgets::MenuPlugin>();
     // Background runs have no operating-system window: without winit nothing is created on the
     // desktop or activated (winit activates the app on launch). Profiling runs uncapped;
     // ordinary background replays retain the fixed-rate loop.

@@ -482,7 +482,7 @@ fn spawn_prepared_draws(
             if let Some(slot_key) = item.shared_lit_key
                 && let Some(tag) = slots.assign_draw_tag(draw.id(), slot_key)
             {
-                draw.insert(bevy::mesh::MeshTag(tag));
+                draw.insert(bevy::mesh::MeshTag::new(tag));
             }
             draw.insert(
                 ModelLit::new(entity, key, scale, definition.half_lambert)
@@ -710,7 +710,7 @@ mod tests {
         assert!(
             chunks
                 .into_iter()
-                .any(|b| b.mesh().compute_aabb().unwrap().half_extents.x > 2000.)
+                .any(|b| b.mesh().get_aabb().unwrap().half_extents.x > 2000.)
         );
     }
     #[test]
