@@ -45,28 +45,15 @@ impl Console {
             } else {
                 self.style.menu
             };
-            let border_color = if !entry.enabled {
-                Color::new(0.0, 0.0, 0.0, 0.25)
-            } else if armed {
-                Color::new(0.0, 0.0, 0.0, 0.65)
-            } else {
-                Color::new(0.0, 0.0, 0.0, 0.45)
-            };
             let color = if alpha_mult >= 1.0 - 1e-4 {
                 color
             } else {
                 Color::new(color.r, color.g, color.b, color.a * alpha_mult)
             };
-            let border_alpha = if base_focus > 1e-4 {
-                border_color.a * base_focus
-            } else {
-                0.0
-            };
-            let button_outline = if border_alpha > 1e-4 {
-                TextOutline::new(Color::new(0.0, 0.0, 0.0, border_alpha), 1.0)
-            } else {
-                TextOutline::NONE
-            };
+            // Enabled rows, armed or not, share the 30% outward outline; disabled rows,
+            // drawn dimmer, take half of it.
+            let outline_amount = if entry.enabled { 1.0 } else { 0.5 };
+            let button_outline = TextOutline::DEFAULT.faded(base_focus * outline_amount);
             let offset = if is_pressed { vec2(1., 1.) } else { Vec2::ZERO };
             draw_cell_text_outlined(
                 &entry.label,
@@ -92,36 +79,8 @@ impl Console {
         } else {
             Color::new(1., 1., 1., (200.0 / 255.0) * alpha_mult)
         };
-        let title_outline = if base_focus >= 1.0 - 1e-4 {
-            TextOutline::DEFAULT
-        } else if base_focus > 1e-4 {
-            TextOutline::new(
-                Color::new(
-                    TextOutline::DEFAULT.color.r,
-                    TextOutline::DEFAULT.color.g,
-                    TextOutline::DEFAULT.color.b,
-                    TextOutline::DEFAULT.color.a * base_focus,
-                ),
-                1.0,
-            )
-        } else {
-            TextOutline::NONE
-        };
-        let sub_outline = if base_focus >= 1.0 - 1e-4 {
-            TextOutline::DEFAULT
-        } else if base_focus > 1e-4 {
-            TextOutline::new(
-                Color::new(
-                    TextOutline::DEFAULT.color.r,
-                    TextOutline::DEFAULT.color.g,
-                    TextOutline::DEFAULT.color.b,
-                    TextOutline::DEFAULT.color.a * base_focus,
-                ),
-                1.0,
-            )
-        } else {
-            TextOutline::NONE
-        };
+        let title_outline = TextOutline::DEFAULT.faded(base_focus);
+        let sub_outline = title_outline;
 
         if let Some(face) = &self.title_face {
             self.draw_face_menu_titles(

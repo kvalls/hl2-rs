@@ -55,7 +55,6 @@
   "47163d1b36d3",
   "4b79d0c2102e",
   "4b968de7b6ef",
-  "5035ab2c721c",
   "51a0b37e8e88",
   "53136e999d91",
   "5448fbb60c51",
@@ -96,12 +95,10 @@
   "9d080727a538",
   "9f0ef0916d4c",
   "a9113a641cb5",
-  "aa8e8d1e0bf9",
   "ab26a1c4ce2b",
   "b018ebaf47db",
   "b1f6bf83d509",
   "b37979a42461",
-  "b49ec7f1774a",
   "b5d102b845ac",
   "b834caf3ed6c",
   "ba26c28f42a7",
@@ -124,7 +121,6 @@
   "d71f00c22bc3",
   "dc336cf0b46c",
   "dcf92467b908",
-  "dd48df98201b",
   "e3d96d75b6b0",
   "e8ca7eca78c4",
   "eafac703ec4e",
@@ -350,14 +346,14 @@
   ]
  },
  "min_tests": {
-  "hl2-advanced-options": 52,
-  "hl2-bevy": 301,
+  "hl2-advanced-options": 53,
+  "hl2-bevy": 303,
   "hl2-debug": 59,
   "hl2-simulation": 914,
   "hl2-ui": 345,
   "modkit-core": 78,
-  "source-assets": 145,
-  "source-ui": 158
+  "source-assets": 146,
+  "source-ui": 160
  },
  "test_files": {
   "crates/hl2-ui/src/console/tests.rs": 4494,

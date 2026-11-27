@@ -1,5 +1,14 @@
 # STATUS
 
+## Menu text outline (2026-11-27)
+
+Main and pause menu buttons, titles and subtitles draw a 30% black outline that grows outward
+from each letter's edge (one cached ring texture per glyph, `source-ui` `font/outline.rs`).
+The letters keep their unoutlined weight. Unit tests cover the outward-only rule and the
+opacity. Packaged captures over the dark Episode One and bright Lost Coast backgrounds were
+compared at 1920x1080 and 3024x1964. Menu HUD quads went from 585 to 130 per frame. The
+outline stays 1 px at every resolution. Windows **not tested**.
+
 ## Map validation precedence and distribution build locks (2026-11-27)
 
 Gameplay map validation reads the eight-byte BSP header from the selected game's installed

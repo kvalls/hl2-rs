@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Menu text outline grows outward only, at 30%
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `source-ui/src/font/outline.rs` (new): per glyph, a cached ring texture (coverage dilated by the outline radius minus the glyph's own coverage, padded by the radius) replaces the eight offset glyph stamps in `FontFace::draw_baseline_outlined`; one ring quad per glyph, all before the unchanged glyph quads. `TextOutline::DEFAULT` is black at 30% (was 45%); new `TextOutline::faded`. `hl2-ui` `draw_menu.rs`: buttons use the 30% outline armed or not (were 45% / 65% armed / 25% disabled; disabled is now 15%), and titles and subtitles fade it with focus through `faded`. Tests: `menu_outline_grows_outward_only_at_thirty_percent_and_keeps_the_glyph_weight` and `outline_ring_is_the_dilated_coverage_minus_the_glyph` (source-ui); the hl2-ui menu outline tests now expect one ring per letter. Architecture baseline tightened (the duplicated title fade blocks are gone).
+- Why — Owner (2026-11-27): the outline ate into the letters and made the white text thinner than with no outline. The eight 45% stamps stacked to about 99% black under each antialiased edge pixel. The outline should grow outward only and be 30% opaque.
+- Tested how — Unit tests (glyph quads identical to an unoutlined draw at scale 1 and 2; ring alpha 0 under solid texels and never above the uncovered part; one 30% quad per glyph); packaged main-menu captures before and after over Episode One `ep1_background01` (dark) and Lost Coast `background01` (bright) at 1920x1080 and 3024x1964 (Retina); a temporary release micro-benchmark of the six main-menu labels at a 27 px EM; packaged replays; `validate.sh`.
+- Result — Over the bright sky, the letters are solid and as bold as with no outline, with a faint edge; before, "HALF-LIFE 2" looked hollow. Over the dark map, no visible change. HUD quads per menu frame went from 585 to 130. Outline CPU per frame went from 12.1 to 6.2 µs (495 to 110 quads). Building the rings costs 0.17 ms once for those labels, and they are cached. Mean frame time in the paced capture runs is unchanged within noise (19.2-19.4 ms).
+- Still broken or **not tested** — The outline stays 1 px at every resolution, so at Retina it is subtler still. Two letters closer than 1 px can let one ring tint the other's partly covered edge texel. Windows **not tested**.
+- Next — The owner's look in normal play.
+
 ## 2026-11-27 — Keep the weapon blur trail's length at high frame rates (O20)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

@@ -2215,7 +2215,7 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
     );
 
     // 2. Verify outline quads are emitted along the letter paths with semi-transparent black
-    let default_border = Color::new(0.0, 0.0, 0.0, 0.45);
+    let default_border = TextOutline::DEFAULT.color;
     let outline_quads: Vec<_> = quads.iter().filter(|q| q.color == default_border).collect();
     assert!(
         !outline_quads.is_empty(),
@@ -2226,7 +2226,7 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
         "outline quads must be textured glyphs tracing the letter contour"
     );
 
-    // For each character drawn, there must be 8 outline quads (offsets) per 1 foreground quad
+    // Each letter gets one outward-only ring quad (30%) beside its foreground quad
     let fg_quads: Vec<_> = quads
         .iter()
         .filter(|q| q.color == console.style.menu)
@@ -2237,31 +2237,30 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
     );
     assert_eq!(
         outline_quads.len(),
-        fg_quads.len() * 8,
-        "each letter must emit exactly 8 outline glyph quads (1px in 8 directions) for its contour"
+        fg_quads.len(),
+        "each letter must emit exactly one outline ring quad for its contour"
     );
 
     // 3. Armed state (hovered/selected):
-    // When selection is set, the selected item's letters use armed border color (alpha 0.65)
-    // and armed foreground color.
+    // A selected row draws armed letters with the same 30% outline: arming never darkens it.
     console.main_menu.selection = Some(0);
     console.draw(0.0);
     let quads = console.canvas.drain();
 
-    let armed_border = Color::new(0.0, 0.0, 0.0, 0.65);
-    let armed_outline_quads: Vec<_> = quads.iter().filter(|q| q.color == armed_border).collect();
+    let outline_quads = quads.iter().filter(|q| q.color == default_border).count();
     let armed_fg_quads: Vec<_> = quads
         .iter()
         .filter(|q| q.color == console.style.menu_armed)
         .collect();
-    assert!(
-        !armed_outline_quads.is_empty(),
-        "armed menu button must use armed outline color (alpha 0.65)"
-    );
+    let plain_fg = quads
+        .iter()
+        .filter(|q| q.color == console.style.menu)
+        .count();
+    assert!(!armed_fg_quads.is_empty(), "armed row draws armed letters");
     assert_eq!(
-        armed_outline_quads.len(),
-        armed_fg_quads.len() * 8,
-        "armed item must have 8 outline quads per foreground letter quad"
+        outline_quads,
+        armed_fg_quads.len() + plain_fg,
+        "armed and plain letters each have one 30% outline ring quad"
     );
 
     // 4. Pressed state offset shift:
@@ -2306,7 +2305,7 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
         ..Default::default()
     });
 
-    let default_border = Color::new(0.0, 0.0, 0.0, 0.45);
+    let default_border = TextOutline::DEFAULT.color;
     let geometry = console.menu_layout.geometry_for(console.canvas_size());
 
     for title_font_enabled in [false, true] {
@@ -2406,8 +2405,8 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
             let total_fg = fg_line0.len() + fg_sub.len();
             assert_eq!(
                     outline_quads.len(),
-                    total_fg * 8,
-                    "each title/subtitle letter in category {category} (title_font={title_font_enabled}) must emit 8 outline quads"
+                    total_fg,
+                    "each title/subtitle letter in category {category} (title_font={title_font_enabled}) must emit one outline ring quad"
                 );
 
             // 4. In title_font mode, verify two-pass layering for line 0:
@@ -2423,7 +2422,7 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
                     .count();
                 assert_eq!(
                     outline_count_before_first_fg,
-                    fg_line0.len() * 8,
+                    fg_line0.len(),
                     "all line 0 outline quads must be drawn before any line 0 foreground quads"
                 );
             }
@@ -2439,9 +2438,10 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
         .iter()
         .filter(|q| q.destination.y < geometry.menu.y)
         .collect();
+    // Rings are textured: the pause screen's untextured full-screen dim shares their colour.
     let pause_outline: Vec<_> = pause_title_quads
         .iter()
-        .filter(|q| q.color == default_border)
+        .filter(|q| q.color == default_border && q.texture.is_some())
         .collect();
     let pause_fg: Vec<_> = pause_title_quads
         .iter()
@@ -2453,8 +2453,8 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
     );
     assert_eq!(
         pause_outline.len(),
-        pause_fg.len() * 8,
-        "pause menu title letters must each have 8 outline quads"
+        pause_fg.len(),
+        "pause menu title letters must each have one outline ring quad"
     );
 }
 
@@ -3627,7 +3627,7 @@ fn out_of_focus_menu_title_and_subtitle_are_translucent_without_black_outline() 
     console.draw(0.3);
     let quads = console.canvas.drain();
 
-    // Outline quads (emitted by draw_cell_text_outlined) have color (0,0,0, 0.45 * base_focus)
+    // Outline quads (emitted by draw_cell_text_outlined) have color (0,0,0, 0.3 * base_focus)
     // and texture.is_some() (the glyph cache texture).
     // When base_focus is 0.0, outline is TextOutline::NONE, so NO text outline quads are emitted.
     // Verify no text glyph outline quads with alpha >= 0.2 are emitted under the menu.
