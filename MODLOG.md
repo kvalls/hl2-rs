@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Measure the Bevy 0.20.1 upgrade (O48) and add backlog clarifications
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `docs/optimization-backlog.md`: a Clarifications column for questions only the owner can settle (work moves on meanwhile), and item O48 with the upgrade's frame-time comparison.
+- Why — The merge moved the engine to Bevy 0.20.1; the owner's rule is that nothing may slow the game without a measured reason.
+- Tested how — Packaged release A/B, `7cbb9ad5` (Bevy 0.19.1) against `d67678b5` (0.20.1), maxed Retina (3456x2168, 4x MSAA, full HDR, motion blur, anisotropic 8x), uncapped `--profile`, one discarded warm-up per side, then two A-B-B-A rounds (four runs per side) of `quiet.json`, `mixed-crowd.json` and `animated-fire.json`.
+- Result — Medians, 0.19 → 0.20: `quiet` mean 3.71 → 3.74 ms, p95 4.83 → 4.33, p99 5.07 → 4.66; `mixed-crowd` mean 9.63 → 9.42, p95 13.07 → 13.35, p99 14.84 → 15.56 (`render_graph` 3.78 → 2.80); `animated-fire` mean 9.20 → 9.60 (+4.3%, each side's runs within 0.03 ms), p95 13.22 → 13.58, p99 16.04 → 16.35, from `render_graph` +0.30 and `PostUpdate` +0.27. `PostUpdate` grew in every scene (+0.16 to +0.27).
+- Still broken or **not tested** — The `animated-fire` and `PostUpdate` growth is not yet attributed to systems; GPU pass times and live pacing **not tested**.
+- Next — Trace both builds on `animated-fire` and attribute the growth (O48).
+
 ## 2026-11-27 — Merge upstream main through `eae5fea7` (Bevy 0.20.1)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

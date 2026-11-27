@@ -3,7 +3,7 @@
 the pre-commit hook; standard library only).
 
 Every item must say how its gain will be measured: the items table has the columns in HEADER,
-each row exactly those six cells, a unique `O<number>` id, a known status, and non-empty Finding,
+each row exactly those seven cells (Clarifications may be empty), a unique `O<number>` id, a known status, and non-empty Finding,
 Measure and Next cells. Only a rejected item may leave its Measure as "-". The page keeps the
 "Measuring an item" section the Measure cells draw on.
 """
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 PATH = Path(__file__).resolve().parents[2] / "docs" / "optimization-backlog.md"
-HEADER = ["ID", "Area", "Status", "Finding", "Measure", "Next"]
+HEADER = ["ID", "Area", "Status", "Finding", "Measure", "Next", "Clarifications"]
 STATUSES = {"open", "measuring", "fixing", "partly done", "done", "rejected"}
 RULES = "## Measuring an item"
 ITEM = re.compile(r"O\d+")
