@@ -3053,3 +3053,14 @@ Plan (presentation only; simulation, replays and gameplay traces stay on tick va
 - Measure: `--profile` `fixed_simulation` and `animation` before and after in a prop-heavy
   scene; the owner checks carrying while turning and walking, the train ride, a lift, the pause
   menu and a map change.
+
+## A carried prop's trail while turning (2026-11-27)
+
+Each 15 ms tick aims the hold controller with the view angles of whichever frame runs it. Above
+the tick rate those samples land unevenly late (0 to 6.7 ms at 120 FPS, repeating every 75 ms),
+so the prop, drawn blended across the tick, trailed the per-frame view by a pulsing lag.
+`tick_blend::TickBlend::held` keeps the drawn prop a steady one tick behind the view instead:
+it turns the blended pose about the drawn eye from the blended aim of its two ticks to the view
+one tick ago, using the last frames' view angles. Drawing only; the body and the simulation
+are unchanged. The simulation-side alternative (each tick aims with the angles at its own time)
+would also even out shot and throw aim, but changes simulation input and replays.

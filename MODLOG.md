@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Draw a carried prop with a steady one-tick trail while turning
+
+- Agent/model — Claude Code desktop (claude-opus-5-5); investigation by four read-only subagents of the same model.
+- Changed — `tick_blend.rs`: `TickBlend` records the view angles each tick aims with and keeps the last 8 frames' view angles (virtual time). `drawn_pose` passes the held prop (physcannon or +use) through `TickBlend::held`, which turns the blended pose about the drawn eye from the blended aim of its two ticks to the view one tick (15 ms) ago. Corrections over 0.35 rad (view resets, teleports) are skipped. Drawing only: the physics body, the simulation and replays are unchanged.
+- Why — Owner (2026-11-27): turning while carrying a prop felt awkward at 120 FPS, and the one-tick blending (`b21caec1`) did not feel different. Each 15 ms tick aims the hold with the view angles of the frame that runs it; at 120 FPS those samples land 0 to 6.7 ms late in a 75 ms pattern, so the blended prop trailed the per-frame view by a lag pulsing at 13.3 Hz (about 1.1 units of swing at 180 deg/s). Retail Source has the same structure (the prop trails about one tick). Owner chose a steady retail-like trail over gluing the prop to the view; timestamped tick aim in the simulation is the later alternative.
+- Tested how — Unit test simulating a steady 180 deg/s turn at 120 FPS with frame-sampled tick aim: the lag's spread was over 30 % of a tick without the correction and under 1 % with it, at one tick. `validate.sh`, packaged replays, `check_weapon_blur.py`.
+- Result — Replays 111/111, validate passes. Live play **not tested** yet.
+- Still broken or **not tested** — Live feel at 120 FPS **not tested**. Against a wall the drawn prop may shift by up to the pulse it removes (about a degree at fast turns). Aim for shots and throws still samples per frame.
+- Next — Owner's live check; timestamped tick aim if the simulation side should follow.
+
 ## 2026-11-27 — The report's pose check compares draws with their blended pose
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
