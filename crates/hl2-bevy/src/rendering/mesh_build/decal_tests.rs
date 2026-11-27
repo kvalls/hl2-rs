@@ -16,7 +16,7 @@ const LAST: &str = "decals/decalgraffiti001c";
 
 #[test]
 #[ignore = "requires an owned Half-Life 2 installation"]
-fn canal_graffiti_keeps_placement_order_at_both_reported_angles() {
+fn canal_graffiti_keeps_placement_order_from_every_view_direction() {
     let root = source_assets::install::discover().unwrap();
     let config = hl2_ui::config::Config::default();
     let mut map = crate::assets::load_with_config(
@@ -79,10 +79,12 @@ fn canal_graffiti_keeps_placement_order_at_both_reported_angles() {
     );
     let mut graffiti = BTreeMap::new();
     for (draw, page) in draws.into_iter().zip(pages) {
-        let mesh = draw.batch.unwrap().mesh();
+        // Bevy replaces `final_aabb` with the position bounds when it uploads the mesh
+        // and sorts by that center: check the uploaded copy, not the main-world mesh.
+        let uploaded = draw.batch.unwrap().mesh().take_gpu_data().unwrap();
         let mat = materials.get(&draw.material).unwrap();
         assert_eq!(mat.alpha_mode(), AlphaMode::Blend);
-        let center = Vec3::from(mesh.compute_aabb().unwrap().center);
+        let center = Vec3::from(uploaded.compute_aabb().unwrap().center);
         let original = old_centers[&(draw.name.clone(), page, false)];
         graffiti
             .entry(draw.name)
@@ -102,7 +104,11 @@ fn assert_draw_order(bottom: &[(Vec3, f32, Vec3)], top: &[(Vec3, f32, Vec3)]) {
             }
             matched += 1;
             let mut previous = None;
-            for (yaw, pitch) in [(345_f32, 2_f32), (359., 4.)] {
+            // The owner's reports (345/2, 359/4, 1084/-6.5, 1083/13.4 in --pitch terms)
+            // are examples: sweep the whole sphere of view directions.
+            let sweep =
+                (0..24).flat_map(|y| (-8..=8).map(move |p| (y as f32 * 15., p as f32 * 10.)));
+            for (yaw, pitch) in sweep {
                 let forward = crate::coords::source_to_bevy(crate::coords::source_direction(
                     yaw.to_radians(),
                     pitch.to_radians(),

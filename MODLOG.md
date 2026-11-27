@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Keep the canal graffiti order through Bevy's mesh upload
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `Batch::mesh` adds two unreferenced vertices at the overlap group's bounding-box corners to every layered decal mesh (`anchor_decal_layer_bounds`). The owned regression checks the uploaded mesh (`Mesh::take_gpu_data`) over 24 yaws by 17 pitches.
+- Why — The owner still saw `decalgraffiti009a` (lettering) drawn over `decalgraffiti001c` (grey smudge, blue tag) when looking up, from any of several angles. Bevy replaces `final_aabb` with the position bounds when it uploads a render-world mesh and sorts translucent draws by that center, so the shared group bounds set in the previous entry never reached the sort. The previous test inspected the main-world mesh and could not see this.
+- Tested how — `scripts/checks/validate.sh` (2,048 Rust tests passed, 0 failed; strict Clippy, fmt, architecture and isolation checks). `cargo test --locked -p hl2-bevy --lib canal_graffiti -- --ignored` passes and fails with the anchor call removed. Packaged macOS captures, `--fly --position -715.272705 2911 -761.513794`, `--yaw 1084.34 --pitch -6.47` and `--yaw 1083.41 --pitch 13.39`, 600 frames, `--profile`, before and after.
+- Result — Looking up, the lettering was on top before and the smudge is on top after; looking down is unchanged (max 3 levels). Cost: two vertices per layered mesh; CPU frame p95 5.29 → 5.58 ms (down) and 5.09 → 5.15 ms (up) across separate runs, `world` load 31–35 ms on both, all within run-to-run noise.
+- Still broken or **not tested** — Retail side-by-side comparison and Windows runtime are **not tested**; other maps' overlapping translucent infodecals are covered by the same grouping but were not captured.
+- Next — none for this item.
+
 ## 2026-11-27 — Keep overlapping static world graffiti in placement order
 
 - Agent/model — Codex (GPT-6 family, exact model ID not recorded), continuing Antigravity's investigation (exact model ID not recorded); verification and packaged captures by Claude Code desktop (claude-opus-5-5).

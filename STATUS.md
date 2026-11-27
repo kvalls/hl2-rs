@@ -3,30 +3,34 @@
 ## Canal graffiti draw order (2026-11-27)
 
 The overlapping `decalgraffiti009a` and `decalgraffiti001c` world decals in
-`d1_canals_03` now share mesh bounds and draw in BSP placement order, whatever
-the view direction. The owned-map regression
-(`cargo test --locked -p hl2-bevy --lib canal_graffiti -- --ignored`)
-reconstructs the old material/lightmap batches, finds the old order flipping
-between yaw/pitch 345°/2° and 359°/4°, and passes for both receiver pieces.
+`d1_canals_03` now draw in BSP placement order (`001c`, the grey smudge and blue
+tag, over `009a`, the orange lettering) from every view direction. Each layered
+mesh carries two unreferenced vertices at its overlap group's bounding-box
+corners. Bevy recomputes a render mesh's bounds from its positions when it
+uploads the mesh (`Mesh::final_aabb` does not survive) and sorts translucent
+draws by that center, so the corners give the whole group one sort center and
+the placement-order depth bias decides. The first version (`370d628f`) only set
+`final_aabb`, which was lost on upload, and the owner still saw the flip when
+looking up (`setpos -715.272705 2911.000000 -761.513794; setang -13.393998
+1083.413574 0` broken, `setang 6.472016 1084.336426 0` correct; these are getpos
+eye coordinates).
 
-Packaged macOS captures at `--position -715 2991 -790` from both angles
-(600 frames, `--profile`) on the base build `9d06490c` and on this change are
-the same apart from render noise (at most 3 levels per channel). The base build
-showed no visible flip at these angles, so the on-screen fix is **not tested**.
-Cost is within noise: one extra mesh, CPU frame p95 4.71/4.53 ms before and
-4.73/4.25 ms after, and an unchanged `world` load time. Retail comparison and
-Windows runtime are **not tested**. Captures from the owner's walking view
-(`setpos -713 2911 -788; setang 7 1065 0`; the player lands at feet z −852)
-are also identical on both builds, so the reported flip has no on-screen
-reproduction yet.
+The owned-map regression
+(`cargo test --locked -p hl2-bevy --lib canal_graffiti -- --ignored`) now
+checks the uploaded mesh (`take_gpu_data`) over a sweep of 24 yaws by 17
+pitches (±80°); it fails without the anchor vertices. Packaged macOS captures
+at the owner's eye position (`--fly --position -715.272705 2911 -761.513794`,
+`--pitch` −6.47 and 13.39) show the lettering over the smudge before the fix
+when looking up and the smudge on top in both views after it; the down view is
+unchanged (max 3 levels). Cost: two vertices per layered mesh; CPU frame p95
+5.29/5.09 ms before and 5.58/5.15 ms after across separate runs (noise), `world`
+load 31-35 ms on both. Retail comparison and Windows runtime are **not tested**.
 
 `setpos` sets the feet origin and `getpos` prints the eye (feet + 64), as retail
 does (Source SDK `game/server/client.cpp` `setpos`, `game/client/view.cpp`
-`getpos`). With flight on, `setpos -713 2911 -788; setang 7 1065 0` in
-`d1_canals_03` matches the retail view of that command. In walk mode the player
-falls 64 units to the floor (and is nudged about 2 units in x), which gives the
-lower view. The owner confirmed the retail reference was taken in noclip, so
-both builds agree; there is no origin difference to fix.
+`getpos`), so pasting getpos output into setpos lifts the view by 64 units in
+both. With flight on, `setpos -713 2911 -788; setang 7 1065 0` matches the
+owner's noclip retail view of that command.
 
 ## Missing/invalid console map validation without loading popup (2026-11-26)
 

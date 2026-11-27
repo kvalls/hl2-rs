@@ -6,9 +6,12 @@ The two graffiti materials on the `d1_canals_03` wall are translucent
 LightmappedGeneric infodecals. Preserve BSP placement order where projected
 decals overlap on a plane. Keep those pieces out of static-prop material
 batching, give each overlap group a common transparent sort center, and draw
-later placements last. Reuse existing batches for isolated decals. Check the
-owned wall from both reported directions and test disconnected and chained
-overlaps. The terrain blend shader is outside this change.
+later placements last. Reuse existing batches for isolated decals. Bevy derives
+the sort center from the uploaded mesh's own positions (`final_aabb` is replaced
+on upload), so the common center comes from two unreferenced vertices at the
+group's bounding-box corners in every layered mesh. Test the uploaded mesh over
+a sweep of view directions, and disconnected and chained overlaps. The terrain
+blend shader is outside this change.
 
 ## Gameplay console shortcuts (2026-11-26)
 

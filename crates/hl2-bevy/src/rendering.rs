@@ -222,7 +222,32 @@ impl Batch {
         self.indices
             .extend(surface.indices.iter().map(|i| i + offset));
     }
-    fn mesh(self) -> Mesh {
+    /// Bevy recomputes a render mesh's bounds from its positions when it uploads the
+    /// mesh (`final_aabb` does not survive) and sorts translucent draws by the center
+    /// of those bounds. Two unreferenced vertices at the group's corners give every
+    /// layer of an overlapping decal group the same sort center, so only the
+    /// placement-order bias decides their order, from any view direction.
+    fn anchor_decal_layer_bounds(&mut self) {
+        let (Some(layer), Some(&position)) = (self.decal_layer, self.positions.first()) else {
+            return;
+        };
+        let (uv, light_uv, color, normal) = (
+            self.uvs[0],
+            self.light_uvs[0],
+            self.colors[0],
+            self.normals[0],
+        );
+        for corner in [layer.bounds.min, layer.bounds.max] {
+            debug_assert!(corner.is_finite(), "decal group bounds {position:?}");
+            self.positions.push(corner.to_array());
+            self.uvs.push(uv);
+            self.light_uvs.push(light_uv);
+            self.colors.push(color);
+            self.normals.push(normal);
+        }
+    }
+    fn mesh(mut self) -> Mesh {
+        self.anchor_decal_layer_bounds();
         let count = self.positions.len();
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
