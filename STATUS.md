@@ -14,12 +14,10 @@ the frame stamp with the bind groups. A GPU diagnostic showed valid incoming
 motion but an invalid stamp after rebinding. The stamp now lives with the sampled
 texture. Ordinary play and Windows rendering are **not tested**.
 
-The surface cases before it (`pistol` first) fail on `posed bounds` (2 pose or visibility
-mismatches, expected 0) on the committed build without this change as well, so they stop the
-script before the turnover cases; run alone, the turnover cases pass (crowbar 36,189 and SMG
-55,548 recovered pixels at 120 FPS, 13,034 reversed SMG pixels at 45 FPS, none on an idle
-crowbar). The mismatch is not attributed yet; it appeared after the one-tick blending of
-the eye and props (`b21caec1`), which is the first suspect.
+The whole script passes since the report's pose check compares draws with the pose as drawn
+(blended across the tick): it had kept the tick pose after `b21caec1`, so 2 props the pistol
+shot moved counted as mismatches. The turnover cases: crowbar 36,189 and SMG 55,548 recovered
+pixels at 120 FPS, 13,034 reversed SMG pixels at 45 FPS, none on an idle crowbar.
 
 ## Maps loaded under the console (2026-11-27)
 

@@ -62,6 +62,7 @@ type RenderResources<'w> = (
     Res<'w, tonemap::Tonemap>,
     Res<'w, Assets<rendering::SourceMaterial>>,
     Res<'w, crate::material_slots::MaterialSlots>,
+    crate::tick_blend::Blend<'w>,
 );
 /// Exit writer and optional diagnostics read by `monitor`.
 type ExitResources<'w> = (
@@ -90,7 +91,7 @@ pub(super) fn monitor(
     ): HostResources,
     mut control: ResMut<CaptureControl>,
     status: Res<Status>,
-    (adapter, pvs, tonemap, source_materials, material_slots): RenderResources,
+    (adapter, pvs, tonemap, source_materials, material_slots, blend): RenderResources,
     (cameras, draws, map_entities, all_cameras, meshes, images, geometry, two_textures): DiagnosticQueries,
     (mut exit, performance, render_diagnostics, studio, frame): ExitResources,
 ) {
@@ -115,7 +116,8 @@ pub(super) fn monitor(
     if snapshot {
         report.simulation = simulation.report();
         report.simulation["gameplay"] = simulation.gameplay_report(&game);
-        let (mismatches, owned_meshes, doors) = draw_consistency(&draws, &simulation, &game);
+        let (mismatches, owned_meshes, doors) =
+            draw_consistency(&draws, &simulation, &game, blend.as_deref());
         report.presentation = serde_json::json!({"source_visibility":pvs.report(),"owned_meshes":owned_meshes,"pose_or_visibility_mismatches":mismatches,"station_entrance_draws":doors,"hud":simulation.hud_report(&hud),"audio":audio.report(),"sky":sky.report(),"monitors":monitors.report(&game),"eyes":eyes.report(),"effects":effects.report(),"studio_decals":studio.report(),"console":console.report(),"campaign":campaign.report(),"tonemap":tonemap.report(),"shadows":shadows.as_deref().map(shadows::MapShadows::report),"flashlight":flashlight.report(game.scene.flashlight.state()),
         "lifecycle":{"map_entities":map_entities.iter().count(),"cameras":all_cameras.iter().count(),"live_mesh_assets":meshes.len(),"live_image_assets":images.len(),"material_slots":material_slots.len()}});
         report.presentation["two_texture_materials"] = material_proxies::report(
@@ -152,11 +154,13 @@ pub(super) fn monitor(
     );
 }
 
-/// Whether each owned draw matches its simulated pose and visibility, and the checked doors.
+/// Whether each owned draw matches its pose as drawn this frame (the tick pose blended across
+/// the tick, as `place_entities` draws it) and its visibility, and the checked doors.
 fn draw_consistency(
     draws: &EntityDrawQuery,
     simulation: &simulation::Simulation,
     game: &gameplay::Gameplay,
+    blend: Option<&crate::tick_blend::TickBlend>,
 ) -> (usize, usize, Vec<serde_json::Value>) {
     let mut mismatches = 0;
     let mut owned_meshes = 0;
@@ -164,9 +168,7 @@ fn draw_consistency(
     for (owner, transform, visibility, pvs, weapon) in draws {
         owned_meshes += 1;
         let state = &game.scene.states[owner.0];
-        let (origin, rotation) = simulation
-            .physics
-            .entity_pose(owner.0)
+        let (origin, rotation) = crate::tick_blend::drawn_pose(game, simulation, blend, owner.0)
             .unwrap_or((state.origin, state.rotation));
         let expected = rendering::entity_transform(origin, rotation);
         let hidden =

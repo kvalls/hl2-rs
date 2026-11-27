@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — The report's pose check compares draws with their blended pose
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `monitor.rs` `draw_consistency` expects each owned draw at `tick_blend::drawn_pose`, the pose `place_entities` draws (the tick pose blended across the tick), instead of the raw tick pose.
+- Why — Since `b21caec1` props and movers are drawn between their last two tick poses, and the decal check followed, but `pose_or_visibility_mismatches` still compared against the current tick pose: `check_weapon_blur.py` stopped at its pistol case on 2 mismatches (props the shot moved) on every build since.
+- Tested how — `check_weapon_blur.py` (all cases, before: fails at the pistol case on this commit's parent too); `validate.sh`; packaged replays.
+- Result — `check_weapon_blur.py` passes; replays 111/111.
+- Still broken or **not tested** — Nothing known.
+- Next — —
+
 ## 2026-11-27 — Keep the viewmodel blur through swing and recoil reversals (O20)
 
 - Agent/model — Implemented by Codex desktop, GPT-6 family (exact model ID not recorded); reviewed, measured and committed by Claude Code desktop (claude-opus-5-5).
