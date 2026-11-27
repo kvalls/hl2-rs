@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Crowd allocations re-measured; O21 closed
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Documentation only: docs/optimization-backlog.md (O21 `done`), docs/performance.md.
+- Why — O21's Measure lists the static spawn and the crowd; the crowd half was **not tested** on Bevy 0.20.1.
+- Tested how — `trace-alloc` package at `0c0f22b9`, three headless `mixed-crowd.json` runs to the script's end (`--frames 3000`, `633-650` frames), `state_frame` counts.
+- Result — `355,500-360,365` allocations and `38.1-38.4 MB` per frame mean (p99 `1.02-1.06 M`), against `412,528` and `46.6 MB` after the 2026-11-23 fix (first 400 frames only). Both listed scenes are measured and no known HL2RS per-frame waste is left.
+- Still broken or **not tested** — Windows **not tested**. Allocation counts scale with fixed ticks per frame, so they compare only with other `trace-alloc` captures.
+- Next — —
+
 ## 2026-11-27 — Console history across launches moved to hl2-debug
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

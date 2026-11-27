@@ -1,5 +1,17 @@
 # Performance measurements - 2026-10-05
 
+## O21 crowd allocations on Bevy 0.20.1 (2026-11-27)
+
+`trace-alloc` package at `0c0f22b9` (`executable_sha256` `fc24509f...`), headless `d1_trainstation_02` running `test-inputs/performance-research/mixed-crowd.json` to its end (`--frames 3000`; the script ends the run at `633-650` frames; a `--frames 400` run now stops with "movement script did not finish"). `state_frame` per frame, three runs:
+
+| Run | Frames | Allocations mean | p50 | p99 | max | Bytes mean | Bytes max |
+|---|---|---|---|---|---|---|---|
+| 1 | 633 | 355,500 | 296,199 | 1,021,795 | 1,234,806 | 38,079 KB | 123.8 MB |
+| 2 | 639 | 360,365 | 289,754 | 1,041,364 | 1,153,499 | 38,410 KB | 121.3 MB |
+| 3 | 650 | 357,957 | 298,834 | 1,064,269 | 1,297,284 | 38,087 KB | 123.4 MB |
+
+After the 2026-11-23 fix the crowd ran `412,528` allocations and `46,560 KB` per frame over its first 400 frames; the whole-script window holds more firefight frames, so the `-13%` allocations and `-18%` bytes are a conservative comparison. Traced frames average `29.3-29.8 ms`, about two fixed ticks each; the waste report's repeated `actor_pose` groups are one call per tick (the O6 memo is per tick), not duplicates. The static half (`quiet.json`, `62,911` allocations, `7,039 KB` per frame) is in the backlog row.
+
 ## Viewmodel motion at a reversal (2026-11-27)
 
 The Advanced and Ultra weapon filter keeps a quarter-resolution velocity and
