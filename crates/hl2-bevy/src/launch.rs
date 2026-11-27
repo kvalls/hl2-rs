@@ -163,6 +163,9 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         (
             rendering::present_entities.run_if(crate::isolation::run_animation),
             rendering::lod::switch_levels.after(rendering::present_entities),
+            rendering::variant_warmup::warm_hidden_variants
+                .after(rendering::present_entities)
+                .before(bevy::transform::TransformSystems::Propagate),
             rendering::present_weapons,
             effects::present.run_if(crate::isolation::run_effects),
             effects::present_gibs.run_if(crate::isolation::run_effects),

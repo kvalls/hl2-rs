@@ -159,6 +159,7 @@ pub(crate) fn install_map(
     );
     laps.mark("draws");
     commands.insert_resource(eyes::Eyes::new(&loaded));
+    commands.insert_resource(rendering::variant_warmup::VariantWarmup::new());
     commands.insert_resource(console_host::MapEntityNames::of(&loaded.world.entities));
     sky::install(&loaded, commands, meshes, materials, images, target);
     laps.mark("sky");

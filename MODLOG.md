@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Warm hidden-draw shader variants after a map install (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — New `rendering/variant_warmup.rs`: `map_install` inserts a two-frame `VariantWarmup`; `warm_hidden_variants` runs after `present_entities` and before transform propagation, shows every hidden entity draw far below the map (pool origin) with `NoFrustumCulling` on it and its mesh children, then removes what it added and the resource. Unit test covers the two warm frames, an untouched visible draw and the clean-up.
+- Why — Owner-approved O9 fix: Bevy compiles pipelines synchronously on macOS, so a hidden template's first appearance (spawn pool, template makers) compiled its variants mid-play. Using the main view itself instead of a mirroring camera keeps the pipeline keys identical without copying its settings.
+- Tested how — Packaged crowd A/B against `2bd5bd56`, maxed Retina, four alternating runs per side; packaged replays (111 checks, 0 failed); `scripts/checks/validate.sh` (2,051 Rust tests, strict Clippy, fmt, architecture, isolation).
+- Result — Crowd `render_graph` maximum 26.1–26.9 → 13.8–14.4 ms and frame maximum 28.8–29.4 → 18.1–21.7 ms in every run; mean 9.62 → 9.74 ms (within run spread), p99 15.67 → 15.44 ms.
+- Still broken or **not tested** — The cost of the two warm-up frames right after the install is not measured; Windows runtime **not tested** (there pipelines compile asynchronously).
+- Next — Measure the warm-up frames on a console map load; continue the backlog.
+
 ## 2026-11-27 — Win back part of the Bevy 0.20.1 cost (O48)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
