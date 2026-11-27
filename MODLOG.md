@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — O13 and O28 reopened; O9 first-entry stall recorded
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — docs/optimization-backlog.md only. O13 and O28 go back to `partly done`; O9 records the walk's first-entry stall; O1, O3, O22 and O9 get Clarifications for an owner-present live session.
+- Why — The two entries below closed O13 and O28 before every listed measure was run. O13's particle scenes have almost no NPCs, so they say nothing about the crowd's owners (eyes, animated models, shadow decals), whose per-owner counts and `render_assets` on Bevy 0.20.1 are **not tested**. O28's "`culled_draws` unchanged" is a before/after check of the 2026-11-22 change, and identical counts across runs only show determinism; its parent predates Bevy 0.20.1, so the comparison is **not tested**. The walk's p99 against capture 3 (a traced live run) is indicative only.
+- Tested how — O9: two `trace` runs of `pvs-walk.json` (`process_pipeline_queue_system` `138.6 ms` max in the stalled frame) beside the four `stages` runs already recorded; code reading of `rendering/variant_warmup.rs`, `visibility.rs` and `sky.rs`.
+- Result — The first entry into the outside area compiles pipelines synchronously (`127-133 ms` frame). The warm-up covers only hidden `SourceEntity` draws: not world BSP draws culled from spawn, and not the sky camera. `visibility::present` may re-hide warmed scene-hidden `PvsDraw` templates in the same frame (not yet tested at runtime).
+- Still broken or **not tested** — The stall itself; O13's crowd half; O28's before/after `culled_draws`.
+- Next — Test the warm-up in its real schedule order, then warm the sky camera, then world draws if needed (O9); the crowd probe runs (O13).
+
 ## 2026-11-27 — PVS walk measured; O28 closed
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
