@@ -1,14 +1,14 @@
 # STATUS
 
-## Owned headless campaign tests fail (2026-11-27)
+## Owned headless campaign tests (2026-11-27)
 
-`cargo test --locked -p hl2-bevy --lib headless_bevy_app -- --ignored` fails both
 `headless_bevy_app_submenu_entry_switches_background_map_and_scene` and
-`headless_bevy_app_ep2_submenu_entry_switches_background_map`: a system's resource
-parameter is missing in the headless app ("Resource does not exist"). It fails the
-same way on `39fe8331` and later, so it predates the loading-screen hold; most likely
-since the Bevy 0.20.1 merge, which `validate.sh` does not cover because these tests need
-the installed game. **Not yet fixed.**
+`headless_bevy_app_ep2_submenu_entry_switches_background_map` failed with "Resource does
+not exist" since the Bevy 0.20.1 merge: `effects::present` takes
+`Assets<ShaderBuffer>`, which the shared headless asset setup
+(`campaign/loading_owned_tests.rs::init_map_assets`) did not register. Fixed by
+registering it. `cargo test --release -p hl2-bevy --lib -- --ignored`: 27 passed, 0
+failed.
 
 ## Canal graffiti draw order (2026-11-27)
 

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Register ShaderBuffer assets in the owned headless campaign tests
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `campaign/loading_owned_tests.rs::init_map_assets` registers `Assets<ShaderBuffer>`.
+- Why — Since the Bevy 0.20.1 merge, `effects::present` takes `Assets<ShaderBuffer>`; the headless apps of `headless_bevy_app_submenu_entry_switches_background_map_and_scene` and `headless_bevy_app_ep2_submenu_entry_switches_background_map` did not have it and panicked with "Resource does not exist". Test setup only; the game registers it through Bevy's render plugins.
+- Tested how — `cargo test --release -p hl2-bevy --lib -- --ignored` (all owned-install hl2-bevy tests); fmt.
+- Result — 27 passed, 0 failed (both were failing).
+- Still broken or **not tested** — Owned-install tests of the other crates were not rerun in this entry.
+- Next — Optimization backlog.
+
 ## 2026-11-27 — Hold the loading screen until the new map's pipelines are compiled (O22)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
