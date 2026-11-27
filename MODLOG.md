@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Attribute Bevy 0.20's render encoders (O48)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Documentation only (`docs/optimization-backlog.md` O48): per-system command-encoder attribution and a rejected attempt.
+- Why — The owner asked to win back Bevy 0.20's `animated-fire` cost by consolidating render passes; the trace shows the encoder count is not what costs.
+- Tested how — `trace-chrome` package, `animated-fire` at maxed Retina (910 frames), `finish_command_buffer` spans grouped by their `system` field; A/B package with `PbrPlugin::use_gpu_instance_buffer_builder: false`.
+- Result — 35 encoders per frame; the render thread waits `0.76 ms/f` for their parallel finishing (bounded by `main_opaque_pass_3d`, p75 `0.60 ms`) and `0.30 ms/f` submitting. Merging encoders would serialize them. Bevy's CPU instance path fails with HL2RS's binned phases (Bevy error "Dynamic uniform batch sets should be used when GPU preprocessing is off" and a missing-resource panic), so the 12 preprocessing encoders stay; rejected.
+- Still broken or **not tested** — The remaining `+0.3 ms` is inside Bevy; owner question recorded in the backlog's Clarifications column.
+- Next — Next open backlog item.
+
 ## 2026-11-27 — Bring the owned-install tests up to date with the code they test
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
