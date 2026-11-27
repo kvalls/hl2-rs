@@ -70,7 +70,12 @@ pub(super) fn default_plugins(
         // runs before AssetEventSystems and so before CalculateBounds) leaves no room for
         // `visibility::present` between CalculateBounds and VisibilityPropagate: PostUpdate
         // would not build.
-        .disable::<bevy::ui_widgets::MenuPlugin>();
+        .disable::<bevy::ui_widgets::MenuPlugin>()
+        // TextInputPlugin sets `Window::ime_enabled` every frame from whether a Bevy
+        // `EditableText` has focus. The game has none (the console is drawn on the CPU canvas),
+        // so it turned macOS composition off each frame and the console lost dead-key quotes;
+        // `ui_system::native_text` owns that flag instead. The setup window keeps the plugin.
+        .disable::<bevy::ui_widgets::TextInputPlugin>();
     // Background runs have no operating-system window: without winit nothing is created on the
     // desktop or activated (winit activates the app on launch). Profiling runs uncapped;
     // ordinary background replays retain the fixed-rate loop.
@@ -456,4 +461,20 @@ pub(crate) fn limit_frame_rate(app: &mut App, max_fps: Option<u32>) {
         }
         last = std::time::Instant::now();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    /// Bevy's text-input widget plugin would set `Window::ime_enabled` to false every frame
+    /// (no Bevy `EditableText` is focused in the game), which dropped the console's macOS
+    /// dead-key quotes; the game window leaves that flag to `ui_system::native_text`.
+    #[test]
+    fn game_plugins_leave_text_composition_to_the_console() {
+        let (options, _) =
+            super::Options::parse_from(Vec::new(), hl2_ui::config::Config::default()).unwrap();
+        let plugins = super::default_plugins(&options, std::path::Path::new("assets"));
+        assert!(plugins.contains::<bevy::ui_widgets::TextInputPlugin>());
+        assert!(!plugins.enabled::<bevy::ui_widgets::TextInputPlugin>());
+        assert!(plugins.enabled::<bevy::window::WindowPlugin>());
+    }
 }

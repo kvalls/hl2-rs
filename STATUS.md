@@ -1,5 +1,22 @@
 # STATUS
 
+## Console quote keys on macOS, again (2026-11-27)
+
+Quotes typed with a dead-key layout (US International PC) never reached the
+console after the Bevy 0.20.1 merge (`d67678b5`). That merge enabled Bevy's
+`bevy_ui_widgets` feature, which adds `TextInputPlugin` to `DefaultPlugins`.
+Every frame its IME system sets `Window::ime_enabled` from whether a Bevy
+`EditableText` has focus. The game has none, so composition was off whenever
+`ui_system::native_text` read the frame's text, and macOS composition commits
+(`"`, `ä`) were discarded. A diagnostic build on the owner's keyboard logged the
+commits arriving while the flag read false on every frame. The game window
+now disables `TextInputPlugin`; the setup window keeps it. The command
+tokenizer was not involved (its quote tests passed throughout). The earlier
+fix's tests used synthetic events and set the console mode directly, so they
+never ran with the real plugin set; `launch::tests` now checks the plugin set.
+Live retest by the owner on the rebuilt package and Windows runtime are
+**not tested**.
+
 ## Viewmodel blur through swing and recoil reversals (2026-11-27)
 
 The Advanced and Ultra viewmodel gather uses the preceding frame's surface motion

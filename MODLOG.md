@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Console quote keys work again on macOS
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `crates/hl2-bevy/src/launch.rs`: the game's `DefaultPlugins` disable `bevy::ui_widgets::TextInputPlugin` next to `MenuPlugin`, with a test (`launch::tests::game_plugins_leave_text_composition_to_the_console`) that the plugin is in the group and disabled. STATUS.
+- Why — Owner (2026-11-27): quote characters no longer appeared in the developer console with any following key. The Bevy 0.20.1 merge `d67678b5` enabled the `bevy_ui_widgets` feature. Its `TextInputPlugin` sets `Window::ime_enabled` in PreUpdate every frame from whether a Bevy `EditableText` has focus, so it was false when `ui_system::native_text::read` filtered the frame's composition commits. The console's quote handling from 944b5317 depends on that flag.
+- Tested how — A temporary logging build (removed, not committed) on the owner's US International keyboard: macOS sent `Ime::Commit("\"")` and `Ime::Commit("ä")`, `ime_enabled` read false at every read and was re-set to true on 7,841 frames. The new unit test fails without the fix, because the plugin is in the group and enabled. `scripts/checks/validate.sh`; packaged replays (all 111, including `console` and `console_map`).
+- Result — validate passes; replays 111/111. Composition stays on while the console has focus; the tokenizer (`source_ui::console::command::tokenize`) was not involved and is unchanged.
+- Still broken or **not tested** — The owner's live retest on the rebuilt package and Windows runtime are **not tested**. Known differences from retail tokenizing remain, none of them part of this regression: `CCommand`'s `{}()':` break characters, a quote opening an argument only at its start, and raw `ArgS` text.
+- Next — —
+
 ## 2026-11-27 — Carried prop while turning: kept as retail, closed
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
