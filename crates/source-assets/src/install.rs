@@ -242,7 +242,17 @@ pub fn check_map(
     requested_game: Option<&str>,
     current_game: Option<&str>,
 ) -> std::result::Result<String, MapCheckError> {
-    use std::io::Read;
+    check_map_with_mount(root, map, requested_game, current_game, None)
+}
+
+/// Reuses the active game's installed layers when checking another map in that game.
+pub fn check_map_with_mount(
+    root: &Path,
+    map: &str,
+    requested_game: Option<&str>,
+    current_game: Option<&str>,
+    mounted: Option<(&str, &crate::vpk::Vfs)>,
+) -> std::result::Result<String, MapCheckError> {
     let name = map.strip_suffix(".bsp").unwrap_or(map);
     let rel =
         crate::vpk::normalize(&format!("maps/{name}.bsp")).map_err(|_| MapCheckError::Missing)?;
@@ -250,25 +260,19 @@ pub fn check_map(
         Some(game) => game.to_owned(),
         None => game_for_map(root, name, current_game).ok_or(MapCheckError::Missing)?,
     };
-    let loose = root.join(&game).join(&rel);
-    let mut header = Vec::new();
-    if loose.is_file() {
-        let Ok(file) = std::fs::File::open(&loose) else {
-            return Err(MapCheckError::Missing);
-        };
-        if file.take(8).read_to_end(&mut header).is_err() {
-            return Err(MapCheckError::NotBsp);
-        }
+    let fresh;
+    let vfs = if let Some((_, vfs)) =
+        mounted.filter(|(name, vfs)| *name == game && vfs.game_root() == Some(root))
+    {
+        vfs
     } else {
-        let Ok(vfs) = crate::vpk::Vfs::mount_game(root, &game) else {
-            return Err(MapCheckError::Missing);
-        };
-        header = vfs
-            .read_prefix(&rel, 8)
-            .ok()
-            .flatten()
-            .ok_or(MapCheckError::Missing)?;
-    }
+        fresh = crate::vpk::Vfs::mount_game(root, &game).map_err(|_| MapCheckError::Missing)?;
+        &fresh
+    };
+    let header = vfs
+        .read_installed_prefix(&rel, 8)
+        .map_err(|_| MapCheckError::NotBsp)?
+        .ok_or(MapCheckError::Missing)?;
     if header.len() < 8 || &header[..4] != b"VBSP" {
         return Err(MapCheckError::NotBsp);
     }
@@ -503,6 +507,30 @@ mod tests {
             let roots = candidate_steam_roots();
             let expected = PathBuf::from(home).join("Library/Application Support/Steam");
             assert!(roots.contains(&expected));
+        }
+    }
+
+    #[test]
+    fn check_map_validates_the_first_mounted_copy() {
+        let fixture = Fixture::new();
+        fixture.put(
+            "hl2/gameinfo.txt",
+            br#"GameInfo { FileSystem { SearchPaths { game hl2/custom/* game hl2 } } }"#,
+        );
+        let override_path = "hl2/custom/override/maps/shared.bsp";
+        let loose_path = "hl2/maps/shared.bsp";
+        let valid = b"VBSP\x14\0\0\0";
+        fixture.put(override_path, valid);
+        fixture.put(loose_path, b"");
+        let mount = crate::vpk::Vfs::mount_game(&fixture.0, "hl2").unwrap();
+        for mounted in [None, Some(("hl2", &mount))] {
+            fixture.put(override_path, valid);
+            fixture.put(loose_path, b"");
+            let check = || check_map_with_mount(&fixture.0, "shared", None, Some("hl2"), mounted);
+            assert_eq!(check().as_deref(), Ok("hl2"));
+            fixture.put(override_path, b"");
+            fixture.put(loose_path, valid);
+            assert_eq!(check(), Err(MapCheckError::NotBsp));
         }
     }
 

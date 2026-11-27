@@ -1,5 +1,17 @@
 # STATUS
 
+## Map validation precedence and distribution build locks (2026-11-27)
+
+Gameplay map validation reads the eight-byte BSP header from the selected game's installed
+search layers in loader order. Same-game requests reuse the current mount and exclude the
+running map's embedded pak. A regression fixture swaps valid and empty headers between a
+custom override and the loose base file and checks both outcomes. The packaged macOS
+`console_map` and `campaign` replays passed.
+
+Target cleanup now locks `dist` together with `debug` and `release` before scanning. Real
+Cargo builds in an isolated fixture verify that a held profile lock excludes cleanup and
+that Cargo waits for cleanup to release its locks.
+
 ## Owned-install tests (2026-11-27)
 
 `cargo test --release --workspace --no-fail-fast -- --ignored` passes in every crate (it

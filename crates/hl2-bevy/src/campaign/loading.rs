@@ -54,11 +54,15 @@ pub(super) fn activate_request(
     if !request.background {
         let requested_game = request.explicit_game.then_some(request.game.as_str());
         let current_game = campaign.loaded_map.as_ref().map(|m| m.game.as_str());
-        match source_assets::install::check_map(
+        match source_assets::install::check_map_with_mount(
             &options.game,
             &request.map,
             requested_game,
             current_game,
+            campaign
+                .mounted_game
+                .as_ref()
+                .map(|(game, vfs)| (game.as_str(), vfs.as_ref())),
         ) {
             Ok(game) => request.game = game,
             Err(err) => {
@@ -449,6 +453,7 @@ pub(super) fn record_loaded(
     loaded: &crate::assets::LoadedMap,
     job: &super::Job,
 ) {
+    campaign.mounted_game = Some((loaded.game.clone(), loaded.vfs.clone()));
     campaign.metadata = crate::assets::map_metadata(loaded);
     campaign.metadata["loading_ms"]["request_to_worker_ms"] =
         (job.started.elapsed().as_secs_f64() * 1000.).into();

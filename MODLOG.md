@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Honor map search order and the dist build lock
+
+- Agent/model — Codex desktop, GPT-6 family (exact model ID not recorded).
+- Changed — Map validation reads the selected installed BSP through the game's search path and reuses the active mount for same-game requests. The build cleaner locks every profile it prunes, including `dist`.
+- Why — A loose map could mask a higher-priority override during validation. Cleanup could select distribution artifacts during a concurrent build.
+- Tested how — `cargo test --locked -p source-assets --lib check_map`, two owned installation checks, Cargo lock contention tests, and `NO_BUILD=1 ONLY='console_map campaign' python3 -u scripts/checks/replays.py` on the rebuilt macOS release.
+- Result — Both header-precedence cases passed with fresh and reused mounts. Real debug and dist builds verified lock exclusion in both directions. Both packaged replays and Windows-target strict Clippy passed. `scripts/checks/validate.sh` passed 2,053 Rust tests, 137 Python tests, all four plugin selections, strict Clippy, formatting and architecture checks.
+- Still broken or **not tested** — Interactive Windows gameplay and native Linux locking are **not tested**.
+- Next — Exercise the map transition on Windows during runtime verification.
+
 ## 2026-11-27 — Draw each 3D camera's opaque and transparent phases in one render pass (O1)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

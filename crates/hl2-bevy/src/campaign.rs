@@ -40,6 +40,7 @@ struct Job {
 }
 #[derive(Resource, Default)]
 pub struct Campaign {
+    mounted_game: Option<(String, std::sync::Arc<source_assets::vpk::Vfs>)>,
     audio_reuse: std::sync::Arc<crate::audio::reuse::AudioReuse>,
     job: Option<Job>,
     pub metadata: serde_json::Value,
@@ -53,6 +54,12 @@ pub struct Campaign {
     reveal: Option<loading::Reveal>,
 }
 impl Campaign {
+    pub(crate) fn with_mount(loaded: &assets::LoadedMap) -> Self {
+        Self {
+            mounted_game: Some((loaded.game.clone(), loaded.vfs.clone())),
+            ..default()
+        }
+    }
     #[cfg(test)]
     pub fn new(loaded: &assets::LoadedMap) -> Self {
         let name = loaded.world.name.clone();
@@ -64,7 +71,7 @@ impl Campaign {
                 map: name,
                 background: false,
             }),
-            ..default()
+            ..Self::with_mount(loaded)
         }
     }
     /// Whether map loading has finished and the map is in an observable gameplay-ready state.

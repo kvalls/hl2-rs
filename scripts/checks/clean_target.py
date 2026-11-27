@@ -7,7 +7,7 @@ Modes:
       Prunes superseded object files (.rcgu.o), old .rlib archives, stale test
       runner executables, and orphaned incremental compilation sessions for
       workspace crates. Keeps third-party crate caches intact. Holds Cargo's
-      debug/release compatibility locks throughout pruning; skips cleanup
+      compatibility locks for all pruned profiles throughout pruning; skips cleanup
       when the target is busy or compatible locking is unavailable.
   --workspace:
       Runs `cargo clean -p <workspace-packages>` to completely reset workspace
@@ -25,7 +25,7 @@ import shutil
 import subprocess
 import sys
 
-from target_lock import cargo_locks
+from target_lock import PRUNED_PROFILES, cargo_locks
 
 
 def find_repo_root():
@@ -148,10 +148,10 @@ def _prune_stale(repo_root, target_dir, crates, keep_active_versions=2, dry_run=
 
     dirs_to_remove = incremental_candidates(target_dir, crate_underscores)
 
-    # 2. Prune stale deps artifacts (debug & release)
+    # Prune stale dependency artifacts in the locked profiles.
     file_pattern = re.compile(r"^(?:lib)?([a-zA-Z0-9_]+)-([0-9a-fA-F]{16})(?:\..*)?$")
 
-    for profile in ["debug", "release", "dist"]:
+    for profile in PRUNED_PROFILES:
         deps_dir = os.path.join(target_dir, profile, "deps")
         if not os.path.isdir(deps_dir):
             continue

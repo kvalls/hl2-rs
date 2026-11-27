@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+PRUNED_PROFILES = ("debug", "release", "dist")
+
 
 def darwin_filesystem(target_dir):
     """Read the 64-bit Darwin statfs record without disk-management services."""
@@ -47,7 +49,7 @@ def local_filesystem(target_dir):
 
 @contextmanager
 def cargo_locks(target_dir):
-    """Hold Cargo's debug/release compatibility locks until pruning finishes.
+    """Hold the Cargo compatibility lock for every profile that pruning visits.
 
     Current Cargo holds shared .cargo-lock locks; older Cargo holds them exclusively.
     Exclusive flock coordinates with both on POSIX. Never unlink these lock files.
@@ -59,7 +61,7 @@ def cargo_locks(target_dir):
 
             if not local_filesystem(target_dir):
                 raise OSError("unverified or network filesystem")
-            for profile in ("debug", "release"):
+            for profile in PRUNED_PROFILES:
                 folder = Path(target_dir) / profile
                 folder.mkdir(parents=True, exist_ok=True)
                 lock = handles.enter_context((folder / ".cargo-lock").open("a+b"))

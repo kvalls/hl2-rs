@@ -54,10 +54,10 @@ class TargetLockTests(unittest.TestCase):
                 self.assertFalse(local_filesystem(self.target))
 
     @unittest.skipUnless(os.name == "posix", "Cargo-compatible POSIX locks")
-    def test_busy_debug_or_release_skips_and_releases_partial_locks(self):
+    def test_busy_profile_skips_and_releases_partial_locks(self):
         import fcntl
 
-        for profile in ("debug", "release"):
+        for profile in ("debug", "release", "dist"):
             with self.subTest(profile=profile):
                 folder = self.target / profile
                 folder.mkdir(exist_ok=True)
@@ -73,7 +73,7 @@ class TargetLockTests(unittest.TestCase):
         import fcntl
 
         def prune(*args):
-            for profile in ("debug", "release"):
+            for profile in ("debug", "release", "dist"):
                 with (self.target / profile / ".cargo-lock").open("a+b") as contender:
                     with self.assertRaises(BlockingIOError):
                         fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -94,8 +94,16 @@ class TargetLockTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("cargo"), "POSIX Cargo probe")
     def test_real_cargo_build_and_cleanup_exclude_each_other(self):
+        self.check_real_cargo_build([])
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("cargo"), "POSIX Cargo probe")
+    def test_real_dist_build_and_cleanup_exclude_each_other(self):
+        self.check_real_cargo_build(["--profile", "dist"])
+
+    def check_real_cargo_build(self, profile_args):
         (self.root / "Cargo.toml").write_text(
-            '[package]\nname="cache-lock-probe"\nversion="0.0.0"\nedition="2021"\n[workspace]\n')
+            '[package]\nname="cache-lock-probe"\nversion="0.0.0"\nedition="2021"\n[workspace]\n'
+            '[profile.dist]\ninherits="release"\n')
         (self.root / "src").mkdir()
         (self.root / "src/main.rs").write_text("fn main() {}\n")
         (self.root / "build.rs").write_text('''fn main() {
@@ -113,7 +121,7 @@ class TargetLockTests(unittest.TestCase):
             with cargo_locks(self.target) as acquired:
                 self.assertTrue(acquired)
                 process = subprocess.Popen(
-                    ["cargo", "build", "--offline", "--target-dir", str(self.target)],
+                    ["cargo", "build", "--offline", *profile_args, "--target-dir", str(self.target)],
                     cwd=self.root, stdout=output, stderr=output)
                 self.addCleanup(lambda: self.stop_probe(process))
                 self.wait_for(lambda: "file lock" in log.read_text(), process, log)

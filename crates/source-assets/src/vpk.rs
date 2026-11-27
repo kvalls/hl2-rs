@@ -437,10 +437,19 @@ impl Vfs {
         if let Some(d) = self.embedded.get(&name) {
             return Ok(Some(d[..d.len().min(max_bytes)].to_vec()));
         }
+        self.read_installed_prefix(&name, max_bytes)
+    }
+
+    /// Reads a normalized path from the installed search layers, excluding the active map's pak.
+    pub(crate) fn read_installed_prefix(
+        &self,
+        name: &str,
+        max_bytes: usize,
+    ) -> Result<Option<Vec<u8>>> {
         for layer in &self.layers {
             match layer {
                 Layer::Dir(folder) => {
-                    let p = folder.join(&name);
+                    let p = folder.join(name);
                     if p.is_file() {
                         let file = File::open(p)?;
                         let cap = file
@@ -452,7 +461,7 @@ impl Vfs {
                     }
                 }
                 Layer::Pak(vpk) => {
-                    if let Some(d) = vpk.read_prefix(&name, max_bytes)? {
+                    if let Some(d) = vpk.read_prefix(name, max_bytes)? {
                         return Ok(Some(d));
                     }
                 }
@@ -1056,6 +1065,12 @@ mod tests {
             b"LOOSE"
         );
         assert_eq!(vfs.read_prefix("maps/emb.bsp", 3).unwrap().unwrap(), b"PAK");
+        assert_eq!(
+            vfs.read_installed_prefix("maps/emb.bsp", 4)
+                .unwrap()
+                .unwrap(),
+            b"VBSP"
+        );
         assert_eq!(
             vfs.read_prefix("readme.txt", 7).unwrap().unwrap(),
             b"PRELOAD"
