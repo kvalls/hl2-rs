@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Bring the owned-install tests up to date with the code they test
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Test expectations only: `explosion_particles.rs` lists the `$translucent` materials explicitly (wood flecks, blood and smoke grenade joined `MATERIALS` with bullet impacts) and reports every material's kind at once; `npc_weapons.rs` police and soldier loadouts include the citizens' package and suitcase; `hud/quick_info/tests.rs` allows 1.5 px between the arc and crosshair centers and prints the layout on failure; `models.rs` Barney levels below Low compare as coarser than the Low root read.
+- Why — Each test was written before an intended change and failed since: package and suitcase have no required acttable rows (so `Weapon_CanUse` passes them); the crosshair rounds `CHudCrosshair::GetDrawPosition` while `CHudQuickInfo::Paint` truncates it (Source SDK `game/client/hud_crosshair.cpp`, `game/client/hl2/hud_quickinfo.cpp`); a face's root level stops at Low.
+- Tested how — `cargo test --release --workspace --no-fail-fast -- --ignored`; `scripts/checks/validate.sh`.
+- Result — Every owned-install test passes in every crate.
+- Still broken or **not tested** — Nothing known.
+- Next — Optimization backlog (O48 render encoders).
+
 ## 2026-11-27 — Register ShaderBuffer assets in the owned headless campaign tests
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

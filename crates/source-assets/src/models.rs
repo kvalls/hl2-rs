@@ -1357,8 +1357,15 @@ mod tests {
         );
         assert!(!levels.lower.is_empty());
         for (i, level) in levels.lower.iter().enumerate() {
-            let alone = read_model_lod(&vfs, "models/barney.mdl", 0, i + 1).unwrap();
-            assert_eq!(count(&level.surfaces), count(&alone), "level {}", i + 1);
+            // A face's root level stops at Low (`FACE_MAX_ROOT_LOD`), so a root read deeper than
+            // that returns Low; the distance levels keep the coarser geometry.
+            let root = (i + 1).min(2);
+            let alone = read_model_lod(&vfs, "models/barney.mdl", 0, root).unwrap();
+            if root == i + 1 {
+                assert_eq!(count(&level.surfaces), count(&alone), "level {}", i + 1);
+            } else {
+                assert!(count(&level.surfaces) < count(&alone), "level {}", i + 1);
+            }
             assert!(level.switch_point > 0.);
         }
         assert!(levels

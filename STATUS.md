@@ -1,14 +1,29 @@
 # STATUS
 
-## Owned headless campaign tests (2026-11-27)
+## Owned-install tests (2026-11-27)
 
-`headless_bevy_app_submenu_entry_switches_background_map_and_scene` and
-`headless_bevy_app_ep2_submenu_entry_switches_background_map` failed with "Resource does
-not exist" since the Bevy 0.20.1 merge: `effects::present` takes
-`Assets<ShaderBuffer>`, which the shared headless asset setup
-(`campaign/loading_owned_tests.rs::init_map_assets`) did not register. Fixed by
-registering it. `cargo test --release -p hl2-bevy --lib -- --ignored`: 27 passed, 0
-failed.
+`cargo test --release --workspace --no-fail-fast -- --ignored` passes in every crate (it
+needs the installed game, so `validate.sh` does not run it). Fixed today:
+
+- `headless_bevy_app_submenu_entry_switches_background_map_and_scene` and
+  `headless_bevy_app_ep2_submenu_entry_switches_background_map` failed with "Resource does
+  not exist" since the Bevy 0.20.1 merge: `effects::present` takes
+  `Assets<ShaderBuffer>`, which the shared headless asset setup
+  (`campaign/loading_owned_tests.rs::init_map_assets`) did not register.
+- Four test expectations went stale when the code changed on purpose (the "5 failures
+  not yet classified" of the s42 merge note further down; the fifth,
+  `owned_install_pages_tab_in_reading_order`, already passes):
+  - `owned_explosion_materials_decode_with_correct_blend_modes`: the wood flecks, blood
+    and smoke-grenade materials added for bullet impacts are `$translucent`.
+  - `owned_weapon_columns_follow_campaign_loadouts_then_weapon_can_use`: the citizens'
+    package and suitcase have no required acttable rows, so police and soldiers pass
+    `Weapon_CanUse` for them.
+  - `owned_quickinfo_arcs_center_on_crosshair_across_layouts_and_states`: at odd heights
+    the crosshair rounds `CHudCrosshair::GetDrawPosition` and quick info truncates it
+    (SDK), so they sit up to 1.5 px apart.
+  - `owned_barney_levels_match_each_root_lod_read_and_climb_in_switch_points`: a face's
+    root level stops at Low, so its distance levels below Low are coarser than a root
+    read.
 
 ## Canal graffiti draw order (2026-11-27)
 

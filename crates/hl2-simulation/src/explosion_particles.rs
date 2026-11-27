@@ -891,17 +891,28 @@ mod tests {
     fn owned_explosion_materials_decode_with_correct_blend_modes() {
         let vfs =
             source_assets::vpk::Vfs::mount(&source_assets::install::discover().unwrap()).unwrap();
-        for name in MATERIALS {
-            let sprite = crate::projectile_visuals::load_sprite(&vfs, name).unwrap();
-            assert!(sprite.image.width > 0 && sprite.image.height > 0);
-            assert_eq!(
-                sprite.kind,
-                if name.contains("noisesphere") || name.contains("fleck_cement") {
-                    2
-                } else {
-                    3
-                }
-            );
-        }
+        let kinds: Vec<(&str, usize)> = MATERIALS
+            .iter()
+            .map(|name| {
+                let sprite = crate::projectile_visuals::load_sprite(&vfs, name).unwrap();
+                assert!(sprite.image.width > 0 && sprite.image.height > 0, "{name}");
+                (*name, sprite.kind)
+            })
+            .collect();
+        // Kind 2 is `$translucent`, kind 3 `$additive`, as the installed materials set them.
+        const TRANSLUCENT: &[&str] = &[
+            "particle/particle_noisesphere",
+            "effects/fleck_cement1",
+            "effects/fleck_cement2",
+            "effects/fleck_wood1",
+            "effects/fleck_wood2",
+            "effects/blood",
+            "particle/particle_smokegrenade",
+        ];
+        let expected: Vec<(&str, usize)> = MATERIALS
+            .iter()
+            .map(|name| (*name, if TRANSLUCENT.contains(name) { 2 } else { 3 }))
+            .collect();
+        assert_eq!(kinds, expected);
     }
 }
