@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Windows thread priority and throttling opt-out (O34)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `priority.rs`: a Windows branch (frame threads register with MMCSS "Games" and run above normal; background threads stay normal) through direct `kernel32`/`avrt` declarations, and `priority::set_process`, called first in `main`, which opts the process out of EcoQoS execution-speed throttling. No new dependency.
+- Why — O34: Windows had no thread or process priority, so background load and power throttling could delay frames.
+- Tested how — Windows-target strict Clippy (checks without linking), `scripts/checks/validate.sh` (2,050 Rust tests passed, 0 failed; `set_process` smoke-tested on macOS, where it does nothing).
+- Result — Builds and checks on both targets.
+- Still broken or **not tested** — Windows runtime, linking of `avrt` and the O34 crowd measurement under CPU load are **not tested** (no Windows machine here); recorded as an owner clarification.
+- Next — O10.
+
 ## 2026-11-27 — Attribute stutter (O9): crowd shader-variant spike and catch-up bursts
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
