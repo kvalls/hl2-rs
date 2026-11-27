@@ -31,7 +31,7 @@ impl TextOutline {
     };
 
     pub const DEFAULT: Self = Self {
-        color: Color::new(0.0, 0.0, 0.0, 0.3),
+        color: Color::new(0.0, 0.0, 0.0, 0.4),
         thickness: 1.0,
     };
 
@@ -713,8 +713,8 @@ mod tests {
     }
 
     #[test]
-    fn menu_outline_grows_outward_only_at_thirty_percent_and_keeps_the_glyph_weight() {
-        assert_eq!(TextOutline::DEFAULT.color, Color::new(0., 0., 0., 0.3));
+    fn menu_outline_grows_outward_only_at_forty_percent_and_keeps_the_glyph_weight() {
+        assert_eq!(TextOutline::DEFAULT.color, Color::new(0., 0., 0., 0.4));
         let canvas = Canvas::default();
         let font = FontFace::load(crate::PROGGY_CLEAN, canvas.clone()).expect("load font");
         for (scale, text) in [(1.0, "HALF-LIFE 2"), (2.0, "QUIT")] {
@@ -740,7 +740,7 @@ mod tests {
                     unoutlined.texture.as_ref().map(Texture2D::id)
                 );
             }
-            // One ring per glyph at 30%: no stacked stamps darkening beyond the set opacity.
+            // One ring per glyph at 40%: no stacked stamps darkening beyond the set opacity.
             assert_eq!(rings.len(), plain.len());
             for (ring, glyph) in rings.iter().zip(glyphs) {
                 assert_eq!(ring.color, TextOutline::DEFAULT.color);

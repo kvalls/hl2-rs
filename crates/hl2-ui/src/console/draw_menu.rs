@@ -50,7 +50,7 @@ impl Console {
             } else {
                 Color::new(color.r, color.g, color.b, color.a * alpha_mult)
             };
-            // Enabled rows, armed or not, share the 30% outward outline; disabled rows,
+            // Enabled rows, armed or not, share the 40% outward outline; disabled rows,
             // drawn dimmer, take half of it.
             let outline_amount = if entry.enabled { 1.0 } else { 0.5 };
             let button_outline = TextOutline::DEFAULT.faded(base_focus * outline_amount);

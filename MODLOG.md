@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Menu text outline at 40%
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `TextOutline::DEFAULT` alpha 0.3 -> 0.4 (enabled menu rows, titles, subtitles 40%; disabled rows 20%), its tests and docs/gameui.md.
+- Why — Owner (2026-11-27): raise the outline opacity from 30% to 40%.
+- Tested how — Value change only: the source-ui font and hl2-ui unit tests and `scripts/build-bevy.sh` passed (already running when the owner asked to skip checks); at the owner's request no captures, `validate.sh` or replays.
+- Result — Not observed in a capture.
+- Still broken or **not tested** — The look at 40% is **not tested**.
+- Next — The owner's look in normal play.
+
 ## 2026-11-27 — Menu text outline grows outward only, at 30%
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

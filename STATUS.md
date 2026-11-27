@@ -2,7 +2,7 @@
 
 ## Menu text outline (2026-11-27)
 
-Main and pause menu buttons, titles and subtitles draw a 30% black outline that grows outward
+Main and pause menu buttons, titles and subtitles draw a 40% black outline that grows outward
 from each letter's edge (one cached ring texture per glyph, `source-ui` `font/outline.rs`).
 The letters keep their unoutlined weight. Unit tests cover the outward-only rule and the
 opacity. Packaged captures over the dark Episode One and bright Lost Coast backgrounds were

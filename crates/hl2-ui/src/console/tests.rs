@@ -2226,7 +2226,7 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
         "outline quads must be textured glyphs tracing the letter contour"
     );
 
-    // Each letter gets one outward-only ring quad (30%) beside its foreground quad
+    // Each letter gets one outward-only ring quad (40%) beside its foreground quad
     let fg_quads: Vec<_> = quads
         .iter()
         .filter(|q| q.color == console.style.menu)
@@ -2242,7 +2242,7 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
     );
 
     // 3. Armed state (hovered/selected):
-    // A selected row draws armed letters with the same 30% outline: arming never darkens it.
+    // A selected row draws armed letters with the same 40% outline: arming never darkens it.
     console.main_menu.selection = Some(0);
     console.draw(0.0);
     let quads = console.canvas.drain();
@@ -2260,7 +2260,7 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
     assert_eq!(
         outline_quads,
         armed_fg_quads.len() + plain_fg,
-        "armed and plain letters each have one 30% outline ring quad"
+        "armed and plain letters each have one 40% outline ring quad"
     );
 
     // 4. Pressed state offset shift:
@@ -3627,7 +3627,7 @@ fn out_of_focus_menu_title_and_subtitle_are_translucent_without_black_outline() 
     console.draw(0.3);
     let quads = console.canvas.drain();
 
-    // Outline quads (emitted by draw_cell_text_outlined) have color (0,0,0, 0.3 * base_focus)
+    // Outline quads (emitted by draw_cell_text_outlined) have color (0,0,0, 0.4 * base_focus)
     // and texture.is_some() (the glyph cache texture).
     // When base_focus is 0.0, outline is TextOutline::NONE, so NO text outline quads are emitted.
     // Verify no text glyph outline quads with alpha >= 0.2 are emitted under the menu.
