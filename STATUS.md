@@ -15,8 +15,17 @@ the same apart from render noise (at most 3 levels per channel). The base build
 showed no visible flip at these angles, so the on-screen fix is **not tested**.
 Cost is within noise: one extra mesh, CPU frame p95 4.71/4.53 ms before and
 4.73/4.25 ms after, and an unchanged `world` load time. Retail comparison and
-Windows runtime are **not tested**. Next: capture from the owner's exact view
-(`setpos -713 2911 -788; setang 7 1065 0`).
+Windows runtime are **not tested**. Captures from the owner's walking view
+(`setpos -713 2911 -788; setang 7 1065 0`; the player lands at feet z −852)
+are also identical on both builds, so the reported flip has no on-screen
+reproduction yet.
+
+`setpos` sets the feet origin and `getpos` prints the eye (feet + 64), as retail
+does (Source SDK `game/server/client.cpp` `setpos`, `game/client/view.cpp`
+`getpos`). With flight on, `setpos -713 2911 -788; setang 7 1065 0` in
+`d1_canals_03` matches the retail view of that command. In walk mode the player
+falls 64 units to the floor (and is nudged about 2 units in x), which gives the
+lower view. Whether retail stays at z −788 while walking is **not tested**.
 
 ## Missing/invalid console map validation without loading popup (2026-11-26)
 
