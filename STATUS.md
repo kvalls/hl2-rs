@@ -1,5 +1,14 @@
 # STATUS
 
+## Chat left out of the saved console history (2026-11-27)
+
+Lines of only `say` commands, and lines the chat mode routes to chat, stay
+in the console history for the current run but are not written to
+`hl2-console-history.txt`; commands are saved as before. Unit tests in
+`hl2-ui` and `hl2-debug`, validate and the `console`/`console_map` replays
+pass. Chat saved before this change stays in the existing file. Live play
+on the rebuilt package is **not tested**.
+
 ## Console quote keys on macOS, again (2026-11-27)
 
 Quotes typed with a dead-key layout (US International PC) never reached the

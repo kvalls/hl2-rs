@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Chat stays out of the saved console history
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `hl2-ui` `Console` keeps a set of this run's chat history lines (`session_only_history`). `submit_local` marks a line as chat when an extension's local-submit route took it (chat mode) or when it is only `say` commands (`remote::chat_only`). Otherwise it unmarks the line, so the same text run later as a command is saved again. `take_changed_history` leaves marked lines out of what the host writes to `hl2-console-history.txt`; the editor's history still has them for Up/Down this run. `submit` and the new `submit_local` share `submit_parsed`, so a line is tokenized once. Tests: `console/tests/history.rs` (the existing history-browsing test moved there, so `console/tests.rs` shrinks to 4,459 lines) and an `hl2-debug` chat-mode case. docs/gameui.md.
+- Why — Owner (2026-11-27): keep `say` and chat-mode lines in memory only, so they are gone from the history after a restart; real commands still persist.
+- Tested how — `scripts/checks/validate.sh`; packaged replays `console` and `console_map`; macOS release build.
+- Result — validate passes; both replays pass.
+- Still broken or **not tested** — Chat lines saved before this change stay in the existing history file: their text alone does not tell whether chat mode was on. Live play on the rebuilt package **not tested**.
+- Next — —
+
 ## 2026-11-27 — Console quote keys work again on macOS
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

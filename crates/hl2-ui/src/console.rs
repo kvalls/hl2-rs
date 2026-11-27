@@ -100,6 +100,9 @@ pub struct Console {
     pub remote: remote::Remote,
     /// Command-line `+` commands, run once the first level loaded (or failed to).
     startup_commands: Vec<String>,
+    /// History lines kept for this run only: chat (`say` lines and chat routed by an extension)
+    /// is left out of the saved history.
+    session_only_history: std::collections::HashSet<String>,
     /// Where the quit / main-menu box was dragged (centered on opening).
     quit_placement: Placement,
     /// Names arguments complete from (installed maps, the loaded map's entities), set by the host.
@@ -299,6 +302,7 @@ impl Default for Console {
             cheats: false,
             remote: remote::Remote::default(),
             startup_commands: Vec::new(),
+            session_only_history: Default::default(),
             quit_placement: Placement::default(),
             completion: complete::Context::default(),
             font: None,

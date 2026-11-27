@@ -47,15 +47,29 @@ impl Console {
     /// Submits text entered through the local console editor.
     pub fn submit_local(&mut self, line: &str) -> Vec<Effect> {
         let line = line.trim();
-        if line.is_empty()
-            || self
-                .extensions
-                .local_submit()
-                .is_some_and(|route| route(self, line))
-        {
+        if line.is_empty() {
             return Vec::new();
         }
-        self.submit(line)
+        if self
+            .extensions
+            .local_submit()
+            .is_some_and(|route| route(self, line))
+        {
+            self.keep_for_session(line, true);
+            return Vec::new();
+        }
+        let commands = command::tokenize(line);
+        self.keep_for_session(line, super::remote::chat_only(&commands));
+        self.submit_parsed(line, commands)
+    }
+
+    /// Marks a submitted history line as chat (kept only for this run) or as a command (saved).
+    fn keep_for_session(&mut self, line: &str, chat: bool) {
+        if chat {
+            self.session_only_history.insert(line.to_owned());
+        } else {
+            self.session_only_history.remove(line);
+        }
     }
 
     pub fn say_local(&mut self, text: &str) {
@@ -68,7 +82,15 @@ impl Console {
         if line.is_empty() {
             return Vec::new();
         }
-        let commands = command::tokenize(line);
+        self.submit_parsed(line, command::tokenize(line))
+    }
+
+    /// Echoes a tokenized line (chat prints its own line) and runs it.
+    fn submit_parsed(
+        &mut self,
+        line: &str,
+        commands: Result<Vec<Vec<String>>, String>,
+    ) -> Vec<Effect> {
         if !super::remote::chat_only(&commands) {
             self.print(Level::Input, format!("] {line}"));
         }
@@ -159,13 +181,18 @@ impl Console {
         self.shell.panel.editor.set_history(history);
     }
 
-    /// The command history, once after it changed (the host saves it then).
+    /// The command history to save, once after it changed (the host saves it then). Chat lines
+    /// stay in the editor's history for this run but are not saved.
     pub fn take_changed_history(&mut self) -> Option<Vec<String>> {
-        self.shell
-            .panel
-            .editor
-            .take_history_changed()
-            .then(|| self.shell.panel.editor.history().to_vec())
+        self.shell.panel.editor.take_history_changed().then(|| {
+            let editor = &self.shell.panel.editor;
+            editor
+                .history()
+                .iter()
+                .filter(|line| !self.session_only_history.contains(*line))
+                .cloned()
+                .collect()
+        })
     }
 
     /// Input of the focused console: the dialog edits, scrolls and selects; a click on Close

@@ -78,4 +78,32 @@ mod tests {
             "back to commands"
         );
     }
+
+    #[test]
+    fn chat_mode_lines_stay_in_this_runs_history_but_are_not_saved() {
+        use source_ui::input::{Input, Key};
+        let mut console = console();
+        console.toggle();
+        let enter = |console: &mut hl2_ui::console::Console, line: &str| {
+            console.input(&Input {
+                text: line.into(),
+                keys: [Key::Enter].into_iter().collect(),
+                ..Default::default()
+            });
+        };
+        enter(&mut console, "chat_mode 1");
+        enter(&mut console, "echo \"hello\" there");
+        enter(&mut console, "chat_mode 0");
+        assert_eq!(
+            console.take_changed_history().unwrap(),
+            ["chat_mode 1", "chat_mode 0"],
+            "a chat-mode message is not saved"
+        );
+        enter(&mut console, "echo \"hello\" there");
+        assert_eq!(
+            console.take_changed_history().unwrap(),
+            ["chat_mode 1", "chat_mode 0", "echo \"hello\" there"],
+            "the same text run as a command is saved"
+        );
+    }
 }

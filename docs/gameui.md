@@ -1360,7 +1360,9 @@ complete}`, HL2's glue (texts, look, actions to effects) in `hl2-ui::console::pa
 - Keys: retail core supports `Tab`/`Shift+Tab` completion stepping (`Down`/`Up` also step candidates while an autocomplete popup is open), popup-free `Up`/`Down` command-history browsing that updates the entry in place and restores any unsent draft when stepping back down past the newest entry, `Left`/`Right` and `Home`/`End` (with `Shift` selection), `Ctrl/Cmd+Left/Right` word movement (matching retail OSX `Cmd` and cross-platform `Ctrl`), `Ctrl/Cmd+Home/End` output scrolling, `Cmd/Ctrl+A/C/V/X/Z` and `Shift+Delete`; Escape hides the completion list then closes the console. Non-retail shortcuts (`Ctrl+R` reverse history search, `Ctrl+U/K/W/E/L`, `Ctrl+Backspace/Delete`, and macOS `Option` word / `Command` line navigation & deletion) are injected by the `hl2-debug` plugin via `Extensions::select_console_input`; typed text is ignored while Control or Command is held.
 - History: 100 entries (retail `MAX_HISTORY_ITEMS`), a repeated command moves to the end, saved
   in `hl2-console-history.txt` next to the settings file (never in the install). Lines submitted
-  by scripts or `Console::submit` do not join it.
+  by scripts or `Console::submit` do not join it. Chat (a line of only `say` commands, or a line
+  an extension routed to chat, such as `hl2-debug`'s chat mode) stays in this run's history but
+  is not saved; the same text later run as a command is saved (HL2-RS addition).
 - Output: lines carry a level and the time they were printed; input echoes and messages use
   `Console.TextColor`, developer lines (mirrored HL2-RS info logs) `Console.DevTextColor`, read
   from the installed `SourceScheme.res`; warnings and errors (mirrored from the engine log, every

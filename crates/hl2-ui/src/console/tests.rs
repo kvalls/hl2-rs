@@ -157,42 +157,6 @@ fn entity_inputs_preserve_quoted_values_and_enforce_cheat_and_delay_rules() {
     }
 }
 #[test]
-fn console_hide_preserves_pause_and_escape_dismisses_history_first() {
-    let mut console = Console::default();
-    console.escape();
-    assert!(console.paused());
-    console.toggle();
-    assert_eq!(console.mode(), Mode::Console);
-    console.execute("hideconsole");
-    assert_eq!(console.mode(), Mode::Pause);
-    console.toggle();
-    let send = |c: &mut Console, t: &str, k: &[Key]| {
-        c.input(&Input {
-            text: t.into(),
-            keys: k.iter().copied().collect(),
-            ..Default::default()
-        });
-    };
-    send(&mut console, "echo first", &[Key::Enter]);
-    send(&mut console, "echo second", &[Key::Enter]);
-    keys(&mut console, &[Key::Up]);
-    assert!(console.input_line() == "echo second" && console.completion_bounds().is_none());
-    keys(&mut console, &[Key::Up]);
-    assert_eq!(console.input_line(), "echo first");
-    keys(&mut console, &[Key::Down]);
-    assert_eq!(console.input_line(), "echo second");
-    keys(&mut console, &[Key::Down]);
-    assert_eq!(console.input_line(), "");
-    send(&mut console, "ec", &[]);
-    assert!(console.completion_bounds().is_some());
-    console.escape();
-    assert!(console.mode() == Mode::Console && console.completion_bounds().is_none());
-    console.escape();
-    assert!(!console.paused() && console.mode() == Mode::Gameplay);
-    let history = console.take_changed_history().unwrap();
-    assert!(history == ["echo first", "echo second"] && console.take_changed_history().is_none());
-}
-#[test]
 fn explicit_text_input_edits_unicode_at_boundaries_and_completes_commands() {
     let mut console = Console::default();
     console.toggle();
@@ -4492,3 +4456,4 @@ fn small_canvases_and_resizes_keep_the_minimum_size() {
 }
 
 mod chapters;
+mod history;
