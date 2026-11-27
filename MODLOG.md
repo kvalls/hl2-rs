@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Keep the weapon blur trail's length at high frame rates (O20)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `plugins/hl2-advanced-options/src/bevy/weapon_blur/strength.rs`: `Shutter`, an extracted resource updated in `PostUpdate` from the real frame time (smoothed over about five frames, in 1/20 steps), multiplies the blur exposure (`params.y`) so a trail shows the motion over 1/60 s instead of over one frame; never below one frame, at most 2.5x; the maximum trail length (`params.x`) is unchanged. `prepare.rs` passes it to the shader data. Unit test for the factor and the unchanged maximum.
+- Why — Owner (2026-11-27): after the render-pass change the blur became less noticeable, since faster frames move the weapon less per frame. Weapon motion vectors are already relative to the camera, so the trail now follows the weapon's speed rather than its per-frame distance. Owner accepts up to 0.4 ms for it.
+- Tested how — Headless Metal System Trace A-B-B-A (`animated-fire`, uncapped, maxed Retina); captures of crowbar swings in air and into a wall, revolver fire and reload, SMG fire, grenade and bugbait throws against a build with a 1/20 s reference (to show the full 2.5x trail at the capture runs' 55 FPS); packaged replays; `validate.sh`.
+- Result — Blur passes `+0.14 ms` GPU per frame (`1.19-1.27 -> 1.35-1.39`), GPU busy mean `+0.1-0.3 ms` with another game sharing the GPU. Trails visibly longer at the full factor, most on the revolver kick and the crowbar. Replays 111/111.
+- Still broken or **not tested** — The capture runs could not reach high frame rates here (another game was running), so the shipped 1/60 s setting was seen only through the scaled build; live play at 120 FPS **not tested**.
+- Next — Owner's look in normal play.
+
 ## 2026-11-27 — Honor map search order and the dist build lock
 
 - Agent/model — Codex desktop, GPT-6 family (exact model ID not recorded).

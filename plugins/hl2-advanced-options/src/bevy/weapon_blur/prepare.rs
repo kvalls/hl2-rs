@@ -172,7 +172,9 @@ pub(super) fn groups(
     mut known: Local<HashMap<(TextureFormat, u32, bool), [CachedRenderPipelineId; 4]>>,
     mut image_pipelines: Local<super::world::Cache>,
     mut views: Query<View>,
+    shutter: Option<Res<super::strength::Shutter>>,
 ) {
+    let shutter = shutter.map_or_else(Default::default, |s| *s);
     for (
         entity,
         blur,
@@ -201,7 +203,7 @@ pub(super) fn groups(
             sources.map(TextureView::id),
             msaa.samples(),
         );
-        let data = view_data(blur, textures, view, previous);
+        let data = view_data(blur, textures, view, previous, shutter);
         if old == Some(&key)
             && let Some(mut prepared) = prepared
         {
@@ -402,6 +404,7 @@ fn view_data(
     textures: &Textures,
     view: &ExtractedView,
     previous: Option<&PreviousViewData>,
+    shutter: super::strength::Shutter,
 ) -> Data {
     let mut reprojection = Mat4::IDENTITY;
     if blur.world {
@@ -430,7 +433,7 @@ fn view_data(
     Data {
         reprojection,
         flags: Vec4::new(f32::from(blur.camera_moving), blur.scale, 0., 0.),
-        params: blur.parameters(textures.size),
+        params: blur.parameters(textures.size, shutter),
     }
 }
 

@@ -49,7 +49,12 @@ pub(super) struct WeaponBlur {
 pub(super) struct WeaponBlurPlugin;
 impl Plugin for WeaponBlurPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ExtractComponentPlugin::<WeaponBlur>::default());
+        app.add_plugins((
+            ExtractComponentPlugin::<WeaponBlur>::default(),
+            bevy::render::extract_resource::ExtractResourcePlugin::<strength::Shutter>::default(),
+        ))
+        .init_resource::<strength::Shutter>()
+        .add_systems(bevy::app::PostUpdate, strength::update_shutter);
         region::install(app);
         let Some(render) = app.get_sub_app_mut(RenderApp) else {
             return;
