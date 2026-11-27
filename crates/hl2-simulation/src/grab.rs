@@ -206,7 +206,7 @@ impl GrabController {
             let ratio = (1. / props.inv_mass) / REDUCED_CARRY_MASS;
             let mut reduced = props;
             reduced.inv_mass = 1. / REDUCED_CARRY_MASS;
-            reduced.inv_principal_inertia.powf(0.5) *= ratio.sqrt();
+            reduced.inv_principal_inertia *= ratio;
             body.set_additional_mass_properties(reduced, true);
         }
         let mut relative = eye_rotation(forward, ignore_pitch).inverse() * current;

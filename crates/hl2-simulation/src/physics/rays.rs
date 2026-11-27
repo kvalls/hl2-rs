@@ -1,6 +1,6 @@
 //! Ray queries against the physics world: shots, impacts, the ground and picking.
 use super::{
-    groups_filter, vector, Collider, ColliderHandle, Physics, Point, RayHit, MASK_SHOT,
+    groups_filter, vector, Collider, ColliderHandle, Physics, RayHit, MASK_SHOT,
     PICK_GROUPS, QUERY_GROUPS, SCALE,
 };
 use glam::Vec3;
@@ -196,7 +196,7 @@ impl Physics {
                 .exclude_sensors()
                 .predicate(&predicate)).cast_ray(&Ray::new(
                 vector(start),
-                nalgebra::Vec3::new(direction.x, direction.y, direction.z),
+                direction,
             ), length * SCALE, true)?;
         Some(start + direction * (toi / SCALE))
     }
@@ -213,7 +213,7 @@ impl Physics {
         };
         let (handle, projection) = self.queries(QueryFilter::default()
                 .exclude_sensors()
-                .predicate(&predicate)).project_point(&point, true)?;
+                .predicate(&predicate)).project_point(point, f32::MAX, true)?;
         let gap = (projection.point - point).length() / SCALE;
         (projection.is_inside || gap < 0.5).then(|| self.collider_materials[&handle].as_str())
     }

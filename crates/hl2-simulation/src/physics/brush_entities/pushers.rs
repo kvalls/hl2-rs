@@ -38,7 +38,7 @@ impl Physics {
                 return false;
             }
             let aabb = collider.compute_aabb();
-            let (lo, hi) = (aabb.mins.coords / SCALE, aabb.maxs.coords / SCALE);
+            let (lo, hi) = (aabb.mins / SCALE, aabb.maxs / SCALE);
             if lo.x > high.x || lo.y > high.y || lo.z > high.z {
                 return false;
             }

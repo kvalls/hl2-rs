@@ -2,7 +2,7 @@
 //! several per tick, so a trace skips whatever its swept box proves it cannot hit.
 use super::{
     player_convex, pose, trace_brushes, vector, ActorHull, Brush, Collider, ColliderHandle, Cuboid,
-    Group, Hull, HullTrace, InteractionGroups, NpcCollisionWorld, Physics, Point, Quat, Query,
+    Group, Hull, HullTrace, InteractionGroups, InteractionTestMode, NpcCollisionWorld, Physics, Quat, Query,
     QueryFilter, ShapeCastOptions, Trace, Vec3, CONTENTS_MONSTER, HULL_GROUP, PROJECTILE_GROUP,
     QUERY_GROUPS, RAGDOLL_GROUP, SCALE, SHADOW_GROUP, WEAPON_GROUP,
 };
@@ -163,19 +163,19 @@ impl Physics {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut fallback_near = false;
-        self.query
-            .colliders_with_aabb_intersecting_aabb(&bounds, |handle| {
-                let collider = &self.colliders[*handle];
-                if self.accepts_for_npc(*handle, collider, query)
-                    && !self.world_brush_contents.contains_key(handle)
+        for (handle, collider) in self
+                .queries(QueryFilter::default())
+                .intersect_aabb_conservative(bounds)
+            {
+                if self.accepts_for_npc(handle, collider, query)
+                    && !self.world_brush_contents.contains_key(&handle)
                 {
                     fallback_near |= !player_convex::supported(collider);
-                    if let Some(brush) = cache.brush(*handle, collider) {
+                    if let Some(brush) = cache.brush(handle, collider) {
                         merge(result, sweep.against(brush, 1), entity_of(collider), false);
                     }
                 }
-                true
-            });
+            }
         fallback_near
     }
 
@@ -204,7 +204,7 @@ impl Physics {
         let overlap_shape = Cuboid::new(vector(
             (half - Vec3::splat(0.015625)).max(Vec3::splat(0.001)),
         ));
-        self.queries(filter).intersections_with_shape(&position, &overlap_shape, |handle| {
+        for (handle, _) in self.queries(filter).intersect_shape(position, &overlap_shape) {
                 let collider = &self.colliders[handle];
                 let all_solid = stationary
                     || (collider.shape().is_convex()
@@ -214,7 +214,7 @@ impl Physics {
                             &end_position,
                             &overlap_shape,
                         )
-                        .unwrap_or(false));
+                        .is_ok_and(|hit| hit.intersecting));
                 let hit = Trace {
                     fraction: if all_solid { 0. } else { 1. },
                     normal: Vec3::ZERO,
@@ -222,8 +222,7 @@ impl Physics {
                     all_solid,
                 };
                 merge(result, hit, entity_of(collider), false);
-                true
-            });
+            }
         if stationary || result.trace.all_solid {
             return;
         }
@@ -233,7 +232,7 @@ impl Physics {
             stop_at_penetration: false,
             compute_impact_geometry_on_penetration: true,
         };
-        if let Some((handle, hit)) = self.queries(filter).cast_shape(&position, &vector(end - start), &shape, options) {
+        if let Some((handle, hit)) = self.queries(filter).cast_shape(&position, vector(end - start), &shape, options) {
             let fraction = hit.time_of_impact.clamp(0., 1.);
             if fraction < result.trace.fraction {
                 result.trace.fraction = fraction;

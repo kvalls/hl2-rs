@@ -717,7 +717,7 @@ fn hinged_prop_keeps_its_pivot_while_ropes_stay_off() {
     );
     let pivot = physics.bodies[body]
         .position()
-        .inverse_transform_point(&vector(Vec3::new(100., 200., 60.)));
+        .inverse_transform_point(vector(Vec3::new(100., 200., 60.)));
     // A push off the hinge axis: it swings about it instead of falling.
     physics.bodies[body].set_linvel(Vec3::new(2., 0., 0.), true);
     for _ in 0..200 {
@@ -1060,7 +1060,7 @@ fn moving_overlap_reports_start_solid_and_allows_an_exit() {
             50. * SCALE
         )),
     );
-    rapier.query.update(&rapier.colliders);
+    rapier.refresh_queries();
     for physics in [Physics::new(&clip_box(1)), rapier] {
         let start = Vec3::new(15., 0., 40.);
         let exit = physics.trace_hull(start, Vec3::new(-5., 0., 40.), mins, maxs);
@@ -1099,7 +1099,7 @@ fn convex_prop_wall_preserves_jump_and_tangent_motion() {
             Vec3::new(1000., 1000., 0.),
             polyhedron,
         ));
-        open.query.update(&open.colliders);
+        open.refresh_queries();
         let mut walled = Physics::default();
         walled.colliders.insert(convex_box(
             Vec3::new(-1000., -1000., -100.),
@@ -1111,7 +1111,7 @@ fn convex_prop_wall_preserves_jump_and_tangent_motion() {
             Vec3::new(100., 1000., 300.),
             polyhedron,
         ));
-        walled.query.update(&walled.colliders);
+        walled.refresh_queries();
         let start = Vec3::new(15.96875, 0., 100.);
         let tangent = walled.trace_hull(
             start,
@@ -1153,7 +1153,7 @@ fn rotated_convex_edge_bevel_allows_clearance_and_blocks_fast_crossing() {
             convex_box(Vec3::new(-2., -4., -6.), Vec3::new(2., 4., 6.), polyhedron)
                 .position(pose(Vec3::ZERO, rotation)),
         );
-        physics.query.update(&physics.colliders);
+        physics.refresh_queries();
         let start = Vec3::new(5.968779, 5.9419513, 6.3287473);
         let half = Vec3::new(1., 2., 3.);
         // This box is separated by an edge-cross-edge axis by .4119 units,
@@ -1165,7 +1165,8 @@ fn rotated_convex_edge_bevel_allows_clearance_and_blocks_fast_crossing() {
             &pose(start, Quat::IDENTITY),
             &Cuboid::new(vector(half)),
         )
-        .unwrap());
+        .unwrap()
+        .intersecting);
         assert!(!physics.trace_hull(start, start, -half, half).start_solid);
         let enter = physics.trace_hull(start, Vec3::ZERO, -half, half);
         assert!((enter.fraction - 0.05053343).abs() < 0.00001);
@@ -1184,34 +1185,34 @@ fn convex_cache_tracks_translation_rotation_shape_and_disabled_state() {
     let start = Vec3::X * 20.;
     let mins = -Vec3::ONE;
     let maxs = Vec3::ONE;
-    physics.query.update(&physics.colliders);
+    physics.refresh_queries();
     let initial = physics.trace_hull(start, Vec3::ZERO, mins, maxs);
     for i in 0..1000 {
         let t = Vec3::new((i as f32 * 0.17).sin() * 4., (i as f32 * 0.09).cos(), 0.);
         physics.colliders[handle].set_position(pose(t, Quat::IDENTITY));
-        physics.query.update(&physics.colliders);
+        physics.refresh_queries();
         physics.trace_hull(start + t, t, mins, maxs);
     }
     physics.colliders[handle].set_position(pose(Vec3::ZERO, Quat::IDENTITY));
-    physics.query.update(&physics.colliders);
+    physics.refresh_queries();
     assert_eq!(
         physics.trace_hull(start, Vec3::ZERO, mins, maxs).fraction,
         initial.fraction
     );
     physics.colliders[handle].set_shape(SharedShape::cuboid(4. * SCALE, 2. * SCALE, 2. * SCALE));
-    physics.query.update(&physics.colliders);
+    physics.refresh_queries();
     assert!(physics.trace_hull(start, Vec3::ZERO, mins, maxs).fraction < initial.fraction);
     physics.colliders[handle].set_position(pose(
         Vec3::ZERO,
         Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
     ));
-    physics.query.update(&physics.colliders);
+    physics.refresh_queries();
     assert!(
         (physics.trace_hull(start, Vec3::ZERO, mins, maxs).fraction - initial.fraction).abs()
             < 0.00001
     );
     physics.colliders[handle].set_enabled(false);
-    physics.query.update(&physics.colliders);
+    physics.refresh_queries();
     assert_eq!(
         physics.trace_hull(start, Vec3::ZERO, mins, maxs).fraction,
         1.
@@ -1345,7 +1346,7 @@ fn melee_box_sweep_reaches_a_nearby_offset_target_but_not_outside_its_width() {
             .translation(Vec3::new(40. * SCALE, 20. * SCALE, 0.))
             .user_data(1),
     );
-    physics.query.update(&physics.colliders);
+    physics.refresh_queries();
     assert!(physics.impact_ray(Vec3::ZERO, Vec3::X, 75.).is_none());
     assert_eq!(
         physics
@@ -1368,7 +1369,7 @@ fn touching_floor_allows_standing_but_penetration_does_not() {
     let mut p = Physics::default();
     p.colliders
         .insert(ColliderBuilder::cuboid(10., 10., 1.).translation(Vec3::new(0., 0., -1.)));
-    p.query.update(&p.colliders);
+    p.refresh_queries();
     let mins = Vec3::new(-16., -16., 0.);
     let maxs = Vec3::new(16., 16., 72.);
     assert!(!p.trace_hull(Vec3::ZERO, Vec3::ZERO, mins, maxs).start_solid);
