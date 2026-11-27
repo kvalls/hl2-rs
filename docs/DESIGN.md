@@ -2977,3 +2977,25 @@ the main thread `Priority::Frame` and every launch builds Bevy's task pools with
 under load); other platforms are no-ops until O34. `apps/hl2rs/Info.plist` (games category,
 `LSSupportsGameMode`, `LSAppNapIsDisabled`) is embedded into every `hl2-bevy` build by
 `apps/hl2rs/build.rs`; Game Mode itself also needs an application bundle (O35, owner decision).
+## Draw geometry on the map loader worker (O49, 2026-11-27)
+
+The install frame used to batch the map's surfaces, decide each draw's animation and build every
+root and coarser LOD mesh (`build_map_meshes`, already parallel) while the loading dialog waited.
+That work needs no main-world state except one coupling: mesh building reads the draw's GPU
+skeleton (present or not, and its joint count), and the skeleton was created while spawning the
+joint entities, which also decided which NPC-weapon draws to drop.
+
+- `rendering::map_geometry::MapGeometry::build` runs on the loader worker right after the map
+  loads (`campaign::loading::spawn_worker`, timed as `draw_geometry` in `loading_ms`). It
+  collects the batches, computes each draw's animation, the private-mesh rule (a material with
+  an iris) and, with `plan_skeleton`, the same keep/skip rule as `attach_draw_skeleton` without
+  spawning: a draw that will get a skeleton gets a planned one with the same joint count
+  (`rig.bones.len() + 1` for own and merged skeletons, an owner's draws sharing its first), so
+  every build-time read sees what the install will attach. Then it builds the meshes.
+- The install (`spawn_map_filtered`) takes `LoadedMap::geometry`, or builds it itself for a map
+  loaded another way (startup `--map`, tests) or with other draw options, before the texture
+  upload takes the iris images. `mesh_build::resolve_draws` creates each batch's material in
+  batch order (dropped draws too, as before) and spawns the joint entities, replacing the planned
+  skeletons; a debug assertion checks the joint counts match.
+- Not moved: applying the install's spawn commands (`93 ms` in the 2026-11-27 trace) still runs
+  in the install frame.

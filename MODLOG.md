@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Build a map's draw geometry on the loader worker (O49)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — New `rendering/map_geometry.rs`: `MapGeometry::build` collects the batches, each draw's animation, the private-mesh rule and, through `plan_skeleton`, the keep/skip rule of `attach_draw_skeleton` without spawning (a planned skeleton with the joint count the install will attach), then builds the root and coarser LOD meshes. `campaign::loading::spawn_worker` runs it after the map loads (`loading_ms.draw_geometry`) and stores it in `LoadedMap::geometry`. `mesh_build::prepare_draws` became `resolve_draws`: materials in batch order (dropped draws too, as before) and the joint entities, with a debug assertion that the spawned joint counts equal the planned ones. `spawn_map_filtered` builds the geometry itself for maps loaded another way (startup `--map`, tests) or with other draw options. DESIGN.md "Draw geometry on the map loader worker".
+- Why — Owner (2026-11-27): do the O49 split. The install frame did this work while the loading dialog waited.
+- Tested how — Headless console map loads (`bevy-console-map.json`, maxed settings), three runs per side against the previous package; owned tests `owned_station_planned_skeletons_match_the_spawned_ones` (new, release and debug) and the canal decal order test; packaged replays; `validate.sh`.
+- Result — `install_ms` `38-49 -> 12.5-13.3 ms`, `install_draws` `35-46 -> 9.5-10.0 ms`; the worker spends `34-37 ms` more; request to installed `495-527 -> 510-529 ms`. Replays 111/111; validate passes.
+- Still broken or **not tested** — The install's spawn commands still apply in one frame (`93 ms` in this morning's windowed trace), not re-measured; windowed loading-dialog frame gaps **not tested**.
+- Next — Measure the spawn command batch with a trace build and decide whether to spread it over frames.
+
 ## 2026-11-27 — Halve the first motion-blur reduction's reads (O20)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

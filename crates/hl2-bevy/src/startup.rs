@@ -143,6 +143,7 @@ pub(crate) fn load_stub(
         texture_errors: Vec::new(),
         models: serde_json::Value::Null,
         vfs,
+        geometry: None,
     })
 }
 

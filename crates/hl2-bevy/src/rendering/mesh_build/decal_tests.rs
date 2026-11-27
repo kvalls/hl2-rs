@@ -1,4 +1,4 @@
-use super::{PrepareContext, collect_map_batches, prepare_draws};
+use super::{PrepareContext, collect_map_batches, resolve_draws};
 use crate::{
     Status,
     rendering::{Batch, material},
@@ -48,6 +48,7 @@ fn canal_graffiti_keeps_placement_order_from_every_view_direction() {
             (key, Vec3::from(batch.mesh().get_aabb().unwrap().center))
         })
         .collect();
+    let mut geometry = crate::rendering::MapGeometry::planned(batches, &map, false);
     let image = Handle::default();
     let uploaded = material::upload_map_textures(
         &mut map,
@@ -69,8 +70,8 @@ fn canal_graffiti_keeps_placement_order_from_every_view_direction() {
     };
     let mut materials = Assets::default();
     let mut world = bevy::prelude::World::new();
-    let (draws, _) = prepare_draws(
-        batches,
+    resolve_draws(
+        &mut geometry,
         &cx,
         &mut world.commands(),
         (&mut materials, &mut Default::default()),
@@ -78,7 +79,7 @@ fn canal_graffiti_keeps_placement_order_from_every_view_direction() {
         &status,
     );
     let mut graffiti = BTreeMap::new();
-    for (draw, page) in draws.into_iter().zip(pages) {
+    for (draw, page) in geometry.draws.into_iter().zip(pages) {
         // Bevy replaces `final_aabb` with the position bounds when it uploads the mesh
         // and sorts by that center: check the uploaded copy, not the main-world mesh.
         let uploaded = draw.batch.unwrap().mesh().take_gpu_data().unwrap();

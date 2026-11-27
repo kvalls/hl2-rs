@@ -196,6 +196,7 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
         texture_errors,
         models: serde_json::to_value(model_report)?,
         vfs,
+        geometry: None,
     })
 }
 

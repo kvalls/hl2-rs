@@ -31,6 +31,7 @@ mod lightstyles;
 pub use lightstyles::{LightmapPages, LightmapWritesPlugin, apply_lightstyles};
 pub(crate) mod lod;
 mod map_draw;
+mod map_geometry;
 mod material;
 pub use material::MaterialKey;
 mod mesh_build;
@@ -45,6 +46,7 @@ pub(crate) mod simple_pass;
 pub(crate) mod variant_warmup;
 mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
+pub(crate) use map_geometry::MapGeometry;
 pub(crate) use material::{
     alpha_mode, black_cube, fallback_images, gpu_image_filtered, image, make_material,
     sampler_descriptor,
@@ -364,6 +366,14 @@ pub fn spawn_map_filtered(
         },
     ): hl2_ui::config::TextureSampling,
 ) {
+    // The loader worker built the draw geometry (O49); a map loaded another way builds it here,
+    // before the texture upload takes the iris images the private-mesh rule reads.
+    let mut geometry = loaded
+        .geometry
+        .take()
+        .filter(|g| g.built_for == (cpu_skinning, world_partition))
+        .unwrap_or_else(|| MapGeometry::build(loaded, cpu_skinning, world_partition));
+    geometry.record(status, world_partition);
     let (white, black_cube, flashlight, missing) =
         fallback_images(images, loaded.flashlight_cookie.as_deref(), filtering);
     let mut uploaded = material::upload_map_textures(
@@ -376,8 +386,6 @@ pub fn spawn_map_filtered(
     let pages = lightstyles::upload(&loaded.world, images);
     let lightmaps = pages.handles().to_vec();
     commands.insert_resource(pages);
-    let (batches, weapon_skins) =
-        mesh_build::collect_map_batches(loaded, status, cpu_skinning, world_partition);
     commands.insert_resource(cubemaps::upload(
         &loaded.cubemaps,
         images,
@@ -395,18 +403,22 @@ pub fn spawn_map_filtered(
         plain_materials,
         cpu_skinning,
     };
-    let (mut prepared, _skeletons) = mesh_build::prepare_draws(
-        batches,
+    mesh_build::resolve_draws(
+        &mut geometry,
         &prepare_cx,
         commands,
         (materials, slots),
         inverse_binds,
         status,
     );
-    let mut shared_levels = lod::SharedLevels::for_map(&loaded.flexes);
-    mesh_build::build_map_meshes(&mut prepared, loaded, &mut shared_levels);
+    let MapGeometry {
+        draws,
+        weapon_skins,
+        mut shared_levels,
+        ..
+    } = geometry;
     spawn_prepared_draws(
-        prepared,
+        draws,
         loaded,
         commands,
         (meshes, slots),

@@ -209,8 +209,11 @@ fn partition_batches(
         .collect()
 }
 
-pub(super) fn prepare_draws(
-    batches: Vec<BatchEntry>,
+/// The install-frame half of a map's draws: each batch's material in batch order (also for a
+/// draw the geometry pass dropped, as before the split) and the joint entities of the kept
+/// skinned draws, replacing the geometry pass's planned skeletons.
+pub(super) fn resolve_draws(
+    geometry: &mut super::MapGeometry,
     cx: &PrepareContext<'_>,
     commands: &mut Commands,
     (materials, slots): (
@@ -219,10 +222,7 @@ pub(super) fn prepare_draws(
     ),
     inverse_binds: &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
     status: &Status,
-) -> (
-    Vec<PreparedDraw>,
-    BTreeMap<Owner, crate::gpu_skinning::Skeleton>,
-) {
+) -> BTreeMap<Owner, crate::gpu_skinning::Skeleton> {
     let reflections = super::cubemaps::Envmaps {
         world: &cx.uploaded.envmaps,
         masks: &cx.uploaded.envmap_masks,
@@ -230,68 +230,44 @@ pub(super) fn prepare_draws(
     };
     let mut material_handles = BTreeMap::new();
     let mut skeletons = BTreeMap::<Owner, crate::gpu_skinning::Skeleton>::new();
-    let mut prepared = Vec::with_capacity(batches.len());
-    let mut mesh_count = 0usize;
-    let mut triangle_count = 0usize;
-    for ((owner, name, lm, _), mut batch) in batches {
-        let fallback = MaterialData::default();
-        let definition = cx.loaded.materials.get(&name).unwrap_or(&fallback);
-        let lit = batch.model
-            && matches!(
-                owner,
-                Owner::Entity(_) | Owner::Weapon(_) | Owner::NpcWeapon(..)
-            )
-            && !definition.unlit
-            && !definition.camera;
-        let reflects = lit && definition.model_envmap && !cx.plain_materials;
+    let fallback = MaterialData::default();
+    for request in &geometry.requests {
+        let definition = cx.loaded.materials.get(&request.name).unwrap_or(&fallback);
+        let reflects = request.lit && definition.model_envmap && !cx.plain_materials;
         let (material, shared_lit_key) = resolve_draw_material(
             cx,
-            (&owner, &name, definition, lm),
-            (
-                lit,
-                reflects,
-                batch.model,
-                batch.decal_layer.map_or(0, |l| l.order),
-            ),
+            (&request.owner, &request.name, definition, request.lightmap),
+            (request.lit, reflects, request.model, request.decal_order),
             (&reflections, materials, slots, &mut material_handles),
         );
-        mesh_count += 1;
-        let index_count = batch.indices.len();
-        let triangles = index_count / 3;
-        triangle_count += triangles;
-        let mut animation = draw_animation(cx, &owner, &mut batch);
-        if !attach_draw_skeleton(
+        let Some(index) = request.draw else {
+            continue;
+        };
+        let draw = &mut geometry.draws[index];
+        draw.material = material;
+        draw.reflects = reflects;
+        draw.shared_lit_key = shared_lit_key;
+        let planned = joint_count(draw.animation.as_ref());
+        let kept = attach_draw_skeleton(
             commands,
             inverse_binds,
             cx,
-            &owner,
-            animation.as_mut(),
+            &draw.owner,
+            draw.animation.as_mut(),
             &mut skeletons,
-        ) {
-            continue;
-        }
-        let private_mesh = cx.uploaded.irises.contains_key(&name);
-        prepared.push(PreparedDraw {
-            owner,
-            name,
-            triangles,
-            index_count,
-            material,
-            animation,
-            lit,
-            reflects,
-            shared_lit_key,
-            private_mesh,
-            batch: Some(batch),
-            root_key: None,
-        });
+        );
+        debug_assert!(kept, "the geometry pass keeps only attachable draws");
+        debug_assert_eq!(
+            joint_count(draw.animation.as_ref()),
+            planned,
+            "planned skeleton of {}",
+            draw.name
+        );
     }
     let mut stats = status.0.lock().expect("status lock");
-    stats.meshes += mesh_count;
-    stats.triangles += triangle_count;
     stats.skin_joints = skeletons.values().map(|s| s.joints.len()).sum();
     stats.materials = material_handles.len();
-    (prepared, skeletons)
+    skeletons
 }
 
 type MaterialKey = (String, Option<usize>, bool, [u32; 4], Option<Owner>, usize);
@@ -393,15 +369,20 @@ fn build_draw_material(
     material
 }
 
-fn draw_animation(
-    cx: &PrepareContext<'_>,
+/// The joint count of a draw's skeleton, planned or spawned.
+fn joint_count(animation: Option<&AnimatedMesh>) -> Option<usize> {
+    animation.and_then(|a| a.gpu.as_ref().map(|s| s.joints.len()))
+}
+
+pub(super) fn draw_animation(
+    loaded: &LoadedMap,
     owner: &Owner,
     batch: &mut Batch,
 ) -> Option<AnimatedMesh> {
     if !batch.skin.iter().any(|(_, w)| w.is_some()) {
         return None;
     }
-    let world = &cx.loaded.world;
+    let world = &loaded.world;
     match owner {
         Owner::Entity(id) => world
             .model_instances
@@ -426,7 +407,7 @@ fn draw_animation(
             ))
         }
         Owner::Weapon(name) => {
-            let key = cx.loaded.gameplay.weapons[name].viewmodel.to_lowercase();
+            let key = loaded.gameplay.weapons[name].viewmodel.to_lowercase();
             let owner = (None, Some(name.clone()));
             Some(AnimatedMesh::from_batch(
                 batch,

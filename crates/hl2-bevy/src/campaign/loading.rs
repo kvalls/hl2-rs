@@ -143,8 +143,10 @@ pub(super) fn spawn_worker(
     } else {
         options.script_npc_classes.clone()
     };
+    let draw_options = (options.cpu_skinning, options.world_partition);
     super::assets::work::Work::spawn("hl2-owned-map-loader", move |cancel| {
-        crate::assets::loading::load(
+        let geometry_cancel = cancel.clone();
+        let mut loaded = crate::assets::loading::load(
             crate::assets::loading::LoadInput {
                 root: &root,
                 game: &map_game,
@@ -161,7 +163,22 @@ pub(super) fn spawn_worker(
                 allow_bc_textures,
                 extra_npc_classes,
             },
-        )
+        )?;
+        geometry_cancel.check()?;
+        // The draw geometry is built here so the install frame only creates materials, joints
+        // and draws (O49).
+        let started = std::time::Instant::now();
+        let (cpu_skinning, world_partition) = draw_options;
+        loaded.geometry = Some(crate::rendering::MapGeometry::build(
+            &loaded,
+            cpu_skinning,
+            world_partition,
+        ));
+        loaded.load_timings.insert(
+            "draw_geometry".into(),
+            started.elapsed().as_secs_f64() * 1000.,
+        );
+        Ok(loaded)
     })
 }
 

@@ -77,6 +77,8 @@ pub struct LoadedMap {
     /// The map's mounted content (its pak included) for runtime model loads.
     pub vfs: Arc<Vfs>,
     pub load_timings: BTreeMap<String, f64>,
+    /// Draw geometry the map loader worker built (O49); `None` when the install builds it.
+    pub(crate) geometry: Option<crate::rendering::MapGeometry>,
 }
 
 pub fn map_metadata(loaded: &LoadedMap) -> serde_json::Value {
