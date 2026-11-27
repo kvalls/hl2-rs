@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Attribute stutter (O9): crowd shader-variant spike and catch-up bursts
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `docs/optimization-backlog.md` O9 → partly done with findings and the next step. No code change.
+- Why — O9 asks for the count and size of the slowest frames and what causes them.
+- Tested how — Traces of the quiet spawn with a pause/resume and of a console map load, a traced `mixed-crowd` run, the eight post-merge `mixed-crowd` `--profile` reports of the Bevy upgrade A/B, and an untraced macOS `sample` of the 1080p crowd fight.
+- Result — Quiet play has no stutter after the first frames; console map loads stall 231 ms on the install frame (O49). The crowd's worst frame is deterministic per run: `render_graph` 15.1–15.4 ms on Bevy 0.19 and 25.3–26.0 ms on 0.20 in every run, with `process_pipeline_queue_system` at 102.9 ms max in the trace — a new shader variant composed synchronously when a new NPC type or material first draws. Traced crowd frames 513–528 are catch-up bursts (3–4 ticks at 13–16 ms traced). Untraced crowd fight at 1080p: 5.70 ms frames, `fixed_step` 32.5% of wall.
+- Still broken or **not tested** — Warming the variants during the load is not implemented yet.
+- Next — Warm NPC template and spawn-pool material variants behind the loading dialog.
+
 ## 2026-11-27 — Close O27 (first gameplay frame and resume hitch) and open O49 (map install stall)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
