@@ -337,13 +337,10 @@ impl Simulation {
     ) {
         use hl2_ui::console::Effect;
         match effect {
-            Effect::Getpos => ui.source.log(format!(
-                "setpos {:.6} {:.6} {:.6}; setang {:.6} {:.6} 0",
-                self.eye.x,
-                self.eye.y,
-                self.eye.z,
+            Effect::Getpos => ui.source.log(hl2_ui::console::getpos_text(
+                self.eye.to_array(),
                 -self.pitch.to_degrees(),
-                self.yaw.to_degrees()
+                self.yaw.to_degrees(),
             )),
             Effect::Setpos { x, y, z } => {
                 self.player.feet = glam::Vec3::new(x, y, z.unwrap_or(self.player.feet.z));

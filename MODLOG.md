@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — F1 footer shows the view as getpos prints it
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `hl2_ui::console::getpos_text` formats getpos output (`setpos x y z; setang pitch yaw 0`, eye origin, Source angles, six decimals). The `getpos` command and the `hl2-debug` F1 footer both use it; `DeveloperFrame::angles` now carries Source pitch and yaw. The footer replaces the rounded `--position x y z --yaw y --pitch p` form, whose pitch had the opposite sign to `setang`.
+- Why — The owner wants the footer numbers to match setpos/getpos in HL2RS and in retail (Source SDK `game/client/view.cpp` getpos: view origin, view angles).
+- Tested how — Unit tests `getpos_text_uses_source_order_and_six_decimals` (hl2-ui) and `the_last_line_names_the_view_as_getpos_prints_it` (hl2-debug); `scripts/checks/validate.sh` (2,048 Rust tests passed, 0 failed, all plugin builds, strict Clippy, fmt, architecture and isolation). Packaged macOS run in `d1_canals_03` with the F1 overlay at the owner's view: the footer and `getpos` both print `setpos -715.272705 2911.000000 -761.513794; setang -13.393998 1083.413574 0`.
+- Result — Footer and getpos agree to every digit. As in retail, pasting the line into `setpos` places the feet at the eye position, 64 units higher; launch with `--position x y z --pitch <−setang pitch> --yaw <yaw>` to restore the exact eye.
+- Still broken or **not tested** — Retail's own on-screen position display (`cl_showpos`) was not compared; Windows runtime **not tested**.
+- Next — none.
+
 ## 2026-11-27 — Keep the canal graffiti order through Bevy's mesh upload
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

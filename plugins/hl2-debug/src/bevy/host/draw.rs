@@ -37,7 +37,7 @@ impl State {
                 fps: hud.frame_statistics().0,
                 friendly_fire: game.scene.player_hurts_friendlies,
                 eye: eye.to_array(),
-                angles: [yaw.to_degrees(), pitch.to_degrees()],
+                angles: [-pitch.to_degrees(), yaw.to_degrees()],
                 frame_ms: hud.frame_statistics().1,
                 materials,
                 colliders: sim.physics.colliders.len(),

@@ -132,7 +132,7 @@ pub struct DeveloperFrame<'a> {
     pub fps: f64,
     pub friendly_fire: bool,
     pub eye: [f32; 3],
-    /// View yaw and pitch in degrees, in the convention `--yaw` and `--pitch` take.
+    /// View pitch and yaw in degrees, in Source's `setang` convention (positive pitch looks down).
     pub angles: [f32; 2],
     pub frame_ms: f64,
     pub materials: usize,
@@ -225,19 +225,20 @@ fn size_text(bytes: u64) -> String {
     }
 }
 
-/// Where the view is, written as the launch arguments that start a run there, and the frame's
-/// physics and material counts.
+/// Where the view is, as `getpos` prints it, and the frame's physics and material counts.
 fn location_line(frame: &DeveloperFrame<'_>) -> String {
-    let [x, y, z] = frame.eye;
-    let [yaw, pitch] = frame.angles;
+    let [pitch, yaw] = frame.angles;
     let frame_ms = if frame.frame_ms > 0. {
         frame.frame_ms
     } else {
         0.
     };
     format!(
-        "--position {x:.0} {y:.0} {z:.0} --yaw {yaw:.0} --pitch {pitch:.0}  |  {frame_ms:05.2} ms  |  {} materials / {} colliders / {} bodies",
-        frame.materials, frame.colliders, frame.bodies
+        "{}  |  {frame_ms:05.2} ms  |  {} materials / {} colliders / {} bodies",
+        hl2_ui::console::getpos_text(frame.eye, pitch, yaw),
+        frame.materials,
+        frame.colliders,
+        frame.bodies
     )
 }
 
@@ -301,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn the_last_line_names_the_view_as_launch_arguments() {
+    fn the_last_line_names_the_view_as_getpos_prints_it() {
         let lines = developer_lines(DeveloperFrame {
             map: "d1_canals_01a",
             triangles: 1,
@@ -310,8 +311,8 @@ mod tests {
             flying: false,
             fps: 80.,
             friendly_fire: false,
-            eye: [360.4, 6259.6, -33.2],
-            angles: [61.3, -4.6],
+            eye: [360.5, 6259.75, -33.25],
+            angles: [4.5, 61.25],
             frame_ms: 12.5,
             materials: 4,
             colliders: 5,
@@ -319,7 +320,9 @@ mod tests {
         });
         assert_eq!(lines.len(), 6);
         assert!(
-            lines[5].starts_with("--position 360 6260 -33 --yaw 61 --pitch -5  |  12.50 ms"),
+            lines[5].starts_with(
+                "setpos 360.500000 6259.750000 -33.250000; setang 4.500000 61.250000 0  |  12.50 ms"
+            ),
             "{}",
             lines[5]
         );
@@ -337,7 +340,7 @@ mod tests {
                 fps: 80.,
                 friendly_fire: false,
                 eye: [360.4, 6259.6, -33.2],
-                angles: [61.3, -4.6],
+                angles: [4.6, 61.3],
                 frame_ms,
                 materials: 4,
                 colliders: 5,

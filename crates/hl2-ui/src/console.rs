@@ -22,7 +22,7 @@ use crate::gameui::{
     options::OptionsDialog,
     resources::{self, fallback_game_menu, GameUiResources},
 };
-pub use effect::{Effect, GameMap};
+pub use effect::{getpos_text, Effect, GameMap};
 use glam::{vec2, Vec2};
 use serde::Serialize;
 use source_assets::vpk::Vfs;
