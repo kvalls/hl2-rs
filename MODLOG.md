@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Crowd mesh owners measured; O13 closed
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Documentation only: docs/optimization-backlog.md (O13 `done`), docs/performance.md.
+- Why — O13 was reopened because its crowd half (per-owner mesh counts and `render_assets` on Bevy 0.20.1) was **not tested**; the crowd is where the open owners were.
+- Tested how — The temporary mesh-owner probe (removed again, never committed) on `c53b74b4`, everyday `stages`, four headless `mixed-crowd.json` runs to the script's end, the first discarded.
+- Result — Eyes `0.15-0.18` and HUD `1.1` rewritten meshes per frame; no effect quad, shadow decal or animated model (2026-11-22: 22 eye meshes, 20 shadow decals, 11 animated models). `render_assets` `0.552-0.578 ms` mean, p99 `1.19-1.26`, against `4.13` after the 2026-11-22 particle fix.
+- Still broken or **not tested** — Windows **not tested**.
+- Next — —
+
 ## 2026-11-27 — O13 and O28 reopened; O9 first-entry stall recorded
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

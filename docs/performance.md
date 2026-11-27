@@ -40,7 +40,18 @@ Effect quads draw from GPU storage buffers since O39 and rewrite a CPU mesh only
 | 2 | 0.398 / 0.557 / 0.610 | 0.143 | 0.180 | 7.47 / 12.45 |
 | 3 | 0.393 / 0.543 / 0.605 | 0.143 | 0.178 | 7.45 / 12.40 |
 
-`effect-burst` `trace` (three runs): `allocate_and_free_meshes` `0.226 / 0.286 / 0.278 ms/f` mean, p99 `1.33 / 1.71 / 2.09` (trace-inflated; compare with traces only). The crowd half (`0.317 ms/f`) is in the backlog row.
+`effect-burst` `trace` (three runs): `allocate_and_free_meshes` `0.226 / 0.286 / 0.278 ms/f` mean, p99 `1.33 / 1.71 / 2.09` (trace-inflated; compare with traces only). The crowd's traced `allocate_and_free_meshes` (`0.317 ms/f`) is in the backlog row.
+
+Crowd, same probe on `c53b74b4` (everyday `stages`, `mixed-crowd.json` to the script's end, four runs, run 0 discarded):
+
+| Run | Samples | `render_assets` mean / p95 / p99 / max | `frame_total` mean / p99 | Eyes / HUD rewritten per frame |
+|---|---|---|---|---|
+| 0 (discarded) | 1,706 | 0.575 / 0.855 / 1.152 / 4.68 | 9.87 / 16.31 | — |
+| 1 | 1,714 | 0.555 / 0.827 / 1.258 / 3.69 | 9.89 / 16.70 | 0.17 / 1.12 |
+| 2 | 1,657 | 0.578 / 0.867 / 1.234 / 3.53 | 10.14 / 16.97 | 0.18 / 1.12 |
+| 3 | 1,737 | 0.552 / 0.831 / 1.193 / 3.55 | 9.75 / 15.99 | 0.15 / 1.11 |
+
+No effect quad, shadow decal or animated model mesh is rewritten in the crowd (on 2026-11-22: 22 eye meshes, 20 shadow decals, 11 animated models per frame); `render_assets` `4.13 ms` after the 2026-11-22 particle fix.
 
 ## O21 crowd allocations on Bevy 0.20.1 (2026-11-27)
 
