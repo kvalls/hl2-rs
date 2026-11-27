@@ -25,7 +25,8 @@ does (Source SDK `game/server/client.cpp` `setpos`, `game/client/view.cpp`
 `getpos`). With flight on, `setpos -713 2911 -788; setang 7 1065 0` in
 `d1_canals_03` matches the retail view of that command. In walk mode the player
 falls 64 units to the floor (and is nudged about 2 units in x), which gives the
-lower view. Whether retail stays at z −788 while walking is **not tested**.
+lower view. The owner confirmed the retail reference was taken in noclip, so
+both builds agree; there is no origin difference to fix.
 
 ## Missing/invalid console map validation without loading popup (2026-11-26)
 
