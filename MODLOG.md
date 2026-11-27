@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Free the previous map's resources off the main thread (O49)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `map_install.rs`: `drop_elsewhere::<R>()` queues a command that takes the previous map's resource out of the world just before its replacement is inserted and drops it on a short-lived `hl2-map-drop` thread; used for `Gameplay`, `canvas_renderer::Hud` and `Sky`. Backlog O49 updated.
+- Why — After the geometry split, the install frame's largest cost was applying `campaign::poll`'s commands. A macOS `sample` of a console map load attributed it mostly to `free`: dropping the old `Gameplay` (its world, rigs and clips) and HUD (caption and weapon HUD fonts) when the new resources replaced them.
+- Tested how — `trace-chrome` packages before and after, console map load (`bevy-console-map.json`, maxed settings), two alternating runs per side; packaged replays; `validate.sh`.
+- Result — `campaign::poll` command application max `117.9, 62.2 -> 13.7, 21.4 ms` per install.
+- Still broken or **not tested** — Bevy's render-world mesh extraction in the next frame (up to `157 ms` in one trace) clones the main-world copies of skinned, morphed and private meshes; those copies are needed at runtime (studio decals, template copies, CPU skinning, eyes, face flexes), so it is left. Windowed loading-dialog frame gaps **not tested**.
+- Next — Remaining open backlog items.
+
 ## 2026-11-27 — Build a map's draw geometry on the loader worker (O49)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

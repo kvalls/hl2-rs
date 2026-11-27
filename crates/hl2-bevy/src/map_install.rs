@@ -163,6 +163,7 @@ pub(crate) fn install_map(
     commands.insert_resource(console_host::MapEntityNames::of(&loaded.world.entities));
     sky::install(&loaded, commands, meshes, materials, images, target);
     laps.mark("sky");
+    drop_elsewhere::<sky::Sky>(commands);
     commands.insert_resource(sky::Sky::new(
         loaded.bsp,
         loaded.world.background_camera.clone(),
@@ -171,6 +172,7 @@ pub(crate) fn install_map(
     effects::adopt(loaded.effects.sprites, commands);
     audio::deferred::stage(commands, loaded.pending_audio);
     let extension_vfs = loaded.vfs.clone();
+    drop_elsewhere::<crate::gameplay::Gameplay>(commands);
     commands.insert_resource(loaded.gameplay);
     commands.queue(move |world: &mut World| {
         world.resource_scope(
@@ -189,8 +191,25 @@ pub(crate) fn install_map(
             decals.new_map();
         }
     });
+    drop_elsewhere::<canvas_renderer::Hud>(commands);
     commands.insert_resource(canvas_renderer::Hud::new(loaded.canvas, loaded.hud));
     audio::install(commands, sounds, loaded.audio, mute);
     laps.mark("rest");
     laps.finish()
+}
+
+/// Takes the previous map's `R` out of the world just before its replacement is inserted and frees
+/// it on a short-lived thread: dropping the old map's gameplay world, rigs and HUD fonts took
+/// tens of milliseconds of the install frame (O49).
+fn drop_elsewhere<R: bevy::prelude::Resource>(commands: &mut Commands) {
+    commands.queue(|world: &mut World| {
+        if let Some(old) = world.remove_resource::<R>() {
+            let spawned = std::thread::Builder::new()
+                .name("hl2-map-drop".into())
+                .spawn(move || drop(old));
+            if let Err(error) = spawned {
+                bevy::log::warn!("dropping the previous map on the main thread: {error}");
+            }
+        }
+    });
 }
