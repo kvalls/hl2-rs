@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Advanced object blur ignores motion shared with the camera
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `crates/hl2-bevy/assets/shaders/object_motion.wesl`: an object's motion vector now adds the camera's world move since the previous frame (current view position minus the position from Bevy's previous view matrix) to its previous position before projecting. Used by the Advanced (Ultra) world object blur through `source_depth.wesl` and `effects_depth.wesl`; the viewmodel path is unchanged. docs/gameui.md describes it.
+- Why — Owner (2026-11-27, live session): with Ultra blur, a box carried while walking smeared although it held still on screen. The object vectors measured world motion under the current camera; camera rotation is the camera blur's job, but camera translation is blurred by nothing, so motion shared with the camera must not count.
+- Tested how — The owner play-tested in a live session at 120 FPS: Ultra with a carried box while walking, and Retail blur for comparison. No shader errors in the game log. `validate.sh` and packaged replays.
+- Result — Owner: "perfect now, even pleasant"; Retail blur unchanged. The tick-blending entry below is also play-tested now: walking is smooth, and turning keeps a small jitter at the level retail shows. Turning jitter measured on screen from the session trace went 0.67 -> 0.20 units.
+- Still broken or **not tested** — While turning, a carried prop still gets object blur from its orbit in addition to the camera blur. Windows **not tested**.
+- Next — Menu background for launches straight into a gameplay map (owner request).
+
 ## 2026-11-27 — Draw the eye, physics props and brush movers blended across one tick
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

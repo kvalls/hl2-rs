@@ -6,8 +6,12 @@ Like retail single player, the eye origin, physics props and brush movers are dr
 their last two 15 ms tick values (`hl2-bevy` `tick_blend.rs`); view angles stay per frame,
 so a carried prop no longer shakes against a turning view. NPCs keep their tick poses.
 Measured on the packaged carry replay: 0.018 ms per tick to record the poses, shadows
-+0.02 ms per frame, other stages unchanged. Play-testing by the owner is pending.
-Windows **not tested**.
++0.02 ms per frame, other stages unchanged. Owner play-test (2026-11-27, 120 FPS, macOS):
+walking with a carried box is smooth; turning keeps a small jitter at retail level (retail
+shows it too: tick view angles are read at frame times). A per-frame trace of that session
+measured on-screen box jitter while turning 0.67 -> 0.20 units. The Advanced/Ultra object
+blur now takes out the camera's move, so a carried prop no longer smears while walking
+(owner-confirmed). Windows **not tested**.
 
 ## Menu text outline (2026-11-27)
 

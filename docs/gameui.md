@@ -1826,7 +1826,9 @@ retail Enabled world-camera blur remains unchanged. Advanced instead reconstruct
 camera motion and opaque/masked moving objects from the same prepass machinery, using
 17-257 centered samples, 1.25-frame exposure and the 12% cap. Reprojected depth separates
 camera motion from object motion; only relative object motion is expanded into neighboring
-tiles. Static background retains its own color unless an object actually contributes
+tiles. An object's motion vector takes out the camera's world move since the previous frame
+(`object_motion.wesl`), so an object that moves with the camera, such as a prop carried
+while walking, holds still and is not blurred; camera rotation stays the camera blur's. Static background retains its own color unless an object actually contributes
 coverage. World reconstruction uses a cached current-frame copy, without the weapon
 background snapshot. Transparent smoke/glow sprites have no independent motion vectors.
 
