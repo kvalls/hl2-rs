@@ -1,0 +1,16 @@
+[
+  {"tick": 1, "label": "spawn", "eye": [-4304, -224, 0], "yaw": 90, "pitch": 0},
+  {"tick": 60, "label": "walk-start", "profile_window": "start", "forward": 1},
+  {"tick": 200, "label": "hall", "eye": [-4304, -722, 128], "yaw": 270, "forward": 1},
+  {"tick": 340, "label": "outside", "eye": [-3104, -2018, 128], "yaw": 0, "forward": 1, "sprint": true},
+  {"tick": 460, "label": "entrance", "eye": [-3270, -2048, 128], "yaw": 0, "forward": 1},
+  {"tick": 560, "label": "boxes", "eye": [-3356, -2520, 128], "yaw": 270, "forward": 1},
+  {"tick": 660, "label": "plaza", "eye": [-2070, -2180, 128], "yaw": 0, "forward": 1},
+  {"tick": 780, "label": "bench", "eye": [-2206, -1669, 164], "yaw": 90, "forward": 1},
+  {"tick": 900, "label": "barrier", "eye": [-1856, -780, 60], "yaw": 90, "forward": 1},
+  {"tick": 1020, "label": "tictactoe", "eye": [-4540, -3599, 64], "yaw": 0, "forward": 1},
+  {"tick": 1140, "label": "return-hall", "eye": [-4304, -722, 128], "yaw": 270, "forward": 1},
+  {"tick": 1260, "label": "walk-end", "profile_window": "end"},
+  {"tick": 1261, "label": "final", "eye": [-4304, -224, 0], "yaw": 90, "pitch": 0, "paused": true},
+  {"tick": 1300, "label": "done"}
+]

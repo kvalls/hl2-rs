@@ -1,5 +1,20 @@
 # Performance measurements - 2026-10-05
 
+## O28 PVS walk on Bevy 0.20.1 (2026-11-27)
+
+Everyday package at `740db40c` (`advanced-options,debug-tools`), headless `d1_trainstation_02` at default settings, `test-inputs/performance-research/pvs-walk.json`: ten stops (spawn, hall, outside, entrance, boxes, plaza, bench, barrier, tic-tac-toe, hall again), each a teleport followed by walking or sprinting forward, ticks 60-1260 inside a `profile_window`, ending paused at the spawn pose. Each stop's report sample has the player's feet at the intended position (spawn `-4304,-224`, outside `-3104,-2018`, plaza `-2070,-2180`, barrier `-1856,-780`, tic-tac-toe `-4540,-3599`, ...). The report keeps view clusters only for the final pose, so the area change at each stop is inferred from these positions, not listed.
+
+| Run | Samples | `source_pvs` mean | p95 | p99 | max | `culled_draws` / checked |
+|---|---|---|---|---|---|---|
+| 0 (discarded) | 4,304 | 0.035 | 0.055 | 0.066 | 1.176 | 984 / 1,122 |
+| 1 | 3,850 | 0.039 | 0.061 | 0.090 | 1.161 | 984 / 1,122 |
+| 2 | 4,349 | 0.035 | 0.054 | 0.064 | 1.161 | 984 / 1,122 |
+| 3 | 4,203 | 0.037 | 0.059 | 0.074 | 1.194 | 984 / 1,122 |
+
+Capture 3 had `source_pvs` p99 `1.804 ms` when moving across areas; the walk's p99 is `0.06-0.09 ms` and one transition per run reaches `1.16-1.19 ms`.
+
+Every run also has one `127-133 ms` frame about 27% into the window (frames 1135 / 1227 / 1194), near the first entry into the outside area: `main_schedule.outside` `124.9-130.5 ms` and `render_graph` `23.0-24.8 ms` in the same frame, then a `25-28 ms` frame. Followed up under O9.
+
 ## O13 particle replays and mesh owners on Bevy 0.20.1 (2026-11-27)
 
 Everyday and `trace` packages at `0c0f22b9` plus a temporary probe (removed; never committed) that counted each frame's `AssetEvent<Mesh>` events and classified each `Modified` mesh by the marker of the draw entity holding it (effect quads, eyes, shadow decals, animated models, HUD, decals, studio decals, gibs). Headless `d1_trainstation_02`, default settings.

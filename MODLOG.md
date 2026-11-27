@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — PVS walk measured; O28 closed
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — New scene `test-inputs/performance-research/pvs-walk.json` (ten stops across `d1_trainstation_02` in a `profile_window`). docs/optimization-backlog.md (O28 `done`), docs/performance.md.
+- Why — O28's Measure is a scripted walk through many PVS clusters, and no such scene existed; its measured numbers came from the crowd, which stays in the plaza.
+- Tested how — Everyday package at `740db40c`, four headless `stages` runs (first discarded); each stop's report sample checked for the player's position.
+- Result — `source_pvs` p99 `0.064-0.090 ms` and max `1.16-1.19` over `3,850-4,349` windowed samples (capture 3: p99 `1.804`); `culled_draws` `984` of `1,122` at the final pose in every run.
+- Still broken or **not tested** — Live play and Windows **not tested**. Area changes per stop are inferred from positions; the report lists view clusters for the final pose only. Every run has one `127-133 ms` frame on first entering the outside area (followed up under O9).
+- Next — Attribute the walk's first-entry frame (O9).
+
 ## 2026-11-27 — Particle mesh churn measured; O13 closed
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
