@@ -71,24 +71,24 @@ fn object_motion(v: vec2<f32>, p: vec2<i32>, sample: i32) -> vec2<f32> {
     return select(vec2(0.0),v,dot(v*data.params.zw,v*data.params.zw) >= 0.25);
 }
 @if(!WORLD_IMAGE && REDUCE_RAW)
-fn raw_motion(p: vec2<i32>) -> vec2<f32> {
+fn raw_motion(p: vec2<i32>) -> vec3<f32> {
     @if(MULTISAMPLED && WORLD_RECONSTRUCTION) {
         // A maximum over many pixels needs no per-sample precision; this pass runs every frame.
-        return object_motion(textureLoad(raw,p,0).xy,p,0);
+        return vec3(object_motion(textureLoad(raw,p,0).xy,p,0),0.0);
     }
     @if(MULTISAMPLED && !WORLD_RECONSTRUCTION) {
-        var best = vec2(0.0);
+        var best = vec3(0.0);
         for (var i = 0u; i < textureNumSamples(raw); i++) {
             let v = textureLoad(raw,p,i32(i)).xy;
-            if dot(v,v) > dot(best,best) { best = v; }
+            if dot(v,v) > dot(best.xy,best.xy) { best = vec3(v,f32(i)); }
         }
         return best;
     }
     @if(!MULTISAMPLED && WORLD_RECONSTRUCTION) {
-        return object_motion(textureLoad(raw,p,0).xy,p,0);
+        return vec3(object_motion(textureLoad(raw,p,0).xy,p,0),0.0);
     }
     @if(!MULTISAMPLED && !WORLD_RECONSTRUCTION) {
-        return textureLoad(raw,p,0).xy;
+        return vec3(textureLoad(raw,p,0).xy,0.0);
     }
 }
 @if(!WORLD_IMAGE && REDUCE_RAW)
@@ -96,16 +96,23 @@ fn raw_motion(p: vec2<i32>) -> vec2<f32> {
 fn reduce_raw(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let start = vec2<i32>(in.position.xy) * 4;
     let size = vec2<i32>(textureDimensions(raw));
-    var best = vec2(0.0);
+    var best = vec3(0.0);
+    var best_pixel = start;
     // A checkerboard of half the block: every moving feature two pixels wide in either
     // direction still lands on a tap, and the tile maximum and dilation spread it further.
     for (var y = 0; y < 4; y++) { for (var x = y & 1; x < 4; x += 2) {
         let p = start + vec2(x,y);
         if any(p >= size) { continue; }
         let v = raw_motion(p);
-        if dot(v,v) > dot(best,best) { best = v; }
+        if dot(v.xy,v.xy) > dot(best.xy,best.xy) { best = v; best_pixel = p; }
     }}
-    return vec4(best, 0.0, 0.0);
+    @if(!WORLD_RECONSTRUCTION && MULTISAMPLED) {
+        return vec4(best.xy,textureLoad(raw_depth,best_pixel,i32(best.z)),0.0);
+    }
+    @if(!WORLD_RECONSTRUCTION && !MULTISAMPLED) {
+        return vec4(best.xy,textureLoad(raw_depth,best_pixel,0),0.0);
+    }
+    @if(WORLD_RECONSTRUCTION) { return vec4(best.xy,0.0,0.0); }
 }
 
 // Tile reductions.
@@ -113,6 +120,8 @@ fn reduce_raw(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 @group(0) @binding(0) var field: texture_2d<f32>;
 @if(!WORLD_IMAGE && !REDUCE_RAW && REDUCE_FIELD)
 @group(0) @binding(1) var<uniform> data: Data;
+@if(!WORLD_IMAGE && !REDUCE_RAW && REDUCE_FIELD && !WORLD_RECONSTRUCTION)
+@group(0) @binding(2) var previous_field: texture_2d<f32>;
 @if(!WORLD_IMAGE && !REDUCE_RAW && REDUCE_FIELD)
 @fragment
 fn reduce_tiles(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
@@ -124,6 +133,10 @@ fn reduce_tiles(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         if any(p >= size) { continue; }
         let v = textureLoad(field,p,0).xy;
         if dot(v,v) > dot(best,best) { best = v; }
+        @if(!WORLD_RECONSTRUCTION) {
+            let incoming = textureLoad(previous_field,p,0).xy * data.flags.z;
+            if dot(incoming,incoming) > dot(best,best) { best = incoming; }
+        }
     }}
     return vec4(best,0.0,0.0);
 }
@@ -170,32 +183,54 @@ fn dilate(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 @group(0) @binding(5) var depth: texture_depth_2d;
 @if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD)
 @group(0) @binding(6) var tiles: texture_2d<f32>;
-@if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD)
+@if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD && !WORLD_RECONSTRUCTION)
+@group(0) @binding(7) var previous_weapon: texture_2d<f32>;
+
+// Trace the covered point back to its last position. A depth disagreement usually
+// means another part of the gun occupied that texel. Store only raw motion so an
+// incoming stroke can survive one reversal but cannot feed back into a still pose.
+@if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD && !WORLD_RECONSTRUCTION)
+fn weapon_exposure(p: vec2<i32>, v: vec2<f32>, z: f32) -> vec2<f32> {
+    if z == 0.0 || data.flags.z == 0.0 { return v; }
+    let previous_pixel = vec2<f32>(p) + 0.5 - v * data.params.zw;
+    if any(previous_pixel < vec2(0.0)) || any(previous_pixel >= data.params.zw) { return v; }
+    let previous = textureLoad(previous_weapon,vec2<i32>(previous_pixel * 0.25),0);
+    let incoming = previous.xy * data.flags.z;
+    let same_depth = abs(previous.z-z) <= 0.04 * z;
+    let vp = v * data.params.zw;
+    let ip = incoming * data.params.zw;
+    return select(v,incoming,same_depth && dot(ip,ip) > dot(vp,vp));
+}
+@if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD && !WORLD_RECONSTRUCTION)
 fn weapon(uv: vec2<f32>) -> vec3<f32> {
     let p = clamp(vec2<i32>(uv * data.params.zw),vec2(0),vec2<i32>(data.params.zw)-vec2(1));
     @if(MULTISAMPLED) {
         var velocity = vec2(0.0);
         var coverage = 0.0;
+        var z = 0.0;
         let count = textureNumSamples(motion);
         for (var i = 0u; i < count; i++) {
-            if textureLoad(depth,p,i32(i)) > 0.0 {
+            let sample_depth = textureLoad(depth,p,i32(i));
+            if sample_depth > 0.0 {
+                z = max(z,sample_depth);
                 velocity += textureLoad(motion,p,i32(i)).xy;
                 coverage += 1.0;
             }
         }
-        return vec3(velocity / max(coverage,1.0),coverage / f32(count));
+        return vec3(weapon_exposure(p,velocity / max(coverage,1.0),z),coverage / f32(count));
     }
     @if(!MULTISAMPLED) {
-        return vec3(textureLoad(motion,p,0).xy, select(0.0,1.0,textureLoad(depth,p,0)>0.0));
+        return weapon_tap(uv);
     }
 }
 // Trail taps read one sample, as the world gather's do: the gather already averages up to 96
 // taps, and reading every MSAA sample on every tap made fast swings cost up to 22 ms of GPU.
-@if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD)
+@if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD && !WORLD_RECONSTRUCTION)
 fn weapon_tap(uv: vec2<f32>) -> vec3<f32> {
     let p = clamp(vec2<i32>(uv * data.params.zw),vec2(0),vec2<i32>(data.params.zw)-vec2(1));
-    let covered = textureLoad(depth,p,0) > 0.0;
-    return vec3(select(vec2(0.0),textureLoad(motion,p,0).xy,covered), select(0.0,1.0,covered));
+    let z = textureLoad(depth,p,0);
+    if z == 0.0 { return vec3(0.0); }
+    return vec3(weapon_exposure(p,textureLoad(motion,p,0).xy,z),1.0);
 }
 @if(!WORLD_IMAGE && !REDUCE_RAW && !REDUCE_FIELD && !WORLD_RECONSTRUCTION)
 @fragment

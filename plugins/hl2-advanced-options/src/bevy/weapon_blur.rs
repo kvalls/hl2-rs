@@ -138,7 +138,11 @@ fn init(
         "weapon_motion_reduce",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
-            (texture_2d(float), uniform_buffer::<Data>(false)),
+            (
+                texture_2d(float),
+                uniform_buffer::<Data>(false),
+                texture_2d(float),
+            ),
         ),
     );
     let composite_layouts = [false, true].map(|msaa| {
@@ -259,6 +263,8 @@ struct Textures {
     format: TextureFormat,
     reduced: [CachedTexture; 3],
     world: bool,
+    previous_motion: Option<CachedTexture>,
+    last_motion_frame: Option<(u32, u32)>,
     output: Option<CachedTexture>,
     environment: Option<CachedTexture>,
     object_gathered: Option<CachedTexture>,
@@ -270,6 +276,7 @@ struct Prepared {
     groups: [BindGroup; 3],
     frames: [FrameGroups; 2],
     _buffer: UniformBuffer<Data>,
+    samples: u32,
 }
 
 struct FrameGroups {
@@ -354,16 +361,17 @@ fn draw_region(
 fn reconstruct(
     view: ViewQuery<(
         &ViewTarget,
-        &Textures,
+        &mut Textures,
         &Prepared,
         &WeaponBlur,
         Option<&region::MotionRegion>,
     )>,
+    frame_count: Res<bevy::diagnostic::FrameCount>,
     cache: Res<PipelineCache>,
     mut ctx: RenderContext,
     performance: Option<Res<crate::bevy::diagnostics::Diagnostics>>,
 ) {
-    let (target, textures, prepared, blur, region) = view.into_inner();
+    let (target, mut textures, prepared, blur, region) = view.into_inner();
     let Some(frame) = prepared
         .frames
         .iter()
@@ -387,7 +395,7 @@ fn reconstruct(
     if let Some(world) = &frame.world
         && blur.camera_moving
     {
-        world::prepare_images(&mut ctx, &cache, textures, world);
+        world::prepare_images(&mut ctx, &cache, &textures, world);
     }
     let object_motion = region.is_none_or(|r| !r.is_empty());
     if let Some(performance) = performance.as_deref() {
@@ -402,7 +410,7 @@ fn reconstruct(
         );
     }
     if object_motion {
-        draw_reductions(&mut ctx, &cache, textures, prepared, region, blur.max);
+        draw_reductions(&mut ctx, &cache, &textures, prepared, region, blur.max);
     } else if !blur.world || !blur.camera_moving {
         return;
     }
@@ -411,7 +419,7 @@ fn reconstruct(
             &mut ctx,
             &cache,
             target,
-            textures,
+            &textures,
             prepared,
             (world, &frame.composite),
             region.map(|r| r.gather_scissor(textures.size, blur.max)),
@@ -427,6 +435,15 @@ fn reconstruct(
         write.destination,
         "viewmodel_animation_blur",
     );
+    if let Some(previous) = &textures.previous_motion {
+        let raw = &textures.reduced[0].texture;
+        ctx.command_encoder().copy_texture_to_texture(
+            raw.as_image_copy(),
+            previous.texture.as_image_copy(),
+            raw.size(),
+        );
+        textures.last_motion_frame = Some((frame_count.0, prepared.samples));
+    }
 }
 
 // The world camera filter ignores the reduction textures. A camera-only frame

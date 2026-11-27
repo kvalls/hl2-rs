@@ -1,5 +1,15 @@
 # Design
 
+## Viewmodel blur at animation reversals (2026-11-27)
+
+Advanced and Ultra should retain some incoming surface motion when a swing or recoil
+nearly returns to the previous pose within an exposure. Keep one quarter-resolution
+sample of raw viewmodel motion and depth from the preceding rendered frame. Reproject
+covered pixels to that frame and use a shortened incoming vector when it exceeds the
+current displacement. Bound the gather with both frames and discard history after a
+skipped draw or a view reset. Compare packaged crowbar, SMG and idle runs and check
+surface coverage, MSAA and frame time.
+
 ## Overlapping static world decals (2026-11-27)
 
 The two graffiti materials on the `d1_canals_03` wall are translucent

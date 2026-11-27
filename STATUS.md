@@ -1,5 +1,26 @@
 # STATUS
 
+## Viewmodel blur through swing and recoil reversals (2026-11-27)
+
+The Advanced and Ultra viewmodel gather uses the preceding frame's surface motion
+when the current pose barely moves. In the packaged Metal diagnostic, the crowbar
+and SMG both crossed the blur threshold on repeated poses at a 120 FPS cap. At a
+45 FPS cap the SMG also produced a stronger trail on pixels already moving back in
+the opposite direction. A settled crowbar produced zero recovered pixels.
+Reproduce with `NO_BUILD=1 python3 scripts/checks/check_weapon_blur.py`.
+
+Two early captures ended during the weapon draw. An early implementation stored
+the frame stamp with the bind groups. A GPU diagnostic showed valid incoming
+motion but an invalid stamp after rebinding. The stamp now lives with the sampled
+texture. Ordinary play and Windows rendering are **not tested**.
+
+The surface cases before it (`pistol` first) fail on `posed bounds` (2 pose or visibility
+mismatches, expected 0) on the committed build without this change as well, so they stop the
+script before the turnover cases; run alone, the turnover cases pass (crowbar 36,189 and SMG
+55,548 recovered pixels at 120 FPS, 13,034 reversed SMG pixels at 45 FPS, none on an idle
+crowbar). The mismatch is not attributed yet; it appeared after the one-tick blending of
+the eye and props (`b21caec1`), which is the first suspect.
+
 ## Maps loaded under the console (2026-11-27)
 
 A gameplay map that finishes loading while the console or menu is open (a `--map` launch

@@ -1,5 +1,18 @@
 # Performance measurements - 2026-10-05
 
+## Viewmodel motion at a reversal (2026-11-27)
+
+The Advanced and Ultra weapon filter keeps a quarter-resolution velocity and
+depth texture. At 1920×1080, 4× MSAA, the Advanced blur texture inventory rose
+from 42,006,720 to 43,561,920 bytes. This includes the extra channels in the
+first reduction. Both history textures are single-sampled. The gather keeps
+its existing tap limit. Idle regions skip the copy with the reconstruction.
+Headless Metal System Trace A-B-B-A (`animated-fire`, maxed Retina, uncapped) against the
+previous commit: the weapon blur passes rose from 1.59 and 1.68 to 1.84 and 2.08 ms per frame
+(about +0.3 ms), almost all in `viewmodel_animation_blur` (1.36-1.55 to 2.09-2.24 ms per call),
+whose trail taps now also read the history texture; GPU busy per frame 7.62 and 7.67 to
+8.00 and 8.25 ms. The owner accepts up to 0.4 ms for weapon blur fidelity.
+
 ## O45 — Publish runtime collider handles on insertion (2026-11-25)
 
 Runtime model installation queues its new collider handles directly. For NPCs,

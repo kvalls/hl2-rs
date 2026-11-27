@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Keep the viewmodel blur through swing and recoil reversals (O20)
+
+- Agent/model — Implemented by Codex desktop, GPT-6 family (exact model ID not recorded); reviewed, measured and committed by Claude Code desktop (claude-opus-5-5).
+- Changed — `plugins/hl2-advanced-options`: the first weapon reduction keeps the raw sample's depth (`Rgba16Float`), and after each viewmodel reconstruction it is copied into a quarter-resolution history texture. The tile reductions and the gather take half of the preceding frame's motion when it exceeds the current one; the gather traces each covered pixel back to the previous frame and uses it only on the same surface (depth within 4 %). History counts only right after the immediately preceding draw at the same MSAA count, so a skipped draw, a resize or a view reset drops it. `check_weapon_blur.py` gained turnover cases (crowbar and SMG at 120 FPS, SMG at 45 FPS, an idle crowbar). DESIGN, STATUS and performance notes.
+- Why — Owner (2026-11-27): the weapon blur looked jagged, as if it skipped frames. At a swing's or recoil's turnaround the weapon nearly returns to the previous frame's pose, the current motion falls under the one-pixel threshold and the trail vanished for that frame.
+- Tested how — Codex: packaged Metal diagnostic captures with the turnover cases. Claude: the turnover cases rerun on the committed build (crowbar 36,189 and SMG 55,548 recovered pixels at 120 FPS, 13,034 reversed SMG pixels at 45 FPS, 0 when idle); headless Metal System Trace A-B-B-A on `animated-fire` at maxed Retina against the previous commit, `scripts/checks/validate.sh`, packaged replays, `check_weapon_blur.py` rerun on the committed build.
+- Result — Blur passes +0.3 ms GPU per frame (1.59-1.68 to 1.84-2.08 ms), mostly the gather's extra history read per tap; within the owner's 0.4 ms. Replays 111/111, validate passes. The owner judged the look much better in play.
+- Still broken or **not tested** — Windows rendering **not tested**. The incoming weight (one half-step) is a fixed heuristic. `check_weapon_blur.py` stops at its older surface cases on `posed bounds` (2 mismatches), which fail on the previous commit too (see STATUS).
+- Next — If the gather cost matters, read the history once per pixel instead of per tap.
+
 ## 2026-11-27 — A map loaded under the console shows its first frame behind the menu
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

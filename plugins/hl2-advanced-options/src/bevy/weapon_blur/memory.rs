@@ -76,6 +76,9 @@ fn capture(
     let mut inventory = Inventory::default();
     for (textures, prepass) in &views {
         inventory.add(&textures.background.texture, false);
+        if let Some(previous) = &textures.previous_motion {
+            inventory.add(&previous.texture, false);
+        }
         for reduced in &textures.reduced {
             inventory.add(&reduced.texture, false);
         }

@@ -22,7 +22,7 @@ use bevy::{
     },
 };
 use std::collections::HashMap;
-// Reductions only consume XY; keep the same half-float precision without unused ZW.
+// Tile reductions use only XY. Weapon history also keeps the depth of its raw sample.
 const MOTION_FORMAT: TextureFormat = TextureFormat::Rg16Float;
 pub(super) const ENVIRONMENT_FORMAT: TextureFormat = TextureFormat::R16Float;
 // A quarter of the frame width per texel at any resolution, as the contrast gate was tuned.
@@ -82,13 +82,11 @@ pub(super) fn textures(
         };
         let copied = TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
         let filtered = TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING;
+        let quarter =
+            |format, usage| texture(size.x.div_ceil(4), size.y.div_ceil(4), format, usage);
+        let world_color = || quarter(view.target_format, filtered);
         let background = if blur.world {
-            texture(
-                size.x.div_ceil(4),
-                size.y.div_ceil(4),
-                view.target_format,
-                filtered,
-            )
+            world_color()
         } else {
             texture(size.x, size.y, view.target_format, copied)
         };
@@ -96,8 +94,12 @@ pub(super) fn textures(
             texture(
                 size.x.div_ceil(factor),
                 size.y.div_ceil(factor),
-                MOTION_FORMAT,
-                TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                raw_format(blur.world, factor),
+                if factor == 4 && !blur.world {
+                    filtered | TextureUsages::COPY_SRC
+                } else {
+                    filtered
+                },
             )
         });
         commands.entity(entity).insert(Textures {
@@ -106,22 +108,10 @@ pub(super) fn textures(
             format: view.target_format,
             reduced,
             world: blur.world,
-            output: blur.world.then(|| {
-                texture(
-                    size.x.div_ceil(4),
-                    size.y.div_ceil(4),
-                    view.target_format,
-                    filtered,
-                )
-            }),
-            object_gathered: blur.world.then(|| {
-                texture(
-                    size.x.div_ceil(4),
-                    size.y.div_ceil(4),
-                    view.target_format,
-                    filtered,
-                )
-            }),
+            last_motion_frame: None,
+            previous_motion: (!blur.world).then(|| quarter(raw_format(false, 4), copied)),
+            output: blur.world.then(world_color),
+            object_gathered: blur.world.then(world_color),
             environment: blur.world.then(|| {
                 texture(
                     ENVIRONMENT_WIDTH,
@@ -172,8 +162,12 @@ pub(super) fn groups(
     mut known: Local<HashMap<(TextureFormat, u32, bool), [CachedRenderPipelineId; 4]>>,
     mut image_pipelines: Local<super::world::Cache>,
     mut views: Query<View>,
-    shutter: Option<Res<super::strength::Shutter>>,
+    timing: (
+        Option<Res<super::strength::Shutter>>,
+        Res<bevy::diagnostic::FrameCount>,
+    ),
 ) {
+    let (shutter, frame_count) = timing;
     let shutter = shutter.map_or_else(Default::default, |s| *s);
     for (
         entity,
@@ -203,7 +197,8 @@ pub(super) fn groups(
             sources.map(TextureView::id),
             msaa.samples(),
         );
-        let data = view_data(blur, textures, view, previous, shutter);
+        let mut data = view_data(blur, textures, view, previous, shutter);
+        data.flags.z = incoming_weight(textures.last_motion_frame, frame_count.0, msaa.samples());
         if old == Some(&key)
             && let Some(mut prepared) = prepared
         {
@@ -224,25 +219,14 @@ pub(super) fn groups(
         let mut buffer = UniformBuffer::from(data);
         buffer.write_buffer(&device, &queue);
         let binding = buffer.binding().expect("written buffer");
-        let raw = cache.get_bind_group_layout(&p.raw_layouts[usize::from(msaa.samples() > 1)]);
-        let reduce = cache.get_bind_group_layout(&p.reduce_layout);
-        let groups = [
-            device.create_bind_group(
-                Some("weapon_reduce_raw"),
-                &raw,
-                &BindGroupEntries::sequential((vectors, depth, binding.clone())),
-            ),
-            device.create_bind_group(
-                Some("weapon_reduce_tiles"),
-                &reduce,
-                &BindGroupEntries::sequential((&textures.reduced[0].default_view, binding.clone())),
-            ),
-            device.create_bind_group(
-                Some("weapon_dilate"),
-                &reduce,
-                &BindGroupEntries::sequential((&textures.reduced[1].default_view, binding.clone())),
-            ),
-        ];
+        let groups = reduction_groups(
+            (&device, &p, &cache),
+            textures,
+            vectors,
+            depth,
+            binding.clone(),
+            msaa,
+        );
         let frames = sources.map(|frame| {
             frame_groups(
                 (&device, &p, &cache),
@@ -259,10 +243,52 @@ pub(super) fn groups(
                 groups,
                 frames,
                 _buffer: buffer,
+                samples: msaa.samples(),
             },
         ));
     }
 }
+fn reduction_groups(
+    (device, p, cache): (&RenderDevice, &Pipelines, &PipelineCache),
+    textures: &Textures,
+    vectors: &TextureView,
+    depth: &TextureView,
+    binding: BindingResource<'_>,
+    msaa: &Msaa,
+) -> [BindGroup; 3] {
+    let raw = cache.get_bind_group_layout(&p.raw_layouts[usize::from(msaa.samples() > 1)]);
+    let reduce = cache.get_bind_group_layout(&p.reduce_layout);
+    let history = textures
+        .previous_motion
+        .as_ref()
+        .unwrap_or(&textures.reduced[0]);
+    [
+        device.create_bind_group(
+            Some("weapon_reduce_raw"),
+            &raw,
+            &BindGroupEntries::sequential((vectors, depth, binding.clone())),
+        ),
+        device.create_bind_group(
+            Some("weapon_reduce_tiles"),
+            &reduce,
+            &BindGroupEntries::sequential((
+                &textures.reduced[0].default_view,
+                binding.clone(),
+                &history.default_view,
+            )),
+        ),
+        device.create_bind_group(
+            Some("weapon_dilate"),
+            &reduce,
+            &BindGroupEntries::sequential((
+                &textures.reduced[1].default_view,
+                binding.clone(),
+                &history.default_view,
+            )),
+        ),
+    ]
+}
+
 type Inputs<'a> = (
     &'a TextureView,
     &'a TextureView,
@@ -366,7 +392,10 @@ fn composite_group(
             vectors,
             depth,
             &textures.reduced[2].default_view,
-            filtered,
+            textures
+                .previous_motion
+                .as_ref()
+                .map_or(filtered, |h| &h.default_view),
             environment,
             gathered,
         )),
@@ -437,6 +466,23 @@ fn view_data(
     }
 }
 
+// A single incoming half-step models a short exposure straddling a turnaround.
+fn incoming_weight(last: Option<(u32, u32)>, frame: u32, samples: u32) -> f32 {
+    if last == Some((frame.wrapping_sub(1), samples)) {
+        0.5
+    } else {
+        0.
+    }
+}
+
+fn raw_format(world: bool, factor: u32) -> TextureFormat {
+    if !world && factor == 4 {
+        TextureFormat::Rgba16Float
+    } else {
+        MOTION_FORMAT
+    }
+}
+
 fn pipeline_set(
     p: &Pipelines,
     cache: &PipelineCache,
@@ -445,7 +491,7 @@ fn pipeline_set(
     world: bool,
 ) -> [CachedRenderPipelineId; 4] {
     [
-        pipeline(p, cache, "reduce_raw", MOTION_FORMAT, samples, world),
+        pipeline(p, cache, "reduce_raw", raw_format(world, 4), samples, world),
         pipeline(p, cache, "reduce_tiles", MOTION_FORMAT, 1, world),
         pipeline(p, cache, "dilate", MOTION_FORMAT, 1, world),
         pipeline(p, cache, "composite", format, samples, world),
@@ -454,7 +500,17 @@ fn pipeline_set(
 
 #[cfg(test)]
 mod tests {
-    use super::same_pair;
+    use super::{incoming_weight, same_pair};
+
+    #[test]
+    fn only_the_immediately_preceding_draw_contributes_to_the_exposure() {
+        assert_eq!(incoming_weight(None, 0, 1), 0.);
+        assert_eq!(incoming_weight(Some((9, 4)), 10, 1), 0.);
+        assert_eq!(incoming_weight(Some((9, 4)), 10, 4), 0.5);
+        assert_eq!(incoming_weight(Some((9, 4)), 11, 4), 0.);
+        assert_eq!(incoming_weight(Some((u32::MAX, 1)), 0, 1), 0.5);
+    }
+
     #[test]
     fn source_ping_pong_reuses_groups_but_resize_invalidates_them() {
         assert!(same_pair(&[11, 22], &[11, 22]));
