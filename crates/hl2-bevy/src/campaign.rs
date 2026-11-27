@@ -17,6 +17,7 @@ pub struct MapLoaded {
     pub background: bool,
 }
 
+#[derive(Clone)]
 struct Request {
     map: String,
     /// Installation folder of the map's game (`hl2`, `lostcoast`, ...).
@@ -48,6 +49,8 @@ pub struct Campaign {
     history: Vec<serde_json::Value>,
     failures: Vec<String>,
     loading_frames: u64,
+    /// A newly installed map still behind the loading screen (`loading::hold_reveal`).
+    reveal: Option<loading::Reveal>,
 }
 impl Campaign {
     #[cfg(test)]
@@ -66,7 +69,7 @@ impl Campaign {
     }
     /// Whether map loading has finished and the map is in an observable gameplay-ready state.
     pub fn is_gameplay_ready(&self) -> bool {
-        self.job.is_none() && self.loaded_map.is_some()
+        self.job.is_none() && self.reveal.is_none() && self.loaded_map.is_some()
     }
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"loading":self.job.as_ref().map(|j|&j.request.map),"loading_frames":self.loading_frames,"audio_reuse":self.audio_reuse.report(),
@@ -83,6 +86,7 @@ type Host<'w> = (
     Option<Res<'w, crate::audio::deferred::PendingAudio>>,
     Option<Res<'w, crate::audio::Audio>>,
     Option<Res<'w, crate::TextureCaps>>,
+    Option<Res<'w, crate::rendering::variant_warmup::PipelineBacklog>>,
 );
 fn next_map_request(
     options: &Options,
@@ -134,32 +138,61 @@ fn next_map_request(
         })
 }
 
+/// Keeps a running job's gameplay request, or activates the next map request. `false` when
+/// there is nothing to wait for this frame.
+fn start_or_continue_job(
+    options: &Options,
+    (campaign, ui, game, sim): (
+        &mut Campaign,
+        &mut ui_host::Console,
+        &mut gameplay::Gameplay,
+        &mut simulation::Simulation,
+    ),
+    audio: (
+        Option<&crate::audio::Audio>,
+        Option<&crate::audio::deferred::PendingAudio>,
+        bool,
+    ),
+) -> bool {
+    if let Some(job) = &campaign.job {
+        loading::preserve_gameplay_request(&job.request, ui);
+        return true;
+    }
+    let Some(request) = next_map_request(options, campaign, ui, game) else {
+        return false;
+    };
+    loading::activate_request(request, options, campaign, ui, sim, audio)
+}
+
 pub fn poll(
     mut commands: Commands,
-    (options, mut campaign, mut ui, mut game, mut sim, pending_audio, audio, texture_caps): Host,
+    (options, mut campaign, mut ui, mut game, mut sim, pending_audio, audio, texture_caps, backlog): Host,
     mut assets: StartupAssets,
     old_draws: Query<Entity, With<MapOwned>>,
     mut windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
     status: Res<Status>,
     frame: Option<Res<crate::video::GameFrame>>,
 ) {
-    if let Some(job) = &campaign.job {
-        loading::preserve_gameplay_request(&job.request, &mut ui);
-    } else {
-        let Some(request) = next_map_request(&options, &campaign, &mut ui, &mut game) else {
-            return;
-        };
-        let allow_bc = texture_caps.as_deref().is_some_and(|c| c.bc);
-        if !loading::activate_request(
-            request,
-            &options,
-            &mut campaign,
-            &mut ui,
-            &mut sim,
-            (audio.as_deref(), pending_audio.as_deref(), allow_bc),
-        ) {
-            return;
-        }
+    if loading::advance_reveal(
+        &mut campaign,
+        backlog.as_deref(),
+        &mut ui,
+        &mut sim,
+        windows.single_mut().ok().as_deref_mut(),
+    ) {
+        return;
+    }
+    let audio = (
+        audio.as_deref(),
+        pending_audio.as_deref(),
+        texture_caps.as_deref().is_some_and(|c| c.bc),
+    );
+    if !start_or_continue_job(
+        &options,
+        (&mut campaign, &mut ui, &mut game, &mut sim),
+        audio,
+    ) {
+        return;
     }
     let Some((job, result)) = loading::completed(&mut campaign, &mut ui) else {
         return;
@@ -205,15 +238,13 @@ pub fn poll(
         commands.entity(entity).try_despawn();
     }
     loading::install_view(&job.request, &options, &mut loaded, &mut sim, eye);
-    loading::finish_level_ui(
+    let cursor = windows.single_mut().ok();
+    loading::hold_reveal(
         &job.request,
-        &loaded.game,
-        &loaded.world.name,
-        &mut ui,
-        &mut sim,
-        windows.single_mut().ok().as_deref_mut(),
+        &loaded,
+        (&mut campaign, &mut ui, &mut sim),
+        cursor,
     );
-    loading::notify_finished(&job.request, &mut sim, &mut ui);
     ui.source
         .log(format!("Loaded {}/{}", loaded.game, loaded.world.name));
     let install_times = crate::map_install::install_loaded_map(

@@ -278,6 +278,82 @@ pub(super) fn completed(
     Some((campaign.job.take().expect("completed map job"), result))
 }
 
+/// The loading screen stays over a newly installed map until the render world has no pipelines
+/// left to compile. Bevy creates a pipeline only when a view first draws with it (on macOS
+/// synchronously), so the first frames of a new map would hitch in play; held behind the
+/// loading screen with the world frozen, they compile where the player sees only the loading
+/// screen, as Source finishes caching its materials before the plaque goes. Rendering lags the
+/// main world by a frame, so the backlog is trusted from the second held frame; the cap keeps a
+/// pipeline that never finishes from holding the screen.
+const MIN_REVEAL_FRAMES: u8 = 2;
+const MAX_REVEAL_FRAMES: u8 = 60;
+
+/// A newly installed map waiting behind the loading screen.
+pub(super) struct Reveal {
+    request: Request,
+    game: String,
+    map: String,
+    held: u8,
+}
+
+/// Keeps the loading screen and a frozen world over the gameplay map just installed. A
+/// main-menu background is revealed at once: its own transition (pre-blurred image, then the
+/// menu camera) already covers its first frames, and holding it would show the spawn view.
+pub(super) fn hold_reveal(
+    request: &Request,
+    loaded: &crate::assets::LoadedMap,
+    (campaign, ui, sim): (
+        &mut super::Campaign,
+        &mut ui_host::Console,
+        &mut crate::simulation::Simulation,
+    ),
+    mut cursor: Option<bevy::prelude::Mut<bevy::window::CursorOptions>>,
+) {
+    if request.background {
+        finish_level_ui(
+            request,
+            &loaded.game,
+            &loaded.world.name,
+            ui,
+            sim,
+            cursor.as_deref_mut(),
+        );
+        notify_finished(request, sim, ui);
+        return;
+    }
+    sim.loading = true;
+    campaign.reveal = Some(Reveal {
+        request: request.clone(),
+        game: loaded.game.clone(),
+        map: loaded.world.name.clone(),
+        held: 0,
+    });
+}
+
+/// Holds a reveal until the pipeline backlog is empty, then finishes the level's UI. `true`
+/// while it still holds.
+pub(super) fn advance_reveal(
+    campaign: &mut super::Campaign,
+    backlog: Option<&crate::rendering::variant_warmup::PipelineBacklog>,
+    ui: &mut ui_host::Console,
+    sim: &mut crate::simulation::Simulation,
+    cursor: Option<&mut bevy::window::CursorOptions>,
+) -> bool {
+    let Some(reveal) = campaign.reveal.as_mut() else {
+        return false;
+    };
+    reveal.held = reveal.held.saturating_add(1);
+    let compiling = backlog.is_some_and(|b| b.waiting() > 0);
+    if reveal.held <= MIN_REVEAL_FRAMES || compiling && reveal.held <= MAX_REVEAL_FRAMES {
+        return true;
+    }
+    let reveal = campaign.reveal.take().expect("held reveal");
+    sim.loading = false;
+    finish_level_ui(&reveal.request, &reveal.game, &reveal.map, ui, sim, cursor);
+    notify_finished(&reveal.request, sim, ui);
+    false
+}
+
 #[cfg(test)]
 pub(super) fn exercise_menu_wait_during_worker(app: &mut bevy::prelude::App) {
     app.update();
@@ -423,6 +499,58 @@ mod tests {
         ui.source.set_mode(hl2_ui::console::Mode::NewGame);
         ui.source.set_mode(hl2_ui::console::Mode::MainMenu);
         assert!(!superseded(&request(true), &mut ui));
+    }
+    #[test]
+    fn a_held_reveal_waits_for_the_pipeline_backlog_then_finishes_loading() {
+        let backlog = crate::rendering::variant_warmup::PipelineBacklog::default();
+        let mut campaign = crate::campaign::Campaign::default();
+        let mut ui = queued(false, "hl2", "d1_trainstation_02");
+        let mut sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let hold = |campaign: &mut crate::campaign::Campaign| {
+            campaign.reveal = Some(super::Reveal {
+                request: request(false),
+                game: "hl2".into(),
+                map: "d1_trainstation_02".into(),
+                held: 0,
+            });
+        };
+        hold(&mut campaign);
+        sim.loading = true;
+        backlog.set_waiting(3);
+        for _ in 0..5 {
+            assert!(super::advance_reveal(
+                &mut campaign,
+                Some(&backlog),
+                &mut ui,
+                &mut sim,
+                None
+            ));
+            assert!(sim.loading);
+        }
+        backlog.set_waiting(0);
+        assert!(!super::advance_reveal(
+            &mut campaign,
+            Some(&backlog),
+            &mut ui,
+            &mut sim,
+            None
+        ));
+        assert!(campaign.reveal.is_none() && !sim.loading);
+        // A pipeline that never finishes cannot hold the screen past the cap.
+        hold(&mut campaign);
+        backlog.set_waiting(1);
+        let mut frames = 0;
+        while super::advance_reveal(&mut campaign, Some(&backlog), &mut ui, &mut sim, None) {
+            frames += 1;
+        }
+        assert_eq!(frames, super::MAX_REVEAL_FRAMES as usize);
     }
     #[test]
     fn rapid_switch_back_reuses_installed_background_and_finishes_loading() {

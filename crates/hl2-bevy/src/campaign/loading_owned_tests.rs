@@ -95,7 +95,11 @@ fn displayed_background_late_audio_is_cancelled_by_gameplay_and_background_repla
             app.world().get_entity(old_map_entity).is_err(),
             "old scene entity replaced"
         );
-        assert!(!app.world().resource::<Simulation>().loading());
+        // The loading screen holds over the new map until its pipelines are compiled.
+        while app.world().resource::<Simulation>().loading() {
+            assert!(Instant::now() < deadline, "reveal timeout");
+            app.update();
+        }
         let mut query = app
             .world_mut()
             .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<super::MapOwned>>();

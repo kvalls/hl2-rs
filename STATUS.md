@@ -1,5 +1,15 @@
 # STATUS
 
+## Owned headless campaign tests fail (2026-11-27)
+
+`cargo test --locked -p hl2-bevy --lib headless_bevy_app -- --ignored` fails both
+`headless_bevy_app_submenu_entry_switches_background_map_and_scene` and
+`headless_bevy_app_ep2_submenu_entry_switches_background_map`: a system's resource
+parameter is missing in the headless app ("Resource does not exist"). It fails the
+same way on `39fe8331` and later, so it predates the loading-screen hold; most likely
+since the Bevy 0.20.1 merge, which `validate.sh` does not cover because these tests need
+the installed game. **Not yet fixed.**
+
 ## Canal graffiti draw order (2026-11-27)
 
 The overlapping `decalgraffiti009a` and `decalgraffiti001c` world decals in

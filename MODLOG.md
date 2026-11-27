@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Hold the loading screen until the new map's pipelines are compiled (O22)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `campaign/loading.rs`: `hold_reveal` keeps `sim.loading` set and the loading screen up after a gameplay map install; `advance_reveal` reveals the level UI once the render world reports an empty pipeline queue (minimum two frames for the render world's one-frame lag, cap 60). Main-menu background loads reveal at once as before. `rendering/variant_warmup.rs`: `PipelineBacklog`, an atomic shared between worlds that a render-world cleanup system updates from `PipelineCache::waiting_pipelines`. `campaign.rs`: `Campaign::reveal`, `is_gameplay_ready` waits for it, `start_or_continue_job` extracted from `poll`. Unit test for the hold (minimum, backlog wait, cap); the owned late-audio test now pumps frames until the reveal.
+- Why — The first gameplay frame compiled the first view's pipelines (141.5 ms windowed). Bevy only creates material pipelines when a view draws, and on macOS synchronously, so the frames that compile them are held behind the loading screen, as Source finishes caching materials before the plaque goes. The world is frozen while held, so no game time is missed.
+- Tested how — Windowed `trace-chrome` console map load (`d1_trainstation_01` → console `map d1_trainstation_02`); packaged replays (111 checks, 0 failed, after keeping the immediate reveal for backgrounds: `background_reveal` had caught a spawn-view flash); `scripts/checks/validate.sh` (2,052 Rust tests, strict Clippy, fmt, architecture, isolation).
+- Result — The render-thread compile (193 ms max) falls in the held frames; the first revealed frame is 7.74 ms; the hold lasted about four frames.
+- Still broken or **not tested** — Windows (asynchronous compilation) **not tested**. Pre-existing, not caused by this change: the owned-install tests `headless_bevy_app_submenu_entry_switches_background_map_and_scene` and `headless_bevy_app_ep2_submenu_entry_switches_background_map` fail on a missing resource in a headless app, also on the previous commit (see STATUS).
+- Next — Fix the two owned headless tests; the install frame itself is O49.
+
 ## 2026-11-27 — Warm hidden-draw shader variants after a map install (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

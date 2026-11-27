@@ -10,7 +10,8 @@ use bevy::{
     camera::visibility::NoFrustumCulling,
     ecs::hierarchy::Children,
     prelude::{
-        Commands, Entity, Mesh3d, Query, ResMut, Resource, Transform, Visibility, With, Without,
+        Commands, Entity, Mesh3d, Query, Res, ResMut, Resource, Transform, Visibility, With,
+        Without,
     },
 };
 
@@ -120,5 +121,47 @@ mod tests {
             assert!(world.get::<Warming>(e).is_none());
         }
         assert!(world.get_resource::<VariantWarmup>().is_none());
+    }
+}
+
+/// Pipelines the render world still has waiting to compile, as of its last frame; shared with
+/// the main world so a held loading screen can wait for them (`campaign::loading::advance_reveal`).
+#[derive(Resource, Clone, Default)]
+pub(crate) struct PipelineBacklog(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+impl PipelineBacklog {
+    pub(crate) fn waiting(&self) -> usize {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// Publishes the render world's pipeline queue length every frame.
+pub(crate) struct PipelineBacklogPlugin;
+impl bevy::app::Plugin for PipelineBacklogPlugin {
+    fn build(&self, app: &mut bevy::app::App) {
+        let backlog = PipelineBacklog::default();
+        app.insert_resource(backlog.clone());
+        if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            use bevy::ecs::schedule::IntoScheduleConfigs;
+            render_app.insert_resource(backlog).add_systems(
+                bevy::render::Render,
+                publish_backlog.in_set(bevy::render::RenderSystems::Cleanup),
+            );
+        }
+    }
+}
+
+fn publish_backlog(
+    cache: Option<Res<bevy::render::render_resource::PipelineCache>>,
+    backlog: Res<PipelineBacklog>,
+) {
+    let waiting = cache.map_or(0, |c| c.waiting_pipelines().count());
+    backlog
+        .0
+        .store(waiting, std::sync::atomic::Ordering::Relaxed);
+}
+#[cfg(test)]
+impl PipelineBacklog {
+    pub(crate) fn set_waiting(&self, waiting: usize) {
+        self.0.store(waiting, std::sync::atomic::Ordering::Relaxed);
     }
 }
