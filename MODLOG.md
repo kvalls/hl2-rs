@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Carried prop while turning: kept as retail, closed
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Nothing beyond the revert `1aa60a89` of `ff2de01b` (the steady one-tick trail correction for the drawn carried prop). Carrying stays as retail does it: the prop is aimed once per tick from the view and drawn blended one tick back (`b21caec1`), with view angles per frame.
+- Why — Owner (2026-11-27): the trail correction made no visible difference and let the drawn prop clip into walls; keep retail's behaviour and close the item.
+- Tested how — A scripted 180 deg/s turn in the plaza with a spawned box: the physics body sat exactly on the aim at every tick and settled at once after the turn. Owner's live tests at 120 and 60 FPS: the jagged motion stays at both rates, so per-frame aim sampling against the 15 ms tick does not explain it.
+- Result — Reverted; replays 111/111 and validate pass on the revert.
+- Still broken or **not tested** — The live jaggedness the owner sees with irregular mouse motion is not attributed; per the owner it is left as retail's behaviour.
+- Next — —
+
 ## 2026-11-27 — The report's pose check compares draws with their blended pose
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
