@@ -10,7 +10,6 @@ use crate::{
 };
 use glam::Vec3;
 use modkit_core::World;
-use rapier3d::prelude::*;
 
 fn vector(v: Vec3) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
@@ -293,6 +292,7 @@ impl Inventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
     fn world() -> World {
         World {

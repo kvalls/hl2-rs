@@ -7,7 +7,7 @@ use super::{
 use modkit_core::{BrushModel, Entity, World};
 use rapier3d::parry::bounding_volume::BoundingVolume;
 use rapier3d::prelude::{
-    ActiveHooks, CoefficientCombineRule, ColliderBuilder, Pose, Real, RigidBodyBuilder,
+    ActiveHooks, CoefficientCombineRule, ColliderBuilder, Pose, RigidBodyBuilder,
     SharedShape,
 };
 
@@ -102,7 +102,7 @@ impl Physics {
                     solid.mass,
                     solid.inertia,
                 ))
-                .position(position)
+                .pose(position)
                 .sleeping(flags & ASLEEP != 0)
                 .linear_damping(solid.damping)
                 .angular_damping(solid.rotdamping),

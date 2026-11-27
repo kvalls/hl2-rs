@@ -1245,7 +1245,7 @@ impl Physics {
             self.bodies.insert(
                 RigidBodyBuilder::dynamic()
                     .additional_mass_properties(masses.unwrap_or_default())
-                    .position(position)
+                    .pose(position)
                     .sleeping(prop_flags & 1 != 0)
                     .linear_damping(linear_damping)
                     .angular_damping(angular_damping),
@@ -1767,7 +1767,7 @@ impl Physics {
             let velocity = |c: &Collider| {
                 c.parent()
                     .and_then(|b| before.get(&b))
-                    .map_or(Vec3::ZERO, |(v, w, com)| v + w.cross((contact - com)))
+                    .map_or(Vec3::ZERO, |(v, w, com)| v + w.cross(contact - com))
             };
             let relative = velocity(c1) - velocity(c2);
             let speed = relative.dot(normal).abs() / SCALE;
@@ -1953,7 +1953,7 @@ impl Physics {
         let body = self.bodies.insert(
             RigidBodyBuilder::dynamic()
                 .additional_mass_properties(masses)
-                .position(pose(position, rotation))
+                .pose(pose(position, rotation))
                 .linvel(vector(velocity))
                 .angvel(Vec3::new(angular.x, angular.y, angular.z))
                 .linear_damping(solid.damping)
@@ -2063,7 +2063,7 @@ impl Physics {
             let handle = self.bodies.insert(
                 RigidBodyBuilder::dynamic()
                     .additional_mass_properties(masses)
-                    .position(pose(position, rotation))
+                    .pose(pose(position, rotation))
                     .linvel(vector(velocity))
                     .linear_damping(body.damping)
                     .angular_damping(body.rotdamping)
@@ -2580,7 +2580,7 @@ impl Physics {
                 // gravity and no drag, driven by the controller's velocity corrections.
                 let body = self.bodies.insert(
                     RigidBodyBuilder::dynamic()
-                        .position(pose(center(feet), Quat::IDENTITY))
+                        .pose(pose(center(feet), Quat::IDENTITY))
                         .lock_rotations()
                         .gravity_scale(0.)
                         .additional_mass(PLAYER_SHADOW_MASS)

@@ -16,7 +16,6 @@ use crate::{
 };
 use glam::Vec3;
 use modkit_core::World;
-use rapier3d::prelude::*;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -742,6 +741,7 @@ impl Inventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
 
     use crate::sounds::PatchOp;
     fn cannon() -> BTreeMap<String, Weapon> {

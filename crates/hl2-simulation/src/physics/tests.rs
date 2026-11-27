@@ -1824,7 +1824,7 @@ fn player_shadow_shoves_light_props_but_not_heavy_ones() {
         assert_eq!(x > 41., moves, "{mass} kg box at x {x}");
         // The shadow follows the player and never wanders into the world.
         let (shadow, _) = physics.player_shadow.unwrap();
-        let s = *physics.bodies[shadow].translation() * 39.37;
+        let s = physics.bodies[shadow].translation() * 39.37;
         assert!((s.z - 36.).abs() < 1. && s.x < 20., "{s:?}");
     }
 }

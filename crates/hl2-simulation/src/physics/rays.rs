@@ -4,7 +4,7 @@ use super::{
     PICK_GROUPS, QUERY_GROUPS, SCALE,
 };
 use glam::Vec3;
-use rapier3d::prelude::{nalgebra, InteractionGroups, QueryFilter, Ray};
+use rapier3d::prelude::{InteractionGroups, QueryFilter, Ray};
 
 impl Physics {
     pub fn ray(&self, origin: Vec3, direction: Vec3, distance: f32) -> Option<(usize, Vec3)> {
