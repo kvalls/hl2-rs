@@ -97,7 +97,9 @@ fn reduce_raw(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let start = vec2<i32>(in.position.xy) * 4;
     let size = vec2<i32>(textureDimensions(raw));
     var best = vec2(0.0);
-    for (var y = 0; y < 4; y++) { for (var x = 0; x < 4; x++) {
+    // A checkerboard of half the block: every moving feature two pixels wide in either
+    // direction still lands on a tap, and the tile maximum and dilation spread it further.
+    for (var y = 0; y < 4; y++) { for (var x = y & 1; x < 4; x += 2) {
         let p = start + vec2(x,y);
         if any(p >= size) { continue; }
         let v = raw_motion(p);

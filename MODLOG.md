@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Halve the first motion-blur reduction's reads (O20)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `plugins/hl2-advanced-options/assets/shaders/weapon_blur.wesl` `reduce_raw`: each 4x4 block of the full-resolution motion texture reads 8 texels in a checkerboard instead of all 16. Backlog: O20 result; the owner's answers for O48 (keep open) and O49 (do the split).
+- Why — `weapon_reduce_4` was the largest blur pass in the GPU-bound `animated-fire` scene. A moving feature two pixels wide in either direction still lands on a tap, and the tile reduction and dilation that follow spread the maximum further, so the blur a player sees does not change.
+- Tested how — Headless Metal System Trace A-B-B-A (`animated-fire`, maxed Retina, everyday packages); `viewmodel_motion_blur` and `motion_blur_options` replays; full packaged replays.
+- Result — `weapon_reduce_4` `1.06, 0.93 -> 0.49, 0.49 ms` GPU per frame (p99 `2.95 -> 1.46`); GPU busy per frame mean `10.04, 9.89 -> 9.38, 9.02 ms`. Replays 110 of 111 on the first run: `face-security-2130` quit on a wgpu validation error once (its log was overwritten by the rerun), then the face-security group passed 25 more times.
+- Still broken or **not tested** — The single `face-security-2130` validation error is not reproduced or attributed; windowed visual comparison of the blur **not tested** beyond the replay assertions.
+- Next — O49 install split.
+
 ## 2026-11-27 — Attribute Bevy 0.20's render encoders (O48)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
