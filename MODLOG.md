@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — GPU at the static spawn on Bevy 0.20.1 (O1)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `docs/optimization-backlog.md` O1: new measurements and an owner clarification. No code change.
+- Why — O1's next step was to verify the static spawn and live pacing after the render changes; the engine upgrade made a fresh capture necessary.
+- Tested how — Everyday package `1bedef90` at maxed Retina (3456x2168, 4x MSAA, full HDR, motion blur). Headless static spawn with a Metal System Trace (8 s), and the same scene windowed without focus with a 10 s Metal trace.
+- Result — Headless GPU busy per frame mean 3.82 ms, p95 4.68, p99 4.75, 0 of 485 frames over 8.33 ms. Windowed: no displayed surfaces (the display was off), GPU busy mean 7.32 ms, p95 10.68, p99 10.98, 240 of 624 frames over 8.33 ms — about twice headless, cause undetermined (window present path at Retina or GPU clocks with the display off).
+- Still broken or **not tested** — Live pacing with a visible display; recorded as an owner clarification.
+- Next — Recheck windowed GPU with the display on; then O3/O22.
+
 ## 2026-11-27 — Memory across map changes and the crowd on Bevy 0.20.1 (O10)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
