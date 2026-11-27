@@ -845,13 +845,17 @@ mod tests {
         for name in MATERIALS {
             let sprite = crate::projectile_visuals::load_sprite(&vfs, name).unwrap();
             assert!(sprite.image.width > 0 && sprite.image.height > 0);
+            // Installed VMTs: $translucent without $additive is kind 2 (noisesphere, the
+            // flecks, blood, smokegrenade); the rest are additive.
+            let translucent = ["noisesphere", "fleck_", "effects/blood", "smokegrenade"];
             assert_eq!(
                 sprite.kind,
-                if name.contains("noisesphere") || name.contains("fleck_cement") {
+                if translucent.iter().any(|t| name.contains(t)) {
                     2
                 } else {
                     3
-                }
+                },
+                "{name}"
             );
         }
     }

@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 session 74: dependency replays explained, main past the dependencies, rapier 0.36 compiles (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: main fast-forwarded eae5fea -> f1b7bf8 (glam 0.33, symphonia 0.6.1, zip 9.8.2, rfd 0.18.0, OnQueueMoved). wip/session73-rapier rebased onto main and completed to compile (51ba76f, c538b4c: query iterators, by-value vectors, ShapeIntersection, dynamic-only awake count, full inverse inertia, RigidBodyBuilder::pose, and_groups, one shared ray cast; architecture baseline locked lower). wip/session74-20261127: the two stale owned-install test expectations (SDK Weapon_CanUse; installed VMTs) and an owned test dumping the train car's materials and crack pieces.
+- Why: owner decision 2026-11-26 (update every dependency); owner priority d1_trainstation_01 (the car's window cracks).
+- Tested how: bisect build (989753f + glam 0.33, own worktree and target) and the two replays on it; the same two replays alone on the v2 binary (JOBS=1); rapier branch: strict workspace Clippy, fmt, architecture, hl2-simulation release tests (860 passed); packaged ride view of d1_trainstation_01 at 70 s (ours) against the map's I/O and native's I/O log timing.
+- Result: see STATUS "Current session 74". The two "real" replay changes were a JOBS=3 timing flake; rapier 0.36 compiles and passes the unit tests.
+- Still broken or not tested: rapier's packaged build, replays and regression (background chain at the handoff); the crack test's output; the hl2-simulation owned tests with the updated expectations (not compiled); the cracks themselves (not drawn on the car's glass); native capture of the ride not taken this session; the shader-family smoke runs.
+- Next: artifacts/s74/next-session-prompt.txt.
+
 ## 2026-11-26 session 73: Bevy 0.20.1 runs; dependency updates (Claude Code desktop, claude-opus-5-5)
 
 - Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.

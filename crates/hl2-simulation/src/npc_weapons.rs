@@ -1152,7 +1152,9 @@ mod tests {
             usable_weapons(class, &rig.activities, &defs)
         };
         // Retail police.mdl fails Weapon_CanUse for the SMG1 its maps give it; the
-        // campaign loadout keeps it, CanUse adds the crowbar and the alyxgun.
+        // campaign loadout keeps it, CanUse adds the crowbar and the alyxgun, and the
+        // passengers' package and suitcase (no required acttable entry: SDK
+        // CBaseCombatCharacter::Weapon_CanUse passes any NPC).
         assert_eq!(
             usable("npc_metropolice", "models/police.mdl"),
             [
@@ -1160,7 +1162,9 @@ mod tests {
                 "weapon_pistol",
                 "weapon_smg1",
                 "weapon_crowbar",
-                "weapon_alyxgun"
+                "weapon_alyxgun",
+                "weapon_citizenpackage",
+                "weapon_citizensuitcase"
             ]
         );
         // combine_soldier.mdl passes CanUse for nothing (no ACT_RELOAD_SMG1).

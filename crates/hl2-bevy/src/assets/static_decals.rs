@@ -185,4 +185,50 @@ mod tests {
             "trash"
         ));
     }
+
+    #[test]
+    #[ignore = "requires an owned installed Half-Life 2 copy"]
+    fn owned_train_window_cracks_attach_to_the_cars_glass() {
+        // d1_trainstation_01's eight decals/glass/shot* infodecals lie on intro_train_2's
+        // windows (model *28), out of the world's reach.
+        let root = source_assets::install::discover().unwrap();
+        let config = hl2_ui::config::Config::default();
+        let canvas = source_ui::canvas::Canvas::default();
+        let loaded = crate::assets::load_with_config(
+            &root,
+            "hl2",
+            "d1_trainstation_01",
+            canvas,
+            true,
+            &config,
+        )
+        .unwrap();
+        let world = &loaded.world;
+        let car = world
+            .entities
+            .iter()
+            .find(|e| e.get("targetname") == Some("intro_train_2"))
+            .unwrap();
+        let id: usize = car.get("model").unwrap()[1..].parse().unwrap();
+        let model = world.brush_models.iter().find(|m| m.id == id).unwrap();
+        let cracks: Vec<_> = model
+            .surfaces
+            .iter()
+            .filter(|s| s.material.starts_with("decals/glass/shot"))
+            .collect();
+        let mut names: Vec<&str> = model.surfaces.iter().map(|s| s.material.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        for name in &names {
+            let m = loaded.materials.get(*name);
+            eprintln!(
+                "{name}: {:?}",
+                m.map(|m| (m.translucent, m.modulate, m.alpha_cutoff, m.additive, m.opacity))
+            );
+        }
+        let triangles: usize = cracks.iter().map(|s| s.indices.len() / 3).sum();
+        eprintln!("cracks: {} pieces, {triangles} triangles", cracks.len());
+        assert!(cracks.len() >= 8, "{}", cracks.len());
+        assert!(cracks.iter().all(|s| loaded.materials[&s.material].modulate));
+    }
 }
