@@ -24,7 +24,6 @@
   }
  },
  "duplicates": [
-  "07341ef0ab54",
   "0c78f9d77d45",
   "0e18bca692c1",
   "1078aa5dfaff",
@@ -62,7 +61,6 @@
   "593a6ec66e27",
   "59e52a02cfd6",
   "61028a64dc9e",
-  "619d03236b20",
   "621363747d82",
   "621e7ff9a9c8",
   "63ca89ded47c",
@@ -70,7 +68,6 @@
   "6c5f43a90bb6",
   "6cee0326dac3",
   "6d261199e5c0",
-  "6f24dcef9990",
   "71b8d291cdce",
   "727cddc72bd6",
   "72c3be5e0f16",
@@ -116,7 +113,6 @@
   "ce439e7b222c",
   "cf82b7ad2d83",
   "d2aff06e2f46",
-  "d2d83e69d8b6",
   "d71e70360d78",
   "d71f00c22bc3",
   "dc336cf0b46c",
@@ -347,7 +343,7 @@
  },
  "min_tests": {
   "hl2-advanced-options": 53,
-  "hl2-bevy": 303,
+  "hl2-bevy": 305,
   "hl2-debug": 59,
   "hl2-simulation": 914,
   "hl2-ui": 345,

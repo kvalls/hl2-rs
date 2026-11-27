@@ -3011,3 +3011,35 @@ same order in one render pass, depth stored for the passes that read it afterwar
 must run before a camera's main draws order themselves against Bevy's `Prepass` and `MainPass`
 sets, never against Bevy's pass functions. Order-independent transparency is not supported there
 (HL2-RS does not use it).
+
+## Entities and the view blended across one tick (2026-11-27)
+
+Problem: the view angles follow the mouse every frame, but physics props, brush movers and
+the eye origin change only on 15 ms ticks and are drawn at their latest tick pose. Above
+66.7 FPS a carried prop stands still for a frame while the view turns, then jumps (owner
+report, 2026-11-27).
+
+Retail rule (Source SDK `game/client/c_baseentity.cpp` `GetInterpolationAmount`,
+`game/server/baseentity.cpp` `SetMoveType`): in single player, entities simulated every tick
+(every move type except `MOVETYPE_STEP`, so VPhysics props and `MOVETYPE_PUSH` doors and
+trains) and predictable entities (the local player) are drawn one tick back, blended between
+their last two tick values. View angles stay per frame. NPCs (`MOVETYPE_STEP`) use `cl_interp`
+(0.1 s plus a tick) and are out of this plan. The extra tick for a threaded engine is not
+modelled.
+
+Plan (presentation only; simulation, replays and gameplay traces stay on tick values):
+- `hl2-bevy` `tick_blend.rs`: a `TickBlend` resource. A `FixedUpdate` system before the
+  simulation step records, every tick (stepping or not, so a paused scene never wobbles), the
+  view origin and each drawn entity root's pose (physics body, else scene state), in a vector
+  indexed by entity id and reused across ticks. Per frame, `alpha = Time<Fixed>::overstep_fraction()`.
+- `pose(id, current)` and `view(current)` blend previous to current by `alpha`; an unchanged
+  value returns the current one bit for bit (static entities write no transforms), a missing
+  previous value returns the current one, and a jump over 128 units in one tick snaps (an
+  approximation of retail's no-interpolation flag for teleports). A newly installed map
+  clears the record.
+- Consumers: entity placement (props and brush movers), the player camera origin, prop
+  shadow casters and decals on props, so these move together. Sky cameras, visibility and the
+  flashlight follow the camera transform already.
+- Measure: `--profile` `fixed_simulation` and `animation` before and after in a prop-heavy
+  scene; the owner checks carrying while turning and walking, the train ride, a lift, the pause
+  menu and a map change.

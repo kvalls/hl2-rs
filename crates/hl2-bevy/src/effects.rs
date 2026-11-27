@@ -681,9 +681,10 @@ pub fn present(
     mut effects: ResMut<Effects>,
     game: Res<Gameplay>,
     sim: Res<Simulation>,
-    (frame, performance): (
+    (frame, performance, blend): (
         Option<Res<crate::video::GameFrame>>,
         Option<Res<crate::performance::Performance>>,
+        crate::tick_blend::Blend<'_>,
     ),
     (mut meshes, mut buffers): (
         ResMut<Assets<Mesh>>,
@@ -754,7 +755,12 @@ pub fn present(
         &mut effects,
         &viewmodel,
     );
-    marks::present(&mut commands, &mut effects, &game, &sim, &mut meshes);
+    marks::present(
+        &mut commands,
+        &mut effects,
+        (&game, &sim, blend.as_deref()),
+        &mut meshes,
+    );
     present_grenades(&mut commands, &mut effects, &game, &mut draws);
     present_stuck_bolts(&mut commands, &mut effects, &game);
 }
@@ -884,7 +890,10 @@ pub fn observe(
     game: Res<Gameplay>,
     sim: Res<Simulation>,
     decals: Query<(&DecalDraw, &Transform, &Visibility)>,
-    grenades: Query<(&GrenadeDraw, &Transform)>,
+    (grenades, blend): (
+        Query<(&GrenadeDraw, &Transform)>,
+        crate::tick_blend::Blend<'_>,
+    ),
 ) {
     let mut mismatches = 0;
     for (draw, transform, visible) in &decals {
@@ -897,10 +906,9 @@ pub fn observe(
                 .states
                 .get(mark.entity)
                 .map_or((Transform::IDENTITY, true), |s| {
-                    let (p, r) = sim
-                        .physics
-                        .entity_pose(mark.entity)
-                        .unwrap_or((s.origin, s.rotation));
+                    let (p, r) =
+                        crate::tick_blend::drawn_pose(&game, &sim, blend.as_deref(), mark.entity)
+                            .unwrap_or((s.origin, s.rotation));
                     let mut t = rendering::entity_transform(p, r);
                     t.scale = Vec3::splat(mark.scale);
                     (t, !s.killed && s.visible)

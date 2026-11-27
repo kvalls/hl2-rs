@@ -44,6 +44,7 @@ mod startup_cameras;
 #[cfg(feature = "trace")]
 mod state_trace;
 mod studio_decals;
+mod tick_blend;
 mod tonemap;
 pub mod ui_host;
 mod ui_system;
@@ -260,6 +261,7 @@ fn add_runtime_plugins(app: &mut App) {
             canvas_renderer::hud_pass::HudPassPlugin,
             ui_system::UiPlugin,
             simulation::MovementPlugin,
+            tick_blend::TickBlendPlugin,
         ));
 }
 

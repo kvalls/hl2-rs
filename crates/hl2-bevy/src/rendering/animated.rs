@@ -173,14 +173,15 @@ pub fn present_entities(
         Option<&mut Aabb>,
         Option<&mut MeshMorphWeights>,
     )>,
-    (performance, isolation): (
+    (performance, isolation, blend): (
         Option<Res<crate::performance::Performance>>,
         Option<Res<crate::isolation::Isolation>>,
+        crate::tick_blend::Blend<'_>,
     ),
     (flex_models, eyes, mut actor_poses, mut meshes): AnimationInputs,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "animation");
-    placement::place_entities(&mut entities, &game, &sim);
+    placement::place_entities(&mut entities, &game, &sim, blend.as_deref());
     let mut updated_joints = BTreeSet::new();
     let mut poses: BTreeMap<(String, String, u32, u64), Arc<Vec<glam::Mat4>>> = BTreeMap::new();
     let mut flex_weights = face_flex::FlexWeights::new();

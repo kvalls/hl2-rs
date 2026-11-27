@@ -271,7 +271,12 @@ impl View {
 /// Each caster's shadow follows it: placed where it moved, textured by rank, hidden while it is.
 pub(crate) fn update(
     mut commands: Commands,
-    (ui, game, sim): (Option<Res<Console>>, Res<Gameplay>, Res<Simulation>),
+    (ui, game, sim, blend): (
+        Option<Res<Console>>,
+        Res<Gameplay>,
+        Res<Simulation>,
+        crate::tick_blend::Blend<'_>,
+    ),
     (shadows, mut actor_poses): (
         Option<ResMut<MapShadows>>,
         Option<ResMut<crate::rendering::actor_poses::ActorPoses>>,
@@ -309,7 +314,7 @@ pub(crate) fn update(
     }
     let shown = place(
         &mut shadows.casters,
-        (&game, &sim),
+        (&game, &sim, blend.as_deref()),
         (&shadows.control, mode, view.as_ref()),
         &shadows.potentially_visible,
     );
@@ -384,7 +389,11 @@ fn to_bevy((origin, size): (glam::Vec2, glam::Vec2)) -> (Vec2, Vec2) {
 /// screen area; each keeps its look unless the mode changes it.
 fn place(
     casters: &mut [Caster],
-    (game, sim): (&Gameplay, &Simulation),
+    (game, sim, blend): (
+        &Gameplay,
+        &Simulation,
+        Option<&crate::tick_blend::TickBlend>,
+    ),
     (control, mode, view): (&ShadowControl, Mode, Option<&View>),
     pvs: &[bool],
 ) -> Vec<bool> {
@@ -400,7 +409,7 @@ fn place(
         if hidden {
             continue;
         }
-        let Some(moved) = caster.place((game, sim), control, mode == Mode::Blob) else {
+        let Some(moved) = caster.place((game, sim, blend), control, mode == Mode::Blob) else {
             continue;
         };
         caster.moved = moved;

@@ -168,15 +168,17 @@ impl Caster {
     /// the map's direction; true when it moved, turned or changed bounds since the last build.
     pub fn place(
         &mut self,
-        (game, sim): (&Gameplay, &Simulation),
+        (game, sim, blend): (
+            &Gameplay,
+            &Simulation,
+            Option<&crate::tick_blend::TickBlend>,
+        ),
         control: &ShadowControl,
         down: bool,
     ) -> Option<bool> {
         let state = game.scene.states.get(self.id)?;
-        let (origin, rotation) = sim
-            .physics
-            .entity_pose(self.id)
-            .unwrap_or((state.origin, state.rotation));
+        // The shadow follows the entity as drawn (blended across the tick).
+        let (origin, rotation) = crate::tick_blend::drawn_pose(game, sim, blend, self.id)?;
         let bounds = self.bounds(&game.world, &state.animation)?;
         if self.placed.is_some_and(|(o, r, d)| {
             d == down && o.distance(origin) <= MOVE && r.angle_between(rotation) <= TURN

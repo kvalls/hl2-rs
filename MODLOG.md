@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Draw the eye, physics props and brush movers blended across one tick
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — New `crates/hl2-bevy/src/tick_blend.rs` (`TickBlendPlugin`, `TickBlend`). Before every fixed tick, stepping or not, it records the view origin and each drawn entity root's pose (physics body, else scene state) in a vector indexed by entity id and reused between ticks; NPC actors are skipped. Each frame, `alpha = Time<Fixed>::overstep_fraction`, and a new map clears the record. `drawn_pose` blends previous to current; an unchanged value is returned bit for bit, a missing one gives the current pose, and a jump over 128 units in one tick snaps. Consumers: entity placement (props and brush movers), the player camera origin (angles stay per frame), prop shadow casters, impact decals on entities and the decal consistency check. Plan in docs/DESIGN.md "Entities and the view blended across one tick".
+- Why — Owner (2026-11-27, live session): a carried box shook while turning the camera. The view angles follow the mouse every frame, but the box only moved on 15 ms ticks and was drawn at its latest tick pose. Retail single player draws entities simulated every tick (VPhysics props, `MOVETYPE_PUSH` movers) and the predicted local player one tick back, between their last two tick values (Source SDK `game/client/c_baseentity.cpp` `GetInterpolationAmount`, `game/server/baseentity.cpp` `SetMoveType`). The retail client has no per-frame placement for held objects. The owner chose the retail behavior.
+- Tested how — `tick_blend` unit tests (alpha 0 and 1 give the previous and current poses, half way blends; an unchanged pose is bit-exact; missing, teleported and view values); hl2-bevy lib tests; `--profile` runs of the packaged `bevy-use-carry` replay on `d1_trainstation_02`, uncapped at 1920x1080, three before and three after; `validate.sh`; packaged replays.
+- Result — Per-stage means, before -> after: `animation` 0.19-0.20 -> 0.20 ms, `effects` 0.065 -> 0.066 ms and `fixed_simulation` 1.03-1.06 -> 1.05 ms are unchanged. New `tick_blend` record 0.018 ms per tick. `shadows` 0.10 -> 0.12 ms, because a moving caster is now re-placed every frame instead of every tick. Mean frame 3.01-3.06 -> 3.11 ms. All six replays finished.
+- Still broken or **not tested** — The look in play (carrying while turning and walking, the train ride, lifts, the pause menu, map changes) was not checked before this commit; that is the owner's next check. NPC roots stay at tick poses (retail draws them `cl_interp` back). The threaded-engine extra tick is not modelled, and the 128-unit snap approximates retail's teleport flag. Sprites, audio, HUD and other view-origin users stay on tick values. Windows **not tested**.
+- Next — The owner's check in play.
+
 ## 2026-11-27 — Menu text outline at 40%
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

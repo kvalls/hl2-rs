@@ -7,8 +7,11 @@ use bevy::prelude::{Assets, Commands, Mesh, Mesh3d, MeshMaterial3d, Transform, V
 pub(super) fn present(
     commands: &mut Commands,
     effects: &mut Effects,
-    game: &Gameplay,
-    sim: &Simulation,
+    (game, sim, blend): (
+        &Gameplay,
+        &Simulation,
+        Option<&crate::tick_blend::TickBlend>,
+    ),
     meshes: &mut Assets<Mesh>,
 ) {
     let dead: Vec<_> = effects
@@ -30,9 +33,8 @@ pub(super) fn present(
                 .states
                 .get(mark.entity)
                 .map_or((Transform::IDENTITY, true), |s| {
-                    let (p, r) = sim
-                        .physics
-                        .entity_pose(mark.entity)
+                    // Decals stay on their entity as drawn (blended across the tick).
+                    let (p, r) = crate::tick_blend::drawn_pose(game, sim, blend, mark.entity)
                         .unwrap_or((s.origin, s.rotation));
                     let mut t = rendering::entity_transform(p, r);
                     t.scale = Vec3::splat(mark.scale);

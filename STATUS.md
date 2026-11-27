@@ -1,5 +1,14 @@
 # STATUS
 
+## Tick blending of the view and entities (2026-11-27)
+
+Like retail single player, the eye origin, physics props and brush movers are drawn between
+their last two 15 ms tick values (`hl2-bevy` `tick_blend.rs`); view angles stay per frame,
+so a carried prop no longer shakes against a turning view. NPCs keep their tick poses.
+Measured on the packaged carry replay: 0.018 ms per tick to record the poses, shadows
++0.02 ms per frame, other stages unchanged. Play-testing by the owner is pending.
+Windows **not tested**.
+
 ## Menu text outline (2026-11-27)
 
 Main and pause menu buttons, titles and subtitles draw a 40% black outline that grows outward
