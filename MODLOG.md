@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Particle mesh churn measured; O13 closed
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — New scene `test-inputs/performance-research/effect-burst.json` (four SMG grenades from the particle replays' setup, watched from the smoke replay's camera, with a `profile_window`). docs/optimization-backlog.md (O13 `done`, its Measure cell names the scene and why; O8 gets the HUD rewrite counts), docs/performance.md.
+- Why — O13's particle replays were **not tested** on Bevy 0.20.1, and the per-owner mesh counts its Measure lists had no current numbers. The `effect-grenade` and `effect-explosion` replays pause one tick after the effect starts, so their stage samples all fall in the warm-up.
+- Tested how — A temporary probe (removed, never committed) classified each frame's modified meshes by the draw entity's marker. Headless runs on `0c0f22b9`: the three particle replays three times each, `effect-burst` four times under `stages` (first discarded) and three times under `trace`. The everyday package rebuilt afterwards has the same sha256 as before the probe.
+- Result — Effect quads, shadow decals and animated models rewrite no mesh in any particle scene; eyes about 0.1 per frame; the HUD 1 per frame idle and 3-13 with the weapon HUD (`effect-burst` mean 5.1-5.3). `effect-burst`: `render_assets` `0.39-0.40 ms` mean, p99 `0.61-0.64`; traced `allocate_and_free_meshes` `0.23-0.29 ms/f`.
+- Still broken or **not tested** — Whether the HUD rewrites are content changes or batches shifting pool slots is not attributed (left with O8). Windows **not tested**.
+- Next — —
+
 ## 2026-11-27 — Crowd allocations re-measured; O21 closed
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

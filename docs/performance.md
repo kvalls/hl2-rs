@@ -1,5 +1,32 @@
 # Performance measurements - 2026-10-05
 
+## O13 particle replays and mesh owners on Bevy 0.20.1 (2026-11-27)
+
+Everyday and `trace` packages at `0c0f22b9` plus a temporary probe (removed; never committed) that counted each frame's `AssetEvent<Mesh>` events and classified each `Modified` mesh by the marker of the draw entity holding it (effect quads, eyes, shadow decals, animated models, HUD, decals, studio decals, gibs). Headless `d1_trainstation_02`, default settings.
+
+The listed `effect-grenade` and `effect-explosion` replays are fidelity snapshots: they pause one tick after the effect starts, so all 12 stage calls fall in the 30-call warm-up. `test-inputs/performance-research/effect-burst.json` keeps their setup (loadout, SMG, the entrance closed), fires four SMG grenades 80 ticks apart, watches from the smoke replay's withdrawn camera, and wraps ticks 79-460 in a `profile_window`.
+
+Rewritten meshes per frame (probe, 50-frame windows):
+
+| Scene | Runs | Effect quads | Shadows | Animated | Eyes | HUD |
+|---|---|---|---|---|---|---|
+| `particles-smoke` | 3 | 0 | 0 | 0 | 0-0.1 | 1 idle, 9-12 with the weapon HUD |
+| `effect-grenade` | 3 | 0 | 0 | 0 | 0 | 1 idle, 9-12.5 |
+| `effect-explosion` | 3 | 0 | 0 | 0 | 0 | 1 idle, 9.4-12.9 |
+| `effect-burst` | 4 | 0 | 0 | 0 | 0 | window mean 5.14 / 5.30 / 5.32 |
+
+Effect quads draw from GPU storage buffers since O39 and rewrite a CPU mesh only on overflow, which none of these scenes reach. The load frame adds about 27 meshes once.
+
+`effect-burst` `stages`, windowed, three runs after a discarded one (`715-722` samples each):
+
+| Run | `render_assets` mean / p95 / p99 | `effects` mean | `hud` mean | `frame_total` mean / p99 |
+|---|---|---|---|---|
+| 1 | 0.404 / 0.564 / 0.642 | 0.144 | 0.176 | 7.51 / 12.64 |
+| 2 | 0.398 / 0.557 / 0.610 | 0.143 | 0.180 | 7.47 / 12.45 |
+| 3 | 0.393 / 0.543 / 0.605 | 0.143 | 0.178 | 7.45 / 12.40 |
+
+`effect-burst` `trace` (three runs): `allocate_and_free_meshes` `0.226 / 0.286 / 0.278 ms/f` mean, p99 `1.33 / 1.71 / 2.09` (trace-inflated; compare with traces only). The crowd half (`0.317 ms/f`) is in the backlog row.
+
 ## O21 crowd allocations on Bevy 0.20.1 (2026-11-27)
 
 `trace-alloc` package at `0c0f22b9` (`executable_sha256` `fc24509f...`), headless `d1_trainstation_02` running `test-inputs/performance-research/mixed-crowd.json` to its end (`--frames 3000`; the script ends the run at `633-650` frames; a `--frames 400` run now stops with "movement script did not finish"). `state_frame` per frame, three runs:
