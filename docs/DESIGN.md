@@ -2999,3 +2999,15 @@ joint entities, which also decided which NPC-weapon draws to drop.
   skeletons; a debug assertion checks the joint counts match.
 - Not moved: applying the install's spawn commands (`93 ms` in the 2026-11-27 trace) still runs
   in the install frame.
+
+## One render pass per 3D camera's main draws (O1, 2026-11-27)
+
+Bevy's `Core3d` encodes the opaque (with alpha mask and skybox) and transparent phases as two
+render passes. On a tile-based GPU each pass boundary stores the camera's multisampled colour and
+depth targets and the next pass loads them back; at 4x MSAA in Retina that round trip cost more
+than the transparent draws themselves. `rendering::main_pass::MainPassPlugin` removes Bevy's two
+systems from `Core3d` and adds `main_pass_3d` to `Core3dSystems::MainPass`: the same phases in the
+same order in one render pass, depth stored for the passes that read it afterwards. Systems that
+must run before a camera's main draws order themselves against Bevy's `Prepass` and `MainPass`
+sets, never against Bevy's pass functions. Order-independent transparency is not supported there
+(HL2-RS does not use it).

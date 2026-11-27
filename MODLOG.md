@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Draw each 3D camera's opaque and transparent phases in one render pass (O1)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — New `rendering/main_pass.rs` (`MainPassPlugin`): removes Bevy's `main_opaque_pass_3d` and `main_transparent_pass_3d` from `Core3d` and adds `main_pass_3d` in `Core3dSystems::MainPass`, which draws the same opaque, alpha-mask, skybox and transparent phases in the same order inside one render pass. `hl2-advanced-options` weapon blur `snapshot` is ordered between Bevy's `Prepass` and `MainPass` sets instead of before Bevy's opaque system. Backlog O1.
+- Why — Two render passes per camera stored the 4x MSAA colour and depth to memory after the opaque draws and loaded them again for the transparent ones. Split by camera, the viewmodel camera's transparent pass cost `0.84 ms` GPU per frame with almost nothing to draw.
+- Tested how — Headless Metal System Trace A-B-B-A at maxed Retina (`animated-fire`, `quiet`); per-camera pass split (GPU intervals by their position in the frame); spawn and effect captures of both packages compared; packaged replays; `validate.sh`.
+- Result — `animated-fire` GPU busy per frame `9.55, 9.29 -> 7.37, 7.27 ms`, frames over `8.33 ms` from about 70 % to about 20 %; the merged pass costs what the opaque pass alone did (`3.42-3.45 ms/f`). `quiet` `3.79 -> 2.99 ms`. Captures identical (spotlight beam, glows, decals drawn). Replays 111/111.
+- Still broken or **not tested** — Order-independent transparency (unused by HL2-RS) is not supported by the merged pass. Windows/Vulkan and DX12 **not tested**; live windowed pacing **not tested**.
+- Next — Re-measure live pacing (O22) and the crowd scene.
+
 ## 2026-11-27 — Free the previous map's resources off the main thread (O49)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

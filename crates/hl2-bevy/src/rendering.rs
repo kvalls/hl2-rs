@@ -41,6 +41,7 @@ pub use model_lighting::ModelLighting;
 mod npc_weapon_draws;
 mod placement;
 pub(crate) use placement::draw_hidden;
+pub(crate) mod main_pass;
 pub(crate) mod runtime;
 pub(crate) mod simple_pass;
 pub(crate) mod variant_warmup;

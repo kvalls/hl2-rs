@@ -2,7 +2,6 @@
 use bevy::{
     core_pipeline::{
         FullscreenShader,
-        core_3d::main_opaque_pass_3d,
         schedule::{Core3d, Core3dSystems},
     },
     ecs::{
@@ -66,9 +65,10 @@ impl Plugin for WeaponBlurPlugin {
             )
             .add_systems(
                 Core3d,
+                // The world image is copied before this camera's main pass draws over it.
                 snapshot
-                    .in_set(Core3dSystems::MainPass)
-                    .before(main_opaque_pass_3d),
+                    .after(Core3dSystems::Prepass)
+                    .before(Core3dSystems::MainPass),
             )
             .add_systems(
                 Core3d,
