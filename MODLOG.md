@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Attribute the Bevy 0.20.1 effects-scene cost (O48)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `docs/optimization-backlog.md` O48: attribution and an owner clarification. No code change.
+- Why — `animated-fire` grew 9.20 → 9.60 ms with the upgrade; the cause decides whether this project can win it back.
+- Tested how — `trace-chrome` packages of `7cbb9ad5` (0.19.1) and `81fbc973` (0.20.1), one traced run each of `animated-fire.json` at the A/B's maxed settings, all spans summarized and diffed per frame.
+- Result — Traced frame mean 9.53 → 9.96 ms. Bevy 0.20 finishes each pass's command encoder in parallel on the shared compute task pool (`finish_command_buffers` 0 → 0.77 ms per frame across workers, `submit_pending_command_buffers` 0.33 → 1.10, 35 queue submits per frame) and the main thread waits longer (`wait` 2.66 → 3.94). `PostUpdate` gains the new `mark_2d_meshes_as_changed_if_their_materials_changed<HudMaterial>` at 0.20 ms per frame with only 34 pooled HUD meshes (fixed parallel-iteration overhead). Both are engine-internal.
+- Still broken or **not tested** — Consolidating custom passes into fewer encoders and task-pool sizing are untried; recorded as an owner clarification.
+- Next — O27.
+
 ## 2026-11-27 — Measure the Bevy 0.20.1 upgrade (O48) and add backlog clarifications
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
