@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Win back part of the Bevy 0.20.1 cost (O48)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `canvas_renderer/hud_pass.rs` removes Bevy 0.20's `mark_2d_meshes_as_changed_if_their_materials_changed<HudMaterial>` from `PostUpdate` after adding the HUD's `Material2dPlugin` (HUD materials are created once and never modified; a pooled draw that swaps material is re-specialized by `check_entities_needing_specialization`). O34's earlier note and O9's macOS finding (Bevy compiles pipelines synchronously on macOS) are in the backlog.
+- Why — Owner: win back the upgrade's cost. The trace showed the system spends 0.006 ms of work and about 0.18 ms waiting on a parallel scope per frame.
+- Tested how — Packaged A/B against `2bd5bd56`, maxed Retina, four alternating runs per side on `quiet`, `mixed-crowd` and `animated-fire`; a rejected task-pool resize measured the same way; packaged replays (111 checks, 0 failed); `scripts/checks/validate.sh` (2,050 Rust tests, strict Clippy, fmt, architecture, isolation).
+- Result — `animated-fire` `PostUpdate` 2.33–2.41 → 2.25–2.32 ms (−0.11 ms); frame time unchanged there (render-thread bound); quiet and crowd unchanged. Task pools IO 1 / async 2 gave no gain and were not kept.
+- Still broken or **not tested** — Most of the 0.4 ms remains in Bevy's per-encoder parallel finishing; Windows runtime **not tested**.
+- Next — O9 load-time warm-up of NPC shader variants.
+
 ## 2026-11-27 — GPU at the static spawn on Bevy 0.20.1 (O1)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

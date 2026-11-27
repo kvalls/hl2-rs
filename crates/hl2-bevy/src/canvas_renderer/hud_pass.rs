@@ -27,6 +27,19 @@ pub struct HudPassPlugin;
 impl Plugin for HudPassPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy::sprite_render::Material2dPlugin::<super::HudMaterial>::default());
+        // HUD materials are created once and never modified, and a pooled draw that swaps its
+        // material is re-specialized by `check_entities_needing_specialization` (which watches
+        // `MeshMaterial2d` itself). Bevy 0.20's mark-meshes-changed system would only add a
+        // parallel scope per frame (about 0.18 ms of waiting on the shared compute pool for 34
+        // meshes), so it is removed.
+        let removed = app.remove_systems_in_set(
+            bevy::app::PostUpdate,
+            bevy::sprite_render::mark_2d_meshes_as_changed_if_their_materials_changed::<
+                super::HudMaterial,
+            >,
+            bevy::ecs::schedule::ScheduleCleanupPolicy::RemoveSystemsOnly,
+        );
+        debug_assert_eq!(removed.ok(), Some(1), "HUD mark-changed system");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
