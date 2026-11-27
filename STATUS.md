@@ -1,5 +1,17 @@
 # STATUS
 
+## Console history across launches moved to hl2-debug (2026-11-27)
+
+Retail keeps the console command history for one run only (Source SDK
+`vgui_controls/consoledialog.cpp`: `m_CommandHistory` in memory, freed with
+the panel; the console's only file write is `condump`, which saves output,
+not commands), so the core console now does the same. The `hl2-debug`
+plugin restores `hl2-console-history.txt` on its first UI frame and writes
+it when the saved history changes, leaving out chat as before. Built
+without the plugin, nothing is read or written. Validate, the plugin
+selection check and the `console`/`console_map` replays pass. Live play
+on the rebuilt package is **not tested**.
+
 ## Chat left out of the saved console history (2026-11-27)
 
 Lines of only `say` commands, and lines the chat mode routes to chat, stay

@@ -176,13 +176,13 @@ impl Console {
         self.shell.panel.editor.refresh(&self.completion);
     }
 
-    /// Restores the command history the host saved.
+    /// Restores a command history saved by an earlier run (retail keeps it for one run only).
     pub fn set_history(&mut self, history: Vec<String>) {
         self.shell.panel.editor.set_history(history);
     }
 
-    /// The command history to save, once after it changed (the host saves it then). Chat lines
-    /// stay in the editor's history for this run but are not saved.
+    /// The command history to save, once after it changed, for a contributor that keeps it
+    /// across runs. Chat lines stay in the editor's history for this run but are not saved.
     pub fn take_changed_history(&mut self) -> Option<Vec<String>> {
         self.shell.panel.editor.take_history_changed().then(|| {
             let editor = &self.shell.panel.editor;

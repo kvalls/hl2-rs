@@ -1,11 +1,9 @@
-//! Host side of the developer console: what its arguments complete from, its command history
-//! on disk, and the engine log mirrored into it.
+//! Host side of the developer console: what its arguments complete from and the engine log
+//! mirrored into it. The command history lasts one run, as in retail.
 //!
 //! * Completion: the installed maps (listed once at startup) and the loaded map's entity names
 //!   and the inputs its own connections fire ([`MapEntityNames`], replaced on each map load)
 //!   reach the console whenever either changes ([`sync_sources`]).
-//! * History: `hl2-console-history.txt` next to the settings file, never in the game install;
-//!   loaded at startup and written whenever the console's history changed ([`save_history`]).
 //! * Log: warnings and errors from every target, and info from HL2-RS's own crates, are queued
 //!   by a `tracing` layer ([`log_layer`]) and printed in the console each frame ([`drain_log`]).
 
@@ -116,32 +114,6 @@ pub fn sync_sources(
             entity_targets: names.targets.clone(),
             entity_inputs: names.inputs.clone(),
         });
-    }
-}
-
-fn history_path() -> std::path::PathBuf {
-    hl2_ui::config::Config::config_path().with_file_name("hl2-console-history.txt")
-}
-
-/// The saved command history, oldest first.
-pub fn load_history() -> Vec<String> {
-    std::fs::read_to_string(history_path())
-        .map(|text| {
-            text.lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Writes the command history when it changed.
-pub fn save_history(ui: Option<ResMut<crate::ui_host::Console>>) {
-    let Some(history) = ui.and_then(|mut ui| ui.source.take_changed_history()) else {
-        return;
-    };
-    if let Err(error) = std::fs::write(history_path(), history.join("\n")) {
-        warn!("Could not save the console history: {error}");
     }
 }
 

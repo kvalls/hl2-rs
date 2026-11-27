@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Console history across launches moved to hl2-debug
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `hl2-bevy` no longer loads or saves the console history (`console_host::load_history`, `save_history` and its system removed). New `plugins/hl2-debug/src/bevy/host/history.rs` (`SavedHistory`): on the plugin's first `ui_after` it restores `hl2-console-history.txt` next to the settings file into the console, and afterwards it writes the file whenever `Console::take_changed_history` reports a change, so chat stays out as before. The core `set_history` / `take_changed_history` docs now describe a contributor that keeps history across runs. docs/gameui.md, docs/plugins.md, README.
+- Why — Owner (2026-11-27): retail does not persist console commands, so saving them is a debug convenience. Retail keeps the history for the run only: Source SDK `vgui_controls/consoledialog.cpp` holds `m_CommandHistory` in memory (capped at `MAX_HISTORY_ITEMS`) and frees it with the panel, and its only file write is `condump`, which saves output, not commands. No history file name appears in the installed `bin/GameUI.dll` or `bin/engine.dll` strings.
+- Tested how — `plugins/hl2-debug` test `history_is_restored_once_and_saved_when_it_changes` (with the `bevy` feature); `scripts/checks/validate.sh`; `scripts/checks/check_plugin_selection.py`; packaged replays `console` and `console_map`; macOS release build.
+- Result — In-run history unchanged. Saved across launches only with `hl2-debug`; a build without it reads and writes nothing.
+- Still broken or **not tested** — Live play on the rebuilt package **not tested**.
+- Next — —
+
 ## 2026-11-27 — Chat stays out of the saved console history
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

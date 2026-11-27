@@ -413,7 +413,6 @@ fn init_console_ui(
     options: &Options,
 ) -> ui_host::Console {
     let mut console_ui = ui_host::Console::new(ui);
-    console_ui.source.set_history(console_host::load_history());
     if options.condebug {
         hl2_ui::console::remote::CONDEBUG_FILE
             .clone_into(&mut console_ui.source.remote.con_logfile);

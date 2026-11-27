@@ -3,6 +3,7 @@ mod background;
 mod bootstrap;
 mod commands;
 mod draw;
+mod history;
 mod input;
 mod loading;
 mod session;
@@ -16,6 +17,8 @@ use hl2_bevy::extensions::{Context, Input, RuntimeExtension, UiInput};
 pub struct State {
     dev_overlay: bool,
     subtitles: subtitles::RemoteSubtitles,
+    /// The console history saved across launches.
+    history: history::SavedHistory,
     agent_session: Option<session::Session>,
     agent_bootstrap: Option<bootstrap::Bootstrap>,
     viewmodel_debug: ViewmodelDebug,
@@ -229,6 +232,9 @@ impl RuntimeExtension for State {
     }
     fn ui_after(&mut self, context: &mut Context<'_>, input: &UiInput<'_>) {
         self.after_ui(context, input);
+        if let Some(ui) = context.console.as_deref_mut() {
+            self.history.sync(&mut ui.source);
+        }
     }
     fn present(
         &mut self,
