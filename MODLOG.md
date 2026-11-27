@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — A map loaded under the console shows its first frame behind the menu
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `crates/hl2-bevy/src/simulation/running.rs` (new; `paused`, `world_running`, `frozen` and `loading` moved there from `simulation.rs`): `world_running` is also true while the map's spawn hold is pending (`Simulation::spawn_hold`, set before each tick from `Scene::logic_autos_pending`), even while paused; `frozen` keeps the player still during a paused hold. Tests: the paused-gameplay case of `background_level_world_runs_behind_the_menu_without_player_input` now runs exactly the hold (0.21 s, player still) and then stops; `script_ui_entries_keep_running_while_a_menu_dialog_pauses_the_world` starts past the hold. docs/gameui.md startup rules.
+- Why — Owner (2026-11-27): the live agent session relaunches with a gameplay `--map` and `+showconsole`, and the menu behind the console stayed black until the game was resumed. Every map starts behind a black spawn-hold fade that lifts at the first logic_auto think, 0.2 s of game time in; under the console the game was paused from the start, so that time never passed. The owner chose to show the map's first frame (like a pause menu) over a blurred chapter image. Retail's server runs those first ticks while the map connects.
+- Tested how — hl2-bevy lib tests; packaged captures of `--map d1_trainstation_02 +showconsole` at 1280x720 before and after; `validate.sh`; packaged replays. Two replay assertions changed on purpose after review. `console`: "the console freezes the scene after the spawn hold" (time 0, then at most 0.21 s while the console stays open; pause samples stay frozen at 1.68). `console_map`: a failed load keeps the player (all fields but the frozen player's tick counter) and the scene's time never goes back. Before, both expected no time to pass at all under the console. 109 other replays unchanged.
+- Result — Before: the pause menu and console over black. After: over the paused station stairwell, dimmed like a pause menu. Spawn outputs fire at the same game time as in an unpaused start.
+- Still broken or **not tested** — During the 0.2 s hold the world (sounds, NPCs) runs under the open console, as it does in an unpaused start. Not yet checked by the owner in a live session. Windows **not tested**.
+- Next — The owner's look on the next session launch.
+
 ## 2026-11-27 — Advanced object blur ignores motion shared with the camera
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

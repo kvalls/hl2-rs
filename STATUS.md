@@ -1,5 +1,13 @@
 # STATUS
 
+## Maps loaded under the console (2026-11-27)
+
+A gameplay map that finishes loading while the console or menu is open (a `--map` launch
+with `+showconsole`, as the live agent session starts) runs its 0.2 s spawn hold with the
+player frozen, then pauses, so the menu shows over its first frame instead of black
+(`hl2-bevy` `simulation/running.rs`). Verified with packaged captures; the owner's live
+check is pending. Windows **not tested**.
+
 ## Tick blending of the view and entities (2026-11-27)
 
 Like retail single player, the eye origin, physics props and brush movers are drawn between

@@ -4,6 +4,7 @@ use bevy::{app::RunFixedMainLoopSystems, prelude::*};
 pub(crate) mod commentary;
 pub(crate) mod movie;
 mod ride;
+mod running;
 pub(crate) mod script;
 mod view;
 use hl2_simulation::physics::Physics;
@@ -66,6 +67,8 @@ pub struct Simulation {
     pub background_level: bool,
     /// Visuals are installed; defer background script/audio clocks together until audio is ready.
     pub background_audio_pending: bool,
+    /// The map's first logic_auto think is still ahead (its spawn hold): see `running.rs`.
+    spawn_hold: bool,
     /// The active point_viewcontrol's view (from the latest world tick); the player keeps
     /// its own eye, which still selects the soundscape (SDK `EarPosition`).
     pub view_control: Option<hl2_simulation::view_control::View>,
@@ -138,6 +141,7 @@ impl Simulation {
             paused: false,
             background_level: false,
             background_audio_pending: false,
+            spawn_hold: false,
             view_control: None,
             camera_turn: None,
             zoom_fov: None,
@@ -207,16 +211,6 @@ impl Simulation {
     pub fn flying(&self) -> bool {
         self.fly
     }
-    pub fn paused(&self) -> bool {
-        self.paused || self.loading
-    }
-    /// Whether the world (entities, sounds, effects, the player) advances: in gameplay, and
-    /// behind the menu of a background level, never while a map loads.
-    pub fn world_running(&self) -> bool {
-        !self.loading
-            && !(self.background_level && self.background_audio_pending)
-            && (!self.paused || self.background_level)
-    }
     /// The player takes no input: a menu background level, or a point_viewcontrol with
     /// `SF_CAMERA_PLAYER_TAKECONTROL`.
     /// The player's own move, or the tongue that holds him.
@@ -229,12 +223,6 @@ impl Simulation {
             Some(by) => self.player.carried(by, &self.physics, TICK),
             None => self.player.step(input, &self.physics, TICK),
         }
-    }
-    fn frozen(&self) -> bool {
-        self.background_level || self.view_control.is_some_and(|v| v.freeze_player)
-    }
-    pub fn loading(&self) -> bool {
-        self.loading
     }
     pub fn loading_failed(&mut self) {
         self.loading = false;
@@ -667,6 +655,7 @@ impl Simulation {
         {
             game.consume_attacks();
         }
+        self.spawn_hold = (game.as_deref()).is_some_and(|g| g.scene.logic_autos_pending());
         if self.world_running() && (self.focused || !self.commands.is_empty()) && !self.transition {
             if let Some(game) = game.as_deref_mut() {
                 commentary::before_gameplay_tick(self, game, ui.as_deref_mut());
@@ -1231,6 +1220,8 @@ mod tests {
         .unwrap();
         let mut ui = crate::ui_host::Console::new(Default::default());
         let mut game = crate::gameplay::Gameplay::synthetic(World::default());
+        // A map that has started: past its spawn hold, which runs even under a menu.
+        game.scene.think_logic_autos_now(&game.world);
         let mut sim = Simulation::new(
             &World::default(),
             glam::Vec3::Z * 128.,
@@ -1290,11 +1281,13 @@ mod tests {
         assert_eq!(sim.player.ticks, 20);
         assert_eq!(sim.player.feet.truncate(), glam::Vec2::ZERO);
 
-        // Pause menu over gameplay: nothing advances.
+        // Pause menu over a newly loaded gameplay map: only its spawn hold runs (the logic_auto
+        // think at 0.2 s, so its first frame shows behind the menu), the player stays put, then
+        // nothing advances.
         let (sim, time) = run(false);
         assert!(sim.paused() && !sim.world_running());
-        assert_eq!(time, 0.);
-        assert_eq!(sim.player.ticks, 0);
+        assert!((time - 0.21).abs() < 1e-6, "scene time {time}");
+        assert_eq!(sim.player.feet.truncate(), glam::Vec2::ZERO);
     }
     #[test]
     fn a_frozen_view_ignores_player_actions_but_applies_entity_setup() {

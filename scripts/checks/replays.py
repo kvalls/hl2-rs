@@ -699,7 +699,11 @@ def check_console():
     holds("sv_cheats 1 then impulse 101 grants the suit and weapons",
           g("cheat-granted")["inventory"]["suit"] and len(g("cheat-granted")["inventory"]["owned"]) >= 6)
     holds("a quoted semicolon stays in the argument", "value;kept" in out("cheat-granted"))
-    holds("the console freezes the scene", g("setpos-paused")["time"] == g("cheat-denied")["time"] == 0)
+    # A map loaded under the console runs only its 0.2 s spawn hold (to its first logic_auto
+    # think, 0.21 s in 15 ms ticks), so its first frame shows behind the console; then it stops.
+    holds("the console freezes the scene after the spawn hold",
+          g("cheat-denied")["time"] == 0 and g("setpos-paused")["time"] <= 0.21 + 1e-6,
+          (g("cheat-denied")["time"], g("setpos-paused")["time"]))
     expect("setpos moves the feet", s["setpos-paused"]["player"]["feet"], [-3260, -2024, 64])
     holds("ent_fire is queued while paused",
           any("Queued station_entrance.Close" in x for x in out("setpos-paused")))
@@ -764,9 +768,14 @@ def check_console_map():
           (s["missing-map-recovered"]["console"]["loading_dialog"],
            s["missing-map-recovered"]["console"]["mode"],
            s["missing-map-recovered"]["console"]["output"][-3:]))
+    # The scene is kept, not reset: its time never goes back (it may still be in the spawn hold
+    # of the map loaded just before, which runs under the console with the player frozen; a
+    # frozen player still counts its ticks).
+    def kept(player: dict) -> dict:
+        return {k: v for k, v in player.items() if k != "ticks"}
     holds("the failed load keeps the player and scene",
-          s["missing-map-request"]["player"] == s["missing-map-recovered"]["player"]
-          and s["missing-map-request"]["gameplay"]["time"] == s["missing-map-recovered"]["gameplay"]["time"])
+          kept(s["missing-map-request"]["player"]) == kept(s["missing-map-recovered"]["player"])
+          and s["missing-map-recovered"]["gameplay"]["time"] >= s["missing-map-request"]["gameplay"]["time"] > 0)
     holds("console state survives a load",
           s["second-direct-arrival"]["console"]["sv_cheats"]
           and "history-survives" in s["second-direct-arrival"]["console"]["output"])
