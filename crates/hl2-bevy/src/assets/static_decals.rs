@@ -223,12 +223,22 @@ mod tests {
             let m = loaded.materials.get(*name);
             eprintln!(
                 "{name}: {:?}",
-                m.map(|m| (m.translucent, m.modulate, m.alpha_cutoff, m.additive, m.opacity))
+                m.map(|m| (
+                    m.translucent,
+                    m.modulate,
+                    m.alpha_cutoff,
+                    m.additive,
+                    m.opacity
+                ))
             );
         }
         let triangles: usize = cracks.iter().map(|s| s.indices.len() / 3).sum();
         eprintln!("cracks: {} pieces, {triangles} triangles", cracks.len());
         assert!(cracks.len() >= 8, "{}", cracks.len());
-        assert!(cracks.iter().all(|s| loaded.materials[&s.material].modulate));
+        assert!(
+            cracks
+                .iter()
+                .all(|s| loaded.materials[&s.material].modulate)
+        );
     }
 }

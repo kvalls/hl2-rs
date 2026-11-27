@@ -1167,10 +1167,17 @@ mod tests {
                 "weapon_citizensuitcase"
             ]
         );
-        // combine_soldier.mdl passes CanUse for nothing (no ACT_RELOAD_SMG1).
+        // combine_soldier.mdl passes CanUse for nothing with a required activity (no
+        // ACT_RELOAD_SMG1); the passengers' package and suitcase require none.
         assert_eq!(
             usable("npc_combine_s", "models/combine_soldier.mdl"),
-            ["weapon_smg1", "weapon_ar2", "weapon_shotgun"]
+            [
+                "weapon_smg1",
+                "weapon_ar2",
+                "weapon_shotgun",
+                "weapon_citizenpackage",
+                "weapon_citizensuitcase"
+            ]
         );
         let citizen = usable("npc_citizen", "models/humans/group01/male_07.mdl");
         assert!(
