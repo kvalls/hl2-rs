@@ -1,12 +1,14 @@
 //! Read owned Source assets before constructing the Bevy app; no system performs file I/O.
 mod blend;
 pub(crate) mod cubemaps;
+mod decal_order;
 pub(crate) mod faces;
 pub(crate) mod loading;
 mod loading_auxiliary;
 mod loading_materials;
 pub(crate) mod names;
 pub(crate) mod reuse;
+pub(crate) use decal_order::DecalLayer;
 mod static_decals;
 pub(crate) mod work;
 #[cfg(test)]
@@ -47,6 +49,8 @@ pub struct LoadedMap {
     /// Installation folder of the game the map was loaded for (`hl2`, `lostcoast`, ...).
     pub game: String,
     pub world: Arc<World>,
+    /// Sort data for the trailing, individually batched world surfaces.
+    pub(crate) decal_layers: Vec<DecalLayer>,
     pub gameplay: crate::gameplay::Gameplay,
     pub hud: Option<hl2_ui::hud::WeaponHud>,
     pub canvas: source_ui::canvas::Canvas,

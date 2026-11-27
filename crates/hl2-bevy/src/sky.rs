@@ -297,6 +297,7 @@ fn face_material(
         envmap_saturation: Vec4::ZERO,
         envmap_mask: white.clone(),
         self_illum: Vec4::ZERO,
+        decal_order: 0,
         alpha: AlphaMode::Opaque,
         two_sided: true,
     }

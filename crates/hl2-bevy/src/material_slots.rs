@@ -268,6 +268,7 @@ pub(crate) fn test_material() -> SourceMaterial {
         flashlight: Handle::default(),
         viewmodel_flashlight: crate::flashlight::ViewmodelLight::default(),
         dynamic: Vec4::new(-1., 0., -1., 0.),
+        decal_order: 0,
         alpha: AlphaMode::Opaque,
         two_sided: false,
         eye_rows: crate::eyes::EYE_ROWS,

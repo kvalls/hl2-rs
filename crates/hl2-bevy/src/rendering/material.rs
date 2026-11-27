@@ -304,11 +304,12 @@ pub(crate) fn make_material(
             lightmap
         },
         alpha,
+        decal_order: 0,
         two_sided: definition.two_sided,
     }
 }
 
-pub(super) fn alpha_mode(material: &MaterialData) -> AlphaMode {
+pub(crate) fn alpha_mode(material: &MaterialData) -> AlphaMode {
     if material.modulate {
         // Bevy Multiply blends Dst x Src + Dst x (1 - SrcAlpha): opaque output is Dst x Src.
         AlphaMode::Multiply
@@ -367,6 +368,9 @@ impl bevy::pbr::Material for SourceMaterial {
     }
     fn prepass_fragment_shader() -> bevy::shader::ShaderRef {
         "shaders/source_depth.wgsl".into()
+    }
+    fn depth_bias(&self) -> f32 {
+        self.decal_order as f32 * 0.125
     }
     fn alpha_mode(&self) -> AlphaMode {
         self.alpha

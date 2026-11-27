@@ -1,5 +1,23 @@
 # STATUS
 
+## Canal graffiti draw order (2026-11-27)
+
+The overlapping `decalgraffiti009a` and `decalgraffiti001c` world decals in
+`d1_canals_03` now share mesh bounds and draw in BSP placement order, whatever
+the view direction. The owned-map regression
+(`cargo test --locked -p hl2-bevy --lib canal_graffiti -- --ignored`)
+reconstructs the old material/lightmap batches, finds the old order flipping
+between yaw/pitch 345°/2° and 359°/4°, and passes for both receiver pieces.
+
+Packaged macOS captures at `--position -715 2991 -790` from both angles
+(600 frames, `--profile`) on the base build `9d06490c` and on this change are
+the same apart from render noise (at most 3 levels per channel). The base build
+showed no visible flip at these angles, so the on-screen fix is **not tested**.
+Cost is within noise: one extra mesh, CPU frame p95 4.71/4.53 ms before and
+4.73/4.25 ms after, and an unchanged `world` load time. Retail comparison and
+Windows runtime are **not tested**. Next: capture from the owner's exact view
+(`setpos -713 2911 -788; setang 7 1065 0`).
+
 ## Missing/invalid console map validation without loading popup (2026-11-26)
 
 Console `map` (and `changelevel`) requests now validate map existence and the

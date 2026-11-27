@@ -123,6 +123,7 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     progress.report(0.35, "LoadingProgress_PrecacheWorld");
     let PreparedWorld {
         world,
+        decal_layers,
         model_report,
         weapon_models,
         decal_errors,
@@ -171,6 +172,7 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     let mut load_timings = timing.finish();
     load_timings.extend(aux.timings);
     Ok(LoadedMap {
+        decal_layers,
         load_timings,
         shadow_receivers,
         flashlight_cookie: aux.cookie,
@@ -279,6 +281,7 @@ fn parallel_resources(
 }
 
 struct PreparedWorld {
+    decal_layers: Vec<super::DecalLayer>,
     world: World,
     model_report: models::ModelReport,
     weapon_models: Vec<String>,
@@ -298,7 +301,7 @@ fn prepare_world(
     normalize_bsp_render_winding(&mut world);
     // Static infodecals land on world brush faces only, before static props are merged.
     let mut decal_errors = Vec::new();
-    add_static_decals(&mut world, vfs, &mut decal_errors);
+    let layered = add_static_decals(&mut world, vfs, &mut decal_errors);
     // F4 / npc_create spawn pool: hidden templates required by map entities or script commands.
     let empty = std::collections::BTreeSet::new();
     let extras = if mode.background {
@@ -317,8 +320,16 @@ fn prepare_world(
     let (model_report, weapon_models) =
         prepare_models(&mut world, vfs, config.video.root_lod(), timing);
     mode.cancel.check()?;
+    let decal_layers = layered
+        .into_iter()
+        .map(|(surface, layer)| {
+            world.surfaces.push(surface);
+            layer
+        })
+        .collect();
     timing.mark("models");
     Ok(PreparedWorld {
+        decal_layers,
         world,
         model_report,
         weapon_models,

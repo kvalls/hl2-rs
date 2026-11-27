@@ -12,6 +12,7 @@ fn face() -> Batch {
     ];
     let n = positions.len();
     Batch {
+        decal_layer: None,
         uvs: (0..n).map(|i| [i as f32, 0.]).collect(),
         light_uvs: vec![[0.; 2]; n],
         colors: (0..n).map(|i| [i as f32; 4]).collect(),

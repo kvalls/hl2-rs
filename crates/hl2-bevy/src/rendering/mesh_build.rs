@@ -59,7 +59,10 @@ pub(super) fn collect_map_batches(
     let world = &loaded.world;
     let mut batches: BTreeMap<(Owner, String, Option<usize>, usize), Batch> = BTreeMap::new();
     let mut transparent_id = 0usize;
-    let mut append = |surface: &Surface, transform: Mat4, owner: Owner| {
+    let mut append_layer = |surface: &Surface,
+                            transform: Mat4,
+                            owner: Owner,
+                            layer: Option<crate::assets::DecalLayer>| {
         let owner = if surface.background && owner == Owner::World {
             Owner::SkyWorld
         } else {
@@ -69,8 +72,9 @@ pub(super) fn collect_map_batches(
             return;
         }
         let definition = loaded.materials.get(&surface.material);
-        let draw_id = if definition
-            .is_some_and(|m| matches!(alpha_mode(m), AlphaMode::Blend | AlphaMode::Add))
+        let draw_id = if layer.is_some()
+            || definition
+                .is_some_and(|m| matches!(alpha_mode(m), AlphaMode::Blend | AlphaMode::Add))
         {
             transparent_id += 1;
             transparent_id
@@ -79,10 +83,21 @@ pub(super) fn collect_map_batches(
         };
         batches
             .entry((owner, surface.material.clone(), surface.lightmap, draw_id))
-            .or_default()
+            .or_insert_with(|| Batch {
+                decal_layer: layer,
+                ..Default::default()
+            })
             .append(surface, transform, definition);
     };
-    for surface in &world.surfaces {
+    let (ordinary, layered) = world
+        .surfaces
+        .split_at(world.surfaces.len() - loaded.decal_layers.len());
+    for (surface, &layer) in layered.iter().zip(&loaded.decal_layers) {
+        append_layer(surface, Mat4::IDENTITY, Owner::World, Some(layer));
+    }
+    let mut append =
+        |surface: &Surface, transform, owner| append_layer(surface, transform, owner, None);
+    for surface in ordinary {
         append(surface, Mat4::IDENTITY, Owner::World);
     }
     for surface in &world.overlays {
@@ -232,7 +247,12 @@ pub(super) fn prepare_draws(
         let (material, shared_lit_key) = resolve_draw_material(
             cx,
             (&owner, &name, definition, lm),
-            (lit, reflects, batch.model),
+            (
+                lit,
+                reflects,
+                batch.model,
+                batch.decal_layer.map_or(0, |l| l.order),
+            ),
             (&reflections, materials, slots, &mut material_handles),
         );
         mesh_count += 1;
@@ -274,12 +294,12 @@ pub(super) fn prepare_draws(
     (prepared, skeletons)
 }
 
-type MaterialKey = (String, Option<usize>, bool, [u32; 4], Option<Owner>);
+type MaterialKey = (String, Option<usize>, bool, [u32; 4], Option<Owner>, usize);
 
 fn resolve_draw_material(
     cx: &PrepareContext<'_>,
     (owner, name, definition, lm): (&Owner, &str, &MaterialData, Option<usize>),
-    (lit, reflects, is_model): (bool, bool, bool),
+    (lit, reflects, is_model, decal_order): (bool, bool, bool, usize),
     (reflections, materials, slots, material_handles): (
         &super::cubemaps::Envmaps<'_>,
         &mut Assets<SourceMaterial>,
@@ -309,11 +329,12 @@ fn resolve_draw_material(
         modulation.to_array().map(f32::to_bits),
         ((lit && shared_lit_key.is_none()) || definition.two_texture.is_some())
             .then(|| owner.clone()),
+        decal_order,
     );
     let handle = material_handles
         .entry(mat_key)
         .or_insert_with(|| {
-            let mat = build_draw_material(
+            let mut mat = build_draw_material(
                 cx,
                 name,
                 definition,
@@ -322,6 +343,7 @@ fn resolve_draw_material(
                 (lit, reflects, is_model),
                 reflections,
             );
+            mat.decal_order = decal_order;
             materials.add(mat)
         })
         .clone();
@@ -790,3 +812,6 @@ fn parallel_map<T: Send, R: Send, F: Fn(T) -> R + Sync>(items: Vec<T>, f: F) -> 
     }
     results.into_iter().map(Option::unwrap).collect()
 }
+
+#[cfg(test)]
+mod decal_tests;

@@ -1,5 +1,15 @@
 # Design
 
+## Overlapping static world decals (2026-11-27)
+
+The two graffiti materials on the `d1_canals_03` wall are translucent
+LightmappedGeneric infodecals. Preserve BSP placement order where projected
+decals overlap on a plane. Keep those pieces out of static-prop material
+batching, give each overlap group a common transparent sort center, and draw
+later placements last. Reuse existing batches for isolated decals. Check the
+owned wall from both reported directions and test disconnected and chained
+overlaps. The terrain blend shader is outside this change.
+
 ## Gameplay console shortcuts (2026-11-26)
 
 Keep console visibility and focus separate from the in-game pause menu.

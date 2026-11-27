@@ -44,10 +44,9 @@ pub(crate) mod runtime;
 pub(crate) mod simple_pass;
 mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
-#[cfg(test)]
-use material::alpha_mode;
 pub(crate) use material::{
-    black_cube, fallback_images, gpu_image_filtered, image, make_material, sampler_descriptor,
+    alpha_mode, black_cube, fallback_images, gpu_image_filtered, image, make_material,
+    sampler_descriptor,
 };
 pub use model_cache::ModelCache;
 use model_cache::strip_pixels;
@@ -121,12 +120,14 @@ pub struct SourceMaterial {
     /// Per-entity model lighting rows ([`crate::material_slots`]).
     #[storage(22, read_only, visibility(fragment))]
     pub(crate) light_rows: Handle<bevy::render::storage::ShaderBuffer>,
+    pub(crate) decal_order: usize,
     pub(crate) alpha: AlphaMode,
     pub(crate) two_sided: bool,
 }
 /// A model draw lit from its entity's (or the view's) illumination origin.
 #[derive(Default)]
 struct Batch {
+    decal_layer: Option<crate::assets::DecalLayer>,
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     light_uvs: Vec<[f32; 2]>,
@@ -231,6 +232,7 @@ impl Batch {
                 RenderAssetUsages::RENDER_WORLD
             },
         );
+        mesh.final_aabb = self.decal_layer.map(|layer| layer.bounds);
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions);
         mesh.insert_attribute(
             Mesh::ATTRIBUTE_NORMAL,
@@ -631,6 +633,7 @@ mod tests {
             [2055., 0., 2.],
         ];
         Batch {
+            decal_layer: None,
             flex: Vec::new(),
             uvs: (0..6).map(|i| [i as f32 * 0.1, -i as f32]).collect(),
             light_uvs: (0..6).map(|i| [0.3, i as f32 * 0.2]).collect(),

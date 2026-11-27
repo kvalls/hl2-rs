@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Keep overlapping static world graffiti in placement order
+
+- Agent/model — Codex (GPT-6 family, exact model ID not recorded), continuing Antigravity's investigation (exact model ID not recorded); verification and packaged captures by Claude Code desktop (claude-opus-5-5).
+- Changed — The map loader groups overlapping coplanar transparent infodecal pieces before static-prop batching. Each group shares conservative mesh bounds and a small material sort bias increases with placement order. Isolated pieces retain their ordinary material batches.
+- Why — The renderer sorted the two translucent canal graffiti materials by the view depths of different mesh centers, so turning the camera could reverse their order. Shared bounds plus a placement-order bias make the order independent of view direction.
+- Tested how — `scripts/checks/validate.sh` (2,047 Rust tests passed, 0 failed, including the RCON listener tests; strict Clippy, fmt, architecture). `cargo test --locked -p hl2-bevy --lib canal_graffiti -- --ignored` loads the owned BSP, reconstructs the original material/lightmap batches and checks the prepared mesh and material sort keys at both reported angles. Packaged macOS release captures of `d1_canals_03` at `--position -715 2991 -790`, yaw/pitch 345°/2° and 359°/4°, 600 frames with `--profile`, on the base build (`9d06490c`) and on this change.
+- Result — The owned regression passes. Before/after packaged captures at both angles differ by at most 3 levels per channel (render noise): the base build did not show a visible flip at these angles, so the reconstruction-level flip was not reproduced on screen. Cost: one extra tagged mesh (100 → 101); CPU frame_total p95 4.71 → 4.73 ms (345°) and 4.53 → 4.25 ms (359°), and `world` load time 32 → 30 ms (warm runs), all within run-to-run noise.
+- Still broken or **not tested** — The on-screen flip the owner saw is not reproduced at the reported angles, so a visible fix is **not tested**; retail comparison and Windows runtime are **not tested**. GPU pass times were not reported by these background runs.
+- Next — Reproduce from the owner's exact view (`setpos -713 2911 -788; setang 7 1065 0`) once `setpos` places the feet like retail.
+
 ## 2026-11-26 — Log CModelLoader::Map_IsValid in console without opening a loading popup for missing maps
 
 - Agent/model: Antigravity (Gemini family, exact model ID not recorded).

@@ -119,6 +119,7 @@ pub(crate) fn load_stub(
         |_| true,
     ));
     Ok(crate::assets::LoadedMap {
+        decal_layers: Vec::new(),
         load_timings: Default::default(),
         game: game.to_owned(),
         cubemaps: Vec::new(),
