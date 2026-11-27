@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Memory across map changes and the crowd on Bevy 0.20.1 (O10)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `docs/optimization-backlog.md` O10 → partly done. No code change.
+- Why — O10 asked whether memory grows across changelevels and in the crowd.
+- Tested how — Packaged release `d13c8971`, 1920x1080, `--background`, external resource sampler every 0.3 s: the Station 01 → 02 → 03 campaign replay (`test-inputs/bevy-campaign.json`) and `mixed-crowd.json` on Station 02.
+- Result — No growth across map changes: each load has its own transient 0.7–0.9 GB above the settled RSS (Station 01 3815 → 3046 MB, 02 3936 → ~3020, 03 3586 → 2846). The crowd's 4903 MB peak is the same load transient; the fight holds 1.0–1.3 GB and grows about 290 MB over 20 s. The earlier, 2 s samples missed most of the transients, so their peaks are not comparable.
+- Still broken or **not tested** — The load transient is not yet attributed to decoded texture copies versus created images.
+- Next — Attribute the load transient.
+
 ## 2026-11-27 — Windows thread priority and throttling opt-out (O34)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
