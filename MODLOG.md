@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — Close O27 (first gameplay frame and resume hitch) and open O49 (map install stall)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `docs/optimization-backlog.md`: O27 done with its measurements; new item O49. No code change.
+- Why — O27 asked whether the console pause causes a fixed-step catch-up and whether pipeline compiles hit the first gameplay frame.
+- Tested how — Code reading of the fixed clock (`simulation.rs` `MovementPlugin`, `step_with`): the virtual clock is never paused and is capped at 50 ms a frame. Two `trace-chrome` captures of `81fbc973`: a direct `--map d1_trainstation_02` run paused at tick 120 and resumed at tick 240, and a console path (`d1_trainstation_01`, console `map d1_trainstation_02`, console closed after the load), summarized by first and slowest frames with pipeline-queue overlap.
+- Result — First gameplay frame 11.46 ms (direct) and 11.38 ms (console path), against 69.33 ms in the original evidence; four catch-up ticks at most; pipeline-queue overlap only in the first map's first frames (10.67 and 15.03 ms), none at the resume; no frame near the resume or the console close over 10.13 ms. The console map load's install frame takes 231 ms on the main thread behind the loading dialog (`install_draws` 120 ms plus 93 ms of spawn commands), now O49.
+- Still broken or **not tested** — Trace builds inflate absolute times (compared only with the original trace evidence); live windowed runs **not tested**.
+- Next — O49.
+
 ## 2026-11-27 — Attribute the Bevy 0.20.1 effects-scene cost (O48)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
