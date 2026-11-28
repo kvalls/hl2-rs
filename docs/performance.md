@@ -1,5 +1,36 @@
 # Performance measurements - 2026-10-05
 
+## O9 first entry into an area: what compiled, and the fix (2026-11-28)
+
+A temporary render-world probe (removed; never committed) logged each pipeline waiting in Bevy's `PipelineCache` per frame on `pvs-walk.json`. The stalled frame (first entry into the outside area) queued 15 pipelines, all Bevy PBR `prepass_pipeline` / `*_mesh_pipeline` variants. Against the closest pipeline already compiled with the same label, they differ in two ways:
+
+- `SKINNED` + `HAS_PREVIOUS_SKIN` (+ `MOTION_VECTOR_PREPASS`): skinned models drawn with the previous frame's skin. Bevy keys this on whether the skin was in the previous frame's skin buffer (`set_mesh_motion_vector_flags`), so a skinned draw has it only from its second drawn frame; the two warm-up frames queued it too late.
+- No `MULTISAMPLED`: the monitor camera (`Msaa::Off`), which stays inactive until a screen comes into view.
+
+Single probe runs of the walk, worst frame in the walk window:
+
+| Warm-up | Worst frame |
+|---|---|
+| unchanged (two frames) | 125-139 ms |
+| world `PvsDraw` draws warmed in place, monitors, four frames | 25.6 ms |
+| monitors, four frames | 16.9 ms |
+| monitors, two frames | 87.5 ms |
+
+Kept: four warm-up frames and every eligible monitor counted as seen during the warm-up. Everyday packages at maxed Retina, A-B-B-A, four runs per side after a discarded one each (`ad414a26` vs `a5c77582`):
+
+| Scene | Metric | A | B |
+|---|---|---|---|
+| `pvs-walk` | worst frame (window) | 124.9-125.3 ms | 16.1-17.1 (one run 36.1) |
+| `pvs-walk` | mean / p99 | 3.98 / 6.38 | 3.96 / 6.38 |
+| `quiet` | mean / p99 | 3.50 / 4.30 | 3.47 / 4.22 |
+| `mixed-crowd` (two passes) | mean | 9.31, 9.32 | 9.49, 9.53 |
+| `mixed-crowd` | p95 | 13.18, 13.12 | 13.71, 13.81 |
+| `mixed-crowd` | `render_graph` max | 25.7-26.0 | 24.7-25.0 |
+| console map load (3 rounds) | request to installed | 519-549 ms | 523-535 |
+| console map load | worst frame (behind the loading screen) | 299-322 ms | 380-396 (first run from a new package path 2,576, cold) |
+
+The crowd's `+0.2 ms` mean: one `trace-chrome` run per side shows it in physics (`solve_constraints` `5.23 -> 5.51 ms/f`, solver calls `7,038 -> 7,330` per frame), `npc_ai` (`0.37 -> 0.47`) and fixed ticks per frame (`1.17 -> 1.21`), not in the warm-up, render or monitor systems; draw counts are identical. The two extra warm-up frames most likely shift when the crowd fight starts, so it runs a different but repeatable course (inferred, not proven). A package with only the monitor change matched A's tick and frame counts.
+
 ## O28 PVS walk on Bevy 0.20.1 (2026-11-27)
 
 Everyday package at `740db40c` (`advanced-options,debug-tools`), headless `d1_trainstation_02` at default settings, `test-inputs/performance-research/pvs-walk.json`: ten stops (spawn, hall, outside, entrance, boxes, plaza, bench, barrier, tic-tac-toe, hall again), each a teleport followed by walking or sprinting forward, ticks 60-1260 inside a `profile_window`, ending paused at the spawn pose. Each stop's report sample has the player's feet at the intended position (spawn `-4304,-224`, outside `-3104,-2018`, plaza `-2070,-2180`, barrier `-1856,-780`, tic-tac-toe `-4540,-3599`, ...). The report keeps view clusters only for the final pose, so the area change at each stop is inferred from these positions, not listed.

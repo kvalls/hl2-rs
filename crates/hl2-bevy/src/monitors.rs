@@ -127,6 +127,7 @@ pub fn present(
     sky: Res<Sky>,
     fly_frustum: Query<&Frustum, With<crate::FlyCamera>>,
     mut cameras: Query<(&mut Camera, &mut Projection, &mut Transform), With<MonitorCamera>>,
+    warmup: Option<Res<crate::rendering::variant_warmup::VariantWarmup>>,
 ) {
     let Ok((mut camera, mut projection, mut transform)) = cameras.single_mut() else {
         return;
@@ -151,6 +152,12 @@ pub fn present(
                 r.x_axis.abs() * extent.x + r.y_axis.abs() * extent.y + r.z_axis.abs() * extent.z;
             (center - extent, center + extent)
         });
+        // During the variant warm-up after a map install (O9) every eligible monitor counts as
+        // seen, so the monitor camera (`Msaa::Off`) compiles its pipelines behind the loading
+        // screen instead of on the first frame a screen comes into view.
+        if warmup.is_some() {
+            return Ok(true);
+        }
         monitor_in_view(&sky, eye, frustum, bounds)
     });
     match active {

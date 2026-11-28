@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-28 — First entry into an area no longer compiles pipelines (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — `rendering/variant_warmup.rs`: the variant warm-up after a map install lasts four frames instead of two; its test covers four. `monitors.rs` `present`: while the warm-up runs, every eligible monitor counts as seen, so the monitor camera draws during those frames. docs/optimization-backlog.md (O9), docs/performance.md.
+- Why — Every `pvs-walk.json` run stalled `125-139 ms` on first entering the outside area of `d1_trainstation_02`. A temporary pipeline probe (removed) showed the frame compiled Bevy PBR variants of two kinds: skinned models with the previous frame's skin (`HAS_PREVIOUS_SKIN`, which a skinned draw has only from its second drawn frame, so two warm-up frames queued it too late) and the monitor camera's non-MSAA pipelines (the camera stays off until a screen is in view). Earlier trials warming the sky camera and every world draw did not help and were reverted.
+- Tested how — Probe runs of the walk per variant (two frames with monitors: `87.5 ms`; four frames with monitors: `16.9 ms`; plus world draws: `25.6 ms`). Everyday packages at maxed Retina, A-B-B-A with four runs per side after a discarded one (`ad414a26` vs `a5c77582`) on `pvs-walk`, `mixed-crowd` (two passes), `quiet`, and three rounds of the console map load; one `trace-chrome` crowd run per side; unit tests; `validate.sh`; packaged replays.
+- Result — Walk worst frame `124.9-125.3 -> 16.1-17.1 ms` (one run `36.1`), means unchanged; quiet unchanged. Console map load: request to installed unchanged (`519-549` vs `523-535 ms`); the worst frame behind the loading screen `299-322 -> 380-396 ms`, the compilation moved there from play. Crowd mean `+0.2 ms` (`9.31 -> 9.51`), p95 `+0.6`; the trace puts the difference in physics solving, `npc_ai` and fixed ticks per frame with identical draw counts, not in the warm-up or render systems.
+- Still broken or **not tested** — The crowd difference is attributed to the fight running a different course after the shifted start (inferred, not proven). The crowd's `26 ms` `render_graph` maximum is unchanged and unattributed. The main menu's live background map during the four warm-up frames is not checked visually (hidden draws sit below the map; the monitor camera renders to its texture). Windows (asynchronous compilation there) **not tested**.
+- Next — Attribute the crowd's `26 ms` `render_graph` frame with the same probe.
+
 ## 2026-11-27 — World-draw warm-up rejected (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).

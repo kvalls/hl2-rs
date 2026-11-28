@@ -21,9 +21,12 @@ pub(crate) struct VariantWarmup {
     frames: u8,
 }
 impl VariantWarmup {
-    /// Two frames: the first queues the variants, the second draws with them in place.
+    /// Four frames: the first queues the variants, the next draw with them in place. A skinned
+    /// draw keys its pipelines on the previous frame's skin (`HAS_PREVIOUS_SKIN`), which it
+    /// has only from its second drawn frame, so those variants queue a frame later; two frames
+    /// left them to compile on first sight in play.
     pub(crate) fn new() -> Self {
-        Self { frames: 2 }
+        Self { frames: 4 }
     }
 }
 
@@ -86,7 +89,7 @@ mod tests {
     };
 
     #[test]
-    fn hidden_draws_warm_far_below_for_two_frames_then_everything_is_undone() {
+    fn hidden_draws_warm_far_below_for_four_frames_then_everything_is_undone() {
         let mut world = World::new();
         let hidden = world
             .spawn((SourceEntity(0), Transform::default(), Visibility::Hidden))
@@ -97,7 +100,7 @@ mod tests {
             .spawn((SourceEntity(1), Transform::default(), Visibility::Inherited))
             .id();
         world.insert_resource(VariantWarmup::new());
-        for _ in 0..2 {
+        for _ in 0..4 {
             // `present_entities` hides it again each frame before the warm-up runs.
             *world.get_mut::<Visibility>(hidden).unwrap() = Visibility::Hidden;
             world.run_system_once(warm_hidden_variants).unwrap();
