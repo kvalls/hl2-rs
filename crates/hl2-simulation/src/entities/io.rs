@@ -402,7 +402,7 @@ impl Scene {
         true
     }
 
-    pub(super) fn fire_value(&mut self, id: usize, name: &str, value: f32, activator: usize) {
+    pub(crate) fn fire_value(&mut self, id: usize, name: &str, value: f32, activator: usize) {
         let before = self.sequence;
         self.fire(id, name, activator);
         for p in self

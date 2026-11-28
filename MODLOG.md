@@ -1,5 +1,28 @@
 # MODLOG
 
+## 2026-11-28 — Merge main: glam 0.33, symphonia 0.6.1, zip 9.8.2, rfd 0.18, OnQueueMoved (O48)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5); read-only code-audit subagents (claude-sonnet-5-5).
+- Changed — main's seven commits after the Bevy 0.20.1 merge, merged into this branch. Conflicts: the compressed-audio
+  decoder keeps this branch's direct decode to f32 or i16 (`decode_compressed_samples<S>`) on symphonia 0.6's API
+  (`copy_to_vec_interleaved` into one reused vector, `AudioSpec::channels()`/`rate()`); `rfd 0.18.0` and
+  `symphonia 0.6.1` beside this branch's optional `trace` dependencies; the `outputs` and `root_motion` test modules
+  both kept; this branch's trimmed Cargo.lock kept and re-resolved, with zip pinned to main's 9.8.2. The game now
+  links one glam (0.33.12, Bevy's).
+- Why — owner: merge main if it helps further optimization. One glam removes the second copy beside Bevy's and
+  readies rapier 0.36 (glam-based, still on a work branch upstream); zip's zlib-rs inflate serves BSP pakfiles.
+- Tested how — `scripts/checks/validate.sh` (architecture, Python helpers, plugin selections, workspace tests, strict
+  Clippy, fmt) and the repository isolation check; packaged replays on the merged package `7ed146fa`; an alternating
+  packaged comparison of the backlog scenes (`quiet`, `mixed-crowd`, `animated-fire` at maxed Retina), pre-merge
+  `a5c77582` against `7ed146fa`, A-B-B-A, four runs per side after a discarded warm-up each.
+- Result — validate passes; replays 111/111 (main's two prop-break outcome changes, pallet-gibs-fade and
+  pistol-breaks-bottle-skin4, do not appear on this branch). Frame mean, median of four: quiet `3.91 -> 3.88 ms`
+  (p99 `5.31 -> 4.86`), mixed-crowd `10.68 -> 10.37` (p99 `17.50 -> 16.61`, a chaotic scene: within its run spread),
+  animated-fire `8.58 -> 8.60` (p99 `15.70 -> 16.05`). No regression; no measurable gain either.
+- Still broken or not tested — Windows build of the merged tree **not tested** here (CI covers it upstream); map-load
+  time with the new inflate **not measured**.
+- Next — the post-process pass race found by the hitch sweep (station 01 quits at real time), then the hitch fixes.
+
 ## 2026-11-28 — Keep-warming rejected; console-created NPCs are outside the map warm-up (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
@@ -670,6 +693,16 @@
 - Result: The automatic run rejected an invalid token, kept the same PID and map with the console closed, reused the authenticated endpoint on repeat attach and removed credentials on normal exit. Manual activation and startup RCON remained functional.
 - Still broken or not tested: The first capture checked UI before the startup transition settled, so the replacement fixture waits for the expected gameplay state. Windows and Linux runtime attachment, windowed focus and separate idle CPU timing are **not tested**. Builds with the manual command but without the new endpoint still need manual activation.
 - Next: Use the updated skill with an ordinary running game.
+
+## 2026-11-26 session 73: Bevy 0.20.1 runs; dependency updates (Claude Code desktop, claude-opus-5-5)
+
+- Agent/model: Claude Code desktop, `claude-opus-5-5`. No subagents.
+- Changed: wip/session73-20261126 (off wip/session72-bevy020): 9556b2b Bevy 0.20.1's PostUpdate builds (bevy_ui_widgets' MenuPlugin disabled; it closed a dependency loop through UiSystems::PostLayout with our visibility::present) and passthrough cameras opt out of Bevy 0.20's deband dither; eae5fea moves that pair (tonemap::PASSTHROUGH) out of video.rs (1024 -> 1022 lines); 989753f OnQueueMoved carries the queue's new count (SDK RecalculateQueueCount, COutputInt); 67020e5 glam 0.27 -> 0.33 (Bevy's), symphonia 0.5.5 -> 0.6.1 (wav.rs decoder port), zip 2 -> 9.8.2 (fallible names; flate2 only), rfd 0.17.2 -> 0.18.0. wip/session73-rapier (8d7f854): rapier3d 0.26.1 -> 0.36.1 WIP, does not compile (50 errors left).
+- Why: owner decision 2026-11-26: update every dependency, Bevy first (main gets it, then @OrbitalMan merges main into PR #5).
+- Tested how: a temporary schedule probe (dependency-graph path search, not committed); packaged smoke run of d1_trainstation_01; artifacts/s73/validate1.sh 1 on 9556b2b (strict Clippy, tests, fmt, architecture, build, regression, replays JOBS=3) and validate1.sh 2 on 67020e5; regression images against s71-regression4 with exposure values from the reports; monitors-kleiner-scene alone three times; owned-install tests of hl2-simulation and source-assets with the new dependencies; CI on the branch.
+- Result: see STATUS "Current session 73".
+- Still broken or not tested: rapier 0.36 (WIP branch); local Rust 1.100; the train-window cracks, the shader-family smoke runs beyond the regression scenes (flashlight, shadows, motion blur, weapon blur with MSAA on and off), native comparison of the exposure timing change; two owned-install tests fail before and after the updates (explosion_particles owned_explosion_materials_decode_with_correct_blend_modes: 2 vs 3; npc_weapons owned_weapon_columns_follow_campaign_loadouts_then_weapon_can_use: the installed list adds weapon_citizenpackage and weapon_citizensuitcase).
+- Next: artifacts/s73/next-session-prompt.txt.
 
 ## 2026-11-26 session 72: PR #5 overlaps compared; Bevy 0.20.1 started (Claude Code desktop, claude-opus-5-5)
 

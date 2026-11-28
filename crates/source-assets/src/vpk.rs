@@ -413,7 +413,7 @@ impl Vfs {
             if f.is_dir() {
                 continue;
             }
-            let name = normalize(f.name())?;
+            let name = normalize(&f.name()?)?;
             if f.size() > 64 * 1024 * 1024 {
                 bail!("embedded asset too large");
             }

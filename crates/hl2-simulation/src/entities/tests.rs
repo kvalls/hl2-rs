@@ -14,6 +14,7 @@ use source_assets::scenes::EventType;
 use source_assets::vpk::Vfs;
 mod lifecycle;
 mod next_script;
+mod outputs;
 mod root_motion;
 mod scenes;
 mod touch;

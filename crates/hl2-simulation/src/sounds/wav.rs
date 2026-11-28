@@ -2,9 +2,12 @@
 use anyhow::{bail, Context, Result};
 use std::io::{Cursor, ErrorKind};
 use symphonia::core::{
-    audio::SampleBuffer, codecs::DecoderOptions, conv::ConvertibleSample,
-    errors::Error as DecodeError, formats::FormatOptions, io::MediaSourceStream,
-    meta::MetadataOptions, probe::Hint, sample::Sample,
+    audio::conv::ConvertibleSample,
+    codecs::audio::AudioDecoderOptions,
+    errors::Error as DecodeError,
+    formats::{probe::Hint, FormatOptions, TrackType},
+    io::MediaSourceStream,
+    meta::MetadataOptions,
 };
 
 pub(super) const MAX_ENCODED_AUDIO: usize = 32 * 1024 * 1024;
@@ -199,48 +202,55 @@ fn decode_compressed_samples<S>(
     expected: Option<MsAdpcmHeader>,
 ) -> Result<(u16, u32, Vec<S>)>
 where
-    S: Sample + ConvertibleSample,
+    S: ConvertibleSample,
 {
     let stream = MediaSourceStream::new(Box::new(Cursor::new(data)), Default::default());
     let mut hint = Hint::new();
     hint.with_extension(extension);
-    let options = FormatOptions {
-        enable_gapless: true,
-        ..Default::default()
-    };
-    let mut format = symphonia::default::get_probe()
-        .format(&hint, stream, &options, &MetadataOptions::default())?
-        .format;
+    let mut format = symphonia::default::get_probe().probe(
+        &hint,
+        stream,
+        FormatOptions::default(),
+        MetadataOptions::default(),
+    )?;
     let track = format
-        .default_track()
+        .default_track(TrackType::Audio)
         .context("compressed audio has no audio track")?;
     let track_id = track.id;
-    let mut decoder =
-        symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
+    let params = track
+        .codec_params
+        .as_ref()
+        .and_then(|params| params.audio())
+        .context("compressed audio track has no audio codec")?;
+    // Gapless: encoder delay and padding are trimmed, as 0.5's FormatOptions::enable_gapless did.
+    let mut decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(params, &AudioDecoderOptions::default().gapless(true))?;
     let mut spec = None;
     let mut pcm = Vec::new();
-    let mut scratch: Option<SampleBuffer<S>> = None;
+    let mut samples = Vec::<S>::new();
     loop {
         let packet = match format.next_packet() {
-            Ok(packet) => packet,
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(DecodeError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => break,
             Err(error) => return Err(error.into()),
         };
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
         let decoded = decoder.decode(&packet)?;
-        let current = *decoded.spec();
-        let channels = current.channels.count();
-        if !(1..=2).contains(&channels) || !(8000..=192000).contains(&current.rate) {
+        let current = decoded.spec().clone();
+        let channels = current.channels().count();
+        let rate = current.rate();
+        if !(1..=2).contains(&channels) || !(8000..=192000).contains(&rate) {
             bail!("unsupported compressed audio channel count or sample rate");
         }
         if expected.is_some_and(|header| {
-            usize::from(header.channels) != channels || header.sample_rate != current.rate
+            usize::from(header.channels) != channels || header.sample_rate != rate
         }) {
             bail!("Microsoft ADPCM decoded format differs from its header");
         }
-        if spec.is_some_and(|previous| previous != current) {
+        if spec.as_ref().is_some_and(|previous| *previous != current) {
             bail!("compressed audio changes channel layout or sample rate");
         }
         spec = Some(current);
@@ -255,15 +265,9 @@ where
         if total > MAX_PCM_AUDIO / 2 {
             bail!("decoded audio exceeds 128 MiB limit");
         }
-        let samples = match &mut scratch {
-            Some(buf) if buf.capacity() >= count => buf,
-            _ => scratch.insert(SampleBuffer::<S>::new(
-                decoded.capacity().max(decoded.frames()) as u64,
-                current,
-            )),
-        };
-        samples.copy_interleaved_ref(decoded);
-        pcm.extend_from_slice(samples.samples());
+        // The scratch vector is resized to the packet's samples and reused across packets.
+        decoded.copy_to_vec_interleaved(&mut samples);
+        pcm.extend_from_slice(&samples);
     }
     if pcm.is_empty() {
         bail!("compressed audio has no decoded audio samples");
@@ -279,7 +283,7 @@ where
         pcm.truncate(samples);
     }
     let spec = spec.context("compressed audio has no decoded audio")?;
-    Ok((spec.channels.count() as u16, spec.rate, pcm))
+    Ok((spec.channels().count() as u16, spec.rate(), pcm))
 }
 
 fn compressed_to_wav(
