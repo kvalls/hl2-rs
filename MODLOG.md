@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-28 — Crowd mid-fight pipeline compiles named (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — docs/optimization-backlog.md (O9) only.
+- Why — The crowd's `26 ms` `render_graph` maximum stayed after the warm-up fix; the same probe that named the walk's stall can name what compiles in the fight.
+- Tested how — Temporary pipeline probe (removed, never committed) on `94c35e3c`, one headless `mixed-crowd.json` run; the committed package rebuilt afterwards (`a5c77582`).
+- Result — 13 pipelines compile mid-fight in groups of 1-3: five `effects.wesl` alpha-blend pipelines with load-time shader defs (effect materials first used in the fight; effects are outside the warm-up), six Bevy PBR variants with `MORPH_TARGETS` / `HAS_PREVIOUS_MORPH`, one skinned premultiplied-alpha variant with motion vectors.
+- Still broken or **not tested** — The compiles themselves; which of them makes the `26 ms` frame.
+- Next — Warm effect materials and morph-active variants during the warm-up frames (O9).
+
 ## 2026-11-28 — First entry into an area no longer compiles pipelines (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
