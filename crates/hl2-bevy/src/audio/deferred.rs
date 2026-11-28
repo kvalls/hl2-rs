@@ -1,10 +1,8 @@
 //! A late audio result belongs to exactly one installed world and is never joined on a frame.
 use super::{PreparedAudio, install};
+use crate::audio::mixer::MixerStream;
 use crate::{assets::work::Work, gameplay::Gameplay, simulation::Simulation};
-use bevy::{
-    audio::AudioSource,
-    prelude::{Assets, Commands, Res, ResMut, Resource},
-};
+use bevy::prelude::{Assets, Commands, Res, ResMut, Resource};
 use std::sync::Arc;
 
 #[derive(Resource)]
@@ -60,7 +58,7 @@ pub(crate) fn poll(
     pending: Option<ResMut<PendingAudio>>,
     mut game: ResMut<Gameplay>,
     (mut sim, owner): (ResMut<Simulation>, Option<Res<AudioOwner>>),
-    mut sources: ResMut<Assets<AudioSource>>,
+    mut sources: ResMut<Assets<MixerStream>>,
     options: Res<crate::Options>,
     mut ui: ResMut<crate::ui_host::Console>,
 ) {

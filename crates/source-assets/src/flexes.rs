@@ -61,6 +61,8 @@ pub struct FlexModel {
 pub struct FaceModel {
     pub flex: FlexModel,
     pub eyes: Vec<crate::eyes::Eyeball>,
+    /// `flex.vertex_slots()`, built with the model.
+    pub slots: VertexSlots,
 }
 impl FaceModel {
     /// Descriptor weights with each eye's bone-local basis, or its rest basis when the
@@ -268,22 +270,40 @@ impl FlexModel {
         }
         weights
     }
-    /// Bind-space position deltas keyed by (bodypart, mesh, mesh-local vertex) for the
-    /// first model of each bodypart, with retail vertex weighting (no delayed weights).
-    pub fn vertex_deltas(&self, descriptors: &[f32]) -> std::collections::HashMap<[u16; 3], Vec3> {
-        let mut deltas = std::collections::HashMap::new();
+    /// A dense slot for each vertex the first model of each bodypart flexes, keyed by
+    /// (bodypart, mesh, mesh-local vertex): built once per model.
+    pub fn vertex_slots(&self) -> VertexSlots {
+        let mut slots = VertexSlots::default();
         for mesh in self.meshes.iter().filter(|m| m.model == 0) {
             for flex in &mesh.flexes {
-                let Some(weights) = flex.weights(descriptors) else {
-                    continue;
-                };
                 for v in &flex.vertices {
                     let key = [mesh.bodypart as u16, mesh.mesh as u16, v.index];
-                    *deltas.entry(key).or_insert(Vec3::ZERO) += v.delta * v.weight(weights);
+                    let next = slots.by_key.len() as u32;
+                    let slot = *slots.by_key.entry(key).or_insert(next);
+                    slots.flex_vertices.push(slot);
                 }
             }
         }
-        deltas
+        slots
+    }
+    /// Bind-space position deltas by `slots` slot for the first model of each bodypart, with
+    /// retail vertex weighting (no delayed weights), written into `out` (resized, reused).
+    pub fn vertex_deltas(&self, slots: &VertexSlots, descriptors: &[f32], out: &mut Vec<Vec3>) {
+        out.clear();
+        out.resize(slots.len(), Vec3::ZERO);
+        let mut cursor = 0;
+        for mesh in self.meshes.iter().filter(|m| m.model == 0) {
+            for flex in &mesh.flexes {
+                let these = &slots.flex_vertices[cursor..cursor + flex.vertices.len()];
+                cursor += flex.vertices.len();
+                let Some(weights) = flex.weights(descriptors) else {
+                    continue;
+                };
+                for (v, &slot) in flex.vertices.iter().zip(these) {
+                    out[slot as usize] += v.delta * v.weight(weights);
+                }
+            }
+        }
     }
     /// CStudioHdr::RunFlexRules: controller values (in each controller's own range, model
     /// order) to descriptor weights. Invalid ops are skipped as the SDK CHECK macros do.
@@ -432,8 +452,8 @@ impl FlexModel {
     }
 }
 impl MeshFlex {
-    fn ramp(&self, v: f32) -> f32 {
-        let [t0, t1, t2, t3] = self.targets;
+    /// Evaluate a piecewise-linear HL2 flex ramp curve `[t0, t1, t2, t3]` at `v`.
+    pub fn ramp_value(v: f32, [t0, t1, t2, t3]: [f32; 4]) -> f32 {
         if !(t0 < v && v < t3) {
             0.
         } else if v < t1 {
@@ -443,6 +463,10 @@ impl MeshFlex {
         } else {
             1.
         }
+    }
+
+    fn ramp(&self, v: f32) -> f32 {
+        Self::ramp_value(v, self.targets)
     }
     /// Retail R_StudioFlexVerts weights for (descriptor, pair) without delayed smoothing:
     /// returns `None` when the flex has no influence.
@@ -463,6 +487,46 @@ impl VertAnim {
         w1 * (1. - side) + w3 * side
     }
 }
+/// Position deltas by (bodypart, mesh, mesh-local vertex).
+/// Dense slots of a model's flexed vertices ([`FlexModel::vertex_slots`]): deltas are summed
+/// into an array by slot, and each draw maps its vertices to slots once, so a face update does
+/// no hashing per vertex.
+#[derive(Clone, Debug, Default)]
+pub struct VertexSlots {
+    by_key:
+        std::collections::HashMap<[u16; 3], u32, std::hash::BuildHasherDefault<VertexKeyHasher>>,
+    /// The slot of every vertex of every model-0 mesh flex, in the meshes' and flexes' order.
+    flex_vertices: Vec<u32>,
+}
+impl VertexSlots {
+    /// Distinct flexed vertices.
+    pub fn len(&self) -> usize {
+        self.by_key.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.by_key.is_empty()
+    }
+    /// The slot of (bodypart, mesh, mesh-local vertex), when a flex moves it.
+    pub fn slot(&self, key: [u16; 3]) -> Option<u32> {
+        self.by_key.get(&key).copied()
+    }
+}
+
+/// Hash of a vertex key: its bytes mixed by multiplication. The keys are small dense indices
+/// read from the model, so a keyed hash buys nothing and costs most of a face update.
+#[derive(Clone, Copy, Default)]
+pub struct VertexKeyHasher(u64);
+impl std::hash::Hasher for VertexKeyHasher {
+    fn finish(&self) -> u64 {
+        self.0 ^ (self.0 >> 32)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,6 +555,69 @@ mod tests {
             rules,
             meshes: Vec::new(),
         }
+    }
+    #[test]
+    fn vertex_deltas_equal_a_default_hashed_accumulation() {
+        // Overlapping vertices across flexes and meshes, some flexes without influence.
+        let mut flexes = model(Vec::new());
+        let mut seed = 7u32;
+        let mut next = move || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            (seed >> 8) as f32 / (1u32 << 24) as f32
+        };
+        for (bodypart, mesh) in [(0, 0), (0, 1), (2, 0), (300, 70)] {
+            let flexes_of_mesh = (0..12)
+                .map(|flex| MeshFlex {
+                    descriptor: flex % 2,
+                    targets: [-1., 0.2, 0.8, 2.],
+                    pair: (flex % 3 == 0) as usize,
+                    vertices: (0..400)
+                        .map(|_| VertAnim {
+                            index: (next() * 900.) as u16,
+                            speed: 0,
+                            side: (next() * 255.) as u8,
+                            delta: Vec3::new(next(), next(), next()) - 0.5,
+                            normal: Vec3::Z,
+                        })
+                        .collect(),
+                })
+                .collect();
+            flexes.meshes.push(MeshFlexes {
+                bodypart,
+                model: 0,
+                mesh,
+                flexes: flexes_of_mesh,
+            });
+        }
+        for descriptors in [[0.5, 0.3], [0., 1.5], [-2., 0.9], [0., 0.]] {
+            let mut expected = std::collections::HashMap::<[u16; 3], Vec3>::new();
+            for mesh in &flexes.meshes {
+                for flex in &mesh.flexes {
+                    let Some(weights) = flex.weights(&descriptors) else {
+                        continue;
+                    };
+                    for v in &flex.vertices {
+                        let key = [mesh.bodypart as u16, mesh.mesh as u16, v.index];
+                        *expected.entry(key).or_insert(Vec3::ZERO) += v.delta * v.weight(weights);
+                    }
+                }
+            }
+            let slots = flexes.vertex_slots();
+            let mut deltas = vec![Vec3::NAN; 3];
+            flexes.vertex_deltas(&slots, &descriptors, &mut deltas);
+            assert_eq!(deltas.len(), slots.len());
+            // Every slot of an untouched vertex stays zero; touched ones sum in the same order.
+            let nonzero = deltas.iter().filter(|d| **d != Vec3::ZERO).count();
+            assert!(nonzero <= expected.len());
+            for (key, delta) in &expected {
+                let slot = slots.slot(*key).unwrap() as usize;
+                assert_eq!(
+                    deltas[slot].to_array().map(f32::to_bits),
+                    delta.to_array().map(f32::to_bits)
+                );
+            }
+        }
+        assert!(flexes.vertex_slots().len() > 2000);
     }
     #[test]
     fn rules_evaluate_sdk_stack_ops() {
@@ -587,18 +714,19 @@ mod tests {
             let face = FaceModel {
                 flex: flexes.clone(),
                 eyes: crate::eyes::load(&vfs, path).unwrap(),
+                slots: flexes.vertex_slots(),
             };
+            let mut deltas = Vec::new();
             assert!(face.eyes.iter().all(|e| e.lids.is_some()), "{path}");
             let rest = face.descriptor_weights(&Default::default(), |_| None);
+            face.flex.vertex_deltas(&face.slots, &rest, &mut deltas);
             assert!(
-                face.flex
-                    .vertex_deltas(&rest)
-                    .values()
-                    .all(|d| d.length() < 0.05),
+                deltas.iter().all(|d| d.length() < 0.05),
                 "{path}: neutral face deforms"
             );
             // Without FACS eyelids the same descriptors would half-close the upper lids.
-            assert!(!flexes.vertex_deltas(&neutral).is_empty());
+            flexes.vertex_deltas(&face.slots, &neutral, &mut deltas);
+            assert!(deltas.iter().any(|d| *d != Vec3::ZERO));
             let jaw = flexes
                 .controllers
                 .iter()

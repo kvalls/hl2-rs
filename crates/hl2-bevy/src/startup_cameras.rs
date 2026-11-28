@@ -1,9 +1,12 @@
 //! Spawns the frame, viewmodel and world cameras of the startup map.
 use super::{FlyCamera, Options, bloom, camera, source_direction, source_to_bevy, tonemap, video};
+use bevy::camera::MsaaWriteback;
+use bevy::light::cluster::ClusterConfig;
 use bevy::prelude::{
-    Camera, Camera2d, Camera3d, ClearColorConfig, Commands, PerspectiveProjection, Projection,
-    Transform, Vec3, default,
+    Camera, Camera2d, Camera3d, ClearColorConfig, Commands, Msaa, PerspectiveProjection,
+    Projection, Transform, Vec3, default,
 };
+use bevy::render::camera::CameraRenderGraph;
 use bevy::render::renderer::RenderAdapterInfo;
 
 pub(super) fn spawn(
@@ -18,20 +21,26 @@ pub(super) fn spawn(
     let msaa = video::msaa_for_hardware(options.config.video.advanced.antialiasing, max_samples);
     commands.spawn((
         Camera2d,
+        CameraRenderGraph::new(crate::canvas_renderer::hud_pass::Hud2d),
+        video::HudCamera,
         Camera {
             order: 2,
             clear_color: ClearColorConfig::None,
+            msaa_writeback: MsaaWriteback::Off,
             ..default()
         },
-        tonemap::PASSTHROUGH,
-        msaa,
+        crate::tonemap::PASSTHROUGH,
+        Msaa::Off,
         bevy::camera::visibility::RenderLayers::layer(2),
     ));
     commands.spawn((
         Camera3d::default(),
+        ClusterConfig::Single,
         Camera {
             order: 1,
             clear_color: ClearColorConfig::None,
+            // SkyCamera, FlyCamera, and ViewmodelCamera share the same StoreOp::Store MSAA attachment.
+            msaa_writeback: MsaaWriteback::Off,
             ..default()
         },
         bevy::camera::visibility::RenderLayers::layer(1),
@@ -58,7 +67,12 @@ pub(super) fn spawn(
     ));
     commands.spawn((
         Camera3d::default(),
-        tonemap::PASSTHROUGH,
+        ClusterConfig::Single,
+        Camera {
+            msaa_writeback: MsaaWriteback::Off,
+            ..default()
+        },
+        crate::tonemap::PASSTHROUGH,
         msaa,
         Projection::Perspective(PerspectiveProjection {
             fov: 2. * ((75f32.to_radians() / 2.).tan() / (4. / 3.)).atan(),

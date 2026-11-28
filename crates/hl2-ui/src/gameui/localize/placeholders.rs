@@ -16,9 +16,6 @@
 //! Today [`super::Localization::lookup`] checks loaded resources first, then this table, then
 //! [`super::FALLBACK_STRINGS`], so a loaded resource that defines one of these tokens already wins.
 
-/// Ctrl+R history search prompt in the console (no installed token).
-pub const CONSOLE_REVERSE_SEARCH: &str = "#HL2RS_Console_ReverseSearch";
-
 /// Development-only settings reports; no corresponding installed game tokens exist.
 pub const STATUS_RAW_INPUT: &str = "#HL2RS_StatusRawInput";
 pub const STATUS_FOCUS_AUDIO: &str = "#HL2RS_StatusFocusAudio";
@@ -53,7 +50,6 @@ pub const PLACEHOLDER_STRINGS: &[(&str, &str)] = &[
     ("HL2RS_StatusAero", "Not implemented: this setting does not change Windows desktop effects."),
     ("HL2RS_StatusSteamInput", "Not implemented: opening Steam Input configuration from this button is not connected yet."),
     ("HL2RS_StatusUnimplemented", "Not implemented: this control has no effect yet."),
-    ("HL2RS_Console_ReverseSearch", "reverse-i-search"),
     ("HL2RS_KeyNotBound", "< not bound >"),
 ];
 
@@ -72,8 +68,8 @@ mod tests {
 
     #[test]
     fn every_constant_has_placeholder_text_and_an_hl2rs_token() {
-        assert!(CONSOLE_REVERSE_SEARCH.starts_with("#HL2RS_"));
-        assert!(lookup(CONSOLE_REVERSE_SEARCH).is_some_and(|t| !t.is_empty()));
+        assert!(KEY_NOT_BOUND.starts_with("#HL2RS_"));
+        assert!(lookup(KEY_NOT_BOUND).is_some_and(|t| !t.is_empty()));
         for (key, _) in PLACEHOLDER_STRINGS {
             assert!(key.starts_with("HL2RS_"), "{key}");
             assert!(
@@ -88,8 +84,8 @@ mod tests {
     #[test]
     fn loaded_resources_override_placeholders() {
         let mut loc = super::super::Localization::default();
-        assert_eq!(loc.text(CONSOLE_REVERSE_SEARCH), "reverse-i-search");
-        loc.insert(CONSOLE_REVERSE_SEARCH, "history search");
-        assert_eq!(loc.text(CONSOLE_REVERSE_SEARCH), "history search");
+        assert_eq!(loc.text(KEY_NOT_BOUND), "< not bound >");
+        loc.insert(KEY_NOT_BOUND, "unbound");
+        assert_eq!(loc.text(KEY_NOT_BOUND), "unbound");
     }
 }

@@ -55,6 +55,18 @@ pub struct BugBaitState {
     idle_at: f64,
     cursor: Option<(String, f64, f32)>,
 }
+impl BugBaitState {
+    /// Retain remaining bugbait cooldowns across changelevel while clearing pending throws.
+    pub(crate) fn rebase_clock(&mut self, delta: f64) {
+        self.next_primary += delta;
+        self.next_secondary += delta;
+        self.idle_at += delta;
+        if let Some((_, at, _)) = &mut self.cursor {
+            *at += delta;
+        }
+        self.pending_throw = false;
+    }
+}
 
 /// CGrenadeBugBait::ActivateBugbaitTargets: combine soldiers (thrown only) and
 /// point_bugbait sensors (OnBaited). Returns (suppress call, combine soldiers).
@@ -470,6 +482,26 @@ mod tests {
         assert!(early > 0 && early <= 5 && later > early, "{early} {later}");
         particles.sync(&projectiles.effects, at + 7.5, &physics);
         assert!(particles.draw(eye, Vec3::X, at + 7.5, &physics).is_empty());
+    }
+
+    #[test]
+    fn bugbait_rebase_clock_shifts_timers_and_clears_pending_throw() {
+        let mut state = BugBaitState {
+            pending_throw: true,
+            next_primary: 40.6,
+            next_secondary: 40.3,
+            idle_at: 41.0,
+            cursor: Some(("throw".into(), 39.9, 0.1)),
+            ..Default::default()
+        };
+
+        state.rebase_clock(-40.);
+
+        assert!(!state.pending_throw);
+        assert!((state.next_primary - 0.6).abs() < 1e-9);
+        assert!((state.next_secondary - 0.3).abs() < 1e-9);
+        assert!((state.idle_at - 1.0).abs() < 1e-9);
+        assert!((state.cursor.as_ref().unwrap().1 - (-0.1)).abs() < 1e-9);
     }
 
     #[test]

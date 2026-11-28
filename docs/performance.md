@@ -1,5 +1,700 @@
 # Performance measurements - 2026-10-05
 
+## O9 first entry into an area: what compiled, and the fix (2026-11-28)
+
+A temporary render-world probe (removed; never committed) logged each pipeline waiting in Bevy's `PipelineCache` per frame on `pvs-walk.json`. The stalled frame (first entry into the outside area) queued 15 pipelines, all Bevy PBR `prepass_pipeline` / `*_mesh_pipeline` variants. Against the closest pipeline already compiled with the same label, they differ in two ways:
+
+- `SKINNED` + `HAS_PREVIOUS_SKIN` (+ `MOTION_VECTOR_PREPASS`): skinned models drawn with the previous frame's skin. Bevy keys this on whether the skin was in the previous frame's skin buffer (`set_mesh_motion_vector_flags`), so a skinned draw has it only from its second drawn frame; the two warm-up frames queued it too late.
+- No `MULTISAMPLED`: the monitor camera (`Msaa::Off`), which stays inactive until a screen comes into view.
+
+Single probe runs of the walk, worst frame in the walk window:
+
+| Warm-up | Worst frame |
+|---|---|
+| unchanged (two frames) | 125-139 ms |
+| world `PvsDraw` draws warmed in place, monitors, four frames | 25.6 ms |
+| monitors, four frames | 16.9 ms |
+| monitors, two frames | 87.5 ms |
+
+Kept: four warm-up frames and every eligible monitor counted as seen during the warm-up. Everyday packages at maxed Retina, A-B-B-A, four runs per side after a discarded one each (`ad414a26` vs `a5c77582`):
+
+| Scene | Metric | A | B |
+|---|---|---|---|
+| `pvs-walk` | worst frame (window) | 124.9-125.3 ms | 16.1-17.1 (one run 36.1) |
+| `pvs-walk` | mean / p99 | 3.98 / 6.38 | 3.96 / 6.38 |
+| `quiet` | mean / p99 | 3.50 / 4.30 | 3.47 / 4.22 |
+| `mixed-crowd` (two passes) | mean | 9.31, 9.32 | 9.49, 9.53 |
+| `mixed-crowd` | p95 | 13.18, 13.12 | 13.71, 13.81 |
+| `mixed-crowd` | `render_graph` max | 25.7-26.0 | 24.7-25.0 |
+| console map load (3 rounds) | request to installed | 519-549 ms | 523-535 |
+| console map load | worst frame (behind the loading screen) | 299-322 ms | 380-396 (first run from a new package path 2,576, cold) |
+
+The crowd's `+0.2 ms` mean: one `trace-chrome` run per side shows it in physics (`solve_constraints` `5.23 -> 5.51 ms/f`, solver calls `7,038 -> 7,330` per frame), `npc_ai` (`0.37 -> 0.47`) and fixed ticks per frame (`1.17 -> 1.21`), not in the warm-up, render or monitor systems; draw counts are identical. The two extra warm-up frames most likely shift when the crowd fight starts, so it runs a different but repeatable course (inferred, not proven). A package with only the monitor change matched A's tick and frame counts.
+
+## O28 PVS walk on Bevy 0.20.1 (2026-11-27)
+
+Everyday package at `740db40c` (`advanced-options,debug-tools`), headless `d1_trainstation_02` at default settings, `test-inputs/performance-research/pvs-walk.json`: ten stops (spawn, hall, outside, entrance, boxes, plaza, bench, barrier, tic-tac-toe, hall again), each a teleport followed by walking or sprinting forward, ticks 60-1260 inside a `profile_window`, ending paused at the spawn pose. Each stop's report sample has the player's feet at the intended position (spawn `-4304,-224`, outside `-3104,-2018`, plaza `-2070,-2180`, barrier `-1856,-780`, tic-tac-toe `-4540,-3599`, ...). The report keeps view clusters only for the final pose, so the area change at each stop is inferred from these positions, not listed.
+
+| Run | Samples | `source_pvs` mean | p95 | p99 | max | `culled_draws` / checked |
+|---|---|---|---|---|---|---|
+| 0 (discarded) | 4,304 | 0.035 | 0.055 | 0.066 | 1.176 | 984 / 1,122 |
+| 1 | 3,850 | 0.039 | 0.061 | 0.090 | 1.161 | 984 / 1,122 |
+| 2 | 4,349 | 0.035 | 0.054 | 0.064 | 1.161 | 984 / 1,122 |
+| 3 | 4,203 | 0.037 | 0.059 | 0.074 | 1.194 | 984 / 1,122 |
+
+Capture 3 had `source_pvs` p99 `1.804 ms` when moving across areas; the walk's p99 is `0.06-0.09 ms` and one transition per run reaches `1.16-1.19 ms`.
+
+Every run also has one `127-133 ms` frame about 27% into the window (frames 1135 / 1227 / 1194), near the first entry into the outside area: `main_schedule.outside` `124.9-130.5 ms` and `render_graph` `23.0-24.8 ms` in the same frame, then a `25-28 ms` frame. Followed up under O9.
+
+## O13 particle replays and mesh owners on Bevy 0.20.1 (2026-11-27)
+
+Everyday and `trace` packages at `0c0f22b9` plus a temporary probe (removed; never committed) that counted each frame's `AssetEvent<Mesh>` events and classified each `Modified` mesh by the marker of the draw entity holding it (effect quads, eyes, shadow decals, animated models, HUD, decals, studio decals, gibs). Headless `d1_trainstation_02`, default settings.
+
+The listed `effect-grenade` and `effect-explosion` replays are fidelity snapshots: they pause one tick after the effect starts, so all 12 stage calls fall in the 30-call warm-up. `test-inputs/performance-research/effect-burst.json` keeps their setup (loadout, SMG, the entrance closed), fires four SMG grenades 80 ticks apart, watches from the smoke replay's withdrawn camera, and wraps ticks 79-460 in a `profile_window`.
+
+Rewritten meshes per frame (probe, 50-frame windows):
+
+| Scene | Runs | Effect quads | Shadows | Animated | Eyes | HUD |
+|---|---|---|---|---|---|---|
+| `particles-smoke` | 3 | 0 | 0 | 0 | 0-0.1 | 1 idle, 9-12 with the weapon HUD |
+| `effect-grenade` | 3 | 0 | 0 | 0 | 0 | 1 idle, 9-12.5 |
+| `effect-explosion` | 3 | 0 | 0 | 0 | 0 | 1 idle, 9.4-12.9 |
+| `effect-burst` | 4 | 0 | 0 | 0 | 0 | window mean 5.14 / 5.30 / 5.32 |
+
+Effect quads draw from GPU storage buffers since O39 and rewrite a CPU mesh only on overflow, which none of these scenes reach. The load frame adds about 27 meshes once.
+
+`effect-burst` `stages`, windowed, three runs after a discarded one (`715-722` samples each):
+
+| Run | `render_assets` mean / p95 / p99 | `effects` mean | `hud` mean | `frame_total` mean / p99 |
+|---|---|---|---|---|
+| 1 | 0.404 / 0.564 / 0.642 | 0.144 | 0.176 | 7.51 / 12.64 |
+| 2 | 0.398 / 0.557 / 0.610 | 0.143 | 0.180 | 7.47 / 12.45 |
+| 3 | 0.393 / 0.543 / 0.605 | 0.143 | 0.178 | 7.45 / 12.40 |
+
+`effect-burst` `trace` (three runs): `allocate_and_free_meshes` `0.226 / 0.286 / 0.278 ms/f` mean, p99 `1.33 / 1.71 / 2.09` (trace-inflated; compare with traces only). The crowd's traced `allocate_and_free_meshes` (`0.317 ms/f`) is in the backlog row.
+
+Crowd, same probe on `c53b74b4` (everyday `stages`, `mixed-crowd.json` to the script's end, four runs, run 0 discarded):
+
+| Run | Samples | `render_assets` mean / p95 / p99 / max | `frame_total` mean / p99 | Eyes / HUD rewritten per frame |
+|---|---|---|---|---|
+| 0 (discarded) | 1,706 | 0.575 / 0.855 / 1.152 / 4.68 | 9.87 / 16.31 | — |
+| 1 | 1,714 | 0.555 / 0.827 / 1.258 / 3.69 | 9.89 / 16.70 | 0.17 / 1.12 |
+| 2 | 1,657 | 0.578 / 0.867 / 1.234 / 3.53 | 10.14 / 16.97 | 0.18 / 1.12 |
+| 3 | 1,737 | 0.552 / 0.831 / 1.193 / 3.55 | 9.75 / 15.99 | 0.15 / 1.11 |
+
+No effect quad, shadow decal or animated model mesh is rewritten in the crowd (on 2026-11-22: 22 eye meshes, 20 shadow decals, 11 animated models per frame); `render_assets` `4.13 ms` after the 2026-11-22 particle fix.
+
+## O21 crowd allocations on Bevy 0.20.1 (2026-11-27)
+
+`trace-alloc` package at `0c0f22b9` (`executable_sha256` `fc24509f...`), headless `d1_trainstation_02` running `test-inputs/performance-research/mixed-crowd.json` to its end (`--frames 3000`; the script ends the run at `633-650` frames; a `--frames 400` run now stops with "movement script did not finish"). `state_frame` per frame, three runs:
+
+| Run | Frames | Allocations mean | p50 | p99 | max | Bytes mean | Bytes max |
+|---|---|---|---|---|---|---|---|
+| 1 | 633 | 355,500 | 296,199 | 1,021,795 | 1,234,806 | 38,079 KB | 123.8 MB |
+| 2 | 639 | 360,365 | 289,754 | 1,041,364 | 1,153,499 | 38,410 KB | 121.3 MB |
+| 3 | 650 | 357,957 | 298,834 | 1,064,269 | 1,297,284 | 38,087 KB | 123.4 MB |
+
+After the 2026-11-23 fix the crowd ran `412,528` allocations and `46,560 KB` per frame over its first 400 frames; the whole-script window holds more firefight frames, so the `-13%` allocations and `-18%` bytes are a conservative comparison. Traced frames average `29.3-29.8 ms`, about two fixed ticks each; the waste report's repeated `actor_pose` groups are one call per tick (the O6 memo is per tick), not duplicates. The static half (`quiet.json`, `62,911` allocations, `7,039 KB` per frame) is in the backlog row.
+
+## Viewmodel motion at a reversal (2026-11-27)
+
+The Advanced and Ultra weapon filter keeps a quarter-resolution velocity and
+depth texture. At 1920×1080, 4× MSAA, the Advanced blur texture inventory rose
+from 42,006,720 to 43,561,920 bytes. This includes the extra channels in the
+first reduction. Both history textures are single-sampled. The gather keeps
+its existing tap limit. Idle regions skip the copy with the reconstruction.
+Headless Metal System Trace A-B-B-A (`animated-fire`, maxed Retina, uncapped) against the
+previous commit: the weapon blur passes rose from 1.59 and 1.68 to 1.84 and 2.08 ms per frame
+(about +0.3 ms), almost all in `viewmodel_animation_blur` (1.36-1.55 to 2.09-2.24 ms per call),
+whose trail taps now also read the history texture; GPU busy per frame 7.62 and 7.67 to
+8.00 and 8.25 ms. The owner accepts up to 0.4 ms for weapon blur fidelity.
+
+## O45 — Publish runtime collider handles on insertion (2026-11-25)
+
+Runtime model installation queues its new collider handles directly. For NPCs,
+the queue includes the class hull and any live studio hitboxes after the
+temporary model traces are replaced. Sorting the new suffix preserves the
+old arena order, including reused handle slots. Focused tests checked a
+multi-piece pickup and an NPC with a reused studio slot before and after
+the query refresh.
+
+The two Metal release packages contain identical instrumentation. `install_ms`
+times the host create call after asset preparation, including placement,
+entity insertion and collider creation. `load_ms` measures the request's wait
+for model preparation and polling. Its sum can include overlapping requests.
+`sim_query_refresh` covers the first incremental refresh in the fixed tick.
+The wake and rest windows also report the physics step and whole-frame CPU time.
+
+The fixture reuses the O44 plaza placement order, asserts each body identity
+and wakes up to 100 props over two adjacent physics ticks. `Contacting` counts
+spawned bodies with at least one active contact. It measures spawning, resting,
+the wake and landing interval, and the final settled interval. The timed
+runs were preceded by a discarded 100-prop warm-up for each package.
+
+Apple M1 Pro / Metal at 1920 × 1080, using the pre-change instrumented
+`af7e0d18` and direct-registration `a1d4bbb1` release packages. All 42 runs
+completed in three alternating pairs per population. The table lists medians
+in milliseconds. Total install time sums individual creates across the path.
+The two physics columns are CPU time per fixed tick.
+
+| Population | Sum of installs A → B | Typical install A → B | Awake physics A → B | Resettled physics A → B |
+| --- | ---: | ---: | ---: | ---: |
+| Empty control | — | — | 0.075 → 0.076 | 0.080 → 0.081 |
+| 30 mixed | 7.97 → 2.30 | 0.245 → 0.058 | 0.361 → 0.367 | 0.099 → 0.099 |
+| 30 batteries | 7.07 → 1.39 | 0.232 → 0.042 | 0.229 → 0.229 | 0.102 → 0.103 |
+| 60 mixed | 17.06 → 5.27 | 0.262 → 0.061 | 0.502 → 0.501 | 0.122 → 0.123 |
+| 60 batteries | 14.35 → 2.81 | 0.236 → 0.044 | 0.336 → 0.334 | 0.116 → 0.115 |
+| 100 mixed | 30.09 → 10.71 | 0.263 → 0.061 | 0.696 → 0.705 | 0.144 → 0.147 |
+| 100 batteries | 24.51 → 4.70 | 0.242 → 0.045 | 0.481 → 0.479 | 0.139 → 0.136 |
+
+For 100 mixed props, summed installs were 29.84–32.01 ms before and
+10.35–10.77 ms after. For 100 batteries they were 24.25–25.00 ms before
+and 4.59–4.74 ms after. The median paired reductions were 64.4% and 81.0%.
+The two 100-prop cases' median summed request-wait times were 20.88 → 21.52 ms
+for mixed and 5.82 → 5.24 ms for batteries. In the spawning window, the first
+query refresh was 0.038 → 0.044 ms/tick for mixed and 0.038 → 0.040 for
+batteries. It was 0.030 → 0.030 and 0.031 → 0.032 in the awake window.
+The two 100-prop cases' awake CPU frame p95/p99 medians were
+6.13/7.22 → 5.57/6.13 ms and 5.61/6.22 → 5.17/6.09 ms.
+Pre-launch GPU device use ranged from 77% to 82%. The consistent gain is in
+installation. Whole-frame and steady solver results varied by window.
+
+All 21 pairs matched native shape counts and body diagnostics at every
+checkpoint. The 100-prop mixes each woke all their bodies. At the landing
+sample, 82 mixed props and 97 batteries had an active contact. At the final
+sample, 6 mixed props and 7 batteries were still awake. Six packaged
+regression checks passed, covering positioned spawns, loose supply carry
+and collection, NPC hulls, gravity-gun use and campaign transitions.
+Full phase statistics are in `artifacts/o45/paired/summary.json`.
+Spawned pickups on both sides of a single map transition, Windows runtime,
+and displayed FPS are **not tested**.
+
+## O11 — Full-run CPU stage profiles (2026-11-25)
+
+On M1 Pro / Metal, both release packages rendered 6,200 frames of
+`d1_trainstation_02` at 960 × 540 with `--uncapped --profile`. After warm-ups,
+three alternating pairs (`A-B-B-A-A-B`) each recorded 6,079 `frame_total`
+calls. Baseline `84d93a3d` (package `bd0f165d`) stopped retaining samples at
+4,096. Candidate package `c0f81dae` reported all 6,049 after omitting the
+30 per-stage warm-up calls. Sample counts, boot conditions and executable
+digests are in `artifacts/o11/summary.json` and the stamped capture metadata.
+
+For short captures, percentiles still use the original exact order
+statistics. Long reports label p95/p99 as upper bounds. Normal-range buckets
+use 32 subdivisions per factor of two, with exact maximum and three slowest
+sample indices retained for the full run. The analyzer carries the exactness
+flag into JSON and rounds displayed bounds upward. Focused tests placed
+hitches after sample 4,096 and verified that replay-window resets start a
+fresh exact recording. The F1 recorder test verified a growing frame count
+past 4,096.
+
+Reproduce with `capture.py headless --mode stages --map d1_trainstation_02
+--frames 6200 --item O11 --out artifacts/o11/run --analyze -- --uncapped
+--width 960 --height 540`. The timing summaries use different sample
+windows, so these captures establish coverage. Isolated recorder overhead
+and Windows runtime are **not tested**.
+
+## O47 — Separated workloads in Station 02 (2026-11-25)
+
+Measured the packaged release on Apple M1 Pro / Metal at 1920 × 1080, uncapped and
+headless with `advanced-options,debug-tools`. The route seeds the backyard, plaza
+and playground with `notarget` enabled, then disables it in the room before the
+trash-can test. Each stop has 80 settling ticks and a 220-tick (3.3 seconds of
+simulation) timing window. The CPU profiler omits its first 30 samples per stage
+in each window. The plaza and playground approaches use stepped camera movement.
+
+The authored map is present in all cases. The control adds zero entities. Crowds
+add 16 rebels, 32 Combine and 32 zombies in separate sectors. Fights add 10 rebels
+and 6 manhacks, 16 Combine and 16 rebels, and 16 zombies and 16 metrocops. Supplies
+add 20 medkits, 32 SMGs and 32 batteries. Two passes ran in reverse order. The
+initial combat pair is excluded because Station 02's precriminal state left the
+plaza citizens and Combine neutral. Two replacement combat runs interleaved the
+plaza teams and applied mutual hostility through `SetRelationship` to the named
+test NPCs only. All three sectors engaged their own opponents in both runs.
+
+Each cell is the median of the two run means for **CPU frame / AI tick / physics
+tick**, in milliseconds. For the room, the two whole-frame means were 4.885 and
+4.951 for the control, 5.685 and 5.766 for crowds, 9.214 and 9.487 for fights, and
+5.342 and 5.377 for supplies. The corresponding median frame p99s were 6.06, 9.03,
+13.96 and 6.96 ms.
+
+| Observation stop | Control | Crowds | Fights | Supplies |
+| --- | ---: | ---: | ---: | ---: |
+| Room before trash cans | 4.918 / 0.087 / 0.077 | 5.726 / 0.735 / 0.141 | 9.350 / 1.060 / 1.713 | 5.360 / 0.098 / 0.109 |
+| Backyard | 3.218 / 0.084 / 0.077 | 4.704 / 0.569 / 0.154 | 5.902 / 0.724 / 1.092 | 3.364 / 0.087 / 0.111 |
+| Hall before plaza | 4.752 / 0.084 / 0.081 | 5.900 / 0.602 / 0.219 | 7.268 / 0.587 / 1.227 | 4.893 / 0.085 / 0.114 |
+| Plaza | 4.596 / 0.111 / 0.083 | 5.690 / 0.414 / 0.156 | 7.091 / 0.537 / 1.343 | 4.756 / 0.127 / 0.114 |
+| Corridor before playground | 3.852 / 0.100 / 0.083 | 4.313 / 0.424 / 0.154 | 5.113 / 0.421 / 0.963 | 3.994 / 0.117 / 0.116 |
+| Playground | 3.736 / 0.108 / 0.085 | 4.786 / 0.452 / 0.158 | 5.427 / 0.415 / 0.551 | 3.865 / 0.129 / 0.113 |
+
+All 80 NPCs in each scenario thought while the player was in the room. Crowds
+still had 64 distant actors thinking in the backyard and 48 in the remaining
+windows. With combat, 37–40 distant actors thought in the backyard, 37–38 in the
+plaza hall, 32–33 in the plaza, and 26–28 at and approaching the playground.
+The fights recorded 327 and 346 shots during the room windows alone. Fixed
+simulation in the room averaged 0.906 ms/tick for control, 2.466 for crowds and
+5.436 for fights. In the supply runs, 81/84 bodies slept at every checkpoint.
+Three plaza SMGs stayed awake in both runs with small movements at their spawn
+sites. The room's physics stage added 0.032 ms/tick with the supply population.
+
+The test attributes activity to the spawn sector and treats the next sector as
+near at both approach stops. Body sleep is sampled at the end of each window.
+The report preserves per-stage means, frame tails and raw NPC/prop snapshots.
+Displayed FPS, GPU-stage attribution, Windows runtime and ordinary play are
+**not tested**. Run the route and its optional strict assertion as described in
+[validation.md](validation.md#station-02-placed-spawns-and-workload-locality-2026-11-25).
+
+### Source-style NPC decision cadence
+
+The first candidate capture found an invalid BSP leaf at the original room
+camera. With no visibility row, every actor correctly ran at normal cadence.
+The comparison below uses a valid view over the Station 02 nav node before the
+trash-can test at `(-3888, -816, 152)` in both packages. Keep the earlier results
+above as a record of that fixture and use the matched route for the new A/B.
+
+The candidate profiles decisions independently of whether an actor thought at
+least once. For each spawn sector, the rate divides completed decisions by the
+number of tracked actors present at both ends and the elapsed simulation time.
+The presence of an occasional distant think is expected. Approaching the next
+sector during the route raises decision frequency before the player reaches it.
+
+Apple M1 Pro / Metal, headless at 1920 × 1080, with a control warm-up discarded
+per package. The baseline is `f109619c` (`4d71b5ea` executable) and the candidate
+has executable digest `bd0f165d`. Three paired runs alternated package order.
+In the quiet crowd case all 80 actors continued to think. Room-wide decisions,
+including authored map actors, fell from 3,012 to 945 per 3.3-second window.
+The table uses medians of run means in milliseconds and candidate decision rates
+in decisions per NPC per second.
+
+| Stop | CPU frame A → B | AI tick A → B | Backyard rate | Plaza rate | Playground rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Room before trash cans | 5.077 → 4.967 | 0.690 → 0.330 | 1.70 | 1.64 | 1.72 |
+| Backyard | 4.582 → 4.522 | 0.386 → 0.243 | 9.55 | 1.60 | 1.61 |
+| Hall before plaza | 5.606 → 5.542 | 0.397 → 0.239 | 1.82 | 4.85 | 1.52 |
+| Plaza | 5.534 → 5.543 | 0.417 → 0.295 | 1.82 | 9.55 | 1.54 |
+| Corridor before playground | 4.423 → 4.378 | 0.407 → 0.323 | 1.52 | 1.69 | 4.85 |
+| Playground | 4.801 → 4.828 | 0.432 → 0.348 | 1.74 | 1.52 | 7.47 |
+
+The quiet room AI stage fell 52.1% by median paired ratio. Fixed simulation fell
+from 2.559 to 2.196 ms/tick and the CPU frame p99 fell from 9.15 to 8.63 ms.
+The three CPU frame means in the room ranged from 5.046 to 5.082 ms before,
+and from 4.926 to 4.972 ms after.
+
+The other cases preserve authored map activity and active combat. These cells
+list median CPU frame means in milliseconds. For supplies, 81 of 84 bodies
+slept in every candidate window. The same three plaza SMGs remained awake.
+
+| Stop | Control A → B | Fights A → B | Supplies A → B |
+| --- | ---: | ---: | ---: |
+| Room before trash cans | 4.013 → 4.027 | 9.331 → 9.758 | 4.055 → 4.038 |
+| Backyard | 3.161 → 3.198 | 6.023 → 6.243 | 3.289 → 3.284 |
+| Hall before plaza | 4.633 → 4.786 | 7.407 → 7.510 | 4.889 → 4.889 |
+| Plaza | 4.593 → 4.522 | 7.034 → 7.292 | 4.621 → 4.638 |
+| Corridor before playground | 3.789 → 3.819 | 5.314 → 5.354 | 3.821 → 3.875 |
+| Playground | 3.558 → 3.617 | 5.533 → 5.855 | 3.722 → 3.689 |
+
+Combat engaged in all three sectors. In the room window, the fights fired
+338–356 shots before and 366–374 after. AI tick time in that window went from
+0.966 to 1.031 ms, and frame p99 from 15.20 to 17.32 ms. The opening fight
+CPU frame means were 9.155, 9.331 and 9.333 ms before, and 10.701, 9.758
+and 9.656 ms after. These are outcomes from evolving NPC fights. Shot count,
+ragdolls and physics varied, so the timing delta cannot isolate scheduler cost.
+A replicated timing comparison with equivalent combat activity is still open.
+The supplies' room physics tick was 0.126 → 0.124 ms. The unchanged room
+authored AI count of 499 in the control and supplies matches across all six
+build and repetition combinations for each case.
+
+All 24 timed routes verified the requested spawn counts and completed the six
+stops. All three candidate crowd runs passed the strict decision-rate check.
+Stage timings, p95/p99, activity counts and control deltas are saved in
+`artifacts/o47-cadence/paired/summary.json`. The 15 targeted packaged
+replays include the Breen monitor and playground constraints. An early,
+rejected policy slowed story civilians and changed both replays' I/O results.
+Both pass with civilian and active-goal decisions on normal cadence.
+Live retail cadence and Windows runtime are **not tested**.
+
+## `O42` — `LightingIndex`, `32 x 32 x 128` light-cache cell sharing, and `MeshTag` lighting deduplication (2026-11-24)
+
+Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools`, everyday release baseline `sha256 fa4db9f9` vs `O42` `sha256 f8f85a8d`):
+
+- **Changes:**
+  - `crates/modkit-core/src/lighting/{accel.rs,brushes.rs}`, `crates/modkit-core/src/lighting.rs`, `crates/source-assets/src/model_lighting.rs`: added `LightingIndex` preserving exact `state_at` output (`active_lights` pre-filters baked `DWL_FLAGS_INAMBIENTCUBE` and `SkyAmbient` lights and tightens conservative `max_dist_sq`, keeping `51` of `1,941` lights on `d1_trainstation_02`), replaced per-call `kept: Vec` heap allocations with fixed stack storage, moved `brushes::entry` to a single pass, added conservative brush AABBs + exact axial `entry_aabb`, and built the index inside `model_lighting::read_with`.
+  - `crates/hl2-bevy/src/rendering/lighting.rs`: added `StaticLightCache` caching map-scoped `32 x 32 x 128` `cache_cell` centers (`4,096`-entry cap with retail center-trace occlusion fallback), preserving static post-boost `LightState` across transient dynamic `elights`, caching `ModelIllumination` on `ModelLit`, skipping non-reflective `envmap` clones/lookups, and deduplicating shared `MeshTag` draws across both updated and skipped paths.
+- **Owned-map bit-exact parity & microbenchmark (`cargo test --release -p source-assets --locked owned_station02_indexed_lighting_matches_unindexed_and_benchmarks -- --ignored --nocapture`):**
+  - `d1_trainstation_02` (`1,941` world lights: `1,907` surface, `10` point, `22` spot, `1` sky, `1` sky-ambient, `51` active; `1,903` brushes): `200/200` sample points matched `unindexed.state_at(p) == indexed.state_at(p)` bit-for-bit; `500` calls `20.90 -> 15.13 us/call` (`1.38x`).
+- **Headless `--uncapped --profile` A/B (1 discarded warm-up + 3 alternating `A-B-B-A-A-B` pairs per scene, `fa4db9f9` vs `f8f85a8d`, medians & spreads in ms):**
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json` (maxed Retina `3456x2168`):**
+    - `model lighting` mean (median): **`0.419 -> 0.082 ms` (`-80.49%`, `-0.337 ms`)** (`spread 0.022` / `0.005`), `p95` **`0.851 -> 0.163 ms` (`-80.84%`)**.
+    - `main_schedule.PostUpdate` mean: `6.236 -> 6.202 ms` (`-0.54%`, `p95 7.793 -> 7.733 ms`); `frame_total` mean (GPU-bound): `12.772 -> 12.942 ms` (`+1.33%`, `p95 15.122 -> 15.260 ms`, `p99 18.0 -> 21.0 ms`).
+    - Stamped `--item O42` `capture.py` run (`1,388` frames): `frame_total 13.528 ms`, `PostUpdate 6.347 ms`.
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json` (`320x240` Potato CPU-isolated):**
+    - `model lighting` mean (median): **`1.000 -> 0.086 ms` (`-91.38%`, `-0.914 ms`)** (`spread 0.044` / `0.005`), `p95` **`2.526 -> 0.327 ms` (`-87.06%`)**.
+    - `main_schedule.PostUpdate` mean: **`3.937 -> 3.175 ms` (`-19.35%`)**, `p95` **`6.462 -> 4.636 ms` (`-28.26%`)**.
+    - `frame_total` mean (median): **`7.668 -> 6.757 ms` (`-11.88%`, `-0.911 ms`)**, `p95` **`11.966 -> 10.367 ms` (`-13.36%`)**, `p99` **`16.0 -> 14.0 ms` (`-12.50%`)**.
+  - **`d1_trainstation_02` `test-inputs/performance-research/animated-fire.json` (maxed Retina):**
+    - `model lighting` mean (median): **`0.054 -> 0.018 ms` (`-66.45%`)** (`spread 0.003` / `0.001`), `p95` **`0.128 -> 0.064 ms` (`-50.20%`)**; `frame_total`: `12.491 -> 12.366 ms` (`-1.00%`, `p95 16.949 -> 16.783 ms`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/quiet.json` (maxed Retina):**
+    - `model lighting`: `0.007 -> 0.007 ms` (`-3.00%`, `p95 0.010 -> 0.009 ms`); `frame_total`: `6.435 -> 6.438 ms` (`+0.05%`, `p95 7.633 -> 7.610 ms`).
+- **Verification & replays:** `hl2-bevy` (`10` lighting tests), `modkit-core` (`15` lighting tests), `source-assets` (`5` + `2` owned `#[ignore]` tests), `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and **`7/7`** targeted lighting/effect packaged replays (`lamp_emission`, `flashlight_shadows`, `flashlight_viewmodel`, `pallet-gibs-fade`, `entities-weapons`, `face-security-1805`, `particles-smoke`, `33 s`) passed; Windows runtime/linking **not tested**.
+
+## `O39` — GPU storage-buffer quads (`QUAD_ROWS`) and pooled shadow vertex batches (`SHADOW_VERTS`) (2026-11-24)
+
+Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools`, everyday release `O16` `sha256 20136538` vs `O39` `sha256 0560458f`; `--mode trace` `sha256 e3032d13` vs `79573cd7`):
+
+- **Changes:**
+  - `crates/hl2-bevy/src/effects/quads/gpu.rs`, `effects/quads{.rs,/batch.rs}`, `effects/material.rs`, `effects{.rs,/initial.rs}`, `lib.rs`, `assets/shaders/{effects,effects_depth}.wgsl`: allocate `QUAD_ROWS` (`4,096 x 6` `Vec4` rows) once at `Startup` (`install_quad_buffer`), cache immutable `RENDER_WORLD` bucket template meshes (`[1, 2, 4, 8, 16, 32, 64, 128, 256, 512]` quads with `[quad, corner, 0.0]` in `ATTRIBUTE_POSITION` and `NoAutoAabb` on `QuadDraw`), pack quad geometry/UVs/color once per frame into `QUAD_ROWS` via `write_rows_range` on dirty ranges, split runs at `512` quads, index slices in `@vertex` via `MeshTag` (`(start << 16) | count`, preserving depth/motion prepass in `effects_depth.wgsl`), keep `QuadDraws` disjoint from `GrenadeDraw` (`Without<quads::QuadDraw>`), and fall back to `MeshTag(0)` CPU meshes on overflow (releasing `cpu_mesh` on GPU recovery or empty batch).
+  - `crates/hl2-bevy/src/shadows/draw.rs`, `shadows{.rs,/caster.rs,/material.rs,/texture.rs}`, `assets/shaders/shadow.wgsl`: allocate `SHADOW_VERTS` (`8,192` triangles x `3` verts x `2` `Vec4` rows) once at `Startup` (`install_shadow_buffer`), consolidate visible shadow decals onto two pooled `ShadowDraw` entities (`atlas` and `blob`) with immutable `[64..=8192]` bucket templates and `NoAutoAabb`, re-sync only when `shown`/`rebuilt`/`use_atlas`/`rect` changes, and fall back to `MeshTag(0)` CPU meshes above `8,192` triangles or if `SHADOW_VERTS` is absent.
+- **Headless `--uncapped --profile` A/B (1 discarded warm-up + 3 alternating `A-B-B-A-A-B` pairs per scene, `20136538` vs `0560458f`, medians & spreads in ms):**
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json`:**
+    - `render_assets` mean (median): **`1.466 -> 0.539 ms` (`-63.25%`, `-0.927 ms`)** (`A: 1.466 / 1.472 / 1.459`, `B: 0.541 / 0.535 / 0.539`; spread `0.013` / `0.005`), `p95` **`2.583 -> 0.849 ms` (`-67.14%`)**.
+    - `frame_total` mean (median): **`13.906 -> 13.706 ms` (`-1.44%`)** (`A: 13.906 / 13.909 / 13.829`, `B: 13.686 / 13.766 / 13.706`), `p95` `16.855 -> 16.744 ms` (`-0.66%`), `p99` `18.0 -> 18.0 ms`.
+    - `main_schedule.PostUpdate` mean: **`6.396 -> 6.242 ms` (`-2.41%`)**, `p95` **`8.028 -> 7.641 ms` (`-4.82%`)**; `render_prepare`: **`1.062 -> 1.001 ms` (`-5.79%`)**; `shadows`: `0.832 -> 0.845 ms` (`+1.50%`); `render_graph`: `9.344 -> 10.370 ms` (`+10.98%`, pipelined wait shift while `frame_total` improved).
+    - Official stamped `--item O39` `capture.py` run (`1,237` frames): `render_assets` `0.567 ms` mean (`p95 0.876 ms`), `frame_total` `15.128 ms` mean (`p95 18.173 ms`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/animated-fire.json`:**
+    - `frame_total` mean (median): **`14.144 -> 13.487 ms` (`-4.64%`, `-0.657 ms`)** (`A: 14.144 / 14.386 / 14.081`, `B: 13.421 / 13.487 / 13.488`), `p95` **`19.254 -> 18.625 ms` (`-3.27%`)**, `render_graph` **`11.996 -> 11.191 ms` (`-6.71%`)**.
+    - `render_assets` mean (median): `0.314 -> 0.385 ms` (`+0.071 ms`, `+22.56%`; `p95 0.423 -> 0.518 ms`) due to whole-buffer `ShaderBuffer` updates (`QUAD_ROWS` `384 KiB` / `SHADOW_VERTS` `768 KiB`) when active emitters/casters tick; `shadows` `0.183 -> 0.206 ms`.
+  - **`d1_trainstation_02` `test-inputs/performance-research/shadow-plaza.json`:**
+    - `frame_total` mean (median): `7.238 -> 7.206 ms` (`-0.44%`), `p95` `9.031 -> 8.922 ms` (`-1.21%`); `render_assets` `0.341 -> 0.347 ms` (`+1.83%`, `p95 0.232 -> 0.228`); `shadows` `0.044 -> 0.043 ms` (`-2.62%`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/quiet.json`:**
+    - `frame_total` mean (median): **`7.161 -> 6.957 ms` (`-2.86%`)**, `p95` **`8.954 -> 8.658 ms` (`-3.31%`)**, `render_graph` `5.153 -> 5.044 ms` (`-2.11%`), `PostUpdate` `1.919 -> 1.863 ms` (`-2.91%`); `render_assets` `0.191 -> 0.232 ms` (`+0.041 ms` from `ShaderBuffer` updates).
+- **Headless `--mode trace` A/B (`allocate_and_free_meshes` + `render_assets`, full script, `e3032d13` vs `79573cd7`):**
+  - **`mixed-crowd.json` (`867` vs `921` observed trace frames):** `allocate_and_free_meshes` mean **`1.454 -> 0.310 ms` (`-78.71%`)**, `p99` **`3.365 -> 2.332 ms` (`-30.70%`)**, total **`1261.72 -> 285.39 ms` (`-77.38%`)** (`max 4.670 -> 13.899 ms` from initial bucket-template allocation at spawn); `render_assets` mean **`1.658 -> 0.633 ms` (`-61.81%`, `p95 2.678 -> 0.945 ms`)**; `frame_total` mean **`22.157 -> 21.309 ms` (`-3.83%`)**.
+  - **`animated-fire.json`:** `allocate_and_free_meshes` mean **`0.282 -> 0.239 ms` (`-15.07%`)**, `p99` **`0.740 -> 0.639 ms` (`-13.64%`)**, total **`177.01 -> 158.95 ms` (`-10.21%`)** (`max 1.276 -> 4.447 ms`); `render_assets` `0.333 -> 0.454 ms`; `frame_total` mean **`14.463 -> 13.720 ms` (`-5.14%`, `p95 20.448 -> 19.017 ms`)**.
+- **Visual parity & replays:**
+  - Frame-matched `--tonemap-scale 1.0` `1280x720` captures (`20136538` vs `0560458f`): `particles-smoke` `mean_abs_rgb=0.1951 (0.0765%)`, `shadow-plaza` `mean_abs_rgb=0.0173 (0.0068%)` (`67` changed pixels >2 from the F1 overlay frame timing text; visual inspection confirmed identical smoke/embers and Metrocops sidewalk shadow decal).
+  - Restored everyday release build (`0560458f`) passed `hl2-bevy` unit tests (`265 passed; 0 failed`), `validate.sh`, Windows-target Clippy, `10/10` targeted effect/shadow replays (`22 s`), and **`109/109`** shared packaged replays (`211 s`, `0` failed). Windows runtime **not tested**.
+
+## `O16` — Split static/dynamic `SplitBroadPhase`, player-shadow rest guard, and zero-alloc hitbox posing (2026-11-24)
+
+Measured on Apple M1 Pro / Metal (`advanced-options,debug-tools` release build, `7a3a53e4` `sha256 ad387905` vs `O16` `sha256 20136538`):
+
+- **Changes:**
+  - `crates/hl2-simulation/src/physics/broad_phase.rs`, `crates/hl2-simulation/src/physics/queries.rs`, `crates/hl2-simulation/src/physics.rs`: implemented `SplitBroadPhase` (`impl BroadPhase`) wired into `RecordingBroadPhase`, partitioning fixed colliders without `FIXED_FIXED` into a lazy `static_tree: Qbvh<ColliderHandle>` and keeping only dynamic/kinematic/promoting colliders in `moving_tree: Qbvh<ColliderHandle>`. Active pairs are maintained in sorted per-collider lists for exact two-pointer `AddPair`/`DeletePair` parity (including seamless `Static -> Moving` promotion when a door/brush moves), prediction-distance growth rebuilds, non-finite AABB guards, and zero steady-state per-tick allocations; covered by 7 randomized parity and `PhysicsPipeline::step` tests (`broad_phase/tests.rs`).
+  - `crates/hl2-simulation/src/physics/shadow_push.rs`, `crates/hl2-simulation/src/physics.rs`, `crates/hl2-simulation/src/physics/tests/shadow.rs`: extracted `clip_shadow_sweep_velocity` (early-returning without cloning `world_sides.shadow` or running `cast_shape` when `velocity` is zero) and `sync_player_shadow_body` (skipping mutable body borrows and `wake_up = true` calls when translation and zero velocity are unchanged), shrinking `physics.rs` (`3148 -> 3106` lines) and `update_player_shadow` (`238 -> 195` lines) and covered by 2 shadow sleep/wake tests.
+  - `crates/hl2-simulation/src/physics/hitboxes.rs`, `crates/hl2-simulation/src/gameplay.rs`: replaced per-tick `studio_hitbox_entities()` `Vec<(usize, String)>` + `String` clones in `pose_npc_hitboxes` with `Physics::pose_studio_hitboxes` sharing `apply_npc_hitboxes`.
+- **macOS `sample` (`test-inputs/performance-research/mixed-crowd.json`, 12s @ 1ms, call-graph counts under `simulation::fixed_step`):**
+  - `simulation::fixed_step` denominator: `2,219` (A) vs `2,221` (B).
+  - `PhysicsPipeline::step`: **`568` (`25.60%`) -> `196` (`8.82%`, `-16.78 pp`)**.
+  - `broad_phase` (`BroadPhaseMultiSap` -> `SplitBroadPhase`): **`304` (`13.70%`) -> `24` (`1.08%`, `-12.62 pp`, 12.7x lower)**.
+  - `narrow_phase`: **`133` (`5.99%`) -> `43` (`1.94%`, `-4.05 pp`)**.
+  - `island_solver`: `99` (`4.46%`) -> `100` (`4.50%`, `+0.04 pp`).
+  - `pose_npc_hitboxes`: **`223` (`10.05%`) -> `176` (`7.92%`, `-2.13 pp`)**.
+- **Headless `--uncapped --profile` A/B (1 discarded warm-up + 3 alternating `AB/BA/AB` pairs per scene, `ad387905` vs `20136538`):**
+  - **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json`:**
+    - `fixed_simulation` mean (median): **`5.199 -> 4.347 ms` (`-16.39%`, `-0.852 ms`)** (`A: 5.151 / 5.220 / 5.199`, `B: 4.469 / 4.347 / 4.318`), `p95` **`7.113 -> 6.175 ms` (`-13.19%`)**.
+    - `main_schedule.RunFixedMainLoop` mean (median): **`4.875 -> 4.048 ms` (`-16.96%`)**, `p95` **`7.434 -> 6.382 ms` (`-14.15%`)**.
+    - `frame_total` mean (median): `13.792 -> 13.729 ms` (`-0.46%`, `A: 12.962 / 13.945 / 13.792`, `B: 12.873 / 13.767 / 13.729`), `p95` **`16.813 -> 16.278 ms` (`-3.18%`)**, `p99` **`19.0 -> 18.0 ms` (`-5.26%`)**; official `--item O16` `capture.py` run: `fixed_simulation` `4.257 ms` (`p95 5.973 ms`).
+  - **`d1_trainstation_02` `test-inputs/performance-research/quiet.json` (idle static spawn):**
+    - `fixed_simulation` mean (median): **`1.927 -> 1.088 ms` (`-43.55%`, `-0.839 ms`)** (`A: 1.931 / 1.927 / 1.924`, `B: 1.088 / 1.082 / 1.092`), `p95` **`2.291 -> 1.423 ms` (`-37.88%`)**.
+    - `main_schedule.RunFixedMainLoop` mean (median): **`0.965 -> 0.567 ms` (`-41.26%`)**; headless GPU-bound `frame_total` remained flat (`7.069 -> 7.085 ms`), shifting freed main-thread time into `main_schedule.outside` (`3.802 -> 4.259 ms`).
+- **Correctness & replays:** `hl2-simulation` unit suite (`899 passed; 0 failed; 40 ignored`), `scripts/checks/validate.sh`, Windows-target Clippy, `15/15` targeted physics packaged replays, and all **`109/109`** shared packaged replays (`206 s`, `0` failed) passed; Windows runtime **not tested**.
+
+## O30 GPU facial flexes (2026-11-23)
+
+The packaged O41 release (`c8c336b4`, A) and the revised GPU morph release (`db6ecd38`, B) ran on the Apple M1 Pro with the Metal backend. Both used the advanced-options and debug-tools plugins. The 1280×720 uncapped stage runs used the same default settings and tick scripts. Each scene had one discarded A warm-up followed by three pairs in AB, BA, AB order. Frame and stage times are median run means in milliseconds.
+
+| Scene | Frame total | Animation | Render assets | Flex mesh rewrites/frame | Mesh allocator ms/frame |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mixed crowd, station 02 | 11.203 → 10.037 | 1.409 → 1.177 | 2.540 → 1.004 | 51.015 → 0.000 | 4.565 → 2.096 |
+| Security face, station 01 | 3.733 → 3.582 | 0.563 → 0.529 | 0.296 → 0.159 | 13.385 → 0.000 | 0.613 → 0.181 |
+
+Release frame means per pair (A/B, ms) were crowd 10.990/10.043, 11.866/10.037, 11.203/9.986, face 3.733/3.582, 3.716/3.587, 3.734/3.564.
+
+The last two columns use separate trace builds of the same sources (`c181954b` / `97c8e5fa`). Each ran the full script at 2×. The middle half of complete gameplay frames excludes startup and exit. Crowd contributed 65/72 frames and face 756/761. A temporary span counted each flex-driven position-buffer rewrite, with separate spans for CPU reskinning and GPU weight updates. Neither revised scene took the CPU fallback. B updated weights 76.35 times/frame in the crowd and 12.75 in the face replay. The allocator column sums Bevy’s `allocate_and_free_meshes` duration per frame across all meshes.
+
+All four security-face, three gesture and two Breen monitor replay checks passed on B. At normal speed, two captures per build used camera `camera_tv_breen`, froze at tick 1674 and ended at tick 1704. Mean absolute RGB differences (0–255) for the matched AB and BA pairs were 0.048 / 0.232 in the player view and 0.000 / 0.083 in the monitor texture. The first pair also matched render frame 1339 and differed by 0.00005 per monitor RGB channel. The within-build A/A and B/B controls measured 0.004 / 0.180 and 0.000 / 0.083, respectively. Accelerated player-view captures had greater exposure variation (A/A 14.970).
+
+The initial GPU release (`8cad383f`) measured 11.94 → 11.05 ms in the crowd and 4.25 → 4.17 ms on the face replay before the CPU fallback, runtime-template and bodygroup fixes. An initial sandboxed O41 visual capture failed before gameplay because it had no GPU. Windows runtime and ordinary campaign play are **not tested**.
+
+## `O41` — Share non-reflective lit `SourceMaterial`s via `MeshTag` and split `LIGHT_ROWS` storage buffer (2026-11-23)
+
+Measured on Apple M1 Pro across 3 alternating `--profile` release pairs per scene (`28078e30` `sha256 5a7f0038` vs `O41` `sha256 c8c336b4`):
+
+- **Changes:**
+  - `crates/hl2-bevy/assets/shaders/source.wgsl`, `crates/hl2-bevy/src/material_slots/lighting.rs`, `crates/hl2-bevy/src/rendering/lighting.rs`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/rendering/runtime.rs`, `crates/hl2-bevy/src/map_install.rs`: read per-draw `MeshTag` via `mesh_functions::get_tag(instance_index)` in `@fragment` (`tag > 0` -> `slot = tag - 1`), assign `MeshTag` at spawn time (`1024` slots, initialized with `ModelLighting::fallback`, cleared on map install via `slots.clear_lights()`, released on `RemovedComponents<ModelLit>`) so non-reflective, non-two-texture, non-commentary lit models share `SourceMaterial` handles across entities at both map load and runtime spawns while keeping `present_lighting`, `present_ragdoll_fades`, and `present_render_colors` read-only on `MeshMaterial3d` and `MeshTag` (with `detach_tagged_material` copy-on-write `dynamic.w = 1` on fade/rendercolor, and `copy_asset` fallback for reflective models or slot overflow).
+  - `crates/hl2-bevy/src/material_slots.rs`, `crates/hl2-bevy/src/rendering/material.rs`, `crates/hl2-bevy/src/sky.rs`: move lighting slots into a dedicated `@binding(22)` `LIGHT_ROWS` buffer (`1024 x 31` rows = `496 KiB`) separate from animated `MATERIAL_ROWS` (`@binding(21)`, `256 x 4` rows = `16 KiB`), upload `material_slots::upload` `.after(rendering::present_lighting)`, and replace full-buffer `encase` serialization with in-place dirty-range `write_rows_range`.
+  - Earlier iterations measured on the way here: an initial prototype using `&mut MeshMaterial3d` / `&mut MeshTag` in `present_lighting` with `2048` slots in the combined buffer regressed `PostUpdate` parallel scheduling (`5.44 -> 6.31 ms` crowd), and putting `1024` lighting slots in the combined buffer (`560 KiB`) regressed `quiet.json` `render_assets` (`0.125 -> 0.136 ms`, `+8.3%`) because animated monitors triggered a `560 KiB` buffer copy every frame; splitting `LIGHT_ROWS` and writing dirty slices eliminated that overhead.
+- **`d1_trainstation_02` `test-inputs/performance-research/mixed-crowd.json` (`O25` `5a7f0038` vs `O41` `c8c336b4`, 3 pairs):**
+  - Map-load `render.materials`: **`1,886 -> 1,267` (`-619`, `-32.8%`)**.
+  - `render_graph` mean (median): **`4.7654 -> 4.5998 ms` (`-3.5%`, `-0.166 ms`)** (`A: 4.7447 / 4.8287 / 4.7654`, `B: 4.6141 / 4.5884 / 4.5998`; `p95 5.7434 -> 5.5496`).
+  - `frame_total` mean (median): **`12.2437 -> 12.1551 ms` (`-0.7%`)** (`A: 12.2437 / 12.2796 / 12.1088`, `B: 12.1809 / 12.0420 / 12.1551`).
+  - `fight_ms` median: **`11.77 -> 11.66 ms` (`-0.9%`)**; `run_ms` median: **`12.14 -> 12.08 ms` (`-0.5%`)**.
+  - `main_schedule.PostUpdate` mean (median): **`5.4131 -> 5.3878 ms` (`-0.5%`)**; `render_prepare`: `0.9561 -> 0.9571 ms`.
+- **`d1_trainstation_02` `test-inputs/performance-research/quiet.json` (static spawn with lit props, 3 pairs, `0.03–0.07 ms` spread):**
+  - `frame_total` mean (median): **`4.3820 -> 4.3430 ms` (`-0.9%`)** (`A: 4.3835 / 4.3820 / 4.3579`, `B: 4.3911 / 4.3195 / 4.3430`).
+  - `fight_ms` median: **`4.37 -> 4.33 ms` (`-0.9%`)**; `run_ms` median: **`4.38 -> 4.35 ms` (`-0.7%`)**.
+  - `render_graph` mean (median): **`1.9639 -> 1.9358 ms` (`-1.4%`)**.
+  - `render_assets` mean (median): **`0.1239 -> 0.1155 ms` (`-6.8%`**, `p95 0.2368 -> 0.2057 ms` [`-13.1%`]).
+  - `render_prepare` mean (median): **`0.6985 -> 0.6944 ms` (`-0.6%`)**.
+  - `main_schedule.PostUpdate` mean (median): `1.9824 -> 1.9994 ms` (`+0.017 ms`, offset by `-28 us` `render_graph` + `-8 us` `render_assets`).
+- **Fidelity:** `flashlight_shadows`, `flashlight_viewmodel`, `lamp_emission`, `campaign`, `commentary`, `pallet-gibs-fade`, and `entities-weapons` packaged replay checks all pass (`7/7`, 0 failed); `lighting` (`7/7`) and `material_slots` (`8/8`) unit tests pass.
+
+## `O25` — Replace `update_mesh_previous_global_transforms` in `PreUpdate` to skip inactive motion views and static world meshes (2026-11-23)
+
+Measured on Apple M1 Pro (400-frame headless `--mode trace` A/B capture on `d1_trainstation_02` with `test-inputs/performance-research/quiet.json` and Ultra motion vectors active, baseline `1177db81` vs `O25`):
+
+- **Root cause fixed:** Bevy's default `bevy_pbr::prepass::update_mesh_previous_global_transforms` ran whenever any `Camera3d` was active (even when `MotionVectorPrepass` was disabled), inserted `PreviousGlobalTransform` via `Commands` onto every `With<Mesh3d>` entity (including ~1,000–2,000 static world geometry batches, sky faces, effect quads, and shadow decals), and ran `meshes.par_iter_mut()` across the full `Mesh3d` table every frame.
+- **Change:** `rendering::drawing::install_previous_transforms` (`crates/hl2-bevy/src/rendering/drawing.rs`, wired in `launch::add_presentation_systems`) removes Bevy's system from `PreUpdate` via `Schedules::remove_systems_in_set` (`ScheduleCleanupPolicy::RemoveSystemsOnly`) and registers `hl2_bevy::rendering::drawing::update_mesh_previous_global_transforms`, which returns immediately unless an active `Camera3d` carries `MotionVectorPrepass`, filters to movable entity and weapon meshes (`With<Mesh3d>, Or<(With<SourceEntity>, With<WeaponMesh>)>`) so static world meshes keep `HAS_PREVIOUS_TRANSFORM = false` in `mesh_preprocess.wgsl`, and writes `PreviousGlobalTransform` only when `previous.0 != transform.affine()` (`previous_transforms_track_only_movable_meshes_when_motion_vectors_are_active`).
+- **400-frame `--mode trace` A/B capture (`quiet.json`, walking the static spawn with motion vectors on, `o25-trace-a` vs `o25-trace-b`):**
+  - `update_mesh_previous_global_transforms` (`398` calls):
+    - `mean`: **`0.0796 -> 0.0079 ms` (`-90.0%`, 10.0x faster)**.
+    - `p99`: **`0.4770 -> 0.0210 ms` (`-95.6%`, 22.8x lower p99)**.
+    - `max`: **`0.5453 -> 0.0425 ms` (`-92.2%`, 12.8x lower max)**.
+    - `total`: **`31.67 -> 3.16 ms` (`-90.0%`)**.
+  - `main_schedule.PreUpdate` (`--profile` stage, `249` post-warmup samples):
+    - `mean`: **`0.452 -> 0.412 ms` (`-8.8%`)**.
+    - `p95`: **`0.632 -> 0.537 ms` (`-15.0%`)**.
+    - `max`: **`0.89 -> 0.70 ms` (`-21.3%`)**.
+  - `schedule: name=PreUpdate` (trace): `mean` `0.4419 -> 0.4080 ms` (`-7.7%`), `p99` **`0.8010 -> 0.6505 ms` (`-18.8%`)**.
+- **Fidelity:** `motion_blur_options` and `viewmodel_motion_blur` replay checks pass with 0 failures.
+
+## `O21` — Eliminate pure-waste per-frame heap allocations in `eyes`, `material_slots`, `Canvas`, and `Rig` (2026-11-23)
+
+Measured on Apple M1 Pro (`--mode trace-alloc` A/B captures on `d1_trainstation_02`, baseline `e6563cd7` vs `O21`):
+
+- **Root causes fixed:**
+  1. `crates/hl2-bevy/src/eyes.rs`: `eyes::present` built `serde_json::json!` maps and formatted target-label `String`s (`"player"`, `"view"`, `format!("#{id}")`) inside per-actor and per-eye-draw loops on every frame even when no report was generated, and cloned `eyes.rows` (`32 KiB`) twice on dirty frames (`buffer.set_data(eyes.rows.clone())` and `eyes.uploaded = eyes.rows.clone()`). Replaced with typed `OriginRecord`, `ProjectionRecord`, and `TargetLabel` structs that reuse `Vec` capacity across frames and serialize only inside `Eyes::report`, plus a `dirty: bool` flag in `Eyes::set_rows`.
+  2. `crates/hl2-bevy/src/material_slots.rs`: `material_slots::upload` called `buffer.set_data(slots.rows.clone())`, cloning `19,968 Vec4` (`312 KiB`) and allocating a new `312 KiB` `Vec<u8>` inside `ShaderBuffer::set_data` on every dirty frame. Added `material_slots::write_rows` (reused by `eyes::present`), which writes directly into `buffer.data`'s existing `Vec<u8>` buffer via `encase::StorageBuffer::new(&mut bytes)` (`write_rows_reuses_the_existing_shader_buffer_allocation`).
+  3. `crates/source-ui/src/canvas.rs` and `crates/hl2-bevy/src/canvas_renderer.rs`: `Canvas::drain` took `state.commands` with `std::mem::take`, dropping capacity every frame so the next frame's HUD drawing reallocated `0 -> 4 -> ... -> 512` `Quad`s. Added `Canvas::drain_into` and `Hud::scratch_quads` to swap buffers and retain capacity.
+  4. `crates/modkit-core/src/animation.rs` and `crates/hl2-simulation/src/physics/hitboxes.rs`: added `Rig::clip` to check already-lowercase clip keys before allocating `to_lowercase()`, and deduplicated changed collider pushes in `Physics::set_npc_hitboxes`.
+- **`--mode trace-alloc` (`state_frame`) A/B results (`d1_trainstation_02`):**
+  - **Static spawn (`300` frames, `o21-alloc-static-a` vs `o21-alloc-static-b`):**
+    - Heap allocations per frame: **`108,983 -> 108,056` mean (`-927/frame`)**, `p99` **`192,301 -> 181,004` (`-11,297/frame`, `-5.9%`)**.
+    - Bytes requested per frame: **`11,754 -> 11,160 KB` mean (`-594 KB/frame`, `-5.1%`)**.
+    - `RenderExtractApp`: **`4.237 -> 3.884 ms` mean (`-8.3%`**, `p99 5.372 -> 4.828 ms`); `main app` `7.089 -> 6.690 ms` mean (`-5.6%`).
+  - **Crowd (`400` frames on `test-inputs/performance-research/mixed-crowd.json`, `o21-alloc-crowd-a` vs `o21-alloc-crowd-b`):**
+    - Heap allocations per frame: **`418,338 -> 412,528` mean (`-5,810/frame`)**, `p99` **`1,413,298 -> 1,392,403` (`-20,895/frame`)**.
+    - Bytes requested per frame: **`47,965 -> 46,560 KB` mean (`-1,405 KB/frame`, `-2.9%`)**.
+    - **`eyes` stage**: **`0.781 -> 0.609 ms` mean (`-22.0%`**, `p95` **`1.104 -> 0.841 ms`, `-23.8%`**, `max 1.25 -> 0.99 ms`).
+    - `main_schedule.PostUpdate`: `9.209 -> 9.006 ms` mean (`p95 11.715 -> 11.456 ms`, `max 21.94 -> 18.56 ms`).
+
+## `O29` — Share immutable LOD flex vertex data via `Arc<lod::Vertices>` (2026-11-23)
+
+Measured on Apple M1 Pro (`d1_trainstation_02`, `test-inputs/performance-research/mixed-crowd.json`, baseline `808989b5` from `6fe185eb` vs `1a9830af`):
+
+- **Root cause fixed:** `AnimatedMesh` and `lod::Level` stored separate heap `Vec` copies of immutable per-vertex `bind`, `normals`, `flex`, and `flex_base` tables. Every `AnimatedMesh::copy_for` (runtime NPC spawn from a template) and every facial-flex LOD switch in `hl2_bevy::rendering::lod::switch_levels` cloned all three/four `Vec`s (bursting on spawn frames when distant NPCs step off `LOD0`).
+- **Change:** `AnimatedMesh` and `lod::Level` share `Arc<lod::Vertices>` (`bind`, `normals`, `flex`), and `AnimatedMesh` replaces the duplicate `flex_base` table with `deformed: Option<Vec<glam::Vec3>>` populated only for the CPU skinning fallback when facial flexes are active. `switch_levels` and `AnimatedMesh::copy_for` clone the `Arc` pointer in $O(1)$ without heap allocation (`level_switches_and_template_copies_share_immutable_vertex_tables`).
+- **400-frame `--mode trace` A/B capture (`mixed-crowd.json`, covering spawn burst and movement across LOD switch distances):**
+  - `hl2_bevy::rendering::lod::switch_levels`:
+    - `max`: **`0.6614 -> 0.0536 ms` (`-91.9%`, 12.3x lower max spike)**.
+    - `mean`: **`0.0219 -> 0.0183 ms` (`-16.5%`)**.
+    - `p99`: `0.0431 -> 0.0400 ms` (`total 8.74 -> 7.30 ms` over 399 calls).
+- **Three alternating `--profile` stage pairs on `mixed-crowd.json` (`808989b5` vs `1a9830af`):**
+  - `animation`: **`1.685 -> 1.637 ms` median (`-2.9%`**, A `1.721 / 1.685 / 1.684`, B `1.665 / 1.637 / 1.626`; `p95` **`2.178 -> 2.096 ms`, `-3.8%`**).
+  - `main_schedule.PostUpdate`: **`5.641 -> 5.565 ms` median (`-1.4%`**, A `5.766 / 5.569 / 5.641`, B `5.694 / 5.565 / 5.550`; `p95` `6.998 -> 6.910 ms`).
+  - `frame_total`: **`13.02 -> 12.89 ms` median (`-1.0%`**, A `13.27 / 12.95 / 13.02`, B `13.31 / 12.89 / 12.84`).
+
+## `O5` — `ClusterConfig::Single` on non-lit 3D cameras and dynamic `FlyCamera` clustering (2026-11-23)
+
+Measured on Apple M1 Pro (everyday `stages` release build, `--uncapped --profile`, three alternating A/B pairs after one discarded warm-up run, baseline `0e02e9b1` from `5d7950c5` vs `808989b5`):
+
+- **Root cause fixed:** all `Camera3d` entities (`FlyCamera`, `ViewmodelCamera`, `SkyCamera`, `MonitorCamera`, `IntroCamera`) defaulted to `ClusterConfig::FixedZ` (4,096 light clusters per view), running `assign_objects_to_clusters` (`main_schedule.PostUpdate`) and `prepare_clusters_for_cpu_clustering` (`render_prepare`) across thousands of clusters on views that never use clustered dynamic lights, and on `FlyCamera` even while the player's flashlight `SpotLight` is off.
+- **Change:** `ViewmodelCamera`, `SkyCamera`, `MonitorCamera`, and `IntroCamera` spawn with `ClusterConfig::Single`; `FlyCamera` spawns with `ClusterConfig::Single` and `flashlight::update` (`sync_camera_clusters`) toggles `FlyCamera` to `ClusterConfig::FixedZ` only while `host.light.is_some()`.
+- **Three alternating `--profile` stage pairs (`0e02e9b1` vs `808989b5`):**
+  - **`quiet.json` (flashlight off):**
+    - `render_prepare`: **`0.908 -> 0.681 ms` median (`-25.0%`**, A `0.903 / 0.908 / 0.908`, B `0.681 / 0.678 / 0.682`; `p95` **`1.141 -> 0.873 ms`, `-23.5%`**).
+    - `main_schedule.PostUpdate`: **`2.065 -> 1.958 ms` median (`-5.2%`**, A `2.065 / 2.058 / 2.075`, B `1.953 / 1.958 / 1.961`; `p95` `2.401 -> 2.298 ms`).
+    - `frame_total`: **`4.54 -> 4.32 ms` median (`-4.8%`**, A spread `0.04 ms`, B spread `0.03 ms`).
+  - **`test-inputs/bevy-flashlight-depth-actor.json` (`--capture-live --frames 450`, flashlight on):**
+    - `render_prepare`: **`1.526 -> 1.464 ms` median (`-4.1%`**, A `1.536 / 1.526 / 1.505`, B `1.431 / 1.464 / 1.496`), while `FlyCamera` uses `ClusterConfig::FixedZ` and the non-lit cameras stay on `ClusterConfig::Single`.
+    - `frame_total`: `6.01 -> 6.01 ms` median.
+- **Fidelity:** `flashlight_shadows` packaged replay check and `fly_camera_uses_single_cluster_only_while_flashlight_is_off` unit test pass with 0 failures.
+
+## `O1` / `O20` — Moving-mesh `MotionRegion` scissoring across world and weapon motion blur and 25-tap jittered viewmodel gather (2026-11-23)
+
+Measured on Apple M1 Pro at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur, anisotropic 8x; everyday `stages` release build, baseline `c8f8e9ea` from `d8208f77` vs `365827f5` / `a14a1f8a`):
+
+- **Root causes fixed:**
+  1. `crates/hl2-bevy/assets/shaders/object_motion.wgsl` (`if all(current == previous) { return vec2(0.0); }`) exports zero object velocity for any mesh whose world vertex positions did not change between frames, even while the camera turns. However, `plugins/hl2-advanced-options/src/bevy/weapon_blur/region.rs` only computed `MotionRegion` for `WeaponCamera` (`!blur.world`) and only scissored `weapon_reduce_4` on `!blur.world`, leaving `FlyCamera` (`blur.world`) to run full-screen `weapon_reduce_4` (`0.700 ms/frame`), `weapon_reduce_32` (`0.116 ms/frame`), `weapon_motion_dilate` (`0.139 ms/frame`), and `world_object_gather` (`0.112 ms/frame`) across `3456x2168` every frame.
+  2. Using Bevy's raw `Changed<GlobalTransform>` boolean on `SkinnedMesh` `Joint` entities triggered on every tick of sub-pixel idle breathing animations (`"idle01"` on the crowbar and `"idle_subtle"` on plaza citizens). `region.rs` (`mesh_world_displacement`) now multiplies changed joint `GlobalTransform`s by `SkinnedMeshInverseBindposes` to cancel bone-origin lever arms, bounds the maximum world-space displacement across the mesh's `Aabb`, projects it to physical screen pixels at the mesh's camera distance, and filters at `MIN_PIXEL_MOTION = 0.8` pixels (below the shader's hard `1.0` pixel early-out where `smoothstep(1.0, 3.0, pixel_motion) == 0.0`).
+  3. When `MotionRegion` is empty and the camera is stationary, `snapshot` (full-screen `3456x2168` `Rgba16Float` copy on `WeaponCamera`) and `reconstruct` skip all passes. Otherwise, `weapon_reduce_4`, `weapon_reduce_32`, `weapon_motion_dilate`, and `world_object_gather` (`world.rs`) are all scissored to the moving region (`pass_scissor` / `tile_scissor` / `gather_scissor`) while `LoadOp::Clear` clears the full intermediate targets.
+  4. `plugins/hl2-advanced-options/assets/shaders/weapon_blur.wgsl` (`viewmodel_animation_blur`) caps viewmodel trail taps at `15..25` odd taps (`i32(clamp(ceil(length(vector * data.params.zw) * 0.5), 15.0, 25.0)) | 1`), keeping `phase = 0.5` on `center_tap = count / 2` so thin surfaces never lose coverage while jittering non-center taps with interleaved gradient noise.
+- **Headless Metal System Trace (`d1_trainstation_02`, maxed Retina `3456x2168`, `c8f8e9ea` vs `365827f5` / `a14a1f8a`):**
+  - **Static spawn (no script, `20261123-o2-after-static-1` vs `20261123-o20-after-static-1`):**
+    - GPU busy per frame: **`8.07 -> 6.97 ms` mean** (`p50 8.47 -> 6.50`, `p95 9.01 -> 7.99`, `p99 10.08 -> 9.16`, `max 10.42 -> 9.58`; frames > 8.33 ms: `410/763` [`53.7%`] -> `11/874` [`1.3%`]).
+    - `weapon_reduce_4` Fragment: **`0.707 -> 0.015 ms/frame`** (`-97.9%`).
+    - `weapon_reduce_32` Fragment: **`0.117 -> 0.017 ms/frame`** (`-85.5%`).
+    - `weapon_motion_dilate` Fragment: **`0.142 -> 0.041 ms/frame`** (`-71.1%`).
+    - `world_object_gather` Fragment: **`0.116 -> 0.018 ms/frame`** (`-84.5%`).
+    - `--profile` stages (`2,849` post-warmup samples): `frame_total` **`8.693 -> 7.111 ms` mean** (`p95 10.336 -> 8.936 ms`), `render_graph` **`5.874 -> 4.310 ms` mean** (`p95 7.752 -> 6.246 ms`).
+  - **`quiet.json` (`20261123-o2-after-quiet-1` vs `20261123-o20-after-quiet-1` and `20261123-o20-after-quiet-2`):**
+    - GPU busy per frame: **`7.88 -> 6.73 / 7.31 ms` mean** (`p50 7.40 -> 6.27 / 7.74`, `p95 8.91 -> 8.01 / 8.20`, `p99 10.11 -> 8.15 / 9.34`; frames > 8.33 ms: `176/435` [`40.5%`] -> `2/509` [`0.4%`] / `11/378` [`2.9%`]).
+    - `weapon_reduce_4` Fragment: **`0.700 -> 0.014 / 0.013 ms/frame`** (`-98.1%`).
+    - `weapon_reduce_32` Fragment: **`0.116 -> 0.015 / 0.017 ms/frame`** (`-86.2%`).
+    - `weapon_motion_dilate` Fragment: **`0.139 -> 0.034 / 0.045 ms/frame`** (`-71.6%`).
+    - `world_object_gather` Fragment: **`0.112 -> 0.017 / 0.015 ms/frame`** (`-85.7%`).
+    - `--profile` stages: `frame_total` **`8.419 -> 7.001 / 7.822 ms` mean** (`p95 10.498 -> 9.002 / 9.712 ms`), `render_graph` **`5.879 -> 4.448 / 5.137 ms` mean** (`p95 7.866 -> 6.425 / 7.154 ms`).
+- **`check_blur_performance.py` (`3456x2168`, 4x MSAA, 3 alternating pairs per scene):**
+  - `still`: `raw_weapon` processed texels `37.2M -> 18.2M` (`24.6% -> 11.8%`), `raw_world` processed texels `150.8M -> 78.2M` (`100% -> 51.4%`, bounding the walking citizens and flying scanners across the plaza), `still` Advanced/Ultra mean frame time `12.08 -> 11.51 ms`.
+  - `swing`: `raw_weapon` processed texels `31.9M -> 20.2–21.2M`, `swing` Advanced/Ultra mean frame time `12.78 -> 12.32 ms`, `p95` upper bound `18.0 -> 16.0 ms` (`p95` performance guard passes), `max` frame time `20.20 -> 16.39–17.20 ms` (retail Enabled `9.18 ms` median, which omits the full-scene 4x MSAA `MotionVectorPrepass` + `DepthPrepass` and post-process composites).
+- **Fidelity:** `motion_blur_options` and `viewmodel_motion_blur` replay checks (including `viewmodel_blur_swing`, `viewmodel_blur_sharp`, `viewmodel_vectors_none`, `viewmodel_vectors_x4`, `viewmodel_silhouette_trail`, `still`, `paused`, `switch`, `off`, `retail`) pass with 0 failures.
+
+## `O2` / `O1` — Single sky camera merge, direct 1x `Hud2d` pass (`Msaa::Off`), `OwnTarget` MSAA exclusion, and `metal_gpu.py` `depth == 0` fix (2026-11-23)
+
+Measured on Apple M1 Pro at maxed Retina (`3456x2168`, 4x MSAA, full HDR, Ultra motion blur, anisotropic 8x; everyday `stages` release build, baseline `45fa0eaf` vs `c8f8e9ea`):
+
+- **Root causes fixed:**
+  1. `.agents/skills/hl2-performance-trace/scripts/metal_gpu.py` previously filtered `if row["depth"] >= 1:`, dropping non-overlapping `depth == 0` Metal GPU intervals (including `upscaling` frame markers and `early prepass` intervals), which had made the earlier 2026-11-22 single-sky-camera test appear to regress on GPU.
+  2. `crates/hl2-bevy/src/sky.rs` spawned two full-Retina 4x MSAA `Camera3d` entities (`order: -2` for six 2D sky quads on layer 3 and `order: -1` for miniature 3D sky on layer 4). A single `SkyCamera` (`order: -1`) now draws both layer 3 and layer 4, keeping the six `SkyFace` quads centred on the active sky camera at `FACE_DISTANCE = 16,000` units (`far: 32,000`, `32,000 * sqrt(3) < 65,504` FP16 limit; verified across all 15 owned HL2 campaign maps by `source_assets::sky::owned_sky_depth`, max miniature sky reach `14,320` units in `d1_canals_05`).
+  3. Because Bevy 0.19 keys `MainTargetTextures` on `(target, usage, format, msaa)`, `HudCamera` (`Camera2d`, `order: 2`) previously either had to use `Msaa::Sample4` (paying a full-Retina 4x `msaa_writeback` blit of `~0.50 ms/frame` plus a 4x MSAA `main_transparent_pass_2d` of `~0.60 ms/frame`) or allocate a separate target texture that discarded the 3D scene. `crates/hl2-bevy/src/canvas_renderer/hud_pass.rs` (`Hud2d` schedule) now renders `Transparent2d` directly onto `target.out_texture_color_attachment(clear)` (`GameFrame`) at `Msaa::Off` and `MsaaWriteback::Off` after the last active 3D camera resolves into `GameFrame` (`video/outputs.rs` `skip_covered_outputs`).
+  4. `crates/hl2-bevy/src/video/msaa.rs` (`sync_antialiasing`) now excludes `Without<OwnTarget>` alongside `Without<PresentCamera>` and `Without<HudCamera>` so `MonitorCamera` (`256x256`) and `IntroCamera` keep `Msaa::Off` on their standalone 1x render targets.
+- **Headless Metal System Trace (`d1_trainstation_02`, maxed Retina `3456x2168`):**
+  - **Static spawn (no script, `20261123-o2-head-static-1` vs `20261123-o2-after-static-1`):**
+    - GPU busy per frame: **`9.15 -> 8.07 ms` mean** (`p50 8.95 -> 8.47`, `p95 10.22 -> 9.01`, `p99 11.57 -> 10.08`, `max 17.41 -> 10.42`; frames > 8.33 ms: `649/652` [`99.5%`] -> `410/763` [`53.7%`]).
+    - `main_opaque_pass_3d` Fragment: **`3.202 -> 2.712 ms/frame`** (`3.0 -> 2.0` passes/frame).
+    - `msaa_writeback` Fragment: **`0.485 -> 0.000 ms/frame`** (`1.0 -> 0` passes/frame).
+    - 2D HUD pass: `main_transparent_pass_2d` **`0.600 ms/frame` (4x MSAA) -> `hud_pass_2d` `0.185 ms/frame` Fragment + `0.035 ms/frame` Vertex (1x)**.
+  - **`quiet.json` (`20261123-o2-head-quiet-1` vs `20261123-o2-after-quiet-1` and `audit-hud2d-1`):**
+    - GPU busy per frame: **`9.82 -> 7.88 / 7.82 ms` mean** (`p50 9.99 -> 7.40 / 7.30`, `p95 11.45 -> 8.91 / 8.94`, `p99 11.80 -> 10.11 / 10.22`; frames > 8.33 ms: `352/352` [`100%`] -> `176/435` [`40.5%`] / `271/724` [`37.4%`]).
+    - `main_opaque_pass_3d` Fragment: **`3.370 -> 2.640 / 2.625 ms/frame`** (`3.0 -> 2.0` passes/frame).
+    - `msaa_writeback` Fragment: **`0.509 -> 0.000 ms/frame`** (`1.0 -> 0` passes/frame).
+    - 2D HUD pass: `main_transparent_pass_2d` **`0.635 ms/frame` -> `hud_pass_2d` `0.178 / 0.168 ms/frame` Fragment + `0.038 / 0.040 ms/frame` Vertex**.
+- **Three alternating `--profile` stage pairs at maxed Retina (`3456x2168`, `A-B-B-A-A-B` after warm-up, `45fa0eaf` vs `c8f8e9ea`):**
+  - **`quiet.json`:** `frame_total` median **`10.16 -> 8.37 ms` (`-17.6%`**, A `10.38 / 10.16 / 9.94`, B `8.42 / 8.21 / 8.37`, `p95 13.21 -> 10.87 ms`), `render_graph` **`7.77 -> 6.07 ms` (`-21.9%`**, `p95 10.53 -> 8.55 ms`), `render_prepare` **`1.06 -> 0.95 ms` (`-10.4%`)**, `PostUpdate` `2.60 -> 2.52 ms`.
+  - **`bevy-monitors-breen-screen.json` (`--frames 600`):** `frame_total` median **`17.53 -> 15.93 ms` (`-9.1%`**, A `17.58 / 17.51 / 17.53`, B `15.94 / 15.75 / 15.93`, `p95 22.19 -> 18.97 ms`), `render_graph` **`15.17 -> 13.63 ms` (`-10.2%`**, `p95 19.67 -> 16.66 ms`), `render_prepare` **`1.02 -> 0.94 ms` (`-7.8%`)**.
+- **Fidelity:** `monitors-breen-screen`, `hud`, and `dev_overlay` packaged replay checks and `owned_sky_depth` (15 campaign maps) pass with 0 failures.
+
+## A/A noise floor and stashed lockstep control (2026-11-22)
+
+Measured at `6c680b59` (`bin/hl2-bevy`, everyday `stages` release build, `--uncapped --profile`,
+three alternating A/A pairs of the same binary after one discarded cold warm-up run) on
+`d1_trainstation_02` with `test-inputs/performance-research/quiet.json`:
+
+- **Wall clock (`1,923–1,942` frames/run):** `frame_total` median A `4.57` vs B `4.58 ms` (`+0.2%`,
+  A spread `0.06 ms` over `4.56–4.62`, B spread `0.03 ms` over `4.57–4.59`), `fixed_simulation`
+  median `1.98` vs `1.98 ms` (`-0.2%`), `fight_ms` median `4.58` vs `4.60 ms`.
+- **Stashed `--lockstep` experiment (one 15 ms fixed tick per rendered frame and synchronous
+  runtime loads; `601` frames/run):** `frame_total` median A `5.11` vs B `5.14 ms` (`+0.5%`, A
+  spread `0.07 ms` over `5.07–5.13`, B spread `0.15 ms` over `5.09–5.24`), `fixed_simulation` median
+  `1.88` vs `1.90 ms` (`+0.7%`), `fight_ms` median `5.12` vs `5.17 ms`.
+- **Crowd and physics determinism notes:** on `mixed-crowd.json`, two `--lockstep` runs matched
+  workload totals (`1,201` frames, `73/73` spawns, `43` Combat / `4` Alert / `0` dead) while
+  differing in `1,585` of `88,249` simulated float values (`frame_total` `13.93 ms` cold with a
+  `140 ms` hitch vs `13.16 ms` warm). In-process `Physics::new` stepped twice on
+  `d1_trainstation_02` diverged on tick 0 because `parry3d` keeps composite-shape contact manifolds
+  in a randomly seeded `hashbrown` map unless Rapier's `enhanced-determinism` feature is on.
+- **Outcome:** `--lockstep` did not lower run-to-run timing noise on the quiet scene and altered the
+  simulation-to-render ratio (`~0.31` ticks/frame on wall clock vs `1.0` under lockstep). The
+  `--lockstep` code and its two failing determinism tests remain stashed (not committed); the
+  retained tooling stamps `executable_sha256`, `args`, `backlog_item`, and `backlog_measure` into
+  `capture_meta.json` (`capture.py` / `session.py`).
+
+## Batch 1 CPU optimizations (`O6`, headless `trace` on `mixed-crowd.json`, M1 Pro, 2026-11-22)
+
+Matched headless `trace` captures on `d1_trainstation_02` (`400` static spawn frames at `4278c1ee`, `300` frames running `test-inputs/performance-research/mixed-crowd.json` at `4278c1ee` vs each change; absolute trace times include `trace-chrome` instrumentation, compare like with like):
+
+- **Baseline at `4278c1ee`:**
+  - Everyday `stages` (`d1_trainstation_02` static, 400 frames, 249 post-warmup samples): `frame_total` `9.826 ms` mean (`p95 13.169`, `max 17.22`), `render_graph` `5.641 ms`, `render_assets` `1.506 ms`, `PostUpdate` `2.832 ms`, `PreUpdate` `0.598 ms`, `fixed_simulation` `2.131 ms`, `animation` `0.662 ms`, `hud` `0.225 ms`.
+  - Static `trace` (`d1_trainstation_02`, 400 frames): `allocate_and_free_meshes` `1.795 ms` mean, `prepare_erased_assets<SourceMaterial>` `0.824 ms` mean; `0` `present_entities + update` duplicate `actor_pose` groups because static spawn holds no animating rigged casters continuously in view (`silhouettes: 34` total).
+  - Crowd `trace` (`mixed-crowd.json`, 300 frames, `65` spawned NPCs in the plaza): `frame_total` `58.136 ms` mean (`main app` `43.111 ms`), `shadows::update` `1.048 ms` mean (`p99 2.439`, `max 4.21`), `--profile` `shadows` stage `1.244 ms` mean (`p95 1.504`, `max 3.82`), `actor_pose` `597.7` calls/frame (`4.460 ms/frame`), **`7,308` duplicate `actor_pose` groups by `present_entities + update`**, `visibility::present` `0.407 ms` (`p99 1.834`, `max 2.26`), `rendering::lod::switch_levels` `0.052 ms` (`max 8.77`).
+- **`O6` — Share `ActorPoses` in `shadows::update` (`shadows/caster.rs`):**
+  - Crowd `trace` (`mixed-crowd.json`, 300 frames): **`present_entities + update` duplicate `actor_pose` groups `7,308 -> 0`**, `shadows::update` **`1.048 -> 0.617 ms`** mean (`p99 2.439 -> 1.119`, `max 4.21 -> 1.38`), `--profile` `shadows` stage **`1.244 -> 0.811 ms`** mean (`p95 1.504 -> 1.004`, `max 3.82 -> 1.37`), total `actor_pose` **`597.7 -> 463.4`** calls/frame (**`4.460 -> 2.729 ms/frame`**), `frame_total` `58.136 -> 43.030 ms` mean.
+
+- **`O28` — PVS bitset rows and per-draw cluster lists (`hl2-bevy/src/visibility.rs`, `source-assets/src/visibility.rs`):** everyday `stages` build, headless `d1_trainstation_02` with the whole `mixed-crowd.json` run (`--frames 2000`, the script ends first; about 740-770 post-warmup samples), three runs each side, one at a time, at `3283ac47` against the change:
+  - `source_pvs` stage mean `0.180 / 0.181 / 0.180 -> 0.156 / 0.160 / 0.157 ms` (about `-12%`), `p95 0.216 / 0.215 / 0.214 -> 0.189 / 0.190 / 0.187`, `max 0.263 / 0.261 / 0.265 -> 0.256 / 0.239 / 0.234`.
+  - Same culling: `checked_draws 2396`, `culled_draws 468` in every run on both sides; `reused_bounds_tests` 886-894 both sides (the remaining ~1,500 per frame are crowd draws whose animated bounds move every frame and keep the early-exit tree walk).
+  - `frame_total` unchanged within noise (`21.13-21.37 -> 20.72-21.72 ms` mean); this headless path never shows capture 3's live `1.8 ms` p99 spike, so the transition gain (whole-scene re-walks on a view-cluster change now cost bitset lookups for draws whose bounds stay put) needs the next live capture to confirm.
+
+- **`O13` / `O8` — HUD canvas atlas (`hl2-bevy/src/canvas_renderer/atlas.rs`):** static `d1_trainstation_02` spawn, 1,000 frames, everyday `stages` build with the F1 overlay shown (saved setting), three runs each side at `6c97a6c5` against the change:
+  - HUD: `446` quads in `432 -> 4` pooled batch meshes (2 atlas pages); before, about 52 batch meshes were rewritten per frame because the overlay's frame-time line shifted every later glyph batch.
+  - `render_assets` mean `1.160 / 1.127 / 1.137 -> 0.555 / 0.568 / 0.570 ms` (p95 `2.19 / 2.16 / 2.13 -> 0.91 / 0.92 / 0.93`), `PostUpdate` `2.60 -> 2.51 ms`; `frame_total` `8.57 -> 8.58 ms` (unchanged: headless at maxed settings is GPU-bound here, also with `--uncapped`), `render_graph` `4.93 -> 5.61 ms` (the freed render-thread time becomes swapchain wait).
+  - Headless `trace` (400 frames, same spawn) per frame: `allocate_and_free_meshes` `1.71 -> 0.23 ms`, `main_transparent_pass_2d` encode `0.34 + 0.23 -> 0.05 + 0.02 ms`, `submit_pending_command_buffers` `0.82 -> 0.31 ms`, `render_system` `6.18 -> 5.56 ms`, `specialize_material2d_meshes<HudMaterial>` `0.032 -> 0.008 ms`.
+  - Fidelity: full-frame captures differ in 65 pixels, the overlay's elapsed-time digits; text and panels match.
+
+- **`O13` crowd — particles drawn per effect and material (`hl2-simulation/src/explosion_particles.rs`):** headless `d1_trainstation_02` running `mixed-crowd.json` to the end (a firefight: about 970 effect quads, 325 debris and 112 smoke particles live), everyday `stages` build, three runs per side alternating, at `4a0d9e35` against the change:
+  - Effect-quad run meshes rewritten per frame `207 -> 88` (temporary mesh-owner probe, frames 300-700); other rewritten meshes unchanged (22 eye meshes, 20 shadow decals, 11 animated models).
+  - `frame_total` mean `19.58 / 19.37 / 19.99 -> 17.63 / 17.92 / 17.76 ms` (p95 `27.98 / 26.96 / 26.49 -> 24.49 / 24.99 / 24.83`), `render_assets` `5.58 / 5.37 / 5.81 -> 4.12 / 4.21 / 4.06 ms`, `render_graph` `7.32 / 7.21 / 7.24 -> 6.76 / 6.74 / 6.77 ms`; about 10% more frames rendered over the same script.
+  - Fidelity: the end-of-script frames show the same scene (ragdoll poses differ between any two runs of this script); the order change is per effect, as Source sorts a particle effect as one translucent object and draws it per material.
+
+- **`O14` step 1 — per-frame material values in a shared buffer (`hl2-bevy/src/material_slots.rs`):** everyday `stages` build, three alternating runs per side at `a3f9a390` against the change; static spawn 1,000 frames, crowd `mixed-crowd.json` to the end:
+  - Static spawn: `render_assets` mean `0.558 / 0.561 / 0.560 -> 0.192 / 0.192 / 0.191 ms` (p95 `0.91 -> 0.25`), `render_prepare` `1.11 / 1.10 / 1.10 -> 0.96 / 0.96 / 0.96 ms`; `frame_total` unchanged (8.56 -> 8.60 ms, GPU-bound headless).
+  - Crowd: `frame_total` `17.26 / 17.52 / 17.23 -> 16.72 / 16.87 / 16.57 ms` (p95 `23.5 / 24.8 / 23.7 -> 23.3 / 23.4 / 22.5`), `render_assets` `4.08 / 4.08 / 4.02 -> 3.65 / 3.71 / 3.59 ms`, `render_prepare` `1.58 / 1.57 / 1.58 -> 1.36 / 1.35 / 1.36 ms`.
+  - Before (temporary material probe): about 25 `SourceMaterial` re-prepares per frame at the spawn and 43 + 2 in the crowd from texture-scroll and monitor tint; these now update slot rows only.
+  - Fidelity: the frame-matched `bevy-monitors-breen-screen` replay capture differs from the old build by 0.31 mean per channel, less than two runs of the old build differ from each other (0.59).
+
+- **Crowd ranking by macOS `sample` (2026-11-22, everyday build at `f3d2b5a1`, 20 s sampled at 10 ms once the crowd fights, fight frame 10.4 ms):** `fixed_step` 3.36 ms/frame (Rapier step 32% of it, AI think 10%, hitbox poses 6%, attachment poses 5%), `allocate_and_free_meshes` 2.15, `present_entities` 1.83 (of which `apply_facial_flexes` about 63%), `camera_driver` 1.53, `submit_pending_command_buffers` 0.91, HUD `present` 0.84 ms. The trace build had inflated the partial-pose cost (1.86 ms/frame from about 355 small spans).
+- **`O30` CPU side — dense facial flex deltas (`source-assets/src/flexes.rs`, `hl2-bevy/src/rendering/face_flex.rs`):** crowd `stages` A/B, three alternating runs per side at `f3d2b5a1` against the change: `animation` stage mean `3.50 / 3.41 / 3.51 -> 2.11 / 2.13 / 2.10 ms` (p95 `4.77 / 4.64 / 4.78 -> 2.62 / 2.61 / 2.59`), `PostUpdate` `8.02 / 7.93 / 8.08 -> 6.74 / 6.62 / 6.67 ms`, `frame_total` `16.92 / 16.55 / 17.19 -> 16.04 / 15.92 / 15.76 ms` (p95 `23.4 / 23.7 / 23.9 -> 21.5 / 20.4 / 20.9`). Frame-matched `face-security-1805` replay captures: old vs new 0.47-1.63 mean per channel, two old-build runs 1.75.
+
+- **`O6` — per-tick memo of partial actor poses (`hl2-simulation/src/entities/choreography/pose.rs`, owner-approved):** crowd `stages` A/B at `382fd37e`, three alternating runs per side:
+  - First version also memoized whole skeletons: `fixed_simulation` `5.53 -> 5.44 ms` mean (p95 `8.17 -> 7.17`) but host `animation` `2.12 -> 2.20 ms` (hashing inputs and copying every presented skeleton into a memo cleared before reuse), so whole skeletons now skip it.
+  - Partial skeletons only: `fixed_simulation` `5.66 / 5.62 / 5.63 -> 5.42 / 5.48 / 5.43 ms` (p95 `8.38 / 8.25 / 8.27 -> 7.23 / 7.15 / 7.25`, max `11.7 / 11.8 / 11.7 -> 10.9 / 9.7 / 9.8`), `animation` `2.10 / 2.09 / 2.12 -> 2.10 / 2.09 / 2.09 ms`, `frame_total` `16.26 / 16.31 / 16.39 -> 16.09 / 15.99 / 16.18 ms`, p99 bound `30 / 29 / 27 -> 27 / 26 / 26 ms`.
+
+- **`O14` step 2 — model lighting slots (`hl2-bevy/src/material_slots/lighting.rs`):** at `be5e4927` against the change, three alternating runs per side each:
+  - Crowd `stages`: `render_prepare` `1.414 / 1.423 / 1.398 -> 1.289 / 1.293 / 1.296 ms`, `render_assets` `3.85 / 3.75 / 3.80 -> 3.67 / 3.80 / 3.68 ms`, `frame_total` `16.10 / 15.96 / 16.20 -> 15.78 / 16.00 / 15.84 ms`; p99 bounds `26 / 25 / 26 -> 25 / 26 / 27`.
+  - Crowd GPU (headless Metal System Trace, 8 s attached 3 s after gameplay starts, 3456x2234): opaque fragment `1.70 / 1.69 / 1.67 -> 1.68 / 1.71 / 1.82 ms` per frame, transparent fragment `1.42 / 1.24 / 1.43 -> 1.47 / 1.41 / 1.32`, GPU busy mean `8.15 / 7.61 / 8.12 -> 8.43 / 8.08 / 7.99 ms`; the opaque vertex pass, whose shader did not change, moved `2.02 / 1.92 / 2.11 -> 2.19 / 2.12 / 2.00`, so differences of a few percent are this scene's run-to-run noise.
+  - Fidelity: frame-matched replay captures (`face-security-1805`, `gestures-security-1805`, the flashlight-lit pistol and SMG viewmodels) differ from the old build no more than two runs of one build differ; the SMG pair's only steady difference is the HUD ammo digits' glow.
+
+- **Thread priority (`hl2-bevy/src/priority.rs`) and application metadata (`apps/hl2rs/Info.plist`):** frame threads (main and Bevy's compute pool) ask for user-interactive QoS, asset/IO pools for user-initiated; App Nap off; crowd `stages` A/B at `2b23906a`:
+  - Under load (ten `yes` processes on the ten-core M1 Pro, two alternating runs per side): `frame_total` `41.21 / 37.89 -> 33.92 / 31.21 ms` mean (p95 `65.5 / 63.2 -> 60.6 / 49.8`, max `99.5 / 94.1 -> 75.3 / 70.4`, p99 bounds `85 / 81 -> 81 / 66`), `fixed_simulation` `7.42 / 7.17 -> 6.65 / 6.11 ms`.
+  - Without load (six alternating runs per side): `frame_total` median `16.30 -> 16.28 ms` (`15.93-16.62` against `15.93-17.14`, one slow run on the new side), p99 bounds `27-32` against `25-38`: no change.
+  - Game Mode: macOS labels the game and turns Game Mode on only when it runs full screen from an application bundle (O35); the embedded Info.plist alone is not enough.
+  - Game Mode A/B (full screen, same binary bare and from a scratch bundle, maxed saved settings, crowd script, ten `yes` processes, six alternating pairs, Game Mode state confirmed per run in the system log): mean frame `20.03 -> 20.30 ms` (off -> on), p95 `26.1 -> 27.4`, p99 bound `33.0 -> 34.5`, simulation `5.47 -> 5.51`; first three pairs `20.62 -> 20.42` mean, second three `19.45 -> 20.18`. No measurable gain once the frame threads have user-interactive QoS.
+
+## Uninflated Retina pacing and Metal GPU passes on M1 Pro (2026-11-22, Capture 4)
+
+Everyday release build (`22332865`, `advanced-options,debug-tools`, no Chrome trace), windowed
+`d1_trainstation_02` at native Retina `(3456, 2234)` / 120 Hz, 4x MSAA, full HDR, motion blur,
+anisotropic 8x, VSync, with `--profile`, external once-a-second process sampler, and a 15 s macOS
+`Metal System Trace` auto-attached when gameplay started (`58%` idle GPU, `879 MB` swap before
+launch). Compare against Capture 3 (`48100633`, `trace-alloc`, 5,610 traced frames) in
+`docs/optimization-backlog.md` for CPU/allocation culprits (`O6`, `O13`, `O25`–`O29`).
+
+- **Visible display pacing (`displayed-surfaces-interval`, 962 frames at 120 Hz):** **62.0 FPS effective**
+  (899 repeated refreshes): 1 refresh `186` frames (19.3%), 2 refreshes (60 Hz) `723` (75.2%),
+  3 refreshes `47` (4.9%), 4–6 refreshes `5` (0.5%), and `1` frame at 64 refreshes (0.1%).
+- **Metal GPU intervals (63,095 intervals over 817 frames):** GPU busy **6.00 ms mean**, p50 `5.30`,
+  p95 `14.31`, p99 `20.10`, max `29.69` ms; `183/817` frames (22.4%) exceeded 8.33 ms. Top
+  per-frame passes (ms/frame across all frames): `main_transparent_pass_3d` Fragment `1.520`
+  (1.7/frame, p99 `3.618`, max `4.11`), `main_opaque_pass_3d` Fragment `1.099` + Vertex `0.542`,
+  `source_bloom` Fragment `0.565` + Vertex `0.084` (2.3 Fragment passes/frame), `early prepass`
+  Fragment `0.467`, `msaa_writeback` Fragment `0.406` + Vertex `0.040`, world motion blur
+  (`world_motion_blur` `0.390` + `world_blur_composite` `0.208` + downsample/env `0.064` + vertex
+  `0.049`, `world_object_gather` `0.049` avg / p99 `2.138`), 2D Fragment `0.147 + 0.098`,
+  `upscaling` `0.143 + 0.050`. Weapon motion blur was mostly idle in this 15 s window
+  (`weapon_reduce_4` `0.100` at 0.2/frame, `weapon_reduce_32` `0.098`, `weapon_motion_dilate` `0.068`).
+- **`--profile` CPU stages (4,096 post-warmup of 10,518 frames):** `frame_total` **13.350 ms mean**
+  (p95 `18.305`, max `94.46`), `render_graph` **7.091 ms** (p95 `9.995`, max `72.48`),
+  `main_schedule.outside` **6.809 ms** (p95 `11.228`, max `86.39`), `main_schedule.PostUpdate`
+  `3.966 ms`, `render_assets` `2.141 ms` (p95 `4.607`), `fixed_simulation` `1.939 ms`,
+  `render_prepare` `1.513 ms`, `render_views` `1.047 ms` (p95 `5.316`), `animation` `0.924 ms`,
+  `diagnostics` `0.003 ms`.
+- **Process resources (132 samples, 131.5 s):** GPU `84.1%` mean (`max 99.0%`), `gpu_mem` `1941.1 MB`
+  mean (`max 2377.0 MB`), CPU `165.5%` mean (`top_thread 34.3%`), RSS `1472.1 MB` mean (`max
+  2622.2 MB`), `swap 878.6 -> 995.1 MB` (`+116.5 MB`).
+
+## Maxed Retina on M1 Pro: GPU-bound, render thread second (2026-11-21)
+
+Owner run, packaged release with `trace-chrome`, windowed d1_trainstation_02 at 3456x2168, 4x MSAA,
+full HDR, motion blur, anisotropic 8x, VSync, the player running for about two minutes, with
+`--profile`, a Chrome trace and an external once-a-second sampler. Writing the trace (17 GB) inflates
+absolute times; use this run for structure, not budgets.
+
+- GPU: Device/Renderer/Tiler utilization median 97%, mean 89%, max 100% (macOS driver statistics);
+  driver memory in use median 1.99 GB. The GPU is the first limit at these settings.
+- CPU: process 244% mean; the busiest thread 54% mean, 92% max; no thread saturated.
+- Render thread (trace, 7,224 frames): `Render` 15.5 ms mean, p99 32.7 ms; inside it the render
+  graph 6.5 ms, `camera_driver` 4.9 ms and `prepare_windows` 4.5 ms mean (p99 21.6 ms, max 193 ms):
+  the wait for the next swapchain image, which is how the GPU limit reaches the CPU. Main app 8.3 ms
+  mean, p99 18.5 ms. Five 3D camera passes per frame (`Core3d` 4.9 per frame) and two 2D.
+- `--profile` stages: `frame_total` 16.3 ms mean, p95 26.2, max 138; `render_views` (`PrepareViews`)
+  4.6 ms mean, p95 13.9; the new `render_create_views` 0.17 ms and `render_specialize` 0.15 ms mean,
+  so the view-stage spikes are in `PrepareViews`.
+- Spikes: a fixed step of 32 ms (frame 2074), a 29 ms `prepare_windows` (frame 2663), and
+  `allocate_and_free_meshes` up to 598 ms during loading.
+- Memory: RSS 1.6 GB median, 4.7 GB peak; the 16 GB machine kept about 70 MB of free pages, with
+  swap unchanged at 932 MB.
+
+Next: GPU time per pass and per camera with Instruments' Metal System Trace (`xcrun xctrace record
+--template 'Metal System Trace'`), to see which of the five 3D passes and the post-processing at
+Retina use the GPU.
+
+## GPU shadow silhouettes (2026-11-15, default since 2026-11-19)
+
+Dirty model silhouettes are drawn into the shadow atlas on the GPU whenever a renderer exists.
+`HL2RS_GPU_SILHOUETTES=0` keeps the CPU rasterizer as the reference and fallback. The paired station02 tests,
+GPU readback and receiver-pixel comparisons are in the
+[performance research report](performance-research.md#gpu-shadow-silhouettes-on-station02).
+
 ## Dense report labels distort frame time (2026-11-12, session 55)
 
 RTX 3070, Ryzen 7 3700X, Windows 11, packaged session 55 build (c20abc1), 1920x1080 borderless on the second
@@ -204,6 +899,34 @@ The brightness prototype gives vertical fluorescent trails more coverage; still 
 do not establish reduced perceived afterimages. Keep it experimental pending controlled
 GPU reduction readback equivalence, clean idle/turn/swing comparisons and display testing.
 
+
+## Map install: shared LOD meshes (2026-11-20)
+
+The load report times the main-thread install in steps (`install_monitors`, `install_draws`,
+`install_effects`, `install_sky`, `install_rest`; `install_ms` stays the total). On
+d1_trainstation_01/02, `install_draws` took 430-510 ms; about 200 ms of it built the coarser LOD
+meshes of 400-530 entity draws, most of them repeats of the same model, material and scale.
+Every studio vertex carries a reference to its source mesh, so every studio draw counted as
+facially flexed and built private copies. Map install now builds each model, material, scale and
+skinning combination's coarser levels once and shares them (`lod::SharedLevels`), as runtime
+copies already did, unless the model's facial flexes move one of the draw's vertices (those keep
+their own meshes and per-level vertex data). Three gameplay replays (M1 Pro, one game at a time):
+`install_draws` 427-507 -> 326-330 ms, request to playable 1849-2015 -> 1758-1849 ms. Runtime
+spawns are unchanged.
+
+## Map loading: entity rigs on all cores (2026-11-20)
+
+The map worker's models phase now reports `model_props` (prop meshes, physics and rigs),
+`model_gibs` and `model_rigs` (weapon and player rigs) in `render.map_metadata.loading_ms`.
+Timing inside `model_props` on d1_trainstation_01/02 showed the entity rigs (skeletons and
+kept sequences of NPCs, props and ragdolls) took about 440-460 ms of 580-670 ms, loaded one model
+at a time; model files (already read on all cores) took 25 ms. Rigs now load on all cores
+before instances are placed, each stored at the instance that would have loaded it, so later
+steps see the same rigs; the map's sequence names are collected once instead of per rig.
+Three gameplay replays (M1 Pro, one game at a time): `model_props` 581-668 -> 268-315 ms,
+request to playable 2163-2373 -> 1848-1932 ms. All 109 packaged checks kept their outcomes;
+`monitors-kleiner-scene` missed one gib removal once with three games in parallel (also seen
+before this change) and passed alone twice.
 
 ## Background/shared map loading: parallel preparation and content reuse (2026-10-30)
 
@@ -1061,7 +1784,7 @@ Optional `--profile` measures bounded CPU scopes after the first30 calls. It doe
 
 Frame rate remained about30.2 versus30.6 FPS. A subsequent constant-pose upload fix plus `--uncapped` measured about35.1 FPS with animation4.63ms. This last run also changes presentation mode and is not an isolated FPS comparison for that fix. The remaining render/animation cost needs investigation. Do not infer a144 FPS ceiling or promise that this build reaches it.
 
-Physics previously rebuilt the query tree twice every fixed step and marked unchanged poses as moved. It now incrementally refreshes actual changes;400 swept collision comparisons match full rebuilds across moves, rotations and visibility changes. Animated surfaces share rig samples, and constant poses no longer dirty/upload their meshes every frame. Full diagnostic snapshots are sampled every60 frames and refreshed for scripted/bounded capture completion and UI quit.
+Physics previously rebuilt the query tree twice every fixed step and marked unchanged poses as moved. It now incrementally refreshes actual changes;400 swept collision comparisons match full rebuilds across moves, rotations and visibility changes. Animated surfaces share rig samples, and constant poses no longer dirty/upload their meshes every frame. Full diagnostic snapshots were sampled every 60 frames; since 2026-11-21 they are built only on the first frame and for capture requests, scripted/bounded completion and UI quit (the periodic snapshot was a 4-12 ms hitch every 60 frames in all play).
 
 Reproduce with `launch-bevy.cmd --width 1920 --height 1080 --frames 600 --profile --report artifacts/performance.json`. Add `--uncapped` to request no-VSync presentation. Capture/JSON writes occur after shutdown. Current priorities are GPU upload/render-stage measurements, visible/PVS animation workload and a verified GPU skinning path. Preserve animation/eye/collision behavior when optimizing; do not lower fidelity silently to improve a benchmark.
 
@@ -1110,3 +1833,410 @@ A sequential900-frame1080p uncapped/profiled spawn run averages174.72FPS/5.723ms
 Station02 retains324429 triangles and743 materials, while loaded draw meshes rise921→1670. In the inspected plaza, union-of-view candidates fall69425→32011 triangles; its image is pixel-identical. These are candidates after PVS/frustum/layer checks, excluding sky/viewmodels, not GPU draw-call or fragment counts. Preliminary sequential900-frame1080p profiles measured159.74→165.91FPS at spawn and125.65→127.01FPS in the plaza; normal run variation and different autonomous scene durations prevent a robust general speed claim. A later frozen-scene diagnostic intentionally ends before its script completes and returns an incomplete-script error; it is excluded from these comparisons.
 
 An initial hall camera intersected a pillar and was rejected as visibility evidence. Area portals, occluders, native LODs and campaign-wide culling validation remain unfinished.
+
+
+## Bounded performance research: fixed-duration indoor sensitivity (2026-11-11)
+
+An isolated release package at `2208bcb618adfd3072ea5fd00553babdcb9a7866` (SHA256
+`51cf256188b5e0446165cc2dc55ad90729768143683151f9c4e5182c41895fc5`) ran on M1 Pro / Metal,
+10 logical CPUs / 16 GiB, advanced-options/debug-tools plugins. Station02 indoor spawn,
+fixed script ending tick 600, muted headless, uncapped/profiled, no capture while timing;
+1920x1080, FOV75, HDR Full, High details/shadows, no AA, trilinear, motion blur/color correction
+on. Three interleaved rounds: median of mean frame times, baseline 5.811 ms (5.751–5.879),
+720p 5.781 (5.735–5.982), no-PVS 7.736 (7.674–7.784), partition 5.775 (5.773–5.811), CPU
+skinning 12.568 (12.476–12.640), Low 5.680 (5.650–5.796). Baseline p95 bucket upper bounds
+10/9/9 ms, p99 13/11/11; exact p50 is unavailable. Full trial and tail table:
+[performance-research.md](performance-research.md).
+
+All 18 valid runs exited 0, reached tick 600 and completed; two invalid-Low config attempts
+remain rejected. Existing PVS/GPU skinning reduce median frame time substantially versus their
+disabled/fallback controls; this is no new runtime optimization. Partition cuts candidate
+triangles 52,768 to 7,257 but barely changes frame time; 720p and partition differences are within
+variation. Low changes quality and overlaps baseline variation. CPU candidates are not GPU draws.
+The untimed 1080p capture shows the indoor stairwell, not the crowd/plaza.
+
+The 120-frame warmup covers different simulation intervals at different throughput. CPU scope
+windows include setup and overlap; graph CPU wall intervals are not GPU timestamps. Existing
+compression/about 640 MiB swap qualify timings; full GPU/power/thermal counters are unavailable.
+The package omits four newer upstream-main commits, including flight/sight query improvements.
+Windows RTX 3070 matched reproduction, live presentation, local crowds, native settings and general FPS
+improvements are **not tested**. No source/build modification or installed-game write occurred.
+
+Evidence and reproduction: `artifacts/performance-research-2026-11-11/summary.json`,
+`measurements.json`, per-run reports/logs/configs, `baseline-visual.png`, environment snapshots;
+`python3 artifacts/performance-research-2026-11-11/benchmark.py` from the repository root.
+
+
+### Correction: original performance observation hardware (2026-11-11)
+
+Subsequent direct clarification of the original observation identifies RTX 3070, not the
+previously supplied RTX 5070: native station02 plaza with many colliding/sparking manhacks
+read 276 FPS, while the rewrite reportedly averaged barely 60 FPS and less with many manhacks.
+The observer reports a 16-thread CPU at 4 GHz and 64 GB RAM at 3200; exact CPU model, resolution,
+quality, view, actor count and timing method are not established. The earlier RTX 5070 account
+is conflicting/provisional. The historical Windows profile remains a separate instrumented
+session; none of the fresh Mac measurements changed. A separate contemporaneous observation
+reports M1 Pro / maximum graphics / 3456x2168 / idle plaza 65–80 FPS at `2208bcb`, not the controlled
+1080p indoor headless workload. No new runtime test or speedup follows from this correction.
+
+
+## Implemented effect/glow experiments: no established frame gain (2026-11-11)
+
+M1 Pro / Metal, 10 logical CPUs / 16 GiB, identical explicit High/HDR Full/no-AA settings and plugins,
+three paired rounds over five fixed 600-tick cases (30 launches), no capture/competing build during
+timing. Baseline 2208bcb SHA256 51cf256188b5e0446165cc2dc55ad90729768143683151f9c4e5182c41895fc5;
+candidate a22f6a0 plus source-manifest runtime edits, SHA256
+51002f989e04e2f8d72dc96bfa0fc55d1ce1c38ce17b7f776b7939f310cd07ab. Shader hashes match.
+
+Median frame ms before→after:quiet 5.5359→5.5493; frozenfire5.9949→5.9566; animated fire7.4000→7.3968;
+crowd 1080p13.5671→13.6421; crowd3456x2168 13.8773→13.8715. All 15 full gameplay-state pairs match.
+Ranges overlap, and 1080p crowd p99 bucket bounds worsen 23/23/23→24/25/26ms. Frozen contained-window
+median 5.9182→5.7931ms is secondary/mixed, not an established whole-game win. Swap 706→2339 MiB and
+~1.66 GiB system swapout traffic qualify interpretation. Complete trials/tails/methods:
+[performance-research.md](performance-research.md).
+
+The geometry helper improves ~0.242→0.0086 us, but 142 hypothetically changed quads save only ~0.033 ms;
+the frozen baseline already skipped unchanged geometry. Glow 30 actors / 1k-prefix saves ~0.0108 ms.
+These presentation helpers do not reduce NPC decisions, exact world sweeps, Rapier or draw count.
+Current crowd scopes remain millisecond-scale (median means: fixed 5.648 ms/call, graph 2.582,
+assets 1.951, prepare 1.035), overlap and include setup; the assets mean includes ~501 ms setup cost.
+
+Separate 1800-tick current-only sampled diagnostics conserve thread observations:shared static
+brush trace295quiet/710 crowd, optimized glow 10 crowd / quad pool 2 frozen. Crowd fixed-system 1527,
+physics-step 379 includes rebalance 141 / broadphase 161; do not sum ancestors/descendants or treat
+counts as milliseconds. Main 2101/2129 snapshots wait while workers run. The full brush-plane scan
+is shared by NPC/player hull traces, mostly NPC flight in this crowd. First validate/profile
+latest shared baseline including published flight/sight fixes before a new candidate-index
+experiment; preserve ordered exact plane/epsilon/start/all-solid/normal behavior and fallback
+brushes. This diagnosis is not a speedup measurement or a completed next-cycle change.
+
+All 6 fixed-exposure particle checks pass; fire/smoke images exact, ball 61 pixels / max 1 RGB remains
+unresolved. Ordinary HDR cross-build AND baseline-repeat byte checks fail; retained separately.
+No original 30 timing run was replaced by fixed-exposure timing. Evidence:
+`artifacts/performance-implementation-2026-11-11/paired-summary.json`,source/package manifest,
+raw reports/logs,controlled/regression summaries,CPU experiments and diagnostics/stack-summary.json.
+Windows/native matched timing and full-campaign/all-camera runtime parity remain **not tested**.
+
+## O32 plaza population sweep and O12 pre-launch GPU load (2026-11-24)
+
+On Apple M1 Pro / Metal, release `fa90617c` (executable SHA-256 prefix
+`98ec717c`), the same 100-position camera path, final plaza view, 1920×1080 settings and
+1,200 fixed ticks ran at each population. The single class was `npc_manhack`; the zero
+case still includes map-authored NPCs. Only the first N positions issue a spawn command.
+The benchmark checks unique successful placements and emits two labeled snapshots. Run
+`python3 scripts/checks/crowd_scaling.py --out artifacts/o32-stages` using a fresh output
+directory. Add `--mac-trace` with a second directory for Metal and sight-ray stack samples.
+
+| Added NPCs | AI thinks | Fixed simulation | AI tick | Hitbox pose | Animation | Render assets | Render graph CPU | Frame mean | Frame p95 / p99 bounds |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 2,767 | 0.969 | 0.082 | 0.165 | 0.231 | 0.164 | 2.361 | 4.221 | 5 / 6 |
+| 10 | 4,328 | 1.184 | 0.213 | 0.194 | 0.269 | 0.191 | 2.502 | 4.402 | 6 / 6 |
+| 30 | 7,574 | 1.355 | 0.353 | 0.229 | 0.318 | 0.216 | 2.741 | 4.793 | 6 / 8 |
+| 60 | 12,443 | 1.920 | 0.708 | 0.307 | 0.455 | 0.286 | 2.807 | 5.709 | 10 / 11 |
+| 100 | 18,342 | 3.071 | 1.624 | 0.386 | 0.643 | 0.387 | 2.911 | 7.145 | 12 / 14 |
+
+Times are milliseconds per stage invocation. AI and hitbox scopes run per simulation tick.
+Frame tails are histogram upper bounds. Each row is one headless run including the placement
+phase. The existing profiler caps each stage at 4,096 samples (O11). The 60-to-100 interval
+added 0.916 ms per AI tick, compared with 0.355 ms from 30 to 60. This identifies a target
+for profiling. The sweep alone cannot establish algorithmic complexity or live display pacing.
+
+Four-second instrumented repeats used the single HUD fragment pass to delimit each GPU
+frame. The default upscaling marker appeared twice per frame in this view. Sight counts
+are inclusive CPU stack samples inside a fixed step (`PhysicsSight::visible` or
+`first_solid`), with nested calls counted once. The zero case had no identifiable sight
+samples in this window. The counts measure sampled time, not ray calls.
+
+| Added NPCs | GPU frames | GPU busy mean / p95 / p99 (ms) | Sight / fixed-step samples |
+|---:|---:|---:|---:|
+| 0 | 699 | 3.92 / 5.54 / 6.29 | 0 / 103 |
+| 10 | 528 | 4.09 / 5.99 / 6.45 | 10 / 119 |
+| 30 | 471 | 4.58 / 6.28 / 6.92 | 19 / 130 |
+| 60 | 473 | 4.38 / 6.60 / 7.08 | 34 / 185 |
+| 100 | 350 | 5.07 / 7.46 / 8.61 | 118 / 340 |
+
+A repeat of the final recorder path, attaching four seconds after gameplay started,
+measured 5.006 ms mean GPU busy over 417 frames at 100 manhacks. Sight accounted for
+146/370 fixed-step samples.
+
+O12 verification: the status preflight showed 95% GPU device utilization before the sweep.
+The capture metadata recorded 68%, 79%, 79%, 77% and 14% immediately before launching the
+0, 10, 30, 60 and 100 cases respectively (the 100 case ran first). Both live and headless
+entry points take this sample before spawning the game. Four earlier live metadata files
+also contain readings of 17%, 56%, 56% and 58%. Each percentage is one driver reading.
+
+The dedicated O12 preflight later read 34%, followed by 7% in the stamped capture.
+That 100-manhack isolation run (`--no-animation`) finished all 1,200 ticks and retained
+100 successful placements. The animation stage disappeared and AI measured 1.610 ms/tick,
+compared with 1.624 ms/tick with presentation animation enabled. This was a single
+isolation control. The graphics settings and idle load limit comparisons with other runs.
+
+O24 changes only the capture fixture. At normal speed the 1024×768 pistol-fire bursts
+recorded positive reconstruction with no borrowed motion or uncovered holes; see
+docs/validation.md for the accelerated and unequal-bloom captures that were rejected.
+
+
+## Shadow quality crossfade near AR2 props (2026-11-25)
+
+A controlled `d1_trainstation_02` path spawned 48 copies of the AR2 world model with
+`prop_physics_create` on an 8×6 grid and moved the camera across the group and back.
+The second scene held the shadow plaza view using
+`test-inputs/performance-research/shadow-plaza.json`. The M1 Pro / Metal release packages
+ran headlessly with High shadow detail, uncapped rendering and per-run settings. The
+720p comparison interleaved the hard switch, 200 ms, and 800 ms builds. The Retina
+comparison used 3456×2168, Full HDR, 4× MSAA and anisotropic 8× filtering. Capture logs
+and reports are under ignored `artifacts/shadow-handoff/`.
+
+The 800 ms transition keeps an outgoing atlas fragment resident until the fade finishes.
+The frame still budgets 32 casters for silhouette updates. The two existing pooled
+shadow draws carry complementary weights during the transition. An atlas-cell resize
+reuses the blob projection when the caster did not move.
+
+720p results are medians of three run means (milliseconds). The walk reached 167 handoffs
+in each 800 ms run. A separate burst captured the receiver shadows after a camera jump.
+
+| Scene and build | Shadows | Render assets | Whole frame |
+|---|---:|---:|---:|
+| AR2 walk, hard switch | 0.0873 | 0.1786 | 4.4638 |
+| AR2 walk, 200 ms | 0.1014 | 0.2227 | 4.3680 |
+| AR2 walk, 800 ms | 0.1118 | 0.2600 | 4.3730 |
+| Held plaza, hard switch | 0.0375 | 0.1762 | 3.8248 |
+| Held plaza, 800 ms | 0.0414 | 0.1925 | 3.8761 |
+
+At Retina, over two runs per build, shadows averaged 0.128–0.135 ms with hard switches
+and 0.156–0.160 ms with the 800 ms fade. Render assets rose from 0.231–0.241 to
+0.302–0.303 ms. Whole-frame means overlapped at 7.34–7.59 and 7.42–7.57 ms. Pre-launch
+GPU device load varied from 33% to 98%, so the frame-time comparison resolves no
+consistent penalty under this load. Live display pacing and Windows runtime are
+**not tested**.
+
+## O44 loose props on the train station plaza (2026-11-25)
+
+`python3 scripts/checks/prop_scaling.py --out artifacts/prop-scaling/run` runs the
+packaged release on `d1_trainstation_02` at 1920×1080, Full HDR, High shadows, no MSAA
+and uncapped in the background. Each round starts a fresh process for the zero-spawn
+control, then each of 30, 60 and 100 mixed props and the same counts of batteries.
+The second round reverses the order. The control keeps the authored map bodies.
+All cases follow the same 100-position placement path and hold the same plaza view
+from tick 305 to tick 780. The mixed list cycles battery, healthkit, health vial,
+AR2 ammo, SMG ammo, AR2, pop can, watermelon and wooden crate.
+
+The runner verifies successful spawns, draw presence, class mix, movable bodies with
+positive mass, capture size, completion and GPU completion errors. It records fall
+and awake counts at ticks 490 and 780. Whole-run profile stages include placement
+and settling. The frame mean after placement uses complete windows between six and
+one seconds before exit. Frame percentile values are reported histogram upper bounds.
+The sweep exercises staggered settling plus the resting load. A synchronized wake
+and GPU-pass attribution remain separate backlog measures under O45 and O46.
+
+M1 Pro / Metal, three rounds on executable SHA-256 prefix `a74090d1`. All 21
+runs matched their entity and body counts. Pre-launch GPU use ranged from 42% to
+78%. The table gives medians of run statistics in milliseconds. Physics, scene
+and fixed simulation are per fixed tick. Shadow, render and frame times are per
+rendered frame.
+
+| Props | Fixed simulation | Physics | Scene | Shadows | Render assets | Render graph | Frame mean | Post-placement mean | Frame p95 / p99 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 added | 0.948 | 0.120 | 0.281 | 0.090 | 0.187 | 2.275 | 4.228 | 4.486 | 5 / 6 |
+| 30 mixed | 1.045 | 0.177 | 0.288 | 0.119 | 0.219 | 2.338 | 4.287 | 4.578 | 6 / 6 |
+| 30 battery | 1.025 | 0.161 | 0.287 | 0.110 | 0.221 | 2.337 | 4.295 | 4.570 | 6 / 6 |
+| 60 mixed | 1.125 | 0.224 | 0.295 | 0.120 | 0.231 | 2.399 | 4.412 | 4.627 | 6 / 6 |
+| 60 battery | 1.086 | 0.198 | 0.290 | 0.121 | 0.230 | 2.385 | 4.364 | 4.681 | 6 / 6 |
+| 100 mixed | 1.232 | 0.291 | 0.296 | 0.104 | 0.226 | 2.475 | 4.507 | 4.725 | 6 / 6 |
+| 100 battery | 1.181 | 0.248 | 0.299 | 0.122 | 0.226 | 2.429 | 4.432 | 4.746 | 6 / 6 |
+
+At the finish checkpoint, the 30, 60 and 100 groups retained 2, 4 and 8 awake added
+bodies in either mix. Mixed 100 had 11 awake bodies at tick 490. The battery-only
+group added 100 authored convex pieces at 100 spawns, and the mixed group added 111.
+Ordinary props use a placement hull and tend to start close to the floor,
+so some mixed props moved down by less than the one-unit fall marker.
+The 100-prop mixed run added 0.171 ms per physics tick over the control. Batteries
+added 0.128 ms. The post-placement whole-frame mean increased about 0.24–0.26 ms.
+Small differences between the two mixes can fall within run-to-run GPU variation.
+One mixed-100 run had a 7 ms p99 bound. Synchronized waking, Retina GPU passes,
+live pacing and Windows runtime are **not tested** in this sweep.
+
+The final package (SHA-256 prefix `bfcfb247`) repeated mixed 100
+with 100 verified bodies, 0.293 ms per physics tick,
+4.793 ms post-placement mean and a 6 ms p99 bound.
+
+
+## O1/O4 unified Simple3d pass for SkyCamera and MonitorCamera + Hud2d depth discard (2026-11-26)
+
+On Apple M1 Pro Metal (`1c8aa0cd` SHA-256 `9a7006f8` vs candidate SHA-256 `1e93e393`), the sky and monitor cameras moved from full `Core3d` to a single-pass `Simple3d` schedule (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `Simple3d` (`crates/hl2-bevy/src/rendering/simple_pass.rs`, `rendering.rs`, `lib.rs`, `sky.rs`, `monitors.rs`): draws `Opaque3d`, `AlphaMask3d`, and `Transparent3d` in a single `simple_pass_3d` render pass with `StoreOp::Discard` depth and GPU mesh preprocessing parity (`clear_indirect_parameters_metadata`, `unpack_bins`, `early_gpu_preprocess`, `main_build_indirect_parameters` checked via `GpuPreprocessingSupport::is_available()` in `finish()`, since `PreprocessPipelines` is inserted later in `RenderStartup`). `MonitorCamera` (`Msaa::Off`, `Rgba8UnormSrgb`) renders directly onto `_rt_Camera` without `upscaling`; `SkyCamera` renders directly onto the shared 4× MSAA target without a separate transparent pass or depth store.
+2. `Hud2d` depth discard (`crates/hl2-bevy/src/canvas_renderer/hud_pass.rs`): changed `hud_pass_2d`'s depth attachment from `StoreOp::Store` to `StoreOp::Discard`.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. Both `main_opaque_pass_3d`, `main_transparent_pass_3d`, and `upscaling` dropped to `1.0/f` across all four scenes (while `early_mesh_preprocessing` remained `3.0/f` in `plaza-hall` and `2.0/f` in `plaza`), cutting GPU busy by `0.47–1.20 ms/f` and CPU `render_graph` to `4.12–4.93 ms`. Every scene now holds GPU busy p99 below `8.33 ms` (`8.16`, `7.88`, `7.17`, `6.83 ms`, with zero frames > 8.33 ms in either windowed scene), windowed `plaza-hall` rose `103.6 → 114.9 FPS` (`95.8%` 1x refreshes, repeated `173 → 53`), and windowed `plaza` reached **`119.3 FPS`** (`99.4%` 1x refreshes, repeated `19 → 7`).
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `main_opaque` + `main_transparent` + `simple_pass_3d` Frag (passes/f) | `upscaling` Frag (passes/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---|---:|---:|---:|---:|
+| `plaza-hall-headless` | 57% → 60% | 6.83 → 6.11 | 6.67 / 8.04 / 8.71 → 6.13 / 7.48 / 8.16 | 27/1262 (2.1%) → 9/1353 (0.67%) | `1.547 (1.0)` + `1.211 (1.0)` + `0.765 (2.0)` | 0.165 (2.0) → 0.176 (1.0) | — | 7.961 / 9.204 → 7.151 / 8.606 | 5.337 / 6.233 → 4.660 / 5.736 |
+| `plaza-headless` | 64% → 62% | 7.14 → 5.94 | 7.05 / 8.46 / 8.90 → 5.82 / 7.54 / 7.88 | 121/1391 (8.7%) → 8/1521 (0.53%) | `1.849 (1.0)` + `1.184 (1.0)` + `0.609 (1.0)` | 0.187 (1.0) → 0.191 (1.0) | — | 7.364 / 9.006 → 6.543 / 7.981 | 4.896 / 6.482 → 4.121 / 5.087 |
+| `plaza-hall` (windowed) | 63% → 66% | 6.35 → 5.88 | 6.36 / 7.12 / 7.45 → 5.87 / 6.70 / 7.17 | 1/1097 (0.09%) → 0/1204 (0.0%) | `1.501 (1.0)` + `1.118 (1.0)` + `0.798 (2.0)` | 0.146 (2.0) → 0.147 (1.0) | 103.6 (173/1093) → 114.9 (53/1201; 1150 1x [95.8%], 49 2x, 2 3x) | 9.201 / 13.406 → 8.623 / 9.401 | 5.287 / 6.621 → 4.929 / 6.153 |
+| `plaza` (windowed) | 55% → 49% | 6.62 → 5.94 | 6.74 / 7.09 / 7.19 → 5.96 / 6.63 / 6.83 | 0/1241 (0.0%) → 0/1264 (0.0%) | `1.839 (1.0)` + `1.173 (1.0)` + `0.565 (1.0)` | 0.156 (1.0) → 0.161 (1.0) | 118.2 (19/1236) → 119.3 (7/1260; 1253 1x [99.4%], 7 2x) | 8.470 / 9.188 → 8.427 / 9.146 | 4.629 / 5.776 → 4.418 / 5.401 |
+
+In `o1-simple3d-plaza-hall-headless/report.json`, `monitors.rendered_frames = 2532`, `sky.frames_2d = 2534`, `sky.frames_3d = 2534`, and `tonemap.readbacks = 317`. Visually verified `artifacts/replays/video.png`, `background_reveal.png`, `bevy-monitors-breen-slate.png`, `bevy-monitors-breen-screen.png`, `window-console-resolution.png`, and `artifacts/perf-top-five/check-sky-fixed.png` (full 2D sky, 3D miniature skybox, and monitor output). Verified with unit tests (`rendering::simple_pass` 2 passed; `sky` 3 passed; `monitors` 3 passed; `video` 27 passed, 1 ignored), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, `scripts/checks/architecture.py`, 14 targeted packaged replays, and `WINDOWED=1 ONLY='window' replays.py` (`1/1` passed). Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**.
+
+## O4/O1 direct swapchain Present2d and idle ViewmodelCamera disable (2026-11-26)
+
+On Apple M1 Pro Metal (`36cca73f` SHA-256 `fb94db74` vs candidate SHA-256 `9a7006f8`), two render-graph and camera-count reductions ran against maxed Retina settings (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `Present2d` direct swapchain (`crates/hl2-bevy/assets/shaders/present.wgsl`, `crates/hl2-bevy/src/video/present_pass.rs`, `crates/hl2-bevy/src/video.rs`): replaced `Material2dPlugin::<PresentMaterial>` with a fullscreen `PresentPipeline` specialized directly to `target.out_texture_view_format()` (`Bgra8UnormSrgb` on Metal), caching the bind group by `(TextureViewId, SamplerId)` and updating the gamma uniform only on changes, drawing inside clamped viewport/scissor bounds on the swapchain (`present_pass_2d`) and removing the redundant `PresentCamera` `upscaling` copy pass.
+2. Idle `ViewmodelCamera` deactivation (`crates/hl2-bevy/src/rendering/weapons.rs`, `crates/hl2-bevy/src/effects.rs`, `crates/hl2-bevy/src/rendering.rs`, `crates/hl2-bevy/src/launch.rs`): `sync_viewmodel_camera` deactivates `ViewmodelCamera` whenever no `WeaponMesh` or layer-1 `QuadDraw` effect is visible and hands off `SourceBloom` and `SourceColorCorrection` to `FlyCamera` so post-processing and exposure readbacks (`tonemap.readbacks = 284` with populated histogram in `o4-cpu-plaza-hall-headless/report.json`) remain on the last active 3D camera.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. Windowed `plaza` reached **118.2 FPS** effective (98.5% 1x refreshes, repeated refreshes `165 → 19`, zero frames over 8.33 ms GPU busy) and windowed `plaza-hall` rose from **93.8 → 103.6 FPS** (`276 → 173` repeated refreshes).
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `upscaling` Frag (passes/f) | `main_opaque_pass_3d` Vert (passes/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 58% → 57% | 7.17 → 6.83 | 7.11 / 8.44 / 9.30 → 6.67 / 8.04 / 8.71 | 79/1170 (6.8%) → 27/1262 (2.1%) | 0.172 (2.0) → 0.165 (2.0) | 0.985 (4.0) → 0.927 (3.0) | — | 8.273 / 9.783 → 7.961 / 9.204 | 5.636 / 6.752 → 5.337 / 6.233 |
+| `plaza-headless` | 69% → 64% | 7.21 → 7.14 | 7.10 / 8.55 / 9.27 → 7.05 / 8.46 / 8.90 | 176/1347 (13.1%) → 121/1391 (8.7%) | 0.187 (1.0) → 0.187 (1.0) | 0.791 (3.0) → 0.683 (2.0) | — | 7.597 / 9.117 → 7.364 / 9.006 | 5.064 / 6.596 → 4.896 / 6.482 |
+| `plaza-hall` (windowed) | 65% → 63% | 6.64 → 6.35 | 6.65 / 7.42 / 7.97 → 6.36 / 7.12 / 7.45 | 5/991 (0.5%) → 1/1097 (0.09%) | 0.306 (3.0) → 0.146 (2.0) | 1.006 (4.0) → 0.936 (3.0) | 93.8 (276/986) → 103.6 (173/1093; 921 1x [84.3%], 171 2x, 1 3x) | 9.775 / 13.772 → 9.201 / 13.406 | 5.767 / 7.285 → 5.287 / 6.621 |
+| `plaza` (windowed) | 57% → 55% | 6.91 → 6.62 | 7.06 / 7.37 / 7.50 → 6.74 / 7.09 / 7.19 | 2/1101 (0.18%) → 0/1241 (0.0%) | 0.329 (2.0) → 0.156 (1.0) | 0.825 (3.0) → 0.702 (2.0) | 104.3 (165/1097) → 118.2 (19/1236; 1218 1x [98.5%], 17 2x, 1 3x) | 9.246 / 13.825 → 8.470 / 9.188 | 5.099 / 6.411 → 4.629 / 5.776 |
+
+Verified with unit tests (`video` 27 passed, 1 ignored; `rendering::weapons` 1 passed; `bloom` 8 passed; `tonemap` 3 passed), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, `scripts/checks/architecture.py` (`68 long functions, 10 large files, 109 duplicated blocks known, none grown`), 14 targeted packaged replays (`flashlight_shadows`, `lamp_emission`, `monitors-breen-screen`, `flashlight_viewmodel`, `entities-weapons`, `face-security-1805`, `viewmodel_motion_blur`, `physcannon-pallet`, `pistol-level`, `monitors-kleiner-scene`, `crowbar-surfaces`, `video`, `effect-decal`, `hud`), and the `WINDOWED=1` `window` replay (`1/1` passed). Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**.
+
+## O1/O4 bloom bilinear downsample, monitor frustum culling, shader specialization and Present2d (2026-11-26)
+
+On Apple M1 Pro Metal (`2c776f98` SHA-256 `148ba99f` vs candidate SHA-256 `fb94db74`), four targeted GPU and scene-culling optimizations ran against maxed Retina settings (`3456×2168` headless / `3456×1978` windowed, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `bloom.wgsl` (`crates/hl2-bevy/assets/shaders/bloom.wgsl`): `shape` / `shaped_tap` replace 16 `textureLoad` + 16 `encode()` calls with 4 hardware bilinear `textureSample` taps at `(base + vec2(1/3, 1/3)) * inv` (4× fewer texture reads, 60 → 16 `pow()` calls per quarter-resolution pixel).
+2. `monitors.rs` (`crates/hl2-bevy/src/monitors.rs`): frustum-culled `MonitorCamera` against `FlyCamera`'s `Frustum` (`monitor_in_view`, `monitor_bounds_in_frustum`), deactivating off-screen monitor cameras (`camera_tv_breen` in the plaza view).
+3. `rendering/material.rs` & `source.wgsl`: added `MaterialKey::model_lit` (`SOURCE_MODEL_LIT`) and `MaterialKey::envmap` (`SOURCE_ENVMAP`) shader defs to strip model lighting, eye iris projection, and envmap/bump paths from plain lightmapped world pipelines and skip `lightmap_texture` sampling on unlit/sky faces.
+4. `video/present_pass.rs`, `video.rs`, `canvas_renderer/hud_pass.rs`, `lib.rs`: moved `PresentMaterial` into `video/present_pass.rs` (bringing `video.rs` under the 1,000-line limit; architecture baseline tightened from 11 → 10 large files), shared `target_clear_color` with `Hud2d`, and added the `Present2d` schedule. `Present2d` eliminated `main_transparent_pass_2d`, while falling back to `upscaling` on macOS Metal because the swapchain view format (`Bgra8UnormSrgb`) differs from Bevy's `Rgba8UnormSrgb` `Material2d` target format.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. `o1-b2-*` used 4,000 headless / 4,500 windowed frames so `xctrace` completed capture shutdown cleanly. Both windowed scenes now hold GPU busy p99 under 8.33 ms (`7.97 ms` in `plaza-hall`, `7.50 ms` in `plaza`), shifting the 120 Hz limiter to CPU `render_graph` (`5.10–5.77 ms`).
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `source_bloom` Frag (ms/f) | `main_opaque_pass_3d` Frag/Vert (passes/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 40% → 58% | 7.63 → 7.17 | 7.51 / 9.10 / 10.53 → 7.11 / 8.44 / 9.30 | 127/1204 (10.5%) → 79/1170 (6.8%) | 0.805 → 0.504 (-37.4%) | 2.228/1.082 (3.0/4.0) → 2.231/0.985 (3.0/4.0) | — | 8.031 / 9.920 → 8.273 / 9.783 | 5.515 / 6.892 → 5.636 / 6.752 |
+| `plaza-headless` | 0% → 69% | 8.10 → 7.21 | 8.10 / 8.86 / 9.66 → 7.10 / 8.55 / 9.27 | 381/1219 (31.3%) → 176/1347 (13.1%) | 0.854 → 0.529 (-38.1%) | 2.828/1.235 (3.0/4.0) → 2.573/0.791 (2.0/3.0) | — | 8.477 / 9.817 → 7.597 / 9.117 | 5.942 / 7.173 → 5.064 / 6.596 |
+| `plaza-hall` (windowed) | 78% → 65% | 7.46 → 6.64 | 7.51 / 8.29 / 8.83 → 6.65 / 7.42 / 7.97 | 38/955 (4.0%) → 5/991 (0.5%) | 0.735 → 0.421 (-42.7%) | 2.057/1.023 (3.0/4.0) → 2.045/1.006 (3.0/4.0) | 95.3 (247/952) → 93.8 (276/986; 716 1x, 265 2x, 4 3x, 1 4x) | 10.031 / 13.793 → 9.775 / 13.772 | 6.109 / 7.774 → 5.767 / 7.285 |
+| `plaza` (windowed) | 62% → 57% | 8.33 → 6.91 | 8.38 / 8.99 / 9.14 → 7.06 / 7.37 / 7.50 | 525/945 (55.6%) → 2/1101 (0.18%) | 0.756 → 0.441 (-41.7%) | 2.691/1.155 (3.0/4.1) → 2.466/0.825 (2.0/3.0) | 90.2 (311/941) → 104.3 (165/1097; 934 1x [85.1%], 161 2x, 2 3x) | 10.310 / 15.357 → 9.246 / 13.825 | 5.811 / 7.165 → 5.099 / 6.411 |
+
+In `plaza` (`plaza-headless` and `plaza` windowed), culling `MonitorCamera` also dropped `main_transparent_pass_3d` `3.0 → 2.0/f` and `upscaling` `2.0 → 1.0/f` (headless) / `3.0 → 2.0/f` (windowed). Verified with unit tests (`rendering` 36 passed, 1 ignored; `monitors` 3 passed; `video` 26 passed, 1 ignored; `bloom` 7 passed), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, tightened `scripts/checks/architecture.py` (`68 long functions, 10 large files, 109 duplicated blocks`), and 12 targeted packaged replays (`video`, `hud`, `monitors-breen-screen`, `monitors-breen-slate`, `monitors-kleiner-scene`, `flashlight_shadows`, `flashlight_viewmodel`, `lamp_emission`, `face-security-1805`, `viewmodel_motion_blur`, `effect-decal`, `effect-decal-door`) plus `video`+`hud` re-verification after the `AtomicBool` `NeedsUpscaling` fix in `present_pass.rs`. Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**.
+
+## O4/O1 shadow encoder batching, presample readback gating and bloom caching (2026-11-26)
+
+On Apple M1 Pro Metal (`77509a52` SHA-256 `e54cddd0` vs candidate SHA-256 `148ba99f`), four targeted render-graph and post-processing cuts ran against maxed Retina settings (`3456×2168`, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `shadows/gpu` (`crates/hl2-bevy/src/shadows/gpu/raster.rs`, `shadows/gpu.rs`): `Raster::encode` records dirty shadow-cell uploads and render passes onto `RenderContext::command_encoder()` in `RenderGraphSystems::Begin` instead of creating a standalone `CommandEncoder` and calling `queue.submit(...)` every frame (keeping `#[cfg(test)] Raster::draw` for tests).
+2. `tonemap::update` (`crates/hl2-bevy/src/tonemap.rs`): `should_request_readback` / `apply_bloom_frame` attach `bloom.presample` only on frames that actually spawn a histogram `Readback` (`INTERVAL = 8` frames), skipping the extra `source_bloom` presample pass on the other 7 of 8 frames. `o4-batch-plaza-hall-headless/report.json` confirmed `tonemap.readbacks = 282` with a populated `histogram` and `scale = 1.9999914`.
+3. `bloom.rs` (`crates/hl2-bevy/src/bloom.rs`): `BloomCache` caches bind groups by `(source.id(), glow.id(), uniform_id)` (capped at 16 entries) instead of allocating bind groups 4–5×/frame, and `sync_blur_uniforms` skips redundant blur uniform buffer writes whenever `(width, height, amount)` is unchanged (`source_bloom` tightened below 100 lines).
+4. `bloom.wgsl` (`crates/hl2-bevy/assets/shaders/bloom.wgsl`): `composite` returns `frame` early when `all(glow <= vec3(0.0)) && all(frame.rgb <= vec3(1.0))`, skipping `encode`/`decode` power math on non-glowing LDR pixels while preserving HDR highlight clamping above `1.0`.
+
+All Metal GPU intervals were analyzed by `hud_pass_2d`. Windowed runs (`--no-focus`) presented at `3456×1978` inside the macOS desktop area; headless runs (`--background`) rendered `3456×2168`. Note that `plaza-headless` ran with `75% -> 0%` preflight idle GPU load variance.
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `source_bloom` Frag/Vert (passes/f) | `Blit Command 0` (ms/f) | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 | CPU `render_graph` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 29% → 40% | 8.04 → 7.63 | 7.98 / 9.85 / 10.99 → 7.51 / 9.10 / 10.53 | 456/1170 (39.0%) → 127/1204 (10.5%) | 0.933/0.116 (5.0) → 0.805/0.107 (4.1) | 0.180 → 0.064 | — | 8.841 / 10.843 → 8.031 / 9.920 | 6.210 / 8.133 → 5.515 / 6.892 |
+| `plaza-headless` | 75% → 0% | 8.17 → 8.10 | 8.19 / 8.85 / 9.07 → 8.10 / 8.86 / 9.66 | 473/1195 (39.6%) → 381/1219 (31.3%) | 0.919/0.114 (5.0) → 0.854/0.111 (4.1) | 0.145 → 0.106 | — | 8.775 / 10.241 → 8.477 / 9.817 | 6.217 / 7.491 → 5.942 / 7.173 |
+| `plaza-hall` (windowed) | 79% → 78% | 7.47 → 7.46 | 7.50 / 8.32 / 8.63 → 7.51 / 8.29 / 8.83 | 46/944 (4.9%) → 38/955 (4.0%) | 0.807/0.104 (5.0) → 0.735/0.101 (4.1) | 0.060 → 0.039 | 90.6 → 95.3 (306/943 → 247/952) | 10.156 / 14.768 → 10.031 / 13.793 | 5.997 / 7.438 → 6.109 / 7.774 |
+| `plaza` (windowed) | 64% → 62% | 8.36 → 8.33 | 8.41 / 9.03 / 9.20 → 8.38 / 8.99 / 9.14 | 524/907 (57.8%) → 525/945 (55.6%) | 0.827/0.106 (5.0) → 0.756/0.103 (4.1) | 0.061 → 0.029 | 86.6 → 90.2 (348/902 → 311/941) | 10.912 / 15.779 → 10.310 / 15.357 | 5.960 / 7.416 → 5.811 / 7.165 |
+
+Verified with `cargo test --locked -p hl2-bevy --lib shadows` (8 passed, 2 ignored), `bloom` (7 passed, including `blur_uniform_cache_skips_redundant_writes`), `tonemap` (3 passed, including `presample_is_attached_only_on_readback_frames`), strict Clippy (`hl2-bevy --all-targets`), `cargo fmt --check`, tightened `scripts/checks/architecture.py` baseline (`bloom.rs::source_bloom` now within limit), and 7 targeted packaged replays (`lamp_emission`, `flashlight_shadows`, `monitors-breen-screen`, `viewmodel_motion_blur`, `video`, `hud`, `face-security-1805`, with `readbacks = 16` and populated histogram in `bevy-monitors-breen-screen.json`). Multi-pair interleaved A/B runs (these are single pairs per scene), interactive live play, and Windows runtime are **not tested**.
+
+## O1 opaque shader HSR, flashlight early-out and neutral gamma present (2026-11-26)
+
+On Apple M1 Pro Metal (`19eff634` SHA-256 `64b50490` vs candidate SHA-256 `e54cddd0`), three zero-behavioral-change shader specializations targeted `main_opaque_pass_3d`, `early prepass`, and `main_opaque_pass_2d` at maxed Retina settings (`3456×2168`, 4× MSAA, full HDR, Ultra motion blur, 8× anisotropic, VSync):
+
+1. `MaterialKey::may_discard` (`SOURCE_MAY_DISCARD` in `crates/hl2-bevy/src/rendering/material.rs`) omits `discard` and the `base_texture` alpha test from `AlphaMode::Opaque` pipelines in `source.wgsl` and `source_depth.wgsl`, preserving Apple TBDR hidden-surface removal and early depth testing on opaque world geometry, props, and actors.
+2. `source.wgsl` reuses a single `srgb_to_linear(base.rgb)` conversion, skips the lightmap sample on unlit/camera paths, and gates `flashlight(...)` behind `has_spot_lights()` when the view uses a single cluster (`ClusterConfig::Single`) with zero spot lights.
+3. `present.wgsl` returns `frame` directly when `mat_monitorgamma` is neutral (`2.2`, `abs(present.params.x - 1.0) < 1e-4`), skipping per-pixel sRGB encode/power/decode across the 2D presentation pass.
+
+All Metal GPU intervals below were analyzed by `hud_pass_2d` (single real-frame boundary, avoiding multi-`upscaling` splits when `camera_tv_breen` or `PresentCamera` is active). Windowed runs (`--no-focus`) presented at `3456×1978` inside the macOS desktop area; headless runs (`--background`) rendered `3456×2168`.
+
+| Scene | Idle GPU % (A → B) | GPU busy mean (ms) | GPU busy p50 / p95 / p99 | Frames > 8.33 ms | `main_opaque_pass_3d` Frag | `early prepass` Frag | `main_opaque_pass_2d` Frag | Displayed FPS / repeated refreshes | CPU `frame_total` mean / p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `plaza-hall-headless` | 19% → 29% | 8.23 → 8.04 | 8.06 / 10.07 / 12.28 → 7.98 / 9.85 / 10.99 | 311/1081 (28.8%) → 456/1170 (39.0%) | 2.668 → 2.489 | 0.634 → 0.524 | — | — | 8.99 / 12.05 → 8.84 / 10.84 |
+| `plaza-headless` | 84% → 75% | 8.75 → 8.17 | 8.80 / 9.43 / 9.57 → 8.19 / 8.85 / 9.07 | 862/1125 (76.6%) → 473/1195 (39.6%) | 3.365 → 2.815 | 0.626 → 0.588 | — | — | 9.12 / 10.64 → 8.78 / 10.24 |
+| `plaza-hall` (windowed) | 29% → 79% | 7.97 → 7.47 | 7.98 / 8.82 / 9.30 → 7.50 / 8.32 / 8.63 | 215/904 (23.8%) → 46/944 (4.9%) | 2.391 → 2.071 | 0.570 → 0.498 | 0.271 → 0.113 | 86.2 → 90.6 (353/901 → 306/943) | 10.46 / 15.41 → 10.16 / 14.77 |
+| `plaza` (windowed) | 33% → 64% | 8.90 → 8.36 | 8.97 / 9.62 / 9.77 → 8.41 / 9.03 / 9.20 | 786/886 (88.7%) → 524/907 (57.8%) | 3.162 → 2.670 | 0.610 → 0.570 | 0.271 → 0.127 | 84.9 → 86.6 (364/881 → 348/902) | 11.14 / 16.59 → 10.91 / 15.78 |
+
+Verified with 35 `hl2-bevy` rendering unit tests (`material_key_only_enables_discard_for_non_opaque_or_alpha_tested_materials` added), strict Clippy, `cargo fmt --check`, architecture check, and 10 targeted packaged replays (`flashlight_shadows`, `flashlight_viewmodel`, `monitors-breen-screen`, `face-security-1805`, `hud`, `effect-decal`, `effect-decal-door`, `video`, `viewmodel_motion_blur`, `lamp_emission`). Multi-pair interleaved A/B runs (these are single pairs per scene with idle GPU variance noted), interactive live play, and Windows runtime are **not tested**.
+
+## O1/O20 camera-only world blur reductions (2026-11-26)
+
+The camera-only world filter can run while the object motion region is
+explicitly empty. The pipeline omits the raw and tile reductions and
+dilation in that case. The object gather still clears to transparent
+before the final composite. A missing region keeps the conservative
+full path.
+
+On Apple M1 Pro Metal, the isolated camera-turn probes held simulation
+and skeletal presentation still at 1031×773, 4× MSAA. The Canals lamp
+and Station 02 views each had zero recorded object-motion texels.
+Both packages recorded the world camera filter. The baseline recorded
+raw and tile reduction passes and the candidate recorded neither.
+Each matched rendered RGB image was pixel-identical.
+The single-run whole-frame means were mixed, 2.53 → 2.34 ms at the
+lamp and 4.50 → 4.66 ms at Station 02. These pairs establish output
+parity and omitted passes. They leave the frame-time effect uncertain.
+
+The packaged `viewmodel_motion_blur` replay passed. The existing 3456×2168
+4× MSAA performance guard produced three pairs per scene. On the
+candidate, the turn median means were 7.87 ms Enabled and 10.32 ms
+Ultra, with p95 bounds of 9 and 12 ms. Swing means were 6.66 and 10.51 ms,
+with p95 bounds of 8 and 13 ms. The turn mean and both swing guards
+failed. Four of six pairs exceeded the preflight GPU load difference
+threshold. The earlier baseline swing Ultra mean was 10.08 ms and
+p95 was 12 ms. The non-interleaved sequence and environment differences
+leave the swing delta unresolved.
+
+Focused checks:
+
+- `NO_BUILD=1 ONLY=viewmodel_motion_blur python3 scripts/checks/replays.py`
+- `NO_BUILD=1 PYTHONPATH=scripts/checks python3 -c 'import check_world_blur as c; c.configure(); c.check_camera_only()'`
+- `NO_BUILD=1 BLUR_SCENES='turn swing' BLUR_LABEL=o20-camera-only python3 scripts/checks/check_blur_performance.py`
+
+Candidate Metal per-pass timestamps and interactive displayed-frame
+pacing are **not tested**. O1 and O20 remain partly done.
+
+## O23 swap and O10 memory baseline (2026-11-26)
+
+M1 Pro, 16 GB, macOS Metal. Everyday packaged release at `02ff411f`,
+executable SHA-256 prefix `98cfefa4cc908458`. Each launch used isolated
+settings at 1920×1080. The external sampler took game RSS, host swap use
+and cumulative `vm_stat` swap counters about every two seconds. Each run
+used `--background --no-setup --mute --width 1920 --height 1080`
+with the relevant `--map`, `--movement-script` and `--report`. The
+engine profiler and Metal recorder were off.
+
+For O23, replay `test-inputs/performance-research/mixed-crowd.json` on
+`d1_trainstation_02`, adding a final marker at tick 8000 (120 seconds of
+simulation). Each run reached the marker and exited normally. The three
+runs took approximately 124 wall-clock seconds each. Idle controls ran
+for approximately 31 seconds before each run and after the last one.
+
+| Crowd run | Samples | Host swap start → end (MB as reported) | Host swapout traffic (MiB) | Game RSS median / sampled peak (sampler MB) |
+|---|---:|---:|---:|---:|
+| 1 | 62 | 2719.62 → 2703.62 | 0 | 2500.9 / 4399.0 |
+| 2 | 62 | 2703.62 → 2687.62 | 0 | 2391.9 / 4006.1 |
+| 3 | 62 | 2687.62 → 2687.62 | 0 | 1548.8 / 3951.7 |
+
+The first idle control moved from 3540.56 to 2719.62 MB of swap in use while
+recording 303.20 MiB of swapouts. Later idle controls recorded zero swapouts.
+The counters describe the whole host, and shorter RSS spikes can fall
+between samples. The crowd runs complete O23's check for swap growth
+without trace recorders. Longer interactive sessions and other platforms
+are **not tested**.
+
+For O10, the same package ran each station from a fresh process for 600
+frames. The campaign replay (`test-inputs/bevy-campaign.json`) loaded
+Stations 01, 02 and 03 in order and preserved the inventory. Its first
+sampled RSS peak was 3587.7 MB at a two-second interval. Three repeats
+sampled roughly every 0.3 seconds and caught higher peaks.
+
+| Scenario | Game RSS median / sampled peak (sampler MB) | Final meshes | Final images | Final material slots |
+|---|---:|---:|---:|---:|
+| Station 01 fresh | 2529.6 / 2530.3 | 1318 | 762 | 48 |
+| Station 02 fresh | 2631.0 / 2631.4 | 1239 | 799 | 43 |
+| Station 03 fresh | 2158.5 / 2160.0 | 1340 | 676 | 2 |
+| Station 01 → 02 → 03, three repeats | 3047.0–3261.1 / 3890.8–4095.1 | 1352–1353 | 676 | 2 |
+| Station 02 mixed crowd, three repeats | 1548.8–2500.9 / 3951.7–4399.0 | 3065–3079 | 896 | 43 |
+
+The campaign peak exceeded the sampled peak of every fresh station launch.
+The final counts show the number of live asset handles at exit. Peak
+allocation attribution requires byte measurements during the transition. O10 remains open. Compare live asset bytes and temporary loader
+buffers across the changelevel before selecting an optimization.

@@ -2,7 +2,6 @@
 use bevy::{
     core_pipeline::{
         FullscreenShader,
-        core_3d::main_opaque_pass_3d,
         schedule::{Core3d, Core3dSystems},
     },
     ecs::{
@@ -50,7 +49,12 @@ pub(super) struct WeaponBlur {
 pub(super) struct WeaponBlurPlugin;
 impl Plugin for WeaponBlurPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ExtractComponentPlugin::<WeaponBlur>::default());
+        app.add_plugins((
+            ExtractComponentPlugin::<WeaponBlur>::default(),
+            bevy::render::extract_resource::ExtractResourcePlugin::<strength::Shutter>::default(),
+        ))
+        .init_resource::<strength::Shutter>()
+        .add_systems(bevy::app::PostUpdate, strength::update_shutter);
         region::install(app);
         let Some(render) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -66,9 +70,10 @@ impl Plugin for WeaponBlurPlugin {
             )
             .add_systems(
                 Core3d,
+                // The world image is copied before this camera's main pass draws over it.
                 snapshot
-                    .in_set(Core3dSystems::MainPass)
-                    .before(main_opaque_pass_3d),
+                    .after(Core3dSystems::Prepass)
+                    .before(Core3dSystems::MainPass),
             )
             .add_systems(
                 Core3d,
@@ -133,7 +138,11 @@ fn init(
         "weapon_motion_reduce",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
-            (texture_2d(float), uniform_buffer::<Data>(false)),
+            (
+                texture_2d(float),
+                uniform_buffer::<Data>(false),
+                texture_2d(float),
+            ),
         ),
     );
     let composite_layouts = [false, true].map(|msaa| {
@@ -254,6 +263,8 @@ struct Textures {
     format: TextureFormat,
     reduced: [CachedTexture; 3],
     world: bool,
+    previous_motion: Option<CachedTexture>,
+    last_motion_frame: Option<(u32, u32)>,
     output: Option<CachedTexture>,
     environment: Option<CachedTexture>,
     object_gathered: Option<CachedTexture>,
@@ -265,6 +276,7 @@ struct Prepared {
     groups: [BindGroup; 3],
     frames: [FrameGroups; 2],
     _buffer: UniformBuffer<Data>,
+    samples: u32,
 }
 
 struct FrameGroups {
@@ -273,9 +285,17 @@ struct FrameGroups {
     world: Option<world::Prepared>,
 }
 
-fn snapshot(view: ViewQuery<(&ViewTarget, &Textures, &WeaponBlur)>, mut ctx: RenderContext) {
-    let (target, textures, blur) = view.into_inner();
-    if blur.max == 0. || blur.world {
+fn snapshot(
+    view: ViewQuery<(
+        &ViewTarget,
+        &Textures,
+        &WeaponBlur,
+        Option<&region::MotionRegion>,
+    )>,
+    mut ctx: RenderContext,
+) {
+    let (target, textures, blur, region) = view.into_inner();
+    if blur.max == 0. || blur.world || region.is_some_and(|r| r.is_empty()) {
         return;
     }
     ctx.command_encoder().copy_texture_to_texture(
@@ -341,16 +361,17 @@ fn draw_region(
 fn reconstruct(
     view: ViewQuery<(
         &ViewTarget,
-        &Textures,
+        &mut Textures,
         &Prepared,
         &WeaponBlur,
         Option<&region::MotionRegion>,
     )>,
+    frame_count: Res<bevy::diagnostic::FrameCount>,
     cache: Res<PipelineCache>,
     mut ctx: RenderContext,
     performance: Option<Res<crate::bevy::diagnostics::Diagnostics>>,
 ) {
-    let (target, textures, prepared, blur, region) = view.into_inner();
+    let (target, mut textures, prepared, blur, region) = view.into_inner();
     let Some(frame) = prepared
         .frames
         .iter()
@@ -374,46 +395,34 @@ fn reconstruct(
     if let Some(world) = &frame.world
         && blur.camera_moving
     {
-        world::prepare_images(&mut ctx, &cache, textures, world);
+        world::prepare_images(&mut ctx, &cache, &textures, world);
     }
-    for i in 0..3 {
-        let scissor = (i == 0 && !blur.world)
-            .then(|| region.map(|r| r.scissor(textures.size)))
-            .flatten();
-        if i == 0
-            && let Some(performance) = performance.as_deref()
-        {
-            let size = textures.reduced[0].texture.size();
-            let r = scissor.unwrap_or([0, 0, size.width, size.height]);
-            performance.record_reduction(
-                blur.world,
-                u64::from(r[2]) * u64::from(r[3]),
-                u64::from(size.width) * u64::from(size.height),
-            );
-        }
-        draw_region(
-            &mut ctx,
-            &cache,
-            prepared.pipelines[i],
-            &prepared.groups[i],
-            &textures.reduced[i].default_view,
-            [
-                "weapon_reduce_4",
-                "weapon_reduce_32",
-                "weapon_motion_dilate",
-            ][i],
-            scissor,
+    let object_motion = region.is_none_or(|r| !r.is_empty());
+    if let Some(performance) = performance.as_deref() {
+        let size = textures.reduced[0].texture.size();
+        let raw = region.map_or([0, 0, size.width, size.height], |r| {
+            r.scissor(textures.size)
+        });
+        performance.record_reduction(
+            blur.world,
+            u64::from(raw[2]) * u64::from(raw[3]),
+            u64::from(size.width) * u64::from(size.height),
         );
+    }
+    if object_motion {
+        draw_reductions(&mut ctx, &cache, &textures, prepared, region, blur.max);
+    } else if !blur.world || !blur.camera_moving {
+        return;
     }
     if let Some(world) = &frame.world {
         world::reconstruct(
             &mut ctx,
             &cache,
             target,
-            textures,
+            &textures,
             prepared,
-            world,
-            &frame.composite,
+            (world, &frame.composite),
+            region.map(|r| r.gather_scissor(textures.size, blur.max)),
         );
         return;
     }
@@ -426,4 +435,43 @@ fn reconstruct(
         write.destination,
         "viewmodel_animation_blur",
     );
+    if let Some(previous) = &textures.previous_motion {
+        let raw = &textures.reduced[0].texture;
+        ctx.command_encoder().copy_texture_to_texture(
+            raw.as_image_copy(),
+            previous.texture.as_image_copy(),
+            raw.size(),
+        );
+        textures.last_motion_frame = Some((frame_count.0, prepared.samples));
+    }
+}
+
+// The world camera filter ignores the reduction textures. A camera-only frame
+// still clears its object-gather target before the final composite.
+fn draw_reductions(
+    ctx: &mut RenderContext,
+    cache: &PipelineCache,
+    textures: &Textures,
+    prepared: &Prepared,
+    region: Option<&region::MotionRegion>,
+    max_blur: f32,
+) {
+    for (i, label) in [
+        "weapon_reduce_4",
+        "weapon_reduce_32",
+        "weapon_motion_dilate",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        draw_region(
+            ctx,
+            cache,
+            prepared.pipelines[i],
+            &prepared.groups[i],
+            &textures.reduced[i].default_view,
+            label,
+            region.map(|r| r.pass_scissor(i, textures.size, max_blur)),
+        );
+    }
 }

@@ -4,6 +4,7 @@ use bevy::{app::RunFixedMainLoopSystems, prelude::*};
 pub(crate) mod commentary;
 pub(crate) mod movie;
 mod ride;
+mod running;
 pub(crate) mod script;
 mod view;
 use hl2_simulation::physics::Physics;
@@ -22,6 +23,8 @@ struct Sample {
     fly: bool,
     player: Player,
     gameplay: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cpu_stages: Option<serde_json::Value>,
     ray_entity: Option<usize>,
     /// Colliders overlapping the player hull (entity, dynamic).
     hull_contacts: Vec<(Option<usize>, bool, f32, glam::Vec3)>,
@@ -64,6 +67,8 @@ pub struct Simulation {
     pub background_level: bool,
     /// Visuals are installed; defer background script/audio clocks together until audio is ready.
     pub background_audio_pending: bool,
+    /// The map's first logic_auto think is still ahead (its spawn hold): see `running.rs`.
+    spawn_hold: bool,
     /// The active point_viewcontrol's view (from the latest world tick); the player keeps
     /// its own eye, which still selects the soundscape (SDK `EarPosition`).
     pub view_control: Option<hl2_simulation::view_control::View>,
@@ -102,8 +107,9 @@ pub struct Simulation {
     pub projection_parameter: f32,
     pub video_policy: hl2_ui::extensions::VideoPolicy,
     pub viewmodel_fov: f32,
-    /// Saved menu artwork policy, applied independently of background debug mode.
-    pub background_force_default_blur: bool,
+    /// The menu background keeps its standard (4:3) blur artwork and field of view on wide
+    /// frames (a contributor's `standard_background` rule).
+    pub standard_background: bool,
     /// PlayerDeathThink: every button must be released before one press respawns.
     death_buttons_released: bool,
     /// `impulse 100` presses and commands since the flashlight last read them.
@@ -135,6 +141,7 @@ impl Simulation {
             paused: false,
             background_level: false,
             background_audio_pending: false,
+            spawn_hold: false,
             view_control: None,
             camera_turn: None,
             zoom_fov: None,
@@ -156,7 +163,7 @@ impl Simulation {
             camera_fov: None,
             projection_parameter: 0.,
             video_policy: Default::default(),
-            background_force_default_blur: false,
+            standard_background: false,
             viewmodel_fov: hl2_simulation::viewmodel_effects::VIEWMODEL_FOV,
             death_buttons_released: true,
             flashlight_toggles: 0,
@@ -204,20 +211,11 @@ impl Simulation {
     pub fn flying(&self) -> bool {
         self.fly
     }
-    pub fn paused(&self) -> bool {
-        self.paused || self.loading
-    }
-    /// Whether the world (entities, sounds, effects, the player) advances: in gameplay, and
-    /// behind the menu of a background level, never while a map loads.
-    pub fn world_running(&self) -> bool {
-        !self.loading
-            && !(self.background_level && self.background_audio_pending)
-            && (!self.paused || self.background_level)
-    }
     /// The player takes no input: a menu background level, or a point_viewcontrol with
     /// `SF_CAMERA_PLAYER_TAKECONTROL`.
     /// The player's own move, or the tongue that holds him.
     fn move_player(&mut self, input: Input, mut game: Option<&mut crate::gameplay::Gameplay>) {
+        let _span = hl2_simulation::profile_span!("player_move");
         if let Some(game) = game.as_deref_mut() {
             ride::apply(self, game);
         }
@@ -225,12 +223,6 @@ impl Simulation {
             Some(by) => self.player.carried(by, &self.physics, TICK),
             None => self.player.step(input, &self.physics, TICK),
         }
-    }
-    fn frozen(&self) -> bool {
-        self.background_level || self.view_control.is_some_and(|v| v.freeze_player)
-    }
-    pub fn loading(&self) -> bool {
-        self.loading
     }
     pub fn loading_failed(&mut self) {
         self.loading = false;
@@ -244,7 +236,7 @@ impl Simulation {
         self.video_policy = options.config.video.policy.clone();
         self.fov = options.config.video.fov;
         self.projection_parameter = options.config.video.projection_parameter();
-        self.background_force_default_blur = options.config.video.background_force_default_blur;
+        self.standard_background = !options.config.video.background_uses_widescreen(true);
         self.viewmodel_fov = options.config.video.effective_viewmodel_fov();
         self.applied_detail = Some(options.config.video.load_detail());
         self.applied_window = Some(
@@ -264,7 +256,17 @@ impl Simulation {
     }
 
     pub fn change_map(&mut self, world: &World, eye: glam::Vec3, direct: bool) {
-        self.physics = Physics::new(world);
+        self.change_map_with_physics(world, None, eye, direct);
+    }
+
+    pub fn change_map_with_physics(
+        &mut self,
+        world: &World,
+        physics: Option<Physics>,
+        eye: glam::Vec3,
+        direct: bool,
+    ) {
+        self.physics = physics.unwrap_or_else(|| Physics::new(world));
         self.eye = eye;
         self.player = Player::new(eye);
         self.view_control = None;
@@ -323,13 +325,10 @@ impl Simulation {
     ) {
         use hl2_ui::console::Effect;
         match effect {
-            Effect::Getpos => ui.source.log(format!(
-                "setpos {:.6} {:.6} {:.6}; setang {:.6} {:.6} 0",
-                self.eye.x,
-                self.eye.y,
-                self.eye.z,
+            Effect::Getpos => ui.source.log(hl2_ui::console::getpos_text(
+                self.eye.to_array(),
                 -self.pitch.to_degrees(),
-                self.yaw.to_degrees()
+                self.yaw.to_degrees(),
             )),
             Effect::Setpos { x, y, z } => {
                 self.player.feet = glam::Vec3::new(x, y, z.unwrap_or(self.player.feet.z));
@@ -371,6 +370,15 @@ impl Simulation {
                 ui.source.log(format!("prop_physics_create {model}"));
                 game.prop_requests.push((model, self.eye, self.forward()));
             }
+            Ok(Some(hl2_simulation::ai::spawn::Command::SpawnPickup(class, mut properties))) => {
+                properties.insert(0, ("classname".into(), class));
+                if let Err(error) = game.queue_model(
+                    modkit_core::Entity { properties },
+                    crate::runtime_props::ModelPlacement::Aim(self.eye, self.forward()),
+                ) {
+                    ui.source.log(error);
+                }
+            }
             Ok(None) => {}
             Err(e) => ui.source.log(e),
         }
@@ -402,15 +410,8 @@ impl Simulation {
                     }
                 }
                 Effect::Loadout => grant_loadout(ui, game),
-                Effect::AiEnable(value) => {
-                    let on = set_ai(game, value.unwrap_or(!game.ai.enabled));
-                    ui.source.log(format!("ai_enable {}", u8::from(on)));
-                }
-                // CC_AI_Disable: a toggle; DevMsg "AI Disabled." / "AI Enabled.".
-                Effect::AiDisable => {
-                    let on = set_ai(game, !game.ai.enabled);
-                    ui.source
-                        .log(if on { "AI Enabled." } else { "AI Disabled." });
+                effect @ (Effect::AiDisable | Effect::Notarget) => {
+                    ai_effect(game, ui, effect);
                 }
                 Effect::Noclip(value) => {
                     self.fly = value.unwrap_or(!self.fly);
@@ -453,6 +454,7 @@ impl Simulation {
                 }
                 Effect::NpcCommand(line) => self.apply_npc_command(ui, game, &line),
                 Effect::Quit => ui.quit_requested = true,
+                Effect::Screenshot => ui.screenshot_requested = true,
                 Effect::ApplyConfig(cfg) => self.apply_config_effect(ui, game, &cfg),
                 Effect::PlaySound(sound) => {
                     game.sound_requests
@@ -479,7 +481,7 @@ impl Simulation {
         self.video_policy = cfg.video.policy.clone();
         self.fov = cfg.video.fov;
         self.projection_parameter = cfg.video.projection_parameter();
-        self.background_force_default_blur = cfg.video.background_force_default_blur;
+        self.standard_background = !cfg.video.background_uses_widescreen(true);
         self.viewmodel_fov = cfg.video.effective_viewmodel_fov();
         let target = WindowSettings::of(&cfg.video);
         if self.applied_window != Some(target) {
@@ -611,10 +613,21 @@ impl Simulation {
         c.label
     }
 
+    #[cfg(test)]
     pub(crate) fn step(
+        &mut self,
+        game: Option<&mut crate::gameplay::Gameplay>,
+        ui: Option<&mut crate::ui_host::Console>,
+    ) {
+        self.step_with(game, ui, crate::isolation::Isolation::default(), None);
+    }
+
+    pub(crate) fn step_with(
         &mut self,
         mut game: Option<&mut crate::gameplay::Gameplay>,
         mut ui: Option<&mut crate::ui_host::Console>,
+        isolation: crate::isolation::Isolation,
+        performance: Option<&crate::performance::Performance>,
     ) {
         if (self.finished && !self.run_after_script) || self.loading {
             return;
@@ -627,12 +640,14 @@ impl Simulation {
         }
         self.host_tick += 1;
         let mut label = None;
+        let mut profile_window = None;
         if let Some(c) = self
             .commands
             .get(self.next)
             .filter(|c| c.tick == self.host_tick)
             .cloned()
         {
+            profile_window = c.profile_window;
             label = self.apply_script_command(c, game.as_deref_mut(), ui.as_deref_mut());
         }
         if (self.paused() || self.transition)
@@ -640,6 +655,7 @@ impl Simulation {
         {
             game.consume_attacks();
         }
+        self.spawn_hold = (game.as_deref()).is_some_and(|g| g.scene.logic_autos_pending());
         if self.world_running() && (self.focused || !self.commands.is_empty()) && !self.transition {
             if let Some(game) = game.as_deref_mut() {
                 commentary::before_gameplay_tick(self, game, ui.as_deref_mut());
@@ -649,78 +665,15 @@ impl Simulation {
                     glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array());
                 // GetDefaultFOV for SetFOV ramps (the `fov` command / fixture FOV).
                 game.inventory.fov.default_fov = self.fov;
-                game.tick(
+                game.tick_with(
                     &mut self.physics,
                     &self.player,
-                    self.eye,
-                    direction,
-                    self.fly,
+                    (self.eye, direction, self.fly),
+                    isolation,
+                    performance,
                 );
             }
-            if self.fly {
-                let forward =
-                    glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array());
-                let right = glam::Vec3::new(self.yaw.sin(), -self.yaw.cos(), 0.);
-                let vertical = f32::from(self.input.jump) - f32::from(self.input.crouch);
-                let direction = (forward * self.input.forward
-                    + right * self.input.side
-                    + glam::Vec3::Z * vertical)
-                    .normalize_or_zero();
-                self.eye += direction * if self.input.sprint { 900. } else { 300. } * TICK;
-            } else {
-                let before = hl2_simulation::footsteps::State {
-                    velocity: self.player.velocity,
-                    grounded: self.player.grounded,
-                    crouched: self.player.crouched,
-                    noclip: false,
-                };
-                let feet = self.player.feet;
-                // NPC hits push the player (ApplyAbsVelocityImpulse) before the move.
-                if let Some(game) = game.as_deref_mut() {
-                    self.player.velocity += std::mem::take(&mut game.player_impulse);
-                }
-                // SetMaxSpeed from the weapons stage (gravity gun load) for this step.
-                self.input.max_speed = game
-                    .as_deref()
-                    .and_then(|game| game.inventory.player_max_speed());
-                self.input.surface = game
-                    .as_deref()
-                    .filter(|_| self.player.grounded)
-                    .map(|game| game.ground_surface(&self.physics, feet))
-                    .unwrap_or_default();
-                // A scripted camera (point_viewcontrol) freezes the player in place.
-                let input = if self.frozen() {
-                    Input {
-                        yaw: self.yaw,
-                        ..Input::default()
-                    }
-                } else {
-                    self.input
-                };
-                self.move_player(input, game.as_deref_mut());
-                self.eye = self.player.eye();
-                // The player's VPhysics shadow pushes and weighs down movable props.
-                let held = game.as_deref().and_then(|game| {
-                    game.inventory.physcannon.held.or(game
-                        .inventory
-                        .carry
-                        .as_ref()
-                        .map(|carry| carry.entity))
-                });
-                self.physics.update_player_shadow(
-                    feet,
-                    self.player.feet,
-                    self.player.crouched,
-                    self.player.grounded && !self.player.dead,
-                    self.player.step_height,
-                    self.player.wish_velocity,
-                    held,
-                    TICK,
-                );
-                if let Some(game) = game.as_deref_mut() {
-                    commentary::finish_ground_step(self, game, before, feet);
-                }
-            }
+            self.step_player(game.as_deref_mut());
             if let Some(game) = game.as_deref_mut() {
                 commentary::after_gameplay_step(self, game);
             }
@@ -746,37 +699,120 @@ impl Simulation {
             self.loading = true;
         }
         if let Some(label) = label {
-            self.samples.push(Sample {
-                label,
-                host_tick: self.host_tick,
-                paused: self.paused,
-                fly: self.fly,
-                player: self.player.clone(),
-                gameplay: game
-                    .as_deref()
-                    .map(|g| commentary::sample_report(g, &self.physics)),
-                console: ui.as_deref().map(|u| u.report()),
-                hull_contacts: self.physics.hull_contacts(
-                    self.player.feet,
-                    if self.player.crouched { 36. } else { 72. },
-                ),
-                shadow: self.physics.player_shadow_center(),
-                physics_ms: self.physics.last_step_ms,
-                step_ms: self.last_step_ms,
-                awake_bodies: self.physics.awake_bodies(),
-                frame: self.frame_size,
-                camera: self.camera_fov,
-                ray_entity: self
-                    .physics
-                    .ray(
-                        self.eye,
-                        glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array()),
-                        128.,
-                    )
-                    .map(|(id, _)| id),
-            });
+            let cpu_stages = match (profile_window, performance) {
+                (Some(script::ProfileWindow::End), Some(performance)) => Some(performance.report()),
+                _ => None,
+            };
+            self.record_sample(label, game.as_deref(), ui.as_deref(), cpu_stages);
+            if let (Some(script::ProfileWindow::Start), Some(performance)) =
+                (profile_window, performance)
+            {
+                performance.restart_stages();
+            }
         }
         self.finished = !self.commands.is_empty() && self.next == self.commands.len();
+    }
+
+    fn step_player(&mut self, mut game: Option<&mut crate::gameplay::Gameplay>) {
+        if self.fly {
+            let forward = glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array());
+            let right = glam::Vec3::new(self.yaw.sin(), -self.yaw.cos(), 0.);
+            let vertical = f32::from(self.input.jump) - f32::from(self.input.crouch);
+            let direction =
+                (forward * self.input.forward + right * self.input.side + glam::Vec3::Z * vertical)
+                    .normalize_or_zero();
+            self.eye += direction * if self.input.sprint { 900. } else { 300. } * TICK;
+            return;
+        }
+        let before = hl2_simulation::footsteps::State {
+            velocity: self.player.velocity,
+            grounded: self.player.grounded,
+            crouched: self.player.crouched,
+            noclip: false,
+        };
+        let feet = self.player.feet;
+        // NPC hits push the player (ApplyAbsVelocityImpulse) before the move.
+        if let Some(game) = game.as_deref_mut() {
+            self.player.velocity += std::mem::take(&mut game.player_impulse);
+        }
+        // SetMaxSpeed from the weapons stage (gravity gun load) for this step.
+        self.input.max_speed = game
+            .as_deref()
+            .and_then(|game| game.inventory.player_max_speed());
+        self.input.surface = game
+            .as_deref()
+            .filter(|_| self.player.grounded)
+            .map(|game| game.ground_surface(&self.physics, feet))
+            .unwrap_or_default();
+        // A scripted camera (point_viewcontrol) freezes the player in place.
+        let input = if self.frozen() {
+            Input {
+                yaw: self.yaw,
+                ..Input::default()
+            }
+        } else {
+            self.input
+        };
+        self.move_player(input, game.as_deref_mut());
+        self.eye = self.player.eye();
+        // The player's VPhysics shadow pushes and weighs down movable props.
+        let held = game.as_deref().and_then(|game| {
+            game.inventory.physcannon.held.or(game
+                .inventory
+                .carry
+                .as_ref()
+                .map(|carry| carry.entity))
+        });
+        self.physics.update_player_shadow(
+            feet,
+            self.player.feet,
+            self.player.crouched,
+            self.player.grounded && !self.player.dead,
+            self.player.step_height,
+            self.player.wish_velocity,
+            held,
+            TICK,
+        );
+        if let Some(game) = game {
+            commentary::finish_ground_step(self, game, before, feet);
+        }
+    }
+
+    fn record_sample(
+        &mut self,
+        label: String,
+        game: Option<&crate::gameplay::Gameplay>,
+        ui: Option<&crate::ui_host::Console>,
+        cpu_stages: Option<serde_json::Value>,
+    ) {
+        self.samples.push(Sample {
+            label,
+            host_tick: self.host_tick,
+            paused: self.paused,
+            fly: self.fly,
+            player: self.player.clone(),
+            gameplay: game.map(|g| commentary::sample_report(g, &self.physics)),
+            cpu_stages,
+            console: ui.map(|u| u.report()),
+            hull_contacts: self.physics.hull_contacts(
+                self.player.feet,
+                if self.player.crouched { 36. } else { 72. },
+            ),
+            shadow: self.physics.player_shadow_center(),
+            physics_ms: self.physics.last_step_ms,
+            step_ms: self.last_step_ms,
+            awake_bodies: self.physics.awake_bodies(),
+            frame: self.frame_size,
+            camera: self.camera_fov,
+            ray_entity: self
+                .physics
+                .ray(
+                    self.eye,
+                    glam::Vec3::from_array(source_direction(self.yaw, self.pitch).to_array()),
+                    128.,
+                )
+                .map(|(id, _)| id),
+        });
     }
 }
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -812,10 +848,16 @@ fn fixed_step(
     mut ui: Option<ResMut<crate::ui_host::Console>>,
     mut exit: MessageWriter<AppExit>,
     performance: Option<Res<crate::performance::Performance>>,
+    isolation: Option<Res<crate::isolation::Isolation>>,
 ) {
     let _timing = crate::performance::scope(performance.as_deref(), "fixed_simulation");
     let started = std::time::Instant::now();
-    sim.step(game.as_deref_mut(), ui.as_deref_mut());
+    sim.step_with(
+        game.as_deref_mut(),
+        ui.as_deref_mut(),
+        isolation.as_deref().copied().unwrap_or_default(),
+        performance.as_deref(),
+    );
     sim.last_step_ms = started.elapsed().as_secs_f64() * 1000.;
     if ui.is_some_and(|u| u.quit_requested) {
         exit.write(AppExit::Success);
@@ -867,8 +909,33 @@ impl WindowSettings {
     }
 }
 
-/// Turns the AI on or off; returns the new state.
-fn set_ai(game: &mut crate::gameplay::Gameplay, on: bool) -> bool {
+/// The console's AI switches and their messages: ai_disable (CC_AI_Disable's DevMsg
+/// "AI Disabled." / "AI Enabled.") and notarget (CC_Notarget_f: FL_NOTARGET hides the player
+/// from NPC senses).
+fn ai_effect(
+    game: &mut crate::gameplay::Gameplay,
+    ui: &mut crate::ui_host::Console,
+    effect: hl2_ui::console::Effect,
+) {
+    use hl2_ui::console::Effect;
+    let message = match effect {
+        Effect::AiDisable => {
+            let on = set_ai_enabled(game, !game.ai.enabled);
+            (if on { "AI Enabled." } else { "AI Disabled." }).to_owned()
+        }
+        Effect::Notarget => {
+            game.ai.ignore_player = !game.ai.ignore_player;
+            let on = game.ai.ignore_player;
+            (if on { "notarget ON" } else { "notarget OFF" }).to_owned()
+        }
+        _ => return,
+    };
+    ui.source.log(message);
+}
+
+/// Turns the NPC AI think loop on or off (`ai_disable`, `--no-ai`, plugins); returns the new
+/// state.
+pub fn set_ai_enabled(game: &mut crate::gameplay::Gameplay, on: bool) -> bool {
     game.ai.enabled = on;
     crate::gameplay::AI_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
     on
@@ -909,7 +976,7 @@ mod tests {
             delta: Vec2::new(100., 100.),
         })
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
         app.world_mut().spawn((
             Window {
@@ -965,7 +1032,7 @@ mod tests {
             delta: Vec2::splat(100.),
         })
         .add_message::<AppExit>()
-        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .add_message::<bevy::window::WindowEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>();
         app.world_mut().spawn((
             Window {
@@ -987,55 +1054,64 @@ mod tests {
             Mode::Console
         );
         assert!(app.world().resource::<Simulation>().paused);
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Escape);
-        step_input(&mut app);
-        assert_eq!(
-            app.world()
-                .resource::<crate::ui_host::Console>()
-                .source
-                .mode(),
-            Mode::Console,
-            "the console closes when Escape is released"
-        );
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .release(KeyCode::Escape);
-        step_input(&mut app);
-        assert_eq!(
-            app.world()
-                .resource::<crate::ui_host::Console>()
-                .source
-                .mode(),
-            Mode::Pause,
-            "closing the console leaves the pause menu active"
-        );
-        assert!(app.world().resource::<Simulation>().paused);
-        // Resuming from the pause menu via Escape returns to active gameplay
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .clear();
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Escape);
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Space);
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.reset_all();
+            keys.press(KeyCode::Escape);
+            keys.press(KeyCode::Space);
+        }
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         step_input(&mut app);
         let sim = app.world().resource::<Simulation>();
         assert!(!sim.paused && sim.transition && sim.jump_suppressed && !sim.input.jump);
-        assert_eq!((sim.yaw, sim.pitch), (0., 0.));
         assert!(!app.world().resource::<crate::gameplay::Gameplay>().primary);
+        assert!(
+            !app.world()
+                .resource::<crate::ui_host::Console>()
+                .source
+                .console_open()
+        );
+
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear_just_pressed(KeyCode::Escape);
+            keys.release(KeyCode::Escape);
+        }
+        step_input(&mut app);
+        let sim = app.world().resource::<Simulation>();
+        assert!(!sim.paused && !sim.input.jump);
+        assert_ne!((sim.yaw, sim.pitch), (0., 0.));
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        step_input(&mut app);
+        assert!(app.world().resource::<Simulation>().paused);
+        assert_eq!(
+            app.world()
+                .resource::<crate::ui_host::Console>()
+                .source
+                .mode(),
+            Mode::Console
+        );
+
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            keys.release(KeyCode::Escape);
+            keys.press(KeyCode::Backquote);
+        }
+        step_input(&mut app);
+        assert!(
+            !app.world()
+                .resource::<crate::ui_host::Console>()
+                .source
+                .console_open()
+        );
+        assert!(app.world().resource::<Simulation>().transition);
+        assert!(!app.world().resource::<Simulation>().paused);
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .clear();
@@ -1144,6 +1220,8 @@ mod tests {
         .unwrap();
         let mut ui = crate::ui_host::Console::new(Default::default());
         let mut game = crate::gameplay::Gameplay::synthetic(World::default());
+        // A map that has started: past its spawn hold, which runs even under a menu.
+        game.scene.think_logic_autos_now(&game.world);
         let mut sim = Simulation::new(
             &World::default(),
             glam::Vec3::Z * 128.,
@@ -1203,11 +1281,13 @@ mod tests {
         assert_eq!(sim.player.ticks, 20);
         assert_eq!(sim.player.feet.truncate(), glam::Vec2::ZERO);
 
-        // Pause menu over gameplay: nothing advances.
+        // Pause menu over a newly loaded gameplay map: only its spawn hold runs (the logic_auto
+        // think at 0.2 s, so its first frame shows behind the menu), the player stays put, then
+        // nothing advances.
         let (sim, time) = run(false);
         assert!(sim.paused() && !sim.world_running());
-        assert_eq!(time, 0.);
-        assert_eq!(sim.player.ticks, 0);
+        assert!((time - 0.21).abs() < 1e-6, "scene time {time}");
+        assert_eq!(sim.player.feet.truncate(), glam::Vec2::ZERO);
     }
     #[test]
     fn a_frozen_view_ignores_player_actions_but_applies_entity_setup() {
@@ -1281,7 +1361,7 @@ mod tests {
                 delta: Vec2::new(50., 50.),
             })
             .add_message::<AppExit>()
-            .add_message::<bevy::input::keyboard::KeyboardInput>()
+            .add_message::<bevy::window::WindowEvent>()
             .add_message::<bevy::input::mouse::MouseWheel>();
 
         app.world_mut().spawn((

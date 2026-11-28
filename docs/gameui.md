@@ -88,7 +88,7 @@ portrait, odd dimensions, every HUD aspect frame and retained retail size refere
 
 ### Background vs Gameplay Loading UI/UX & Transition State Sequence
 
-- The saved `background_force_default_blur` cvar defaults to 0 (normal aspect-based variant selection). At 1 it selects the standard pre-blurred texture even on a wide canvas. Menu and loading draws share this policy through `Console::background_texture`; diagnostic texture names use the same predicate. The override is independent of background debug mode; that mode's Minus hotkey changes the stored cvar and displays its state. Selected artwork carries its actual variant, including a missing-wide fallback: shared menu/loading drawing center-crops against authored 4:3 (normal) or 16:9 (wide), cutting top/bottom above that aspect and sides below it. Encoded square VTF dimensions do not identify the authored aspect. With the override enabled, background camera projection caps the authored horizontal span at 4:3 and follows the same vertical crop above 4:3. Disabled camera FOV and debug adjustment behavior retain the original math. Startup and live setting changes apply this independently of debug mode; toggling clears temporary debug FOV tuning, and readout/reset/aspect changes use the selected baseline. See the non-retail feature guide for controls.
+- Core picks the blur artwork and background field of view by aspect; a plugin may register a standard-background rule (`Extensions::select_standard_background`), and `hl2-debug`'s saved `background_force_default_blur` (default 0) uses it. At 1 it selects the standard pre-blurred texture even on a wide canvas. Menu and loading draws share this policy through `Console::background_texture`; diagnostic texture names use the same predicate. The override is independent of background debug mode; that mode's Minus hotkey changes the stored cvar and displays its state. Selected artwork carries its actual variant, including a missing-wide fallback: shared menu/loading drawing center-crops against authored 4:3 (normal) or 16:9 (wide), cutting top/bottom above that aspect and sides below it. Encoded square VTF dimensions do not identify the authored aspect. With the override enabled, background camera projection caps the authored horizontal span at 4:3 and follows the same vertical crop above 4:3. Disabled camera FOV and debug adjustment behavior retain the original math. Startup and live setting changes apply this independently of debug mode; toggling clears temporary debug FOV tuning, and readout/reset/aspect changes use the selected baseline. See the non-retail feature guide for controls.
 
 - Menu background projection uses the authored 75-degree 4:3 reference and existing aspect-ratio crop; gameplay FOV, vertical-FOV overrides and weapon/env zoom do not change it. Fit Display supplies the actual internal game-frame aspect, not the configured resolution or outer window aspect.
 
@@ -171,9 +171,9 @@ request supersession/failure recovery remain intact for host/console requests.
 
 ### Menu Button & Title Letter Outline
 
-- Main menu and pause menu button labels (`Mode::MainMenu` and `Mode::Pause`), as well as game titles (`HALF-LIFE 2` / `HALF-LIFE'`) and expansion subtitles (`title2`, e.g. `--- Episode One ---`, `--- Episode Two ---`, `--- Lost Coast ---` across `hl2`, `hl2ep1`, `hl2ep2`, `hl2lc`), are drawn with a thin semi-transparent black border along the letter edge paths/contours of the characters (`TextOutline::DEFAULT`, `Color::new(0.0, 0.0, 0.0, 0.45)`, 1.0px thickness) rather than drawing rectangular bounding boxes or background fills.
-- The letter border is rendered via `source_ui::font::FontFace::draw_baseline_outlined` / `draw_cell_text_outlined` emitting 8-directional 1px offset glyph quads with semi-transparent black (`TextOutline::new(Color::new(0.0, 0.0, 0.0, 0.45), 1.0)` default / `0.65` armed / `0.25` disabled) before emitting the foreground glyphs.
-- When rendering character-by-character logos with per-glyph advances (such as `title_face` line 0), rendering uses two passes (Pass 1 emits all 8-directional outline quads for all characters, Pass 2 emits all foreground quads) so outline quads never overlap adjacent foreground characters.
+- Main menu and pause menu button labels (`Mode::MainMenu` and `Mode::Pause`), as well as game titles (`HALF-LIFE 2` / `HALF-LIFE'`) and expansion subtitles (`title2`, e.g. `--- Episode One ---`, `--- Episode Two ---`, `--- Lost Coast ---` across `hl2`, `hl2ep1`, `hl2ep2`, `hl2lc`), are drawn with a thin black outline along the letter edges (`TextOutline::DEFAULT`: black at 40% opacity, 1 px) rather than rectangular boxes or background fills. The outline grows outward only: the letters keep exactly the weight they have with no outline, the outline is barely visible on dark backgrounds and visible on bright ones (owner, 2026-11-27; 30% raised to 40% the same day).
+- `source_ui::font::FontFace::draw_baseline_outlined` (and `draw_cell_text_outlined` over it) draws one cached ring texture per glyph (`font/outline.rs`): the glyph's coverage dilated by the outline radius minus its own coverage, so it is zero where the glyph is solid and never exceeds the part of an edge texel the glyph leaves uncovered. The ring is drawn once in the outline colour, so `color.a` is the final opacity (the former eight offset stamps stacked to nearly opaque black under the antialiased edges and thinned the letters). The glyph quads are exactly those of an unoutlined draw. Enabled rows, armed or not, use 40%; disabled rows 20%; all fade with the base layer's focus through `TextOutline::faded`.
+- When rendering character-by-character logos with per-glyph advances (such as `title_face` line 0), rendering uses two passes (all outline rings first, then all foreground glyphs) so one letter's ring never covers its neighbour. Within one string, a ring can still tint a neighbouring glyph's partly covered edge texel where two letters come within 1 px of each other.
 - When pressed, the button letter text and its contour outline shift together by `(1.0, 1.0)`.
 - Spacers and disabled rows never emit active buttons, and the letter outline ensures crisp text contrast on bright, light, or white backgrounds without modifying menu geometry or drawing button boxes.
 
@@ -194,7 +194,7 @@ request supersession/failure recovery remain intact for host/console requests.
 ### Display modes, startup and windows
 
 - macOS display modes (owner decisions, 2026-10-15 and 2026-10-17): every platform offers Full screen (exclusive), Windowed and Windowed (No Border). On macOS No Border is the native full-screen Space (the green button maps to it) and the window keeps `borderless_game: false`, so the menu bar and title bar slide in at the top edge; exclusive Full screen hides them (winit) and runs the panel at scale 1 while active. `video::sync_native_fullscreen` (macOS-only, read-only winit state via `bevy::winit::WINIT_WINDOWS`, edge-triggered) keeps `Window::mode` and the saved display mode in step with it. Only resolution or display mode changes touch the window on OK/Apply, compared against `Simulation::applied_window` (what the window was last given), never against the console config, which is already updated when `ApplyConfig` arrives. External mode changes reach an open Options dialog through `Console::set_display_mode_external`.
-- Startup: a loadable `--map` starts gameplay; no `--map` or an unloadable one opens the main menu over the chapter-1 background map, which runs live behind the menu (world, ambient sounds, soundscapes) while player input is ignored (`Simulation::world_running`; the gameplay pause menu still freezes everything), viewed through the map's `point_viewcontrol` with its `env_zoom` FOV (`hl2_simulation::view_control`; `Simulation::view_origin`/`view_angles`/`view_fov` are the view, `eye()` stays the player's eye, which selects the soundscape), except that map-dependent arguments (position/angles/fly/movement script/live, burst or monitor captures) without a loadable `--map` fail the launch with an error. Escape never turns a background level into gameplay.
+- Startup: a loadable `--map` starts gameplay; no `--map` or an unloadable one opens the main menu over the chapter-1 background map, which runs live behind the menu (world, ambient sounds, soundscapes) while player input is ignored (`Simulation::world_running`; the gameplay pause menu still freezes everything), viewed through the map's `point_viewcontrol` with its `env_zoom` FOV (`hl2_simulation::view_control`; `Simulation::view_origin`/`view_angles`/`view_fov` are the view, `eye()` stays the player's eye, which selects the soundscape), except that map-dependent arguments (position/angles/fly/movement script/live, burst or monitor captures) without a loadable `--map` fail the launch with an error. Escape never turns a background level into gameplay. A gameplay map that finishes loading under the console or menu (a `--map` launch with `+showconsole`, as the live agent session starts) still runs its spawn hold, the 0.2 s until the first `logic_auto` think, with the player frozen, then pauses: the menu shows over the map's first frame like a pause menu instead of black, and the spawn outputs fire at the same game time as in an unpaused start (retail's server runs those ticks while the map connects).
 - Installation setup: an explicit `--game`/HL2_ROOT wins, then the remembered folder (`<config dir>/hl2-rs/installation.json`), then Steam discovery (an automatically detected folder is remembered too); the setup window opens only when none is ready. The map is optional (`install::validate_content(path, Option<map>)`): without `--map` only content is checked. Headless tests, scripted runs and binaries outside `bin/` pass `--no-setup` so no setup window can open, and must not rely on which folder is remembered.
 - Submenu background maps: entering an expansion submenu updates the background map and scene asynchronously; failures log a warning and leave the menu intact. Back or Escape preserves the expansion background map.
 - Windows and modal dialogs (owner decision, 2026-10-18, retail behavior): the Options dialog and the developer console are non-modal windows (`source_ui::windows::Windows`: z-order, keyboard focus, pointer routing). The pointer goes to the topmost window whose frame is under it, else to the menu; a press raises and focuses its layer and stays with it until release; keys go to the focused layer; a modal layer inside Options (sub-dialog, its confirmation box, open list, key capture) takes every click; the focused window fades to `Frame.BgColor`, the others to `Frame.OutOfFocusBgColor` over `Frame.FocusTransitionEffectTime`. `Console::mode()` is the focused layer and `Console::set_mode` the only way to change it. Modal dialog occlusion: when a modal dialog (quit / return confirmation box, game loading dialog) is open, underlying menu buttons must not be hovered, armed, or clicked; a layer without the pointer calls `ButtonTracker::occlude(down)`. The same holds inside a dialog for upper layers (confirmation box, key capture, open popup lists via `source_ui::widgets::PopupList`): occluded layers call `ButtonTracker::occlude(down)` every frame so the rest of a click consumed above is never read as a new press below. Popup lists close or select only on release; an outside click closes without activating anything (docs/gameui.md 6b).
@@ -664,8 +664,7 @@ SDK `vgui_controls` (`Button`, `RadioButton`, `Slider`, `ComboBox`, `PropertyShe
   `KeyPress`. It no longer draws the default-button border. Link text (the credits links on the
   Audio and Video pages) starts `widgets::LINK_TEXT_INSET` (5) into its control, inside the focus
   box (3 in) by `FOCUS_PAD`; at the control's edge the box crossed its first letter.
-- **Escape.** When Escape would close a dialog with a close button (Options or one of its
-  sub-dialogs, the developer console), the close button shows pressed while Escape is held and
+- **Escape.** When Escape would close a dialog with a close button, the close button shows pressed while Escape is held and
   the dialog closes on release (`Console::escape_pressed` / `escape_released`; retail closes on
   the press). Escape that cancels something else (a drag, key capture, open list, text edit,
   completion list) or opens / leaves the pause menu acts at once.
@@ -1333,13 +1332,7 @@ complete}`, HL2's glue (texts, look, actions to effects) in `hl2-ui::console::pa
   are cached by line number). Lines stay whole in the buffer: scrolling, the scroll bar and the
   wheel count rows, while filtering, coloring, selection and copy work on lines. The entry is a sunken `TextEntry` with no prompt (the `] line`
   echo stays in the history); it scrolls to keep the cursor in view.
-- Selection: dragging over the history selects the lines under the rows it covers, every row
-  of a wrapped line highlighted (`RichText.SelectedBgColor` Orange, `RichText.SelectedTextColor`
-  Black), scrolling a row per frame past the top or bottom. Cmd+C on macOS, Ctrl+C elsewhere
-  copies the selected lines as printed, one per line with their own newlines kept and no wrap
-  breaks, with the current `con_filter_enable` filter and `con_timestamp` prefix, through Bevy
-  `Clipboard`. Rows are numbered since start, so the selection stays on its
-  lines while new output arrives and old lines leave the 1024-line buffer; Ctrl+L clears it.
+- Selection: dragging or double-clicking inside the history (`RichText`) selects exact characters or words (`RichText.SelectedBgColor` Orange, `RichText.SelectedTextColor` Black), scrolling a row per frame past the top or bottom; clicking without dragging leaves no selection. Clicking, Shift+clicking, dragging, double-clicking (word), and triple-clicking (select all) inside the entry (`TextEntry`) position the caret and select characters with horizontal auto-scroll on edge drag. `Cmd/Ctrl+C` (or `Ctrl/Cmd+X` / `Shift+Delete` when only history is selected) copies selected text as printed (keeping `con_filter_enable` and `con_timestamp` prefixes in history), through Bevy `Clipboard`; `Cmd/Ctrl+X` / `Shift+Delete` cuts entry selection, `Cmd/Ctrl+A` selects all in the entry, and `Cmd/Ctrl+Z` undoes edits. History line numbers count since start so selections stay on their lines while output arrives or leaves the 1024-line buffer; `clear` drops the selection (`Ctrl+L` is supplied by `hl2-debug`).
 
 - Code layout: `console.rs` keeps the types, loading, `tick` and `draw`; `impl Console` is split by
   concern into `console/focus.rs` (window stack, focus, Escape, input routing), `menu_flow.rs`
@@ -1358,22 +1351,21 @@ complete}`, HL2's glue (texts, look, actions to effects) in `hl2-ui::console::pa
   game's own VPKs), the loaded map's targetnames and the inputs its own connections fire
   (`console_host::MapEntityNames`), command names, or fixed values. Ranking: exact name, prefix
   matches alphabetically (retail), then substring and letters-in-order matches (HL2-RS
-  addition). An empty line lists the command history, like retail.
+  addition). The popup opens only for command/argument completion, not when stepping through
+  command history.
 - The list shows under the input line, or above it when there is no room (the entry is at the
   bottom of the panel), at most 10 rows with the last one `...` when more (retail
   `MAX_MENU_ITEMS`), cvars with their current value. Above it, a help line shows the usage of the
   command being typed with the argument being typed highlighted (HL2-RS addition).
-- Keys: Tab/Down step forward and Shift+Tab/Up back, putting the item in the line (retail
-  `OnAutoComplete`); Tab on a single match takes it with a space; Up/Down on a line without
-  matches step through the history; Escape ends a Ctrl+R search, then hides the list, then
-  closes the console; Ctrl+R searches the history backwards (Enter runs the match, arrows/Tab take
-  it); Ctrl+W/Backspace and Ctrl+Delete delete words, Ctrl+U/K to the start/end, Ctrl+A/E move
-  there, Ctrl+arrows move by words, Ctrl+Home/End scroll the output, Ctrl+L clears it; paste is
-  Cmd+V on macOS and Ctrl+V elsewhere (Bevy `Clipboard`); typed text is ignored while Control or
-  Cmd is held.
-- History: 100 entries (retail `MAX_HISTORY_ITEMS`), a repeated command moves to the end, saved
-  in `hl2-console-history.txt` next to the settings file (never in the install). Lines submitted
-  by scripts or `Console::submit` do not join it.
+- Keys: retail core supports `Tab`/`Shift+Tab` completion stepping (`Down`/`Up` also step candidates while an autocomplete popup is open), popup-free `Up`/`Down` command-history browsing that updates the entry in place and restores any unsent draft when stepping back down past the newest entry, `Left`/`Right` and `Home`/`End` (with `Shift` selection), `Ctrl/Cmd+Left/Right` word movement (matching retail OSX `Cmd` and cross-platform `Ctrl`), `Ctrl/Cmd+Home/End` output scrolling, `Cmd/Ctrl+A/C/V/X/Z` and `Shift+Delete`; Escape hides the completion list then closes the console. Non-retail shortcuts (`Ctrl+R` reverse history search, `Ctrl+U/K/W/E/L`, `Ctrl+Backspace/Delete`, and macOS `Option` word / `Command` line navigation & deletion) are injected by the `hl2-debug` plugin via `Extensions::select_console_input`; typed text is ignored while Control or Command is held.
+- History: 100 entries (retail `MAX_HISTORY_ITEMS`), a repeated command moves to the end. Like
+  retail (SDK `CConsolePanel::m_CommandHistory`, freed with the panel) it lasts one run; the
+  `hl2-debug` plugin saves it in `hl2-console-history.txt` next to the settings file (never in
+  the install) and restores it at the next launch. Lines submitted by scripts or
+  `Console::submit` do not join it. Chat (a line of only `say` commands, or a line an extension
+  routed to chat, such as `hl2-debug`'s chat mode) is left out of `take_changed_history`, the
+  list a saver writes; the same text later run as a command is saved (HL2-RS addition).
+
 - Output: lines carry a level and the time they were printed; input echoes and messages use
   `Console.TextColor`, developer lines (mirrored HL2-RS info logs) `Console.DevTextColor`, read
   from the installed `SourceScheme.res`; warnings and errors (mirrored from the engine log, every
@@ -1382,7 +1374,7 @@ complete}`, HL2's glue (texts, look, actions to effects) in `hl2-ui::console::pa
   report still records lines as text.
 - Not ported: binds, aliases, `exec`, cvar registries for unimplemented engine cvars,
   game-specific commands from other titles, moving and resizing the console dialog (and the
-  bounds retail remembers), and character-level selection inside a history row.
+  bounds retail remembers), and right-click Cut/Copy/Paste context menus on the entry and history.
 
 ## 12. Moving and resizing dialogs (2026-10-17)
 
@@ -1579,7 +1571,7 @@ Dim overlay behavior distinguishes startup/menu background mode from active game
   `console::tests::context_aware_background_dim_overlay_across_all_four_cases`.
   Visual smoothness and gameplay dim contrast are unverified, needs manual check.
 
-## 18. Mid-gameplay developer console and pause menu focus transition (2026-10-21)
+## 18. Mid-gameplay developer console and pause menu focus transition (2026-11-26)
 
 Aligning mid-gameplay developer console activation with authentic Half-Life 2 / Source GameUI behavior:
 - **Pause menu as base surface:** Invoking the developer console mid-gameplay (via the tilde / backquote
@@ -1587,12 +1579,13 @@ Aligning mid-gameplay developer console activation with authentic Half-Life 2 / 
   and `background_level == false`. The pause menu (in-game main menu) becomes the active base surface,
   pausing and dimming gameplay, with the developer console opened and focused on top (`Mode::Console`,
   `windows.focus() == Layer::Window(Window::Console)`).
-- **Focus restoration on console dismissal:** Closing the developer console mid-gameplay (pressing tilde
-  again, clicking the close `[X]` button, or pressing Escape) closes the console dialog and returns focus
-  to the underlying pause menu (`Mode::Pause`, `windows.focus() == Layer::Base`), in accordance with the
-  single-focus model from section 15. The pause menu remains open and gameplay remains paused.
-- **Resuming gameplay:** Gameplay is resumed from the pause menu either by activating the "Resume Game"
-  menu row or by pressing Escape while the pause menu is focused.
+- **Tilde / `toggleconsole`:** With the console open over gameplay or its pause menu,
+  closes the console and returns to active gameplay. The console close button
+  and `hideconsole` close the console window.
+- **Escape:** With the console open over the pause menu, hides both and
+  returns gameplay input to the player. Reopening the pause menu restores
+  the console and its editor. Editor cancellation and modal dialogs keep
+  priority.
 - **Verification:** Unit-tested in `console::tests::mid_gameplay_tilde_dev_console_transition_and_pause_menu_focus`
   and `simulation::tests::ui_open_close_and_resume_consume_pointer_attack_and_held_jump`.
 
@@ -1838,7 +1831,9 @@ retail Enabled world-camera blur remains unchanged. Advanced instead reconstruct
 camera motion and opaque/masked moving objects from the same prepass machinery, using
 17-257 centered samples, 1.25-frame exposure and the 12% cap. Reprojected depth separates
 camera motion from object motion; only relative object motion is expanded into neighboring
-tiles. Static background retains its own color unless an object actually contributes
+tiles. An object's motion vector takes out the camera's world move since the previous frame
+(`object_motion.wesl`), so an object that moves with the camera, such as a prop carried
+while walking, holds still and is not blurred; camera rotation stays the camera blur's. Static background retains its own color unless an object actually contributes
 coverage. World reconstruction uses a cached current-frame copy, without the weapon
 background snapshot. Transparent smoke/glow sprites have no independent motion vectors.
 

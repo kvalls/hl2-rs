@@ -3,6 +3,8 @@ use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 pub mod animation;
+mod brush_set;
+pub use brush_set::BrushSet;
 pub mod decals;
 pub mod lighting;
 pub mod movement;
@@ -89,8 +91,12 @@ impl Entity {
             .find(|(k, _)| k.eq_ignore_ascii_case(key))
             .map(|(_, v)| v.as_str())
     }
+    /// The classname: the first key of a parsed map entity, otherwise found by scanning.
     pub fn class(&self) -> &str {
-        self.get("classname").unwrap_or("unknown")
+        match self.properties.first() {
+            Some((key, value)) if key.eq_ignore_ascii_case("classname") => value,
+            _ => self.get("classname").unwrap_or("unknown"),
+        }
     }
     pub fn origin(&self) -> Vec3 {
         parse_vec3(self.get("origin").unwrap_or("0 0 0")).unwrap_or(Vec3::ZERO)
@@ -525,6 +531,8 @@ impl World {
         merge(&mut self.illumination, loaded.illumination);
         merge(&mut self.model_physics, loaded.model_physics);
         merge(&mut self.model_mass, loaded.model_mass);
+        merge(&mut self.model_body_parts, loaded.model_body_parts);
+        merge(&mut self.model_ragdolls, loaded.model_ragdolls);
         merge(&mut self.model_prop_health, loaded.model_prop_health);
         merge(&mut self.model_prop_data, loaded.model_prop_data);
         merge(&mut self.model_breaks, loaded.model_breaks);
@@ -631,23 +639,62 @@ pub fn trace_brushes(
     maxs: Vec3,
     contents_mask: u32,
 ) -> Trace {
-    let mut result = Trace {
-        fraction: 1.,
-        normal: Vec3::ZERO,
-        start_solid: false,
-        all_solid: false,
-    };
+    let mut result = Trace::miss();
     for brush in brushes {
-        if brush.contents & contents_mask == 0 || brush.planes.is_empty() {
-            continue;
+        if brush.contents & contents_mask != 0 {
+            sweep_planes(&brush.planes, start, end, mins, maxs, &mut result);
         }
+    }
+    result
+}
+
+/// Sweep a hull against one axis-aligned box using the same planes and contact rules as a brush.
+pub fn trace_box(start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3, bounds: (Vec3, Vec3)) -> Trace {
+    let (lo, hi) = bounds;
+    let planes = [
+        (Vec3::X, hi.x),
+        (-Vec3::X, -lo.x),
+        (Vec3::Y, hi.y),
+        (-Vec3::Y, -lo.y),
+        (Vec3::Z, hi.z),
+        (-Vec3::Z, -lo.z),
+    ]
+    .map(|(normal, distance)| Plane { normal, distance });
+    let mut result = Trace::miss();
+    sweep_planes(&planes, start, end, mins, maxs, &mut result);
+    result
+}
+
+impl Trace {
+    /// A sweep that met nothing.
+    pub(crate) fn miss() -> Self {
+        Self {
+            fraction: 1.,
+            normal: Vec3::ZERO,
+            start_solid: false,
+            all_solid: false,
+        }
+    }
+}
+
+/// Adds one brush to a sweep's result. Brushes must be added in their list order: the first
+/// brush owns an equal-fraction normal, and a solid end keeps the normal found before it.
+pub(crate) fn sweep_planes(
+    planes: &[Plane],
+    start: Vec3,
+    end: Vec3,
+    mins: Vec3,
+    maxs: Vec3,
+    result: &mut Trace,
+) {
+    if !planes.is_empty() {
         let mut enter = -1f32;
         let mut leave = 1f32;
         let mut normal = Vec3::ZERO;
         let mut start_inside = true;
         let mut end_inside = true;
         let mut reject = false;
-        for plane in &brush.planes {
+        for plane in planes {
             let n = plane.normal;
             let support = Vec3::new(
                 if n.x >= 0. { mins.x } else { maxs.x },
@@ -683,7 +730,7 @@ pub fn trace_brushes(
             }
         }
         if reject {
-            continue;
+            return;
         }
         if start_inside {
             result.start_solid = true;
@@ -691,14 +738,13 @@ pub fn trace_brushes(
                 result.all_solid = true;
                 result.fraction = 0.;
             }
-            continue;
+            return;
         }
         if enter >= 0. && enter < leave && enter < result.fraction {
             result.fraction = enter;
             result.normal = normal;
         }
     }
-    result
 }
 
 /// Hosts supply assets and collision; mods add portable content without depending on Source.
@@ -845,5 +891,30 @@ mod tests {
             ],
         };
         assert_eq!(e.properties.len(), 2);
+    }
+    #[test]
+    fn merge_model_tables_adds_ragdolls_and_body_parts_without_overwriting() {
+        let mut base = World::default();
+        base.model_body_parts
+            .insert("models/existing.mdl".into(), vec![(1, 1)]);
+        base.model_ragdolls.insert(
+            "models/existing.mdl#0".into(),
+            std::sync::Arc::new(RagdollModel::default()),
+        );
+        let mut incoming = World::default();
+        incoming
+            .model_body_parts
+            .insert("models/existing.mdl".into(), vec![(9, 9)]);
+        incoming
+            .model_body_parts
+            .insert("models/new.mdl".into(), vec![(2, 1)]);
+        incoming.model_ragdolls.insert(
+            "models/new.mdl#0".into(),
+            std::sync::Arc::new(RagdollModel::default()),
+        );
+        base.merge_model_tables(incoming);
+        assert_eq!(base.model_body_parts["models/existing.mdl"], vec![(1, 1)]);
+        assert_eq!(base.model_body_parts["models/new.mdl"], vec![(2, 1)]);
+        assert!(base.model_ragdolls.contains_key("models/new.mdl#0"));
     }
 }

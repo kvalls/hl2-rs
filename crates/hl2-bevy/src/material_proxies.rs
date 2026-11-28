@@ -16,6 +16,7 @@ pub fn present(
     sim: Res<Simulation>,
     draws: Query<(&TwoTextureDraw, &MeshMaterial3d<SourceMaterial>)>,
     mut materials: ResMut<Assets<SourceMaterial>>,
+    mut slots: ResMut<crate::material_slots::MaterialSlots>,
 ) {
     let eye = glam::Vec3::from_array(sim.eye().to_array());
     let player_center = eye - glam::Vec3::Z * sim.player.eye_height
@@ -35,16 +36,21 @@ pub fn present(
             Vec3::new(uv[0][1], uv[1][1], 0.),
             Vec3::new(uv[0][2], uv[1][2], 1.),
         );
-        if materials.get(&handle.0).is_some_and(|m| {
-            m.base != draw.base[frames[0]]
-                || m.iris != draw.second[frames[1]]
-                || m.secondary_uv != secondary_uv
-        }) && let Some(mut m) = materials.get_mut(&handle.0)
+        // Texture frames are bind-group resources and change the material; the scroll runs
+        // every frame and goes through the material's slot.
+        if materials
+            .get(&handle.0)
+            .is_some_and(|m| m.base != draw.base[frames[0]] || m.iris != draw.second[frames[1]])
+            && let Some(mut m) = materials.get_mut(&handle.0)
         {
             m.base = draw.base[frames[0]].clone();
             m.iris = draw.second[frames[1]].clone();
-            m.secondary_uv = secondary_uv;
         }
+        slots.write(
+            &mut materials,
+            &handle.0,
+            crate::material_slots::Animated::Transform(secondary_uv),
+        );
     }
 }
 
@@ -57,18 +63,22 @@ pub fn report<'a>(
             &'a bevy::pbr::MeshMaterial3d<crate::rendering::SourceMaterial>,
         ),
     >,
-    materials: &bevy::asset::Assets<crate::rendering::SourceMaterial>,
+    (materials, slots): (
+        &bevy::asset::Assets<crate::rendering::SourceMaterial>,
+        &crate::material_slots::MaterialSlots,
+    ),
     time: f64,
 ) -> serde_json::Value {
     let entries: Vec<_> = draws
         .filter_map(|(name, draw, handle)| {
             let material = materials.get(&handle.0)?;
+            let (_, secondary_uv) = slots.values(material, handle.0.id());
             Some(
                 serde_json::json!({"name":name.as_str(),"entity":draw.entity,
                 "base_frames":draw.base.len(),"second_frames":draw.second.len(),
                 "base_frame":draw.base.iter().position(|h|h==&material.base),
                 "second_frame":draw.second.iter().position(|h|h==&material.iris),
-                "secondary_uv":material.secondary_uv.to_cols_array(),"time":time}),
+                "secondary_uv":secondary_uv.to_cols_array(),"time":time}),
             )
         })
         .collect();

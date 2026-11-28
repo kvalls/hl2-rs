@@ -62,8 +62,11 @@ fn decode_lump(raw: &[u8], i: usize) -> Result<Vec<u8>> {
     Ok(output)
 }
 
-/// The entities of a BSP file, reading only its header and entity lump (lump 0), not the map.
-pub fn read_entities(path: &std::path::Path) -> Result<Vec<modkit_core::Entity>> {
+mod changelevel;
+pub use changelevel::read_changelevel_targets;
+
+/// Reads and decodes lump 0 (the BSP entity text lump) from a BSP file without reading the rest of the map.
+pub(super) fn read_entity_lump(path: &std::path::Path) -> Result<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).with_context(|| path.display().to_string())?;
     let mut header = [0u8; 24];
@@ -78,7 +81,12 @@ pub fn read_entities(path: &std::path::Path) -> Result<Vec<modkit_core::Entity>>
     let mut raw = vec![0; len];
     file.seek(SeekFrom::Start(offset))?;
     file.read_exact(&mut raw)?;
-    keyvalues::entities(&decode_lump(&raw, 0)?)
+    decode_lump(&raw, 0)
+}
+
+/// The entities of a BSP file, reading only its header and entity lump (lump 0), not the map.
+pub fn read_entities(path: &std::path::Path) -> Result<Vec<modkit_core::Entity>> {
+    keyvalues::entities(&read_entity_lump(path)?)
 }
 
 impl Bsp {
@@ -191,8 +199,10 @@ impl Bsp {
         Ok(self.sky_visibility(point)?.sky_3d)
     }
     pub fn world(&self, name: &str) -> Result<World> {
-        let mut world = self.model_world(name, 0)?;
-        let clusters = self.background_clusters()?;
+        let entities = keyvalues::entities(self.lump(0))?;
+        let clusters = self.background_clusters(&entities)?;
+        let tables = BspTables::parse(self)?;
+        let mut world = self.model_world(name, 0, &tables, &clusters, entities)?;
         if let Some(e) = world.entities.iter().find(|e| e.class() == "sky_camera") {
             world.background_camera = Some(modkit_core::BackgroundCamera {
                 origin: e.origin(),
@@ -219,8 +229,8 @@ impl Bsp {
                 world.background_entities.push(id);
             }
         }
-        for (id, record) in records(self.lump(14), 48)?.enumerate().skip(1) {
-            let model = self.model_world(name, id)?;
+        for (id, &record) in tables.models.iter().enumerate().skip(1) {
+            let model = self.model_world(name, id, &tables, &clusters, Vec::new())?;
             world.brush_models.push(modkit_core::BrushModel {
                 id,
                 surfaces: model.surfaces,
@@ -233,14 +243,13 @@ impl Bsp {
             Ok(solids) => world.brush_model_physics = solids,
             Err(e) => world.warnings.push(format!("PHYSCOLLIDE lump: {e:#}")),
         }
-        match self.model_lighting() {
+        match self.model_lighting_with(tables.use_hdr) {
             Ok(lighting) => world.lighting = Some(std::sync::Arc::new(lighting)),
             Err(e) => world.warnings.push(format!("model lighting data: {e:#}")),
         }
         Ok(world)
     }
-    fn background_clusters(&self) -> Result<BTreeSet<i16>> {
-        let entities = keyvalues::entities(self.lump(0))?;
+    fn background_clusters(&self, entities: &[modkit_core::Entity]) -> Result<BTreeSet<i16>> {
         let Some(e) = entities.iter().find(|e| e.class() == "sky_camera") else {
             return Ok(BTreeSet::new());
         };
@@ -260,17 +269,20 @@ impl Bsp {
             Default::default()
         }
     }
-    fn model_world(&self, name: &str, model_index: usize) -> Result<World> {
+    fn model_world(
+        &self,
+        name: &str,
+        model_index: usize,
+        tables: &BspTables<'_>,
+        background_clusters: &BTreeSet<i16>,
+        entities: Vec<modkit_core::Entity>,
+    ) -> Result<World> {
         let (lightmaps, lightmap_styles) = self.lightmap_fields(model_index);
         let mut world = World {
             name: name.into(),
             lightmaps,
             lightmap_styles,
-            entities: if model_index == 0 {
-                keyvalues::entities(self.lump(0))?
-            } else {
-                Vec::new()
-            },
+            entities,
             model_instances: if model_index == 0 {
                 self.static_props.clone()
             } else {
@@ -278,43 +290,15 @@ impl Bsp {
             },
             ..Default::default()
         };
-        let positions = records(self.lump(3), 12)?
-            .map(|v| vec3(v, 0))
-            .collect::<Result<Vec<_>>>()?;
-        let edges = records(self.lump(12), 4)?
-            .map(|v| Ok([u16le(v, 0)? as usize, u16le(v, 2)? as usize]))
-            .collect::<Result<Vec<_>>>()?;
-        let surfedges = records(self.lump(13), 4)?
-            .map(|v| i32le(v, 0))
-            .collect::<Result<Vec<_>>>()?;
-        let texinfo = records(self.lump(6), 72)?.collect::<Vec<_>>();
-        let plane_normals = records(self.lump(1), 20)?
-            .map(|p| vec3(p, 0))
-            .collect::<Result<Vec<_>>>()?;
-        let texdata = records(self.lump(2), 32)?.collect::<Vec<_>>();
-        let strings = self.lump(43);
-        let table = self.lump(44);
-        let models = records(self.lump(14), 48)?.collect::<Vec<_>>();
-        let model = models.get(model_index).context("BSP missing model")?;
-        let first = i32le(model, 40)?;
-        let count = i32le(model, 44)?;
-        let use_hdr = crate::lighting::choose_hdr(&self.lumps, self.hdr);
-        let faces = records(self.lump(if use_hdr { 58 } else { 7 }), 56)?.collect::<Vec<_>>();
-        let lighting = self.lump(if use_hdr { 53 } else { 8 });
-        let disps = records(self.lump(26), 176)?.collect::<Vec<_>>();
-        let dispverts = records(self.lump(33), 20)?.collect::<Vec<_>>();
+        let model = tables
+            .models
+            .get(model_index)
+            .context("BSP missing model")?;
         let background_faces = if model_index == 0 {
-            crate::visibility::faces(
-                &self.lumps,
-                self.lump_versions[10],
-                &self.background_clusters()?,
-            )?
+            crate::visibility::faces(&self.lumps, self.lump_versions[10], background_clusters)?
         } else {
             BTreeSet::new()
         };
-        let mut batches: BTreeMap<(String, Option<usize>, bool), Surface> = BTreeMap::new();
-        let mut displacement_count = 0;
-        // info_overlay records and the world brush faces they reference (model 0 only).
         let overlays = if model_index == 0 {
             match crate::overlays::read(self.lump(45)) {
                 Ok(overlays) => overlays,
@@ -330,388 +314,31 @@ impl Bsp {
             .iter()
             .flat_map(|o| o.faces.iter().filter_map(|&f| usize::try_from(f).ok()))
             .collect();
-        let mut overlay_targets: BTreeMap<usize, OverlayTarget> = BTreeMap::new();
-        if first < 0
-            || count < 0
-            || (first as usize)
-                .checked_add(count as usize)
-                .is_none_or(|end| end > faces.len())
-        {
-            bail!("world face range outside faces");
-        }
-        for (local_face, f) in faces[first as usize..(first + count) as usize]
-            .iter()
-            .enumerate()
-        {
-            let face_light = self.face_lighting[first as usize + local_face];
-            let ti = i16le(f, 10)?;
-            if ti < 0 {
-                continue;
-            }
-            let info = texinfo[index(ti as i32, texinfo.len())?];
-            let flags = u32le(info, 64)?;
-            // Sky and nodraw faces are not world surfaces. No Source shaders are executed.
-            if flags & (0x2 | 0x4 | 0x80) != 0 {
-                continue;
-            }
-            let td = texdata[index(i32le(info, 68)?, texdata.len())?];
-            let material = texinfo_material(&texinfo, &texdata, strings, table, ti)?;
-            // Compile tools are invisible, except toolsblack (an UnlitGeneric black texture),
-            // e.g. the frame around trainstation_02's Combine slate.
-            if material.starts_with("tools/") && !material.starts_with("tools/toolsblack") {
-                continue;
-            }
-            // SURF_NOSHADOWS (vbsp sets it on water): no projected shadow lands here.
-            if flags & 0x1000 != 0 && !world.no_shadow_materials.contains(&material) {
-                world.no_shadow_materials.insert(material.clone());
-            }
-            let width = i32le(td, 16)?.max(1) as f32;
-            let height = i32le(td, 20)?.max(1) as f32;
-            let firstedge = i32le(f, 4)?;
-            let numedges = i16le(f, 8)?;
-            if firstedge < 0
-                || numedges < 0
-                || firstedge as usize + numedges as usize > surfedges.len()
-            {
-                bail!("face edge range outside surfedges");
-            }
-            let mut polygon = Vec::new();
-            for &edge in &surfedges[firstedge as usize..firstedge as usize + numedges as usize] {
-                let edge_id = edge.checked_abs().context("edge index overflow")?;
-                let e = edges[index(edge_id, edges.len())?];
-                let vertex = e[usize::from(edge < 0)];
-                polygon.push(
-                    *positions
-                        .get(vertex)
-                        .context("edge vertex outside vertices")?,
-                );
-            }
-            if polygon.len() < 3 {
-                continue;
-            }
-            let s = vec3(info, 0)?;
-            let so = f32le(info, 12)?;
-            let t = vec3(info, 16)?;
-            let to = f32le(info, 28)?;
-            let uv = |p: Vec3| Vec2::new((s.dot(p) + so) / width, (t.dot(p) + to) / height);
-            let normal = (polygon[1] - polygon[0])
-                .cross(polygon[2] - polygon[0])
-                .normalize_or_zero();
-            // Shading normal (envmap reflections): the face plane, oriented toward the side the
-            // clockwise Source winding faces. In owned maps that is the stored plane for both
-            // `side` values (d1_trainstation_02: 6597 of 6601 brush faces), so the winding decides
-            // and `side` only breaks ties for degenerate windings. Displacements reuse their
-            // base face's normal (an approximation).
-            let plane = *plane_normals
-                .get(usize::from(u16le(f, 0)?))
-                .context("face plane outside planes")?;
-            // Summed fan area: robust where the first three vertices are nearly collinear.
-            let area = (1..polygon.len() - 1).fold(Vec3::ZERO, |sum, i| {
-                sum + (polygon[i] - polygon[0]).cross(polygon[i + 1] - polygon[0])
-            });
-            let winding = plane.dot(area);
-            let face_normal = if winding > 0. || (winding == 0. && bytes(f, 2, 1)?[0] != 0) {
-                -plane
-            } else {
-                plane
-            };
-            let color = |p: Vec3| -> Result<[u8; 4]> {
-                let lightofs = i32le(f, 20)?;
-                if lightofs < 0 || lighting.is_empty() {
-                    let v = (170. + normal.z.abs() * 55.) as u8;
-                    return Ok([v, v, v, 255]);
-                }
-                let x = (vec3(info, 32)?.dot(p) + f32le(info, 44)? - i32le(f, 28)? as f32)
-                    .round()
-                    .clamp(0., i32le(f, 36)?.max(0) as f32) as usize;
-                let y = (vec3(info, 48)?.dot(p) + f32le(info, 60)? - i32le(f, 32)? as f32)
-                    .round()
-                    .clamp(0., i32le(f, 40)?.max(0) as f32) as usize;
-                let stride = usize::try_from(i32le(f, 36)?.max(0))? + 1;
-                let sample = bytes(lighting, lightofs as usize + 4 * (y * stride + x), 4)?;
-                let scale = 2f32.powi(sample[3] as i8 as i32);
-                let mut rgb = [0u8; 4];
-                for i in 0..3 {
-                    rgb[i] = ((sample[i] as f32 * scale / 255.).max(0.04).powf(1. / 2.2) * 255.)
-                        .min(255.) as u8;
-                }
-                rgb[3] = 255;
-                Ok(rgb)
-            };
-            let light_uv = |p: Vec3| -> Result<Vec2> {
-                if let Some(l) = face_light {
-                    let x = (vec3(info, 32)?.dot(p) + f32le(info, 44)? - i32le(f, 28)? as f32)
-                        .clamp(0., (l.width - 1) as f32);
-                    let y = (vec3(info, 48)?.dot(p) + f32le(info, 60)? - i32le(f, 32)? as f32)
-                        .clamp(0., (l.height - 1) as f32);
-                    Ok(Vec2::new(
-                        (l.x as f32 + x + 0.5) / 1024.,
-                        (l.y as f32 + y + 0.5) / 1024.,
-                    ))
-                } else {
-                    Ok(Vec2::ZERO)
-                }
-            };
-            let face_index = first as usize + local_face;
-            if i16le(f, 12)? < 0 && overlay_faces.contains(&face_index) {
-                overlay_targets.insert(
-                    face_index,
-                    OverlayTarget {
-                        polygon: polygon.clone(),
-                        normal: face_normal,
-                        light: LightMapping {
-                            s: vec3(info, 32)?,
-                            s_offset: f32le(info, 44)? - i32le(f, 28)? as f32,
-                            t: vec3(info, 48)?,
-                            t_offset: f32le(info, 60)? - i32le(f, 32)? as f32,
-                            face: face_light,
-                        },
-                        background: background_faces.contains(&face_index),
-                    },
-                );
-            }
-            let batch = batches
-                .entry((
-                    material.clone(),
-                    face_light.map(|l| l.page),
-                    background_faces.contains(&(first as usize + local_face)),
-                ))
-                .or_insert_with(|| Surface {
-                    flex_source: None,
-                    background: background_faces.contains(&(first as usize + local_face)),
-                    material,
-                    vertices: Vec::new(),
-                    indices: Vec::new(),
-                    lightmap: face_light.map(|l| l.page),
-                });
-            let disp = i16le(f, 12)?;
-            if disp >= 0 {
-                if polygon.len() != 4 {
-                    bail!("displacement base is not a quad");
-                }
-                let d = disps[index(disp as i32, disps.len())?];
-                let power = i32le(d, 20)?;
-                if !(2..=4).contains(&power) {
-                    bail!("invalid displacement power {power}");
-                }
-                let start = vec3(d, 0)?;
-                let corner = (0..4)
-                    .min_by(|&a, &b| {
-                        polygon[a]
-                            .distance_squared(start)
-                            .total_cmp(&polygon[b].distance_squared(start))
-                    })
-                    .unwrap();
-                polygon.rotate_left(corner);
-                let cells = 1usize << power;
-                let side = cells + 1;
-                let base = batch.vertices.len() as u32;
-                let dvstart = i32le(d, 12)?;
-                for y in 0..side {
-                    for x in 0..side {
-                        let fy = y as f32 / cells as f32;
-                        let fx = x as f32 / cells as f32;
-                        let p = polygon[0]
-                            .lerp(polygon[1], fy)
-                            .lerp(polygon[3].lerp(polygon[2], fy), fx);
-                        let dv =
-                            dispverts[index(dvstart + (y * side + x) as i32, dispverts.len())?];
-                        let pos = p + vec3(dv, 0)? * f32le(dv, 12)?;
-                        batch.vertices.push(Vertex {
-                            normal: face_normal,
-                            position: pos,
-                            uv: uv(p),
-                            color: if face_light.is_some() {
-                                [255; 4]
-                            } else {
-                                color(p)?
-                            },
-                            skin: None,
-                            light_uv: light_uv(p)?,
-                        });
-                    }
-                }
-                for y in 0..cells {
-                    for x in 0..cells {
-                        let a = base + (y * side + x) as u32;
-                        let b = a + side as u32;
-                        batch
-                            .indices
-                            .extend_from_slice(&[a, b, a + 1, a + 1, b, b + 1]);
-                    }
-                }
-                let count = cells * cells * 6;
-                world.terrain.push(Surface {
-                    flex_source: None,
-                    background: batch.background,
-                    lightmap: batch.lightmap,
-                    material: batch.material.clone(),
-                    vertices: batch.vertices[base as usize..].to_vec(),
-                    indices: batch.indices[batch.indices.len() - count..]
-                        .iter()
-                        .map(|i| i - base)
-                        .collect(),
-                });
-                displacement_count += 1;
-            } else {
-                let base = batch.vertices.len() as u32;
-                for p in polygon.iter().copied() {
-                    batch.vertices.push(Vertex {
-                        normal: face_normal,
-                        position: p,
-                        uv: uv(p),
-                        color: if face_light.is_some() {
-                            [255; 4]
-                        } else {
-                            color(p)?
-                        },
-                        skin: None,
-                        light_uv: light_uv(p)?,
-                    });
-                }
-                for i in 1..polygon.len() - 1 {
-                    batch
-                        .indices
-                        .extend_from_slice(&[base, base + i as u32, base + i as u32 + 1]);
-                }
-            }
-        }
-        world.surfaces = batches.into_values().collect();
-        for overlay in &overlays {
-            let material =
-                match texinfo_material(&texinfo, &texdata, strings, table, overlay.texinfo) {
-                    Ok(material) => material,
-                    Err(e) => {
-                        world
-                            .warnings
-                            .push(format!("info_overlay {}: {e:#}", overlay.id));
-                        continue;
-                    }
-                };
-            let mut pieces: BTreeMap<(Option<usize>, bool), Surface> = BTreeMap::new();
-            for target in overlay
-                .faces
-                .iter()
-                .filter_map(|&f| overlay_targets.get(&usize::try_from(f).ok()?))
-            {
-                for mut polygon in overlay.fragments(&target.polygon, target.normal) {
-                    // Counter-clockwise around the face normal (the host's front face; world
-                    // faces get the same orientation from their winding normalization).
-                    let area = (1..polygon.len() - 1).fold(Vec3::ZERO, |sum, i| {
-                        sum + (polygon[i].position - polygon[0].position)
-                            .cross(polygon[i + 1].position - polygon[0].position)
-                    });
-                    if area.dot(target.normal) < 0. {
-                        polygon.reverse();
-                    }
-                    let page = target.light.face.map(|l| l.page);
-                    let surface =
-                        pieces
-                            .entry((page, target.background))
-                            .or_insert_with(|| Surface {
-                                flex_source: None,
-                                background: target.background,
-                                material: material.clone(),
-                                vertices: Vec::new(),
-                                indices: Vec::new(),
-                                lightmap: page,
-                            });
-                    let base = surface.vertices.len() as u32;
-                    surface.vertices.extend(polygon.iter().map(|v| Vertex {
-                        normal: target.normal,
-                        position: v.position,
-                        uv: v.uv,
-                        color: [255; 4],
-                        skin: None,
-                        light_uv: target.light.uv(v.position),
-                    }));
-                    for i in 1..polygon.len() as u32 - 1 {
-                        surface.indices.extend([base, base + i, base + i + 1]);
-                    }
-                }
-            }
-            world.overlays.extend(pieces.into_values());
-        }
-        let planes = records(self.lump(1), 20)?
-            .map(|p| {
-                Ok(Plane {
-                    normal: vec3(p, 0)?,
-                    distance: f32le(p, 12)?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let sides = records(self.lump(19), 8)?.collect::<Vec<_>>();
-        let brushes = records(self.lump(18), 12)?.collect::<Vec<_>>();
-        let nodes = records(self.lump(5), 32)?.collect::<Vec<_>>();
-        let leaf_size = if self.lump_versions[10] == 0 { 56 } else { 32 };
-        let leaves = records(self.lump(10), leaf_size)?.collect::<Vec<_>>();
-        let leafbrushes = records(self.lump(17), 2)?
-            .map(|r| u16le(r, 0))
-            .collect::<Result<Vec<_>>>()?;
-        let mut stack = vec![i32le(model, 36)?];
-        let mut visited = BTreeSet::new();
-        let mut world_brushes = BTreeSet::new();
-        while let Some(node) = stack.pop() {
-            if !visited.insert(node) {
-                continue;
-            }
-            if node >= 0 {
-                let n = nodes[index(node, nodes.len())?];
-                stack.push(i32le(n, 4)?);
-                stack.push(i32le(n, 8)?);
-            } else {
-                let leaf = leaves[index(
-                    node.checked_neg().context("leaf index overflow")? - 1,
-                    leaves.len(),
-                )?];
-                let start = u16le(leaf, 24)? as usize;
-                let count = u16le(leaf, 26)? as usize;
-                for &brush in leafbrushes
-                    .get(start..start + count)
-                    .context("leaf brush range")?
-                {
-                    world_brushes.insert(brush as usize);
-                }
-            }
-        }
-        for id in world_brushes {
-            let b = brushes.get(id).context("brush index")?;
-            let contents = u32le(b, 8)?;
-            // World brushes that block anything (MASK_PLAYERSOLID / MASK_NPCSOLID /
-            // MASK_SOLID): solid, window (0x2), grate (0x8: chain-link and scissor gates)
-            // and player/monster clips; water, ladders and the like stay out.
-            if model_index == 0 && contents & (1 | 0x2 | 0x8 | 0x10000 | 0x20000) == 0 {
-                continue;
-            }
-            let start = usize::try_from(i32le(b, 0)?)?;
-            let count = usize::try_from(i32le(b, 4)?)?;
-            let mut ps = Vec::new();
-            let mut side_materials = Vec::new();
-            for side in sides
-                .get(start..start + count)
-                .context("brush side range")?
-            {
-                ps.push(
-                    *planes
-                        .get(u16le(side, 0)? as usize)
-                        .context("brush plane index")?,
-                );
-                // dbrushside_t texinfo (offset 2); -1 (TEXINFO_NODE) has no material.
-                let ti = i16::from_le_bytes([side[2], side[3]]);
-                side_materials.push(if ti < 0 {
-                    String::new()
-                } else {
-                    texinfo_material(&texinfo, &texdata, strings, table, ti).unwrap_or_default()
-                });
-            }
-            world.brush_side_materials.push(side_materials);
-            world.brushes.push(Brush {
-                planes: ps,
-                contents,
-            });
-        }
+        let built = self.build_model_surfaces(
+            tables,
+            model,
+            &background_faces,
+            &overlay_faces,
+            &mut world.no_shadow_materials,
+        )?;
+        world.surfaces = built.batches.into_values().collect();
+        world.terrain = built.terrain;
+        build_overlays(
+            tables,
+            &overlays,
+            &built.overlay_targets,
+            &mut world.overlays,
+            &mut world.warnings,
+        );
+        collect_model_brushes(
+            tables,
+            model,
+            model_index == 0,
+            &mut world.brushes,
+            &mut world.brush_side_materials,
+        )?;
         if model_index == 0 {
-            world.warnings.push(format!("{displacement_count} displacement surfaces have triangle collision; neighbor seams still need validation"));
+            world.warnings.push(format!("{} displacement surfaces have triangle collision; neighbor seams still need validation", built.displacement_count));
             world.warnings.push(
                 "Source campaign fidelity remains incomplete; see README and entity diagnostics"
                     .into(),
@@ -719,6 +346,551 @@ impl Bsp {
         }
         Ok(world)
     }
+
+    fn build_model_surfaces(
+        &self,
+        tables: &BspTables<'_>,
+        model: &[u8],
+        background_faces: &BTreeSet<usize>,
+        overlay_faces: &BTreeSet<usize>,
+        no_shadow_materials: &mut BTreeSet<String>,
+    ) -> Result<SurfaceBuildOut> {
+        let first = i32le(model, 40)?;
+        let count = i32le(model, 44)?;
+        if first < 0
+            || count < 0
+            || (first as usize)
+                .checked_add(count as usize)
+                .is_none_or(|end| end > tables.faces.len())
+        {
+            bail!("world face range outside faces");
+        }
+        let mut out = SurfaceBuildOut::default();
+        for (local_face, f) in tables.faces[first as usize..(first + count) as usize]
+            .iter()
+            .enumerate()
+        {
+            let face_index = first as usize + local_face;
+            self.append_model_face(
+                tables,
+                f,
+                face_index,
+                (
+                    background_faces.contains(&face_index),
+                    overlay_faces.contains(&face_index),
+                ),
+                no_shadow_materials,
+                &mut out,
+            )?;
+        }
+        Ok(out)
+    }
+
+    fn append_model_face(
+        &self,
+        tables: &BspTables<'_>,
+        f: &[u8],
+        face_index: usize,
+        (is_background, is_overlay): (bool, bool),
+        no_shadow_materials: &mut BTreeSet<String>,
+        out: &mut SurfaceBuildOut,
+    ) -> Result<()> {
+        let face_light = self.face_lighting[face_index];
+        let ti = i16le(f, 10)?;
+        if ti < 0 {
+            return Ok(());
+        }
+        let info = tables.texinfo[index(ti as i32, tables.texinfo.len())?];
+        let flags = u32le(info, 64)?;
+        // Sky and nodraw faces are not world surfaces. No Source shaders are executed.
+        if flags & (0x2 | 0x4 | 0x80) != 0 {
+            return Ok(());
+        }
+        let td = tables.texdata[index(i32le(info, 68)?, tables.texdata.len())?];
+        let material = tables.texinfo_material(ti)?;
+        // Compile tools are invisible, except toolsblack (an UnlitGeneric black texture),
+        // e.g. the frame around trainstation_02's Combine slate.
+        if material.starts_with("tools/") && !material.starts_with("tools/toolsblack") {
+            return Ok(());
+        }
+        // SURF_NOSHADOWS (vbsp sets it on water): no projected shadow lands here.
+        if flags & 0x1000 != 0 && !no_shadow_materials.contains(&material) {
+            no_shadow_materials.insert(material.clone());
+        }
+        let Some((mut polygon, normal, face_normal)) = face_polygon(tables, f)? else {
+            return Ok(());
+        };
+        let disp = i16le(f, 12)?;
+        if disp < 0 && is_overlay {
+            out.overlay_targets.insert(
+                face_index,
+                OverlayTarget {
+                    polygon: polygon.clone(),
+                    normal: face_normal,
+                    light: LightMapping {
+                        s: vec3(info, 32)?,
+                        s_offset: f32le(info, 44)? - i32le(f, 28)? as f32,
+                        t: vec3(info, 48)?,
+                        t_offset: f32le(info, 60)? - i32le(f, 32)? as f32,
+                        face: face_light,
+                    },
+                    background: is_background,
+                },
+            );
+        }
+        let batch = out
+            .batches
+            .entry((material.clone(), face_light.map(|l| l.page), is_background))
+            .or_insert_with(|| Surface {
+                flex_source: None,
+                background: is_background,
+                material,
+                vertices: Vec::new(),
+                indices: Vec::new(),
+                lightmap: face_light.map(|l| l.page),
+            });
+        let tex_size = (i32le(td, 16)?.max(1) as f32, i32le(td, 20)?.max(1) as f32);
+        let ctx = FaceContext {
+            f,
+            info,
+            tex_size,
+            normal,
+            face_normal,
+            face_light,
+        };
+        if disp >= 0 {
+            append_displacement_surface(tables, batch, &mut out.terrain, &mut polygon, ctx, disp)?;
+            out.displacement_count += 1;
+        } else {
+            append_brush_face_surface(tables, batch, &polygon, ctx)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct SurfaceBuildOut {
+    batches: BTreeMap<(String, Option<usize>, bool), Surface>,
+    terrain: Vec<Surface>,
+    overlay_targets: BTreeMap<usize, OverlayTarget>,
+    displacement_count: usize,
+}
+
+/// Shared parsed BSP lumps reused across the world model and all brush models in `Bsp::world`.
+struct BspTables<'a> {
+    positions: Vec<Vec3>,
+    edges: Vec<[usize; 2]>,
+    surfedges: Vec<i32>,
+    texinfo: Vec<&'a [u8]>,
+    texdata: Vec<&'a [u8]>,
+    strings: &'a [u8],
+    table: &'a [u8],
+    models: Vec<&'a [u8]>,
+    faces: Vec<&'a [u8]>,
+    lighting: &'a [u8],
+    disps: Vec<&'a [u8]>,
+    dispverts: Vec<&'a [u8]>,
+    use_hdr: bool,
+    planes: Vec<Plane>,
+    sides: Vec<&'a [u8]>,
+    brushes: Vec<&'a [u8]>,
+    nodes: Vec<&'a [u8]>,
+    leaves: Vec<&'a [u8]>,
+    leafbrushes: Vec<u16>,
+}
+
+impl<'a> BspTables<'a> {
+    fn parse(bsp: &'a Bsp) -> Result<Self> {
+        let use_hdr = crate::lighting::choose_hdr(&bsp.lumps, bsp.hdr);
+        let leaf_size = if bsp.lump_versions[10] == 0 { 56 } else { 32 };
+        Ok(Self {
+            positions: records(bsp.lump(3), 12)?
+                .map(|v| vec3(v, 0))
+                .collect::<Result<Vec<_>>>()?,
+            edges: records(bsp.lump(12), 4)?
+                .map(|v| Ok([u16le(v, 0)? as usize, u16le(v, 2)? as usize]))
+                .collect::<Result<Vec<_>>>()?,
+            surfedges: records(bsp.lump(13), 4)?
+                .map(|v| i32le(v, 0))
+                .collect::<Result<Vec<_>>>()?,
+            texinfo: records(bsp.lump(6), 72)?.collect(),
+            texdata: records(bsp.lump(2), 32)?.collect(),
+            strings: bsp.lump(43),
+            table: bsp.lump(44),
+            models: records(bsp.lump(14), 48)?.collect(),
+            faces: records(bsp.lump(if use_hdr { 58 } else { 7 }), 56)?.collect(),
+            lighting: bsp.lump(if use_hdr { 53 } else { 8 }),
+            disps: records(bsp.lump(26), 176)?.collect(),
+            dispverts: records(bsp.lump(33), 20)?.collect(),
+            use_hdr,
+            planes: records(bsp.lump(1), 20)?
+                .map(|p| {
+                    Ok(Plane {
+                        normal: vec3(p, 0)?,
+                        distance: f32le(p, 12)?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+            sides: records(bsp.lump(19), 8)?.collect(),
+            brushes: records(bsp.lump(18), 12)?.collect(),
+            nodes: records(bsp.lump(5), 32)?.collect(),
+            leaves: records(bsp.lump(10), leaf_size)?.collect(),
+            leafbrushes: records(bsp.lump(17), 2)?
+                .map(|r| u16le(r, 0))
+                .collect::<Result<Vec<_>>>()?,
+        })
+    }
+
+    fn texinfo_material(&self, ti: i16) -> Result<String> {
+        texinfo_material(&self.texinfo, &self.texdata, self.strings, self.table, ti)
+    }
+}
+
+struct FaceContext<'a> {
+    f: &'a [u8],
+    info: &'a [u8],
+    tex_size: (f32, f32),
+    normal: Vec3,
+    face_normal: Vec3,
+    face_light: Option<crate::lighting::FaceLight>,
+}
+
+fn face_polygon(tables: &BspTables<'_>, f: &[u8]) -> Result<Option<(Vec<Vec3>, Vec3, Vec3)>> {
+    let firstedge = i32le(f, 4)?;
+    let numedges = i16le(f, 8)?;
+    if firstedge < 0
+        || numedges < 0
+        || firstedge as usize + numedges as usize > tables.surfedges.len()
+    {
+        bail!("face edge range outside surfedges");
+    }
+    let mut polygon = Vec::new();
+    for &edge in &tables.surfedges[firstedge as usize..firstedge as usize + numedges as usize] {
+        let edge_id = edge.checked_abs().context("edge index overflow")?;
+        let e = tables.edges[index(edge_id, tables.edges.len())?];
+        let vertex = e[usize::from(edge < 0)];
+        polygon.push(
+            *tables
+                .positions
+                .get(vertex)
+                .context("edge vertex outside vertices")?,
+        );
+    }
+    if polygon.len() < 3 {
+        return Ok(None);
+    }
+    let normal = (polygon[1] - polygon[0])
+        .cross(polygon[2] - polygon[0])
+        .normalize_or_zero();
+    // Shading normal (envmap reflections): the face plane, oriented toward the side the
+    // clockwise Source winding faces. In owned maps that is the stored plane for both
+    // `side` values (d1_trainstation_02: 6597 of 6601 brush faces), so the winding decides
+    // and `side` only breaks ties for degenerate windings. Displacements reuse their
+    // base face's normal (an approximation).
+    let plane = tables
+        .planes
+        .get(usize::from(u16le(f, 0)?))
+        .context("face plane outside planes")?
+        .normal;
+    // Summed fan area: robust where the first three vertices are nearly collinear.
+    let area = (1..polygon.len() - 1).fold(Vec3::ZERO, |sum, i| {
+        sum + (polygon[i] - polygon[0]).cross(polygon[i + 1] - polygon[0])
+    });
+    let winding = plane.dot(area);
+    let face_normal = if winding > 0. || (winding == 0. && bytes(f, 2, 1)?[0] != 0) {
+        -plane
+    } else {
+        plane
+    };
+    Ok(Some((polygon, normal, face_normal)))
+}
+
+fn face_uv(info: &[u8], (width, height): (f32, f32), p: Vec3) -> Result<Vec2> {
+    let s = vec3(info, 0)?;
+    let so = f32le(info, 12)?;
+    let t = vec3(info, 16)?;
+    let to = f32le(info, 28)?;
+    Ok(Vec2::new((s.dot(p) + so) / width, (t.dot(p) + to) / height))
+}
+
+fn face_color(f: &[u8], info: &[u8], lighting: &[u8], normal: Vec3, p: Vec3) -> Result<[u8; 4]> {
+    let lightofs = i32le(f, 20)?;
+    if lightofs < 0 || lighting.is_empty() {
+        let v = (170. + normal.z.abs() * 55.) as u8;
+        return Ok([v, v, v, 255]);
+    }
+    let x = (vec3(info, 32)?.dot(p) + f32le(info, 44)? - i32le(f, 28)? as f32)
+        .round()
+        .clamp(0., i32le(f, 36)?.max(0) as f32) as usize;
+    let y = (vec3(info, 48)?.dot(p) + f32le(info, 60)? - i32le(f, 32)? as f32)
+        .round()
+        .clamp(0., i32le(f, 40)?.max(0) as f32) as usize;
+    let stride = usize::try_from(i32le(f, 36)?.max(0))? + 1;
+    let sample = bytes(lighting, lightofs as usize + 4 * (y * stride + x), 4)?;
+    let scale = 2f32.powi(sample[3] as i8 as i32);
+    let mut rgb = [0u8; 4];
+    for i in 0..3 {
+        rgb[i] =
+            ((sample[i] as f32 * scale / 255.).max(0.04).powf(1. / 2.2) * 255.).min(255.) as u8;
+    }
+    rgb[3] = 255;
+    Ok(rgb)
+}
+
+fn face_light_uv(
+    f: &[u8],
+    info: &[u8],
+    face_light: Option<crate::lighting::FaceLight>,
+    p: Vec3,
+) -> Result<Vec2> {
+    if let Some(l) = face_light {
+        let x = (vec3(info, 32)?.dot(p) + f32le(info, 44)? - i32le(f, 28)? as f32)
+            .clamp(0., (l.width - 1) as f32);
+        let y = (vec3(info, 48)?.dot(p) + f32le(info, 60)? - i32le(f, 32)? as f32)
+            .clamp(0., (l.height - 1) as f32);
+        Ok(Vec2::new(
+            (l.x as f32 + x + 0.5) / 1024.,
+            (l.y as f32 + y + 0.5) / 1024.,
+        ))
+    } else {
+        Ok(Vec2::ZERO)
+    }
+}
+
+fn append_displacement_surface(
+    tables: &BspTables<'_>,
+    batch: &mut Surface,
+    terrain: &mut Vec<Surface>,
+    polygon: &mut [Vec3],
+    ctx: FaceContext<'_>,
+    disp: i16,
+) -> Result<()> {
+    if polygon.len() != 4 {
+        bail!("displacement base is not a quad");
+    }
+    let d = tables.disps[index(disp as i32, tables.disps.len())?];
+    let power = i32le(d, 20)?;
+    if !(2..=4).contains(&power) {
+        bail!("invalid displacement power {power}");
+    }
+    let start = vec3(d, 0)?;
+    let corner = (0..4)
+        .min_by(|&a, &b| {
+            polygon[a]
+                .distance_squared(start)
+                .total_cmp(&polygon[b].distance_squared(start))
+        })
+        .unwrap();
+    polygon.rotate_left(corner);
+    let cells = 1usize << power;
+    let side = cells + 1;
+    let base = batch.vertices.len() as u32;
+    let dvstart = i32le(d, 12)?;
+    for y in 0..side {
+        for x in 0..side {
+            let fy = y as f32 / cells as f32;
+            let fx = x as f32 / cells as f32;
+            let p = polygon[0]
+                .lerp(polygon[1], fy)
+                .lerp(polygon[3].lerp(polygon[2], fy), fx);
+            let dv =
+                tables.dispverts[index(dvstart + (y * side + x) as i32, tables.dispverts.len())?];
+            let pos = p + vec3(dv, 0)? * f32le(dv, 12)?;
+            let [r, g, b, _] = match ctx.face_light {
+                Some(_) => [255; 4],
+                None => face_color(ctx.f, ctx.info, tables.lighting, ctx.normal, p)?,
+            };
+            batch.vertices.push(Vertex {
+                normal: ctx.face_normal,
+                position: pos,
+                uv: face_uv(ctx.info, ctx.tex_size, p)?,
+                color: [r, g, b, disp_alpha(f32le(dv, 16)?)],
+                skin: None,
+                light_uv: ctx.face_light.map_or(Vec2::ZERO, |l| l.disp_uv(fx, fy)),
+            });
+        }
+    }
+    for cell in (0..cells).flat_map(|y| (0..cells).map(move |x| y * side + x)) {
+        let triangles = disp_cell_triangles(cell as u32, side as u32);
+        batch.indices.extend(triangles.iter().map(|i| base + i));
+    }
+    let count = cells * cells * 6;
+    terrain.push(Surface {
+        flex_source: None,
+        background: batch.background,
+        lightmap: batch.lightmap,
+        material: batch.material.clone(),
+        vertices: batch.vertices[base as usize..].to_vec(),
+        indices: batch.indices[batch.indices.len() - count..]
+            .iter()
+            .map(|i| i - base)
+            .collect(),
+    });
+    Ok(())
+}
+
+fn append_brush_face_surface(
+    tables: &BspTables<'_>,
+    batch: &mut Surface,
+    polygon: &[Vec3],
+    ctx: FaceContext<'_>,
+) -> Result<()> {
+    let base = batch.vertices.len() as u32;
+    for p in polygon.iter().copied() {
+        batch.vertices.push(Vertex {
+            normal: ctx.face_normal,
+            position: p,
+            uv: face_uv(ctx.info, ctx.tex_size, p)?,
+            color: if ctx.face_light.is_some() {
+                [255; 4]
+            } else {
+                face_color(ctx.f, ctx.info, tables.lighting, ctx.normal, p)?
+            },
+            skin: None,
+            light_uv: face_light_uv(ctx.f, ctx.info, ctx.face_light, p)?,
+        });
+    }
+    for i in 1..polygon.len() - 1 {
+        batch
+            .indices
+            .extend_from_slice(&[base, base + i as u32, base + i as u32 + 1]);
+    }
+    Ok(())
+}
+
+fn build_overlays(
+    tables: &BspTables<'_>,
+    overlays: &[crate::overlays::Overlay],
+    overlay_targets: &BTreeMap<usize, OverlayTarget>,
+    out_overlays: &mut Vec<Surface>,
+    warnings: &mut Vec<String>,
+) {
+    for overlay in overlays {
+        let material = match tables.texinfo_material(overlay.texinfo) {
+            Ok(material) => material,
+            Err(e) => {
+                warnings.push(format!("info_overlay {}: {e:#}", overlay.id));
+                continue;
+            }
+        };
+        let mut pieces: BTreeMap<(Option<usize>, bool), Surface> = BTreeMap::new();
+        for target in overlay
+            .faces
+            .iter()
+            .filter_map(|&f| overlay_targets.get(&usize::try_from(f).ok()?))
+        {
+            for mut polygon in overlay.fragments(&target.polygon, target.normal) {
+                // Counter-clockwise around the face normal (the host's front face; world
+                // faces get the same orientation from their winding normalization).
+                let area = (1..polygon.len() - 1).fold(Vec3::ZERO, |sum, i| {
+                    sum + (polygon[i].position - polygon[0].position)
+                        .cross(polygon[i + 1].position - polygon[0].position)
+                });
+                if area.dot(target.normal) < 0. {
+                    polygon.reverse();
+                }
+                let page = target.light.face.map(|l| l.page);
+                let surface = pieces
+                    .entry((page, target.background))
+                    .or_insert_with(|| Surface {
+                        flex_source: None,
+                        background: target.background,
+                        material: material.clone(),
+                        vertices: Vec::new(),
+                        indices: Vec::new(),
+                        lightmap: page,
+                    });
+                let base = surface.vertices.len() as u32;
+                surface.vertices.extend(polygon.iter().map(|v| Vertex {
+                    normal: target.normal,
+                    position: v.position,
+                    uv: v.uv,
+                    color: [255; 4],
+                    skin: None,
+                    light_uv: target.light.uv(v.position),
+                }));
+                for i in 1..polygon.len() as u32 - 1 {
+                    surface.indices.extend([base, base + i, base + i + 1]);
+                }
+            }
+        }
+        out_overlays.extend(pieces.into_values());
+    }
+}
+
+fn collect_model_brushes(
+    tables: &BspTables<'_>,
+    model: &[u8],
+    is_world_model: bool,
+    out_brushes: &mut Vec<Brush>,
+    out_side_materials: &mut Vec<Vec<String>>,
+) -> Result<()> {
+    let mut stack = vec![i32le(model, 36)?];
+    let mut visited = BTreeSet::new();
+    let mut world_brushes = BTreeSet::new();
+    while let Some(node) = stack.pop() {
+        if !visited.insert(node) {
+            continue;
+        }
+        if node >= 0 {
+            let n = tables.nodes[index(node, tables.nodes.len())?];
+            stack.push(i32le(n, 4)?);
+            stack.push(i32le(n, 8)?);
+        } else {
+            let leaf = tables.leaves[index(
+                node.checked_neg().context("leaf index overflow")? - 1,
+                tables.leaves.len(),
+            )?];
+            let start = u16le(leaf, 24)? as usize;
+            let count = u16le(leaf, 26)? as usize;
+            for &brush in tables
+                .leafbrushes
+                .get(start..start + count)
+                .context("leaf brush range")?
+            {
+                world_brushes.insert(brush as usize);
+            }
+        }
+    }
+    for id in world_brushes {
+        let b = tables.brushes.get(id).context("brush index")?;
+        let contents = u32le(b, 8)?;
+        // World brushes that block anything (MASK_PLAYERSOLID / MASK_NPCSOLID /
+        // MASK_SOLID): solid, window (0x2), grate (0x8: chain-link and scissor gates)
+        // and player/monster clips; water, ladders and the like stay out.
+        if is_world_model && contents & (1 | 0x2 | 0x8 | 0x10000 | 0x20000) == 0 {
+            continue;
+        }
+        let start = usize::try_from(i32le(b, 0)?)?;
+        let count = usize::try_from(i32le(b, 4)?)?;
+        let mut ps = Vec::new();
+        let mut side_materials = Vec::new();
+        for side in tables
+            .sides
+            .get(start..start + count)
+            .context("brush side range")?
+        {
+            ps.push(
+                *tables
+                    .planes
+                    .get(u16le(side, 0)? as usize)
+                    .context("brush plane index")?,
+            );
+            // dbrushside_t texinfo (offset 2); -1 (TEXINFO_NODE) has no material.
+            let ti = i16::from_le_bytes([side[2], side[3]]);
+            side_materials.push(if ti < 0 {
+                String::new()
+            } else {
+                tables.texinfo_material(ti).unwrap_or_default()
+            });
+        }
+        out_side_materials.push(side_materials);
+        out_brushes.push(Brush {
+            planes: ps,
+            contents,
+        });
+    }
+    Ok(())
 }
 
 /// A world brush face that info_overlays project onto.
@@ -753,6 +925,29 @@ impl LightMapping {
 }
 
 /// Material name of a texinfo (texdata string table entry), lower-case.
+/// The two triangles of the displacement cell whose first vertex is `index` in a grid `side`
+/// vertices wide. The diagonal alternates in a checkerboard by the index's parity, as the
+/// engine, the lighting compiler and collision split it (Source SDK `public/builddisp.cpp`
+/// `GetTriangleIndicesForDispBBox`); a single diagonal reshapes the terrain between vertices.
+fn disp_cell_triangles(index: u32, side: u32) -> [u32; 6] {
+    let (a, b) = (index, index + side);
+    if index % 2 == 1 {
+        [a, b, a + 1, a + 1, b, b + 1]
+    } else {
+        [a, b, b + 1, a, b + 1, a + 1]
+    }
+}
+
+/// A dispvert's blend alpha (authored 0..255) as a vertex colour alpha: how much of
+/// `$basetexture2` shows there.
+fn disp_alpha(alpha: f32) -> u8 {
+    if alpha.is_finite() {
+        alpha.round().clamp(0., 255.) as u8
+    } else {
+        0
+    }
+}
+
 fn texinfo_material(
     texinfo: &[&[u8]],
     texdata: &[&[u8]],
@@ -772,6 +967,11 @@ fn texinfo_material(
         .context("unterminated texture string")?;
     Ok(std::str::from_utf8(&tail[..end])?.to_lowercase())
 }
+
+#[cfg(test)]
+mod brush_set_tests;
+#[cfg(test)]
+mod displacement_tests;
 
 #[cfg(test)]
 mod tests {

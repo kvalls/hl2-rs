@@ -41,7 +41,13 @@ pub struct UiInput<'a> {
 /// Implementations own their state. The application supplies instances before startup.
 /// Empty defaults let a contributor implement only the lifecycle hooks it needs.
 pub trait RuntimeExtension: Send + Sync + 'static {
+    /// Finish external resources before the host exits its process.
+    fn shutdown(&mut self) {}
     fn input(&mut self, _context: &mut Context<'_>, _input: &Input<'_>) {}
+    /// Authenticated remote chat for presentation while the console is closed.
+    fn remote_console_chat(&mut self, _line: &str) {}
+    /// Submit runtime dialogue before the shared caption panel is painted.
+    fn gameplay_captions(&mut self, _captions: &hl2_ui::closecaption::CaptionHud) {}
     fn effect(&mut self, _context: &mut Context<'_>, _event: &serde_json::Value) -> bool {
         false
     }
@@ -107,6 +113,8 @@ pub struct Application {
     pub ui: hl2_ui::extensions::Extensions,
     pub runtime: Vec<Box<dyn RuntimeExtension>>,
     pub install: Vec<fn(&mut App)>,
+    /// Set when this build records a trace for the whole run.
+    pub trace: Option<crate::performance::status::TraceRecording>,
 }
 
 #[derive(bevy::prelude::Resource)]

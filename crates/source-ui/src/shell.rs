@@ -91,6 +91,10 @@ pub trait Host {
     fn escape_blocked(&self) -> bool;
     /// Escape closes the app's window `window` on top (on release, after showing its button).
     fn escape_closes(&self, window: Self::Window) -> bool;
+    /// The application can route Escape from its console to the base.
+    fn console_escape_to_base(&self) -> bool {
+        false
+    }
     /// Escape is held over `top`: the app shows the button Escape will press.
     fn hold_escape(&mut self, top: Option<Self::Window>);
     /// Escape was let go, or a window closed: the app's held looks end.
@@ -240,7 +244,9 @@ fn escape_closes_dialog<H: Host>(host: &H) -> bool {
     match host.shell().windows.top() {
         Some(window) if window == H::Window::CONSOLE => {
             let panel = &host.shell().panel;
-            !panel.placement.active() && !panel.editor.can_dismiss()
+            !host.console_escape_to_base()
+                && !panel.placement.active()
+                && !panel.editor.can_dismiss()
         }
         Some(window) => host.escape_closes(window),
         None => false,
@@ -263,8 +269,11 @@ pub fn escape<H: Host>(host: &mut H) {
     if host.escape_modal() {
         return;
     }
-    // Escape closes the top window first, whichever layer has the focus.
+    // A console can leave Escape to the surface underneath it.
     match host.shell().windows.top() {
+        Some(window) if window == H::Window::CONSOLE && host.console_escape_to_base() => {
+            host.escape_base();
+        }
         Some(window) if window == H::Window::CONSOLE => {
             close_window(host, window);
             host.console_closed();

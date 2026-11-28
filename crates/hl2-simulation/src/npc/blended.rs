@@ -133,10 +133,19 @@ pub(super) fn throttle(
     if !ideal.is_finite() || ideal <= 0. || dt <= 0. {
         return Ok(1.);
     }
-    let yaw = goal.yaw.to_radians();
+    // While steering around another actor (`steer`), keep velocity aligned with the path leg so
+    // a 90-degree sidestep does not zero `nodes[0].speed` every tick.
+    let heading = if goal.steer.is_some() {
+        goal.route.feet.get(goal.next).map_or(Vec2::ZERO, |&w| {
+            (w - goal.feet).truncate().normalize_or_zero()
+        })
+    } else {
+        let yaw = goal.yaw.to_radians();
+        Vec2::new(yaw.cos(), yaw.sin())
+    };
     let plan = Plan {
         feet: goal.feet,
-        heading: Vec2::new(yaw.cos(), yaw.sin()) * if goal.speed > 0. { 1. } else { 0. },
+        heading: heading * if goal.speed > 0. { 1. } else { 0. },
         speed: goal.speed,
         waypoints: goal.route.feet.get(goal.next..).unwrap_or(&[]),
         ideal,

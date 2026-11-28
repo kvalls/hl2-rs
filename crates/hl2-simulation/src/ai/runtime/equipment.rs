@@ -105,6 +105,8 @@ impl AiRuntime {
             class,
             next_think: 0.,
             last_think: 0.,
+            decisions: super::decisions::DecisionClock::new(e, flags),
+            sleep: super::sleep::Sleep::new(e, flags),
             weapon,
             player_disposition: None,
             origin: [0.; 3],

@@ -26,17 +26,21 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(super) type Place<'a> = &'a dyn Fn(&Vertex) -> glam::Vec3;
 
 pub(super) struct Textures {
-    picture: Option<Arc<vtf::Image>>,
+    picture: Option<Arc<vtf::GpuImage>>,
     /// The blob shadows' material, made with the first shadow.
     pub blob: Option<Handle<ShadowMaterial>>,
     pub page: Allocator,
-    atlas_image: Option<Handle<Image>>,
+    pub(super) atlas_image: Option<Handle<Image>>,
+    pub(super) batch: Option<super::gpu::Batch>,
+    pub(super) submitted: Option<Arc<std::sync::atomic::AtomicU64>>,
     /// The render-to-texture shadows' material, made with the first silhouette.
     pub atlas_material: Option<Handle<ShadowMaterial>>,
     /// Base texture and opacity of the translucent and alpha-tested materials: their silhouettes
     /// take the texture's alpha; every other material covers fully.
-    alphas: BTreeMap<String, (Arc<vtf::Image>, f32)>,
+    alphas: BTreeMap<String, (Arc<vtf::GpuImage>, f32)>,
     cell: Vec<f32>,
+    /// A surface's vertices in cell texels, while its silhouette is drawn.
+    points: Vec<glam::Vec2>,
     /// A silhouette was drawn since the atlas material was last refreshed.
     dirty: bool,
     color: Vec4,
@@ -52,6 +56,8 @@ impl Textures {
             blob: None,
             page: Allocator::new(),
             atlas_image: None,
+            batch: None,
+            submitted: None,
             atlas_material: None,
             alphas: loaded
                 .materials
@@ -60,8 +66,35 @@ impl Textures {
                 .filter_map(|(name, m)| Some((name.clone(), (m.base.clone()?, m.opacity))))
                 .collect(),
             cell: Vec::new(),
+            points: Vec::new(),
             dirty: false,
             color: Vec4::new(color[0], color[1], color[2], 1.),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn batch_only() -> Self {
+        Self {
+            picture: None,
+            blob: None,
+            page: Allocator::new(),
+            atlas_image: None,
+            batch: Some(super::gpu::Batch::default()),
+            submitted: None,
+            atlas_material: None,
+            alphas: BTreeMap::new(),
+            cell: Vec::new(),
+            points: Vec::new(),
+            dirty: false,
+            color: Vec4::ONE,
+        }
+    }
+
+    /// Hands silhouette drawing to the GPU pass; called before the atlas exists.
+    pub(super) fn use_gpu(&mut self) {
+        if self.batch.is_none() {
+            self.batch = Some(super::gpu::Batch::default());
+            self.submitted = Some(Arc::default());
         }
     }
 
@@ -70,11 +103,11 @@ impl Textures {
         if self.blob.is_none()
             && let Some(picture) = &self.picture
         {
-            let texture = images.add(crate::rendering::image(
-                picture.width,
-                picture.height,
-                picture.rgba.clone(),
+            let texture = images.add(crate::rendering::gpu_image_filtered(
+                picture.as_ref().clone(),
                 false,
+                false,
+                hl2_ui::config::Filtering::Trilinear,
             ));
             let size = Vec2::new(f32::from(picture.width), f32::from(picture.height));
             self.blob = Some(materials.add(self.material(texture, size, Vec4::W)));
@@ -91,6 +124,10 @@ impl Textures {
                 TextureFormat::R8Unorm,
                 RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
             );
+            if self.batch.is_some() {
+                image.texture_descriptor.usage |=
+                    bevy::render::render_resource::TextureUsages::RENDER_ATTACHMENT;
+            }
             image.sampler = ImageSampler::Descriptor(crate::rendering::sampler_descriptor(
                 false,
                 hl2_ui::config::Filtering::Bilinear,
@@ -120,6 +157,7 @@ impl Textures {
                 jitter: (Vec2::ONE / size).extend(0.).extend(0.),
                 channel,
             },
+            verts: super::draw::SHADOW_VERTS,
         }
     }
 
@@ -132,20 +170,40 @@ impl Textures {
         frame: &Frame,
         (surfaces, place): (&[Surface], Place),
     ) {
+        if let Some(batch) = &mut self.batch {
+            batch.cell(n, at, frame, (surfaces, place), &self.alphas);
+            return;
+        }
         silhouette::clear(&mut self.cell, n);
         for surface in surfaces {
-            let alpha = self
+            let decoded = self
                 .alphas
                 .get(&surface.material)
-                .map(|(picture, opacity)| move |uv: glam::Vec2| texel_alpha(picture, uv) * opacity);
+                .map(|(picture, opacity)| {
+                    let rgba = match picture.pixel_format {
+                        vtf::GpuFormat::Rgba8 => {
+                            std::borrow::Cow::Borrowed(picture.data.as_slice())
+                        }
+                        _ => std::borrow::Cow::Owned(picture.to_rgba8()),
+                    };
+                    (picture.width, picture.height, rgba, *opacity)
+                });
+            let alpha = decoded.as_ref().map(|(w, h, rgba, opacity)| {
+                move |uv: glam::Vec2| sample_rgba_alpha(*w, *h, rgba, uv) * *opacity
+            });
+            // Each vertex is placed (skinned) and projected once, not once per triangle corner.
+            self.points.clear();
+            let project = |v: &Vertex| silhouette::project(frame, n, place(v));
+            self.points.extend(surface.vertices.iter().map(project));
+            let points = &self.points;
+            let corner = |i: u32| Some((*points.get(i as usize)?, surface.vertices[i as usize].uv));
             for t in surface.indices.as_chunks::<3>().0 {
-                let [Some(a), Some(b), Some(c)] = t.map(|i| surface.vertices.get(i as usize))
-                else {
+                let [Some(a), Some(b), Some(c)] = t.map(corner) else {
                     continue;
                 };
-                let triangle = ([a, b, c].map(place), [a.uv, b.uv, c.uv]);
+                let triangle = ([a.0, b.0, c.0], [a.1, b.1, c.1]);
                 let alpha = alpha.as_ref().map(|f| f as &dyn Fn(glam::Vec2) -> f32);
-                silhouette::draw(&mut self.cell, n, frame, triangle, alpha);
+                silhouette::draw_projected(&mut self.cell, n, triangle, alpha);
             }
         }
         let Some(mut image) = self.atlas_image.as_ref().and_then(|h| images.get_mut(h)) else {
@@ -164,16 +222,20 @@ impl Textures {
     }
 }
 
-/// A texture's alpha at a repeating texture coordinate (nearest texel).
-fn texel_alpha(picture: &vtf::Image, uv: glam::Vec2) -> f32 {
-    let (w, h) = (
-        u32::from(picture.width).max(1),
-        u32::from(picture.height).max(1),
-    );
+fn sample_rgba_alpha(width: u16, height: u16, rgba: &[u8], uv: glam::Vec2) -> f32 {
+    let (w, h) = (u32::from(width).max(1), u32::from(height).max(1));
     let x = (uv.x.rem_euclid(1.) * w as f32) as u32 % w;
     let y = (uv.y.rem_euclid(1.) * h as f32) as u32 % h;
-    picture
-        .rgba
-        .get(((y * w + x) * 4 + 3) as usize)
+    rgba.get(((y * w + x) * 4 + 3) as usize)
         .map_or(1., |a| f32::from(*a) / 255.)
+}
+
+/// A texture's alpha at a repeating texture coordinate (nearest texel).
+#[cfg(test)]
+pub(super) fn texel_alpha(picture: &vtf::GpuImage, uv: glam::Vec2) -> f32 {
+    let rgba = match picture.pixel_format {
+        vtf::GpuFormat::Rgba8 => std::borrow::Cow::Borrowed(picture.data.as_slice()),
+        _ => std::borrow::Cow::Owned(picture.to_rgba8()),
+    };
+    sample_rgba_alpha(picture.width, picture.height, &rgba, uv)
 }

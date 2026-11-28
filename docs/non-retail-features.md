@@ -110,7 +110,7 @@ and there is no framing data file to copy them into.
 
 ## Menu background debug mode
 
-`background_force_default_blur 0|1` is a saved option that works independently of
+`background_force_default_blur 0|1` (`hl2-debug` plugin) is a saved option that works independently of
 debug mode. **0** (the default) selects widescreen blur artwork on wide aspect
 ratios, with the normal existing fallback when that artwork is unavailable. **1**
 always selects the normal blur texture, even on wide frames. The choice applies to
@@ -154,3 +154,33 @@ ready. The FOV/opacity tools are runtime diagnostics, not saved gameplay camera 
 The standard-blur override is the saved exception: turning debug mode off does not
 reset it. Holding `-` does not repeat the toggle, and the key is inactive while the
 console is open.
+
+## Live AI debug session (agent link)
+
+When built with `hl2-debug` (`debug-tools`, on by default), HL2-RS exposes agent-link
+commands over the retail `-condebug` console log and `-usercon` Source RCON server:
+
+- `ui_dump`: prints UI state (mode, open windows, menus, pending map, loaded map, eye position, angles, paused/loading state) as one `ui_dump {json}` line.
+- `npc_dump [radius|id <entity>]`: prints nearby (default 512 units) or one entity's NPC AI, actbusy, and goal state as one `npc_dump {json}` line.
+- `agent_status <thinking|waiting|clear|text>`: updates or clears the replaceable inline console status line (`thinking` / `waiting` presets or custom status text, pinned as the last line beneath incoming console output until replaced, cleared, or superseded by a remote `say`; `agent_status` is omitted from `sv_rcon_log` output).
+- `agent_resume`: prints launch arguments that restart at the current map, eye position, view angles, and open menus (`--map`, `--position`, `--yaw`, `--pitch`, `+gamemenucommand`, `+gameui_activate`, `+showconsole`).
+
+The `/hl2-session` skill and its cross-platform Python 3 helper scripts (`session.py`,
+`rcon.py`, `watch.py`, `restart.py`) live in
+`.agents/skills/hl2-session/SKILL.md`, with a
+forwarding entry at
+`.claude/skills/hl2-session/SKILL.md` for
+Claude Code.
+
+## Performance tracing (`/hl2-performance-trace`)
+
+The `/hl2-performance-trace` skill and its cross-platform Python 3 scripts
+(`capture.py`, `trace_summary.py`, `trace_waste.py`, `resource_sampler.py`,
+`metal_gpu.py`, `sample_summary.py`) live in
+`.agents/skills/hl2-performance-trace/SKILL.md` (with a forwarding stub at
+`.claude/skills/hl2-performance-trace/SKILL.md`). `capture.py` wraps preflight
+checks (`status`, disk headroom, idle GPU sample), profiling builds (`stages`,
+`pacing`, `trace`, `trace-alloc`), live `/hl2-session` or `--background` headless
+captures under `artifacts/perf-traces/`, macOS `xctrace` / `sample` recording,
+automated trace/waste/resource/GPU analysis with safe raw-trace pruning, and
+restoring the everyday non-trace build (`restore`).

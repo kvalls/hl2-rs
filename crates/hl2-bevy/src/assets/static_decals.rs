@@ -8,7 +8,11 @@ use std::collections::BTreeMap;
 /// CDecal::StaticDecal: infodecals without a targetname are applied at map load (named ones
 /// wait for an input and are not handled yet). Size is the decal's base texture in world
 /// units times `$decalscale`.
-pub(super) fn add_static_decals(world: &mut World, vfs: &Vfs, errors: &mut Vec<String>) {
+pub(super) fn add_static_decals(
+    world: &mut World,
+    vfs: &Vfs,
+    errors: &mut Vec<String>,
+) -> Vec<(modkit_core::Surface, super::DecalLayer)> {
     let decals: Vec<_> = world
         .entities
         .iter()
@@ -20,20 +24,21 @@ pub(super) fn add_static_decals(world: &mut World, vfs: &Vfs, errors: &mut Vec<S
             ))
         })
         .collect();
-    let mut sizes = BTreeMap::<String, Option<glam::Vec2>>::new();
+    let mut specs = BTreeMap::new();
+    let mut ordinary = Vec::new();
     let mut added = Vec::new();
-    for (origin, material) in decals {
+    for (placement, (origin, material)) in decals.into_iter().enumerate() {
         let size =
-            *sizes
+            *specs
                 .entry(material.clone())
-                .or_insert_with(|| match decal_size(vfs, &material) {
+                .or_insert_with(|| match decal_spec(vfs, &material) {
                     Ok(size) => Some(size),
                     Err(e) => {
                         errors.push(format!("infodecal {material}: {e:#}"));
                         None
                     }
                 });
-        if let Some(size) = size {
+        if let Some((size, sorted)) = size {
             let pieces =
                 modkit_core::decals::static_decal(&world.surfaces, origin, size, 5., &material);
             if pieces.is_empty() && !entity_decal(world, origin, size, &material) {
@@ -41,12 +46,17 @@ pub(super) fn add_static_decals(world: &mut World, vfs: &Vfs, errors: &mut Vec<S
                     "infodecal {material} at {origin}: no surface in reach"
                 ));
             }
-            added.extend(pieces);
+            if sorted {
+                added.extend(pieces.into_iter().map(|piece| (placement, piece)));
+            } else {
+                ordinary.extend(pieces);
+            }
         }
     }
-    world.surfaces.extend(added);
+    world.surfaces.extend(ordinary);
+    super::decal_order::separate(added, &mut world.surfaces)
 }
-fn decal_size(vfs: &Vfs, material: &str) -> Result<glam::Vec2> {
+fn decal_spec(vfs: &Vfs, material: &str) -> Result<(glam::Vec2, bool)> {
     let definition = definition(vfs, material, 0, true)?;
     let base = definition
         .properties
@@ -62,7 +72,15 @@ fn decal_size(vfs: &Vfs, material: &str) -> Result<glam::Vec2> {
     let width = f32::from(u16::from_le_bytes([data[16], data[17]]));
     let height = f32::from(u16::from_le_bytes([data[18], data[19]]));
     let scale = scalar(&definition.properties, "$decalscale", 1.)?;
-    Ok(glam::Vec2::new(width, height) * scale)
+    let sorted = super::metadata(&definition).is_ok_and(|m| {
+        matches!(
+            crate::rendering::alpha_mode(&m),
+            bevy::prelude::AlphaMode::Blend
+                | bevy::prelude::AlphaMode::Add
+                | bevy::prelude::AlphaMode::Multiply
+        )
+    });
+    Ok((glam::Vec2::new(width, height) * scale, sorted))
 }
 
 /// Where no world face is in reach, CDecal::StaticDecal's MASK_SOLID trace (5 units each way)
@@ -122,6 +140,35 @@ mod tests {
                 corner(0., 100.),
             ],
             indices: vec![0, 1, 2, 0, 3, 1],
+        }
+    }
+
+    #[test]
+    fn decal_groups_connect_overlaps_and_leave_isolated_pieces_batched() {
+        let receiver = [wall()];
+        let projected = |x: f32| {
+            modkit_core::decals::static_decal(
+                &receiver,
+                glam::Vec3::new(x, 0., 50.),
+                glam::Vec2::splat(20.),
+                5.,
+                "paint",
+            )
+            .pop()
+            .unwrap()
+        };
+        let pieces = [10., 25., 40., 80.]
+            .into_iter()
+            .enumerate()
+            .map(|(id, x)| (id, projected(x)))
+            .collect();
+        let mut ordinary = Vec::new();
+        let layered = super::super::decal_order::separate(pieces, &mut ordinary);
+        assert_eq!(ordinary.len(), 1);
+        let layers: Vec<_> = layered.iter().map(|(_, layer)| layer.order).collect();
+        assert_eq!(layers, [0, 1, 2]);
+        for (_, layer) in &layered[1..] {
+            assert_eq!(layer.bounds, layered[0].1.bounds);
         }
     }
 

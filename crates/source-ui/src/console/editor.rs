@@ -1,12 +1,13 @@
 //! The console's input line: editing, the completion list, history and reverse search.
 //!
-//! Follows the SDK `CConsolePanel`: typing rebuilds a completion list for the line; Tab and
-//! Down step forward through it, Shift+Tab and Up back, each step putting that item in the
-//! line, and typing again rebuilds the list from the new text. On an empty line the list is the
-//! command history (`MAX_HISTORY_ITEMS` 100; a repeated command moves to the end). On top of
-//! retail: fuzzy-ranked argument completion ([`super::complete`]), Tab on a single match takes
-//! it with a space after it, Up/Down browse the history while the line has no matches, Escape
-//! hides the list, Ctrl+R searches the history backwards, and word and line editing keys.
+//! Follows the SDK `CConsolePanel`: typing rebuilds a completion list for the line; Tab/Shift+Tab
+//! step through completion candidates, and when a completion list is open Down/Up step forward and
+//! backward through it. Without an open completion list, Up/Down browse the command history
+//! (`MAX_HISTORY_ITEMS` 100; a repeated command moves to the end) in place without opening a
+//! popup, saving any unsent draft and restoring it when stepping back past the newest entry. On
+//! top of retail: fuzzy-ranked argument completion ([`super::complete`]), Tab on a single match
+//! takes it with a space after it, Escape hides the list, Ctrl+R searches the history backwards,
+//! and word and line editing keys.
 
 use super::complete::{Candidate, Completer};
 mod selection;
@@ -15,6 +16,8 @@ mod selection;
 pub const HISTORY_MAX: usize = 100;
 /// Longest input line.
 const MAX_LINE: usize = 1024;
+/// Undo history depth per unsubmitted input line.
+const UNDO_MAX: usize = 64;
 
 /// The completion list and what it completes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,20 +32,33 @@ struct List {
     shows: String,
 }
 
+/// Active Up/Down command-history browsing (updates the entry in place without a popup,
+/// restoring the unsent draft when stepping back past the newest entry).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HistoryBrowse {
+    index: usize,
+    draft: String,
+    draft_cursor: usize,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LineEditor {
     text: String,
     /// Cursor position in characters.
     cursor: usize,
     anchor: Option<usize>,
+    undo_stack: Vec<(String, usize)>,
     history: Vec<String>,
     history_changed: bool,
+    history_browse: Option<HistoryBrowse>,
     list: Option<List>,
     /// The line the list was hidden at with Escape; it comes back when the line changes.
     dismissed: Option<String>,
     /// Ctrl+R: the query and how many matches back.
     search: Option<(String, usize)>,
 }
+
+pub use selection::word_bounds;
 
 pub(super) fn char_index(text: &str, chars: usize) -> usize {
     text.char_indices()
@@ -64,10 +80,21 @@ impl LineEditor {
         &self.history
     }
 
+    /// Whether Up/Down command-history browsing is currently active.
+    pub fn browsing_history(&self) -> bool {
+        self.history_browse.is_some()
+    }
+
+    /// Leaves history-browsing mode so the next refresh/Tab can open completions.
+    pub fn stop_history_browse(&mut self) {
+        self.history_browse = None;
+    }
+
     /// Replaces the history (loaded by the host), keeping the newest `HISTORY_MAX`.
     pub fn set_history(&mut self, history: Vec<String>) {
         let skip = history.len().saturating_sub(HISTORY_MAX);
         self.history = history.into_iter().skip(skip).collect();
+        self.history_browse = None;
     }
 
     /// Whether the history changed since the last call (the host saves it then).
@@ -107,17 +134,19 @@ impl LineEditor {
         self.cursor = cursor.min(self.text.chars().count());
     }
 
-    /// The line changed by editing: the list follows the new text at the next refresh.
+    /// The line changed by editing: leaves history browse and lets the list follow at refresh.
     fn edited(&mut self, text: String, cursor: usize) {
         if text != self.text {
             self.list = None;
+            self.history_browse = None;
         }
         self.set(text, cursor);
     }
 
     /// Rebuilds the completion list when the line no longer is what the list shows.
     pub fn refresh(&mut self, completer: &impl Completer) {
-        if self.list.as_ref().is_some_and(|l| l.shows == self.text) {
+        if self.history_browse.is_some() || self.list.as_ref().is_some_and(|l| l.shows == self.text)
+        {
             return;
         }
         self.list = (!self.text.trim().is_empty()).then(|| {
@@ -131,6 +160,38 @@ impl LineEditor {
         });
     }
 
+    fn push_undo(&mut self) {
+        if self
+            .undo_stack
+            .last()
+            .is_some_and(|(t, c)| *t == self.text && *c == self.cursor)
+        {
+            return;
+        }
+        if self.undo_stack.len() >= UNDO_MAX {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push((self.text.clone(), self.cursor));
+    }
+
+    /// Restores the text and cursor prior to the most recent edit (`Cmd/Ctrl+Z`).
+    pub fn undo(&mut self) -> bool {
+        self.accept_search();
+        let Some((text, cursor)) = self.undo_stack.pop() else {
+            return false;
+        };
+        self.edited(text, cursor);
+        true
+    }
+
+    /// Deletes and returns the active selection, if any (`Cmd/Ctrl+X` / `Shift+Delete`).
+    pub fn cut(&mut self) -> Option<String> {
+        let selected = self.selected_text()?.to_owned();
+        self.push_undo();
+        self.delete_selection();
+        Some(selected)
+    }
+
     pub fn insert(&mut self, text: &str) {
         if let Some((query, _)) = &mut self.search {
             query.extend(text.chars().filter(|c| !c.is_control()));
@@ -140,6 +201,12 @@ impl LineEditor {
         if text.chars().all(char::is_control) {
             return;
         }
+        let has_selection = self.selection().is_some();
+        let insert_non_empty = text.chars().any(|c| !c.is_control());
+        if !has_selection && !insert_non_empty {
+            return;
+        }
+        self.push_undo();
         self.delete_selection();
         let mut chars: Vec<char> = self.text.chars().collect();
         let insert: Vec<char> = text
@@ -162,7 +229,9 @@ impl LineEditor {
     }
 
     pub fn backspace(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         if let Some((query, _)) = &mut self.search {
@@ -171,6 +240,7 @@ impl LineEditor {
             return;
         }
         if self.cursor > 0 {
+            self.push_undo();
             let mut chars: Vec<char> = self.text.chars().collect();
             chars.remove(self.cursor - 1);
             self.edited(chars.into_iter().collect(), self.cursor - 1);
@@ -178,11 +248,14 @@ impl LineEditor {
     }
 
     pub fn delete(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         let mut chars: Vec<char> = self.text.chars().collect();
         if self.cursor < chars.len() {
+            self.push_undo();
             chars.remove(self.cursor);
             self.edited(chars.into_iter().collect(), self.cursor);
         }
@@ -192,10 +265,10 @@ impl LineEditor {
     fn word_start(&self) -> usize {
         let chars: Vec<char> = self.text.chars().collect();
         let mut at = self.cursor.min(chars.len());
-        while at > 0 && chars[at - 1] == ' ' {
+        while at > 0 && chars[at - 1].is_whitespace() {
             at -= 1;
         }
-        while at > 0 && chars[at - 1] != ' ' {
+        while at > 0 && !chars[at - 1].is_whitespace() {
             at -= 1;
         }
         at
@@ -205,52 +278,77 @@ impl LineEditor {
     fn word_end(&self) -> usize {
         let chars: Vec<char> = self.text.chars().collect();
         let mut at = self.cursor.min(chars.len());
-        while at < chars.len() && chars[at] == ' ' {
+        while at < chars.len() && chars[at].is_whitespace() {
             at += 1;
         }
-        while at < chars.len() && chars[at] != ' ' {
+        while at < chars.len() && !chars[at].is_whitespace() {
             at += 1;
         }
         at
     }
 
-    /// Ctrl+Backspace / Ctrl+W.
+    /// Deletes the word before the cursor (or the active selection).
     pub fn delete_word_back(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         let start = self.word_start();
+        if start == self.cursor {
+            return;
+        }
+        self.push_undo();
         let chars: Vec<char> = self.text.chars().collect();
         let text = chars[..start].iter().chain(&chars[self.cursor..]).collect();
         self.edited(text, start);
     }
 
-    /// Ctrl+Delete.
+    /// Deletes the word after the cursor (or the active selection).
     pub fn delete_word_forward(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
         let end = self.word_end();
+        if end == self.cursor {
+            return;
+        }
+        self.push_undo();
         let chars: Vec<char> = self.text.chars().collect();
         let text = chars[..self.cursor].iter().chain(&chars[end..]).collect();
         self.edited(text, self.cursor);
     }
 
-    /// Ctrl+U: delete up to the cursor.
+    /// Deletes from the start of the line up to the cursor.
     pub fn kill_to_start(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
+        if self.cursor == 0 {
+            return;
+        }
+        self.push_undo();
         let rest = self.text[char_index(&self.text, self.cursor)..].to_owned();
         self.edited(rest, 0);
     }
 
-    /// Ctrl+K: delete from the cursor on.
+    /// Deletes from the cursor to the end of the line.
     pub fn kill_to_end(&mut self) {
-        if self.delete_selection() {
+        if self.selection().is_some() {
+            self.push_undo();
+            self.delete_selection();
             return;
         }
-        let kept = self.text[..char_index(&self.text, self.cursor)].to_owned();
+        let byte = char_index(&self.text, self.cursor);
+        if byte == self.text.len() {
+            return;
+        }
+        self.push_undo();
+        let kept = self.text[..byte].to_owned();
         let cursor = self.cursor;
         self.edited(kept, cursor);
     }
@@ -276,10 +374,10 @@ impl LineEditor {
         self.anchor = None;
         let chars: Vec<char> = self.text.chars().collect();
         let mut at = self.cursor;
-        while at < chars.len() && chars[at] != ' ' {
+        while at < chars.len() && !chars[at].is_whitespace() {
             at += 1;
         }
-        while at < chars.len() && chars[at] == ' ' {
+        while at < chars.len() && chars[at].is_whitespace() {
             at += 1;
         }
         self.cursor = at;
@@ -295,9 +393,9 @@ impl LineEditor {
         self.cursor = self.text.chars().count();
     }
 
-    /// Up/Down, Tab/Shift+Tab: step through the completion list, putting the item in the line.
-    /// An empty line, or Up/Down on a line without matches, steps through the history. `tab`:
-    /// a single match is taken with a space after it.
+    /// Steps forward (`!back`) or backward (`back`) through completion candidates (`Tab`/`Shift+Tab`,
+    /// or `Up`/`Down` while a popup is open), or recalls command history in place (`Up`/`Down`
+    /// without an open popup, saving and restoring any unsent draft).
     pub fn step(&mut self, back: bool, tab: bool) {
         if self.search.is_some() {
             if tab {
@@ -305,23 +403,18 @@ impl LineEditor {
             }
             return;
         }
-        self.dismissed = None;
-        let no_matches = self.list.as_ref().is_none_or(|l| l.items.is_empty());
-        if self.text.is_empty() || (!tab && no_matches) {
-            self.list = Some(List {
-                head: String::new(),
-                items: self
-                    .history
-                    .iter()
-                    .map(|h| Candidate {
-                        text: h.clone(),
-                        detail: String::new(),
-                    })
-                    .collect(),
-                index: None,
-                shows: self.text.clone(),
-            });
+        if tab {
+            self.dismissed = None;
+            self.history_browse = None;
+            self.step_completion(back, true);
+        } else if self.popup().is_some() {
+            self.step_completion(back, false);
+        } else {
+            self.step_history(back);
         }
+    }
+
+    fn step_completion(&mut self, back: bool, tab: bool) {
         let Some(list) = self.list.as_mut().filter(|l| !l.items.is_empty()) else {
             return;
         };
@@ -346,6 +439,7 @@ impl LineEditor {
             let text = format!("{}{} ", list.head, list.items[0].text);
             self.list = None;
             let cursor = text.chars().count();
+            self.push_undo();
             self.set(text, cursor);
             return;
         }
@@ -360,7 +454,51 @@ impl LineEditor {
         let text = format!("{}{}", list.head, list.items[index].text);
         list.shows = text.clone();
         let cursor = text.chars().count();
+        self.push_undo();
         self.set(text, cursor);
+    }
+
+    fn step_history(&mut self, back: bool) {
+        if self.history.is_empty() {
+            return;
+        }
+        match (self.history_browse.as_mut(), back) {
+            (None, false) => {}
+            (None, true) => {
+                self.push_undo();
+                let draft = self.text.clone();
+                let draft_cursor = self.cursor;
+                self.list = None;
+                let index = self.history.len() - 1;
+                let entry = self.history[index].clone();
+                let cursor = entry.chars().count();
+                self.history_browse = Some(HistoryBrowse {
+                    index,
+                    draft,
+                    draft_cursor,
+                });
+                self.set(entry, cursor);
+            }
+            (Some(browse), true) => {
+                if browse.index > 0 {
+                    browse.index -= 1;
+                    let entry = self.history[browse.index].clone();
+                    let cursor = entry.chars().count();
+                    self.set(entry, cursor);
+                }
+            }
+            (Some(browse), false) => {
+                if browse.index + 1 < self.history.len() {
+                    browse.index += 1;
+                    let entry = self.history[browse.index].clone();
+                    let cursor = entry.chars().count();
+                    self.set(entry, cursor);
+                } else {
+                    let browse = self.history_browse.take().expect("history browse state");
+                    self.set(browse.draft, browse.draft_cursor);
+                }
+            }
+        }
     }
 
     /// Escape: ends a search, else hides the list. Returns whether it did either (otherwise
@@ -384,6 +522,7 @@ impl LineEditor {
     /// Ctrl+R: start a reverse history search, or find the next older match.
     pub fn search_back(&mut self) {
         self.anchor = None;
+        self.history_browse = None;
         self.search = Some(match self.search.take() {
             Some((query, back)) => {
                 let next = back + 1;
@@ -410,6 +549,8 @@ impl LineEditor {
         self.accept_search();
         let line = std::mem::take(&mut self.text);
         self.cursor = 0;
+        self.undo_stack.clear();
+        self.history_browse = None;
         self.list = None;
         self.dismissed = None;
         let entry = line.trim();
@@ -541,19 +682,97 @@ mod tests {
         assert!(!e.take_history_changed());
         e.step(true, false);
         assert_eq!(e.text(), "fov 90", "Up starts at the newest");
+        assert!(e.browsing_history() && e.popup().is_none());
         e.refresh(&App::default());
+        assert!(e.popup().is_none(), "history recall opens no popup");
         e.step(true, false);
         assert_eq!(e.text(), "map x");
-        let (items, index) = e.popup().unwrap();
-        assert_eq!((items.len(), index), (2, Some(0)));
+        e.step(true, false);
+        assert_eq!(e.text(), "map x", "clamps at oldest history entry");
         e.step(false, false);
         assert_eq!(e.text(), "fov 90");
+        e.step(false, false);
+        assert_eq!(e.text(), "", "Down past newest restores empty line");
+        assert!(!e.browsing_history() && e.popup().is_none());
         let mut many = LineEditor::default();
         many.set_history((0..150).map(|i| i.to_string()).collect());
         assert_eq!(
             (many.history().len(), many.history()[0].as_str()),
             (HISTORY_MAX, "50")
         );
+    }
+
+    #[test]
+    fn history_browsing_preserves_and_restores_unsent_draft_without_popup() {
+        let app = App {
+            maps: vec!["d1_trainstation_01"],
+        };
+        let mut e = LineEditor::default();
+        for cmd in ["map d1_trainstation_01", "fov 90"] {
+            e.insert(cmd);
+            e.submit();
+        }
+        e.insert("say hello world");
+        e.word_left();
+        e.refresh(&app);
+        let saved_cursor = e.cursor();
+        assert_eq!(e.text(), "say hello world");
+
+        // Down on the unsent draft leaves it untouched.
+        e.step(false, false);
+        assert_eq!((e.text(), e.cursor()), ("say hello world", saved_cursor));
+        assert!(!e.browsing_history());
+
+        // Up recalls history without opening any popup even for known commands.
+        e.step(true, false);
+        e.refresh(&app);
+        assert_eq!(e.text(), "fov 90");
+        assert!(e.browsing_history() && e.popup().is_none());
+        e.step(true, false);
+        e.refresh(&app);
+        assert_eq!(e.text(), "map d1_trainstation_01");
+        assert!(e.popup().is_none());
+
+        // Down steps forward through history and restores exact (draft, cursor) past newest.
+        e.step(false, false);
+        assert_eq!(e.text(), "fov 90");
+        e.step(false, false);
+        assert_eq!((e.text(), e.cursor()), ("say hello world", saved_cursor));
+        assert!(!e.browsing_history());
+
+        // Editing a recalled entry exits history browsing so refresh resumes completion.
+        e.submit();
+        e.insert("map");
+        e.submit();
+        e.step(true, false);
+        e.backspace();
+        assert!(!e.browsing_history());
+        e.refresh(&app);
+        assert!(e.popup().is_some());
+
+        // Dismissed popup stays dismissed when returning to that draft via Down.
+        assert!(e.dismiss());
+        assert!(e.popup().is_none());
+        let saved_partial = e.text().to_owned();
+        e.step(true, false);
+        assert_eq!(e.text(), "map");
+        e.step(false, false);
+        e.refresh(&app);
+        assert_eq!(e.text(), saved_partial);
+        assert!(e.popup().is_none());
+
+        // Explicit Tab stops history browsing and completes the recalled entry.
+        e.submit();
+        e.insert("ma");
+        e.submit();
+        e.step(true, false);
+        assert!(e.browsing_history());
+        e.stop_history_browse();
+        e.refresh(&app);
+        e.step(false, true);
+        assert!(!e.browsing_history());
+        assert_eq!(e.text(), "mainmenu");
+        assert!(e.popup().is_some());
     }
 
     #[test]

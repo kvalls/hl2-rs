@@ -60,7 +60,7 @@ def main():
     replay.OUT.mkdir(parents=True, exist_ok=True)
     replay.build()
     replay.stage()
-    shader = replay.GAME / "bevy-assets/shaders/weapon_blur.wgsl"
+    shader = replay.GAME / "bevy-assets/shaders/weapon_blur.wesl"
     original = shader.read_text(encoding="utf-8")
     try:
         for aa in ("none", "x4"):

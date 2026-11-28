@@ -1,8 +1,8 @@
 //! The default plugin set configured from the command line, the host systems and the final report.
 use super::{
     Options, Status, assets, audio, camera, campaign, canvas_renderer, console_host, effects, eyes,
-    flashlight, material_proxies, monitor, monitors, rendering, runtime_props, save_capture, setup,
-    sky, studio_decals, tonemap, video, visibility,
+    flashlight, material_proxies, material_slots, monitor, monitors, rendering, runtime_npcs,
+    runtime_props, save_capture, setup, sky, studio_decals, tonemap, video, visibility,
 };
 use anyhow::{Result, bail};
 use bevy::app::PluginGroupBuilder;
@@ -18,6 +18,7 @@ pub(super) fn default_plugins(
     asset_root: &std::path::Path,
 ) -> PluginGroupBuilder {
     let default_plugins = DefaultPlugins
+        .set(crate::priority::task_pools())
         .set(bevy::log::LogPlugin {
             custom_layer: console_host::log_layer,
             ..default()
@@ -69,7 +70,12 @@ pub(super) fn default_plugins(
         // runs before AssetEventSystems and so before CalculateBounds) leaves no room for
         // `visibility::present` between CalculateBounds and VisibilityPropagate: PostUpdate
         // would not build.
-        .disable::<bevy::ui_widgets::MenuPlugin>();
+        .disable::<bevy::ui_widgets::MenuPlugin>()
+        // TextInputPlugin sets `Window::ime_enabled` every frame from whether a Bevy
+        // `EditableText` has focus. The game has none (the console is drawn on the CPU canvas),
+        // so it turned macOS composition off each frame and the console lost dead-key quotes;
+        // `ui_system::native_text` owns that flag instead. The setup window keeps the plugin.
+        .disable::<bevy::ui_widgets::TextInputPlugin>();
     // Background runs have no operating-system window: without winit nothing is created on the
     // desktop or activated (winit activates the app on launch). Profiling runs uncapped;
     // ordinary background replays retain the fixed-rate loop.
@@ -149,6 +155,8 @@ pub(super) fn add_video_systems(app: &mut App) {
 }
 
 pub(super) fn add_presentation_systems(app: &mut App) {
+    rendering::drawing::install_previous_transforms(app);
+    app.init_resource::<rendering::actor_poses::ActorPoses>();
     app.add_systems(
         RunFixedMainLoop,
         campaign::poll
@@ -158,19 +166,32 @@ pub(super) fn add_presentation_systems(app: &mut App) {
     .add_systems(
         PostUpdate,
         (
-            rendering::present_entities,
+            rendering::present_entities.run_if(crate::isolation::run_animation),
             rendering::lod::switch_levels.after(rendering::present_entities),
+            rendering::variant_warmup::warm_hidden_variants
+                .after(rendering::present_entities)
+                .before(bevy::transform::TransformSystems::Propagate),
             rendering::present_weapons,
-            effects::present,
-            effects::present_gibs,
+            rendering::variant_warmup::warm_weapon_variants
+                .after(rendering::present_weapons)
+                .before(rendering::sync_viewmodel_camera)
+                .before(rendering::variant_warmup::warm_hidden_variants),
+            effects::present.run_if(crate::isolation::run_effects),
+            effects::present_gibs.run_if(crate::isolation::run_effects),
             studio_decals::present,
             sky::present,
             monitors::present,
             monitors::present_materials,
             eyes::attention_pvs,
             material_proxies::present,
-            canvas_renderer::present.after(flashlight::update),
+            canvas_renderer::present
+                .after(flashlight::update)
+                .run_if(crate::isolation::run_hud),
             tonemap::update,
+            rendering::sync_viewmodel_camera
+                .after(rendering::present_weapons)
+                .after(effects::present)
+                .after(tonemap::update),
         )
             .before(TransformSystems::Propagate),
     )
@@ -178,6 +199,38 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         PostUpdate,
         runtime_props::poll
             .run_if(resource_exists::<runtime_props::RuntimeProps>)
+            .before(rendering::present_entities),
+    );
+    add_runtime_entity_systems(app);
+    app.add_plugins(material_slots::plugin);
+    app.add_systems(Startup, setup)
+        .add_systems(
+            PostUpdate,
+            audio::queue
+                .after(canvas_renderer::present)
+                .before(TransformSystems::Propagate)
+                .run_if(crate::isolation::run_audio),
+        )
+        .add_systems(Last, effects::observe.before(monitor::monitor))
+        .add_systems(Last, audio::observe.before(monitor::monitor))
+        .add_systems(
+            Update,
+            (
+                console_host::sync_sources,
+                console_host::drain_log,
+                console_host::apply_cursor_hint,
+            ),
+        )
+        .add_systems(Last, monitor::monitor)
+        .add_systems(Last, video::skip_covered_outputs);
+}
+
+fn add_runtime_entity_systems(app: &mut App) {
+    app.add_systems(
+        PostUpdate,
+        runtime_npcs::poll
+            .run_if(resource_exists::<runtime_npcs::RuntimeNpcs>)
+            .before(rendering::spawn_runtime_draws)
             .before(rendering::present_entities),
     )
     .add_systems(
@@ -204,7 +257,7 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         PostUpdate,
         (
             rendering::present_render_colors,
-            rendering::apply_lightstyles,
+            rendering::apply_lightstyles.run_if(crate::isolation::run_lightstyles),
         )
             .after(rendering::present_entities),
     )
@@ -213,43 +266,26 @@ pub(super) fn add_presentation_systems(app: &mut App) {
         rendering::present_lighting
             .after(rendering::present_entities)
             .after(effects::present)
-            .before(TransformSystems::Propagate),
+            .before(TransformSystems::Propagate)
+            .run_if(crate::isolation::run_model_lighting),
     )
     .add_systems(
         PostUpdate,
         eyes::present
             .after(rendering::present_entities)
-            .before(TransformSystems::Propagate),
+            .before(TransformSystems::Propagate)
+            .run_if(crate::isolation::run_eyes),
     )
     .add_systems(
         PostUpdate,
         visibility::present
             .after(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
             .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
-    )
-    .add_systems(Startup, setup)
-    .add_systems(
-        PostUpdate,
-        audio::queue
-            .after(canvas_renderer::present)
-            .before(TransformSystems::Propagate),
-    )
-    .add_systems(Last, effects::observe.before(monitor::monitor))
-    .add_systems(Last, audio::observe.before(monitor::monitor))
-    .add_systems(
-        Update,
-        (
-            console_host::sync_sources,
-            console_host::drain_log,
-            console_host::save_history,
-            console_host::apply_cursor_hint,
-        ),
-    )
-    .add_systems(Last, monitor::monitor)
-    .add_systems(Last, video::skip_covered_outputs);
+    );
 }
 
 /// What the startup map reports; the worker replaces it after each map change.
+#[derive(Clone)]
 pub(super) struct MapSummary {
     map_name: String,
     revision: u32,
@@ -270,7 +306,7 @@ impl MapSummary {
                     .base_path
                     .as_ref()
                     .zip(material.base.as_ref())
-                    .map(|(key, image)| (key.clone(), image.rgba.len()))
+                    .map(|(key, image)| (key.clone(), image.data.len()))
             })
             .collect();
         Self {
@@ -290,6 +326,42 @@ impl MapSummary {
             ),
         }
     }
+}
+
+/// The startup map's summary, for the report written in the exit frame.
+#[derive(bevy::prelude::Resource)]
+pub(super) struct ExitSummary(pub(super) MapSummary);
+
+/// The frame the app exits: writes the run's captures and report ([`finish`]) and ends the process
+/// without dropping the app. Dropping it closes the CoreAudio output, which waits for the mixing
+/// callback to let go of the device lock; after a crowd fight that wait can last forever, the
+/// window gone and a core still busy. The operating system releases the device instead. Both
+/// trace files flush as they write.
+pub(super) fn exit_process(world: &mut bevy::prelude::World) {
+    let exit = world
+        .get_resource::<bevy::ecs::message::Messages<AppExit>>()
+        .and_then(|messages| messages.iter_current_update_messages().next().cloned());
+    let Some(exit) = exit else {
+        return;
+    };
+    if let Some(mut simulation) = world.get_resource_mut::<crate::simulation::Simulation>() {
+        simulation.with_extensions(|extension, _| extension.shutdown());
+    }
+    let status = world.resource::<Status>().clone();
+    let options = world.resource::<Options>().clone();
+    let summary = world.resource::<ExitSummary>().0.clone();
+    // The process exits without dropping resources: finish the trace file first.
+    if let Some(switch) = world.get_resource::<crate::performance::status::TraceSwitch>() {
+        (switch.0)(crate::performance::status::TraceCommand::Finish);
+    }
+    let code = match finish(&status, &options, summary, exit) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            1
+        }
+    };
+    std::process::exit(code);
 }
 
 pub(super) fn finish(
@@ -362,4 +434,50 @@ pub(super) fn finish(
         bail!("requested monitor screenshot did not complete; inspect report/log");
     }
     Ok(())
+}
+
+/// `--timescale`: the virtual clock runs `scale` times faster, so the fixed 15 ms ticks (and
+/// everything on virtual time) come due that much sooner; one frame may run up to `scale` times
+/// the normal 50 ms of ticks. The ticks themselves, and their order, do not change.
+pub(crate) fn apply_timescale(app: &mut App, scale: f32) {
+    if scale == 1. {
+        return;
+    }
+    let mut time = app
+        .world_mut()
+        .resource_mut::<bevy::time::Time<bevy::time::Virtual>>();
+    time.set_relative_speed(scale);
+    time.set_max_delta(std::time::Duration::from_secs_f32(0.05 * scale));
+}
+
+/// `--max-fps`: each frame waits out the rest of its share of a second before the next begins.
+/// Added only when asked for; play never runs it.
+pub(crate) fn limit_frame_rate(app: &mut App, max_fps: Option<u32>) {
+    let Some(fps) = max_fps else { return };
+    let period = std::time::Duration::from_secs_f64(1. / f64::from(fps));
+    let mut last = std::time::Instant::now();
+    app.add_systems(bevy::app::Last, move || {
+        let due = last + period;
+        let now = std::time::Instant::now();
+        if due > now {
+            std::thread::sleep(due - now);
+        }
+        last = std::time::Instant::now();
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    /// Bevy's text-input widget plugin would set `Window::ime_enabled` to false every frame
+    /// (no Bevy `EditableText` is focused in the game), which dropped the console's macOS
+    /// dead-key quotes; the game window leaves that flag to `ui_system::native_text`.
+    #[test]
+    fn game_plugins_leave_text_composition_to_the_console() {
+        let (options, _) =
+            super::Options::parse_from(Vec::new(), hl2_ui::config::Config::default()).unwrap();
+        let plugins = super::default_plugins(&options, std::path::Path::new("assets"));
+        assert!(plugins.contains::<bevy::ui_widgets::TextInputPlugin>());
+        assert!(!plugins.enabled::<bevy::ui_widgets::TextInputPlugin>());
+        assert!(plugins.enabled::<bevy::window::WindowPlugin>());
+    }
 }

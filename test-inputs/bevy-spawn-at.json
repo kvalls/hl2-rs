@@ -1,0 +1,7 @@
+[
+  {"tick":1,"eye":[-3728,-545,145],"yaw":270,"fly":true,"ui":[{"action":"command","command":"spawn_at item_battery pos -4300 28 -57 targetname denied"}]},
+  {"tick":3,"ui":[{"action":"command","command":"sv_cheats 1; notarget; spawn_at item_battery pos -4300 150 -57 targetname coordinate_battery"}]},
+  {"tick":8,"ui":[{"action":"command","command":"spawn_at prop_physics pos -4350 100 -36 model props_junk/wood_crate001a targetname coordinate_crate"}]},
+  {"tick":13,"ui":[{"action":"command","command":"spawn_at npc_citizen_rebel pos -4300 200 -57 targetname coordinate_rebel additionalequipment weapon_smg1"}]},
+  {"tick":145,"label":"complete"}
+]

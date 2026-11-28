@@ -432,16 +432,15 @@ impl ActBusy {
                 return TaskStatus::Running;
             }
         }
-        self.finish_busy();
+        self.finish_exit();
         TaskStatus::Complete
     }
-    /// The busy animation is over: OnNPCFinishedBusy, the hint's OnNPCStoppedUsing, hint released.
-    fn finish_busy(&mut self) {
+    fn finish_exit(&mut self) {
         if self.busy {
             self.outputs.push("OnNPCFinishedBusy");
-            let hint = self.hint.as_ref().map(|h| h.entity);
-            let stopped = hint.map(|h| (h, "OnNPCStoppedUsing"));
-            self.hint_outputs.extend(stopped);
+            if let Some(hint) = &self.hint {
+                self.hint_outputs.push((hint.entity, "OnNPCStoppedUsing"));
+            }
         }
         self.busy = false;
         self.release_hint();
@@ -516,7 +515,7 @@ impl Behavior for ActBusy {
             ),
             "TASK_ACTBUSY_PLAY_EXIT" => Some(if motor.activity_finished() {
                 motor.auto_movement(true);
-                self.finish_busy();
+                self.finish_exit();
                 TaskStatus::Complete
             } else {
                 motor.auto_movement(false);
@@ -1023,6 +1022,10 @@ mod tests {
         );
         assert!(!a.busy && a.hint.is_none());
         assert_eq!(a.released, vec![10]);
+        assert_eq!(
+            a.hint_outputs,
+            [(10, "OnNPCStartedUsing"), (10, "OnNPCStoppedUsing")]
+        );
         assert_eq!(motor.tried, vec!["enter_bench", "exit_bench"]);
         assert_eq!(motor.auto_moves, vec![false, true, true]);
     }

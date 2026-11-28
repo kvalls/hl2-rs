@@ -89,8 +89,41 @@ impl Frame {
         len
     }
 }
+/// Slack around `reach` for rounding: a box a little too large only adds triangles to test.
+const REACH_MARGIN: f32 = 1.;
+/// Every triangle of `surfaces` as (surface, triangle) indices, in order.
+pub fn all_triangles(surfaces: &[Surface]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    (surfaces.iter().enumerate())
+        .flat_map(|(s, surface)| (0..surface.indices.len() / 3).map(move |t| (s, t)))
+}
+fn triangle(surface: &Surface, t: usize) -> [Vec3; 3] {
+    [0, 1, 2].map(|k| surface.vertices[surface.indices[3 * t + k] as usize].position)
+}
+/// A world box around everything a mark of half-width `radius` at `center`, facing `normal`,
+/// reaches at any turn: the in-plane square (within `radius` x sqrt 2 of the center) and half a
+/// unit off its plane. Only a triangle whose box meets it can take part of the mark.
+pub fn reach(center: Vec3, normal: Vec3, radius: f32) -> (Vec3, Vec3) {
+    let n = normal.normalize_or_zero().to_array();
+    let half =
+        n.map(|c| radius * std::f32::consts::SQRT_2 * (1. - c * c).max(0.).sqrt() + 0.5 * c.abs());
+    let half = Vec3::from_array(half) + Vec3::splat(REACH_MARGIN);
+    (center - half, center + half)
+}
 pub fn project(
     surfaces: &[Surface],
+    center: Vec3,
+    normal: Vec3,
+    radius: f32,
+    angle: f32,
+) -> Vec<DecalVertex> {
+    let triangles = all_triangles(surfaces);
+    project_triangles(surfaces, triangles, center, normal, radius, angle)
+}
+/// `project` on the given (surface, triangle) indices, in their order: the same mark when they
+/// include every triangle `reach` meets.
+pub fn project_triangles(
+    surfaces: &[Surface],
+    triangles: impl IntoIterator<Item = (usize, usize)>,
     center: Vec3,
     normal: Vec3,
     radius: f32,
@@ -101,18 +134,17 @@ pub fn project(
     };
     let mut result = Vec::new();
     let mut polygon = EMPTY_POLYGON;
-    for surface in surfaces.iter().filter(|s| !s.background) {
-        for tri in surface.indices.as_chunks::<3>().0 {
-            let len = frame.clip(
-                tri.map(|i| surface.vertices[i as usize].position),
-                &mut polygon,
-            );
-            for i in 1..len.saturating_sub(1) {
-                for mut vertex in [polygon[0], polygon[i], polygon[i + 1]] {
-                    vertex.position += frame.normal * 0.06;
-                    vertex.uv = vertex.uv / (radius * 2.) + Vec2::splat(0.5);
-                    result.push(vertex);
-                }
+    for (s, t) in triangles {
+        let surface = &surfaces[s];
+        if surface.background {
+            continue;
+        }
+        let len = frame.clip(triangle(surface, t), &mut polygon);
+        for i in 1..len.saturating_sub(1) {
+            for mut vertex in [polygon[0], polygon[i], polygon[i + 1]] {
+                vertex.position += frame.normal * 0.06;
+                vertex.uv = vertex.uv / (radius * 2.) + Vec2::splat(0.5);
+                result.push(vertex);
             }
         }
     }
@@ -121,15 +153,21 @@ pub fn project(
 /// Whether `project` would put any of a mark on `surface`, without building it: stops at the
 /// first triangle the mark reaches.
 pub fn touches(surface: &Surface, center: Vec3, normal: Vec3, radius: f32) -> bool {
+    let triangles = 0..surface.indices.len() / 3;
+    touches_triangles(surface, triangles, center, normal, radius)
+}
+/// `touches` on the given triangles of `surface`.
+pub fn touches_triangles(
+    surface: &Surface,
+    triangles: impl IntoIterator<Item = usize>,
+    center: Vec3,
+    normal: Vec3,
+    radius: f32,
+) -> bool {
     !surface.background
         && Frame::new(center, normal, radius, 0.).is_some_and(|frame| {
             let mut polygon = EMPTY_POLYGON;
-            surface.indices.as_chunks::<3>().0.iter().any(|tri| {
-                frame.clip(
-                    tri.map(|i| surface.vertices[i as usize].position),
-                    &mut polygon,
-                ) >= 3
-            })
+            (triangles.into_iter()).any(|t| frame.clip(triangle(surface, t), &mut polygon) >= 3)
         })
 }
 /// Static map decal (infodecal) on lightmapped world faces: centered on the plane point

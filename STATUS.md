@@ -1,5 +1,864 @@
 # STATUS
 
+## Console history across launches moved to hl2-debug (2026-11-27)
+
+Retail keeps the console command history for one run only (Source SDK
+`vgui_controls/consoledialog.cpp`: `m_CommandHistory` in memory, freed with
+the panel; the console's only file write is `condump`, which saves output,
+not commands), so the core console now does the same. The `hl2-debug`
+plugin restores `hl2-console-history.txt` on its first UI frame and writes
+it when the saved history changes, leaving out chat as before. Built
+without the plugin, nothing is read or written. Validate, the plugin
+selection check and the `console`/`console_map` replays pass. Live play
+on the rebuilt package is **not tested**.
+
+## Chat left out of the saved console history (2026-11-27)
+
+Lines of only `say` commands, and lines the chat mode routes to chat, stay
+in the console history for the current run but are not written to
+`hl2-console-history.txt`; commands are saved as before. Unit tests in
+`hl2-ui` and `hl2-debug`, validate and the `console`/`console_map` replays
+pass. Chat saved before this change stays in the existing file. Live play
+on the rebuilt package is **not tested**.
+
+## Console quote keys on macOS, again (2026-11-27)
+
+Quotes typed with a dead-key layout (US International PC) never reached the
+console after the Bevy 0.20.1 merge (`d67678b5`). That merge enabled Bevy's
+`bevy_ui_widgets` feature, which adds `TextInputPlugin` to `DefaultPlugins`.
+Every frame its IME system sets `Window::ime_enabled` from whether a Bevy
+`EditableText` has focus. The game has none, so composition was off whenever
+`ui_system::native_text` read the frame's text, and macOS composition commits
+(`"`, `ä`) were discarded. A diagnostic build on the owner's keyboard logged the
+commits arriving while the flag read false on every frame. The game window
+now disables `TextInputPlugin`; the setup window keeps it. The command
+tokenizer was not involved (its quote tests passed throughout). The earlier
+fix's tests used synthetic events and set the console mode directly, so they
+never ran with the real plugin set; `launch::tests` now checks the plugin set.
+Live retest by the owner on the rebuilt package and Windows runtime are
+**not tested**.
+
+## Viewmodel blur through swing and recoil reversals (2026-11-27)
+
+The Advanced and Ultra viewmodel gather uses the preceding frame's surface motion
+when the current pose barely moves. In the packaged Metal diagnostic, the crowbar
+and SMG both crossed the blur threshold on repeated poses at a 120 FPS cap. At a
+45 FPS cap the SMG also produced a stronger trail on pixels already moving back in
+the opposite direction. A settled crowbar produced zero recovered pixels.
+Reproduce with `NO_BUILD=1 python3 scripts/checks/check_weapon_blur.py`.
+
+Two early captures ended during the weapon draw. An early implementation stored
+the frame stamp with the bind groups. A GPU diagnostic showed valid incoming
+motion but an invalid stamp after rebinding. The stamp now lives with the sampled
+texture. Ordinary play and Windows rendering are **not tested**.
+
+The whole script passes since the report's pose check compares draws with the pose as drawn
+(blended across the tick): it had kept the tick pose after `b21caec1`, so 2 props the pistol
+shot moved counted as mismatches. The turnover cases: crowbar 36,189 and SMG 55,548 recovered
+pixels at 120 FPS, 13,034 reversed SMG pixels at 45 FPS, none on an idle crowbar.
+
+## Maps loaded under the console (2026-11-27)
+
+A gameplay map that finishes loading while the console or menu is open (a `--map` launch
+with `+showconsole`, as the live agent session starts) runs its 0.2 s spawn hold with the
+player frozen, then pauses, so the menu shows over its first frame instead of black
+(`hl2-bevy` `simulation/running.rs`). Verified with packaged captures; the owner's live
+check is pending. Windows **not tested**.
+
+## Tick blending of the view and entities (2026-11-27)
+
+Like retail single player, the eye origin, physics props and brush movers are drawn between
+their last two 15 ms tick values (`hl2-bevy` `tick_blend.rs`); view angles stay per frame,
+so a carried prop no longer shakes against a turning view. NPCs keep their tick poses.
+Measured on the packaged carry replay: 0.018 ms per tick to record the poses, shadows
++0.02 ms per frame, other stages unchanged. Owner play-test (2026-11-27, 120 FPS, macOS):
+walking with a carried box is smooth; turning keeps a small jitter at retail level (retail
+shows it too: tick view angles are read at frame times). A per-frame trace of that session
+measured on-screen box jitter while turning 0.67 -> 0.20 units. The Advanced/Ultra object
+blur now takes out the camera's move, so a carried prop no longer smears while walking
+(owner-confirmed). Windows **not tested**.
+
+## Menu text outline (2026-11-27)
+
+Main and pause menu buttons, titles and subtitles draw a 40% black outline that grows outward
+from each letter's edge (one cached ring texture per glyph, `source-ui` `font/outline.rs`).
+The letters keep their unoutlined weight. Unit tests cover the outward-only rule and the
+opacity. Packaged captures over the dark Episode One and bright Lost Coast backgrounds were
+compared at 1920x1080 and 3024x1964. Menu HUD quads went from 585 to 130 per frame. The
+outline stays 1 px at every resolution. Windows **not tested**.
+
+## Map validation precedence and distribution build locks (2026-11-27)
+
+Gameplay map validation reads the eight-byte BSP header from the selected game's installed
+search layers in loader order. Same-game requests reuse the current mount and exclude the
+running map's embedded pak. A regression fixture swaps valid and empty headers between a
+custom override and the loose base file and checks both outcomes. The packaged macOS
+`console_map` and `campaign` replays passed.
+
+Target cleanup now locks `dist` together with `debug` and `release` before scanning. Real
+Cargo builds in an isolated fixture verify that a held profile lock excludes cleanup and
+that Cargo waits for cleanup to release its locks.
+
+## Owned-install tests (2026-11-27)
+
+`cargo test --release --workspace --no-fail-fast -- --ignored` passes in every crate (it
+needs the installed game, so `validate.sh` does not run it). Fixed today:
+
+- `headless_bevy_app_submenu_entry_switches_background_map_and_scene` and
+  `headless_bevy_app_ep2_submenu_entry_switches_background_map` failed with "Resource does
+  not exist" since the Bevy 0.20.1 merge: `effects::present` takes
+  `Assets<ShaderBuffer>`, which the shared headless asset setup
+  (`campaign/loading_owned_tests.rs::init_map_assets`) did not register.
+- Four test expectations went stale when the code changed on purpose (the "5 failures
+  not yet classified" of the s42 merge note further down; the fifth,
+  `owned_install_pages_tab_in_reading_order`, already passes):
+  - `owned_explosion_materials_decode_with_correct_blend_modes`: the wood flecks, blood
+    and smoke-grenade materials added for bullet impacts are `$translucent`.
+  - `owned_weapon_columns_follow_campaign_loadouts_then_weapon_can_use`: the citizens'
+    package and suitcase have no required acttable rows, so police and soldiers pass
+    `Weapon_CanUse` for them.
+  - `owned_quickinfo_arcs_center_on_crosshair_across_layouts_and_states`: at odd heights
+    the crosshair rounds `CHudCrosshair::GetDrawPosition` and quick info truncates it
+    (SDK), so they sit up to 1.5 px apart.
+  - `owned_barney_levels_match_each_root_lod_read_and_climb_in_switch_points`: a face's
+    root level stops at Low, so its distance levels below Low are coarser than a root
+    read.
+
+## Canal graffiti draw order (2026-11-27)
+
+The overlapping `decalgraffiti009a` and `decalgraffiti001c` world decals in
+`d1_canals_03` now draw in BSP placement order (`001c`, the grey smudge and blue
+tag, over `009a`, the orange lettering) from every view direction. Each layered
+mesh carries two unreferenced vertices at its overlap group's bounding-box
+corners. Bevy recomputes a render mesh's bounds from its positions when it
+uploads the mesh (`Mesh::final_aabb` does not survive) and sorts translucent
+draws by that center, so the corners give the whole group one sort center and
+the placement-order depth bias decides. The first version (`370d628f`) only set
+`final_aabb`, which was lost on upload, and the owner still saw the flip when
+looking up (`setpos -715.272705 2911.000000 -761.513794; setang -13.393998
+1083.413574 0` broken, `setang 6.472016 1084.336426 0` correct; these are getpos
+eye coordinates).
+
+The owned-map regression
+(`cargo test --locked -p hl2-bevy --lib canal_graffiti -- --ignored`) now
+checks the uploaded mesh (`take_gpu_data`) over a sweep of 24 yaws by 17
+pitches (±80°); it fails without the anchor vertices. Packaged macOS captures
+at the owner's eye position (`--fly --position -715.272705 2911 -761.513794`,
+`--pitch` −6.47 and 13.39) show the lettering over the smudge before the fix
+when looking up and the smudge on top in both views after it; the down view is
+unchanged (max 3 levels). Cost: two vertices per layered mesh; CPU frame p95
+5.29/5.09 ms before and 5.58/5.15 ms after across separate runs (noise), `world`
+load 31-35 ms on both. Retail comparison and Windows runtime are **not tested**.
+
+`setpos` sets the feet origin and `getpos` prints the eye (feet + 64), as retail
+does (Source SDK `game/server/client.cpp` `setpos`, `game/client/view.cpp`
+`getpos`), so pasting getpos output into setpos lifts the view by 64 units in
+both. With flight on, `setpos -713 2911 -788; setang 7 1065 0` matches the
+owner's noclip retail view of that command.
+
+## Missing/invalid console map validation without loading popup (2026-11-26)
+
+Console `map` (and `changelevel`) requests now validate map existence and the
+8-byte `VBSP` v19/20 header synchronously via `source_assets::install::check_map`
+before opening `LoadingDialog` or spawning a map-loader thread. Missing maps,
+zero-byte stubs (such as `d2_coast_02`), non-BSP files, and unsupported BSP
+versions print the retail `CModelLoader::Map_IsValid` error at `Level::Error`
+in the console with no loading popup while keeping the active world intact.
+Workspace validation (`2,046` Rust tests, `134` Python tests, all `4` plugin
+builds, strict Clippy), Windows strict Clippy, macOS release build, and the
+`console` and `console_map` replays (`2 checks, 0 failed`) passed. Windows
+runtime and interactive manual play on the rebuilt binary are **not tested**.
+
+## Console Up/Down history draft restoration without popup (2026-11-26)
+
+Console `Up`/`Down` history browsing now updates the entry in place without
+opening an autocomplete or argument-help popup (matching retail popup-only
+autocomplete), saves any unsent draft and caret position before stepping into
+history, and restores them when stepping back past the newest entry (while
+`Down` on an unsubmitted draft leaves it untouched and `Tab`/editing resumes
+autocomplete). Workspace validation (`2,043` Rust tests, `134` Python tests,
+all `4` plugin builds, strict Clippy), Windows strict Clippy, macOS release
+build, and the `console` and `console_map` replays (`2 checks, 0 failed`)
+passed. Windows runtime and interactive manual keyboard play on the rebuilt
+binary are **not tested**.
+
+## Runtime speech subtitles over main menu and pause menu (2026-11-26)
+
+Runtime speech (`CaptionHud::speak` / `RuntimeExtension::gameplay_captions`)
+now advances on real time and paints through the shared closed-caption panel
+whenever the developer console is closed across active gameplay, main menu
+(`background_level`), and the gameplay pause menu (`!background_level`,
+paused, console closed), while paused authored gameplay captions remain
+hidden and preserved on the frozen game clock until gameplay resumes. Workspace
+validation (`2,041` Rust tests, `134` Python tests, all `4` plugin builds,
+strict Clippy), Windows strict Clippy, macOS release rebuild/restart into
+`d1_trainstation_02`, and the `console` and `console_map` packaged replays
+(`2 checks, 0 failed`) passed. Windows runtime and live interactive visual
+verification on the restarted binary are **not tested**.
+
+## Console selection and plugin editing shortcuts (2026-11-26)
+
+Core (`source-ui`, `hl2-ui`, `hl2-bevy`) now implements retail Source
+(`TextEntry` / `RichText`) console selection and editing: character-accurate
+mouse click, drag-to-select (with horizontal auto-scroll on edge drag),
+double-click word selection, and triple-click select-all in the entry;
+character-accurate mouse drag and double-click word selection (plus EOL
+highlight) in the output history; and `Cmd/Ctrl+A/C/V/X/Z`, `Shift+Delete`,
+and retail `Cmd/Ctrl+Left/Right` word navigation. Non-retail shortcuts
+(`Ctrl+R` reverse history search and `#HL2RS_Console_ReverseSearch`,
+`Ctrl+U/K/W/E/L`, `Ctrl+Backspace/Delete`, and macOS `Option` word /
+`Command` line shortcuts) live in `hl2-debug` via
+`Extensions::select_console_input`. Workspace validation (`2,039` Rust tests,
+`134` Python tests, all `4` plugin builds, strict Clippy), `hl2-debug --features bevy`
+(`59` tests), Windows strict Clippy, the macOS release build, and the
+`console` and `console_map` replays passed (`0` failed). Windows runtime
+and manual interactive play on the rebuilt binary are **not tested**.
+
+## Gameplay console shortcuts (2026-11-26)
+
+Escape over the in-game pause menu + developer console hides both surfaces
+together, returns keyboard and pointer input to active gameplay while the
+scene advances, and restores the console (retaining its editor draft and
+placement) when the pause menu next opens. Tilde (`toggleconsole`) closes
+both the console and pause menu and resumes gameplay without restoring the
+console on the next Escape. The workspace validation suite, Windows strict
+Clippy check, macOS release build, and the 5 affected packaged replays
+(`console`, `console_map`, `power_hud`, `flashlight_shadows`,
+`flashlight_viewmodel`) passed (`0 failed`). Windows runtime and manual
+live keyboard play on the rebuilt package are **not tested**.
+
+## Chat command routing and macOS quote keys (2026-11-26)
+
+The watcher can distinguish chat-mode editor input from an ordinary `say`
+message. A bare command is eligible for relay only on a chat-mode event
+and while the mode is still active. The packaged editor check preserved
+both quote characters and verified single local command execution with
+chat mode off. The live report narrowed the missing quote keystrokes
+to the US International PC layout. The developer console now accepts
+native macOS composition commits while it has keyboard focus.
+Ordered composition and focus tests passed on macOS. Live testing of
+the rebuilt package with the physical quote keys and Windows runtime
+are **not tested**.
+
+## Literal chat input (2026-11-26)
+
+Chat mode preserves a leading `say` as part of the message. The packaged
+macOS editor check verified the same input with chat mode on and off.
+
+## Open-console status captions (2026-11-26)
+
+The live report exposed a separate status effect that bypassed the prior
+reply gate. The debug plugin now suppresses that effect while the console
+is visible and keeps its pinned status. The macOS packaged before and
+after check verified that only messages sent with the console closed
+reach the shared caption queue.
+
+## Local console chat mode (2026-11-26)
+
+The debug plugin supplies `chat_mode 1` for local Player chat and
+`chat_mode 0` for normal local input. The default is 0. Text goes to the
+existing console log, and authenticated remote commands stay available.
+After the watcher is ready, the greeting helper enables chat mode in a
+separate RCON command. The packaged macOS editor and greeting checks
+verified both routes. A later Station 02 queue exit can still fail with
+`NoRoute`, including when the player stays clear of the exit.
+
+## Station 02 queue collision (2026-11-26)
+
+The dispenser's model has no PHY and previously collided through its
+render mesh. The packaged replay reproduced 139 failed initial hull
+checks on that collider. The loader patch keeps the model present and
+lets all four citizens settle. In the forced-advance replay with a
+blocked exit, a later citizen still reports `NoRoute`. The player
+destination overlap fix addresses a separate circling behavior.
+
+## Console chat visibility (2026-11-26)
+
+Remote `say` and `agent_status` use the gameplay caption panel only when
+the developer console is closed. The gate uses window visibility and the
+host still prints messages in the console. RCON tests, all app plugin
+selections and the macOS package build passed. Patched live visual
+verification and Windows runtime are **not tested**.
+
+## Player-blocked NPC destination (2026-11-26)
+
+Three live Station 02 samples showed a citizen changing position around a
+stationary player while targeting the same final waypoint. Local steering
+now checks whether the mover's hull would overlap the player at that
+destination. Focused simulation verified that a blocked mover waits and
+resumes when the player clears the destination. The live game stayed on
+its existing build. Interactive verification of the patch is **not tested**.
+
+## O1/O4 unified Simple3d pass for SkyCamera and MonitorCamera (2026-11-26)
+
+`SkyCamera` and `MonitorCamera` now run on a unified single-pass `Simple3d` schedule (`simple_pass.rs`), drawing `Opaque3d`, `AlphaMask3d`, and `Transparent3d` in one `simple_pass_3d` render pass with `StoreOp::Discard` depth (and GPU mesh preprocessing enabled in `finish()`), direct-to-`_rt_Camera` output on `MonitorCamera`, and `StoreOp::Discard` depth in `hud_pass_2d`. On `d1_trainstation_02` hotspots at maxed Retina (`9a7006f8` vs `1e93e393`, analyzed by `hud_pass_2d`), `main_opaque_pass_3d`, `main_transparent_pass_3d`, and `upscaling` dropped to `1.0/f` across all four scenes, GPU busy p99 fell below `8.33 ms` in every scene (`8.16 ms` `plaza-hall-headless`, `7.88 ms` `plaza-headless`, `7.17 ms` `plaza-hall` windowed with `0/1204` > 8.33 ms, `6.83 ms` `plaza` windowed with `0/1264` > 8.33 ms), CPU `render_graph` fell to `4.121–4.929 ms`, windowed `plaza-hall` jumped `103.6 -> 114.9 FPS` (`95.8%` 1x refreshes, repeated `173 -> 53`), and windowed `plaza` reached `119.3 FPS` (`99.4%` 1x refreshes, repeated `19 -> 7`). Visual inspection confirmed clean 2D skybox, 3D miniature skybox, and Breen monitor output. Unit tests (`35 passed, 1 ignored`), strict Clippy, `cargo fmt --check`, `architecture.py`, 14 targeted replays, and `WINDOWED=1 ONLY='window'` passed. Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**. See `docs/performance.md`.
+
+## O4/O1 direct swapchain Present2d and idle ViewmodelCamera disable (2026-11-26)
+
+`Present2d` (`present_pass.rs`, `present.wgsl`) now renders directly onto the window swapchain format (`target.out_texture_view_format()`) with a cached bind group and clamped viewport/scissor rect, eliminating the extra `PresentCamera` `upscaling` copy and `Material2d` overhead, while `sync_viewmodel_camera` (`rendering/weapons.rs`) deactivates `ViewmodelCamera` when no `WeaponMesh` or layer-1 `QuadDraw` is visible and transfers `SourceBloom` and `SourceColorCorrection` to `FlyCamera`. On `d1_trainstation_02` hotspots at maxed Retina (`fb94db74` vs `9a7006f8`, analyzed by `hud_pass_2d`), windowed `plaza` jumped from `104.3 -> 118.2 FPS` (`98.5%` 1x refreshes, repeated `165 -> 19`, zero frames > 8.33 ms GPU busy, `render_graph` `5.099 -> 4.629 ms`, `frame_total` p95 `13.825 -> 9.188 ms`), windowed `plaza-hall` jumped `93.8 -> 103.6 FPS` (`276 -> 173` repeated, `render_graph` `5.767 -> 5.287 ms`), and `tonemap.readbacks` measured `284` in `plaza-hall-headless`. Unit tests (`video`, `rendering::weapons`, `bloom`, `tonemap`: 39 passed, 1 ignored), strict Clippy, `cargo fmt --check`, `architecture.py`, 14 targeted replays, and the `WINDOWED=1` `window` replay passed. Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**. See `docs/performance.md`.
+
+## O1/O4 bloom bilinear, monitor culling, shader specialization and Present2d (2026-11-26)
+
+`bloom.wgsl` now uses 4 hardware bilinear `textureSample` taps in `shape`/`shaped_tap` instead of 16 `textureLoad` + `encode()` calls, `monitors.rs` frustum-culls `MonitorCamera` against `FlyCamera`, `rendering/material.rs` + `source.wgsl` specialize `SOURCE_MODEL_LIT` and `SOURCE_ENVMAP` pipelines and skip unlit/sky lightmap reads, and `video/present_pass.rs` extracts `PresentMaterial` into a `Present2d` schedule (bringing `video.rs` under 1,000 lines; architecture baseline tightened `11 -> 10` large files). On `d1_trainstation_02` hotspots at maxed Retina (`148ba99f` vs `fb94db74`, analyzed by `hud_pass_2d`), `source_bloom` Frag dropped `37.4%–42.7%` across all 4 scenes, `plaza-hall` windowed GPU busy fell `7.46 -> 6.64 ms` (`p99 7.97 ms < 8.33 ms`, `93.8 FPS`), and `plaza` windowed GPU busy fell `8.33 -> 6.91 ms` (`p99 7.50 ms < 8.33 ms`, `>8.33 ms` `55.6% -> 0.18%`, pacing `90.2 -> 104.3 FPS`, `render_graph` `5.811 -> 5.099 ms`). `Present2d` removed `main_transparent_pass_2d` while falling back to `upscaling` on Metal swapchain format mismatch (`Bgra8UnormSrgb` vs `Rgba8UnormSrgb`), shifting the 120 Hz limiter to CPU `render_graph` (`5.10–5.77 ms`). Unit tests (`rendering`, `monitors`, `video`, `bloom`: 72 passed, 2 ignored), strict Clippy, `cargo fmt --check`, `architecture.py`, and 12+2 targeted replays passed. Multi-pair interleaved A/B runs, interactive live play, and Windows runtime are **not tested**. See `docs/performance.md`.
+
+## O4/O1 shadow encoder batching and bloom/tonemap fast paths (2026-11-26)
+
+`shadows/gpu` (`raster.rs`, `gpu.rs`) now encodes dirty shadow cells onto
+Bevy's shared `RenderContext::command_encoder()` in `RenderGraphSystems::Begin`
+instead of submitting a standalone command buffer per frame, `tonemap::update`
+attaches `bloom.presample` only on `INTERVAL = 8` histogram readback frames,
+`bloom.rs` caches `source_bloom` bind groups and dirty-checked blur uniforms in
+`BloomCache` (bringing `source_bloom` under the 100-line architecture limit),
+and `bloom.wgsl::composite` skips gamma `pow()` math on non-glowing LDR
+pixels. On `d1_trainstation_02` hotspots at maxed Retina (`e54cddd0` vs
+`148ba99f`, analyzed by `hud_pass_2d`), `source_bloom` dropped from `5.0 -> 4.1`
+passes/frame across all four scenes, `Blit Command 0` fell `0.180 -> 0.064 ms/f`
+(`plaza-hall-headless`), `plaza-hall-headless` GPU busy fell `8.04 -> 7.63 ms`
+(`>8.33 ms`: `39.0% -> 10.5%`), `plaza-hall` windowed improved `90.6 -> 95.3 FPS`
+(`306/943 -> 247/952` repeated refreshes), and `plaza` windowed improved
+`86.6 -> 90.2 FPS` (`348/902 -> 311/941` repeated refreshes). `shadows`, `bloom`,
+and `tonemap` unit tests (18 passed, 2 ignored), strict Clippy, `cargo fmt --check`,
+`architecture.py`, and 7 targeted replays passed (`bevy-monitors-breen-screen.json`
+`tonemap.readbacks = 16`, `plaza-hall-headless` `tonemap.readbacks = 282` with
+populated histogram). Multi-pair interleaved A/B runs, interactive live play,
+and Windows runtime are **not tested**. See `docs/performance.md`.
+
+## O1 opaque shader HSR and hotspot captures (2026-11-26)
+
+`MaterialKey::may_discard` (`SOURCE_MAY_DISCARD`) removes `discard` and the
+base alpha test from `AlphaMode::Opaque` pipelines in `source.wgsl` and
+`source_depth.wgsl`, `source.wgsl` shares one `srgb_to_linear` and skips the
+clustered spotlight lookup when `ClusterConfig::Single` has no spot lights, and
+`present.wgsl` bypasses gamma power math at neutral gamma (`2.2`). On
+`d1_trainstation_02` hotspots at maxed Retina (`3456×2168` headless / `3456×1978`
+windowed, analyzed by `hud_pass_2d`), `plaza-headless` GPU busy dropped
+`8.75 -> 8.17 ms` mean (`p95 9.43 -> 8.85`, frames > 8.33 ms `76.6% -> 39.6%`),
+`plaza-hall` windowed dropped `7.97 -> 7.47 ms` (`p95 8.82 -> 8.32`, `86.2 -> 90.6 FPS`),
+and `plaza` windowed dropped `8.90 -> 8.36 ms` (`84.9 -> 86.6 FPS`). Ten targeted
+replays and 35 rendering unit tests passed. Multi-pair interleaved A/B, live
+interactive pacing, and Windows runtime are **not tested**. See `docs/performance.md`.
+
+## O1/O20 camera-only blur candidate (2026-11-26)
+
+Explicitly empty object coverage skips three reduction passes during
+camera motion. Two paired Metal captures matched every RGB channel.
+The Retina swing guard still fails and the overall performance gain
+is unverified. Candidate Metal pass timings and interactive pacing are
+**not tested**. See docs/performance.md for the measured scope.
+
+## Performance backlog memory measurements (2026-11-26)
+
+O23 is done. Three packaged macOS Metal crowd replays reached 120 seconds
+of gameplay with zero host swapouts and no swap growth. O10 has a sampled
+RSS and final asset-count baseline for fresh station loads, campaign
+changelevels and the crowd. Attribution of the 3.89–4.10 GB changelevel
+peaks remains open. See docs/performance.md for pack and sampling details.
+
+## Performance branch integration (2026-11-26)
+
+Integrated upstream main `8a2230ca` with `3ad2588e`. The merged motor uses route detours when local steering cannot pass an actor. The packaged macOS suite passed 111/111 before and after integration. Three replay expectation differences and their resolutions are recorded in MODLOG. Workspace validation and Windows-target Clippy passed. Windows runtime and the Station 01 bench arrival time on this build are **not tested**.
+
+## Shared Console and authored captions (2026-11-26)
+
+`hl2-debug` submits RCON `say` and `agent_status` as Console speech through the
+shared caption frame and Source formatter. The label is white and the body
+uses the console chat cyan. These cues bypass the caption setting. Packaged
+macOS captures verified shared rendering on Station 02 with captions on and
+only Console cues with captions off. Windows runtime is **not tested**.
+
+## Explicit network RCON (2026-11-26)
+
+The skill and default startup remain loopback-only. Manual network startup
+requires an explicit interface, an allowed source IP and a private password
+file. Packaged macOS tests accepted the allowed peer with the file credential,
+rejected the wrong credential and another peer, and kept the network secret
+out of the console, logs and skill metadata. Local activation and startup RCON
+also passed. Public Internet, Windows and Linux runtime are **not tested**.
+
+## Initial RCON loopback hardening (2026-11-26)
+
+The initial change refused every non-loopback RCON bind. The explicit network
+mode above now permits a single opt-in network peer. The skill client refuses non-loopback destinations before
+opening a socket, and supervised launches apply their own endpoint and
+credentials after optional startup arguments. Packaged macOS checks observed
+no TCP listener for either wildcard request. After automatic activation,
+socket inspection confirmed the bootstrap and RCON ports on `127.0.0.1`.
+Startup and automatic local RCON passed. Windows and Linux runtime are
+**not tested**.
+
+## Automatic hl2-session attachment (2026-11-26)
+
+The skill now runs `session.py attach --enable` for an open game. It reuses
+authenticated RCON when available and requests the local `agent_rcon`
+activation when needed. The packaged macOS Metal check verified activation
+without launch RCON flags, a closed console, the selected PID and map,
+invalid-token rejection, reuse and normal credential cleanup. Manual
+activation and startup RCON passed separately. Windows and Linux runtime
+attachment and windowed focus behavior are **not tested**.
+
+## Attach hl2-session to an open game (2026-11-25)
+
+`session.py attach` confirms the selected game's IPv4 loopback listener and
+authenticates before handing its session directory to the watcher. In a game
+launched without RCON, the local `agent_rcon` command enables it through the
+debug plugin. Packaged Station 02 on macOS Metal verified attachment after
+load, chat in both directions, an unchanged PID and map, repeat activation
+while watching, and credential cleanup on normal exit. The earlier startup
+RCON and subtitle flow also passed. Windows runtime and live retail are
+**not tested**.
+
+## RCON gameplay subtitles (2026-11-25)
+
+With `debug-tools` selected, authenticated RCON `say` messages appear in a
+temporary panel in the gameplay subtitle area. Packaged macOS Metal captures
+verified rendering on Station 02 with the console closed and game captions
+on and off. Local `say` and pinned agent status did not enter the subtitle
+panel. Windows runtime and ordinary play are **not tested**.
+
+## Runtime collider registration (2026-11-25)
+
+O45 closed after 42 packaged Station 02 runs on M1 Pro / Metal. The sum of
+runtime installs at 100 props fell from 30.09 to 10.71 ms for the mixed
+population and from 24.51 to 4.70 ms for batteries. All matched pairs
+agreed on wake, contact, rest and native shape counts. See docs/performance.md.
+All 909 simulation tests and six targeted packaged replays passed.
+Windows runtime and displayed FPS are **not tested**.
+
+## Whole-run CPU stage profiles (2026-11-25)
+
+O11 closed after three alternating pairs of packaged 6,200-frame runs.
+The profiler now reports all 6,049 post-warm-up frame samples in the fixture.
+Long stage reports flag percentile bounds and retain exact late hitches.
+The debugger shows a growing frame count past the former cap.
+All profiler, overlay, analyzer and targeted packaged checks passed.
+Windows runtime and isolated recorder overhead are **not tested**.
+
+## Source-style NPC decision locality (2026-11-25)
+
+Quiet Combine, rebels, zombies and headcrabs use a distance and visibility
+dependent decision cadence. Authored sleepers support PVS, threat, radius and
+`Wake` input transitions. Story actors, active combat and map goals keep their
+usual cadence. The packaged Station 02 control and three workloads completed
+24 paired captures. All three quiet crowds increased their decision rate on
+approach. From the room, quiet crowds cut the AI stage from 0.690 to 0.330
+ms/tick and CPU frame time from 5.077 to 4.967 ms. The active combat room
+increased from 9.331 to 9.758 ms with more shots fired. O47 stays open for
+equivalent-work combat comparison. See docs/performance.md. The 15 targeted
+packaged replays, 907 simulation tests and Windows cross-target lint passed.
+Live retail parity and Windows runtime are **not tested**.
+
+## Station 02 workload locality (2026-11-25)
+
+The `hl2-debug` console can spawn a supported entity at explicit coordinates
+with `spawn_at <class> pos <x> <y> <z>`. The O47 packaged replay sweep verified
+all three test populations and both ordered passes of the six map stops. While
+the player was in the room before the trash-can test, all 80 NPCs thought in
+both NPC scenarios. Against the 4.918 ms CPU frame control, the room window
+measured 5.726 ms with crowds, 9.350 ms with fights and 5.360 ms with supplies.
+Three of 84 supply bodies stayed awake. See docs/performance.md for approach
+measurements, CPU stage costs and the rejected combat setup. O47 remains open.
+Run `python3 scripts/checks/sector_locality.py --out artifacts/sector-locality/run`.
+Live retail command execution and Windows runtime are **not tested**.
+
+## Supply pickup physics and plaza prop scaling (2026-11-25)
+
+Loose supplies and world weapons use owned model solids in the weapon collision group.
+They fall, collide with the world and props, and disable their body on collection.
+`ent_create` creates supported pickups through the asynchronous model loader. Bugbait
+retains its authored placement. The fixed-start constraint limits and native trigger
+obstruction behavior are not reproduced by this change.
+
+O44 passed all 21 packaged M1 Pro / Metal runs at 1080p. The 0-spawn physics stage was
+0.120 ms/tick, compared with 0.248 at 100 batteries and 0.291 at 100 mixed props.
+Use `python3 scripts/checks/prop_scaling.py --out artifacts/prop-scaling/run` for the
+sweep. O45 covers spawn and awake-body scaling. O46 covers resting render and shadow
+costs. See docs/performance.md. Native runtime comparison and Windows runtime are
+**not tested**.
+
+## Shadow quality crossfade on the performance branch (2026-11-25)
+
+Medium and High projected shadows blend silhouette and blob for 800 ms when the visible
+ranking changes. A 48-AR2 packaged walk on Apple M1 Pro / Metal exercised 167 transitions
+per run. At 720p, the change from 200 to 800 ms added 0.010 ms to the shadow stage, while
+median whole-frame time was 4.368 → 4.373 ms. Retina runs and the held plaza control are
+recorded in docs/performance.md. Ordinary interactive play and Windows runtime are
+**not tested** for the longer fade.
+
+## O32 crowd scaling, O12 capture baselines and O24 weapon-blur validation (2026-11-24)
+
+The packaged release at `fa90617c` completed all five 1080p plaza populations on Apple M1
+Pro / Metal. At 100 added manhacks the AI stage averaged 1.624 ms/tick, sight rays accounted
+for 118 of 340 fixed-step stack samples, and the p99 frame-time bound was 14 ms. The
+zero-spawn control measured 0.082 ms/tick and a 6 ms p99 bound. The measurements warrant
+reopening the O18 sight investigation on its mixed-crowd and plaza fixtures. Reproduce
+with `python3 scripts/checks/crowd_scaling.py --out artifacts/o32-stages` followed by a
+separate `--mac-trace` sweep. Both capture entry points already record O12 idle GPU
+utilization. The sandboxed pilot failed before gameplay because Metal was unavailable.
+Windows runtime and live display pacing are **not tested**.
+
+O24's 4x pistol fixture reproduced zero reconstructed pixels. Real-time isolated bursts
+passed all eight weapon/AA cases. A separate cold comparison failed with unequal bloom;
+a 400-tick warm-up equalized bloom and the original comparison passed. Reproduce with
+`NO_BUILD=1 python3 scripts/checks/check_weapon_blur.py`.
+
+## `O42` `LightingIndex`, `32 x 32 x 128` cell cache, and `MeshTag` lighting dedup (2026-11-24)
+- **Shipped:** Implemented bit-exact `LightingIndex` in `modkit-core/src/lighting/{accel.rs,brushes.rs}` (`active_lights` `1,941 -> 51` on `d1_trainstation_02`, conservative `max_dist_sq`, stack `[_; MAX_LOCAL_LIGHTS]`, single-pass brush entry, axial `entry_aabb` + padded brush AABBs) built in `source-assets/src/model_lighting.rs`; added `StaticLightCache` in `hl2-bevy/src/rendering/lighting.rs` caching map-scoped `32 x 32 x 128` `cache_cell` centers (`4,096` cap, retail trace occlusion fallback), preserving static post-boost `LightState` across `elights`, caching `ModelIllumination` on `ModelLit`, skipping non-reflective `envmap` work, and deduplicating shared `MeshTag` sibling draws; added `O43` in `docs/optimization-backlog.md` to re-audit completed items using isolated hooks.
+- **Verified (macOS Apple M1 Pro / Metal):** `owned_station02_indexed_lighting_matches_unindexed_and_benchmarks` verified `200/200` bit-exact `state_at` equality (`20.90 -> 15.13 us/call`, `1.38x`); `hl2-bevy` (`10`), `modkit-core` (`15`), `source-assets` (`5` + `2` owned) tests, `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, and `7/7` targeted lighting/effect replays (`33 s`) passed. Alternating 3-pair release A/B (`fa4db9f9` vs `f8f85a8d`): `mixed-crowd.json` maxed Retina `model lighting` **`0.419 -> 0.082 ms` (`-80.49%`**, `p95 0.851 -> 0.163 ms`); `mixed-crowd.json` `320x240` Potato `model lighting` **`1.000 -> 0.086 ms` (`-91.38%`**, `p95 2.526 -> 0.327 ms`), `PostUpdate` **`3.937 -> 3.175 ms` (`-19.35%`)**, `frame_total` **`7.668 -> 6.757 ms` (`-11.88%`)**; `animated-fire.json` maxed `model lighting` **`0.054 -> 0.018 ms` (`-66.45%`)**; `quiet.json` maxed flat (`0.007 -> 0.007 ms`). Windows runtime/linking **not tested** here.
+
+## Subsystem isolation hooks, fine-grained `--profile` scopes, and standalone physics benchmark (2026-11-24)
+- **Shipped:** Added `Isolation` resource and CLI toggles (`crates/hl2-bevy/src/isolation.rs`, wired in `{lib,options,startup,launch}.rs`: `--no-physics-step`, `--no-animation`, `--no-flexes`, `--no-eyes`, `--no-model-lighting`, `--no-lightstyles`, `--no-hud`, `--no-audio`, `--no-effects`, `--force-lod <n>`); added `Performance::record_ms`, sub-simulation scopes (`sim_scene`, `sim_hitboxes`, `sim_ai`, `sim_physics`), `face_flex` scope/gate, `effects` scope in `effects::present`, `force_lod` override + unit test (`rendering/lod/tests.rs`), and helper extractions (`gameplay/tick_stages.rs`, `effects/marks.rs`) clearing 4 `architecture-baseline.json` entries (`gameplay.rs` `1374` lines; `effects.rs::present` `[147]`, `gameplay.rs::tick` `[692]`, `simulation.rs::step` `[167]`); added `#[ignore]` standalone `benchmark_station02_physics_step` (`crates/hl2-simulation/src/physics/tests/bench.rs`).
+- **Verified (macOS Apple M1 Pro / Metal):** `scripts/checks/validate.sh` (`hl2-simulation` `899`, `hl2-bevy` `270`, all 4 plugins, strict Clippy, `rustfmt`, repo isolation check) and `scripts/checks/check_windows.sh` passed; `benchmark_station02_physics_step` (`65` dynamic bodies, `n=300`) measured `0.103 ms` mean (`0.026 ms` median) resting and `0.387 ms` mean (`0.149 ms` median) active; packaged `bin/hl2-bevy` isolation captures (`320x240` Potato, 65 NPCs) confirmed each toggle zeroes/skips its target stage (`frame_total=7.780 ms` baseline -> `5.310 ms` `--no-animation`, `6.678 ms` `--no-effects`, `6.874 ms` `--no-model-lighting`, `7.387 ms` `--no-flexes`, `7.583 ms` `--no-hud`, `7.608 ms` `--no-eyes`, `7.680 ms` `--no-audio`, `sim_physics=0.000` `--no-physics-step`); `7/7` targeted packaged replays passed (`19 s`). Windows runtime/linking and live `--force-lod` per-frame triangle counter **not tested** here.
+
+## O39 GPU storage-buffer quads and pooled shadow vertex batches (2026-11-24)
+- **Shipped:** Moved dynamic sprite/beam `QuadLayer` runs (`effects/quads/gpu.rs`, `effects/quads{.rs,/batch.rs}`, `effects{.rs,/initial.rs,/material.rs}`, `shaders/{effects,effects_depth}.wgsl`) onto a startup-allocated `QUAD_ROWS` `ShaderBuffer` (`4,096 x 6` rows) with immutable `[1..=512]` `RENDER_WORLD` bucket templates, `NoAutoAabb`, `MeshTag` slice indexing (`(start << 16) | count`), and `MeshTag(0)` `cpu_mesh` overflow fallback/cleanup; moved visible `ShadowDraw` decals (`shadows{.rs,/caster.rs,/draw.rs,/material.rs,/texture.rs}`, `shaders/shadow.wgsl`) onto two pooled draws (`atlas` + `blob`) backed by `SHADOW_VERTS` (`8,192 x 6` rows) and `[64..=8192]` bucket templates with `NoAutoAabb`, dirty-gated `ShadowBatches::sync`, and CPU fallback (`effects.rs::present` baseline tightened `[156] -> [147]`).
+- **Verified (macOS Apple M1 Pro / Metal):** `cargo test -p hl2-bevy --locked` (`265 passed; 0 failed; 26 ignored`), `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, `10/10` targeted effect/shadow replays (`22 s`), and `109/109` shared packaged replays (`211 s`) passed on restored everyday build `0560458f`. Against `20136538`, 3-pair alternating `--profile` A/B cut `mixed-crowd.json` `render_assets` **`1.466 -> 0.539 ms` (`-63.25%`**, `p95 2.583 -> 0.849 ms`), `animated-fire.json` `frame_total` **`14.144 -> 13.487 ms` (`-4.64%`)**, `quiet.json` `frame_total` **`7.161 -> 6.957 ms` (`-2.86%`)**, and held `shadow-plaza.json` flat (`7.238 -> 7.206 ms`); `--mode trace` A/B (`e3032d13` vs `79573cd7`) cut `mixed-crowd.json` `allocate_and_free_meshes` **`1.454 -> 0.310 ms/f` (`-78.71%`**, total `1261.72 -> 285.39 ms`) and `animated-fire.json` `0.282 -> 0.239 ms/f` (`-15.07%`); visual captures matched (`particles-smoke` `0.0765%`, `shadow-plaza` `0.0068%`). Windows runtime/linking **not tested** here.
+
+## O16 split static/dynamic broad-phase and physics tick overhead (2026-11-24)
+- **Shipped:** Implemented `SplitBroadPhase` (`crates/hl2-simulation/src/physics/broad_phase.rs`, wired into `RecordingBroadPhase` in `physics/queries.rs`) partitioning fixed static world colliders into a lazy `Qbvh` while tracking moving colliders and sorted active pairs (`AddPair`/`DeletePair` parity, seamless `Static -> Moving` door promotion); extracted `clip_shadow_sweep_velocity` and stationary `sync_player_shadow_body` rest guard into `physics/shadow_push.rs` (`physics.rs` `3148 -> 3106` lines, `update_player_shadow` `238 -> 195` lines); replaced per-tick hitbox model string clones with `Physics::pose_studio_hitboxes` (`physics/hitboxes.rs`, `gameplay.rs`).
+- **Verified (macOS Apple M1 Pro / Metal):** `cargo test -p hl2-simulation --locked` (`899 passed; 0 failed; 40 ignored`), `scripts/checks/validate.sh`, `scripts/checks/check_windows.sh`, `15/15` physics replays, and `109/109` shared packaged replays (`206 s`) all passed. On `mixed-crowd.json`, macOS `sample` (`12s @ 1ms`) cut `PhysicsPipeline::step` share of `simulation::fixed_step` **`25.60% -> 8.82%`** (`broad_phase` **`13.70% -> 1.08%`**); 3-pair alternating `--profile` A/B cut `fixed_simulation` **`5.199 -> 4.347 ms` (`-16.39%`)** on `mixed-crowd.json` and **`1.927 -> 1.088 ms` (`-43.55%`)** on `quiet.json`. Windows runtime/linking **not tested** here.
+
+## Selective NPC pool, full on-demand late-precaching, and async F4 weapons (2026-11-24)
+- **Shipped:** Replaced unconditional `append_pool`/`append_gib_pool` on gameplay maps with `hl2_simulation::ai::spawn::append_required_pool` (loading only map-referenced zombie/crab/raggib dependencies plus `--movement-script` classes pre-scanned by `script::requested_npc_classes`), gated NPC class audio tables on entities present in the map (`audio::late::class_sound_cues`), guarded `start_weapon_idles` and `spawn_combine_cameras` against `POOL_KEY` startup RNG pollution, extended `RuntimeNpcs` (`crates/hl2-bevy/src/runtime_npcs.rs`) to late-precache dependent templates/gibs, 3 citizen head variants, and missing audio waves via `AudioReuse`, added lightweight `source_assets::animation::activity_names`, and moved F4 usable-weapon resolution off-thread in `plugins/hl2-debug` with `"Loading <class>..."` footer status.
+- **Verified (macOS Apple M1 Pro / Metal):** `d1_trainstation_02` startup/load wall time `2.98 -> 1.79 s` (`-40.0%`), `request_to_installed_ms` `953.8 -> 601.1 ms` (`-37.0%`), `install_draws` `150.9 -> 48.5 ms` (`-67.9%`), `unique_base_textures` `440 -> 338`, `decoded_base_bytes` `80.27 -> 53.97 MB`, `audio.preloaded_waves` `966 -> 775`; steady-state `--uncapped --profile` A/B improved (`quiet.json` `frame_total` `6.831 -> 6.630 ms`, `animation` `0.569 -> 0.280 ms`; `mixed-crowd.json` `frame_total` `13.674 -> 13.195 ms`, `late=0`); async `+npc_create npc_citizen`/`npc_vortigaunt`/`npc_zombie` spawned cleanly (`272.1`/`295.5`/`320.5 ms`, `pose_or_visibility_mismatches: 0`); `scripts/checks/replays.py` passed `109/109` (`210 s`) after rebuilding with the startup RNG guard and updating the 5 reviewed `.io`-counter snapshots (`studio-decal-bugbait-cop`, `pallet-tips-off-npc-hull`, `pallet-on-npc-hull`, `studio-decal-cop`, `luggage-shove`). Windows runtime/linking **not tested** here.
+
+## Build, startup, and map-load optimization pass (2026-11-24)
+- **Track 1 (build & binary size, `38b7b8e9` & `550b9e73`):** Pruned unused Bevy 0.19.1 features (`hl2-app` crates `570 -> 529`, `bin/hl2-bevy` `147 -> 123 MiB`, 1-file release rebuild `44.45s -> 42.02s`), added `[profile.dev]` `lto = "off"` + `[profile.dev.build-override]` (`opt-level = 2`, `debug = false`), extended `scripts/checks/clean_target.py` to `release/incremental` + `dist`, and added APFS `cp -c` CoW copy fallback in `scripts/build-bevy.sh`. `[profile.release] incremental = true` was tested and **rejected** (`-2.2s` rebuild vs `+16%..+20%` steady-state `fixed_simulation` regression).
+- **Track 2 (startup, I/O, parallel decode, GPU upload & mesh/morph install):** Cached `Vpk` archive handles + positional reads, added `Vfs::read_prefix` and lazy `material_index`, fast lump-0 `read_changelevel_targets` + single-pass `Bsp::world`, native BC1/BC2/BC3 GPU VTF passthrough (`TextureCapsPlugin` + `decode_gpu_picmip`), deduplicated `.mdl` metadata reads, single-pass audio `decode_pcm` + stereo-once distance mixes + scaled wave workers, lightweight `startup::load_stub` + `PreloadedShaders`, background `installed_maps`, parallel VTF decoding (`assets/loading_materials.rs`), off-thread `Physics::new(&world)`, zero-copy `Arc::try_unwrap` texture upload, flat sorted morph lookups (`morph.rs`), and parallel root/LOD mesh+morph construction (`rendering/mesh_build.rs`). `hl2_simulation::ai::spawn::append_pool` (47 NPC classes) was kept eager pending owner decision on on-demand `RuntimeNpcs` loading.
+- **Verified (macOS Apple M1 Pro / Metal):** `d1_trainstation_02` `request_to_installed_ms` `2,252.8 -> 958.3 ms` (`-57.5%`), main-thread `install_draws` `667.1 -> 144.7–151.0 ms` (`4.5x` faster), `decoded_base_bytes` `413.6 -> 76.6 MiB` (`-81.5%`), menu startup `1.51–1.78s -> 1.04–1.27s`; matched-config steady-state A/B improved (`quiet.json` `frame_total` `4.694 -> 4.432 ms`, `mixed-crowd.json` `12.725 -> 11.916 ms`); native-resolution captures visually match baseline; `scripts/checks/replays.py` passed `109/109` (`0` failed, `457 s`); `scripts/checks/validate.sh` and `scripts/checks/check_windows.sh` passed. Windows runtime/linking **not tested** here.
+
+## Viewmodel motion blur shared-skeleton coverage (2026-11-23)
+- Fixed `plugins/hl2-advanced-options/src/bevy/weapon_blur/region.rs` so `mesh_world_displacement` reads `state.prev_joints` without mid-frame overwrite (flushing `pending_joints` once at the end of `collect()`), transforms animated `Aabb` corners via `prev_joint * curr_joint.inverse() * curr_tf`, and refreshes pose history on `camera.is_active && blur.max == 0.` warmup frames (`camera_region` extracted).
+- Verified `cargo test --locked -p hl2-advanced-options --features bevy region` (`7/7`), packaged rebuild, `motion_blur_options` + `viewmodel_motion_blur` replays (`2/2`), Ultra blur captures (`weapon_crowbar` `misscenter1`, `weapon_bugbait` `throw`/`squeeze`, `weapon_smg1` `fire01`), and `check_blur_performance.py` (`still` `10.90 ms`, `swing` `11.06 ms` on Metal `3456x2168` 4x MSAA). Windows runtime, live interactive play, and `turn`/`door` blur benchmark scenes **not tested** here.
+
+## NPC eyeball gaze clamping and smoothing (2026-11-23)
+
+Fixed abrupt single-frame NPC eye gaze snapping and extreme corner deflection: `crates/source-assets/src/eyes.rs` now decodes `studiohdr2_t::flMaxEyeDeflection` (default `0.866`, cos 30 deg) and provides `clamp_view_target`, while `crates/hl2-bevy/src/eyes.rs` clamps and smoothly slews the rendered gaze once per visible actor per frame (`GAZE_TAU = 0.045`, freezing on pause, snapping on first sight, zero per-frame allocations) and shrinks `eyes::present` (`229 -> 119` baseline lines). Verified with 8 unit tests, the owned actor MDL test (`barney`, `kleiner`, `male_07`, `gman_high`, `police`), 10/10 face/gesture/monitor/attention replays, workspace validation, and Windows-target Clippy on macOS; interactive queue-citizen playthrough and Windows runtime are **not tested**.
+
+## Gravity-gun launch beam across `changelevel` fixed (2026-11-23)
+
+Resolved the stuck orange gravity-gun launch beam across level transitions (`d1_canals_03` -> `d1_canals_02` and reverse): `Inventory::rebase_clock` (moved into `crates/hl2-simulation/src/gameplay/rebase.rs`) now clears `physcannon.last_launch`, held/launched/world-local weapon handles, and transient effect queues while rebasing active weapon/ramp timers, and `crates/hl2-bevy/src/effects.rs` gates launch beam and spark emission on `(0.0..0.1).contains(&(time - at))`. Verified with 7 unit tests, 4/4 replays (`campaign`, `entities-weapons`, `physcannon`, `physcannon-props`), packaged `d1_canals_03 -> d1_canals_02` punt capture/report (`viewmodel_sprite_draws: 8`), workspace validation, and Windows-target Clippy on macOS; Windows runtime is **not tested**.
+
+## Live map entity inspection (2026-11-23)
+
+The debug plugin exposes `map_dump`, `map_dump page <first_id>`, and `map_dump near <x> <y> <z> <radius>`. Packaged `bin/hl2-bevy` (`profile=release`, `plugins=advanced-options,debug-tools`) on `d1_trainstation_02` verified `map_dump` (`total: 1297`, `next_id: 12`, null origins for `worldspawn`; `total: 1368` after spawning NPCs) and `map_dump near` (`matches: 20` around `-2483 -2326 60 400`, `matches: 284` around `-2040 -2200 60 1200`, sorted by distance); Windows runtime is **not tested**. For the canals beam investigation, four close gameplay captures triangulate the visible beam tip near (157, -1281, -736), with a three-unit difference in depth between stereo pairs. The closest authored entity origin is a soundscape about 119 units away. Switching away and re-equipping cleared the beam during play. Deploy resets the stored launch. Its original endpoint and timestamp were unavailable in the running build. Shortest player reproduction: load d1_canals_03, press F3, equip the gravity gun, punt a nearby prop such as the wooden plank, and walk through the tunnel into d1_canals_02 without holstering. The reverse transition after punting the barrel in d1_canals_02 also reproduces it for the player.
+
+## Live console watcher (2026-11-23)
+
+The first player message reached the one-shot watcher but was left unanswered after the assistant ended its turn. The session skill now starts the watcher before greeting and keeps polling throughout a live session. All 18 session tests passed on macOS, and a live packaged interactive handshake verified `watch.py --once` emits `WATCH_READY`, delivers consecutive `Player:` messages immediately across turns, and exits with `AGENT_SESSION_EXIT 0` on clean exit. Windows runtime is **not tested**.
+
+## O30 GPU facial flexes complete (2026-11-23, `337b8260`)
+
+The revised release (`db6ecd38`) passed all nine packaged face, gesture and monitor checks on Apple M1 Pro / Metal. Against O41, median release frame time fell from 11.203 to 10.037 ms in the mixed crowd and from 3.733 to 3.582 ms in the security face replay. Both revised traces recorded active morph weights and zero flex mesh uploads. The Breen comparison matched host tick 1704 and render frame 1339 in the first pair. All four previously blocked loopback checks passed outside the sandbox. Raw pairs, allocator spans and visual controls are in docs/performance.md. Windows runtime and ordinary campaign play are **not tested**.
+
+## Optimization backlog pass (2026-11-22, `804adadb`..`382fd37e`)
+
+Five measured changes on `orbitalman/performance_research` and one rejected item, each change with stages A/B (three alternating headless runs per side), frame-matched or visual captures, `scripts/checks/validate.sh`, Windows-target Clippy and the packaged replay suite (`109` checks; one run had a single load-only `pallet-launched-into-wall` outcome failure that passes alone): O28 PVS bitset rows and per-draw cluster lists (`source_pvs` -12%, identical culling), O13/O8 HUD canvas atlas (432 -> 4 HUD meshes, `render_assets` halved at the spawn), particles drawn per effect and material (crowd `frame_total` 19.65 -> 17.77 ms), O14 step 1 per-frame material values in a shared buffer (crowd 17.34 -> 16.72 ms; spawn `render_assets` 0.56 -> 0.19), O30 CPU side dense facial flex deltas (crowd 16.89 -> 15.91 ms, `animation` 3.47 -> 2.11). O26 rejected with evidence (the post-process nodes work on one camera only). Numbers in docs/performance.md and docs/optimization-backlog.md.
+
+O6 per-tick pose memo: approved by the owner and done (partial skeletons only; crowd `fixed_simulation` p95 8.30 -> 7.21 ms). O14 step 2 lighting slots: done after a headless Metal A/B showed no GPU cost above the scene noise. Headless runs at maxed settings are GPU-bound at about 8.6 ms on the spawn, so CPU cuts there show as render-thread wait; live windowed play of these changes is **not tested**.
+
+Next: the remaining crowd mesh churn (88 effect runs, 22 eye and 11 head meshes from flexes, 20 shadow decals per frame: GPU morph targets for O30), `camera_driver` encoding (O4), and GPU passes (O1/O2) with a live capture.
+
+## Upstream merge through `aa6f1aa6` (2026-11-21)
+
+Merged `upstream/main` (`aa6f1aa6`, 5 session 69 commits since `f4882b19`: `SetLightingOrigin`/`SetLightingOriginHack` inputs and re-resolution on input, `DecalModulate` mod2x decals, pusher overlap `IntersectsPushers`, `CPathfindNearestNodeFilter` and `GET_CLOSE` route ends, scene `Loop` control events, `ignite_input` extracted from `io.rs::deliver`, updated `luggage-shove` fixture/check, and session 69 docs) into `orbitalman/performance_research` (`c04b3c41`). Conflict and auto-merge resolutions removed duplicate `MaterialData::modulate` and trailing `source.wgsl` `DecalModulate` code, reset `ModelLit::last` alongside `origins` when `lighting_origin_changes` advances (`lighting.rs`), kept `MODULATE_OUTPUT` (`material.rs`), adopted upstream's `check_luggage_shove` (`replays.py`), combined `architecture-baseline.json` (`choreography.rs` `1221`, `tick_choreography` `366`, `io.rs::deliver` `150` alongside our tightened counts), and preserved both parents' `MODLOG.md` and `STATUS.md` histories.
+
+Pre-merge shared replays (`NO_BUILD=1`) passed `109/109` in `454 s`. Post-merge replays initially passed `108/109` in `412 s`, with `luggage-shove` failing deterministically on `finish.ray` (`expected 576, got None`) because `npc/steer.rs` steers `luggage_citizen` (`576`) past the blocking `luggage_cop` (`577`) — finishing `367.1` units closer toward `luggage_guy_lean` and out of the player's crosshair while all other counters match upstream identically; after recording `test-inputs/expected/bevy-luggage-shove.json` (`JOBS=1`, verified in `5 s`), full `NO_BUILD=1` post-merge replays passed `109/109` (`0 failed`, `392 s`). Targeted unit tests (`lighting_origins::` `3`, `a_node_without_links_for_the_hull_is_not_a_route_end` `1`, `entities::tests::scenes::` `11`, `physics::tests::` `49`, `hl2-bevy` `3`), `scripts/checks/validate.sh` (architecture ok, 86 Python tests `OK`, all 4 plugin builds, workspace Cargo tests, strict Clippy, `cargo fmt`), and `scripts/checks/check_windows.sh` passed. Windows runtime and ordinary playthrough are **not tested**.
+
+## Upstream merge through `f4882b19` (2026-11-21)
+
+Merged `upstream/main` (`f4882b19`, 12 session 68 commits since `c51c6d36`: train car seat `DETAIL|PLAYERCLIP` collision, `LightingOrigin`/`LightingOriginHack`, entity-attached static `infodecal`s, `m_iszNextScript` hand-over, `ai_goal_actbusy_queue`, and `ForceNPCToActBusy` `teleport`) into `orbitalman/performance_research` (`c44734a5`). Conflict resolutions kept this branch's `LightingContext`/`present_draw_lighting`/`next_cubemap`/`< 16.` lighting cache throttle and zero-spurious-`AssetEvent::Modified` guard alongside `LightingOrigin`/`rebase`, kept both `set_relationship` and `actbusy_queue`/`teleport_to_hint`, kept both `next_script` and `root_motion` entity test modules, kept `hitboxes`/`queries`/`BrushSet`/`is_trace_only` alongside `physics/diagnostics.rs` and `trace_entity_player_clips`, and tightened `physics.rs` (`3189 -> 3148`) in `architecture-baseline.json`.
+
+Pre-merge shared replays (`NO_BUILD=1`) passed `107/109` in `399 s` (`barrier-hum` and `monitors-breen-screen` matched `upstream/main` following `5fdf7cff`'s NPC steering fix). Post-merge replays initially passed `107/109` in `403 s` (`monitors-breen-screen` matched `0 differences`; `barrier-hum` and `soundscapes` matched deterministically under `JOBS=1`, `21 s`, with `soundscapes` `interrogation`/`hall-enter` shifted `-1/-1` from `9bb3ea8f`'s `actbusy_food_queue` routing); after updating `bevy-barrier-hum.json` and `bevy-soundscapes.json` under `JOBS=1` (`15 s`), full post-merge `NO_BUILD=1` replays passed `109/109` (`0 failed`, `420 s`). Workspace validation (`scripts/checks/validate.sh`), Windows cross-target Clippy (`scripts/checks/check_windows.sh`), and the 8 targeted unit tests passed. Windows runtime and ordinary playthrough are **not tested**.
+
+## Console chat (2026-11-20)
+
+The macOS package records one speaker-labelled line per chat message from the player or RCON. Verified in a scripted player submission and a live remote console session. A debug session can show a temporary reply status below the console history. The next remote chat clears it.
+
+## Eye iris projection on the GPU (2026-11-20): done after a first rejected attempt
+
+Resolved the same day: the misplaced irises came from the rows buffer growing (a new GPU buffer the
+materials never saw), not the mapping; the buffer now has a fixed size (MODLOG). The first attempt:
+
+
+Goal: stop re-uploading about 30 eye meshes a frame in the mixed crowd (the CPU rewrites every
+eye vertex's iris coordinates). Tried: each eye mesh's second UV holds a fixed slot; one storage
+buffer (a fixed handle every source material binds at 20) holds two world-space projection rows
+per slot, uploaded once a frame; the fragment shader projects `world_position` through them. The
+rows came from the model-space rows mapped through the actor's placement (origin + rotation x
+point x scale, in Bevy axes). Host tests and a unit test of that mapping passed, and the replays
+passed, but a frame-matched close-up of a spawned citizen on station02's plaza showed the irises
+pushed toward the outer corners (correct before the change). Attempt 2 took the pose placement
+uses (`physics.entity_pose`, else the entity state): the irises moved further out. So the GPU
+draws the eye somewhere the assumed mapping does not describe; not found after two attempts.
+The replays did not catch it: no check frames an eye from the front.
+Next, if resumed: measure where the GPU draws an eye vertex (skeleton root and joint world
+transforms against the CPU skin of the same vertex) before deriving rows; add a front-facing eye
+capture to the checks first.
+
+## Upstream merge through `c51c6d36` (2026-11-20)
+
+Merged `main` (`c51c6d36`, 30 commits from sessions 66–67: per-entity trigger touches, resting-NPC/object trigger filtering, triangulated NPC detours, `SimplifyPath` for ground moves, blended motor speed planning and scripted plant wait) into `orbitalman/performance_research` (`35e4bd17`). The branch retains its static decal triangle index, single-search bullet impact locator, cached NPC candidates for `trigger_hurt` (including hidden live NPCs), authored actbusy bench entry/exit animations, and `npc/steer.rs` obstacle steering.
+
+Four `d1_trainstation_02` shared replays (`soundscapes`, `barrier-hum`, `monitors-breen-screen`, `pallet-gibs-fade`) shifted `io` counts by 1–4 inputs after ~21 s relative to `main`: under the blended motor, `npc/steer.rs` steers citizen `1297` cleanly past `1299` and plaza metrocops `425`/`427` past each other instead of failing `TASK_WAIT_FOR_MOVEMENT`, changing the shared AI RNG roll when citizen `1300` picks its random exit hint (`438` vs `384`). Bypassing `steer::step` matched `main` 4/4, confirming the merge itself introduced no drift; the four expected files were updated under `JOBS=1`. Workspace validation (`scripts/checks/validate.sh`), Windows cross-target Clippy (`scripts/checks/check_windows.sh`), targeted unit/owned simulation tests (`impacts::`, `entities::tests::touch`, `entities::tests::trigger_hurt`), and all 109 shared packaged replays passed (0 failed, 391 s). Windows runtime, ordinary playthrough, and post-merge mixed-crowd frame timings are **not tested**.
+
+## Mixed-crowd bullet decals (2026-11-20)
+
+Station02's 65-NPC fight measured 20.68 → 18.51 ms per frame in three alternating
+release-package pairs after indexing static decal triangles. The index took 20.5 ms
+to build and held 15.16 MiB of live data. Indexed and exhaustive receiver selection,
+clipped positions and UVs, and light samples agreed in the synthetic geometry sweep.
+Owned station02 and door tests, workspace validation, Windows cross-target Clippy, and all
+109 shared packaged replays passed. See docs/performance-research.md for raw pairs,
+map-load costs and reproduction. Windows gameplay is **not tested** for this change.
+
+## Upstream integration and crowd measurements (2026-11-19)
+
+Merge `51646bbc` retains the performance branch's authored bench animations and upstream's general script conditions and hint outputs. The station01 luggage replay matched all five checkpoints. The complete pre-merge and merged batches exposed known variations in pallet break timing and Kleiner gib removal respectively. Both passed isolated reruns.
+
+The merged station02 soundscape replay also exposed a repeatable crowd regression. Citizen 439 kept sidestepping around citizen 387, who occupied the exit destination. Upstream reported the collision, finished the departure at 35.92 s and ordered the replacement to leave at 36.30 s. The corrected packaged trace matches upstream byte-for-byte through tick 2800. The original expectations pass without changes. The full gameplay group then passed 72 of 73 on the fixed package; the Kleiner gib-removal timing variation passed alone. Three alternating 30-citizen pairs measured no cost from the fix (median 18.83 → 18.48 ms; control 6.72 → 6.73 ms). Use `NO_BUILD=1 ONLY=soundscapes python3 scripts/checks/replays.py` to replay the exit. Workspace validation, including strict Clippy, and Windows cross-target Clippy passed. The 30-NPC CPU/GPU measurements and frozen captures are described in docs/performance-research.md.
+
+## F4 NPC roster and frame accounting (2026-11-18)
+
+The packaged station02 plaza created all 47 presets through both the F4 overlay and
+`npc_create_aimed`. Each path created 42 on the first pass and the other five at clear
+positions. An unlisted NPC class was rejected. Per-class AI fidelity was not tested.
+The frame profiler now publishes complete frames together so schedule means sum to
+the whole-frame mean across the same samples. Workspace validation and Windows
+cross-target Clippy passed locally.
+
+## Station01 luggage encounter and plaza crowds (2026-11-18)
+
+The approach before customs now activates the luggage scene. A post-intro packaged run
+showed the Metrocop and citizen perform the shove and leave the cart. The new replay
+checks the citizen's arrival at the authored step-away point and both suitcase pushes.
+The original merge package reproduced the stall.
+
+All 108 packaged checks passed across the suite and one isolated flashlight rerun.
+The [30-NPC measurements](docs/performance-research.md#station-plaza-ground-crowd)
+include the ground workload's remaining failed routes and the limits of the timing results.
+
+## Performance branch integration with main (2026-11-17)
+
+Main `b82e2f8e` and performance tip `bee44bd5` passed merged workspace validation and Windows
+cross-target Clippy on macOS. Both the pre-merge and merged packages passed all 107 shared
+replays with unchanged expectations. The station02 timing comparison and matched canal view
+are recorded in MODLOG. Windows runtime and a full campaign playthrough were **not tested**.
+
+## NPCs steer around each other; the canal's dark wedge located (2026-11-15)
+
+- **NPC blocking (owner, d1_trainstation_02 plaza):** a ground move blocked by another NPC or the
+  player used to stop the goal and replan the same route every 1.5 s, so two NPCs meeting head-on
+  stood facing each other. Now the step is steered first (DESIGN plan G, SDK OnObstructionPreSteer
+  and the plane solver): the deflection along the obstruction's surface, then turns of 30, 60 and
+  90 degrees, the free side first, the right when head-on. World obstructions are not steered.
+  Unit tests: head-on humans pass and arrive (fails without steering), a wall still blocks.
+  Packaged replays 107 of 107 with steering. Plaza capture at the owner's position **not done**. Not in: the full plane solver
+  (look-ahead before contact), triangulated waypoints, give-way schedules.
+- **Sprites, particles and decals cast no flashlight shadow** (`c4458ca2`): **not seen in a
+  packaged capture** yet.
+- **Canal dark wedge (owner screenshot, d1_canals_01a `--position 600 6029 -32 --yaw 45 --pitch -27`):
+  fixed.** Under the mud displacement lies a flat brush top at z = -96 (a WorldVertexTransition
+  brush side the compiler made LightmappedGeneric); where the terrain dips below it, it shows
+  through, and its baked luxels are black where the compiled terrain covered it. Ours split every
+  displacement cell along one diagonal, so between vertices our terrain dipped below that face
+  where the engine's does not; the engine, vrad and collision alternate the diagonal in a
+  checkerboard (Source SDK `public/builddisp.cpp` GetTriangleIndicesForDispBBox). Now ours does.
+  Owner's retail screenshot (source-recomp build on macOS) shows no wedge; ours at the same view and
+  from above shows none now.
+- **Blended displacement textures (WorldVertexTransition):** done. A displacement vertex carries
+  its dispvert alpha; materials load `$basetexture2` (the map's cubemap patches included); the
+  world shader lerps the two bases by that alpha (SDK `lightmappedgeneric_ps2_3_x.h`), keeping
+  the lightmap, and vertex alpha is no longer used as opacity there. The canal mud bank now shows
+  the straw texture like the owner's retail screenshot. No measurable frame-time change (canal 5.78 against
+  6.01 ms medians of three interleaved pairs with ranges 5.72-6.05 and 5.72-6.03, plaza quiet
+  5.51/5.53, crowd 9.81/9.81). Packaged replays 107 of 107.
+  Not in: `$blendmodulatetexture`, `$bumpmap2`.
+- **Blood decals on grey boxes (owner):** fixed. Map infodecals with the DecalModulate shader
+  (decals/bloodstain_*) were drawn as opaque world surfaces, so their neutral grey showed as a
+  box. They now blend like retail: alpha test, then the frame times twice the texture
+  (SDK `decalmodulate_dx9.cpp`, DST_COLOR/SRC_COLOR), unlit. Capture at the canal view: blood on
+  the wall with no box. Packaged replays 107 of 107.
+
+## GPU shadow silhouettes on the performance branch (2026-11-15)
+
+GPU silhouettes (opt-in then, default since 2026-11-19) moved the median 1080p station02 crowd frame on M1 Pro
+from 9.575 to 8.693 ms across three packaged pairs. Quiet stayed at 5.33 ms. Metal readback
+and two Metrocop captures confirm that the GPU draws the moving silhouettes. Very faint overlapping
+contributions can round away on the GPU; invisible in normal play, so the GPU became the default. With the GPU default, workspace validation and Windows cross-target Clippy passed and the full replay suite passed 107 of 108 on macOS; flashlight_viewmodel failed on 12 pixels in a single-pixel lighting check and passed alone with both paths. That check now judges lighting at the same scale as the lit case (fewer than 50 pixels brighter by 8+ levels).
+The full 107-check packaged suite passed with the experiment enabled. Native validation
+and Windows cross-target Clippy passed. Next precision test and raw timings:
+[performance research](docs/performance-research.md#gpu-shadow-silhouettes-on-station02).
+Windows runtime and matched native measurements are **not tested**.
+
+## Performance: additive sprites batched, silhouette vertices placed once (2026-11-15)
+
+Additive effect sprite quads are drawn as one mesh per material (DESIGN plan F); other quads
+and the viewmodel's keep one draw each. Three interleaved pairs against the merged build,
+M1 Pro / Metal, 1080p, 600 ticks, load average 4.1 to 9.5 recorded per run: 30 manhacks
+10.65 to 9.84 ms, no range overlap; quiet unchanged at 5.42 ms. Shadow silhouettes place each
+vertex once instead of once per triangle corner, bit-identical by unit test: `shadows` stage
+1.56 to 1.46 ms, crowd frame 9.80 to 9.70 ms. On this merge the crowd has gone from 10.65 to
+9.70 ms (94 to 103 FPS). Replays: 106 of 107 with batching (the failure was a report counter
+whose meaning had changed, restored); with both changes and the counter fix the full suite
+passes 107 of 107.
+Validation and the Windows cross-target check pass. A batch is sorted against other translucent
+draws as one object: no replay image changed, but none places a glow against glass. Model
+lighting examined, not changed: no repeated work. Moving it out of the material was measured
+by a discarded experiment and would save about 0.2 ms of a 9.5 ms crowd frame: recommended
+against. Windows runtime and a matched native run are **not tested**.
+Plugin rules read: yes; exceptions: none.
+
+## Performance: physics maintenance measured; upstream merged through 56c2da5e (2026-11-14)
+
+Each physics step was being told of about 2,175 modified colliders a tick, 1,855 of them
+disabled, because `set_entity` and `set_npc_hitboxes` took a mutable collider reference before
+checking for a change. They now take it only for a change and leave a collider that stays
+disabled in place; the query tree is owned by the game (DESIGN plan E). Three interleaved
+pairs on the pre-merge base, M1 Pro / Metal, 1080p, 600 ticks, load average 6.8 to 15.3
+recorded per run: tick 3.34 to 2.48 ms (quiet) and 3.80 to 3.20 ms (30 manhacks), no range
+overlap. Frame time is **not established** as improved at that load (quiet 5.56 to 5.45 ms,
+crowd 10.68 to 10.64 ms, ranges overlapping); timing was not repeated on the merged tree.
+Packaged replays on the merged tree: 106 of 107 pass. The one failure is
+`flashlight_viewmodel`'s off-light image control, which also failed on an earlier merged
+baseline without these changes and passed on the run after it: an unstable check, **not
+investigated**. A first suite run that showed 70 failures is discarded: it had packaged a
+stale pre-merge binary, because a temporary second checkout had shared the build directory.
+Validation and the Windows cross-target check pass on the merged tree. Windows runtime and a
+matched native run are **not tested**. `PostUpdate`'s unscoped time is attributed (2026-11-15):
+several small systems, no repeated work. The render thread is becoming the bound: 115 to 180
+effect sprite meshes are rewritten and uploaded per crowd frame; a discarded experiment puts
+the ceiling at about 1 ms of a 10.8 ms frame. Open, each an owner decision: sprite quads as
+one mesh per material, shadow silhouettes on the GPU. Also open: what the broad phase still
+costs; the paired timing driver's report check rejects the merged tree (one infodecal
+texture error), **not fixed**.
+Plugin rules read: yes; exceptions: none.
+
+## Performance: flex deltas once per actor; silhouettes need a design decision (2026-11-11)
+
+Since the brush set (next section): facial flex vertex deltas are built once per actor per frame
+instead of once per surface, and their map uses a multiplicative key hash; values are
+bit-identical (unit test). Three interleaved pairs against the brush-set build, M1 Pro / Metal,
+1080p, 600 ticks, load average 4.4 to 12.4 recorded per run: `animation` stage 1.46 to 1.02 ms
+(30 manhacks) and 0.72 to 0.55 ms (quiet); crowd frame 11.36 to 11.04 ms, no range overlap;
+quiet frame unchanged (5.87 to 5.86 ms), the renderer being the nearer bound there. From the
+first timed frame the crowd has gone from 13.85 to 11.04 ms (72 to 91 FPS) on the same merge.
+Shadow silhouettes (1.57 ms per crowd frame) already redraw only on change; the rest is the CPU
+rasterizer for casters that do change, and moving it to the GPU is an **owner decision, not
+started**. Replays were **not rerun** for the flex step (107 of 107 on the brush-set build).
+Windows runtime and a matched native run are **not tested**. Rapier maintenance, located and not
+changed: about 1.3 ms per tick is fixed cost (the broad phase sweeps every proxy each step;
+the query tree's rebalance rebuilds its top five levels on every update) and the public query
+pipeline cannot refit without rebalancing. Removing it means owning the query tree and the
+broad phase: **owner decision**, see `docs/performance-research.md`. Other candidate: the
+1.4 ms of `PostUpdate` in no scope. Plugin rules read: yes; exceptions: none.
+
+## Brush candidate rejection: measured, crowd tick 36% cheaper (2026-11-11)
+
+`modkit_core::BrushSet` (static bounds tree from each brush's own axial planes, candidates run
+through the unchanged plane loop in list order) serves the player and NPC world-brush hull
+traces. Six synthetic tests and 18,000 owned-map sweeps match the full scan bit for bit. Three
+interleaved pairs of packages from merge `a49ce84`, 600 ticks, M1 Pro / Metal, 1080p, load
+average 3.6 to 4.4 recorded per run, no range overlap: 30 manhacks tick 6.03 to 3.84 ms and
+frame 13.85 to 11.18 ms (72 to 89 FPS); quiet tick 3.89 to 3.32 ms and frame 6.04 to 5.79 ms.
+Crowd fixed loop per frame 5.65 to 2.94 ms; `PostUpdate` (5.51 ms: shadow silhouettes 1.57,
+entity presentation 1.45) is now half the crowd frame. Candidate replays: 107 of 107 pass; the
+merged baseline's two failures (`flashlight_viewmodel` off-light control, Kleiner gib count)
+did not recur and are treated as unstable checks. Full validation and Windows cross-target
+Clippy pass. Windows runtime and a matched native run are **not tested**. Next, by ceiling:
+silhouettes only on change, facial flexes, Rapier maintenance (DESIGN 14s).
+Plugin rules read: yes; exceptions: none.
+
+## Performance: the whole frame is timed; presentation is as large as the fixed loop (2026-11-11)
+
+`--profile` records `frame_total` and a `main_schedule.<name>` stage per main schedule; they add
+up to the frame, and stage samples now restart after the map's 120 warm-up frames (they used to
+include about 600 menu and loading frames, which halved per-frame stage means and lowered the
+tick). The markers cost nothing measurable (crowd 12.58 against 12.61 ms). M1 Pro / Metal, 1080p,
+600 ticks, four runs per case, load average 4.4 to 7.3 recorded per run. 30 manhacks, 12.35 ms:
+`PostUpdate` 5.17 (shadow silhouettes 1.56, entity presentation 1.50, eyes/lighting/PVS/HUD
+0.72, in no scope 1.39), fixed loop 4.96 (tick 5.91 ms, 0.83 per frame), `PreUpdate` 0.92,
+outside the main schedule 0.97; the render thread's fenced stages sum to 7.1. Quiet, 5.54 ms:
+`PostUpdate` 2.10, fixed loop 1.47, outside 1.35, render stages 3.6. The serial main world
+bounds both. Earlier absolute stage and tick figures below are too low; build-to-build
+directions stand. Next, by ceiling: brush-trace candidate rejection (about 2.1 ms), silhouettes
+only on change (1.56), flexes (within 1.50), Rapier maintenance (about 1.3, DESIGN 14s).
+`PostUpdate` 1.39 ms and `PreUpdate` 0.92 ms are **not measured** per system. Windows, a matched
+native run and replays after the merge are **not tested**. Plugin rules read: yes; exceptions: none.
+
+## Performance: why cycle one gained nothing, and the next targets (2026-11-11)
+
+Second-pass diagnosis, no runtime change: `docs/performance-research.md`, first section.
+The two implemented helpers owned at most about 0.05 ms of a 13.4 ms crowd frame (12 of 3,454
+busy stack observations); they were picked from a survey, not from a frame budget, and the
+paired test's 1 to 3% spread could not resolve them. The frame is bound by the serial main
+world, not the renderer or GPU. The fixed step is amplified by frame time (`T = N / (1 - S/15)`):
+on the retained Windows crowd profile 1 ms off a tick returns about 2.8 ms of frame.
+Fixed-step shares with 30 manhacks: NPC hull traces through the linear brush scan about 48%,
+Rapier tree and broad-phase maintenance 25%. Presentation: CPU facial flexes and CPU shadow
+silhouettes about 1.6 ms each. About 4 ms of main-schedule time per crowd frame is in no
+scope: **not measured**. Upstream's flight and sight fixes are merged (`6c64694`): three
+interleaved pairs, crowd tick 5.59 to 5.03 ms and frame 13.62 to 12.58 ms with no range
+overlap, quiet unchanged; machine load recorded per run (load average 4.3 to 8.8, not idle).
+After the merge the brush scan is still 42% of the crowd's fixed step and Rapier 27%. Next: time
+the whole frame, then brush-trace candidate rejection and Rapier maintenance (DESIGN 14s).
+The first cycle's runtime edits below remain neutral and tested. Windows and a matched native
+run are **not tested**. Plugin rules read: yes; exceptions: none.
+
+## Implemented performance experiments and next-cycle diagnosis (2026-11-11)
+
+Persistent effect-quad buffers/no-op ECS-write avoidance and batched manhack glow model lookup
+are implemented, with 4 geometry/state tests and 3 attachment equivalence tests. Full validate and
+Windows cross-target Clippy pass. Isolated geometry 0.242→0.0086 us/update and30-actor / 1k-prefix
+lookup 28.590→17.789 us gains do not become whole-frame gains. All 30 paired packaged runs complete
+fixed 600 host-tick workloads on M1 Pro / Metal; all 15 final inventory/AI/projectile state pairs match.
+Medians before→after ms: quiet 5.5359→5.5493; frozen5.9949→5.9566; active fire7.4000→7.3968;
+crowd 1080p13.5671→13.6421; crowd3456x2168 13.8773→13.8715. Ranges overlap; crowd 1080p p99 buckets
+worsen 23/23/23→24/25/26ms. Swap 706→2339 MiB qualifies timings. No sustained FPS gain is established.
+
+Original HDR image checks fail, including same-baseline repeats; exposure differs. Fixed-exposure
+controls pass all 6 particle assertions; fire/smoke are pixel-identical, ball retains 61 changed
+pixels / max 1 RGB at the viewmodel glow, so exact ball parity remains unproven. No failed image
+was discarded. Source/package evidence and all limits: docs/performance-research.md.
+
+Separate current-only 1800-tick sampled-worker diagnostics identify shared static-brush hull
+tracing as a stronger conditional target (710 crowd observations;634 under flight), with Rapier
+tree/broadphase work also present. Counts are not ms or exclusive frame shares; main-thread
+waiting must not hide worker CPU work. Static planes are scanned for BOTH NPC/player sweeps.
+First rebase/validate a shared baseline containing existing upstream flight/sight fixes; only
+if this remains dominant, investigate conservative existing-query-tree brush candidates with
+exact ordered plane semantics/fallbacks. Coordinate existing 14s ownership ; no next-cycle index
+was implemented. Windows/native matched timing, full-campaign/all-camera parity remain not tested.
+
+Candidate executable SHA256 51002f989e04e2f8d72dc96bfa0fc55d1ce1c38ce17b7f776b7939f310cd07ab;
+source identity records a22f6a0 plus pinned runtime edits. Both tested packages omit four newer
+published-main commits; fetch still sees main 6d0b2f6 / session53 1473203. Original 276 FPS observation
+is RTX 3070 with many plaza manhacks, not the provisional earlier 5070 identification. Reproduction:
+`scripts/checks/check_effect_pool_performance.py` with isolated packages and fresh artifacts output.
+Plugin rules read: yes; exceptions: none.
+
+## Preliminary performance sensitivity checkpoint (2026-11-11)
+
+Broad author/source research and 18 valid packaged fixed-tick station02 indoor-spawn trials
+are complete as preliminary evidence; see docs/performance-research.md. The measured existing release package is
+2208bcb (SHA256 51cf256188b5e0446165cc2dc55ad90729768143683151f9c4e5182c41895fc5), M1 Pro / Metal,
+muted headless uncapped/profiled, 1080p explicit High/HDR Full/no-AA settings. Baseline median
+5.811 ms/frame (~172 FPS); no-PVS 7.736, CPU skinning 12.568; 720p/partition differences are
+within trial variation. No new optimization was implemented. Two invalid-Low attempts remain
+rejected, with existing warnings and memory-pressure limits retained; screenshot is an untimed
+lit stairwell view, not a plaza/crowd comparison. All accepted scripts finish tick600.
+
+The package predates upstream main6d0b2f6 by four commits, including completed flight/sight query
+improvements. Latest fetched session53 tip1473203 still plans the14s lazy-hitbox/query-maintenance
+work; avoid duplicating it. Subsequent direct clarification identifies the original native 276 FPS
+plaza/manhack observation as RTX 3070, a 16-thread CPU at 4 GHz and 64 GB RAM at 3200; exact CPU model
+and native/rewrite settings/view/actor count remain unknown. The earlier RTX 5070 identification
+conflicts and remains provisional. Rewrite barely 60 FPS average/lower with crowds and a separate
+M1 Pro max 3456x2168 idle-plaza 65–80 FPS observation remain unmatched to the local indoor test. Windows/native comparisons, local crowds,
+interactive presentation and future optimized builds are **not tested**. Reproduce with
+`python3 artifacts/performance-research-2026-11-11/benchmark.py`; raw accepted/rejected reports
+remain there. Next: matched Windows owner fixture, reuse upstream tracing improvements, then
+validate existing14s work or separate measured render-preparation/effects experiments.
+
 ## Current-count observer integration (2026-11-03 HH)
 
 HH completes the authored integration after the frozen HF35-root cutoff. Cap1/12/36 debugger26872/54416/29420 andhosts50100/51096/54980 exit0:49samples/196count reads/686nested reads/196parent-side reads/588model reads/49caller-FP pairs;23new identity/model-wrapper/phase controls pass. Full36 covers local1/virtual2/virtual24 counts. Independent review confirms the same stopped identity andmodel-prefix joins. HH is sealed separately; HF's earlier inventory remains unchanged. No further native attempt. Next prepare a new nested/current-count native root only after a fresh ownership guard clears; current count still does not prove earlier getter consumption. Actor/cache/final-pose/campaign/Rust parity remain open, with no Rust action.
@@ -1629,7 +2488,7 @@ Nine new private seals retain 1370 file occurrences. The combined 27-root naviga
 - main d9295d5 (sessions 28-30) merged over 210849b. Model reading is one `read_model_variant` (body + root LOD) with `read_model`/`read_model_body`/`read_model_lod` wrappers.
 - Verified: fmt, strict workspace Clippy, Windows-target Clippy, workspace tests, owned-install tests (two hl2-bevy campaign headless tests time out only under parallel load; alone they pass before and after the merge), packaged replays (93 checks: 91 pass after re-recording the gameplay outcomes; `monitors-kleiner-scene` gib removal varied once under parallel load). A headless build of main used as referee gives the same gameplay outcomes, apart from fields that already vary between runs and this branch's `env_zoom`.
 - Fixed after the merge: the replay checks `fov_settings` and `console`, which failed before it too. `fov_settings` expected the old portrait (+8) and ultrawide viewmodel FOV boosts that the per-weapon offset tuning removed; the console replay now resumes from the pause menu after closing the console.
-- Packaged checks run with `--mute` (silent, settings untouched, asserted per run) and cap `JOBS` by physical memory: a packaged game peaks at about 5.5 GB on the station maps (main: about 3.2 GB; see the startup memory section above), so a 16 GB machine runs two at once.
+- Packaged checks run with `--mute` (silent, settings untouched, asserted per run) and run `JOBS` checks at once; without `JOBS`, one game per 3 CPU cores and per 4 GB of memory beyond a 4 GB reserve (three on a 10-core 16 GB Mac, the fastest measured on 2026-11-20; docs/validation.md).
 - Known content gap: `Weapon_Alyx_Shotgun.Cock` (female citizen / Alyx `shoot_shotgun` event) has no Half-Life 2 sound script; main's F4 citizen spawn pool preloads it on every map.
 
 ## Aligned-release rejection and exact-entry byte supplements (2026-10-23)
@@ -2612,8 +3471,8 @@ Branch wip/session63-20261118 off wip/session62-20261116 (b82e2f8). No hl2.exe r
 Branch wip/session62-20261116 off wip/session61-20261116 (b6a8a55). No hl2.exe ran at the start (replays with JOBS=3). Owner this session: the test window was audible; every test launch now passes `--mute --no-focus` (the regression batch's `--volume 0.01` gets `--mute` through HL2RS_TEST_WINDOW_AT). Later the owner had a game open (one job: validate2's JOBS=3 replays were stopped and rerun with JOBS=1), then closed it (back to JOBS=3).
 
 - The G-Man's light in the intro (prompt item 1 a2; retail; SDK; native; packaged). Evidence: a fixed-clock native run printing `mat_hdr_tonemapscale` (SDK viewpostprocess.cpp SetToneMapScale stores the averaged exposure goal there) every 0.3 s of game time from map load (artifacts/s62/native_tm.py, native-tm1.txt): 2.0, the maximum, from load to 80 s, so through the whole intro; it drops only at the station (131-155 s, down to 0.8) and at 238-247 s. Ours dropped to 0.6 in the mouth shot (a temporary trace, not committed). Splitting our intro composite with a temporary mode override (not committed; artifacts/s62/split-26s.png): the camera view (`hl1room_brush`, a func_brush riding hl1room_rotator) renders the HL1 room like native; the G-Man view alone was blown out to white. Retail engine.dll 0x101d7e30 (CMapLoadHelper::Init) first calls MaterialSystemHardwareConfig012 slot 54 (vtable +0xd8); the SDK header's slot 54 is GetHDRType, and retail's `_rt_TeenyFB` creation picks format 0x18 (RGBA16161616F) when that slot returns 2, as the SDK does for GetHDRType() == HDR_TYPE_FLOAT. So with HDR on, the dlight minlight floor is 1/256 (0x3b800000) on every map; the LUMP_MAP_FLAGS floors (0x100: 0.078125, 0x200: 0.01953125) apply only without HDR. The conversion itself (0x101d9920) re-read: intensity = byte x table[exponent], table[0] = 1/255 (power2_n, SDK mathlib color_conversion.cpp), radius at least 0.1, quadratic 1 / (radius^2 x max(minlight, floor)). Change (4f1eb0c): modkit-core `dynamic_minlight_floor(version, flags, hdr)`; source-assets passes the lighting copy it chose (`choose_hdr`). With HDR every dlight and elight on a model is 5 times weaker on HL2's 0x200 maps: muzzle flashes, the Combine flash, light_dynamic. Packaged (artifacts/s62/fix1 against mouth1, native D:/hl2-rs-work/moved-off-C/s61-native-intro1, frame means 0-255): the G-Man close-up at 17-22 s 110 -> 67 before, 66 -> 41 after, native 70 -> 41; the face's centre at 19 s (197,172,144) before, (131,104,89) after, native (146,114,98); the mouth shot's peak 155 before, 118 after, native 133. artifacts/s62/fix1-ab.png (native left): at 19 s the warm key, the shadowed side and the cyan rim like native; the mouth shot shows native's double exposure of the HL1 room. Still different: our exposure dips to about 1.45 in the mouth shot where native's goal stays 2.0 (check which frame our histogram reads: the SDK measures in DoEnginePostProcessing, after the intro composite and the fade), a brighter patch on the face's right side, and the framing at 26 s (compare the zoom within one native run). Not checked: muzzle-flash elights against native frames; the order of CMapLoadHelper::Init against the per-map HDR enable on a map without HDR lighting (ours takes the LDR floor there).
-- ai_changehintgroup and the NPC's runtime hint group (prompt item 6; SDK; owned; unit). Checked: SDK triggers.cpp CAI_ChangeHintGroup (keyvalues SearchType, SearchName, NewHintGroup, Radius, hintlimiting; InputActivate calls SetHintGroup(NewHintGroup, hintlimiting) on every NPC FindQualifiedNPC returns: SearchType 0 FindEntityByNameWithin, 1 FindEntityByClassnameWithin, both with no distance test for Radius 0 (entitylist.cpp) and strictly inside otherwise, 2 FindEntityInSphere (FLT_MAX for 0) whose current hint group equals SearchName), ai_basenpc.cpp SetHintGroup (group and limiting; the base OnChangeHintGroup does nothing). Installed (artifacts/s62/chg_scan.py): 34 changers on 17 maps, names with a trailing `*`, empty NewHintGroup (clears), radii 0-2000, several without SearchType (0). Ours: entities/io.rs routes Activate to the AI; ai/runtime/goal_inputs/hint_groups.rs searches the AI's NPCs and writes the group and limiting into the scene's keyvalue overrides (where AddOutput's keyvalue form writes), and `Controller::limit_to_hint_group` recomputes the usable graph nodes; actbusy's hint search reads the runtime group. d1_trainstation_06: no hint node belongs to chaser_cop_4_hint, so after the changer the chaser cops (limited) have no usable graph node, as IsUnusableNode gives in the SDK. Not modeled: the sphere test against the NPC's collision box (ours: its origin), `!caller` and other procedural names than `!activator`, assault points' and npc makers' SetHintGroup, npc_antlion's IsUnusableNode. 
-- Native's exposure during the intro (follow-up of 14z-g): native's mouth-shot frames run through our histogram target (artifacts/s62/target_of.py) would give 1.2-1.5, yet native's goal stays 2.0, so native does not measure the composited intro frame; SDK DoEnginePostProcessing would (integer HDR: DoPreBloomTonemapping copies the back buffer when its flag is clear). Two explanations fit every native sample so far: the histogram reads `_rt_FullFrameFB` as the intro left it (the camera entity's view: black until 22.4 s, then the dark HL1 room), or nothing is measured while the intro is active. Our camera view stays dark to 30 s (mode 7 means 0-16), so a bright camera view later in the intro (36-62 s: background_train, camera_train) is the test. Not changed yet. 
+- ai_changehintgroup and the NPC's runtime hint group (prompt item 6; SDK; owned; unit). Checked: SDK triggers.cpp CAI_ChangeHintGroup (keyvalues SearchType, SearchName, NewHintGroup, Radius, hintlimiting; InputActivate calls SetHintGroup(NewHintGroup, hintlimiting) on every NPC FindQualifiedNPC returns: SearchType 0 FindEntityByNameWithin, 1 FindEntityByClassnameWithin, both with no distance test for Radius 0 (entitylist.cpp) and strictly inside otherwise, 2 FindEntityInSphere (FLT_MAX for 0) whose current hint group equals SearchName), ai_basenpc.cpp SetHintGroup (group and limiting; the base OnChangeHintGroup does nothing). Installed (artifacts/s62/chg_scan.py): 34 changers on 17 maps, names with a trailing `*`, empty NewHintGroup (clears), radii 0-2000, several without SearchType (0). Ours: entities/io.rs routes Activate to the AI; ai/runtime/goal_inputs/hint_groups.rs searches the AI's NPCs and writes the group and limiting into the scene's keyvalue overrides (where AddOutput's keyvalue form writes), and `Controller::limit_to_hint_group` recomputes the usable graph nodes; actbusy's hint search reads the runtime group. d1_trainstation_06: no hint node belongs to chaser_cop_4_hint, so after the changer the chaser cops (limited) have no usable graph node, as IsUnusableNode gives in the SDK. Not modeled: the sphere test against the NPC's collision box (ours: its origin), `!caller` and other procedural names than `!activator`, assault points' and npc makers' SetHintGroup, npc_antlion's IsUnusableNode.
+- Native's exposure during the intro (follow-up of 14z-g): native's mouth-shot frames run through our histogram target (artifacts/s62/target_of.py) would give 1.2-1.5, yet native's goal stays 2.0, so native does not measure the composited intro frame; SDK DoEnginePostProcessing would (integer HDR: DoPreBloomTonemapping copies the back buffer when its flag is clear). Two explanations fit every native sample so far: the histogram reads `_rt_FullFrameFB` as the intro left it (the camera entity's view: black until 22.4 s, then the dark HL1 room), or nothing is measured while the intro is active. Our camera view stays dark to 30 s (mode 7 means 0-16), so a bright camera view later in the intro (36-62 s: background_train, camera_train) is the test. Not changed yet.
 - The arrival's platform scanner (prompt item 1b; SDK; owned; native; packaged; efab36d). Our time-lapse every 2 s against session 61's single native run every 4 s (artifacts/s58/native-credits-s61, the player left alone in the car; artifacts/s62/walk-ab1.png, rows of two native/ours pairs): the passengers leave the player's view by about 102 s in both; native's screen goes white at about 126.7 s and a city scanner hovers in the aisle in front of the player at 130.7 s; ours showed neither. Owned: relay_train_reached_station ForceSpawns train_platform_scanner_template (npc_cscanner train_platform_scanner above the car) and a trigger_once in the car sends it InspectTargetPhoto !player. Ours failed TASK_CSCANNER_GET_PATH_TO_INSPECT_TARGET (report: SCHED_CSCANNER_MOVE_TO_INSPECT failed, then patrol): no clear leg from the air network into the car. SDK ai_pathfinder.cpp: RouteFromNode builds the last leg with bits_BUILD_GET_CLOSE, and BuildComplexRoute takes a move whose flDistObstructed is within the goal tolerance; the scanner's schedule sets 128 (TASK_SET_TOLERANCE_DISTANCE) just before. Change: the controller's fly_route takes the share of a leg a hull can fly and a goal tolerance; end legs blocked within the tolerance are taken; the scanner's inspect path passes its tolerance; birds and the enemy path pass 0 (identical to before). Unit test (a last leg blocked 31 units short: refused with tolerance 0 and 20, taken with 128). Packaged (artifacts/s62/scan1, scan2): the scanner now inspects and photographs the player (photo_taken, inspect ending 109.5 s) but about 17 s earlier than native and without entering the car (at 110 s it patrols 1160 units east of the player). Not matched: native's approach into the aisle and its timing (about 30 s after the arrival); the SDK tries end nodes nearest first and triangulates around obstacles, ours takes the shortest route over every acceptable end leg; native positions of the scanner over time are not recorded (ent_dump has no origin). A second native run with the player left in the car (artifacts/s62/native_scan.py, native-scan1: a frame every 2-3 s from 95 to 155 s; its setang under ORACLE_RAW with !keep did not turn the view, so these are aisle views again) beside ours turned 25 degrees right (artifacts/s62/door1, door-ab1.png, rows of two native/ours pairs): native's scanner is inside the aisle near the ceiling from about 124 s (not there at 118 s), flashes at about 126 s and is still there at 134 s; ours is never in view. SDK MoveToPhotograph flies straight to IdealGoalForMovement(the target's eyes, its own origin, the goal distance, 32), a point on the line from the target toward the scanner, so native's hover in the aisle means its route came in through the car's openings. The node graph (artifacts/s62/air_near.py): only four air nodes around the arrived car (88-91 at z 108 along y -1980 and -2108, south of the car); the last leg from node 91 to the player's eye crosses the car's south wall about 77 units short, inside the 128 tolerance, so both the SDK and ours accept it. The SDK's route then ends at the goal itself and the scanner flies on toward it (blocked moves slide in the SDK's fly motor), which fits native getting in; our thrust flight stays at the window. Next: compare the SDK's MoveFlyExecute/MoveLimit sliding with our flight against a wall, then native positions. A third native run turned toward the door (native-scan2: setang and fov are cheats, which ORACLE_RAW's setup leaves off, so native_scan.py now passes ORACLE_SETUP=sv_cheats 1; artifacts/s62/door-ab2.png) shows neither the scanner nor its flash from 95 to 150 s at 2-3 s sampling (frame means flat at 44), while native-scan1's aisle view brightens from 45 to 49-50 at 124-129 s (the scanner's light); its way into the car is still unseen.
 - Assault points' hint groups (SDK; owned; unit). SDK ai_behavior_assault.cpp: OnHitAssaultPoint calls SetHintGroup(the point's `assaultgroup`) and ClearAssaultPoint SetHintGroup(NULL_STRING) when the point has one (no limiting either way; the SDK notes the clear also drops a group the NPC had before). Installed: 27 assault_assaultpoint entities with a group on 7 maps (d1_canals_01/01a, d1_town_02a, d2_coast_10/12, d3_c17_07/11); no npc_maker or npc_template_maker sets NPCHintGroup (CNPCMaker::MakeNPC's SetHintGroup), so makers are left out. Ours: AiRuntime::think's assault outputs go through hint_groups::fire_assault_output, which fires the output and writes the group into the scene's keyvalue overrides (actbusy reads it). Not modeled: the navigation limit's reset when an assault group replaces a spawn-limited group (SetHintGroup's default limiting false; the controller keeps the spawn limit). Unit test; replays not rerun for it.
 - Session 62 validation (artifacts/s62/validate1.sh on 4f1eb0c): strict Clippy 0, workspace tests 1717 passed with the 2 known --release should_panic failures (rendering::tests helper/image constructor), fmt 0, architecture 0, build ok, regression passed (26/26, 17/17, 26/26; images against artifacts/s61-regression3: partition-weapons-final.png mean difference 1.41 with no pixel over 40, the weapon's muzzle-flash elight on models now 5 times weaker; the rest at most 0.28; the Kleiner feed's difference image as known), replays 72 of 72 (JOBS=3, 656 s, no reruns). ai_changehintgroup (73e4f47): hl2-simulation tests 808 passed and the owned d1_trainstation_06 test, strict Clippy for hl2-simulation 0, fmt 0, architecture 0 (AiRuntime::inputs shortened: SetPoliceGoal moved out); replays not rerun for it (no installed replay fires a changer). validate2.sh on efab36d (hint groups and the flight get-close): strict Clippy 0, workspace tests 1720 passed with the same 2 known failures, fmt 0, architecture 0, build ok, regression passed (26/26, 17/17, 26/26; this batch ran at about 12 fps while the owner's game was open: partition-movement-final, partition-weapons-final and partition-breen-slate-final moved by global brightness offsets of 2-4 levels, mean difference up to 3.63, no pixel over 40, the exposure's per-frame step at a low frame rate; batch 1 at a normal frame rate matched session 61), replays: the JOBS=3 run was stopped when the owner opened a game, then 72 of 72 with JOBS=1 (1992 s). Assault hint groups (on top of efab36d): hl2-simulation tests 810 passed, strict Clippy for hl2-simulation 0, fmt 0, architecture 0; replays on the tip (bin rebuilt at 1e5d2dc, JOBS=1 while the owner's game was open): 72 of 72 (1812 s); the regression batch rerun at a normal frame rate (artifacts/s62-regression3) passed and matches batch 1 (largest mean difference 1.60, partition-weapons-final, no pixel over 40). CI 43989334185 (05784bf) and 43999129325 (1e5d2dc) passed on windows and macos-15; main fast-forwarded to the branch tip (docs only after 1e5d2dc).
@@ -3456,7 +4315,7 @@ Open (next, in order):
 
 Claude Code desktop, `claude-opus-5-5`. No subagents. Branch `wip/npc-ai-20261014` (pushed). Not on main. Main gained 6226ae7 (owner/CI fix: impact tables as statics) after 31b0f57; not merged into the branch yet.
 - **F4 overlay redesign (owner):** Bevy-host panel (ProggyClean glyphs rasterized at setup) with a scrolling class column and a weapon/options column: each class's campaign loadout (read-only scan of the 79 installed maps: cops stunstick/pistol/SMG1, soldiers SMG1/AR2/shotgun, citizens SMG1/AR2/shotgun/RPG/alyxgun, Barney SMG1/AR2, Alyx alyxgun, monk Annabelle) then extra Weapon_CanUse weapons, each tagged; "no weapons (natural attacks)" for classes without bits_CAP_USE_WEAPONS; per-spawn allegiance (foe D_HT / friend D_LI), notarget and AI rows (the I/O/P hotkeys are gone); movement-script `spawn_overlay` actions. SDK finding: Weapon_CanUse rejects the SMG1 on retail police.mdl (no crouch-walk rifle activities) and everything on combine_soldier.mdl (no ACT_RELOAD_SMG1), while Spawn equips additionalequipment without it, hence the campaign-loadout rule. Weapon_Equip works for every weapon user (held weapons for classes without AI here), the idle translates through the weapon (citizen SMG1: ACT_IDLE_SMG1; native T212223Z shows the same stance), pooled spawns carry one bone-merged mesh per usable weapon shown only while active. Packaged artifacts/s20/f4-spawn*.png: pistol cop, SMG1 soldier, SMG1 citizen.
-- **AI on by default** like Source (`ai_disabled` 0): `--no-ai`; console `ai_disable` (SDK CC_AI_Disable toggle, cheat; "A.I. Disabled..." HUD text while off), `ai_enable` kept as ours. Owner go-ahead for this small hl2-ui console edit (session 20).
+- **AI on by default** like Source (`ai_disabled` 0): `--no-ai`; console `ai_disable` (SDK CC_AI_Disable toggle, cheat; "A.I. Disabled..." HUD text while off), `ai_enable` kept as ours (moved to the `hl2-debug` plugin on 2026-11-20: not retail). Owner go-ahead for this small hl2-ui console edit (session 20).
 - **Citizens: CNPC_Citizen::SelectModel** (citizen type from `citizentype` or the map name, least-used random heads with gender flags, medic/rebel/refugee groups): the d1_trainstation_02 queue citizens #580-582 (SF_CITIZEN_RANDOM_HEAD) are now three different people like native. F4/npc_create variants `npc_citizen_rebel/_refugee/_medic` (ours; native has only npc_citizen + keyvalues), each pooled slot with its own head.
 - **VMT DirectX-level blocks** (`">=dx90_20b" {}`) applied for level 95: the combine soldier's base texture lives only there (it was magenta). May change other materials: check in the regression batch.
 - **RPG launch flash:** v_rpg.mdl event 5001 (obsolete CL_EVENT_MUZZLEFLASH0, type 0) -> retail client.dll MuzzleFlash_AR2_Player (SDK declares it, never defines it; constants from the installed client.dll): eight ar2_muzzle sprites along the barrel + a core, 0.025 s. Native 60 fps recording shows the fireball on launch and the 0.3 s ignition wash (already implemented). NPC RPG flash per MuzzleFlash_RPG_NPC.

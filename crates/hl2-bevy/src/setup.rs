@@ -315,6 +315,7 @@ pub fn run_helper() -> Result<bool> {
     .insert_resource(ClearColor(Color::srgb(0.055, 0.065, 0.08)))
     .add_plugins(
         DefaultPlugins
+            .set(crate::priority::task_pools())
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "HL2-RS | Locate Half-Life 2".into(),

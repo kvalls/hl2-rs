@@ -101,10 +101,7 @@ impl Console {
 
     /// Current dim overlay alpha at `time`.
     pub fn dim_overlay_alpha(&self, time: f64) -> f32 {
-        let menu_open = matches!(
-            self.mode,
-            Mode::MainMenu | Mode::Pause | Mode::Options | Mode::NewGame | Mode::Console
-        );
+        let menu_open = self.paused();
         let is_mid_gameplay =
             !self.background_level && matches!(self.base, Mode::Pause | Mode::Gameplay);
         let base_focus = self.shell.windows.base_focus_amount(time);
@@ -186,6 +183,7 @@ impl Console {
         } else {
             self.set_mode(Mode::Gameplay);
         }
+        self.run_startup_commands();
     }
 
     /// Completes loading `game`'s `map`. Ignores stale background completions.
@@ -574,6 +572,27 @@ impl Console {
             Mode::Pause => self.pause_menu.activate(index, loc),
             _ => MenuOutcome::None,
         };
+        self.apply_menu_outcome(outcome)
+    }
+
+    /// `gamemenucommand <command>`: runs a game menu command (`OpenOptionsDialog`,
+    /// `ResumeGame`, `OpenNewGameDialog`, ...) from the main menu, or the pause menu in a game.
+    pub fn game_menu_command(&mut self, text: &str) -> Vec<Effect> {
+        let gameui = self.gameui.clone();
+        let loc = &gameui.localization;
+        let command = crate::gameui::menu::MenuCommand::parse(text);
+        let menu = if self.base == Mode::MainMenu {
+            &mut self.main_menu
+        } else {
+            &mut self.pause_menu
+        };
+        let outcome = menu.run(command, text.to_owned(), loc);
+        self.apply_menu_outcome(outcome)
+    }
+
+    fn apply_menu_outcome(&mut self, outcome: MenuOutcome) -> Vec<Effect> {
+        let gameui = self.gameui.clone();
+        let loc = &gameui.localization;
         match outcome {
             MenuOutcome::None => {}
             // Resuming hides the UI: its windows close (Options without applying).

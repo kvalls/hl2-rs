@@ -20,27 +20,22 @@ fn decode(c: vec3<f32>) -> vec3<f32> {
     return select(pow((c + vec3(0.055)) / 1.055, vec3(2.4)), c / 12.92, c <= vec3(0.04045));
 }
 
-// One bilinear tap of the SDK downsample: the mean of a 2x2 gamma block, then Shape
-// (r_bloomtint 0.3/0.59/0.11, exponent 2.2).
-fn shaped_tap(origin: vec2<i32>, size: vec2<i32>) -> vec3<f32> {
-    var sum = vec3(0.0);
-    for (var y = 0; y < 2; y++) {
-        for (var x = 0; x < 2; x++) {
-            let p = clamp(origin + vec2(x, y), vec2(0), size - vec2(1));
-            sum += encode(textureLoad(source, p, 0).rgb);
-        }
-    }
-    let pixel = sum * 0.25;
+// One bilinear tap of the SDK downsample: 2x2 hardware bilinear sample, then gamma encode
+// and Shape (r_bloomtint 0.3/0.59/0.11, exponent 2.2).
+fn shaped_tap(uv: vec2<f32>) -> vec3<f32> {
+    let pixel = encode(textureSample(source, linear_sampler, uv).rgb);
     let lum = dot(pixel, vec3(0.3, 0.59, 0.11));
     return pow(pixel, vec3(2.2)) * lum;
 }
 
 @fragment
 fn shape(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    let size = vec2<i32>(textureDimensions(source));
-    let base = vec2<i32>(floor(in.position.xy)) * 4;
-    let c = shaped_tap(base, size) + shaped_tap(base + vec2(2, 0), size)
-        + shaped_tap(base + vec2(0, 2), size) + shaped_tap(base + vec2(2, 2), size);
+    let inv = vec2(1.0) / vec2<f32>(textureDimensions(source));
+    let base = floor(in.position.xy) * 4.0;
+    let c = shaped_tap((base + vec2(1.0, 1.0)) * inv)
+        + shaped_tap((base + vec2(3.0, 1.0)) * inv)
+        + shaped_tap((base + vec2(1.0, 3.0)) * inv)
+        + shaped_tap((base + vec2(3.0, 3.0)) * inv);
     return vec4(c * 0.25, 1.0);
 }
 
@@ -62,6 +57,9 @@ fn blur(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let frame = textureLoad(source, vec2<i32>(floor(in.position.xy)), 0);
     let glow = textureSample(bloom, linear_sampler, in.uv).rgb;
+    if (all(glow <= vec3(0.0)) && all(frame.rgb <= vec3(1.0))) {
+        return frame;
+    }
     let gamma = min(encode(frame.rgb) + glow * pass_data.params.x, vec3(1.0));
     return vec4(decode(gamma), frame.a);
 }

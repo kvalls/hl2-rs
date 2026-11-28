@@ -38,9 +38,39 @@ Dependencies point one way: application (`apps/hl2rs`, package `hl2-app`) -> plu
 | Plugin | Owns |
 | --- | --- |
 | `hl2-advanced-options` | Potato items below retail's lowest in Model, Texture, Shader, Shadow and Filtering; Advanced and Ultra motion blur, Fit Display and the extra aspect choices, the 15-second keep-or-revert dialog (on an aspect-choice change), vertical and viewmodel FOV |
-| `hl2-debug` | `viewmodel_debug_mode`, `background_debug_mode`, F1 statistics, F2 flight shortcut, F3 loadout shortcut, F4 NPC and prop panel, their tuning and presentation |
+| `hl2-debug` | `viewmodel_debug_mode`, `background_debug_mode`, the console command history saved across launches (`hl2-console-history.txt` next to the settings file; retail keeps it for one run), F1 statistics (shown or hidden is saved in `extensions.developer_overlay`; when a profiler runs, header rows give the `--profile` and trace state (idle until gameplay starts), elapsed time and trace size), `ai_enable [0|1]` (retail has only `ai_disable`), `background_force_default_blur [0|1]` and its `-` key, F2 flight shortcut, F3 loadout shortcut, F4 NPC and prop panel, their tuning and presentation, non-retail console shortcuts (`Ctrl+R` reverse history search and `#HL2RS_Console_ReverseSearch`, `Ctrl+U/K/W/E/L`, `Ctrl+Backspace/Delete`, and macOS `Option` word / `Command` line navigation & deletion); the agent link (`agent_status <thinking|waiting|clear|text>` controls a temporary console status pinned at the bottom of the console until the next remote chat reply, `ui_dump`: the UI state as one JSON line for a debugging agent following the console log or the remote console; `npc_dump [radius|id <entity>]`: live NPC AI, actbusy, and goal state as one JSON line; `map_dump [page <first_id>]` lists up to 12 loaded entities by ID and returns the next ID, and `map_dump near <x> <y> <z> <radius>` returns the closest 12 live entity origins in range and the total matching count; `agent_resume`: the launch arguments that restart at the same map, view and open menus) |
+
+With `sv_cheats 1`, `hl2-debug` registers
+`spawn_at <class> pos <x> <y> <z>`. It supports NPC classes and the F4 NPC variants,
+loose pickups, world weapons and `prop_physics`. Optional key-value pairs are
+`targetname <name>`, `additionalequipment <weapon>` for an NPC, and
+`model <path>` for a physics prop. An absent model loads through the existing worker.
+
+`hl2-debug` sends authenticated RCON `say` and `agent_status` text to the shared
+gameplay caption panel whenever the console is closed (in gameplay, behind the main
+menu, and over the gameplay pause menu while paused authored captions stay hidden and
+frozen). Both use a white speaker label, the console's chat cyan and the existing
+Source formatter. They remain visible with game captions off.
+
+Enter `agent_rcon` in the local developer console to enable agent attachment
+in an already running game. The command enables console logging and opens an
+authenticated listener on `127.0.0.1`, or reuses one already bound there. The
+`hl2-session` helper can invoke the same activation through a private
+loopback request while the game is running. It verifies process ownership and
+authenticates to RCON without changing the game window or map. Independently
+launched games remain outside the restart supervisor.
 
 Ordinary motion blur, flight, spawning, camera behavior and simulation mechanisms stay in core.
+
+### Local chat mode
+
+Ordinary launches start with `chat_mode 0`. The `hl2-session` greeting helper
+enables it immediately before announcing the connection. Enter `chat_mode 1` to send
+later console submissions as Player chat. A leading `say` is part of
+the message in this mode. Enter `chat_mode 0` by itself to resume local commands.
+The console log identifies chat-mode lines so the session watcher can relay
+command requests only while the mode is enabled. Ordinary `say` sends a message.
+Remote and scripted commands still execute through their regular paths.
 
 ## Contracts
 
@@ -49,9 +79,12 @@ Ordinary motion blur, flight, spawning, camera behavior and simulation mechanism
 | `hl2_ui::extensions::Extensions` | per application instance | Console commands (a duplicate name is an error), layout addenda, localization placeholders, default bindings, after-apply handlers |
 | `hl2_ui::extensions::VideoExtension` | through `VideoPolicy` | Frame and window sizing, projection, aspect and mode lists, blur selection and sliders (`CustomValue`), aspect choices (`AspectChoice`) |
 | `hl2_ui::extensions::RenderBudget` | `VideoExtension::render_budget`, `below_lowest_token`, `is_below_lowest`, `set_below_lowest` | Work a policy gives up (flat sky, unfiltered sampling, plain materials, no shadows, further mips and levels of detail) and combo items below a Video > Advanced combo's lowest |
+| `hl2_ui::extensions::Extensions::quiet_remote` | `Extensions` | Commands not logged when they arrive over the remote console (`sv_rcon_log`) |
+| `hl2_ui::extensions::Extensions::select_console_input` | `Extensions` | Extra console keyboard shortcut hook (`ConsoleInputHook`) and optional search-prompt localization token |
+| `hl2_ui::extensions::StandardBackground` | `Extensions::select_standard_background` (one contributor) | Whether the menu background keeps its standard (4:3) blur artwork and field of view on wide frames |
 | `hl2_ui::extensions::FramingProfiles` | `VideoExtension::framing_profiles` | Viewmodel framing profile ids and values; without one, every aspect keeps the retail view |
-| `hl2_ui::config::StoredExtensions` | `video.extensions`, `video.advanced.extensions` | Plugin settings saved beside core fields; unknown keys survive, so old files keep their format |
-| `hl2_bevy::extensions::RuntimeExtension` | `Application::runtime` | Input, UI, presentation, loading, map and config lifecycle, replay events, reports |
+| `hl2_ui::config::StoredExtensions` | `video.extensions`, `video.advanced.extensions`, top-level `extensions` (settings of no Options section) | Plugin settings saved beside core fields; unknown keys survive, so old files keep their format |
+| `hl2_bevy::extensions::RuntimeExtension` | `Application::runtime` | Input, UI, presentation, loading, map and config lifecycle, remote console chat, replay events, reports |
 | `Application::install` | `fn(&mut App)` | Bevy systems, render nodes and resources |
 
 Runtime extensions are in place before startup settings are applied, so `startup` and the first `level_target` reach them. Their state belongs to the instance; do not add mutable globals.
@@ -67,7 +100,7 @@ Opaque events (`Effect::Extension`, the replay `extension` field, UI `Action::Ex
 - There is no declared-dependency or capability validation between plugins, because the two current plugins are independent.
 - `cargo run` without packaging has no `weapon_blur.wgsl` in its asset root, so run the packaged build for Advanced or Ultra blur.
 - Plugin developer text in the F4 panel and debug overlays still has English literals, and the string audit does not scan `plugins/`.
-- `spawn_usable_weapons` runs when a map is adopted and the Props listing starts then too, so opening the Props tab right after a load can briefly show the default listing. A generic prepare hook on the loading worker would fix both.
+- F4 usable-weapon resolution (`source_assets::animation::activity_names`) and the Props listing both start on background threads when a map is adopted, so opening F4 immediately after a load can briefly show the initial subset until both background scans finish. A generic prepare hook on the loading worker would precompute both earlier.
 - Packaged replays assume both plugins, so other selections have no replay coverage.
 - Not gaps: the window-following frame, the projection parameter and the background-selection services stay in core as generic mechanisms, because they pass the core test.
 - `modkit_core::ModPlugin` is an older, unused simulation contract, not this mechanism.

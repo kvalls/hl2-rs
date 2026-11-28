@@ -4,14 +4,39 @@ use super::{Canvas, ConsolePanel, Level};
 impl ConsolePanel {
     /// Remove the previous snapshot and append the latest one after all ordinary output.
     pub fn replace_snapshot(&mut self, canvas: &Canvas, text: impl Into<String>) {
-        if let Some(index) = self
-            .output
-            .iter()
-            .rposition(|line| line.level == Level::Snapshot)
-        {
+        self.replace_snapshot_with_level(canvas, Level::Snapshot, text);
+    }
+
+    /// Remove the previous snapshot and append the latest one at `level` after all ordinary
+    /// output, without recording it in the kept printed lines for external log readers.
+    pub fn replace_snapshot_with_level(
+        &mut self,
+        canvas: &Canvas,
+        level: Level,
+        text: impl Into<String>,
+    ) {
+        self.clear_snapshot(canvas);
+        self.push_output(canvas, level, text.into(), false);
+        let number = self.output_start + self.output.len() as u64 - 1;
+        self.snapshot = Some(number);
+    }
+
+    pub(super) fn active_snapshot_index(&self) -> Option<usize> {
+        self.snapshot.and_then(|number| {
+            number
+                .checked_sub(self.output_start)
+                .and_then(|offset| usize::try_from(offset).ok())
+                .filter(|&index| index < self.output.len())
+        })
+    }
+
+    /// Remove the current snapshot line, if any, without disturbing ordinary output or scroll.
+    pub fn clear_snapshot(&mut self, canvas: &Canvas) {
+        let index = self.active_snapshot_index();
+        self.snapshot = None;
+        if let Some(index) = index {
             self.remove_snapshot(canvas, index);
         }
-        self.print(canvas, Level::Snapshot, text);
     }
 
     fn remove_snapshot(&mut self, canvas: &Canvas, index: usize) {
@@ -28,12 +53,12 @@ impl ConsolePanel {
         }
         self.output.remove(index);
         if let Some(mut selection) = self.selection {
-            if selection.anchor == number || selection.head == number {
+            if selection.anchor.line == number || selection.head.line == number {
                 self.selection = None;
                 self.selecting = false;
             } else {
-                selection.anchor -= u64::from(selection.anchor > number);
-                selection.head -= u64::from(selection.head > number);
+                selection.anchor.line -= u64::from(selection.anchor.line > number);
+                selection.head.line -= u64::from(selection.head.line > number);
                 self.selection = Some(selection);
             }
         }
@@ -75,7 +100,8 @@ mod tests {
         panel.print(&canvas, Level::Normal, "b");
         panel.print(&canvas, Level::Normal, "c");
         panel.history_rows(&canvas);
-        panel.selection = Some(Selection::at(2));
+        // Pinned snapshot stays last: ["a", "b", "c", "old\nsnapshot"].
+        panel.selection = Some(Selection::at(1));
         panel.replace_snapshot(&canvas, "latest");
         assert_eq!(panel.selected_text().as_deref(), Some("b"));
         let rows: Vec<_> = panel
@@ -85,11 +111,16 @@ mod tests {
             .collect();
         assert_eq!(rows, ["a", "b", "c", "latest"]);
         panel.print(&canvas, Level::Normal, "tail");
-        panel.selection = Some(Selection { anchor: 0, head: 4 });
+        // ["a", "b", "c", "tail", "latest"]
+        panel.selection = Some(Selection::lines(0, 3));
         panel.replace_snapshot(&canvas, "newest");
         assert_eq!(panel.selected_text().as_deref(), Some("a\nb\nc\ntail"));
+        // Selecting the pinned snapshot follows it past interleaved ordinary output.
         panel.selection = Some(Selection::at(4));
-        panel.replace_snapshot(&canvas, "final");
+        panel.print(&canvas, Level::Normal, "more");
+        assert_eq!(panel.selected_text().as_deref(), Some("newest"));
+        panel.clear_snapshot(&canvas);
+        assert!(panel.output.iter().all(|l| l.level != Level::Snapshot));
         assert_eq!(
             panel.selection, None,
             "removed snapshot cannot select unrelated text"
@@ -151,5 +182,90 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn styled_snapshot_uses_requested_level_and_stays_out_of_printed_log() {
+        let (canvas, mut panel) = panel();
+        panel.keep_printed(true);
+        panel.print(&canvas, Level::Normal, "ordinary");
+        panel.replace_snapshot_with_level(&canvas, Level::ChatRemote, "Console: Thinking...");
+        panel.replace_snapshot_with_level(&canvas, Level::ChatRemote, "Console: Waiting...");
+        assert_eq!(panel.output.len(), 2);
+        assert_eq!(panel.output[1].level, Level::ChatRemote);
+        assert_eq!(panel.output[1].text, "Console: Waiting...");
+
+        let rows = panel.history_rows(&canvas);
+        let drawn = std::cell::RefCell::new(Vec::new());
+        panel.draw_history_row(
+            &canvas,
+            &super::super::selection::RowDraw {
+                shown: &rows[1],
+                area_x: 0.,
+                area_w: 200.,
+                top: 0.,
+                row_h: 14.,
+                baseline: 0.,
+                scale: 1.,
+                base_color: panel.line_color(rows[1].line),
+            },
+            &|text, _, _, color| drawn.borrow_mut().push((text.to_owned(), color)),
+        );
+        assert_eq!(
+            *drawn.borrow(),
+            vec![
+                ("Console:".into(), crate::canvas::WHITE),
+                (" Waiting...".into(), super::super::CHAT_REMOTE_TEXT),
+            ]
+        );
+
+        let printed: Vec<_> = panel.take_printed().into_iter().map(|l| l.text).collect();
+        assert_eq!(printed, ["ordinary"]);
+
+        panel.print(&canvas, Level::ChatRemote, "Console: reply");
+        panel.clear_snapshot(&canvas);
+        let remaining: Vec<_> = panel.output.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(remaining, ["ordinary", "Console: reply"]);
+    }
+
+    #[test]
+    fn pinned_snapshot_stays_last_across_prints_redirects_and_scrolling() {
+        let (canvas, mut panel) = panel();
+        canvas.resize(1024., 768.);
+        for i in 0..30 {
+            panel.print(&canvas, Level::Normal, format!("line {i}"));
+        }
+        panel.replace_snapshot_with_level(&canvas, Level::ChatRemote, "Console: Working...");
+        panel.print(&canvas, Level::Normal, "rcon cmd 1");
+        panel.print(&canvas, Level::Normal, "rcon cmd 2");
+        assert_eq!(
+            panel.output.back().map(|l| (l.level, l.text.as_str())),
+            Some((Level::ChatRemote, "Console: Working..."))
+        );
+
+        let redirect = panel.start_redirect();
+        panel.print(&canvas, Level::Normal, "redirected output");
+        let redirected = panel.finish_redirect(redirect);
+        assert_eq!(redirected.len(), 1);
+        assert_eq!(redirected[0].text, "redirected output");
+        assert_eq!(
+            panel.output.back().map(|l| (l.level, l.text.as_str())),
+            Some((Level::ChatRemote, "Console: Working..."))
+        );
+
+        panel.print(&canvas, Level::Normal, "rcon cmd 3");
+        let len = panel.output.len();
+        assert_eq!(panel.output[len - 2].text, "rcon cmd 3");
+        assert_eq!(panel.output[len - 1].text, "Console: Working...");
+
+        panel.scroll = 10;
+        let rows = panel.history_rows(&canvas);
+        let before = &rows[rows.len() - panel.scroll - 1];
+        let bottom = panel.shown_text(before.line)[before.text.clone()].to_owned();
+        panel.print(&canvas, Level::Normal, "wrapped\ntwo rows");
+        let rows = panel.history_rows(&canvas);
+        let after = &rows[rows.len() - panel.scroll - 1];
+        assert_eq!(&panel.shown_text(after.line)[after.text.clone()], bottom);
+        assert_eq!(panel.output.back().unwrap().text, "Console: Working...");
     }
 }

@@ -1,11 +1,9 @@
-//! Host side of the developer console: what its arguments complete from, its command history
-//! on disk, and the engine log mirrored into it.
+//! Host side of the developer console: what its arguments complete from and the engine log
+//! mirrored into it. The command history lasts one run, as in retail.
 //!
 //! * Completion: the installed maps (listed once at startup) and the loaded map's entity names
 //!   and the inputs its own connections fire ([`MapEntityNames`], replaced on each map load)
 //!   reach the console whenever either changes ([`sync_sources`]).
-//! * History: `hl2-console-history.txt` next to the settings file, never in the game install;
-//!   loaded at startup and written whenever the console's history changed ([`save_history`]).
 //! * Log: warnings and errors from every target, and info from HL2-RS's own crates, are queued
 //!   by a `tracing` layer ([`log_layer`]) and printed in the console each frame ([`drain_log`]).
 
@@ -22,6 +20,47 @@ use std::sync::{Mutex, OnceLock};
 /// Every map name the installed games ship, sorted.
 #[derive(Resource, Default)]
 pub struct InstalledMaps(pub Vec<String>);
+
+/// Receiver for background installed-map discovery; cleared once received.
+#[derive(Resource, Default)]
+pub struct PendingInstalledMaps(Option<Mutex<std::sync::mpsc::Receiver<Vec<String>>>>);
+
+/// Discovers installed maps on a background thread without delaying startup.
+pub fn spawn_installed_maps(root: std::path::PathBuf) -> PendingInstalledMaps {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let _ = std::thread::Builder::new()
+        .name("hl2-installed-maps".into())
+        .spawn(move || {
+            crate::priority::set_current_thread(crate::priority::Priority::Background);
+            let _ = tx.send(source_assets::install::installed_maps(&root));
+        });
+    PendingInstalledMaps(Some(Mutex::new(rx)))
+}
+
+/// Applies the background installed-map scan once ready, then stops polling.
+pub fn poll_installed_maps(
+    mut pending: ResMut<PendingInstalledMaps>,
+    mut installed: ResMut<InstalledMaps>,
+) {
+    let Some(recv) = pending.0.as_ref().map(|rx| {
+        rx.lock()
+            .map_or(Err(std::sync::mpsc::TryRecvError::Disconnected), |guard| {
+                guard.try_recv()
+            })
+    }) else {
+        return;
+    };
+    match recv {
+        Ok(maps) => {
+            installed.0 = maps;
+            pending.0 = None;
+        }
+        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            pending.0 = None;
+        }
+    }
+}
 
 /// The loaded map's entity targetnames and the inputs its connections fire, sorted, each once.
 #[derive(Resource, Default, Debug, PartialEq)]
@@ -78,32 +117,6 @@ pub fn sync_sources(
     }
 }
 
-fn history_path() -> std::path::PathBuf {
-    hl2_ui::config::Config::config_path().with_file_name("hl2-console-history.txt")
-}
-
-/// The saved command history, oldest first.
-pub fn load_history() -> Vec<String> {
-    std::fs::read_to_string(history_path())
-        .map(|text| {
-            text.lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Writes the command history when it changed.
-pub fn save_history(ui: Option<ResMut<crate::ui_host::Console>>) {
-    let Some(history) = ui.and_then(|mut ui| ui.source.take_changed_history()) else {
-        return;
-    };
-    if let Err(error) = std::fs::write(history_path(), history.join("\n")) {
-        warn!("Could not save the console history: {error}");
-    }
-}
-
 static LOG: OnceLock<Mutex<Vec<(Level, String)>>> = OnceLock::new();
 
 /// HL2-RS's own crates, whose info lines the console shows.
@@ -140,9 +153,22 @@ impl<S: tracing::Subscriber> Layer<S> for ToConsole {
     }
 }
 
-/// `LogPlugin::custom_layer`: queues log lines for the console.
-pub fn log_layer(_: &mut App) -> Option<BoxedLayer> {
-    Some(Box::new(ToConsole))
+/// `LogPlugin::custom_layer`: queues log lines for the console; trace builds add the Chrome trace
+/// layer, which starts writing with gameplay.
+pub fn log_layer(app: &mut App) -> Option<BoxedLayer> {
+    #[cfg(feature = "trace")]
+    {
+        let layers: Vec<BoxedLayer> = vec![
+            Box::new(ToConsole),
+            crate::performance::trace_writer::layer(app),
+        ];
+        Some(Box::new(layers))
+    }
+    #[cfg(not(feature = "trace"))]
+    {
+        let _ = app;
+        Some(Box::new(ToConsole))
+    }
 }
 
 /// The window cursor for a placement hint: resize arrows over the console's corner grips.
@@ -213,5 +239,30 @@ mod tests {
         ]);
         assert_eq!(names.targets, ["lab_door", "relay"]);
         assert_eq!(names.inputs, ["Trigger", "TurnOn"]);
+    }
+
+    #[test]
+    fn poll_installed_maps_applies_once_and_clears_receiver() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(vec![
+            "d1_trainstation_01".into(),
+            "d1_trainstation_02".into(),
+        ])
+        .unwrap();
+        let mut world = World::default();
+        world.insert_resource(InstalledMaps::default());
+        world.insert_resource(PendingInstalledMaps(Some(Mutex::new(rx))));
+        world.run_system_once(poll_installed_maps).unwrap();
+        assert_eq!(
+            world.resource::<InstalledMaps>().0,
+            ["d1_trainstation_01", "d1_trainstation_02"]
+        );
+        assert!(world.resource::<PendingInstalledMaps>().0.is_none());
+        world.run_system_once(poll_installed_maps).unwrap();
+        assert_eq!(
+            world.resource::<InstalledMaps>().0,
+            ["d1_trainstation_01", "d1_trainstation_02"]
+        );
     }
 }

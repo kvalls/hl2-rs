@@ -35,13 +35,65 @@ pub struct Attachment {
     pub local: glam::Mat4,
     pub world_align: bool,
 }
+/// Default SDK `studiohdr2_t::MaxEyeDeflection` (`cos(30 deg)` when omitted or zero).
+pub const DEFAULT_MAX_EYE_DEFLECTION: f32 = 0.866;
+
 #[derive(Clone, Debug)]
 pub struct Gaze {
     pub view_offset: Vec3,
     pub attachment: Option<Attachment>,
+    pub max_eye_deflection: f32,
 }
 pub fn load_gaze(vfs: &Vfs, model: &str) -> Result<Gaze> {
     decode_gaze(&vfs.read(model)?.context("gaze MDL absent")?)
+}
+fn read_max_eye_deflection(data: &[u8]) -> f32 {
+    let Ok(hdr2) = i32le(data, 400) else {
+        return DEFAULT_MAX_EYE_DEFLECTION;
+    };
+    let Ok(base) = usize::try_from(hdr2) else {
+        return DEFAULT_MAX_EYE_DEFLECTION;
+    };
+    // `studiohdr_t` ends at byte 408 (`studiohdr2index` at 400); `flMaxEyeDeflection` is at +12.
+    if base < 408 || base.checked_add(16).is_none_or(|end| end > data.len()) {
+        return DEFAULT_MAX_EYE_DEFLECTION;
+    }
+    let Ok(deflection) = f32le(data, base + 12) else {
+        return DEFAULT_MAX_EYE_DEFLECTION;
+    };
+    if deflection.is_finite() && deflection > 0. && deflection <= 1. {
+        deflection
+    } else {
+        DEFAULT_MAX_EYE_DEFLECTION
+    }
+}
+/// Clamp an eye view target into the model's `max_deflection` cone around `forward`
+/// (SDK C_BaseFlex::SetViewTarget), keeping a minimum forward depth of 6 units.
+pub fn clamp_view_target(origin: Vec3, forward: Vec3, target: Vec3, max_deflection: f32) -> Vec3 {
+    let forward = forward.normalize_or(Vec3::X);
+    let max_cos = if max_deflection.is_finite() && max_deflection > 0. && max_deflection <= 1. {
+        max_deflection
+    } else {
+        DEFAULT_MAX_EYE_DEFLECTION
+    };
+    let delta = target - origin;
+    if !delta.is_finite() {
+        return origin + forward * 6.;
+    }
+    let x = delta.dot(forward);
+    let lateral = delta - forward * x;
+    let front = forward * x.max(6.) + lateral;
+    let dist = front.length();
+    let mut dir = front / dist;
+    if dir.dot(forward) < max_cos {
+        let lat_sq = lateral.length_squared();
+        dir = if lat_sq > 1e-12 {
+            forward * max_cos + lateral * ((1. - max_cos * max_cos).max(0.) / lat_sq).sqrt()
+        } else {
+            forward
+        };
+    }
+    origin + dir * dist
 }
 fn decode_gaze(data: &[u8]) -> Result<Gaze> {
     validate_header(data)?;
@@ -53,6 +105,7 @@ fn decode_gaze(data: &[u8]) -> Result<Gaze> {
     Ok(Gaze {
         view_offset,
         attachment,
+        max_eye_deflection: read_max_eye_deflection(data),
     })
 }
 /// Every mstudioattachment_t: name, bone and bone-local 3x4 transform.
@@ -396,6 +449,47 @@ mod tests {
         assert!(decode_gaze(&missing).unwrap().attachment.is_none());
     }
     #[test]
+    fn max_eye_deflection_decodes_studiohdr2_and_clamps_view_target_cone() {
+        // Synthetic IDST header >= 408 bytes without studiohdr2 falls back to cos(30 deg).
+        let mut d = vec![0u8; 512];
+        d[..4].copy_from_slice(b"IDST");
+        d[4..8].copy_from_slice(&48i32.to_le_bytes());
+        d[76..80].copy_from_slice(&512i32.to_le_bytes());
+        assert_eq!(
+            decode_gaze(&d).unwrap().max_eye_deflection,
+            DEFAULT_MAX_EYE_DEFLECTION
+        );
+        // Valid studiohdr2index at 408 with zero flMaxEyeDeflection still uses default 0.866.
+        d[400..404].copy_from_slice(&408i32.to_le_bytes());
+        assert_eq!(
+            decode_gaze(&d).unwrap().max_eye_deflection,
+            DEFAULT_MAX_EYE_DEFLECTION
+        );
+        // Custom flMaxEyeDeflection at hdr2 + 12 (byte 420) is honored.
+        d[420..424].copy_from_slice(&0.707f32.to_le_bytes());
+        assert!((decode_gaze(&d).unwrap().max_eye_deflection - 0.707).abs() < 1e-6);
+
+        let origin = Vec3::new(10., 20., 30.);
+        let forward = Vec3::X;
+        // Within 30 deg: left unchanged when >= 6 units ahead.
+        let within = origin + Vec3::new(100., 20., 10.);
+        assert!((clamp_view_target(origin, forward, within, 0.866) - within).length() < 1e-4);
+        // Wide 60/75 deg and behind targets are clamped onto the max_deflection cone.
+        for wide in [
+            origin + Vec3::new(30., 80., 0.),
+            origin + Vec3::new(-40., 60., 15.),
+        ] {
+            let clamped = clamp_view_target(origin, forward, wide, 0.866);
+            let dir = (clamped - origin).normalize();
+            assert!((dir.dot(forward) - 0.866).abs() < 1e-4, "{dir:?}");
+            assert!(clamped.y > origin.y);
+        }
+        // Collinear target straight behind clamps forward cleanly at depth >= 6.
+        let behind = clamp_view_target(origin, forward, origin - forward * 50., 0.866);
+        assert!((behind - (origin + forward * 6.)).length() < 1e-4);
+    }
+
+    #[test]
     #[ignore = "requires owned installed HL2 actor MDLs"]
     fn owned_actor_gaze_attachments_match_bone_skeletons() {
         let vfs = Vfs::mount(&crate::install::discover().unwrap()).unwrap();
@@ -407,6 +501,12 @@ mod tests {
             "models/police.mdl",
         ] {
             let gaze = load_gaze(&vfs, model).unwrap();
+            assert!(
+                gaze.max_eye_deflection.is_finite()
+                    && (0.5..=1.0).contains(&gaze.max_eye_deflection),
+                "{model}: bad max_eye_deflection {}",
+                gaze.max_eye_deflection
+            );
             let attachment = gaze.attachment.expect(model);
             let rig = crate::animation::load(&vfs, model, &["idle_subtle".into()].into()).unwrap();
             assert!(attachment.bone < rig.bones.len(), "{model}");

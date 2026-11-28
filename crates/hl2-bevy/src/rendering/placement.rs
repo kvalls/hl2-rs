@@ -19,16 +19,15 @@ pub(super) fn place_entities(
     entities: &mut EntityPlacements,
     game: &crate::gameplay::Gameplay,
     sim: &crate::simulation::Simulation,
+    blend: Option<&crate::tick_blend::TickBlend>,
 ) {
     for (owner, mut transform, mut visibility, weapon) in entities {
-        let Some(state) = game.scene.states.get(owner.0) else {
+        // Physics props and brush movers blend across the tick like retail's.
+        let Some((origin, rotation)) = crate::tick_blend::drawn_pose(game, sim, blend, owner.0)
+        else {
             *visibility = Visibility::Hidden;
             continue;
         };
-        let (origin, rotation) = sim
-            .physics
-            .entity_pose(owner.0)
-            .unwrap_or((state.origin, state.rotation));
         let pose = entity_transform(origin, rotation);
         if *transform != pose {
             *transform = pose;
@@ -56,7 +55,7 @@ pub(crate) fn draw_hidden(
     };
     // A ragdolled NPC stays drawn (its bone-merged weapon does not).
     let ragdoll = game.scene.ragdoll_matrices.contains_key(&id);
-    (!s.visible || s.killed) && !(ragdoll && weapon.is_none())
+    !s.is_visible() && !(ragdoll && weapon.is_none())
         || ragdoll && weapon.is_some()
         || weapon.is_some_and(|w| {
             game.ai

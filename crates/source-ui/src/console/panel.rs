@@ -5,11 +5,15 @@
 //! command table, and turns the panel's [`Action`]s into what they do.
 
 mod entry;
+mod mouse;
+mod printed;
+pub use printed::{chat_label_end, Redirect};
+mod selection;
 mod snapshot;
 use super::command::{self, Context, Spec};
 use super::complete::{self, Completer};
 use super::dialog::{wrap, DialogLayout, Scaling, Selection, MIN_SIZE};
-use super::editing::edit_input;
+use super::editing::{edit_input, retail_shortcut_mod};
 use super::editor::LineEditor;
 use crate::canvas::{Canvas, Color, Rect, WHITE};
 use crate::font::FontFace;
@@ -17,7 +21,7 @@ use crate::input::{Input, Key};
 use crate::placement::{self, Placement};
 use crate::widgets::{
     close_button_rect, ButtonState, ButtonTracker, Fonts, FrameSpec, Painter, ScrollAccumulator,
-    ScrollBarLayout, ScrollBarState, ScrollMode, Theme, SCROLLBAR_WIDTH,
+    ScrollBarState, Theme, SCROLLBAR_WIDTH,
 };
 use glam::{vec2, Vec2};
 use serde::Serialize;
@@ -27,9 +31,18 @@ use std::sync::Mutex;
 
 /// Output lines kept for scrollback.
 pub const OUTPUT_LINES: usize = 1024;
-/// Warning and error lines (not in the scheme; the toolkit's own colors).
+/// Warning, error and chat lines (not in the scheme; the toolkit's own colors).
 const WARNING_TEXT: Color = Color::new(1.0, 0.8, 0.3, 1.0);
 const ERROR_TEXT: Color = Color::new(1.0, 0.4, 0.35, 1.0);
+const CHAT_LOCAL_TEXT: Color = Color::new(1.0, 0.92, 0.35, 1.0);
+/// Remote chat RGB shared by the console and its caption presentation.
+pub const CHAT_REMOTE_RGB: [u8; 3] = [115, 230, 255];
+const CHAT_REMOTE_TEXT: Color = Color::from_rgba(
+    CHAT_REMOTE_RGB[0],
+    CHAT_REMOTE_RGB[1],
+    CHAT_REMOTE_RGB[2],
+    255,
+);
 /// SDK `CConsolePanel` shows at most this many completion rows, the last one `...` when more.
 const COMPLETION_ROWS: usize = 10;
 /// History rows scrolled per mouse wheel notch.
@@ -46,6 +59,10 @@ const TAB_SPACES: usize = 8;
 /// Advance per EM of every character when the console font is missing.
 pub const NOMINAL_ADVANCE: f32 = 0.6;
 
+pub(super) fn console_em(scale: f32) -> f32 {
+    (CONSOLE_TEXT * scale) as u16 as f32
+}
+
 /// How a console line was printed, which picks its color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Level {
@@ -55,9 +72,13 @@ pub enum Level {
     Normal,
     /// Developer output (`DevMsg`, mirrored engine log): scheme `Console.DevTextColor`.
     Developer,
-    /// A snapshot the app replaces at the end ([`ConsolePanel::replace_snapshot`]) instead of
-    /// growing the scrollback.
+    /// A replaceable line added by [`ConsolePanel::replace_snapshot`], styled with ordinary
+    /// text color (`replace_snapshot_with_level` picks another level such as `ChatRemote`).
     Snapshot,
+    /// Local player chat line (`say` typed locally): yellow.
+    ChatLocal,
+    /// Remote console chat line (`say` from RCON): cyan.
+    ChatRemote,
     Warning,
     Error,
 }
@@ -249,10 +270,20 @@ pub struct ConsolePanel {
     pub output: VecDeque<Line>,
     /// Line number (since start) of `output[0]`: lines dropped from the front count on.
     pub output_start: u64,
-    /// Output rows selected by dragging over the history, copied by the copy shortcut.
+    /// Output span selected by dragging or double-clicking in the history, copied by copy.
     pub selection: Option<Selection>,
     /// A drag that started in the history is extending the selection.
     selecting: bool,
+    /// A drag that started in the input line is extending its selection.
+    entry_selecting: bool,
+    /// Leftmost visible character index in the input line (kept across drag auto-scroll).
+    entry_scroll: usize,
+    /// Last user interaction timestamp in the input line for caret blink reset.
+    entry_interaction: Option<f64>,
+    /// Multi-click timing tracker for entry (double/triple-click) and history (double-click).
+    click_streak: mouse::ClickStreak,
+    /// Anchor word captured on double-click so holding/dragging preserves and extends by word.
+    drag_word: mouse::WordAnchor,
     /// Where the dialog was dragged or resized.
     pub placement: Placement,
     /// Text the copy shortcut put on the clipboard, until the app takes it.
@@ -273,6 +304,13 @@ pub struct ConsolePanel {
     pub con_timestamp: bool,
     /// History rows scrolled back from the newest.
     pub scroll: usize,
+    /// Line number of the active replaceable snapshot kept at the tail of `output`, if any.
+    snapshot: Option<u64>,
+    /// Active `start_redirect` nesting count so redirected output is not repinned past the
+    /// snapshot.
+    redirecting: usize,
+    /// Lines printed since a reader last took them (`keep_printed`); `None` keeps nothing.
+    printed: Option<Vec<Line>>,
     /// Each output line's wrapped rows by line number, rebuilt when its shown text or the
     /// history width changes.
     wrapped: Mutex<HashMap<u64, Wrapped>>,
@@ -293,6 +331,11 @@ impl ConsolePanel {
             output_start: 0,
             selection: None,
             selecting: false,
+            entry_selecting: false,
+            entry_scroll: 0,
+            entry_interaction: None,
+            click_streak: mouse::ClickStreak::default(),
+            drag_word: mouse::WordAnchor::None,
             placement: Placement::default(),
             copied: None,
             buttons: ButtonTracker::capturing(),
@@ -305,6 +348,9 @@ impl ConsolePanel {
             con_filter_text: String::new(),
             con_timestamp: false,
             scroll: 0,
+            snapshot: None,
+            redirecting: 0,
+            printed: None,
             wrapped: Mutex::default(),
             ascii_advances: Mutex::default(),
             font: None,
@@ -312,37 +358,24 @@ impl ConsolePanel {
         }
     }
 
-    /// Prints a line at `level`, stamped with the current time.
-    pub fn print(&mut self, canvas: &Canvas, level: Level, text: impl Into<String>) {
-        self.output.push_back(Line {
-            level,
-            text: text.into(),
-            time: self.clock,
-        });
-        if self.output.len() > OUTPUT_LINES {
-            self.output.pop_front();
-            self.output_start += 1;
-        }
-        // Scrolled back, the view stays on its rows while new ones arrive below.
-        let number = self.output_start + self.output.len() as u64 - 1;
-        if let Some(line) = self
-            .output
-            .back()
-            .filter(|line| self.scroll > 0 && (self.con_filter != 1 || self.filter_match(line)))
-        {
-            self.scroll += self
-                .line_rows(number, line, self.wrap_metrics(canvas))
-                .len();
-        }
-    }
-
     /// Keyboard and pointer input of the focused console: editing keys, history scrolling,
     /// completion, copying, the dialog's placement and buttons. `completer` completes the line.
     pub fn input(&mut self, canvas: &Canvas, input: &Input, completer: &impl Completer) -> Action {
+        self.input_with(canvas, input, completer, |_, _| false)
+    }
+
+    /// Keyboard and pointer input with an optional extra-keys handler (used by plugins for
+    /// non-retail shortcuts; returns `true` when it consumed the frame's editing keys).
+    pub fn input_with(
+        &mut self,
+        canvas: &Canvas,
+        input: &Input,
+        completer: &impl Completer,
+        mut extra_keys: impl FnMut(&mut Self, &Input) -> bool,
+    ) -> Action {
         if let Some(time) = input.time {
             self.clock = time;
         }
-        // The caption and corner grips own the pointer before the history's row selection.
         let frame = self.frame(canvas);
         let placing =
             self.placement
@@ -352,22 +385,43 @@ impl ConsolePanel {
                 return action;
             }
         }
-        let ctrl_key = |name: &str| input.ctrl && input.binding_keys.iter().any(|k| k == name);
-        edit_input(&mut self.editor, input);
-        if input.pressed(Key::Home) {
-            if input.ctrl {
-                self.scroll = self.history_rows(canvas).len();
-            } else {
-                self.editor.navigate(Key::Home, false, input.shift);
+        let extra_handled = extra_keys(self, input);
+        if !extra_handled {
+            let cut_pressed = input.cut || (input.shift && input.pressed(Key::Delete));
+            if let Some(cut) = edit_input(&mut self.editor, input) {
+                self.copied = Some(cut);
+            } else if cut_pressed {
+                self.copied = self.selected_text();
+            }
+            if input.select_all {
+                self.selection = None;
+            }
+            let scroll_mod = retail_shortcut_mod(input, cfg!(target_os = "macos"));
+            if input.pressed(Key::Home) {
+                if scroll_mod {
+                    self.scroll = self.history_rows(canvas).len();
+                } else {
+                    self.editor.navigate(Key::Home, false, input.shift);
+                }
+            }
+            if input.pressed(Key::End) {
+                if scroll_mod {
+                    self.scroll = 0;
+                } else {
+                    self.editor.navigate(Key::End, false, input.shift);
+                }
             }
         }
-        if input.pressed(Key::End) {
-            if input.ctrl {
-                self.scroll = 0;
-            } else {
-                self.editor.navigate(Key::End, false, input.shift);
-            }
-        }
+        self.after_keyboard_input(canvas, input, completer, extra_handled)
+    }
+
+    fn after_keyboard_input(
+        &mut self,
+        canvas: &Canvas,
+        input: &Input,
+        completer: &impl Completer,
+        extra_handled: bool,
+    ) -> Action {
         if input.pressed(Key::PageUp) {
             self.scroll = (self.scroll + 10).min(self.history_rows(canvas).len().saturating_sub(1));
         }
@@ -391,11 +445,27 @@ impl ConsolePanel {
             }
         }
         if input.pressed(Key::Tab) {
+            if self.editor.browsing_history() {
+                self.editor.stop_history_browse();
+                self.editor.refresh(completer);
+            }
             self.editor.step(input.shift, true);
             self.editor.refresh(completer);
         }
-        if ctrl_key("KeyL") {
-            self.clear_output();
+        let touched_entry = extra_handled
+            || !input.text.is_empty()
+            || input.paste.is_some()
+            || input.cut
+            || input.undo
+            || input.select_all
+            || input
+                .keys
+                .iter()
+                .any(|k| !matches!(k, Key::PageUp | Key::PageDown | Key::Enter));
+        if touched_entry {
+            if let Some(time) = input.time {
+                self.entry_interaction = Some(time);
+            }
         }
         if input.copy {
             self.copied = self
@@ -407,6 +477,7 @@ impl ConsolePanel {
         if input.pressed(Key::Enter) {
             let line = self.editor.submit();
             self.scroll = 0;
+            self.entry_scroll = 0;
             return Action::Submit {
                 line,
                 clicked: false,
@@ -415,117 +486,16 @@ impl ConsolePanel {
         Action::None
     }
 
-    /// Pointer input of the console dialog: the close and Submit buttons, the history scroll
-    /// bar, the wheel, and dragging over history rows to select them. `Some` when a button
-    /// ended this frame's input (the console closes, or the line is submitted).
-    fn pointer_input(&mut self, canvas: &Canvas, input: &Input) -> Option<Action> {
-        let layout = self.dialog_layout(canvas);
-        let view = HistoryView::new(&layout);
-        let point = input.pointer.map(|p| layout.local(p));
-        let down = input.click || input.held;
-        let rows: Vec<u64> = self
-            .history_rows(canvas)
-            .iter()
-            .map(|row| row.number)
-            .collect();
-        let total = rows.len();
-        let max_scroll = total.saturating_sub(view.rows);
-        let mode = ScrollMode::platform();
-        let steps = self.history_wheel.steps(input.wheel, mode) as i64
-            * mode.rows_per_step(WHEEL_ROWS) as i64;
-        self.scroll = (self.scroll as i64 + steps).clamp(0, max_scroll as i64) as usize;
-        self.scroll = self.scroll.min(max_scroll);
-        let first = total - view.rows.min(total) - self.scroll;
-        let bar = ScrollBarLayout::new(view.bar, first, view.rows, total);
-        if !self.selecting && self.history_bar.wants(&bar, point, input.click) {
-            if let Some(first) = self.history_bar.pointer(
-                &bar,
-                point,
-                down,
-                input.click,
-                input.time,
-                first,
-                view.rows,
-            ) {
-                self.scroll = max_scroll.saturating_sub(first);
-            }
-            self.buttons.occlude(down);
-            self.hover = None;
-            return None;
-        }
-        let hovered = point.and_then(|p| {
-            [
-                (ConsoleButton::Close, layout.close),
-                (ConsoleButton::Submit, layout.submit),
-            ]
-            .into_iter()
-            .find(|(_, rect)| rect.contains(p))
-            .map(|(button, _)| button)
-        });
-        if self.selecting {
-            self.buttons.occlude(down);
-            self.hover = None;
-        } else {
-            self.hover = hovered;
-            match self
-                .buttons
-                .update(hovered, down, input.click, input.released)
-            {
-                Some(ConsoleButton::Close) => {
-                    self.hover = None;
-                    return Some(Action::Close);
-                }
-                Some(ConsoleButton::Submit) => {
-                    let line = self.editor.submit();
-                    self.scroll = 0;
-                    return Some(Action::Submit {
-                        line,
-                        clicked: true,
-                    });
-                }
-                None => {}
-            }
-        }
-        if let Some(p) = point {
-            if input.click && layout.entry.contains(p) {
-                self.selection = None;
-            }
-            if input.click && hovered.is_none() && view.text.contains(p) {
-                self.editor.clear_selection();
-                self.selecting = true;
-                self.selection = view
-                    .row_at(p.y, false)
-                    .and_then(|row| rows.get(first + row))
-                    .map(|number| Selection::at(*number));
-            } else if self.selecting && down {
-                // Dragging past the top or bottom scrolls the history a row per frame.
-                if p.y < view.text.y {
-                    self.scroll = (self.scroll + 1).min(max_scroll);
-                } else if p.y > view.text.y + view.text.h {
-                    self.scroll = self.scroll.saturating_sub(1);
-                }
-                let first = total - view.rows.min(total) - self.scroll;
-                let row = view.row_at(p.y, true).unwrap_or(0);
-                let line = rows.get(first + row).or(rows.last()).copied();
-                if let (Some(selection), Some(line)) = (self.selection.as_mut(), line) {
-                    selection.head = line;
-                }
-            }
-        }
-        if !down {
-            self.selecting = false;
-        }
-        None
-    }
-
-    /// Empties the history (`clear`, Ctrl+L). Line numbers keep counting, so nothing printed
-    /// later can take a selected line's number.
+    /// Empties the history (`clear`). Line numbers keep counting, so nothing printed later can
+    /// take a selected line's number.
     pub fn clear_output(&mut self) {
         self.output_start += self.output.len() as u64;
         self.output.clear();
         self.scroll = 0;
+        self.snapshot = None;
         self.selection = None;
         self.selecting = false;
+        self.drag_word = mouse::WordAnchor::None;
     }
 
     /// The console dialog's frame: retail placement and minimum size, sizeable by its corners.
@@ -639,8 +609,7 @@ impl ConsolePanel {
         rows
     }
 
-    /// The history's rows: the shown lines wrapped to its width at word boundaries, a row for
-    /// each line of text that holds newlines.
+    /// The console's history rows (without any selection helper).
     pub fn history_rows(&self, canvas: &Canvas) -> Vec<HistoryRow<'_>> {
         let metrics = self.wrap_metrics(canvas);
         self.shown_lines()
@@ -651,18 +620,6 @@ impl ConsolePanel {
                     .map(move |text| HistoryRow { number, line, text })
             })
             .collect()
-    }
-
-    /// The selected history lines as text, one line each and whole however they wrap.
-    fn selected_text(&self) -> Option<String> {
-        let selection = self.selection?;
-        let lines: Vec<String> = self
-            .shown_lines()
-            .into_iter()
-            .filter(|(number, _)| selection.contains(*number))
-            .map(|(_, line)| self.shown_text(line))
-            .collect();
-        (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
     /// Text the copy shortcut copied from the history, for the app to put on the clipboard.
@@ -699,6 +656,8 @@ impl ConsolePanel {
             Level::Input | Level::Normal => self.style.text,
             Level::Developer => self.style.dev_text,
             Level::Snapshot => self.style.text,
+            Level::ChatLocal => CHAT_LOCAL_TEXT,
+            Level::ChatRemote => CHAT_REMOTE_TEXT,
             Level::Warning => WARNING_TEXT,
             Level::Error => ERROR_TEXT,
         }
@@ -744,39 +703,25 @@ impl ConsolePanel {
         );
 
         // History (`RichText`, `DepressedButtonBorder`): filtered, wrapped, scrolled, one color
-        // per level, the rows of selected lines highlighted.
+        // per level, selected characters highlighted.
         painter.fill(layout.history, self.style.entry);
         painter.sunken(layout.history);
         let view = HistoryView::new(&layout);
-        let history = self.history_rows(canvas);
-        let rows = view.rows.min(history.len());
-        let scroll = self.scroll.min(history.len() - rows);
-        let first = history.len() - rows - scroll;
-        let area = layout.canvas(view.text);
-        let row = CONSOLE_ROW * scale;
-        for (i, shown) in history[first..first + rows].iter().enumerate() {
-            let top = area.y + i as f32 * row;
-            let selected = self.selection.is_some_and(|s| s.contains(shown.number));
-            let color = if selected {
-                canvas.rectangle(area.x, top, area.w, row, self.style.selected_bg);
-                self.style.selected_text
-            } else {
-                self.line_color(shown.line)
-            };
-            let content = self.shown_text(shown.line)[shown.text.clone()]
-                .replace('\t', &" ".repeat(TAB_SPACES));
-            text(&content, area.x, top + row - CONSOLE_DESCENT * scale, color);
-        }
+        let history_len = self.history_rows(canvas).len();
+        let rows = view.rows.min(history_len);
+        let scroll = self.scroll.min(history_len - rows);
+        let first = history_len - rows - scroll;
+        selection::draw_history_rows(self, canvas, &layout, &view, &text);
         painter.scroll_bar(
             view.bar,
             first,
             view.rows,
-            history.len(),
+            history_len,
             self.history_bar.pressed(),
         );
 
-        self.draw_entry(&painter, &layout, look, time, &text);
         let entry = layout.canvas(layout.entry);
+        self.draw_entry(&painter, &layout, look, time, &text);
         painter.button(
             layout.submit,
             look.submit,
@@ -832,7 +777,7 @@ impl ConsolePanel {
         let cvar_value = |name: &str| command::find(commands, name)?.value?(context);
         let mut rows: Vec<Vec<(String, Color)>> = Vec::new();
         let mut highlighted = None;
-        if self.editor.search().is_none() {
+        if self.editor.search().is_none() && !self.editor.browsing_history() {
             if let Some(help) = complete::arg_help(self.editor.text(), commands) {
                 let mut runs = vec![(help.name.to_owned(), theme.text)];
                 for (i, arg) in help.args.iter().enumerate() {
@@ -998,13 +943,13 @@ mod tests {
         canvas.y
     }
 
-    const SCALING: Scaling = Scaling {
+    pub(super) const SCALING: Scaling = Scaling {
         dialog_scale,
         design_height,
     };
 
     /// An app whose console completes nothing.
-    struct Nothing;
+    pub(super) struct Nothing;
 
     impl Completer for Nothing {
         fn complete(&self, _: &str) -> Completion {
@@ -1215,7 +1160,7 @@ mod tests {
         for text in ["one", "two", "three"] {
             panel.print(&canvas, Level::Normal, text);
         }
-        panel.selection = Some(Selection { anchor: 2, head: 1 });
+        panel.selection = Some(Selection::lines(2, 1));
         let copy = Input {
             copy: true,
             ..Default::default()
@@ -1296,4 +1241,124 @@ mod tests {
             "scaled caret quad at 1440p (scale 2.0) must have width 2.0"
         );
     }
+
+    #[test]
+    fn chat_levels_use_distinct_colors() {
+        let panel = ConsolePanel::new(SCALING);
+        let line = |level| Line {
+            level,
+            text: String::new(),
+            time: 0.0,
+        };
+        assert_eq!(panel.line_color(&line(Level::ChatLocal)), CHAT_LOCAL_TEXT);
+        assert_eq!(panel.line_color(&line(Level::ChatRemote)), CHAT_REMOTE_TEXT);
+        assert_ne!(CHAT_LOCAL_TEXT, CHAT_REMOTE_TEXT);
+        assert_ne!(CHAT_LOCAL_TEXT, panel.style.text);
+        assert_ne!(CHAT_REMOTE_TEXT, panel.style.text);
+        assert_eq!(
+            printed::chat_label_end(Level::ChatLocal, "[ 12.34] Player: hi"),
+            Some("[ 12.34] Player:".len())
+        );
+        assert_eq!(
+            printed::chat_label_end(Level::ChatRemote, "Console: hello"),
+            Some("Console:".len())
+        );
+        assert_eq!(printed::chat_label_end(Level::Normal, "Player: hi"), None);
+    }
+
+    #[test]
+    fn history_browsing_hides_completion_and_arg_help_until_tab_or_edit() {
+        let canvas = Canvas::default();
+        canvas.resize(1280., 720.);
+        let mut panel = ConsolePanel::new(SCALING);
+        struct App;
+        impl Context for App {
+            type Effect = ();
+            type Names = ();
+        }
+        impl Completer for App {
+            fn complete(&self, line: &str) -> complete::Completion {
+                let items = if "map".starts_with(line) && !line.is_empty() {
+                    vec![complete::Candidate {
+                        text: "map".into(),
+                        detail: String::new(),
+                    }]
+                } else {
+                    Vec::new()
+                };
+                complete::Completion {
+                    head: String::new(),
+                    items,
+                }
+            }
+        }
+        let app = App;
+        let commands = [Spec {
+            name: "map",
+            help: "map <levelname>: load a map",
+            args: &[super::command::Arg::Free],
+            run: |_, _, _| Ok(None),
+            value: None,
+            setting: None,
+        }];
+        let theme = Theme::default();
+
+        panel.input(
+            &canvas,
+            &Input {
+                text: "map d1_trainstation_01".into(),
+                keys: [Key::Enter].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        panel.input(&canvas, &typed("unsent"), &app);
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Up].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        assert_eq!(panel.editor.text(), "map d1_trainstation_01");
+        assert!(panel
+            .completion_bounds(&canvas, &theme, &commands, &app)
+            .is_none());
+
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Down].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        assert_eq!(panel.editor.text(), "unsent");
+
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Up].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        panel.input(
+            &canvas,
+            &Input {
+                keys: [Key::Tab].into(),
+                ..Default::default()
+            },
+            &app,
+        );
+        assert!(panel
+            .completion_bounds(&canvas, &theme, &commands, &app)
+            .is_some());
+    }
+}
+
+#[cfg(test)]
+pub(super) mod test_helpers {
+    pub(super) use super::tests::Nothing;
 }

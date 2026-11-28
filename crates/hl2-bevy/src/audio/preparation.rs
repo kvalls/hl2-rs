@@ -53,17 +53,17 @@ impl PreparedAudio {
             cues::FIXED
                 .iter()
                 .copied()
-                .chain(hl2_simulation::ai::zombie::SOUNDS.iter().copied())
-                .chain(hl2_simulation::ai::zombie::fast::SOUNDS.iter().copied())
-                .chain(hl2_simulation::ai::headcrab::SOUNDS.iter().copied())
-                .chain(hl2_simulation::ai::barnacle::SOUNDS.iter().copied())
-                .chain(hl2_simulation::ai::bird::SOUNDS.iter().copied())
-                .chain(hl2_simulation::ai::manhack::SOUNDS.iter().copied())
-                .chain(hl2_simulation::ai::scanner::SOUNDS.iter().copied())
                 .chain(hl2_simulation::fire::SOUNDS.iter().copied())
                 .chain(hl2_simulation::impact_damage::SOUNDS.iter().copied())
                 .map(str::to_owned),
         );
+        for entity in &game.world.entities {
+            cues.extend(
+                super::late::class_sound_cues(entity.class())
+                    .into_iter()
+                    .map(str::to_owned),
+            );
+        }
         let mut paths = BTreeSet::new();
         let mut looped: BTreeSet<String> = ambient
             .values()

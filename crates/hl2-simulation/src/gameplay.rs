@@ -1,5 +1,7 @@
 //! Partial HL2 weapon behavior, reconstructed from installed scripts and the singleplayer SDK.
 //! Projectile attacks queue actual moving projectiles, independently of hitscan fire.
+mod pickups;
+mod weapon_script;
 use crate::{
     entities::{NpcDamage, Scene},
     physics::Physics,
@@ -8,12 +10,14 @@ use crate::{
 use anyhow::{Context, Result};
 use glam::Vec3;
 use modkit_core::World;
+use pickups::ammo_pickup;
 use serde::{Deserialize, Serialize};
 use source_assets::{keyvalues, vpk::Vfs};
 use std::collections::BTreeMap;
 
 mod health;
 mod hits;
+mod rebase;
 pub use health::{npc_health, npc_max_health, npc_spawn_health};
 pub use hits::{breakable_health, prop_data_of};
 
@@ -26,6 +30,7 @@ pub struct Weapon {
     pub slot_position: usize,
     pub icon: String,
     pub viewmodel: String,
+    pub world_model: String,
     pub magazine: i32,
     pub default_clip: i32,
     pub ammo_type: String,
@@ -95,15 +100,7 @@ pub fn definitions(vfs: &Vfs) -> Result<BTreeMap<String, Weapon>> {
         let script = keyvalues::parse(&String::from_utf8_lossy(&data))?;
         let root = script.first().context("empty weapon script")?;
         let value = |key| root.get(key).and_then(|e| e.text());
-        let sounds = root
-            .get("SoundData")
-            .map(|e| {
-                e.children()
-                    .iter()
-                    .filter_map(|entry| entry.text().map(|sound| (entry.key.clone(), sound.into())))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let sounds = weapon_script::sounds(root);
         let magazine: i32 = value("clip_size").context("clip size absent")?.parse()?;
         let ammo_type = value("primary_ammo").unwrap_or("None");
         let secondary_ammo_type = value("secondary_ammo").unwrap_or("None");
@@ -144,6 +141,10 @@ pub fn definitions(vfs: &Vfs) -> Result<BTreeMap<String, Weapon>> {
                     .unwrap_or_default()
                     .into(),
                 viewmodel: value("viewmodel").context("viewmodel absent")?.into(),
+                world_model: value("playermodel")
+                    .unwrap_or_default()
+                    .replace('\\', "/")
+                    .to_ascii_lowercase(),
                 weight: value("weight").and_then(|s| s.parse().ok()).unwrap_or(0),
                 no_autoswitch_to: value("autoswitchto").is_some_and(|s| s.trim() == "0"),
                 no_autoswitch_from: value("autoswitchfrom").is_some_and(|s| s.trim() == "0"),
@@ -506,34 +507,6 @@ impl Default for Inventory {
     }
 }
 impl Inventory {
-    /// Retain remaining weapon deadlines when the destination map resets scene time.
-    /// Transient hit/spawn queues and held input belong to the old world.
-    pub fn rebase_clock(&mut self, old: f64, new: f64) {
-        let delta = new - old;
-        self.animation_at += delta;
-        self.next_attack += delta;
-        self.owner_attack_until += delta;
-        self.soonest_attack += delta;
-        self.last_shot += delta;
-        for time in self.next_secondary.values_mut() {
-            *time += delta;
-        }
-        for empty in self.empty_fire.values_mut() {
-            empty.next_sound += delta;
-        }
-        if let Some(time) = &mut self.ar2_charge_until {
-            *time += delta;
-        }
-        if let Some(reload) = &mut self.reload {
-            reload.at += delta;
-        }
-        self.impacts.clear();
-        self.blood.clear();
-        self.projectile_spawns.clear();
-        self.attack_input = None;
-        self.holding_attack = false;
-    }
-
     pub fn reserve_for(&self, class: &str, weapons: &BTreeMap<String, Weapon>) -> i32 {
         weapons
             .get(class)
@@ -2267,27 +2240,24 @@ pub struct NpcHitReport {
 /// Studio hitbox poses for this tick (the entity collider pose stage): every NPC with
 /// hitboxes takes its animated skeleton; dead/hidden ones are disabled.
 pub fn pose_npc_hitboxes(world: &World, scene: &Scene, physics: &mut Physics) {
-    for (id, key) in physics.studio_hitbox_entities() {
-        let Some(state) = scene.states.get(id) else {
-            continue;
-        };
+    physics.pose_studio_hitboxes(|id, key| {
+        let state = scene.states.get(id)?;
         let enabled = state.collides();
         let skin = if enabled {
             world
                 .rigs
-                .get(&key)
-                .map(|rig| scene.actor_matrices(rig, id))
+                .get(key)
+                .map(|rig| scene.actor_matrices_of(rig, id, Some(&rig.hitbox_bones())))
                 .unwrap_or_default()
         } else {
             Vec::new()
         };
-        physics.set_npc_hitboxes(
-            id,
+        Some((
             glam::Mat4::from_rotation_translation(state.rotation, state.origin),
-            &skin,
             enabled,
-        );
-    }
+            skin,
+        ))
+    });
 }
 /// CBaseEntity::TraceBleed for a bullet/club hit on an NPC: 1/2/4 traces (damage
 /// < 10 / < 25 / more) continuing the shot direction with +/-0.1/0.2/0.3 noise per
@@ -2805,23 +2775,5 @@ fn fallback_duration(class: &str, animation: &str) -> f64 {
         _ => 0.5,
     }
 }
-// SDK items.h/item_ammo.cpp quantities/aliases; difficulty scaling and crates remain separate.
-fn ammo_pickup(class: &str) -> Option<(&'static str, i32)> {
-    Some(match class {
-        "item_ammo_pistol" | "item_box_srounds" => ("Pistol", 20),
-        "item_ammo_pistol_large" | "item_large_box_srounds" => ("Pistol", 100),
-        "item_ammo_smg1" | "item_box_mrounds" => ("SMG1", 45),
-        "item_ammo_smg1_large" | "item_large_box_mrounds" => ("SMG1", 225),
-        "item_ammo_ar2" | "item_box_lrounds" => ("AR2", 20),
-        "item_ammo_ar2_large" | "item_large_box_lrounds" => ("AR2", 100),
-        "item_ammo_357" => ("357", 6),
-        "item_ammo_357_large" => ("357", 20),
-        "item_box_buckshot" => ("Buckshot", 20),
-        "item_ammo_smg1_grenade" => ("SMG1_Grenade", 1),
-        "item_ammo_ar2_altfire" => ("AR2AltFire", 1),
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 mod tests;

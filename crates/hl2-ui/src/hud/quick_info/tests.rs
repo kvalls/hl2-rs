@@ -93,9 +93,12 @@ fn owned_quickinfo_arcs_center_on_crosshair_across_layouts_and_states() {
                     (arcs.center().x - viewport.x * 0.5).abs() < 0.01,
                     "horizontal arc center: {viewport:?} {aspect:?}: {arcs:?}"
                 );
+                // Both follow CHudCrosshair::GetDrawPosition, but the crosshair rounds it
+                // (`(int)(y + 0.5f)`) and quick info truncates it (`(int)fY`), so at an odd
+                // height they sit a pixel apart, plus half a pixel of the glyph's odd bitmap.
                 assert!(
-                    (arcs.center().y - crosshair_center.y).abs() <= 1.,
-                    "arc and weapon crosshair must align"
+                    (arcs.center().y - crosshair_center.y).abs() <= 1.5,
+                    "arc and weapon crosshair must align: {viewport:?} {aspect:?} health={health} clip={clip}: arcs {arcs:?} crosshair {crosshair_center:?}"
                 );
                 for right in [false, true] {
                     let side: Vec<_> = arc_quads

@@ -1,5 +1,5 @@
 //! Bounded-resolution world filter; the full-resolution weapon path is unchanged.
-use super::{Pipelines, Textures, draw, pipeline};
+use super::{Pipelines, Textures, draw, draw_region, pipeline};
 use bevy::render::{
     render_resource::{
         BindGroup, BindGroupEntries, CachedRenderPipelineId, PipelineCache, TextureFormat,
@@ -102,8 +102,8 @@ pub(super) fn reconstruct(
     target: &ViewTarget,
     textures: &Textures,
     prepared: &super::Prepared,
-    world: &Prepared,
-    composite: &BindGroup,
+    (world, composite): (&Prepared, &BindGroup),
+    gather_scissor: Option<[u32; 4]>,
 ) {
     if prepared._buffer.get().flags.x > 0. {
         draw(
@@ -115,7 +115,7 @@ pub(super) fn reconstruct(
             "world_motion_blur",
         );
     }
-    draw(
+    draw_region(
         ctx,
         cache,
         world.pipelines[3],
@@ -126,6 +126,7 @@ pub(super) fn reconstruct(
             .expect("world object gather")
             .default_view,
         "world_object_gather",
+        gather_scissor,
     );
     let write = target.post_process_write();
     draw(

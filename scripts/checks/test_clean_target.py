@@ -31,17 +31,18 @@ class CleanTargetTests(unittest.TestCase):
                                         dry_run=dry_run))
 
     def test_incremental_pruning_preserves_third_party_and_newest_workspace_cache(self):
-        old = self.artifact("debug/incremental/hl2_ui-aaa/cache", 100)
-        newest = self.artifact("debug/incremental/hl2_ui-bbb/cache", 200)
-        unrelated = [self.artifact(f"debug/incremental/third_party-{h}/cache", t)
-                     for h, t in (("aaa", 100), ("bbb", 200))]
-        self.clean()
-        self.assertFalse(old.exists())
-        for path in [newest, *unrelated]:
-            self.assertEqual(path.read_bytes(), b"cache fixture")
+        for profile in ("debug", "release"):
+            old = self.artifact(f"{profile}/incremental/hl2_ui-aaa/cache", 100)
+            newest = self.artifact(f"{profile}/incremental/hl2_ui-bbb/cache", 200)
+            unrelated = [self.artifact(f"{profile}/incremental/third_party-{h}/cache", t)
+                         for h, t in (("aaa", 100), ("bbb", 200))]
+            self.clean()
+            self.assertFalse(old.exists())
+            for path in [newest, *unrelated]:
+                self.assertEqual(path.read_bytes(), b"cache fixture")
 
     def test_dependency_pruning_preserves_third_party_and_profile_retention(self):
-        for profile, retained in (("debug", 2), ("release", 1)):
+        for profile, retained in (("debug", 2), ("release", 2), ("dist", 1)):
             workspace, unrelated = [], []
             for index in range(3):
                 suffix = f"{index:016x}.rlib"
@@ -58,6 +59,33 @@ class CleanTargetTests(unittest.TestCase):
                   for i in range(2)]
         self.clean(dry_run=True)
         self.assertTrue(all(p.read_bytes() == b"cache fixture" for p in paths))
+
+    @unittest.skipIf(os.name == "nt" or shutil.which("bash") is None, "POSIX build script")
+    def test_build_script_cleans_first_unless_opted_out(self):
+        repo = Path(__file__).resolve().parents[2]
+        shutil.copy2(repo / "scripts/build-bevy.sh", self.root / "build-bevy.sh")
+        (self.root / "scripts").mkdir()
+        shutil.move(str(self.root / "build-bevy.sh"), self.root / "scripts/build-bevy.sh")
+        shader = self.root / "crates/hl2-bevy/assets/fixture.wgsl"
+        shader.parent.mkdir(parents=True)
+        shader.write_text("fixture", encoding="utf-8")
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir()
+        for path, body in (("scripts/clean-target.sh", "touch cleaner-ran\n"),
+                           ("fake-bin/cargo", "touch cargo-ran\n")):
+            script = self.root / path
+            script.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+            script.chmod(0o755)
+        env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+        for flags, cleans in (([], True), (["--no-clean"], False), (["--debug"], True)):
+            with self.subTest(flags=flags):
+                for marker in ("cleaner-ran", "cargo-ran"):
+                    (self.root / marker).unlink(missing_ok=True)
+                # The fake cargo builds nothing, so packaging fails after the build step.
+                subprocess.run(["bash", "scripts/build-bevy.sh", *flags], cwd=self.root, env=env,
+                               capture_output=True, text=True, timeout=15)
+                self.assertTrue((self.root / "cargo-ran").exists())
+                self.assertEqual((self.root / "cleaner-ran").exists(), cleans)
 
     @unittest.skipIf(os.name == "nt" or shutil.which("bash") is None, "POSIX launcher")
     def test_launcher_default_cleaning_and_opt_out(self):
@@ -82,12 +110,16 @@ class CleanTargetTests(unittest.TestCase):
                 run = subprocess.run(["bash", "launch-bevy.sh", *flags, "--map", "fixture"],
                                      cwd=self.root, capture_output=True, text=True, timeout=15)
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-                self.assertEqual((self.root / "cleaner-ran").exists(), cleans)
+                # The build script cleans; the launcher only passes the opt-out on.
+                self.assertFalse((self.root / "cleaner-ran").exists())
                 self.assertEqual((self.root / "game-args").read_text().splitlines(), ["--map", "fixture"])
                 built = self.root / "build-args"
                 self.assertEqual(built.exists(), "--no-build" not in flags)
-                if "--debug" in flags:
-                    self.assertEqual(built.read_text().splitlines(), ["--debug"])
+                if built.exists():
+                    args = built.read_text().splitlines()
+                    self.assertEqual("--no-clean" not in args, cleans)
+                    if "--debug" in flags:
+                        self.assertIn("--debug", args)
 
 
 if __name__ == "__main__":

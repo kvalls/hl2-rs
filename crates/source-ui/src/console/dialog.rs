@@ -244,26 +244,97 @@ fn wrap_segment(
     }
 }
 
-/// Selected output rows, by line number since the console started, so a selection stays on its
-/// lines while new output arrives and old lines scroll out of the buffer.
+/// Position inside a history output line: line number since start and UTF-8 byte offset into
+/// its shown text (`usize::MAX` for end-of-line).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HistoryPos {
+    pub line: u64,
+    pub offset: usize,
+}
+
+impl HistoryPos {
+    pub const fn new(line: u64, offset: usize) -> Self {
+        Self { line, offset }
+    }
+}
+
+fn snap_char_boundary(text: &str, offset: usize) -> usize {
+    let mut i = offset.min(text.len());
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Selected output span, by line number since the console started and UTF-8 byte offset, so a
+/// selection stays on its lines while new output arrives and old lines scroll out of the buffer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Selection {
     /// Where the drag started, and where it is now.
-    pub anchor: u64,
-    pub head: u64,
+    pub anchor: HistoryPos,
+    pub head: HistoryPos,
 }
 
 impl Selection {
-    pub fn at(line: u64) -> Self {
+    pub const fn at_pos(pos: HistoryPos) -> Self {
         Self {
-            anchor: line,
-            head: line,
+            anchor: pos,
+            head: pos,
         }
     }
 
-    /// Whether `line` is selected.
+    pub const fn at(line: u64) -> Self {
+        Self::lines(line, line)
+    }
+
+    pub const fn lines(anchor: u64, head: u64) -> Self {
+        if anchor <= head {
+            Self {
+                anchor: HistoryPos::new(anchor, 0),
+                head: HistoryPos::new(head, usize::MAX),
+            }
+        } else {
+            Self {
+                anchor: HistoryPos::new(anchor, usize::MAX),
+                head: HistoryPos::new(head, 0),
+            }
+        }
+    }
+
+    /// Ordered `(start, end)` endpoints.
+    pub fn ordered(self) -> (HistoryPos, HistoryPos) {
+        if self.anchor <= self.head {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.anchor == self.head
+    }
+
+    /// Whether `line` falls inside this selection.
     pub fn contains(&self, line: u64) -> bool {
-        (self.anchor.min(self.head)..=self.anchor.max(self.head)).contains(&line)
+        let (start, end) = self.ordered();
+        (start.line..=end.line).contains(&line)
+    }
+
+    /// Selected UTF-8 byte range inside `text` for `line`, or `None` when empty or out of span.
+    pub fn line_range(&self, line: u64, text: &str) -> Option<Range<usize>> {
+        if self.is_empty() || !self.contains(line) {
+            return None;
+        }
+        let (start, end) = self.ordered();
+        let raw_start = if line == start.line { start.offset } else { 0 };
+        let raw_end = if line == end.line {
+            end.offset
+        } else {
+            text.len()
+        };
+        let s = snap_char_boundary(text, raw_start);
+        let e = snap_char_boundary(text, raw_end);
+        Some(s.min(e)..s.max(e))
     }
 }
 
@@ -273,14 +344,22 @@ mod tests {
 
     #[test]
     fn selections_cover_their_span_in_either_direction() {
-        let down = Selection { anchor: 3, head: 5 };
-        let up = Selection { anchor: 5, head: 3 };
+        let down = Selection::lines(3, 5);
+        let up = Selection::lines(5, 3);
         for selection in [down, up] {
             assert!(!selection.contains(2));
             assert!((3..=5).all(|line| selection.contains(line)));
             assert!(!selection.contains(6));
+            assert_eq!(selection.line_range(4, "hello"), Some(0..5));
         }
         assert!(Selection::at(7).contains(7));
+        let partial = Selection {
+            anchor: HistoryPos::new(2, 4),
+            head: HistoryPos::new(2, 1),
+        };
+        assert_eq!(partial.line_range(2, "abcdef"), Some(1..4));
+        let empty = Selection::at_pos(HistoryPos::new(2, 3));
+        assert_eq!(empty.line_range(2, "abcdef"), None);
     }
 
     /// `text` wrapped `width` characters wide, one unit per character.

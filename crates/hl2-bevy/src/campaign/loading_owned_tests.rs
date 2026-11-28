@@ -11,9 +11,11 @@ pub(super) fn init_map_assets(app: &mut App) -> &mut App {
     app.init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<crate::rendering::SourceMaterial>>()
         .init_resource::<Assets<Image>>()
-        .init_resource::<Assets<bevy::audio::AudioSource>>()
+        .init_resource::<Assets<crate::audio::mixer::MixerStream>>()
         .init_resource::<Assets<crate::effects::EffectMaterial>>()
+        .init_resource::<Assets<bevy::render::storage::ShaderBuffer>>()
         .init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
+        .init_resource::<crate::material_slots::MaterialSlots>()
 }
 
 #[test]
@@ -94,7 +96,11 @@ fn displayed_background_late_audio_is_cancelled_by_gameplay_and_background_repla
             app.world().get_entity(old_map_entity).is_err(),
             "old scene entity replaced"
         );
-        assert!(!app.world().resource::<Simulation>().loading());
+        // The loading screen holds over the new map until its pipelines are compiled.
+        while app.world().resource::<Simulation>().loading() {
+            assert!(Instant::now() < deadline, "reveal timeout");
+            app.update();
+        }
         let mut query = app
             .world_mut()
             .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<super::MapOwned>>();

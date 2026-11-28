@@ -23,6 +23,11 @@ pub fn clear(cell: &mut Vec<f32>, n: u32) {
     cell.resize((n * n) as usize, 0.);
 }
 
+/// Where a world point lies in an `n`-texel cell, in texels.
+pub fn project(frame: &Frame, n: u32, point: Vec3) -> Vec2 {
+    frame.uv(point) * n as f32
+}
+
 /// Adds one world-space triangle to the cell; `alpha` gives its coverage at a texture coordinate
 /// (`None`: opaque).
 pub fn draw(
@@ -32,8 +37,19 @@ pub fn draw(
     (points, uvs): ([Vec3; 3], [Vec2; 3]),
     alpha: Option<&dyn Fn(Vec2) -> f32>,
 ) {
+    let corners = points.map(|point| project(frame, n, point));
+    draw_projected(cell, n, (corners, uvs), alpha);
+}
+
+/// [`draw`] for corners already placed by [`project`]: a mesh projects each vertex once,
+/// however many triangles share it.
+pub fn draw_projected(
+    cell: &mut [f32],
+    n: u32,
+    (p, uvs): ([Vec2; 3], [Vec2; 3]),
+    alpha: Option<&dyn Fn(Vec2) -> f32>,
+) {
     let scale = n as f32;
-    let p = points.map(|p| frame.uv(p) * scale);
     let area = (p[1] - p[0]).perp_dot(p[2] - p[0]);
     if area.abs() < 1e-9 || !area.is_finite() {
         return;

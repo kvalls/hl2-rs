@@ -4,7 +4,11 @@ use crate::{
     source_to_bevy,
 };
 use bevy::{
-    camera::{RenderTarget, visibility::RenderLayers},
+    camera::{
+        RenderTarget,
+        primitives::{Aabb, Frustum},
+        visibility::RenderLayers,
+    },
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     prelude::*,
     render::render_resource::TextureFormat,
@@ -14,12 +18,18 @@ use bevy::{
 pub struct MonitorCamera;
 /// The `_rt_Camera` render target's size in pixels (square).
 pub const SIZE: u32 = 256;
+struct MaterialSample {
+    material: String,
+    handle: AssetId<crate::rendering::SourceMaterial>,
+    color: [f32; 4],
+    secondary_uv: [[f32; 3]; 3],
+}
 #[derive(Resource)]
 pub struct Monitors {
     pub target: Handle<Image>,
     materials: Vec<String>,
     material_details: serde_json::Value,
-    material_samples: Vec<serde_json::Value>,
+    material_samples: Vec<MaterialSample>,
     proxy_sample_time: f64,
     active: Vec<usize>,
     selected: Option<usize>,
@@ -32,11 +42,21 @@ impl Monitors {
         self.selected
     }
     pub fn report(&self, game: &Gameplay) -> serde_json::Value {
+        let samples: Vec<_> = self
+            .material_samples
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "material": s.material, "handle": format!("{:?}", s.handle),
+                    "color": s.color, "secondary_uv": s.secondary_uv
+                })
+            })
+            .collect();
         serde_json::json!({"texture":"_rt_Camera","asset":format!("{:?}",self.target.id()),"size":[256,256],"materials":self.materials,"material_details":self.material_details,"eligible_cameras":self.active,
             "selected":self.selected.and_then(|id| game.scene.states.get(id).map(|s| serde_json::json!({"entity":id,"name":game.world.entities[id].get("targetname"),
                 "origin":s.origin.to_array(),"fov":game.scene.monitors.cameras[&id].fov}))),
             "rendered_frames":self.frames,"visibility_error":self.error,
-            "proxy_sample_time":self.proxy_sample_time,"material_samples":self.material_samples,
+            "proxy_sample_time":self.proxy_sample_time,"material_samples":samples,
             "state":game.scene.monitors,
             "limitations":"BSP bounds/PVS eligibility, shared live world/actor feed; native area connectivity, client list ordering, remaining monitor proxies/fog and monitor sky rendering remain incomplete; recursive monitor feedback is excluded"})
     }
@@ -58,6 +78,8 @@ pub fn install(
         MonitorCamera,
         crate::video::OwnTarget,
         Camera3d::default(),
+        bevy::render::camera::CameraRenderGraph::new(crate::rendering::simple_pass::Simple3d),
+        bevy::light::cluster::ClusterConfig::Single,
         Camera {
             order: -3,
             is_active: false,
@@ -103,11 +125,15 @@ pub fn present(
     game: Res<Gameplay>,
     sim: Res<Simulation>,
     sky: Res<Sky>,
+    fly_frustum: Query<&Frustum, With<crate::FlyCamera>>,
     mut cameras: Query<(&mut Camera, &mut Projection, &mut Transform), With<MonitorCamera>>,
+    warmup: Option<Res<crate::rendering::variant_warmup::VariantWarmup>>,
 ) {
     let Ok((mut camera, mut projection, mut transform)) = cameras.single_mut() else {
         return;
     };
+    let frustum = fly_frustum.single().ok();
+    let eye = glam::Vec3::from_array(sim.view_origin().to_array());
     let active = game.scene.monitors.eligible(&game.scene.states, |id| {
         let Some(state) = game.scene.states.get(id) else {
             return Ok(false);
@@ -118,7 +144,7 @@ pub fn present(
             .and_then(|m| m.strip_prefix('*'))
             .and_then(|m| m.parse::<usize>().ok())
             .and_then(|id| game.world.brush_models.iter().find(|b| b.id == id));
-        let (mins, maxs) = brush.map_or((state.origin, state.origin), |b| {
+        let bounds = brush.map_or((state.origin, state.origin), |b| {
             let center = state.origin + state.rotation * ((b.mins + b.maxs) * 0.5);
             let extent = (b.maxs - b.mins) * 0.5;
             let r = glam::Mat3::from_quat(state.rotation);
@@ -126,11 +152,13 @@ pub fn present(
                 r.x_axis.abs() * extent.x + r.y_axis.abs() * extent.y + r.z_axis.abs() * extent.z;
             (center - extent, center + extent)
         });
-        sky.bounds_in_pvs(
-            glam::Vec3::from_array(sim.view_origin().to_array()),
-            mins,
-            maxs,
-        )
+        // During the variant warm-up after a map install (O9) every eligible monitor counts as
+        // seen, so the monitor camera (`Msaa::Off`) compiles its pipelines behind the loading
+        // screen instead of on the first frame a screen comes into view.
+        if warmup.is_some() {
+            return Ok(true);
+        }
+        monitor_in_view(&sky, eye, frustum, bounds)
     });
     match active {
         Ok(active) => {
@@ -183,6 +211,25 @@ pub fn present(
     }
 }
 
+fn monitor_in_view(
+    sky: &Sky,
+    eye: glam::Vec3,
+    frustum: Option<&Frustum>,
+    (mins, maxs): (glam::Vec3, glam::Vec3),
+) -> anyhow::Result<bool> {
+    if !sky.bounds_in_pvs(eye, mins, maxs)? {
+        return Ok(false);
+    }
+    Ok(frustum.is_none_or(|f| mins == maxs || monitor_bounds_in_frustum(f, mins, maxs)))
+}
+
+fn monitor_bounds_in_frustum(frustum: &Frustum, mins: glam::Vec3, maxs: glam::Vec3) -> bool {
+    let bmin = Vec3::new(mins.x, mins.z, -maxs.y);
+    let bmax = Vec3::new(maxs.x, maxs.z, -mins.y);
+    let aabb = Aabb::from_min_max(bmin, bmax);
+    frustum.intersects_obb(&aabb, &bevy::math::Affine3A::IDENTITY, true, false)
+}
+
 #[derive(Component)]
 pub struct MonitorMaterial {
     pub name: String,
@@ -198,6 +245,7 @@ pub fn present_materials(
         &MeshMaterial3d<crate::rendering::SourceMaterial>,
     )>,
     mut materials: ResMut<Assets<crate::rendering::SourceMaterial>>,
+    mut slots: ResMut<crate::material_slots::MaterialSlots>,
 ) {
     // Shared materials use one authored proxy and scene clock on every draw.
     let mut updated = std::collections::HashSet::new();
@@ -214,20 +262,19 @@ pub fn present_materials(
             linear_modulation(color[i] * definition.color2[i])
         }));
         let secondary_uv = uv_matrix(uv);
-        if materials
-            .get(&handle.0)
-            .is_some_and(|m| m.tint.truncate() != tint || m.secondary_uv != secondary_uv)
-            && let Some(mut material) = materials.get_mut(&handle.0)
-        {
-            material.tint = tint.extend(material.tint.w);
-            material.secondary_uv = secondary_uv;
-        }
+        slots.write(
+            &mut materials,
+            &handle.0,
+            crate::material_slots::Animated::TintAndTransform(tint, secondary_uv),
+        );
         if let Some(material) = materials.get(&handle.0) {
-            monitors.material_samples.push(serde_json::json!({
-                "material":definition.name,"handle":format!("{:?}",handle.0.id()),
-                "color":material.tint.to_array(),
-                "secondary_uv":material.secondary_uv.to_cols_array_2d()
-            }));
+            let (color, secondary_uv) = slots.values(material, handle.0.id());
+            monitors.material_samples.push(MaterialSample {
+                material: definition.name.clone(),
+                handle: handle.0.id(),
+                color: color.to_array(),
+                secondary_uv: secondary_uv.to_cols_array_2d(),
+            });
         }
     }
 }
@@ -270,5 +317,32 @@ mod tests {
         assert_eq!(m(0.96), 1.);
         assert_eq!(m(-1.), 0.);
         assert!((m(0.4) - (102f32 / 255.).powf(2.2)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn monitor_frustum_culling_accepts_front_and_rejects_behind() {
+        use bevy::camera::CameraProjection;
+        use bevy::prelude::{GlobalTransform, PerspectiveProjection, Transform, Vec3};
+        let proj = PerspectiveProjection {
+            fov: 75f32.to_radians(),
+            aspect_ratio: 16. / 9.,
+            near: 1.,
+            far: 4096.,
+            ..bevy::prelude::default()
+        };
+        let view = GlobalTransform::from(
+            Transform::from_translation(Vec3::ZERO).looking_to(Vec3::X, Vec3::Y),
+        );
+        let frustum = proj.compute_frustum(&view);
+        assert!(super::monitor_bounds_in_frustum(
+            &frustum,
+            glam::Vec3::new(100., -32., -32.),
+            glam::Vec3::new(140., 32., 32.),
+        ));
+        assert!(!super::monitor_bounds_in_frustum(
+            &frustum,
+            glam::Vec3::new(-200., -32., -32.),
+            glam::Vec3::new(-100., 32., 32.),
+        ));
     }
 }

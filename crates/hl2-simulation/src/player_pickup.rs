@@ -36,20 +36,20 @@ const TANGENTS: [f32; 7] = [
 ];
 
 /// CBasePlayer::CanPickupObject for our Rapier props: a dynamic (VPhysics, motion
-/// enabled) prop_physics body of at most 35 kg whose collision box is at most 128 on
+/// enabled) prop or supply body of at most 35 kg whose collision box is at most 128 on
 /// every axis (world AABB here; the SDK uses the OBB size). Hinges and
 /// FVPHYSICS_NO_PLAYER_PICKUP are not modeled.
 pub fn can_pickup(world: &World, physics: &Physics, id: usize) -> bool {
-    // A thrown frag (CBaseGrenade::Use -> PickupObject) or a prop_physics.
+    // Thrown frags, physics props and loose CItem supplies expose PickupObject.
     if physics.no_pickup.contains(&id) {
         return false;
     }
     let grenade = is_projectile_entity(id) && physics.dynamic.contains_key(&id);
     if !grenade
-        && !world
-            .entities
-            .get(id)
-            .is_some_and(|e| e.class().starts_with("prop_physics"))
+        && !world.entities.get(id).is_some_and(|e| {
+            e.class().starts_with("prop_physics")
+                || source_assets::models::supply_model(e.class()).is_some()
+        })
     {
         return false;
     }
@@ -232,7 +232,11 @@ impl Inventory {
             return;
         };
         let id = grab.entity;
-        if secondary || grab.error > HOLD_MAX_ERROR || !physics.dynamic.contains_key(&id) {
+        if secondary
+            || grab.error > HOLD_MAX_ERROR
+            || !physics.dynamic.contains_key(&id)
+            || scene.states.get(id).is_some_and(|state| state.killed)
+        {
             self.carry_shutdown(weapons, physics, scene, world, false);
             return;
         }

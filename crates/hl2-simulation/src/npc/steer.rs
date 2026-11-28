@@ -6,8 +6,7 @@
 //! a triangulated detour to the path (once per think), skip a reducible waypoint nearer
 //! than a hull width; otherwise the move stays blocked and the schedule retries.
 //!
-//! Not modeled: the plane solver's steering (MoveCalcSteer) that runs before these, and the
-//! same handling for world and entity obstructions, which keep the stale-link path.
+//! Local steering tries the deflection and alternate headings before changing the route.
 
 use super::graph::triangulate;
 use super::{links, Actor, Goal, Route};
@@ -18,32 +17,20 @@ use glam::Vec3;
 /// direction (2D dot product).
 const DEFLECTION_MIN_DOT: f32 = 0.7;
 
-/// What the motor does with a blocked substep.
-enum Steer {
-    /// A deflected move was made (feet, yaw and animation time updated).
-    Moved,
-    /// The path changed (a detour prepended or a near waypoint skipped): walk on.
-    Rerouted,
-    /// The move stays blocked.
-    Blocked,
-}
-
-/// A substep from `start` along `direction` for `amount` units over `consumed` seconds of
-/// the move's animation; `validated`: `fits` and `stand` just passed at `start`.
+/// A substep from `start` along `direction` for `amount` units;
+/// `validated`: `fits` and `stand` just passed at `start`.
 pub(super) struct Step {
-    start: Vec3,
-    direction: Vec3,
-    amount: f32,
-    consumed: f32,
-    validated: bool,
+    pub(super) start: Vec3,
+    pub(super) direction: Vec3,
+    pub(super) amount: f32,
+    pub(super) validated: bool,
 }
 impl Step {
-    pub fn new(start: Vec3, direction: Vec3, amount: f32, consumed: f32, validated: bool) -> Self {
+    pub fn new(start: Vec3, direction: Vec3, amount: f32, validated: bool) -> Self {
         Self {
             start,
             direction,
             amount,
-            consumed,
             validated,
         }
     }
@@ -52,39 +39,9 @@ impl Step {
 /// A substep's outcome.
 pub(super) enum Walk {
     /// The plain ground move, completed or blocked.
-    Moved(GroundMove),
-    /// Steered around an actor: this many seconds of the move were used; walk on.
-    Steered(f32),
-}
-
-/// The substep's ground move, steered when an actor blocks it. `triangulated` is this
-/// think's PrependLocalAvoidance gate.
-pub(super) fn walk<W: NpcCollisionWorld>(
-    world: &W,
-    actor: &Actor,
-    goal: &mut Goal,
-    step: Step,
-    query: Query<'_>,
-    triangulated: &mut bool,
-) -> Walk {
-    let end = step.start + step.direction * step.amount;
-    let movement = if step.validated {
-        npc_probe::ground_move_from_valid(world, step.start, end, actor.ground, query)
-    } else {
-        npc_probe::ground_move(world, step.start, end, actor.ground, query)
-    };
-    if movement.completed {
-        return Walk::Moved(movement);
-    }
-    let blocked = Blocked {
-        step: &step,
-        movement: &movement,
-    };
-    match blocked.steer(world, actor, goal, query, triangulated) {
-        Steer::Moved => Walk::Steered(step.consumed),
-        Steer::Rerouted => Walk::Steered(0.),
-        Steer::Blocked => Walk::Moved(movement),
-    }
+    Moved(GroundMove, Vec3),
+    /// The route changed without advancing the actor.
+    Rerouted,
 }
 
 /// A substep and its blocked move.
@@ -105,62 +62,27 @@ pub(super) fn simplify_query<'a>(goal: &Goal, query: Query<'a>) -> Query<'a> {
     }
 }
 
-impl Blocked<'_> {
-    /// OnFailedSteer, PrependLocalAvoidance and OnMoveBlocked for a substep blocked by an
-    /// actor.
-    fn steer<W: NpcCollisionWorld>(
-        &self,
-        world: &W,
-        actor: &Actor,
-        goal: &mut Goal,
-        query: Query<'_>,
-        triangulated: &mut bool,
-    ) -> Steer {
-        let (step, movement) = (self.step, self.movement);
-        // OnObstructionPreSteer: blocked within the goal tolerance arrives (the caller's check).
-        let at_goal = movement.end.distance(goal.request.target_feet) <= goal.tolerance;
-        if !movement.transient || at_goal {
-            return Steer::Blocked;
-        }
-        // AIMR_BLOCKED_NPC only: the player has no entity here.
-        if movement.blocker.is_some() {
-            if let Some(moved) = deflect(world, actor, self, query) {
-                goal.feet = moved.end;
-                goal.contact_normal = Vec3::ZERO;
-                goal.yaw = step.direction.y.atan2(step.direction.x).to_degrees();
-                goal.animation_time += step.consumed;
-                return Steer::Moved;
-            }
-        }
-        if !std::mem::replace(triangulated, true)
-            && prepend_avoidance(world, actor, goal, self, query)
-        {
-            return Steer::Rerouted;
-        }
-        if skip_near_waypoint(actor, goal, step.start) {
-            return Steer::Rerouted;
-        }
-        Steer::Blocked
-    }
-}
-
-/// CalculateDeflection: the wanted direction projected onto the plane of the hit normal,
-/// taken when it stays within DEFLECTION_MIN_DOT and the move along it is clear.
-fn deflect<W: NpcCollisionWorld>(
+/// Try a path change once local steering has exhausted its candidate headings.
+pub(super) fn reroute<W: NpcCollisionWorld>(
     world: &W,
     actor: &Actor,
-    blocked: &Blocked,
+    goal: &mut Goal,
     query: Query<'_>,
-) -> Option<GroundMove> {
-    let step = blocked.step;
-    let deflection = deflection(step.direction, blocked.movement.normal)?;
-    let end = step.start + deflection * step.amount;
-    let moved = npc_probe::ground_move(world, step.start, end, actor.ground, query);
-    moved.completed.then_some(moved)
+    blocked: (&Step, &GroundMove),
+    triangulated: &mut bool,
+) -> bool {
+    let (step, movement) = blocked;
+    if movement.end.distance(goal.request.target_feet) <= goal.tolerance {
+        return false;
+    }
+    let blocked = Blocked { step, movement };
+    (!std::mem::replace(triangulated, true)
+        && prepend_avoidance(world, actor, goal, &blocked, query))
+        || skip_near_waypoint(actor, goal, step.start)
 }
 
 /// The direction along the hit plane, kept within DEFLECTION_MIN_DOT of `direction`.
-fn deflection(direction: Vec3, normal: Vec3) -> Option<Vec3> {
+pub(super) fn deflection(direction: Vec3, normal: Vec3) -> Option<Vec3> {
     let along = normal.cross(direction.cross(normal)).normalize_or_zero();
     (direction.truncate().dot(along.truncate()) > DEFLECTION_MIN_DOT).then_some(along)
 }

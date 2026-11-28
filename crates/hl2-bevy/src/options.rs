@@ -14,9 +14,11 @@ impl Options {
         args: impl IntoIterator<Item = String>,
         config: hl2_ui::config::Config,
     ) -> Result<(Self, startup::InstallationRequest)> {
+        let (args, startup_commands) = split_startup_commands(args);
         let mut args = args.into_iter();
         let mut cli = Cli::default();
         let mut options = Self::defaults(config);
+        options.startup_commands = startup_commands;
         while let Some(arg) = args.next() {
             if let Some(name) = [
                 "--position",
@@ -55,6 +57,8 @@ impl Options {
             pitch: 0.,
             profile: false,
             uncapped: false,
+            timescale: 1.,
+            max_fps: None,
             cpu_skinning: false,
             no_pvs: false,
             world_partition: false,
@@ -77,6 +81,13 @@ impl Options {
             main_menu: false,
             background_map: None,
             novid: false,
+            condebug: false,
+            usercon: false,
+            rcon_peer: None,
+            rcon_password_file: None,
+            startup_commands: Vec::new(),
+            script_npc_classes: std::collections::BTreeSet::new(),
+            isolation: Default::default(),
             config,
         }
     }
@@ -116,6 +127,8 @@ impl Options {
             "--world-partition" => options.world_partition = true,
             "--cpu-skinning" => options.cpu_skinning = true,
             "--uncapped" => options.uncapped = true,
+            "--timescale" => options.timescale = next()?.parse()?,
+            "--max-fps" => options.max_fps = Some(next()?.parse()?),
             "--profile" => options.profile = true,
             "--pitch" => options.pitch = next()?.parse::<f32>()?.to_radians(),
             "--width" => options.width = next()?.parse()?,
@@ -147,7 +160,7 @@ impl Options {
             // 0 = no limit.
             "--max-edicts" => hl2_simulation::ai::spawn::MAX_EDICTS
                 .store(next()?.parse()?, std::sync::atomic::Ordering::Relaxed),
-            // Step 14 AI think loop (default on like Source's ai_disabled 0; console ai_enable).
+            // Step 14 AI think loop (default on like Source's ai_disabled 0; console ai_disable).
             "--ai" => gameplay::AI_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed),
             "--no-ai" => gameplay::AI_ENABLED.store(false, std::sync::atomic::Ordering::Relaxed),
             "--tonemap-scale" => {
@@ -166,14 +179,37 @@ impl Options {
             }
             "--main-menu" => options.main_menu = true,
             "-novid" | "--novid" => options.novid = true,
+            "-condebug" => options.condebug = true,
             "--background-map" => options.background_map = Some(next()?),
             "--help" | "-h" => {
                 startup::print_help();
                 std::process::exit(0);
             }
+            _ if options.parse_rcon_flag(arg, args)?
+                || options.isolation.parse_flag(arg, args)? => {}
             _ => bail!("unknown option {arg}; use --help"),
         }
         Ok(())
+    }
+
+    fn parse_rcon_flag(
+        &mut self,
+        flag: &str,
+        args: &mut dyn Iterator<Item = String>,
+    ) -> Result<bool> {
+        let mut next = || {
+            args.next()
+                .with_context(|| format!("missing value after {flag}"))
+        };
+        match flag {
+            "-usercon" => self.usercon = true,
+            "--rcon-peer" => {
+                self.rcon_peer = Some(next()?.parse().context("invalid RCON peer IP address")?)
+            }
+            "--rcon-password-file" => self.rcon_password_file = Some(next()?.into()),
+            _ => return Ok(false),
+        }
+        Ok(true)
     }
 
     fn validated(mut options: Self, cli: Cli) -> Result<(Self, startup::InstallationRequest)> {
@@ -193,6 +229,12 @@ impl Options {
         }
         if options.frames.is_some_and(|n| !(30..=200_000).contains(&n)) {
             bail!("--frames must be between 30 and 200000");
+        }
+        if !(1. ..=16.).contains(&options.timescale) {
+            bail!("--timescale must be between 1 and 16");
+        }
+        if options.max_fps.is_some_and(|n| !(10..=1000).contains(&n)) {
+            bail!("--max-fps must be between 10 and 1000");
         }
         if !options.position.is_none_or(|p| p.is_finite())
             || !options.pitch.is_finite()
@@ -244,4 +286,69 @@ struct Cli {
     no_setup: bool,
     setup_preview: Option<PathBuf>,
     explicit_mode: Option<hl2_ui::config::DisplayMode>,
+}
+
+/// Splits Source's `+command arguments` out of the command line: a `+` word starts a console
+/// command that takes the words up to the next one starting with `-` or `+`.
+fn split_startup_commands(args: impl IntoIterator<Item = String>) -> (Vec<String>, Vec<String>) {
+    let mut flags = Vec::new();
+    let mut commands: Vec<String> = Vec::new();
+    let mut in_command = false;
+    for arg in args {
+        if let Some(command) = arg.strip_prefix('+') {
+            commands.push(command.to_owned());
+            in_command = true;
+        } else if arg.starts_with('-') {
+            flags.push(arg);
+            in_command = false;
+        } else if let Some(command) = commands.last_mut().filter(|_| in_command) {
+            command.push(' ');
+            command.push_str(&console_word(&arg));
+        } else {
+            flags.push(arg);
+        }
+    }
+    (flags, commands)
+}
+
+/// A command-line word as one console word: quoted when it has spaces or separators.
+fn console_word(word: &str) -> String {
+    if word.is_empty() || word.contains([' ', ';', '"']) {
+        format!("\"{}\"", word.replace('"', ""))
+    } else {
+        word.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod startup_command_tests {
+    use super::*;
+
+    fn split(args: &[&str]) -> (Vec<String>, Vec<String>) {
+        split_startup_commands(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn plus_words_become_console_commands_until_the_next_flag() {
+        let (flags, commands) = split(&[
+            "--map",
+            "d1_trainstation_01",
+            "+rcon_password",
+            "s3cret",
+            "-usercon",
+            "+say",
+            "hello there",
+            "+sv_rcon_log",
+            "0",
+        ]);
+        assert_eq!(flags, ["--map", "d1_trainstation_01", "-usercon"]);
+        assert_eq!(
+            commands,
+            [
+                "rcon_password s3cret",
+                "say \"hello there\"",
+                "sv_rcon_log 0"
+            ]
+        );
+    }
 }

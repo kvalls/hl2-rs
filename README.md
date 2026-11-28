@@ -24,6 +24,8 @@ Map loading overlaps independent resource preparation. Menu backgrounds reveal t
 
 For the builds you play, `./launch-bevy.sh --dist` (Windows: `.\launch-bevy.cmd --dist`, or `.\scripts\build-bevy.ps1 -Dist`) uses the `dist` profile: on an Apple M1 Pro about 4% less CPU work per frame and 1-3% lower frame time at Low, nothing measurable at Max where the GPU limits the frame, for a build of about 5 minutes; Windows is **not tested**. A later launch without `--dist` on macOS or Linux returns to the release profile.
 
+On macOS every build gives its frame threads the highest interactive scheduling class (performance cores under load: in a CPU-saturated crowd test about 17% lower mean frame time) and opts out of App Nap. Game Mode needs the game to run from an application bundle, which the packaged `bin/` is not; measured full screen under load it brought no frame-time gain on top of the thread priority (optimization backlog O35). Windows priority is backlog O34.
+
 To change the remembered folder, run `.\launch-bevy.cmd --setup` (macOS: `./launch-bevy.sh --setup`). If a remembered folder stops working, HL2-RS retries Steam discovery and opens setup if necessary. `--game PATH` takes priority over `HL2_ROOT`, then the remembered folder, then Steam discovery; explicit overrides apply to that launch and are not automatically saved. Correct or unset an outdated `HL2_ROOT` so it does not keep overriding your saved choice.
 
 The folder preference is stored in `%LOCALAPPDATA%\hl2-rs\installation.json` on Windows, `~/Library/Application Support/hl2-rs/installation.json` on macOS, or `${XDG_CONFIG_HOME:-~/.config}/hl2-rs/installation.json` on Linux. `HL2_RS_CONFIG_DIR` selects an alternative settings directory. To reset setup, remove that file or use `--setup`. Automated runs can use `--no-setup` to return a text error instead of opening a window; bounded captures, movement scripts and `--no-focus` runs already do this unless `--setup` is explicit. The new setup screen has not yet been tested on macOS/Linux.
@@ -63,8 +65,11 @@ See the pinned [rfd backend requirements](https://docs.rs/rfd/0.17.2/rfd/#linux-
 Source builds need Git, Rust stable/Cargo, and the platform compiler tools:
 Visual Studio C++ tools/Windows SDK on Windows, Xcode command-line tools on macOS,
 and a C++ compiler plus pkg-config and development headers on Linux. Python 3,
-rustfmt and Clippy are needed for the repository's validation scripts; they are
-not game runtime dependencies. Cargo library versions are locked in `Cargo.lock`.
+rustfmt and Clippy are needed for the repository's validation scripts and the
+optional `/hl2-session` skill scripts; `python3 scripts/checks/coverage.py`
+optionally uses `rustup component add llvm-tools` (`llvm-profdata`, `llvm-cov`)
+for on-demand line coverage of Bevy-free crates; none of these are game runtime
+dependencies. Cargo library versions are locked in `Cargo.lock`.
 
 For an Ubuntu/Debian source build, the initial dependency setup is:
 
@@ -133,7 +138,7 @@ cd hl2-rs
 
 `launch-bevy.sh` is an all-in-one launcher that manages builds automatically:
 - **Automatic build & freshness check**: It checks whether `bin/hl2-bevy` exists and is up to date with respect to source files (`crates/`, `plugins/`, `apps/`), `Cargo.toml`, shader assets (`crates/hl2-bevy/assets`), git branch switches, and git commits.
-- **Automatic target cleanup**: Before a required build, the launcher prunes stale workspace artifacts while preserving third-party caches. It holds Cargo-compatible debug/release locks throughout cleanup, then releases them before building. Busy targets and unsupported/network filesystems skip pruning. Use `--no-clean` to disable cleanup; `--no-build` and up-to-date launches do not clean. Manual preview: `./scripts/clean-target.sh --stale --dry-run`.
+- **Automatic target cleanup**: Before every build, `scripts/build-bevy.sh` and `scripts/build-bevy.ps1` prune stale workspace artifacts while preserving third-party caches, so the launcher, the agent session and manual builds all clean the same way. The cleaner holds Cargo-compatible locks for debug, release and dist throughout cleanup, then releases them before building. Busy targets and unsupported/network filesystems skip pruning; on Windows it also needs Python. Use `--no-clean` (`build-bevy.sh`, `launch-bevy.sh`) or `-NoClean` (`build-bevy.ps1`) to disable it; `--no-build` and up-to-date launches do not build or clean. Manual preview: `./scripts/clean-target.sh --stale --dry-run`.
 - **Direct launch**: If the build is already up to date, it launches immediately without rebuilding.
 
 Convenience launcher scripts:
@@ -146,7 +151,7 @@ Common `launch-bevy.sh` arguments:
 - `--debug` (or `-d`) — build and run the debug profile instead of release.
 - `--plugins <list>` — build and run with these comma-separated plugins (`advanced-options`, `debug-tools`) or `none`. Without it the last selection stays, also across automatic rebuilds; the first build has both.
 - `--no-build` — launch the existing executable directly without checking for updates, cleaning or compiling.
-- `--no-clean` — skip automatic stale-target cleanup when a build is needed.
+- `--no-clean` — skip the stale-target cleanup that `scripts/build-bevy.sh` runs before a needed build.
 - Any game arguments (such as `--map d1_trainstation_01`, `--setup`, `--game <path>`, `--fullscreen`, `--windowed`) are forwarded directly to the game binary.
 
 To compile and package `bin/hl2-bevy` and the `bin/bevy-assets` shader folder without immediately launching the game, run `./scripts/build-bevy.sh`. The executable and shader folder must remain together.
@@ -183,7 +188,7 @@ Steam libraries are discovered automatically; `HL2_ROOT` can override discovery.
 
 The starting map normally has no player weapon. F3 is a test aid. It does not demonstrate campaign weapon acquisition. Some campaign scripts still block progression.
 
-The pause menu has working Resume Game, Developer Console and Quit controls. The console completes commands, cvars and their arguments (installed maps, the loaded map's entity names and inputs) as you type, in a list under the line: Tab/Down and Shift+Tab/Up step through it, an empty line lists the command history (kept across runs), Ctrl+R searches it, and a help line shows the usage of the command being typed. Ctrl+W/U/K/E/L and Ctrl+arrows edit the line. Shift with arrows, Home or End selects text; Cmd+A, Cmd+C and Cmd+V on macOS (Ctrl+A, Ctrl+C and Ctrl+V elsewhere) select all, copy and paste, replacing the current selection when typing or pasting; `con_filter_enable`, `con_filter_text` and `con_timestamp` filter and stamp the output, and engine warnings appear in it. `help` lists the implemented commands. Enter `sv_cheats 1; impulse 101` to get the implemented weapons, ammunition and suit. Other supported commands include `noclip`, `getpos`, `setpos`, `setang`, `map`, `ent_fire`, `find`, `echo`, `clear`, `toggleconsole` and `quit`. `ent_fire <target> [input] [parameter] [delay]` sends normal entity I/O to named targets; its console delay uses whole seconds. Classname fallback and the full Source command registry are unfinished. Unsupported commands report an error. Save/load is unfinished; the Options dialog is described above. Player, weapon, entity and prop simulation pauses while the menu or console is open; ambient audio does not yet pause. The UI uses installed GameUI labels/colors and fonts read from the owned VFS, with the MIT ProggyClean fallback, but its layout is not an exact VGUI reconstruction.
+The pause menu has working Resume Game, Developer Console and Quit controls. The console completes commands, cvars and their arguments (installed maps, the loaded map's entity names and inputs) as you type, in a list under the line: Tab/Down and Shift+Tab/Up step through it, an empty line lists the command history (kept for the run as in retail; the `hl2-debug` plugin keeps it across runs), Ctrl+R searches it, and a help line shows the usage of the command being typed. Ctrl+W/U/K/E/L and Ctrl+arrows edit the line. Shift with arrows, Home or End selects text; Cmd+A, Cmd+C and Cmd+V on macOS (Ctrl+A, Ctrl+C and Ctrl+V elsewhere) select all, copy and paste, replacing the current selection when typing or pasting; `con_filter_enable`, `con_filter_text` and `con_timestamp` filter and stamp the output, and engine warnings appear in it. Console output can be followed from outside the game: `con_logfile <file>` (or `-condebug` for `console.log`) appends it to a file beside the settings file, and `-usercon +rcon_password <password>` starts Source's remote console (RCON) on `ip`:`hostport` (default `localhost:27015`), where any RCON client runs commands and gets their output back; `say <text>` shows a chat line in the console, and `screenshot` saves the next frame into `screenshots/` beside the settings file. `+command` words on the command line run at startup. `help` lists the implemented commands. Enter `sv_cheats 1; impulse 101` to get the implemented weapons, ammunition and suit. Other supported commands include `noclip`, `getpos`, `setpos`, `setang`, `map`, `ent_fire`, `find`, `echo`, `clear`, `toggleconsole` and `quit`. `ent_fire <target> [input] [parameter] [delay]` sends normal entity I/O to named targets; its console delay uses whole seconds. Classname fallback and the full Source command registry are unfinished. Unsupported commands report an error. Save/load is unfinished; the Options dialog is described above. Player, weapon, entity and prop simulation pauses while the menu or console is open; ambient audio does not yet pause. The UI uses installed GameUI labels/colors and fonts read from the owned VFS, with the MIT ProggyClean fallback, but its layout is not an exact VGUI reconstruction.
 
 ## Non-retail features
 
@@ -201,6 +206,8 @@ temporary settings, and current limits.
 | Viewmodel FOV slider | Options > Video > Advanced: the weapon camera's base FOV. |
 | Viewmodel debug mode | Console: `viewmodel_debug_mode 1`; tune weapon FOV and position offsets for the current aspect profile. |
 | Menu background debug mode | Console from the main menu: `background_debug_mode 1`; compare background FOV, blur opacity and chapter artwork. |
+| Live AI debug session | Invoke `/hl2-session` in Claude Code, Codex, or Gemini (see [Live AI debug session](#live-ai-debug-session-hl2-session)). |
+| Performance tracing | Invoke `/hl2-performance-trace` in Claude Code, Codex, or Gemini (see [Performance tracing](#performance-tracing-hl2-performance-trace)). |
 
 `background_force_default_blur 1` always selects the normal menu/loading blur
 texture, even on wide frames; `0` restores aspect-based selection (the default).
@@ -209,9 +216,46 @@ on wide frames. The background camera follows the same crop while enabled;
 `0` preserves the existing camera FOV behavior. It is saved independently of debug mode. While background debug is enabled, `-`
 toggles it and the overlay shows its state.
 
+### Live AI debug session (`/hl2-session`)
+
+HL2-RS ships an in-repo `/hl2-session` skill so you can talk to an AI coding assistant from the in-game developer console, run inspection commands, and rebuild-and-restart back to where you were.
+
+- **Prerequisites**: a packaged build that includes the default `debug-tools` plugin (`.\scripts\build-bevy.ps1` on Windows, `./scripts/build-bevy.sh` on macOS/Linux) and Python 3 on `PATH` (standard library only, no third-party Python packages).
+- **Start from your assistant**: open this repository in Claude Code (`.claude/skills/hl2-session/SKILL.md`), Codex, or Gemini (`.agents/skills/hl2-session/SKILL.md` — no symlinks required on Windows) and run `/hl2-session`.
+- **Attach while playing**: invoke `/hl2-session` while the game is open. The skill reuses local RCON or asks the debug plugin to enable it without opening the console, stealing focus, or restarting. Older builds that support `agent_rcon` can still be enabled from the developer console. If several games are open, select one with `session.py attach --enable --pid PID`. On POSIX the helper checks socket ownership using `lsof` or Linux `ss`. On Windows it uses PowerShell and the `NetTCPIP` module.
+- **Chat mode**: `/hl2-session` starts watching, then enables `chat_mode 1` just before its greeting on supported builds. Open the developer console, type a message and press Enter. Chat mode sends the entire line, so `say hello` reaches the assistant as those two words. The assistant can relay a clearly intended command through RCON while chat mode is active. Enter `chat_mode 0` by itself to run commands locally, or `chat_mode 1` to switch back. With chat mode off or on an older build, `say <message>` sends conversation. Ordinary launches default to 0.
+- **Replies and restart**: the console shows the assistant's status and responses. Replies and status can also appear in the gameplay caption panel while the console is closed. If the skill launched the game through `session.py launch`, `restart.py` can build while you keep playing and relaunch at the same map, position and view with your authorization.
+- **Security and platform notes**: `hl2-session` connects only over loopback. Skill-managed sessions use `127.0.0.1` and a per-session password. Late activation keeps credentials in the private per-process temp directory. Supervised startup supplies its password on the command line, where local process inspection can see it. Packaged attachment was tested headlessly on macOS. Windows and Linux runtime attachment are **not tested**.
+
+For manual network administration, start the game with `-usercon`, `+ip` set
+to the specific local interface address, `+hostport` set to the RCON port,
+`--rcon-peer` set to the one allowed client's IP as seen by the game, and
+`--rcon-password-file` pointing to a private file. Put a cryptographically
+generated 48-character lowercase hexadecimal password in that file and keep it
+in your user directory (`chmod 600` on Unix). A standard Source RCON client
+can connect from the allowed address. This listener's credential stays separate
+from `rcon_password` and the skill's discovery files. Restart to load a changed
+password. Source RCON sends passwords and commands in plaintext, so use an
+encrypted VPN for Internet access and bind to its interface. Only one RCON
+listener runs per game, so use a local launch for `hl2-session`.
+
+### Performance tracing (`/hl2-performance-trace`)
+
+HL2-RS ships an in-repo `/hl2-performance-trace` skill so AI assistants and contributors can orchestrate repeatable CPU, allocation, system-resource, and GPU/display-pacing captures across live `/hl2-session` and headless runs:
+
+- **Prerequisites**: Python 3 on `PATH` (standard library only). macOS Metal System Trace (`capture.py metal-record`) and CPU sampling (`capture.py sample-record`) additionally use Xcode `xcrun xctrace` and `sample` when installed.
+- **Start from your assistant**: open this repository in Claude Code (`.claude/skills/hl2-performance-trace/SKILL.md`), Codex, or Gemini (`.agents/skills/hl2-performance-trace/SKILL.md`) and run `/hl2-performance-trace`.
+- **Modes and workflow**: `scripts/capture.py` supports `stages` (`--profile` CPU stages on the everyday build), `pacing` (everyday build + `--profile` for uninflated Metal GPU and surface-pacing captures), `trace` (`trace-chrome` system/render/HL2-RS game/state spans), and `trace-alloc` (`state_frame` per-frame allocation counts/bytes). Live captures write into `artifacts/perf-traces/` through `/hl2-session` (`agent_resume` + `quit`, never `restart.py` during a trace run), `capture.py analyze --dir <dir> --delete-raw` writes summaries (`trace_summary.py`, `trace_waste.py`, `resource_sampler.py`, `metal_gpu.py`, `sample_summary.py`) and prunes multi-GB raw traces on success, and `capture.py restore` restores the everyday non-trace binary.
+- **Platform notes**: cross-platform unit tests run in CI and a macOS headless `stages` capture + analysis smoke test ran against `bin/hl2-bevy`; live `trace-alloc`/Metal workflows are macOS-tested and Windows runtime tracing is **not tested** yet.
+
 ## Implemented so far
 
 In short: owned VPK/BSP/VMT/VTF/MDL/PHY/audio readers; world, displacement, prop and model rendering with baked lightmaps, Source model lighting, HDR auto exposure, bloom, skies and live monitors; fixed-step player movement and collision; entity I/O, doors, triggers and choreographed scenes with layered gestures, facial flexes and lip sync; the HL2 arsenal through the gravity gun, frag, crossbow, RPG and bug bait (crowbar, pistol, .357, SMG1, AR2, shotgun first) with their HUD; VPhysics-like props with breakables, gibs, explosive barrels (they ignite, burn with the installed burning_character particles and explode) and basic constraints; NPC AI ported from the SDK for metrocops, Combine soldiers (including shotgunner, elite and prison guard), citizens/rebels and the Barney/Alyx allies (senses, relationships, schedules, cover and reload, NPC weapons, grenades, kicks, speech and footsteps; few native comparisons), classic and poison zombies (chase, claws/bites, headcrab bodygroup, burning), squads (membership, shared enemies, squad speech), NPC death ragdolls from the models' .phy ragdolls (jointed bodies with authored limits; the player walks through them; shots, explosions and crossbow pins act on corpses; retired beyond eight by fading; death forces checked against native pistol/shotgun kills); friendly NPCs immune to the player (F4 debug option to allow it); runtime entity creation (F4 spawn overlay with NPC and physics-prop tabs, npc_create, ent_create, prop_physics_create, npc_template_maker copies); and map transitions. The full item-by-item list is in [docs/features.md](docs/features.md).
+
+Loose batteries, first-aid kits, ammo and supported world weapons have model-based
+physics. With cheats enabled, `ent_create item_battery`, `ent_create item_healthkit`,
+`ent_create item_ammo_ar2` and `ent_create weapon_ar2` place them at the aim point.
+The plaza prop scaling runner and its measurements are in [docs/performance.md](docs/performance.md#o44-loose-props-on-the-train-station-plaza-2026-11-25).
 
 ## Fidelity work remaining
 

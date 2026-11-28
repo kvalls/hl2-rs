@@ -11,5 +11,5 @@
   {"tick": 3403, "ui": [{"action": "input", "input": {"keys": ["up"]}}]},
   {"tick": 3404, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "return-to-main-menu"},
   {"tick": 3410, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "confirm"},
-  {"tick": 4100, "ui": [{"action": "command", "command": "background_map"}], "label": "settle"}
+  {"tick": 4100, "ui": [{"action": "command", "command": "echo"}], "label": "settle"}
 ]

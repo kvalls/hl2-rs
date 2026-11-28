@@ -1,0 +1,519 @@
+[
+  {
+    "tick": 1,
+    "fly": true,
+    "eye": [
+      -2200,
+      -2300,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "sv_cheats 1"
+      }
+    ]
+  },
+  {
+    "tick": 3,
+    "eye": [
+      -2200,
+      -2300,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_00"
+      }
+    ]
+  },
+  {
+    "tick": 5,
+    "eye": [
+      -2136,
+      -2300,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_01"
+      }
+    ]
+  },
+  {
+    "tick": 7,
+    "eye": [
+      -2072,
+      -2300,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_02"
+      }
+    ]
+  },
+  {
+    "tick": 9,
+    "eye": [
+      -2008,
+      -2300,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_03"
+      }
+    ]
+  },
+  {
+    "tick": 11,
+    "eye": [
+      -1944,
+      -2300,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_04"
+      }
+    ]
+  },
+  {
+    "tick": 13,
+    "eye": [
+      -1880,
+      -2300,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_05"
+      }
+    ]
+  },
+  {
+    "tick": 15,
+    "eye": [
+      -2200,
+      -2236,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_06"
+      }
+    ]
+  },
+  {
+    "tick": 17,
+    "eye": [
+      -2136,
+      -2236,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_07"
+      }
+    ]
+  },
+  {
+    "tick": 19,
+    "eye": [
+      -2072,
+      -2236,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_08"
+      }
+    ]
+  },
+  {
+    "tick": 21,
+    "eye": [
+      -2008,
+      -2236,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_09"
+      }
+    ]
+  },
+  {
+    "tick": 23,
+    "eye": [
+      -1944,
+      -2236,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_10"
+      }
+    ]
+  },
+  {
+    "tick": 25,
+    "eye": [
+      -1880,
+      -2236,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_11"
+      }
+    ]
+  },
+  {
+    "tick": 27,
+    "eye": [
+      -2200,
+      -2172,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_12"
+      }
+    ]
+  },
+  {
+    "tick": 29,
+    "eye": [
+      -2136,
+      -2172,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_13"
+      }
+    ]
+  },
+  {
+    "tick": 31,
+    "eye": [
+      -2072,
+      -2172,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_14"
+      }
+    ]
+  },
+  {
+    "tick": 33,
+    "eye": [
+      -2008,
+      -2172,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_15"
+      }
+    ]
+  },
+  {
+    "tick": 35,
+    "eye": [
+      -1944,
+      -2172,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_16"
+      }
+    ]
+  },
+  {
+    "tick": 37,
+    "eye": [
+      -1880,
+      -2172,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_17"
+      }
+    ]
+  },
+  {
+    "tick": 39,
+    "eye": [
+      -2200,
+      -2108,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_18"
+      }
+    ]
+  },
+  {
+    "tick": 41,
+    "eye": [
+      -2136,
+      -2108,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_19"
+      }
+    ]
+  },
+  {
+    "tick": 43,
+    "eye": [
+      -2072,
+      -2108,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_20"
+      }
+    ]
+  },
+  {
+    "tick": 45,
+    "eye": [
+      -2008,
+      -2108,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_21"
+      }
+    ]
+  },
+  {
+    "tick": 47,
+    "eye": [
+      -1944,
+      -2108,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_22"
+      }
+    ]
+  },
+  {
+    "tick": 49,
+    "eye": [
+      -1880,
+      -2108,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_23"
+      }
+    ]
+  },
+  {
+    "tick": 51,
+    "eye": [
+      -2200,
+      -2044,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_24"
+      }
+    ]
+  },
+  {
+    "tick": 53,
+    "eye": [
+      -2136,
+      -2044,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_25"
+      }
+    ]
+  },
+  {
+    "tick": 55,
+    "eye": [
+      -2072,
+      -2044,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_26"
+      }
+    ]
+  },
+  {
+    "tick": 57,
+    "eye": [
+      -2008,
+      -2044,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_27"
+      }
+    ]
+  },
+  {
+    "tick": 59,
+    "eye": [
+      -1944,
+      -2044,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_28"
+      }
+    ]
+  },
+  {
+    "tick": 61,
+    "eye": [
+      -1880,
+      -2044,
+      128
+    ],
+    "pitch": -89,
+    "yaw": 0,
+    "ui": [
+      {
+        "action": "command",
+        "command": "ent_create npc_manhack targetname perf_manhack_29"
+      }
+    ]
+  },
+  {
+    "tick": 65,
+    "fly": false,
+    "eye": [
+      -1978,
+      -2267,
+      64
+    ],
+    "pitch": 0,
+    "yaw": 180,
+    "label": "crowd-ready"
+  },
+  {
+    "tick": 300,
+    "label": "crowd-hunting"
+  },
+  {
+    "tick": 600,
+    "label": "crowd-finish"
+  }
+]

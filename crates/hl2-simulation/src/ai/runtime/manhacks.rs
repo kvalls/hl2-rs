@@ -24,6 +24,7 @@ use modkit_core::World;
 use std::collections::BTreeMap;
 
 mod contact;
+mod glows;
 
 /// sk_manhack_melee_dmg where skill.cfg leaves it out.
 const CUT_DAMAGE: f32 = 20.;
@@ -511,32 +512,6 @@ impl AiRuntime {
                 _ => {}
             }
         }
-    }
-    /// The living manhacks' eye and light, placed for this frame, and whether they are stunned.
-    /// A stunned eye strobes, so half the time it is not drawn.
-    pub fn manhack_glows<'a>(
-        &'a self,
-        world: &'a World,
-        scene: &'a Scene,
-    ) -> impl Iterator<Item = (Vec3, bool)> + 'a {
-        let alive = |id: usize| {
-            let state = scene.states.get(id);
-            state.is_some_and(|s| s.visible && !s.killed && !s.corpse)
-        };
-        self.actors
-            .iter()
-            .filter_map(move |(&id, actor)| match &actor.class {
-                AiClass::Manhack(m) if alive(id) => Some((id, m.stunned)),
-                _ => None,
-            })
-            .filter(move |&(id, stunned)| !stunned || manhack::strobe_lit(scene.time, id))
-            .flat_map(move |(id, stunned)| {
-                let frames = scene.attachment_frames(world, id, &manhack::GLOW_ATTACHMENTS);
-                frames
-                    .into_iter()
-                    .flatten()
-                    .map(move |frame| (frame.w_axis.truncate(), stunned))
-            })
     }
     /// The squad's members as the swarm reads them.
     fn swarm_members(&self, squad: &str, scene: &Scene) -> Vec<manhack::Member> {

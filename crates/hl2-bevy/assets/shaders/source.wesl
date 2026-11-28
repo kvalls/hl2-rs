@@ -1,5 +1,6 @@
 import package::shaders::source_uniforms::material;
 import bevy_pbr::render::forward_io::VertexOutput;
+import bevy_pbr::render::mesh_functions;
 import bevy_pbr::render::mesh_view_bindings::{view, clustered_lights, lights, directional_shadow_textures, directional_shadow_textures_comparison_sampler};
 import bevy_render::maths::orthonormalize;
 import bevy_pbr::render::clustered_forward;
@@ -16,12 +17,78 @@ import bevy_pbr::render::clustered_forward;
 @group(constants::MATERIAL_BIND_GROUP) @binding(16) var envmap_mask_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(18) var flashlight_texture: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(19) var flashlight_sampler: sampler;
+// Iris projections, two world-space rows per eye mesh; the mesh's second UV holds its slot.
+@group(constants::MATERIAL_BIND_GROUP) @binding(20) var<storage, read> eye_rows: array<vec4<f32>>;
+// Per-frame material values (tint colour, texture transform columns), four rows per slot.
+@group(constants::MATERIAL_BIND_GROUP) @binding(21) var<storage, read> material_rows: array<vec4<f32>>;
+// Model lighting rows (material_slots::lighting, 31 rows per slot).
+@group(constants::MATERIAL_BIND_GROUP) @binding(22) var<storage, read> light_rows: array<vec4<f32>>;
+fn material_tint() -> vec4<f32> {
+    if material.dynamic.x < 0.0 || material.dynamic.y < 0.5 { return material.tint; }
+    return vec4(material_rows[u32(material.dynamic.x) * 4u].rgb, material.tint.a);
+}
+fn material_secondary_uv() -> mat3x3<f32> {
+    if material.dynamic.x < 0.0 { return material.secondary_uv; }
+    let row = u32(material.dynamic.x) * 4u;
+    return mat3x3(material_rows[row + 1u].xyz, material_rows[row + 2u].xyz, material_rows[row + 3u].xyz);
+}
+// Model lighting from its entity's slot when the draw's MeshTag (> 0) or material.dynamic.z
+// names one, else the material's own.
+@if(SOURCE_MODEL_LIT)
+fn light_slot_index(instance_index: u32) -> i32 {
+    let tag = mesh_functions::get_tag(instance_index);
+    if tag > 0u { return i32(tag - 1u); }
+    return select(-1, i32(material.dynamic.z), material.dynamic.z >= 0.0);
+}
+@if(SOURCE_MODEL_LIT)
+fn light_row(slot: i32, i: u32) -> vec4<f32> { return light_rows[u32(slot) * 31u + i]; }
+@if(SOURCE_MODEL_LIT)
+fn light_params(slot: i32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 0u); }
+    return material.lighting.params;
+}
+@if(SOURCE_MODEL_LIT)
+fn light_basis(slot: i32) -> mat4x4<f32> {
+    if slot >= 0 { return mat4x4(light_row(slot, 1u), light_row(slot, 2u), light_row(slot, 3u), light_row(slot, 4u)); }
+    return material.lighting.basis;
+}
+@if(SOURCE_MODEL_LIT)
+fn light_ambient(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 5u + i); }
+    return material.lighting.ambient[i];
+}
+@if(SOURCE_MODEL_LIT)
+fn light_position(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 11u + i); }
+    return material.lighting.position[i];
+}
+@if(SOURCE_MODEL_LIT)
+fn light_color(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 15u + i); }
+    return material.lighting.color[i];
+}
+@if(SOURCE_MODEL_LIT)
+fn light_direction(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 19u + i); }
+    return material.lighting.direction[i];
+}
+@if(SOURCE_MODEL_LIT)
+fn light_attenuation(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 23u + i); }
+    return material.lighting.attenuation[i];
+}
+@if(SOURCE_MODEL_LIT)
+fn light_spot(slot: i32, i: u32) -> vec4<f32> {
+    if slot >= 0 { return light_row(slot, 27u + i); }
+    return material.lighting.spot[i];
+}
 // SDK lightmappedgeneric_ps2_3_x.h CUBEMAP: reflection of the eye vector about the face
 // normal, sampled in Source axes. Retail integer HDR stores cubemaps as linear/16 and
 // multiplies by ENV_MAP_SCALE 16 (shaderapidx9 c30.z), so texels are capped at 16.
 // Tangent frame along the texture's s/t axes from screen-space derivatives (no per-vertex
 // tangents): SDK world = mul(vNormal, [tangentS, tangentT, normal]), and VRAD's
 // GetBumpNormals orients that frame with s and t, flipping it on left-handed faces.
+@if(SOURCE_ENVMAP)
 fn bump_normal(mesh: VertexOutput, n: vec3<f32>, bump: vec3<f32>) -> vec3<f32> {
     let p = mesh.world_position.xyz;
     let dp1 = dpdx(p);
@@ -35,6 +102,7 @@ fn bump_normal(mesh: VertexOutput, n: vec3<f32>, bump: vec3<f32>) -> vec3<f32> {
     if dot(s, s) < 1e-20 || dot(t, t) < 1e-20 { return n; }
     return normalize(bump.x * normalize(s) + bump.y * normalize(t) + bump.z * n);
 }
+@if(SOURCE_ENVMAP)
 fn envmap_specular(mesh: VertexOutput, base_alpha: f32) -> vec3<f32> {
     // specularFactor: $normalmapalphaenvmapmask (bump alpha), $envmapmask (RGB) and
     // $basealphaenvmapmask (1 - base alpha). Masks and bump maps use the base UVs.
@@ -60,45 +128,51 @@ fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     return select(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, color <= vec3(0.04045));
 }
 // Source ambient cube (faces in Source axes) with squared-normal weighting.
-fn ambient_light(n: vec3<f32>) -> vec3<f32> {
+@if(SOURCE_MODEL_LIT)
+fn ambient_light(slot: i32, n: vec3<f32>) -> vec3<f32> {
     let s = vec3(n.x, -n.z, n.y);
     let n2 = s * s;
-    let x = select(material.lighting.ambient[0].xyz, material.lighting.ambient[1].xyz, s.x < 0.0);
-    let y = select(material.lighting.ambient[2].xyz, material.lighting.ambient[3].xyz, s.y < 0.0);
-    let z = select(material.lighting.ambient[4].xyz, material.lighting.ambient[5].xyz, s.z < 0.0);
+    let x = select(light_ambient(slot, 0u).xyz, light_ambient(slot, 1u).xyz, s.x < 0.0);
+    let y = select(light_ambient(slot, 2u).xyz, light_ambient(slot, 3u).xyz, s.y < 0.0);
+    let z = select(light_ambient(slot, 4u).xyz, light_ambient(slot, 5u).xyz, s.z < 0.0);
     return n2.x * x + n2.y * y + n2.z * z;
 }
 // SDK DoLighting: per light color * cosine (or half-Lambert) * distance/spot attenuation.
-fn model_light(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
-    var sum = ambient_light(n);
-    let count = i32(material.lighting.params.y);
+@if(SOURCE_MODEL_LIT)
+fn model_light(slot: i32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    var sum = ambient_light(slot, n);
+    let params = light_params(slot);
+    let count = i32(params.y);
     for (var i = 0; i < 4; i++) {
         if i >= count { break; }
-        let kind = material.lighting.position[i].w;
-        let to_light = material.lighting.position[i].xyz - p;
+        let pos = light_position(slot, u32(i));
+        let kind = pos.w;
+        let to_light = pos.xyz - p;
         let d2 = max(dot(to_light, to_light), 1e-6);
         let d = sqrt(d2);
         var l = to_light / d;
         var atten = 1.0;
+        let dir = light_direction(slot, u32(i)).xyz;
         if kind > 1.5 {
-            l = -material.lighting.direction[i].xyz;
+            l = -dir;
         } else {
-            atten = 1.0 / dot(material.lighting.attenuation[i].xyz, vec3(1.0, d, d2));
+            atten = 1.0 / dot(light_attenuation(slot, u32(i)).xyz, vec3(1.0, d, d2));
             if kind > 0.5 {
-                let cos_theta = dot(material.lighting.direction[i].xyz, -l);
-                var spot = max((cos_theta - material.lighting.spot[i].y) * material.lighting.spot[i].z, 0.0001);
-                spot = clamp(pow(spot, material.lighting.spot[i].x), 0.0, 1.0);
+                let spot_terms = light_spot(slot, u32(i));
+                let cos_theta = dot(dir, -l);
+                var spot = max((cos_theta - spot_terms.y) * spot_terms.z, 0.0001);
+                spot = clamp(pow(spot, spot_terms.x), 0.0, 1.0);
                 atten *= spot;
             }
         }
         var cosine = dot(n, l);
-        if material.lighting.params.z > 0.5 {
+        if params.z > 0.5 {
             let h = cosine * 0.5 + 0.5;
             cosine = h * h;
         } else {
             cosine = max(cosine, 0.0);
         }
-        sum += material.lighting.color[i].xyz * cosine * atten;
+        sum += light_color(slot, u32(i)).xyz * cosine * atten;
     }
     return sum;
 }
@@ -117,10 +191,12 @@ fn flashlight_base(to: vec3<f32>, n: vec3<f32>, projected: vec3<f32>, near: f32,
     let lambert = saturate(dot(n, -to / dist));
     return vec4(cookie * atten * lambert * fade, atten);
 }
-fn viewmodel_flashlight_color(position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+@if(SOURCE_MODEL_LIT)
+fn viewmodel_flashlight_color(slot: i32, position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
     if material.viewmodel_flashlight.limits.z < 0.5 { return vec3(0.0); }
-    let p = material.lighting.basis * vec4(position, 1.0);
-    let n = normalize((material.lighting.basis * vec4(normal, 0.0)).xyz);
+    let basis = light_basis(slot);
+    let p = basis * vec4(position, 1.0);
+    let n = normalize((basis * vec4(normal, 0.0)).xyz);
     return flashlight_base(p.xyz - material.viewmodel_flashlight.origin_linear.xyz, n,
         (material.viewmodel_flashlight.world_to_beam * p).xyz,
         material.viewmodel_flashlight.limits.x, material.viewmodel_flashlight.limits.y,
@@ -151,7 +227,7 @@ fn flashlight_shadow(id: u32, delta: vec3<f32>, direction: vec3<f32>, pixel: vec
         }
         @if(!NO_ARRAY_TEXTURES_SUPPORT) {
             coverage += textureSampleCompareLevel(directional_shadow_textures, directional_shadow_textures_comparison_sampler,
-                uv + offset, i32(id) + lights.spot_light_shadowmap_offset, depth);
+            uv + offset, i32(id) + lights.spot_light_shadowmap_offset, depth);
         }
     }
     return coverage * 0.125;
@@ -191,20 +267,57 @@ fn flashlight(world_position: vec4<f32>, n: vec3<f32>, frag_coord: vec2<f32>) ->
     }
     return vec3(0.0);
 }
+fn has_spot_lights() -> bool {
+    if lights.cluster_dimensions.w != 1u { return true; }
+    let ranges = clustered_forward::unpack_clusterable_object_index_ranges(0u);
+    return ranges.first_spot_light_index_offset < ranges.first_reflection_probe_index_offset;
+}
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var base = textureSample(base_texture, base_sampler, mesh.uv);
+    // DecalModulate (SDK decalmodulate_dx9.cpp): alpha test, then the frame times twice the
+    // texture (DST_COLOR, SRC_COLOR): grey leaves it unchanged. Unlit and without the tonemap scale.
+    if material.parameters.z > 1.5 {
+        @if(SOURCE_MAY_DISCARD) {
+            if base.a < material.parameters.x { discard; }
+        }
+        return vec4(srgb_to_linear(base.rgb * 2.0), 1.0);
+    }
+    if material.parameters.w > 1.5 {
+        // WorldVertexTransition (SDK lightmappedgeneric_ps2_3_x.h): the second base, at the
+        // same coordinates, by the vertex alpha a displacement vertex carries; alpha too.
+        base = mix(base, textureSample(iris_texture, iris_sampler, mesh.uv), mesh.color.a);
+    }
     let base_alpha = base.a;
-    if material.parameters.w > 0.5 {
-        let iris = textureSample(iris_texture, iris_sampler, mesh.uv_b);
-        base = vec4(mix(base.rgb, iris.rgb, iris.a), base.a);
+    var eye = false;
+    @if(SOURCE_MODEL_LIT) {
+        eye = material.parameters.w > 0.5 && material.parameters.w < 1.5;
+        if eye {
+            let slot = u32(mesh.uv_b.x + 0.5) * 2u;
+            let at = vec4(mesh.world_position.xyz, 1.0);
+            var iris_uv = vec2(0.0);
+            if slot + 1u < arrayLength(&eye_rows) {
+                iris_uv = vec2(dot(eye_rows[slot], at), dot(eye_rows[slot + 1u], at));
+            }
+            let iris = textureSample(iris_texture, iris_sampler, iris_uv);
+            base = vec4(mix(base.rgb, iris.rgb, iris.a), base.a);
+        }
     }
     base.a = select(base.a, 1.0, material.parameters.y > 0.5);
     var vertex_color = mesh.color;
-    let lit = material.lighting.params.x > 0.5;
-    if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
+    // Vertex alpha is a blend weight there, never opacity (camera materials use it below).
+    if material.parameters.w > -0.5 { vertex_color.a = 1.0; }
+    var lparams = material.lighting.params;
+    var lslot = -1;
+    var lit = false;
+    @if(SOURCE_MODEL_LIT) {
+        lslot = light_slot_index(mesh.instance_index);
+        lparams = light_params(lslot);
+        lit = lparams.x > 0.5;
+        if lit { vertex_color = vec4(1.0, 1.0, 1.0, vertex_color.a); }
+    }
     if material.parameters.w < -0.5 {
-        let uv = (material.secondary_uv * vec3(mesh.uv, 1.0)).xy;
+        let uv = (material_secondary_uv() * vec3(mesh.uv, 1.0)).xy;
         base = vec4(base.rgb * textureSample(iris_texture, iris_sampler, uv).rgb, base.a);
         if material.parameters.w > -1.5 || material.parameters.w < -2.5 { vertex_color = vec4(1.0); }
         // SDK UnlitTwoTexture returns alpha 1; distance fade lives in the VTF frames.
@@ -212,38 +325,61 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     }
     // Static-prop vertex colour is baked illumination, not emissive albedo.
     let material_albedo = base.rgb;
-    base *= material.tint * vertex_color;
-    if base.a < material.parameters.x { discard; }
-    // Alpha-test survivors are opaque. Retaining texture alpha blends the sky back
-    // through cutout edges when later cameras compose the frame, creating bright rims.
+    base *= material_tint() * vertex_color;
+    @if(SOURCE_MAY_DISCARD) {
+        if base.a < material.parameters.x { discard; }
+    }
     @if(MAY_DISCARD) {
+        // Alpha-test survivors are opaque. Retaining texture alpha blends the sky back
+        // through cutout edges when later cameras compose the frame, creating bright rims.
         base.a = 1.0;
     }
-    // DecalModulate (z = 2): alpha test GREATER 0 above, then mod2x of the frame behind it
-    // (2 x texture under a Dst x Src blend) with TONEMAP_SCALE_NONE: the lit frame is the
-    // multiplicand, so neither light nor exposure applies (like effects.wgsl's studio decals).
-    if material.parameters.z > 1.5 { return vec4(srgb_to_linear(base.rgb * 2.0), 1.0); }
 
-    let baked = select(textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb, vec3(1.0), material.parameters.w > 0.5);
-    // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
-    // Procedural camera images are sampled through an sRGB view and are already linear.
-    var rgb = select(srgb_to_linear(base.rgb) * baked, base.rgb, material.parameters.w < -0.5);
-    if lit {
-        let p = (material.lighting.basis * vec4(mesh.world_position.xyz, 1.0)).xyz;
-        let n = normalize((material.lighting.basis * vec4(mesh.world_normal, 0.0)).xyz);
-        rgb = srgb_to_linear(base.rgb) * model_light(p, n);
+    var linear_base = base.rgb;
+    var rgb = base.rgb;
+    if material.parameters.w >= -0.5 {
+        var baked = vec3(1.0);
+        @if(SOURCE_MODEL_LIT) {
+            if !eye {
+                baked = textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb;
+            }
+        }
+        @if(!SOURCE_MODEL_LIT) {
+            if lparams.w < 0.5 {
+                baked = textureSample(lightmap_texture, lightmap_sampler, mesh.uv_b).rgb;
+            }
+        }
+        // Lightmaps are linear and unclamped (Source HDR path); white fallbacks are 1.0.
+        // Procedural camera images are sampled through an sRGB view and are already linear.
+        linear_base = srgb_to_linear(base.rgb);
+        rgb = linear_base * baked;
     }
-    if material.lighting.params.w > 1.5 && material.parameters.z < 0.5 && material.parameters.w > -0.5 {
-        rgb += srgb_to_linear(base.rgb) * viewmodel_flashlight_color(mesh.world_position.xyz, mesh.world_normal);
-    } else if material.lighting.params.w < 0.5 {
-        rgb += srgb_to_linear(base.rgb) * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
+    @if(SOURCE_MODEL_LIT) {
+        if lit {
+            let basis = light_basis(lslot);
+            let p = (basis * vec4(mesh.world_position.xyz, 1.0)).xyz;
+            let n = normalize((basis * vec4(mesh.world_normal, 0.0)).xyz);
+            rgb = linear_base * model_light(lslot, p, n);
+        }
+        if lparams.w > 1.5 && material.parameters.z < 0.5 && material.parameters.w > -0.5 {
+            rgb += linear_base * viewmodel_flashlight_color(lslot, mesh.world_position.xyz, mesh.world_normal);
+        } else if lparams.w < 0.5 && has_spot_lights() {
+            rgb += linear_base * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
+        }
+    }
+    @if(!SOURCE_MODEL_LIT) {
+        if lparams.w < 0.5 && has_spot_lights() {
+            rgb += linear_base * flashlight(mesh.world_position, normalize(mesh.world_normal), mesh.position.xy);
+        }
     }
     // SDK $selfillum: diffuse = lerp(diffuse, material.tint * albedo, base alpha), before specular.
     if material.self_illum.w > 0.5 {
-        rgb = mix(rgb, material.self_illum.xyz * srgb_to_linear(material_albedo * material.tint.rgb), base_alpha);
+        rgb = mix(rgb, material.self_illum.xyz * srgb_to_linear(material_albedo * material_tint().rgb), base_alpha);
     }
-    if material.envmap_tint.w > 0.5 {
-        rgb += envmap_specular(mesh, base_alpha);
+    @if(SOURCE_ENVMAP) {
+        if material.envmap_tint.w > 0.5 {
+            rgb += envmap_specular(mesh, base_alpha);
+        }
     }
     // Source FinalOutput TONEMAP_SCALE_LINEAR: the camera's exposure is the tonemap scale.
     rgb *= view.exposure;

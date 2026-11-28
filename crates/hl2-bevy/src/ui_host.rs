@@ -16,6 +16,9 @@ pub struct Console {
     /// The pending `map_request` loads a main-menu background level.
     pub background_request: bool,
     pub quit_requested: bool,
+    /// `screenshot` asked for the next frame.
+    pub screenshot_requested: bool,
+    pub(crate) remote_console: Option<crate::rcon::RemoteConsole>,
 }
 impl Console {
     pub fn new(source: hl2_ui::console::Console) -> Self {
@@ -25,10 +28,21 @@ impl Console {
             map_request_game: None,
             background_request: false,
             quit_requested: false,
+            screenshot_requested: false,
+            remote_console: None,
         }
     }
+    /// Resolves a console log name the same way as the console log writer.
+    pub fn console_log_path(name: &str) -> std::io::Result<Option<std::path::PathBuf>> {
+        hl2_ui::console::remote::log_file(name)
+            .map_err(std::io::Error::other)?
+            .map(|relative| {
+                std::path::absolute(crate::console_log::settings_folder().join(relative))
+            })
+            .transpose()
+    }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"mode":self.source.mode(),"background_level":self.source.background_level(),"sv_cheats":self.source.cheats,"input":self.source.input_line(),"output":self.source.shell.panel.output,"pending_map":self.map_request,"pending_game":self.map_request_game,"options":self.source.options_report(),"chapters":self.source.chapters_report(),"windows":self.source.open_windows(),"confirm":self.source.confirm_report(),"menu":self.source.menu_report(),"console_frame":self.source.console_frame_report(),"video":self.source.video_report()})
+        serde_json::json!({"mode":self.source.mode(),"background_level":self.source.background_level(),"loading_dialog":self.source.loading_dialog.is_some(),"sv_cheats":self.source.cheats,"input":self.source.input_line(),"output":self.source.shell.panel.output,"pending_map":self.map_request,"pending_game":self.map_request_game,"options":self.source.options_report(),"chapters":self.source.chapters_report(),"windows":self.source.open_windows(),"confirm":self.source.confirm_report(),"menu":self.source.menu_report(),"console_frame":self.source.console_frame_report(),"video":self.source.video_report()})
     }
 }
 #[derive(Clone, Deserialize)]
@@ -188,8 +202,8 @@ pub fn wheel_steps<'a>(events: impl Iterator<Item = &'a bevy::input::mouse::Mous
 /// Keys and buttons pressed this frame as persisted binding names: the `KeyCode` name for keys
 /// (`KeyW`, `SuperLeft`), the Source names `MOUSE1`..`MOUSE5` for buttons and
 /// `MWHEELUP`/`MWHEELDOWN` for the wheel. Unidentified native keys are skipped.
-/// Control and Shift held, and whether this frame pastes or copies: Cmd+V / Cmd+C on macOS,
-/// Ctrl+V / Ctrl+C elsewhere.
+/// Modifiers held, and whether this frame triggers retail editing shortcuts (Control, or Command on
+/// macOS, without Alt, matching SDK `TextEntry` / `RichText`).
 /// Typed text is dropped while Control or Cmd is held (shortcuts, not text).
 pub struct Modifiers {
     pub ctrl: bool,
@@ -198,24 +212,25 @@ pub struct Modifiers {
     pub command: bool,
     pub paste: bool,
     pub copy: bool,
+    pub cut: bool,
+    pub undo: bool,
     pub select_all: bool,
 }
 
 pub fn modifiers(native: &ButtonInput<KeyCode>) -> Modifiers {
     let ctrl = native.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let command = native.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]);
-    let clipboard_modifier = if cfg!(target_os = "macos") {
-        command
-    } else {
-        ctrl
-    };
+    let alt = native.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    let clipboard_modifier = (ctrl || (cfg!(target_os = "macos") && command)) && !alt;
     Modifiers {
         ctrl,
         shift: native.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
-        alt: native.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]),
+        alt,
         command,
         paste: clipboard_modifier && native.just_pressed(KeyCode::KeyV),
         copy: clipboard_modifier && native.just_pressed(KeyCode::KeyC),
+        cut: clipboard_modifier && native.just_pressed(KeyCode::KeyX),
+        undo: clipboard_modifier && native.just_pressed(KeyCode::KeyZ),
         select_all: clipboard_modifier && native.just_pressed(KeyCode::KeyA),
     }
 }
@@ -266,8 +281,17 @@ mod binding_tests {
         keys.release(KeyCode::KeyA);
         keys.press(KeyCode::KeyC);
         assert!(modifiers(&keys).copy);
+        keys.release(KeyCode::KeyC);
+        keys.press(KeyCode::KeyX);
+        assert!(modifiers(&keys).cut);
+        keys.release(KeyCode::KeyX);
+        keys.press(KeyCode::KeyZ);
+        assert!(modifiers(&keys).undo);
+        keys.release(KeyCode::KeyZ);
         keys.press(KeyCode::KeyV);
         assert!(modifiers(&keys).paste);
+        keys.press(KeyCode::AltLeft);
+        assert!(!modifiers(&keys).paste, "Alt suppresses retail shortcuts");
     }
 
     #[test]

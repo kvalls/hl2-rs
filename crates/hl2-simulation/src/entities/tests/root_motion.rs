@@ -1,4 +1,3 @@
-//! Authored root motion on actor sequences (Scene::ai_auto_movement, PR #5's eb51f6c).
 use super::*;
 
 #[test]

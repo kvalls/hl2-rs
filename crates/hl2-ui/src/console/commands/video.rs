@@ -320,17 +320,3 @@ pub(super) fn mat_setvideomode(console: &mut Console, spec: &Spec, args: &[Strin
     console.log(format!("mat_setvideomode {width} {height} {windowed}"));
     Ok(Some(Effect::ApplyConfig(Box::new(console.config.clone()))))
 }
-
-pub(super) fn background_force_default_blur_value(console: &Console) -> Option<String> {
-    Some(u8::from(console.config.video.background_force_default_blur).to_string())
-}
-
-pub(super) fn set_background_force_default_blur(
-    console: &mut Console,
-    arg: &str,
-) -> Result<(), Invalid> {
-    let force = flag(arg)?;
-    console.config.video.background_force_default_blur = force;
-    console.options.sync_background_force_default_blur(force);
-    Ok(())
-}

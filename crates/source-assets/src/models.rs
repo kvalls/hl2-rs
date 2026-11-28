@@ -269,6 +269,7 @@ fn eye_position(data: &[u8]) -> Result<Vec3> {
 #[cfg(test)]
 mod eye_position_tests {
     use super::*;
+
     #[test]
     fn studio_eye_rejects_truncated_mismatched_and_nonfinite_metadata() {
         let mut data = vec![0u8; 92];
@@ -366,7 +367,11 @@ pub use bodygroups::{body_variants, RUNTIME_BODYGROUPS};
 pub use chunks::used_chunk_models;
 use collision::static_collision;
 pub mod ai_activities;
+mod entity_rigs;
 mod geometry;
+mod pickups;
+mod prefetch;
+pub use pickups::{physical_pickup, supply_model};
 mod prop_data;
 mod root_motion;
 pub use ai_activities::{
@@ -418,6 +423,7 @@ pub fn append_models(world: &mut World, vfs: &Vfs) -> ModelReport {
 /// The model instances of the map's point entities: their own model, a weapon script's, an
 /// item's or the class's default.
 fn append_entity_models(world: &mut World, vfs: &Vfs) {
+    let mut has_dynamic_phy = BTreeMap::new();
     for (entity_id, entity) in world.entities.iter().enumerate() {
         if !entity.class().starts_with("npc_")
             && !entity.class().starts_with("weapon_")
@@ -449,24 +455,29 @@ fn append_entity_models(world: &mut World, vfs: &Vfs) {
         } else {
             None
         };
-        let item_model = match entity.class() {
-            "item_healthkit" => Some("models/items/healthkit.mdl"),
-            "item_healthvial" => Some("models/healthvial.mdl"),
-            "item_battery" => Some("models/items/battery.mdl"),
-            "item_suit" => Some("models/items/hevsuit.mdl"),
-            "item_ammo_pistol" | "item_ammo_pistol_large" => Some("models/items/boxsrounds.mdl"),
-            _ => None,
-        };
         if let Some(model) = entity
             .get("model")
             .filter(|m| m.ends_with(".mdl"))
             .or(script_model.as_deref())
-            .or(item_model)
+            .or_else(|| supply_model(entity.class()))
             .or(default_model)
         {
+            let model_path = model.replace('\\', "/");
+            let background = world.background_entities.contains(&entity_id);
+            let solid = entity.get("solid");
+            // VPhysics dynamic props need model collision data for their static body.
+            let missing_phy = !background
+                && matches!(entity.class(), "prop_dynamic" | "prop_dynamic_override")
+                && solid == Some("6")
+                && !*has_dynamic_phy
+                    .entry(model_path.to_ascii_lowercase())
+                    .or_insert_with(|| {
+                        let stem = model_path.trim_end_matches(".mdl");
+                        !matches!(vfs.read_prefix(&format!("{stem}.phy"), 1), Ok(None))
+                    });
             world.model_instances.push(ModelInstance {
-                background: world.background_entities.contains(&entity_id),
-                model: model.replace('\\', "/"),
+                background,
+                model: model_path,
                 origin: entity.origin(),
                 angles: parse_vec3(entity.get("angles").unwrap_or("0 0 0")).unwrap_or(Vec3::ZERO),
                 skin: entity.get("skin").and_then(|s| s.parse().ok()).unwrap_or(0),
@@ -478,16 +489,24 @@ fn append_entity_models(world: &mut World, vfs: &Vfs) {
                     .unwrap_or(1.),
                 kind: entity.class().into(),
                 // A prop_ragdoll collides through its ragdoll solids, not a model collider.
-                solid: !entity.class().starts_with("item_")
-                    && !entity.class().starts_with("weapon_")
+                solid: (!(entity.class().starts_with("item_") || entity.class().starts_with("weapon_"))
+                    || physical_pickup(entity.class()))
                     && entity.class() != "prop_ragdoll"
                     // CRagGib::Spawn: FSOLID_NOT_SOLID, then a client ragdoll.
                     && entity.class() != "raggib"
-                    && entity.get("solid").is_none_or(|s| s != "0"),
+                    && solid != Some("0")
+                    && !missing_phy,
                 solid_mode: None,
                 entity: Some(entity_id),
             });
         }
+    }
+}
+
+fn load_surface_materials(world: &mut World, vfs: &Vfs, warnings: &mut Vec<String>) {
+    match crate::surfaceprops::read(vfs) {
+        Ok(table) => world.surface_materials = table,
+        Err(error) => warnings.push(format!("surfaceproperties: {error:#}")),
     }
 }
 
@@ -500,12 +519,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         .and_then(|data| crate::keyvalues::parse(&String::from_utf8_lossy(&data)).ok())
         .unwrap_or_default();
     world.breakable_chunks = breakable_chunks(&prop_data);
-    match crate::surfaceprops::read(vfs) {
-        Ok(table) => world.surface_materials = table,
-        Err(error) => physics_report
-            .1
-            .push(format!("surfaceproperties: {error:#}")),
-    }
+    load_surface_materials(world, vfs, &mut physics_report.1);
     // VBSP gives each world collision triangle its brush side's $surfaceprop
     // (ivp.cpp ConvertWorldBrushesToPhysCollide); resolve each side material once.
     let side_materials: std::collections::BTreeSet<String> = world
@@ -523,37 +537,34 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         }
     }
     append_entity_models(world, vfs);
-    let mut cache: BTreeMap<(String, usize, i32), Option<ModelLevels>> = BTreeMap::new();
     let mut report = ModelReport::default();
+    let mut seen = BTreeSet::new();
+    let keys: Vec<prefetch::ModelKey> = (world.model_instances.iter())
+        .map(|i| (i.model.to_lowercase(), i.skin, i.body))
+        .filter(|key| seen.insert(key.clone()))
+        .collect();
+    let mut cache = BTreeMap::new();
+    for (key, read) in keys.iter().zip(prefetch::read_all(vfs, &keys, root_lod)) {
+        match read {
+            Ok(levels) => drop(cache.insert(key.clone(), levels)),
+            Err(error) => report
+                .errors
+                .push(format!("{} skin {}: {error}", key.0, key.1)),
+        }
+    }
+    report.unique_models = cache.len();
     let mut collision_attempted = BTreeSet::new();
+    let mut physics_attempted = BTreeSet::new();
     let mut ragdolls_read = BTreeSet::new();
     let mut collision_modes_reported = BTreeSet::new();
+    // Placed instances only: one whose model failed to read is skipped below.
+    let mut rigs = entity_rigs::load(world, vfs, |i| {
+        cache.contains_key(&(i.model.to_lowercase(), i.skin, i.body))
+    });
     let mut batches = Surface::batch(world.surfaces.drain(..));
-    for instance in &world.model_instances {
+    for (index, instance) in world.model_instances.iter().enumerate() {
         let key = (instance.model.to_lowercase(), instance.skin, instance.body);
-        let model = cache.entry(key.clone()).or_insert_with(|| {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                read_model_levels(vfs, &key.0, key.1, key.2, root_lod)
-            })) {
-                Ok(Ok(s)) => {
-                    report.unique_models += 1;
-                    Some(s)
-                }
-                result => {
-                    report.errors.push(format!(
-                        "{} skin {}: {}",
-                        key.0,
-                        key.1,
-                        match result {
-                            Ok(Err(e)) => format!("{e:#}"),
-                            _ => "model reader panicked".into(),
-                        }
-                    ));
-                    None
-                }
-            }
-        });
-        let Some(model) = model else {
+        let Some(model) = cache.get(&key) else {
             continue;
         };
         model.store(instance, (&mut world.model_assets, &mut world.model_lods));
@@ -589,12 +600,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                 .is_some_and(|e| e.class().starts_with("npc_"))
         }) && !world.model_mass.contains_key(&instance.asset_key())
         {
-            if let Some(mass) = vfs
-                .read(&instance.model)
-                .ok()
-                .flatten()
-                .and_then(|mdl| studio_mass(&mdl).ok())
-            {
+            if let Some(mass) = model.mass {
                 world.model_mass.insert(instance.asset_key(), mass);
             }
         }
@@ -602,12 +608,10 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         if instance.kind.starts_with("prop_physics")
             && !world.model_prop_health.contains_key(&instance.asset_key())
         {
-            if let Some(data) = vfs
-                .read(&instance.model)
-                .ok()
-                .flatten()
-                .and_then(|mdl| studio_keyvalues(&mdl).ok().flatten())
-                .and_then(|text| resolve_prop_data(&prop_data, &text))
+            if let Some(data) = model
+                .keyvalues
+                .as_deref()
+                .and_then(|text| resolve_prop_data(&prop_data, text))
             {
                 let health = data.health;
                 world.model_prop_health.insert(instance.asset_key(), health);
@@ -631,8 +635,9 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         }
         // VPhysics props (CPhysicsProp::CreateVPhysics): authored solid parameters and
         // the authored convex pieces as stored (PhysModelCreate: entity space, any root).
-        if instance.kind.starts_with("prop_physics")
+        if (instance.kind.starts_with("prop_physics") || physical_pickup(&instance.kind))
             && !world.model_physics.contains_key(&instance.asset_key())
+            && physics_attempted.insert(instance.asset_key())
         {
             match read_physics(vfs, &instance.model) {
                 Ok(Some((solid, pieces))) => {
@@ -650,6 +655,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                         )),
                     }
                 }
+                Ok(None) if physical_pickup(&instance.kind) => (),
                 Ok(None) => report.collision_models_missing += 1,
                 Err(error) => physics_report
                     .1
@@ -657,76 +663,8 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
             }
         }
         report.instances_loaded += 1;
-        if instance.entity.is_some() && !world.rigs.contains_key(&instance.asset_key()) {
-            let mut wanted = [
-                "ACT_IDLE",
-                // Weapon-translated metrocop idles (weapon_pistol/smg1 acttables).
-                "ACT_IDLE_PISTOL",
-                "ACT_IDLE_SMG1",
-                // Stunstick acttable results for the metrocop shove/baton chain.
-                "ACT_MELEE_ATTACK_SWING",
-                "ACT_IDLE_ANGRY_MELEE",
-                "idle_subtle",
-                "idle_baton",
-                "walk_all",
-                "run_all",
-                "idle",
-                "idle01",
-                "fire",
-                "reload",
-                "draw",
-                "swing",
-                "attack",
-                "death1",
-                // npc_combine_camera deploy/retire activities (matched lowercase).
-                "act_combine_camera_open_idle",
-                "act_combine_camera_closed_idle",
-                "act_combine_camera_close",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect::<BTreeSet<_>>();
-            // npc_metropolice AI activities (hl2-simulation ai::metropolice/police and the
-            // weapon acttables): the cloud AI branch requested them at runtime only, so
-            // their sequences were never loaded and every task using them failed.
-            if instance.kind == "npc_metropolice" {
-                wanted.extend(METROPOLICE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
-            }
-            if matches!(
-                instance.kind.as_str(),
-                "npc_citizen" | "npc_barney" | "npc_alyx" | "npc_combine_s"
-            ) {
-                wanted.extend(HUMANOID_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
-            }
-            if instance.kind.starts_with("npc_") {
-                wanted.extend(NPC_BASE_AI_ACTIVITIES.iter().map(|a| a.to_lowercase()));
-            }
-            wanted.extend(
-                ai_activities::instance_ai_sequences(world, instance)
-                    .iter()
-                    .map(|a| a.to_lowercase()),
-            );
-            // A raggib ragdolls from its sequence 0 (cycle 0).
-            if instance.kind == "raggib" {
-                if let Ok(Some(first)) = crate::animation::first_sequence_name(vfs, &instance.model)
-                {
-                    wanted.insert(first.to_lowercase());
-                }
-            }
-            for e in &world.entities {
-                for key in [
-                    "DefaultAnim",
-                    "m_iszPlay",
-                    "m_iszIdle",
-                    "m_iszPostIdle",
-                    "animation",
-                ] {
-                    if let Some(name) = e.get(key) {
-                        wanted.insert(name.to_lowercase());
-                    }
-                }
-            }
-            match crate::animation::load(vfs, &instance.model, &wanted) {
+        if let Some((model, loaded)) = rigs.remove(&index) {
+            match loaded {
                 Ok(rig) => {
                     report.rigs_loaded += 1;
                     report.clips_loaded += rig.clips.len();
@@ -735,9 +673,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
                         .extend(rig.warnings.iter().cloned());
                     world.rigs.insert(instance.asset_key(), rig);
                 }
-                Err(e) => report
-                    .animation_warnings
-                    .push(format!("{}: {e:#}", instance.model)),
+                Err(e) => report.animation_warnings.push(format!("{model}: {e:#}")),
             }
         }
         // NPC deaths become ragdolls (C_BaseAnimating::BecomeRagdollOnClient); map
@@ -766,7 +702,7 @@ pub fn append_models_lod(world: &mut World, vfs: &Vfs, root_lod: usize) -> Model
         let illumination = *world
             .illumination
             .entry(instance.asset_key())
-            .or_insert_with(|| read_illumination(vfs, &instance.model).unwrap_or_default());
+            .or_insert(model.illumination);
         if instance.entity.is_some() {
             continue;
         }
@@ -840,13 +776,7 @@ pub fn read_illumination(
     model: &str,
 ) -> Result<modkit_core::lighting::ModelIllumination> {
     let mdl = vfs.read(model)?.context("model missing")?;
-    if mdl.get(..4) != Some(b"IDST") {
-        bail!("not a studio model");
-    }
-    Ok(modkit_core::lighting::ModelIllumination {
-        position: crate::vec3(&mdl, 92)?,
-        flags: u32le(&mdl, 152)?,
-    })
+    geometry::studio_illumination(&mdl)
 }
 /// Preloads every listed gib model's .phy (skin-0 key) so breaking a prop reads nothing.
 /// Gibs the PHY adapter cannot read (e.g. the cardboard_box00*_gib01 non-identity roots)
@@ -1081,6 +1011,42 @@ pub fn read_ragdoll(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dynamic_props_without_physics_data_keep_the_model_without_vphysics_collision() {
+        let root = std::env::temp_dir().join(format!("hl2rs-model-phy-{}", std::process::id()));
+        let models = root.join("hl2/models");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(models.join("has.phy"), [1]).unwrap();
+        let vfs = Vfs::mount(&root).unwrap();
+        let prop = |kind: &str, model: &str, solid: &str| modkit_core::Entity {
+            properties: vec![
+                ("classname".into(), kind.into()),
+                ("model".into(), format!("models/{model}.mdl")),
+                ("solid".into(), solid.into()),
+            ],
+        };
+        let mut world = World {
+            entities: vec![
+                prop("prop_dynamic", "missing", "6"),
+                prop("prop_dynamic_override", "has", "6"),
+                prop("prop_dynamic", "missing", "2"),
+                prop("prop_physics", "missing", "6"),
+            ],
+            ..Default::default()
+        };
+        append_entity_models(&mut world, &vfs);
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            world
+                .model_instances
+                .iter()
+                .map(|i| i.solid)
+                .collect::<Vec<_>>(),
+            [false, true, true, true]
+        );
+    }
+
     #[test]
     #[ignore = "reads the installed game (HL2_ROOT)"]
     fn weapon_solids_match_their_idle_pose_not_the_bind_mesh() {
@@ -1391,8 +1357,15 @@ mod tests {
         );
         assert!(!levels.lower.is_empty());
         for (i, level) in levels.lower.iter().enumerate() {
-            let alone = read_model_lod(&vfs, "models/barney.mdl", 0, i + 1).unwrap();
-            assert_eq!(count(&level.surfaces), count(&alone), "level {}", i + 1);
+            // A face's root level stops at Low (`FACE_MAX_ROOT_LOD`), so a root read deeper than
+            // that returns Low; the distance levels keep the coarser geometry.
+            let root = (i + 1).min(2);
+            let alone = read_model_lod(&vfs, "models/barney.mdl", 0, root).unwrap();
+            if root == i + 1 {
+                assert_eq!(count(&level.surfaces), count(&alone), "level {}", i + 1);
+            } else {
+                assert!(count(&level.surfaces) < count(&alone), "level {}", i + 1);
+            }
             assert!(level.switch_point > 0.);
         }
         assert!(levels

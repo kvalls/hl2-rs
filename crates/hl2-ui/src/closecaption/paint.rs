@@ -4,6 +4,79 @@ use super::{
     PAN_FADE_TIME, PAN_SLIDE_TIME,
 };
 
+pub(super) struct CaptionAppearance<'a> {
+    pub(super) layout: &'a Layout,
+    pub(super) measure: &'a dyn Measure,
+    pub(super) background: [f32; 4],
+}
+
+#[derive(Clone, Copy)]
+struct PaintViewport {
+    inset: f32,
+    box_top: f32,
+    window_top: f32,
+    window_bottom: f32,
+    available_height: f32,
+    line_height: f32,
+}
+
+fn paint_item(
+    item: &mut Item,
+    position: usize,
+    text_top: &mut f32,
+    viewport: PaintViewport,
+    layout: &Layout,
+    runs: &mut Vec<Run>,
+) -> bool {
+    // The oldest item drops the extra time it was created with.
+    if position == 0 && item.added_time > 0. {
+        item.time_to_live = (item.time_to_live - item.added_time).max(0.);
+        item.added_time = 0.;
+    }
+    let height = item.height;
+    let mut fade_line = None;
+    let mut fade_line_alpha = 1.;
+    if height > viewport.available_height {
+        let age = item.initial_life_span - item.time_to_live;
+        let (offset, fading, opacity) =
+            pan(item, viewport.available_height, viewport.line_height, age);
+        fade_line = fading;
+        fade_line_alpha = opacity;
+        *text_top = viewport.window_top + viewport.inset - offset;
+    }
+    let alpha = item.alpha(
+        layout.item_hidden_time,
+        layout.item_fade_in_time,
+        layout.item_fade_out_time,
+    );
+    for unit in item.work.as_ref().unwrap() {
+        let x = viewport.inset + unit.x + 3.;
+        let y = *text_top + unit.y;
+        let mut line_alpha = alpha;
+        if fade_line == Some((unit.y / viewport.line_height).round() as usize) {
+            line_alpha *= fade_line_alpha;
+        }
+        if y < viewport.box_top + viewport.inset
+            || y + unit.height > viewport.window_bottom - viewport.inset
+        {
+            continue;
+        }
+        let (color, highlight) = run_colors(unit.color, item.valid, line_alpha);
+        runs.push(Run {
+            text: unit.text.clone(),
+            x,
+            y,
+            width: unit.width + if item.valid { 0. } else { 2. },
+            height: unit.height,
+            style: unit.style,
+            color,
+            highlight,
+        });
+    }
+    *text_top += height;
+    *text_top >= viewport.window_bottom
+}
+
 impl CloseCaption {
     /// Paint for a panel of `size` pixels at proportional `scale` (screen height / 480) on
     /// the game clock `time`.
@@ -16,6 +89,29 @@ impl CloseCaption {
         background: [f32; 4],
         time: f64,
     ) -> Paint {
+        self.paint_filtered(
+            size,
+            scale,
+            CaptionAppearance {
+                layout,
+                measure,
+                background,
+            },
+            true,
+            time,
+        )
+    }
+
+    pub(super) fn paint_filtered(
+        &mut self,
+        size: (f32, f32),
+        scale: f32,
+        appearance: CaptionAppearance<'_>,
+        show_authored: bool,
+        time: f64,
+    ) -> Paint {
+        let (layout, measure, background) =
+            (appearance.layout, appearance.measure, appearance.background);
         let (w, h) = size;
         let window_top = (layout.top_offset * scale).floor();
         let window_bottom = h;
@@ -30,8 +126,14 @@ impl CloseCaption {
             self.work_metrics = Some(metrics);
         }
         let line_height = measure.tall().max(6.);
-        let (visible, total, growing_down) =
-            self.prepare(available_width, available_height, layout, measure, time);
+        let (visible, total, growing_down) = self.prepare(
+            available_width,
+            available_height,
+            layout,
+            measure,
+            show_authored,
+            time,
+        );
         if visible.is_empty() && self.current_alpha == 0. {
             return Paint::default();
         }
@@ -45,59 +147,29 @@ impl CloseCaption {
         if visible.is_empty() {
             return paint;
         }
-        let left = inset;
         let text_height = if growing_down {
             total
         } else {
             self.current_height
         };
         let mut text_top = bottom - text_height - inset;
+        let viewport = PaintViewport {
+            inset,
+            box_top,
+            window_top,
+            window_bottom,
+            available_height,
+            line_height,
+        };
         for (position, &index) in visible.iter().enumerate() {
-            let item = &mut self.items[index];
-            // The oldest item drops the extra time it was created with.
-            if position == 0 && item.added_time > 0. {
-                item.time_to_live = (item.time_to_live - item.added_time).max(0.);
-                item.added_time = 0.;
-            }
-            let height = item.height;
-            let mut fade_line = None;
-            let mut fade_line_alpha = 1.;
-            if height > available_height {
-                let age = item.initial_life_span - item.time_to_live;
-                let (offset, fading, opacity) = pan(item, available_height, line_height, age);
-                fade_line = fading;
-                fade_line_alpha = opacity;
-                text_top = window_top + inset - offset;
-            }
-            let alpha = item.alpha(
-                layout.item_hidden_time,
-                layout.item_fade_in_time,
-                layout.item_fade_out_time,
-            );
-            for unit in item.work.as_ref().unwrap() {
-                let x = left + unit.x + 3.;
-                let y = text_top + unit.y;
-                let mut line_alpha = alpha;
-                if fade_line == Some((unit.y / line_height).round() as usize) {
-                    line_alpha *= fade_line_alpha;
-                }
-                if y < box_top + inset || y + unit.height > window_bottom - inset {
-                    continue;
-                }
-                let (color, highlight) = run_colors(unit.color, item.valid, line_alpha);
-                paint.runs.push(Run {
-                    text: unit.text.clone(),
-                    x,
-                    y,
-                    width: unit.width + if item.valid { 0. } else { 2. },
-                    height: unit.height,
-                    style: unit.style,
-                    color,
-                    highlight,
-                });
-            }
-            text_top += height;
-            if text_top >= window_bottom {
+            if paint_item(
+                &mut self.items[index],
+                position,
+                &mut text_top,
+                PaintViewport { ..viewport },
+                layout,
+                &mut paint.runs,
+            ) {
                 break;
             }
         }
@@ -109,12 +181,16 @@ impl CloseCaption {
         available_height: f32,
         layout: &Layout,
         measure: &dyn Measure,
+        show_authored: bool,
         time: f64,
     ) -> (Vec<usize>, f32, bool) {
         let line_height = measure.tall().max(6.);
         let mut total = 0.;
         let mut visible: Vec<usize> = Vec::new();
         for index in 0..self.items.len() {
+            if !show_authored && !self.items[index].runtime_speech {
+                continue;
+            }
             if self.items[index].predisplay > 0. {
                 continue;
             }

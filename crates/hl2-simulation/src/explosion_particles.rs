@@ -76,6 +76,10 @@ struct Particle {
     near_clip: bool,
     /// SporeEffect UpdateColor/UpdateAlpha: start alpha x sin(pi x age) on both.
     sine: bool,
+    /// The effect that emitted it and that effect's origin: an effect draws as one translucent
+    /// object, its particles grouped by material (CParticleEffectBinding).
+    effect: u64,
+    origin: Vec3,
 }
 struct Ring {
     center: Vec3,
@@ -139,6 +143,8 @@ impl Particle {
             trail: 0.,
             near_clip: false,
             sine: false,
+            effect: effect.id,
+            origin: effect.position,
         }
     }
     fn update(&mut self, dt: f32, physics: &Physics) -> bool {
@@ -575,13 +581,7 @@ impl Particles {
     pub fn draw(&self, eye: Vec3, direction: Vec3, time: f64, physics: &Physics) -> Vec<Quad> {
         let mut result = Vec::new();
         let (right, up) = crate::projectile_visuals::basis(direction);
-        let mut sorted: Vec<_> = self.particles.iter().collect();
-        sorted.sort_by(|a, b| {
-            (b.position - eye)
-                .dot(direction)
-                .total_cmp(&(a.position - eye).dot(direction))
-        });
-        for p in sorted {
+        for p in draw_order(&self.particles, eye, direction) {
             if time < p.born {
                 continue;
             }
@@ -696,6 +696,29 @@ impl Particles {
 fn rgba(color: Vec3, alpha: f32) -> [u8; 4] {
     [color.x, color.y, color.z, alpha].map(|v| (v.clamp(0., 1.) * 255.).round() as u8)
 }
+/// Back-to-front draw order as Source draws particle effects: each effect is one translucent
+/// object sorted by its origin, and draws its particles by material, each material's particles
+/// back to front. Neighbouring particles of one material stay adjacent, so they share a draw.
+fn draw_order(particles: &[Particle], eye: Vec3, direction: Vec3) -> Vec<&Particle> {
+    let depth = |p: Vec3| (p - eye).dot(direction);
+    let mut keyed: Vec<_> = particles
+        .iter()
+        .map(|p| {
+            (
+                (depth(p.origin), p.effect, p.material, depth(p.position)),
+                p,
+            )
+        })
+        .collect();
+    keyed.sort_by(|(a, _), (b, _)| {
+        b.0.total_cmp(&a.0)
+            .then(a.1.cmp(&b.1))
+            .then(a.2.cmp(b.2))
+            .then(b.3.total_cmp(&a.3))
+    });
+    keyed.into_iter().map(|(_, p)| p).collect()
+}
+
 pub fn force_direction(origin: Vec3, magnitude: f32, physics: &Physics) -> Vec3 {
     let magnitude = magnitude.max(0.);
     let mut direction = Vec3::ZERO;
@@ -784,6 +807,32 @@ mod tests {
         assert!(p.particles.is_empty());
     }
     #[test]
+    fn effects_draw_far_to_near_with_each_material_contiguous_and_back_to_front() {
+        let physics = Physics::new(&World::default());
+        let mut p = Particles::default();
+        let mut near = event(1, EffectKind::GrenadeExplosion);
+        near.position = Vec3::new(200., 0., 0.);
+        let mut far = event(2, EffectKind::GrenadeExplosion);
+        far.position = Vec3::new(600., 0., 0.);
+        p.sync(&[near, far], 0.05, &physics);
+        let order = draw_order(&p.particles, Vec3::ZERO, Vec3::X);
+        assert_eq!(order.len(), p.particles.len());
+        // Effects in one block each, the far one first.
+        let effects: Vec<u64> = order.iter().map(|q| q.effect).collect();
+        let switch = effects.iter().position(|&e| e == 1).unwrap();
+        assert!(effects[..switch].iter().all(|&e| e == 2));
+        assert!(effects[switch..].iter().all(|&e| e == 1));
+        // Inside an effect each material is one run, its particles back to front.
+        for block in [&order[..switch], &order[switch..]] {
+            let mut seen = BTreeSet::new();
+            for run in block.chunk_by(|a, b| a.material == b.material) {
+                assert!(seen.insert(run[0].material), "{} split", run[0].material);
+                assert!(run.windows(2).all(|w| w[0].position.x >= w[1].position.x));
+            }
+            assert!(seen.len() > 1);
+        }
+    }
+    #[test]
     fn repeated_paused_frames_do_not_reemit_or_advance_particles() {
         let physics = Physics::new(&World::default());
         let mut p = Particles::default();
@@ -842,17 +891,28 @@ mod tests {
     fn owned_explosion_materials_decode_with_correct_blend_modes() {
         let vfs =
             source_assets::vpk::Vfs::mount(&source_assets::install::discover().unwrap()).unwrap();
-        for name in MATERIALS {
-            let sprite = crate::projectile_visuals::load_sprite(&vfs, name).unwrap();
-            assert!(sprite.image.width > 0 && sprite.image.height > 0);
-            assert_eq!(
-                sprite.kind,
-                if name.contains("noisesphere") || name.contains("fleck_cement") {
-                    2
-                } else {
-                    3
-                }
-            );
-        }
+        let kinds: Vec<(&str, usize)> = MATERIALS
+            .iter()
+            .map(|name| {
+                let sprite = crate::projectile_visuals::load_sprite(&vfs, name).unwrap();
+                assert!(sprite.image.width > 0 && sprite.image.height > 0, "{name}");
+                (*name, sprite.kind)
+            })
+            .collect();
+        // Kind 2 is `$translucent`, kind 3 `$additive`, as the installed materials set them.
+        const TRANSLUCENT: &[&str] = &[
+            "particle/particle_noisesphere",
+            "effects/fleck_cement1",
+            "effects/fleck_cement2",
+            "effects/fleck_wood1",
+            "effects/fleck_wood2",
+            "effects/blood",
+            "particle/particle_smokegrenade",
+        ];
+        let expected: Vec<(&str, usize)> = MATERIALS
+            .iter()
+            .map(|name| (*name, if TRANSLUCENT.contains(name) { 2 } else { 3 }))
+            .collect();
+        assert_eq!(kinds, expected);
     }
 }

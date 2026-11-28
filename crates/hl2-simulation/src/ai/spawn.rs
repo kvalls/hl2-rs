@@ -220,42 +220,49 @@ pub fn pool_slots(label: &str) -> usize {
         pool_count(spawn_class(label).0)
     }
 }
+/// Build one hidden pool template entity for `label` and `slot`, or `None` when the
+/// class has no known default model.
+pub fn template_entity(label: &str, slot: usize) -> Option<modkit_core::Entity> {
+    let (class, keyvalues) = spawn_class(label);
+    let model = default_model(class)?;
+    let mut properties: Vec<(String, String)> = vec![
+        ("classname".into(), class.into()),
+        (
+            "origin".into(),
+            format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
+        ),
+        (POOL_KEY.into(), label.into()),
+    ];
+    // Plain npc_citizen keeps one template per random head: each spawn picks the
+    // least-used head like CNPC_Citizen::SelectModel (citizens::least_used_template);
+    // the variants keep POOL_PER_CLASS heads chosen at load.
+    if label == "npc_citizen" {
+        let heads = &crate::citizens::RANDOM_HEADS;
+        properties.push(("model".into(), heads[slot % heads.len()].into()));
+        return Some(modkit_core::Entity { properties });
+    }
+    // Citizens get their head from SelectModel (citizens::select_models).
+    if class != "npc_citizen" && !keyvalues.iter().any(|(k, _)| *k == "model") {
+        properties.push(("model".into(), model.into()));
+    }
+    properties.extend(keyvalues.iter().map(|(k, v)| ((*k).into(), v.clone())));
+    if class == "npc_metropolice" {
+        properties.push(("additionalequipment".into(), "weapon_stunstick".into()));
+    }
+    Some(modkit_core::Entity { properties })
+}
+/// Whether `label` can be precached on demand when no pool template is loaded yet.
+pub fn can_late_precache(label: &str) -> bool {
+    template_entity(label, 0).is_some()
+}
 /// Append the hidden spawn pool to a freshly loaded map's entities (before models
 /// load). Existing entity ids are unchanged; the pool goes at the end.
 pub fn append_pool(world: &mut modkit_core::World) {
     for label in SPAWN_CLASSES {
-        let (class, keyvalues) = spawn_class(label);
-        let Some(model) = default_model(class) else {
-            continue;
-        };
-        // Plain npc_citizen keeps one template per random head: each spawn picks the
-        // least-used head like CNPC_Citizen::SelectModel (citizens::least_used_template);
-        // the variants keep POOL_PER_CLASS heads chosen at load.
-        let heads = *label == "npc_citizen";
         for slot in 0..pool_slots(label) {
-            let mut properties: Vec<(String, String)> = vec![
-                ("classname".into(), class.into()),
-                (
-                    "origin".into(),
-                    format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
-                ),
-                (POOL_KEY.into(), (*label).into()),
-            ];
-            if heads {
-                // A fixed head: SelectModel's non-random branch adds the group folder.
-                properties.push(("model".into(), crate::citizens::RANDOM_HEADS[slot].into()));
-                world.entities.push(modkit_core::Entity { properties });
-                continue;
+            if let Some(entity) = template_entity(label, slot) {
+                world.entities.push(entity);
             }
-            // Citizens get their head from SelectModel (citizens::select_models).
-            if class != "npc_citizen" && !keyvalues.iter().any(|(k, _)| *k == "model") {
-                properties.push(("model".into(), model.into()));
-            }
-            properties.extend(keyvalues.iter().map(|(k, v)| ((*k).into(), v.clone())));
-            if class == "npc_metropolice" {
-                properties.push(("additionalequipment".into(), "weapon_stunstick".into()));
-            }
-            world.entities.push(modkit_core::Entity { properties });
         }
     }
 }
@@ -276,20 +283,96 @@ pub const GIB_MODELS: &[&str] = &[
 pub fn gib_label(model: &str) -> String {
     format!("raggib {model}")
 }
+/// Build one hidden `raggib` pool template entity for `model`.
+pub fn gib_template_entity(model: &str) -> modkit_core::Entity {
+    modkit_core::Entity {
+        properties: vec![
+            ("classname".into(), "raggib".into()),
+            (
+                "origin".into(),
+                format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
+            ),
+            ("model".into(), model.into()),
+            (POOL_KEY.into(), gib_label(model)),
+        ],
+    }
+}
 /// Append the hidden raggib templates (after `append_pool`, before models load).
 pub fn append_gib_pool(world: &mut modkit_core::World) {
     for model in GIB_MODELS {
-        world.entities.push(modkit_core::Entity {
-            properties: vec![
-                ("classname".into(), "raggib".into()),
-                (
-                    "origin".into(),
-                    format!("{} {} {}", POOL_ORIGIN.x, POOL_ORIGIN.y, POOL_ORIGIN.z),
-                ),
-                ("model".into(), (*model).into()),
-                (POOL_KEY.into(), gib_label(model)),
-            ],
-        });
+        world.entities.push(gib_template_entity(model));
+    }
+}
+/// Runtime NPC and raggib pool dependencies required by map or extra NPC classes.
+pub fn required_pool_dependencies<'a>(
+    classes: impl IntoIterator<Item = &'a str>,
+) -> (Vec<&'static str>, Vec<&'static str>) {
+    let mut npcs = std::collections::BTreeSet::new();
+    let mut gibs = std::collections::BTreeSet::new();
+    for class in classes {
+        match spawn_class(class).0.to_ascii_lowercase().as_str() {
+            "npc_zombie" => {
+                npcs.extend(["npc_zombie_torso", "npc_headcrab"]);
+                gibs.extend([
+                    "models/zombie/classic_legs.mdl",
+                    "models/zombie/classic_torso.mdl",
+                    "models/zombie/classic.mdl",
+                    "models/headcrabclassic.mdl",
+                ]);
+            }
+            "npc_zombie_torso" => {
+                npcs.insert("npc_headcrab");
+                gibs.extend([
+                    "models/zombie/classic_torso.mdl",
+                    "models/headcrabclassic.mdl",
+                ]);
+            }
+            "npc_fastzombie" | "npc_fastzombie_torso" => {
+                npcs.insert("npc_headcrab_fast");
+                gibs.insert("models/headcrab.mdl");
+            }
+            "npc_poisonzombie" => {
+                npcs.insert("npc_headcrab_poison");
+                gibs.insert("models/headcrabblack.mdl");
+            }
+            _ => {}
+        }
+    }
+    (npcs.into_iter().collect(), gibs.into_iter().collect())
+}
+/// Append hidden pool templates for `extra_labels` plus runtime NPC/raggib dependencies
+/// required by entities already in `world` or `extra_labels` without duplicating labels.
+pub fn append_required_pool(
+    world: &mut modkit_core::World,
+    extra_labels: &std::collections::BTreeSet<String>,
+) {
+    let (dep_labels, dep_gibs) = {
+        let entity_classes = world.entities.iter().map(|e| e.class());
+        let extra_classes = extra_labels
+            .iter()
+            .flat_map(|label| [label.as_str(), spawn_class(label).0]);
+        required_pool_dependencies(entity_classes.chain(extra_classes))
+    };
+    for label in extra_labels {
+        if templates(world, label).is_empty() {
+            for slot in 0..pool_slots(label) {
+                if let Some(entity) = template_entity(label, slot) {
+                    world.entities.push(entity);
+                }
+            }
+        }
+    }
+    for dep in dep_labels {
+        if !extra_labels.contains(dep) && templates(world, dep).is_empty() {
+            if let Some(entity) = template_entity(dep, 0) {
+                world.entities.push(entity);
+            }
+        }
+    }
+    for gib in dep_gibs {
+        if templates(world, &gib_label(gib)).is_empty() {
+            world.entities.push(gib_template_entity(gib));
+        }
     }
 }
 /// Source's edict limit (MAX_EDICT_BITS 11, a compile-time constant tied to the
@@ -459,6 +542,7 @@ pub enum Command {
     /// prop_physics_create (or ent_create of a physics prop) with this model argument,
     /// relative to models/.
     SpawnProp(String),
+    SpawnPickup(String, Vec<(String, String)>),
 }
 /// The ent_create classes that are CPhysicsProp (they need a `model` keyvalue).
 const PHYSICS_PROP_CLASSES: &[&str] = &[
@@ -524,58 +608,67 @@ impl Console {
                 Ok((args.len() == 2)
                     .then(|| Command::SpawnProp(args[1].trim_matches('"').to_owned())))
             }
-            "ent_create" => {
-                let Some(class) = args
-                    .get(1)
-                    .map(|c| c.trim_matches('"').to_ascii_lowercase())
-                else {
-                    return Ok(None);
-                };
-                let pairs: Vec<(String, &str)> = args[2..]
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|kv| {
-                        (
-                            kv[0].trim_matches('"').to_ascii_lowercase(),
-                            kv[1].trim_matches('"'),
-                        )
-                    })
-                    .collect();
-                let value = |key: &str| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
-                if PHYSICS_PROP_CLASSES.contains(&class.as_str()) {
-                    // CBaseProp::Spawn removes a prop without a model.
-                    let model = value("model")
-                        .ok_or_else(|| format!("ent_create: {class} missing modelname, removed"))?;
-                    return Ok(Some(Command::SpawnProp(model.to_owned())));
-                }
-                if class.starts_with("npc_") && spawn_class(&class).0 == class {
-                    // ent_create does not read npc_create_equipment; the weapon comes from
-                    // the additionalequipment keyvalue (CAI_BaseNPC::KeyValue).
-                    return Ok(Some(Command::Spawn(SpawnRequest {
-                        classname: class.clone(),
-                        name: value("targetname").map(str::to_owned),
-                        equipment: value("additionalequipment").unwrap_or("").to_owned(),
-                        aimed: false,
-                        allegiance: Allegiance::Default,
-                        variant: String::new(),
-                        grenades: value("numgrenades")
-                            .filter(|_| reads_num_grenades(&class))
-                            .and_then(|n| n.parse().ok()),
-                        ent_create: true,
-                        squad: value("squadname").map(str::to_owned),
-                        // "pitch yaw roll" (CBaseEntity::KeyValue angles).
-                        yaw: value("angles")
-                            .and_then(|a| a.split_whitespace().nth(1)?.parse().ok()),
-                    })));
-                }
-                Err(format!(
-                    "ent_create: runtime creation of {class} is not implemented (NPC classes and physics props only)"
-                ))
-            }
+            "ent_create" => entity_create(&args[1..]),
             _ => Ok(None),
         }
     }
+}
+
+fn entity_create(args: &[&str]) -> Result<Option<Command>, String> {
+    let Some(class) = args
+        .first()
+        .map(|c| c.trim_matches('"').to_ascii_lowercase())
+    else {
+        return Ok(None);
+    };
+    let pairs: Vec<(String, &str)> = args[1..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|kv| {
+            (
+                kv[0].trim_matches('"').to_ascii_lowercase(),
+                kv[1].trim_matches('"'),
+            )
+        })
+        .collect();
+    let value = |key: &str| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
+    if PHYSICS_PROP_CLASSES.contains(&class.as_str()) {
+        // CBaseProp::Spawn removes a prop without a model.
+        let model = value("model")
+            .ok_or_else(|| format!("ent_create: {class} missing modelname, removed"))?;
+        return Ok(Some(Command::SpawnProp(model.to_owned())));
+    }
+    if source_assets::models::physical_pickup(&class) {
+        let properties = pairs
+            .into_iter()
+            .filter(|(key, _)| matches!(key.as_str(), "angles" | "targetname" | "spawnflags"))
+            .map(|(key, value)| (key, value.to_owned()))
+            .collect();
+        return Ok(Some(Command::SpawnPickup(class, properties)));
+    }
+    if class.starts_with("npc_") && spawn_class(&class).0 == class {
+        // ent_create does not read npc_create_equipment; the weapon comes from
+        // the additionalequipment keyvalue (CAI_BaseNPC::KeyValue).
+        return Ok(Some(Command::Spawn(SpawnRequest {
+            classname: class.clone(),
+            name: value("targetname").map(str::to_owned),
+            equipment: value("additionalequipment").unwrap_or("").to_owned(),
+            aimed: false,
+            allegiance: Allegiance::Default,
+            variant: String::new(),
+            grenades: value("numgrenades")
+                .filter(|_| reads_num_grenades(&class))
+                .and_then(|n| n.parse().ok()),
+            ent_create: true,
+            squad: value("squadname").map(str::to_owned),
+            // "pitch yaw roll" (CBaseEntity::KeyValue angles).
+            yaw: value("angles").and_then(|a| a.split_whitespace().nth(1)?.parse().ok()),
+        })));
+    }
+    Err(format!(
+        "ent_create: runtime creation of {class} is not implemented (NPCs, loose pickups and physics props only)"
+    ))
 }
 
 /// Console arguments like CCommand::Tokenize: whitespace separates them, a double-quoted
@@ -787,7 +880,16 @@ mod tests {
         // Our citizen variants are overlay labels, not entity classes; other classes are
         // not runtime-creatable yet.
         assert!(console.parse("ent_create npc_citizen_rebel").is_err());
-        assert!(console.parse("ent_create item_healthkit").is_err());
+        assert_eq!(
+            console
+                .parse("ent_create item_healthkit targetname medkit")
+                .unwrap(),
+            Some(Command::SpawnPickup(
+                "item_healthkit".into(),
+                vec![("targetname".into(), "medkit".into())]
+            ))
+        );
+        assert!(console.parse("ent_create item_dynamic_resupply").is_err());
         assert_eq!(console.parse("ent_create").unwrap(), None);
     }
     #[test]
@@ -873,5 +975,101 @@ mod tests {
                 .origin,
             Vec3::ZERO
         );
+    }
+    #[test]
+    fn template_entity_matches_pool_entries_and_rejects_unknown_classes() {
+        let vort = template_entity("npc_vortigaunt", 0).unwrap();
+        assert_eq!(vort.class(), "npc_vortigaunt");
+        assert_eq!(vort.get("model"), Some("models/vortigaunt.mdl"));
+        assert_eq!(vort.get(POOL_KEY), Some("npc_vortigaunt"));
+        let cop = template_entity("npc_metropolice", 0).unwrap();
+        assert_eq!(cop.get("additionalequipment"), Some("weapon_stunstick"));
+        let elite = template_entity("npc_combine_s_elite", 0).unwrap();
+        assert_eq!(elite.class(), "npc_combine_s");
+        assert_eq!(elite.get("model"), Some("models/combine_super_soldier.mdl"));
+        assert!(can_late_precache("npc_vortigaunt"));
+        assert!(!can_late_precache("npc_not_a_real_class"));
+        assert!(template_entity("prop_physics", 0).is_none());
+    }
+    #[test]
+    fn append_required_pool_adds_only_needed_dependencies_without_duplicates() {
+        let mut empty_world = modkit_core::World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![("classname".into(), "npc_metropolice".into())],
+            }],
+            ..Default::default()
+        };
+        append_required_pool(&mut empty_world, &std::collections::BTreeSet::new());
+        assert_eq!(empty_world.entities.len(), 1);
+
+        let mut zombie_world = modkit_core::World {
+            entities: vec![modkit_core::Entity {
+                properties: vec![("classname".into(), "npc_zombie".into())],
+            }],
+            ..Default::default()
+        };
+        append_required_pool(&mut zombie_world, &std::collections::BTreeSet::new());
+        assert_eq!(templates(&zombie_world, "npc_zombie_torso").len(), 1);
+        assert_eq!(templates(&zombie_world, "npc_headcrab").len(), 1);
+        for gib in [
+            "models/zombie/classic_legs.mdl",
+            "models/zombie/classic_torso.mdl",
+            "models/zombie/classic.mdl",
+            "models/headcrabclassic.mdl",
+        ] {
+            assert_eq!(templates(&zombie_world, &gib_label(gib)).len(), 1, "{gib}");
+        }
+        assert_eq!(zombie_world.entities.len(), 1 + 2 + 4);
+
+        let mut fast_poison_world = modkit_core::World {
+            entities: vec![
+                modkit_core::Entity {
+                    properties: vec![("classname".into(), "npc_fastzombie".into())],
+                },
+                modkit_core::Entity {
+                    properties: vec![("classname".into(), "npc_poisonzombie".into())],
+                },
+            ],
+            ..Default::default()
+        };
+        append_required_pool(&mut fast_poison_world, &std::collections::BTreeSet::new());
+        assert_eq!(templates(&fast_poison_world, "npc_headcrab_fast").len(), 1);
+        assert_eq!(
+            templates(&fast_poison_world, "npc_headcrab_poison").len(),
+            1
+        );
+        assert_eq!(
+            templates(&fast_poison_world, &gib_label("models/headcrab.mdl")).len(),
+            1
+        );
+        assert_eq!(
+            templates(&fast_poison_world, &gib_label("models/headcrabblack.mdl")).len(),
+            1
+        );
+        assert_eq!(fast_poison_world.entities.len(), 2 + 2 + 2);
+
+        let mut extra_world = modkit_core::World::default();
+        let extras =
+            std::collections::BTreeSet::from(["npc_zombie".into(), "npc_metropolice".into()]);
+        append_required_pool(&mut extra_world, &extras);
+        append_required_pool(&mut extra_world, &extras);
+        assert_eq!(
+            templates(&extra_world, "npc_zombie").len(),
+            pool_slots("npc_zombie")
+        );
+        assert_eq!(
+            templates(&extra_world, "npc_metropolice").len(),
+            pool_slots("npc_metropolice")
+        );
+        assert_eq!(templates(&extra_world, "npc_zombie_torso").len(), 1);
+        assert_eq!(templates(&extra_world, "npc_headcrab").len(), 1);
+        for gib in [
+            "models/zombie/classic_legs.mdl",
+            "models/zombie/classic_torso.mdl",
+            "models/zombie/classic.mdl",
+            "models/headcrabclassic.mdl",
+        ] {
+            assert_eq!(templates(&extra_world, &gib_label(gib)).len(), 1, "{gib}");
+        }
     }
 }

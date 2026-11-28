@@ -1,0 +1,6 @@
+[
+  {"tick":1,"fly":true,"eye":[-2070,-2180,164],"yaw":0,"pitch":-50},
+  {"tick":12,"actions":[{"target":"terminal_side_cop","action":"actor_pose","origin":[-1970,-2180,1],"yaw":110}]},
+  {"tick":30,"paused":true,"label":"held"},
+  {"tick":440,"label":"finish"}
+]

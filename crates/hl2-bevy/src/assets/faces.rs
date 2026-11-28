@@ -6,14 +6,14 @@ use std::{collections::BTreeMap, sync::Arc};
 
 /// The map's face data by model asset key.
 #[derive(Default)]
-pub(super) struct Faces {
+pub(crate) struct Faces {
     pub eyes: BTreeMap<(String, String), eyes::Eyeball>,
     pub gaze: BTreeMap<String, eyes::Gaze>,
     pub flexes: BTreeMap<String, Arc<flexes::FaceModel>>,
 }
 
 /// Reads the face data of the world's model assets; failures go to `errors`.
-pub(super) fn load(vfs: &Vfs, world: &World, errors: &mut Vec<String>) -> Faces {
+pub(crate) fn load(vfs: &Vfs, world: &World, errors: &mut Vec<String>) -> Faces {
     let mut out = Faces::default();
     for (key, surfaces) in &world.model_assets {
         let model = key.split('#').next().unwrap_or(key);
@@ -48,6 +48,7 @@ pub(super) fn load(vfs: &Vfs, world: &World, errors: &mut Vec<String>) -> Faces 
                     out.flexes.insert(
                         key.clone(),
                         Arc::new(flexes::FaceModel {
+                            slots: flex.vertex_slots(),
                             flex,
                             eyes: records.clone(),
                         }),

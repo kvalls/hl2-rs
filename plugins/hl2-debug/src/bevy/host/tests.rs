@@ -51,8 +51,13 @@ fn simulation() -> Simulation {
     )
 }
 
+/// A console with this plugin installed, as the application builds it.
 fn console() -> Console {
-    Console::new(Default::default())
+    let mut source = hl2_ui::console::Console::default();
+    let mut extensions = hl2_ui::extensions::Extensions::default();
+    crate::register(&mut extensions).unwrap();
+    extensions.install(&mut source);
+    Console::new(source)
 }
 
 fn request(state: &mut State, sim: &mut Simulation, ui: &mut Console, request: Request) {
@@ -362,19 +367,19 @@ fn minus_toggles_once_per_press_only_in_background_debug_outside_console() {
     keys.press(KeyCode::Minus);
 
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(ui.source.config.video.background_force_default_blur);
+    assert!(crate::standard_background::forced(&ui.source.config.video));
     assert_eq!(state.background_debug.blur_texture_name, "background01");
     keys.clear();
     assert!(keys.pressed(KeyCode::Minus));
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
     assert!(
-        ui.source.config.video.background_force_default_blur,
+        crate::standard_background::forced(&ui.source.config.video),
         "held key must not repeat"
     );
     keys.release(KeyCode::Minus);
     keys.press(KeyCode::Minus);
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(!ui.source.config.video.background_force_default_blur);
+    assert!(!crate::standard_background::forced(&ui.source.config.video));
     assert_eq!(
         state.background_debug.blur_texture_name,
         "background01_widescreen"
@@ -383,11 +388,11 @@ fn minus_toggles_once_per_press_only_in_background_debug_outside_console() {
     keys.release(KeyCode::Minus);
     keys.press(KeyCode::Minus);
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(!ui.source.config.video.background_force_default_blur);
+    assert!(!crate::standard_background::forced(&ui.source.config.video));
     ui.source.set_mode(Mode::MainMenu);
     state.background_debug.enabled = false;
     tune(&mut state, &mut sim, &mut ui, &mut repeats, &keys);
-    assert!(!ui.source.config.video.background_force_default_blur);
+    assert!(!crate::standard_background::forced(&ui.source.config.video));
 }
 
 #[test]
@@ -480,8 +485,11 @@ fn artwork_changes_reset_temporary_fov_and_other_config_updates_keep_it() {
     let (mut state, mut sim, mut ui) = (State::default(), simulation(), console());
     let apply = |state: &mut State, force: bool, ui: &mut Console, sim: &mut Simulation| {
         let mut config = ui.source.config.clone();
-        config.video.background_force_default_blur = force;
-        sim.background_force_default_blur = force;
+        config
+            .video
+            .extensions
+            .set_bool(crate::standard_background::SETTING, force);
+        sim.standard_background = force;
         state.config_changed(
             &mut Context {
                 simulation: sim,
@@ -516,7 +524,11 @@ fn artwork_changes_reset_temporary_fov_and_other_config_updates_keep_it() {
 fn forced_resize_uses_the_normal_projection_baseline() {
     let mut state = State::default();
     let mut ui = console();
-    ui.source.config.video.background_force_default_blur = true;
+    ui.source
+        .config
+        .video
+        .extensions
+        .set_bool(crate::standard_background::SETTING, true);
     state.background_debug.enabled = true;
     state.background_debug.last_aspect = Some(4. / 3.);
     crate::bevy::host::background::aspect_changed(
@@ -563,7 +575,10 @@ fn developer_shortcuts_follow_gameplay_input_gates() {
 fn the_saved_artwork_choice_does_not_count_as_a_change_at_startup() {
     let (mut state, mut sim, mut ui) = (State::default(), simulation(), console());
     let mut config = ui.source.config.clone();
-    config.video.background_force_default_blur = true;
+    config
+        .video
+        .extensions
+        .set_bool(crate::standard_background::SETTING, true);
     state.startup(&config);
     state.background_debug.fov = Some(65.);
     state.config_changed(
@@ -669,4 +684,66 @@ fn zero_resets_the_viewmodel_framing_on_press_only() {
     let mut keys = ButtonInput::default();
     keys.press(KeyCode::Digit1);
     assert!(!reset_key_pressed(&keys));
+}
+
+#[test]
+fn adopt_finished_usable_populates_overlay_once_resolved() {
+    let mut state = State::default();
+    assert!(state.overlay.usable("npc_combine_s").is_empty());
+    let listing = super::PropListing::default();
+    state.usable_weapons = Some(listing.clone());
+    state.adopt_finished_usable();
+    assert!(state.usable_weapons.is_some());
+    assert!(state.overlay.usable("npc_combine_s").is_empty());
+
+    let mut usable = std::collections::BTreeMap::new();
+    usable.insert(
+        "npc_combine_s".to_owned(),
+        vec![
+            "weapon_smg1".to_owned(),
+            "weapon_ar2".to_owned(),
+            "weapon_shotgun".to_owned(),
+        ],
+    );
+    listing.set(usable).unwrap();
+    state.adopt_finished_usable();
+    assert!(state.usable_weapons.is_none());
+    assert_eq!(
+        state.overlay.usable("npc_combine_s"),
+        ["weapon_smg1", "weapon_ar2", "weapon_shotgun"]
+    );
+    assert!(state.overlay.usable("npc_metropolice").is_empty());
+}
+
+#[test]
+fn loading_status_stays_active_until_spawn_log_grows() {
+    let mut state = State::default();
+    let mut spawn_log = vec![serde_json::json!({
+        "message": "Created npc_combine_s (entity 1)"
+    })];
+
+    state.record_spawn_status(1, 1, "Loading npc_vortigaunt...");
+    assert_eq!(
+        state.loading_status,
+        Some((1, "Loading npc_vortigaunt...".to_owned()))
+    );
+    assert_eq!(
+        super::draw::footer_message(&mut state.loading_status, &spawn_log),
+        Some("Loading npc_vortigaunt...")
+    );
+    assert!(state.loading_status.is_some());
+
+    spawn_log.push(serde_json::json!({
+        "message": "Created npc_vortigaunt (no weapon) at 0 0 0 yaw 0 (entity 2, 12 ms)"
+    }));
+    assert_eq!(
+        super::draw::footer_message(&mut state.loading_status, &spawn_log),
+        Some("Created npc_vortigaunt (no weapon) at 0 0 0 yaw 0 (entity 2, 12 ms)")
+    );
+    assert!(state.loading_status.is_none());
+
+    state.record_spawn_status(2, 2, "Loading npc_dog...");
+    assert!(state.loading_status.is_some());
+    state.record_spawn_status(2, 3, "Created npc_metropolice (entity 3)");
+    assert!(state.loading_status.is_none());
 }

@@ -2,7 +2,7 @@
 use crate::{Options, StartupAssets, Status, assets, gameplay, simulation, ui_host};
 use bevy::{
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorOptions, PrimaryWindow},
 };
 
 #[derive(Component)]
@@ -17,10 +17,12 @@ pub struct MapLoaded {
     pub background: bool,
 }
 
+#[derive(Clone)]
 struct Request {
     map: String,
     /// Installation folder of the map's game (`hl2`, `lostcoast`, ...).
     game: String,
+    explicit_game: bool,
     landmark: String,
     direct: bool,
     /// Load as the main-menu background level (menu shown, HUD hidden).
@@ -38,6 +40,7 @@ struct Job {
 }
 #[derive(Resource, Default)]
 pub struct Campaign {
+    mounted_game: Option<(String, std::sync::Arc<source_assets::vpk::Vfs>)>,
     audio_reuse: std::sync::Arc<crate::audio::reuse::AudioReuse>,
     job: Option<Job>,
     pub metadata: serde_json::Value,
@@ -47,8 +50,16 @@ pub struct Campaign {
     history: Vec<serde_json::Value>,
     failures: Vec<String>,
     loading_frames: u64,
+    /// A newly installed map still behind the loading screen (`loading::hold_reveal`).
+    reveal: Option<loading::Reveal>,
 }
 impl Campaign {
+    pub(crate) fn with_mount(loaded: &assets::LoadedMap) -> Self {
+        Self {
+            mounted_game: Some((loaded.game.clone(), loaded.vfs.clone())),
+            ..default()
+        }
+    }
     #[cfg(test)]
     pub fn new(loaded: &assets::LoadedMap) -> Self {
         let name = loaded.world.name.clone();
@@ -60,12 +71,12 @@ impl Campaign {
                 map: name,
                 background: false,
             }),
-            ..default()
+            ..Self::with_mount(loaded)
         }
     }
     /// Whether map loading has finished and the map is in an observable gameplay-ready state.
     pub fn is_gameplay_ready(&self) -> bool {
-        self.job.is_none() && self.loaded_map.is_some()
+        self.job.is_none() && self.reveal.is_none() && self.loaded_map.is_some()
     }
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({"loading":self.job.as_ref().map(|j|&j.request.map),"loading_frames":self.loading_frames,"audio_reuse":self.audio_reuse.report(),
@@ -81,6 +92,8 @@ type Host<'w> = (
     ResMut<'w, simulation::Simulation>,
     Option<Res<'w, crate::audio::deferred::PendingAudio>>,
     Option<Res<'w, crate::audio::Audio>>,
+    Option<Res<'w, crate::TextureCaps>>,
+    Option<Res<'w, crate::rendering::variant_warmup::PipelineBacklog>>,
 );
 fn next_map_request(
     options: &Options,
@@ -92,18 +105,31 @@ fn next_map_request(
     let requested_game = ui.map_request_game.take();
     let current_game = campaign.loaded_map.as_ref().map(|m| m.game.clone());
     // Menu backgrounds name their game and level transitions stay in the running game;
-    // a bare map name (`map`, `--map`, respawn) loads in the game that ships it.
+    // a bare gameplay map (`map`, `--map`, respawn) resolves and validates inside `activate_request`.
     ui.map_request
         .take()
-        .map(|map| Request {
-            game: requested_game.unwrap_or_else(|| {
-                source_assets::install::game_for_map(&options.game, &map, current_game.as_deref())
+        .map(|map| {
+            let explicit_game = requested_game.is_some();
+            let game = requested_game.unwrap_or_else(|| {
+                if background {
+                    source_assets::install::game_for_map(
+                        &options.game,
+                        &map,
+                        current_game.as_deref(),
+                    )
                     .unwrap_or_else(|| source_assets::install::BASE_GAME.to_owned())
-            }),
-            map,
-            landmark: String::new(),
-            direct: true,
-            background,
+                } else {
+                    String::new()
+                }
+            });
+            Request {
+                game,
+                explicit_game,
+                map,
+                landmark: String::new(),
+                direct: true,
+                background,
+            }
         })
         .or_else(|| {
             game.scene.transition.take().map(|(map, landmark)| Request {
@@ -111,6 +137,7 @@ fn next_map_request(
                 game: current_game
                     .clone()
                     .unwrap_or_else(|| source_assets::install::BASE_GAME.to_owned()),
+                explicit_game: true,
                 landmark,
                 direct: false,
                 background: false,
@@ -118,31 +145,61 @@ fn next_map_request(
         })
 }
 
+/// Keeps a running job's gameplay request, or activates the next map request. `false` when
+/// there is nothing to wait for this frame.
+fn start_or_continue_job(
+    options: &Options,
+    (campaign, ui, game, sim): (
+        &mut Campaign,
+        &mut ui_host::Console,
+        &mut gameplay::Gameplay,
+        &mut simulation::Simulation,
+    ),
+    audio: (
+        Option<&crate::audio::Audio>,
+        Option<&crate::audio::deferred::PendingAudio>,
+        bool,
+    ),
+) -> bool {
+    if let Some(job) = &campaign.job {
+        loading::preserve_gameplay_request(&job.request, ui);
+        return true;
+    }
+    let Some(request) = next_map_request(options, campaign, ui, game) else {
+        return false;
+    };
+    loading::activate_request(request, options, campaign, ui, sim, audio)
+}
+
 pub fn poll(
     mut commands: Commands,
-    (options, mut campaign, mut ui, mut game, mut sim, pending_audio, audio): Host,
+    (options, mut campaign, mut ui, mut game, mut sim, pending_audio, audio, texture_caps, backlog): Host,
     mut assets: StartupAssets,
     old_draws: Query<Entity, With<MapOwned>>,
     mut windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
     status: Res<Status>,
     frame: Option<Res<crate::video::GameFrame>>,
 ) {
-    if let Some(job) = &campaign.job {
-        loading::preserve_gameplay_request(&job.request, &mut ui);
-    } else {
-        let Some(request) = next_map_request(&options, &campaign, &mut ui, &mut game) else {
-            return;
-        };
-        if !loading::activate_request(
-            request,
-            &options,
-            &mut campaign,
-            &mut ui,
-            &mut sim,
-            (audio.as_deref(), pending_audio.as_deref()),
-        ) {
-            return;
-        }
+    if loading::advance_reveal(
+        &mut campaign,
+        backlog.as_deref(),
+        &mut ui,
+        &mut sim,
+        windows.single_mut().ok().as_deref_mut(),
+    ) {
+        return;
+    }
+    let audio = (
+        audio.as_deref(),
+        pending_audio.as_deref(),
+        texture_caps.as_deref().is_some_and(|c| c.bc),
+    );
+    if !start_or_continue_job(
+        &options,
+        (&mut campaign, &mut ui, &mut game, &mut sim),
+        audio,
+    ) {
+        return;
     }
     let Some((job, result)) = loading::completed(&mut campaign, &mut ui) else {
         return;
@@ -172,19 +229,13 @@ pub fn poll(
         }
     };
     let previous_eye = glam::Vec3::from_array(sim.eye().to_array());
-    let eye = if job.request.direct {
-        options
-            .position
-            .map(|p| glam::Vec3::from_array(p.to_array()))
-            .unwrap_or(loaded.world.spawn().0)
-    } else {
-        hl2_simulation::campaign::arrival(
-            &game.world,
-            &loaded.world,
-            previous_eye,
-            &job.request.landmark,
-        )
-    };
+    let eye = arrival_eye(
+        &job.request,
+        &options,
+        &game.world,
+        &loaded.world,
+        previous_eye,
+    );
     loading::carry_state(&job.request, &mut loaded, &mut game);
     loaded.gameplay.consume_attacks();
     campaign.history.push(serde_json::json!({"from":game.world.name,"to":loaded.world.name,"direct":job.request.direct,"landmark":job.request.landmark,
@@ -194,37 +245,64 @@ pub fn poll(
         commands.entity(entity).try_despawn();
     }
     loading::install_view(&job.request, &options, &mut loaded, &mut sim, eye);
-    if job.request.direct {
-        ui.source
-            .level_loaded_for_map(&loaded.game, &loaded.world.name, job.request.background);
-        if !job.request.background
-            && let Ok(mut cursor) = windows.single_mut()
-        {
-            cursor.grab_mode = CursorGrabMode::Locked;
-            cursor.visible = false;
-        }
-    } else {
-        ui.source
-            .level_loaded_for_map(&loaded.game, &loaded.world.name, false);
-    }
-    loading::notify_finished(&job.request, &mut sim, &mut ui);
+    let cursor = windows.single_mut().ok();
+    loading::hold_reveal(
+        &job.request,
+        &loaded,
+        (&mut campaign, &mut ui, &mut sim),
+        cursor,
+    );
     ui.source
         .log(format!("Loaded {}/{}", loaded.game, loaded.world.name));
-    let install_started = std::time::Instant::now();
-    crate::map_install::install_loaded_map(
+    let install_times = crate::map_install::install_loaded_map(
         loaded,
         &mut commands,
         &mut assets,
         &status,
         &options,
-        ui.source.config.video.texture_sampling(),
+        (
+            ui.source.config.video.texture_sampling(),
+            campaign.audio_reuse.clone(),
+        ),
         frame.as_ref().map(|f| &f.image),
     );
-    campaign.metadata["loading_ms"]["install_ms"] =
-        (install_started.elapsed().as_secs_f64() * 1000.).into();
-    campaign.metadata["loading_ms"]["request_to_installed_ms"] =
-        (job.started.elapsed().as_secs_f64() * 1000.).into();
+    record_install(&mut campaign.metadata, job.started, install_times);
     crate::capture::installed_frame(&mut commands, options.capture.as_ref());
+}
+
+fn arrival_eye(
+    request: &Request,
+    options: &Options,
+    previous_world: &modkit_core::World,
+    next_world: &modkit_core::World,
+    previous_eye: glam::Vec3,
+) -> glam::Vec3 {
+    if request.direct {
+        options
+            .position
+            .map(|p| glam::Vec3::from_array(p.to_array()))
+            .unwrap_or(next_world.spawn().0)
+    } else {
+        hl2_simulation::campaign::arrival(
+            previous_world,
+            next_world,
+            previous_eye,
+            &request.landmark,
+        )
+    }
+}
+
+/// The load report's install times and the time from the load request to an installed map.
+fn record_install(
+    metadata: &mut serde_json::Value,
+    requested: std::time::Instant,
+    install: crate::map_install::InstallTimes,
+) {
+    let loading = &mut metadata["loading_ms"];
+    for (step, ms) in install {
+        loading[step] = ms.into();
+    }
+    loading["request_to_installed_ms"] = (requested.elapsed().as_secs_f64() * 1000.).into();
 }
 
 /// Player-owned transient state survives changelevel, but fresh direct loads start anew.
@@ -265,6 +343,7 @@ mod tests {
         let options = test_options(&game);
         super::loading_owned_tests::init_map_assets(&mut app)
             .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
             .insert_resource(options)
             .insert_resource(Campaign {
                 loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),
@@ -566,6 +645,7 @@ mod tests {
         let options = test_options(&game);
         super::loading_owned_tests::init_map_assets(&mut app)
             .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
             .insert_resource(options)
             .insert_resource(Campaign {
                 loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),
@@ -701,6 +781,7 @@ mod tests {
         let options = test_options(&temp);
         super::loading_owned_tests::init_map_assets(&mut app)
             .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
             .insert_resource(options)
             .insert_resource(Campaign {
                 loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),
@@ -778,6 +859,107 @@ mod tests {
         );
         assert!(!ui.source.is_loading());
         assert_eq!(ui.source.mode(), hl2_ui::console::Mode::MainMenu);
+    }
+
+    #[test]
+    fn missing_console_map_logs_error_without_opening_loading_dialog() {
+        let mut app = App::new();
+        let temp =
+            std::env::temp_dir().join(format!("hl2_missing_map_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        for file in [
+            "hl2/gameinfo.txt",
+            "hl2/scripts/game_sounds_manifest.txt",
+            "hl2/resource/ClientScheme.res",
+            "hl2/models/weapons/v_pistol.mdl",
+            "hl2/maps/d2_coast_02.bsp",
+        ] {
+            let path = temp.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let bytes: &[u8] = if file.ends_with("gameinfo.txt") {
+                b"\"GameInfo\" { \"game\" \"Half-Life 2\" }"
+            } else if file.ends_with(".bsp") {
+                b""
+            } else {
+                b"fixture"
+            };
+            std::fs::write(path, bytes).unwrap();
+        }
+        let options = test_options(&temp);
+        super::loading_owned_tests::init_map_assets(&mut app)
+            .init_resource::<crate::Status>()
+            .init_resource::<crate::rendering::actor_poses::ActorPoses>()
+            .insert_resource(options)
+            .insert_resource(Campaign {
+                loaded_map: Some(hl2_ui::console::GameMap::new("hl2", "background01")),
+                ..default()
+            });
+
+        let mut console = hl2_ui::console::Console::default();
+        console.loaded_map = Some(hl2_ui::console::GameMap::new("hl2", "background01"));
+        console.level_loaded(true);
+        console.toggle();
+        assert_eq!(console.mode(), hl2_ui::console::Mode::Console);
+
+        let sim = simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let gameplay = crate::gameplay::Gameplay::synthetic(modkit_core::World::default());
+        let ui = ui_host::Console::new(console);
+        app.insert_resource(sim)
+            .insert_resource(gameplay)
+            .insert_resource(ui)
+            .add_systems(Update, poll);
+
+        for (bad_map, expected) in [
+            (
+                "d1_t",
+                "CModelLoader::Map_IsValid:  No such map 'maps/d1_t.bsp'",
+            ),
+            (
+                "d2_coast_02",
+                "CModelLoader::Map_IsValid: 'maps/d2_coast_02.bsp' is not a valid BSP file",
+            ),
+        ] {
+            let mut pending_effects = Some({
+                let mut ui = app.world_mut().resource_mut::<ui_host::Console>();
+                ui.source.submit(&format!("map {bad_map}"))
+            });
+            app.world_mut()
+                .run_system_once(
+                    move |mut sim: ResMut<simulation::Simulation>,
+                          mut ui: ResMut<ui_host::Console>,
+                          mut game: ResMut<crate::gameplay::Gameplay>| {
+                        if let Some(effects) = pending_effects.take() {
+                            sim.console_effects(&mut ui, &mut game, effects);
+                        }
+                    },
+                )
+                .unwrap();
+            app.update();
+
+            let ui = app.world().resource::<ui_host::Console>();
+            assert!(ui.source.loading_dialog.is_none());
+            assert_eq!(ui.source.mode(), hl2_ui::console::Mode::Console);
+            let last = ui.source.shell.panel.output.back().unwrap();
+            assert_eq!(last.level, source_ui::console::panel::Level::Error);
+            assert_eq!(last.text, expected);
+
+            let sim = app.world().resource::<simulation::Simulation>();
+            assert!(!sim.loading());
+            let campaign = app.world().resource::<Campaign>();
+            assert!(campaign.job.is_none());
+            assert_eq!(
+                campaign.loaded_map,
+                Some(hl2_ui::console::GameMap::new("hl2", "background01"))
+            );
+        }
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }
 

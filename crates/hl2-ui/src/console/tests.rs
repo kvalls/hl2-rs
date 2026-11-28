@@ -72,15 +72,6 @@ fn prop_physics_create_and_ent_create_are_cheats_routed_with_npc_create() {
     );
 }
 #[test]
-fn ai_disable_is_a_cheat_toggle_without_arguments() {
-    let mut console = Console::default();
-    assert_eq!(console.submit("ai_disable"), vec![]);
-    assert_eq!(
-        console.submit("sv_cheats 1; ai_disable; ai_disable 1"),
-        vec![Effect::AiDisable]
-    );
-}
-#[test]
 fn quoted_separators_are_text_and_bad_quotes_execute_nothing() {
     let mut console = Console::default();
     console.submit("echo \"hello; world\"; echo done");
@@ -166,41 +157,6 @@ fn entity_inputs_preserve_quoted_values_and_enforce_cheat_and_delay_rules() {
     }
 }
 #[test]
-fn console_returns_to_its_previous_pause_state_and_steps_through_history() {
-    let mut console = Console::default();
-    console.escape();
-    assert!(console.paused());
-    console.toggle();
-    assert_eq!(console.mode(), Mode::Console);
-    console.escape();
-    assert_eq!(console.mode(), Mode::Pause);
-    console.toggle();
-    for line in ["echo first", "echo second"] {
-        console.input(&Input {
-            text: line.into(),
-            keys: [Key::Enter].into(),
-            ..Default::default()
-        });
-    }
-    // An empty line: Up and Down step through the history, newest first.
-    keys(&mut console, &[Key::Up]);
-    assert_eq!(console.input_line(), "echo second");
-    keys(&mut console, &[Key::Up]);
-    assert_eq!(console.input_line(), "echo first");
-    keys(&mut console, &[Key::Down]);
-    assert_eq!(console.input_line(), "echo second");
-    // Escape hides the list, then closes the console.
-    console.escape();
-    assert_eq!(console.mode(), Mode::Console);
-    console.escape();
-    assert_eq!(console.mode(), Mode::Pause);
-    assert_eq!(
-        console.take_changed_history(),
-        Some(vec!["echo first".to_owned(), "echo second".to_owned()])
-    );
-    assert_eq!(console.take_changed_history(), None);
-}
-#[test]
 fn explicit_text_input_edits_unicode_at_boundaries_and_completes_commands() {
     let mut console = Console::default();
     console.toggle();
@@ -234,51 +190,34 @@ fn explicit_text_input_edits_unicode_at_boundaries_and_completes_commands() {
         .any(|s| s.contains("sv_cheats")));
 }
 #[test]
-fn console_shortcuts_search_paste_filter_and_timestamps() {
+fn console_shortcuts_paste_filter_and_timestamps() {
     let mut console = Console::default();
     console.toggle();
     console.set_history(vec!["fov 90".into(), "volume 0.5".into()]);
-    console.input(&Input {
-        text: "x".into(),
-        ctrl: true,
-        binding_keys: vec!["KeyR".into()],
-        ..Default::default()
-    });
-    console.input(&Input {
-        text: "fov".into(),
-        ..Default::default()
-    });
-    assert_eq!(
-        console.shell.panel.editor.search(),
-        Some(("fov", Some("fov 90")))
-    );
-    console.escape();
-    assert_eq!(
-        console.mode(),
-        Mode::Console,
-        "Escape ends the search first"
-    );
     console.input(&Input {
         paste: Some("echo pasted\n".into()),
         ..Default::default()
     });
     assert_eq!(console.input_line(), "echo pasted");
-    console.input(&Input {
-        ctrl: true,
-        binding_keys: vec!["KeyU".into()],
-        ..Default::default()
-    });
-    assert_eq!(console.input_line(), "");
+    // Non-retail shortcuts (Ctrl+R search, Ctrl+U kill, Ctrl+L clear) stay inactive in core.
+    for key in ["KeyR", "KeyU", "KeyL"] {
+        console.input(&Input {
+            ctrl: true,
+            binding_keys: vec![key.into()],
+            ..Default::default()
+        });
+    }
+    assert_eq!(console.shell.panel.editor.search(), None);
+    assert_eq!(console.input_line(), "echo pasted");
     console.submit("con_filter_enable 1; con_filter_text Loaded; con_timestamp 1");
     assert_eq!(
-        console.cvar_value("con_filter_enable").as_deref(),
-        Some("1")
+        (
+            console.cvar_value("con_filter_enable").as_deref(),
+            console.cvar_value("con_filter_text").as_deref(),
+            console.shell.panel.con_timestamp,
+        ),
+        (Some("1"), Some("Loaded"), true)
     );
-    assert_eq!(
-        console.cvar_value("con_filter_text").as_deref(),
-        Some("Loaded")
-    );
-    assert!(console.shell.panel.con_timestamp);
     assert!(console.submit("con_filter_enable 3").is_empty());
     assert_eq!(
         console.cvar_value("con_filter_enable").as_deref(),
@@ -295,15 +234,8 @@ fn console_shortcuts_search_paste_filter_and_timestamps() {
         "\"Loaded hl2/background01\"",
         "lines serialize as their text in the run report"
     );
-    console.input(&Input {
-        ctrl: true,
-        binding_keys: vec!["KeyL".into()],
-        ..Default::default()
-    });
-    assert!(
-        console.shell.panel.output.is_empty(),
-        "Ctrl+L clears the output"
-    );
+    console.submit("clear");
+    assert!(console.shell.panel.output.is_empty());
 }
 /// Canvas point at the middle of a frame-relative layout rectangle of the console dialog.
 fn dialog_point(console: &Console, rect: Rect) -> Vec2 {
@@ -313,15 +245,6 @@ fn dialog_point(console: &Console, rect: Rect) -> Vec2 {
         .dialog_layout(&console.canvas)
         .canvas(rect);
     vec2(r.x + r.w * 0.5, r.y + r.h * 0.5)
-}
-/// Canvas point on the history row `row` (0 is the top row shown).
-fn history_point(console: &Console, row: usize) -> Vec2 {
-    let layout = console.shell.panel.dialog_layout(&console.canvas);
-    let text = layout.canvas(HistoryView::new(&layout).text);
-    vec2(
-        text.x + 10.,
-        text.y + (row as f32 + 0.5) * CONSOLE_ROW * layout.scale,
-    )
 }
 fn press(console: &mut Console, at: Vec2) -> Vec<Effect> {
     console.input(&Input {
@@ -338,16 +261,24 @@ fn release(console: &mut Console, at: Vec2) -> Vec<Effect> {
         ..Default::default()
     })
 }
-/// Drags over the history from row `from` to row `to`.
+/// Drags horizontally across history rows from `from` through `to` (full-row character span).
 fn drag(console: &mut Console, from: usize, to: usize) {
-    press(console, history_point(console, from));
-    let to = history_point(console, to);
+    let layout = console.shell.panel.dialog_layout(&console.canvas);
+    let area = layout.canvas(HistoryView::new(&layout).text);
+    let y = |row: usize| area.y + (row as f32 + 0.5) * CONSOLE_ROW * layout.scale;
+    let (start_x, end_x) = if from <= to {
+        (area.x + 1., area.x + area.w - 1.)
+    } else {
+        (area.x + area.w - 1., area.x + 1.)
+    };
+    press(console, vec2(start_x, y(from)));
+    let target = vec2(end_x, y(to));
     console.input(&Input {
-        pointer: Some(to),
+        pointer: Some(target),
         held: true,
         ..Default::default()
     });
-    release(console, to);
+    release(console, target);
 }
 fn copy(console: &mut Console) -> Option<String> {
     console.input(&Input {
@@ -593,12 +524,6 @@ fn dragging_over_history_rows_selects_them_for_copy() {
     assert!(copied.ends_with("] line 3"), "{copied}");
     assert!(!copied.contains('\n'), "{copied}");
 
-    console.input(&Input {
-        ctrl: true,
-        binding_keys: vec!["KeyL".into()],
-        ..Default::default()
-    });
-    assert_eq!(copy(&mut console), None, "Ctrl+L clears the selection");
     console.submit("con_filter_enable 0");
     drag(&mut console, 0, 0);
     assert!(copy(&mut console).is_some());
@@ -712,11 +637,11 @@ fn long_lines_wrap_to_rows_and_newlines_start_rows() {
     );
     assert_eq!(rows.last().unwrap(), &(3, "last".to_owned()));
 
-    // Selecting any row of a wrapped line copies the whole line as printed.
-    drag(&mut console, 2, 2);
+    // Dragging across wrapped rows selects their exact span across lines.
+    drag(&mut console, 1, long_rows);
     assert_eq!(copy(&mut console).as_deref(), Some(long.as_str()));
     let warning_row = long_rows + count;
-    drag(&mut console, warning_row, warning_row);
+    drag(&mut console, 1 + long_rows, warning_row);
     assert_eq!(copy(&mut console).as_deref(), Some(warning));
     drag(&mut console, rows.len() - 1, 0);
     assert_eq!(
@@ -727,7 +652,14 @@ fn long_lines_wrap_to_rows_and_newlines_start_rows() {
     // Timestamps wrap with the text and copy with it.
     console.submit("con_timestamp 1");
     assert_eq!(top_row(&console), (0, "[   0.00] first".to_owned()));
-    drag(&mut console, 2, 2);
+    let ts_long_rows = console
+        .shell
+        .panel
+        .history_rows(&console.canvas)
+        .iter()
+        .filter(|r| r.number == 1)
+        .count();
+    drag(&mut console, 1, ts_long_rows);
     let copied = copy(&mut console).unwrap();
     assert!(
         copied.starts_with("[   0.00] w000") && copied.ends_with(&long),
@@ -1551,33 +1483,12 @@ fn a_held_escape_presses_confirmation_cancel_button_and_release_cancels_it() {
 }
 
 #[test]
-fn background_map_and_map_background_console_commands() {
+fn map_background_console_command() {
     let mut console = installed_console();
-    // Query default background map
-    let effects = console.submit("background_map");
-    assert!(effects.is_empty());
-    assert!(console
-        .shell
-        .panel
-        .output
-        .iter()
-        .any(|line| line.contains("\"background_map\" = \"background01\"")));
-
-    // Set persistent background map
-    let effects = console.submit("background_map background03");
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(effects[0], Effect::ApplyConfig(_)));
-    assert_eq!(
-        console.config.gameplay.background_map.as_deref(),
-        Some("background03")
+    assert!(
+        console.submit("background_map background03").is_empty(),
+        "removed: not retail"
     );
-    assert_eq!(console.background_map(), Some("background03"));
-
-    // Reset to default
-    let effects = console.submit("background_map default");
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(effects[0], Effect::ApplyConfig(_)));
-    assert_eq!(console.config.gameplay.background_map, None);
     assert_eq!(console.background_map(), Some("background01"));
 
     // map_background loads as background map and persists to config
@@ -2268,7 +2179,7 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
     );
 
     // 2. Verify outline quads are emitted along the letter paths with semi-transparent black
-    let default_border = Color::new(0.0, 0.0, 0.0, 0.45);
+    let default_border = TextOutline::DEFAULT.color;
     let outline_quads: Vec<_> = quads.iter().filter(|q| q.color == default_border).collect();
     assert!(
         !outline_quads.is_empty(),
@@ -2279,7 +2190,7 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
         "outline quads must be textured glyphs tracing the letter contour"
     );
 
-    // For each character drawn, there must be 8 outline quads (offsets) per 1 foreground quad
+    // Each letter gets one outward-only ring quad (40%) beside its foreground quad
     let fg_quads: Vec<_> = quads
         .iter()
         .filter(|q| q.color == console.style.menu)
@@ -2290,31 +2201,30 @@ fn menu_buttons_draw_letters_with_border_along_edge_path_and_no_box_fill() {
     );
     assert_eq!(
         outline_quads.len(),
-        fg_quads.len() * 8,
-        "each letter must emit exactly 8 outline glyph quads (1px in 8 directions) for its contour"
+        fg_quads.len(),
+        "each letter must emit exactly one outline ring quad for its contour"
     );
 
     // 3. Armed state (hovered/selected):
-    // When selection is set, the selected item's letters use armed border color (alpha 0.65)
-    // and armed foreground color.
+    // A selected row draws armed letters with the same 40% outline: arming never darkens it.
     console.main_menu.selection = Some(0);
     console.draw(0.0);
     let quads = console.canvas.drain();
 
-    let armed_border = Color::new(0.0, 0.0, 0.0, 0.65);
-    let armed_outline_quads: Vec<_> = quads.iter().filter(|q| q.color == armed_border).collect();
+    let outline_quads = quads.iter().filter(|q| q.color == default_border).count();
     let armed_fg_quads: Vec<_> = quads
         .iter()
         .filter(|q| q.color == console.style.menu_armed)
         .collect();
-    assert!(
-        !armed_outline_quads.is_empty(),
-        "armed menu button must use armed outline color (alpha 0.65)"
-    );
+    let plain_fg = quads
+        .iter()
+        .filter(|q| q.color == console.style.menu)
+        .count();
+    assert!(!armed_fg_quads.is_empty(), "armed row draws armed letters");
     assert_eq!(
-        armed_outline_quads.len(),
-        armed_fg_quads.len() * 8,
-        "armed item must have 8 outline quads per foreground letter quad"
+        outline_quads,
+        armed_fg_quads.len() + plain_fg,
+        "armed and plain letters each have one 40% outline ring quad"
     );
 
     // 4. Pressed state offset shift:
@@ -2359,7 +2269,7 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
         ..Default::default()
     });
 
-    let default_border = Color::new(0.0, 0.0, 0.0, 0.45);
+    let default_border = TextOutline::DEFAULT.color;
     let geometry = console.menu_layout.geometry_for(console.canvas_size());
 
     for title_font_enabled in [false, true] {
@@ -2459,8 +2369,8 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
             let total_fg = fg_line0.len() + fg_sub.len();
             assert_eq!(
                     outline_quads.len(),
-                    total_fg * 8,
-                    "each title/subtitle letter in category {category} (title_font={title_font_enabled}) must emit 8 outline quads"
+                    total_fg,
+                    "each title/subtitle letter in category {category} (title_font={title_font_enabled}) must emit one outline ring quad"
                 );
 
             // 4. In title_font mode, verify two-pass layering for line 0:
@@ -2476,7 +2386,7 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
                     .count();
                 assert_eq!(
                     outline_count_before_first_fg,
-                    fg_line0.len() * 8,
+                    fg_line0.len(),
                     "all line 0 outline quads must be drawn before any line 0 foreground quads"
                 );
             }
@@ -2492,9 +2402,10 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
         .iter()
         .filter(|q| q.destination.y < geometry.menu.y)
         .collect();
+    // Rings are textured: the pause screen's untextured full-screen dim shares their colour.
     let pause_outline: Vec<_> = pause_title_quads
         .iter()
-        .filter(|q| q.color == default_border)
+        .filter(|q| q.color == default_border && q.texture.is_some())
         .collect();
     let pause_fg: Vec<_> = pause_title_quads
         .iter()
@@ -2506,8 +2417,8 @@ fn menu_titles_and_subtitles_draw_letters_with_border_along_edge_path() {
     );
     assert_eq!(
         pause_outline.len(),
-        pause_fg.len() * 8,
-        "pause menu title letters must each have 8 outline quads"
+        pause_fg.len(),
+        "pause menu title letters must each have one outline ring quad"
     );
 }
 
@@ -3405,38 +3316,28 @@ fn mid_gameplay_tilde_dev_console_transition_and_pause_menu_focus() {
         Layer::Window(Window::Console)
     );
 
-    // 3. Close the dev console via toggle (pressing tilde again):
-    // Leaves the main/pause menu open, active, and focused
     console.toggle();
-    assert_eq!(console.mode(), Mode::Pause);
-    assert_eq!(console.base, Mode::Pause);
-    assert!(console.paused());
+    assert_eq!(console.mode(), Mode::Gameplay);
+    assert!(!console.console_open());
+    assert!(!console.paused());
     assert_eq!(console.shell.windows.focus(), Layer::Base);
 
-    // 4. Pressing tilde again from the pause menu opens dev console over pause menu
     console.toggle();
-    assert_eq!(console.mode(), Mode::Console);
-    assert_eq!(console.base, Mode::Pause);
-    assert_eq!(
-        console.shell.windows.focus(),
-        Layer::Window(Window::Console)
-    );
-
-    // 5. Closing dev console via Escape also leaves main/pause menu active and focused
-    console.escape_pressed();
-    console.escape_released();
-    assert_eq!(console.mode(), Mode::Pause);
-    assert_eq!(console.base, Mode::Pause);
-    assert!(console.paused());
-    assert_eq!(console.shell.windows.focus(), Layer::Base);
-
-    // 6. Resuming from the main/pause menu returns to active gameplay
+    console.shell.panel.editor.insert("echo draft");
     console.escape_pressed();
     console.escape_released();
     assert_eq!(console.mode(), Mode::Gameplay);
-    assert_eq!(console.base, Mode::Gameplay);
-    assert!(!console.paused());
+    assert!(!console.console_open());
+    assert_eq!(console.dim_overlay_alpha(0.0), 0.0);
     assert_eq!(console.shell.windows.focus(), Layer::Base);
+
+    console.escape();
+    assert_eq!(console.mode(), Mode::Console);
+    assert_eq!(console.input_line(), "echo draft");
+    assert!(console.paused());
+    console.toggle();
+    assert_eq!(console.mode(), Mode::Gameplay);
+    assert!(!console.paused());
 }
 
 #[test]
@@ -3690,7 +3591,7 @@ fn out_of_focus_menu_title_and_subtitle_are_translucent_without_black_outline() 
     console.draw(0.3);
     let quads = console.canvas.drain();
 
-    // Outline quads (emitted by draw_cell_text_outlined) have color (0,0,0, 0.45 * base_focus)
+    // Outline quads (emitted by draw_cell_text_outlined) have color (0,0,0, 0.4 * base_focus)
     // and texture.is_some() (the glyph cache texture).
     // When base_focus is 0.0, outline is TextOutline::NONE, so NO text outline quads are emitted.
     // Verify no text glyph outline quads with alpha >= 0.2 are emitted under the menu.
@@ -4555,3 +4456,4 @@ fn small_canvases_and_resizes_keep_the_minimum_size() {
 }
 
 mod chapters;
+mod history;

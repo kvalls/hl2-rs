@@ -11,7 +11,7 @@ pub(super) fn install_view(
     sim: &mut crate::simulation::Simulation,
     eye: glam::Vec3,
 ) {
-    sim.change_map(&loaded.world, eye, request.direct);
+    sim.change_map_with_physics(&loaded.world, loaded.physics.take(), eye, request.direct);
     sim.background_level = request.background;
     sim.background_audio_pending = loaded.pending_audio.is_some();
     if request.direct {
@@ -31,14 +31,15 @@ pub(super) fn install_view(
 }
 
 pub(super) fn activate_request(
-    request: Request,
+    mut request: Request,
     options: &crate::Options,
     campaign: &mut super::Campaign,
     ui: &mut ui_host::Console,
     sim: &mut crate::simulation::Simulation,
-    (audio, pending): (
+    (audio, pending, allow_bc_textures): (
         Option<&crate::audio::Audio>,
         Option<&crate::audio::deferred::PendingAudio>,
+        bool,
     ),
 ) -> bool {
     if reuse_background(
@@ -50,10 +51,48 @@ pub(super) fn activate_request(
     ) {
         return false;
     }
+    if !request.background {
+        let requested_game = request.explicit_game.then_some(request.game.as_str());
+        let current_game = campaign.loaded_map.as_ref().map(|m| m.game.as_str());
+        match source_assets::install::check_map_with_mount(
+            &options.game,
+            &request.map,
+            requested_game,
+            current_game,
+            campaign
+                .mounted_game
+                .as_ref()
+                .map(|(game, vfs)| (game.as_str(), vfs.as_ref())),
+        ) {
+            Ok(game) => request.game = game,
+            Err(err) => {
+                let message = err.retail_message(&request.map);
+                ui.source
+                    .print(source_ui::console::panel::Level::Error, &message);
+                campaign.failures.push(message.clone());
+                sim.loading_failed();
+                if ui.source.loading_dialog.is_some() {
+                    ui.source.loading_failed(&message);
+                }
+                if !options.map_dependent.is_empty() && options.map.as_deref() == Some(&request.map)
+                {
+                    eprintln!("{message}");
+                    std::process::exit(1);
+                }
+                return false;
+            }
+        }
+    }
     if let Some(pending) = pending {
         pending.cancel();
     }
-    match begin(request, options, ui, sim, campaign.audio_reuse.clone()) {
+    match begin(
+        request,
+        options,
+        ui,
+        sim,
+        (campaign.audio_reuse.clone(), allow_bc_textures),
+    ) {
         Ok(job) => {
             campaign.job = Some(job);
             true
@@ -73,11 +112,11 @@ pub(super) fn begin(
     options: &crate::Options,
     ui: &mut ui_host::Console,
     sim: &mut crate::simulation::Simulation,
-    reuse: std::sync::Arc<crate::audio::reuse::AudioReuse>,
+    (reuse, allow_bc_textures): (std::sync::Arc<crate::audio::reuse::AudioReuse>, bool),
 ) -> Result<super::Job, String> {
     sim.background_audio_pending = false;
     let started = std::time::Instant::now();
-    let result = spawn_worker(&request, options, ui, reuse)?;
+    let result = spawn_worker(&request, options, ui, reuse, allow_bc_textures)?;
     sim.notify_loading(ui, &request.map, request.background, None);
     start(&request, ui);
     sim.loading = true;
@@ -93,6 +132,7 @@ pub(super) fn spawn_worker(
     options: &crate::Options,
     ui: &ui_host::Console,
     audio_reuse: std::sync::Arc<crate::audio::reuse::AudioReuse>,
+    allow_bc_textures: bool,
 ) -> Result<super::ResultSlot, String> {
     let map = request.map.clone();
     let map_game = request.game.clone();
@@ -102,8 +142,15 @@ pub(super) fn spawn_worker(
     let background = request.background;
     let config = ui.source.config.clone();
     let progress = ui.source.loading_progress();
+    let extra_npc_classes = if background {
+        Default::default()
+    } else {
+        options.script_npc_classes.clone()
+    };
+    let draw_options = (options.cpu_skinning, options.world_partition);
     super::assets::work::Work::spawn("hl2-owned-map-loader", move |cancel| {
-        crate::assets::loading::load(
+        let geometry_cancel = cancel.clone();
+        let mut loaded = crate::assets::loading::load(
             crate::assets::loading::LoadInput {
                 root: &root,
                 game: &map_game,
@@ -117,8 +164,25 @@ pub(super) fn spawn_worker(
                 background,
                 cancel,
                 audio_reuse,
+                allow_bc_textures,
+                extra_npc_classes,
             },
-        )
+        )?;
+        geometry_cancel.check()?;
+        // The draw geometry is built here so the install frame only creates materials, joints
+        // and draws (O49).
+        let started = std::time::Instant::now();
+        let (cpu_skinning, world_partition) = draw_options;
+        loaded.geometry = Some(crate::rendering::MapGeometry::build(
+            &loaded,
+            cpu_skinning,
+            world_partition,
+        ));
+        loaded.load_timings.insert(
+            "draw_geometry".into(),
+            started.elapsed().as_secs_f64() * 1000.,
+        );
+        Ok(loaded)
     })
 }
 
@@ -128,6 +192,29 @@ pub(super) fn notify_finished(
     ui: &mut ui_host::Console,
 ) {
     sim.notify_loading(ui, &request.map, request.background, Some(true));
+}
+
+/// Completes the UI transition for a loaded map, keeping simulation pause and cursor lock in
+/// sync with any startup commands (`+showconsole`, `+gamemenucommand`) opened on load.
+pub(super) fn finish_level_ui(
+    request: &Request,
+    game: &str,
+    map: &str,
+    ui: &mut ui_host::Console,
+    sim: &mut crate::simulation::Simulation,
+    cursor: Option<&mut bevy::window::CursorOptions>,
+) {
+    let background = request.direct && request.background;
+    ui.source.level_loaded_for_map(game, map, background);
+    sim.paused = ui.source.paused();
+    if request.direct
+        && !request.background
+        && !sim.paused
+        && let Some(cursor) = cursor
+    {
+        cursor.grab_mode = bevy::window::CursorGrabMode::Locked;
+        cursor.visible = false;
+    }
 }
 
 pub(super) fn start(request: &Request, ui: &mut ui_host::Console) {
@@ -212,6 +299,83 @@ pub(super) fn completed(
     Some((campaign.job.take().expect("completed map job"), result))
 }
 
+/// The loading screen stays over a newly installed map until the render world has no pipelines
+/// left to compile. Bevy creates a pipeline only when a view first draws with it (on macOS
+/// synchronously), so the first frames of a new map would hitch in play; held behind the
+/// loading screen with the world frozen, they compile where the player sees only the loading
+/// screen, as Source finishes caching its materials before the plaque goes. Rendering lags the
+/// main world by a frame, so the backlog is trusted from the second held frame; the cap keeps a
+/// pipeline that never finishes from holding the screen.
+const MIN_REVEAL_FRAMES: u8 = 2;
+const MAX_REVEAL_FRAMES: u8 = 60;
+
+/// A newly installed map waiting behind the loading screen.
+pub(super) struct Reveal {
+    request: Request,
+    game: String,
+    map: String,
+    held: u8,
+}
+
+/// Keeps the loading screen and a frozen world over the gameplay map just installed. A
+/// main-menu background is revealed at once: its own transition (pre-blurred image, then the
+/// menu camera) already covers its first frames, and holding it would show the spawn view.
+pub(super) fn hold_reveal(
+    request: &Request,
+    loaded: &crate::assets::LoadedMap,
+    (campaign, ui, sim): (
+        &mut super::Campaign,
+        &mut ui_host::Console,
+        &mut crate::simulation::Simulation,
+    ),
+    mut cursor: Option<bevy::prelude::Mut<bevy::window::CursorOptions>>,
+) {
+    if request.background {
+        finish_level_ui(
+            request,
+            &loaded.game,
+            &loaded.world.name,
+            ui,
+            sim,
+            cursor.as_deref_mut(),
+        );
+        notify_finished(request, sim, ui);
+        return;
+    }
+    sim.loading = true;
+    campaign.reveal = Some(Reveal {
+        request: request.clone(),
+        game: loaded.game.clone(),
+        map: loaded.world.name.clone(),
+        held: 0,
+    });
+}
+
+/// Holds a reveal until the pipeline backlog is empty, then finishes the level's UI. `true`
+/// while it still holds.
+pub(super) fn advance_reveal(
+    campaign: &mut super::Campaign,
+    backlog: Option<&crate::rendering::variant_warmup::PipelineBacklog>,
+    ui: &mut ui_host::Console,
+    sim: &mut crate::simulation::Simulation,
+    cursor: Option<&mut bevy::window::CursorOptions>,
+) -> bool {
+    let Some(reveal) = campaign.reveal.as_mut() else {
+        return false;
+    };
+    reveal.held = reveal.held.saturating_add(1);
+    // Warm-up frames still to draw count as compiling: they draw what play would show later.
+    let compiling = backlog.is_some_and(|b| b.waiting() > 0 || b.warming());
+    if reveal.held <= MIN_REVEAL_FRAMES || compiling && reveal.held <= MAX_REVEAL_FRAMES {
+        return true;
+    }
+    let reveal = campaign.reveal.take().expect("held reveal");
+    sim.loading = false;
+    finish_level_ui(&reveal.request, &reveal.game, &reveal.map, ui, sim, cursor);
+    notify_finished(&reveal.request, sim, ui);
+    false
+}
+
 #[cfg(test)]
 pub(super) fn exercise_menu_wait_during_worker(app: &mut bevy::prelude::App) {
     app.update();
@@ -290,6 +454,7 @@ pub(super) fn record_loaded(
     loaded: &crate::assets::LoadedMap,
     job: &super::Job,
 ) {
+    campaign.mounted_game = Some((loaded.game.clone(), loaded.vfs.clone()));
     campaign.metadata = crate::assets::map_metadata(loaded);
     campaign.metadata["loading_ms"]["request_to_worker_ms"] =
         (job.started.elapsed().as_secs_f64() * 1000.).into();
@@ -311,6 +476,7 @@ mod tests {
         Request {
             map: "background01".into(),
             game: "hl2".into(),
+            explicit_game: true,
             landmark: String::new(),
             direct: true,
             background,
@@ -356,6 +522,58 @@ mod tests {
         ui.source.set_mode(hl2_ui::console::Mode::NewGame);
         ui.source.set_mode(hl2_ui::console::Mode::MainMenu);
         assert!(!superseded(&request(true), &mut ui));
+    }
+    #[test]
+    fn a_held_reveal_waits_for_the_pipeline_backlog_then_finishes_loading() {
+        let backlog = crate::rendering::variant_warmup::PipelineBacklog::default();
+        let mut campaign = crate::campaign::Campaign::default();
+        let mut ui = queued(false, "hl2", "d1_trainstation_02");
+        let mut sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let hold = |campaign: &mut crate::campaign::Campaign| {
+            campaign.reveal = Some(super::Reveal {
+                request: request(false),
+                game: "hl2".into(),
+                map: "d1_trainstation_02".into(),
+                held: 0,
+            });
+        };
+        hold(&mut campaign);
+        sim.loading = true;
+        backlog.set_waiting(3);
+        for _ in 0..5 {
+            assert!(super::advance_reveal(
+                &mut campaign,
+                Some(&backlog),
+                &mut ui,
+                &mut sim,
+                None
+            ));
+            assert!(sim.loading);
+        }
+        backlog.set_waiting(0);
+        assert!(!super::advance_reveal(
+            &mut campaign,
+            Some(&backlog),
+            &mut ui,
+            &mut sim,
+            None
+        ));
+        assert!(campaign.reveal.is_none() && !sim.loading);
+        // A pipeline that never finishes cannot hold the screen past the cap.
+        hold(&mut campaign);
+        backlog.set_waiting(1);
+        let mut frames = 0;
+        while super::advance_reveal(&mut campaign, Some(&backlog), &mut ui, &mut sim, None) {
+            frames += 1;
+        }
+        assert_eq!(frames, super::MAX_REVEAL_FRAMES as usize);
     }
     #[test]
     fn rapid_switch_back_reuses_installed_background_and_finishes_loading() {
@@ -432,5 +650,59 @@ mod tests {
             assert_eq!(ui.map_request.as_deref(), Some("ep2_background01"));
             assert!(campaign.failures.is_empty());
         }
+    }
+    #[test]
+    fn direct_load_with_showconsole_keeps_simulation_paused_and_cursor_unlocked() {
+        use bevy::window::{CursorGrabMode, CursorOptions};
+        let mut gameplay_req = request(false);
+        gameplay_req.map = "d1_trainstation_02".into();
+
+        let mut ui = ui_host::Console::new(Default::default());
+        ui.source
+            .queue_startup_commands(vec!["showconsole".to_owned()]);
+        let mut sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let mut cursor = CursorOptions::default();
+        super::finish_level_ui(
+            &gameplay_req,
+            "hl2",
+            "d1_trainstation_02",
+            &mut ui,
+            &mut sim,
+            Some(&mut cursor),
+        );
+        assert!(ui.source.console_open());
+        assert!(ui.source.paused());
+        assert!(sim.paused());
+        assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+        assert!(cursor.visible);
+
+        let mut plain_ui = ui_host::Console::new(Default::default());
+        let mut plain_sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        let mut plain_cursor = CursorOptions::default();
+        super::finish_level_ui(
+            &gameplay_req,
+            "hl2",
+            "d1_trainstation_02",
+            &mut plain_ui,
+            &mut plain_sim,
+            Some(&mut plain_cursor),
+        );
+        assert!(!plain_sim.paused());
+        assert_eq!(plain_cursor.grab_mode, CursorGrabMode::Locked);
+        assert!(!plain_cursor.visible);
     }
 }

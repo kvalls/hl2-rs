@@ -10,7 +10,7 @@
 //! after a step), the player every tick; a trigger that becomes active (the map's start,
 //! Enable) touches everything inside it at once (PostClientActive, Enable).
 
-use super::{is_vphysics_class, number, Scene, PLAYER};
+use super::{number, Scene, PLAYER};
 use crate::npc_makers::is_npc_class;
 use glam::Vec3;
 use modkit_core::{Entity, World};
@@ -22,6 +22,17 @@ pub(super) struct Candidates {
     fresh: bool,
     npcs: Vec<usize>,
     objects: Vec<usize>,
+}
+
+/// Entity classes that move with VPhysics (MOVETYPE_VPHYSICS) for trigger touches.
+fn is_vphysics_class(class: &str) -> bool {
+    class.starts_with("prop_physics")
+        || class.starts_with("weapon_")
+        || class.starts_with("item_")
+        || matches!(
+            class,
+            "physics_prop" | "func_physbox" | "func_physbox_multiplayer" | "prop_ragdoll"
+        )
 }
 
 /// PassesTriggerFilters' spawnflags (clients 1, NPCs 2, physics objects 8, everything 0x40)
@@ -67,11 +78,14 @@ impl Scene {
         }
         if enabled && e.class() == "trigger_hurt" {
             // Every touching player/NPC, before the trigger filters (Touch).
-            let mut touching: Vec<usize> = (0..self.states.len())
+            self.refresh_candidates(world);
+            let mut touching: Vec<usize> = self
+                .touch_candidates
+                .npcs
+                .iter()
+                .copied()
                 .filter(|&n| {
-                    is_npc_class(self.ent(world, n).class())
-                        && !self.states[n].killed
-                        && self.player_inside(world, id, self.states[n].origin)
+                    !self.states[n].killed && self.player_inside(world, id, self.states[n].origin)
                 })
                 .collect();
             if self.player_inside(world, id, self.player_feet) {
@@ -91,13 +105,13 @@ impl Scene {
     }
 
     fn refresh_candidates(&mut self, world: &World) {
+        if self.touch_candidates.fresh {
+            return;
+        }
         let mut candidates = std::mem::take(&mut self.touch_candidates);
         candidates.npcs.clear();
         candidates.objects.clear();
         for n in 0..self.states.len() {
-            if self.states[n].killed || !self.states[n].visible {
-                continue;
-            }
             let class = self.ent(world, n).class();
             if is_npc_class(class) {
                 candidates.npcs.push(n);
@@ -178,7 +192,7 @@ impl Scene {
         }
         let e = self.ent(world, id);
         let rules = rules(e);
-        if (rules.npcs || rules.objects) && !self.touch_candidates.fresh {
+        if rules.npcs || rules.objects {
             self.refresh_candidates(world);
         }
         let entered = self.entering(world, id, armed, &rules);

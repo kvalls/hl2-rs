@@ -131,6 +131,9 @@ pub struct NpcMakers {
     /// Template targetname (lowercase) -> held entity.
     templates: BTreeMap<String, usize>,
     held: BTreeSet<usize>,
+    /// Actor ids in spawn order. Runtime entities append to the same world as map entities.
+    npc_ids: Vec<usize>,
+    indexed_entities: usize,
     /// NPCs whose StartNPC ran.
     started: BTreeSet<usize>,
     /// MOVETYPE_STEP NPCs off the ground: vertical speed.
@@ -734,9 +737,21 @@ impl NpcMakers {
 
     /// StartNPC on each NPC's first live tick.
     fn start_npcs(&mut self, world: &World, scene: &mut Scene, physics: &Physics) {
-        for (id, e) in world.entities.iter().enumerate() {
+        for (id, e) in world
+            .entities
+            .iter()
+            .enumerate()
+            .skip(self.indexed_entities)
+        {
+            if is_npc_class(e.class()) {
+                self.npc_ids.push(id);
+            }
+        }
+        self.indexed_entities = world.entities.len();
+        for &id in &self.npc_ids {
+            let e = &world.entities[id];
             let s = &scene.states[id];
-            if !is_npc_class(e.class()) || s.killed || !s.visible || self.started.contains(&id) {
+            if s.killed || !s.visible || self.started.contains(&id) {
                 continue;
             }
             self.started.insert(id);

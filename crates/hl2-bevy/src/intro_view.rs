@@ -124,34 +124,42 @@ fn update(
             *t = transform;
             *p = projection;
         }
-        _ => {
-            commands.spawn((
-                (
-                    IntroCamera,
-                    crate::video::OwnTarget,
-                    crate::campaign::MapOwned,
-                ),
-                Camera3d::default(),
-                Camera {
-                    order: -4,
-                    clear_color: ClearColorConfig::Custom(Color::BLACK),
-                    ..default()
-                },
-                RenderTarget::Image(image.clone().into()),
-                RenderLayers::layer(0).with(5),
-                (
-                    crate::tonemap::PASSTHROUGH,
-                    bevy::camera::Exposure::default(),
-                    crate::tonemap::ToneMapped,
-                ),
-                Msaa::Off,
-                projection,
-                transform,
-            ));
-        }
+        _ => spawn_intro_camera(&mut commands, image.clone(), projection, transform),
     }
     commands.entity(camera).insert(IntroComposite {
         passes,
         scene: Some(image),
     });
+}
+
+fn spawn_intro_camera(
+    commands: &mut Commands,
+    image: Handle<Image>,
+    projection: Projection,
+    transform: Transform,
+) {
+    commands.spawn((
+        (
+            IntroCamera,
+            crate::video::OwnTarget,
+            crate::campaign::MapOwned,
+        ),
+        Camera3d::default(),
+        bevy::light::cluster::ClusterConfig::Single,
+        Camera {
+            order: -4,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        RenderTarget::Image(image.into()),
+        RenderLayers::layer(0).with(5),
+        (
+            crate::tonemap::PASSTHROUGH,
+            bevy::camera::Exposure::default(),
+            crate::tonemap::ToneMapped,
+        ),
+        Msaa::Off,
+        projection,
+        transform,
+    ));
 }

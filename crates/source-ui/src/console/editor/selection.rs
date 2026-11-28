@@ -3,6 +3,33 @@ use super::{char_index, LineEditor};
 use crate::input::Key;
 use std::ops::Range;
 
+/// Word (or contiguous whitespace) range in character indices around `char_pos`, matching SDK
+/// double-click selection boundaries (trims trailing whitespace around words).
+pub fn word_bounds(text: &str, char_pos: usize) -> Range<usize> {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() {
+        return 0..0;
+    }
+    let pos = char_pos.min(chars.len());
+    let probe = if pos < chars.len() && !chars[pos].is_whitespace() {
+        pos
+    } else if pos > 0 && !chars[pos - 1].is_whitespace() {
+        pos - 1
+    } else {
+        pos.min(chars.len() - 1)
+    };
+    let is_space = chars[probe].is_whitespace();
+    let mut start = probe;
+    while start > 0 && chars[start - 1].is_whitespace() == is_space {
+        start -= 1;
+    }
+    let mut end = probe + 1;
+    while end < chars.len() && chars[end].is_whitespace() == is_space {
+        end += 1;
+    }
+    start..end
+}
+
 impl LineEditor {
     pub fn selection(&self) -> Option<Range<usize>> {
         let anchor = self.anchor?;
@@ -20,8 +47,57 @@ impl LineEditor {
 
     pub fn select_all(&mut self) {
         self.accept_search();
-        self.anchor = Some(0);
-        self.cursor = self.text.chars().count();
+        let end = self.text.chars().count();
+        self.anchor = (end > 0).then_some(0);
+        self.cursor = end;
+    }
+
+    /// Places the caret on pointer press (`extend` preserves the selection anchor for Shift+click).
+    pub fn set_cursor(&mut self, pos: usize, extend: bool) {
+        self.accept_search();
+        let target = pos.min(self.text.chars().count());
+        if extend {
+            let anchor = self.anchor.unwrap_or(self.cursor);
+            self.anchor = Some(anchor);
+        } else {
+            self.anchor = Some(target);
+        }
+        self.cursor = target;
+    }
+
+    /// Extends mouse drag selection to character index `pos`.
+    pub fn drag_to(&mut self, pos: usize) {
+        if self.anchor.is_none() {
+            self.anchor = Some(self.cursor);
+        }
+        self.cursor = pos.min(self.text.chars().count());
+    }
+
+    /// Selects an explicit `anchor..cursor` range in character indices.
+    pub fn select_range(&mut self, anchor: usize, cursor: usize) {
+        let len = self.text.chars().count();
+        self.anchor = Some(anchor.min(len));
+        self.cursor = cursor.min(len);
+    }
+
+    /// Selects the word (or whitespace run) around character index `pos` (SDK double-click).
+    pub fn select_word_at(&mut self, pos: usize) {
+        self.accept_search();
+        let range = word_bounds(&self.text, pos);
+        if range.start < range.end {
+            self.anchor = Some(range.start);
+            self.cursor = range.end;
+        } else {
+            self.anchor = None;
+            self.cursor = range.end;
+        }
+    }
+
+    /// Collapses a zero-width selection when a mouse drag finishes.
+    pub fn end_drag(&mut self) {
+        if self.anchor == Some(self.cursor) {
+            self.anchor = None;
+        }
     }
 
     pub(super) fn delete_selection(&mut self) -> bool {
@@ -85,6 +161,34 @@ mod tests {
         assert_eq!(editor.selected_text(), Some("λ; βz"));
         editor.backspace();
         assert_eq!(editor.text(), "");
+        assert!(editor.undo());
+        assert_eq!(editor.text(), "λ; βz");
+    }
+
+    #[test]
+    fn cut_undo_and_mouse_word_bounds_match_retail() {
+        let mut editor = LineEditor::default();
+        editor.insert("sv_cheats  1");
+        editor.select_word_at(2);
+        assert_eq!(editor.selected_text(), Some("sv_cheats"));
+        assert_eq!(editor.cut().as_deref(), Some("sv_cheats"));
+        assert_eq!(editor.text(), "  1");
+        assert!(editor.undo());
+        assert_eq!(editor.text(), "sv_cheats  1");
+        // Double-click on trailing boundary picks word; middle of multi-space picks whitespace.
+        assert_eq!(word_bounds("fov   90", 3), 0..3);
+        assert_eq!(word_bounds("fov   90", 4), 3..6);
+        assert_eq!(word_bounds("fov   90", 8), 6..8);
+        // Click + drag + release, then empty click collapses anchor.
+        editor.set_cursor(0, false);
+        assert_eq!(editor.selection(), None);
+        editor.drag_to(9);
+        assert_eq!(editor.selected_text(), Some("sv_cheats"));
+        editor.end_drag();
+        assert_eq!(editor.selected_text(), Some("sv_cheats"));
+        editor.set_cursor(4, false);
+        editor.end_drag();
+        assert_eq!(editor.selection(), None);
     }
     #[test]
     fn selection_survives_refresh_and_is_replaced_by_deletion_or_history() {

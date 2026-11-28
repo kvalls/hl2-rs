@@ -79,12 +79,7 @@
   },
   {
     "tick": 17,
-    "ui": [
-      {
-        "action": "escape"
-      }
-    ],
-    "label": "resumed-from-pause"
+    "label": "after-tilde"
   },
   {
     "tick": 20,
@@ -168,22 +163,30 @@
         "action": "escape"
       }
     ],
-    "label": "return-to-pause"
+    "label": "menu-hidden"
+  },
+  {
+    "tick": 127,
+    "label": "after-escape"
+  },
+  {
+    "tick": 129,
+    "ui": [
+      {
+        "action": "escape"
+      }
+    ],
+    "label": "console-restored"
   },
   {
     "tick": 130,
     "ui": [
       {
-        "action": "input",
-        "input": {
-          "keys": [
-            "enter"
-          ]
-        }
+        "action": "toggle_console"
       }
     ],
     "primary": true,
-    "label": "menu-resume"
+    "label": "console-close"
   },
   {
     "tick": 131,

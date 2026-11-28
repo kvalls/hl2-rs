@@ -548,3 +548,87 @@ mod tests {
         }
     }
 }
+
+/// The 2D sky faces are a cube 16,000 units out around the miniature-sky camera and draw in the
+/// same depth-tested pass as the miniature sky: every miniature-sky vertex must stay inside that
+/// cube from any camera position the playable area maps to, or the faces would cover it.
+#[cfg(test)]
+mod owned_sky_depth {
+    const FACE_DISTANCE: f32 = 16_000.;
+
+    #[test]
+    #[ignore = "requires the user's installed HL2 content"]
+    fn miniature_sky_geometry_stays_inside_the_2d_sky_faces() {
+        let vfs = crate::vpk::Vfs::mount(&crate::install::discover().unwrap()).unwrap();
+        let mut checked = 0;
+        for map in [
+            "d1_trainstation_01",
+            "d1_trainstation_02",
+            "d1_trainstation_03",
+            "d1_trainstation_05",
+            "d1_canals_01",
+            "d1_canals_05",
+            "d1_canals_08",
+            "d1_canals_11",
+            "d1_canals_13",
+            "d1_town_01",
+            "d2_coast_01",
+            "d2_coast_03",
+            "d2_coast_07",
+            "d2_coast_10",
+            "d2_prison_01",
+            "d3_c17_01",
+            "d3_c17_07",
+            "d3_c17_13",
+            "d3_citadel_01",
+        ] {
+            let Ok(Some(bytes)) = vfs.read(&format!("maps/{map}.bsp")) else {
+                continue;
+            };
+            let world = crate::bsp::Bsp::parse(&bytes).unwrap().world(map).unwrap();
+            let Some(sky) = world.background_camera.as_ref() else {
+                continue;
+            };
+            // Camera positions: origin + eye / scale for every eye in the playable area.
+            let playable = world.surfaces.iter().filter(|s| !s.background);
+            let (lo, hi) = playable.flat_map(|s| &s.vertices).fold(
+                (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN)),
+                |(lo, hi), v| (lo.min(v.position), hi.max(v.position)),
+            );
+            let (near, far) = (sky.origin + lo / sky.scale, sky.origin + hi / sky.scale);
+            let reach = |p: glam::Vec3| (p - near).abs().max((p - far).abs()).max_element();
+            let mut farthest = 0f32;
+            for surface in world.surfaces.iter().filter(|s| s.background) {
+                assert!(
+                    !surface.material.eq_ignore_ascii_case("tools/toolsskybox"),
+                    "{map}: a drawn toolsskybox surface would hide the 2D sky"
+                );
+                for v in &surface.vertices {
+                    farthest = farthest.max(reach(v.position));
+                }
+            }
+            for instance in world.model_instances.iter().filter(|i| {
+                i.entity
+                    .is_some_and(|id| world.background_entities.contains(&id))
+            }) {
+                let radius = world
+                    .model_assets
+                    .get(&instance.asset_key())
+                    .map_or(0., |s| {
+                        s.iter()
+                            .flat_map(|s| &s.vertices)
+                            .map(|v| v.position.length())
+                            .fold(0f32, f32::max)
+                    });
+                farthest = farthest.max(reach(instance.origin) + radius * instance.scale);
+            }
+            eprintln!("{map}: miniature sky reaches {farthest:.0} of {FACE_DISTANCE} units");
+            assert!(
+                farthest < FACE_DISTANCE,
+                "{map}: miniature sky reaches {farthest} units"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 5, "only {checked} maps with a 3D skybox checked");
+    }
+}

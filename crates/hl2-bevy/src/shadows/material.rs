@@ -1,7 +1,7 @@
 //! The receiver side of a projected shadow (Source SDK `materialsystem/stdshaders/shadow.cpp`,
 //! `shadow_ps2x.fxc`): the coverage, five taps one texel apart averaged, less the vertex fade,
 //! takes the surface toward the shadow colour by a multiply blend (`ZERO, SRC_COLOR`); depth is
-//! tested, not written; both faces draw. `shadow.wgsl`.
+//! tested, not written; both faces draw. `shadow.wesl`.
 use bevy::{
     asset::{Asset, Handle},
     image::Image,
@@ -10,9 +10,12 @@ use bevy::{
     mesh::MeshVertexBufferLayoutRef,
     pbr::{Material, MaterialPipeline, MaterialPipelineKey},
     reflect::TypePath,
-    render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState,
-        RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+    render::{
+        render_resource::{
+            AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState,
+            RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+        },
+        storage::ShaderBuffer,
     },
     shader::ShaderRef,
 };
@@ -35,9 +38,15 @@ pub struct ShadowMaterial {
     pub texture: Handle<Image>,
     #[uniform(2)]
     pub parameters: ShadowParameters,
+    #[storage(3, read_only, visibility(vertex))]
+    pub verts: Handle<ShaderBuffer>,
 }
 
 impl Material for ShadowMaterial {
+    fn vertex_shader() -> ShaderRef {
+        "shaders/shadow.wesl".into()
+    }
+
     fn fragment_shader() -> ShaderRef {
         "shaders/shadow.wesl".into()
     }

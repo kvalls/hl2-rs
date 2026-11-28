@@ -59,6 +59,26 @@ pub(super) fn toggleconsole(console: &mut Console, spec: &Spec, args: &[String])
     Ok(None)
 }
 
+/// `showconsole`: opens the console when it is closed (as `toggleconsole` would).
+pub(super) fn showconsole(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    set_console_open(console, spec, args, true)
+}
+
+/// `hideconsole`: closes the console when it is open.
+pub(super) fn hideconsole(console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
+    set_console_open(console, spec, args, false)
+}
+
+fn set_console_open(console: &mut Console, spec: &Spec, args: &[String], open: bool) -> Outcome {
+    if !args.is_empty() {
+        return Err(spec.usage());
+    }
+    if console.console_open() != open {
+        console.toggle_console_window();
+    }
+    Ok(None)
+}
+
 pub(super) fn quit(_console: &mut Console, spec: &Spec, args: &[String]) -> Outcome {
     if !args.is_empty() {
         return Err(spec.usage());

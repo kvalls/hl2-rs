@@ -121,6 +121,14 @@ pub struct RpgState {
     pub beam_brightness: f32,
     pub muzzle_scale: f32,
 }
+impl RpgState {
+    /// Rebase RPG idle timing across changelevel and drop old-world missile/dot handles.
+    pub(crate) fn rebase_clock(&mut self, delta: f64) {
+        self.idle_at += delta;
+        self.missile_out = false;
+        self.dot = None;
+    }
+}
 
 /// What happened to the player's missile this tick (CMissile -> NotifyRocketDied).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

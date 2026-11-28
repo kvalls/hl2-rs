@@ -1,8 +1,17 @@
 //! Optional bounded CPU stage measurements; disabled for ordinary play.
+mod frame_stages;
 mod gpu_completion;
 mod pacing;
+mod pipeline_compiles;
+mod samples;
+pub mod status;
+#[cfg(feature = "trace")]
+pub(crate) mod trace_writer;
 use bevy::prelude::*;
 pub(crate) use pacing::background_interval;
+use samples::Samples;
+/// The whole-frame stage (`frame_stages`).
+pub(crate) const FRAME_TOTAL: &str = "frame_total";
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -12,12 +21,11 @@ use std::{
 pub struct Performance(
     Arc<Mutex<BTreeMap<&'static str, Samples>>>,
     Arc<Mutex<Option<gpu_completion::Stats>>>,
+    Arc<Mutex<pipeline_compiles::Compiles>>,
+    /// Set while a map loads or its reveal is held: those frames are behind the loading screen,
+    /// not play, so neither world records stage samples or compile events for them.
+    Arc<std::sync::atomic::AtomicBool>,
 );
-#[derive(Default)]
-struct Samples {
-    calls: u64,
-    values: Vec<f64>,
-}
 pub struct Scope<'a> {
     performance: Option<&'a Performance>,
     name: &'static str,
@@ -30,18 +38,13 @@ pub fn scope<'a>(performance: Option<&'a Performance>, name: &'static str) -> Sc
         start: Instant::now(),
     }
 }
+fn push_sample(all: &mut BTreeMap<&'static str, Samples>, name: &'static str, ms: f64) {
+    all.entry(name).or_default().record(ms);
+}
 impl Drop for Scope<'_> {
     fn drop(&mut self) {
-        let Some(performance) = self.performance else {
-            return;
-        };
-        let mut all = performance.0.lock().expect("CPU timing");
-        let samples = all.entry(self.name).or_default();
-        samples.calls += 1;
-        if samples.calls > 30 && samples.values.len() < 4096 {
-            samples
-                .values
-                .push(self.start.elapsed().as_secs_f64() * 1000.);
+        if let Some(performance) = self.performance {
+            performance.record_sample(self.name, self.start.elapsed().as_secs_f64() * 1000.);
         }
     }
 }
@@ -51,12 +54,19 @@ impl Performance {
             stats.camera_indirect_drawing_disabled = direct;
         }
     }
+    fn record_sample(&self, name: &'static str, ms: f64) {
+        self.record_stages([(name, ms)]);
+    }
+    pub fn record_ms(&self, name: &'static str, ms: f64) {
+        self.record_sample(name, ms);
+    }
     pub fn write_report(
         &self,
         output: &mut serde_json::Value,
         diagnostics: Option<&bevy::diagnostic::DiagnosticsStore>,
     ) {
         output["cpu_stages"] = self.report();
+        output["pipeline_compiles"] = self.2.lock().expect("pipeline compile log").report();
         output["background_profile_interval_ms"] = self
             .1
             .lock()
@@ -73,15 +83,11 @@ impl Performance {
     }
     pub fn report(&self) -> serde_json::Value {
         let all = self.0.lock().expect("CPU timing");
-        serde_json::Value::Object(all.iter().map(|(name,samples)| {
-            let mut sorted=samples.values.clone();sorted.sort_by(f64::total_cmp);
-            let mean=sorted.iter().sum::<f64>()/sorted.len().max(1) as f64;
-            let p95=sorted.get(sorted.len().saturating_sub(1)*95/100).copied().unwrap_or(0.);
-            // The slowest samples with their sample index (frame hitches, e.g. a map copy).
-            let mut slowest:Vec<(usize,f64)>=samples.values.iter().copied().enumerate().collect();
-            slowest.sort_by(|a,b| b.1.total_cmp(&a.1));slowest.truncate(3);
-            ((*name).into(),serde_json::json!({"calls":samples.calls,"samples":sorted.len(),"mean_ms":mean,"p95_ms":p95,"max_ms":sorted.last().copied().unwrap_or(0.),"slowest":slowest}))
-        }).collect())
+        serde_json::Value::Object(
+            all.iter()
+                .map(|(name, samples)| ((*name).into(), samples.report()))
+                .collect(),
+        )
     }
 }
 
@@ -106,6 +112,7 @@ struct RenderTimers(BTreeMap<&'static str, Instant>);
 pub fn install(app: &mut App) {
     use bevy::render::{Render, RenderApp, RenderSystems};
     let performance = gpu_completion::prepare(app);
+    frame_stages::install(app);
     app.insert_resource(performance.clone())
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     let Some(render) = app.get_sub_app_mut(RenderApp) else {
@@ -113,7 +120,11 @@ pub fn install(app: &mut App) {
     };
     render
         .insert_resource(performance)
-        .init_resource::<RenderTimers>();
+        .init_resource::<RenderTimers>()
+        .add_systems(
+            Render,
+            pipeline_compiles::record.in_set(RenderSystems::Cleanup),
+        );
     for (name, previous, set, next) in [
         (
             "render_assets",
@@ -127,6 +138,20 @@ pub fn install(app: &mut App) {
             RenderSystems::PrepareMeshes,
             RenderSystems::CreateViews,
         ),
+        (
+            "render_create_views",
+            RenderSystems::PrepareMeshes,
+            RenderSystems::CreateViews,
+            RenderSystems::Specialize,
+        ),
+        (
+            "render_specialize",
+            RenderSystems::CreateViews,
+            RenderSystems::Specialize,
+            RenderSystems::PrepareViews,
+        ),
+        // Only `PrepareViews` (view targets, lights, clusters); the name is kept so
+        // earlier recorded measurements stay comparable.
         (
             "render_views",
             RenderSystems::Specialize,
@@ -174,6 +199,12 @@ pub fn install(app: &mut App) {
             ),
         );
     }
+    fence_prepare_stages(render);
+}
+
+/// Timings of the stages inside `Prepare`.
+fn fence_prepare_stages(render: &mut bevy::app::SubApp) {
+    use bevy::render::{Render, RenderSystems};
     // Subsets of Prepare are fenced inside their parent, so these intervals
     // measure only their own stage rather than accumulating previous work.
     for (name, previous, set, next) in [
@@ -279,11 +310,95 @@ impl Performance {
         }
     }
     pub fn record_stage(&self, name: &'static str, milliseconds: f64) {
-        let mut all = self.0.lock().expect("CPU timing");
-        let samples = all.entry(name).or_default();
-        samples.calls += 1;
-        if samples.calls > 30 && samples.values.len() < 4096 {
-            samples.values.push(milliseconds);
+        self.record_stages([(name, milliseconds)]);
+    }
+    fn record_stages(&self, stages: impl IntoIterator<Item = (&'static str, f64)>) {
+        if self.loading() {
+            return;
         }
+        let mut all = self.0.lock().expect("CPU timing");
+        for (name, milliseconds) in stages {
+            push_sample(&mut all, name, milliseconds);
+        }
+    }
+}
+
+impl Performance {
+    /// Whether the current frames are a map load or its held reveal (see the field).
+    pub(crate) fn loading(&self) -> bool {
+        self.3.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    pub(crate) fn set_loading(&self, loading: bool) {
+        self.3.store(loading, std::sync::atomic::Ordering::Relaxed);
+    }
+    /// Lists pipelines compiled from now on (the first gameplay frame).
+    pub(crate) fn start_pipeline_log(&self) {
+        self.2.lock().expect("pipeline compile log").start();
+    }
+    /// Drops the stage samples collected so far (menu, loading and warm-up frames).
+    pub(crate) fn restart_stages(&self) {
+        self.0.lock().expect("CPU timing").clear();
+    }
+    /// Samples kept so far for one stage.
+    pub(crate) fn recorded(&self, name: &'static str) -> usize {
+        self.0
+            .lock()
+            .expect("CPU timing")
+            .get(name)
+            .map_or(0, |samples| samples.count())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_ms_skips_first_30_calls_and_records_from_31() {
+        let perf = Performance::default();
+        for i in 1..=35 {
+            perf.record_ms("test_stage", f64::from(i));
+        }
+        assert_eq!(perf.recorded("test_stage"), 5);
+        let report = perf.report();
+        assert_eq!(report["test_stage"]["calls"], 35);
+        assert_eq!(report["test_stage"]["samples"], 5);
+        assert_eq!(report["test_stage"]["mean_ms"], 33.0);
+        assert_eq!(report["test_stage"]["max_ms"], 35.0);
+    }
+
+    #[test]
+    fn map_loads_and_held_reveals_record_no_stage_samples() {
+        let perf = Performance::default();
+        for _ in 0..31 {
+            perf.record_ms("stage", 1.);
+        }
+        perf.set_loading(true);
+        perf.record_ms("stage", 500.);
+        perf.record_stage("render", 400.);
+        perf.set_loading(false);
+        perf.record_ms("stage", 2.);
+        let report = perf.report();
+        assert_eq!(report["stage"]["calls"], 32);
+        assert_eq!(report["stage"]["max_ms"], 2.);
+        assert!(report.get("render").is_none());
+    }
+
+    #[test]
+    fn resetting_a_long_stage_recording_restores_exact_percentiles() {
+        let perf = Performance::default();
+        for _ in 0..5000 {
+            perf.record_ms("stage", 100.);
+        }
+        assert_eq!(perf.report()["stage"]["percentiles_exact"], false);
+        perf.restart_stages();
+        assert_eq!(perf.report(), serde_json::json!({}));
+        for _ in 0..35 {
+            perf.record_ms("stage", 1.);
+        }
+        let report = perf.report();
+        assert_eq!(report["stage"]["samples"], 5);
+        assert_eq!(report["stage"]["percentiles_exact"], true);
+        assert_eq!(report["stage"]["max_ms"], 1.);
     }
 }

@@ -26,6 +26,7 @@ fn on() -> Settings {
 fn item(stream: &str, from_player: bool) -> Item {
     Item {
         stream: stream.into(),
+        runtime_speech: false,
         time_to_live: 1.,
         initial_life_span: 1.,
         added_time: 0.,
@@ -36,6 +37,30 @@ fn item(stream: &str, from_player: bool) -> Item {
         width: 0.,
         height: 0.,
     }
+}
+
+#[test]
+fn runtime_speech_uses_source_styles_and_survives_disabled_captions() {
+    let mut cc = CloseCaption::new();
+    cc.process("<I>Authored line", 5., false, &on());
+    let cue = "Speaker:<clr:115,230,255> <B>bold<B><cr><I>italic<I>";
+    cc.speak(cue, 5.);
+    cc.tick(1.);
+    cc.tick(1.);
+    let paint = cc.paint((640., 120.), 1., &Layout::default(), &Fixed, [0.; 4], 0.);
+    assert!(paint.background.is_some());
+    assert_eq!(paint.runs.len(), 5);
+    assert_eq!(paint.runs[0].style, Style::Italic);
+    assert_eq!(paint.runs[1].text, "Speaker:");
+    assert_eq!(paint.runs[1].color, [1.; 4]);
+    assert_eq!(paint.runs[3].text, "bold");
+    assert_eq!(paint.runs[3].style, Style::Bold);
+    assert_eq!(paint.runs[3].color, [115. / 255., 230. / 255., 1., 1.]);
+    assert_eq!(paint.runs[4].text, "italic");
+    assert_eq!(paint.runs[4].style, Style::Italic);
+    assert!(paint.runs[4].y > paint.runs[3].y);
+    cc.process("Filtered line", 5., false, &Settings::default());
+    assert_eq!(cc.streams().collect::<Vec<_>>(), [cue]);
 }
 
 #[test]
@@ -439,4 +464,75 @@ fn an_idle_caption_queue_emits_no_invisible_background() {
         cc.paint((500., 136.), 1., &Layout::default(), &Fixed, [0.; 4], 2.),
         Paint::default()
     );
+}
+
+#[test]
+fn runtime_speech_ticks_and_paints_while_authored_captions_are_paused_and_hidden() {
+    let mut cc = CloseCaption::new();
+    cc.process("Authored dialogue", 5., false, &on());
+    cc.speak("Console:<clr:115,230,255> Runtime reply", 4.);
+
+    // While gameplay is paused, only real time advances; the authored item freezes ahead of runtime.
+    cc.tick_split(0., 1.);
+    assert!((cc.items[0].predisplay - 0.25).abs() < 1e-5);
+    assert!(cc.items[0].time_to_live == 6.);
+    assert_eq!(cc.items[1].predisplay, 0.);
+
+    let layout = Layout::default();
+    // Start the grow animation on t = 1.0, then inspect runs once grow_time (0.25s) finishes.
+    cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        false,
+        1.,
+    );
+    let paused_paint = cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        false,
+        1.3,
+    );
+    let paused_text: String = paused_paint.runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(paused_text, "Console: Runtime reply");
+
+    // Advancing real time alone expires the runtime cue without evicting the frozen authored item.
+    cc.tick_split(0., 5.);
+    assert_eq!(cc.streams().collect::<Vec<_>>(), ["Authored dialogue"]);
+
+    // Resuming gameplay advances the game clock and paints the preserved authored caption.
+    cc.tick_split(1., 1.);
+    cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        true,
+        6.,
+    );
+    let resumed_paint = cc.paint_filtered(
+        (500., 136.),
+        1.,
+        super::paint::CaptionAppearance {
+            layout: &layout,
+            measure: &Fixed,
+            background: [0.; 4],
+        },
+        true,
+        6.3,
+    );
+    let resumed_text: String = resumed_paint.runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(resumed_text, "Authored dialogue");
 }

@@ -16,6 +16,7 @@ mod embedded;
 mod exclusions;
 mod graph;
 mod hint_limits;
+mod local_steer;
 mod move_style;
 mod restrictions;
 mod simplify;
@@ -334,10 +335,10 @@ struct Goal {
     paused: bool,
     /// A jump or climb in progress.
     link: links::GoalLink,
-    /// This tick's start hangs over an edge (STEP_ON_INVALID_GROUND).
     shaky: bool,
-    /// The motor's current speed (`blended`).
+    /// The motor's current speed (`blended`) and active steer commitment `(blocker, side)`.
     speed: f32,
+    steer: Option<(Option<usize>, f32)>,
 }
 impl Goal {
     fn destination(&self) -> Destination {
@@ -753,6 +754,7 @@ impl Controller {
                 self.actors.get_mut(&key.actor),
                 self.clock,
             ),
+            steer: None,
         };
         let prepared = (|| {
             self.admit(key, &pose, &goal.request)?;
@@ -1050,14 +1052,12 @@ fn advance<W: NpcCollisionWorld>(
         let direction = delta / distance;
         // This tick's first step starts where `fits` and `stand` just passed.
         let validated = std::mem::take(&mut start_validated);
-        let step = steer::Step::new(goal.feet, direction, amount, consumed, validated);
-        let movement = match steer::walk(world, actor, goal, step, query, &mut triangulated) {
-            steer::Walk::Moved(movement) => movement,
-            steer::Walk::Steered(used) => {
-                remaining = (remaining - used).max(0.);
-                continue;
-            }
-        };
+        let step = steer::Step::new(goal.feet, direction, amount, validated);
+        let (movement, direction) =
+            match local_steer::step(world, actor, goal, &step, query, &mut triangulated) {
+                steer::Walk::Moved(movement, direction) => (movement, direction),
+                steer::Walk::Rerouted => continue,
+            };
         let actual = (movement.end - goal.feet).truncate().length();
         goal.feet = movement.end;
         goal.contact_normal = movement.normal;
@@ -1130,6 +1130,11 @@ pub(crate) mod tests {
                 },
             ],
         }
+    }
+    /// Walls either side of the X axis, one unit clear of a human hull: no room to steer.
+    pub(super) fn corridor() -> Vec<Brush> {
+        let wall = |y0: f32, y1: f32| cube(Vec3::new(-50., y0, 0.), Vec3::new(400., y1, 100.));
+        vec![wall(14., 40.), wall(-40., -14.)]
     }
     pub(super) fn world(obstacles: Vec<Brush>) -> World {
         let mut brushes = vec![cube(
@@ -1260,6 +1265,7 @@ pub(crate) mod tests {
             link: Default::default(),
             shaky: false,
             speed: 0.,
+            steer: None,
         };
         // Every scan point lies beyond 12 ft: the first (forced) pass skips to the next
         // reachable waypoint.
@@ -1461,13 +1467,6 @@ pub(crate) mod tests {
         assert!((resumed.animation_time - 0.1).abs() < 1e-4);
         assert!(feet.x > moved.x);
     }
-    /// Walls 20 units either side of the X axis: a human hull fits, no detour does.
-    fn corridor() -> World {
-        world(vec![
-            cube(Vec3::new(-100., 20., 0.), Vec3::new(300., 40., 100.)),
-            cube(Vec3::new(-100., -40., 0.), Vec3::new(300., -20., 100.)),
-        ])
-    }
     #[test]
     fn a_standing_npc_on_the_route_is_walked_around() {
         // OnFailedSteer's PrependLocalAvoidance: d1_trainstation_01's luggage_citizen and
@@ -1496,8 +1495,8 @@ pub(crate) mod tests {
     #[test]
     fn headcrabs_move_through_each_other() {
         // HL2COLLISION_GROUP_HEADCRAB: a crab's move is blocked by another NPC's hull
-        // (entity 8) unless both are crabs (in a corridor too narrow to walk around it).
-        let physics = Physics::new(&corridor());
+        // (entity 8) unless both are crabs. The corridor leaves no room to steer around it.
+        let physics = Physics::new(&world(corridor()));
         let blocker = [ActorHull {
             entity: Some(8),
             feet: Vec3::X * 50.,
@@ -1525,8 +1524,8 @@ pub(crate) mod tests {
     }
     #[test]
     fn player_obstruction_holds_idle_then_retries_actual_ground_travel() {
-        // In a corridor too narrow to walk around the player.
-        let physics = Physics::new(&corridor());
+        // In the open the mover steers around the player (`steer`); the corridor prevents that.
+        let physics = Physics::new(&world(corridor()));
         let mut controller = make_controller(None);
         let mut feet = Vec3::ZERO;
         controller.request(key(1), request(Vec3::X * 200.), pose(feet), &physics, &[]);

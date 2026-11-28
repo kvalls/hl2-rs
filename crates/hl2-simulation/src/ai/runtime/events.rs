@@ -1,5 +1,5 @@
 //! Stages of `AiRuntime::tick`: yielding to a script and the weapon's events and sounds.
-use super::{AiRuntime, NpcState};
+use super::{event_window_start, AiRuntime, NpcState};
 use crate::entities::Scene;
 use crate::npc::Controller;
 use crate::npc_weapons::{self, NpcWeaponDef};
@@ -7,6 +7,23 @@ use glam::Vec3;
 use modkit_core::World;
 
 impl AiRuntime {
+    /// Animation events of the AI's sequence since the last tick: returns where this tick's
+    /// event window starts and moves the actor's window to `now`.
+    pub(super) fn advance_event_window(&mut self, id: usize, scene: &Scene, now: f64) -> f64 {
+        let current = (
+            scene.states[id].animation.clone(),
+            scene.states[id].animation_started,
+        );
+        let actor = self.actors.get_mut(&id).expect("actor");
+        let since = event_window_start(
+            actor.events_until.min(now),
+            actor.events_sequence.as_ref(),
+            &current,
+        );
+        actor.events_until = now;
+        actor.events_sequence = Some(current);
+        since
+    }
     /// CBaseFlex's scene entry: a scene's events do not take an NPC whose current schedule
     /// has no interrupt but COND_PROVOKED ("don't interrupt sequences that don't understand
     /// being interrupted": the actbusy walk and busy schedules); scripted sequences, scene
@@ -151,6 +168,9 @@ impl AiRuntime {
 impl AiRuntime {
     /// WeaponSoundRealtime's later sounds whose delay has run go to the scene.
     pub(super) fn play_delayed_sounds(&mut self, scene: &mut Scene) {
+        if self.delayed_sounds.is_empty() {
+            return;
+        }
         let due = scene.time + 1e-9;
         let (now_due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.delayed_sounds)
             .into_iter()

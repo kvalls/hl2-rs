@@ -2,8 +2,11 @@
 mod ai_results;
 mod empty;
 mod npc_death;
+mod npc_spawn;
 mod player_outcome;
 mod shot_effect;
+mod tick_stages;
+mod weapons_stage;
 mod zombies;
 use anyhow::Result;
 use bevy::prelude::Resource;
@@ -21,6 +24,7 @@ use modkit_core::{
     World,
     movement::{Player, TICK},
 };
+pub use npc_spawn::{PendingNpcSpawn, spawn_usable_weapons};
 use serde::Deserialize;
 pub use shot_effect::ShotEffect;
 use source_assets::vpk::Vfs;
@@ -117,7 +121,7 @@ impl Action {
         }
     }
 }
-/// The `ai_enable` switch across map loads: on like Source (ai_disabled 0); `--no-ai`
+/// The NPC AI switch (`ai_disable`) across map loads: on like Source (ai_disabled 0); `--no-ai`
 /// turns it off at startup, the console and the F4 overlay switch it.
 pub static AI_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 #[derive(Resource)]
@@ -163,7 +167,7 @@ pub struct Gameplay {
     skill: u32,
     /// The installed `cfg/skill.cfg`, kept to re-evaluate skill-dependent values.
     skill_config: Option<String>,
-    /// Step 14 NPC AI (on unless `--no-ai` / `ai_enable 0`).
+    /// Step 14 NPC AI (on unless `--no-ai` or `ai_disable`).
     pub ai: hl2_simulation::ai::runtime::AiRuntime,
     /// Velocity impulses on the player from NPC hits (ApplyAbsVelocityImpulse), applied
     /// before the next player move.
@@ -212,32 +216,11 @@ pub struct Gameplay {
     pub launch_impacts: Vec<serde_json::Value>,
     /// prop_physics_create requests (model, eye, aim) for the host's model loader.
     pub prop_requests: Vec<(String, Vec3, Vec3)>,
+    pub(crate) pickup_requests: Vec<crate::runtime_props::Request>,
+    /// npc_create / ent_create requests waiting for asynchronous NPC late precaching.
+    pub npc_requests: Vec<PendingNpcSpawn>,
     /// Runtime entities whose model draws the host builds next frame (dropped weapons).
     pub model_draws: Vec<usize>,
-}
-/// The weapons each F4 class can be given: Weapon_CanUse on its pooled spawn's
-/// loaded model (every activity of the model, loaded or not).
-pub fn spawn_usable_weapons(
-    world: &World,
-    ai: &hl2_simulation::ai::runtime::AiRuntime,
-) -> BTreeMap<String, Vec<String>> {
-    use hl2_simulation::ai::spawn;
-    spawn::SPAWN_CLASSES
-        .iter()
-        .filter_map(|class| {
-            let id = spawn::free_slot(world, class, &Default::default())?;
-            let class_name = spawn::spawn_class(class).0;
-            let instance = world
-                .model_instances
-                .iter()
-                .find(|i| i.entity == Some(id))?;
-            let rig = world.rigs.get(&instance.asset_key())?;
-            Some((
-                (*class).to_owned(),
-                ai.usable_weapons(class_name, &rig.activities),
-            ))
-        })
-        .collect()
 }
 
 impl Gameplay {
@@ -389,49 +372,6 @@ impl Gameplay {
                 npcs,
             },
         ))
-    }
-    /// An npc_create request (F4 Enter or the console): CC_NPC_Create placement from
-    /// the eye along the aim, then a new entity copied from the class's hidden template
-    /// (DESIGN 14r part A: the template made the map load every asset of the class).
-    pub fn request_spawn(
-        &mut self,
-        request: hl2_simulation::ai::spawn::SpawnRequest,
-        physics: &mut Physics,
-        eye: Vec3,
-        forward: Vec3,
-    ) -> String {
-        use hl2_simulation::ai::spawn;
-        let placement = spawn::place(
-            &request,
-            eye,
-            forward,
-            &hl2_simulation::ai::host::PhysicsPlacement { physics },
-        );
-        let mut entity = None;
-        let message = match &placement {
-            Ok(p) => match self.spawn_from_template(&request, p.origin, p.yaw, physics) {
-                Ok(id) => {
-                    entity = Some(id);
-                    format!(
-                        "Created {} ({}) at {:.0} {:.0} {:.0} yaw {:.0} (entity {id})",
-                        request.classname,
-                        if request.equipment.is_empty() {
-                            "no weapon"
-                        } else {
-                            &request.equipment
-                        },
-                        p.origin.x,
-                        p.origin.y,
-                        p.origin.z,
-                        p.yaw
-                    )
-                }
-                Err(e) => e,
-            },
-            Err(e) => e.clone(),
-        };
-        self.spawn_log.push(serde_json::json!({"request":request,"placement":placement.ok(),"entity":entity,"message":message}));
-        message
     }
     /// CreateEntityByName + DispatchSpawn + Activate of a copy of a loaded entity (an F4
     /// class template or a maker's template NPC; DESIGN 14r part A): the template's
@@ -665,61 +605,6 @@ impl Gameplay {
         }
         Arc::make_mut(&mut self.world).merge_model_tables(loaded);
     }
-    /// The F4/npc_create part: a class template, then the request's weapon, side and
-    /// grenades.
-    fn spawn_from_template(
-        &mut self,
-        request: &hl2_simulation::ai::spawn::SpawnRequest,
-        origin: Vec3,
-        yaw: f32,
-        physics: &mut Physics,
-    ) -> Result<usize, String> {
-        use hl2_simulation::ai::spawn;
-        let label = request.pool_label().to_owned();
-        let templates = spawn::templates(&self.world, &label);
-        if templates.is_empty() {
-            return Err(format!(
-                "Can't create {}: the class was not loaded on this map",
-                request.classname
-            ));
-        }
-        let template = if label == "npc_citizen" {
-            // CNPC_Citizen::SelectModel: the least-used head among living citizens.
-            let roll = self.ai.uniform() * 0.5 + 0.5;
-            let states = &self.scene.states;
-            hl2_simulation::citizens::least_used_template(
-                &self.world,
-                &templates,
-                spawn::POOL_KEY,
-                |id| states.get(id).is_some_and(|s| !s.killed),
-                roll,
-            )
-            .unwrap_or(templates[0])
-        } else {
-            let count = self.spawn_counts.entry(label).or_default();
-            let template = templates[*count % templates.len()];
-            *count += 1;
-            template
-        };
-        let id = self
-            .create_from_template(template, origin, yaw, &request.keyvalues(), physics)
-            .map_err(|e| format!("Can't create {}: {e}", request.classname))?;
-        self.ai
-            .set_equipment(id, &request.classname, &request.equipment);
-        // Its walk/run follow the new weapon (preloaded variants).
-        self.npcs.set_locomotion(id, &request.equipment);
-        self.ai
-            .set_player_disposition(id, request.allegiance.disposition());
-        if let Some(grenades) = request.grenades {
-            self.ai.set_grenades(id, grenades);
-        }
-        // The new weapon's idle (Weapon_TranslateActivity of ACT_IDLE); the AI picks its
-        // own activities from here when it runs this class.
-        let idle = hl2_simulation::entities::weapon_idle_activity(&request.equipment);
-        let world = self.world.clone();
-        self.scene.ai_set_activity(&world, id, idle);
-        Ok(id)
-    }
     fn push_shot_effect(&mut self, effect: ShotEffect) {
         self.shot_serial += 1;
         self.shot_effects
@@ -760,144 +645,24 @@ impl Gameplay {
         direction: Vec3,
         fly: bool,
     ) {
-        self.selection
-            .tick(&self.inventory, &self.weapons, self.scene.time);
-        for action in self.take_actions() {
-            let result = match action {
-                Action::Loadout => {
-                    for name in self.weapons.keys() {
-                        self.inventory.give(name, &self.weapons, self.scene.time);
-                    }
-                    self.inventory.refill_ammo(&self.weapons);
-                    self.inventory.suit = true;
-                    self.inventory
-                        .give("weapon_crowbar", &self.weapons, self.scene.time);
-                    continue;
-                }
-                Action::Slot { slot } => {
-                    self.selection
-                        .slot(&self.inventory, &self.weapons, slot, self.scene.time)
-                }
-                Action::Wheel { delta } => {
-                    self.selection
-                        .wheel(&self.inventory, &self.weapons, delta, self.scene.time)
-                }
-                Action::Confirm => {
-                    let result =
-                        self.selection
-                            .confirm(&self.inventory, &self.weapons, self.scene.time);
-                    self.primary_consumed = true;
-                    self.secondary_consumed = true;
-                    result
-                }
-                Action::Cancel => self.selection.cancel(),
-                Action::Previous => self.selection.last(&self.inventory, &self.weapons),
-                Action::Reload => {
-                    self.inventory
-                        .reload(&self.weapons, &mut self.scene, &self.world);
-                    continue;
-                }
-                Action::Use => {
-                    // CPlayerPickupController first (drop while carrying, pick up a
-                    // small prop), then the existing door/button use.
-                    if self.inventory.player_use(
-                        &self.weapons,
-                        &self.world,
-                        &mut self.scene,
-                        physics,
-                        eye,
-                        direction,
-                        player.feet,
-                        player.crouched,
-                    ) {
-                        continue;
-                    }
-                    if let Some((id, _)) = physics.ray(eye, direction, 96.) {
-                        let state = self.ai_player_state(player, fly, direction);
-                        if !self
-                            .ai
-                            .player_used(id, &self.world, &mut self.scene, physics, state)
-                        {
-                            self.scene.use_entity_at(&self.world, id, player.feet);
-                        }
-                    }
-                    continue;
-                }
-                Action::Impulse => {
-                    if let Some((id, _)) = physics.ray(eye, direction, 128.) {
-                        physics.impulse(id, direction, 6.);
-                    }
-                    continue;
-                }
-                Action::ActorPose {
-                    target,
-                    origin,
-                    yaw,
-                } => {
-                    if !self.scene.fixture_actor_pose(
-                        &self.world,
-                        &target,
-                        Vec3::from_array(origin),
-                        yaw,
-                    ) {
-                        *self
-                            .scene
-                            .diagnostics
-                            .unsupported
-                            .entry(format!("fixture actor pose target missing: {target}"))
-                            .or_default() += 1;
-                    }
-                    continue;
-                }
-                Action::PropPose {
-                    entity,
-                    origin,
-                    angles,
-                    velocity,
-                    launched,
-                } => {
-                    if launched {
-                        physics.launched.insert(entity);
-                    }
-                    if !physics.place_body(
-                        entity,
-                        Vec3::from_array(origin),
-                        Vec3::from_array(angles),
-                        Vec3::from_array(velocity),
-                    ) {
-                        *self
-                            .scene
-                            .diagnostics
-                            .unsupported
-                            .entry(format!("fixture prop pose: no dynamic body {entity}"))
-                            .or_default() += 1;
-                    }
-                    continue;
-                }
-                Action::Send {
-                    target,
-                    input,
-                    parameter,
-                } => {
-                    self.scene.send_named(&target, &input, &parameter, 0.);
-                    continue;
-                }
-            };
-            self.select(result);
-        }
-        if self.selection.pending.is_some()
-            && ((self.primary || self.queued_primary) && !self.primary_consumed
-                || (self.secondary || self.queued_secondary) && !self.secondary_consumed)
-        {
-            let result = self
-                .selection
-                .confirm(&self.inventory, &self.weapons, self.scene.time);
-            if result.weapon.is_some() {
-                self.primary_consumed = true;
-                self.secondary_consumed = true;
-            }
-            self.select(result);
-        }
+        self.tick_with(
+            physics,
+            player,
+            (eye, direction, fly),
+            crate::isolation::Isolation::default(),
+            None,
+        );
+    }
+
+    pub(crate) fn tick_with(
+        &mut self,
+        physics: &mut Physics,
+        player: &Player,
+        (eye, direction, fly): (Vec3, Vec3, bool),
+        isolation: crate::isolation::Isolation,
+        performance: Option<&crate::performance::Performance>,
+    ) {
+        self.tick_actions(physics, player, eye, direction, fly);
         // VPhysics objects move in the physics world; scene logic (trigger touches of
         // physics objects and their filters) reads their current pose.
         for &id in physics.dynamic.keys() {
@@ -908,203 +673,34 @@ impl Gameplay {
                 state.rotation = rotation;
             }
         }
-        self.scene.tick(&self.world, player.feet, TICK);
-        // npc_template_maker spawns and CAI_BaseNPC::StartNPC floor drops (DESIGN 14s).
-        hl2_simulation::npc_makers::tick(
-            &self.world,
-            &mut self.scene,
-            physics,
-            (!player.dead).then_some(hl2_simulation::npc_makers::Viewer {
-                eye,
-                forward: direction,
-                feet: player.feet,
-                crouched: player.crouched,
-                notarget: self.ai.ignore_player,
-            }),
-            TICK,
-        );
-        // Maker spawns after the first: new entities copied from the held template.
-        for request in std::mem::take(&mut self.scene.makers.copy_requests) {
-            let child = self
-                .create_from_template(
-                    request.template,
-                    request.origin,
-                    request.yaw,
-                    &[("spawnflags", request.spawnflags.to_string())],
-                    physics,
-                )
-                .ok();
-            let world = self.world.clone();
-            let mut makers = std::mem::take(&mut self.scene.makers);
-            makers.adopt(&world, &mut self.scene, &request, child);
-            self.scene.makers = makers;
-        }
-        self.inventory.advance_projectile_fire(
-            &self.world,
-            &mut self.scene,
-            &self.weapons,
-            eye,
-            direction,
-        );
-        // CBasePlayer::PostThink -> CPlayerPickupController::Use(USE_SET): held attack
-        // throws, held attack2 drops; the holstered weapon does not fire meanwhile.
-        let carrying = self.inventory.carrying();
-        if carrying {
-            self.inventory.carry_tick(
-                &self.weapons,
-                &self.world,
-                &mut self.scene,
-                physics,
-                eye,
-                direction,
-                player.feet,
-                player.crouched,
-                self.primary,
-                self.secondary,
-            );
-            self.primary_consumed |= self.primary;
-            self.secondary_consumed |= self.secondary;
-        }
-        let allowed = self.selection.pending.is_none() && !carrying;
-        let primary = allowed && (self.primary || self.queued_primary) && !self.primary_consumed;
-        let secondary = allowed
-            && (self.secondary || self.queued_secondary)
-            && !self.secondary_consumed
-            && matches!(
-                self.inventory.active.as_str(),
-                "weapon_shotgun"
-                    | "weapon_smg1"
-                    | "weapon_ar2"
-                    | "weapon_frag"
-                    | "weapon_crossbow"
-                    | "weapon_bugbait"
-                    | "weapon_physcannon"
-            );
-        self.inventory.set_attack_input(primary, secondary);
-        self.inventory.ducking = player.crouched;
-        let attacking = primary
-            || secondary
-            || allowed
-                && (!self.primary_consumed && self.inventory.delayed_attack
-                    || !self.secondary_consumed && self.inventory.delayed_secondary_attack);
-        self.inventory.tick(
-            &self.world,
-            &mut self.scene,
-            &self.weapons,
-            player.feet,
-            attacking,
-            TICK,
-        );
-        if allowed
-            && !self.secondary_consumed
-            && (secondary || self.inventory.delayed_secondary_attack)
-        {
-            self.inventory.secondary_attack(
-                &self.weapons,
-                &self.world,
-                &mut self.scene,
-                physics,
-                eye,
-                direction,
-            );
-        } else if allowed && !self.primary_consumed && (primary || self.inventory.delayed_attack) {
-            let active = self.inventory.active.clone();
-            let clip = self.inventory.owned.get(&active).copied();
-            self.inventory.attack(
-                &self.weapons,
-                &self.world,
-                &mut self.scene,
-                physics,
-                eye,
-                direction,
-            );
-            // The weapons' PrimaryAttack: CSoundEnt::InsertSound(SOUND_COMBAT, origin,
-            // SOUNDENT_VOLUME_PISTOL/MACHINEGUN/SHOTGUN 1500 (the 357: 600), 0.2).
-            let volume = match active.as_str() {
-                "weapon_pistol" | "weapon_smg1" | "weapon_ar2" | "weapon_shotgun" => Some(1500.),
-                "weapon_357" => Some(600.),
-                _ => None,
-            };
-            if let Some(volume) =
-                volume.filter(|_| self.inventory.owned.get(&active).copied() < clip)
-            {
-                self.ai
-                    .insert_combat_sound(player.feet, volume, self.scene.time);
-            }
-        }
-        // weapon_physcannon: ItemPreFrame/ItemPostFrame on the Rapier props (weapons stage).
-        self.inventory.physcannon_frame(
-            &self.weapons,
-            &self.world,
-            &mut self.scene,
-            physics,
-            eye,
-            direction,
-            player.feet,
-            player.crouched,
-        );
-        self.queued_primary = false;
-        self.queued_secondary = false;
+        timed(performance, "sim_scene", || {
+            self.scene.tick(&self.world, player.feet, TICK);
+        });
+        self.tick_npc_makers(physics, player, eye, direction);
+        self.weapons_stage(physics, player, eye, direction);
         for (id, state) in self.scene.states.iter().enumerate() {
             physics.set_entity(id, state.origin, state.rotation, state.collides());
         }
         // Studio hitboxes follow each NPC's animated skeleton (bullet hitgroups).
-        hl2_simulation::gameplay::pose_npc_hitboxes(&self.world, &self.scene, physics);
-        // weapon_frag throws from this tick's animation events.
-        if !self.inventory.frag.pending.is_empty() {
-            let ground = physics
-                .ground_ray(player.feet + glam::Vec3::Z * 4., -glam::Vec3::Z, 16.)
-                .map(|hit| hit.normal);
-            self.inventory.launch_frags(
-                &self.weapons,
-                physics,
-                eye,
-                direction,
-                player.velocity,
-                player.feet,
-                ground,
-                self.scene.time,
-            );
-        }
-        // weapon_bugbait ThrowGrenade from this tick's EVENT_WEAPON_THROW.
-        self.inventory
-            .launch_bugbait(physics, eye, direction, player.velocity, self.scene.time);
-        for launch in self.inventory.projectile_spawns.drain(..) {
-            self.projectiles.spawn(launch, &mut self.scene);
-        }
-        // CWeaponRPG::UpdateLaserPosition after the weapon frame; missiles seek it.
-        self.inventory.rpg_aim(
-            physics,
-            &self.world,
-            eye,
-            direction,
-            player.feet + glam::Vec3::Z * if player.crouched { 18. } else { 36. },
-            player.feet,
-            self.scene.time,
-        );
-        self.projectiles.laser_dot = self.inventory.rpg.dot;
-        // NPC missiles seek their owner's dot while it guides (TASK_CIT_RPG_AUGER).
-        for missile in &mut self.projectiles.active {
-            if missile.kind != hl2_simulation::projectiles::ProjectileKind::RpgMissile {
-                continue;
-            }
-            if let Some(owner) = missile.npc_owner() {
-                missile.npc_dot = self.ai.npc_laser(owner).map(|(position, shoot)| {
-                    hl2_simulation::weapon_rpg::LaserDot::npc(position, shoot)
-                });
-            }
-        }
-        physics.refresh_entity_queries();
+        timed(performance, "sim_hitboxes", || {
+            hl2_simulation::gameplay::pose_npc_hitboxes(&self.world, &self.scene, physics);
+        });
+        self.tick_projectiles_and_aim(physics, player, eye, direction);
+        timed(performance, "sim_query_refresh", || {
+            physics.refresh_entity_queries()
+        });
         // NPC stage: the AI thinks (when enabled) before the movement controller tick.
         let ai_player = self.ai_player_state(player, fly, direction);
-        self.ai.tick(
-            &self.world,
-            &mut self.scene,
-            &mut self.npcs,
-            physics,
-            &[],
-            ai_player,
-        );
+        timed(performance, "sim_ai", || {
+            self.ai.tick(
+                &self.world,
+                &mut self.scene,
+                &mut self.npcs,
+                physics,
+                &[],
+                ai_player,
+            );
+        });
         self.scene.npc_knows_player = self.ai.npcs_knowing_player();
         self.throw_crabs(physics);
         // Zombie swats (AE_ZOMBIE_SWATITEM -> IPhysicsObject::AddVelocity).
@@ -1112,151 +708,7 @@ impl Gameplay {
             physics.add_entity_velocity(object, velocity, angular);
         }
         self.apply_ai_results(physics);
-        // NPC RPG launches (CWeaponRPG::Operator_HandleAnimEvent -> CMissile::Create with
-        // the NPC as owner, a 0.5 s grace period); the rest are FireBullets.
-        let (missiles, shots): (Vec<_>, Vec<_>) = std::mem::take(&mut self.ai.shots)
-            .into_iter()
-            .partition(|s| s.missile);
-        for shot in missiles {
-            let forward = shot.directions.first().copied().unwrap_or(glam::Vec3::X);
-            let at = self.scene.time;
-            self.projectiles.spawn_npc_missile(
-                hl2_simulation::projectiles::ProjectileSpawn {
-                    angles: None,
-                    kind: hl2_simulation::projectiles::ProjectileKind::RpgMissile,
-                    position: shot.origin,
-                    velocity: forward * 300. + glam::Vec3::Z * 128.,
-                    angular_velocity: glam::Vec3::ZERO,
-                    at,
-                    damage: hl2_simulation::weapon_rpg::MISSILE_DAMAGE,
-                    radius: hl2_simulation::weapon_rpg::EXPLOSION_RADIUS,
-                    mass: 0.,
-                    lifetime: 0.5,
-                },
-                shot.attacker,
-                &mut self.scene,
-            );
-        }
-        // NPC weapons' FireBullets (DESIGN 14w): the shared hit path, the player's hull,
-        // impacts and blood like the player's own shots.
-        if !shots.is_empty() {
-            let target = (!player.dead).then_some(hl2_simulation::gameplay::PlayerTarget {
-                feet: player.feet,
-                crouched: player.crouched,
-                yaw: direction.y.atan2(direction.x).to_degrees(),
-            });
-            let mut bullets = hl2_simulation::gameplay::NpcBullets::default();
-            for shot in &shots {
-                hl2_simulation::gameplay::npc_fire_bullets(
-                    &self.world,
-                    &mut self.scene,
-                    physics,
-                    shot,
-                    target,
-                    &mut || self.ai.uniform(),
-                    &mut bullets,
-                );
-            }
-            for &(victim, attacker) in &bullets.npc_hits {
-                self.ai.npc_attacked(victim, attacker);
-            }
-            for (inflictor, amount) in bullets.player_hits {
-                self.ai.diagnostics.bullet_hits_on_player += 1;
-                self.scene
-                    .player_damage
-                    .push(hl2_simulation::player_damage::DamageInfo {
-                        amount,
-                        kind: hl2_simulation::player_damage::DMG_BULLET,
-                        inflictor,
-                    });
-            }
-            for (hit, direction) in bullets.impacts {
-                self.impacts
-                    .add_shot(hit, direction, &self.world, physics, &mut self.scene);
-            }
-            for (hit, color) in bullets.blood {
-                self.impacts
-                    .add_blood(hit, color, &self.world, physics, &self.scene);
-            }
-            // ComputeTracerStartPosition: an NPC's tracer starts at its weapon's first
-            // attachment (the muzzle), else at the shoot position.
-            for (origin, normal) in std::mem::take(&mut bullets.ar2_impacts) {
-                self.push_shot_effect(ShotEffect::Ar2Impact(origin, normal));
-            }
-            for (attacker, start, end, ar2) in bullets.tracers {
-                let start = self
-                    .ai
-                    .weapon_world_model(attacker)
-                    .and_then(|model| {
-                        self.scene.merged_attachment_frame(
-                            &self.world,
-                            attacker,
-                            &format!("{model}#0"),
-                            None,
-                            1,
-                        )
-                    })
-                    .map_or(start, |frame| frame.w_axis.truncate());
-                self.push_shot_effect(ShotEffect::NpcTracer(start, end, ar2));
-            }
-        }
-        // AE_NPC_MUZZLEFLASH: the weapon world model's named attachment on its owner.
-        for (npc, options) in std::mem::take(&mut self.ai.muzzle_flashes) {
-            let Some((kind, attachment)) = hl2_simulation::muzzle_effects::parse(&options) else {
-                continue;
-            };
-            if let Some(frame) = self.ai.weapon_world_model(npc).and_then(|model| {
-                self.scene.merged_attachment_frame(
-                    &self.world,
-                    npc,
-                    &format!("{model}#0"),
-                    Some(&attachment),
-                    1,
-                )
-            }) {
-                self.push_shot_effect(ShotEffect::NpcFlash(kind, frame));
-                if kind == hl2_simulation::muzzle_effects::MuzzleKind::Combine {
-                    self.push_shot_effect(ShotEffect::MuzzleLight(
-                        npc,
-                        frame.w_axis.truncate(),
-                        true,
-                    ));
-                }
-            }
-        }
-        // DoMuzzleFlash -> the weapon world model's ProcessMuzzleFlashEvent at attachment 1.
-        for npc in std::mem::take(&mut self.ai.weapon_muzzle_flashes) {
-            if let Some(frame) = self.ai.weapon_world_model(npc).and_then(|model| {
-                self.scene
-                    .merged_attachment_frame(&self.world, npc, &format!("{model}#0"), None, 1)
-            }) {
-                self.push_shot_effect(ShotEffect::MuzzleLight(npc, frame.w_axis.truncate(), false));
-            }
-        }
-        for (start, end, right, ar2) in std::mem::take(&mut self.inventory.tracer_requests) {
-            self.push_shot_effect(ShotEffect::PlayerTracer(start, end, right, ar2));
-        }
-        for (origin, normal) in std::mem::take(&mut self.inventory.ar2_impacts) {
-            self.push_shot_effect(ShotEffect::Ar2Impact(origin, normal));
-        }
-        self.stunstick_glows = self
-            .ai
-            .active_stunsticks()
-            .into_iter()
-            .filter(|id| {
-                self.scene
-                    .states
-                    .get(*id)
-                    .is_some_and(|s| s.visible && !s.killed)
-            })
-            .filter_map(|id| {
-                let model = self.ai.weapon_world_model(id)?;
-                self.scene
-                    .merged_attachment_frame(&self.world, id, &format!("{model}#0"), None, 1)
-            })
-            .collect();
-        let horizon = self.scene.time - 0.5;
-        self.shot_effects.retain(|(_, at, _)| *at >= horizon);
+        self.npc_shots_and_flashes(physics, player, direction);
         actors::tick_npcs(
             &mut self.npcs,
             &mut self.scene,
@@ -1272,291 +724,29 @@ impl Gameplay {
             physics,
             player.velocity.length() > 1.,
         );
-        let mut damage = self.projectiles.tick(
-            &self.world,
-            &mut self.scene,
-            physics,
-            player.feet,
-            player.crouched,
-            TICK,
-        );
-        // Bug bait splats/squeezes are for step 14 (antlion reactions); not consumed yet.
-        self.inventory.bugbait_events.clear();
-        self.projectiles.bugbait_events.clear();
-        // CMissile::Explode -> CWeaponRPG::NotifyRocketDied.
-        for owner in std::mem::take(&mut self.projectiles.npc_missiles_died) {
-            self.ai.npc_missile_died(owner);
-        }
-        for event in std::mem::take(&mut self.projectiles.missile_events) {
-            self.inventory
-                .rpg_missile_event(event, &self.weapons, &self.world, &mut self.scene);
-        }
-        // env_physexplosion pushes (and blast damage) from this tick's inputs.
-        self.phys_explosions
-            .apply(&self.world, &mut self.scene, physics);
-        self.phys_explosions
-            .apply_impacts(&self.world, &mut self.scene, physics);
-        // CEntityFlame::FlameThink: burning props hurt themselves and what is near them.
-        if !self.scene.fires.flames.is_empty() {
-            let states = &self.scene.states;
-            let center = |id: usize| -> Option<glam::Vec3> {
-                let state = states.get(id).filter(|s| !s.killed)?;
-                Some(
-                    physics
-                        .entity_body(id)
-                        .and_then(|b| physics.center_of_mass(b))
-                        .unwrap_or(state.origin + glam::Vec3::Z * 36.),
-                )
-            };
-            let others: Vec<(usize, glam::Vec3)> = self
-                .world
-                .entities
-                .iter()
-                .enumerate()
-                .filter(|(_, e)| {
-                    e.class().starts_with("prop_physics") || e.class().starts_with("npc_")
-                })
-                .filter_map(|(id, _)| center(id).map(|c| (id, c)))
-                .collect();
-            let player_center = (!player.dead).then(|| player.feet + glam::Vec3::Z * 36.);
-            let burns = self
-                .scene
-                .fires
-                .think(self.scene.time, center, &others, player_center);
-            damage.extend(burns);
-        }
-        // trigger_hurt touchers from this tick's scene logic share the entity path.
-        damage.append(&mut self.scene.entity_damage);
-        self.inventory
-            .apply_projectile_damage(damage, &self.world, &mut self.scene, physics);
-        // Explosive props broken by that damage explode before their gibs spawn; chains
-        // resolve within the tick (bounded).
-        for _ in 0..32 {
-            if self.scene.prop_explosions.is_empty() {
-                break;
+        self.apply_explosions_and_ragdolls(physics, player);
+        if isolation.no_physics_step {
+            physics.last_step_ms = 0.;
+            if let Some(p) = performance {
+                p.record_ms("sim_physics", 0.0);
             }
-            let blast = self.projectiles.explode_props(
-                &self.world,
-                &mut self.scene,
-                physics,
-                player.feet,
-                player.crouched,
-            );
-            self.inventory
-                .apply_projectile_damage(blast, &self.world, &mut self.scene, physics);
+        } else {
+            timed(performance, "sim_physics", || physics.tick(TICK));
         }
-        self.split_zombies(physics);
-        // Gas cans and propane tanks set the NPCs around them on fire after their blast
-        // (a blast-split zombie's torso is the same entity in Source, so it burns too).
-        for (origin, radius, attacker) in std::mem::take(&mut self.scene.prop_ignitions) {
-            let ignited = self
-                .scene
-                .ignite_near(&self.world, origin, radius, attacker);
-            self.npc_ignitions.extend(ignited);
-        }
-        let fire_sounds = std::mem::take(&mut self.scene.fires.sounds);
-        self.scene.sounds.extend(fire_sounds);
-        // PropBreakableCreateAll for props broken by this tick's damage.
-        self.gibs.spawn(
-            std::mem::take(&mut self.scene.prop_breaks),
-            &self.world,
-            physics,
-            self.scene.time,
-        );
-        self.ragdolls
-            .spawn_props(&self.world, &mut self.scene, physics);
-        physics.tick(TICK);
-        self.ragdolls.update(&mut self.scene, physics);
-        // VPhysicsShadowCollision impact damage to NPCs (queued for the next tick).
-        let held = |id: usize| {
-            self.inventory.physcannon.held == Some(id)
-                || self
-                    .inventory
-                    .carry
-                    .as_ref()
-                    .is_some_and(|c| c.entity == id)
-        };
-        hl2_simulation::impact_damage::queue_npc_damage(
-            &physics.resolved_collisions,
-            &self.world,
-            &mut self.scene,
-            &held,
-        );
-        // A launched sawblade embeds in the wall it hits (before the launch flag goes).
-        let sticks = hl2_simulation::impact_damage::world_sticks(
-            &physics.resolved_collisions,
-            &self.world,
-            &physics.launched,
-            |event, side| {
-                self.impacts
-                    .collision_game_material(event, side, &self.world, physics, &self.scene)
-            },
-        );
-        let mut seen = std::collections::HashSet::new();
-        for event in &physics.resolved_collisions {
-            for side in 0..2 {
-                let Some(id) = event.entities[side].filter(|id| physics.launched.contains(id))
-                else {
-                    continue;
-                };
-                if !seen.insert(id) {
-                    continue;
-                }
-                let velocity = event.pre_velocities[side];
-                let away = if side == 0 {
-                    event.normal
-                } else {
-                    -event.normal
-                };
-                let material = self.impacts.collision_game_material(
-                    event,
-                    1 - side,
-                    &self.world,
-                    physics,
-                    &self.scene,
-                );
-                self.launch_impacts.push(serde_json::json!({
-                    "time": self.scene.time, "entity": id, "other": event.entities[1 - side],
-                    "other_mass": event.masses[1 - side], "speed": velocity.length(),
-                    "dot": velocity.normalize_or_zero().dot(away), "material": material.to_string(),
-                    "origin": event.origins[side].to_array(), "contact": event.position.to_array(),
-                    "normal": event.normal.to_array(),
-                    "stuck": sticks.iter().any(|(s, _, _)| *s == id),
-                }));
-            }
-        }
-        for (id, position, save) in sticks {
-            physics.stick(id, position, save);
-            self.scene
-                .sounds
-                .push(hl2_simulation::sounds::SoundRequest {
-                    origin: Some(position),
-                    .."Metal.SawbladeStick".into()
-                });
-        }
-        hl2_simulation::impact_damage::queue_prop_damage(
-            &physics.resolved_collisions,
-            &self.world,
-            &mut self.scene,
-            &mut physics.launched,
-            &mut physics.thrown_by_player,
-            &held,
-        );
-        // VPhysicsUpdate: a sleeping prop forgets that the player threw it.
-        let sleeping: Vec<usize> = physics
-            .thrown_by_player
-            .iter()
-            .copied()
-            .filter(|id| {
-                physics
-                    .dynamic
-                    .get(id)
-                    .and_then(|h| physics.bodies.get(*h))
-                    .is_none_or(|b| b.is_sleeping())
-            })
-            .collect();
-        for id in sleeping {
-            physics.thrown_by_player.remove(&id);
-        }
-        for (prop, npc) in std::mem::take(&mut self.scene.thrown_hits) {
-            let world = self.world.clone();
-            self.ai
-                .hit_by_player_thrown_object(npc, prop, &world, &mut self.scene);
-        }
-        // Gib poses and SUB_FadeOut (not while seen or held).
-        self.gibs
-            .tick(physics, self.scene.time, TICK, eye, direction, held);
-        // The ragdoll LRU retires the oldest beyond g_ragdoll_maxcount by fading them.
-        self.ragdolls
-            .retire(&mut self.scene, physics, eye, direction, TICK);
-        // NPCs killed this tick drop their weapons.
-        self.drop_weapons(physics);
-        // VPhysics impact sounds of props and thrown frags (PhysCollisionSound).
-        self.impacts
-            .physics_collision_sounds(physics, &self.world, &mut self.scene);
-        for event in
-            self.weapon_sounds
-                .events(&self.world, &self.inventory, &self.weapons, self.scene.time)
-        {
-            self.scene.sounds.push(event.options.into());
-        }
-        for sound in self.entity_sounds.events(&self.world, &self.scene, TICK) {
-            match sound {
-                hl2_simulation::sounds::AnimationSound::Named(request) => {
-                    self.scene.sounds.push(request)
-                }
-                hl2_simulation::sounds::AnimationSound::Material {
-                    entity,
-                    origin,
-                    left,
-                    volume,
-                } => {
-                    // MaterialFootstepSound: the surface 48 units under the foot (the
-                    // entity origin stands in for the LeftFoot/RightFoot attachment).
-                    let step = self
-                        .impacts
-                        .ground_property(
-                            &self.world,
-                            physics,
-                            &self.scene,
-                            origin + Vec3::Z * 2.,
-                            48.,
-                        )
-                        .map(|prop| self.impacts.step_surface(&prop));
-                    let name = step.and_then(|s| if left { s.step_left } else { s.step_right });
-                    if let Some(name) = name {
-                        self.scene
-                            .sounds
-                            .push(hl2_simulation::sounds::SoundRequest {
-                                origin: Some(origin),
-                                volume: Some(volume),
-                                emitter: Some(entity as u64),
-                                ..name.as_str().into()
-                            });
-                    }
-                }
-            }
-        }
-        for (hit, _melee, direction) in self.inventory.impacts.drain(..) {
-            self.impacts
-                .add_shot(hit, direction, &self.world, physics, &mut self.scene);
-        }
-        // TraceBleed: blood on the world behind shot NPCs.
-        for (hit, color) in self.inventory.blood.drain(..) {
-            self.impacts
-                .add_blood(hit, color, &self.world, physics, &self.scene);
-        }
-        // Projectile UTIL_ImpactTrace (crossbow bolts in the world).
-        for hit in std::mem::take(&mut self.projectiles.impacts) {
-            self.impacts.add(hit, &self.world, physics, &mut self.scene);
-        }
-        // Projectile UTIL_DecalTrace (the bug bait's BeerSplash).
-        for (hit, material) in std::mem::take(&mut self.projectiles.decals) {
-            self.impacts
-                .add_decal(hit, material, &self.world, physics, &self.scene);
-        }
-        // Sequence changes made by this tick's AI and scripts start their client blends.
-        self.scene.update_sequence_transitions(&self.world);
-        for sound in self.scene.sounds.drain(..) {
-            self.sound_cues.push(sound.name.clone());
-            if self.sound_requests.len() < 1024 {
-                self.sound_requests.push(sound);
-            } else {
-                self.unplayed_sounds += 1;
-            }
-        }
-        self.captions.append(&mut self.scene.captions);
-        let excess = self.sound_cues.len().saturating_sub(64);
-        self.sound_cues.drain(..excess);
+        self.post_physics_impacts(physics);
+        self.tick_sounds_and_decals(physics, eye, direction);
     }
     pub fn report(&self, physics: &Physics) -> serde_json::Value {
         let entities: Vec<_> = self.world.entities.iter().enumerate()
-            .filter(|(_, e)| e.class().contains("door") || e.class().starts_with("prop_physics"))
+            .filter(|(_, e)| e.class().contains("door")
+                || e.class().starts_with("prop_physics")
+                || source_assets::models::physical_pickup(e.class()))
             .map(|(id, e)| {
                 let state = &self.scene.states[id];
                 let (origin, rotation) = physics.entity_pose(id).unwrap_or((state.origin, state.rotation));
                 serde_json::json!({"entity":id,"name":e.get("targetname"),"class":e.class(),
-                    "origin":origin.to_array(),"rotation":rotation.to_array(),"visible":state.visible,"killed":state.killed})
+                    "origin":origin.to_array(),"rotation":rotation.to_array(),"visible":state.visible,"killed":state.killed,
+                    "body": physics.entity_rest_state(id),"body_contact":physics.entity_in_contact(id)})
             }).collect();
         // Composition failures drop a gesture layer silently in presentation; surface them.
         let compose_errors: BTreeMap<usize, Vec<String>> = self
@@ -1592,6 +782,19 @@ impl Gameplay {
             "ai":serde_json::to_value(&self.ai).unwrap_or_else(|e| serde_json::json!({"report_error":e.to_string()})),"npc_spawns":self.spawn_log,"zombies":zombies,"runtime_entities":{"despawned_draws":self.despawned_draws.len(),"created":self.runtime_entities.len(),"live":self.runtime_entities.iter().filter(|id| !self.scene.states[**id].killed).count(),"world_copies":self.world_copies},"bodies":{"current":self.scene.bodies.iter().map(|(id, b)| (id.to_string(), *b)).collect::<std::collections::BTreeMap<_,_>>(),"swaps":self.body_swaps,"failures":self.body_swap_failures},"npc_makers":{"diagnostics":self.scene.makers.diagnostics,"live":self.scene.makers.makers.values().map(|m| (m.id.to_string(), m.live.clone())).collect::<std::collections::BTreeMap<_,_>>()},"last_npc_hit":self.scene.last_npc_hit,"npc_health":self.world.entities.iter().enumerate().filter(|(id,e)| e.class().starts_with("npc_") && self.scene.states[*id].value != 0.).map(|(id,_)| (id.to_string(), self.scene.states[id].value)).collect::<std::collections::BTreeMap<_,_>>(),"phys_explosions":self.phys_explosions,"ragdolls":ragdolls,"gibs":{"active":self.gibs.active,"spawned":self.gibs.spawned,"removed":self.gibs.removed,"skipped":self.gibs.skipped},"projectiles":{"active":self.projectiles.active,"effects":self.projectiles.effects,"diagnostics":self.projectiles.diagnostics},"launch_impacts":self.launch_impacts,"impacts":{"studio_created":self.impacts.studio_created,"created":self.impacts.created,"unclippable":self.impacts.unclippable,"active":self.impacts.marks.len(),"errors":self.impacts.errors},"transition":self.scene.transition,
             "unplayed_sounds":self.unplayed_sounds,"queued_sounds":self.sound_requests.len(),"recent_sound_cues":self.sound_cues})
     }
+}
+
+fn timed<R>(
+    performance: Option<&crate::performance::Performance>,
+    name: &'static str,
+    f: impl FnOnce() -> R,
+) -> R {
+    let started = performance.map(|_| std::time::Instant::now());
+    let result = f();
+    if let (Some(p), Some(t)) = (performance, started) {
+        p.record_ms(name, t.elapsed().as_secs_f64() * 1000.);
+    }
+    result
 }
 
 #[cfg(test)]

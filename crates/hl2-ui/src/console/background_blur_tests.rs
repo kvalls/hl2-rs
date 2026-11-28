@@ -1,44 +1,41 @@
-use super::{Console, Effect};
-use crate::config::Config;
+use super::Console;
+use crate::config::VideoSettings;
+use crate::extensions::{Extensions, StandardBackground};
 use source_ui::canvas::Texture2D;
 
+fn always(_: &VideoSettings) -> bool {
+    true
+}
+
+fn by_flag(video: &VideoSettings) -> bool {
+    video.extensions.bool("standard_flag").unwrap_or(false)
+}
+
+const ALWAYS: StandardBackground = StandardBackground(Some(always));
+
 #[test]
-fn stored_default_blur_is_backward_compatible_and_independent_of_debug_mode() {
-    let legacy = Config::from_json(br#"{"video":{"width":1280,"height":720}}"#).unwrap();
-    assert!(!legacy.video.background_force_default_blur);
+fn a_contributed_rule_decides_the_standard_background_and_core_alone_keeps_retail() {
     let mut console = Console::default();
-    assert!(!console.presentation.capture_menu_navigation);
     assert!(!console.config.video.background_uses_widescreen(false));
     assert!(console.config.video.background_uses_widescreen(true));
-    let effects = console.submit("background_force_default_blur 1");
+    let mut extensions = Extensions::default();
+    extensions.select_standard_background(by_flag).unwrap();
     assert!(
-        matches!(effects.as_slice(), [Effect::ApplyConfig(config)] if config.video.background_force_default_blur)
+        extensions.select_standard_background(always).is_err(),
+        "one rule only"
     );
-    assert!(!console.presentation.capture_menu_navigation);
+    extensions.install(&mut console);
+    assert!(console.config.video.background_uses_widescreen(true));
+    console
+        .config
+        .video
+        .extensions
+        .set_bool("standard_flag", true);
     assert!(!console.config.video.background_uses_widescreen(true));
-    let saved = serde_json::to_vec(&console.config).unwrap();
     assert!(
-        Config::from_json(&saved)
-            .unwrap()
-            .video
-            .background_force_default_blur
+        !console.presentation.capture_menu_navigation,
+        "independent of background debug mode"
     );
-    console.submit("background_force_default_blur");
-    assert_eq!(
-        console.shell.panel.output.back().unwrap().text,
-        "\"background_force_default_blur\" = \"1\""
-    );
-    assert!(console.submit("background_force_default_blur 9").is_empty());
-    assert!(console.config.video.background_force_default_blur);
-    console.base = super::Mode::MainMenu;
-    console.presentation.capture_menu_navigation = true;
-    console.presentation.capture_menu_navigation = false;
-    assert!(
-        console.config.video.background_force_default_blur,
-        "debug mode lifetime must not reset a saved option"
-    );
-    console.submit("background_force_default_blur 0");
-    assert!(!console.config.video.background_force_default_blur);
 }
 
 #[test]
@@ -74,7 +71,7 @@ fn override_selects_only_standard_artwork_and_matches_diagnostic_names() {
         console.blur_texture_name("background01", true),
         "background01_widescreen"
     );
-    console.config.video.background_force_default_blur = true;
+    console.config.video.standard_background = ALWAYS;
     assert_eq!(
         console
             .background_texture("hl2", "background01", true)
@@ -97,25 +94,10 @@ fn override_selects_only_standard_artwork_and_matches_diagnostic_names() {
             .is_none(),
         "forced normal must not fall back to wide"
     );
-    console.config.video.background_force_default_blur = false;
+    console.config.video.standard_background = StandardBackground::default();
     assert!(console
         .background_texture("hl2", "background01", true)
         .is_some());
-}
-
-#[test]
-fn debug_toggle_uses_the_saved_cvar_and_defers_normal_host_application() {
-    let mut console = Console::default();
-    console.toggle_background_force_default_blur();
-    assert!(console.config.video.background_force_default_blur);
-    assert!(
-        matches!(console.tick(1.).as_slice(), [Effect::ApplyConfig(config)] if config.video.background_force_default_blur)
-    );
-    console.toggle_background_force_default_blur();
-    assert!(!console.config.video.background_force_default_blur);
-    assert!(
-        matches!(console.tick(2.).as_slice(), [Effect::ApplyConfig(config)] if !config.video.background_force_default_blur)
-    );
 }
 
 #[test]
@@ -139,7 +121,7 @@ fn selected_artwork_retains_its_authored_aspect_including_missing_wide_fallback(
             .unwrap()
             .widescreen
     );
-    console.config.video.background_force_default_blur = true;
+    console.config.video.standard_background = ALWAYS;
     assert!(
         !console
             .background_texture("hl2", "background01", true)

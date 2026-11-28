@@ -1,4 +1,8 @@
+mod bench;
+mod hitboxes;
 mod ragdolls;
+mod runtime_spawns;
+mod shadow;
 use super::*;
 #[test]
 fn a_spawned_npc_hull_blocks_rays_and_follows_its_state() {
@@ -393,9 +397,8 @@ fn npc_hull_box_carries_the_player_while_traces_hit_the_model_shape() {
             .any(|c| c.entities.contains(&Some(0)));
     }
     assert!(struck);
-    // The model-shaped hitboxes never form contact pairs with props (Rapier
-    // enables a pair when either side's collision types allow it): a box placed
-    // across the model column's face touches only the hull.
+    // The model-shaped hitboxes are trace-only, without any contact pair: a box
+    // placed across the model column's face touches only the hull.
     let inside = physics.bodies.insert(
         RigidBodyBuilder::dynamic()
             .translation(vector![4. * SCALE, 0., 30. * SCALE])
@@ -408,9 +411,7 @@ fn npc_hull_box_carries_the_player_while_traces_hit_the_model_shape() {
     );
     physics.tick(TICK);
     assert!(physics.narrow.contact_pairs().all(|pair| {
-        !physics.npc_hitboxes.contains(&pair.collider1)
-            && !physics.npc_hitboxes.contains(&pair.collider2)
-            || !pair.has_any_active_contact
+        !physics.is_trace_only(pair.collider1) && !physics.is_trace_only(pair.collider2)
     }));
     physics.remove_body(inside);
     let x = physics.bodies[body].translation().x / SCALE;
@@ -815,6 +816,56 @@ fn authored_vphysics_props_use_phy_mass_pieces_damping_and_surface_material() {
     // 2x mass and a 0.5 / 2 inertia multiplier: half the tensor.
     assert!((scaled_inertia - inertia * 0.5).norm() < inertia.norm() * 1e-3);
 }
+#[test]
+fn loose_pickups_use_the_weapon_collision_group_and_disable_when_collected() {
+    for class in [
+        "item_battery",
+        "item_healthkit",
+        "item_ammo_ar2",
+        "weapon_ar2",
+    ] {
+        let mut world = native_prop_world();
+        let instance = &mut world.model_instances[0];
+        instance.kind = class.into();
+        instance.entity = Some(0);
+        world.model_physics.insert(
+            instance.asset_key(),
+            modkit_core::PhysicsSolid {
+                mass: 3.,
+                ..Default::default()
+            },
+        );
+        world.entities.push(modkit_core::Entity {
+            properties: vec![("classname".into(), class.into())],
+        });
+
+        let mut physics = Physics::new(&world);
+        let handle = physics.entity_body(0).expect("pickup rigid body");
+        assert!((physics.entity_mass(0).unwrap() - 3.).abs() < 0.001);
+        assert_eq!(
+            crate::player_pickup::can_pickup(&world, &physics, 0),
+            class.starts_with("item_"),
+        );
+        let colliders = physics.bodies[handle].colliders().to_vec();
+        assert_eq!(colliders.len(), 2);
+        assert!(colliders
+            .iter()
+            .all(|&h| physics.colliders[h].collision_groups() == WEAPON_GROUPS));
+        physics.set_entity(0, Vec3::ZERO, Quat::IDENTITY, false);
+        assert!(!physics.bodies[handle].is_enabled());
+        assert!(colliders
+            .iter()
+            .all(|&h| !physics.colliders[h].is_enabled()));
+
+        world.entities[0]
+            .properties
+            .push(("spawnflags".into(), "1".into()));
+        let constrained = Physics::new(&world);
+        assert!(constrained.entity_body(0).is_none());
+        assert_eq!(constrained.entity_colliders[&0].len(), 2);
+    }
+}
+
 #[test]
 fn world_brush_sides_use_their_own_surfaceprop() {
     // Synthetic: one floor brush whose top side is "synthetic/ice" (friction 0.1)
@@ -1743,7 +1794,7 @@ fn npc_ground_probe_rejects_embedded_nan_and_excessive_travel() {
     }
 }
 /// A free box resting on a floor plate (synthetic values, not game data).
-fn shadow_scene(mass: f32, gravity: bool, z: f32) -> (Physics, RigidBodyHandle) {
+pub(super) fn shadow_scene(mass: f32, gravity: bool, z: f32) -> (Physics, RigidBodyHandle) {
     let mut physics = Physics::new(&World::default());
     physics.colliders.insert(
         ColliderBuilder::cuboid(2000. / 39.37, 2000. / 39.37, 8. / 39.37)
@@ -1884,4 +1935,31 @@ fn a_barnacle_body_is_a_small_box_under_its_origin_not_its_tongue() {
     let (mins, maxs) = npc_hull("npc_barnacle").unwrap();
     assert_eq!((mins.z, maxs.z), (-40., 0.));
     assert_eq!((mins.x, maxs.x), (-16., 16.));
+}
+
+#[test]
+fn player_shadow_ccd_stays_off_at_walk_speed_and_enables_when_fast() {
+    let mut physics = Physics::new(&npc_floor_world());
+    physics.update_player_shadow(
+        Vec3::ZERO,
+        Vec3::new(3., 0., 0.),
+        false,
+        true,
+        0.,
+        Vec3::new(190., 0., 0.),
+        None,
+        0.015,
+    );
+    let (handle, _) = physics.player_shadow.expect("player shadow created");
+    physics.tick(0.015);
+    assert!(
+        !physics.bodies[handle].is_ccd_enabled(),
+        "normal walk speed should not enable CCD and force per-tick QBVH rebuilds"
+    );
+    physics.bodies[handle].set_linvel(vector![4000. * SCALE, 0., 0.], true);
+    physics.tick(0.015);
+    assert!(
+        physics.bodies[handle].is_ccd_enabled(),
+        "extreme velocity (> hull thickness per tick) should still enable CCD"
+    );
 }

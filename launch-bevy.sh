@@ -124,7 +124,6 @@ TARGET_BIN="$PROJECT_ROOT/bin/hl2-bevy"
 INFO_JSON="$PROJECT_ROOT/bin/build-bevy-info.json"
 BEVY_ASSETS="$PROJECT_ROOT/bin/bevy-assets"
 SHADER_SOURCE="$PROJECT_ROOT/crates/hl2-bevy/assets"
-CLEANER_SCRIPT="$PROJECT_ROOT/scripts/clean-target.sh"
 
 DESIRED_PROFILE="release"
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
@@ -232,12 +231,12 @@ fi
 
 if [[ "$NEEDS_BUILD" -eq 1 ]]; then
     echo "==> Build is out of date: $BUILD_REASON"
-    if [[ "$NO_CLEAN" -eq 0 && -x "$CLEANER_SCRIPT" ]]; then
-        echo "==> Cleaning stale target directory remnants before build..."
-        "$CLEANER_SCRIPT" --stale || true
-    fi
     echo "==> Running scripts/build-bevy.sh..."
+    # build-bevy.sh cleans stale target remnants first; --no-clean passes through.
     BUILD_ARGS=()
+    if [[ "$NO_CLEAN" -eq 1 ]]; then
+        BUILD_ARGS+=("--no-clean")
+    fi
     if [[ "$DEBUG_BUILD" -eq 1 ]]; then
         BUILD_ARGS+=("--debug")
     elif [[ "$DIST_BUILD" -eq 1 ]]; then

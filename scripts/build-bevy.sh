@@ -7,6 +7,7 @@ cd "$PROJECT_ROOT"
 
 DEBUG_BUILD=0
 DIST_BUILD=0
+NO_CLEAN=0
 # Application plugin features; "none" builds the core alone.
 PLUGINS="advanced-options,debug-tools"
 while [[ $# -gt 0 ]]; do
@@ -19,13 +20,17 @@ while [[ $# -gt 0 ]]; do
             DIST_BUILD=1
             shift
             ;;
+        --no-clean)
+            NO_CLEAN=1
+            shift
+            ;;
         --plugins)
             PLUGINS="${2:?--plugins needs a comma-separated list or none}"
             shift 2
             ;;
         *)
             echo "Unknown option: $1" >&2
-            echo "Usage: $0 [--debug|--dist] [--plugins advanced-options,debug-tools|none]" >&2
+            echo "Usage: $0 [--debug|--dist] [--no-clean] [--plugins advanced-options,debug-tools|none]" >&2
             exit 1
             ;;
     esac
@@ -41,9 +46,9 @@ PLUGINS="$(printf '%s' "$PLUGINS" | tr ',' '\n' | sed '/^$/d' | sort -u | paste 
 if [[ "$PLUGINS" != "none" ]]; then
     for plugin in ${PLUGINS//,/ }; do
         case "$plugin" in
-            advanced-options|debug-tools) ;;
+            advanced-options|debug-tools|trace-chrome|trace-alloc) ;;
             *)
-                echo "Unknown plugin: $plugin (known: advanced-options, debug-tools, or none)" >&2
+                echo "Unknown plugin: $plugin (known: advanced-options, debug-tools, trace-chrome, trace-alloc, or none)" >&2
                 exit 1
                 ;;
         esac
@@ -81,6 +86,14 @@ elif [[ "$DIST_BUILD" -eq 1 ]]; then
     CARGO_ARGS+=("--profile" "dist")
 else
     CARGO_ARGS+=("--release")
+fi
+
+# Stale workspace artifacts and old incremental sessions (third-party caches are kept); it skips
+# itself while Cargo holds the target, and a failure never stops the build.
+CLEANER_SCRIPT="$PROJECT_ROOT/scripts/clean-target.sh"
+if [[ "$NO_CLEAN" -eq 0 && -x "$CLEANER_SCRIPT" ]]; then
+    echo "Cleaning stale target directory remnants..."
+    "$CLEANER_SCRIPT" --stale || true
 fi
 
 echo "Building hl2-bevy ($PROFILE_NAME)..."
@@ -137,7 +150,7 @@ PACKAGE_EXECUTABLE="$PACKAGE_ROOT/hl2-bevy"
 # Replace the file instead of overwriting it in place: macOS kills new launches of an executable
 # whose signed pages were rewritten (exit 137), e.g. while a previous build is still running.
 rm -f "$PACKAGE_EXECUTABLE"
-cp "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
+cp -c "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE" 2>/dev/null || cp "$SOURCE_EXECUTABLE" "$PACKAGE_EXECUTABLE"
 chmod +x "$PACKAGE_EXECUTABLE"
 
 compute_sha256() {

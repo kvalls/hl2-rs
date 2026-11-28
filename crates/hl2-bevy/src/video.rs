@@ -26,9 +26,12 @@ pub(crate) use fov::vertical_fov_4_3;
 pub(crate) use fov::{vertical_fov_for, vertical_fov_with};
 mod msaa;
 mod outputs;
+pub(crate) mod present_pass;
+pub(crate) use msaa::sync_antialiasing;
 pub use msaa::{adapter_max_msaa_samples, msaa_for, msaa_for_hardware};
-pub use outputs::frame_image;
 pub(crate) use outputs::{FrameCameras, OwnTarget, apply_video_settings, skip_covered_outputs};
+pub use outputs::{HudCamera, frame_image};
+pub use present_pass::PresentMaterial;
 pub mod mode {
     use super::*;
     use hl2_ui::config::DisplayMode;
@@ -166,7 +169,8 @@ impl DesktopArea {
 }
 
 /// The camera presenting the game frame in the window.
-#[derive(Component)]
+#[derive(Component, Clone, bevy::render::extract_component::ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct PresentCamera;
 
 /// The quad showing the game frame.
@@ -180,30 +184,14 @@ pub const NEUTRAL_MONITOR_GAMMA: f32 = 2.2;
 /// The Options slider runs from 1.6 ("Light") to 2.6 ("Dark") in the installed
 /// `OptionsSubVideoGammaDlg.res`, so lower values brighten. Retail sets a hardware gamma ramp,
 /// which only works in full screen; the presentation shader applies it in every display mode.
+/// `gamma / 2.2` exponent for `PresentMaterial`'s monitor gamma ramp.
 pub fn monitor_gamma_exponent(gamma: f32) -> f32 {
     gamma.clamp(1.6, 2.6) / NEUTRAL_MONITOR_GAMMA
 }
 
-/// Draws the game frame (3D view, HUD and menus) in the window through the monitor gamma ramp.
-#[derive(Asset, TypePath, bevy::render::render_resource::AsBindGroup, Debug, Clone)]
-pub struct PresentMaterial {
-    /// x: [`monitor_gamma_exponent`].
-    #[uniform(0)]
-    pub params: Vec4,
-    #[texture(1)]
-    #[sampler(2)]
-    pub frame: Handle<Image>,
-}
-
-impl bevy::sprite_render::Material2d for PresentMaterial {
-    fn fragment_shader() -> bevy::shader::ShaderRef {
-        "shaders/present.wesl".into()
-    }
-}
-
 /// A game-frame camera stopped during a frame resize, with its `is_active` before.
 #[derive(Component)]
-pub struct SuspendedCamera(bool);
+pub struct SuspendedCamera(pub(crate) bool);
 
 /// Creates the game frame and its presentation. `windowed` sizes the window to the frame
 /// (clamped to the monitor) once the monitor is known; `follows_window` makes the frame follow the
@@ -238,6 +226,7 @@ pub(crate) fn install_frame(
     commands.spawn((
         PresentCamera,
         Camera2d,
+        bevy::render::camera::CameraRenderGraph::new(present_pass::Present2d),
         Camera {
             order: PRESENT_ORDER,
             clear_color: ClearColorConfig::Custom(Color::BLACK),
@@ -497,25 +486,6 @@ pub(crate) fn sync_present_mode(
         && window.present_mode != mode
     {
         window.present_mode = mode;
-    }
-}
-
-/// Keeps every scene camera's `Msaa` in sync with the configured antialiasing mode.
-/// The 2D presentation camera remains `Msaa::Off` because it displays the resolved frame quad.
-pub(crate) fn sync_antialiasing(
-    ui: Option<Res<crate::ui_host::Console>>,
-    adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
-    mut cameras: Query<&mut Msaa, (With<Camera>, Without<PresentCamera>)>,
-) {
-    let Some(ui) = ui else {
-        return;
-    };
-    let max_samples = adapter_max_msaa_samples(adapter.as_deref());
-    let want = msaa_for_hardware(ui.source.config.video.advanced.antialiasing, max_samples);
-    for mut msaa in &mut cameras {
-        if *msaa != want {
-            *msaa = want;
-        }
     }
 }
 
@@ -1684,6 +1654,11 @@ mod tests {
             .world_mut()
             .spawn((PresentCamera, Camera2d, Msaa::Off))
             .id();
+        let hud_cam = app.world_mut().spawn((HudCamera, Camera2d, Msaa::Off)).id();
+        let own_target_cam = app
+            .world_mut()
+            .spawn((OwnTarget, Camera3d::default(), Msaa::Off))
+            .id();
 
         app.world_mut().run_system_once(sync_antialiasing).unwrap();
 
@@ -1693,6 +1668,8 @@ mod tests {
             Msaa::Sample4
         );
         assert_eq!(*app.world().get::<Msaa>(present_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(hud_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(own_target_cam).unwrap(), Msaa::Off);
 
         // Update config to 8X: with default adapter limit (4), clamps safely to Sample4
         app.world_mut()
@@ -1711,6 +1688,8 @@ mod tests {
             Msaa::Sample4
         );
         assert_eq!(*app.world().get::<Msaa>(present_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(hud_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(own_target_cam).unwrap(), Msaa::Off);
 
         // Update config to 2X
         app.world_mut()
@@ -1729,6 +1708,8 @@ mod tests {
             Msaa::Sample2
         );
         assert_eq!(*app.world().get::<Msaa>(present_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(hud_cam).unwrap(), Msaa::Off);
+        assert_eq!(*app.world().get::<Msaa>(own_target_cam).unwrap(), Msaa::Off);
     }
 
     #[test]

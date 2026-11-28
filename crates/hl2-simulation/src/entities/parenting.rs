@@ -4,7 +4,7 @@ use super::{Parent, Scene};
 use glam::Mat4;
 use glam::Quat;
 use glam::Vec3;
-use modkit_core::World;
+use modkit_core::{ModelInstance, World};
 
 impl Scene {
     /// Skinning matrices for an actor: current base clip plus scene gesture layers.
@@ -64,11 +64,25 @@ impl Scene {
         world.model_body_parts.get(&instance.model.to_lowercase())
     }
     pub fn attachment_frames(&self, world: &World, id: usize, names: &[&str]) -> Vec<Option<Mat4>> {
+        if self.states.get(id).is_none() {
+            return vec![None; names.len()];
+        }
+        let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
+            return vec![None; names.len()];
+        };
+        self.attachment_frames_for_instance(world, id, names, instance)
+    }
+
+    /// Shared attachment evaluation when a batched caller already resolved the instance.
+    pub(crate) fn attachment_frames_for_instance(
+        &self,
+        world: &World,
+        id: usize,
+        names: &[&str],
+        instance: &ModelInstance,
+    ) -> Vec<Option<Mat4>> {
         let none = || vec![None; names.len()];
         let Some(state) = self.states.get(id) else {
-            return none();
-        };
-        let Some(instance) = world.model_instances.iter().find(|i| i.entity == Some(id)) else {
             return none();
         };
         let Some(rig) = world.rigs.get(&instance.asset_key()) else {
@@ -79,7 +93,9 @@ impl Scene {
             return none();
         }
         let base = Mat4::from_rotation_translation(state.rotation, state.origin);
-        let matrices = self.actor_matrices(rig, id);
+        // Only the attachments' bones and their parents: the same frames, less posing.
+        let bones = rig.bone_chains(found.iter().flatten().map(|a| a.bone));
+        let matrices = self.actor_matrices_of(rig, id, Some(&bones));
         found
             .into_iter()
             .map(|a| {
@@ -130,7 +146,7 @@ impl Scene {
             }
             bone = weapon.bones[b].parent;
         };
-        let skin = self.actor_matrices(rig, id);
+        let skin = self.actor_matrices_of(rig, id, Some(&rig.bone_chains([owner])));
         let owner_bone = *skin.get(owner)? * rig.bones[owner].inverse_bind.inverse();
         let model = owner_bone
             * weapon.bones[merged].inverse_bind
@@ -163,7 +179,7 @@ impl Scene {
                 .position(|o| o.name.eq_ignore_ascii_case(&bone.name))
                 .map(|j| (b, j))
         })?;
-        let skin = self.actor_matrices(rig, id);
+        let skin = self.actor_matrices_of(rig, id, Some(&rig.bone_chains([owner])));
         let owner_bone = *skin.get(owner)? * rig.bones[owner].inverse_bind.inverse();
         let model = owner_bone * weapon.bones[merged].inverse_bind;
         let (_, rotation, translation) = model.to_scale_rotation_translation();

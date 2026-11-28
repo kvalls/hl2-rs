@@ -13,5 +13,5 @@
   {"tick": 1214, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "enter-extras"},
   {"tick": 1220, "ui": [{"action": "input", "input": {"keys": ["down"]}}]},
   {"tick": 1221, "ui": [{"action": "input", "input": {"keys": ["enter"]}}], "label": "enter-lost-coast"},
-  {"tick": 1900, "ui": [{"action": "command", "command": "background_map"}], "label": "settle"}
+  {"tick": 1900, "ui": [{"action": "command", "command": "echo"}], "label": "settle"}
 ]

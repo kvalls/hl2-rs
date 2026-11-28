@@ -15,6 +15,7 @@ use source_assets::vpk::Vfs;
 mod lifecycle;
 mod next_script;
 mod outputs;
+mod root_motion;
 mod scenes;
 mod touch;
 mod trains;
@@ -653,11 +654,14 @@ fn trigger_hurt_hurts_npc_touchers_and_respects_filters() {
                 ],
             ),
             entity("npc_metropolice", "cop", &[("origin", "0 0 0")]),
+            entity("npc_antlion_maker", "maker", &[("origin", "0 0 0")]),
         ],
         brush_models: vec![cube],
         ..Default::default()
     };
     let mut scene = Scene::new(&world);
+    // Damage considers live NPCs even when hidden. A maker shares the prefix only.
+    scene.states[1].visible = false;
     let fired = scene.diagnostics.outputs_fired;
     scene.tick(&world, Vec3::ZERO, 0.015);
     assert!(scene.player_damage.is_empty());
@@ -1644,13 +1648,13 @@ fn runtime_bodygroups_change_the_scene_body() {
     assert!(!scene.set_bodygroup(&world, 0, 9, 1));
 }
 
-#[test]
-fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
+/// A police model on a one-bone rig whose idle turns 0.01 rad per frame, looping over 300 frames
+/// (10 s); also used by the pose memo tests.
+pub(super) fn turning_police_world() -> World {
     use modkit_core::{
         animation::{Bone, Clip, Pose, Rig, Sequence},
         ModelInstance,
     };
-    // A one-bone idle turning 0.01 rad per frame, looping over 300 frames (10 s).
     let clip = || Clip {
         layer: modkit_core::animation::ClipLayer {
             flags: modkit_core::animation::sequence_flags::LOOPING,
@@ -1670,7 +1674,7 @@ fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
             })
             .collect(),
     };
-    let w = World {
+    World {
         entities: vec![entity("npc_metropolice", "cop", &[])],
         model_instances: vec![ModelInstance {
             background: false,
@@ -1703,7 +1707,12 @@ fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
             },
         )]),
         ..Default::default()
-    };
+    }
+}
+
+#[test]
+fn idle_reselect_keeps_the_sequence_and_restarts_blend_from_the_old_pose() {
+    let w = turning_police_world();
     let mut scene = Scene::new(&w);
     let rig = &w.rigs["police.mdl#0"];
     let angle = |scene: &Scene| {
@@ -1848,6 +1857,7 @@ fn a_kill_sent_to_an_npc_weapon_name_removes_that_weapon() {
         .iter()
         .any(|(id, input, ..)| *id == 0 && input == "killweapon"));
 }
+
 #[test]
 fn a_playback_rate_slows_the_sequence_clock_and_its_end() {
     let world = World {
@@ -1985,5 +1995,3 @@ fn door_travel_is_the_compiled_brush_size_less_lip() {
     assert!((scene.states[0].translation - Vec3::new(0., -2., 0.)).length() < 1e-3);
     assert!((scene.states[1].translation - Vec3::new(-55., 0., 0.)).length() < 1e-3);
 }
-
-mod auto_movement;

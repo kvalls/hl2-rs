@@ -39,21 +39,28 @@ pub(crate) struct StartupTarget {
 }
 
 /// Resolves the startup map target without loading map geometry or heavy assets.
-pub(crate) fn target_map(options: &crate::Options) -> Result<StartupTarget> {
+/// When no `--map` was given, returns the already-mounted base VFS so [`load_stub`] can reuse it.
+pub(crate) fn target_map(
+    options: &crate::Options,
+) -> Result<(StartupTarget, Option<Arc<source_assets::vpk::Vfs>>)> {
     let base_game = source_assets::install::BASE_GAME;
     let config = hl2_ui::config::Config::load_or_default();
     if let Some(map) = options.map.as_ref() {
         let is_bg = options.main_menu;
         let game = source_assets::install::game_for_map(&options.game, map, None)
             .unwrap_or_else(|| base_game.to_owned());
-        return Ok(StartupTarget {
-            game,
-            map: map.clone(),
-            background: is_bg,
-        });
+        return Ok((
+            StartupTarget {
+                game,
+                map: map.clone(),
+                background: is_bg,
+            },
+            None,
+        ));
     }
-    let vfs =
-        source_assets::vpk::Vfs::mount(&options.game).context("mount installed owned content")?;
+    let vfs = Arc::new(
+        source_assets::vpk::Vfs::mount(&options.game).context("mount installed owned content")?,
+    );
     let default_background = hl2_ui::gameui::resources::startup_background_map(&vfs);
     let (game, map) = match (&options.background_map, &config.gameplay.background_map) {
         (Some(map), _) => (
@@ -77,38 +84,50 @@ pub(crate) fn target_map(options: &crate::Options) -> Result<StartupTarget> {
             )?,
         ),
     };
-    Ok(StartupTarget {
-        game,
-        map,
-        background: true,
-    })
+    Ok((
+        StartupTarget {
+            game,
+            map,
+            background: true,
+        },
+        Some(vfs),
+    ))
 }
 
 /// Creates a lightweight stub [`crate::assets::LoadedMap`] for instant window presentation
 /// before asynchronous map loading begins in the worker thread.
-pub(crate) fn load_stub(root: &std::path::Path, game: &str) -> Result<crate::assets::LoadedMap> {
-    let vfs = Arc::new(
-        source_assets::vpk::Vfs::mount_game(root, game)
-            .context("mount installed owned content for startup stub")?,
-    );
+pub(crate) fn load_stub(
+    root: &std::path::Path,
+    game: &str,
+    mounted_vfs: Option<Arc<source_assets::vpk::Vfs>>,
+) -> Result<crate::assets::LoadedMap> {
+    let vfs = match mounted_vfs {
+        Some(vfs) if game == source_assets::install::BASE_GAME => vfs,
+        _ => Arc::new(
+            source_assets::vpk::Vfs::mount_game(root, game)
+                .context("mount installed owned content for startup stub")?,
+        ),
+    };
     let canvas = source_ui::canvas::Canvas::default();
-    let hud = hl2_ui::hud::WeaponHud::load(&vfs, canvas)?;
     let world = Arc::new(modkit_core::World::default());
     let gameplay = crate::gameplay::Gameplay::synthetic(modkit_core::World::default());
     let audio = crate::audio::PreparedAudio::silent();
-    let effects = crate::effects::PreparedEffects::load(&vfs, &world);
+    let effects = crate::effects::PreparedEffects::empty();
     let bsp = source_assets::bsp::Bsp::empty();
     let shadow_receivers = Arc::new(hl2_simulation::shadows::receivers::Receivers::new(
         &[],
         |_| true,
     ));
     Ok(crate::assets::LoadedMap {
+        decal_layers: Vec::new(),
         load_timings: Default::default(),
         game: game.to_owned(),
         cubemaps: Vec::new(),
         world,
         gameplay,
-        hud,
+        hud: None,
+        canvas,
+        physics: None,
         audio,
         pending_audio: None,
         sky: None,
@@ -124,6 +143,7 @@ pub(crate) fn load_stub(root: &std::path::Path, game: &str) -> Result<crate::ass
         texture_errors: Vec::new(),
         models: serde_json::Value::Null,
         vfs,
+        geometry: None,
     })
 }
 
@@ -178,6 +198,7 @@ const HELP_LINES: &[&str] = &[
     "      --cpu-skinning                  Use CPU vertex skinning instead of GPU compute skinning",
     "      --fake-monitor <spec>           Simulate a monitor with specified modes (e.g. 1920x1080,1280x720)",
     "      --fly                           Start with flight/noclip mode enabled (requires --map)",
+    "      --force-lod <level>             Force every studio model LOD draw to this level (clamped)",
     "      --frag-swept-box                Use swept-box physics query for frag grenade collision",
     "      --frames <count>                Exit automatically after rendering N frames (30..=200000)",
     "      --fullscreen                    Start in exclusive fullscreen display mode",
@@ -192,7 +213,21 @@ const HELP_LINES: &[&str] = &[
     "      --mute                          Silence all audio output for this run (Audio settings unchanged)",
     "      --mute-ambient                  Mute looping ambient soundscapes and background environment audio",
     "      --no-ai                         Disable NPC AI think loop",
+    "      --no-animation                  Skip entity skeletal animation and facial flex presentation",
+    "      --no-audio                      Skip audio playback queuing",
+    "      --no-effects                    Skip particle, tracer, and gib effects presentation",
+    "      --no-eyes                       Skip actor eye tracking and attention PVS updates",
+    "      --no-flexes                     Skip facial flex deformation during entity animation",
     "      --no-focus                      Launch window without requesting input focus (for unattended test runs)",
+    "      --no-hud                        Skip HUD/UI canvas presentation",
+    "      --no-lightstyles                Skip animated lightstyle updates",
+    "      --no-model-lighting             Skip per-entity model lighting updates",
+    "      --no-physics-step               Skip physics step during gameplay tick",
+    "      -condebug                       Append console output to console.log beside the settings file",
+    "      -usercon                        Start RCON on ip:hostport; loopback by default",
+    "      --rcon-peer <ip>                Allow this peer for an explicit non-loopback -usercon bind",
+    "      --rcon-password-file <path>     Read the private network RCON password file (requires --rcon-peer)",
+    "      +<command> [args]               Run a console command at startup (e.g. +rcon_password <password>)",
     "      --novid, -novid                 Skip startup videos on launch",
     "      --no-pvs                        Disable BSP potential visible set (PVS) occlusion culling",
     "      --no-setup                      Fail with an error instead of opening setup if installation is missing",
@@ -202,6 +237,8 @@ const HELP_LINES: &[&str] = &[
     "      --report <path.json>            Path for simulation report output (default: artifacts/bevy-report.json)",
     "      --setup                         Open the setup dialog to choose/remember the Half-Life 2 folder",
     "      --setup-preview <path.png>      Capture a screenshot of the setup dialog and exit without loading a map",
+    "      --max-fps <10..1000>            Cap the frame rate (with --uncapped, for runs that share the machine)",
+    "      --timescale <1..16>             Run the simulation this many times faster than real time (checks)",
     "      --tonemap-scale <scale>         Override HDR tonemapping exposure multiplier (positive float)",
     "      --uncapped                      Disable VSync to render and present frames unconstrained",
     "      --volume <0.0..1.0>             Set master audio volume level (default from audio config)",
@@ -280,14 +317,16 @@ mod tests {
             Default::default(),
         )
         .unwrap();
-        let target = target_map(&gameplay_opt).unwrap();
+        let (target, vfs) = target_map(&gameplay_opt).unwrap();
+        assert!(vfs.is_none());
         assert_eq!(target.map, "d1_trainstation_01");
         assert!(!target.background);
 
         let (bg_opt, _) =
             Options::parse_from(["--map".into(), "background01".into()], Default::default())
                 .unwrap();
-        let bg_target = target_map(&bg_opt).unwrap();
+        let (bg_target, bg_vfs) = target_map(&bg_opt).unwrap();
+        assert!(bg_vfs.is_none());
         assert_eq!(bg_target.map, "background01");
         assert!(!bg_target.background);
 
@@ -300,7 +339,8 @@ mod tests {
             Default::default(),
         )
         .unwrap();
-        let menu_target = target_map(&menu_opt).unwrap();
+        let (menu_target, menu_vfs) = target_map(&menu_opt).unwrap();
+        assert!(menu_vfs.is_none());
         assert_eq!(menu_target.map, "d1_trainstation_01");
         assert!(menu_target.background);
     }
@@ -309,8 +349,10 @@ mod tests {
     #[ignore = "requires owned HL2 installation"]
     fn startup_stub_creates_empty_world_and_mounted_vfs() {
         let root = source_assets::install::discover().expect("owned install");
-        let stub = load_stub(&root, "hl2").expect("startup stub");
+        let stub = load_stub(&root, "hl2", None).expect("startup stub");
         assert_eq!(stub.game, "hl2");
+        assert!(stub.hud.is_none());
+        assert!(stub.physics.is_none());
         assert!(stub.world.surfaces.is_empty());
         assert!(stub.world.entities.is_empty());
         assert!(stub.bsp.lump(0).is_empty());

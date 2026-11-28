@@ -1,5 +1,7 @@
 //! Antialiasing sample counts the setting and the adapter allow.
-use bevy::prelude::Msaa;
+use super::PresentCamera;
+use super::outputs::{HudCamera, OwnTarget};
+use bevy::prelude::{Camera, Msaa, Query, Res, With, Without};
 
 /// Converts the UI antialiasing choice into Bevy's multisampling setting.
 #[inline]
@@ -74,4 +76,35 @@ pub fn msaa_for_hardware(aa: hl2_ui::config::Antialiasing, max_samples: u32) -> 
         aa
     };
     msaa_for(effective)
+}
+
+pub(crate) type SceneMsaaCameras<'w, 's> = Query<
+    'w,
+    's,
+    &'static mut Msaa,
+    (
+        With<Camera>,
+        Without<PresentCamera>,
+        Without<HudCamera>,
+        Without<OwnTarget>,
+    ),
+>;
+
+/// Keeps every game-frame scene camera's `Msaa` in sync with the configured antialiasing mode.
+/// Presentation, direct HUD, and standalone-target cameras stay `Msaa::Off`.
+pub(crate) fn sync_antialiasing(
+    ui: Option<Res<crate::ui_host::Console>>,
+    adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
+    mut cameras: SceneMsaaCameras,
+) {
+    let Some(ui) = ui else {
+        return;
+    };
+    let max_samples = adapter_max_msaa_samples(adapter.as_deref());
+    let want = msaa_for_hardware(ui.source.config.video.advanced.antialiasing, max_samples);
+    for mut msaa in &mut cameras {
+        if *msaa != want {
+            *msaa = want;
+        }
+    }
 }

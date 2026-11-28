@@ -1,4 +1,4 @@
-param([switch]$DebugBuild, [switch]$Dist, [string]$Plugins = 'advanced-options,debug-tools')
+param([switch]$DebugBuild, [switch]$Dist, [switch]$NoClean, [string]$Plugins = 'advanced-options,debug-tools')
 $ErrorActionPreference = 'Stop'
 if ($DebugBuild -and $Dist) { throw '-DebugBuild and -Dist cannot be used together.' }
 $projectRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
@@ -16,6 +16,14 @@ try {
     $cargoArguments = @('build', '--locked', '-p', 'hl2-app', '--bin', 'hl2-bevy', '--no-default-features')
     if ($Plugins -ne 'none') { $cargoArguments += @('--features', $Plugins) }
     if ($Dist) { $cargoArguments += @('--profile', 'dist') } elseif (!$DebugBuild) { $cargoArguments += '--release' }
+    # Stale workspace artifacts and old incremental sessions (third-party caches are kept); it skips
+    # itself while Cargo holds the target, and a failure or a missing Python never stops the build.
+    $cleaner = Join-Path $projectRoot 'scripts\checks\clean_target.py'
+    $python = Get-Command python, python3 -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (!$NoClean -and $python -and (Test-Path -LiteralPath $cleaner -PathType Leaf)) {
+        Write-Host 'Cleaning stale target directory remnants...'
+        try { & $python.Source $cleaner --stale } catch { Write-Warning "Stale target cleanup failed: $_" }
+    }
     & $cargoBinary @cargoArguments
     if ($LASTEXITCODE -ne 0) { throw 'Cargo Bevy build failed.' }
 

@@ -1,7 +1,13 @@
 //! Engine-neutral skeletons, sampled clips and linear-blend skinning.
-use glam::{Mat4, Quat, Vec3, Vec4};
+use glam::{Mat4, Quat, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod mixing;
+use mixing::{blend_bones, interpolate, slerp_bones_of, wanted};
+pub use mixing::{
+    quaternion_align, quaternion_ma, quaternion_mult, quaternion_scale, quaternion_sm,
+    simple_spline, slerp_bones, Bones,
+};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Weights {
     pub bones: [u8; 3],
@@ -167,20 +173,6 @@ impl BlendGrid {
         (i < self.anims.len()).then_some(i)
     }
 }
-/// SDK BlendBones: QuaternionBlend toward `layer` by `s` for bones with sequence weight.
-fn blend_bones(base: &mut [Pose], layer: &[Pose], info: &ClipLayer, s: f32) {
-    let s1 = 1. - s;
-    for (i, (q1, q2)) in base.iter_mut().zip(layer).enumerate() {
-        if info.bone_weights.get(i).is_some_and(|w| *w <= 0.) {
-            continue;
-        }
-        let aligned = quaternion_align(q2.rotation, q1.rotation);
-        q1.rotation =
-            Quat::from_vec4(Vec4::from(q2.rotation) * (1. - s1) + Vec4::from(aligned) * s1)
-                .normalize();
-        q1.position = q1.position * s1 + q2.position * s;
-    }
-}
 /// Faceposer metadata from MDL sequence keyvalues.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Faceposer {
@@ -265,84 +257,6 @@ impl std::fmt::Display for PoseError {
     }
 }
 impl std::error::Error for PoseError {}
-pub fn simple_spline(s: f32) -> f32 {
-    let s2 = s * s;
-    3. * s2 - 2. * s2 * s
-}
-/// mathlib QuaternionAlign: choose the sign of `q` nearest `p`.
-pub fn quaternion_align(p: Quat, q: Quat) -> Quat {
-    let a = (Vec4::from(p) - Vec4::from(q)).length_squared();
-    let b = (Vec4::from(p) + Vec4::from(q)).length_squared();
-    if a > b {
-        -q
-    } else {
-        q
-    }
-}
-/// mathlib QuaternionMult: aligned Hamilton product `p * q`.
-pub fn quaternion_mult(p: Quat, q: Quat) -> Quat {
-    p * quaternion_align(p, q)
-}
-/// mathlib QuaternionScale: scale the rotation angle by `t`, keeping the sign of w.
-pub fn quaternion_scale(p: Quat, t: f32) -> Quat {
-    let sinom = Vec3::new(p.x, p.y, p.z).length().min(1.);
-    let sinsom = (sinom.asin() * t).sin();
-    let scale = sinsom / (sinom + f32::EPSILON);
-    let w = (1. - sinsom * sinsom).max(0.).sqrt();
-    Quat::from_xyzw(
-        p.x * scale,
-        p.y * scale,
-        p.z * scale,
-        if p.w < 0. { -w } else { w },
-    )
-}
-/// bone_setup QuaternionSM: `(s * p) * q`, normalized.
-pub fn quaternion_sm(s: f32, p: Quat, q: Quat) -> Quat {
-    quaternion_mult(quaternion_scale(p, s), q).normalize()
-}
-/// bone_setup QuaternionMA: `p * (s * q)`, normalized.
-pub fn quaternion_ma(p: Quat, s: f32, q: Quat) -> Quat {
-    quaternion_mult(p, quaternion_scale(q, s)).normalize()
-}
-/// SDK SlerpBones for local-space sequences: weighted slerp, or additive delta/post.
-pub fn slerp_bones(
-    base: &mut [Pose],
-    layer: &[Pose],
-    info: &ClipLayer,
-    weight: f32,
-) -> Result<(), PoseError> {
-    if weight <= 0. {
-        return Ok(());
-    }
-    if info.flags & sequence_flags::WORLD != 0 {
-        return Err(PoseError::Unsupported("world-space sequence"));
-    }
-    if base.len() != layer.len()
-        || (!info.bone_weights.is_empty() && info.bone_weights.len() != base.len())
-    {
-        return Err(PoseError::BoneCount);
-    }
-    let s = weight.min(1.);
-    for (i, (q1, q2)) in base.iter_mut().zip(layer).enumerate() {
-        let s2 = s * info.bone_weights.get(i).copied().unwrap_or(1.);
-        if s2 <= 0. {
-            continue;
-        }
-        if info.flags & sequence_flags::DELTA != 0 {
-            q1.rotation = if info.flags & sequence_flags::POST != 0 {
-                quaternion_ma(q1.rotation, s2, q2.rotation)
-            } else {
-                quaternion_sm(s2, q2.rotation, q1.rotation)
-            };
-            q1.position += q2.position * s2;
-        } else {
-            let s1 = 1. - s2;
-            q1.rotation = q2.rotation.slerp(q1.rotation, s1);
-            q1.position = q1.position * s1 + q2.position * s2;
-        }
-    }
-    Ok(())
-}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClipEvent {
     pub cycle: f32,
@@ -552,11 +466,20 @@ impl Clip {
         params: &[f32],
         table: &[PoseParameter],
     ) -> Option<Vec<Pose>> {
+        self.sample_posed_of(cycle, params, table, None)
+    }
+    fn sample_posed_of(
+        &self,
+        cycle: f32,
+        params: &[f32],
+        table: &[PoseParameter],
+        bones: Bones,
+    ) -> Option<Vec<Pose>> {
         let Some(grid) = &self.layer.blend else {
             return if self.layer.all_zeros {
                 None
             } else {
-                self.sample(cycle)
+                self.sample_frames(&self.frames, cycle, bones)
             };
         };
         let (s0, i0) = grid.local(0, params, table);
@@ -574,15 +497,16 @@ impl Clip {
         let (y, sy) = pick(s1, i1);
         let row = |y: usize| -> Option<(Vec<Pose>, bool)> {
             let a = grid.anim(x, y)?;
-            let mut pose = self.sample_frames(&grid.anims[a], cycle)?;
+            let mut pose = self.sample_frames(&grid.anims[a], cycle, bones)?;
             let mut zeros = grid.all_zeros.get(a).copied().unwrap_or(false);
             if let Some(s) = sx {
                 let b = grid.anim(x + 1, y)?;
                 blend_bones(
                     &mut pose,
-                    &self.sample_frames(&grid.anims[b], cycle)?,
+                    &self.sample_frames(&grid.anims[b], cycle, bones)?,
                     &self.layer,
                     s,
+                    bones,
                 );
                 zeros &= grid.all_zeros.get(b).copied().unwrap_or(false);
             }
@@ -591,12 +515,12 @@ impl Clip {
         let (mut pose, mut zeros) = row(y)?;
         if let Some(s) = sy {
             let (next, next_zeros) = row(y + 1)?;
-            blend_bones(&mut pose, &next, &self.layer, s);
+            blend_bones(&mut pose, &next, &self.layer, s, bones);
             zeros &= next_zeros;
         }
         (!zeros).then_some(pose)
     }
-    fn sample_frames(&self, frames: &[Vec<Pose>], cycle: f32) -> Option<Vec<Pose>> {
+    fn sample_frames(&self, frames: &[Vec<Pose>], cycle: f32, bones: Bones) -> Option<Vec<Pose>> {
         let last = frames.len().checked_sub(1)?;
         if !cycle.is_finite() {
             return None;
@@ -609,27 +533,11 @@ impl Clip {
         let frame = cycle * last as f32;
         let a = (frame.floor() as usize).min(last);
         let b = (a + 1).min(last);
-        Some(interpolate(&frames[a], &frames[b], frame - a as f32))
+        Some(interpolate(&frames[a], &frames[b], frame - a as f32, bones))
     }
     /// Interpolated local poses at a normalized cycle; looping clips wrap, others clamp.
     pub fn sample(&self, cycle: f32) -> Option<Vec<Pose>> {
-        let last = self.frames.len().checked_sub(1)?;
-        if !cycle.is_finite() {
-            return None;
-        }
-        let cycle = if self.looping {
-            cycle - cycle.floor()
-        } else {
-            cycle.clamp(0., 1.)
-        };
-        let frame = cycle * last as f32;
-        let a = (frame.floor() as usize).min(last);
-        let b = (a + 1).min(last);
-        Some(interpolate(
-            &self.frames[a],
-            &self.frames[b],
-            frame - a as f32,
-        ))
+        self.sample_frames(&self.frames, cycle, None)
     }
     /// Event intervals are open on the left, closed on the right, so frame updates never replay them.
     pub fn events_between(&self, previous: f32, current: f32) -> Vec<&ClipEvent> {
@@ -739,6 +647,16 @@ impl Rig {
         }
         self.sequences.sort_by_key(|s| s.order);
     }
+    fn clip(&self, name: &str) -> Option<(&String, &Clip)> {
+        if let Some(entry) = self.clips.get_key_value(name) {
+            return Some(entry);
+        }
+        if !name.chars().all(char::is_lowercase) {
+            return self.clips.get_key_value(&name.to_lowercase());
+        }
+        None
+    }
+
     /// Label first, then model-authored activity. The caller supplies a bounded
     /// integer in 0..total_weight; native RNG/prediction stream parity is separate.
     /// Pass no current sequence for native LookupSequence semantics; activity selection
@@ -756,10 +674,10 @@ impl Rig {
             .iter()
             .find(|s| s.name.eq_ignore_ascii_case(name))
         {
-            let clip = self.clips.get_key_value(&sequence.name.to_lowercase());
+            let clip = self.clip(&sequence.name);
             return Some(clip.map_or(sequence.name.as_str(), |(key, _)| key.as_str()));
         }
-        if let Some((label, _)) = self.clips.get_key_value(&name.to_lowercase()) {
+        if let Some((label, _)) = self.clip(name) {
             return Some(label);
         }
         if let Some(sequence) = self.sequences.iter().find(|s| {
@@ -809,7 +727,14 @@ impl Rig {
         weight: f32,
     ) -> Result<(), PoseError> {
         let params = self.default_pose_values();
-        self.accumulate(pose, sequence, cycle, weight.clamp(0., 1.), &params, 0)
+        self.accumulate(
+            pose,
+            sequence,
+            cycle,
+            weight.clamp(0., 1.),
+            &params,
+            (0, None),
+        )
     }
     /// AccumulatePose with explicit normalized pose-parameter values (rig order).
     pub fn accumulate_pose_with(
@@ -820,7 +745,26 @@ impl Rig {
         weight: f32,
         params: &[f32],
     ) -> Result<(), PoseError> {
-        self.accumulate(pose, sequence, cycle, weight.clamp(0., 1.), params, 0)
+        self.accumulate_pose_of(pose, sequence, cycle, weight, params, None)
+    }
+    /// `accumulate_pose_with` on `bones` only.
+    pub fn accumulate_pose_of(
+        &self,
+        pose: &mut [Pose],
+        sequence: &str,
+        cycle: f32,
+        weight: f32,
+        params: &[f32],
+        bones: Bones,
+    ) -> Result<(), PoseError> {
+        self.accumulate(
+            pose,
+            sequence,
+            cycle,
+            weight.clamp(0., 1.),
+            params,
+            (0, bones),
+        )
     }
     /// CBaseAnimating resets each pose parameter to the authored value 0.
     pub fn default_pose_values(&self) -> Vec<f32> {
@@ -841,6 +785,16 @@ impl Rig {
         time: f32,
         params: &[f32],
     ) -> Result<(), PoseError> {
+        self.accumulate_autoplay_of(pose, time, params, None)
+    }
+    /// `accumulate_autoplay` on `bones` only.
+    pub fn accumulate_autoplay_of(
+        &self,
+        pose: &mut [Pose],
+        time: f32,
+        params: &[f32],
+        bones: Bones,
+    ) -> Result<(), PoseError> {
         for name in &self.autoplay {
             let Some(clip) = self.clips.get(name) else {
                 continue;
@@ -852,7 +806,7 @@ impl Rig {
                 0.
             };
             let cycle = (time * cps).fract();
-            self.accumulate(pose, name, cycle, 1., params, 0)?;
+            self.accumulate(pose, name, cycle, 1., params, (0, bones))?;
         }
         Ok(())
     }
@@ -863,21 +817,20 @@ impl Rig {
         cycle: f32,
         weight: f32,
         params: &[f32],
-        depth: usize,
+        (depth, bones): (usize, Bones),
     ) -> Result<(), PoseError> {
         if depth > 8 {
             return Err(PoseError::Depth);
         }
-        let clip = self
-            .clips
-            .get(&sequence.to_lowercase())
+        let (_, clip) = self
+            .clip(sequence)
             .ok_or_else(|| PoseError::MissingSequence(sequence.into()))?;
         if clip.layer.flags & sequence_flags::LOCAL != 0 {
             return Err(PoseError::Unsupported("local-context sequence"));
         }
         // CalcPoseSingle fails for all-zero animations; SlerpBones is then skipped.
-        if let Some(layer) = clip.sample_posed(cycle, params, &self.pose_parameters) {
-            slerp_bones(pose, &layer, &clip.layer, weight)?;
+        if let Some(layer) = clip.sample_posed_of(cycle, params, &self.pose_parameters, bones) {
+            slerp_bones_of(pose, &layer, &clip.layer, weight, bones)?;
         }
         for auto in &clip.layer.autolayers {
             // AddSequenceLayers skips local layers; those belong to AddLocalLayers.
@@ -891,7 +844,7 @@ impl Rig {
                     child_cycle,
                     child_weight.clamp(0., 1.),
                     params,
-                    depth + 1,
+                    (depth + 1, bones),
                 )?;
             }
         }
@@ -899,7 +852,11 @@ impl Rig {
     }
     /// Base-clip local pose at seconds. Delta sequences are composed onto the bind pose.
     pub fn local_pose(&self, name: &str, time: f32) -> Vec<Pose> {
-        let Some(clip) = self.clips.get(&name.to_lowercase()) else {
+        self.local_pose_of(name, time, None)
+    }
+    /// `local_pose` on `bones` only.
+    pub fn local_pose_of(&self, name: &str, time: f32, bones: Bones) -> Vec<Pose> {
+        let Some((_, clip)) = self.clip(name) else {
             return self.bind_pose();
         };
         let Some(last) = clip.frames.len().checked_sub(1) else {
@@ -913,12 +870,12 @@ impl Rig {
         };
         let a = (frame.floor() as usize).min(last);
         let b = (a + 1).min(last);
-        let sampled = interpolate(&clip.frames[a], &clip.frames[b], frame.fract());
+        let sampled = interpolate(&clip.frames[a], &clip.frames[b], frame.fract(), bones);
         if clip.layer.flags & sequence_flags::DELTA == 0 {
             return sampled;
         }
         let mut pose = self.bind_pose();
-        if slerp_bones(&mut pose, &sampled, &clip.layer, 1.).is_err() {
+        if slerp_bones_of(&mut pose, &sampled, &clip.layer, 1., bones).is_err() {
             pose = self.bind_pose();
         }
         pose
@@ -929,8 +886,16 @@ impl Rig {
     }
     /// Skinning matrices for already composed local poses; missing bones use bind.
     pub fn local_matrices(&self, poses: &[Pose]) -> Vec<Mat4> {
+        self.local_matrices_of(poses, None)
+    }
+    /// `local_matrices` for `bones` only (identity for the others).
+    pub fn local_matrices_of(&self, poses: &[Pose], bones: Bones) -> Vec<Mat4> {
         let mut world = Vec::<Mat4>::with_capacity(self.bones.len());
         for (id, bone) in self.bones.iter().enumerate() {
+            if !wanted(bones, id) {
+                world.push(Mat4::IDENTITY);
+                continue;
+            }
             let pose = poses.get(id).unwrap_or(&bone.bind);
             let local = Mat4::from_rotation_translation(pose.rotation, pose.position);
             world.push(
@@ -942,18 +907,32 @@ impl Rig {
         world
             .iter()
             .zip(&self.bones)
-            .map(|(m, b)| *m * b.inverse_bind)
+            .enumerate()
+            .map(|(id, (m, b))| {
+                if wanted(bones, id) {
+                    *m * b.inverse_bind
+                } else {
+                    *m
+                }
+            })
             .collect()
     }
-}
-fn interpolate(a: &[Pose], b: &[Pose], t: f32) -> Vec<Pose> {
-    a.iter()
-        .zip(b)
-        .map(|(p, q)| Pose {
-            position: p.position.lerp(q.position, t),
-            rotation: p.rotation.slerp(q.rotation, t),
-        })
-        .collect()
+    /// The hitbox bones (hitbox set 0) and their ancestors: what posing the hitboxes needs.
+    pub fn hitbox_bones(&self) -> Vec<bool> {
+        self.bone_chains(self.hitboxes.iter().map(|h| h.bone))
+    }
+    /// `bones` and their ancestors: what posing those bones needs (a `Bones` set).
+    pub fn bone_chains(&self, chains: impl IntoIterator<Item = usize>) -> Vec<bool> {
+        let mut bones = vec![false; self.bones.len()];
+        for first in chains {
+            let mut bone = Some(first);
+            while let Some(b) = bone.filter(|&b| b < bones.len() && !bones[b]) {
+                bones[b] = true;
+                bone = self.bones[b].parent;
+            }
+        }
+        bones
+    }
 }
 pub fn skin(position: Vec3, weights: &Weights, matrices: &[Mat4]) -> Vec3 {
     let mut output = Vec3::ZERO;

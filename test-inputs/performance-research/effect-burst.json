@@ -1,0 +1,17 @@
+[
+  {"tick": 1, "fly": true, "eye": [-3260, -2024, 128], "yaw": 0, "actions": [
+    {"action": "send", "target": "station_entrance", "input": "Close"},
+    {"action": "loadout"}, {"action": "slot", "slot": 2}, {"action": "confirm"}]},
+  {"tick": 79, "label": "effects-start", "profile_window": "start"},
+  {"tick": 80, "secondary": true, "label": "grenade-1"},
+  {"tick": 81},
+  {"tick": 86, "eye": [-3270, -2240, 128], "yaw": 77, "label": "camera-withdrawn"},
+  {"tick": 160, "secondary": true, "label": "grenade-2"},
+  {"tick": 161},
+  {"tick": 240, "secondary": true, "label": "grenade-3"},
+  {"tick": 241},
+  {"tick": 320, "secondary": true, "label": "grenade-4"},
+  {"tick": 321},
+  {"tick": 460, "label": "effects-end", "profile_window": "end"},
+  {"tick": 461, "label": "done"}
+]

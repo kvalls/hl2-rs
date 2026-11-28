@@ -214,9 +214,16 @@ impl Canvas {
         self.0.lock().expect("HUD canvas").additive = value;
     }
     pub fn drain(&self) -> Vec<Quad> {
+        let mut out = Vec::new();
+        self.drain_into(&mut out);
+        out
+    }
+    /// Drains this frame's queued quads into `out`, swapping buffers so both retain capacity.
+    pub fn drain_into(&self, out: &mut Vec<Quad>) {
         let mut state = self.0.lock().expect("HUD canvas");
         state.occluders.clear();
-        std::mem::take(&mut state.commands)
+        out.clear();
+        std::mem::swap(&mut state.commands, out);
     }
     fn quad(&self, texture: Option<Texture2D>, source: Rect, destination: Rect, color: Color) {
         let mut state = self.0.lock().expect("HUD canvas");

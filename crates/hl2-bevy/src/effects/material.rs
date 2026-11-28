@@ -11,8 +11,14 @@ use bevy::{
     shader::ShaderRef,
 };
 impl Material for EffectMaterial {
+    fn vertex_shader() -> ShaderRef {
+        "shaders/effects.wesl".into()
+    }
     fn fragment_shader() -> ShaderRef {
         "shaders/effects.wesl".into()
+    }
+    fn prepass_vertex_shader() -> ShaderRef {
+        "shaders/effects_depth.wesl".into()
     }
     fn prepass_fragment_shader() -> ShaderRef {
         "shaders/effects_depth.wesl".into()
@@ -51,9 +57,11 @@ impl Material for EffectMaterial {
         Ok(())
     }
 }
+/// The sprite kind that blends by pure addition (source alpha, one): its quads commute.
+pub(super) const ADDITIVE: usize = 3;
 fn effect_blend(kind: usize) -> Option<BlendState> {
     match kind {
-        3 => Some(BlendState {
+        ADDITIVE => Some(BlendState {
             color: BlendComponent {
                 src_factor: BlendFactor::SrcAlpha,
                 dst_factor: BlendFactor::One,

@@ -93,6 +93,7 @@ impl Console {
         }
         self.loading_dialog = None;
         self.loading_progress.reset();
+        self.run_startup_commands();
     }
 
     /// Ends the background transition if `game`'s `map` is the target, ignoring stale failures.
@@ -116,6 +117,7 @@ impl Console {
         } else if self.background_transition.is_active() {
             self.background_transition.fail(error);
         }
+        self.run_startup_commands();
     }
 
     /// Clears the loading dialog once the level has completely loaded.

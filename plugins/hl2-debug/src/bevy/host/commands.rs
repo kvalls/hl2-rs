@@ -90,8 +90,7 @@ impl State {
             }
             Effect::BackgroundMapFov(None) => {
                 let fov = self.background_debug.fov(
-                    hl2_bevy::camera::background_fov(aspect, sim.background_force_default_blur)
-                        .to_degrees(),
+                    hl2_bevy::camera::background_fov(aspect, sim.standard_background).to_degrees(),
                 );
                 self.background_debug.fov = None;
                 ui.source
@@ -109,6 +108,13 @@ impl State {
         let command = self.overlay.key(key);
         self.spawn_overlay_command(sim, game, command)
     }
+    pub(super) fn record_spawn_status(&mut self, before_len: usize, after_len: usize, msg: &str) {
+        if after_len == before_len {
+            self.loading_status = Some((before_len, msg.to_owned()));
+        } else {
+            self.loading_status = None;
+        }
+    }
     pub(super) fn spawn_overlay_command(
         &mut self,
         sim: &mut hl2_bevy::simulation::Simulation,
@@ -117,7 +123,12 @@ impl State {
     ) -> Option<String> {
         use crate::spawn::OverlayCommand;
         match command? {
-            OverlayCommand::Spawn(request) => Some(sim.spawn_npc(game, request)),
+            OverlayCommand::Spawn(request) => {
+                let before_len = game.spawn_log.len();
+                let msg = sim.spawn_npc(game, request);
+                self.record_spawn_status(before_len, game.spawn_log.len(), &msg);
+                Some(msg)
+            }
             OverlayCommand::SpawnProp(model) => {
                 let model = hl2_bevy::runtime_props::model_path(&model);
                 let message = format!("prop_physics_create {model}");
@@ -157,4 +168,45 @@ impl State {
             };
         }
     }
+}
+
+pub(super) fn spawn_at(
+    sim: &mut hl2_bevy::simulation::Simulation,
+    game: &mut hl2_bevy::gameplay::Gameplay,
+    request: crate::commands::SpawnAt,
+) -> String {
+    use hl2_simulation::ai::spawn::{Placement, SpawnRequest, spawn_class};
+    if !request.valid() {
+        return "Invalid spawn_at position".to_owned();
+    }
+    let origin = glam::Vec3::from_array(request.origin);
+    if request.class.starts_with("npc_") && request.model.is_none() {
+        let (class, _) = spawn_class(&request.class);
+        let npc = SpawnRequest {
+            classname: class.to_owned(),
+            variant: if class != request.class {
+                request.class
+            } else {
+                String::new()
+            },
+            name: request.name,
+            equipment: request.equipment.unwrap_or_default(),
+            ..Default::default()
+        };
+        return game.request_spawn_at(npc, &mut sim.physics, Placement { origin, yaw: 0. });
+    }
+    if request.equipment.is_some() || (request.model.is_some() && request.class != "prop_physics") {
+        return "spawn_at: use model for prop_physics and additionalequipment for NPCs".to_owned();
+    }
+    let mut entity = modkit_core::Entity {
+        properties: vec![("classname".into(), request.class)],
+    };
+    if let Some(name) = request.name {
+        entity.properties.push(("targetname".into(), name));
+    }
+    if let Some(model) = request.model {
+        entity.properties.push(("model".into(), model));
+    }
+    game.queue_model_at(entity, origin)
+        .map_or_else(|error| error, |()| "Queued model spawn".to_owned())
 }

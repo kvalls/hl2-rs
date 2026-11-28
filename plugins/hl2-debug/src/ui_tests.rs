@@ -2,7 +2,7 @@
 
 use crate::commands::Request;
 use hl2_ui::console::{Console, Effect, Mode};
-fn console() -> Console {
+pub(super) fn console() -> Console {
     let mut c = Console::default();
     let mut e = hl2_ui::extensions::Extensions::default();
     crate::register(&mut e).unwrap();
@@ -110,4 +110,228 @@ fn viewmodel_debug_name_is_registered_and_old_mode_name_is_not() {
         .collect();
     assert!(names.contains(&"viewmodel_debug_mode"));
     assert!(!names.contains(&"viewmodel_tweak_mode"));
+}
+
+#[test]
+fn ai_enable_comes_from_the_debug_plugin() {
+    let mut console = console();
+    assert_eq!(
+        console.submit("ai_enable 0"),
+        vec![effect(Request::AiEnable(Some(false)))]
+    );
+    assert_eq!(
+        console.submit("ai_enable"),
+        vec![effect(Request::AiEnable(None))]
+    );
+    assert!(console.submit("ai_enable 2").is_empty());
+    assert!(
+        Console::default().submit("ai_enable 0").is_empty(),
+        "core has no ai_enable"
+    );
+}
+
+#[test]
+fn npc_dump_parses_default_radius_and_entity_id() {
+    use crate::commands::{DEFAULT_NPC_DUMP_RADIUS, NpcDumpQuery};
+    let mut console = console();
+    assert_eq!(
+        console.submit("npc_dump"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Nearby(
+            DEFAULT_NPC_DUMP_RADIUS
+        )))]
+    );
+    assert_eq!(
+        console.submit("npc_dump 250"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Nearby(250.0)))]
+    );
+    assert_eq!(
+        console.submit("npc_dump id 1297"),
+        vec![effect(Request::NpcDump(NpcDumpQuery::Entity(1297)))]
+    );
+    assert!(
+        console
+            .submit("npc_dump 0; npc_dump -5; npc_dump foo; npc_dump id abc")
+            .is_empty()
+    );
+    assert!(
+        Console::default().submit("npc_dump").is_empty(),
+        "core has no npc_dump"
+    );
+}
+
+#[test]
+fn remote_reply_clears_status_without_printing_it() {
+    use source_ui::console::panel::Level;
+
+    let mut c = console();
+    let before = c.shell.panel.output.len();
+    assert!(c.execute("agent_status thinking").is_empty());
+    assert_eq!(c.shell.panel.output.len(), before + 1);
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Thinking..."))
+    );
+    c.log("rcon from 127.0.0.1");
+    assert_eq!(
+        c.shell.panel.output.back().map(|l| l.text.as_str()),
+        Some("Console: Thinking..."),
+        "status stays pinned below ordinary log output"
+    );
+    c.execute("agent_status waiting");
+    assert_eq!(c.shell.panel.output.len(), before + 2);
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Still waiting for a reply..."))
+    );
+    c.execute("agent_status Working...");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Working..."))
+    );
+    c.execute("agent_status \"Building release...\"");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Building release..."))
+    );
+    c.execute("agent_status Spawning NPCs...");
+    assert_eq!(
+        c.shell
+            .panel
+            .output
+            .back()
+            .map(|l| (l.level, l.text.as_str())),
+        Some((Level::ChatRemote, "Console: Spawning NPCs..."))
+    );
+    assert!(c.execute("agent_status clear").is_empty());
+    assert_eq!(c.shell.panel.output.len(), before + 1);
+    c.execute("agent_status; agent_status \"\"; agent_status \"   \"");
+    assert_eq!(
+        c.shell.panel.output.back().map(|l| l.level),
+        Some(Level::Normal)
+    );
+    c.remote.from_rcon = true;
+    assert_eq!(
+        c.execute("agent_status thinking"),
+        vec![effect(Request::AgentCaption("Console: Thinking...".into()))]
+    );
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((Level::ChatRemote, "Console: Thinking...".into())))
+    );
+    c.execute("agent_status \"Running tests...\"");
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((
+            Level::ChatRemote,
+            "Console: Running tests...".into()
+        )))
+    );
+    c.execute("say hello");
+    assert_eq!(c.remote.snapshot, Some(None));
+    assert_eq!(c.remote.broadcast, ["Console: hello"]);
+}
+
+#[test]
+fn open_console_status_is_pinned_without_a_caption_effect() {
+    use source_ui::console::panel::Level;
+
+    let mut c = console();
+    c.set_mode(Mode::Gameplay);
+    c.set_mode(Mode::Console);
+    c.focus_base();
+    assert!(c.console_open());
+    c.remote.from_rcon = true;
+    assert!(c.execute("agent_status thinking").is_empty());
+    assert_eq!(
+        c.remote.snapshot,
+        Some(Some((Level::ChatRemote, "Console: Thinking...".into())))
+    );
+
+    c.set_mode(Mode::Gameplay);
+    assert_eq!(
+        c.execute("agent_status waiting"),
+        vec![effect(Request::AgentCaption(
+            "Console: Still waiting for a reply...".into()
+        ))]
+    );
+}
+
+#[test]
+fn agent_status_is_not_logged_from_the_remote_console() {
+    let console = console();
+    for line in [
+        "agent_status thinking",
+        "agent_status \"Working...\"",
+        "agent_status Spawning NPCs...",
+    ] {
+        let commands = source_ui::console::command::tokenize(line);
+        assert!(console.remote_log_skips(&commands), "{line}");
+    }
+}
+
+#[test]
+fn map_dump_accepts_coordinates_and_pages_only_with_debug_tools() {
+    use crate::commands::MapDumpQuery;
+    let mut c = console();
+    for (command, query) in [
+        ("map_dump", MapDumpQuery::Page(0)),
+        ("map_dump page 12", MapDumpQuery::Page(12)),
+        (
+            "map_dump near 158 -1258 -738 200",
+            MapDumpQuery::Near {
+                point: [158., -1258., -738.],
+                radius: 200.,
+            },
+        ),
+    ] {
+        assert_eq!(c.submit(command), vec![effect(Request::MapDump(query))]);
+        assert!(Console::default().submit(command).is_empty());
+    }
+    for bad in [
+        "map_dump page -1",
+        "map_dump near 1 2 3 0",
+        "map_dump near NaN 0 0 1",
+        "map_dump near 1 2",
+    ] {
+        assert!(c.submit(bad).is_empty());
+    }
+}
+
+#[test]
+fn spawn_at_preserves_coordinates_and_only_accepts_known_options() {
+    let mut console = console();
+    assert_eq!(
+        console.submit("spawn_at npc_citizen_rebel pos -4310 84 -57 targetname scout additionalequipment weapon_smg1"),
+        vec![effect(Request::SpawnAt(crate::commands::SpawnAt {
+            class: "npc_citizen_rebel".into(),
+            origin: [-4310., 84., -57.],
+            name: Some("scout".into()),
+            model: None,
+            equipment: Some("weapon_smg1".into()),
+        }))]
+    );
+    for command in [
+        "spawn_at item_battery pos -4300 nan -57",
+        "spawn_at item_battery pos 1 2",
+        "spawn_at item_battery pos 1 2 3 bogus 4",
+        "spawn_at item_battery pos 1 2 3 targetname one targetname two",
+    ] {
+        assert!(console.submit(command).is_empty(), "{command}");
+    }
 }

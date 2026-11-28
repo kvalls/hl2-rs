@@ -1,8 +1,5 @@
 //! Off-thread map preparation and stage diagnostics.
-use super::{
-    FRAG_RIGID_BODY, LoadedMap, MAX_MATERIALS, MaterialData, add_static_decals, load_material,
-    names, normalize_bsp_render_winding,
-};
+use super::{FRAG_RIGID_BODY, LoadedMap, add_static_decals, normalize_bsp_render_winding};
 use anyhow::{Context, Result, bail};
 use modkit_core::World;
 use source_assets::{bsp::Bsp, models, vpk::Vfs};
@@ -52,6 +49,8 @@ pub(crate) struct LoadMode {
     pub background: bool,
     pub cancel: super::work::Cancellation,
     pub audio_reuse: Arc<crate::audio::reuse::AudioReuse>,
+    pub allow_bc_textures: bool,
+    pub extra_npc_classes: std::collections::BTreeSet<String>,
 }
 
 pub fn load_with_progress(
@@ -77,6 +76,32 @@ pub fn load_with_progress(
     )
 }
 
+#[cfg(test)]
+pub(super) fn load_with_extra_npcs(
+    root: &Path,
+    game: &str,
+    map: &str,
+    extra_npc_classes: std::collections::BTreeSet<String>,
+) -> Result<LoadedMap> {
+    let config = hl2_ui::config::Config::load_or_default();
+    let progress = hl2_ui::gameui::loading::ProgressReport::default();
+    load(
+        LoadInput {
+            root,
+            game,
+            map,
+            canvas: source_ui::canvas::Canvas::default(),
+            new_game: true,
+            config: &config,
+            progress: &progress,
+        },
+        LoadMode {
+            extra_npc_classes,
+            ..Default::default()
+        },
+    )
+}
+
 pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     let LoadInput {
         root,
@@ -98,6 +123,7 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     progress.report(0.35, "LoadingProgress_PrecacheWorld");
     let PreparedWorld {
         world,
+        decal_layers,
         model_report,
         weapon_models,
         decal_errors,
@@ -107,10 +133,10 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     let world = gameplay.world.clone();
     timing.mark("gameplay");
     mode.cancel.check()?;
-    let (audio_work, aux_work) = parallel_resources(
+    let (audio_work, aux_work, physics_work) = parallel_resources(
         vfs.clone(),
         &gameplay,
-        canvas,
+        canvas.clone(),
         mode.audio_reuse.clone(),
         hdr,
         &mode.cancel,
@@ -118,12 +144,12 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     timing.mark("parallel_plan");
     let effects = crate::effects::PreparedEffects::load_with_lod(&vfs, &world, root_lod);
     timing.mark("effects");
-    let (materials, mut texture_errors) = materials(
+    let (materials, mut texture_errors) = super::loading_materials::load(
         &vfs,
         &world,
         (&effects, &weapon_models, &gameplay),
         decal_errors,
-        (picmip, hdr),
+        (picmip, hdr, mode.allow_bc_textures),
         (progress, &mode.cancel),
     )?;
     mode.cancel.check()?;
@@ -132,16 +158,11 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     texture_errors.extend(cubemap_errors);
     timing.mark("cubemaps");
     progress.report(0.90, "LoadingProgress_SignonLocal");
-    let super::loading_auxiliary::Auxiliary {
-        hud,
-        faces,
-        sky,
-        cookie: flashlight_cookie,
-        errors,
-        timings: aux_timings,
-    } = aux_work.wait()?;
-    texture_errors.extend(errors);
+    let aux = aux_work.wait()?;
+    texture_errors.extend(aux.errors);
     timing.mark("aux_wait");
+    let physics = physics_work.wait()?;
+    timing.mark("physics");
     let (audio, pending_audio) = complete_audio(audio_work, mode.background, &mut gameplay)?;
     timing.mark("audio");
     progress.report(1.0, "LoadingProgress_SignonLocal");
@@ -149,20 +170,23 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
     timing.mark("shadows_cookie");
     mode.cancel.check()?;
     let mut load_timings = timing.finish();
-    load_timings.extend(aux_timings);
+    load_timings.extend(aux.timings);
     Ok(LoadedMap {
+        decal_layers,
         load_timings,
         shadow_receivers,
-        flashlight_cookie,
+        flashlight_cookie: aux.cookie,
         game: game.to_owned(),
         effects,
-        eyes: faces.eyes,
-        gaze: faces.gaze,
-        flexes: faces.flexes,
-        sky,
+        eyes: aux.faces.eyes,
+        gaze: aux.faces.gaze,
+        flexes: aux.faces.flexes,
+        sky: aux.sky,
         audio,
         pending_audio,
-        hud,
+        hud: Some(aux.hud),
+        canvas,
+        physics: Some(physics),
         gameplay,
         revision: bsp.revision,
         bsp,
@@ -172,6 +196,7 @@ pub(crate) fn load(input: LoadInput<'_>, mode: LoadMode) -> Result<LoadedMap> {
         texture_errors,
         models: serde_json::to_value(model_report)?,
         vfs,
+        geometry: None,
     })
 }
 
@@ -228,12 +253,22 @@ fn parallel_resources(
 ) -> Result<(
     super::work::Work<crate::audio::PreparedAudio>,
     super::work::Work<super::loading_auxiliary::Auxiliary>,
+    super::work::Work<hl2_simulation::physics::Physics>,
 )> {
     cancel.check()?;
     let world = gameplay.world.clone();
     let aux_vfs = vfs.clone();
     let aux_work = super::work::Work::spawn("hl2-visual-auxiliary", move |cancel| {
         super::loading_auxiliary::load(&aux_vfs, &world, canvas, hdr, &cancel)
+    })
+    .map_err(anyhow::Error::msg)?;
+    let physics_world = gameplay.world.clone();
+    let physics_work = super::work::Work::spawn("hl2-physics-build", move |cancel| {
+        crate::priority::set_current_thread(crate::priority::Priority::Background);
+        cancel.check()?;
+        let physics = hl2_simulation::physics::Physics::new(&physics_world);
+        cancel.check()?;
+        Ok(physics)
     })
     .map_err(anyhow::Error::msg)?;
     let plan = crate::audio::PreparedAudio::plan(&vfs, gameplay);
@@ -243,10 +278,11 @@ fn parallel_resources(
         plan.decode(&audio_vfs, &cancel, &audio_reuse)
     })
     .map_err(anyhow::Error::msg)?;
-    Ok((audio_work, aux_work))
+    Ok((audio_work, aux_work, physics_work))
 }
 
 struct PreparedWorld {
+    decal_layers: Vec<super::DecalLayer>,
     world: World,
     model_report: models::ModelReport,
     weapon_models: Vec<String>,
@@ -266,13 +302,15 @@ fn prepare_world(
     normalize_bsp_render_winding(&mut world);
     // Static infodecals land on world brush faces only, before static props are merged.
     let mut decal_errors = Vec::new();
-    add_static_decals(&mut world, vfs, &mut decal_errors);
-    // F4 / npc_create spawn pool: hidden NPCs every load-time system builds.
-    if !mode.background {
-        hl2_simulation::ai::spawn::append_pool(&mut world);
-    }
-    // CreateRagGib models (the zombie's legs), precached like the zombie's Precache.
-    hl2_simulation::ai::spawn::append_gib_pool(&mut world);
+    let layered = add_static_decals(&mut world, vfs, &mut decal_errors);
+    // F4 / npc_create spawn pool: hidden templates required by map entities or script commands.
+    let empty = std::collections::BTreeSet::new();
+    let extras = if mode.background {
+        &empty
+    } else {
+        &mode.extra_npc_classes
+    };
+    hl2_simulation::ai::spawn::append_required_pool(&mut world, extras);
     // CNPC_Citizen::SelectModel (citizen types, random heads), before models load.
     hl2_simulation::citizens::select_models(&mut world, hl2_simulation::ai::spawn::POOL_KEY);
     let commentary_enabled = config.gameplay.commentary;
@@ -280,10 +318,19 @@ fn prepare_world(
         hl2_simulation::commentary::append_world_commentary(&mut world, vfs, map);
     }
     timing.mark("world");
-    let (model_report, weapon_models) = prepare_models(&mut world, vfs, config.video.root_lod());
+    let (model_report, weapon_models) =
+        prepare_models(&mut world, vfs, config.video.root_lod(), timing);
     mode.cancel.check()?;
+    let decal_layers = layered
+        .into_iter()
+        .map(|(surface, layer)| {
+            world.surfaces.push(surface);
+            layer
+        })
+        .collect();
     timing.mark("models");
     Ok(PreparedWorld {
+        decal_layers,
         world,
         model_report,
         weapon_models,
@@ -334,9 +381,12 @@ fn prepare_models(
     world: &mut World,
     vfs: &Vfs,
     root_lod: usize,
+    timing: &mut Timings,
 ) -> (models::ModelReport, Vec<String>) {
     let model_report = models::append_models_lod(world, vfs, root_lod);
+    timing.mark("model_props");
     let _gibs_without_physics = models::append_break_physics(world, vfs);
+    timing.mark("model_gibs");
     // NPC weapon world models: their sequence events fire NPC weapons (DESIGN 14w).
     let weapon_models: Vec<String> = hl2_simulation::npc_weapons::definitions(vfs)
         .map(|defs| {
@@ -357,6 +407,7 @@ fn prepare_models(
     ) {
         world.warnings.push(failure);
     }
+    timing.mark("model_rigs");
     // ... and drawn bone-merged in their owners' hands (CBaseCombatWeapon::Equip).
     for model in &weapon_models {
         let key = format!("{}#0", model.to_lowercase());
@@ -389,49 +440,4 @@ fn prepare_models(
         ));
     }
     (model_report, weapon_models)
-}
-
-fn materials(
-    vfs: &Vfs,
-    world: &World,
-    (effects, weapon_models, gameplay): (
-        &crate::effects::PreparedEffects,
-        &[String],
-        &crate::gameplay::Gameplay,
-    ),
-    decal_errors: Vec<String>,
-    (picmip, hdr): (i32, bool),
-    (progress, cancel): (
-        &hl2_ui::gameui::loading::ProgressReport,
-        &super::work::Cancellation,
-    ),
-) -> Result<(BTreeMap<String, MaterialData>, Vec<String>)> {
-    let names = names::map_material_names(world, effects, weapon_models, gameplay);
-    if names.len() > MAX_MATERIALS {
-        bail!("map exceeds {MAX_MATERIALS} unique material limit");
-    }
-    let mut materials = BTreeMap::new();
-    let mut texture_errors = decal_errors;
-    let mut decoded_bytes = 0usize;
-    let mut texture_cache = BTreeMap::new();
-    let mut frame_cache = BTreeMap::new();
-    let total_materials = names.len().max(1);
-    for (i, name) in names.into_iter().enumerate() {
-        cancel.check()?;
-        if i % 10 == 0 || i + 1 == total_materials {
-            let frac = 0.55 + 0.30 * (i as f32 / total_materials as f32);
-            progress.report(frac, "LoadingProgress_LoadResources");
-        }
-        let material = load_material(
-            vfs,
-            &name,
-            &mut texture_cache,
-            &mut frame_cache,
-            &mut decoded_bytes,
-            &mut texture_errors,
-            (picmip, hdr),
-        );
-        materials.insert(name, material);
-    }
-    Ok((materials, texture_errors))
 }

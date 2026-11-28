@@ -11,6 +11,7 @@
 //! [`paint`]: CloseCaption::paint
 use std::collections::HashMap;
 mod paint;
+mod speech;
 
 /// `CC_INSET`, proportional.
 const INSET: f32 = 6.;
@@ -171,6 +172,7 @@ struct WorkUnit {
 #[derive(Clone, Debug)]
 struct Item {
     stream: String,
+    runtime_speech: bool,
     time_to_live: f32,
     initial_life_span: f32,
     added_time: f32,
@@ -475,6 +477,8 @@ pub struct CloseCaption {
     goal_finish: f64,
     /// Ticks seen (the same-tick repeat rule).
     tick_count: u64,
+    /// Keeping the fading caption box visible while only runtime speech was shown over a hidden HUD.
+    runtime_only_visible: bool,
     /// Tokens with no caption, reported once.
     pub missing: Vec<String>,
     /// Captions processed (shown or queued).
@@ -495,6 +499,7 @@ impl CloseCaption {
     /// LevelShutdown/Reset: drop every item.
     pub fn reset(&mut self) {
         self.items.clear();
+        self.runtime_only_visible = false;
     }
 
     /// LevelInit: forget repeat timers.
@@ -590,7 +595,7 @@ impl CloseCaption {
     /// Process: split the stream at `<delay>` into items with their lifespans.
     pub fn process(&mut self, stream: &str, duration: f32, from_player: bool, settings: &Settings) {
         if !settings.closecaption {
-            self.reset();
+            self.retain_runtime_speech();
             return;
         }
         if stream.trim().is_empty() {
@@ -604,11 +609,7 @@ impl CloseCaption {
             // In the file but not translated (cc_captiontrace 1 only reports it).
             return;
         }
-        self.processed += 1;
-        if self.recent.len() == 16 {
-            self.recent.remove(0);
-        }
-        self.recent.push(stream.to_owned());
+        self.record_processed(stream);
         let mut lifespan = duration + settings.linger_time;
         let mut added = 0.;
         if let Some(last) = self.items.last() {
@@ -677,6 +678,7 @@ impl CloseCaption {
         }
         let mut item = Item {
             stream: phrase.to_owned(),
+            runtime_speech: false,
             time_to_live: lifespan,
             initial_life_span: lifespan,
             added_time: added,
@@ -704,25 +706,7 @@ impl CloseCaption {
     /// OnTick: count down the predisplay delay, then the life of shown items, and remove
     /// expired items from the head until the first one still alive.
     pub fn tick(&mut self, dt: f32) {
-        self.tick_count += 1;
-        for item in &mut self.items {
-            if item.predisplay > 0. {
-                item.predisplay = (item.predisplay - dt).max(0.);
-            } else {
-                item.time_to_live = (item.time_to_live - dt).max(0.);
-            }
-        }
-        let mut alive = false;
-        self.items.retain(|item| {
-            if item.predisplay > 0. {
-                return true;
-            }
-            if item.time_to_live > 0. {
-                alive = true;
-                return true;
-            }
-            alive
-        });
+        self.tick_split(dt, dt);
     }
 }
 
@@ -810,6 +794,7 @@ pub struct CaptionHud {
     fonts: Vec<(Style, source_ui::font::FontFace, f32)>,
     pub state: source_ui::canvas::MutexCell<CloseCaption>,
     clock: source_ui::canvas::MutexCell<Option<f64>>,
+    runtime_clock: source_ui::canvas::MutexCell<Option<f64>>,
     pub errors: Vec<String>,
 }
 
@@ -880,6 +865,7 @@ impl CaptionHud {
             fonts,
             state: source_ui::canvas::MutexCell::new(CloseCaption::new()),
             clock: source_ui::canvas::MutexCell::new(None),
+            runtime_clock: source_ui::canvas::MutexCell::new(None),
             errors,
         }
     }
@@ -897,36 +883,20 @@ impl CaptionHud {
         }
     }
 
-    /// Advances the queue on the game clock (so a paused game holds its captions).
-    pub fn tick(&self, time: f64) {
-        let mut clock = self.clock.borrow_mut();
-        let dt = clock.map_or(0., |last| (time - last).max(0.)) as f32;
-        *clock = Some(time);
-        self.state.borrow_mut().tick(dt);
-    }
-
     /// Lays out the panel for a canvas `size` in pixels; None while there is nothing to draw
     /// or the fonts are missing.
     pub fn paint(&self, size: (f32, f32), time: f64) -> Option<(source_ui::canvas::Rect, Paint)> {
-        let canvas = glam::vec2(size.0, size.1);
-        let scale = crate::proportional::scale(canvas);
-        let measure = self.measure(scale)?;
+        self.paint_filtered(size, true, time)
+    }
+
+    fn panel_rect(&self, size: (f32, f32), scale: f32) -> source_ui::canvas::Rect {
         let x = crate::hud::panel_axis(&self.layout.xpos, size.0, scale).unwrap_or(0.);
-        let rect = source_ui::canvas::Rect::new(
+        source_ui::canvas::Rect::new(
             x.trunc(),
-            (self.layout.ypos * crate::proportional::y_scale(canvas)).trunc(),
+            (self.layout.ypos * crate::proportional::y_scale(glam::vec2(size.0, size.1))).trunc(),
             (self.layout.wide * scale).trunc(),
             (self.layout.tall * scale).trunc(),
-        );
-        let paint = self.state.borrow_mut().paint(
-            (rect.w, rect.h),
-            scale,
-            &self.layout,
-            &measure,
-            self.background,
-            time,
-        );
-        Some((rect, paint))
+        )
     }
 
     fn measure(&self, scale: f32) -> Option<Fonts<'_>> {

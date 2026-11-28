@@ -133,11 +133,8 @@ pub fn update(
     // observation of native HL2, 2026-10-08); the last exposure stays on the cameras. A menu
     // background level keeps running.
     let paused = !sim.world_running();
+    let request = should_request_readback(&state, paused);
     if state.forced.is_none() && state.level.is_hdr() && !paused {
-        let request = state.frames.is_multiple_of(INTERVAL) && {
-            let mut pending = state.pending.lock().expect("tonemap pending");
-            !std::mem::replace(&mut *pending, true)
-        };
         if request {
             state.readbacks += 1;
             let (histogram, pending) = (state.histogram.clone(), state.pending.clone());
@@ -164,17 +161,37 @@ pub fn update(
     if !paused {
         state.bloom = tonemap::ease_bloom(state.bloom, game.scene.tonemap.bloom);
     }
+    let desired_presample = request.then_some(presample);
+    let amount = state.bloom * state.level.bloom_factor();
     for mut bloom in &mut blooms {
-        bloom.amount = state.bloom * state.level.bloom_factor();
-        if bloom.presample.as_ref() != Some(&presample) {
-            bloom.presample = Some(presample.clone());
-        }
+        apply_bloom_frame(&mut bloom, amount, desired_presample.as_ref());
     }
     let ev = ev100(state.scale());
     for mut exposure in &mut cameras {
         if exposure.ev100 != ev {
             exposure.ev100 = ev;
         }
+    }
+}
+
+fn should_request_readback(state: &Tonemap, paused: bool) -> bool {
+    if state.forced.is_some() || !state.level.is_hdr() || paused {
+        return false;
+    }
+    state.frames.is_multiple_of(INTERVAL) && {
+        let mut pending = state.pending.lock().expect("tonemap pending");
+        !std::mem::replace(&mut *pending, true)
+    }
+}
+
+fn apply_bloom_frame(
+    bloom: &mut crate::bloom::SourceBloom,
+    amount: f32,
+    presample: Option<&Handle<Image>>,
+) {
+    bloom.amount = amount;
+    if bloom.presample.as_ref() != presample {
+        bloom.presample = presample.cloned();
     }
 }
 
@@ -233,5 +250,33 @@ mod tests {
             };
             assert!((exposure.exposure() - scale).abs() < 1e-5, "{scale}");
         }
+    }
+
+    #[test]
+    fn presample_is_attached_only_on_readback_frames() {
+        let mut state = Tonemap::new(None);
+        let handle = Handle::<Image>::default();
+        let mut bloom = crate::bloom::SourceBloom {
+            amount: 0.,
+            presample: None,
+        };
+        let mut requested = Vec::new();
+        for frame in 1..=(INTERVAL * 2) {
+            state.frames = frame;
+            let req = should_request_readback(&state, false);
+            requested.push(req);
+            apply_bloom_frame(&mut bloom, 1.0, req.then_some(&handle));
+            assert_eq!(bloom.presample.is_some(), req, "frame {frame}");
+            if req {
+                *state.pending.lock().expect("pending") = false;
+            }
+        }
+        assert_eq!(
+            requested.iter().filter(|&&r| r).count(),
+            2,
+            "only INTERVAL multiples should request presample readback"
+        );
+        assert!(requested[INTERVAL as usize - 1]);
+        assert!(requested[(INTERVAL * 2 - 1) as usize]);
     }
 }

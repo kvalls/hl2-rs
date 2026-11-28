@@ -33,6 +33,12 @@ impl Console {
     /// resetting its contents); a base mode (menus, gameplay) replaces the base and closes
     /// every window.
     pub fn set_mode(&mut self, mode: Mode) {
+        let restore_console = std::mem::take(&mut self.restore_console_on_pause);
+        let mode = if mode == Mode::Pause && restore_console && self.console_enabled() {
+            Mode::Console
+        } else {
+            mode
+        };
         match mode {
             Mode::NewGame => {
                 self.shell.windows.open(Window::NewGame);
@@ -256,8 +262,7 @@ impl Console {
         self.mode != Mode::Gameplay
     }
 
-    /// Escape went down. When it would close a dialog that has a close button (Options or one
-    /// of its sub-dialogs, the console) or a confirmation dialog with a Cancel button, that
+    /// Escape went down. When it would close a dialog with a close or Cancel button, that
     /// button shows pressed/armed until Escape is released and the dialog closes then.
     /// Everything else Escape does happens at once.
     pub fn escape_pressed(&mut self) {
@@ -280,6 +285,15 @@ impl Console {
     /// Opens the console on top with the focus, or closes it (focused or not); it opens only
     /// while `con_enable` is on. Blocked when a modal dialog or blocking subdialog is open.
     pub fn toggle(&mut self) {
+        let closes_menu = self.console_escape_to_base();
+        self.toggle_console_window();
+        if closes_menu && !self.console_open() {
+            self.base = Mode::Gameplay;
+            self.sync_mode();
+        }
+    }
+
+    pub(super) fn toggle_console_window(&mut self) {
         if let Some(effects) = self.skip_video() {
             self.deferred.extend(effects);
             return;
@@ -512,6 +526,17 @@ impl Host for Console {
         }
     }
 
+    fn console_escape_to_base(&self) -> bool {
+        !self.background_level
+            && matches!(self.base, Mode::Gameplay | Mode::Pause)
+            && self.console_open()
+            && self
+                .shell
+                .windows
+                .active_order()
+                .all(|w| w == Window::Console)
+    }
+
     fn hold_escape(&mut self, top: Option<Window>) {
         self.options.escape_held = matches!(top, Some(Window::Options | Window::SubDialog));
         if let Some(d) = self.chapter_dialog_mut() {
@@ -619,7 +644,12 @@ impl Host for Console {
             // Windows are never the base.
             window @ (Mode::Console | Mode::Options | Mode::NewGame) => window,
         };
+        let remember_console = base == Mode::Gameplay && self.console_escape_to_base();
         self.set_mode(base);
+        if remember_console {
+            self.restore_console_on_pause = true;
+            self.reset_menu_interaction();
+        }
     }
 
     fn window_closed(&mut self) {
@@ -639,6 +669,7 @@ impl Host for Console {
     }
 
     fn console_opening(&mut self) {
+        self.restore_console_on_pause = false;
         self.clear_menu_hover();
         if !self.background_level && self.base == Mode::Gameplay {
             self.base = Mode::Pause;

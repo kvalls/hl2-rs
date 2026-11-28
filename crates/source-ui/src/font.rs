@@ -5,11 +5,13 @@ use crate::canvas::{
     Texture2D,
 };
 mod button;
+mod outline;
 use anyhow::{Context, Result};
 use glam::{vec2, Vec2};
 use std::{collections::HashMap, sync::Arc};
 
-/// Outline style for rendering borders along font glyph contours.
+/// Outline style for rendering borders along font glyph contours. The outline grows outward
+/// from each glyph's edge and is drawn once per glyph, so `color.a` is its final opacity.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextOutline {
     pub color: Color,
@@ -29,12 +31,25 @@ impl TextOutline {
     };
 
     pub const DEFAULT: Self = Self {
-        color: Color::new(0.0, 0.0, 0.0, 0.45),
+        color: Color::new(0.0, 0.0, 0.0, 0.4),
         thickness: 1.0,
     };
 
     pub const fn new(color: Color, thickness: f32) -> Self {
         Self { color, thickness }
+    }
+
+    /// This outline with its opacity multiplied by `amount` (a fade from 1 to 0); [`Self::NONE`]
+    /// once nothing would show, so a faded-out outline emits no quads.
+    pub fn faded(self, amount: f32) -> Self {
+        let alpha = self.color.a * amount.clamp(0., 1.);
+        if alpha <= 1e-4 {
+            return Self::NONE;
+        }
+        Self::new(
+            Color::new(self.color.r, self.color.g, self.color.b, alpha),
+            self.thickness,
+        )
     }
 
     pub fn is_visible(&self) -> bool {
@@ -48,6 +63,7 @@ pub struct FontFace {
     font: Arc<fontdue::Font>,
     glyphs: GlyphCache,
     monochrome: MonochromeCache,
+    rings: RingCache,
     cell_height: f32,
     ascent: f32,
     /// OS/2 usWinAscent per EM: the GDI cell's ascent.
@@ -56,6 +72,7 @@ pub struct FontFace {
 }
 type GlyphCache = Arc<MutexCell<HashMap<(char, u32, u16, u16), Glyph>>>;
 type MonochromeCache = Arc<MutexCell<HashMap<(char, u16, u32), Option<Texture2D>>>>;
+type RingCache = Arc<MutexCell<HashMap<(char, u32, u16), Option<outline::Ring>>>>;
 #[derive(Clone)]
 struct Glyph {
     texture: Option<Texture2D>,
@@ -281,6 +298,7 @@ impl FontFace {
             font: Arc::new(font),
             glyphs: Arc::new(MutexCell::new(HashMap::new())),
             monochrome: Arc::new(MutexCell::new(HashMap::new())),
+            rings: Arc::new(MutexCell::new(HashMap::new())),
             cell_height: cell_height.max(0.01),
             ascent,
             win_ascent,
@@ -487,6 +505,7 @@ impl FontFace {
     pub fn draw_cell(&self, value: &str, top_left: Vec2, cell: f32, color: Color) {
         self.draw_cell_outlined(value, top_left, cell, color, TextOutline::NONE);
     }
+
     /// Draws `value` with an outline/border along the letter edge path.
     pub fn draw_baseline_outlined(
         &self,
@@ -520,33 +539,26 @@ impl FontFace {
                         texture.size() * scale,
                     )
                 };
-                glyphs.push((texture.clone(), pos, size));
+                glyphs.push((c, texture.clone(), pos, size));
             }
             pen.x += glyph.advance * scale;
         }
 
+        // One cached outward-only ring per glyph (font/outline.rs), all before the glyphs, so
+        // `outline.color.a` is the outline's final opacity and the glyph quads below are exactly
+        // those an unoutlined draw emits.
         if outline.is_visible() {
-            const OFFSETS: [(f32, f32); 8] = [
-                (-1.0, 0.0),
-                (1.0, 0.0),
-                (0.0, -1.0),
-                (0.0, 1.0),
-                (-1.0, -1.0),
-                (1.0, -1.0),
-                (-1.0, 1.0),
-                (1.0, 1.0),
-            ];
-            for (dx, dy) in OFFSETS {
-                let offset = vec2(dx * outline.thickness, dy * outline.thickness);
-                for (texture, pos, size) in &glyphs {
+            for &(c, _, pos, _) in &glyphs {
+                if let Some(ring) = self.ring(c, em, outline.thickness) {
+                    let pad = ring.radius * scale;
                     draw_texture_ex(
                         &self.canvas,
-                        texture,
-                        pos.x + offset.x,
-                        pos.y + offset.y,
+                        &ring.texture,
+                        pos.x - pad,
+                        pos.y - pad,
                         outline.color,
                         DrawTextureParams {
-                            dest_size: Some(*size),
+                            dest_size: Some(ring.texture.size() * scale),
                             ..Default::default()
                         },
                     );
@@ -555,7 +567,7 @@ impl FontFace {
         }
 
         if color.a > 0.0 {
-            for (texture, pos, size) in &glyphs {
+            for (_, texture, pos, size) in &glyphs {
                 draw_texture_ex(
                     &self.canvas,
                     texture,
@@ -681,27 +693,97 @@ mod tests {
             .iter()
             .all(|q| q.color == WHITE && q.texture.is_some()));
 
-        // Active outline should emit 8 offset outline quads plus 1 foreground quad per glyph
-        let border_color = Color::new(0.0, 0.0, 0.0, 0.45);
-        let outline = TextOutline::new(border_color, 1.0);
+        // An active outline adds one ring quad per glyph, all before the foreground quads.
+        let outline = TextOutline::DEFAULT;
         font.draw_baseline_outlined("OK", vec2(10., 20.), 16., 1.0, WHITE, outline);
         let quads = canvas.drain();
-        // 2 characters * 8 outline offsets = 16 outline quads, + 2 foreground quads = 18 total quads
-        assert_eq!(quads.len(), 18);
+        assert_eq!(
+            quads.len(),
+            4,
+            "1 ring + 1 foreground quad per letter of 'OK'"
+        );
+        assert!(quads[..2].iter().all(|q| q.color == outline.color));
+        assert!(quads[2..].iter().all(|q| q.color == WHITE));
 
-        let outline_quads: Vec<_> = quads.iter().filter(|q| q.color == border_color).collect();
-        let fg_quads: Vec<_> = quads.iter().filter(|q| q.color == WHITE).collect();
-        assert_eq!(outline_quads.len(), 16);
-        assert_eq!(fg_quads.len(), 2);
-
-        // Verify draw_cell_outlined also emits the 8 outline quads + foreground
         font.draw_cell_outlined("A", vec2(50., 60.), 16., WHITE, outline);
         let quads = canvas.drain();
-        assert_eq!(quads.len(), 9, "8 outline + 1 fg for 'A'");
-        let outline_count = quads.iter().filter(|q| q.color == border_color).count();
-        let fg_count = quads.iter().filter(|q| q.color == WHITE).count();
-        assert_eq!(outline_count, 8);
-        assert_eq!(fg_count, 1);
+        assert_eq!(quads.len(), 2, "1 ring + 1 foreground quad for 'A'");
+        assert_eq!(quads[0].color, outline.color);
+        assert_eq!(quads[1].color, WHITE);
+    }
+
+    #[test]
+    fn menu_outline_grows_outward_only_at_forty_percent_and_keeps_the_glyph_weight() {
+        assert_eq!(TextOutline::DEFAULT.color, Color::new(0., 0., 0., 0.4));
+        let canvas = Canvas::default();
+        let font = FontFace::load(crate::PROGGY_CLEAN, canvas.clone()).expect("load font");
+        for (scale, text) in [(1.0, "HALF-LIFE 2"), (2.0, "QUIT")] {
+            font.draw_baseline(text, vec2(10., 40.), 16., scale, WHITE);
+            let plain = canvas.drain();
+            font.draw_baseline_outlined(
+                text,
+                vec2(10., 40.),
+                16.,
+                scale,
+                WHITE,
+                TextOutline::DEFAULT,
+            );
+            let outlined = canvas.drain();
+            let (rings, glyphs) = outlined.split_at(outlined.len() - plain.len());
+            // The glyphs are the unoutlined draw's quads: same textures, places, sizes, colours.
+            assert_eq!(glyphs.len(), plain.len());
+            for (glyph, unoutlined) in glyphs.iter().zip(&plain) {
+                assert_eq!(glyph.destination, unoutlined.destination);
+                assert_eq!(glyph.color, unoutlined.color);
+                assert_eq!(
+                    glyph.texture.as_ref().map(Texture2D::id),
+                    unoutlined.texture.as_ref().map(Texture2D::id)
+                );
+            }
+            // One ring per glyph at 40%: no stacked stamps darkening beyond the set opacity.
+            assert_eq!(rings.len(), plain.len());
+            for (ring, glyph) in rings.iter().zip(glyphs) {
+                assert_eq!(ring.color, TextOutline::DEFAULT.color);
+                let (ring_tex, glyph_tex) = (
+                    ring.texture.as_ref().unwrap(),
+                    glyph.texture.as_ref().unwrap(),
+                );
+                // The ring is the glyph bitmap padded by one texel on each side, aligned to it.
+                assert_eq!(ring_tex.size(), glyph_tex.size() + vec2(2., 2.));
+                assert_eq!(ring.destination.x, glyph.destination.x - scale);
+                assert_eq!(ring.destination.y, glyph.destination.y - scale);
+                // Outward only: over the glyph's texels the ring never covers more than the
+                // part the glyph leaves uncovered, and is zero where the glyph is solid.
+                let width = usize::from(glyph_tex.0.width);
+                let ring_width = usize::from(ring_tex.0.width);
+                let mut solid = 0;
+                for (i, texel) in glyph_tex.0.rgba.chunks(4).enumerate() {
+                    let (x, y) = (i % width + 1, i / width + 1);
+                    let ring_alpha = ring_tex.0.rgba[(y * ring_width + x) * 4 + 3];
+                    assert!(u16::from(ring_alpha) + u16::from(texel[3]) <= 255);
+                    if texel[3] == 255 {
+                        solid += 1;
+                        assert_eq!(ring_alpha, 0);
+                    }
+                }
+                assert!(solid > 0, "{text}: a solid glyph texel to check");
+                // ...and it does outline the letter: fully opaque just outside its edge.
+                assert!(ring_tex.0.rgba.chunks(4).any(|texel| texel[3] == 255));
+            }
+        }
+    }
+
+    #[test]
+    fn outline_ring_is_the_dilated_coverage_minus_the_glyph() {
+        // A 3x1 bar: full, half, empty coverage.
+        let ring = outline::ring_alpha(&[255, 128, 0], 3, 1, 1);
+        #[rustfmt::skip]
+        let expected = [
+            255, 255, 255, 128, 0,
+            255,   0, 127, 128, 0,
+            255, 255, 255, 128, 0,
+        ];
+        assert_eq!(ring, expected);
     }
 
     #[test]

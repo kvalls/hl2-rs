@@ -153,8 +153,7 @@ fn process_background_debug_keys(
         state.background_debug.adjust_fov(
             &fired,
             step,
-            hl2_bevy::camera::background_fov(input.aspect, sim.background_force_default_blur)
-                .to_degrees(),
+            hl2_bevy::camera::background_fov(input.aspect, sim.standard_background).to_degrees(),
         );
 
         let opacity_fired = opacity_repeat.update(
@@ -177,7 +176,9 @@ fn process_background_debug_keys(
             if input.keys.just_pressed(KeyCode::Minus)
                 || input.keys.just_pressed(KeyCode::NumpadSubtract)
             {
-                ui.source.toggle_background_force_default_blur();
+                let on = !crate::standard_background::forced(&ui.source.config.video);
+                let effect = crate::standard_background::set_forced(&mut ui.source, on);
+                ui.source.defer(effect);
                 state.background_debug.blur_texture_name = ui
                     .source
                     .blur_texture_name(&state.background_debug.map_name, ui.source.is_widescreen());

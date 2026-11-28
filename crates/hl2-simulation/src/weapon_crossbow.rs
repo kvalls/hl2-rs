@@ -96,6 +96,9 @@ impl FovRamp {
         self.target = target;
         self.rate = rate;
     }
+    pub(crate) fn rebase_clock(&mut self, delta: f64) {
+        self.time += delta;
+    }
 }
 
 /// CWeaponCrossbow::ChargerState_t.
@@ -130,6 +133,19 @@ pub struct CrossbowState {
     /// Viewmodel event cursor (animation, start, elapsed).
     cursor: Option<(String, f64, f32)>,
 }
+impl CrossbowState {
+    /// Shift idle/charger/cursor clocks on changelevel and clear old-map load effects.
+    pub(crate) fn rebase_clock(&mut self, delta: f64) {
+        self.idle_at += delta;
+        self.charger_brightness.rebase(delta);
+        self.charger_scale.rebase(delta);
+        self.load_effects.clear();
+        if let Some((_, at, _)) = &mut self.cursor {
+            *at += delta;
+        }
+        self.secondary_held = false;
+    }
+}
 
 /// CSprite::SetBrightness/SetScale(value, duration) with ClientThink: a new value ramps linearly
 /// from the last one asked for, and asking for the same value again restarts nothing.
@@ -156,6 +172,9 @@ impl SpriteRamp {
             (self.from, self.to, self.at) = (self.to, to, time);
         }
         self.duration = duration;
+    }
+    pub(crate) fn rebase(&mut self, delta: f64) {
+        self.at += delta;
     }
 }
 
@@ -1004,6 +1023,28 @@ mod tests {
             assert!(all.is_some_and(|h| class(&h) == "prop_door_rotating"));
             assert!(behind.is_none_or(|h| h.entity != usize::MAX));
         }
+    }
+
+    #[test]
+    fn crossbow_rebase_clock_shifts_ramps_and_clears_load_effects() {
+        let mut state = CrossbowState {
+            idle_at: 41.5,
+            secondary_held: true,
+            cursor: Some(("reload".into(), 39.5, 0.2)),
+            load_effects: vec![39.8],
+            ..Default::default()
+        };
+        state.charger_brightness.set(80., 1., 39.5);
+        state.charger_scale.set(0.05, 1., 39.5);
+
+        state.rebase_clock(-40.);
+
+        assert!((state.idle_at - 1.5).abs() < 1e-9);
+        assert!(!state.secondary_held);
+        assert!(state.load_effects.is_empty());
+        assert!((state.cursor.as_ref().unwrap().1 - (-0.5)).abs() < 1e-9);
+        assert!((state.charger_brightness.value(0.0) - 40.).abs() < 1e-4);
+        assert!((state.charger_scale.value(0.0) - 0.025).abs() < 1e-5);
     }
 
     /// Local validation: the installed script, skill.cfg, viewmodel activities/events,

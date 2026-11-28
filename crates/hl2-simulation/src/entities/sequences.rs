@@ -280,7 +280,9 @@ impl Scene {
     /// which keeps it closed and disabled.
     pub(super) fn spawn_combine_cameras(&mut self, world: &World) {
         for id in 0..world.entities.len() {
-            if world.entities[id].class() == "npc_combine_camera" {
+            if world.entities[id].class() == "npc_combine_camera"
+                && world.entities[id].get(crate::ai::spawn::POOL_KEY).is_none()
+            {
                 let enabled =
                     super::number(&world.entities[id], "spawnflags", 0.) as u32 & 0x80 == 0;
                 self.states[id].enabled = enabled;

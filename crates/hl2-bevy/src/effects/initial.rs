@@ -6,19 +6,24 @@ use std::collections::BTreeMap;
 impl Effects {
     /// Nothing drawn yet: the map's sprite and decal materials and its grenade meshes.
     pub(super) fn new(
-        materials: BTreeMap<String, Handle<EffectMaterial>>,
+        (materials, additive): (
+            BTreeMap<String, Handle<EffectMaterial>>,
+            std::collections::BTreeSet<String>,
+        ),
         grenade_meshes: BTreeMap<String, Vec<ModelPart>>,
         model_errors: Vec<String>,
     ) -> Self {
         Self {
             source: ProjectileVisuals::empty(),
             materials,
-            quads: Vec::new(),
+            additive,
+            quads: Default::default(),
             marks: BTreeMap::new(),
             grenade_meshes,
             grenades: BTreeMap::new(),
             stuck: BTreeMap::new(),
-            viewmodel_quads: Vec::new(),
+            viewmodel_quads: Default::default(),
+            quad_gpu: Default::default(),
             viewmodel_draws: 0,
             rng: 0x2545_f491_4f6c_dd1d,
             viewmodel_sway: Default::default(),

@@ -1,7 +1,7 @@
 //! The GPU textures and material definitions of the loaded map, kept for models drawn after the
 //! map load.
 
-use super::{MaterialData, image_filtered};
+use super::{MaterialData, material::gpu_image_filtered};
 use bevy::{
     asset::{Assets, Handle},
     ecs::resource::Resource,
@@ -22,6 +22,8 @@ pub struct ModelCache {
     pub missing: Handle<Image>,
     /// Plain materials (a video option): no reflections, as for the map's own draws.
     pub plain: bool,
+    /// The map's face models by asset key: runtime faces split by their flexes too.
+    pub faces: BTreeMap<String, std::sync::Arc<source_assets::flexes::FaceModel>>,
 }
 impl ModelCache {
     /// Upload a late-loaded model's materials: textures not on the GPU yet, then the
@@ -41,26 +43,29 @@ impl ModelCache {
         filtering: hl2_ui::config::Filtering,
     ) {
         for (name, mut material) in loaded {
-            type Decoded = Option<std::sync::Arc<source_assets::vtf::Image>>;
-            let mut upload = |image: &Decoded, path: &Option<String>, repeat: bool| {
+            let mut upload = |image: Option<std::sync::Arc<source_assets::vtf::GpuImage>>,
+                              path: &Option<String>,
+                              repeat: bool| {
                 let (Some(image), Some(path)) = (image, path) else {
                     return;
                 };
-                self.textures.entry(path.clone()).or_insert_with(|| {
-                    let rgba = image.rgba.clone();
-                    images.add(image_filtered(
-                        image.width,
-                        image.height,
-                        rgba,
-                        repeat,
-                        filtering,
-                    ))
-                });
+                if self.textures.contains_key(path) {
+                    return;
+                }
+                let owned = std::sync::Arc::try_unwrap(image).unwrap_or_else(|a| (*a).clone());
+                self.textures.insert(
+                    path.clone(),
+                    images.add(gpu_image_filtered(owned, repeat, false, filtering)),
+                );
             };
-            upload(&material.base, &material.base_path, true);
-            upload(&material.iris, &material.iris_path, false);
+            upload(material.base.take(), &material.base_path, true);
+            upload(material.iris.take(), &material.iris_path, false);
             // The mask uses the base UVs, so it repeats as the base does.
-            upload(&material.envmap_mask, &material.envmap_mask_path, true);
+            upload(
+                material.envmap_mask.take(),
+                &material.envmap_mask_path,
+                true,
+            );
             strip_pixels(&mut material);
             self.definitions.entry(name).or_insert(material);
         }
@@ -94,6 +99,7 @@ impl ModelCache {
 /// A material definition without decoded images (their GPU copies stay in ModelCache).
 pub(super) fn strip_pixels(material: &mut MaterialData) {
     material.base = None;
+    material.base2 = None;
     material.iris = None;
     material.camera_overlay = None;
     material.envmap = None;

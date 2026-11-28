@@ -183,6 +183,10 @@ impl Scene {
     /// a gravity gun pickup or a punt (activator: the player).
     pub fn prop_physgun_pickup(&mut self, world: &World, id: usize, reason: PhysGunPickup) {
         let class = world.entities.get(id).map_or("", |e| e.class());
+        if source_assets::models::supply_model(class).is_some() {
+            self.fire(id, "OnCacheInteraction", usize::MAX);
+            return;
+        }
         if !class.starts_with("prop_physics") && class != "func_physbox" {
             return;
         }
@@ -495,6 +499,10 @@ impl Scene {
 
 /// Whether an input belongs to the AI runtime (`Scene::ai_inputs`).
 fn is_ai_input(class: &str, input: &str) -> bool {
+    // CAI_BaseNPC's input, taken by every NPC class.
+    if matches!(input, "setrelationship" | "wake") && class.starts_with("npc_") {
+        return true;
+    }
     match class {
         "npc_metropolice" => matches!(
             input,

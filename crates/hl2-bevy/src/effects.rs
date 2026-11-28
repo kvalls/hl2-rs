@@ -2,14 +2,15 @@
 mod frame_quads;
 mod gibs;
 mod initial;
+mod marks;
 mod material;
 mod model_reading;
+mod quads;
 mod shots;
 mod sprite_modes;
 use crate::{assets::LoadedMap, gameplay::Gameplay, rendering, simulation::Simulation};
 use bevy::{
     asset::RenderAssetUsages,
-    camera::primitives::MeshAabb,
     mesh::Indices,
     prelude::*,
     render::render_resource::{AsBindGroup, PrimitiveTopology},
@@ -18,6 +19,9 @@ pub use gibs::{gib_models, present_gibs};
 use hl2_simulation::{projectile_visuals::ProjectileVisuals, projectiles::ProjectileKind};
 pub(crate) use model_reading::read_effect_model_lod;
 use modkit_core::Surface;
+pub(crate) use quads::QuadDraw;
+use quads::QuadLayer;
+pub use quads::install_quad_buffer;
 use source_assets::vpk::Vfs;
 use sprite_modes::{glows, shading};
 use std::collections::BTreeMap;
@@ -33,6 +37,16 @@ pub struct PreparedEffects {
 }
 
 impl PreparedEffects {
+    pub fn empty() -> Self {
+        let mut sprites = ProjectileVisuals::new(&Vfs::default());
+        sprites.errors.clear();
+        Self {
+            sprites,
+            models: BTreeMap::new(),
+            model_errors: Vec::new(),
+        }
+    }
+
     #[allow(dead_code)]
     pub fn load(vfs: &Vfs, world: &modkit_core::World) -> Self {
         Self::load_with_lod(vfs, world, 0)
@@ -80,6 +94,8 @@ pub struct EffectMaterial {
     texture: Handle<Image>,
     #[uniform(2)]
     parameters: Vec4,
+    #[storage(3, read_only, visibility(vertex))]
+    quad_rows: Handle<bevy::render::storage::ShaderBuffer>,
     kind: usize,
     /// kRenderGlow: no depth test or write.
     ignore_z: bool,
@@ -104,11 +120,6 @@ pub(crate) struct DecalDraw {
 #[derive(Component)]
 pub(crate) struct GrenadeDraw {
     id: u64,
-}
-struct QuadDraw {
-    entity: Entity,
-    mesh: Handle<Mesh>,
-    previous: Option<hl2_simulation::projectile_visuals::Quad>,
 }
 /// One projectile model surface: mesh and material.
 pub(crate) type ModelPart = (Handle<Mesh>, Handle<rendering::SourceMaterial>);
@@ -161,7 +172,9 @@ impl Effects {
 pub struct Effects {
     source: ProjectileVisuals,
     materials: BTreeMap<String, Handle<EffectMaterial>>,
-    quads: Vec<QuadDraw>,
+    /// Names of the materials that blend by pure addition: their quads share a mesh.
+    additive: std::collections::BTreeSet<String>,
+    quads: QuadLayer,
     marks: BTreeMap<usize, (Entity, Handle<Mesh>)>,
     grenade_meshes: BTreeMap<String, Vec<ModelPart>>,
     /// Gib draws by gib id: entity, its own material (lighting and fade alpha) and the
@@ -174,7 +187,8 @@ pub struct Effects {
     /// Stuck crossbow bolt model instances by StuckBolt id.
     stuck: BTreeMap<u64, Vec<Entity>>,
     /// Viewmodel-space sprite/beam quads on the viewmodel camera's layer.
-    viewmodel_quads: Vec<QuadDraw>,
+    viewmodel_quads: QuadLayer,
+    quad_gpu: quads::QuadGpu,
     viewmodel_draws: usize,
     rng: u64,
     /// The viewmodel's bob and lag, and the viewmodel camera's position in viewmodel space
@@ -207,7 +221,7 @@ impl Effects {
         self.materials.get(name).cloned()
     }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"sprite_draws":self.draws,"pooled_quads":self.quads.len(),
+        serde_json::json!({"sprite_draws":self.draws,"pooled_quads":self.quads.counts().0,"batched_quads":self.quads.counts().1,
             "viewmodel_sprite_draws":self.viewmodel_draws,"stuck_bolt_draws":self.stuck.len(),
             "grenade_draws":self.grenade_draws,"gib_draws":self.gib_draws,"decal_draws":self.mark_draws,"pose_mismatches":self.pose_mismatches, "observed_decals":self.observed_decals,"observed_grenades":self.observed_grenades,
             "muzzle_flashes":self.source.muzzle.flashes,"tracers":self.source.muzzle.tracers_made,
@@ -217,15 +231,17 @@ impl Effects {
             "limitations":"owned smoke/fire/ember/debris/electric emitters and shock rings; native RNG, ambient cubes, soft depth blending, beam tessellation, particle-manager scheduling, animated receivers and exact shading remain unfinished"})
     }
 }
-pub fn install(
+/// The sprite materials by name, with the names of those that blend by pure addition.
+fn sprite_materials(
     loaded: &LoadedMap,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<rendering::SourceMaterial>,
     effects: &mut Assets<EffectMaterial>,
     images: &mut Assets<Image>,
+) -> (
+    BTreeMap<String, Handle<EffectMaterial>>,
+    std::collections::BTreeSet<String>,
 ) {
     let mut handles = BTreeMap::new();
+    let mut additive = std::collections::BTreeSet::new();
     for (name, sprite) in &loaded.effects.sprites.sprites {
         let texture = images.add(rendering::image(
             sprite.image.width,
@@ -248,10 +264,14 @@ pub fn install(
                     1.,
                     shading(name),
                 ),
+                quad_rows: quads::QUAD_ROWS,
                 kind: sprite.kind,
                 ignore_z: false,
             }),
         );
+        if sprite.kind == material::ADDITIVE {
+            additive.insert(name.clone());
+        }
         // These draw in kRenderGlow mode (no depth test).
         if glows(name) {
             let glow = EffectMaterial {
@@ -261,12 +281,24 @@ pub fn install(
                     .cloned()
                     .expect("material just added")
             };
-            handles.insert(
-                format!("{name}{}", hl2_simulation::projectile_visuals::GLOW_SUFFIX),
-                effects.add(glow),
-            );
+            let glow_name = format!("{name}{}", hl2_simulation::projectile_visuals::GLOW_SUFFIX);
+            if sprite.kind == material::ADDITIVE {
+                additive.insert(glow_name.clone());
+            }
+            handles.insert(glow_name, effects.add(glow));
         }
     }
+    (handles, additive)
+}
+pub fn install(
+    loaded: &LoadedMap,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<rendering::SourceMaterial>,
+    effects: &mut Assets<EffectMaterial>,
+    images: &mut Assets<Image>,
+) {
+    let (mut handles, additive) = sprite_materials(loaded, effects, images);
     for (name, decal) in &loaded.gameplay.impacts.textures {
         let texture = images.add(rendering::image(
             decal.image.width,
@@ -282,6 +314,7 @@ pub fn install(
                 EffectMaterial {
                     texture,
                     parameters: Vec4::new(0.001, 0., 1., 1.),
+                    quad_rows: quads::QUAD_ROWS,
                     kind: 2,
                     ignore_z: false,
                 }
@@ -290,6 +323,7 @@ pub fn install(
                 EffectMaterial {
                     texture,
                     parameters: Vec4::new(0.001, 0., 2., 2.),
+                    quad_rows: quads::QUAD_ROWS,
                     kind: 4,
                     ignore_z: false,
                 }
@@ -313,7 +347,14 @@ pub fn install(
             .or_insert_with(|| {
                 definition.base.as_ref().map_or_else(
                     || white.clone(),
-                    |i| images.add(rendering::image(i.width, i.height, i.rgba.clone(), true)),
+                    |i| {
+                        images.add(rendering::gpu_image_filtered(
+                            i.as_ref().clone(),
+                            true,
+                            false,
+                            TRILINEAR,
+                        ))
+                    },
                 )
             })
             .clone();
@@ -331,7 +372,7 @@ pub fn install(
     }
     // Move CPU sprite state out of PreparedMap after all owned images are uploaded.
     commands.insert_resource(Effects::new(
-        handles,
+        (handles, additive),
         grenade_meshes,
         loaded.effects.model_errors.clone(),
     ));
@@ -373,73 +414,74 @@ fn mesh(
     mesh.insert_indices(Indices::U32(indices));
     mesh
 }
-fn quad_mesh(quad: &hl2_simulation::projectile_visuals::Quad) -> Mesh {
-    mesh(
-        quad.positions
-            .iter()
-            .map(|p| crate::source_to_bevy(Vec3::from_array(p.to_array())).to_array())
-            .collect(),
-        quad.uv.to_vec(),
-        vec![quad.color.map(|c| f32::from(c) / 255.); 4],
-        vec![0, 1, 2, 0, 2, 3],
-        true,
-    )
+/// Launch beams and sparks stay active only inside `[0.0, 0.1)` seconds after the launch.
+fn launch_beam_active(time: f64, at: f64) -> bool {
+    (0. ..0.1).contains(&(time - at))
 }
-/// Fill a pool of quad draws with this frame's quads (materials must hold each
-/// quad's material); `layer` puts them on another camera's render layer.
-fn draw_pool(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    pool: &mut Vec<QuadDraw>,
-    quads: &[hl2_simulation::projectile_visuals::Quad],
-    materials: &BTreeMap<String, Handle<EffectMaterial>>,
-    layer: Option<usize>,
+
+struct LaunchView {
+    eye: glam::Vec3,
+    forward: glam::Vec3,
+    right: glam::Vec3,
+    up: glam::Vec3,
+    factor: f32,
+    offset: glam::Vec3,
+    raw_viewmodel_fov: f32,
+}
+
+fn push_physcannon_launch(
+    effects: &mut Effects,
+    game: &Gameplay,
+    view: &LaunchView,
+    described: &mut hl2_simulation::viewmodel_effects::ViewmodelEffects,
 ) {
-    let mut used = 0;
-    for quad in quads {
-        let Some(material) = materials.get(&quad.material).cloned() else {
-            continue;
-        };
-        if used == pool.len() {
-            let mesh = meshes.add(quad_mesh(quad));
-            let mut entity = commands.spawn((
-                crate::campaign::MapOwned,
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::IDENTITY,
-            ));
-            if let Some(layer) = layer {
-                entity.insert(bevy::camera::visibility::RenderLayers::layer(layer));
-            }
-            pool.push(QuadDraw {
-                entity: entity.id(),
-                mesh,
-                previous: None,
-            });
-        }
-        let slot = &mut pool[used];
-        used += 1;
-        if slot.previous.as_ref() != Some(quad) {
-            let mesh = quad_mesh(quad);
-            let bounds = mesh.get_aabb();
-            if let Some(mut old) = meshes.get_mut(&slot.mesh) {
-                *old = mesh;
-            }
-            if let (Some(bounds), Ok(mut cmd)) = (bounds, commands.get_entity(slot.entity)) {
-                cmd.insert(bounds);
-            }
-            slot.previous = Some(quad.clone());
-        }
-        if let Ok(mut cmd) = commands.get_entity(slot.entity) {
-            cmd.insert((MeshMaterial3d(material), Visibility::Visible));
-        }
+    // DoEffectLaunch: te GaussExplosion 4 units before the end point (random direction)
+    // once, and for 0.1 s a CBeam orangelight1 from the end point to attachment 1 (width
+    // 6.4 -> 12.8, brightness 255, noise 2). The world end point is moved into viewmodel
+    // space by the inverse of FormatViewModelAttachment so it projects where it is.
+    if game.inventory.active != "weapon_physcannon" {
+        return;
     }
-    for slot in pool.iter().skip(used) {
-        if let Ok(mut cmd) = commands.get_entity(slot.entity) {
-            cmd.insert(Visibility::Hidden);
-        }
+    let Some((at, end)) = game.inventory.physcannon.last_launch else {
+        return;
+    };
+    if !launch_beam_active(game.scene.time, at) {
+        return;
+    }
+    let shot = (end - view.eye).normalize_or(view.forward);
+    if at > effects.launch_sparks {
+        effects.launch_sparks = at;
+        let r = &mut effects.rng;
+        let mut unit = || shots::next_random(r) * 2. - 1.;
+        let direction = glam::Vec3::new(unit(), unit(), unit());
+        effects
+            .source
+            .spawn_gauss_sparks(end - shot * 4., direction, game.scene.time);
+    }
+    if view.raw_viewmodel_fov > 0. {
+        let d = end - view.eye;
+        described
+            .beams
+            .push(hl2_simulation::viewmodel_effects::ViewmodelBeam {
+                start: hl2_simulation::viewmodel_effects::Anchor::Local(
+                    glam::Vec3::new(
+                        d.dot(view.forward),
+                        -d.dot(view.right) / view.factor,
+                        d.dot(view.up) / view.factor,
+                    ) - view.offset,
+                ),
+                end: hl2_simulation::viewmodel_effects::Anchor::Index(1),
+                material: "sprites/orangelight1",
+                width: 6.4,
+                end_width: (12.8, 12.8),
+                brightness: 255.,
+                color: [255, 255, 255],
+                noise: (2., 2.),
+                shade_in: false,
+            });
     }
 }
+
 /// The active viewmodel's posed rig (same clip choice as rendering::animate) and the
 /// SDK viewmodel sprites/beams as viewmodel-space quads.
 fn viewmodel_quads(
@@ -459,7 +501,7 @@ fn viewmodel_quads(
                 .copied()
                 .fold(f64::NEG_INFINITY, f64::max)
         })
-        .filter(|at| *at > effects.load_sparks);
+        .filter(|at| *at > effects.load_sparks && *at <= game.scene.time);
     // AE_MUZZLEFLASH on the viewmodel's fire sequence (cycle 0 in the owned models).
     let elapsed_fire = (game.scene.time - game.inventory.animation_at).max(0.) as f32;
     let flash_due = (game.inventory.animation_at > effects.player_flash)
@@ -560,41 +602,20 @@ fn viewmodel_quads(
             effects.source.spawn_sparks(world, game.scene.time);
         }
     }
-    // DoEffectLaunch: te GaussExplosion 4 units before the end point (random direction)
-    // once, and for 0.1 s a CBeam orangelight1 from the end point to attachment 1 (width
-    // 6.4 -> 12.8, brightness 255, noise 2). The world end point is moved into viewmodel
-    // space by the inverse of FormatViewModelAttachment so it projects where it is.
-    if game.inventory.active == "weapon_physcannon"
-        && let Some((at, end)) = game.inventory.physcannon.last_launch
-    {
-        let shot = (end - eye).normalize_or(forward);
-        if at > effects.launch_sparks {
-            effects.launch_sparks = at;
-            let r = &mut effects.rng;
-            let mut unit = || shots::next_random(r) * 2. - 1.;
-            let direction = glam::Vec3::new(unit(), unit(), unit());
-            effects
-                .source
-                .spawn_gauss_sparks(end - shot * 4., direction, game.scene.time);
-        }
-        if game.scene.time - at < 0.1 && raw_viewmodel_fov > 0. {
-            let d = end - eye;
-            described.beams.push(vm::ViewmodelBeam {
-                start: vm::Anchor::Local(
-                    glam::Vec3::new(d.dot(forward), -d.dot(right) / factor, d.dot(up) / factor)
-                        - offset,
-                ),
-                end: vm::Anchor::Index(1),
-                material: "sprites/orangelight1",
-                width: 6.4,
-                end_width: (12.8, 12.8),
-                brightness: 255.,
-                color: [255, 255, 255],
-                noise: (2., 2.),
-                shade_in: false,
-            });
-        }
-    }
+    push_physcannon_launch(
+        effects,
+        game,
+        &LaunchView {
+            eye,
+            forward,
+            right,
+            up,
+            factor,
+            offset,
+            raw_viewmodel_fov,
+        },
+        &mut described,
+    );
     if let Some((kind, attachment)) = flash_due {
         effects.player_flash = game.inventory.animation_at;
         if let Some(frame) = rig
@@ -649,15 +670,29 @@ impl Effects {
             .collect()
     }
 }
+type GrenadeDraws<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Transform, &'static mut Visibility),
+    (With<GrenadeDraw>, Without<quads::QuadDraw>),
+>;
 pub fn present(
     mut commands: Commands,
     mut effects: ResMut<Effects>,
     game: Res<Gameplay>,
     sim: Res<Simulation>,
-    frame: Option<Res<crate::video::GameFrame>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut draws: Query<(&mut Transform, &mut Visibility)>,
+    (frame, performance, blend): (
+        Option<Res<crate::video::GameFrame>>,
+        Option<Res<crate::performance::Performance>>,
+        crate::tick_blend::Blend<'_>,
+    ),
+    (mut meshes, mut buffers): (
+        ResMut<Assets<Mesh>>,
+        ResMut<Assets<bevy::render::storage::ShaderBuffer>>,
+    ),
+    (mut quad_draws, mut draws): (quads::QuadDraws, GrenadeDraws),
 ) {
+    let _timing = crate::performance::scope(performance.as_deref(), "effects");
     let (yaw, pitch) = sim.view_angles();
     let direction = glam::Vec3::from_array(crate::source_direction(yaw, pitch).to_array());
     // CL_DecayLights before this frame's new elights.
@@ -710,101 +745,22 @@ pub fn present(
     }
     frame_quads::stunstick_glows(&game, &mut effects, direction);
     effects.draws = effects.source.quads.len();
-    let quads = std::mem::take(&mut effects.source.quads);
-    let Effects {
-        materials,
-        quads: pool,
-        ..
-    } = &mut *effects;
-    draw_pool(&mut commands, &mut meshes, pool, &quads, materials, None);
-    effects.source.quads = quads;
-    // Sprites and beams on the viewmodel (CSprite/CBeam viewmodel attachments).
     let aspect = crate::video::frame_aspect(frame.as_deref());
     let viewmodel = viewmodel_quads(&game, &mut effects, &sim, aspect);
     effects.viewmodel_draws = viewmodel.len();
-    let Effects {
-        materials,
-        viewmodel_quads: pool,
-        ..
-    } = &mut *effects;
-    draw_pool(
+    quads::present_layers(
         &mut commands,
-        &mut meshes,
-        pool,
+        (&mut meshes, &mut buffers),
+        &mut quad_draws,
+        &mut effects,
         &viewmodel,
-        materials,
-        Some(1),
     );
-    let dead: Vec<_> = effects
-        .marks
-        .keys()
-        .copied()
-        .filter(|id| !game.impacts.marks.iter().any(|m| m.id == *id))
-        .collect();
-    for id in dead {
-        if let Some((entity, handle)) = effects.marks.remove(&id) {
-            commands.entity(entity).try_despawn();
-            meshes.remove(&handle);
-        }
-    }
-    effects.mark_draws = 0;
-    for mark in &game.impacts.marks {
-        let (transform, visible) =
-            game.scene
-                .states
-                .get(mark.entity)
-                .map_or((Transform::IDENTITY, true), |s| {
-                    let (p, r) = sim
-                        .physics
-                        .entity_pose(mark.entity)
-                        .unwrap_or((s.origin, s.rotation));
-                    let mut t = rendering::entity_transform(p, r);
-                    t.scale = Vec3::splat(mark.scale);
-                    (t, !s.killed && s.visible)
-                });
-        if !effects.marks.contains_key(&mark.id) {
-            let mesh = meshes.add(mesh(
-                mark.vertices
-                    .iter()
-                    .map(|v| {
-                        crate::source_to_bevy(Vec3::from_array(v.position.to_array())).to_array()
-                    })
-                    .collect(),
-                mark.vertices.iter().map(|v| v.uv.to_array()).collect(),
-                // Linear light; lit decals apply it after the sRGB decode.
-                vec![
-                    {
-                        let [r, g, b] = mark.tint.map(|c| c.max(0.));
-                        [r, g, b, 1.]
-                    };
-                    mark.vertices.len()
-                ],
-                (0..mark.vertices.len() as u32).collect(),
-                false,
-            ));
-            let material = effects.materials[&mark.material].clone();
-            let entity = commands
-                .spawn((
-                    crate::campaign::MapOwned,
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material),
-                    transform,
-                    DecalDraw { id: mark.id },
-                ))
-                .id();
-            effects.marks.insert(mark.id, (entity, mesh));
-        }
-        let entity = effects.marks[&mark.id].0;
-        commands.entity(entity).insert((
-            transform,
-            if visible {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            },
-        ));
-        effects.mark_draws += usize::from(visible);
-    }
+    marks::present(
+        &mut commands,
+        &mut effects,
+        (&game, &sim, blend.as_deref()),
+        &mut meshes,
+    );
     present_grenades(&mut commands, &mut effects, &game, &mut draws);
     present_stuck_bolts(&mut commands, &mut effects, &game);
 }
@@ -813,7 +769,7 @@ fn present_grenades(
     commands: &mut Commands,
     effects: &mut Effects,
     game: &Gameplay,
-    draws: &mut Query<(&mut Transform, &mut Visibility)>,
+    draws: &mut GrenadeDraws,
 ) {
     let dead: Vec<_> = effects
         .grenades
@@ -934,7 +890,10 @@ pub fn observe(
     game: Res<Gameplay>,
     sim: Res<Simulation>,
     decals: Query<(&DecalDraw, &Transform, &Visibility)>,
-    grenades: Query<(&GrenadeDraw, &Transform)>,
+    (grenades, blend): (
+        Query<(&GrenadeDraw, &Transform)>,
+        crate::tick_blend::Blend<'_>,
+    ),
 ) {
     let mut mismatches = 0;
     for (draw, transform, visible) in &decals {
@@ -947,10 +906,9 @@ pub fn observe(
                 .states
                 .get(mark.entity)
                 .map_or((Transform::IDENTITY, true), |s| {
-                    let (p, r) = sim
-                        .physics
-                        .entity_pose(mark.entity)
-                        .unwrap_or((s.origin, s.rotation));
+                    let (p, r) =
+                        crate::tick_blend::drawn_pose(&game, &sim, blend.as_deref(), mark.entity)
+                            .unwrap_or((s.origin, s.rotation));
                     let mut t = rendering::entity_transform(p, r);
                     t.scale = Vec3::splat(mark.scale);
                     (t, !s.killed && s.visible)
@@ -971,4 +929,18 @@ pub fn observe(
     effects.pose_mismatches = mismatches;
     effects.observed_decals = decals.iter().count();
     effects.observed_grenades = grenades.iter().count();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_beam_active;
+
+    #[test]
+    fn launch_beam_requires_nonnegative_elapsed_time_within_window() {
+        assert!(!launch_beam_active(0.0, 40.0));
+        assert!(!launch_beam_active(39.99, 40.0));
+        assert!(launch_beam_active(40.0, 40.0));
+        assert!(launch_beam_active(40.05, 40.0));
+        assert!(!launch_beam_active(40.1, 40.0));
+    }
 }

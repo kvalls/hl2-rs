@@ -6,7 +6,7 @@ viewmodel fixture as replays.py. Generated variations/captures stay under artifa
 """
 import json
 import replays as replay
-from images import pixel_changes, png_rgb
+from images import pixel_changes, pixel_mask, png_rgb
 
 
 # The softened weapon blur differed by far more; animation timing moves a few hundred pixels.
@@ -37,11 +37,15 @@ def diagnostic(shader):
     if own.z > 0.99 && alpha > 0.0 { return vec4(0.0,1.0,0.0,1.0); }''')
 
 
-def fixture(case):
+def equip_weapon(slot):
     frames = json.loads((replay.REPO / "test-inputs/bevy-viewmodel-motion-blur.json").read_text())
-    frames = [f for f in frames if f["tick"] < 10]
+    frames[0]["actions"][1]["slot"] = slot
+    return [frame for frame in frames if frame["tick"] < 10]
+
+
+def fixture(case):
+    frames = equip_weapon(2 if case == "smg" else 1 if case in ("pistol", "reload") else 0)
     if case in ("pistol", "reload", "smg"):
-        frames[0]["actions"][1]["slot"] = 2 if case == "smg" else 1
         frames += [{"tick": 100, "primary": True}, {"tick": 101, "primary": False},
                    {"tick": 103, "label": "animation"}]
         if case == "reload":
@@ -60,8 +64,13 @@ def check(case, aa):
         "motion_blur": True, "motion_blur_viewmodel": True, "antialiasing": aa, "vsync": False}})
     path = replay.OUT / (name + ".input.json")
     path.write_text(json.dumps(fixture(case)), encoding="utf-8")
-    run = replay.game(name, "--map", "d1_trainstation_02", "--width", "1024", "--height", "768",
-                      "--movement-script", str(path), "--capture-live", "--capture-burst", "8")
+    burst = [replay.OUT / f"{name}-{i}.png" for i in range(1, 9)]
+    for image in burst:
+        image.unlink(missing_ok=True)
+    # Sample the recoil at real time even when other replays run at 4x speed.
+    run = replay.game(name, "--timescale", "1", "--map", "d1_trainstation_02",
+                      "--width", "1024", "--height", "768", "--movement-script", str(path),
+                      "--capture-live", "--capture-burst", "8")
     sample = run.sample("animation")["gameplay"]
     replay.expect("selected weapon", sample["inventory"]["active"],
                   "weapon_smg1" if case == "smg" else "weapon_pistol")
@@ -74,25 +83,86 @@ def check(case, aa):
         replay.expect("animation", animation, "fire" if case == "pistol" else "draw")
     replay.expect("posed bounds", run.report["render"]["presentation"]["pose_or_visibility_mismatches"], 0)
     replay.holds("no rendering errors", "Caught rendering error" not in run.log and "ERROR" not in run.log)
-    paths = [run.capture] + [replay.OUT / f"{name}-{i}.png" for i in range(1, 9)]
-    counts = [artifact_count(path) for path in paths]
+    counts = [artifact_count(path) for path in [run.capture, *burst]]
     (replay.OUT / (name + ".artifacts.json")).write_text(json.dumps(counts), encoding="utf-8")
     replay.holds("diagnostic reconstruction actually ran", max(z for _, _, z in counts) > 100, counts)
     replay.expect("covered pixels borrowing other surfaces' motion", max(x for x, _, _ in counts), 0)
     replay.expect("covered pixels losing all gathered coverage", max(y for _, y, _ in counts), 0)
 
 
+def check_turnover(shader, original):
+    # Mark covered pixels which would have passed through sharp using current motion alone,
+    # but enter the actual gather with at least two pixels of recovered exposure.
+    hook = "    let pixel_motion = length(velocity * data.params.zw);"
+    replay.holds("turnover diagnostic hook exists", hook in original)
+    shader.write_text(original.replace(hook, hook + """
+    let current = textureLoad(motion,vec2<i32>(in.position.xy),0).xy;
+    let raw_pixels = length(current * data.params.zw) * data.params.y;
+    if own.z > 0.99 && raw_pixels < 1.0 && pixel_motion >= 2.0 {
+        return vec4(1.0,0.0,1.0,1.0);
+    }
+    if own.z > 0.99 && dot(current,velocity) < 0.0 && pixel_motion > raw_pixels + 1.0 {
+        return vec4(0.0,1.0,1.0,1.0);
+    }"""), encoding="utf-8")
+    for case, slot, tick, fps in [("crowbar", 0, 212, 120), ("smg", 2, 219, 120),
+                                 ("smg", 2, 219, 45), ("idle", 0, 320, 120)]:
+        replay.reset_settings()
+        replay.settings(video={"hdr": "none", "hdr_migrated": True, "advanced": {
+            "motion_blur": True, "motion_blur_viewmodel": True, "antialiasing": "none", "vsync": False}})
+        frames = equip_weapon(slot)
+        frames[0].update(eye=[-3104, -2018, 128], yaw=12)
+        if case != "idle":
+            frames.append({"tick": 210, "primary": True})
+        frames.append({"tick": tick, "primary": case == "smg", "label": "turnover"})
+        name = f"weapon_turnover_{case}_{fps}"
+        script = replay.OUT / (name + ".input.json")
+        script.write_text(json.dumps(frames), encoding="utf-8")
+        burst = [replay.OUT / f"{name}-{i}.png" for i in range(1, 25)]
+        for path in burst:
+            path.unlink(missing_ok=True)
+        run = replay.game(name, "--timescale", "1", "--profile", "--max-fps", str(fps), "--map", "d1_trainstation_02",
+                          "--width", "1024", "--height", "768", "--movement-script", str(script), "--capture-live", "--capture-burst", str(len(burst)))
+        replay.holds("no rendering errors", "Caught rendering error" not in run.log and "ERROR" not in run.log)
+        sample = run.sample("turnover")["gameplay"]
+        replay.expect("active weapon", sample["inventory"]["active"], "weapon_smg1" if slot == 2 else "weapon_crowbar")
+        if case != "idle":
+            prefix = "miss" if case == "crowbar" else "fire"
+            replay.holds("attack animation", sample["viewmodel"]["animation"].startswith(prefix), sample["viewmodel"])
+        counts = []
+        high, low = range(241, 256), range(15)
+        for path in [run.capture, *burst]:
+            rgb = png_rgb(path)[2]
+            counts.append([pixel_mask(rgb, high, low, high).count(1), pixel_mask(rgb, low, high, high).count(1)])
+        (replay.OUT / (name + ".counts.json")).write_text(json.dumps(counts), encoding="utf-8")
+        held, reversed_motion = map(max, zip(*counts))
+        if case == "idle":
+            replay.expect("settled weapon has no recovered motion", max(held, reversed_motion), 0)
+        elif fps == 120:
+            replay.holds("incoming motion survives near-zero displacement", held > 100, held)
+        else:
+            replay.holds("incoming motion survives direction reversal", reversed_motion > 100, reversed_motion)
+
+
 def check_ultra_matches_advanced():
     """Ultra softens the world's camera blur only; a still view swings the same weapon blur."""
+    # Let the independently eased bloom settle before comparing the two rendered swings.
+    frames = json.loads((replay.REPO / "test-inputs/bevy-viewmodel-motion-blur.json").read_text())
+    for frame in frames:
+        if frame["tick"] >= 100:
+            frame["tick"] += 400
+    script = replay.OUT / "weapon_swing_warm.input.json"
+    script.write_text(json.dumps(frames), encoding="utf-8")
     captures = {}
     for world in (False, True):
         replay.settings(video={"hdr": "none", "hdr_migrated": True, "advanced": {
             "motion_blur": True, "motion_blur_viewmodel": True, "motion_blur_world": world,
             "antialiasing": "x4", "vsync": False}})
         name = "weapon_swing_" + ("ultra" if world else "advanced")
-        run = replay.game(name, "--map", "d1_trainstation_02", "--width", "1024", "--height", "768",
-                          "--movement-script", str(replay.REPO / "test-inputs/bevy-viewmodel-motion-blur.json"))
+        run = replay.game(name, "--timescale", "1", "--map", "d1_trainstation_02", "--width",
+                          "1024", "--height", "768", "--movement-script", str(script))
         replay.holds("no render errors", "Caught rendering error" not in run.log)
+        animation = run.sample("swing")["gameplay"]["viewmodel"]["animation"]
+        replay.holds("crowbar is swinging", animation.startswith("miss"), animation)
         captures[world] = run.capture
     changes = pixel_changes(captures[False], captures[True], threshold=16, region=(180, 430, 1000, 768))
     replay.holds("Ultra keeps Advanced's weapon blur", changes["changed"] <= MAX_ULTRA_WEAPON_DIFFERENCE, changes)
@@ -102,7 +172,7 @@ def main():
     replay.OUT.mkdir(parents=True, exist_ok=True)
     replay.build()
     replay.stage()
-    shader = replay.GAME / "bevy-assets/shaders/weapon_blur.wgsl"
+    shader = replay.GAME / "bevy-assets/shaders/weapon_blur.wesl"
     original = shader.read_text(encoding="utf-8")
     try:
         shader.write_text(diagnostic(original), encoding="utf-8")
@@ -111,6 +181,7 @@ def main():
                 if replay.CONFIG.exists():
                     replay.CONFIG.unlink()
                 check(case, aa)
+        check_turnover(shader, original)
     finally:
         shader.write_text(original, encoding="utf-8")
     if replay.CONFIG.exists():

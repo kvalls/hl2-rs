@@ -1,35 +1,82 @@
 //! Owned iris projection with authored scene interests and a visible-interest fallback.
-use crate::{
-    FlyCamera,
-    assets::LoadedMap,
-    bevy_to_source,
-    rendering::{EyeMesh, SourceEntity},
+use crate::rendering::actor_poses::{ActorPoses, entity_stamp};
+use crate::shader_rows::ShaderRows;
+use crate::{FlyCamera, assets::LoadedMap, bevy_to_source, rendering::SourceEntity};
+use bevy::{
+    asset::uuid_handle, mesh::VertexAttributeValues, prelude::*, render::storage::ShaderBuffer,
 };
-use bevy::{mesh::VertexAttributeValues, prelude::*};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 #[derive(Clone)]
 struct Actor {
     key: String,
     gaze: source_assets::eyes::Gaze,
     scale: f32,
 }
+#[derive(Clone, Copy)]
+struct OriginRecord {
+    entity: usize,
+    origin: [f32; 3],
+    forward: [f32; 3],
+    attachment: bool,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TargetLabel {
+    Player,
+    View,
+    Entity(usize),
+}
+impl TargetLabel {
+    fn to_report(self) -> String {
+        match self {
+            Self::Player => "player".to_owned(),
+            Self::View => "view".to_owned(),
+            Self::Entity(id) => format!("#{id}"),
+        }
+    }
+}
+#[derive(Clone)]
+struct ProjectionRecord {
+    entity: usize,
+    surface: usize,
+    rows: [[f32; 4]; 2],
+    target: Option<TargetLabel>,
+    world_target: Option<[f32; 3]>,
+    scripted_interest: Option<hl2_simulation::attention::Interest>,
+}
+const GAZE_TAU: f32 = 0.045;
+
+#[derive(Clone, Copy)]
+struct RenderedGaze {
+    dir: glam::Vec3,
+    dist: f32,
+    time: f64,
+}
+
 #[derive(Resource, Default)]
 pub struct Eyes {
     actors: BTreeMap<usize, Actor>,
     pose_samples: usize,
     attachment_actors: usize,
-    origins: Vec<serde_json::Value>,
+    origins: Vec<OriginRecord>,
     draws: usize,
     tracking_player: usize,
     tracking_npc: usize,
     tracking_entity: usize,
     tracking_scene: usize,
-    projections: Vec<serde_json::Value>,
+    projections: Vec<ProjectionRecord>,
     /// SDK CBaseFlex m_viewtarget: the last eye target persists per actor while valid.
     view_targets: BTreeMap<usize, glam::Vec3>,
+    /// Clamped and smoothly slewed rendered eye gaze per actor.
+    rendered_gaze: BTreeMap<usize, RenderedGaze>,
     /// Bone-local eye forward/up per (entity, eyeball surface) for FACS eyelids; flexes
     /// consume the previous presentation's basis.
     pub lid_bases: BTreeMap<(usize, usize), (glam::Vec3, glam::Vec3)>,
+    /// Each eye mesh's slot in [`EYE_ROWS`], and the rows of every slot (two each).
+    slots: std::collections::HashMap<AssetId<Mesh>, u32>,
+    /// Slots of eye meshes that are gone, to give out again.
+    free: Vec<u32>,
+    rows: Vec<Vec4>,
+    dirty: Option<(usize, usize)>,
 }
 impl Eyes {
     pub fn new(loaded: &LoadedMap) -> Self {
@@ -52,14 +99,95 @@ impl Eyes {
         }
         result
     }
+    /// An eye mesh's slot, given on first sight and kept for the map.
+    /// An eye mesh's slot, given on first sight and kept while the mesh exists; None when all
+    /// [`EYE_SLOTS`] are taken.
+    fn slot(&mut self, mesh: AssetId<Mesh>) -> Option<u32> {
+        if let Some(slot) = self.slots.get(&mesh) {
+            return Some(*slot);
+        }
+        let slot = self.free.pop().or_else(|| {
+            let next = self.slots.len() as u32;
+            (next < EYE_SLOTS as u32).then_some(next)
+        })?;
+        self.slots.insert(mesh, slot);
+        Some(slot)
+    }
+    /// Frees the slots of eye meshes that no longer exist.
+    fn release_gone(&mut self, exists: impl Fn(AssetId<Mesh>) -> bool) {
+        let free = &mut self.free;
+        self.slots.retain(|mesh, slot| {
+            exists(*mesh) || {
+                free.push(*slot);
+                false
+            }
+        });
+    }
+    fn set_rows(&mut self, slot: u32, rows: [Vec4; 2]) {
+        let at = slot as usize * 2;
+        if self.rows.is_empty() {
+            self.rows.resize(2 * EYE_SLOTS, Vec4::ZERO);
+            // The asset outlives the map. Clear its previous slots on this map's first upload.
+            self.dirty = Some((0, self.rows.len()));
+        }
+        let target = &mut self.rows[at..at + 2];
+        if target != rows {
+            target.copy_from_slice(&rows);
+            crate::material_slots::mark_dirty(&mut self.dirty, at, at + 2);
+        }
+    }
+    fn upload_rows(&mut self, buffers: &mut Assets<ShaderBuffer>) {
+        if let Some((lo, hi)) = self.dirty
+            && let Some(mut buffer) = buffers.get_mut(&EYE_ROWS)
+        {
+            crate::material_slots::write_rows_range(&mut buffer, &self.rows, lo..hi);
+            self.dirty = None;
+        }
+    }
     /// A runtime spawn of a template's model (DESIGN 14r part A) tracks like it.
     pub fn copy_actor(&mut self, template: usize, entity: usize) {
         if let Some(actor) = self.actors.get(&template).cloned() {
             self.actors.insert(entity, actor);
         }
     }
+    /// Register a late-precached actor's gaze attachment metadata.
+    pub fn insert_actor(
+        &mut self,
+        id: usize,
+        key: String,
+        gaze: source_assets::eyes::Gaze,
+        scale: f32,
+    ) {
+        self.actors.insert(id, Actor { key, gaze, scale });
+    }
     pub fn report(&self) -> serde_json::Value {
-        serde_json::json!({"draws":self.draws,"pose_samples":self.pose_samples,"attachment_actors":self.attachment_actors,"origins":self.origins,"tracking_player":self.tracking_player,"tracking_npc":self.tracking_npc,"tracking_entity":self.tracking_entity,"tracking_scene":self.tracking_scene,"projections":self.projections,
+        let origins: Vec<_> = self
+            .origins
+            .iter()
+            .map(|o| {
+                serde_json::json!({
+                    "entity": o.entity,
+                    "origin": o.origin,
+                    "forward": o.forward,
+                    "attachment": o.attachment,
+                })
+            })
+            .collect();
+        let projections: Vec<_> = self
+            .projections
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "entity": p.entity,
+                    "surface": p.surface,
+                    "rows": p.rows,
+                    "target": p.target.map(TargetLabel::to_report),
+                    "world_target": p.world_target,
+                    "scripted_interest": p.scripted_interest,
+                })
+            })
+            .collect();
+        serde_json::json!({"draws":self.draws,"pose_samples":self.pose_samples,"attachment_actors":self.attachment_actors,"origins":origins,"tracking_player":self.tracking_player,"tracking_npc":self.tracking_npc,"tracking_entity":self.tracking_entity,"tracking_scene":self.tracking_scene,"projections":projections,
             "policy":"newest valid authored LOOKAT interest, shared per actor; nearest-visible fallback outside scripted interests; animated owned eyes attachments supply actor origin/forward; native random/head/facial/PVS latch behavior remains unfinished",
             "shader":"owned Eyes iris alpha over sclera with retail planar basis; glints and Source model lighting remain unfinished; FACS eyelids follow the previous frame's eye basis"})
     }
@@ -69,7 +197,7 @@ fn bone_pose(
     key: &str,
     id: usize,
     bone: usize,
-    poses: &BTreeMap<usize, Vec<glam::Mat4>>,
+    poses: &BTreeMap<usize, Arc<Vec<glam::Mat4>>>,
 ) -> Option<glam::Mat4> {
     let rig = game.world.rigs.get(key)?;
     Some(*poses.get(&id)?.get(bone)? * rig.bones.get(bone)?.inverse_bind.inverse())
@@ -78,14 +206,24 @@ type EyeDrawItem<'a> = (
     &'a SourceEntity,
     &'a EyeMesh,
     &'a Mesh3d,
-    Option<&'a bevy::mesh::skinning::SkinnedMesh>,
+    &'a ViewVisibility,
 );
 
+/// The eyes' presentation assets and the actor skeletons it shares with the renderer.
+type EyeAssets<'w> = (
+    ResMut<'w, Assets<Mesh>>,
+    ResMut<'w, Assets<ShaderBuffer>>,
+    ResMut<'w, ActorPoses>,
+);
+
+/// Each eyed actor's skeleton, from the poses shared with the renderer (composed again only
+/// when the actor's pose changed); an actor whose clip its rig lacks is composed directly.
 fn collect_actor_poses<'a>(
     eyes: &'a Eyes,
     draws: impl IntoIterator<Item = EyeDrawItem<'a>>,
     game: &crate::gameplay::Gameplay,
-) -> BTreeMap<usize, Vec<glam::Mat4>> {
+    shared: &mut ActorPoses,
+) -> BTreeMap<usize, Arc<Vec<glam::Mat4>>> {
     let mut pose_keys: BTreeMap<usize, &str> = eyes
         .actors
         .iter()
@@ -102,36 +240,52 @@ fn collect_actor_poses<'a>(
                 return None;
             }
             let rig = game.world.rigs.get(key)?;
-            Some((id, game.scene.actor_matrices(rig, id)))
+            Some((
+                id,
+                match entity_stamp(game, rig, id) {
+                    Some(stamp) => shared.pose(game, (key, rig), id, &stamp),
+                    None => Arc::new(game.scene.actor_matrices(rig, id)),
+                },
+            ))
         })
         .collect()
 }
 
-pub fn present(
-    mut eyes: ResMut<Eyes>,
-    game: Res<crate::gameplay::Gameplay>,
-    sim: Res<crate::simulation::Simulation>,
-    camera: Query<&Transform, With<FlyCamera>>,
-    draws: Query<(
-        &SourceEntity,
-        &EyeMesh,
-        &Mesh3d,
-        Option<&bevy::mesh::skinning::SkinnedMesh>,
-    )>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    performance: Option<Res<crate::performance::Performance>>,
-) {
-    let _timing = crate::performance::scope(performance.as_deref(), "eyes");
-    let Ok(camera) = camera.single() else { return };
-    // Evaluate each visible actor once per presentation; target and iris consumers
-    // share these skin transforms rather than sampling the full rig for every eye.
-    let poses = collect_actor_poses(&eyes, draws, &game);
+/// An eyeball surface's draw: its model, eyeball and scale.
+#[derive(Component)]
+pub struct EyeMesh {
+    pub key: String,
+    pub eye: source_assets::eyes::Eyeball,
+    pub scale: f32,
+}
+/// Every eye mesh's iris projection: two world-space rows per slot (the mesh's second UV
+/// holds its slot), which every source material reads; one upload a frame instead of every
+/// eye mesh's texture coordinates.
+pub const EYE_ROWS: Handle<ShaderBuffer> = uuid_handle!("6f1b5c2e-9d3a-4e8b-a7c1-2f4d8e6b9a10");
+/// Eye meshes the buffer holds. Its size never changes: a resized buffer is a new GPU buffer the
+/// materials' bind groups would not see.
+const EYE_SLOTS: usize = 1024;
+/// Creates the projection buffer before any material reads it.
+pub fn install_rows(mut buffers: ResMut<Assets<ShaderBuffer>>) {
+    let rows = vec![bevy::math::Vec4::ZERO; 2 * EYE_SLOTS];
+    let mut buffer = ShaderBuffer::default();
+    buffer.set_rows(&rows);
+    let _ = buffers.insert(EYE_ROWS.id(), buffer);
+}
+
+fn collect_candidates(
+    eyes: &mut Eyes,
+    game: &crate::gameplay::Gameplay,
+    camera: Vec3,
+    poses: &BTreeMap<usize, Arc<Vec<glam::Mat4>>>,
+) -> Vec<(Option<usize>, glam::Vec3, glam::Vec3)> {
     let mut candidates = vec![(
         None,
-        glam::Vec3::from_array(bevy_to_source(camera.translation).to_array()),
+        glam::Vec3::from_array(bevy_to_source(camera).to_array()),
         glam::Vec3::ZERO,
     )];
-    let mut origins = Vec::new();
+    let mut origins = std::mem::take(&mut eyes.origins);
+    origins.clear();
     let mut attachment_actors = 0;
     for (&id, actor) in &eyes.actors {
         let Some(state) = game.scene.states.get(id) else {
@@ -141,7 +295,7 @@ pub fn present(
             continue;
         }
         let attached = actor.gaze.attachment.as_ref().and_then(|attachment| {
-            bone_pose(&game, &actor.key, id, attachment.bone, &poses)
+            bone_pose(game, &actor.key, id, attachment.bone, poses)
                 .map(|bone| (bone * attachment.local, attachment.world_align))
         });
         let (origin, forward) = if let Some((attachment, world_align)) = attached {
@@ -165,11 +319,228 @@ pub fn present(
             )
         };
         candidates.push((Some(id), origin, forward));
-        origins.push(serde_json::json!({"entity":id,"origin":origin.to_array(),"forward":forward.to_array(),"attachment":attached.is_some()}));
+        origins.push(OriginRecord {
+            entity: id,
+            origin: origin.to_array(),
+            forward: forward.to_array(),
+            attachment: attached.is_some(),
+        });
     }
     eyes.pose_samples = poses.len();
     eyes.attachment_actors = attachment_actors;
     eyes.origins = origins;
+    candidates
+}
+
+#[derive(Clone)]
+struct Selected {
+    rendered: glam::Vec3,
+    label: TargetLabel,
+    interest: Option<hl2_simulation::attention::Interest>,
+}
+
+struct ActorEyeCtx {
+    actor: usize,
+    eye: glam::Vec3,
+    forward: glam::Vec3,
+}
+
+fn slerp_unit(from: glam::Vec3, to: glam::Vec3, t: f32) -> glam::Vec3 {
+    let dot = from.dot(to).clamp(-1., 1.);
+    if dot > 0.9995 {
+        return from.lerp(to, t).normalize_or(to);
+    }
+    if dot < -0.9995 {
+        let perp = if from.x.abs() < 0.9 {
+            glam::Vec3::X
+        } else {
+            glam::Vec3::Y
+        };
+        let axis = from.cross(perp).normalize_or(glam::Vec3::Z);
+        return (glam::Quat::from_axis_angle(axis, std::f32::consts::PI * t) * from)
+            .normalize_or(to);
+    }
+    let theta = dot.acos();
+    let sin_t = theta.sin();
+    ((from * ((1. - t) * theta).sin() + to * (t * theta).sin()) / sin_t).normalize_or(to)
+}
+
+fn smooth_gaze(
+    rendered: &mut BTreeMap<usize, RenderedGaze>,
+    ctx: &ActorEyeCtx,
+    target: glam::Vec3,
+    max_deflection: f32,
+    time: f64,
+) -> glam::Vec3 {
+    let (actor, eye, forward) = (ctx.actor, ctx.eye, ctx.forward);
+    let desired = source_assets::eyes::clamp_view_target(eye, forward, target, max_deflection);
+    let desired_vec = desired - eye;
+    let desired_dist = desired_vec.length().max(6.);
+    let desired_dir = (desired_vec / desired_dist).normalize_or(forward);
+    if let Some(prev) = rendered.get_mut(&actor)
+        && time >= prev.time
+        && time - prev.time <= 0.5
+    {
+        if time == prev.time {
+            return source_assets::eyes::clamp_view_target(
+                eye,
+                forward,
+                eye + prev.dir * prev.dist,
+                max_deflection,
+            );
+        }
+        let alpha = 1. - (-((time - prev.time) as f32) / GAZE_TAU).exp();
+        let dir = slerp_unit(prev.dir, desired_dir, alpha);
+        let dist = prev.dist + (desired_dist - prev.dist) * alpha;
+        let point =
+            source_assets::eyes::clamp_view_target(eye, forward, eye + dir * dist, max_deflection);
+        let clamped_vec = point - eye;
+        let clamped_dist = clamped_vec.length().max(6.);
+        let clamped_dir = (clamped_vec / clamped_dist).normalize_or(forward);
+        *prev = RenderedGaze {
+            dir: clamped_dir,
+            dist: clamped_dist,
+            time,
+        };
+        return point;
+    }
+    rendered.insert(
+        actor,
+        RenderedGaze {
+            dir: desired_dir,
+            dist: desired_dist,
+            time,
+        },
+    );
+    desired
+}
+
+fn select_raw_target(
+    eyes: &Eyes,
+    game: &crate::gameplay::Gameplay,
+    sim: &crate::simulation::Simulation,
+    ctx: &ActorEyeCtx,
+    candidates: &[(Option<usize>, glam::Vec3, glam::Vec3)],
+) -> (
+    glam::Vec3,
+    TargetLabel,
+    Option<hl2_simulation::attention::Interest>,
+) {
+    use hl2_simulation::attention::Target;
+    let has_face = game
+        .scene
+        .entity(&game.world, ctx.actor)
+        .is_some_and(|e| hl2_simulation::attention::has_animated_face(e.class()));
+    if !game.scene.look_targets.in_pvs(ctx.actor)
+        && has_face
+        && let Some(&point) = eyes.view_targets.get(&ctx.actor)
+    {
+        return (point, TargetLabel::View, None);
+    }
+    let position = |target| match target {
+        Target::Player => Some(candidates[0].1),
+        Target::Position(p) => Some(p),
+        Target::Entity(id) => game.scene.states.get(id).filter(|s| !s.killed).map(|s| {
+            candidates
+                .iter()
+                .find(|(candidate, _, _)| *candidate == Some(id))
+                .map_or(s.origin, |(_, p, _)| *p)
+        }),
+    };
+    if let Some((interest, point)) =
+        game.scene
+            .look_targets
+            .eye_target(ctx.actor, ctx.eye, ctx.forward, position)
+    {
+        let label = match interest.target {
+            Target::Player => TargetLabel::Player,
+            Target::Entity(id) => TargetLabel::Entity(id),
+            Target::Position(_) => TargetLabel::View,
+        };
+        return (
+            point,
+            label,
+            (interest.ramp == 0.).then(|| interest.clone()),
+        );
+    }
+    if !has_face
+        && let Some((id, point, _)) = candidates
+            .iter()
+            .filter_map(|&(id, p, _)| {
+                if id == Some(ctx.actor) {
+                    return None;
+                }
+                let distance = p.distance(ctx.eye);
+                if !(1. ..=1024.).contains(&distance)
+                    || (p - ctx.eye).normalize().dot(ctx.forward) <= 0.259
+                {
+                    return None;
+                }
+                let excluded = [ctx.actor, id.unwrap_or(usize::MAX)];
+                sim.physics
+                    .projectile_ray(ctx.eye, p, &excluded)
+                    .is_none()
+                    .then_some((id, p, distance))
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+    {
+        let label = id.map_or(TargetLabel::Player, TargetLabel::Entity);
+        return (point, label, None);
+    }
+    let point = eyes
+        .view_targets
+        .get(&ctx.actor)
+        .copied()
+        .filter(|&p| valid_eye_target(ctx.eye, ctx.forward, p))
+        .unwrap_or_else(|| random_view_target(ctx.eye, ctx.forward, ctx.actor, game.scene.time));
+    (point, TargetLabel::View, None)
+}
+
+fn select_actor_target(
+    eyes: &mut Eyes,
+    game: &crate::gameplay::Gameplay,
+    sim: &crate::simulation::Simulation,
+    ctx: &ActorEyeCtx,
+    candidates: &[(Option<usize>, glam::Vec3, glam::Vec3)],
+) -> Selected {
+    let (point, label, interest) = select_raw_target(eyes, game, sim, ctx, candidates);
+    eyes.view_targets.insert(ctx.actor, point);
+    let max_deflection = eyes
+        .actors
+        .get(&ctx.actor)
+        .map_or(source_assets::eyes::DEFAULT_MAX_EYE_DEFLECTION, |a| {
+            a.gaze.max_eye_deflection
+        });
+    let rendered = smooth_gaze(
+        &mut eyes.rendered_gaze,
+        ctx,
+        point,
+        max_deflection,
+        game.scene.time,
+    );
+    Selected {
+        rendered,
+        label,
+        interest,
+    }
+}
+
+pub fn present(
+    mut eyes: ResMut<Eyes>,
+    game: Res<crate::gameplay::Gameplay>,
+    sim: Res<crate::simulation::Simulation>,
+    camera: Query<&Transform, With<FlyCamera>>,
+    draws: Query<(&SourceEntity, &EyeMesh, &Mesh3d, &ViewVisibility)>,
+    (mut meshes, mut buffers, mut shared_poses): EyeAssets,
+    performance: Option<Res<crate::performance::Performance>>,
+) {
+    let _timing = crate::performance::scope(performance.as_deref(), "eyes");
+    let Ok(camera) = camera.single() else { return };
+    eyes.release_gone(|mesh| meshes.contains(mesh));
+    // Evaluate each visible actor once per presentation; target and iris consumers
+    // share these skin transforms rather than sampling the full rig for every eye.
+    let poses = collect_actor_poses(&eyes, draws, &game, &mut shared_poses);
+    let candidates = collect_candidates(&mut eyes, &game, camera.translation, &poses);
     eyes.projections.clear();
     eyes.lid_bases.clear();
     eyes.draws = 0;
@@ -177,14 +548,13 @@ pub fn present(
     eyes.tracking_npc = 0;
     eyes.tracking_entity = 0;
     eyes.tracking_scene = 0;
-    #[derive(Clone)]
-    struct Selected {
-        point: glam::Vec3,
-        label: String,
-        interest: Option<hl2_simulation::attention::Interest>,
-    }
-    let mut actor_targets = BTreeMap::<usize, Option<Selected>>::new();
-    for (owner, mesh_eye, handle, skinned) in &draws {
+    let mut actor_targets = BTreeMap::<usize, Selected>::new();
+    for (owner, mesh_eye, handle, visibility) in &draws {
+        // Like retail, only an eye being drawn gets its iris projection (it was culled last frame
+        // otherwise); gaze targets stay per actor.
+        if !visibility.get() {
+            continue;
+        }
         let Some(state) = game.scene.states.get(owner.0) else {
             continue;
         };
@@ -194,128 +564,26 @@ pub fn present(
         let Some(bone) = bone_pose(&game, &mesh_eye.key, owner.0, mesh_eye.eye.bone, &poses) else {
             continue;
         };
-        let origin = bone.transform_point3(mesh_eye.eye.origin);
-        let head_forward = -bone.transform_vector3(mesh_eye.eye.forward).normalize();
-        let world_origin = state.origin + state.rotation * (origin * mesh_eye.scale);
-        // SetViewtarget is per actor; both eyes consume the same world target. Outside the
-        // player's PVS an animated-face actor keeps its last view target.
-        let frozen = !game.scene.look_targets.in_pvs(owner.0)
-            && game
-                .scene
-                .entity(&game.world, owner.0)
-                .is_some_and(|e| hl2_simulation::attention::has_animated_face(e.class()));
-        let latched = frozen
-            .then(|| eyes.view_targets.get(&owner.0).copied())
-            .flatten();
         let selected = actor_targets.entry(owner.0).or_insert_with(|| {
-            if let Some(point) = latched {
-                return Some(Selected {
-                    point,
-                    label: "view".into(),
-                    interest: None,
-                });
-            }
-            use hl2_simulation::attention::Target;
-            let actor_eye = candidates.iter().find(|(id, _, _)| *id == Some(owner.0));
-            let (actor_eye, forward) = actor_eye.map_or(
-                (world_origin, state.rotation * head_forward),
-                |(_, p, f)| (*p, *f),
-            );
-            let position = |target| match target {
-                Target::Player => Some(candidates[0].1),
-                Target::Position(p) => Some(p),
-                Target::Entity(id) => game.scene.states.get(id).filter(|s| !s.killed).map(|s| {
-                    candidates
-                        .iter()
-                        .find(|(candidate, _, _)| *candidate == Some(id))
-                        .map_or(s.origin, |(_, p, _)| *p)
-                }),
-            };
-            // Explicit (scene/AI) and random (MaintainLookTargets glance) interests.
-            if let Some((interest, point)) = game
-                .scene
-                .look_targets
-                .eye_target(owner.0, actor_eye, forward, position)
-            {
-                let label = match interest.target {
-                    Target::Player => "player".into(),
-                    Target::Entity(id) => format!("#{id}"),
-                    Target::Position(_) => "view".into(),
-                };
-                return Some(Selected {
-                    point,
-                    label,
-                    // Random glances carry a ramp; only explicit interests count as scene.
-                    interest: (interest.ramp == 0.).then(|| interest.clone()),
-                });
-            }
-            // Actors with an animated face rely on their look queues (no target: the
-            // latched/random view point below); others (cyclers) keep the nearest-visible
-            // fallback.
-            if game
-                .scene
-                .entity(&game.world, owner.0)
-                .is_some_and(|e| hl2_simulation::attention::has_animated_face(e.class()))
-            {
-                return None;
-            }
-            candidates
-                .iter()
-                .filter_map(|&(id, p, _)| {
-                    if id == Some(owner.0) {
-                        return None;
-                    }
-                    let distance = p.distance(actor_eye);
-                    if !(1. ..=1024.).contains(&distance)
-                        || (p - actor_eye).normalize().dot(forward) <= 0.259
-                    {
-                        return None;
-                    }
-                    let excluded = [owner.0, id.unwrap_or(usize::MAX)];
-                    if sim
-                        .physics
-                        .projectile_ray(actor_eye, p, &excluded)
-                        .is_some()
-                    {
-                        return None;
-                    }
-                    Some((id, p, distance))
-                })
-                .min_by(|a, b| a.2.total_cmp(&b.2))
-                .map(|(id, point, _)| Selected {
-                    point,
-                    label: id.map_or("player".into(), |i| format!("#{i}")),
-                    interest: None,
-                })
-        });
-        if selected.is_none() {
-            // CAI_BaseActor::MaintainLookTargets: without a target, keep the latched view
-            // target while ValidEyeTarget holds, else look 128 units ahead with jitter.
-            let (eye, forward) = candidates
+            let origin = bone.transform_point3(mesh_eye.eye.origin);
+            let head_forward = -bone.transform_vector3(mesh_eye.eye.forward).normalize();
+            let world_origin = state.origin + state.rotation * (origin * mesh_eye.scale);
+            let (actor_eye, forward) = candidates
                 .iter()
                 .find(|(id, _, _)| *id == Some(owner.0))
                 .map_or(
                     (world_origin, state.rotation * head_forward),
                     |(_, p, f)| (*p, *f),
                 );
-            let point = eyes
-                .view_targets
-                .get(&owner.0)
-                .copied()
-                .filter(|&p| valid_eye_target(eye, forward, p))
-                .unwrap_or_else(|| random_view_target(eye, forward, owner.0, game.scene.time));
-            *selected = Some(Selected {
-                point,
-                label: "view".into(),
-                interest: None,
-            });
-        }
-        if let Some(selected) = selected.as_ref() {
-            eyes.view_targets.insert(owner.0, selected.point);
-        }
-        let local_target = selected
-            .as_ref()
-            .map(|s| state.rotation.inverse() * (s.point - state.origin) / mesh_eye.scale);
+            let ctx = ActorEyeCtx {
+                actor: owner.0,
+                eye: actor_eye,
+                forward,
+            };
+            select_actor_target(&mut eyes, &game, &sim, &ctx, &candidates)
+        });
+        let local_target =
+            Some(state.rotation.inverse() * (selected.rendered - state.origin) / mesh_eye.scale);
         let projection = source_assets::eyes::projection(&mesh_eye.eye, bone, local_target);
         eyes.lid_bases.insert(
             (owner.0, mesh_eye.eye.surface),
@@ -324,61 +592,70 @@ pub fn present(
                 source_assets::eyes::basis(&mesh_eye.eye, bone, local_target),
             ),
         );
-        if let Some(selected) = selected {
-            if selected.interest.is_some() {
-                eyes.tracking_scene += 1;
-            }
-            if selected.label == "player" {
-                eyes.tracking_player += 1;
-            } else if selected.label != "view" {
+        if selected.interest.is_some() {
+            eyes.tracking_scene += 1;
+        }
+        match selected.label {
+            TargetLabel::Player => eyes.tracking_player += 1,
+            TargetLabel::View => {}
+            TargetLabel::Entity(id) => {
                 eyes.tracking_entity += 1;
-                let id = selected
-                    .label
-                    .strip_prefix('#')
-                    .and_then(|s| s.parse::<usize>().ok());
-                if id.is_some_and(|id| {
-                    game.scene
-                        .entity(&game.world, id)
-                        .is_some_and(|e| hl2_simulation::attention::is_flex_actor(e.class()))
-                }) {
+                if game
+                    .scene
+                    .entity(&game.world, id)
+                    .is_some_and(|e| hl2_simulation::attention::is_flex_actor(e.class()))
+                {
                     eyes.tracking_npc += 1;
                 }
             }
         }
-        eyes.projections.push(serde_json::json!({"entity":owner.0,"surface":mesh_eye.eye.surface,"rows":projection.iter().map(|r|r.to_array()).collect::<Vec<_>>(),
-            "target":selected.as_ref().map(|s|&s.label),"world_target":selected.as_ref().map(|s|s.point.to_array()),"scripted_interest":selected.as_ref().and_then(|s|s.interest.as_ref())}));
+        eyes.projections.push(ProjectionRecord {
+            entity: owner.0,
+            surface: mesh_eye.eye.surface,
+            rows: [projection[0].to_array(), projection[1].to_array()],
+            target: Some(selected.label),
+            world_target: Some(selected.rendered.to_array()),
+            scripted_interest: selected.interest.clone(),
+        });
+        // The shader projects each fragment's world position through this eye's rows; the
+        // mesh's second UV names its slot, written once.
+        let Some(slot) = eyes.slot(handle.0.id()) else {
+            continue;
+        };
+        // The pose the draws are placed at (`placement::place_entities`).
+        let placed = sim.physics.entity_pose(owner.0);
+        let placed = placed.unwrap_or((state.origin, state.rotation));
+        let rows = world_rows(projection, placed, mesh_eye.scale);
+        eyes.set_rows(slot, rows);
         if let Some(mesh) = meshes.get(&handle.0) {
-            let Some(VertexAttributeValues::Float32x3(positions)) =
-                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else {
-                continue;
-            };
-            let uvs = positions
-                .iter()
-                .enumerate()
-                .map(|(vertex, p)| {
-                    let point =
-                        glam::Vec3::from_array(bevy_to_source(Vec3::from_array(*p)).to_array())
-                            / mesh_eye.scale;
-                    let point = if skinned.is_some() {
-                        crate::gpu_skinning::skin_vertex(mesh, vertex, point, &poses[&owner.0])
-                    } else {
-                        point
-                    };
-                    [
-                        projection[0].dot(point.extend(1.)),
-                        projection[1].dot(point.extend(1.)),
-                    ]
-                })
-                .collect::<Vec<_>>();
-            if !matches!(mesh.attribute(Mesh::ATTRIBUTE_UV_1),Some(VertexAttributeValues::Float32x2(old)) if *old == uvs)
-                && let Some(mut mesh) = meshes.get_mut(&handle.0)
-            {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, uvs);
+            let (count, tag) = (mesh.count_vertices(), [slot as f32, 0.]);
+            let tagged = matches!(mesh.attribute(Mesh::ATTRIBUTE_UV_1),
+                Some(VertexAttributeValues::Float32x2(uvs)) if uvs.len() == count && uvs.iter().all(|uv| *uv == tag));
+            if !tagged && let Some(mut mesh) = meshes.get_mut(&handle.0) {
+                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![tag; count]);
             }
             eyes.draws += 1;
         }
     }
+    eyes.upload_rows(&mut buffers);
+}
+
+/// World-space iris rows from `rows`, which take a skinned model-space point (Source units,
+/// before scale): a world (Bevy) position maps there through the actor's placement, as the
+/// renderer places its draws (origin + rotation x point x scale, in Bevy axes).
+fn world_rows(
+    rows: [glam::Vec4; 2],
+    (origin, rotation): (glam::Vec3, glam::Quat),
+    scale: f32,
+) -> [Vec4; 2] {
+    // Bevy (x, y, z) is Source (x, -z, y).
+    let to_source =
+        glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, -glam::Vec4::Y, glam::Vec4::W);
+    let to_model = glam::Mat4::from_scale(glam::Vec3::splat(1. / scale))
+        * glam::Mat4::from_quat(rotation.inverse())
+        * glam::Mat4::from_translation(-origin)
+        * to_source;
+    rows.map(|row| Vec4::from_array((to_model.transpose() * row).to_array()))
 }
 
 /// SDK CAI_BaseActor::ValidEyeTarget: at least 1 unit away and within 75 degrees of the head.
@@ -415,7 +692,7 @@ fn random_view_target(eye: glam::Vec3, forward: glam::Vec3, actor: usize, time: 
 pub fn attention_pvs(
     mut game: ResMut<crate::gameplay::Gameplay>,
     sim: Res<crate::simulation::Simulation>,
-    sky: Res<crate::sky::Sky>,
+    mut visibility: ResMut<crate::visibility::SourceVisibility>,
     monitors: Res<crate::monitors::Monitors>,
 ) {
     let now = game.scene.time;
@@ -426,6 +703,10 @@ pub fn attention_pvs(
     if let Some(camera) = monitors.selected().and_then(|c| game.scene.states.get(c)) {
         eyes.push(camera.origin);
     }
+    let Some(rows) = visibility.actor_rows(eyes) else {
+        game.scene.look_targets.clear_pvs(now.max(1e-6));
+        return;
+    };
     let mut visible = std::collections::BTreeSet::new();
     // Scanner beams and lit point_spotlights: near when any of the beam can be seen.
     let lamps = game
@@ -438,7 +719,7 @@ pub fn attention_pvs(
     for (id, entity) in game.world.entities.iter().enumerate() {
         let tongue = game.scene.tongues.get(&id);
         let beam = beams.get(&id);
-        let tracked = tongue.is_some() || beam.is_some();
+        let tracked = tongue.is_some() || beam.is_some() || game.ai.actors.contains_key(&id);
         if !tracked && !hl2_simulation::attention::has_animated_face(entity.class()) {
             continue;
         }
@@ -457,15 +738,8 @@ pub fn attention_pvs(
             (None, Some(beam)) => (beam.start.min(beam.end), beam.start.max(beam.end)),
             (None, None) => (state.origin, state.origin + glam::Vec3::Z * 64.),
         };
-        for &eye in &eyes {
-            match sky.bounds_in_pvs(eye, low, high) {
-                Ok(true) => {
-                    visible.insert(id);
-                    break;
-                }
-                Ok(false) => {}
-                Err(_) => return,
-            }
+        if visibility.actor_visible(&rows, low, high) {
+            visible.insert(id);
         }
     }
     game.scene.look_targets.set_pvs(visible, now.max(1e-6));
@@ -473,6 +747,69 @@ pub fn attention_pvs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dirty_iris_rows_match_a_full_upload_and_survive_a_missing_buffer() {
+        let mut eyes = Eyes::default();
+        let mut buffers = Assets::<ShaderBuffer>::default();
+        let first = [Vec4::splat(2.0), Vec4::splat(3.0)];
+        let last = [Vec4::splat(4.0), Vec4::splat(5.0)];
+        eyes.set_rows(0, [Vec4::ONE; 2]);
+        eyes.upload_rows(&mut buffers);
+        assert_eq!(eyes.dirty, Some((0, EYE_SLOTS * 2)));
+
+        let mut buffer = ShaderBuffer::default();
+        buffer.set_rows(&vec![Vec4::ONE; EYE_SLOTS * 2]);
+        buffers.insert(EYE_ROWS.id(), buffer).unwrap();
+        eyes.upload_rows(&mut buffers);
+        assert_eq!(eyes.dirty, None);
+
+        eyes.set_rows(3, first);
+        eyes.set_rows(7, last);
+        assert_eq!(eyes.dirty, Some((6, 16)));
+        eyes.upload_rows(&mut buffers);
+
+        eyes.set_rows(3, first);
+        assert_eq!(eyes.dirty, None);
+        eyes.set_rows(7, [Vec4::ZERO; 2]);
+        assert_eq!(eyes.dirty, Some((14, 16)));
+        eyes.upload_rows(&mut buffers);
+
+        let mut expected = ShaderBuffer::default();
+        expected.set_rows(&eyes.rows);
+        assert_eq!(buffers.get(&EYE_ROWS).unwrap().bytes(), expected.bytes());
+    }
+
+    #[test]
+    fn world_rows_project_the_rendered_position_like_the_model_point() {
+        let rows = [
+            glam::Vec4::new(0.3, -0.2, 0.9, 0.5),
+            glam::Vec4::new(-0.7, 0.4, 0.1, -0.25),
+        ];
+        for (origin, yaw, pitch, scale) in [
+            (glam::Vec3::ZERO, 0., 0., 1.),
+            (glam::Vec3::new(-2456., -2556., 64.), 1.1, 0., 1.),
+            (glam::Vec3::new(812., 4096., -300.), -2.5, 0.4, 1.25),
+        ] {
+            let rotation = glam::Quat::from_rotation_z(yaw) * glam::Quat::from_rotation_y(pitch);
+            let world = world_rows(rows, (origin, rotation), scale);
+            for model in [
+                glam::Vec3::new(1.5, -0.5, 66.),
+                glam::Vec3::new(-3., 2., 60.),
+            ] {
+                // Where the renderer draws the skinned model point, in Bevy axes.
+                let source = origin + rotation * (model * scale);
+                let at = crate::source_to_bevy(Vec3::from_array(source.to_array())).extend(1.);
+                for (world, model_row) in world.iter().zip(rows) {
+                    let expected = model_row.dot(model.extend(1.));
+                    assert!(
+                        (world.dot(at) - expected).abs() < 2e-3,
+                        "{origin} {expected}"
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn view_target_is_ahead_within_sdk_jitter_and_valid() {
         let eye = glam::Vec3::new(10., 20., 30.);
@@ -492,5 +829,69 @@ mod tests {
             glam::Vec3::X,
             eye + glam::Vec3::X * 0.5
         ));
+    }
+
+    #[test]
+    fn smooth_gaze_snaps_on_first_sight_clamps_cone_and_slews_without_teleports() {
+        let eye = glam::Vec3::new(0., 0., 64.);
+        let forward = glam::Vec3::X;
+        let ctx = ActorEyeCtx {
+            actor: 7,
+            eye,
+            forward,
+        };
+        let mut rendered = BTreeMap::new();
+        let left = eye
+            + glam::Vec3::new(
+                100. * 25f32.to_radians().cos(),
+                100. * 25f32.to_radians().sin(),
+                0.,
+            );
+        let right = eye
+            + glam::Vec3::new(
+                100. * 25f32.to_radians().cos(),
+                -100. * 25f32.to_radians().sin(),
+                0.,
+            );
+
+        // First sight snaps immediately to the target with zero warm-up lag.
+        let p0 = smooth_gaze(&mut rendered, &ctx, left, 0.866, 1.0);
+        assert!((p0 - left).length() < 1e-4, "{p0}");
+
+        // Switching across to +25 deg rotates smoothly without a 1-frame teleport, and freezes when paused.
+        let mut prev_y = (p0 - eye).normalize().y;
+        let p_paused = smooth_gaze(&mut rendered, &ctx, right, 0.866, 1.0);
+        assert!((p_paused - p0).length() < 1e-4, "{p_paused}");
+
+        let mut p_last = p0;
+        for step in 1..=14 {
+            let t = 1.0 + f64::from(step) * 0.015;
+            p_last = smooth_gaze(&mut rendered, &ctx, right, 0.866, t);
+            let dir = (p_last - eye).normalize();
+            assert!(
+                dir.y < prev_y,
+                "expected monotonic slew at step {step}: {dir:?}"
+            );
+            assert!(
+                dir.dot(forward) >= 0.865,
+                "slew violated cone at step {step}"
+            );
+            prev_y = dir.y;
+        }
+        let right_dir = (right - eye).normalize();
+        assert!(
+            (p_last - eye)
+                .normalize()
+                .angle_between(right_dir)
+                .to_degrees()
+                < 1.0
+        );
+
+        // Extreme 70 deg target stays clamped to max_eye_deflection both mid-saccade and steady-state.
+        let extreme = eye + glam::Vec3::new(34.2, -94.0, 0.);
+        let p_mid = smooth_gaze(&mut rendered, &ctx, extreme, 0.866, 1.25);
+        assert!((p_mid - eye).normalize().dot(forward) >= 0.865);
+        let p_end = smooth_gaze(&mut rendered, &ctx, extreme, 0.866, 2.0);
+        assert!(((p_end - eye).normalize().dot(forward) - 0.866).abs() < 1e-3);
     }
 }

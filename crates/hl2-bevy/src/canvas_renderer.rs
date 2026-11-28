@@ -1,7 +1,9 @@
 //! Bevy presentation and WGPU 2D batch rendering for the shared Source UI Canvas.
+mod atlas;
 mod frame_distribution;
 mod frame_windows;
 mod game_hud;
+pub mod hud_pass;
 
 use bevy::{
     asset::RenderAssetUsages,
@@ -147,41 +149,131 @@ impl FrameTiming {
         }
     }
 }
+pub struct HudSource {
+    pub canvas: source_ui::canvas::Canvas,
+    pub weapon: Option<hl2_ui::hud::WeaponHud>,
+}
+
+impl HudSource {
+    pub fn set_poisoned(&self, poisoned: bool) {
+        if let Some(weapon) = &self.weapon {
+            weapon.set_poisoned(poisoned);
+        }
+    }
+    pub fn set_key_hint(
+        &self,
+        hint: Option<&(String, f64)>,
+        keys: &std::collections::BTreeMap<String, String>,
+    ) {
+        if let Some(weapon) = &self.weapon {
+            weapon.set_key_hint(hint, keys);
+        }
+    }
+    pub fn draw_status(
+        &self,
+        inv: &hl2_simulation::gameplay::Inventory,
+        weapons: &std::collections::BTreeMap<String, hl2_simulation::gameplay::Weapon>,
+        selection: &hl2_simulation::selection::Selection,
+        time: f64,
+    ) {
+        if let Some(weapon) = &self.weapon {
+            weapon.draw_status(inv, weapons, selection, time);
+        }
+    }
+    pub fn draw_selection(
+        &self,
+        selection: &hl2_simulation::selection::Selection,
+        inv: &hl2_simulation::gameplay::Inventory,
+        weapons: &std::collections::BTreeMap<String, hl2_simulation::gameplay::Weapon>,
+        time: f64,
+    ) {
+        if let Some(weapon) = &self.weapon {
+            weapon.draw_selection(selection, inv, weapons, time);
+        }
+    }
+    pub fn draw_crosshair(&self, inv: &hl2_simulation::gameplay::Inventory) {
+        if let Some(weapon) = &self.weapon {
+            weapon.draw_crosshair(inv);
+        }
+    }
+    pub fn draw_commentary(
+        &self,
+        overlay: Option<&hl2_simulation::commentary::CommentaryOverlay>,
+        closecaption: bool,
+        time: f64,
+    ) {
+        if let Some(weapon) = &self.weapon {
+            weapon.draw_commentary(overlay, closecaption, time);
+        }
+    }
+    pub fn draw_power(
+        &self,
+        inv: &hl2_simulation::gameplay::Inventory,
+        light: Option<&hl2_simulation::flashlight::Flashlight>,
+        time: f64,
+    ) {
+        if let Some(weapon) = &self.weapon {
+            weapon.draw_power(inv, light, time);
+        }
+    }
+}
+
 #[derive(Resource)]
 pub struct Hud {
-    pub source: hl2_ui::hud::WeaponHud,
+    pub source: HudSource,
     textures: HashMap<usize, GpuTexture>,
     white: Option<(Handle<HudMaterial>, Handle<HudMaterial>)>,
     modulate: Option<Handle<HudMaterial>>,
-    pool: Vec<(Entity, Handle<Mesh>, QuadGeometry)>,
+    atlas: atlas::Atlas,
+    pool: Vec<(Entity, Handle<Mesh>, Vec<QuadGeometry>)>,
+    scratch_quads: Vec<Quad>,
     pub quads: usize,
     timing: FrameTiming,
     diagnostic_font: Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>>,
+    /// This frame's profiler status, when a profiler runs.
+    profiling: Option<crate::performance::status::ProfilingSnapshot>,
 }
 impl Hud {
-    fn observe_frame(&mut self, now: f64, profile: bool) {
-        self.timing.observe(now, profile);
+    pub fn profiling(&self) -> Option<crate::performance::status::ProfilingSnapshot> {
+        self.profiling
+    }
+    /// Stage timings restart after the gameplay warm-up (`performance::status`).
+    fn observe_frame(&mut self, now: f64, performance: Option<&crate::performance::Performance>) {
+        self.timing.observe(now, performance.is_some());
     }
     pub fn report(&self) -> serde_json::Value {
-        let captions = &self.source.captions;
-        let state = captions.state.borrow();
-        let captions = serde_json::json!({"dictionaries":captions.captions.dictionaries.iter().map(|d| d.len()).collect::<Vec<_>>(),
-            "errors":captions.errors,"processed":state.processed,"queued":state.streams().collect::<Vec<_>>(),"recent":state.recent,"missing":state.missing});
-        let report = serde_json::json!({"quads":self.quads,"pooled_meshes":self.pool.len(),"owned_textures":self.textures.len(),"viewport":[self.source.canvas.width(),self.source.canvas.height()], "frame":self.source.frame(), "panels":self.source.panel_rects(), "power":self.source.power_report(), "captions":captions});
-        report
+        if let Some(weapon) = &self.source.weapon {
+            let captions = &weapon.captions;
+            let state = captions.state.borrow();
+            let captions = serde_json::json!({"dictionaries":captions.captions.dictionaries.iter().map(|d| d.len()).collect::<Vec<_>>(),
+                "errors":captions.errors,"processed":state.processed,"queued":state.streams().collect::<Vec<_>>(),"recent":state.recent,"missing":state.missing});
+            return serde_json::json!({"quads":self.quads,"pooled_meshes":self.pool.len(),"owned_textures":self.textures.len(),"atlas_pages":self.atlas.pages(),"viewport":[self.source.canvas.width(),self.source.canvas.height()], "frame":weapon.frame(), "panels":weapon.panel_rects(), "power":weapon.power_report(), "captions":captions});
+        }
+        let captions = serde_json::json!({
+            "dictionaries": Vec::<usize>::new(),
+            "errors": Vec::<String>::new(),
+            "processed": 0,
+            "queued": Vec::<String>::new(),
+            "recent": Vec::<String>::new(),
+            "missing": Vec::<String>::new(),
+        });
+        serde_json::json!({"quads":self.quads,"pooled_meshes":self.pool.len(),"owned_textures":self.textures.len(),"atlas_pages":self.atlas.pages(),"viewport":[self.source.canvas.width(),self.source.canvas.height()], "frame":serde_json::Value::Null, "panels":serde_json::Value::Null, "power":serde_json::Value::Null, "captions":captions})
     }
-    pub fn new(source: hl2_ui::hud::WeaponHud) -> Self {
+    pub fn new(canvas: source_ui::canvas::Canvas, weapon: Option<hl2_ui::hud::WeaponHud>) -> Self {
         let diagnostic_font =
             source_ui::bitmap_text::BitmapFont::load(18.).map(std::sync::Arc::new);
         Self {
-            source,
+            source: HudSource { canvas, weapon },
             textures: HashMap::new(),
             white: None,
             modulate: None,
+            atlas: atlas::Atlas::default(),
             pool: vec![],
+            scratch_quads: vec![],
             quads: 0,
             timing: FrameTiming::default(),
             diagnostic_font,
+            profiling: None,
         }
     }
     pub fn bitmap_font(&self) -> Option<std::sync::Arc<source_ui::bitmap_text::BitmapFont>> {
@@ -199,7 +291,7 @@ impl Hud {
         quad: &Quad,
         images: &mut Assets<Image>,
         materials: &mut Assets<HudMaterial>,
-    ) -> Handle<HudMaterial> {
+    ) -> (Handle<HudMaterial>, atlas::UvMap) {
         fn upload(
             texture: &Texture2D,
             images: &mut Assets<Image>,
@@ -235,7 +327,7 @@ impl Hud {
             )
         }
         if quad.modulate {
-            return self
+            let material = self
                 .modulate
                 .get_or_insert_with(|| {
                     let white = Texture2D::from_rgba8(1, 1, &[255; 4]);
@@ -258,6 +350,10 @@ impl Hud {
                     })
                 })
                 .clone();
+            return (material, atlas::UvMap::Own);
+        }
+        if let Some(found) = self.atlas.material(quad, images, materials) {
+            return found;
         }
         let handles = if let Some(cpu) = &quad.texture {
             let texture = self.textures.entry(cpu.id()).or_insert_with(|| {
@@ -275,11 +371,12 @@ impl Hud {
             });
             (&handles.0, &handles.1)
         };
-        if quad.additive {
+        let material = if quad.additive {
             handles.1.clone()
         } else {
             handles.0.clone()
-        }
+        };
+        (material, atlas::UvMap::Own)
     }
 }
 #[derive(Component)]
@@ -306,14 +403,75 @@ type HudResources<'w> = (
     ResMut<'w, crate::simulation::Simulation>,
     Res<'w, crate::Status>,
     Option<Res<'w, crate::performance::Performance>>,
+    Option<Res<'w, crate::performance::status::Profiling>>,
 );
+
+/// Whether runtime extensions may submit dialogue to the shared caption panel this frame:
+/// outside map loading, spawn hold, level transitions, and pending background audio, while
+/// the developer console is closed (gameplay, main menu, and the gameplay pause menu).
+fn accept_extension_captions(
+    sim: &crate::simulation::Simulation,
+    console_open: bool,
+    logic_autos_pending: bool,
+) -> bool {
+    !sim.loading
+        && !sim.transition
+        && !logic_autos_pending
+        && !(sim.background_level && sim.background_audio_pending)
+        && !console_open
+}
+
+fn draw_weapon_overlays(
+    weapon: &mut hl2_ui::hud::WeaponHud,
+    game: &mut crate::gameplay::Gameplay,
+    ui: &crate::ui_host::Console,
+    sim: &mut crate::simulation::Simulation,
+    hud_hidden: bool,
+    real_time: f64,
+) {
+    weapon.aspect = ui.source.config.video.hud_aspect;
+    // Client order: queued ScreenFade/Damage messages, the fade over the 3D view, HUD.
+    let time = game.scene.time;
+    for fade in std::mem::take(&mut game.player_damage.fades)
+        .into_iter()
+        .chain(std::mem::take(&mut game.scene.screen_fades))
+    {
+        weapon.screen_fade(fade, time);
+    }
+    let eye = glam::Vec3::from_array(sim.eye().to_array());
+    for message in std::mem::take(&mut game.damage_messages) {
+        weapon.damage_message(
+            message,
+            eye,
+            sim.yaw.to_degrees(),
+            game.inventory.suit,
+            game.inventory.health,
+            time,
+        );
+    }
+    weapon.draw_fade(time, game.scene.intro.script.frame(time).map(|f| f.fade));
+    weapon.draw_credits(time, &game.scene.intro);
+    weapon.draw_messages(time, &game.scene.intro.messages);
+    // Closed captions (Options > Audio) also show behind the main menu, under GameUI.
+    let captions = hl2_ui::closecaption::Settings::from_config(ui.source.config.audio.captions);
+    let messages = std::mem::take(&mut game.caption_messages);
+    weapon.captions.emit(&messages, &captions, time);
+    let console_open = ui.source.console_open();
+    let logic_autos_pending = game.scene.logic_autos_pending();
+    if accept_extension_captions(sim, console_open, logic_autos_pending) {
+        sim.with_extensions(|extension, _| extension.gameplay_captions(&weapon.captions));
+    }
+    let allow_runtime_paint =
+        !logic_autos_pending && !sim.loading && !sim.transition && !console_open;
+    weapon.draw_captions(&captions, time, real_time, !hud_hidden, allow_runtime_paint);
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn present(
     mut commands: Commands,
     mut hud: ResMut<Hud>,
     mut game: ResMut<crate::gameplay::Gameplay>,
-    (mut ui, clock, mut sim, status, performance): HudResources,
+    (mut ui, clock, mut sim, status, performance, profiling): HudResources,
     windows: Query<&Window, With<PrimaryWindow>>,
     video_viewport: Option<Res<crate::video::VideoViewport>>,
     (mut images, mut materials, mut meshes): HudAssets,
@@ -329,48 +487,27 @@ pub fn present(
         .map(|vp| (vp.target_resolution.x as f32, vp.target_resolution.y as f32))
         .unwrap_or_else(|| (window.width(), window.height()));
     hud.source.canvas.resize(width, height);
-    hud.source.aspect = ui.source.config.video.hud_aspect;
-    // Client order: queued ScreenFade/Damage messages, the fade over the 3D view, HUD.
-    let time = game.scene.time;
-    for fade in std::mem::take(&mut game.player_damage.fades)
-        .into_iter()
-        .chain(std::mem::take(&mut game.scene.screen_fades))
-    {
-        hud.source.screen_fade(fade, time);
-    }
-    let eye = glam::Vec3::from_array(sim.eye().to_array());
-    for message in std::mem::take(&mut game.damage_messages) {
-        hud.source.damage_message(
-            message,
-            eye,
-            sim.yaw.to_degrees(),
-            game.inventory.suit,
-            game.inventory.health,
-            time,
-        );
-    }
-    hud.source
-        .draw_fade(time, game.scene.intro.script.frame(time).map(|f| f.fade));
-    hud.source.draw_credits(time, &game.scene.intro);
-    hud.source.draw_messages(time, &game.scene.intro.messages);
     // While GameUI is up in a level (pause menu, console, dialogs) the engine hides the client's
     // HUD panel: native pause captures (hl2_complete oracle, 2026-10-29) show no HUD or crosshair.
     // Nor is anything drawn before the map's first logic_auto think (the spawn hold, startup.rs).
     let hud_hidden =
         (ui.source.paused() && !ui.source.background_level()) || game.scene.logic_autos_pending();
-    // Closed captions (Options > Audio) also show behind the main menu, under GameUI.
-    let captions = hl2_ui::closecaption::Settings::from_config(ui.source.config.audio.captions);
-    let messages = std::mem::take(&mut game.caption_messages);
-    hud.source.captions.emit(&messages, &captions, time);
-    if !hud_hidden {
-        hud.source.draw_captions(&captions, time);
+    let real_time = clock.elapsed_secs_f64();
+    if let Some(weapon) = &mut hud.source.weapon {
+        draw_weapon_overlays(weapon, &mut game, &ui, &mut sim, hud_hidden, real_time);
+    } else {
+        game.player_damage.fades.clear();
+        game.scene.screen_fades.clear();
+        game.damage_messages.clear();
+        game.caption_messages.clear();
     }
     // Background levels behind the main menu draw no HUD.
     if !ui.source.background_level() && !hud_hidden {
         game_hud::draw(&hud, &game, &ui);
         draw_ai_disabled(&hud, &game, width, height);
     }
-    hud.observe_frame(clock.elapsed_secs_f64(), performance.is_some());
+    hud.observe_frame(clock.elapsed_secs_f64(), performance.as_deref());
+    hud.profiling = profiling.map(|p| p.snapshot());
     ui.source.draw(clock.elapsed_secs_f64());
     sim.with_extensions(|extension, simulation| {
         extension.present(
@@ -383,10 +520,13 @@ pub fn present(
             &status,
         )
     });
-    game.scene
-        .sounds
-        .extend(hud.source.drain_sounds().into_iter().map(Into::into));
-    let quads = hud.source.canvas.drain();
+    if let Some(weapon) = &hud.source.weapon {
+        game.scene
+            .sounds
+            .extend(weapon.drain_sounds().into_iter().map(Into::into));
+    }
+    let mut quads = std::mem::take(&mut hud.scratch_quads);
+    hud.source.canvas.drain_into(&mut quads);
     hud.quads = quads.len();
     draw_quads(
         &mut commands,
@@ -396,8 +536,40 @@ pub fn present(
         (&mut images, &mut materials, &mut meshes),
         &mut draws,
     );
+    hud.scratch_quads = quads;
 }
-/// Keeps one pooled draw per quad of this frame and hides the rest.
+/// Groups consecutive quads sharing the same material so painter's order is preserved while
+/// collapsing thousands of glyphs and solid rectangles into a handful of draw calls.
+fn group_quad_batches(
+    items: impl IntoIterator<Item = (Handle<HudMaterial>, QuadGeometry)>,
+) -> Vec<(Handle<HudMaterial>, Vec<QuadGeometry>)> {
+    let mut batches: Vec<(Handle<HudMaterial>, Vec<QuadGeometry>)> = Vec::new();
+    for (material, geometry) in items {
+        if let Some((_, list)) = batches.last_mut().filter(|(last, _)| *last == material) {
+            list.push(geometry);
+        } else {
+            batches.push((material, vec![geometry]));
+        }
+    }
+    batches
+}
+
+fn batch_quads(
+    hud: &mut Hud,
+    quads: &[Quad],
+    viewport: Vec2,
+    images: &mut Assets<Image>,
+    materials: &mut Assets<HudMaterial>,
+) -> Vec<(Handle<HudMaterial>, Vec<QuadGeometry>)> {
+    group_quad_batches(quads.iter().map(|quad| {
+        let (material, uvs) = hud.material(quad, images, materials);
+        let mut geometry = QuadGeometry::of(quad, viewport);
+        uvs.apply(&mut geometry.uvs);
+        (material, geometry)
+    }))
+}
+
+/// Keeps one pooled draw per consecutive same-material batch of this frame and hides the rest.
 fn draw_quads(
     commands: &mut Commands,
     hud: &mut Hud,
@@ -410,16 +582,16 @@ fn draw_quads(
     ),
     draws: &mut DrawQuery,
 ) {
-    for (i, quad) in quads.iter().enumerate() {
-        let material = hud.material(quad, images, materials);
-        let geometry = QuadGeometry::of(quad, viewport);
+    let batches = batch_quads(hud, quads, viewport, images, materials);
+    let batch_count = batches.len();
+    for (i, (material, geometries)) in batches.into_iter().enumerate() {
         if let Some((entity, handle, drawn)) = hud.pool.get_mut(i) {
-            // A rewritten mesh is prepared and uploaded again, so only a changed quad is rewritten.
-            let changed = *drawn != geometry;
+            // A rewritten mesh is prepared and uploaded again, so only a changed batch is rewritten.
+            let changed = *drawn != geometries;
             if changed {
-                *drawn = geometry;
+                *drawn = geometries;
                 if let Some(mut old) = meshes.get_mut(handle.id()) {
-                    *old = geometry.mesh();
+                    *old = QuadGeometry::batch_mesh(drawn);
                 }
             }
             if let Ok((mut old_material, mut transform, mut visibility, aabb)) =
@@ -439,7 +611,7 @@ fn draw_quads(
                 }
             }
         } else {
-            let mesh = meshes.add(geometry.mesh());
+            let mesh = meshes.add(QuadGeometry::batch_mesh(&geometries));
             let entity = commands
                 .spawn((
                     crate::campaign::MapOwned,
@@ -450,17 +622,17 @@ fn draw_quads(
                     RenderLayers::layer(2),
                 ))
                 .id();
-            hud.pool.push((entity, mesh, geometry));
+            hud.pool.push((entity, mesh, geometries));
         }
     }
-    for (entity, _, _) in hud.pool.iter().skip(quads.len()) {
+    for (entity, _, _) in hud.pool.iter().skip(batch_count) {
         if let Ok((_, _, mut visibility, _)) = draws.get_mut(*entity) {
             visibility.set_if_neq(Visibility::Hidden);
         }
     }
 }
 /// The vertex data of one canvas quad.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 struct QuadGeometry {
     positions: [[f32; 3]; 4],
     colors: [[f32; 4]; 4],
@@ -498,16 +670,33 @@ impl QuadGeometry {
         }
     }
 
+    #[cfg(test)]
     fn mesh(&self) -> Mesh {
+        Self::batch_mesh(std::slice::from_ref(self))
+    }
+
+    fn batch_mesh(quads: &[Self]) -> Mesh {
+        let count = quads.len();
+        let mut positions = Vec::with_capacity(count * 4);
+        let mut uvs = Vec::with_capacity(count * 4);
+        let mut colors = Vec::with_capacity(count * 4);
+        let mut indices = Vec::with_capacity(count * 6);
+        for (i, quad) in quads.iter().enumerate() {
+            positions.extend_from_slice(&quad.positions);
+            uvs.extend_from_slice(&quad.uvs);
+            colors.extend_from_slice(&quad.colors);
+            let base = (i * 4) as u32;
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
         );
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions.to_vec());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; 4]);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs.to_vec());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors.to_vec());
-        mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 0., 1.]; count * 4]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+        mesh.insert_indices(Indices::U32(indices));
         mesh
     }
 }
@@ -646,5 +835,102 @@ mod tests {
             panic!("HUD colors");
         };
         assert_eq!(colors[0], [0., 0., 0., 156.0 / 255.0]);
+    }
+
+    #[test]
+    fn consecutive_same_material_quads_batch_while_preserving_order() {
+        let geom = |x: f32| {
+            QuadGeometry::of(
+                &Quad {
+                    texture: None,
+                    source: Rect::new(0., 0., 1., 1.),
+                    destination: Rect::new(x, 0., 10., 10.),
+                    color: Color::from_rgba(255, 255, 255, 255),
+                    additive: false,
+                    modulate: false,
+                    vertices: None,
+                },
+                Vec2::new(640., 480.),
+            )
+        };
+        let mut materials = Assets::<HudMaterial>::default();
+        let a = materials.add(HudMaterial {
+            texture: Handle::default(),
+            additive: false,
+            modulate: false,
+        });
+        let b = materials.add(HudMaterial {
+            texture: Handle::default(),
+            additive: true,
+            modulate: false,
+        });
+        let batches = group_quad_batches([
+            (a.clone(), geom(0.)),
+            (a.clone(), geom(12.)),
+            (b, geom(24.)),
+            (a, geom(36.)),
+        ]);
+        assert_eq!(batches.len(), 3);
+        assert_eq!(batches[0].1.len(), 2);
+        assert_eq!(batches[1].1.len(), 1);
+        assert_eq!(batches[2].1.len(), 1);
+        let mesh = QuadGeometry::batch_mesh(&batches[0].1);
+        assert_eq!(mesh.count_vertices(), 8);
+        assert_eq!(
+            mesh.indices().map(|i| i.len()),
+            Some(12),
+            "two batched quads produce 12 triangle indices"
+        );
+    }
+
+    #[test]
+    fn hud_without_weapon_hud_reports_viewport_and_noops_safely() {
+        let canvas = source_ui::canvas::Canvas::default();
+        canvas.resize(800., 600.);
+        let hud = Hud::new(canvas, None);
+        assert!(hud.source.weapon.is_none());
+        hud.source.set_poisoned(true);
+        hud.source
+            .draw_crosshair(&hl2_simulation::gameplay::Inventory::default());
+        let report = hud.report();
+        assert_eq!(report["viewport"], serde_json::json!([800.0, 600.0]));
+        assert!(report["frame"].is_null());
+    }
+
+    #[test]
+    fn extension_captions_run_in_gameplay_pause_and_main_menu_when_console_is_closed() {
+        let mut sim = crate::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        assert!(accept_extension_captions(&sim, false, false));
+        assert!(!accept_extension_captions(&sim, true, false));
+
+        sim.paused = true;
+        assert!(accept_extension_captions(&sim, false, false));
+        assert!(!accept_extension_captions(&sim, true, false));
+
+        sim.background_level = true;
+        sim.background_audio_pending = false;
+        assert!(accept_extension_captions(&sim, false, false));
+        assert!(!accept_extension_captions(&sim, true, false));
+
+        sim.background_audio_pending = true;
+        assert!(!accept_extension_captions(&sim, false, false));
+        sim.background_audio_pending = false;
+
+        sim.loading = true;
+        assert!(!accept_extension_captions(&sim, false, false));
+        sim.loading = false;
+
+        sim.transition = true;
+        assert!(!accept_extension_captions(&sim, false, false));
+        sim.transition = false;
+
+        assert!(!accept_extension_captions(&sim, false, true));
     }
 }

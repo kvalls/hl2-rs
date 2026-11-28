@@ -1,6 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 
-from architecture import CONCRETE_PLUGIN
+from architecture import CONCRETE_PLUGIN, text_bytes
 
 
 class ConcretePlugin(unittest.TestCase):
@@ -16,3 +18,13 @@ class ConcretePlugin(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TextBytes(unittest.TestCase):
+    def test_line_ends_do_not_change_the_size(self):
+        with tempfile.TemporaryDirectory() as folder:
+            lf, crlf = Path(folder, "lf.md"), Path(folder, "crlf.md")
+            lf.write_bytes(b"- one rule\n- another\n")
+            crlf.write_bytes(b"- one rule\r\n- another\r\n")
+            self.assertEqual(text_bytes(lf), 21)
+            self.assertEqual(text_bytes(crlf), 21)
