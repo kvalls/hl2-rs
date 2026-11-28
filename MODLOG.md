@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-28 — Keep-warming rejected; console-created NPCs are outside the map warm-up (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Nothing kept. A trial system after `visibility::present` set every `Warming` draw back to `Inherited` during the warm-up; reverted. docs/optimization-backlog.md (O9: result, the effects warm-up design as Next, a Clarification).
+- Why — The crowd fight compiles 13 pipelines mid-play (morph-target variants and effect materials); the warm-up's draws had been re-hidden by `present`.
+- Tested how — The temporary pipeline probe (removed) on one headless `mixed-crowd.json` run with the trial.
+- Result — The same 13 pipelines compile at the same points. `mixed-crowd.json` creates its NPCs with `ent_create`, so their templates and morph meshes install mid-play, after the map's warm-up; no install-time warm-up reaches them. Effect materials all exist after the map install; only their draws are lazy.
+- Still broken or **not tested** — Effect and console-spawn compiles mid-fight.
+- Next — Warm one draw per effect key during the warm-up frames (design in the O9 row).
+
 ## 2026-11-28 — Crowd mid-fight pipeline compiles named (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
