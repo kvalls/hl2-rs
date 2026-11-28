@@ -38,6 +38,13 @@ pub struct SourceBloom {
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BloomSet;
+/// The image-space motion blur pass, which runs before [`BloomSet`] on the same view, as the
+/// engine blurs before its post-processing (Source SDK `game/client/viewrender.cpp`:
+/// `DoImageSpaceMotionBlur` before `DoEnginePostProcessing`). Every pass that swaps a view's
+/// main textures must be ordered against the others: run side by side, one samples the texture
+/// the other's swap just made its target (a wgpu validation error that quits the game).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MotionBlurSet;
 pub struct SourceBloomPlugin;
 impl Plugin for SourceBloomPlugin {
     fn build(&self, app: &mut App) {

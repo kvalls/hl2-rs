@@ -47,11 +47,15 @@ impl Plugin for MotionBlurPlugin {
                     prepare_groups.in_set(RenderSystems::PrepareBindGroups),
                 ),
             )
-            // After the world camera's main pass (the viewmodel camera follows it).
+            // After the world camera's main pass (the viewmodel camera follows it), before
+            // bloom: without a weapon bloom stays on the world camera, and the two passes,
+            // unordered, could run at once on the same view.
             .add_systems(
                 Core3d,
                 source_motion_blur
+                    .in_set(super::MotionBlurSet)
                     .in_set(Core3dSystems::PostProcess)
+                    .before(super::BloomSet)
                     .before(tonemapping),
             );
     }

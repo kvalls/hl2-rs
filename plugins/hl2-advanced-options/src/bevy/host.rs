@@ -20,7 +20,10 @@ pub fn install(_app: &mut App) {
     if let Some(render) = _app.get_sub_app_mut(bevy::render::RenderApp) {
         render.configure_sets(
             bevy::core_pipeline::schedule::Core3d,
-            ReconstructionSet.before(hl2_bevy::bloom::BloomSet),
+            // Each pass that swaps the view's main textures is ordered against the others.
+            ReconstructionSet
+                .after(hl2_bevy::bloom::MotionBlurSet)
+                .before(hl2_bevy::bloom::BloomSet),
         );
     }
 }

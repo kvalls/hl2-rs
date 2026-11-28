@@ -1,5 +1,28 @@
 # MODLOG
 
+## 2026-11-28 — Order motion blur before bloom: a weaponless game could quit on a render pass race (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5); the race audit that confirmed no other live pair was a
+  read-only review by a second agent (Antigravity, Gemini; model id not recorded).
+- Changed — `bloom.rs` `MotionBlurSet`; `bloom/motion_blur_pass.rs` puts `source_motion_blur` in it, before
+  `BloomSet`; the advanced-options plugin orders `ReconstructionSet` after it (and before `BloomSet` as before).
+- Why — at real time, 7 of the 12 station 01 replays quit on a wgpu validation error ("main_texture_a ...
+  conflicting usages RESOURCE / COLOR_TARGET"). `source_motion_blur` and `source_bloom` both swap the view's main
+  textures (`ViewTarget::post_process_write`) and were each ordered only `.before(tonemapping)`; Bevy 0.20 can run
+  them at once on the same view, and one then samples the texture the other's swap just made its target. They share
+  a view only while no viewmodel shows (bloom then stays on the world camera): all of station 01 and any play before
+  the first weapon. The replays run at `TIMESCALE=8` and never hit it (one intermittent `face-security-2130` failure
+  of this kind was recorded under O20). Retail blurs before its post-processing (Source SDK
+  `game/client/viewrender.cpp`: `DoImageSpaceMotionBlur` before `DoEnginePostProcessing`).
+- Tested how — the 12 station 01 replays at real time (headless, muted, `--profile`), before and after: before, 7 of
+  12 quit in one pass and the luggage replay quit 2 of 4 alone; after, 24 of 24 runs finish with no validation error.
+  Replays 111/111; workspace tests, strict Clippy and fmt pass.
+- Result — fixed. The remaining latent pair (the plugin's `snapshot` against Bevy's `msaa_writeback`, both before the
+  main pass) is safe only because both 3D cameras set `MsaaWriteback::Off`; Bevy's system is crate-private, so it
+  cannot be ordered from here.
+- Still broken or not tested — windowed and Windows runs **not tested** for this crash.
+- Next — hitch fixes.
+
 ## 2026-11-28 — Merge main: glam 0.33, symphonia 0.6.1, zip 9.8.2, rfd 0.18, OnQueueMoved (O48)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5); read-only code-audit subagents (claude-sonnet-5-5).
