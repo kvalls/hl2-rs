@@ -132,7 +132,7 @@
   "crates/hl2-simulation/src/entities/choreography.rs": 1221,
   "crates/hl2-simulation/src/gameplay.rs": 2777,
   "crates/hl2-simulation/src/npc.rs": 1093,
-  "crates/hl2-simulation/src/physics.rs": 3072,
+  "crates/hl2-simulation/src/physics.rs": 3062,
   "crates/hl2-simulation/src/projectiles.rs": 1248,
   "crates/hl2-ui/src/gameui/options.rs": 2519,
   "crates/hl2-ui/src/hud.rs": 1150,
@@ -245,7 +245,7 @@
    173
   ],
   "crates/hl2-simulation/src/physics.rs::add_model_instance": [
-   206
+   195
   ],
   "crates/hl2-simulation/src/physics.rs::add_runtime_body": [
    107
@@ -344,8 +344,8 @@
  "min_tests": {
   "hl2-advanced-options": 54,
   "hl2-bevy": 306,
-  "hl2-debug": 60,
-  "hl2-simulation": 914,
+  "hl2-debug": 61,
+  "hl2-simulation": 915,
   "hl2-ui": 346,
   "modkit-core": 78,
   "source-assets": 146,

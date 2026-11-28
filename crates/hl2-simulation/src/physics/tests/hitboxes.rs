@@ -116,7 +116,7 @@ fn traces_hit_posed_hitboxes_that_never_touch_or_wake_a_body() {
 }
 
 #[test]
-fn runtime_npc_publishes_its_hull_and_reused_studio_hitbox_slot() {
+fn runtime_npc_publishes_its_hull_and_studio_hitboxes_without_a_model_shape() {
     let mut world = hitbox_world();
     let mut physics = Physics::new(&world);
     physics.add_entity_hull(99, Vec3::splat(-4.), Vec3::splat(4.), Vec3::Z * 100.);
@@ -136,10 +136,10 @@ fn runtime_npc_publishes_its_hull_and_reused_studio_hitbox_slot() {
         .collect();
     let hull = physics.npc_hulls[&1].0;
     let studio = physics.studio_hitboxes[&1].boxes[0].0;
-    assert_eq!(
-        added,
-        [studio, hull],
-        "the box reuses the discarded model slot"
+    assert_eq!(added, [hull, studio]);
+    assert!(
+        added.iter().all(|handle| handle.into_raw_parts().1 == 0),
+        "no model shape was inserted and removed first (a freed slot would be reused)"
     );
     assert_eq!(&physics.changed_entity_colliders[..queued.len()], queued);
     assert_eq!(&physics.changed_entity_colliders[queued.len()..], added);

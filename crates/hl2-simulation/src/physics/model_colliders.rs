@@ -11,6 +11,29 @@ pub(super) fn prevent_prop_pickup(world: &World, id: usize) -> bool {
         .is_some_and(|flags| flags & 0x200 != 0)
 }
 
+/// A model instance's spawnflags, whether it is a physical pickup and whether it moves.
+/// prop_physics spawnflags: 1 start asleep, 8 motion disabled (static until EnableMotion, which
+/// is not implemented). CItem::Spawn and CBaseCombatWeapon::FallInit use bit 1 for a constrained
+/// start.
+pub(super) fn prop_motion(
+    world: &World,
+    instance: &modkit_core::ModelInstance,
+) -> (u32, bool, bool) {
+    let prop_flags = instance
+        .entity
+        .and_then(|id| world.entities.get(id))
+        .and_then(|e| e.get("spawnflags"))
+        .and_then(|f| f.parse::<u32>().ok())
+        .unwrap_or(0);
+    let pickup = source_assets::models::physical_pickup(&instance.kind);
+    let dynamic = if pickup {
+        prop_flags & 1 == 0
+    } else {
+        instance.kind.starts_with("prop_physics") && prop_flags & 8 == 0
+    };
+    (prop_flags, pickup, dynamic)
+}
+
 pub(super) fn prop_collider(
     shape: SharedShape,
     material: Option<&SurfaceMaterial>,

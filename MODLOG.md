@@ -1,5 +1,27 @@
 # MODLOG
 
+## 2026-11-28 — A spawned studio NPC no longer builds a render-mesh trimesh it discards at once (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5); found by a read-only code audit (claude-sonnet-5-5
+  subagents); the patch was reviewed by a second agent (Antigravity, Gemini; model id not recorded).
+- Changed — `physics/hitboxes.rs` `add_studio_npc`: an NPC whose model has studio hitboxes gets its class hull and
+  hitboxes directly from `add_model_instance`; `physics/model_colliders.rs` `prop_motion` takes the spawnflag and
+  pickup logic out of `add_model_instance` (195 lines, was 206; the baseline is tightened). The test
+  `runtime_npc_publishes_its_hull_and_studio_hitboxes_without_a_model_shape` checks that no collider slot is freed
+  and reused (the hull now comes first).
+- Why — `add_model_instance` built the model's render-mesh trimesh (`TriMeshFlags::MERGE_DUPLICATE_VERTICES |
+  FIX_INTERNAL_EDGES`, BVH), inserted it, and `use_studio_hitboxes` removed it in the same call: work on the spawn tick
+  of every runtime NPC (`ent_create`, `npc_maker`, template copies, zombie headcrabs), and once per model at map load.
+- Tested how — a temporary owned-install probe (removed) timed the trimesh build per installed model, release, median
+  of seven; replays 111/111; workspace tests, strict Clippy and fmt.
+- Result — removed per spawn: `police.mdl` `1.05 ms` (3,852 triangles), `combine_soldier.mdl` `1.30`, citizens
+  `1.20-1.30`, `barney.mdl` `1.66`, `kleiner.mdl` `1.80`, `alyx.mdl` `2.45`, `zombie/classic.mdl` `0.93`,
+  `headcrabclassic.mdl` `0.44`, `combine_scanner.mdl` `0.41`, `manhack.mdl` `0.33`. No replay outcome changed.
+- Still broken or not tested — the crowd's frame-level spawn-tick maxima **not tested** (a chaotic scene); a model
+  whose triangles form only a degenerate trimesh would now get a hull where it got none before (no installed NPC
+  model is known to).
+- Next — ragdoll and gib convex-hull caches once a measurement shows death or break ticks matter.
+
 ## 2026-11-28 — Order motion blur before bloom: a weaponless game could quit on a render pass race (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5); the race audit that confirmed no other live pair was a

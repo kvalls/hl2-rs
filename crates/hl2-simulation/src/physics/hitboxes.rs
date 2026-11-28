@@ -25,6 +25,33 @@ impl Physics {
     pub(super) fn is_trace_only(&self, collider: ColliderHandle) -> bool {
         self.broad.trace_only.contains(&collider)
     }
+    /// An NPC whose model has studio hitboxes traces against them alone: its hull and hitboxes
+    /// are added directly, without the render-mesh trimesh that `use_studio_hitboxes` would
+    /// remove at once (building it cost a merged-vertex BVH per spawned NPC on the spawn tick).
+    /// `false` for every other instance. A model without triangles or a scaled instance stays
+    /// without colliders, as before.
+    pub(super) fn add_studio_npc(
+        &mut self,
+        world: &World,
+        instance: &ModelInstance,
+        asset: &[modkit_core::Surface],
+        query_start: Option<usize>,
+    ) -> bool {
+        let studio = npc_hull(&instance.kind).is_some()
+            && world
+                .rigs
+                .get(&instance.asset_key())
+                .is_some_and(|rig| !rig.hitboxes.is_empty());
+        if !studio {
+            return false;
+        }
+        if !asset.iter().any(|s| s.indices.len() >= 3) || (instance.scale - 1.).abs() > 0.001 {
+            self.skipped += 1;
+            return true;
+        }
+        self.add_npc_model_colliders(world, instance, None, query_start);
+        true
+    }
     /// Movement and contacts use the unchanged class hull, while traces use model
     /// geometry or studio hitboxes when the model supplies them.
     pub(super) fn add_npc_model_colliders(

@@ -1144,21 +1144,10 @@ impl Physics {
         let Some(asset) = world.model_assets.get(&instance.asset_key()) else {
             return;
         };
-        // prop_physics spawnflags: 1 start asleep, 8 motion disabled (static until
-        // EnableMotion, which is not implemented).
-        let prop_flags = instance
-            .entity
-            .and_then(|id| world.entities.get(id))
-            .and_then(|e| e.get("spawnflags"))
-            .and_then(|f| f.parse::<u32>().ok())
-            .unwrap_or(0);
-        let pickup = source_assets::models::physical_pickup(&instance.kind);
-        // CItem::Spawn and CBaseCombatWeapon::FallInit use bit 1 for constrained start.
-        let dynamic = if pickup {
-            prop_flags & 1 == 0
-        } else {
-            instance.kind.starts_with("prop_physics") && prop_flags & 8 == 0
-        };
+        if self.add_studio_npc(world, instance, asset, query_start) {
+            return;
+        }
+        let (prop_flags, pickup, dynamic) = model_colliders::prop_motion(world, instance);
         // The installed rotating door's VVD bind mesh points along X, but
         // its idle sequence turns the panel along Y. Use the same initial
         // skinned pose as rendering before applying the entity's swing.
@@ -1340,7 +1329,8 @@ impl Physics {
     pub fn add_spawned_instance(&mut self, world: &World, instance: &modkit_core::ModelInstance) {
         let start = self.changed_entity_colliders.len();
         self.add_model_instance(world, instance, &mut BTreeMap::new(), Some(start));
-        // Match collider-arena iteration order even when studio boxes reuse discarded slots.
+        // Match collider-arena iteration order even when new colliders reuse freed slots (a
+        // studio NPC's boxes replacing a temporary entity hull, for one).
         self.changed_entity_colliders[start..].sort_unstable_by_key(|h| h.into_raw_parts().0);
         let handle = instance
             .entity
