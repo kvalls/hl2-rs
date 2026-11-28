@@ -14,7 +14,8 @@ pub fn install(_app: &mut App) {
                 .before(PrepareBlurSet)
                 .after(hl2_bevy::camera::present_player_view)
                 .after(hl2_bevy::rendering::present_weapons)
-                .after(hl2_bevy::rendering::present_entities),
+                .after(hl2_bevy::rendering::present_entities)
+                .before(hl2_bevy::rendering::variant_warmup::warm_hidden_variants),
         );
     install_diagnostics(_app);
     if let Some(render) = _app.get_sub_app_mut(bevy::render::RenderApp) {
@@ -28,17 +29,33 @@ pub fn install(_app: &mut App) {
     }
 }
 
+fn frame_flags(
+    mode: Option<crate::motion_blur::MotionBlurMode>,
+    sim: Option<&hl2_bevy::simulation::Simulation>,
+    warmup: Option<&hl2_bevy::rendering::variant_warmup::VariantWarmup>,
+    carrying: bool,
+    active_shown: bool,
+) -> (bool, bool) {
+    let enabled = sim.is_some_and(|s| !s.paused() && !s.background_level);
+    let warming = warmup.is_some_and(|w| w.active())
+        && sim.is_some_and(|s| !s.background_level && s.loading());
+    let world = (enabled || warming) && mode.is_some_and(|m| m.world());
+    let viewmodel =
+        mode.is_some_and(|m| m.viewmodel()) && (warming || (enabled && !carrying && active_shown));
+    (world, viewmodel)
+}
+
 fn snapshot(
     mut frame: ResMut<BlurFrame>,
     ui: Option<Res<hl2_bevy::ui_host::Console>>,
     game: Option<Res<hl2_bevy::gameplay::Gameplay>>,
     sim: Option<Res<hl2_bevy::simulation::Simulation>>,
+    warmup: Option<Res<hl2_bevy::rendering::variant_warmup::VariantWarmup>>,
     draws: Query<
         (&hl2_bevy::rendering::WeaponMesh, &Visibility),
         With<bevy::mesh::skinning::SkinnedMesh>,
     >,
 ) {
-    let enabled = sim.is_some_and(|s| !s.paused() && !s.background_level);
     let mode = ui.map(|u| crate::motion_blur::selected(&u.source.config.video.advanced));
     let Some(game) = game else {
         frame.viewmodel = false;
@@ -50,13 +67,16 @@ fn snapshot(
     if frame.weapon != game.inventory.active {
         frame.weapon.clone_from(&game.inventory.active);
     }
-    frame.world = enabled && mode.is_some_and(|m| m.world());
-    frame.viewmodel = enabled
-        && mode.is_some_and(|m| m.viewmodel())
-        && !game.inventory.carrying()
-        && draws
-            .iter()
-            .any(|(w, v)| w.0 == game.inventory.active && *v != Visibility::Hidden);
+    let active_shown = draws
+        .iter()
+        .any(|(w, v)| w.0 == game.inventory.active && *v != Visibility::Hidden);
+    (frame.world, frame.viewmodel) = frame_flags(
+        mode,
+        sim.as_deref(),
+        warmup.as_deref(),
+        game.inventory.carrying(),
+        active_shown,
+    );
 }
 
 fn tag_views(
@@ -105,5 +125,68 @@ impl crate::bevy::diagnostics::Reporter for Reporter {
     }
     fn stage(&self, name: &'static str, milliseconds: f64) {
         self.0.record_stage(name, milliseconds);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_flags;
+    use crate::motion_blur::MotionBlurMode;
+
+    #[test]
+    fn loading_warmup_keeps_viewmodel_prepass_active_when_viewmodel_blur_is_enabled() {
+        let mut sim = hl2_bevy::simulation::Simulation::new(
+            &modkit_core::World::default(),
+            glam::Vec3::ZERO,
+            0.,
+            0.,
+            false,
+            vec![],
+        );
+        sim.loading = true;
+        let warmup = hl2_bevy::rendering::variant_warmup::VariantWarmup::new();
+
+        assert_eq!(
+            frame_flags(
+                Some(MotionBlurMode::Advanced),
+                Some(&sim),
+                Some(&warmup),
+                false,
+                false,
+            ),
+            (false, true)
+        );
+        assert_eq!(
+            frame_flags(
+                Some(MotionBlurMode::Advanced),
+                Some(&sim),
+                None,
+                false,
+                true,
+            ),
+            (false, false)
+        );
+        assert_eq!(
+            frame_flags(
+                Some(MotionBlurMode::Disabled),
+                Some(&sim),
+                Some(&warmup),
+                false,
+                false,
+            ),
+            (false, false)
+        );
+
+        sim.background_level = true;
+        assert_eq!(
+            frame_flags(
+                Some(MotionBlurMode::Advanced),
+                Some(&sim),
+                Some(&warmup),
+                false,
+                false,
+            ),
+            (false, false)
+        );
     }
 }

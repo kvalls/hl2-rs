@@ -172,6 +172,10 @@ pub(super) fn add_presentation_systems(app: &mut App) {
                 .after(rendering::present_entities)
                 .before(bevy::transform::TransformSystems::Propagate),
             rendering::present_weapons,
+            rendering::variant_warmup::warm_weapon_variants
+                .after(rendering::present_weapons)
+                .before(rendering::sync_viewmodel_camera)
+                .before(rendering::variant_warmup::warm_hidden_variants),
             effects::present.run_if(crate::isolation::run_effects),
             effects::present_gibs.run_if(crate::isolation::run_effects),
             studio_decals::present,

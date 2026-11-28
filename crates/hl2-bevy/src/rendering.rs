@@ -44,7 +44,7 @@ pub(crate) use placement::draw_hidden;
 pub(crate) mod main_pass;
 pub(crate) mod runtime;
 pub(crate) mod simple_pass;
-pub(crate) mod variant_warmup;
+pub mod variant_warmup;
 mod weapons;
 use map_draw::{MapDrawContext, insert_map_draw_components};
 pub(crate) use map_geometry::MapGeometry;

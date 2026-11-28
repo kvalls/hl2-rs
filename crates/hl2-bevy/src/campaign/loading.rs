@@ -364,7 +364,8 @@ pub(super) fn advance_reveal(
         return false;
     };
     reveal.held = reveal.held.saturating_add(1);
-    let compiling = backlog.is_some_and(|b| b.waiting() > 0);
+    // Warm-up frames still to draw count as compiling: they draw what play would show later.
+    let compiling = backlog.is_some_and(|b| b.waiting() > 0 || b.warming());
     if reveal.held <= MIN_REVEAL_FRAMES || compiling && reveal.held <= MAX_REVEAL_FRAMES {
         return true;
     }
