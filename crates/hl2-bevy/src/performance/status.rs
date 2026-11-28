@@ -252,12 +252,18 @@ fn update(
     ui: Option<Res<crate::ui_host::Console>>,
     switch: Option<Res<TraceSwitch>>,
 ) {
+    if let Some(performance) = performance.as_deref() {
+        performance.set_loading(sim.as_deref().is_some_and(|sim| sim.loading()));
+    }
     let gameplay = sim.is_some_and(|sim| !sim.paused() && !sim.background_level)
         && !ui.is_some_and(|ui| ui.source.paused());
     let recorded = performance.as_deref().map(|p| p.recorded(FRAME_TOTAL));
     let actions = profiling.update(Instant::now(), gameplay, recorded);
     if actions.gameplay_started {
         bevy::log::info!("profiling: gameplay started");
+        if let Some(performance) = performance.as_deref() {
+            performance.start_pipeline_log();
+        }
     }
     if actions.restart_stages
         && let Some(performance) = performance.as_deref()

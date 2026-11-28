@@ -2910,6 +2910,14 @@ measurements separately where the release report lacks them.
 
 Layers, each opt-in so ordinary builds and runs pay nothing:
 1. `--profile` frame stages (existing), now with `render_create_views` and `render_specialize`.
+   Since 2026-11-28 neither world records stage samples while `sim.loading` is set (a map load, a
+   respawn reload, a held reveal): those frames are behind the loading screen, and short runs that
+   never reach the 120-frame restart no longer count the map install as a hitch. The report's
+   `pipeline_compiles` lists, per render frame since gameplay started, the pipelines that finished
+   compiling (label, shaders, sample count, enabled shader defs; at most 64 events) with the
+   `frame_total` sample index they line up with (`performance/pipeline_compiles.rs`); Bevy compiles
+   pipelines synchronously on macOS, so each is a stall. Pipelines made outside Bevy's cache (the GPU
+   shadow silhouette raster) do not appear there.
 2. `trace-chrome` application feature (profiling builds only, `scripts/build-bevy.sh --plugins
    advanced-options,debug-tools,trace-chrome`): Bevy's per-system and per-render-node spans written
    as a Chrome trace to `TRACE_CHROME=<file>`; call counts per frame and the systems inside each

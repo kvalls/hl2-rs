@@ -1,5 +1,26 @@
 # MODLOG
 
+## 2026-11-28 — `--profile` leaves map loads out and lists the pipelines compiled in play (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5); a second agent (Antigravity, Gemini; model id not recorded)
+  found the loading leak in the sweep reports and two flaws in the first draft (retried shader errors, sample index).
+- Changed — `performance.rs`: a loading flag set each frame from `sim.loading` by `performance/status.rs`; while it is
+  set, `record_stages` drops every stage sample from both worlds. `performance/pipeline_compiles.rs` (new, runs in the
+  render world's cleanup only under `--profile`): the pipelines that finished compiling each render frame since
+  gameplay started (label, shaders, sample count, enabled shader defs), with the `frame_total` sample index; shader
+  errors the cache retries (`ShaderNotLoaded`, `ShaderImportNotYetAvailable`) stay waiting. Report field
+  `pipeline_compiles`. DESIGN "Profiling toward a steady 120 FPS" layer 1 describes both.
+- Why — the hitch sweep's nine worst frames (`119-330 ms`) were map installs counted as play: runs shorter than the
+  120-frame stage restart, and the respawn reload in `player-death`. Naming each mid-play compile needed a temporary
+  probe until now.
+- Tested how — unit tests `map_loads_and_held_reveals_record_no_stage_samples`,
+  `only_compiles_after_gameplay_started_are_kept_and_events_are_bounded`, `defs_list_enabled_values_once`; workspace
+  tests, strict Clippy, fmt; replays 111/111 on a package with it.
+- Result — profiling only; ordinary runs install nothing of it. A run's report now shows its compiles directly.
+- Still broken or not tested — a held frame just before gameplay may land in compile frame 1 (render world lags a
+  frame); the GPU silhouette raster is made outside Bevy's cache and never appears.
+- Next — re-run the hitch sweep with it.
+
 ## 2026-11-28 — A spawned studio NPC no longer builds a render-mesh trimesh it discards at once (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5); found by a read-only code audit (claude-sonnet-5-5

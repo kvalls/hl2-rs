@@ -2,6 +2,7 @@
 mod frame_stages;
 mod gpu_completion;
 mod pacing;
+mod pipeline_compiles;
 mod samples;
 pub mod status;
 #[cfg(feature = "trace")]
@@ -20,6 +21,10 @@ use std::{
 pub struct Performance(
     Arc<Mutex<BTreeMap<&'static str, Samples>>>,
     Arc<Mutex<Option<gpu_completion::Stats>>>,
+    Arc<Mutex<pipeline_compiles::Compiles>>,
+    /// Set while a map loads or its reveal is held: those frames are behind the loading screen,
+    /// not play, so neither world records stage samples or compile events for them.
+    Arc<std::sync::atomic::AtomicBool>,
 );
 pub struct Scope<'a> {
     performance: Option<&'a Performance>,
@@ -50,8 +55,7 @@ impl Performance {
         }
     }
     fn record_sample(&self, name: &'static str, ms: f64) {
-        let mut all = self.0.lock().expect("CPU timing");
-        push_sample(&mut all, name, ms);
+        self.record_stages([(name, ms)]);
     }
     pub fn record_ms(&self, name: &'static str, ms: f64) {
         self.record_sample(name, ms);
@@ -62,6 +66,7 @@ impl Performance {
         diagnostics: Option<&bevy::diagnostic::DiagnosticsStore>,
     ) {
         output["cpu_stages"] = self.report();
+        output["pipeline_compiles"] = self.2.lock().expect("pipeline compile log").report();
         output["background_profile_interval_ms"] = self
             .1
             .lock()
@@ -115,7 +120,11 @@ pub fn install(app: &mut App) {
     };
     render
         .insert_resource(performance)
-        .init_resource::<RenderTimers>();
+        .init_resource::<RenderTimers>()
+        .add_systems(
+            Render,
+            pipeline_compiles::record.in_set(RenderSystems::Cleanup),
+        );
     for (name, previous, set, next) in [
         (
             "render_assets",
@@ -304,6 +313,9 @@ impl Performance {
         self.record_stages([(name, milliseconds)]);
     }
     fn record_stages(&self, stages: impl IntoIterator<Item = (&'static str, f64)>) {
+        if self.loading() {
+            return;
+        }
         let mut all = self.0.lock().expect("CPU timing");
         for (name, milliseconds) in stages {
             push_sample(&mut all, name, milliseconds);
@@ -312,6 +324,17 @@ impl Performance {
 }
 
 impl Performance {
+    /// Whether the current frames are a map load or its held reveal (see the field).
+    pub(crate) fn loading(&self) -> bool {
+        self.3.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    pub(crate) fn set_loading(&self, loading: bool) {
+        self.3.store(loading, std::sync::atomic::Ordering::Relaxed);
+    }
+    /// Lists pipelines compiled from now on (the first gameplay frame).
+    pub(crate) fn start_pipeline_log(&self) {
+        self.2.lock().expect("pipeline compile log").start();
+    }
     /// Drops the stage samples collected so far (menu, loading and warm-up frames).
     pub(crate) fn restart_stages(&self) {
         self.0.lock().expect("CPU timing").clear();
@@ -342,6 +365,23 @@ mod tests {
         assert_eq!(report["test_stage"]["samples"], 5);
         assert_eq!(report["test_stage"]["mean_ms"], 33.0);
         assert_eq!(report["test_stage"]["max_ms"], 35.0);
+    }
+
+    #[test]
+    fn map_loads_and_held_reveals_record_no_stage_samples() {
+        let perf = Performance::default();
+        for _ in 0..31 {
+            perf.record_ms("stage", 1.);
+        }
+        perf.set_loading(true);
+        perf.record_ms("stage", 500.);
+        perf.record_stage("render", 400.);
+        perf.set_loading(false);
+        perf.record_ms("stage", 2.);
+        let report = perf.report();
+        assert_eq!(report["stage"]["calls"], 32);
+        assert_eq!(report["stage"]["max_ms"], 2.);
+        assert!(report.get("render").is_none());
     }
 
     #[test]
