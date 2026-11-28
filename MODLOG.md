@@ -1,5 +1,15 @@
 # MODLOG
 
+## 2026-11-27 — World-draw warm-up rejected (O9)
+
+- Agent/model — Claude Code desktop (claude-opus-5-5).
+- Changed — Nothing kept. A trial let `visibility::present` skip the PVS and scene-hidden tests for draws marked `Warming`, and marked every world `PvsDraw` `Warming` with `NoFrustumCulling` in place during the two warm-up frames; reverted. docs/optimization-backlog.md (O9).
+- Why — The walk's first entry into the outside area compiles pipelines in one `125-138 ms` frame, and code reading showed `visibility::present` re-hid the warm-up's draws in the same frame.
+- Tested how — Unit tests (warming draws stay visible through `present`; world draws warm in place); everyday packages at maxed Retina, `pvs-walk` and `mixed-crowd`, A-B-B-A with four runs per side after one discarded warm-up each (`ad414a26` vs `f347e236`).
+- Result — No change: walk maximum frame `125.3-138.6 -> 125.4-126.0 ms`; crowd `render_graph` maximum `25.9-26.1 -> 25.5-26.2 ms`; means unchanged. This is the second warm-up approach without effect (after the sky camera), so the approach changes.
+- Still broken or **not tested** — The first-entry stall and the crowd's `26 ms` maximum. Owner asked whether doors cause it: the walk operates no door, and the frame's time is in `process_pipeline_queue_system`.
+- Next — A temporary render-world probe naming each pipeline created per frame, to identify what the stalled frame compiles.
+
 ## 2026-11-27 — Sky camera warm-up rejected (O9)
 
 - Agent/model — Claude Code desktop (claude-opus-5-5).
